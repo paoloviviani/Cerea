@@ -47,7 +47,10 @@ import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import {
 	COORDINATION_KEYS,
 	OpError,
+	delegateProfilesBody,
+	parseDelegateProfiles,
 	parsePermissionRules,
+	MAX_DELEGATE_PROFILES,
 	type Command,
 	type CoordinationKey,
 	type Directory,
@@ -92,6 +95,12 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: /^v1\/providers$/ },
 	{ method: "GET", pattern: new RegExp(`^v1/providers/${ID}/modes$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/providers/${ID}/models$`) },
+	// The machine's delegate profiles (§6 "Delegate profiles"): a name and a
+	// model each. Per device, and the device must be the caller's own paired
+	// one (`getPairedDevice`, like every route here): its owner is the only
+	// person who can read or replace them.
+	{ method: "GET", pattern: /^v1\/profiles$/ },
+	{ method: "POST", pattern: /^v1\/profiles$/ },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}$`) },
 	{ method: "DELETE", pattern: new RegExp(`^v1/agents/${ID}$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/agents/${ID}/attachments/[0-9a-f]{64}$`) },
@@ -509,6 +518,13 @@ export const GET: RequestHandler = async (event) => {
 		});
 	}
 
+	// The machine's delegate profiles: list as the machine stores them. A
+	// galopin without the capability answers `unsupported` (404, with its
+	// own sentence), an offline machine 502, like every other read here.
+	if (path === "v1/profiles") {
+		return superjsonResponse(parseDelegateProfiles(await callOp(() => link.profilesList())));
+	}
+
 	// The two live option lists for the composer's pills: the backend's
 	// modes and models, exactly as the machine defines them. The provider
 	// id in the path names the backend — the ID regex guards the path, the
@@ -818,6 +834,13 @@ const terminalOpenSchema = z.object({
 	rows: z.number().int().min(1).max(2000),
 	cwd: z.string().trim().max(4096).optional(),
 	title: z.string().trim().max(120).optional(),
+});
+
+const profilesSetSchema = z.object({
+	default: z.string().max(64).nullish(),
+	profiles: z
+		.array(z.object({ name: z.string().max(64), model: z.string().min(1).max(256) }))
+		.max(MAX_DELEGATE_PROFILES),
 });
 
 const terminalNameSchema = z.object({ title: z.string().trim().min(1).max(120) });
@@ -1182,6 +1205,36 @@ export const POST: RequestHandler = async (event) => {
 		cancelSchema.parse(body);
 		await callOp(() => link.sessionUnrevert({ sessionId: decodeURIComponent(unrevertMatch[1]) }));
 		return superjsonResponse({ ok: true });
+	}
+
+	// Replace the machine's delegate profiles, whole. The machine validates
+	// everything that matters (names, count, that each model is one it
+	// offers, the default); this only shapes the body. Audited by device,
+	// the default's name and the outcome, never the model ids.
+	if (path === "v1/profiles") {
+		const parsed = profilesSetSchema.safeParse(body);
+		if (!parsed.success) {
+			error(
+				400,
+				"Expected { default: string | null, profiles: [{ name, model }] } with each name once."
+			);
+		}
+		const names = parsed.data.profiles.map((p) => p.name);
+		if (new Set(names).size !== names.length) error(400, "Each profile name may appear once.");
+		const set = { default: parsed.data.default ?? null, profiles: parsed.data.profiles };
+		const audit = {
+			action: "profiles.set",
+			deviceId,
+			...(set.default ? { name: set.default } : {}),
+		};
+		try {
+			const stored = await callOp(() => link.profilesSet(delegateProfilesBody(set)));
+			await recordCodeAudit(event, { ...audit, outcome: "sent" });
+			return superjsonResponse(parseDelegateProfiles(stored));
+		} catch (err) {
+			await recordCodeAudit(event, { ...audit, outcome: "refused" });
+			throw err;
+		}
 	}
 
 	// The session's blanket: Deny / Ask / Allow, until changed. The machine

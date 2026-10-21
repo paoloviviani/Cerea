@@ -17,6 +17,8 @@ const apiMock = vi.hoisted(() => ({
 	listWorkspaces: vi.fn(),
 	listAgents: vi.fn(),
 	getPermissionRules: vi.fn(),
+	getDelegateProfiles: vi.fn(),
+	listProviderModels: vi.fn(),
 }));
 
 vi.mock("$app/state", async () => {
@@ -34,6 +36,8 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 	listWorkspaces: apiMock.listWorkspaces,
 	listAgents: apiMock.listAgents,
 	getPermissionRules: apiMock.getPermissionRules,
+	getDelegateProfiles: apiMock.getDelegateProfiles,
+	listProviderModels: apiMock.listProviderModels,
 }));
 
 function device(id: string, over: Record<string, unknown> = {}) {
@@ -465,6 +469,40 @@ describe("CodeNavTree session Permissions menu", () => {
 
 		window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 		await expect.element(screen.getByTestId("permissions-detail")).not.toBeInTheDocument();
+	});
+
+	it("opens a machine's delegate profiles from its settings menu, for that machine", async () => {
+		apiMock.getDelegateProfiles.mockResolvedValue({
+			default: "fast",
+			profiles: [{ name: "fast", model: "gw/fast" }],
+		});
+		apiMock.listProviderModels.mockResolvedValue({ models: [{ id: "gw/fast", label: "Fast" }] });
+		go("?device=d1&ws=w1");
+		const screen = mount([
+			device("d1", {
+				backends: [{ id: "opencode", version: "1", capabilities: {} }],
+				machine: { capabilities: { delegateProfiles: true } },
+			}),
+		]);
+		await expect.element(screen.getByText("alpha")).toBeVisible();
+		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("menuitem", { name: "Profiles" }).click();
+		await expect.element(screen.getByRole("heading", { name: "Delegate profiles" })).toBeVisible();
+		await expect.element(screen.getByLabelText("Profile 1 name")).toHaveValue("fast");
+		expect(apiMock.getDelegateProfiles).toHaveBeenCalledWith("d1");
+	});
+
+	it("says to update galopin in the profiles dialog of a machine without the capability", async () => {
+		apiMock.getDelegateProfiles.mockReset();
+		go("?device=d1&ws=w1");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("alpha")).toBeVisible();
+		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("menuitem", { name: "Profiles" }).click();
+		await expect
+			.element(screen.getByTestId("profiles-unavailable"))
+			.toHaveTextContent("update galopin on this machine");
+		expect(apiMock.getDelegateProfiles).not.toHaveBeenCalled();
 	});
 
 	it("has no Permissions… item on a subagent row", async () => {

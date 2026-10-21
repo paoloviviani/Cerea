@@ -89,15 +89,38 @@ func TestBackgroundResultStartsAParentTurnOnTheSessionsModel(t *testing.T) {
 		return e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Tool == "task" &&
 			(p.ToolStatus == backend.ToolCompleted || p.ToolStatus == backend.ToolFailed)
 	})
-	r.idle(s, mark)
 	// ...and when the child finishes, a NEW assistant turn starts in the
 	// parent: this is the turn the pin used to break (and the stray
 	// cortecs connection used to run).
-	afterIdle := r.hub.mark()
-	r.hub.wait(t, afterIdle, 240*time.Second, "the notification turn to start in the parent", func(e sessions.Envelope) bool {
-		return e.SessionID == s.ID && e.Event.Kind == backend.EventStatus && e.Event.Status == backend.StatusBusy
+	//
+	// The child can finish before the parent's own turn settles (the mock
+	// answers in milliseconds), in which case opencode folds the injected
+	// <task> message into the turn already running and the parent goes idle
+	// only once, after the notification. Even when it does come after the
+	// idle, it lands within a millisecond of it (opencode starts the turn
+	// the moment the parent settles), while the idle is only noticed on the
+	// next 100ms poll: a mark taken then is already past the notification's
+	// busy event, which a wait for "busy after idle" would then never see
+	// (a 4 minute timeout). So the test anchors on the injected message
+	// itself, then on the assistant reply to it, then on idle; none of
+	// those depend on where the parent's own idle falls.
+	var taskAt int
+	r.hub.wait(t, mark, 240*time.Second, "the injected <task> message in the parent", func(e sessions.Envelope) bool {
+		p := e.Event.Part
+		return e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Role == "user" &&
+			strings.Contains(p.Text, "<task")
 	})
-	r.idle(s, afterIdle)
+	for i, e := range r.hub.since(mark) {
+		if p := e.Event.Part; e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Role == "user" && strings.Contains(p.Text, "<task") {
+			taskAt = mark + i
+			break
+		}
+	}
+	r.hub.wait(t, taskAt, 240*time.Second, "the notification turn's assistant reply in the parent", func(e sessions.Envelope) bool {
+		p := e.Event.Part
+		return e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Role == "assistant" && p.Type == "step-finish"
+	})
+	r.idle(s, taskAt)
 
 	// The mock's request log proves the turn ran on the session's model:
 	// the request carrying the injected <task> message used the same model

@@ -78,24 +78,24 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		).toHaveLength(0);
 	});
 
-	it("names a spawn's profile, the clamp and the committee it belongs to", async () => {
+	it("names a spawn's profile, its model and the committee it belongs to", async () => {
 		const screen = render(ToolApprovalCard, {
 			conversationId: "a1",
 			request: request("session_spawn", {
 				galopin: true,
-				title: "Which db (1/2, reviewer)",
+				title: "Which db (1/2, deep)",
 				modeId: "plan",
 				modelId: "gw/fast",
 				prompt: "Postgres or SQLite?",
-				profile: "reviewer",
-				profileModeClamped: true,
+				profile: "deep",
 				committee: "g_1",
 			}),
 			onanswer: async () => ({ ok: true }),
 		});
 		const facts = screen.getByTestId("galopin-approval");
-		await expect.element(facts).toHaveTextContent("reviewer");
-		await expect.element(facts).toHaveTextContent("permission mode was lowered");
+		await expect.element(facts).toHaveTextContent("Profile");
+		await expect.element(facts).toHaveTextContent("deep");
+		await expect.element(facts.getByText("permission mode was lowered")).not.toBeInTheDocument();
 		await expect.element(facts).toHaveTextContent("a committee");
 		await expect.element(facts).toHaveTextContent("gw/fast");
 	});

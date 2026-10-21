@@ -106,6 +106,9 @@ export interface FakeMachineModel {
 	 * (`permissionCeiling`), which this fake does not apply — a spec asserts
 	 * what was granted, not what the machine would then allow. */
 	coordination: Map<string, string[]>;
+	/** The machine's delegate profiles (`profiles.list` / `profiles.set`),
+	 * in the wire's own shape. */
+	delegateProfiles: { default: string | null; profiles: Record<string, { model: string }> };
 }
 
 export function emptyModel(): FakeMachineModel {
@@ -127,6 +130,7 @@ export function emptyModel(): FakeMachineModel {
 		permissionCeiling: {},
 		savedApprovals: [],
 		coordination: new Map(),
+		delegateProfiles: { default: null, profiles: {} },
 	};
 }
 
@@ -143,6 +147,9 @@ export interface FakeMachineOptions {
 	 * hello's `coordinationGrant` capability is the backend's own, set by
 	 * `backends` (the default backend reports it unless this is false). */
 	coordinationGrant?: boolean;
+	/** Whether this galopin knows the `profiles.*` ops (default true): false
+	 * answers both `unsupported`, as a galopin from before them does. */
+	delegateProfiles?: boolean;
 }
 
 const DEFAULT_BACKEND: Backend = {
@@ -769,6 +776,44 @@ export class FakeMachine {
 				return {};
 			case "backend.models":
 				return { models: model.models };
+			// The real galopin validates the same way (PROTOCOL.md §6 "Delegate
+			// profiles"): name pattern, at most 32, each model one it offers, the
+			// default one of the profiles; a refusal changes nothing.
+			case "profiles.list":
+			case "profiles.set": {
+				if (this.options.delegateProfiles === false) {
+					throw new OpError("unsupported", `unknown op "${op}"`);
+				}
+				if (op === "profiles.list") return model.delegateProfiles;
+				const a = args as {
+					default: string | null;
+					profiles: Record<string, { model?: string }>;
+				};
+				const names = Object.keys(a.profiles ?? {});
+				if (names.length > 32) throw new OpError("invalid", "at most 32 profiles");
+				for (const name of names) {
+					if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)) {
+						throw new OpError("invalid", `profile name "${name}" is not valid`);
+					}
+					const id = a.profiles[name]?.model;
+					if (!id || !model.models.some((m) => m.id === id)) {
+						throw new OpError("invalid", `profile "${name}": model "${id}" is not offered`);
+					}
+				}
+				if (a.default !== null && !names.includes(a.default)) {
+					throw new OpError(
+						"invalid",
+						`the default profile "${a.default}" is not one of the profiles`
+					);
+				}
+				model.delegateProfiles = {
+					default: a.default,
+					profiles: Object.fromEntries(
+						names.map((n) => [n, { model: String(a.profiles[n].model) }])
+					),
+				};
+				return model.delegateProfiles;
+			}
 			case "terminal.list": {
 				const { workspaceId } = (args as { workspaceId?: string }) ?? {};
 				const terminals = [...model.terminals.values()]

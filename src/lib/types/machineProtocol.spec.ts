@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isPermissionMode, parseMachineFrame, parsePermissionRules } from "./machineProtocol";
+import {
+	delegateProfilesBody,
+	isPermissionMode,
+	parseDelegateProfiles,
+	parseMachineFrame,
+	parsePermissionRules,
+} from "./machineProtocol";
 
 const CAPABILITIES = {
 	diff: true,
@@ -162,5 +168,55 @@ describe("parsePermissionRules", () => {
 			rules: [{ permission: "edit", pattern: "*", action: "ask" }],
 		});
 		expect(parsed.rules[0]).toEqual({ permission: "edit", pattern: "*", action: "ask" });
+	});
+});
+
+describe("delegate profiles", () => {
+	it("carries the delegateProfiles capability through hello, and reads its absence", () => {
+		const withCap = {
+			...hello({ workspaceRoots: [], allowFreeModels: false }),
+			machine: { capabilities: { files: true, delegateProfiles: true } },
+		};
+		const parsed = parseMachineFrame(withCap);
+		expect(parsed?.type === "hello" && parsed.machine?.capabilities.delegateProfiles).toBe(true);
+		const old = parseMachineFrame({
+			...hello({ workspaceRoots: [], allowFreeModels: false }),
+			machine: { capabilities: { files: true } },
+		});
+		expect(old?.type === "hello" && old.machine?.capabilities.delegateProfiles).toBeUndefined();
+	});
+
+	it("parses an answer with null fields, sorted, dropping what the machine could not store", () => {
+		expect(
+			parseDelegateProfiles({
+				default: null,
+				profiles: { b: { model: "m/b" }, a: { model: "m/a" }, none: { model: null }, blank: {} },
+			})
+		).toEqual({
+			default: null,
+			profiles: [
+				{ name: "a", model: "m/a" },
+				{ name: "b", model: "m/b" },
+			],
+		});
+		expect(
+			parseDelegateProfiles({ default: "ghost", profiles: { a: { model: "m" } } }).default
+		).toBe(null);
+		expect(parseDelegateProfiles({ default: "a", profiles: { a: { model: "m" } } }).default).toBe(
+			"a"
+		);
+		for (const junk of [null, undefined, 3, "x", [], { profiles: "no" }, { profiles: null }]) {
+			expect(parseDelegateProfiles(junk)).toEqual({ default: null, profiles: [] });
+		}
+	});
+
+	it("builds the wire body from an edited list", () => {
+		expect(delegateProfilesBody({ default: "a", profiles: [{ name: "a", model: "m/a" }] })).toEqual(
+			{ default: "a", profiles: { a: { model: "m/a" } } }
+		);
+		expect(delegateProfilesBody({ default: null, profiles: [] })).toEqual({
+			default: null,
+			profiles: {},
+		});
 	});
 });

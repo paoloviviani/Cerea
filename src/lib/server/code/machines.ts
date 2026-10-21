@@ -638,6 +638,19 @@ export class MachineLink {
 	): Promise<{ models: Model[]; hidden?: number }> {
 		return this.call("backend.models", args);
 	}
+	/** This machine's delegate profiles (PROTOCOL.md §6 "Delegate profiles",
+	 * capability `delegateProfiles`): `unsupported` from a galopin that predates it. */
+	profilesList(): Promise<unknown> {
+		return this.call("profiles.list", {});
+	}
+	/** Replace the whole set; the machine validates (names, count, models it
+	 * offers, the default) and answers the stored set. */
+	profilesSet(args: {
+		default: string | null;
+		profiles: Record<string, { model: string }>;
+	}): Promise<unknown> {
+		return this.call("profiles.set", args);
+	}
 	/** The workspace's slash commands (PROTOCOL.md §6 backend.commands):
 	 * origins, shell facts and template hashes — never a template. */
 	backendCommands(args: {

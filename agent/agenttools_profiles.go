@@ -10,209 +10,170 @@ import (
 	"sort"
 	"strings"
 
-	"galopin/internal/permrules"
+	"galopin/internal/backend"
+	"galopin/internal/fsutil"
+	"galopin/internal/link"
+	"galopin/internal/policy"
 )
 
-// Delegate profiles (PROTOCOL.md §6 "Delegate profiles"): named presets a
-// spawner picks with session_spawn's `profile` argument. A profile carries a
-// model, a permission mode and notes. The machine's owner defines them in
-// profiles.json in galopin's state directory (read at every use, so an edit
-// needs no restart); a few built-ins ship with galopin and a file entry of the
-// same name replaces one.
+// Delegate profiles (PROTOCOL.md §6 "Delegate profiles"): a profile is a name
+// and a model. A machine has any number of them (at most 32) and at most one
+// default, which a delegation that names no profile uses. They live in
+// profiles.json in galopin's state directory, which galopin owns: the machine's
+// owner edits them from the Cerea panel (`profiles.list`, `profiles.set`).
 //
-// A profile can only make a delegate stricter. The mode is clamped to what the
-// spawner itself has; the machine's ceiling and rules are composed last for
-// every session whatever its word is, so a profile never lifts either.
+// A model is not a permission. A delegate never gets more permission than its
+// spawner whichever model it runs on; the machine's ceiling and rules are
+// composed last for every session.
 
 const (
 	profilesFileName = "profiles.json"
-	// maxProfileNotes bounds a profile's notes, so the brief it is prepended to
-	// stays within what a card can show.
-	maxProfileNotes = 4 << 10
-	maxProfileCount = 32
+	maxProfileCount  = 32
 )
 
 var profileNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
-// delegateProfile is one preset. Empty fields mean "as the spawner".
+// delegateProfile is one profile: the model a delegate runs on.
 type delegateProfile struct {
-	Model string `json:"model,omitempty"`
-	// Mode is the permission mode: "plan", "ask" or "allow".
-	Mode  string `json:"mode,omitempty"`
-	Notes string `json:"notes,omitempty"`
-	// Description is one line for the listing the model reads.
-	Description string `json:"description,omitempty"`
+	Model string `json:"model"`
 }
 
-// builtinProfiles are the defaults. None names a model: galopin cannot know
-// which models a machine has.
-func builtinProfiles() map[string]delegateProfile {
-	return map[string]delegateProfile{
-		"worker": {
-			Description: "Does a piece of work with your own model and permissions.",
-			Notes:       "You are a delegate. Do the task below, stay inside its scope, and end with a short final message: what you did, what you found, what is left.",
-		},
-		"reviewer": {
-			Mode:        "plan",
-			Description: "Read-only second opinion: reviews work or an answer critically and reports.",
-			Notes:       "You are a reviewer giving a second opinion. You are read-only: change nothing. Check the work or answer below against the evidence yourself rather than trusting it; say plainly what is right, what is wrong or missing, and how sure you are. Your final message is the review, short and self-contained.",
-		},
-		"explorer": {
-			Mode:        "plan",
-			Description: "Read-only research: surveys code or a question and reports findings.",
-			Notes:       "You are a read-only researcher: change nothing. Find the answer to the question below from the code and files, cite paths and symbols, and end with a short final message of findings.",
-		},
+// profileSet is the whole file: the profiles and which one is the default.
+type profileSet struct {
+	Default  *string                    `json:"default"`
+	Profiles map[string]delegateProfile `json:"profiles"`
+}
+
+func (s profileSet) names() []string {
+	names := make([]string, 0, len(s.Profiles))
+	for n := range s.Profiles {
+		names = append(names, n)
 	}
+	sort.Strings(names)
+	return names
 }
 
-// parseProfiles reads and validates a profiles file's body. Every problem is
-// reported with the profile it is in; nothing partial is returned.
-func parseProfiles(body []byte) (map[string]delegateProfile, error) {
+// wire is the set as the ops and session_profiles show it.
+func (s profileSet) wire() map[string]any {
+	profiles := map[string]delegateProfile{}
+	for n, p := range s.Profiles {
+		profiles[n] = p
+	}
+	var def any
+	if s.Default != nil {
+		def = *s.Default
+	}
+	return map[string]any{"default": def, "profiles": profiles}
+}
+
+// parseProfiles reads the file's body. It accepts the shape galopin writes and,
+// gracefully, the one before it (entries with a model keep it; entries without
+// one, with an unusable name or beyond the count are dropped; mode, notes,
+// description and unknown fields are ignored; a default that names nothing is
+// no default). Only a body that is not JSON of the right outline is an error.
+func parseProfiles(body []byte) (profileSet, error) {
 	var disk struct {
-		Profiles map[string]delegateProfile `json:"profiles"`
+		Default  *string                    `json:"default"`
+		Profiles map[string]json.RawMessage `json:"profiles"`
 	}
-	dec := json.NewDecoder(strings.NewReader(string(body)))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&disk); err != nil {
-		return nil, fmt.Errorf("%s: %v", profilesFileName, err)
+	if err := json.Unmarshal(body, &disk); err != nil {
+		return profileSet{}, fmt.Errorf("%s: %v", profilesFileName, err)
 	}
-	if len(disk.Profiles) > maxProfileCount {
-		return nil, fmt.Errorf("%s: at most %d profiles", profilesFileName, maxProfileCount)
+	out := profileSet{Profiles: map[string]delegateProfile{}}
+	names := make([]string, 0, len(disk.Profiles))
+	for n := range disk.Profiles {
+		names = append(names, n)
 	}
-	for name, p := range disk.Profiles {
-		if !profileNameRE.MatchString(name) {
-			return nil, fmt.Errorf("%s: profile name %q must be 1-32 characters of a-z, 0-9, - or _", profilesFileName, name)
+	sort.Strings(names)
+	for _, n := range names {
+		var p delegateProfile
+		if json.Unmarshal(disk.Profiles[n], &p) != nil {
+			continue
 		}
-		if _, err := profileWord(p.Mode); err != nil {
-			return nil, fmt.Errorf("%s: profile %q: %v", profilesFileName, name, err)
+		p.Model = strings.TrimSpace(p.Model)
+		if !profileNameRE.MatchString(n) || p.Model == "" || strings.ContainsAny(p.Model, " \t\r\n") {
+			continue
 		}
-		if len(p.Notes) > maxProfileNotes {
-			return nil, fmt.Errorf("%s: profile %q: notes are longer than %d bytes", profilesFileName, name, maxProfileNotes)
+		if len(out.Profiles) >= maxProfileCount {
+			break
 		}
-		if strings.ContainsAny(p.Model, " \t\r\n") {
-			return nil, fmt.Errorf("%s: profile %q: model %q is not a model id", profilesFileName, name, p.Model)
+		out.Profiles[n] = p
+	}
+	if disk.Default != nil {
+		if _, ok := out.Profiles[*disk.Default]; ok {
+			d := *disk.Default
+			out.Default = &d
 		}
-	}
-	return disk.Profiles, nil
-}
-
-// loadProfiles is the built-ins with the state directory's file laid over
-// them. A missing file is the built-ins alone; an unreadable or invalid one is
-// an error (the built-ins are then still usable through builtinProfiles, but
-// a spawn that names a profile is refused with the problem, never silently
-// run without the owner's intent).
-func loadProfiles(stateDir string) (map[string]delegateProfile, error) {
-	out := builtinProfiles()
-	if stateDir == "" {
-		return out, nil
-	}
-	body, err := os.ReadFile(filepath.Join(stateDir, profilesFileName))
-	if os.IsNotExist(err) {
-		return out, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("%s: %v", profilesFileName, err)
-	}
-	file, err := parseProfiles(body)
-	if err != nil {
-		return nil, err
-	}
-	for k, v := range file {
-		out[k] = v
 	}
 	return out, nil
 }
 
-// profileWord maps a profile's mode to a permission word: plan is the deny
-// word. The empty mode is "" (as the spawner).
-func profileWord(mode string) (permrules.Action, error) {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "":
-		return "", nil
-	case "plan":
-		return permrules.Deny, nil
-	case "ask":
-		return permrules.Ask, nil
-	case "allow":
-		return permrules.Allow, nil
+// loadProfiles reads the state directory's file. A missing file is no profiles.
+func loadProfiles(stateDir string) (profileSet, error) {
+	empty := profileSet{Profiles: map[string]delegateProfile{}}
+	if stateDir == "" {
+		return empty, nil
 	}
-	return "", fmt.Errorf("mode %q must be plan, ask or allow", mode)
-}
-
-// clampWord is the word a delegate gets: the profile's, never looser than the
-// spawner's own. clamped reports that the profile asked for more. The empty
-// profile word is the spawner's.
-func clampWord(profile, spawner permrules.Action) (word permrules.Action, clamped bool) {
-	if profile == "" {
-		return spawner, false
+	body, err := os.ReadFile(filepath.Join(stateDir, profilesFileName))
+	if os.IsNotExist(err) {
+		return empty, nil
 	}
-	word = permrules.Min(profile, spawner)
-	return word, word != profile
-}
-
-func modeName(w permrules.Action) string {
-	if w == permrules.Deny {
-		return "plan"
-	}
-	return string(w)
-}
-
-// profileNames lists names sorted, with the one-line descriptions.
-func profileListing(ps map[string]delegateProfile) []map[string]any {
-	names := make([]string, 0, len(ps))
-	for n := range ps {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	rows := make([]map[string]any, 0, len(names))
-	for _, n := range names {
-		p := ps[n]
-		row := map[string]any{"name": n, "description": p.Description}
-		if p.Model != "" {
-			row["model"] = p.Model
-		}
-		if p.Mode != "" {
-			row["mode"] = strings.ToLower(strings.TrimSpace(p.Mode))
-		}
-		rows = append(rows, row)
-	}
-	return rows
-}
-
-// profileNamesText is "a, b, c" for refusals.
-func profileNamesText(ps map[string]delegateProfile) string {
-	var names []string
-	for _, r := range profileListing(ps) {
-		names = append(names, r["name"].(string))
-	}
-	return strings.Join(names, ", ")
-}
-
-// briefWith prepends a profile's notes to the brief.
-func briefWith(notes, prompt string) string {
-	if strings.TrimSpace(notes) == "" {
-		return prompt
-	}
-	return strings.TrimSpace(notes) + "\n\n---\n\n" + prompt
-}
-
-// resolveProfile is the profile a spawn names: the zero profile for "", else
-// the built-in or file entry. An unknown name, or a profiles file that does not
-// parse, is a refusal the model reads (the second lists what is available).
-func (at *agentTools) resolveProfile(name string) (delegateProfile, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return delegateProfile{}, nil
-	}
-	ps, err := loadProfiles(at.stateDir)
 	if err != nil {
-		return delegateProfile{}, refuse("the delegate profiles cannot be used: %v", err)
+		return profileSet{}, fmt.Errorf("%s: %v", profilesFileName, err)
 	}
-	p, ok := ps[name]
+	return parseProfiles(body)
+}
+
+// validateProfileSet checks a set an owner asks to store. offered is the model
+// ids this machine offers; a profile's model must be one of them.
+func validateProfileSet(s profileSet, offered map[string]bool) error {
+	if len(s.Profiles) > maxProfileCount {
+		return fmt.Errorf("at most %d profiles", maxProfileCount)
+	}
+	for _, n := range s.names() {
+		if !profileNameRE.MatchString(n) {
+			return fmt.Errorf("profile name %q must be 1-32 characters of a-z, 0-9, - or _, starting with a letter or digit", n)
+		}
+		m := s.Profiles[n].Model
+		if m == "" {
+			return fmt.Errorf("profile %q needs a model", n)
+		}
+		if !offered[m] {
+			return fmt.Errorf("profile %q: model %q is not offered by this machine", n, m)
+		}
+	}
+	if s.Default != nil {
+		if _, ok := s.Profiles[*s.Default]; !ok {
+			return fmt.Errorf("the default profile %q is not one of the profiles", *s.Default)
+		}
+	}
+	return nil
+}
+
+// resolveProfile is the profile a delegation uses: the named one, or, for "",
+// the default (the zero profile when there is none, which means the spawner's
+// model). name is the profile's name ("" for none). An unknown name, or a
+// profiles file that does not parse, is a refusal the model reads.
+func (at *agentTools) resolveProfile(requested string) (prof delegateProfile, name string, err error) {
+	requested = strings.TrimSpace(requested)
+	ps, lerr := loadProfiles(at.stateDir)
+	if lerr != nil {
+		return delegateProfile{}, "", refuse("the delegate profiles cannot be used: %v", lerr)
+	}
+	if requested == "" {
+		if ps.Default == nil {
+			return delegateProfile{}, "", nil
+		}
+		requested = *ps.Default
+	}
+	p, ok := ps.Profiles[requested]
 	if !ok {
-		return delegateProfile{}, refuse("no delegate profile %q; available: %s", name, profileNamesText(ps))
+		if len(ps.Profiles) == 0 {
+			return delegateProfile{}, "", refuse("no delegate profile %q: this machine has no profiles", requested)
+		}
+		return delegateProfile{}, "", refuse("no delegate profile %q; available: %s", requested, strings.Join(ps.names(), ", "))
 	}
-	return p, nil
+	return p, requested, nil
 }
 
 // checkProfileModel refuses a profile model this workspace does not offer.
@@ -229,12 +190,98 @@ func (at *agentTools) checkProfileModel(ctx context.Context, dir, model string) 
 	return refuse("the profile's model %q is not available in this workspace", model)
 }
 
-// profiles implements session_profiles: the available presets, read-only.
+// profiles implements session_profiles: the machine's profiles and default,
+// read-only.
 func (at *agentTools) profiles() (string, error) {
 	ps, err := loadProfiles(at.stateDir)
 	if err != nil {
 		return "", refuse("the delegate profiles cannot be read: %v", err)
 	}
-	body, err := json.Marshal(profileListing(ps))
+	body, err := json.Marshal(ps.wire())
 	return string(body), err
+}
+
+// offeredModels is the model list this machine offers for sessions: what
+// backend.models answers (the free-model gate applied), without a workspace.
+func (mc *machine) offeredModels(ctx context.Context, dir string) (models []backend.Model, hidden int, err error) {
+	all, err := mc.back.Models(ctx, dir)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, m := range all {
+		if !mc.pol.AllowFreeModels && m.ProviderID != policy.GatewayProviderID {
+			hidden++
+			continue
+		}
+		models = append(models, m)
+	}
+	return models, hidden, nil
+}
+
+// profilesAvailable: the machine has the agent tools profiles are for.
+func (mc *machine) profilesAvailable() bool { return mc.agentTools != nil }
+
+// opProfilesList answers profiles.list {} -> {default, profiles}.
+func (mc *machine) opProfilesList(_ context.Context, _ json.RawMessage) (any, *link.OpError) {
+	if !mc.profilesAvailable() {
+		return nil, opErrf("unsupported", "this machine has no delegate profiles (the agent tools are off)")
+	}
+	ps, err := loadProfiles(mc.agentTools.stateDir)
+	if err != nil {
+		return nil, opErrf("invalid", "%v", err)
+	}
+	return ps.wire(), nil
+}
+
+// opProfilesSet answers profiles.set {default, profiles}: it replaces the whole
+// set, atomically, after validating it. The answer is the stored set.
+func (mc *machine) opProfilesSet(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	if !mc.profilesAvailable() {
+		return nil, opErrf("unsupported", "this machine has no delegate profiles (the agent tools are off)")
+	}
+	at := mc.agentTools
+	if at.stateDir == "" {
+		return nil, opErrf("unsupported", "this machine has no state directory for profiles")
+	}
+	var a struct {
+		Default  *string                    `json:"default"`
+		Profiles map[string]delegateProfile `json:"profiles"`
+	}
+	dec := json.NewDecoder(strings.NewReader(string(args)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&a); err != nil || a.Profiles == nil {
+		return nil, opErrf("invalid", "profiles.set needs {default, profiles}")
+	}
+	set := profileSet{Default: a.Default, Profiles: a.Profiles}
+	for n, p := range set.Profiles {
+		p.Model = strings.TrimSpace(p.Model)
+		set.Profiles[n] = p
+	}
+	models, _, err := mc.offeredModels(ctx, "")
+	if err != nil {
+		return nil, backendErr(err)
+	}
+	offered := map[string]bool{}
+	for _, m := range models {
+		offered[m.ID] = true
+	}
+	if err := validateProfileSet(set, offered); err != nil {
+		return nil, opErrf("invalid", "%v", err)
+	}
+	body, err := json.MarshalIndent(set.wire(), "", "  ")
+	if err != nil {
+		return nil, opErrf("internal", "%v", err)
+	}
+	at.profilesMu.Lock()
+	err = fsutil.WriteFileAtomic(filepath.Join(at.stateDir, profilesFileName), append(body, '\n'), 0o600)
+	at.profilesMu.Unlock()
+	if err != nil {
+		return nil, opErrf("internal", "writing %s: %v", profilesFileName, err)
+	}
+	def := ""
+	if set.Default != nil {
+		def = *set.Default
+	}
+	mc.audit.profilesSet(len(set.Profiles), def)
+	return set.wire(), nil
 }

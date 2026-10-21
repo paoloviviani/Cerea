@@ -50,8 +50,9 @@ func TestDelegationSkillShipsWithTools(t *testing.T) {
 		"Deny included",                  // stopping your own schedule always works
 		"## Profiles and recipes",        // delegate profiles and the three recipes
 		"session_profiles", "session_committee", "**Handoff**", "**Second opinion**", "**Committee**",
-		"only ever makes a delegate stricter", // a profile never widens what a delegate may do
-		"2 to 3 members",                      // the committee bound
+		"A profile is a model, never a permission", // a profile never widens what a delegate may do
+		"mode: \"plan\"", // read-only comes from the mode argument
+		"2 to 3 members", // the committee bound
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("skill does not mention %q", want)

@@ -18,6 +18,10 @@ import (
 func TestStartFailsFastOnMissingBinary(t *testing.T) {
 	// A name guaranteed absent from PATH and free of '/', so Start takes
 	// the resolution branch this test pins.
+	// HOME is a temp dir so the installer-directory fallback cannot find the
+	// developer's real opencode and start it (the test failed on any machine
+	// that has one installed).
+	t.Setenv("HOME", t.TempDir())
 	b := New(Config{Bin: "opencode-not-installed-xyz"})
 	err := b.Start(context.Background())
 	if err == nil {

@@ -200,16 +200,9 @@
 			facts.push({ label: "Title", value: text(args.title) });
 			facts.push({ label: "Mode", value: text(args.modeId) });
 			facts.push({ label: "Model", value: text(args.modelId) || "this session's model" });
-			if (text(args.profile)) {
-				facts.push({
-					label: "Profile",
-					value:
-						text(args.profile) +
-						(args.profileModeClamped === true
-							? " (its permission mode was lowered to this session's own)"
-							: ""),
-				});
-			}
+			// A profile is a name and a model: the card names it, and the Model
+			// line above shows the model it chose.
+			if (text(args.profile)) facts.push({ label: "Profile", value: text(args.profile) });
 			if (text(args.committee)) facts.push({ label: "Part of", value: "a committee" });
 			facts.push({ label: "Prompt", value: text(args.prompt), long: true });
 		} else if (toolApproval?.tool === "session_read") {
