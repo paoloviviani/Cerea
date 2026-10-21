@@ -49,4 +49,39 @@ describe("POST /settings (legacy save path)", () => {
 			})
 		).rejects.toThrow();
 	});
+
+	it("persists the location mode and a sanitised place (the client's save path)", async () => {
+		const { user, locals } = await createTestUser();
+		const post = (body: unknown) =>
+			testRequest(legacySettingsPOST, {
+				path: "/settings",
+				locals,
+				method: "POST",
+				body: JSON.stringify({ activeModel: "test-model", ...(body as object) }),
+				headers: { "Content-Type": "application/json" },
+			});
+
+		const res = await post({ locationMode: "place", locationPlace: "Torino,\nItaly\u0007" });
+		expect(res.status).toBe(200);
+		const stored = await collections.settings.findOne({ userId: user._id });
+		expect(stored?.locationMode).toBe("place");
+		expect(stored?.locationPlace).toBe("Torino, Italy");
+		// no coordinates are ever a settings field
+		expect(Object.keys(stored ?? {}).filter((k) => /lat|lon|coord/i.test(k))).toEqual([]);
+	});
+
+	it("rejects an unknown mode and a place over 100 characters", async () => {
+		const { locals } = await createTestUser();
+		for (const extra of [{ locationMode: "gps" }, { locationPlace: "x".repeat(101) }]) {
+			await expect(
+				testRequest(legacySettingsPOST, {
+					path: "/settings",
+					locals,
+					method: "POST",
+					body: JSON.stringify({ activeModel: "test-model", ...extra }),
+					headers: { "Content-Type": "application/json" },
+				})
+			).rejects.toThrow();
+		}
+	});
 });

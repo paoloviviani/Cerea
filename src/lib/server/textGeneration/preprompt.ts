@@ -15,6 +15,11 @@ export interface PrepromptInput {
 	conversationPreprompt?: string;
 	/** The person's global system prompt (settings); every chat turn. */
 	globalPrompt?: string;
+	/**
+	 * The person's opt-in location line (`locationLine`), or undefined. Reads
+	 * last among the user's own parts: it is context, not an instruction.
+	 */
+	locationLine?: string;
 	/** The prompt of the custom model the conversation is on, if any. */
 	customModelPrompt?: string;
 	/** Whether this conversation runs the ML Assistant preset. */
@@ -53,7 +58,8 @@ export interface PrepromptInput {
 /**
  * The person's own instructions for a chat turn, in the one order they apply:
  * their global prompt, then the custom model's prompt, then the conversation's
- * stored prompt (the deployment model's default, or an imported share's).
+ * stored prompt (the deployment model's default, or an imported share's), then
+ * the one-line location the person opted to share, if any.
  * Empty and whitespace-only parts are skipped, so an unset global prompt leaves
  * no stray blank lines. Everything `resolvePreprompt` adds after this (the
  * artifacts and execution contracts, skills) and everything the turn appends
@@ -65,8 +71,12 @@ export function composeUserPrompt({
 	globalPrompt,
 	customModelPrompt,
 	conversationPreprompt,
-}: Pick<PrepromptInput, "globalPrompt" | "customModelPrompt" | "conversationPreprompt">): string {
-	return [globalPrompt, customModelPrompt, conversationPreprompt]
+	locationLine,
+}: Pick<
+	PrepromptInput,
+	"globalPrompt" | "customModelPrompt" | "conversationPreprompt" | "locationLine"
+>): string {
+	return [globalPrompt, customModelPrompt, conversationPreprompt, locationLine]
 		.map((part) => part?.trim())
 		.filter((part): part is string => Boolean(part))
 		.join("\n\n");
@@ -87,6 +97,7 @@ export function resolvePreprompt({
 	conversationPreprompt,
 	globalPrompt,
 	customModelPrompt,
+	locationLine,
 	mlAssistant,
 	artifactsOverride,
 	supportsArtifacts,
@@ -103,7 +114,7 @@ export function resolvePreprompt({
 	// global prompt nor a custom model's reaches it.
 	const base = mlAssistant
 		? ML_ASSISTANT_PREPROMPT
-		: composeUserPrompt({ globalPrompt, customModelPrompt, conversationPreprompt });
+		: composeUserPrompt({ globalPrompt, customModelPrompt, conversationPreprompt, locationLine });
 	const toolsEnabled = mlAssistant
 		? (supportsTools ?? false)
 		: (forceTools ?? supportsTools ?? false);

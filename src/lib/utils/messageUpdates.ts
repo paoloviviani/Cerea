@@ -52,6 +52,8 @@ type MessageUpdateRequestOptions = {
 	selectedConnectorIds?: string[];
 	// User's IANA timezone (e.g. "America/New_York")
 	timezone?: string;
+	// Rounded device coordinates; the server uses them only if the setting is "device"
+	location?: { lat: number; lon: number; accuracy?: number };
 	streamingMode?: StreamingMode;
 };
 
@@ -91,6 +93,7 @@ export async function fetchMessageUpdates(
 		selectedMcpServers: opts.selectedMcpServers,
 		selectedConnectorIds: opts.selectedConnectorIds,
 		timezone: opts.timezone,
+		...(opts.location ? { location: opts.location } : {}),
 	});
 
 	opts.files?.forEach((file) => {

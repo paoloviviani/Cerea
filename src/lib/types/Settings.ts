@@ -108,6 +108,15 @@ export interface Settings extends Timestamps {
 	memoryEnabled?: boolean;
 
 	/**
+	 * Opt-in location for the assistant (C18). Absent means `"off"`. `"place"`
+	 * shares `locationPlace` (typed text); `"device"` shares the browser's
+	 * coordinates, which are sent with each turn and never stored here. While
+	 * on, one line reaches the model provider with every chat message.
+	 */
+	locationMode?: "off" | "place" | "device";
+	locationPlace?: string;
+
+	/**
 	 * Per-model toggle to hide Omni prompt suggestions shown near the composer.
 	 * When set to `true`, prompt examples for that model are suppressed.
 	 */

@@ -16,6 +16,7 @@ import { reservedMicroUsd } from "$lib/utils/mlBudget";
 import { logger } from "$lib/server/logger";
 import { modelReadsImages } from "./utils/modelReadsImages";
 import { resolvePreprompt } from "./preprompt";
+import { locationLine } from "$lib/utils/location";
 import { collections } from "$lib/server/database";
 import { projectContext } from "$lib/server/projects";
 import { userPromptsFor } from "./userPrompts";
@@ -121,12 +122,22 @@ async function* textGenerationWithoutTitle(
 	// conversation's owner, rather than passed in: this function is the chat
 	// pipeline (the /code panel and title generation never reach it), and the
 	// parked-turn sweepers resume through it with no request to carry them.
-	const { globalPrompt, customModelPrompt } = await userPromptsFor(conv);
+	const { globalPrompt, customModelPrompt, locationMode, locationPlace } =
+		await userPromptsFor(conv);
+	// Opt-in location: one line, only while the setting is on, and the device
+	// reading only when the setting is "device". Never stored on a message.
+	const sharedLocation = locationLine({
+		mode: locationMode,
+		place: locationPlace,
+		device: ctx.locals?.location,
+		timezone: ctx.locals?.timezone,
+	});
 
 	let preprompt = resolvePreprompt({
 		conversationPreprompt: conv.preprompt,
 		globalPrompt,
 		customModelPrompt,
+		locationLine: sharedLocation,
 		mlAssistant,
 		artifactsOverride: ctx.artifactsOverride,
 		supportsArtifacts: ctx.model.supportsArtifacts,

@@ -11,17 +11,26 @@ import type { Conversation } from "$lib/types/Conversation";
  */
 export async function userPromptsFor(
 	conv: Pick<Conversation, "model" | "userId" | "sessionId">
-): Promise<{ globalPrompt?: string; customModelPrompt?: string }> {
+): Promise<{
+	globalPrompt?: string;
+	customModelPrompt?: string;
+	locationMode?: string;
+	locationPlace?: string;
+}> {
 	const owner = conversationOwnerFilter(conv);
 	if (!owner) return {};
 	try {
 		const [settings, resolved] = await Promise.all([
-			collections.settings.findOne(owner as never, { projection: { globalSystemPrompt: 1 } }),
+			collections.settings.findOne(owner as never, {
+				projection: { globalSystemPrompt: 1, locationMode: 1, locationPlace: 1 },
+			}),
 			resolveConversationModel(conv.model, owner),
 		]);
 		return {
 			globalPrompt: settings?.globalSystemPrompt,
 			customModelPrompt: resolved?.custom?.systemPrompt,
+			locationMode: settings?.locationMode,
+			locationPlace: settings?.locationPlace,
 		};
 	} catch (err) {
 		logger.warn(

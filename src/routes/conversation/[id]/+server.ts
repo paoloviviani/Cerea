@@ -13,6 +13,7 @@ import type { Message } from "$lib/types/Message";
 import { error } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
+import { deviceLocationSchema } from "$lib/utils/location";
 import {
 	MessageToolUpdateType,
 	MessageUpdateStatus,
@@ -187,6 +188,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		selectedMcpServers,
 		selectedConnectorIds,
 		timezone,
+		location,
 	} = z
 		.object({
 			id: z.string().uuid().refine(isMessageId).optional(), // parent message id to append to for a normal message, or the message id for a retry/continue
@@ -222,6 +224,8 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				)
 				.default([]),
 			timezone: z.optional(z.string()),
+			/** Device coordinates, rounded; ignored unless the person's setting is "device". */
+			location: deviceLocationSchema,
 			files: z.optional(
 				z.array(
 					z.object({
@@ -274,6 +278,10 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// Attach user timezone so the tool prompt can include localized time
 	if (timezone) {
 		locals.timezone = timezone;
+	}
+
+	if (location) {
+		locals.location = location;
 	}
 
 	const inputFiles = await Promise.all(

@@ -259,6 +259,28 @@ The composer's **Tools ask first / Tools auto-approved** pill overrides the
 policy for **this chat only**; the app-wide default lives in your settings.
 Python the assistant runs in the [in-browser sandbox](pyodide.md) never asks first: it runs in your own browser, with no network access, so it cannot act outside the conversation.
 
+## Location
+
+Settings, Application, **Location** lets the assistant know where you are, so
+answers about weather, local time, nearby places and units fit without you
+typing it each time. It is off by default, and there are two ways to turn it on:
+
+- **A place I type**, for example "Torino, Italy" (up to 100 characters, one
+  line).
+- **From this device**, which uses the browser's location permission. The
+  browser asks only when you choose this option. Coordinates are rounded to
+  about 1 km and read again whenever you open a chat. They stay in your
+  browser and travel with each message; the server does not store them. If the
+  permission is denied or the device cannot tell, the setting stays but nothing
+  is shared.
+
+While sharing is on, one line goes to the model provider with every chat
+message, for example `The person's location (shared by them): Torino, Italy,
+timezone Europe/Rome.` The line includes your browser's timezone. It is not
+saved on the messages and the server never adds it to tool calls: the model
+sees it as context and decides when it matters. It applies to chats only, not
+to the /code panel or to title generation.
+
 ## Memory
 
 Memory keeps a few short **standing facts about you** and carries them into
