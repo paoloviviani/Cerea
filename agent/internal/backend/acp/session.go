@@ -64,6 +64,11 @@ type sessionState struct {
 
 	pending map[string]pendingPermission // our local request id -> pending
 
+	// spawnedBy is the session_spawn marker (in memory, like the session).
+	spawnedBy *backend.SpawnedBy
+	// mcp is this session's galopin MCP endpoint, revoked when it is deleted.
+	mcp backend.MCPEndpoint
+
 	// turn tracking: set by Prompt for the duration of one session/prompt
 	// call, so session/update chunks arriving while busy are folded into
 	// this turn's single user/assistant message pair (PROTOCOL.md/the
@@ -139,7 +144,7 @@ func (s *sessionState) toSession(backendID string) backend.Session {
 	return backend.Session{
 		ID: s.id, Backend: backendID, Title: s.title, Status: s.status,
 		PendingPermissions: len(s.pending), ModeID: s.modeID, ModelID: s.modelID,
-		CreatedAt: s.createdAt, UpdatedAt: s.updatedAt,
+		CreatedAt: s.createdAt, UpdatedAt: s.updatedAt, SpawnedBy: s.spawnedBy,
 	}
 }
 
@@ -191,6 +196,17 @@ func (r *registry) getOrCreate(id, workspaceDir string) *sessionState {
 	st := newSessionState(id, workspaceDir)
 	r.sessions[id] = st
 	return st
+}
+
+// all is every session the registry holds.
+func (r *registry) all() []*sessionState {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	out := make([]*sessionState, 0, len(r.sessions))
+	for _, st := range r.sessions {
+		out = append(out, st)
+	}
+	return out
 }
 
 func (r *registry) put(st *sessionState) {

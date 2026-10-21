@@ -145,7 +145,12 @@ func dataURLPayload(url string) string {
 // block array (PROTOCOL.md/the task: text plus images as
 // {type:"image",mimeType,data}).
 func promptContentBlocks(p backend.Prompt) []map[string]any {
-	blocks := make([]map[string]any, 0, 1+len(p.Attachments))
+	blocks := make([]map[string]any, 0, 2+len(p.Attachments))
+	// The preface says who is speaking (another session, galopin): the agent
+	// reads it first, the transcript never shows it as the person's text.
+	if p.Preface != "" {
+		blocks = append(blocks, map[string]any{"type": "text", "text": p.Preface})
+	}
 	if p.Text != "" {
 		blocks = append(blocks, map[string]any{"type": "text", "text": p.Text})
 	}

@@ -43,6 +43,9 @@ type Config struct {
 	// StartupTimeout bounds Start's wait for the initialize handshake to
 	// complete (default 30s).
 	StartupTimeout time.Duration
+	// Tools offers galopin's coordination tools to the agent over MCP (tools.go)
+	// when the agent can use an HTTP MCP server. The machine's policy decides.
+	Tools bool
 	// Logf receives lifecycle-only messages: started, ready, restarting,
 	// exited (R6 — never frame or response bodies, which may carry a
 	// user's prompt text).
@@ -67,6 +70,7 @@ type acpAgentCapabilities struct {
 	sessionList   bool
 	sessionClose  bool
 	sessionResume bool
+	mcpHTTP       bool
 }
 
 func parseAgentCapabilities(raw map[string]any) acpAgentCapabilities {
@@ -78,6 +82,7 @@ func parseAgentCapabilities(raw map[string]any) acpAgentCapabilities {
 		sessionList:   present(sess, "list"),
 		sessionClose:  present(sess, "close"),
 		sessionResume: present(sess, "resume"),
+		mcpHTTP:       getBool(getMap(raw, "mcpCapabilities"), "http"),
 	}
 }
 
@@ -111,6 +116,8 @@ type Backend struct {
 	reg *registry
 	// sels is galopin's own selector state per session (permissions.go).
 	sels selectors
+	// tools is the MCP tool subsystem's state (tools.go).
+	tools toolState
 
 	events   chan backend.BackendEvent
 	eventsMu sync.Mutex
@@ -148,6 +155,7 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	b.infoMu.Lock()
 	images := b.agentCaps.promptImage
 	b.infoMu.Unlock()
+	tools := b.MCPCapable()
 	// Diff/Children/Usage/Compact/Worktrees/Questions: ACP has no wire
 	// message for any of these (PROTOCOL.md §2) — the user-question tool
 	// design's fallback for a backend without a native question mechanism
@@ -166,6 +174,9 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		// ToolImages: an image content item on a tool call, served from
 		// memory ("no longer on the machine" after a galopin restart).
 		ToolImages: true,
+		// galopin's coordination tools reach the agent as an MCP server per
+		// session (tools.go); the selector state they need is this backend's.
+		AgentTools: tools, ScheduleTools: tools, CoordinationGrant: tools,
 	}
 }
 

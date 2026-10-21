@@ -34,6 +34,7 @@ type coordBackend struct {
 	answer      func(backend.PermissionRequest) (backend.Decision, string)
 	layers      func() permrules.Layers
 	handler     backend.ToolHandler
+	issuer      backend.MCPIssuer
 	// failAddException makes every AddException fail, for the spawn
 	// inheritance tests' copy-failure case.
 	failAddException bool
