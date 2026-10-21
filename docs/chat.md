@@ -77,7 +77,9 @@ share links left behind by anything that failed or by older versions, after a
 ## Dictation
 
 Where your browser offers speech recognition (Chrome, Edge and Safari, including
-Safari on iOS), a **microphone button** sits at the right of the message box,
+Safari on iOS) and your administrator has left it on (see
+[Voice](chat-admin.md#voice): by default it is offered only when the deployment
+has no voice-recording model of its own), a **microphone button** sits at the right of the message box,
 here and in the agent composer. Click it (or Tab to it and press Enter) to
 start dictating and click it again to stop; its label reads **Start dictation**
 or **Stop dictation**, and while it listens it turns red and pulses.

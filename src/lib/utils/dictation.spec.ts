@@ -4,6 +4,8 @@ import {
 	dictationAnchor,
 	dictationErrorMessage,
 	dictationLanguage,
+	dictationOffered,
+	parseDictationMode,
 	getSpeechRecognition,
 	joinTranscript,
 } from "./dictation";
@@ -51,5 +53,32 @@ describe("dictation helpers", () => {
 			expect(m?.length ?? 0).toBeLessThan(100);
 		}
 		expect(dictationErrorMessage("aborted")).toBeNull();
+	});
+});
+
+describe("the deployment switch", () => {
+	it("defaults to fallback for anything unset or unknown", () => {
+		for (const v of [undefined, null, "", "  ", "maybe"]) {
+			expect(parseDictationMode(v)).toBe("fallback");
+		}
+		expect(parseDictationMode(" YES ")).toBe("yes");
+		expect(parseDictationMode("no")).toBe("no");
+	});
+
+	it("offers the button per mode, browser support and server transcription", () => {
+		// [mode, browser supports, server transcription] -> shown
+		const table: [Parameters<typeof dictationOffered>[0], boolean, boolean, boolean][] = [
+			["yes", true, false, true],
+			["yes", true, true, true],
+			["no", true, false, false],
+			["no", true, true, false],
+			["fallback", true, false, true],
+			["fallback", true, true, false],
+			["yes", false, false, false],
+			["fallback", false, false, false],
+		];
+		for (const [mode, supported, transcription, shown] of table) {
+			expect(dictationOffered(mode, supported, transcription)).toBe(shown);
+		}
 	});
 });

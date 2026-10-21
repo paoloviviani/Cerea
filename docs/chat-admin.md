@@ -33,6 +33,7 @@ server; the page's gate is for navigation, never a permission.
 | **Fetching**   | Which backend fetches a URL: a plain HTTPS request, or the [headless browser](browser.md), with a live check of whether the renderer answers                                                                            |
 | **Connectors** | MCP servers offered to everybody: see [Connectors](connectors.md#connectors-for-everybody)                                                                                                                              |
 | **Skills**     | Deployment-wide skills that every account sees; the bundled ones can be switched off by name (`CHAT_SKILLS_DISABLED`)                                                                                                   |
+| **Voice**      | Whether the composer offers browser dictation: yes, no, or only when no voice model is available (the default): see below                                                                                               |
 | **Storage**    | How long files produced by code are kept: see below                                                                                                                                                                     |
 
 **Knowledge** puts the configuration and its consequences together on purpose.
@@ -56,6 +57,26 @@ not search for it, you fetch it, and the only question is what does the
 reading. Selecting the headless browser before its service is up is a legitimate
 order of operations, so the health check warns and never locks the setting. The
 status meanings are on the [browser page](browser.md#turning-it-on).
+
+## Voice
+
+**Enable browser dictation** decides whether the composer shows a microphone
+button that types what a person says, using the speech recognition built into
+their browser (see [Dictation](chat.md#dictation)). Three values:
+
+- **Yes**: always offered, in browsers that support it.
+- **No**: never offered.
+- **Only when no voice model is available** (the default): offered only when
+  the deployment has no server-side transcription model (`TRANSCRIPTION_MODEL`),
+  so the recorder button and the dictation button are never shown together.
+
+It is a deployment decision, and not each person's, because Chrome, Edge and
+Safari may send the audio to their vendor's cloud for recognition; this
+deployment never receives it. Firefox has no recognition and shows no button
+whatever the setting. The value is stored in the chat's configuration (changing
+it is logged with who made the change) and overrides `CHAT_DICTATION`; with
+`ENABLE_CONFIG_MANAGER` off it can only be set in the environment. People see
+a change the next time the page loads.
 
 ## Storage
 

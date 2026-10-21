@@ -26,6 +26,8 @@
 
 	import {
 		composeDictation,
+		dictationOffered,
+		parseDictationMode,
 		dictationAnchor,
 		dictationErrorMessage,
 		dictationLanguage,
@@ -131,6 +133,11 @@
 		 * empty, saved debounced while typing, dropped the moment the value
 		 * empties (a landed send clears it; a refused one never does). */
 		draftKey?: string | null;
+		/** Whether this composer has the server-side voice recorder beside it
+		 * (the chat does when a transcription model is configured; an agent
+		 * composer never does). Only matters when the deployment offers
+		 * dictation "only when no voice model is available". */
+		voiceRecorder?: boolean;
 	}
 
 	let {
@@ -156,6 +163,7 @@
 		slashCommands = null,
 		onslashcommand,
 		draftKey = null,
+		voiceRecorder = true,
 	}: Props = $props();
 
 	// Per caller, from the root layout: no granted search backend means the
@@ -592,6 +600,15 @@
 	onMount(() => {
 		dictationSupported = getSpeechRecognition() !== null;
 	});
+	// The administrator's switch, with the support check and, for "fallback",
+	// whether the server-side recorder is already offered here.
+	const showDictation = $derived(
+		dictationOffered(
+			parseDictationMode((page.data as { dictationMode?: string }).dictationMode),
+			dictationSupported,
+			voiceRecorder && !!(page.data as { transcriptionEnabled?: boolean }).transcriptionEnabled
+		)
+	);
 
 	/** Ends the session now: no late result is applied. Safe to call anytime. */
 	function cancelDictation() {
@@ -957,7 +974,7 @@
 			     argument (ghostHint's own rule). -->
 			<div
 				class="pointer-events-none absolute inset-x-0 top-0 px-2.5 py-2.5 sm:px-3"
-				style:right={dictationSupported && !disabled ? "2.25rem" : undefined}
+				style:right={showDictation && !disabled ? "2.25rem" : undefined}
 				aria-hidden="true"
 			>
 				<span class="break-all whitespace-pre text-transparent select-none">{value}</span><span
@@ -1016,7 +1033,7 @@
 			onbeforeinput={requireAuthUser}
 		></textarea>
 
-		{#if dictationSupported && !disabled}
+		{#if showDictation && !disabled}
 			<!-- Dictation. mousedown is prevented so a click keeps the caret in
 			     the textarea (a blur would end the session it is about to
 			     start); the keyboard reaches it by Tab like any button. -->

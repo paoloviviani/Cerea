@@ -7,6 +7,7 @@ import { memoryEnabled } from "$lib/server/memoryEnabled";
 import { codeAgentsAllowedFor } from "$lib/server/codeEnabled";
 import { machineClientId } from "$lib/server/code/machineAuth";
 import type { FeatureFlags } from "$lib/server/api/types";
+import { dictationMode } from "$lib/server/dictation";
 import { mlAssistantModelIds } from "$lib/server/mlAssistantModels";
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -30,6 +31,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		loginEnabled,
 		isAdmin: locals.isAdmin,
 		transcriptionEnabled: !!config.get("TRANSCRIPTION_MODEL"),
+		dictationMode: dictationMode(),
 		taskModelId,
 		mlAssistantModels: mlAssistantModelIds(),
 		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",

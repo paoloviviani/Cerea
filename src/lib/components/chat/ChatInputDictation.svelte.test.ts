@@ -42,14 +42,14 @@ class FakeRecognition {
 const last = () => FakeRecognition.instances[FakeRecognition.instances.length - 1];
 const settingsContext = new Map<string, unknown>([["settings", writable({ activeModel: "m" })]]);
 
-function mount(props: Record<string, unknown> = {}) {
+function mount(props: Record<string, unknown> = {}, flags: Record<string, unknown> = {}) {
 	return renderWithApp(
 		ChatInput,
 		{ placeholder: "Ask anything", ...props },
 		{
 			page: {
 				params: {},
-				data: { user: { username: "tester" }, loginEnabled: true, shared: false },
+				data: { user: { username: "tester" }, loginEnabled: true, shared: false, ...flags },
 			},
 			context: settingsContext,
 		}
@@ -289,5 +289,33 @@ describe("ChatInput dictation", () => {
 		await tick();
 		expect(FakeRecognition.instances.length).toBe(2);
 		expect(last().started).toBe(true);
+	});
+});
+
+describe("ChatInput dictation, the administrator's switch", () => {
+	const cases: [string | undefined, boolean, boolean][] = [
+		[undefined, false, true],
+		[undefined, true, false],
+		["fallback", false, true],
+		["fallback", true, false],
+		["yes", false, true],
+		["yes", true, true],
+		["no", false, false],
+		["no", true, false],
+	];
+	for (const [dictationMode, transcriptionEnabled, shown] of cases) {
+		it(`mode ${dictationMode ?? "unset"}, transcription ${transcriptionEnabled ? "on" : "off"}: ${shown ? "shown" : "hidden"}`, async () => {
+			w.SpeechRecognition = FakeRecognition;
+			mount({}, { dictationMode, transcriptionEnabled });
+			await tick();
+			expect(maybeMic() !== null).toBe(shown);
+		});
+	}
+
+	it("an agent composer has no recorder, so fallback still offers dictation", async () => {
+		w.SpeechRecognition = FakeRecognition;
+		mount({ voiceRecorder: false }, { dictationMode: "fallback", transcriptionEnabled: true });
+		await tick();
+		expect(maybeMic()).not.toBeNull();
 	});
 });

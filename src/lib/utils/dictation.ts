@@ -105,3 +105,25 @@ export function joinTranscript(results: ArrayLike<SpeechRecognitionResultLike>):
 	}
 	return out;
 }
+
+/** The deployment-wide switch (Administration -> Voice). */
+export const DICTATION_MODES = ["yes", "no", "fallback"] as const;
+export type DictationMode = (typeof DICTATION_MODES)[number];
+
+/** A stored or env value, read leniently; anything unknown is the default. */
+export function parseDictationMode(value: string | undefined | null): DictationMode {
+	const raw = (value ?? "").trim().toLowerCase();
+	return (DICTATION_MODES as readonly string[]).includes(raw) ? (raw as DictationMode) : "fallback";
+}
+
+/** Whether the composer shows the dictation button: the deployment allows it,
+ * the browser can do it, and (in `fallback`) no server-side recorder is
+ * already there. */
+export function dictationOffered(
+	mode: DictationMode,
+	browserSupported: boolean,
+	serverTranscription: boolean
+): boolean {
+	if (!browserSupported || mode === "no") return false;
+	return mode === "yes" || !serverTranscription;
+}
