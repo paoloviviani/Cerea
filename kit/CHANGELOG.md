@@ -5,6 +5,28 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.20.0 — 2026-10-21
+
+Pins: Cerea `0.20.0`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
+Update the deployment (`docker compose pull && docker compose up -d`).
+**Machines need the galopin update** for profiles (re-run the install line from
+the pairing dialog, then `systemctl --user restart galopin`); with an older
+galopin the Profiles menu says so and stays disabled.
+
+- **Delegate profiles per machine, edited in the agents panel.** Each machine
+  row's menu (···) has **Profiles**: a list of named profiles, each tied to a
+  model that machine offers, with one default. When an agent delegates work it
+  can name a profile; without one it uses the default profile's model, and
+  with no default the spawning session's model, as before. Profiles choose
+  the model only and never change permissions.
+- **Changed from v0.19.0:** profiles no longer carry a permission mode or
+  notes, and the built-in `worker`, `reviewer` and `explorer` profiles are
+  gone. A read-only delegate uses plan mode instead (committees now take a
+  mode too). An existing `profiles.json` keeps the entries that name a model
+  and is rewritten in the new format on the next save.
+- An agent integration test that could miss a fast event on slow machines is
+  fixed at the cause.
+
 ## v0.19.1 — 2026-10-21
 
 Pins: Cerea `0.19.1`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
