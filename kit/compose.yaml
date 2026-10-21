@@ -10,7 +10,7 @@
 # dev/build.sh builds the same images from source and points .env at them.
 #
 # Add-ons are compose profiles chosen by COMPOSE_PROFILES in .env: gateway,
-# chat, authelia, redaction, documents, fetch. Profiles select services; they never change
+# chat, authelia, redaction, documents, fetch, office. Profiles select services; they never change
 # what a service is.
 #
 # Caddy and Authelia run their stock images. Their configuration is the
@@ -439,6 +439,10 @@ services:
       # the two in step). Empty: the chat reports "not configured" instead of
       # probing a service that is not there.
       PLAYWRIGHT_WS_ENDPOINT: ${PLAYWRIGHT_WS_ENDPOINT:-}
+      # Set only while the office profile runs Gotenberg (./configure keeps the
+      # two in step). Empty: no Office previews through LibreOffice and no
+      # convert_document tool; PowerPoint previews fall back to the browser.
+      CHAT_GOTENBERG_URL: ${CHAT_GOTENBERG_URL:-}
       CHAT_CODE_TOOL_ENABLED: ${CHAT_CODE_TOOL_ENABLED-true}
       CHAT_USAGE_ENABLED: ${CHAT_USAGE_ENABLED-true}
       CHAT_CONSOLE_ENABLED: ${CHAT_CONSOLE_ENABLED-true}
@@ -506,6 +510,10 @@ services:
       PROTOCOL_HEADER: X-Forwarded-Proto
       HOST_HEADER: X-Forwarded-Host
       NODE_OPTIONS: --dns-result-order=ipv4first
+    # `default` is the stack's network; `office` is the internal-only one the
+    # document converter lives on (see the office profile below). Listing a
+    # network replaces the implicit default, so both are named.
+    networks: [default, office]
     depends_on:
       chat-mongo:
         condition: service_healthy
@@ -566,6 +574,63 @@ services:
       retries: 5
       start_period: 60s
 
+  # --- profile: office (Gotenberg: Office files to PDF for the chat) ----------
+  #
+  # Gotenberg runs LibreOffice and Chromium on documents people upload, which
+  # is parsing untrusted files in a large program. So it is boxed in:
+  #   - only the `office` network, which is `internal: true` (no route out, no
+  #     published port): the chat reaches it, nothing else does and it reaches
+  #     nothing, whatever a hostile document asks LibreOffice or Chromium to
+  #     fetch. The URL filters below are a second layer, not the first;
+  #   - no volumes: nothing shared with another service, scratch space is
+  #     tmpfs and the root filesystem is read-only;
+  #   - no capabilities, no privilege escalation, a process cap, and CPU and
+  #     memory limits (a conversion takes hundreds of MB; a bomb takes the
+  #     container down, not the host);
+  #   - its own timeouts: the API gives up on a request after
+  #     GOTENBERG_API_TIMEOUT, LibreOffice restarts every 20 conversions, and
+  #     the queues are short, so a flood is refused rather than piled up.
+  # JavaScript is off in Chromium, and downloadFrom (Gotenberg fetching a URL
+  # it is given) is off.
+
+  gotenberg:
+    profiles: [office]
+    image: ${GOTENBERG_IMAGE:-gotenberg/gotenberg:8.38.1}
+    command:
+      - gotenberg
+      - --api-timeout=${GOTENBERG_API_TIMEOUT:-60s}
+      - --api-body-limit=32MB
+      - --api-disable-download-from
+      - --pdfengines-disable-routes
+      - --libreoffice-deny-private-ips
+      - --libreoffice-deny-public-ips
+      - --libreoffice-restart-after=20
+      - --libreoffice-max-queue-size=8
+      - --libreoffice-idle-shutdown-timeout=120s
+      - --chromium-disable-javascript
+      - --chromium-deny-private-ips
+      - --chromium-deny-public-ips
+      - --chromium-max-concurrency=2
+      - --chromium-max-queue-size=8
+      - --chromium-idle-shutdown-timeout=120s
+    networks: [office]
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/gotenberg
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${GOTENBERG_MEM_LIMIT:-2g}
+    cpus: ${GOTENBERG_CPUS:-2}
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 # The names are the ones every existing install already has, so adopting an
 # install under its old project name mounts the same data.
 volumes:
@@ -576,3 +641,9 @@ volumes:
   authelia-data:
   caddy-data:
   caddy-config:
+
+networks:
+  # No route out: Docker gives an internal network no gateway and publishes no
+  # port onto it. Created on every `up` (empty without the office profile).
+  office:
+    internal: true

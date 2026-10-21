@@ -56,6 +56,7 @@ import { deleteConversationAttachments } from "$lib/server/files/deleteConversat
 import { conversationSourceRef, deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import { deleteAttachmentsByPrefix } from "$lib/server/files/attachmentStore";
 import { deleteProjectDocuments } from "$lib/server/projectDocuments";
+import { releasePreviewOwners, releasePreviewOwnerStrings } from "$lib/server/office/previewStore";
 
 export type MergeRuleKind =
 	| "reassign"
@@ -355,6 +356,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			await deleteConversationAttachments(ctx.conversationIds);
 			if (sharedIds.length > 0) {
 				await eraseBucketMatching({ "metadata.conversation": { $in: sharedIds } });
+				await releasePreviewOwners("att", sharedIds);
 			}
 			return count;
 		},
@@ -672,6 +674,11 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 				docs.map((doc) => collections.codeOutputBucket.delete(doc.gridFsId).catch(() => undefined))
 			);
 			const { deletedCount } = await collections.codeExecutionOutputs.deleteMany({ userId });
+			// The Office previews made from those files go too, unless another
+			// account's identical file still uses the same one.
+			await releasePreviewOwnerStrings(
+				docs.map((doc) => `out:${doc.conversationId.toString()}-${doc.sha256}`)
+			);
 			return deletedCount;
 		},
 	},

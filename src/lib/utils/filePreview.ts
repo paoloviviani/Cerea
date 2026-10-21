@@ -10,10 +10,17 @@
  *   fallback for engines that draw no PDF in a frame;
  * - `docx` renders through docx-preview offscreen and is sanitised with
  *   DOMPurify before it reaches any panel;
+ * - `office` is a Word, Excel, PowerPoint or OpenDocument file the server
+ *   turned into a PDF (Gotenberg, when the deployment has it): the PDF then
+ *   goes through the `pdf` path above;
+ * - `pptx` is a PowerPoint deck drawn in the browser by pptx-glimpse, as
+ *   images (never as live SVG markup), when there is no converter;
  * - anything else is metadata plus the download, which is always available.
  */
 
-export type FilePreviewKind = "text" | "image" | "pdf" | "docx" | "none";
+import { isOfficeDocument } from "./officeFormats";
+
+export type FilePreviewKind = "text" | "image" | "pdf" | "docx" | "office" | "pptx" | "none";
 
 /** A pdf travels whole (the viewer needs every byte) as a data: URL, so the
  * same cap applies: base64 inflates a third on top. */
@@ -79,13 +86,23 @@ export function fileExtensionOf(name: string): string {
  */
 export function filePreviewKindFor(
 	name: string,
-	options: { fromBytes?: boolean } = {}
+	options: {
+		fromBytes?: boolean;
+		/**
+		 * The server can convert this file: the deployment has a converter AND
+		 * the file is in the server's store (a path the preview route serves).
+		 */
+		officePreview?: boolean;
+	} = {}
 ): FilePreviewKind {
-	const { fromBytes = true } = options;
+	const { fromBytes = true, officePreview = false } = options;
 	const extension = fileExtensionOf(name);
 	if (TEXT_EXTENSIONS.has(extension)) return "text";
 	if (IMAGE_EXTENSIONS.has(extension)) return "image";
 	if (extension === "pdf") return "pdf";
+	if (officePreview && fromBytes && isOfficeDocument(name)) return "office";
+	// Without a converter a deck still draws in the browser, from any byte source.
+	if (extension === "pptx") return fromBytes ? "pptx" : "none";
 	// Word documents render through docx-preview from fetched bytes, so every
 	// byte source qualifies — live sandbox, persisted store, replay.
 	if (extension === "docx") return fromBytes ? "docx" : "none";
@@ -169,8 +186,19 @@ export function fileKindLabel(name: string, mime?: string): string {
 		case "xml":
 		case "tex":
 			return "Code";
+		case "doc":
 		case "docx":
+		case "odt":
+		case "rtf":
 			return "Word";
+		case "xls":
+		case "xlsx":
+		case "ods":
+			return "Spreadsheet";
+		case "ppt":
+		case "pptx":
+		case "odp":
+			return "Slides";
 		case "txt":
 		case "log":
 			return "Text";

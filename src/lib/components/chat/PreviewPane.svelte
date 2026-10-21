@@ -3,6 +3,7 @@
 	import { onMount, onDestroy } from "svelte";
 	import CarbonDocument from "~icons/carbon/document";
 	import SidePane from "./SidePane.svelte";
+	import SlideImages from "./SlideImages.svelte";
 	import ExternalLinkModal from "../ExternalLinkModal.svelte";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import {
@@ -64,7 +65,7 @@
 	});
 
 	let srcdoc = $derived(
-		!payload || payload.kind === "pdf"
+		!payload || payload.kind === "pdf" || payload.kind === "slides"
 			? ""
 			: payload.kind === "docx"
 				? // Already-sanitized docx-preview HTML: the docx builder adds the
@@ -138,7 +139,16 @@
 		{#snippet children(resizing)}
 			<div class="flex h-full flex-col">
 				<div class="relative min-h-0 flex-1">
-					{#if payload.kind === "pdf" && browserRendersPdfInFrame()}
+					{#if payload.kind === "slides"}
+						<!-- A PowerPoint deck drawn in the browser: one <img> per slide,
+						     never the SVG as markup (it comes from a user's file). -->
+						<SlideImages
+							title={payload.title}
+							slides={payload.slides ?? []}
+							note={payload.note}
+							details={payload.details}
+						/>
+					{:else if payload.kind === "pdf" && browserRendersPdfInFrame()}
 						<!-- A pdf IS its own document type: the browser's native
 						     viewer draws it, so there is no srcdoc to build and
 						     nothing generated to execute. The sandbox token set is

@@ -116,6 +116,7 @@ export const load = async ({ fetch, url, data }) => {
 		codeFilesEnabled: data.codeFilesEnabled,
 		codeTerminalEnabled: data.codeTerminalEnabled,
 		codeSchedulesEnabled: data.codeSchedulesEnabled,
+		officePreviewEnabled: data.officePreviewEnabled,
 		settings,
 		publicConfig: getConfigManager(publicConfig as Record<`PUBLIC_${string}`, string>),
 		mcpBaseServers,

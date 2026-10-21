@@ -86,3 +86,35 @@ describe("the inline raster rule", () => {
 		}
 	});
 });
+
+describe("filePreviewKindFor, Office files", () => {
+	test("with a converter every Office format previews as the server's PDF", () => {
+		for (const name of [
+			"a.docx",
+			"b.xlsx",
+			"c.pptx",
+			"d.odt",
+			"e.ODS",
+			"f.odp",
+			"g.rtf",
+			"h.doc",
+		]) {
+			expect(filePreviewKindFor(name, { officePreview: true }), name).toBe("office");
+		}
+	});
+
+	test("never for inline content or files outside the server's store, and never for non-Office names", () => {
+		expect(filePreviewKindFor("a.docx", { officePreview: true, fromBytes: false })).toBe("none");
+		expect(filePreviewKindFor("a.txt", { officePreview: true })).toBe("text");
+		expect(filePreviewKindFor("a.pdf", { officePreview: true })).toBe("pdf");
+		expect(filePreviewKindFor("a.png", { officePreview: true })).toBe("image");
+	});
+
+	test("without a converter: Word keeps docx-preview, a deck draws in the browser, the rest has none", () => {
+		expect(filePreviewKindFor("a.docx")).toBe("docx");
+		expect(filePreviewKindFor("a.pptx")).toBe("pptx");
+		expect(filePreviewKindFor("a.pptx", { fromBytes: false })).toBe("none");
+		expect(filePreviewKindFor("a.xlsx")).toBe("none");
+		expect(filePreviewKindFor("a.odt")).toBe("none");
+	});
+});

@@ -58,11 +58,18 @@
 
 <script lang="ts">
 	import { onDestroy, untrack } from "svelte";
+	import { page } from "$app/state";
 	import CarbonDownload from "~icons/carbon/download";
 	import CarbonDocument from "~icons/carbon/document";
 	import PlayFilledAlt from "~icons/carbon/play-filled-alt";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { renderDocxPreview } from "$lib/utils/docxPreview";
+	import {
+		officePreviewEnabledIn,
+		pdfPayloadFor,
+		previewUrlFor,
+		slidesPayloadFor,
+	} from "$lib/utils/officePreview";
 	import {
 		FILE_PREVIEW_MAX_BYTES,
 		FILE_PREVIEW_TEXT_CHARS,
@@ -135,8 +142,13 @@
 	// Renderer selection lives in $lib/utils/filePreview (shared with the
 	// artifact panel's file view so the two cannot drift); only the inline
 	// flag is local: direct-emission text is never a docx.
+	// An Office file the server can convert is one in its store (`downloadUrl`)
+	// on a deployment with a converter; a deck otherwise draws in the browser.
 	const previewKind = $derived(
-		filePreviewKindFor(name, { fromBytes: inlineContent === undefined })
+		filePreviewKindFor(name, {
+			fromBytes: inlineContent === undefined,
+			officePreview: officePreviewEnabledIn(page.data) && downloadUrl !== undefined,
+		})
 	);
 
 	/** UTF-8 byte length of the inline content; only computed in direct-emission mode. */
@@ -250,6 +262,40 @@
 			previewBusy = false;
 		}
 	}
+	/**
+	 * An Office file's PDF, made by the server (`<download url>/preview`, made
+	 * on the first view and kept), in the same pane as any PDF.
+	 */
+	async function openOfficePreview(): Promise<void> {
+		previewBusy = true;
+		previewError = null;
+		try {
+			sidePane.openPreview(await pdfPayloadFor(name, previewUrlFor(downloadUrl ?? "")));
+		} catch (err) {
+			previewError =
+				err instanceof Error ? err.message : "the preview is unavailable; the download still works";
+			previewOpen = true;
+		} finally {
+			previewBusy = false;
+		}
+	}
+
+	/** A PowerPoint deck drawn in the browser (no converter), as images in the same pane. */
+	async function openPptxPreview(): Promise<void> {
+		previewBusy = true;
+		previewError = null;
+		try {
+			const data = await readBytes();
+			const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+			sidePane.openPreview(await slidesPayloadFor(name, bytes));
+		} catch (err) {
+			previewError =
+				err instanceof Error ? err.message : "the preview is unavailable; the download still works";
+			previewOpen = true;
+		} finally {
+			previewBusy = false;
+		}
+	}
 	async function openDocxPreview(): Promise<void> {
 		previewBusy = true;
 		previewError = null;
@@ -297,6 +343,14 @@
 		}
 		if (previewKind === "pdf") {
 			await openPdfPreview();
+			return;
+		}
+		if (previewKind === "office") {
+			await openOfficePreview();
+			return;
+		}
+		if (previewKind === "pptx") {
+			await openPptxPreview();
 			return;
 		}
 		previewOpen = true;

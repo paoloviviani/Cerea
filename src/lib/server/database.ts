@@ -1081,6 +1081,15 @@ export class Database {
 		bucketFiles
 			.createIndex({ "metadata.conversation": 1, "metadata.messageId": 1 })
 			.catch((e) => logger.error(e, "Error creating index for attachment owner tags"));
+		// Office previews (`office/previewStore.ts`) name the source files that use
+		// them in `metadata.owners`; releasing a deleted conversation's files
+		// matches those by prefix.
+		bucketFiles
+			.createIndex(
+				{ "metadata.owners": 1 },
+				{ partialFilterExpression: { "metadata.preview": true } }
+			)
+			.catch((e) => logger.error(e, "Error creating index for office preview owners"));
 	}
 }
 

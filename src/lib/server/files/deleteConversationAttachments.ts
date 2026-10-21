@@ -24,6 +24,7 @@ import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import type { Conversation } from "$lib/types/Conversation";
+import { releasePreviewOwners } from "$lib/server/office/previewStore";
 
 /**
  * What `metadata.conversation` holds: a conversation's ObjectId, or the
@@ -64,5 +65,16 @@ export async function deleteConversationAttachments(
 					)
 				)
 		)
+	);
+
+	// The Office previews made from these files (`office/previewStore.ts`) are
+	// derived from them and go with them — unless another conversation's file
+	// has the same bytes and still uses the same preview. Best effort: the
+	// orphan sweep drops owners whose source is gone.
+	await releasePreviewOwners(
+		"att",
+		ids.map((id) => id.toString())
+	).catch((err) =>
+		logger.error({ err }, "failed to release office previews of deleted attachments")
 	);
 }

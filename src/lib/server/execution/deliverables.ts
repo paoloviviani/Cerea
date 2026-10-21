@@ -8,6 +8,12 @@ import { MAX_FILE_BYTES } from "$lib/utils/execution/protocol";
 import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 import type { Conversation } from "$lib/types/Conversation";
 import type { User } from "$lib/types/User";
+import {
+	previewInBackground,
+	previewOwner,
+	releasePreviewOwnerStrings,
+	wantsEagerPreview,
+} from "$lib/server/office/previewStore";
 
 /**
  * Server-side, per-user persistence for `execute_code` deliverables (ADR
@@ -174,6 +180,16 @@ export async function storeDeliverable({
 		createdAt: new Date(),
 	});
 
+	// A produced Office file is opened at once, so its PDF preview is made now
+	// (when the deployment has a converter) instead of at the first click.
+	if (wantsEagerPreview(name, bytes.byteLength)) {
+		previewInBackground({
+			bytes,
+			name,
+			owner: previewOwner("out", conversationId.toString(), sha256),
+		});
+	}
+
 	return { ok: true, ref: { name, size: bytes.byteLength, sha256 } };
 }
 
@@ -196,7 +212,9 @@ export async function downloadDeliverable(
 	return { buffer, name: meta.name, mime: meta.mime };
 }
 
-async function deleteRows(rows: Array<{ _id: ObjectId; gridFsId: ObjectId }>): Promise<void> {
+async function deleteRows(
+	rows: Array<{ _id: ObjectId; gridFsId: ObjectId; conversationId?: ObjectId; sha256?: string }>
+): Promise<void> {
 	if (rows.length === 0) return;
 	await Promise.all(
 		rows.map((row) =>
@@ -211,6 +229,14 @@ async function deleteRows(rows: Array<{ _id: ObjectId; gridFsId: ObjectId }>): P
 		)
 	);
 	await collections.codeExecutionOutputs.deleteMany({ _id: { $in: rows.map((row) => row._id) } });
+	// Their Office previews are derived from them (`office/previewStore.ts`).
+	await releasePreviewOwnerStrings(
+		rows.flatMap((row) =>
+			row.conversationId && row.sha256
+				? [previewOwner("out", row.conversationId.toString(), row.sha256)]
+				: []
+		)
+	).catch((err) => logger.error({ err }, "[code-execution] failed to release office previews"));
 }
 
 /**
@@ -226,7 +252,11 @@ export async function deleteConversationDeliverables(
 	if (ids.length === 0) return;
 	const rows = await collections.codeExecutionOutputs
 		.find({ conversationId: { $in: ids } })
-		.project<{ _id: ObjectId; gridFsId: ObjectId }>({ gridFsId: 1 })
+		.project<{ _id: ObjectId; gridFsId: ObjectId; conversationId: ObjectId; sha256: string }>({
+			gridFsId: 1,
+			conversationId: 1,
+			sha256: 1,
+		})
 		.toArray();
 	await deleteRows(rows);
 	// The records naming which message those files belonged to go with them.
@@ -258,7 +288,11 @@ export async function sweepExpiredDeliverables(
 	for (;;) {
 		const stale = await collections.codeExecutionOutputs
 			.find({ createdAt: { $lt: cutoff } })
-			.project<{ _id: ObjectId; gridFsId: ObjectId }>({ gridFsId: 1 })
+			.project<{ _id: ObjectId; gridFsId: ObjectId; conversationId: ObjectId; sha256: string }>({
+				gridFsId: 1,
+				conversationId: 1,
+				sha256: 1,
+			})
 			.limit(SWEEP_BATCH)
 			.toArray();
 		if (stale.length === 0) break;
