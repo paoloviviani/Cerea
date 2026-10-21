@@ -5,6 +5,28 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.18.0 — 2026-10-21
+
+Pins: Cerea `0.18.0`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
+Update the deployment (`docker compose pull && docker compose up -d`). Nothing
+changes unless you opt in to the office profile below.
+
+- **Office previews and document conversion (optional).**
+  `./configure --office-preview && docker compose up -d` adds Gotenberg, which
+  turns Word, Excel, PowerPoint and OpenDocument files into PDF previews in the
+  chat, and gives models a `convert_document` tool (a conversation's file, or
+  Markdown or HTML the model writes, to PDF).
+  - **Isolation:** it runs on an internal-only network with no internet access
+    and no published ports, read-only, with CPU, memory and time limits.
+  - **Previews:** cached by file content and kept as long as a file uses them.
+    Files the model generates are converted straight away.
+  - **Off by default;** `--no-office-preview` removes it. The Gotenberg image
+    is about 1.5 GB.
+- **Without the office profile, PowerPoint decks now preview in the browser**
+  (approximately: the preview says so), with the fonts loaded only when a deck
+  is opened.
+- Two tests that failed on slower machines are fixed at the cause.
+
 ## v0.17.0 — 2026-10-21
 
 Pins: Cerea `0.17.0`, Pystino `0.13.0`, Authelia 4.39.22 (unchanged). Update the
