@@ -21,7 +21,6 @@ export const ACTIVE_GENERATIONS_CONTEXT_KEY = "activeGenerationsStore";
  * sidebar can flag a run that died while nobody was looking.
  */
 export type ParkedTurnStatus = "waiting" | "awaiting_input" | "failed";
-export type LiveTurnStatus = "running" | ParkedTurnStatus;
 
 export interface ParkedTurn {
 	status: ParkedTurnStatus;
@@ -35,21 +34,6 @@ class ActiveGenerationsStore {
 
 	has(conversationId: string | ObjectId): boolean {
 		return this.#ids.has(String(conversationId));
-	}
-
-	/**
-	 * The conversation's live turn status, or undefined when it is idle. A
-	 * running producer wins over a stale parked row: the resume rewrites the
-	 * turn state to running, but the two snapshots arrive on the same tick.
-	 */
-	statusFor(conversationId: string | ObjectId): LiveTurnStatus | undefined {
-		const id = String(conversationId);
-		if (this.#ids.has(id)) return "running";
-		const parked = this.#parked.get(id);
-		if (!parked) return undefined;
-		// Backstop only — pruneExpired() is what makes an expiry re-render.
-		if (parked.expiresAt !== undefined && parked.expiresAt <= Date.now()) return undefined;
-		return parked.status;
 	}
 
 	/** Replace the running set with the latest snapshot from the server. */

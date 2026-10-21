@@ -8,7 +8,6 @@ import { mcpLocalsFor } from "$lib/server/mcp/selection";
 import { onExit } from "$lib/server/exitHandler";
 import { buildSubtree } from "$lib/utils/tree/buildSubtree";
 import { textGeneration } from "$lib/server/textGeneration";
-import { waitResumeResultText } from "$lib/server/textGeneration/builtinTools/waitTool";
 import {
 	buildCodeExecutionResolvedUpdate,
 	codeResumeResultText,
@@ -322,10 +321,10 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 		const resumeResultText =
 			park.kind === "code"
 				? codeResumeResultText(park, tokenExpired)
-				: waitResumeResultText(park) +
+				: `Waited for: ${park.reason}. You are now resumed.` +
 					(tokenExpired
-						? " NOTE: the signed-in session expired while you waited, so Hub tools may " +
-							"be unauthenticated. If one fails that way, say so rather than retrying."
+						? " NOTE: the signed-in session expired while you waited, so tools that need " +
+							"the sign-in may be unauthenticated. If one fails that way, say so rather than retrying."
 						: "");
 		apply({
 			type: MessageUpdateType.Tool,

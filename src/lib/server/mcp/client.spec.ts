@@ -84,41 +84,18 @@ describe("createMcpClient", () => {
 	});
 });
 
-describe("the intern identity", () => {
+describe("the client identities", () => {
 	beforeEach(() => {
 		constructed.length = 0;
 		elicitationEnabled.value = true;
 	});
 
-	it("introduces ML Intern traffic under its own name", () => {
-		// Asked for by an MCP server operator: mode traffic is autonomous,
-		// long-running and job-shaped, and they want to see it separately.
-		createMcpClient("intern");
-
-		expect(built(0).info.name).toBe("chat-ui-intern");
-	});
-
 	it("keeps every kind distinguishable", () => {
 		createMcpClient("session");
-		createMcpClient("intern");
 		createMcpClient("health");
 
-		const names = [built(0), built(1), built(2)].map((c) => c.info.name);
-		expect(new Set(names).size).toBe(3);
-	});
-
-	it("still declares elicitation, which a name check would have dropped", () => {
-		// The capability follows what is behind the client — a chat that can
-		// answer — not what it is called.
-		expect(mcpClientCapabilities("intern")).toEqual({ elicitation: { form: {}, url: {} } });
-		createMcpClient("intern");
-		expect(built(0).options.capabilities.elicitation).toBeDefined();
-		expect(built(0).handlers.size).toBe(1);
-	});
-
-	it("honours the elicitation kill switch like a session does", () => {
-		elicitationEnabled.value = false;
-		expect(mcpClientCapabilities("intern")).toEqual({});
+		const names = [built(0), built(1)].map((c) => c.info.name);
+		expect(new Set(names).size).toBe(2);
 	});
 
 	it("leaves the health probe without elicitation", () => {

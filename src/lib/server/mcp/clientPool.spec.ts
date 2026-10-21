@@ -110,13 +110,13 @@ describe("clients of different kinds", () => {
 
 	it("never share a connection, because the name is sent once at initialize", async () => {
 		const session = await getClient(SERVER, undefined, undefined, "session");
-		const intern = await getClient(SERVER, undefined, undefined, "intern");
+		const health = await getClient(SERVER, undefined, undefined, "health");
 
-		// Handing an intern caller a connection that introduced itself as
+		// Handing a health probe a connection that introduced itself as
 		// chat-ui-mcp would report the wrong name for every call it makes.
-		expect(intern).not.toBe(session);
+		expect(health).not.toBe(session);
 		expect((session as unknown as { kind: string }).kind).toBe("session");
-		expect((intern as unknown as { kind: string }).kind).toBe("intern");
+		expect((health as unknown as { kind: string }).kind).toBe("health");
 	});
 
 	it("still pools within a kind", async () => {
@@ -124,8 +124,8 @@ describe("clients of different kinds", () => {
 		// shared URL would answer from an earlier case's connection.
 		const server = { name: "Own", url: "https://pool-within-kind.example/mcp" };
 
-		const first = await getClient(server, undefined, undefined, "intern");
-		const second = await getClient(server, undefined, undefined, "intern");
+		const first = await getClient(server, undefined, undefined, "health");
+		const second = await getClient(server, undefined, undefined, "health");
 
 		expect(second).toBe(first);
 		expect(built.clients).toHaveLength(1);
@@ -133,8 +133,8 @@ describe("clients of different kinds", () => {
 
 	it("keeps the kind when a prompt needs an attributable connection", async () => {
 		built.era = "legacy";
-		const { client } = await getAttributableClient(SERVER, "conv-1", undefined, "intern");
+		const { client } = await getAttributableClient(SERVER, "conv-1", undefined, "health");
 
-		expect((client as unknown as { kind: string }).kind).toBe("intern");
+		expect((client as unknown as { kind: string }).kind).toBe("health");
 	});
 });

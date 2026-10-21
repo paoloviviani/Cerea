@@ -77,18 +77,14 @@ const settingsContext = (activeModel: string) => ({
 		["settings", writable({ activeModel })],
 		[CONVERSATIONS_CONTEXT_KEY, (convsStore = newConversationsStore())],
 		// NavConversationItem asks this store for the live-turn badge. The class
-		// is not exported, but the shape the rows read is just these three.
+		// is not exported, but the shape the rows read is just these.
 		[
 			ACTIVE_GENERATIONS_CONTEXT_KEY,
 			{
 				has: () => false,
-				statusFor: () => undefined,
 				setRunning: () => undefined,
 			} as {
 				has: (id: string | object) => boolean;
-				statusFor: (
-					id: string | object
-				) => "running" | "waiting" | "awaiting_input" | "failed" | undefined;
 				setRunning: (ids: string[]) => void;
 			},
 		],

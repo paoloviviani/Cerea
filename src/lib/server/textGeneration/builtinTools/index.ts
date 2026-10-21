@@ -15,10 +15,6 @@ import type { BuiltinTool } from "./types";
 export type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
 export { PLAN_TOOL_NAME } from "./planTool";
 export { ARTIFACT_TOOL_NAME } from "./artifactTool";
-export { RESEARCH_TOOL_NAME, isResearchTool } from "./researchTool";
-export { SANDBOX_TOOL_NAME, isSandboxTool } from "./sandboxTool";
-export { JOB_CHECK_TOOL_NAME, isJobCheckTool } from "./jobCheckTool";
-export { CREATE_TRACKIO_TOOL_NAME } from "./createTrackioTool";
 export {
 	REMEMBER_TOOL_NAME,
 	FORGET_TOOL_NAME,
@@ -170,8 +166,7 @@ export function getEnabledBuiltinTools(params: {
 	// this conversation (inheriting project then app defaults at creation and
 	// at turn resolution — settings hold *defaults*, a chat holds *per-chat
 	// state*), and the console's search tier says the deployment permits it. The tool
-	// withholds itself when either is missing — like the GitHub tools do
-	// without a token.
+	// withholds itself when either is missing.
 	//
 	// `conv.webSearch` wins over the passed default when set: an explicit
 	// per-chat `false` must override an app default of `true`, and vice

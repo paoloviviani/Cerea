@@ -128,7 +128,7 @@ describe("NavMenu's Chats header", () => {
 				baseElement: host,
 				// A conversation row asks this store for its live-turn badge.
 				context: new Map<unknown, unknown>([
-					[ACTIVE_GENERATIONS_CONTEXT_KEY, { has: () => false, statusFor: () => undefined }],
+					[ACTIVE_GENERATIONS_CONTEXT_KEY, { has: () => false }],
 				]),
 			}
 		);
