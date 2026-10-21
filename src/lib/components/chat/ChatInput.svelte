@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount, tick } from "svelte";
+	import { onDestroy, onMount, tick, untrack } from "svelte";
 	import { MediaQuery } from "svelte/reactivity";
 
 	import { afterNavigate, goto } from "$app/navigation";
@@ -16,6 +16,7 @@
 	import UrlFetchModal from "./UrlFetchModal.svelte";
 	import CarbonEarth from "~icons/carbon/earth";
 	import LucideShieldCheck from "~icons/lucide/shield-check";
+	import LucideMic from "~icons/lucide/mic";
 	import TogglePill from "$lib/components/TogglePill.svelte";
 	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
 	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
@@ -23,6 +24,16 @@
 	import HfHubMentionAutocomplete from "./HfHubMentionAutocomplete.svelte";
 	import MlInternPill from "./MlInternPill.svelte";
 
+	import {
+		composeDictation,
+		dictationAnchor,
+		dictationErrorMessage,
+		dictationLanguage,
+		getSpeechRecognition,
+		joinTranscript,
+		type DictationAnchor,
+		type SpeechRecognitionLike,
+	} from "$lib/utils/dictation";
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import {
@@ -554,12 +565,111 @@
 		if (slashBlurTimeout) clearTimeout(slashBlurTimeout);
 		hub.destroy();
 		slash.destroy();
+		cancelDictation();
 		// A reload or navigation unmounts mid-debounce: land the draft now.
 		flushDraftPersist();
 	});
 
 	afterNavigate(() => {
+		cancelDictation();
 		void focusTextarea();
+	});
+
+	// Dictation with the browser's speech recognition. The button exists only
+	// where the browser offers it, decided after mount (the server render never
+	// has a `window`). Interim and final text are written into the draft around
+	// what was already typed; anything else that changes the draft (typing, a
+	// send clearing it, a slash command) ends the session, so recognition never
+	// overwrites a later edit.
+	let dictationSupported = $state(false);
+	let listening = $state(false);
+	let micButton: HTMLButtonElement | undefined = $state();
+	let recognition: SpeechRecognitionLike | null = null;
+	let dictationAnchorState: DictationAnchor = { before: "", after: "" };
+	/** The last value dictation itself wrote: a draft that differs was edited. */
+	let lastDictated = "";
+	let textareaEverFocused = false;
+	onMount(() => {
+		dictationSupported = getSpeechRecognition() !== null;
+	});
+
+	/** Ends the session now: no late result is applied. Safe to call anytime. */
+	function cancelDictation() {
+		const rec = recognition;
+		recognition = null;
+		listening = false;
+		if (!rec) return;
+		rec.onresult = null;
+		rec.onerror = null;
+		rec.onend = null;
+		try {
+			rec.abort();
+		} catch {
+			// already stopped
+		}
+	}
+
+	function startDictation() {
+		const Ctor = getSpeechRecognition();
+		if (!Ctor || !textareaElement || disabled || loading) return;
+		const ta = textareaElement;
+		// The caret where the person left it; a composer never focused yet
+		// appends at the end.
+		dictationAnchorState = textareaEverFocused
+			? dictationAnchor(value, ta.selectionStart, ta.selectionEnd)
+			: dictationAnchor(value, value.length, value.length);
+		lastDictated = value;
+		const rec = new Ctor();
+		rec.lang = dictationLanguage();
+		rec.continuous = true;
+		rec.interimResults = true;
+		rec.onresult = (event) => {
+			if (rec !== recognition) return;
+			const next = composeDictation(dictationAnchorState, joinTranscript(event.results));
+			lastDictated = next.value;
+			value = next.value;
+			void tick().then(() => {
+				if (rec === recognition) ta.setSelectionRange(next.caret, next.caret);
+			});
+		};
+		rec.onerror = (event) => {
+			if (rec !== recognition) return;
+			const message = dictationErrorMessage(event.error);
+			if (message) errorToast.set(message);
+		};
+		rec.onend = () => {
+			if (rec !== recognition) return;
+			recognition = null;
+			listening = false;
+		};
+		recognition = rec;
+		listening = true;
+		try {
+			rec.start();
+		} catch {
+			cancelDictation();
+		}
+	}
+
+	function toggleDictation() {
+		if (recognition && listening) {
+			// stop(), not abort(): a result still in flight lands before `end`.
+			listening = false;
+			recognition.stop();
+		} else {
+			cancelDictation();
+			startDictation();
+		}
+	}
+
+	$effect(() => {
+		const current = value;
+		untrack(() => {
+			if (recognition && current !== lastDictated) cancelDictation();
+		});
+	});
+	$effect(() => {
+		if (disabled || loading) untrack(cancelDictation);
 	});
 
 	function adjustTextareaHeight() {
@@ -715,6 +825,7 @@
 			value.trim() !== ""
 		) {
 			event.preventDefault();
+			cancelDictation();
 			// A draft that names a known command runs it instead of sending:
 			// `/compact` never reaches the transcript as text, while `/etc/hosts
 			// is wrong` (an unknown name, or the `//` escape) still does. The
@@ -732,6 +843,7 @@
 	}
 
 	function handleFocus() {
+		textareaEverFocused = true;
 		if (requireAuthUser()) {
 			return;
 		}
@@ -753,7 +865,9 @@
 		// before the user has typed anything.
 	}
 
-	function handleBlur() {
+	function handleBlur(event: FocusEvent) {
+		// Focus moving to the mic button (Tab, to stop) is not leaving.
+		if (event.relatedTarget !== micButton) cancelDictation();
 		if (hubBlurTimeout) clearTimeout(hubBlurTimeout);
 		hubBlurTimeout = setTimeout(() => {
 			hubBlurTimeout = null;
@@ -813,7 +927,7 @@
 	     already-sent prompt into the box on reload mid-generation (the value
 	     typed on / travels into this page's history entry across the SPA
 	     navigation, and the restore bypasses the Svelte binding). -->
-	<div class="relative">
+	<div class="relative flex items-start">
 		{#if isHubMentionOpen}
 			<HfHubMentionAutocomplete
 				results={hub.results}
@@ -843,6 +957,7 @@
 			     argument (ghostHint's own rule). -->
 			<div
 				class="pointer-events-none absolute inset-x-0 top-0 px-2.5 py-2.5 sm:px-3"
+				style:right={dictationSupported && !disabled ? "2.25rem" : undefined}
 				aria-hidden="true"
 			>
 				<span class="break-all whitespace-pre text-transparent select-none">{value}</span><span
@@ -871,7 +986,7 @@
 				: isSlashMenuOpen && slash.activeIndex >= 0
 					? `slash-command-option-${slash.activeIndex}`
 					: undefined}
-			class="scrollbar-custom max-h-[4lh] w-full resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent px-2.5 py-2.5 outline-hidden focus:ring-0 focus-visible:ring-0 sm:px-3 md:max-h-[8lh]"
+			class="scrollbar-custom max-h-[4lh] min-w-0 flex-1 resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent px-2.5 py-2.5 outline-hidden focus:ring-0 focus-visible:ring-0 sm:px-3 md:max-h-[8lh]"
 			class:text-gray-400={disabled}
 			bind:value
 			bind:this={textareaElement}
@@ -900,6 +1015,33 @@
 			onblur={handleBlur}
 			onbeforeinput={requireAuthUser}
 		></textarea>
+
+		{#if dictationSupported && !disabled}
+			<!-- Dictation. mousedown is prevented so a click keeps the caret in
+			     the textarea (a blur would end the session it is about to
+			     start); the keyboard reaches it by Tab like any button. -->
+			<button
+				type="button"
+				bind:this={micButton}
+				class={[
+					"m-1 btn size-7 shrink-0 rounded-full transition-none",
+					listening
+						? "bg-red-600 text-white hover:bg-red-700 motion-safe:animate-pulse"
+						: "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white",
+				]}
+				aria-pressed={listening}
+				aria-label={listening ? "Stop dictation" : "Start dictation"}
+				title={listening ? "Stop dictation" : "Dictate with your browser's speech recognition"}
+				onmousedown={(event) => event.preventDefault()}
+				onclick={toggleDictation}
+				onblur={(event) => {
+					if (event.relatedTarget !== textareaElement) cancelDictation();
+				}}
+			>
+				<LucideMic class="size-4" />
+			</button>
+			<span class="sr-only" role="status">{listening ? "Listening" : ""}</span>
+		{/if}
 	</div>
 
 	{#if !showNoTools || showMlPill || children || trailingActions}

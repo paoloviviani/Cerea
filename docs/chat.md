@@ -74,6 +74,33 @@ chats and returns them to your ordinary list. A daily sweep removes files and
 share links left behind by anything that failed or by older versions, after a
 24-hour grace period.
 
+## Dictation
+
+Where your browser offers speech recognition (Chrome, Edge and Safari, including
+Safari on iOS), a **microphone button** sits at the right of the message box,
+here and in the agent composer. Click it (or Tab to it and press Enter) to
+start dictating and click it again to stop; its label reads **Start dictation**
+or **Stop dictation**, and while it listens it turns red and pulses.
+
+- What you say appears in the box as you speak, at the caret (or at the end if
+  you have not clicked in the box), after whatever you had already typed.
+  Nothing is sent: you read it, fix it and press Send yourself.
+- Dictation stops when you type, send, click elsewhere, leave the page, or when
+  the browser ends the session after a silence.
+- It listens in your browser's language. There is no setting for it: change the
+  browser's language to change what it recognises.
+- A short message appears if it cannot run: microphone access blocked, no
+  microphone, no speech heard, or no connection to the browser's speech
+  service.
+
+!!! warning "Your browser may send the audio to its vendor"
+
+    Cerea ships no speech model and never receives the audio: your browser does
+    the recognition. Chrome, Edge and Safari send what you say to their vendor's
+    cloud service for it (so dictation needs a connection, and the vendor's
+    privacy terms apply to that audio). **Firefox** has no speech recognition,
+    so the button is not shown there. If that matters to you, type.
+
 ## Appearance
 
 Your messages sit on the right in a light blue bubble (in dark mode a deep shade
