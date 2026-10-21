@@ -82,7 +82,7 @@ padding, the public one the 65-byte uncompressed point.
 
 - Each device's address at its push service is a capability, so the app stores
   it with the person, never shows it back, and sends only to `https` addresses
-  that pass the app's outbound-request guard (no loopback or link-local hosts,
+  that resolve to a public address (no private, loopback or link-local ranges,
   checked again when connecting).
 - A push service that answers 404 or 410 has dropped the subscription, and it is
   removed. Other failures are logged with the service's host and status, never

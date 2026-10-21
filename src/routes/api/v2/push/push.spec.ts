@@ -175,7 +175,7 @@ describe("/api/v2/push", () => {
 
 		await subscribe(me);
 		const fetchSpy = vi
-			.spyOn(await import("$lib/server/urlSafety"), "ssrfSafeFetch")
+			.spyOn(await import("$lib/server/push/guard"), "pushFetch")
 			.mockResolvedValue(new Response(null, { status: 201 }));
 		const res = await testRequest(TEST, {
 			path: "/api/v2/push/test",

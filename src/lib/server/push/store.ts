@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
-import { isValidUrl } from "$lib/server/urlSafety";
+import { isPushEndpointAllowed } from "./guard";
 import type { PushSubscriptionRow } from "$lib/types/PushSubscription";
 import { b64urlDecode } from "./webpush";
 
@@ -54,10 +54,10 @@ function validate(input: SubscriptionInput): void {
 	if (typeof input.endpoint !== "string" || input.endpoint.length > MAX_ENDPOINT_LENGTH) {
 		throw new SubscriptionError("The subscription's address is not valid.");
 	}
-	// https only, and nothing that points inside this deployment's network:
+	// https only, and nothing that points inside any private network:
 	// the endpoint is chosen by the browser, so by the person, and the server
 	// will POST to it.
-	if (!isValidUrl(input.endpoint)) {
+	if (!isPushEndpointAllowed(input.endpoint)) {
 		throw new SubscriptionError("The subscription's address is not valid.");
 	}
 	let p256dh: Buffer;

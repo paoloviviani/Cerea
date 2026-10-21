@@ -20,8 +20,8 @@ import { base } from "$app/paths";
 import { collections } from "$lib/server/database";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
-import { ssrfSafeFetch } from "$lib/server/urlSafety";
 import { pushEventEnabled, type PushEvent } from "$lib/utils/pushEvents";
+import { pushFetch } from "./guard";
 import { removeByEndpoint, listSubscriptions } from "./store";
 import { vapidKeys } from "./vapid";
 import { sendWebPush, type PushFetch, type PushUrgency, type SendOutcome } from "./webpush";
@@ -143,7 +143,7 @@ async function deliver(
 
 	const payload = JSON.stringify(buildPayload(event, message));
 	const { ttl, urgency } = DELIVERY[event];
-	const fetchImpl = deps.fetch ?? ((url, init) => ssrfSafeFetch(url, init));
+	const fetchImpl = deps.fetch ?? pushFetch;
 	const result: NotifyResult = { accepted: 0, gone: 0, failed: 0 };
 
 	await Promise.all(
@@ -155,8 +155,7 @@ async function deliver(
 					payload,
 					keys,
 					{ ttl, urgency, ...(message.tag ? { topic: message.tag } : {}) },
-					fetchImpl,
-					deps.now?.()
+					fetchImpl
 				);
 			} catch (err) {
 				// An address the SSRF guard refuses at connect time, or a key the

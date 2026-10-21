@@ -53,6 +53,11 @@ describe("saveSubscription", () => {
 			"http://push.example.net/x",
 			"https://127.0.0.1/x",
 			"https://169.254.169.254/x",
+			"https://10.1.2.3/x",
+			"https://100.64.0.1/x",
+			"https://[fd00::1]/x",
+			"https://[::ffff:10.0.0.1]/x",
+			"https://[::1]/x",
 			"https://localhost/x",
 			"not a url",
 		]) {

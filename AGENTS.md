@@ -1130,10 +1130,13 @@ User page: `docs/notifications.md`. Code: `src/lib/server/push/`, `src/lib/pushW
 and `src/service-worker.ts`, the Settings screen
 `src/lib/components/settings/NotificationSettings.svelte`.
 
-- **No `web-push` package, on purpose.** It is MPL-2.0 with six more
-  dependencies for what `push/webpush.ts` does on `node:crypto` (VAPID ES256 JWT,
-  RFC 8291 aes128gcm); the sender also goes through `ssrfSafeFetch`. The
-  encryption is pinned to the RFC 8291 appendix A vector in `webpush.spec.ts`.
+- **`web-push` builds the request, we send it.** `push/webpush.ts` calls
+  `webpush.generateRequestDetails` (VAPID ES256 JWT, RFC 8291 aes128gcm) and
+  never `sendNotification`. The send goes through `push/guard.ts`: https only,
+  no private or internal destination (10/8 included, unlike the shared
+  `urlSafety`), checked on the resolved address, redirects not followed. The
+  RFC 8291 appendix A vector is decrypted in `webpush.spec.ts`; the package is
+  MPL-2.0, unmodified, listed in NOTICE.
 - **Off unless the keys are a pair.** `vapid.ts` returns null for unset keys, a
   wrong-length key, a public key that is not the private key's, or a subject
   that is not `mailto:`/`https:`; the API then reports `configured: false`, and

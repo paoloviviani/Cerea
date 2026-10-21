@@ -1,21 +1,18 @@
-import { must } from "./testSupport";
+import { decryptPayload, must } from "./testSupport";
 import { createECDH, createPublicKey, createVerify } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
 	b64urlDecode,
 	b64urlEncode,
-	decryptPayload,
 	derivePublicKey,
-	encryptPayload,
 	generateVapidKeys,
 	sendWebPush,
-	vapidAuthorization,
 } from "./webpush";
 
 /** RFC 8291 appendix A: the worked example, byte for byte. */
 const RFC = {
 	plaintext: "When I grow up, I want to be a watermelon",
-	asPrivate: "yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw",
+	uaPrivate: "q1dXpw3UpT5VOmu_cf_v6ih07Aems3njxI-JWgLcM94",
 	uaPublic:
 		"BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
 	auth: "BTBZMqHH6r4Tts7J_aSIgg",
@@ -34,57 +31,84 @@ function browser() {
 	};
 }
 
-describe("encryptPayload", () => {
-	it("reproduces the RFC 8291 example exactly", () => {
-		const sender = createECDH("prime256v1");
-		sender.setPrivateKey(b64urlDecode(RFC.asPrivate));
-		const body = encryptPayload(
-			Buffer.from(RFC.plaintext),
-			{ p256dh: RFC.uaPublic, auth: RFC.auth },
-			{ salt: b64urlDecode(RFC.salt), sender }
-		);
-		expect(b64urlEncode(body)).toBe(RFC.body);
+describe("request encryption (web-push, checked against RFC 8291)", () => {
+	it("the receiving side here decrypts the RFC 8291 example", () => {
+		const receiver = createECDH("prime256v1");
+		receiver.setPrivateKey(b64urlDecode(RFC.uaPrivate));
+		expect(b64urlEncode(receiver.getPublicKey())).toBe(RFC.uaPublic);
+		expect(
+			decryptPayload(b64urlDecode(RFC.body), receiver, b64urlDecode(RFC.auth)).toString()
+		).toBe(RFC.plaintext);
 	});
 
-	it("round-trips for a browser that holds the private key", () => {
+	it("a generated request decrypts for the browser that holds the private key", async () => {
 		const b = browser();
 		const message = JSON.stringify({ title: "héllo", body: "ünïcode ✓" });
-		const body = encryptPayload(Buffer.from(message), b.target);
-		expect(decryptPayload(body, b.ecdh, b.auth).toString("utf8")).toBe(message);
-	});
-
-	it("uses a fresh salt and key for every message", () => {
-		const b = browser();
-		const a = encryptPayload(Buffer.from("x"), b.target);
-		const c = encryptPayload(Buffer.from("x"), b.target);
-		expect(a.equals(c)).toBe(false);
-	});
-
-	it("refuses a payload that does not fit one record, and malformed keys", () => {
-		const b = browser();
-		expect(() => encryptPayload(Buffer.alloc(4096), b.target)).toThrow(/too large/);
-		expect(() => encryptPayload(Buffer.from("x"), { ...b.target, auth: "AAAA" })).toThrow(/auth/);
-		expect(() => encryptPayload(Buffer.from("x"), { ...b.target, p256dh: "AAAA" })).toThrow(
-			/p256dh/
+		const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 201 }));
+		await sendWebPush(
+			{ endpoint: "https://push.example.net/s/t", ...b.target },
+			message,
+			generateVapidKeys(),
+			{ ttl: 60, urgency: "normal" },
+			fetchImpl
 		);
+		const [, init] = must(fetchImpl.mock.calls[0]);
+		expect(decryptPayload(Buffer.from(init.body), b.ecdh, b.auth).toString("utf8")).toBe(message);
+	});
+
+	it("uses a fresh salt and key for every message", async () => {
+		const b = browser();
+		const bodies: Buffer[] = [];
+		const fetchImpl = vi.fn().mockImplementation(async (_u: string, init: RequestInit) => {
+			bodies.push(Buffer.from(init.body as Uint8Array));
+			return new Response(null, { status: 201 });
+		});
+		const t = { endpoint: "https://push.example.net/s/t", ...b.target };
+		for (let i = 0; i < 2; i++)
+			await sendWebPush(t, "x", generateVapidKeys(), { ttl: 1, urgency: "low" }, fetchImpl);
+		expect(must(bodies[0]).equals(must(bodies[1]))).toBe(false);
+	});
+
+	it("refuses a payload that does not fit one record, and malformed keys", async () => {
+		const b = browser();
+		const t = { endpoint: "https://push.example.net/s/t", ...b.target };
+		const o = { ttl: 1, urgency: "low" as const };
+		const f = vi.fn();
+		await expect(sendWebPush(t, "x".repeat(4096), generateVapidKeys(), o, f)).rejects.toThrow();
+		await expect(
+			sendWebPush({ ...t, auth: "AAAA" }, "x", generateVapidKeys(), o, f)
+		).rejects.toThrow();
+		await expect(
+			sendWebPush({ ...t, p256dh: "AAAA" }, "x", generateVapidKeys(), o, f)
+		).rejects.toThrow();
+		expect(f).not.toHaveBeenCalled();
 	});
 });
 
-describe("vapidAuthorization", () => {
-	it("is an ES256 JWT for the endpoint's origin that the public key verifies", () => {
+describe("VAPID authorization (web-push)", () => {
+	it("is an ES256 JWT for the endpoint's origin that the public key verifies", async () => {
 		const keys = generateVapidKeys("mailto:ops@example.org");
-		const now = 1_800_000_000_000;
-		const header = vapidAuthorization("https://push.example.net/send/abc123?x=1", keys, now);
+		const b = browser();
+		const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 201 }));
+		await sendWebPush(
+			{ endpoint: "https://push.example.net/send/abc123?x=1", ...b.target },
+			"x",
+			keys,
+			{ ttl: 1, urgency: "low" },
+			fetchImpl
+		);
+		const header = must(fetchImpl.mock.calls[0])[1].headers.Authorization as string;
 		const match = /^vapid t=([^.]+)\.([^.]+)\.([^,]+), k=(.+)$/.exec(header);
 		expect(match).not.toBeNull();
 		const [, h, c, sig, k] = must(match);
 		expect(k).toBe(keys.publicKey);
-		expect(JSON.parse(b64urlDecode(h).toString())).toEqual({ typ: "JWT", alg: "ES256" });
-		expect(JSON.parse(b64urlDecode(c).toString())).toEqual({
+		expect(JSON.parse(b64urlDecode(h).toString())).toMatchObject({ alg: "ES256" });
+		const claims = JSON.parse(b64urlDecode(c).toString());
+		expect(claims).toMatchObject({
 			aud: "https://push.example.net",
-			exp: 1_800_000_000 + 12 * 3600,
 			sub: "mailto:ops@example.org",
 		});
+		expect(claims.exp).toBeGreaterThan(Date.now() / 1000);
 		const point = b64urlDecode(keys.publicKey);
 		const publicKey = createPublicKey({
 			format: "jwk",
@@ -99,6 +123,13 @@ describe("vapidAuthorization", () => {
 			.update(`${h}.${c}`)
 			.verify({ key: publicKey, dsaEncoding: "ieee-p1363" }, b64urlDecode(sig));
 		expect(ok).toBe(true);
+	});
+
+	it("always mints a 32-byte private key (node drops a leading zero byte)", () => {
+		// About one key in 256 starts with 0x00: 3000 draws make a regression certain to show.
+		for (let i = 0; i < 3000; i++) {
+			expect(b64urlDecode(generateVapidKeys().privateKey).length).toBe(32);
+		}
 	});
 
 	it("derives the public key from the private one", () => {

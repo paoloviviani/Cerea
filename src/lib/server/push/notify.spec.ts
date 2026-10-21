@@ -10,8 +10,7 @@ import {
 	sendTestNotification,
 } from "./notify";
 import { saveSubscription } from "./store";
-import { fakeBrowser, must, withVapid } from "./testSupport";
-import { decryptPayload } from "./webpush";
+import { decryptPayload, fakeBrowser, must, withVapid } from "./testSupport";
 
 let restore: () => void;
 beforeAll(async () => {
