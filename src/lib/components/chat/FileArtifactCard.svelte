@@ -65,10 +65,12 @@
 	 * the registry yet (and then the plain FileCard renders instead).
 	 */
 	let resolved = $derived.by(() => {
-		if (!ctx || !sha256) return undefined;
-		const found = findFileVersionBySha(ctx.fileRegistry, sha256);
+		// A context without a registry renders the plain card, never throws.
+		const registry = ctx?.fileRegistry;
+		if (!registry || !sha256) return undefined;
+		const found = findFileVersionBySha(registry, sha256);
 		if (!found) return undefined;
-		const artifact = ctx.fileRegistry.artifacts.get(found.name);
+		const artifact = registry.artifacts.get(found.name);
 		const version = artifact?.versions[found.version - 1];
 		if (!artifact || !version) return undefined;
 		return {
