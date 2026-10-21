@@ -1,5 +1,14 @@
 import { fetchPage } from "$lib/server/fetching";
 import { extractDocument } from "$lib/server/files/extractDocument";
+import { logger } from "$lib/server/logger";
+import {
+	freshWindowMs,
+	getCachedFetch,
+	putCachedFetch,
+	refreshCachedFetch,
+	sha256Hex,
+	type CacheScope,
+} from "$lib/server/webFetchCache";
 import { canonicalUrl, WEB_FETCH_TOOL_NAME } from "./fetchUrlUtils";
 import type { BuiltinTool } from "./types";
 
@@ -68,6 +77,23 @@ export interface PerformFetchOptions {
 	 * skips the network and the extractor, which may bill per page.
 	 */
 	cache?: Map<string, ReadablePage>;
+	/**
+	 * The conversation (and owner) whose persistent cache backs the per-turn
+	 * map: text read in an earlier turn is reused, within the freshness window
+	 * without downloading, after it when the downloaded bytes hash the same.
+	 * Absent means no persistent cache (the approval-resume path, tests).
+	 */
+	persist?: CacheScope;
+}
+
+/** A cache that is only an optimisation must never fail the fetch it serves. */
+async function quietly<T>(what: string, work: Promise<T>): Promise<T | null> {
+	try {
+		return await work;
+	} catch (error) {
+		logger.warn({ err: error }, `web_fetch_cache_${what}_failed`);
+		return null;
+	}
 }
 
 /** The offset a model asked for, or an error sentence. Absent means the start. */
@@ -118,36 +144,66 @@ export async function performFetch(
 	try {
 		let page = options.cache?.get(url);
 		if (!page) {
-			const fetched = await fetchPage(url);
-			const finalUrl = canonicalUrl(fetched.url) ?? url;
-			let text: string;
-			let title = fetched.title;
-			if (fetched.document) {
-				if (!options.token) {
-					return {
-						result: {
-							error:
-								"This document could not be read: it needs the reader of the person asking, and none is available here. Approve it again from the conversation.",
-						},
-					};
-				}
-				const extraction = await extractDocument({
-					bytes: fetched.document.bytes,
-					mime: fetched.document.mime,
-					filename: fetched.document.filename,
-					token: options.token,
-				});
-				if (!extraction.ok) {
-					const label = fetched.document.mime === "application/pdf" ? "PDF" : "document";
-					return { result: { error: `This ${label} could not be read: ${extraction.reason}` } };
-				}
-				text = extraction.text.trim();
-				title = title ?? fetched.document.filename;
+			const stored = options.persist
+				? await quietly("read", getCachedFetch(options.persist, url))
+				: null;
+			if (stored && Date.now() - stored.fetchedAt.getTime() < freshWindowMs()) {
+				logger.debug({ url, hit: "fresh" }, "web_fetch_cache_hit");
+				page = { title: stored.title, finalUrl: stored.finalUrl, text: stored.text };
 			} else {
-				text = readablePageText(fetched.content);
+				const fetched = await fetchPage(url);
+				const finalUrl = canonicalUrl(fetched.url) ?? url;
+				const contentHash = sha256Hex(fetched.document ? fetched.document.bytes : fetched.content);
+				if (stored && stored.contentHash === contentHash) {
+					logger.debug({ url, hit: "hash" }, "web_fetch_cache_hit");
+					page = { title: stored.title, finalUrl: stored.finalUrl, text: stored.text };
+					if (options.persist) await quietly("refresh", refreshCachedFetch(options.persist, url));
+				} else {
+					if (options.persist)
+						logger.debug({ url, replaced: Boolean(stored) }, "web_fetch_cache_miss");
+					let text: string;
+					let title = fetched.title;
+					if (fetched.document) {
+						if (!options.token) {
+							return {
+								result: {
+									error:
+										"This document could not be read: it needs the reader of the person asking, and none is available here. Approve it again from the conversation.",
+								},
+							};
+						}
+						const extraction = await extractDocument({
+							bytes: fetched.document.bytes,
+							mime: fetched.document.mime,
+							filename: fetched.document.filename,
+							token: options.token,
+						});
+						if (!extraction.ok) {
+							const label = fetched.document.mime === "application/pdf" ? "PDF" : "document";
+							return { result: { error: `This ${label} could not be read: ${extraction.reason}` } };
+						}
+						text = extraction.text.trim();
+						title = title ?? fetched.document.filename;
+					} else {
+						text = readablePageText(fetched.content);
+					}
+					if (!text) return { result: { error: "That page had no readable text." } };
+					page = { title, finalUrl, text };
+					if (options.persist) {
+						await quietly(
+							"write",
+							putCachedFetch(options.persist, url, {
+								finalUrl,
+								title,
+								text,
+								contentHash,
+								contentType: fetched.document?.mime ?? fetched.contentType,
+								extractedBy: fetched.document ? "document" : "html",
+							})
+						);
+					}
+				}
 			}
-			if (!text) return { result: { error: "That page had no readable text." } };
-			page = { title, finalUrl, text };
 			options.cache?.set(url, page);
 		}
 		return { result: chunkOf(page, offset), finalUrl: page.finalUrl };
@@ -186,7 +242,7 @@ export function webFetchNeedsApproval(
 }
 
 export function createWebFetchBuiltin(
-	params: { allowedUrls: Set<string> } & WebFetchApprovalParams
+	params: { allowedUrls: Set<string>; persist?: CacheScope } & WebFetchApprovalParams
 ): BuiltinTool {
 	let uses = 0;
 	// Per turn (the tool is built per turn): paging through one long page or
@@ -258,6 +314,7 @@ export function createWebFetchBuiltin(
 				offset,
 				token: params.token,
 				cache,
+				persist: params.persist,
 			});
 			if ("resultText" in result) {
 				params.allowedUrls.add(finalUrl ?? requested);

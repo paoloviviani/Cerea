@@ -58,6 +58,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	bucketFiles: false, // covered by the bucket: entries above
 	codeExecutionOutputs: true,
 	codeRunFiles: true, // conversation-keyed, no owner field of its own
+	webFetchCache: true, // text web_fetch extracted; userId and conversationId
 	migrationResults: false,
 	semaphores: false,
 	tools: false,

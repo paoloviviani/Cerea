@@ -17,6 +17,7 @@ import { deleteConversationDeliverables } from "$lib/server/execution/deliverabl
 import { deleteConversationAttachments } from "$lib/server/files/deleteConversationAttachments";
 import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import { logger } from "$lib/server/logger";
+import { deleteConversationWebFetchCache } from "$lib/server/webFetchCache";
 import type { Conversation } from "$lib/types/Conversation";
 
 /**
@@ -45,8 +46,8 @@ export async function deleteConversationShares(
 }
 
 /**
- * Delete the deliverables, the attachments, the share links and the indexed
- * transcript of a conversation, or of a set of them.
+ * Delete the deliverables, the attachments, the share links, the fetched-page
+ * text cache and the indexed transcript of a conversation, or of a set of them.
  *
  * The transcript is the project's memory of it: `indexConversation` writes
  * `chat:conversation:<id>` into the project's memory base, and every later
@@ -75,6 +76,7 @@ export async function deleteConversationStorage(
 		deleteConversationAttachments(conversationId),
 		deleteDerived({ conversationId }),
 		deleteConversationShares(conversationId),
+		deleteConversationWebFetchCache(conversationId),
 	]);
 	// The first two log their own failures. These do not, and they are the
 	// privacy ones; the daily orphan sweep retries what they leave.
@@ -84,6 +86,13 @@ export async function deleteConversationStorage(
 		logger.error(
 			{ err: shares.reason },
 			"conversation_share_delete_failed: the orphan sweep will retry"
+		);
+	}
+	const fetchCache = results[4];
+	if (fetchCache.status === "rejected") {
+		logger.error(
+			{ err: fetchCache.reason },
+			"conversation_web_fetch_cache_delete_failed: the entries expire with their TTL"
 		);
 	}
 	if (derived.status === "rejected") {
