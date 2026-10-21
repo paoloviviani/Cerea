@@ -168,6 +168,8 @@ const FORWARDER_SAMPLES: Array<[string, string]> = [
 	["GET", "v1/providers"],
 	["GET", "v1/providers/opencode/modes"],
 	["GET", "v1/providers/opencode/models"],
+	["GET", "v1/profiles"],
+	["POST", "v1/profiles"],
 	["GET", "v1/agents/a1"],
 	["DELETE", "v1/agents/a1"],
 	["GET", `v1/agents/a1/attachments/${SHA}`],

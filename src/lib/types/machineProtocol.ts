@@ -110,6 +110,10 @@ export interface Machine {
 		fileWatch?: boolean;
 		fileWrite?: boolean;
 		terminal?: boolean;
+		/** `profiles.list` / `profiles.set` work (§6 "Delegate profiles"): the
+		 * machine's delegate profiles, editable by its owner. A galopin older
+		 * than the ops omits it, and answers both `unsupported`. */
+		delegateProfiles?: boolean;
 	};
 }
 
@@ -632,6 +636,8 @@ export type OpName =
 	| "backend.modes"
 	| "backend.models"
 	| "backend.commands"
+	| "profiles.list"
+	| "profiles.set"
 	| "session.command"
 	| "terminal.list"
 	| "terminal.open"
@@ -828,6 +834,8 @@ const policySchema = z.object({
 });
 
 const machineSchema = z.object({
+	// A capability this build does not know is carried through untouched
+	// (`delegateProfiles` among the known ones: absent reads false).
 	capabilities: z.record(z.string(), z.boolean()),
 });
 
@@ -1139,4 +1147,49 @@ export interface RetryInfo {
 	attempt: number;
 	message: string;
 	next?: number;
+}
+
+// -- profiles.list / profiles.set (§6 "Delegate profiles") --------------------
+
+/** A machine's delegate profiles: a name and a model each, and at most one
+ * default. */
+export interface DelegateProfiles {
+	default: string | null;
+	profiles: Array<{ name: string; model: string }>;
+}
+
+/** The most profiles a machine keeps, and the shape a name must have: the
+ * machine enforces both, the panel only mirrors them to say so early. */
+export const MAX_DELEGATE_PROFILES = 32;
+export const DELEGATE_PROFILE_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+
+const delegateProfilesSchema = z.object({
+	// Optional fields arrive as null from some peers: every one is `.nullish()`.
+	default: z.string().nullish(),
+	profiles: z.record(z.string(), z.object({ model: z.string().nullish() })).nullish(),
+});
+
+/** Parse a `profiles.list` / `profiles.set` answer: profiles sorted by name,
+ * an entry with no model dropped (the machine never stores one), a default
+ * that names nothing dropped. Anything that is not an object reads as empty. */
+export function parseDelegateProfiles(raw: unknown): DelegateProfiles {
+	const parsed = delegateProfilesSchema.safeParse(raw);
+	if (!parsed.success) return { default: null, profiles: [] };
+	const profiles = Object.entries(parsed.data.profiles ?? {})
+		.filter(([, p]) => typeof p.model === "string" && p.model !== "")
+		.map(([name, p]) => ({ name, model: p.model as string }))
+		.sort((a, b) => a.name.localeCompare(b.name));
+	const def = parsed.data.default ?? null;
+	return { default: def !== null && profiles.some((p) => p.name === def) ? def : null, profiles };
+}
+
+/** The wire body of `profiles.set` for an edited list. */
+export function delegateProfilesBody(set: DelegateProfiles): {
+	default: string | null;
+	profiles: Record<string, { model: string }>;
+} {
+	return {
+		default: set.default,
+		profiles: Object.fromEntries(set.profiles.map((p) => [p.name, { model: p.model }])),
+	};
 }

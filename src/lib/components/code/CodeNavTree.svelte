@@ -35,6 +35,7 @@
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconKebab from "~icons/lucide/ellipsis";
 	import IconEdit from "~icons/carbon/edit";
+	import IconUsers from "~icons/carbon/user-multiple";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import IconCheck from "~icons/carbon/checkmark";
 	import IconClose from "~icons/carbon/close";
@@ -69,6 +70,7 @@
 	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import PermissionsDialog from "./PermissionsDialog.svelte";
+	import MachineProfilesDialog from "./MachineProfilesDialog.svelte";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
 	import WorkspaceRenameDialog from "./WorkspaceRenameDialog.svelte";
 	import WorktreeDialog from "./WorktreeDialog.svelte";
@@ -119,6 +121,8 @@
 	let renameFor = $state<{ device: CodeDeviceView; workspace: CodeWorkspace } | null>(null);
 	/** The repo workspace a "New worktree…" dialog is open for, with its device. */
 	let worktreeFor = $state<{ device: CodeDeviceView; workspace: CodeWorkspace } | null>(null);
+	/** The machine whose delegate-profiles dialog is open. */
+	let profilesFor = $state<CodeDeviceView | null>(null);
 	/** The agent whose rename dialog is open, with its device. */
 	let renameAgentFor = $state<{ device: CodeDeviceView; agent: CodeAgentSession } | null>(null);
 	/** The session whose Permissions dialog is open, with its device. The
@@ -688,6 +692,37 @@
 						>
 							<IconAdd class="size-3.5" />
 						</button>
+						<!-- The machine's own settings: today its delegate profiles.
+						     The row itself is a link to the machine's page, so the
+						     menu is a kebab beside it (same idiom as a workspace's). -->
+						<DropdownMenu.Root>
+							<DropdownMenu.Trigger
+								class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
+								title="Machine settings"
+								aria-label="Machine settings"
+							>
+								<IconKebab class="size-3.5" />
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Portal>
+								<DropdownMenu.Content
+									class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+									side="bottom"
+									align="end"
+									sideOffset={6}
+									trapFocus={false}
+									onCloseAutoFocus={(e) => e.preventDefault()}
+									interactOutsideBehavior="defer-otherwise-close"
+								>
+									<DropdownMenu.Item
+										class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+										onSelect={() => (profilesFor = device)}
+									>
+										<IconUsers class="size-4 opacity-90 dark:opacity-80" />
+										Profiles
+									</DropdownMenu.Item>
+								</DropdownMenu.Content>
+							</DropdownMenu.Portal>
+						</DropdownMenu.Root>
 						<button
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
 							title="Remove this pairing"
@@ -1320,6 +1355,10 @@
 			onclose={() => (confirmRequest = null)}
 		/>
 	{/if}
+{/if}
+
+{#if profilesFor}
+	<MachineProfilesDialog device={profilesFor} onclose={() => (profilesFor = null)} />
 {/if}
 
 {#if renameFor}

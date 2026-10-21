@@ -479,6 +479,9 @@ export interface CodeAuditEntry {
 	approvalId?: string;
 	/** The blanket a `permission.mode` set: deny, ask or allow. */
 	mode?: string;
+	/** A command's name (`code.command`), a schedule's, or the default
+	 * profile's (`profiles.set`) — never content. */
+	name?: string;
 	/** How many rules a `permission.rules.set` carried — only on rows written
 	 * before that action was retired. */
 	count?: number;

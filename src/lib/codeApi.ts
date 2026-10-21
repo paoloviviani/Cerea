@@ -31,6 +31,7 @@ import {
 	type CodeStatus,
 } from "$lib/stores/codeReauth.svelte";
 import type { CodeDeviceView } from "$lib/server/codeDevices";
+import type { DelegateProfiles } from "$lib/types/machineProtocol";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import type {
 	CodeAgentSession,
@@ -260,6 +261,27 @@ export async function listProviderModels(
 		await fetch(
 			`${root()}/v1/providers/${encodeURIComponent(provider)}/models?device=${encodeURIComponent(deviceId)}`
 		)
+	);
+}
+
+/** The machine's delegate profiles (a name and a model each, one default). A
+ * galopin that predates them answers 404, an offline one 502. */
+export async function getDelegateProfiles(deviceId: string): Promise<DelegateProfiles> {
+	return unwrap(await fetch(`${root()}/v1/profiles?device=${encodeURIComponent(deviceId)}`));
+}
+
+/** Replace the machine's delegate profiles, whole; the machine validates and
+ * answers the stored set. */
+export async function setDelegateProfiles(
+	deviceId: string,
+	set: DelegateProfiles
+): Promise<DelegateProfiles> {
+	return unwrap(
+		await fetch(`${root()}/v1/profiles?device=${encodeURIComponent(deviceId)}`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(set),
+		})
 	);
 }
 
