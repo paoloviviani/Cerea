@@ -352,3 +352,64 @@ describe("a tool call that took a screenshot", () => {
 		expect(baseElement.querySelector(`img[src="${SHOT}"]`)).not.toBeNull();
 	});
 });
+
+describe("a file a tool produced", () => {
+	const convertCall = {
+		type: "tool",
+		subtype: "call",
+		uuid: "c1",
+		call: { name: "convert_document", parameters: { file: "report.docx" } },
+	};
+	const convertResult = {
+		type: "tool",
+		subtype: "result",
+		uuid: "c1",
+		result: {
+			status: 0,
+			call: { name: "convert_document", parameters: { file: "report.docx" } },
+			outputs: [{ text: "Saved report.pdf (12 KB) in this conversation." }],
+			display: true,
+		},
+	};
+	const outputs = (runKey: string) => ({
+		type: "codeExecution",
+		subtype: "outputs",
+		runKey,
+		files: [{ name: "report.pdf", size: 12_000, sha256: "a".repeat(64) }],
+	});
+	const finished = (updates: unknown[]) =>
+		render(ChatMessage, {
+			message: { id: "m1", from: "assistant", content: "Here it is.", children: [], updates },
+			loading: false,
+			isLast: true,
+			isAuthor: true,
+			readOnly: false,
+		} as never);
+
+	it("shows its card in the message, after the tool and before the answer", () => {
+		const { baseElement } = finished([
+			convertCall,
+			convertResult,
+			outputs("convert_document:7d1c"),
+			{ type: "stream", token: "Here it is." },
+		]);
+		const card = baseElement.querySelector('[data-testid="produced-files"]');
+		expect(card?.textContent).toContain("report.pdf");
+		const answer = [...baseElement.querySelectorAll(".prose")].find((el) =>
+			el.textContent?.includes("Here it is.")
+		);
+		expect(answer).toBeDefined();
+		if (!card || !answer) throw new Error("card and answer should both render");
+		expect(card.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it("leaves a code block's files to the block that ran them", () => {
+		const { baseElement } = finished([
+			convertCall,
+			convertResult,
+			outputs("chat:abc123"),
+			{ type: "stream", token: "Here it is." },
+		]);
+		expect(baseElement.querySelector('[data-testid="produced-files"]')).toBeNull();
+	});
+});

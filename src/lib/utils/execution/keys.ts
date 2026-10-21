@@ -24,3 +24,13 @@ export function chatRunKey(code: string): string {
 export function artifactRunKey(identifier: string, version: number, content: string): string {
 	return `artifact:${identifier}:v${version}:${hashCode(content)}`;
 }
+
+/**
+ * Whether a stored Outputs record belongs to a code block or cell (which
+ * finds it by its own key) rather than to a tool that produced files with no
+ * code to sit under — `convert_document`'s PDF. Those render as their own
+ * card in the message, where the tool ran.
+ */
+export function isCodeRunKey(runKey: string): boolean {
+	return runKey.startsWith("chat:") || runKey.startsWith("artifact:");
+}
