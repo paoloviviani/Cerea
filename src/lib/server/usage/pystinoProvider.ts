@@ -58,9 +58,11 @@ interface MyLimitResponse {
 	/**
 	 * ADR 0098, additive: "each_member" means this entry is the caller's own
 	 * share of a group budget, not the group's total. Absent on an older
-	 * gateway, which only ever sent aggregate rules.
+	 * gateway, which only ever sent aggregate rules. "each_user" (Pystino
+	 * 0.14.0): a global rule that caps every person separately, so this entry
+	 * is the caller's own total, not the deployment's.
 	 */
-	applies_to?: "aggregate" | "each_member";
+	applies_to?: "aggregate" | "each_member" | "each_user" | null;
 }
 
 interface UsageSummaryResponse {
@@ -85,14 +87,14 @@ function windowLabel(seconds: number): string {
 	return `per ${seconds}s`;
 }
 
-/** ADR 0098: `each_member` is the caller's own share of a group budget —
- * the one rule kind whose reported consumption is personal. Everything else
- * on a `group` scope (and the whole of a `global` scope) aggregates higher
- * than this person, so no figure of it may leave the server. */
+/** ADR 0098: `each_member` is the caller's own share of a group budget, and
+ * `each_user` the caller's own total under a global rule — the rule kinds
+ * whose reported consumption is personal. Everything else on a `group` or
+ * `global` scope aggregates higher than this person, so no figure of it may
+ * leave the server. */
 function isSharedRule(limit: MyLimitResponse): boolean {
-	return (
-		limit.scope === "global" || (limit.scope === "group" && limit.applies_to !== "each_member")
-	);
+	if (limit.scope === "global") return limit.applies_to !== "each_user";
+	return limit.scope === "group" && limit.applies_to !== "each_member";
 }
 
 /** The shared-budget entry: it says the limit exists and its period, and
@@ -125,6 +127,7 @@ function limitEntry(limit: MyLimitResponse): UsageEntry {
 			// beside the group's aggregate rule with the same name and window,
 			// and without the marker one of the two numbers reads as a bug.
 			limit.applies_to === "each_member" ? "per member" : null,
+			limit.applies_to === "each_user" ? "per person" : null,
 		]
 			.filter(Boolean)
 			.join(" · "),

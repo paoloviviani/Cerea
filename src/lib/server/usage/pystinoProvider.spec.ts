@@ -37,7 +37,7 @@ type LimitFixture = {
 	limit_value: string;
 	current_value: string | null;
 	notification_thresholds: number[];
-	applies_to?: "aggregate" | "each_member" | null;
+	applies_to?: "aggregate" | "each_member" | "each_user" | null;
 };
 
 /** A rule on this person's own allowance: figures are yours to see. */
@@ -63,6 +63,20 @@ const memberLimit: LimitFixture = {
 	current_value: "5.00",
 	notification_thresholds: [],
 	applies_to: "each_member",
+};
+
+/** Pystino 0.14.0: a global rule that caps every person separately — this
+ * entry is the caller's own total, so its figures are theirs to see. */
+const eachUserLimit: LimitFixture = {
+	id: "limit-5",
+	name: "Everyone's ceiling",
+	scope: "global",
+	metric: "spend",
+	window_label: "per month",
+	limit_value: "20.00",
+	current_value: "7.50",
+	notification_thresholds: [],
+	applies_to: "each_user",
 };
 
 /** The group's total — never shown to a member. */
@@ -235,6 +249,25 @@ describe("pystinoUsageProvider.getReport", () => {
 		expect(entry?.limit).toBeUndefined();
 		expect(JSON.stringify(report)).not.toContain("3100");
 		expect(JSON.stringify(report)).not.toContain("10000.00");
+	});
+
+	it("shows a global per-user rule as the caller's own budget, with figures", async () => {
+		mockUsage({ limits: [eachUserLimit, globalLimit], usage: usageSummary, groups: groupUsage });
+
+		const report = await pystinoUsageProvider.getReport({
+			locals: { token: "bearer-token" } as App.Locals,
+		});
+
+		const quotas = report.sections.find((s) => s.title === "Quotas");
+		expect(quotas?.entries[0]).toEqual({
+			label: "Everyone's ceiling · per month · per person",
+			used: 7.5,
+			limit: 20,
+			unit: "spend",
+			scope: "global",
+		});
+		// The deployment-wide aggregate beside it still shows no figures.
+		expect(JSON.stringify(report)).not.toContain("3100");
 	});
 
 	it("keeps the caller's own figures: their personal spend, a user rule and a per-member rule", async () => {
