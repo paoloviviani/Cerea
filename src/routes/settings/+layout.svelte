@@ -13,6 +13,7 @@
 	import CarbonCheckmark from "~icons/carbon/checkmark";
 	import CarbonSettings from "~icons/carbon/settings";
 	import CarbonMeter from "~icons/carbon/meter";
+	import CarbonNotification from "~icons/carbon/notification";
 
 	interface Props {
 		children?: import("svelte").Snippet;
@@ -27,6 +28,10 @@
 	// there is a provider behind it.
 	const sections = $derived([
 		{ href: "/settings/application", label: "Application settings", icon: CarbonSettings },
+		// Push needs a person to notify: no tab for an anonymous session.
+		...(page.data.user
+			? [{ href: "/settings/notifications", label: "Notifications", icon: CarbonNotification }]
+			: []),
 		// Gated on the deployment flag (FeatureFlags.usageEnabled, computed
 		// server-side from CHAT_USAGE_ENABLED and OPENAI_BASE_URL): a
 		// deployment without Pystino has no usage provider to show here.

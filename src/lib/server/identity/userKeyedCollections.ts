@@ -651,6 +651,18 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.schedules, "userId", userId),
 	},
 	{
+		name: "pushSubscriptions",
+		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// The unique key is the push endpoint, not the owner, so a merge is a
+		// plain move: the browsers keep notifying, now the target.
+		merge: (stray, target) =>
+			reassignSimple(collections.pushSubscriptions, "userId", stray, target),
+		erase: (userId) => eraseByField(collections.pushSubscriptions, "userId", userId),
+	},
+	{
 		name: "scheduleRuns",
 		owner: "userId",
 		mergeRule: "reassign",

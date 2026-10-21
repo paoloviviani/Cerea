@@ -50,6 +50,7 @@ import type { Skill } from "$lib/types/Skill";
 import type { Memory } from "$lib/types/Memory";
 import { dropPerModelPrompts } from "$lib/server/dropPerModelPrompts";
 import type { Schedule, ScheduleRun } from "$lib/types/Schedule";
+import type { PushSubscriptionRow } from "$lib/types/PushSubscription";
 import type { CustomModel } from "$lib/types/CustomModel";
 import type { ProjectMemory } from "$lib/types/ProjectMemory";
 import type { ProjectDocument } from "$lib/types/ProjectDocument";
@@ -367,6 +368,8 @@ export class Database {
 		// one row per occurrence considered — fired or not — which is the record.
 		const schedules = db.collection<Schedule>("schedules");
 		const scheduleRuns = db.collection<ScheduleRun>("scheduleRuns");
+		// Browsers a person turned Web Push on for (`server/push/`).
+		const pushSubscriptions = db.collection<PushSubscriptionRow>("pushSubscriptions");
 		const bucket = new GridFSBucket(db, { bucketName: "files" });
 		// The bucket's own file documents, for indexing only — reads and
 		// deletes go through `bucket`, which also handles the chunks.
@@ -416,6 +419,7 @@ export class Database {
 			codeAudit,
 			schedules,
 			scheduleRuns,
+			pushSubscriptions,
 			conversationStats,
 			assistants,
 			reports,
@@ -466,6 +470,7 @@ export class Database {
 			codeAudit,
 			schedules,
 			scheduleRuns,
+			pushSubscriptions,
 			conversationStats,
 			assistants,
 			reports,
@@ -1050,6 +1055,13 @@ export class Database {
 		schedules
 			.createIndex({ enabled: 1, nextRunAt: 1 })
 			.catch((e) => logger.error(e, "Error creating index for schedules by nextRunAt"));
+		// One row per browser, wherever it is; a person's devices by owner.
+		pushSubscriptions
+			.createIndex({ endpoint: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating unique index for pushSubscriptions endpoint"));
+		pushSubscriptions
+			.createIndex({ userId: 1, createdAt: 1 })
+			.catch((e) => logger.error(e, "Error creating index for pushSubscriptions by userId"));
 		// A schedule's history, newest first; erasure and merge go by owner.
 		scheduleRuns
 			.createIndex({ scheduleId: 1, firedAt: -1 })

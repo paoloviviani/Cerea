@@ -512,6 +512,78 @@ def mint(nbytes: int) -> str:
     return secrets.token_hex(nbytes)
 
 
+# --- VAPID keys (Web Push) --------------------------------------------------------
+# A P-256 key pair, base64url, the form browsers' pushManager.subscribe takes
+# (the 65-byte uncompressed public point) and the chat's sender reads. The
+# standard library has no elliptic curves and ./configure runs with nothing
+# installed, so the public point is derived here with plain integer maths
+# rather than by shelling out to openssl (whose output format varies).
+_P256_P = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
+_P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+_P256_G = (
+    0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296,
+    0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5,
+)
+
+
+def _p256_add(a, b):
+    if a is None:
+        return b
+    if b is None:
+        return a
+    (x1, y1), (x2, y2) = a, b
+    if x1 == x2 and (y1 + y2) % _P256_P == 0:
+        return None
+    if a == b:
+        lam = (3 * x1 * x1 - 3) * pow(2 * y1, -1, _P256_P) % _P256_P
+    else:
+        lam = (y2 - y1) * pow(x2 - x1, -1, _P256_P) % _P256_P
+    x3 = (lam * lam - x1 - x2) % _P256_P
+    return x3, (lam * (x1 - x3) - y1) % _P256_P
+
+
+def p256_public(private: bytes) -> bytes:
+    """The uncompressed public point (65 bytes) of a 32-byte P-256 private key."""
+    d = int.from_bytes(private, "big")
+    if not 0 < d < _P256_N:
+        raise ValueError("not a valid P-256 private key")
+    result, addend = None, _P256_G
+    while d:
+        if d & 1:
+            result = _p256_add(result, addend)
+        addend = _p256_add(addend, addend)
+        d >>= 1
+    assert result is not None
+    return b"\x04" + result[0].to_bytes(32, "big") + result[1].to_bytes(32, "big")
+
+
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _unb64url(text: str) -> bytes:
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def mint_vapid() -> tuple[str, str]:
+    """(private, public), both base64url."""
+    while True:
+        private = secrets.token_bytes(32)
+        if 0 < int.from_bytes(private, "big") < _P256_N:
+            return _b64url(private), _b64url(p256_public(private))
+
+
+def vapid_pair_problem(private: str, public: str) -> str | None:
+    """Why a stored pair is unusable, or None. A pair that disagrees would make
+    every push fail at the push service, so it is reported rather than served."""
+    try:
+        return None if _b64url(p256_public(_unb64url(private))) == public else "the public key is not the private key's"
+    except ValueError as exc:
+        return str(exc)
+    except Exception:  # noqa: BLE001 - malformed base64 and the like
+        return "not base64url P-256 keys"
+
+
 def _ab64(raw: bytes) -> str:
     # The "adapted base64" of crypt(3)-style digests: no padding, '.' for '+'.
     return base64.b64encode(raw).decode().rstrip("=").replace("+", ".")
@@ -1069,6 +1141,20 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         if not values.get(key):
             values[key] = mint(nbytes)
 
+    # --- Web Push (VAPID): minted once, never re-minted ------------------------------
+    # An existing pair is left alone even if the subject changes, since a
+    # re-minted pair strands every browser subscribed to the old public key.
+    # A private key without its public half only has the half derived.
+    if not values.get("CHAT_VAPID_PRIVATE_KEY"):
+        values["CHAT_VAPID_PRIVATE_KEY"], values["CHAT_VAPID_PUBLIC_KEY"] = mint_vapid()
+    elif not values.get("CHAT_VAPID_PUBLIC_KEY"):
+        try:
+            values["CHAT_VAPID_PUBLIC_KEY"] = _b64url(p256_public(_unb64url(values["CHAT_VAPID_PRIVATE_KEY"])))
+        except Exception:  # noqa: BLE001 - check_values reports it
+            pass
+    if not values.get("CHAT_VAPID_SUBJECT"):
+        values["CHAT_VAPID_SUBJECT"] = f"mailto:{admin_email}" if admin_email else origin
+
     # --- where the chat sends model calls -------------------------------------------
     for key in ("CHAT_OPENAI_BASE_URL", "CHAT_OPENAI_API_KEY", "CHAT_USE_USER_TOKEN"):
         if preset_changed:
@@ -1437,6 +1523,13 @@ def check_values(values: dict, report: Report) -> None:
             report.warnings.append(
                 "OIDC_SCOPES_JSON (the gateway's) differs from OIDC_SCOPES (the chat's): "
                 "set both with `./configure --set OIDC_SCOPES='...'`, which writes the JSON twin too"
+            )
+    if values.get("CHAT_VAPID_PRIVATE_KEY") or values.get("CHAT_VAPID_PUBLIC_KEY"):
+        problem = vapid_pair_problem(values.get("CHAT_VAPID_PRIVATE_KEY", ""), values.get("CHAT_VAPID_PUBLIC_KEY", ""))
+        if problem:
+            report.warnings.append(
+                f"CHAT_VAPID_PRIVATE_KEY / CHAT_VAPID_PUBLIC_KEY: {problem}; push notifications stay off "
+                "until they are a pair (clear both and run ./configure to mint a new one)"
             )
     for key in ("PYSTINO_VERSION", "CEREA_VERSION"):
         registry = values.get(key.replace("VERSION", "REGISTRY"), "")

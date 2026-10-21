@@ -57,6 +57,7 @@ import {
 	type Notice,
 } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
+import { observeMachineEvent, safely } from "$lib/server/push/watch";
 import { handleMachineCall, MACHINE_CALL_FEATURES } from "$lib/server/code/machineCalls";
 
 const HELLO_TIMEOUT_MS = 10_000;
@@ -922,7 +923,6 @@ export function acceptMachineConnection(
 					...(state.rootListeners.get(root) ?? []),
 					...(root !== frame.sessionId ? (state.rootListeners.get(frame.sessionId) ?? []) : []),
 				]);
-				if ((!listeners || listeners.size === 0) && treeListeners.size === 0) return;
 				const envelope: Envelope = {
 					sessionId: frame.sessionId,
 					epoch: frame.epoch,
@@ -930,6 +930,11 @@ export function acceptMachineConnection(
 					rootSessionId: root,
 					event: frame.event,
 				};
+				// Before the "nobody is watching" return below: the person who
+				// most needs a push is the one with no tab open.
+				const owner = state;
+				safely(() => observeMachineEvent(owner.principal.userId, owner.deviceId, envelope));
+				if ((!listeners || listeners.size === 0) && treeListeners.size === 0) return;
 				if (listeners) for (const listener of listeners) listener(envelope);
 				for (const listener of treeListeners) listener(envelope);
 				return;

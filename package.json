@@ -43,6 +43,7 @@
 		"@types/node": "^22.1.0",
 		"@types/pg": "^8.23.1",
 		"@types/uuid": "^9.0.8",
+		"@types/web-push": "3.6.4",
 		"@types/yazl": "^3.3.0",
 		"@typescript-eslint/eslint-plugin": "^6.x",
 		"@typescript-eslint/parser": "^6.x",
@@ -135,6 +136,7 @@
 		"undici": "^7.18.2",
 		"uuid": "^10.0.0",
 		"web-haptics": "^0.0.6",
+		"web-push": "3.6.7",
 		"ws": "8.21.1",
 		"zod": "^3.22.3"
 	},

@@ -184,6 +184,11 @@ type ExtraConfigKeys =
 	 * compared in constant time (`internalAuth.ts`). Not in `.env` — a
 	 * deployment secret, not a documented setting a person edits. */
 	| "CHAT_ERASURE_TOKEN"
+	/** Web Push identity (`server/push/`): the key pair and contact `./configure`
+	 * mints once. Unset, or not a matching pair, switches push off everywhere. */
+	| "CHAT_VAPID_PUBLIC_KEY"
+	| "CHAT_VAPID_PRIVATE_KEY"
+	| "CHAT_VAPID_SUBJECT"
 	/** The gateway origin (or `/v1` base) `galopin enroll`'s `--gateway`
 	 * needs, printed by the pairing dialog and the device list's re-enroll
 	 * prompt. Unset on a deployment that serves no gateway to machines;

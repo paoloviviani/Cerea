@@ -15,6 +15,7 @@ import {
 	type MessageReasoningStreamUpdate,
 } from "$lib/types/MessageUpdate";
 import { registerActiveRun, unregisterActiveRun } from "./finalize";
+import { chatTurnFinished, safely } from "$lib/server/push/watch";
 
 // Text and reasoning are the only per-token streams; both carry a `token`.
 function isStreamToken(e: MessageUpdate): e is MessageStreamUpdate | MessageReasoningStreamUpdate {
@@ -308,6 +309,17 @@ export async function createGenerationWriter(
 					}
 				);
 			});
+			// After the write, so a person who taps the notification finds the
+			// finished answer. Chat only; a person with the tab open is not told
+			// (the service worker checks).
+			safely(() =>
+				chatTurnFinished({
+					userId,
+					conversationId,
+					startedAt: now.getTime(),
+					status,
+				})
+			);
 		},
 	};
 }

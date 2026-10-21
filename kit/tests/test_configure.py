@@ -622,6 +622,50 @@ class TestReRun(unittest.TestCase):
         self.assertEqual(v["AUTHELIA_CHAT_CLIENT_DIGEST"], first["AUTHELIA_CHAT_CLIENT_DIGEST"])
 
 
+class TestVapid(unittest.TestCase):
+    """Web Push keys: minted once, a real P-256 pair, subject from the admin."""
+
+    def test_the_curve_maths_matches_known_points(self):
+        # d = 1 is the generator itself; d = 2 is a published doubling vector.
+        one = cfg.p256_public((1).to_bytes(32, "big"))
+        self.assertEqual(one[1:33].hex(), "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+        two = cfg.p256_public((2).to_bytes(32, "big"))
+        self.assertEqual(two[1:33].hex(), "7cf27b188d034f7e8a52380304b51ac3c08969e277f21b35a60b48fc47669978")
+        self.assertEqual(two[33:].hex(), "07775510db8ed040293d9ac69f7430dbba7dade63ce982299e04b79d227873d1")
+
+    def test_a_fresh_install_gets_a_pair_and_a_subject(self):
+        v = build().values
+        self.assertEqual(len(cfg._unb64url(v["CHAT_VAPID_PUBLIC_KEY"])), 65)
+        self.assertEqual(len(cfg._unb64url(v["CHAT_VAPID_PRIVATE_KEY"])), 32)
+        self.assertIsNone(cfg.vapid_pair_problem(v["CHAT_VAPID_PRIVATE_KEY"], v["CHAT_VAPID_PUBLIC_KEY"]))
+        self.assertEqual(v["CHAT_VAPID_SUBJECT"], "mailto:ops@example.org")
+
+    def test_a_rerun_never_regenerates_the_pair(self):
+        first = dict(build().values)
+        again = build(existing=first, admin_email="other@example.org").values
+        for key in ("CHAT_VAPID_PUBLIC_KEY", "CHAT_VAPID_PRIVATE_KEY", "CHAT_VAPID_SUBJECT"):
+            self.assertEqual(again[key], first[key])
+
+    def test_a_missing_public_half_is_derived_not_reminted(self):
+        first = dict(build().values)
+        first.pop("CHAT_VAPID_PUBLIC_KEY")
+        again = build(existing=first).values
+        self.assertEqual(again["CHAT_VAPID_PRIVATE_KEY"], first["CHAT_VAPID_PRIVATE_KEY"])
+        self.assertIsNone(cfg.vapid_pair_problem(again["CHAT_VAPID_PRIVATE_KEY"], again["CHAT_VAPID_PUBLIC_KEY"]))
+
+    def test_a_mismatched_pair_is_a_warning(self):
+        first = dict(build().values)
+        first["CHAT_VAPID_PUBLIC_KEY"] = cfg.mint_vapid()[1]
+        report = cfg.Report()
+        cfg.check_values(first, report)
+        self.assertTrue(any("CHAT_VAPID" in w for w in report.warnings), report.warnings)
+
+    def test_a_good_pair_raises_nothing(self):
+        report = cfg.Report()
+        cfg.check_values(build().values, report)
+        self.assertFalse(any("CHAT_VAPID" in w for w in report.warnings + report.errors))
+
+
 class TestCommands(Deploy):
     def configure(self, *extra):
         return self.run_cli("--non-interactive", "--origin", "https://chat.example.org",

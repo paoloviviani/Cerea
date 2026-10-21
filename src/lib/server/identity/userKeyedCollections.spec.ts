@@ -40,6 +40,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	codeAudit: true,
 	schedules: true, // a person's scheduled actions; owner-keyed, erased and merged with the account
 	scheduleRuns: true, // one row per occurrence considered: the record of what a schedule did
+	pushSubscriptions: true, // the browsers a person turned Web Push on for; owner-keyed
 	conversationStats: false,
 	assistants: true,
 	reports: true,
@@ -930,5 +931,50 @@ describe("projectDocuments erasure (documents follow the project, not the upload
 		const target = new ObjectId();
 		expect(await entry.merge(erased, target)).toBe(1);
 		await collections.bucketFiles.deleteMany({ "metadata.conversation": `project:${theirs}` });
+	});
+});
+
+describe("pushSubscriptions: a person's devices go with them", () => {
+	beforeAll(async () => {
+		await ready;
+	});
+
+	const device = (userId: ObjectId) => ({
+		_id: new ObjectId(),
+		userId,
+		endpoint: `https://push.example.net/${new ObjectId().toString()}`,
+		p256dh: "k",
+		auth: "a",
+		label: "Chrome on Linux",
+		createdAt: new Date(),
+		lastSeenAt: new Date(),
+	});
+
+	it("erases only the erased person's devices", async () => {
+		const gone = new ObjectId();
+		const kept = new ObjectId();
+		await collections.pushSubscriptions.insertMany([device(gone), device(gone), device(kept)]);
+
+		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "pushSubscriptions");
+		if (!entry) throw new Error("pushSubscriptions must be registered");
+		expect(await entry.erase(gone, NO_CONVERSATIONS)).toBe(2);
+
+		expect(await collections.pushSubscriptions.countDocuments({ userId: gone })).toBe(0);
+		expect(await collections.pushSubscriptions.countDocuments({ userId: kept })).toBe(1);
+		await collections.pushSubscriptions.deleteMany({ userId: kept });
+	});
+
+	it("moves a stray's devices onto the target on a merge", async () => {
+		const stray = new ObjectId();
+		const target = new ObjectId();
+		await collections.pushSubscriptions.insertMany([device(stray), device(target)]);
+
+		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "pushSubscriptions");
+		if (!entry) throw new Error("pushSubscriptions must be registered");
+		expect(await entry.merge(stray, target)).toBe(1);
+
+		expect(await collections.pushSubscriptions.countDocuments({ userId: target })).toBe(2);
+		expect(await collections.pushSubscriptions.countDocuments({ userId: stray })).toBe(0);
+		await collections.pushSubscriptions.deleteMany({ userId: target });
 	});
 });

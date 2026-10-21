@@ -80,6 +80,14 @@ chat against Pystino and for a chat against any other endpoint.
 | `CHAT_SECRET_KEY`    | Encrypts connector credentials at rest (AES-256-GCM). There is **no default**: without it connectors stop working, and nothing stores a plaintext token. Rotate it and stored connector credentials no longer decrypt                                               |
 | `CHAT_ERASURE_TOKEN` | The gateway's own credential for the chat's `/internal/erasure` (deleting a person everywhere). Minted by `./configure`, sent over the compose network only, compared in constant time. The chat also refuses any `/internal/*` request that carries a proxy header |
 
+## Notifications
+
+| Variable                 | What                                                                                                                                                                                                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CHAT_VAPID_PUBLIC_KEY`  | The public half of the deployment's Web Push key pair (base64url, 65 bytes). Minted once by `./configure`. Browsers subscribe against it, so replacing it strands every subscription. Unset means push is off ([Notifications](notifications.md)) |
+| `CHAT_VAPID_PRIVATE_KEY` | The private half (base64url, 32 bytes). Signs each push. Keep it with the other secrets in `.env`; a pair whose halves disagree is treated as unset, and `./configure --check` says so                                                            |
+| `CHAT_VAPID_SUBJECT`     | How a push service can reach the operator: a `mailto:` or `https:` address. `./configure` writes `mailto:` your admin email                                                                                                                       |
+
 ## Documents and knowledge
 
 | Variable                 | What                                                                                                                                                                                                                                                                                                                                                                                |

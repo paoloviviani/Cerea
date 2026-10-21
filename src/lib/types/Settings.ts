@@ -1,5 +1,6 @@
 import { defaultModel } from "$lib/server/models";
 import type { Accent, Neutral } from "$lib/utils/palettes";
+import type { PushEventPrefs } from "$lib/utils/pushEvents";
 import type { Timestamps } from "./Timestamps";
 import type { User } from "./User";
 
@@ -169,6 +170,16 @@ export interface Settings extends Timestamps {
 	 * Stores the org's preferred_username. If empty/undefined, bills to personal account.
 	 */
 	billingOrganization?: string;
+
+	/**
+	 * Which events send this person a push notification (Settings →
+	 * Notifications). Only read for a person with at least one subscribed
+	 * device, so having this unset is not "off" but "each event's default".
+	 * Written by `/api/v2/push` alone, never by the general settings routes:
+	 * those post a whole copy loaded at page open, which would overwrite a
+	 * toggle made since.
+	 */
+	pushEvents?: PushEventPrefs;
 }
 
 export type SettingsEditable = Omit<
