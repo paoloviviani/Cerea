@@ -5,6 +5,33 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.19.0 — 2026-10-21
+
+Pins: Cerea `0.19.0`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
+Update the deployment (`docker compose pull && docker compose up -d`).
+**Machines need the galopin update** for the new agent features (re-run the
+install line from the pairing dialog, then `systemctl --user restart galopin`);
+an older galopin keeps working without them.
+
+- **galopin: delegate profiles.** A session handing work to another can pick
+  a profile: a named preset of model, permission mode and notes. Three ship
+  built in (`worker`, `reviewer` and `explorer`, the last two read-only); add
+  or replace them in `profiles.json` in galopin's state directory. A profile
+  can only make a delegate stricter than the session that spawns it, never
+  looser, and the machine's rules still apply. The approval card shows the
+  profile.
+- **galopin: recipes.** The agent is taught when to hand off work, when to ask
+  for a second opinion, and a new committee tool: 2 to 3 delegates answer the
+  same question and their answers come back together in one message (or what
+  has arrived when the time limit passes). Under Ask, each member has its own
+  approval card.
+- **galopin: coordination tools over MCP** for agents other than opencode
+  that galopin runs over ACP and that support HTTP MCP servers: listing,
+  reading, spawning and messaging sessions, schedules, profiles and
+  committees, through a per-session endpoint and token on the loopback
+  interface only, with the same approvals as opencode. opencode keeps its
+  existing route. Not yet tried with a real ACP agent.
+
 ## v0.18.2 — 2026-10-21
 
 Pins: Cerea `0.18.2`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
