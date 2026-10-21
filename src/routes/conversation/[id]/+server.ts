@@ -35,8 +35,6 @@ import { indexConversation, parseAttachedKnowledgeBaseIds } from "$lib/server/pr
 import { mcpLocalsFor, withoutClientCredentials } from "$lib/server/mcp/selection";
 import type { McpTurnSelection } from "$lib/types/Conversation";
 import type { TextGenerationContext } from "$lib/server/textGeneration/types";
-import { isMlAssistantConversation } from "$lib/server/mlAssistant";
-import { mlAssistantProviderFor } from "$lib/server/mlAssistantModels";
 import { logger } from "$lib/server/logger.js";
 import { compressUpdatesForStorage } from "$lib/server/generation/compressUpdates";
 import { applyUpdateToMessage } from "$lib/server/generation/applyUpdate";
@@ -729,14 +727,10 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					// Inference provider preference (HuggingChat only, skip for router models)
 					provider:
 						config.isHuggingChat && !model.isRouter
-							? isMlAssistantConversation(conv)
-								? mlAssistantProviderFor(model.id, userSettings?.providerOverrides?.[model.id])
-								: userSettings?.providerOverrides?.[model.id]
+							? userSettings?.providerOverrides?.[model.id]
 							: undefined,
 					// Thinking-effort override (only forwarded for reasoning-capable models;
-					// per-user override can force-enable on self-hosted). The ML Assistant
-					// preset pins its own effort here rather than writing the user's saved
-					// setting, so the mode never outlives the conversation it belongs to.
+					// per-user override can force-enable on self-hosted).
 					reasoningEffort:
 						(userSettings?.reasoningOverrides?.[model.id] ?? model.supportsReasoning)
 							? effectiveReasoningEffort(conv, userSettings, model.id)

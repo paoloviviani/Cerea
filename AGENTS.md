@@ -251,6 +251,12 @@ git fetch upstream && git merge upstream/main
 - HuggingChat-only behaviour stays behind `publicConfig.isHuggingChat`; do not
   delete it just because this deployment never takes that path, since that
   turns every later upstream merge into a conflict.
+- The one deliberate exception: ML Assistant mode (upstream's `mlAssistant*`
+  files, `ML_ASSISTANT_MODE` / `ML_ASSISTANT_MODELS`, the composer strip and
+  pill, the compute budget) was removed on purpose in 2026-10. When an upstream
+  merge touches those files or their call sites in `models.ts`,
+  `reasoningEffort.ts`, `textGeneration/` and the conversation routes, drop
+  upstream's changes rather than resurrecting the feature.
 - Run `npm run check`, `npm run lint` and the tests after a merge, and read the
   upstream changes to `src/lib/server/models.ts`, auth and the generation path
   with care: those are where the fork differs most.
@@ -459,7 +465,6 @@ then the custom model's, then the conversation's stored prompt**; empty parts ar
 skipped; `preprompt.spec.ts` asserts the order. What `resolvePreprompt` and the
 turn append after it (the artifacts and execution contracts, skills, memory, then
 the project's context, whose own order `projectContext` keeps) reads below.
-The ML Assistant preset supplies its whole prompt, so neither reaches it.
 
 **Per-model prompts are gone, and stale ones are neutralised three ways.** The
 settings API no longer reads or writes `customPrompts` / `customPromptsEnabled`

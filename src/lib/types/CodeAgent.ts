@@ -18,9 +18,7 @@ import {
  * The `/code` surface: a remote-control panel for coding agents, NOT a chat
  * mode.
  *
- * A mode in this app is a boolean latched on a `Conversation` document
- * (`Conversation.mlAssistant`) — inherently conversation-bound. This surface
- * has no conversation; it is a top-level route that drives galopin (which
+ * This surface has no conversation; it is a top-level route that drives galopin (which
  * runs `opencode` or an ACP agent on the person's own machine) through the
  * Cerea server. The browser never talks to the machine directly.
  *

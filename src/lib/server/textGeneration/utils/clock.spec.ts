@@ -33,7 +33,6 @@ describe("the current time line", () => {
 describe("the system prompt says when it is, once", () => {
 	const base = {
 		conversationPreprompt: "Be brief.",
-		mlAssistant: false,
 		timezone: "Asia/Tokyo",
 		now: NOW,
 	};
@@ -52,12 +51,6 @@ describe("the system prompt says when it is, once", () => {
 		// ...but its search guidance uses today's date in the user's zone.
 		expect(toolText).toMatch(/today's date \(\d{4}-\d{2}-\d{2}\) as the end date/);
 		expect(count(`${toolText}\n\n${resolvePreprompt({ ...base, supportsTools: true })}`)).toBe(1);
-	});
-
-	it("the ML Assistant states it in its session context only", () => {
-		const prompt = resolvePreprompt({ ...base, mlAssistant: true, supportsTools: true }) ?? "";
-		expect(count(prompt)).toBe(0);
-		expect(prompt).toContain("Date=2026-10-04, Time=12:30, Timezone=Asia/Tokyo");
 	});
 });
 

@@ -58,10 +58,6 @@ function machineLinkDevUpgrade() {
 }
 export default defineConfig({
 	define: {
-		// Build flag for ML Assistant mode, fixed at build time rather than read from
-		// runtime config so a build either ships the feature or cannot turn it on.
-		// Read it via `ML_ASSISTANT_MODE` in $lib/utils/mlAssistantFlag.
-		__ML_ASSISTANT_MODE__: JSON.stringify(process.env.ML_ASSISTANT_MODE === "true"),
 		// The release version, from package.json at build time: the runtime env of
 		// the image does not carry it (PUBLIC_VERSION is only set under `npm run`).
 		__APP_VERSION__: JSON.stringify(

@@ -22,9 +22,6 @@ import { authCondition } from "$lib/server/auth";
 import { usageLimits } from "$lib/server/usageLimits";
 import { MetricsServer } from "$lib/server/metrics";
 import superjson from "superjson";
-import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
-import { resolveMlAssistantModel } from "$lib/server/mlAssistantModels";
-import { usdToMicroUsd } from "$lib/utils/mlBudget";
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const body = await request.text();
@@ -40,7 +37,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			// travel here are gone, and a stale tab must not smuggle one back in. A
 			// conversation's prompt is the model's own, or an imported share's.
 			preprompt: z.string().optional(),
-			mlAssistant: z.boolean().optional(),
 			/** Start this conversation inside a project. */
 			projectId: z.string().optional(),
 			/**
@@ -61,7 +57,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			 * still applies to it.
 			 */
 			toolApprovalOverride: z.enum(["always-allow", "manual"]).optional(),
-			mlBudgetUsd: z.number().finite().min(0).max(10_000).optional(),
 		})
 		.safeParse(JSON.parse(body));
 
@@ -76,12 +71,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		error(429, "You have reached the maximum number of conversations. Delete some to continue.");
 	}
 
-	// Only builds that ship ML Assistant mode can start a conversation in it.
-	const isMlAssistant = ML_ASSISTANT_MODE && values.mlAssistant === true;
-
 	// A custom model starts the conversation on itself (`conversation.model`
-	// keeps the custom id) while the checks below, the preprompt default and the
-	// ML Assistant swap look at its base.
+	// keeps the custom id) while the checks below and the preprompt default look at
+	// its base.
 	const owner = conversationOwnerFilter({ userId: locals.user?._id, sessionId: locals.sessionId });
 	if (
 		!(await isSelectableModel(
@@ -92,7 +84,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	) {
 		error(400, "Invalid request");
 	}
-	let model = (await resolveConversationModel(values.model, owner))?.model;
+	const model = (await resolveConversationModel(values.model, owner))?.model;
 
 	if (!model) {
 		error(400, "Invalid model");
@@ -130,45 +122,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		fromSharePreprompt = conversation.preprompt;
 	}
 
-	// The mode runs on its own fixed set (ML_ASSISTANT_MODELS): whatever was
-	// requested — the router alias, or a shared conversation's model — is
-	// replaced by the set's default when it isn't listed, so neither a stale
-	// client nor an import can route the mode onto an unverified model. After
-	// the share import, which is the last thing that can change the model.
-	if (isMlAssistant) {
-		const resolved = resolveMlAssistantModel(values.model);
-		if (!resolved) {
-			error(400, "ML Intern has no models configured");
-		}
-		values.model = resolved;
-		model = models.find((m) => (m.id || m.name) === resolved) ?? model;
-	}
-
 	if (model?.unlisted) {
 		error(400, "Can't start a conversation with an unlisted model");
 	}
 
-	// Every mode conversation carries a budget, and it is what the user granted
-	// in the composer — nothing more. No grant means $0: the gate refuses every
-	// submission until the user sets one, so spend authority is never implicit.
-	const mlBudget = isMlAssistant
-		? {
-				totalMicroUsd: usdToMicroUsd(values.mlBudgetUsd ?? 0),
-				spentMicroUsd: 0,
-				reservations: [],
-			}
-		: undefined;
-
 	// The model's own preprompt, unless a share brought one. Never the body's.
 	values.preprompt = fromSharePreprompt ?? model?.preprompt ?? "";
-
-	// The ML Assistant preset supplies the whole system prompt at generation time.
-	// Storing nothing here keeps any stored prompt out of the conversation
-	// entirely — the endpoint appends a stored system message after the
-	// preprompt, so leaving one would compose the two.
-	if (isMlAssistant) {
-		values.preprompt = "";
-	}
 
 	if (messages && messages.length > 0 && messages[0].from === "system") {
 		messages[0].content = values.preprompt;
@@ -273,9 +232,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		...(values.toolApprovalOverride !== undefined
 			? { toolApprovalOverride: values.toolApprovalOverride }
 			: {}),
-		// Only builds that ship ML Assistant mode can mark a conversation with it.
-		...(isMlAssistant ? { mlAssistant: true } : {}),
-		...(isMlAssistant && mlBudget ? { mlBudget } : {}),
 	});
 
 	if (MetricsServer.isEnabled()) {
@@ -313,8 +269,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				// only reports shared=true when the viewing URL's fromShare matches.
 				shared: false,
 				deployedSpaces: undefined,
-				mlAssistant: isMlAssistant ? true : undefined,
-				mlBudget,
 				// Resolved to names so the composer's chips render without a second
 				// round trip; a base deleted between validate and this read is left
 				// out here, exactly as the GET endpoint would show it.

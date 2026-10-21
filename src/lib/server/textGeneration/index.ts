@@ -10,9 +10,6 @@ import { generate } from "./generate";
 import { runMcpFlow } from "./mcp/runMcpFlow";
 import { mergeAsyncGenerators } from "$lib/utils/mergeAsyncGenerators";
 import type { TextGenerationContext } from "./types";
-import { isMlAssistantConversation, pinnedHubToken } from "$lib/server/mlAssistant";
-import { settleMlBudget } from "$lib/server/mlBudget/settle";
-import { reservedMicroUsd } from "$lib/utils/mlBudget";
 import { logger } from "$lib/server/logger";
 import { modelReadsImages } from "./utils/modelReadsImages";
 import { resolvePreprompt } from "./preprompt";
@@ -64,43 +61,6 @@ async function* textGenerationWithoutTitle(
 	const { conv, messages } = ctx;
 	const convId = conv._id;
 
-	// ML Assistant conversations run the preset instead of the user's per-model
-	// custom prompt, and get its capabilities regardless of what the model
-	// advertises: the preset is a mode, not a set of defaults to fall back from.
-	// Outside it nothing changes — artifacts stay opt-in per model.
-	const mlAssistant = isMlAssistantConversation(conv);
-
-	// Settle finished jobs before the remaining budget is read anywhere this
-	// turn — the session-context line and the gate must both see refunds land.
-	if (mlAssistant && conv.mlBudget) {
-		try {
-			// Same effective credential as dispatch: an operator-pinned Hub entry
-			// launched the jobs, so it is what can read them back; the user's own
-			// token otherwise.
-			const token = pinnedHubToken() ?? ctx.locals?.token;
-			const settled = await settleMlBudget({
-				conversationId: convId,
-				budget: conv.mlBudget,
-				...(token ? { token } : {}),
-			});
-			// A changed ledger must reach the strip now: the guard only emits on
-			// gated calls, so a turn of text or log reads would otherwise leave the
-			// old hold on screen after the refund landed.
-			if (settled !== conv.mlBudget) {
-				conv.mlBudget = settled;
-				yield {
-					type: MessageUpdateType.Budget,
-					totalMicroUsd: settled.totalMicroUsd,
-					spentMicroUsd: settled.spentMicroUsd,
-					reservedMicroUsd: reservedMicroUsd(settled),
-				};
-			}
-		} catch (err) {
-			// A failed settle only leaves holds in place — safe to run the turn on.
-			logger.warn({ err: String(err) }, "[mlBudget] settle pass failed; continuing");
-		}
-	}
-
 	// Skills (Phase 1, ADR 0072): stage-1 frontmatter rides every turn and
 	// `@name` mentions in the latest user message load bodies up front; the
 	// model loads further bodies mid-turn itself, through `load_skill`.
@@ -127,15 +87,12 @@ async function* textGenerationWithoutTitle(
 		conversationPreprompt: conv.preprompt,
 		globalPrompt,
 		customModelPrompt,
-		mlAssistant,
 		artifactsOverride: ctx.artifactsOverride,
 		supportsArtifacts: ctx.model.supportsArtifacts,
 		supportsTools: ctx.model.supportsTools,
 		forceTools: ctx.forceTools,
 		artifactsMode: ctx.model.artifactsMode,
-		username: ctx.username,
 		timezone: ctx.locals?.timezone,
-		budget: conv.mlBudget,
 		skillsPreprompt,
 	});
 
@@ -176,7 +133,7 @@ async function* textGenerationWithoutTitle(
 	// composer. The project's shared notes come through here too, after the
 	// personal block above, and on the same member re-check. Appended to the system prompt rather than mixed into
 	// `resolvePreprompt`, and the ordering is the point: the conversation's own
-	// prompt — the user's per-model custom prompt, or the ML Assistant preset —
+	// prompt — the user's own prompts and the deployment model's default —
 	// keeps precedence, and the project adds to it.
 	//
 	// The two sources of bases are additive: the conversation's own bases join
@@ -222,7 +179,7 @@ async function* textGenerationWithoutTitle(
 			messages: processedMessages,
 			assistant: ctx.assistant,
 			forceMultimodal: ctx.forceMultimodal,
-			forceTools: mlAssistant || ctx.forceTools,
+			forceTools: ctx.forceTools,
 			provider: ctx.provider,
 			reasoningEffort: ctx.reasoningEffort,
 			reasoningOverride: ctx.reasoningOverride,

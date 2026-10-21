@@ -519,13 +519,8 @@ describe("executeToolCalls with a guard", () => {
 		expect(toolMessagesOf(events)[0].content).toContain("Nothing was charged");
 	});
 
-	it("streams the budget updates the guard returns", async () => {
-		const budgetUpdate = {
-			type: MessageUpdateType.Budget,
-			totalMicroUsd: 10,
-			spentMicroUsd: 1,
-			reservedMicroUsd: 2,
-		} as const;
+	it("streams the updates the guard returns", async () => {
+		const budgetUpdate = { type: MessageUpdateType.Title, title: "guard" } as const;
 		const { guard } = fakeGuard({
 			before: vi.fn(
 				async () => ({ allow: true, ticket: { key: "k" }, update: budgetUpdate }) as const
@@ -534,7 +529,7 @@ describe("executeToolCalls with a guard", () => {
 		});
 		const events = await drain([CALL], undefined, undefined, guard);
 		const budgets = events.filter(
-			(e) => e.type === "update" && e.update.type === MessageUpdateType.Budget
+			(e) => e.type === "update" && e.update.type === MessageUpdateType.Title
 		);
 		expect(budgets).toHaveLength(2);
 	});

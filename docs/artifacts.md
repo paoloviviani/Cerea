@@ -36,7 +36,7 @@ sentence. The panel keeps the history and lets you move between versions.
 
 Whether a model makes artifacts follows the model's setting in the
 **Workspace → Models** tab: on for a model that can call tools unless the
-setting says otherwise, and always on in the ML Assistant preset.
+setting says otherwise.
 
 ## File artifacts
 

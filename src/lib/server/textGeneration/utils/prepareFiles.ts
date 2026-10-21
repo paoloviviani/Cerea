@@ -50,7 +50,7 @@ const MAX_REPLAYED_TOOL_OUTPUT_CHARS = 8000;
  * lowered to fit (see budgetCharsFor), because on a small-context model a flat
  * history that fit could otherwise be expanded into an overflow.
  *
- * Sized for long agentic turns: an ML Assistant turn parks and resumes for
+ * Sized for long agentic turns: a long agentic turn parks and resumes for
  * half an hour and its tool transcript IS the working state — at the previous
  * 100k ceiling one such turn's floor consumed the whole budget and every
  * turn replayed flat, so the resumed model forgot its own waits, jobs and

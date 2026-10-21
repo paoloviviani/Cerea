@@ -34,7 +34,6 @@ const settingsSchema = z.object({
 	// standing facts about themselves. The deployment flag
 	// (CHAT_MEMORY_ENABLED) can withdraw the feature over the top of it.
 	memoryEnabled: z.boolean().optional(),
-	mlInternOnboardingSeen: z.boolean().optional(),
 	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),
 	// Unknown keys are stripped, so an old client still posting the retired
 	// per-model `customPrompts` / `customPromptsEnabled` is ignored, not refused.
@@ -93,7 +92,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 		toolApprovalPolicy: settings?.toolApprovalPolicy ?? undefined,
 		pyodidePyPiInstallEnabled: settings?.pyodidePyPiInstallEnabled ?? undefined,
 		memoryEnabled: settings?.memoryEnabled ?? undefined,
-		mlInternOnboardingSeen: !!settings?.mlInternOnboardingSeenAt,
 
 		activeModel: settings?.activeModel ?? DEFAULT_SETTINGS.activeModel,
 		streamingMode,
@@ -137,7 +135,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			{ status: 400 }
 		);
 	}
-	const { mlInternOnboardingSeen, accent, neutral, ...parsedSettings } = parsed.data;
+	const { accent, neutral, ...parsedSettings } = parsed.data;
 	const streamingMode = resolveStreamingMode(parsedSettings);
 
 	if (config.isHuggingChat) {
@@ -157,7 +155,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			$set: {
 				...settings,
 				...palettePatch({ accent, neutral }),
-				...(mlInternOnboardingSeen && { mlInternOnboardingSeenAt: new Date() }),
 				updatedAt: new Date(),
 			},
 			$setOnInsert: {

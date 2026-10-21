@@ -7,7 +7,6 @@ import { memoryEnabled } from "$lib/server/memoryEnabled";
 import { codeAgentsAllowedFor } from "$lib/server/codeEnabled";
 import { machineClientId } from "$lib/server/code/machineAuth";
 import type { FeatureFlags } from "$lib/server/api/types";
-import { mlAssistantModelIds } from "$lib/server/mlAssistantModels";
 
 export const GET: RequestHandler = async ({ locals }) => {
 	// Mirror the title-generation resolution (generateFromDefaultEndpoint): the
@@ -31,7 +30,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 		isAdmin: locals.isAdmin,
 		transcriptionEnabled: !!config.get("TRANSCRIPTION_MODEL"),
 		taskModelId,
-		mlAssistantModels: mlAssistantModelIds(),
 		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",
 		// Also requires a configured gateway (mirrored in pystinoProvider.ts's
 		// own isEnabled): a flag with no OPENAI_BASE_URL would show a tab whose

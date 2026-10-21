@@ -1,8 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 
-// The preset is a build flag; forced on so its branch is reachable.
-vi.mock("$lib/utils/mlAssistantFlag", () => ({ ML_ASSISTANT_MODE: true }));
-const { effectiveReasoningEffort } = await import("./reasoningEffort");
+import { effectiveReasoningEffort } from "./reasoningEffort";
 
 describe("effectiveReasoningEffort", () => {
 	const settings = { reasoningEffortOverrides: { "org/m": "medium" as const } };
@@ -15,11 +13,5 @@ describe("effectiveReasoningEffort", () => {
 		expect(effectiveReasoningEffort({}, settings, "org/m")).toBe("medium");
 		expect(effectiveReasoningEffort({}, settings, "org/other")).toBeUndefined();
 		expect(effectiveReasoningEffort({}, null, "org/m")).toBeUndefined();
-	});
-
-	it("lets the ML Assistant preset pin its own", () => {
-		expect(
-			effectiveReasoningEffort({ mlAssistant: true, reasoningEffort: "low" }, settings, "org/m")
-		).toBe("high");
 	});
 });

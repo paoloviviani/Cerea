@@ -11,7 +11,6 @@ type SettingsStore = {
 	toolApprovalPolicy?: "always-allow" | "manual";
 	pyodidePyPiInstallEnabled?: boolean;
 	memoryEnabled?: boolean;
-	mlInternOnboardingSeen: boolean;
 	activeModel: string;
 	globalSystemPrompt?: string;
 	multimodalOverrides: Record<string, boolean>;

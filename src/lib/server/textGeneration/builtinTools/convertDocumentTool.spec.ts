@@ -8,7 +8,6 @@ vi.mock("$lib/server/logger", () => ({
 }));
 const config: Record<string, string> = {};
 vi.mock("$lib/server/config", () => ({ config }));
-vi.mock("$lib/utils/mlAssistantFlag", () => ({ ML_ASSISTANT_MODE: false }));
 vi.mock("$lib/server/fetching", () => ({ configuredBackend: () => "direct" }));
 
 const db = vi.hoisted(() => ({

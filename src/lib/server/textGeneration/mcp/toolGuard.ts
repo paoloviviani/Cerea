@@ -2,7 +2,7 @@ import type { MessageUpdate } from "$lib/types/MessageUpdate";
 
 /**
  * A gate on outbound MCP tool calls, consulted by `executeToolCalls` around
- * each dispatch. Exists so a policy (today: the ML Assistant compute budget)
+ * each dispatch. Exists so a policy (today: repeated-call and schema checks)
  * can refuse a call before it reaches the server and reconcile after it
  * returns, without the dispatch loop knowing anything about the policy.
  */

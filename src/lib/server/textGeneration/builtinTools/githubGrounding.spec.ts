@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ObjectId } from "mongodb";
 
-// The gate itself is real; only the build flag behind it is forced on.
-vi.mock("$lib/utils/mlAssistantFlag", () => ({ ML_ASSISTANT_MODE: true }));
 vi.mock("$lib/server/config", () => ({ config: { GITHUB_TOKEN: "ghp_test_token" } }));
 vi.mock("$lib/server/database", () => ({
 	collections: { conversations: { updateOne: vi.fn() } },
@@ -108,43 +106,7 @@ describe("githubGroundingBuiltins", () => {
 });
 
 describe("registration", () => {
-	it("joins the preset's other builtin tools in a mode conversation", () => {
-		expect(
-			getEnabledBuiltinTools({ conv: { _id: new ObjectId(), mlAssistant: true } }).map(
-				(t) => t.name
-			)
-		).toEqual([
-			"ask_user_question",
-			"update_plan",
-			"wait",
-			"github_list_repos",
-			"github_find_examples",
-			"github_read_file",
-			"research",
-			"sandbox_task",
-			"check_job",
-			"create_trackio",
-		]);
-	});
-
-	it("stays out of a conversation that is not in the mode, token or not", () => {
+	it("is not offered to any conversation", () => {
 		expect(getEnabledBuiltinTools({ conv: { _id: new ObjectId() } })).toEqual([]);
-	});
-
-	it("leaves the other builtins alone when there is no token", () => {
-		setToken("");
-		expect(
-			getEnabledBuiltinTools({ conv: { _id: new ObjectId(), mlAssistant: true } }).map(
-				(t) => t.name
-			)
-		).toEqual([
-			"ask_user_question",
-			"update_plan",
-			"wait",
-			"research",
-			"sandbox_task",
-			"check_job",
-			"create_trackio",
-		]);
 	});
 });

@@ -6,7 +6,7 @@
 	  person picked recently (at most six), each with its one-line
 	  description and a check on the current one.
 	- "Effort ▸": the model's effort levels plus Default, only for a model
-	  that takes one (a preset that pins effort shows it, read-only).
+	  that takes one.
 	- "More models ▸": the full searchable picker, only when the catalog has
 	  more than ten models; up to ten, the list above simply shows them all.
 
@@ -34,8 +34,6 @@
 		efforts: string[] | null;
 		/** The effort in force; undefined = Default. */
 		effort?: string;
-		/** A preset pins the effort: shown, not changeable. */
-		effortPinned?: boolean;
 		onpickModel: (id: string) => void;
 		onpickEffort: (effort: string | undefined) => void;
 		onmore: () => void;
@@ -63,7 +61,6 @@
 		recentIds,
 		efforts,
 		effort,
-		effortPinned = false,
 		onpickModel,
 		onpickEffort,
 		onmore,
@@ -148,39 +145,33 @@
 			{@render footer?.()}
 			<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700" />
 			{#if efforts}
-				{#if effortPinned}
-					<div class="flex h-8 items-center justify-between px-2 text-sm text-gray-500">
-						<span>Effort</span><span>{effortLabel(effort)} · set by this mode</span>
-					</div>
-				{:else}
-					<DropdownMenu.Sub>
-						<DropdownMenu.SubTrigger
-							class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
-						>
-							<span>Effort</span>
-							<span class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
-								{effortLabel(effort)}
-								<CarbonChevronRight class="size-3" />
-							</span>
-						</DropdownMenu.SubTrigger>
-						<DropdownMenu.SubContent
-							class="z-50 min-w-36 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-							sideOffset={4}
-						>
-							{#each [undefined, ...efforts] as level (level ?? "default")}
-								<DropdownMenu.Item
-									class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
-									onSelect={() => onpickEffort(level)}
-								>
-									<span>{effortLabel(level)}</span>
-									{#if effort === level}
-										<LucideCheck class="size-4 text-gray-500" />
-									{/if}
-								</DropdownMenu.Item>
-							{/each}
-						</DropdownMenu.SubContent>
-					</DropdownMenu.Sub>
-				{/if}
+				<DropdownMenu.Sub>
+					<DropdownMenu.SubTrigger
+						class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
+					>
+						<span>Effort</span>
+						<span class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+							{effortLabel(effort)}
+							<CarbonChevronRight class="size-3" />
+						</span>
+					</DropdownMenu.SubTrigger>
+					<DropdownMenu.SubContent
+						class="z-50 min-w-36 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+						sideOffset={4}
+					>
+						{#each [undefined, ...efforts] as level (level ?? "default")}
+							<DropdownMenu.Item
+								class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
+								onSelect={() => onpickEffort(level)}
+							>
+								<span>{effortLabel(level)}</span>
+								{#if effort === level}
+									<LucideCheck class="size-4 text-gray-500" />
+								{/if}
+							</DropdownMenu.Item>
+						{/each}
+					</DropdownMenu.SubContent>
+				</DropdownMenu.Sub>
 			{/if}
 			{#if !listsEveryModel(models)}
 				<DropdownMenu.Item

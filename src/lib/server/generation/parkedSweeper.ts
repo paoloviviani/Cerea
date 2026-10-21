@@ -8,8 +8,6 @@ import { mcpLocalsFor } from "$lib/server/mcp/selection";
 import { onExit } from "$lib/server/exitHandler";
 import { buildSubtree } from "$lib/utils/tree/buildSubtree";
 import { textGeneration } from "$lib/server/textGeneration";
-import { isMlAssistantConversation } from "$lib/server/mlAssistant";
-import { mlAssistantProviderFor } from "$lib/server/mlAssistantModels";
 import { waitResumeResultText } from "$lib/server/textGeneration/builtinTools/waitTool";
 import {
 	buildCodeExecutionResolvedUpdate,
@@ -364,9 +362,7 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 			forceTools: !config.isHuggingChat ? settings?.toolsOverrides?.[model.id] : undefined,
 			provider:
 				config.isHuggingChat && !model.isRouter
-					? isMlAssistantConversation(conv)
-						? mlAssistantProviderFor(model.id, settings?.providerOverrides?.[model.id])
-						: settings?.providerOverrides?.[model.id]
+					? settings?.providerOverrides?.[model.id]
 					: undefined,
 			reasoningEffort: effectiveReasoningEffort(conv, settings, model.id),
 			reasoningOverride: settings?.reasoningOverrides?.[model.id],

@@ -1,7 +1,6 @@
 import {
 	ASK_USER_QUESTION_TOOL_NAME,
 	askUserQuestionTool,
-	askUserQuestionToolPlain,
 	openAskPrompt,
 } from "$lib/server/askUserQuestion";
 import { turnAwaitingInput } from "$lib/server/generation/turnState";
@@ -55,13 +54,4 @@ export const askUserQuestionBuiltin: BuiltinTool = {
 		// Answering is the only way this call finishes, so a silent skip would hang it.
 		return { error: `The question could not be shown (${opened.reason}).` };
 	},
-};
-
-/**
- * The same tool for an ordinary conversation: the schema leaves out the ML
- * Assistant preset's `setBudgetUsd`, which means nothing outside it.
- */
-export const askUserQuestionPlainBuiltin: BuiltinTool = {
-	...askUserQuestionBuiltin,
-	definition: askUserQuestionToolPlain,
 };

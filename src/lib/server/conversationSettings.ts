@@ -1,9 +1,6 @@
 import type { Filter, UpdateResult } from "mongodb";
-import { error } from "@sveltejs/kit";
 import { collections } from "$lib/server/database";
 import type { Conversation } from "$lib/types/Conversation";
-import { isMlAssistantConversation } from "$lib/server/mlAssistant";
-import { mlAssistantModelIds } from "$lib/server/mlAssistantModels";
 import { baseModelIdFor, conversationOwnerFilter } from "$lib/server/customModels";
 import { isCustomModelId } from "$lib/utils/customModelId";
 
@@ -90,19 +87,9 @@ export async function applyConversationSettings(
 		return collections.conversations.updateOne(filter, { $set: updateValues });
 	}
 
-	// Here, not in the endpoints: an ML Intern conversation may only move within
-	// the mode's fixed set, and a guard that lives in one handler is exactly how
-	// the other one came to bypass it.
 	const current = await collections.conversations.findOne(filter, {
-		projection: { mlAssistant: 1, model: 1, userId: 1, sessionId: 1 },
+		projection: { model: 1, userId: 1, sessionId: 1 },
 	});
-	if (
-		current &&
-		isMlAssistantConversation(current) &&
-		!mlAssistantModelIds().includes(values.model)
-	) {
-		error(400, "This model is not available for ML Intern conversations");
-	}
 
 	const newModel = values.model;
 	// The producer stamped on history is the model that really made it. On a

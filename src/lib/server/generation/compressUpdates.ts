@@ -12,7 +12,7 @@ import type { Message } from "$lib/types/Message";
  * Past that ceiling every write to it fails — not slowly, permanently: the
  * conversation can never be added to again.
  *
- * That ceiling is reachable. One ML Assistant run polling a training job
+ * That ceiling is reachable. One run polling a training job
  * produced a single assistant message carrying 73,994 updates and 15.1MB, of
  * which 59,487 were MCP progress notifications. Progress is live-only UI: once
  * the result is stored, a progress tick tells a reader nothing the result does

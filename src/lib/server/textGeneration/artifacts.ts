@@ -61,9 +61,8 @@ export function injectArtifactsPrompt(preprompt?: string): string {
 }
 
 /**
- * Whether this turn carries the artifacts instructions: the ML Assistant
- * preset force-enables them, otherwise the effective default is whether the
- * model does tool calling at all — `supportsArtifacts` on the model entry,
+ * Whether this turn carries the artifacts instructions: the effective default
+ * is whether the model does tool calling at all — `supportsArtifacts` on the model entry,
  * when set, always wins (an explicit `false` stays off even for a
  * tool-capable model), and the per-user override wins over that in both
  * directions. The fallback reads the model's own *capability*
@@ -77,17 +76,13 @@ export function injectArtifactsPrompt(preprompt?: string): string {
  * guidance.
  */
 export function artifactsEnabledForTurn(input: {
-	mlAssistant: boolean;
 	artifactsOverride?: boolean;
 	supportsArtifacts?: boolean;
 	/** The model's own tool-calling capability — the fallback once neither
 	 * the model entry nor the user says otherwise. */
 	supportsTools?: boolean;
 }): boolean {
-	return (
-		input.mlAssistant ||
-		(input.artifactsOverride ?? input.supportsArtifacts ?? input.supportsTools ?? false)
-	);
+	return input.artifactsOverride ?? input.supportsArtifacts ?? input.supportsTools ?? false;
 }
 
 /**
@@ -109,11 +104,9 @@ export type ArtifactsMode = "tool" | "tags";
 /**
  * Which artifact surface this turn uses. An explicit per-model `artifactsMode`
  * wins; otherwise `"tool"` when artifacts are enabled for the turn and tools
- * are enabled too, else `"tags"`. The ML Assistant preset force-enables
- * artifacts, and tool mode applies there too when the model supports tools.
+ * are enabled too, else `"tags"`.
  */
 export function artifactsModeForTurn(input: {
-	mlAssistant: boolean;
 	artifactsOverride?: boolean;
 	supportsArtifacts?: boolean;
 	/** The model's own tool-calling capability, forwarded to

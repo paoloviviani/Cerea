@@ -70,13 +70,6 @@ export interface Conversation extends Timestamps {
 
 	userAgent?: string;
 
-	/**
-	 * Set when the conversation was started in ML Assistant mode. The mode is a
-	 * property of the conversation, not of the tab that started it, so reopening
-	 * one brings its composer strip back. Only ever written by builds that ship
-	 * the feature (see `$lib/utils/mlAssistantFlag`).
-	 */
-	mlAssistant?: boolean;
 	/** The user's web-search consent for this conversation (ADR 0058's plan). */
 	webSearch?: boolean;
 
@@ -115,46 +108,6 @@ export interface Conversation extends Timestamps {
 	 * the messages-only writes in the conversation route never clobber it.
 	 */
 	plan?: PlanState;
-
-	/**
-	 * Compute budget for ML Assistant conversations. Absent means no budget is
-	 * enforced. Like `plan`, only ever written with targeted operators
-	 * (`$push`/`$pull`/`$inc`/`$set` on its own paths) so the messages-only
-	 * writes in the conversation route never clobber a concurrent reservation.
-	 */
-	mlBudget?: MlBudget;
-}
-
-/**
- * All amounts are integer micro-USD (1 USD = 1_000_000), matching the unit the
- * Hub's `GET /api/jobs/hardware` prices in, so reserve/settle arithmetic never
- * touches floats.
- */
-export interface MlBudget {
-	totalMicroUsd: number;
-	/** Sum of settled actual costs. */
-	spentMicroUsd: number;
-	/** Open reservations, each holding its ceiling until settled or released. */
-	reservations: MlBudgetReservation[];
-}
-
-export interface MlBudgetReservation {
-	/** Idempotency key for the submitting tool call: `generationId:toolCallId`. */
-	key: string;
-	kind: "job" | "sandbox";
-	flavor: string;
-	/**
-	 * Price frozen at reserve time and reused at settle, so a Hub price change
-	 * mid-run cannot make the refund disagree with what was reserved.
-	 */
-	priceMicroUsdPerMinute: number;
-	timeoutSeconds: number;
-	/** Worst case for this submission: price × timeout, rounded up to the minute. */
-	ceilingMicroUsd: number;
-	createdAt: Date;
-	/** Set once the submission response yielded a job id; unset means the job may never have started. */
-	jobId?: string;
-	namespace?: string;
 }
 
 export interface DeployedSpace {

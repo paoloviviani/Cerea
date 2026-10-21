@@ -96,13 +96,11 @@ export function readRecent(
 
 /**
  * The chat effort in force: the conversation's own, else the user's
- * per-model default; undefined means the model's own default. A preset that
- * pins effort wins over both.
+ * per-model default; undefined means the model's own default.
  */
 export function chatEffort(input: {
-	preset?: string;
 	conversation?: string;
 	userDefault?: string;
 }): string | undefined {
-	return input.preset ?? input.conversation ?? input.userDefault;
+	return input.conversation ?? input.userDefault;
 }

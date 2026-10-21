@@ -51,7 +51,7 @@ function mountWorkspace(query: string) {
 	return renderWithApp(
 		WorkspacePanel,
 		{
-			data: { models: [MODEL], mlAssistantModels: [] },
+			data: { models: [MODEL] },
 		} as never,
 		{
 			page: { url: `http://localhost:3000/workspace${query}` },

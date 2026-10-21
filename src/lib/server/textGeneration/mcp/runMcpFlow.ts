@@ -29,18 +29,10 @@ import { makeImageProcessor } from "$lib/server/endpoints/images";
 import { logger } from "$lib/server/logger";
 import { AbortedGenerations } from "$lib/server/abortedGenerations";
 import { withoutContentLength } from "$lib/server/undiciCompat";
-import {
-	isMlAssistantConversation,
-	pinnedHubToken,
-	withMlAssistantServers,
-} from "$lib/server/mlAssistant";
-import { mlAssistantModelEntry } from "$lib/server/mlAssistantModels";
-import { createMlBudgetGuard, withRequiredDiscriminators } from "$lib/server/mlBudget/guard";
 import { createRepeatedCallGuard } from "./repeatedCallGuard";
 import { withRepairedToolSchemas } from "$lib/server/mcp/schemaRepair";
 import { createSchemaPreflightGuard } from "$lib/server/mcp/preflightGuard";
 import { composeGuards } from "./toolGuard";
-import { ML_ASSISTANT_MIN_COMPLETION_TOKENS } from "$lib/constants/mlAssistant";
 import { withUpstreamRetry } from "../utils/upstreamRetry";
 import { stripThink } from "$lib/utils/stripThink";
 import { getEnabledBuiltinTools, isNestedAgentTool, shouldSkipMcpFlow } from "../builtinTools";
@@ -86,13 +78,6 @@ export type McpFlowResult =
 	| "awaiting_input";
 
 const MAX_TOOL_ROUNDS = 10;
-
-// ML Assistant runs jobs, and the round budget is what it spends grounding ids,
-// auditing a dataset, reading a working example and then submitting: ten does not
-// survive one training task, and exhausting the budget ends the turn with an
-// apology instead of an answer. Only the preset gets the larger budget — an
-// ordinary conversation that loops is still stopped early.
-const ML_ASSISTANT_MAX_TOOL_ROUNDS = 100;
 
 // Each retry costs a tool round, so give up quickly and answer without the tool.
 const MAX_TRUNCATED_TOOL_CALL_RETRIES = 2;
@@ -166,8 +151,7 @@ export async function* runMcpFlow({
 	// their token and their own search-tier grants; both are read here, where
 	// the turn's identity is already in hand, and the tool withholds itself
 	// when either is missing. The user-side switch is their web-search
-	// setting — the ML Assistant preset searches regardless, because search
-	// is part of what that mode is. The settings doc is keyed the way the
+	// setting. The settings doc is keyed the way the
 	// settings API keys it: by user when signed in, by session otherwise.
 	const turnToken = locals?.token;
 	const identityUser = locals?.user;
@@ -225,28 +209,18 @@ export async function* runMcpFlow({
 	// membership alone, not the personal opt-in: see `projectForMemory`.
 	const { projectForMemory } = await import("$lib/server/projects");
 	const memoryProject = await projectForMemory(conv.projectId, locals);
-	// Read once: the preset decides the servers, the round budget and which tool
-	// doctrine is sent, and they must all agree within a run. Read here — ahead
-	// of the builtin list — because the artifact tool's tool-vs-tags gating
-	// needs the same answer.
-	const mlAssistant = isMlAssistantConversation(conv);
 	const modelSupportsTools = Boolean(model.supportsTools);
 	// Canonical blocks this turn's artifact calls already appended, in order.
 	// Later rounds validate against earlier rounds' blocks through this, since
 	// those blocks are not in the database yet.
 	const artifactTurnBlocks: string[] = [];
-	// Tool mode needs tools on: in the preset that means the model supports
-	// them; elsewhere the per-model override wins in both directions.
-	const artifactToolsEnabled = mlAssistant
-		? modelSupportsTools
-		: ((forceTools ?? modelSupportsTools) as boolean);
+	// Tool mode needs tools on; the per-model override wins in both directions.
+	const artifactToolsEnabled = (forceTools ?? modelSupportsTools) as boolean;
 	const artifactsEnabled = artifactsEnabledForTurn({
-		mlAssistant,
 		artifactsOverride,
 		supportsArtifacts: model.supportsArtifacts,
 	});
 	const artifactsMode: ArtifactsMode = artifactsModeForTurn({
-		mlAssistant,
 		artifactsOverride,
 		supportsArtifacts: model.supportsArtifacts,
 		toolsEnabled: artifactToolsEnabled,
@@ -294,26 +268,6 @@ export async function* runMcpFlow({
 		const skillsUserId = locals?.user?._id;
 		await includeSkillLoadBuiltin(builtinTools, skillsUserId);
 	}
-	// Read once: the preset decides the servers, the round budget and which tool
-	// doctrine is sent, and they must all agree within a run. Computed above
-	// (ahead of the builtin list) because the artifact tool's gating needs the
-	// same answer; reused here.
-
-	// Every mode conversation is gated — one without a stored budget is a zero
-	// budget, not an ungated one. Settle already ran this turn
-	// (textGeneration/index.ts), so the ledger the guard reserves against is as
-	// fresh as it gets.
-	const budgetGuard = mlAssistant
-		? createMlBudgetGuard({
-				conversationId: conv._id,
-				generationId: generationId ?? conv._id.toString(),
-				username: locals?.user?.username,
-				// Same credential the turn-start settle pass uses: an operator-pinned
-				// Hub entry launched the work, so it is what can read it back.
-				token: pinnedHubToken() ?? locals?.token,
-			})
-		: undefined;
-
 	// Built here so it spans the turn's rounds; chained below, once the tool
 	// mapping the schema check reads exists.
 	const repeatedCallGuard = createRepeatedCallGuard();
@@ -371,19 +325,6 @@ export async function* runMcpFlow({
 		}
 	} catch {
 		// ignore selection merge errors and proceed with env servers
-	}
-
-	// The preset's servers go on after the user's selection has been filtered, so
-	// they survive a selection that excludes them. Anything the user picked on top
-	// still comes through — extra servers are configurable, these are not.
-	if (mlAssistant) {
-		servers = withMlAssistantServers(servers);
-		try {
-			logger.debug(
-				{ servers: servers.map((s) => s.name) },
-				"[mcp] applied ML Assistant preset servers"
-			);
-		} catch {}
 	}
 
 	// If selection/merge yielded no servers, bail early with clearer log
@@ -560,24 +501,13 @@ export async function* runMcpFlow({
 				"[mcp] dropped MCP tools shadowed by builtin tools"
 			);
 		}
-		// In the mode, gated tools advertise their routing discriminator as
-		// required — the Hub's own schema doesn't, and calls without one can only
-		// bounce off the budget gate's fail-closed path.
-		const gatedMcpTools = mlAssistant ? withRequiredDiscriminators(mcpTools, mapping) : mcpTools;
-		// Applied to every conversation, mode or not: the Hub tools whose real
-		// interface is a grammar in prose misfire the same way whoever is calling
-		// them. See mcp/schemaRepair.ts for what the traces showed.
-		const shapedMcpTools = withRepairedToolSchemas(gatedMcpTools, mapping, servers);
-		// Cheapest first, and only the last link may book anything (see
-		// composeGuards): a repeat of a call that already failed the same way, then
-		// arguments that cannot satisfy the tool's own schema, then the budget.
-		// The first two run for every conversation — getting a tool's arguments
-		// wrong is not a mode-specific failure.
-		const guard = [
-			repeatedCallGuard,
-			createSchemaPreflightGuard(mapping),
-			...(budgetGuard ? [budgetGuard] : []),
-		].reduce(composeGuards);
+		// The Hub tools whose real interface is a grammar in prose misfire the
+		// same way whoever is calling them. See mcp/schemaRepair.ts for what the
+		// traces showed.
+		const shapedMcpTools = withRepairedToolSchemas(mcpTools, mapping, servers);
+		// Cheapest first: a repeat of a call that already failed the same way,
+		// then arguments that cannot satisfy the tool's own schema.
+		const guard = [repeatedCallGuard, createSchemaPreflightGuard(mapping)].reduce(composeGuards);
 		const oaTools = [
 			...builtinTools.map((tool) => tool.definition),
 			...shapedMcpTools.filter((tool) => !builtinNames.has(tool.function.name)),
@@ -652,25 +582,13 @@ export async function* runMcpFlow({
 		// reply allowance this request will actually ask for.
 		const parameters = {
 			...targetModel.parameters,
-			...(mlAssistant ? mlAssistantModelEntry(targetModel.id || targetModel.name)?.parameters : {}),
 			...assistant?.generateSettings,
 		} as Record<string, unknown>;
-		const catalogMaxTokens =
+		const maxTokens =
 			(parameters?.max_tokens as number | undefined) ??
 			(parameters?.max_new_tokens as number | undefined) ??
 			(parameters?.max_completion_tokens as number | undefined);
 		const targetContextLength = targetModel.contextLength;
-		// The preset floors the reply allowance — see the constant for why. The
-		// floor never claims more than half the model's window: prompt plus reply
-		// must fit it, and a backend that enforces the sum would reject the very
-		// first request of a small-window model. A catalog value above the floor
-		// still wins. The research sub-agent inherits this through completionBase.
-		const clampedFloor = targetContextLength
-			? Math.min(ML_ASSISTANT_MIN_COMPLETION_TOKENS, Math.floor(targetContextLength / 2))
-			: ML_ASSISTANT_MIN_COMPLETION_TOKENS;
-		const maxTokens = mlAssistant
-			? Math.max(catalogMaxTokens ?? 0, clampedFloor)
-			: catalogMaxTokens;
 
 		const userTimezone = locals?.timezone;
 		let messagesOpenAI: ChatCompletionMessageParam[] = await prepareMessagesWithFiles(
@@ -695,12 +613,7 @@ export async function* runMcpFlow({
 				codeToolOffered: oaTools.some((tool) => tool.function.name === EXECUTE_CODE_TOOL_NAME),
 			}
 		);
-		// In the mode the doctrine paragraphs are swapped, not appended to: the
-		// generic restraint rule tells the model not to reach for a tool unless it
-		// lacks a capability, and names writing code as a case to answer directly,
-		// which is the inverse of the preset's doctrine.
 		const toolPreprompt = buildToolPreprompt(oaTools, userTimezone, builtinTools, {
-			mlAssistant,
 			artifacts: artifactsEnabled && artifactsMode === "tags",
 			artifactsMode,
 		});
@@ -827,7 +740,7 @@ export async function* runMcpFlow({
 			sources: { index: number; link: string }[];
 		} => ({ annotated: text, sources: [] });
 
-		const maxToolRounds = mlAssistant ? ML_ASSISTANT_MAX_TOOL_ROUNDS : MAX_TOOL_ROUNDS;
+		const maxToolRounds = MAX_TOOL_ROUNDS;
 
 		let lastAssistantContent = "";
 		let streamedContent = false;
@@ -1326,9 +1239,6 @@ export async function* runMcpFlow({
 					},
 					builtinTools,
 					guard,
-					// So a server operator can tell autonomous, job-shaped mode traffic
-					// from ordinary chat: the name is sent once, at initialize.
-					...(mlAssistant ? { clientKind: "intern" as const } : {}),
 					// The pre-call checkpoint (ADR 0075): every MCP call is gated the
 					// same way `web_fetch` already is, under the policy resolved above.
 					toolApproval: {

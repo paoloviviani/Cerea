@@ -1,6 +1,6 @@
 /**
- * Which conversations have a generation running right now — plus, for ML Intern
- * conversations, turns parked on the wait/ask tools — kept separate from the
+ * Which conversations have a generation running right now — plus turns parked
+ * on a timer or a question — kept separate from the
  * sidebar store on purpose: that store does a last-write-wins full replace on every
  * conversation invalidation, which would wipe a generating flag stored on the row.
  * Holding this state alongside it — not on it — sidesteps that entirely.

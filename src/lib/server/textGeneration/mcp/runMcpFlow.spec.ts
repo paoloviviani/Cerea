@@ -6,7 +6,6 @@ import {
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import { ML_ASSISTANT_MIN_COMPLETION_TOKENS } from "$lib/constants/mlAssistant";
 import { RETRY_BACKOFF_MS } from "$lib/server/textGeneration/utils/upstreamRetry";
 import { APIConnectionError } from "openai";
 import type { McpFlowResult, RunMcpFlowContext } from "./runMcpFlow";
@@ -49,7 +48,6 @@ const mocks = vi.hoisted(() => ({
 }));
 
 // The gate itself is real; only the build flag behind it is forced on.
-vi.mock("$lib/utils/mlAssistantFlag", () => ({ ML_ASSISTANT_MODE: true }));
 
 // Only the client is stubbed. The SDK's error classes stay real: the retry
 // predicate identifies a dead connection by class, so a mocked-away
@@ -816,29 +814,18 @@ describe("runMcpFlow offering the question tool", () => {
 				?.tools ?? []
 		).map((t) => t.function.name);
 
-	const inMlMode = { conv: { _id: new ObjectId(), mlAssistant: true } } as unknown as Parameters<
-		typeof runMcpFlow
-	>[0];
-
-	it("offers it alongside the MCP tools in ML Assistant mode", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow(inMlMode);
-		expect(toolNames()).toContain("ask_user_question");
-	});
-
-	it("offers it outside the mode too, unless the deployment switch is off", async () => {
+	it("offers it alongside the MCP tools, unless the deployment switch is off", async () => {
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow();
 		expect(toolNames()).toContain("ask_user_question");
 	});
 
-	it("withholds it from a conversation outside the mode when the switch is off", async () => {
+	it("withholds it when the switch is off", async () => {
 		mocks.askQuestionEnabled = "false";
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow();
-		// execute_code rides on the deployment flag alone, outside the mode
-		// gating — which is why it is here at all with the flag forced on.
-		// load_skill and load_skill_file ride on the seeded skills the same way
+		// execute_code rides on the deployment flag alone — which is why it is
+		// here at all with the flag forced on. load_skill and load_skill_file ride on the seeded skills the same way
 		// (Phase 1/Stage 3): the frontmatter list is in every turn's system
 		// prompt, so the tools that load a body and its bundled files are
 		// offered wherever the list is.
@@ -848,19 +835,10 @@ describe("runMcpFlow offering the question tool", () => {
 	it("engages the flow with builtin tools alone when MCP listing yields nothing", async () => {
 		mocks.mcpTools = [];
 		scriptRounds([{ content: "the answer" }]);
-		const { result } = await runFlow(inMlMode);
+		const { result } = await runFlow();
 		expect(result).toBe("completed");
 		expect(toolNames()).toEqual([
-			// Tool mode in the preset (the model supports tools): the artifact
-			// tool joins every conversation, not only the mode's own set.
-			"artifact",
 			"ask_user_question",
-			"update_plan",
-			"wait",
-			"research",
-			"sandbox_task",
-			"check_job",
-			"create_trackio",
 			"execute_code",
 			"load_skill",
 			"load_skill_file",
@@ -882,61 +860,16 @@ describe("runMcpFlow offering the question tool", () => {
 	});
 });
 
-describe("runMcpFlow offering the plan tool", () => {
-	const toolNames = () =>
-		(
-			(mocks.create.mock.calls[0]?.[0] as { tools?: Array<{ function: { name: string } }> })
-				?.tools ?? []
-		).map((t) => t.function.name);
+describe("runMcpFlow and the generic tool preprompt", () => {
+	const systemPrompt = (n = 0) => String(requestMessages(n)[0]?.content ?? "");
 
-	const mlConv = (extra: Record<string, unknown> = {}) =>
-		({ _id: new ObjectId(), mlAssistant: true, ...extra }) as unknown as Parameters<
-			typeof runMcpFlow
-		>[0]["conv"];
-
-	it("offers it in ML Assistant mode and nowhere else", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow({ conv: mlConv() } as Partial<Parameters<typeof runMcpFlow>[0]>);
-		expect(toolNames()).toContain("update_plan");
-
-		mocks.create.mockClear();
+	it("sends the generic tool preprompt", async () => {
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow();
-		expect(toolNames()).not.toContain("update_plan");
+		expect(systemPrompt()).toContain("Do NOT call a tool unless");
 	});
 
-	it("drops an MCP tool shadowed by a builtin name", async () => {
-		mocks.mcpTools = [
-			{ type: "function", function: { name: "do_thing" } },
-			{ type: "function", function: { name: "update_plan" } },
-		];
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow({ conv: mlConv() } as Partial<Parameters<typeof runMcpFlow>[0]>);
-		expect(toolNames().filter((name) => name === "update_plan")).toHaveLength(1);
-	});
-
-	it("injects the current plan at the tail of the last user message", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow({
-			conv: mlConv({
-				plan: {
-					goal: "Ship the feature",
-					steps: [{ step: "write it", status: "in_progress" }],
-					version: 2,
-					updatedAt: new Date(),
-				},
-			}),
-		} as Partial<Parameters<typeof runMcpFlow>[0]>);
-
-		const lastUser = requestMessages(0).findLast((m) => m.role === "user");
-		expect(String(lastUser?.content)).toContain("hello");
-		expect(String(lastUser?.content)).toContain("CURRENT PLAN");
-		expect(String(lastUser?.content)).toContain("PLAN (v2 — 0/1 done)");
-	});
-
-	it("does not inject a stale plan when the tool is not offered", async () => {
-		// A plan block that says "revise it with update_plan" must never appear
-		// without the tool it names — here, outside ML Assistant mode.
+	it("never offers the plan tool, and injects no plan", async () => {
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow({
 			conv: {
@@ -949,84 +882,27 @@ describe("runMcpFlow offering the plan tool", () => {
 				},
 			},
 		} as Partial<Parameters<typeof runMcpFlow>[0]>);
-
+		const names = (
+			(mocks.create.mock.calls[0]?.[0] as { tools?: Array<{ function: { name: string } }> })
+				?.tools ?? []
+		).map((t) => t.function.name);
+		expect(names).not.toContain("update_plan");
 		const lastUser = requestMessages(0).findLast((m) => m.role === "user");
 		expect(String(lastUser?.content)).not.toContain("CURRENT PLAN");
 	});
-});
 
-describe("runMcpFlow under the ML Assistant preset", () => {
-	const inMlMode = { conv: { _id: new ObjectId(), mlAssistant: true } } as unknown as Parameters<
-		typeof runMcpFlow
-	>[0];
-
-	const systemPrompt = (n = 0) => String(requestMessages(n)[0]?.content ?? "");
-
-	it("sends the preset's tool preprompt instead of the generic one", async () => {
-		// Both in one message is a contradiction: the generic text names writing
-		// code as a case to answer without tools, which is what the preset exists
-		// to overrule.
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow(inMlMode);
-
-		expect(systemPrompt()).toContain("USING TOOLS:");
-		expect(systemPrompt()).not.toContain("Do NOT call a tool unless");
-	});
-
-	it("leaves a conversation outside the mode on the generic tool preprompt", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow();
-		expect(systemPrompt()).toContain("Do NOT call a tool unless");
-		expect(systemPrompt()).not.toContain("USING TOOLS:");
-	});
-
-	it("floors the completion budget so reasoning turns are not cut mid-think", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow(inMlMode);
-		expect(mocks.create.mock.calls[0][0].max_tokens).toBe(ML_ASSISTANT_MIN_COMPLETION_TOKENS);
-	});
-
-	it("clamps the completion floor to half a small model window", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow({
-			...inMlMode,
-			model: {
-				id: "small/model",
-				name: "small/model",
-				supportsTools: true,
-				parameters: {},
-				contextLength: 16_384,
-			},
-		} as unknown as Parameters<typeof runMcpFlow>[0]);
-		expect(mocks.create.mock.calls[0][0].max_tokens).toBe(8_192);
-	});
-
-	it("leaves the catalog completion budget alone outside the mode", async () => {
+	it("leaves the catalog completion budget alone", async () => {
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow();
 		expect(mocks.create.mock.calls[0][0].max_tokens).toBeUndefined();
 	});
 
-	it("keeps working past the round budget an ordinary conversation stops at", async () => {
+	it("stops at the ordinary round budget", async () => {
 		const toolRound: Round = { toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }] };
-		scriptRounds([...Array.from({ length: 11 }, () => toolRound), { content: "done" }]);
-
-		const { result } = await runFlow(inMlMode);
-
-		// Grounding ids, auditing a dataset and submitting a job is more than ten
-		// rounds on its own; the generic budget ends the turn mid-task.
-		expect(result).toBe("completed");
-		expect(mocks.create).toHaveBeenCalledTimes(12);
-	});
-
-	it("still stops, at the preset's own budget", async () => {
-		const toolRound: Round = { toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }] };
-		scriptRounds(Array.from({ length: 100 }, () => toolRound));
-
-		const { result } = await runFlow(inMlMode);
-
+		scriptRounds(Array.from({ length: 11 }, () => toolRound));
+		const { result } = await runFlow();
 		expect(result).toBe("exhausted");
-		expect(mocks.create).toHaveBeenCalledTimes(100);
+		expect(mocks.create).toHaveBeenCalledTimes(10);
 	});
 });
 
@@ -1037,7 +913,7 @@ describe("leaked tool-call markup", () => {
 	it("retries once when the final answer writes a tool call as markup", async () => {
 		scriptRounds([
 			{
-				content: 'Let me ask: <do_thing>\n<option label="$5">setBudgetUsd=5</option>\n</do_thing>',
+				content: 'Let me ask: <do_thing>\n<option label="$5">five</option>\n</do_thing>',
 			},
 			{ content: "Here is a clean answer." },
 		]);

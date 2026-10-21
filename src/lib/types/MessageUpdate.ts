@@ -23,7 +23,6 @@ export type MessageUpdate =
 	| MessageElicitationUpdate
 	| MessagePlanUpdate
 	| MessageMemoryUpdate
-	| MessageBudgetUpdate
 	| MessageTurnStateUpdate
 	| MessageBackgroundTaskUpdate
 	| MessageCodeExecutionUpdate;
@@ -41,7 +40,6 @@ export enum MessageUpdateType {
 	Elicitation = "elicitation",
 	Plan = "plan",
 	Memory = "memory",
-	Budget = "budget",
 	TurnState = "turnState",
 	BackgroundTask = "backgroundTask",
 	CodeExecution = "codeExecution",
@@ -376,19 +374,6 @@ export interface MessageMemoryUpdate {
 	 */
 	scope?: "project";
 	projectId?: string;
-}
-
-/**
- * Snapshot of the ML Assistant compute budget after a reservation, release or
- * settle. Display-only: the authoritative state lives on `Conversation.mlBudget`
- * and every transition is a guarded write there. Amounts in integer micro-USD.
- */
-export interface MessageBudgetUpdate {
-	type: MessageUpdateType.Budget;
-	totalMicroUsd: number;
-	spentMicroUsd: number;
-	/** Sum of open reservation ceilings — held, not yet settled. */
-	reservedMicroUsd: number;
 }
 
 /**

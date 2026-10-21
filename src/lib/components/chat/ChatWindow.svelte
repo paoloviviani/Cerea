@@ -34,12 +34,6 @@
 	import type { Model } from "$lib/types/Model";
 	import FileDropzone from "./FileDropzone.svelte";
 	import RetryBtn from "../RetryBtn.svelte";
-	import ResumeBtn from "../ResumeBtn.svelte";
-	import {
-		buildResumeMessage,
-		canResumeAfterFailure,
-		failureDetailOf,
-	} from "$lib/utils/resumeAfterFailure";
 	import { base } from "$app/paths";
 	import ChatMessageColumn from "./ChatMessageColumn.svelte";
 	import ModelEffortPicker from "./ModelEffortPicker.svelte";
@@ -81,22 +75,8 @@
 	import { mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
 	import LucideHammer from "~icons/lucide/hammer";
 	import LucideSparkles from "~icons/lucide/sparkles";
-	import MlAssistantStrip from "./MlAssistantStrip.svelte";
-	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
-	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
-	import MlInternSpotlight from "./MlInternSpotlight.svelte";
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
 	import { MediaQuery } from "svelte/reactivity";
-	import { planStepsToMlSteps } from "$lib/utils/planProgress";
-	import type { PlanState } from "$lib/types/Plan";
-	import type { MlBudget } from "$lib/types/Conversation";
-	import { reservedMicroUsd, usdToMicroUsd } from "$lib/utils/mlBudget";
-	import { handleResponse, useAPIClient } from "$lib/APIClient";
-	import {
-		ML_ASSISTANT_EFFORT,
-		ML_ASSISTANT_PLACEHOLDER,
-		mlAssistantExamples,
-	} from "$lib/constants/mlAssistant";
 
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	import { requireAuthUser } from "$lib/utils/auth";
@@ -319,9 +299,6 @@
 		if (requireAuthUser() || loading || !draft) return;
 		tap();
 		column?.notifySend();
-		// Latches the mode onto the conversation, so the strip stays and swaps its
-		// tool note for the plan progress row. No-op when the mode is off.
-		mlAssistant.startTask();
 		onmessage?.(draft);
 		draft = "";
 	};
@@ -588,49 +565,6 @@
 	let isFileUploadEnabled = $derived(activeMimeTypes.length > 0);
 	let focused = $state(false);
 
-	// --- ML Assistant mode (build flag, see $lib/utils/mlAssistantFlag) --------
-
-	let mlModeOn = $derived(ML_ASSISTANT_MODE && mlAssistant.enabled);
-	let mlTaskRunning = $derived(ML_ASSISTANT_MODE && mlAssistant.taskStarted);
-	// Resume beats Retry for a failed agentic turn: retry re-runs the whole turn
-	// (duplicating jobs and repos already created), resume continues past the
-	// preserved transcript. ML mode only — elsewhere turns rarely carry work
-	// worth saving — and only when the turn did something (see the util).
-	let canResumeTurn = $derived(
-		mlModeOn && !loading && lastIsError && !!lastMessage && canResumeAfterFailure(lastMessage)
-	);
-	function sendResumeMessage() {
-		if (!lastMessage) return;
-		sendFixRequest(buildResumeMessage(failureDetailOf(lastMessage)));
-	}
-	// The strip is a task status bar only: it slides in on the send that starts an
-	// ML task and stays for the rest of the conversation. Before that the mode
-	// lives in the composer pill, and a chat started without the mode never shows
-	// either surface.
-	let mlStripVisible = $derived(ML_ASSISTANT_MODE && mlTaskRunning);
-
-	// The pill is the mode's pre-task switch. Empty conversations only — the mode
-	// cannot be joined once a chat has started without it.
-	// With no set configured the send would fail; no switch is better than a
-	// dead end.
-	let mlModelSet = $derived(
-		ML_ASSISTANT_MODE
-			? ((page.data as { mlAssistantModels?: string[] }).mlAssistantModels ?? [])
-			: []
-	);
-	let mlPillVisible = $derived(
-		ML_ASSISTANT_MODE &&
-			!shared &&
-			!isReadOnly &&
-			!mlTaskRunning &&
-			messages.length === 0 &&
-			mlModelSet.length > 0
-	);
-
-	// ML Intern launch card under the home-screen logo (HuggingChat only). Temporary,
-	// so its dismissal lives in localStorage rather than in a settings field. Off on
-	// short viewports, and while the recorder replaces the composer: the pill (and
-	// with it the first-run onboarding its CTA relies on) is unmounted then.
 	const convsStore = useConversationsStore();
 
 	// ── The composer's model/effort pill (ModelEffortPicker) ──────────────
@@ -660,7 +594,6 @@
 	});
 	let shownEffort = $derived(
 		chatEffort({
-			preset: mlModeOn ? ML_ASSISTANT_EFFORT : undefined,
 			conversation: pickedEffort ? (pickedEffort.value ?? undefined) : conversationEffort,
 			userDefault: $settings.reasoningEffortOverrides?.[settingsKey],
 		})
@@ -715,107 +648,16 @@
 		}
 		pickedEffort = { value };
 	}
-	const shortViewport = new MediaQuery("(max-height: 560px)");
 	// Below `sm`, the composer's stop/mic/send controls stay pinned over its
 	// bottom-right corner (unchanged from `fix/mobile-composer`); at `sm`
 	// and up they render inline instead, right after the toolbar row's pill
 	// group, since that pin only ever lined up with the row by coincidence
 	// (brief item 2 — see the composer markup below for the long version).
 	const narrowViewport = new MediaQuery("(max-width: 639px)");
-	const ML_SPOTLIGHT_KEY = "mlInternSpotlightDismissed";
-	// Hidden until the browser has been asked, so SSR and hydration agree.
-	let mlSpotlightDismissed = $state(true);
-	$effect(() => {
-		mlSpotlightDismissed = localStorage.getItem(ML_SPOTLIGHT_KEY) === "1";
-	});
-	let mlSpotlightVisible = $derived(
-		publicConfig.isHuggingChat &&
-			mlPillVisible &&
-			page.route.id === "/" &&
-			!mlAssistant.enabled &&
-			!mlSpotlightDismissed &&
-			!shortViewport.current &&
-			!isRecording &&
-			!isTranscribing &&
-			!convsStore.list.some((conv) => conv.mlAssistant)
-	);
-
-	function dismissMlSpotlight() {
-		mlSpotlightDismissed = true;
-		localStorage.setItem(ML_SPOTLIGHT_KEY, "1");
-	}
-
-	/** The card's CTA: switches the mode on, as the pill would, and retires the card. */
-	function tryMlIntern() {
-		if (requireAuthUser()) return;
-		mlAssistant.toggle(true);
-		dismissMlSpotlight();
-	}
-	// A mode conversation whose model left the set can only move within the set.
-	let switchableModels = $derived(
-		mlTaskRunning ? models.filter((m) => mlModelSet.includes(m.id)) : models
-	);
-
-	$effect(() => {
-		if (!ML_ASSISTANT_MODE) return;
-		const conversationId = page.params?.id;
-		const {
-			mlAssistant: startedInMlMode,
-			plan,
-			mlBudget,
-		} = page.data as {
-			mlAssistant?: boolean;
-			plan?: PlanState;
-			mlBudget?: MlBudget;
-		};
-		untrack(() => {
-			const reset = mlAssistant.syncConversation(conversationId, Boolean(startedInMlMode));
-			// A reopened mode conversation renders mid-plan from the stored snapshot;
-			// a reset without one keeps the strip on its tool note.
-			if (reset && startedInMlMode && plan?.steps.length) {
-				mlAssistant.setPlan(planStepsToMlSteps(plan.steps));
-			}
-			// Loaded state seeds the ledger; the stream's Budget updates take over
-			// from there. The empty-ledger condition covers adoption — the create
-			// flow lands here with reset=false — while still refusing to let a
-			// stale invalidation roll back what the stream already reported. A mode
-			// conversation without a stored budget renders as $0.00: the gate treats
-			// it that way, and the readout must say what the gate will do.
-			if (startedInMlMode && (reset || mlAssistant.budget === undefined)) {
-				mlAssistant.setBudget({
-					totalMicroUsd: mlBudget?.totalMicroUsd ?? 0,
-					spentMicroUsd: mlBudget?.spentMicroUsd ?? 0,
-					reservedMicroUsd: mlBudget ? reservedMicroUsd(mlBudget) : 0,
-				});
-			}
-		});
-	});
-
-	const budgetClient = useAPIClient();
-
-	/**
-	 * Commits a new budget total. Optimistic: the strip shows the new total at
-	 * once and rolls back if the server said no.
-	 */
-	function changeMlBudget(totalUsd: number) {
-		const conversationId = page.params?.id;
-		const previous = mlAssistant.budget;
-		if (!conversationId || !previous) return;
-		mlAssistant.setBudget({ ...previous, totalMicroUsd: usdToMicroUsd(totalUsd) });
-		budgetClient
-			.conversations({ id: conversationId })
-			.patch({ mlBudgetTotalUsd: totalUsd })
-			.then(handleResponse)
-			.catch(() => {
-				mlAssistant.setBudget(previous);
-			});
-	}
-
 	let activeRouterExamplePrompt = $state<string | null>(null);
-	// ML Assistant mode brings its own chip set; otherwise use MCP examples when all
-	// base servers are enabled, and router examples when they are not.
+	// MCP examples when all base servers are enabled, router examples when they are not.
 	let activeExamples = $derived<RouterExample[]>(
-		mlModeOn ? mlAssistantExamples : $allBaseServersEnabled ? mcpExamples : routerExamples
+		$allBaseServersEnabled ? mcpExamples : routerExamples
 	);
 	let routerFollowUps = $derived<RouterFollowUp[]>(
 		activeRouterExamplePrompt
@@ -879,14 +721,6 @@
 
 	async function startExample(example: RouterExample) {
 		if (requireAuthUser()) return;
-
-		// ML Intern chips seed the composer instead of dispatching. Their prompts
-		// are complete, but they name one specific paper, model or dataset, and a
-		// task at this price is one the user should read before it starts.
-		if (mlModeOn) {
-			draft = example.prompt;
-			return;
-		}
 
 		activeRouterExamplePrompt = example.prompt;
 
@@ -1047,7 +881,7 @@
 					{/if}
 				</div>
 			{/if}
-			{#if featureAnnouncement && showFeatureAnnouncement && !mlSpotlightVisible}
+			{#if featureAnnouncement && showFeatureAnnouncement}
 				<FeatureAnnouncementToast announcement={featureAnnouncement} />
 			{/if}
 		{/snippet}
@@ -1062,30 +896,21 @@
 				onmessage={(content) => {
 					onmessage?.(content);
 				}}
-			>
-				{#if mlSpotlightVisible}
-					<MlInternSpotlight ontry={tryMlIntern} ondismiss={dismissMlSpotlight} />
-				{/if}
-			</ChatIntroduction>
+			/>
 		{/snippet}
 		{#snippet tail()}
 			{#if isReadOnly}
-				<ModelSwitch models={switchableModels} {currentModel} />
+				<ModelSwitch {models} {currentModel} />
 			{/if}
 		{/snippet}
 		{#snippet composer()}
-			{#if !draft.length && !messages.length && !files.length && !loading && (mlModeOn || currentModel.isRouter || (modelSupportsTools && $allBaseServersEnabled)) && activeExamples.length && !hideRouterExamples && !lastIsError && $mcpServersLoaded}
+			{#if !draft.length && !messages.length && !files.length && !loading && (currentModel.isRouter || (modelSupportsTools && $allBaseServersEnabled)) && activeExamples.length && !hideRouterExamples && !lastIsError && $mcpServersLoaded}
 				<div
 					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 select-none dark:text-gray-500"
 				>
 					{#each activeExamples as ex}
 						<button
-							class={[
-								"flex items-center gap-1 rounded-lg px-2 py-0.5 text-center text-sm backdrop-blur-sm",
-								mlModeOn
-									? "bg-[#fff1e4] text-[#c2410c] dark:bg-[#3a2410] dark:text-[#fdba74]"
-									: "bg-gray-100/90 hover:text-gray-500 dark:bg-gray-700/50 dark:hover:text-gray-400",
-							]}
+							class="flex items-center gap-1 rounded-lg bg-gray-100/90 px-2 py-0.5 text-center text-sm backdrop-blur-sm hover:text-gray-500 dark:bg-gray-700/50 dark:hover:text-gray-400"
 							onclick={() => startExample(ex)}
 						>
 							{ex.title}
@@ -1120,11 +945,8 @@
 				{/if}
 				<div class="flex w-full gap-2 *:mb-3">
 					{#if !loading && lastIsError}
-						{#if canResumeTurn}
-							<ResumeBtn classNames="ml-auto" onClick={sendResumeMessage} />
-						{/if}
 						<RetryBtn
-							classNames={canResumeTurn ? "" : "ml-auto"}
+							classNames="ml-auto"
 							onClick={() => {
 								if (lastMessage && lastMessage.ancestors) {
 									onretry?.({
@@ -1143,10 +965,7 @@
 						handleSubmit();
 					}}
 					class={{
-						"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-surface shadow-sm focus-within:border-accent/40": true,
-						"transition-[border-color] duration-[350ms] ease-[ease]": ML_ASSISTANT_MODE,
-						"border-[#e2ddd6] dark:border-[#2c2c2c]": mlModeOn && (mlStripVisible || mlPillVisible),
-						"dark:border-gray-700": !(mlModeOn && (mlStripVisible || mlPillVisible)),
+						"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-surface shadow-sm focus-within:border-accent/40 dark:border-gray-700": true,
 						"opacity-30": isReadOnly,
 						"max-sm:mb-4": focused && isVirtualKeyboard(),
 					}}
@@ -1163,19 +982,6 @@
 					     At `sm` and up, trailingActions now also carries the
 					     mic/send controls inline (item 2) — too little room here
 					     let the pill row grow wide enough to sit under them. -->
-					{#if ML_ASSISTANT_MODE}
-						<MlAssistantStrip
-							visible={mlStripVisible}
-							steps={mlAssistant.steps}
-							statusLabel={mlAssistant.statusLabel}
-							complete={mlAssistant.complete}
-							budget={mlAssistant.budget}
-							onbudgetchange={page.params?.id ? changeMlBudget : undefined}
-							dashboard={trackioDashboards.at(-1)}
-						/>
-					{/if}
-					<!-- The composer box is a column so the ML Assistant strip can stack on
-					     top; this row is the composer proper and keeps its own layout. -->
 					<div class="flex w-full items-center">
 						{#if isRecording || isTranscribing}
 							<VoiceRecorder
@@ -1202,11 +1008,7 @@
 									/>
 								{:else}
 									<ChatInput
-										placeholder={isReadOnly
-											? "This conversation is read-only."
-											: mlModeOn
-												? ML_ASSISTANT_PLACEHOLDER
-												: "Ask anything"}
+										placeholder={isReadOnly ? "This conversation is read-only." : "Ask anything"}
 										{loading}
 										bind:value={draft}
 										{draftKey}
@@ -1220,7 +1022,6 @@
 										disabled={isReadOnly || lastIsError}
 										{modelIsMultimodal}
 										{modelSupportsTools}
-										showMlPill={mlPillVisible}
 										bind:focused
 									>
 										{#snippet trailingActions()}
@@ -1325,7 +1126,6 @@
 								{recentIds}
 								efforts={effortLevels}
 								effort={shownEffort}
-								effortPinned={mlModeOn}
 								onpickModel={pickModel}
 								onpickEffort={pickEffort}
 								onmore={() => {

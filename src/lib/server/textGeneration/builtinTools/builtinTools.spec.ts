@@ -6,18 +6,11 @@ const mocks = vi.hoisted(() => ({
 	openAskPrompt: vi.fn(),
 }));
 
-// The gate itself is real; only the build flag behind it is forced on.
-vi.mock("$lib/utils/mlAssistantFlag", () => ({ ML_ASSISTANT_MODE: true }));
-
 vi.mock("$lib/server/askUserQuestion", () => ({
 	ASK_USER_QUESTION_TOOL_NAME: "ask_user_question",
 	askUserQuestionTool: {
 		type: "function",
-		function: { name: "ask_user_question", description: "with setBudgetUsd" },
-	},
-	askUserQuestionToolPlain: {
-		type: "function",
-		function: { name: "ask_user_question", description: "no budget grants" },
+		function: { name: "ask_user_question", description: "ask" },
 	},
 	openAskPrompt: mocks.openAskPrompt,
 }));
@@ -47,21 +40,8 @@ beforeEach(() => {
 });
 
 describe("getEnabledBuiltinTools", () => {
-	it("offers the preset's builtin tools in an ML Assistant conversation", () => {
-		expect(toolNames({ _id: new ObjectId(), mlAssistant: true })).toEqual([
-			"ask_user_question",
-			"update_plan",
-			"wait",
-			"research",
-			"sandbox_task",
-			"check_job",
-			"create_trackio",
-		]);
-	});
-
-	it("offers nothing outside the mode", () => {
+	it("offers nothing by default", () => {
 		expect(toolNames({ _id: new ObjectId() })).toEqual([]);
-		expect(toolNames({ _id: new ObjectId(), mlAssistant: false })).toEqual([]);
 	});
 });
 
@@ -247,8 +227,8 @@ describe("askUserQuestionBuiltin", () => {
 	});
 });
 
-describe("ask_user_question beyond the ML Assistant preset", () => {
-	it("joins an ordinary conversation when the deployment switch is on", () => {
+describe("ask_user_question enablement", () => {
+	it("joins a conversation when the deployment switch is on", () => {
 		const names = getEnabledBuiltinTools({
 			conv: { _id: new ObjectId() },
 			askUserQuestionEnabled: true,
@@ -256,27 +236,10 @@ describe("ask_user_question beyond the ML Assistant preset", () => {
 		expect(names).toContain("ask_user_question");
 	});
 
-	it("stays out of an ordinary conversation when the switch is off", () => {
+	it("stays out of a conversation when the switch is off", () => {
 		const names = getEnabledBuiltinTools({ conv: { _id: new ObjectId() } }).map(
 			(tool) => tool.name
 		);
 		expect(names).not.toContain("ask_user_question");
-	});
-
-	it("is offered once, not twice, in an ML Assistant conversation", () => {
-		const names = getEnabledBuiltinTools({
-			conv: { _id: new ObjectId(), mlAssistant: true },
-			askUserQuestionEnabled: true,
-		}).map((tool) => tool.name);
-		expect(names.filter((name) => name === "ask_user_question")).toHaveLength(1);
-	});
-
-	it("offers setBudgetUsd only inside the preset that can grant budget", () => {
-		const definitionIn = (conv: { _id: ObjectId; mlAssistant?: boolean }) =>
-			getEnabledBuiltinTools({ conv, askUserQuestionEnabled: true }).find(
-				(tool) => tool.name === "ask_user_question"
-			)?.definition.function.description;
-		expect(definitionIn({ _id: new ObjectId() })).toBe("no budget grants");
-		expect(definitionIn({ _id: new ObjectId(), mlAssistant: true })).toBe("with setBudgetUsd");
 	});
 });

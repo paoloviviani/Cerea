@@ -1,16 +1,8 @@
 import type { ObjectId } from "mongodb";
 import type { Conversation } from "$lib/types/Conversation";
-import { isMlAssistantConversation } from "$lib/server/mlAssistant";
 import { artifactsModeForTurn, type ArtifactsMode } from "../artifacts";
 import { createArtifactTool } from "./artifactTool";
-import { askUserQuestionBuiltin, askUserQuestionPlainBuiltin } from "./askUserQuestion";
-import { githubGroundingBuiltins } from "./githubGrounding";
-import { createPlanTool } from "./planTool";
-import { waitBuiltin } from "./waitTool";
-import { createResearchTool } from "./researchTool";
-import { createSandboxTool } from "./sandboxTool";
-import { createJobCheckTool } from "./jobCheckTool";
-import { createTrackioTool } from "./createTrackioTool";
+import { askUserQuestionBuiltin } from "./askUserQuestion";
 import { createGatewaySearchBuiltins } from "./gatewaySearchTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
 import { createExecuteCodeBuiltin } from "./executeCodeTool";
@@ -38,12 +30,10 @@ export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
 
 /**
  * Enablement policy lives here, per tool — never in the dispatch or gate
- * plumbing, which treats every builtin the same. All of these are part of the
- * ML Assistant preset: outside a mode conversation (or in a build without the
- * mode) there are no builtin tools at all.
+ * plumbing, which treats every builtin the same.
  */
 export function getEnabledBuiltinTools(params: {
-	conv: Pick<Conversation, "_id" | "plan" | "mlAssistant" | "webSearch">;
+	conv: Pick<Conversation, "_id" | "plan" | "webSearch">;
 	/** Hub namespace to name a Trackio Space in; absent when the run has no user. */
 	namespace?: string;
 	/** The turn's OIDC token; the gateway search tool meters the search to its owner. */
@@ -135,9 +125,7 @@ export function getEnabledBuiltinTools(params: {
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
-	const mlAssistant = isMlAssistantConversation(params.conv);
 	const artifactsMode = artifactsModeForTurn({
-		mlAssistant,
 		artifactsOverride: params.artifactsOverride,
 		supportsArtifacts: params.modelArtifacts?.supportsArtifacts,
 		supportsTools: params.modelArtifacts?.supportsTools,
@@ -151,29 +139,9 @@ export function getEnabledBuiltinTools(params: {
 		tools.push(createArtifactTool({ turnBlocks: params.artifactTurnBlocks }));
 	}
 
-	if (isMlAssistantConversation(params.conv)) {
-		// The GitHub tools carry a second condition of their own — they withhold
-		// themselves without a GITHUB_TOKEN — which is still policy, so it lives
-		// with them rather than leaking a config read into this list. The
-		// research tool's definition is static too, but its nested loop needs
-		// the turn's request plumbing, which runMcpFlow binds onto it once that
-		// exists.
-		tools.push(
-			askUserQuestionBuiltin,
-			createPlanTool(params.conv),
-			waitBuiltin,
-			...githubGroundingBuiltins(),
-			createResearchTool(),
-			createSandboxTool(),
-			createJobCheckTool(),
-			createTrackioTool(() => params.namespace)
-		);
-	}
-
-	// Every conversation can put a decision to the person as options they
-	// click; the ML Assistant preset already carries the tool above.
-	if (params.askUserQuestionEnabled && !isMlAssistantConversation(params.conv)) {
-		tools.push(askUserQuestionPlainBuiltin);
+	// Every conversation can put a decision to the person as options they click.
+	if (params.askUserQuestionEnabled) {
+		tools.push(askUserQuestionBuiltin);
 	}
 
 	// Gated on the deployment-level flag alone: absent flag = fences only,
@@ -184,10 +152,10 @@ export function getEnabledBuiltinTools(params: {
 	// profile). Gated on `CHAT_GOTENBERG_URL` alone: unset, nothing registers.
 	tools.push(...createConvertDocumentBuiltin());
 
-	// Memory joins every conversation, not just the ML Assistant preset: a
-	// standing fact about somebody is as relevant to an ordinary chat as to a
-	// mode one, and the whole point is that it survives across them. Both
-	// switches are already folded into the one flag by the caller.
+	// Memory joins every conversation: a standing fact about somebody is as
+	// relevant to one chat as another, and the whole point is that it survives
+	// across them. Both switches are already folded into the one flag by the
+	// caller.
 	tools.push(
 		...createMemoryBuiltins({
 			enabled: params.memoryEnabled === true,
@@ -201,8 +169,7 @@ export function getEnabledBuiltinTools(params: {
 	// both meaningful: the per-chat state says they consent to web search in
 	// this conversation (inheriting project then app defaults at creation and
 	// at turn resolution — settings hold *defaults*, a chat holds *per-chat
-	// state*), the ML Assistant preset includes it by nature, and the
-	// console's search tier says the deployment permits it. The tool
+	// state*), and the console's search tier says the deployment permits it. The tool
 	// withholds itself when either is missing — like the GitHub tools do
 	// without a token.
 	//
@@ -211,7 +178,7 @@ export function getEnabledBuiltinTools(params: {
 	// versa. The caller (runMcpFlow) already folds the project layer into
 	// `webSearchEnabled`, so here the chain is per-chat > caller default.
 	const effectiveWebSearch = params.conv.webSearch ?? params.webSearchEnabled ?? false;
-	const webAccessEnabled = effectiveWebSearch || isMlAssistantConversation(params.conv);
+	const webAccessEnabled = effectiveWebSearch;
 	if (webAccessEnabled && (params.searchModelIds?.length ?? 0) > 0) {
 		tools.push(
 			...createGatewaySearchBuiltins({
