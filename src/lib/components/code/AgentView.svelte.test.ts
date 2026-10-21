@@ -373,11 +373,11 @@ describe("AgentView permission selector", () => {
 		});
 		await arrive([ask("p-bash", "bash"), ask("p-edit", "edit")]);
 		await expect
-			.element(screen.getByRole("button", { name: "Always allow (this session)" }))
+			.element(screen.getByRole("button", { name: "Always allow edits (this session)" }))
 			.toBeVisible();
 		// One card has the button (edit), the capped one (bash) does not.
 		expect(
-			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
+			screen.getByRole("button", { name: "Always allow edits (this session)" }).elements()
 		).toHaveLength(1);
 		expect(screen.getByRole("button", { name: "Allow once" }).elements()).toHaveLength(2);
 	});

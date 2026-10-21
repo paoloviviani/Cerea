@@ -37,6 +37,7 @@ import type { CodeRunFiles } from "$lib/types/CodeRunFiles";
 import type { WebFetchCacheEntry } from "$lib/types/WebFetchCache";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { mongoMemoryVersion } from "./mongoMemoryVersion";
+import { ensureLegacyOpenssl } from "./legacyOpenssl";
 import { logger } from "$lib/server/logger";
 import { building } from "$app/environment";
 import { onExit } from "./exitHandler";
@@ -212,6 +213,10 @@ export class Database {
 				}
 			}
 
+			// mongod 4.4 (what a CPU without AVX gets) needs OpenSSL 1.1. Done here,
+			// not only in the server test setup: the client test project and a
+			// development server start this in-memory MongoDB in their own process.
+			ensureLegacyOpenssl();
 			this.mongoServer = await MongoMemoryServer.create({
 				instance: {
 					dbName: config.MONGODB_DB_NAME + (isTest ? "-test" : ""),
