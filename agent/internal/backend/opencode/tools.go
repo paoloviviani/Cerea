@@ -533,3 +533,14 @@ func (b *Backend) sentMarkerFor(messageID string) *backend.MessageSender {
 	}
 	return nil
 }
+
+// ToolNames lists the coordination tools galopin installs into opencode, in
+// order. The MCP route (agent/mcp_tools.go) offers the same set; a test holds
+// the two lists together.
+func ToolNames() []string {
+	names := make([]string, 0, len(galopinTools))
+	for _, t := range galopinTools {
+		names = append(names, t.name)
+	}
+	return names
+}
