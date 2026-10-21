@@ -93,6 +93,7 @@ func (mc *machine) AttachAudit(a *auditLogger) { mc.audit = a }
 func (mc *machine) AttachReportState(dir string) {
 	if mc.agentTools != nil {
 		mc.agentTools.attachState(dir)
+		mc.agentTools.resumeGroups()
 	}
 }
 

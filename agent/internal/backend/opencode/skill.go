@@ -19,7 +19,7 @@ const delegationSkillName = "delegation"
 
 const delegationSkill = `---
 name: delegation
-description: Use when the person asks you to hand work off, get a second opinion or a review from a fresh session, parallelise independent parts, or run something long or slow (CI, a full test suite, a build, a release) without blocking; when you are stuck and a clean session might see what you cannot; or when work should happen later or repeatedly. Covers task, session_spawn, session_send, session_read, background tasks and schedules.
+description: Use when the person asks you to hand work off, get a second opinion or a review from a fresh session, parallelise independent parts, or run something long or slow (CI, a full test suite, a build, a release) without blocking; when you are stuck and a clean session might see what you cannot; or when work should happen later or repeatedly. Covers task, session_spawn and its profiles, the handoff, second-opinion and committee recipes, session_send, session_read, background tasks and schedules.
 ---
 
 # Delegating work
@@ -33,8 +33,21 @@ description: Use when the person asks you to hand work off, get a second opinion
 | A slow thing (CI, a long build) that should not block your turn | ` + "`task`" + ` with ` + "`background: true`" + ` |
 | A handoff you want to see and talk to as its own session (a second opinion, a side job, a different angle) | ` + "`session_spawn`" + ` |
 | Work that must happen later or repeatedly | ` + "`schedule_create`" + ` |
+| Pass the whole job to someone else and stop | handoff recipe (below) |
+| A fresh reader checks your work or answer | second-opinion recipe (below) |
+| Two or three independent answers to one hard question | committee recipe (below) |
 
 ` + "`session_spawn`" + ` reports back automatically: when the new session finishes its turn, its final message arrives in this session as a message headed "Report from <title> (session <id>)". It also tells you if the session fails or is waiting for the person to approve something. **Trust the report; do not poll** with ` + "`session_read`" + ` or ask the session to message you. End your turn and carry on when it arrives. Pass ` + "`report: false`" + ` only for fire-and-forget work.
+
+## Profiles and recipes
+
+A **profile** is a named preset for a delegate: its model, its permission mode and notes that lead its brief. ` + "`session_profiles`" + ` lists what this machine has; pass one as ` + "`profile`" + ` to ` + "`session_spawn`" + ` or ` + "`session_committee`" + `. A profile only ever makes a delegate stricter: if it asks for a looser mode than yours the delegate gets yours, and a delegate on a stricter mode does not inherit your standing approvals. An unknown profile name is refused with the available ones. Do not invent profiles, and do not pick a looser one hoping it widens what the delegate may do.
+
+Three recipes, all built from the tools above. Use one only when it fits; most work needs none.
+
+- **Handoff**: the whole job goes to one delegate and you do nothing more on it. ` + "`session_spawn`" + ` with a full brief (profile ` + "`worker`" + ` unless the person wants another), tell the person where it is running, and **end your turn**; its report arrives on its own. Do not duplicate the work or wait on it.
+- **Second opinion**: a fresh reader checks what you did or concluded. ` + "`session_spawn`" + ` with profile ` + "`reviewer`" + ` (read-only), and brief it with the question, the files or answer to check and your reasoning; say what you are least sure of, but do not ask it to agree. Weigh the report against your own view and tell the person where you differ. Use it when the stakes or your doubt justify a second reader, not for every answer.
+- **Committee**: several delegates answer the same question independently. ` + "`session_committee {title, question, profiles}`" + ` takes 2 to 3 members (more is refused) and an optional ` + "`timeoutMinutes`" + `. Vary the profiles or models when you want different angles. All the answers come back together in one message, or whatever has arrived when the time limit passes (a missing member is named). Do not poll, do not start a second committee on the same question, and do not average the answers: lay out where they agree and differ, and say which you find strongest and why. It costs one delegate per member against the same limits as ` + "`session_spawn`" + `, and under Ask the person approves each member, so reserve it for questions that merit that.
 
 ## Brief it so it can start cold
 
