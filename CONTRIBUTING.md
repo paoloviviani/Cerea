@@ -119,21 +119,23 @@ One file or one test: `npx vitest run path/to/file.spec.ts`, `npx vitest run -t 
 `npm run test:coverage` adds a coverage report for the first two projects.
 
 **The server and ssr projects need a MongoDB.** By default each spec starts an
-in-memory one (`mongodb-memory-server`), which needs AVX and, on a slim Node
-image, `libcurl4`. On a CPU without AVX it dies with `SIGILL`: point the tests at
-a real MongoDB (4.4 works) with **`TEST_MONGODB_URL`** (not `MONGODB_URL`, which
-the test setup ignores) and run the files serially, because they share that
-database and their clean-up helpers would wipe each other's collections:
+in-memory one (`mongodb-memory-server`), which on a slim Node image needs
+`libcurl4`. A CPU without AVX needs nothing extra: the setup runs mongod 4.4
+there (MongoDB 5.0+ would die with `SIGILL`) and fetches the OpenSSL 1.1 that
+build links against into `~/.cache`. To use a real MongoDB instead, set
+**`TEST_MONGODB_URL`** (not `MONGODB_URL`, which the test setup ignores) and
+run the files serially, because they then share that database and their
+clean-up helpers would wipe each other's collections:
 
 ```sh
 docker run -d --name cerea-test-mongo -p 27017:27017 mongo:4.4
 TEST_MONGODB_URL=mongodb://127.0.0.1:27017/ npx vitest run --project=server --project=ssr --no-file-parallelism
 ```
 
-CI does exactly this with a `mongo:8` service container. Known failure modes of
-a shared database are environment artefacts, not regressions: conversations that
-vanish mid-test, lock counts that are off, a flaky byte-budget replay test.
-Re-run a file alone before believing a full-suite failure.
+CI does exactly this with a `mongo:8` service container. A test that fails
+sometimes is a bug in the test or the code: find the cause (a spec that leaves
+rows in the shared database, a background task outliving its test, a timing
+assumption) and fix it, do not re-run it until it passes.
 
 **The client project needs a real browser**, which `npm run test` does not run.
 Its Playwright browsers must match the _installed_ Playwright (1.61.1), not the

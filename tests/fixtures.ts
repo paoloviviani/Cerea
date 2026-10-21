@@ -22,6 +22,8 @@ import { join } from "node:path";
 import superjson from "superjson";
 import { MOCK_OPENAI_PORT, type ScenarioSelector } from "./mock-openai.ts";
 import { MOCK_MCP_PORT, type RecordedToolCall } from "./mock-mcp.ts";
+import { mongoMemoryVersion } from "../src/lib/server/mongoMemoryVersion.ts";
+import { ensureLegacyOpenssl } from "../scripts/setups/legacyOpenssl.ts";
 
 export { expect };
 export { SCENARIOS, type ScenarioName, type ScenarioScript } from "./mock-openai.ts";
@@ -101,10 +103,11 @@ export interface TestDatabaseHandle {
 /** Started by `playwright.config.ts` as its first `webServer` entry, via the CLI block below. */
 export async function startTestDatabase(): Promise<TestDatabaseHandle> {
 	const { MongoMemoryServer } = await import("mongodb-memory-server");
+	ensureLegacyOpenssl();
 	const mongod = await MongoMemoryServer.create({
 		instance: { port: E2E_MONGO_PORT, dbName: E2E_DB_NAME },
-		// Matches the version pinned in database.ts so CI reuses the same cached binary.
-		binary: { version: "7.0.18" },
+		// The same version database.ts picks, so CI reuses the cached binary (4.4 on a CPU without AVX).
+		binary: { version: mongoMemoryVersion() },
 	});
 	return {
 		uri: mongod.getUri(),

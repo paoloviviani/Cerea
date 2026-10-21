@@ -197,9 +197,16 @@ afterwards pin it in the kit with `kit/tools/pin --pystino` and release Cerea.
 - **Layout tests are pixel-sensitive.** A font-size or line-height change
   breaks centring and row-height tests; fix the component (`leading-*`,
   `min-h-*`), do not loosen the test.
-- **`mongodb-memory-server` crashes with SIGILL** on CPUs without AVX. Point
-  tests at a real Mongo: `TEST_MONGODB_URL=mongodb://localhost:<port>` and
-  `--no-file-parallelism` (tests share the database).
+- **No AVX is handled.** The in-memory Mongo is 4.4.30 on a CPU without AVX
+  (`mongoMemoryVersion()`, plus a user-cache OpenSSL 1.1 for it), so a plain
+  `npx vitest run` works there. `TEST_MONGODB_URL=mongodb://localhost:<port>`
+  with `--no-file-parallelism` still points the tests at a real Mongo (tests
+  then share the database).
+- **A flaky test is a bug in the test or the code, never a thing to re-run.**
+  The two shapes found so far: counting stream chunks (keep-alives interleave
+  by timing) instead of waiting for the event, and a test that detaches a
+  client but ends before its generation does, so the generation wakes during a
+  later test. Wait for the condition, and end tests with nothing running.
 - **Docker builds from a git worktree fail** (`.git` points outside the build
   context). Build from a normal clone.
 - **Files written by containers are root-owned** and later break `npm ci` or
@@ -266,11 +273,6 @@ serve` holds hundreds of MB of RSS and the extraction lands in RAM.
   no CI verdict for them.
 - **Failing on v0.10.0 and v0.10.1, not yet fixed** (so "pre-existing" by the
   rule in `AGENTS.md`, but real):
-  - server test `src/lib/server/textGeneration/__tests__/replayRoundTrip.spec.ts`,
-    "model switching > still replays tool calls and results across a model
-    switch", **on this build box only**: CI's `check` job runs the whole
-    server suite and passes it, so the difference is this box's environment
-    (its real MongoDB 4.4, `TEST_MONGODB_URL`), not the code.
   - e2e `tests/conversation-streaming.spec.ts:145`, "a second viewer of a live
     generation…": the second tab is redirected to `/login?next=/code`.
 - **CI's `check` job** once segfaulted inside `mongodb-memory-server` (a
