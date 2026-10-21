@@ -5,6 +5,17 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.19.1 — 2026-10-21
+
+Pins: Cerea `0.19.1`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
+Update the deployment (`docker compose pull && docker compose up -d`). Machines
+do not need the galopin update.
+
+- **Fixes a regression from v0.18.2:** produced files showed as plain file
+  cards instead of artifact cards, and artifacts (including earlier ones)
+  read "This edit couldn't be linked to an artifact". A code comment made the
+  production build drop the setup both rely on; a test now guards against it.
+
 ## v0.19.0 — 2026-10-21
 
 Pins: Cerea `0.19.0`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
