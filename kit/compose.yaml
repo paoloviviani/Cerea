@@ -401,7 +401,12 @@ services:
 
   chat-mongo:
     profiles: [chat]
-    image: ${MONGO_IMAGE:-mongo:4.4}
+    # The default is the image every host can run (4.4, no AVX needed), because
+    # a .env without MONGO_IMAGE is an install from before the setting, with its
+    # data on 4.4, which MongoDB 8 cannot open. ./configure writes MONGO_IMAGE
+    # for a new install (8 where the host allows it); tools/mongo-upgrade moves
+    # an old one. A test keeps this equal to configure's MONGO_FALLBACK.
+    image: ${MONGO_IMAGE:-mongo:4.4.30}
     restart: unless-stopped
     volumes:
       - chat-mongo-data:/data/db

@@ -32,6 +32,7 @@ import hmac
 import ipaddress
 import json
 import os
+import platform
 import re
 import secrets
 import shutil
@@ -687,6 +688,137 @@ def site_for(tls: str, host: str) -> tuple:
     return f"https://{host}", ("tls internal" if tls == "internal" else "")
 
 
+# --- the MongoDB image --------------------------------------------------------
+#
+# MongoDB 8 is the default; 4.4 is what runs where 8 cannot. Two host facts
+# decide it, and both are read here rather than guessed:
+#
+#   - MongoDB 5.0 and later need AVX on x86-64 (a few small VPS hosts and some
+#     low-power CPUs lack it). Under Docker Desktop on macOS the VM's CPU is
+#     what counts, not the Mac's: /proc/cpuinfo does not exist on the host, so
+#     the choice falls back to 4.4 and says why; see the README to check the VM.
+#   - MongoDB 8.0 refuses to start on Linux kernels 6.19 to 7.0.13 (its
+#     vendored TCMalloc and the kernel's rseq change, SERVER-121912); 7.0.14
+#     and later are fixed. Distribution suffixes (7.0.0-38-generic) are
+#     ignored: the upstream x.y.z is what counts.
+#
+# The pins are exact patch versions so a pull never changes the database under
+# a running install. MONGO_FALLBACK is also compose.yaml's default for a .env
+# that names no MONGO_IMAGE (a unit test keeps the two equal): an install that
+# predates this setting has its data on 4.4, and 8 cannot open it, so the safe
+# default is the one every host can run.
+
+MONGO_DEFAULT = "mongo:8.0.34"
+MONGO_FALLBACK = "mongo:4.4.30"
+#: Kernels MongoDB 8 cannot run on, inclusive.
+MONGO8_BAD_KERNELS = ((6, 19, 0), (7, 0, 13))
+
+
+def cpu_has_avx(cpuinfo: str | None, machine: str) -> bool | None:
+    """True/False for x86-64 from /proc/cpuinfo's flags; None when it cannot be told.
+
+    Only x86-64 has an AVX rule here: another architecture, or no cpuinfo
+    (macOS, a restricted container), answers None and the caller stays safe.
+    """
+    if machine not in ("x86_64", "AMD64", "amd64") or not cpuinfo:
+        return None
+    flags = []
+    for line in cpuinfo.splitlines():
+        key, _, value = line.partition(":")
+        if key.strip() == "flags":
+            flags = value.split()
+            break
+    if not flags:
+        return None
+    return "avx" in flags
+
+
+def kernel_version(release: str) -> tuple | None:
+    """The upstream (major, minor, patch) of `uname -r`; None when it does not parse."""
+    m = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?", release.strip())
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+
+
+def mongo8_kernel_broken(release: str) -> bool | None:
+    version = kernel_version(release)
+    if version is None:
+        return None
+    low, high = MONGO8_BAD_KERNELS
+    return low <= version <= high
+
+
+def detect_host() -> tuple:
+    """(avx, kernel release) of this host: avx is True, False or None (unknown)."""
+    try:
+        cpuinfo = Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        cpuinfo = None
+    return cpu_has_avx(cpuinfo, platform.machine()), platform.release()
+
+
+@dataclass(frozen=True)
+class MongoChoice:
+    image: str
+    reason: str
+
+
+def choose_mongo(avx: bool | None, release: str) -> MongoChoice:
+    """The image for a fresh install on this host, and why."""
+    if avx is None:
+        return MongoChoice(
+            MONGO_FALLBACK,
+            f"MONGO_IMAGE={MONGO_FALLBACK}: this host's AVX support could not be read (MongoDB 5+ needs it; "
+            "on Docker Desktop check the VM, see the README). To use MongoDB 8: "
+            f"./configure --set MONGO_IMAGE={MONGO_DEFAULT}",
+        )
+    if not avx:
+        return MongoChoice(
+            MONGO_FALLBACK,
+            f"MONGO_IMAGE={MONGO_FALLBACK}: this CPU has no AVX, which MongoDB 5 and later need",
+        )
+    broken = mongo8_kernel_broken(release)
+    if broken:
+        return MongoChoice(
+            MONGO_FALLBACK,
+            f"MONGO_IMAGE={MONGO_FALLBACK}: Linux {release} is in the range (6.19 to 7.0.13) where "
+            "MongoDB 8 does not start; kernel 7.0.14 or later fixes it",
+        )
+    if broken is None:
+        return MongoChoice(
+            MONGO_FALLBACK,
+            f"MONGO_IMAGE={MONGO_FALLBACK}: the kernel version {release!r} could not be read (MongoDB 8 "
+            f"fails on 6.19 to 7.0.13). To use MongoDB 8: ./configure --set MONGO_IMAGE={MONGO_DEFAULT}",
+        )
+    return MongoChoice(MONGO_DEFAULT, f"MONGO_IMAGE={MONGO_DEFAULT}: this host has AVX and a kernel MongoDB 8 runs on")
+
+
+def mongo_series(image: str) -> tuple | None:
+    """(major, minor) of an official `mongo:X.Y[.Z]` reference; None for any other image."""
+    m = re.match(r"^(?:docker\.io/)?(?:library/)?mongo:(\d+)\.(\d+)(?:[.@-]|$)", image.strip())
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def mongo_image_problems(image: str, avx: bool | None, release: str) -> list:
+    """Why this image cannot run on this host: an empty list when it can, or when unknowable."""
+    series = mongo_series(image)
+    if series is None:
+        return []
+    problems = []
+    if series[0] >= 5 and avx is False:
+        problems.append(
+            f"MONGO_IMAGE={image} needs AVX, which this CPU lacks (MongoDB 5 and later); "
+            f"use {MONGO_FALLBACK}"
+        )
+    if series[0] == 8 and mongo8_kernel_broken(release):
+        problems.append(
+            f"MONGO_IMAGE={image} does not start on Linux {release} (MongoDB 8 fails on kernels "
+            f"6.19 to 7.0.13); use {MONGO_FALLBACK} or update the kernel"
+        )
+    return problems
+
+
 # --- answers -> values -----------------------------------------------------------
 
 
@@ -775,12 +907,14 @@ def answers_from(values: dict) -> Answers:
     )
 
 
-def build(answers: Answers, existing: dict, template: str, discovery: dict | None = None) -> Result:
+def build(answers: Answers, existing: dict, template: str, discovery: dict | None = None,
+          mongo: MongoChoice | None = None) -> Result:
     """Every value the stack reads, from the answers and what .env already holds.
 
     Pure apart from randomness: no file is read or written here, so every rule
     is a unit test. `discovery` is the external issuer's discovery document,
-    fetched by the caller (None: unreadable or not fetched).
+    fetched by the caller (None: unreadable or not fetched). `mongo` is the host's
+    MongoDB choice (None: not asked, as in the unit tests, and no key is written).
     """
     fresh = not existing
     values = dict(template_defaults(template))
@@ -858,6 +992,19 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
             f"fetch off, but PLAYWRIGHT_WS_ENDPOINT points at a renderer elsewhere "
             f"({values['PLAYWRIGHT_WS_ENDPOINT']}): left as it is"
         )
+    # --- MongoDB ------------------------------------------------------------------
+    # Chosen once, for a fresh install, and then the operator's. An existing
+    # .env without the key keeps compose's default (4.4): its data is on 4.4,
+    # which 8 cannot open, so only tools/mongo-upgrade moves it.
+    if "chat" in profiles and not values.get("MONGO_IMAGE"):
+        if fresh and mongo is not None:
+            values["MONGO_IMAGE"] = mongo.image
+            notes.append(mongo.reason)
+        elif not fresh:
+            notes.append(
+                f"MongoDB stays on {MONGO_FALLBACK} (MONGO_IMAGE is not set); on a host with AVX, "
+                "tools/mongo-upgrade moves existing data to MongoDB 8"
+            )
     values["PYSTINO_PRESET"] = preset.name
     if preset_changed:
         values.update(preset.values)
@@ -1527,6 +1674,23 @@ def check_host(values: dict, report: Report, *, root: Path, network: bool) -> No
                 )
 
 
+def check_mongo(values: dict, report: Report, avx: bool | None, release: str) -> None:
+    """MONGO_IMAGE against this host: an image it cannot run is an error."""
+    if "chat" not in {p for p in values.get("COMPOSE_PROFILES", "").split(",") if p}:
+        return
+    image = values.get("MONGO_IMAGE") or MONGO_FALLBACK
+    report.errors.extend(mongo_image_problems(image, avx, release))
+    series = mongo_series(image)
+    if series is None:
+        report.notes.append(f"MongoDB: {image} is not an official mongo:X.Y image; not checked against this host")
+    elif series < (5, 0):
+        choice = choose_mongo(avx, release)
+        if choice.image == MONGO_DEFAULT:
+            report.notes.append(
+                f"MongoDB {image} is end of life and this host can run 8: tools/mongo-upgrade moves it, step by step"
+            )
+
+
 def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Report:
     report = Report()
     env_path = root / ".env"
@@ -1546,6 +1710,7 @@ def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Repor
     if not (root / "proxy.d").is_dir():
         report.errors.append("proxy.d/ is missing (the proxy mounts it); restore it with git checkout proxy.d")
     check_values(values, report)
+    check_mongo(values, report, *detect_host())
     if network:
         check_scopes(values, report)
     if probe_host:
@@ -1837,7 +2002,7 @@ def cmd_configure(args, root: Path) -> int:
         else:
             print(f"note: fixing it: {fix}")
     try:
-        result = build(answers, existing, template, discovery)
+        result = build(answers, existing, template, discovery, choose_mongo(*detect_host()))
         text = render(template, result.values, HEADER)
     except ConfigError as exc:
         print(f"configure: {exc}", file=sys.stderr)

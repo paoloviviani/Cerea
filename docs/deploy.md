@@ -42,7 +42,9 @@ file, so you write the runtime yourself:
 
 1. `docker build -t cerea .`
 2. A MongoDB the chat can reach (`MONGODB_URL`, `MONGODB_DB_NAME`).
-   `mongo:4.4` runs without AVX; MongoDB 5 and later need it.
+   MongoDB 8 is the choice where the host allows it; MongoDB 5 and later need
+   AVX, so `mongo:4.4` is what runs on a CPU without it, and MongoDB 8.0 does
+   not start on Linux 6.19 to 7.0.13. The deploy kit chooses for you.
 3. Run the image with your environment: either a bind mount
    `-v $PWD/.env.local:/app/.env.local`, or pass the file's contents as
    `DOTENV_LOCAL` — `entrypoint.sh` reads both.
