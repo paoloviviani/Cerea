@@ -5,6 +5,23 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.18.2 — 2026-10-21
+
+Pins: Cerea `0.18.2`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
+Update the deployment (`docker compose pull && docker compose up -d`). Machines
+do not need the galopin update.
+
+- **Security: server error logs no longer contain credentials.** Until now a
+  server error logged the request's whole session, including the signed-in
+  user's access token, session id and email. Errors now log only the user id
+  and name, the route and the error, and the logger masks token, cookie and
+  authorization fields wherever they appear. Logs written by earlier versions
+  may contain tokens: delete or rotate them if they are kept or shipped
+  anywhere.
+- **Reloading a conversation with produced files no longer fails with 500.**
+- **PDF previews fit the pane** and re-fit when the side pane or the artifact
+  panel is resized.
+
 ## v0.18.1 — 2026-10-21
 
 Pins: Cerea `0.18.1`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
