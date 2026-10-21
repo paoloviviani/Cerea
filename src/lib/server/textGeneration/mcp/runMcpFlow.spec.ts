@@ -829,7 +829,13 @@ describe("runMcpFlow offering the question tool", () => {
 		// (Phase 1/Stage 3): the frontmatter list is in every turn's system
 		// prompt, so the tools that load a body and its bundled files are
 		// offered wherever the list is.
-		expect(toolNames()).toEqual(["execute_code", "load_skill", "load_skill_file", "do_thing"]);
+		expect(toolNames()).toEqual([
+			"update_plan",
+			"execute_code",
+			"load_skill",
+			"load_skill_file",
+			"do_thing",
+		]);
 	});
 
 	it("engages the flow with builtin tools alone when MCP listing yields nothing", async () => {
@@ -838,6 +844,7 @@ describe("runMcpFlow offering the question tool", () => {
 		const { result } = await runFlow();
 		expect(result).toBe("completed");
 		expect(toolNames()).toEqual([
+			"update_plan",
 			"ask_user_question",
 			"execute_code",
 			"load_skill",
@@ -856,7 +863,7 @@ describe("runMcpFlow offering the question tool", () => {
 		scriptRounds([{ content: "the answer" }]);
 		const { result } = await runFlow();
 		expect(result).toBe("completed");
-		expect(toolNames()).toEqual(["load_skill", "load_skill_file"]);
+		expect(toolNames()).toEqual(["update_plan", "load_skill", "load_skill_file"]);
 	});
 });
 
@@ -869,26 +876,50 @@ describe("runMcpFlow and the generic tool preprompt", () => {
 		expect(systemPrompt()).toContain("Do NOT call a tool unless");
 	});
 
-	it("never offers the plan tool, and injects no plan", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow({
-			conv: {
-				_id: new ObjectId(),
-				plan: {
-					goal: "Ship the feature",
-					steps: [{ step: "write it", status: "pending" }],
-					version: 1,
-					updatedAt: new Date(),
-				},
-			},
-		} as Partial<Parameters<typeof runMcpFlow>[0]>);
-		const names = (
+	const plan = {
+		goal: "Ship the feature",
+		steps: [{ step: "write it", status: "pending" }],
+		version: 1,
+		updatedAt: new Date(),
+	};
+	const offeredNames = () =>
+		(
 			(mocks.create.mock.calls[0]?.[0] as { tools?: Array<{ function: { name: string } }> })
 				?.tools ?? []
 		).map((t) => t.function.name);
-		expect(names).not.toContain("update_plan");
+
+	it("offers the plan tool in an ordinary tool-capable chat, with a short preprompt", async () => {
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow();
+		expect(offeredNames()).toContain("update_plan");
+		expect(systemPrompt()).toContain("PLAN: for multi-step work");
+	});
+
+	it("shows the model its stored plan on the next turn, on the last user message", async () => {
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow({ conv: { _id: new ObjectId(), plan } } as Partial<
+			Parameters<typeof runMcpFlow>[0]
+		>);
+		const lastUser = requestMessages(0).findLast((m) => m.role === "user");
+		expect(String(lastUser?.content)).toContain("CURRENT PLAN");
+		expect(String(lastUser?.content)).toContain("Ship the feature");
+	});
+
+	it("injects nothing when the chat has no plan yet", async () => {
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow();
 		const lastUser = requestMessages(0).findLast((m) => m.role === "user");
 		expect(String(lastUser?.content)).not.toContain("CURRENT PLAN");
+	});
+
+	it("neither offers the plan tool nor injects a plan when tool calling is off", async () => {
+		scriptRounds([{ content: "the answer" }]);
+		const { result } = await runFlow({
+			forceTools: false,
+			conv: { _id: new ObjectId(), plan },
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+		expect(result).toBe("not_applicable");
+		expect(mocks.create).not.toHaveBeenCalled();
 	});
 
 	it("leaves the catalog completion budget alone", async () => {

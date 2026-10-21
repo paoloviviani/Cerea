@@ -45,6 +45,31 @@ describe("getEnabledBuiltinTools", () => {
 	});
 });
 
+describe("the plan tool", () => {
+	it("is offered in any chat whose turn has tool calling on", () => {
+		const names = getEnabledBuiltinTools({
+			conv: { _id: new ObjectId() },
+			toolsEnabled: true,
+		}).map((tool) => tool.name);
+		expect(names).toContain("update_plan");
+	});
+
+	it("is withheld when tool calling is off or unresolved", () => {
+		expect(toolNames({ _id: new ObjectId() })).not.toContain("update_plan");
+		const off = getEnabledBuiltinTools({ conv: { _id: new ObjectId() }, toolsEnabled: false });
+		expect(off.map((tool) => tool.name)).not.toContain("update_plan");
+	});
+
+	it("carries a short preprompt that says when to use it and when not", () => {
+		const tool = getEnabledBuiltinTools({ conv: { _id: new ObjectId() }, toolsEnabled: true }).find(
+			(t) => t.name === "update_plan"
+		);
+		expect(tool?.preprompt).toMatch(/multi-step/);
+		expect(tool?.preprompt).toMatch(/Not for simple/);
+		expect((tool?.preprompt ?? "").length).toBeLessThan(500);
+	});
+});
+
 describe("web search enablement: per-chat state beats the passed default", () => {
 	const searchParams = {
 		token: "caller-token",

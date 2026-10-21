@@ -4,6 +4,7 @@ import { artifactsModeForTurn, type ArtifactsMode } from "../artifacts";
 import { createArtifactTool } from "./artifactTool";
 import { askUserQuestionBuiltin } from "./askUserQuestion";
 import { createGatewaySearchBuiltins } from "./gatewaySearchTool";
+import { createPlanTool } from "./planTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
 import { createExecuteCodeBuiltin } from "./executeCodeTool";
 import { createConvertDocumentBuiltin } from "./convertDocumentTool";
@@ -133,6 +134,13 @@ export function getEnabledBuiltinTools(params: {
 	// and parser with no tool on offer.
 	if (artifactsMode === "tool") {
 		tools.push(createArtifactTool({ turnBlocks: params.artifactTurnBlocks }));
+	}
+
+	// Every tool-capable chat can keep a short plan for multi-step work. It
+	// persists on the conversation and is shown to the model again on the next
+	// turn (`injectPlanState`), so it needs the tool-calling the whole flow needs.
+	if (params.toolsEnabled) {
+		tools.push(createPlanTool(params.conv));
 	}
 
 	// Every conversation can put a decision to the person as options they click.

@@ -209,10 +209,8 @@ export function createPlanTool(conv: Pick<Conversation, "_id" | "plan">): Builti
 		definition: planToolDefinition,
 		exemptFromToolRestraint: true,
 		preprompt:
-			`PLANNING: For complex multi-step work — several distinct stages, multiple tool calls, or requirements that evolve over the conversation — call ${PLAN_TOOL_NAME} before starting and keep it current as you go. ` +
-			`Keep 3-7 short, verifiable steps with exactly one in_progress, each with a one-or-two-word label; mark steps completed the moment they finish, and mark abandoned steps skipped instead of deleting them. ` +
-			`Rewrite the goal whenever the user's requirements change so it always folds in every correction so far. ` +
-			`Never use it for simple or single-step requests, and do not repeat the plan in your reply — the interface already shows it.`,
+			`PLAN: for multi-step work, call ${PLAN_TOOL_NAME} with 3-7 short steps (one in_progress, a one or two word label each) and keep it current: mark a step completed as soon as it is done, rewrite the goal when the request changes. ` +
+			`Not for simple questions or one-step requests. The interface shows the plan, so do not repeat it in your reply.`,
 		async execute(args, ctx) {
 			const parsed = parsePlanArgs(args);
 			if (!parsed.ok) return { error: parsed.error };
