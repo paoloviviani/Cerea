@@ -208,7 +208,9 @@
 					if (buffer.byteLength > FILE_PREVIEW_MAX_BYTES) {
 						throw new Error("too large to preview — download it to read the whole document");
 					}
-					const html = await renderDocxPreview(new Uint8Array(buffer));
+					const html = await renderDocxPreview(new Uint8Array(buffer), {
+						fontBase: `${base}/fonts/office`,
+					});
 					if (cancelled) return;
 					payload = { kind: "docx", html };
 				}
