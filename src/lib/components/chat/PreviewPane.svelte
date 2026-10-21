@@ -10,6 +10,7 @@
 		buildArtifactSrcdoc,
 		buildDocxSrcdoc,
 		browserRendersPdfInFrame,
+		pdfFrameSrc,
 		capturePreviewError,
 		composeFixRequest,
 		normalizePreviewError,
@@ -166,7 +167,7 @@
 							allow={PREVIEW_ALLOW}
 							allowfullscreen
 							referrerpolicy="no-referrer"
-							src={payload.content}
+							src={pdfFrameSrc(payload.content)}
 						></iframe>
 					{:else if payload.kind === "pdf"}
 						<!-- A mobile browser: no in-frame viewer exists even

@@ -118,6 +118,17 @@ export const PREVIEW_ALLOW =
 	"fullscreen *; pointer-lock *; accelerometer *; gyroscope *; magnetometer *; gamepad *; autoplay *; clipboard-write *";
 
 /**
+ * The src for a PDF preview frame. The native viewers pick a zoom when the
+ * document loads and keep it, so a pane made narrower cut the page off on
+ * the right. `#view=FitH` (PDF open parameters; Chromium's viewer and
+ * pdf.js honour it) puts the viewer in fit-to-width mode, which re-fits on
+ * every resize of the frame. A fragment is not part of a data: URL's bytes.
+ */
+export function pdfFrameSrc(url: string): string {
+	return url.includes("#") ? url : `${url}#view=FitH`;
+}
+
+/**
  * Whether this browser can draw a PDF inside our preview frame. Mobile
  * engines ship no in-frame viewer at all, and the desktop ones — for this
  * pane — refuse to attach theirs to a sandboxed opaque-origin frame, so

@@ -93,7 +93,8 @@ describe("PreviewPane", () => {
 		const screen = render(PreviewPane, {});
 		await tick();
 		const iframe = screen.baseElement.querySelector('iframe[title="Preview of report.pdf"]');
-		expect(iframe?.getAttribute("src")).toBe("data:application/pdf;base64,AAA");
+		// Fit-to-width, so the native viewer re-fits when the pane is resized.
+		expect(iframe?.getAttribute("src")).toBe("data:application/pdf;base64,AAA#view=FitH");
 		expect(iframe?.hasAttribute("srcdoc")).toBe(false);
 		// The sandbox token set is deliberately ABSENT for a pdf: native
 		// viewers refuse to attach to a sandboxed opaque-origin frame —
