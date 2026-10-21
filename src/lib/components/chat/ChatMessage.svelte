@@ -2,6 +2,7 @@
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
 	import type { Message } from "$lib/types/Message";
+	import { ToolResultStatus } from "$lib/types/Tool";
 	import { tick } from "svelte";
 	import { finalAnswerAddition } from "$lib/utils/mergeFinalAnswer";
 
@@ -637,7 +638,8 @@
 		return block.updates.some(
 			(update) =>
 				isMessageToolResultUpdate(update) &&
-				(update.result.outputs ?? []).some((output) => {
+				update.result.status === ToolResultStatus.Success &&
+				update.result.outputs.some((output) => {
 					const content = (output as { content?: unknown }).content;
 					return (
 						Array.isArray(content) &&
