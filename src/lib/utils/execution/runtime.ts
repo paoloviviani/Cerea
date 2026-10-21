@@ -73,7 +73,7 @@ export class ExecutionSession {
 			(() =>
 				new Worker(new URL("./pyodide.worker.ts", import.meta.url), {
 					type: "module",
-				}) as unknown as ExecutionWorkerLike);
+				}));
 		this.loadTimeoutMs = options.loadTimeoutMs ?? LOAD_TIMEOUT_MS;
 		this.runTimeoutMs = options.runTimeoutMs ?? RUN_TIMEOUT_MS;
 	}

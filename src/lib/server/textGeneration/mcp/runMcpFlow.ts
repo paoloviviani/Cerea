@@ -169,11 +169,11 @@ export async function* runMcpFlow({
 	// setting — the ML Assistant preset searches regardless, because search
 	// is part of what that mode is. The settings doc is keyed the way the
 	// settings API keys it: by user when signed in, by session otherwise.
-	const turnToken = (locals as unknown as { token?: string } | undefined)?.token;
-	const identityUser = (locals as unknown as { user?: { _id?: unknown } } | undefined)?.user;
-	const identitySession = (locals as unknown as { sessionId?: string } | undefined)?.sessionId;
+	const turnToken = locals?.token;
+	const identityUser = locals?.user;
+	const identitySession = locals?.sessionId;
 	const serverSettings = identityUser
-		? await collections.settings.findOne({ userId: identityUser._id as never })
+		? await collections.settings.findOne({ userId: identityUser._id })
 		: identitySession
 			? await collections.settings.findOne({ sessionId: identitySession })
 			: null;
@@ -230,9 +230,7 @@ export async function* runMcpFlow({
 	// of the builtin list — because the artifact tool's tool-vs-tags gating
 	// needs the same answer.
 	const mlAssistant = isMlAssistantConversation(conv);
-	const modelSupportsTools = Boolean(
-		(model as unknown as { supportsTools?: boolean }).supportsTools
-	);
+	const modelSupportsTools = Boolean(model.supportsTools);
 	// Canonical blocks this turn's artifact calls already appended, in order.
 	// Later rounds validate against earlier rounds' blocks through this, since
 	// those blocks are not in the database yet.
@@ -245,14 +243,14 @@ export async function* runMcpFlow({
 	const artifactsEnabled = artifactsEnabledForTurn({
 		mlAssistant,
 		artifactsOverride,
-		supportsArtifacts: (model as unknown as { supportsArtifacts?: boolean }).supportsArtifacts,
+		supportsArtifacts: model.supportsArtifacts,
 	});
 	const artifactsMode: ArtifactsMode = artifactsModeForTurn({
 		mlAssistant,
 		artifactsOverride,
-		supportsArtifacts: (model as unknown as { supportsArtifacts?: boolean }).supportsArtifacts,
+		supportsArtifacts: model.supportsArtifacts,
 		toolsEnabled: artifactToolsEnabled,
-		artifactsMode: (model as unknown as { artifactsMode?: ArtifactsMode }).artifactsMode,
+		artifactsMode: model.artifactsMode,
 	});
 	const webSearch = await resolveWebSearchFor(turnToken);
 	const builtinTools = getEnabledBuiltinTools({
@@ -262,7 +260,7 @@ export async function* runMcpFlow({
 		askUserQuestionEnabled: (
 			await import("$lib/server/askUserQuestionEnabled")
 		).askUserQuestionEnabled(),
-		namespace: (locals as unknown as { user?: { username?: string } })?.user?.username,
+		namespace: locals?.user?.username,
 		token: turnToken,
 		searchModelIds: webSearch.granted,
 		searchBackend: webSearch.model ?? undefined,
@@ -278,9 +276,9 @@ export async function* runMcpFlow({
 		approvedTools,
 		artifactsOverride,
 		modelArtifacts: {
-			supportsArtifacts: (model as unknown as { supportsArtifacts?: boolean }).supportsArtifacts,
+			supportsArtifacts: model.supportsArtifacts,
 			supportsTools: modelSupportsTools,
-			artifactsMode: (model as unknown as { artifactsMode?: ArtifactsMode }).artifactsMode,
+			artifactsMode: model.artifactsMode,
 		},
 		toolsEnabled: artifactToolsEnabled,
 		artifactTurnBlocks,
@@ -293,9 +291,7 @@ export async function* runMcpFlow({
 	// sandbox tools.
 	{
 		const { includeSkillLoadBuiltin } = await import("$lib/server/skills/service");
-		const skillsUserId = (
-			locals as unknown as { user?: { _id?: import("mongodb").ObjectId } } | undefined
-		)?.user?._id;
+		const skillsUserId = locals?.user?._id;
 		await includeSkillLoadBuiltin(builtinTools, skillsUserId);
 	}
 	// Read once: the preset decides the servers, the round budget and which tool
@@ -311,13 +307,10 @@ export async function* runMcpFlow({
 		? createMlBudgetGuard({
 				conversationId: conv._id,
 				generationId: generationId ?? conv._id.toString(),
-				username: (locals as unknown as { user?: { username?: string } })?.user?.username,
+				username: locals?.user?.username,
 				// Same credential the turn-start settle pass uses: an operator-pinned
 				// Hub entry launched the work, so it is what can read it back.
-				token:
-					pinnedHubToken() ??
-					(locals as unknown as { hfAccessToken?: string } | undefined)?.hfAccessToken ??
-					(locals as unknown as { token?: string } | undefined)?.token,
+				token: pinnedHubToken() ?? locals?.token,
 			})
 		: undefined;
 
@@ -336,14 +329,7 @@ export async function* runMcpFlow({
 
 	// Merge in request-provided custom servers (if any)
 	try {
-		const reqMcp = (
-			locals as unknown as {
-				mcp?: {
-					selectedServers?: Array<{ name: string; url: string; headers?: Record<string, string> }>;
-					selectedServerNames?: string[];
-				};
-			}
-		)?.mcp;
+		const reqMcp = locals?.mcp;
 		const custom = Array.isArray(reqMcp?.selectedServers) ? reqMcp?.selectedServers : [];
 		if (custom.length > 0) {
 			// Deduplicate by server name (request takes precedence)
@@ -435,9 +421,7 @@ export async function* runMcpFlow({
 	// Never override an explicit Authorization header, and require token to look like an HF token.
 	try {
 		const shouldForward = config.MCP_FORWARD_HF_USER_TOKEN === "true";
-		const userToken =
-			(locals as unknown as { hfAccessToken?: string } | undefined)?.hfAccessToken ??
-			(locals as unknown as { token?: string } | undefined)?.token;
+		const userToken = locals?.token;
 
 		if (shouldForward && hasNonEmptyToken(userToken)) {
 			const overlayApplied: string[] = [];
@@ -503,7 +487,7 @@ export async function* runMcpFlow({
 	// The override wins in both directions: an explicit `false` skips the flow
 	// for a tools-advertised model, `true` runs it for one that is not.
 	try {
-		const supportsTools = Boolean((model as unknown as { supportsTools?: boolean }).supportsTools);
+		const supportsTools = Boolean(model.supportsTools);
 		const toolsEnabled = forceTools ?? supportsTools;
 		logger.debug(
 			{
@@ -644,7 +628,7 @@ export async function* runMcpFlow({
 				route: resolvedRoute,
 				candidateModelId,
 				toolCount: oaTools.length,
-				hasUserToken: Boolean((locals as unknown as { token?: string })?.token),
+				hasUserToken: Boolean(locals?.token),
 			},
 			"[mcp] starting completion with tools"
 		);
@@ -662,9 +646,7 @@ export async function* runMcpFlow({
 		// Nothing is invented by defaulting on — reasoning is only echoed when
 		// the model actually produced it, so a non-reasoning model is unaffected
 		// either way.
-		const mayEchoReasoning =
-			reasoningOverride ??
-			(targetModel as unknown as { preservesReasoning?: boolean }).preservesReasoning !== false;
+		const mayEchoReasoning = reasoningOverride ?? targetModel.preservesReasoning !== false;
 
 		// Hoisted above the message prep so the history budget can reserve the
 		// reply allowance this request will actually ask for.
@@ -677,8 +659,7 @@ export async function* runMcpFlow({
 			(parameters?.max_tokens as number | undefined) ??
 			(parameters?.max_new_tokens as number | undefined) ??
 			(parameters?.max_completion_tokens as number | undefined);
-		const targetContextLength = (targetModel as unknown as { contextLength?: number })
-			.contextLength;
+		const targetContextLength = targetModel.contextLength;
 		// The preset floors the reply allowance — see the constant for why. The
 		// floor never claims more than half the model's window: prompt plus reply
 		// must fit it, and a backend that enforces the sum would reject the very
@@ -691,7 +672,7 @@ export async function* runMcpFlow({
 			? Math.max(catalogMaxTokens ?? 0, clampedFloor)
 			: catalogMaxTokens;
 
-		const userTimezone = (locals as unknown as { timezone?: string })?.timezone;
+		const userTimezone = locals?.timezone;
 		let messagesOpenAI: ChatCompletionMessageParam[] = await prepareMessagesWithFiles(
 			messages,
 			imageProcessor,
@@ -730,9 +711,7 @@ export async function* runMcpFlow({
 		// Connectors left out before the turn (no credential) and those whose
 		// listing failed just now, deduplicated by name.
 		const notLoaded = new Map<string, { name: string; reason: string }>();
-		const requestUnavailable =
-			(locals as unknown as { mcp?: { unavailable?: Array<{ name: string; reason: string }> } })
-				?.mcp?.unavailable ?? [];
+		const requestUnavailable = locals?.mcp?.unavailable ?? [];
 		for (const entry of [...requestUnavailable, ...unlisted]) notLoaded.set(entry.name, entry);
 		const unavailableNotice = unavailableConnectorsNotice([...notLoaded.values()]);
 		if (unavailableNotice) {
@@ -936,7 +915,7 @@ export async function* runMcpFlow({
 					type: MessageUpdateType.RouterMetadata,
 					route: "",
 					model: "",
-					provider: providerHeader as unknown as import("@huggingface/inference").InferenceProvider,
+					provider: providerHeader,
 				};
 				logger.debug({ provider: providerHeader }, "[mcp] provider metadata emitted");
 			}
@@ -965,11 +944,7 @@ export async function* runMcpFlow({
 				if (chunkToolCalls.length > 0) {
 					sawToolCall = true;
 					for (const call of chunkToolCalls) {
-						const toolCall = call as unknown as {
-							index?: number;
-							id?: string;
-							function?: { name?: string; arguments?: string };
-						};
+						const toolCall = call;
 						const index = toolCall.index ?? 0;
 						const current = toolCallState[index] ?? { arguments: "" };
 						if (toolCall.id) current.id = toolCall.id;
@@ -1066,7 +1041,8 @@ export async function* runMcpFlow({
 
 				// Provider-dependent reasoning fields (`reasoning`, `reasoning_content`,
 				// or `reasoning_text`).
-				const deltaFields = delta as unknown as {
+				// Not in the OpenAI delta type; each is set by some gateway or other.
+				const deltaFields = delta as typeof delta & {
 					reasoning?: unknown;
 					reasoning_content?: unknown;
 					reasoning_text?: unknown;
@@ -1345,9 +1321,8 @@ export async function* runMcpFlow({
 					// A parked call resumes with no request behind it, so the identity it
 					// should act as has to be recorded now, while there still is one.
 					owner: {
-						userId: (locals as unknown as { user?: { _id?: import("mongodb").ObjectId } })?.user
-							?._id,
-						sessionId: (locals as unknown as { sessionId?: string })?.sessionId,
+						userId: locals?.user?._id,
+						sessionId: locals?.sessionId,
 					},
 					builtinTools,
 					guard,

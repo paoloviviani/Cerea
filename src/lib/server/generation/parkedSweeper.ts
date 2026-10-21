@@ -176,16 +176,15 @@ async function rebuildIdentity(park: ParkedCall) {
 		park.userId ? { userId: park.userId } : { sessionId: park.sessionId ?? "" }
 	);
 
+	const locals: App.Locals = {
+		user,
+		sessionId: session?.sessionId ?? park.sessionId ?? "",
+		isAdmin: false,
+		...(token?.value && !tokenExpired ? { token: token.value } : {}),
+		...(settings?.billingOrganization ? { billingOrganization: settings.billingOrganization } : {}),
+	};
 	return {
-		locals: {
-			user,
-			sessionId: session?.sessionId ?? park.sessionId ?? "",
-			isAdmin: false,
-			...(token?.value && !tokenExpired ? { token: token.value } : {}),
-			...(settings?.billingOrganization
-				? { billingOrganization: settings.billingOrganization }
-				: {}),
-		} as unknown as App.Locals,
+		locals,
 		settings,
 		tokenExpired: tokenExpired || !token?.value,
 	};
@@ -231,10 +230,7 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 	// servers, as a fresh turn's failed resolution does.
 	if (conv.mcpSelection) {
 		try {
-			(locals as unknown as Record<string, unknown>).mcp = await mcpLocalsFor(
-				conv.mcpSelection,
-				park.userId
-			);
+			locals.mcp = await mcpLocalsFor(conv.mcpSelection, park.userId);
 		} catch (err) {
 			logger.warn({ err }, "[parked] could not restore the turn's MCP selection");
 		}
@@ -347,7 +343,7 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 					{
 						text: resumeResultText,
 					},
-				] as unknown as Record<string, unknown>[],
+				],
 				display: true,
 			},
 		});

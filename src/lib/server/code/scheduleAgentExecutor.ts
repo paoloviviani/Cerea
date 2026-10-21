@@ -95,7 +95,7 @@ export type AgentTarget = {
 	labels: { machine: string; workspace: string; session?: string };
 };
 
-function parseTarget(target: unknown): AgentTarget | null {
+export function parseTarget(target: unknown): AgentTarget | null {
 	const parsed = targetSchema.safeParse(target);
 	if (!parsed.success) return null;
 	const t = parsed.data;

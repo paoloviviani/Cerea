@@ -59,9 +59,7 @@ export function bootstrapWorker(
 ): void {
 	// The gate first: it must be watching before anything, including the
 	// interpreter import, can move a byte.
-	const gateController: NetworkGateController = installNetworkGate(
-		scope as unknown as typeof globalThis
-	);
+	const gateController: NetworkGateController = installNetworkGate(scope as typeof globalThis);
 	guardCleanExitRejection(scope);
 
 	let pyodidePromise: Promise<PyodideAPI> | null = null;
@@ -250,6 +248,7 @@ export function bootstrapWorker(
 		return autoInstallImports(
 			{
 				findImports: (c) => {
+					// pyimport returns an untyped PyProxy; this is the slice of the Python module used.
 					const codeModule = py.pyimport("pyodide.code") as unknown as {
 						find_imports(source: string): { toJs(): string[]; destroy(): void };
 						destroy(): void;
@@ -291,6 +290,7 @@ export function bootstrapWorker(
 					scratch.destroy();
 				}
 			}
+			// As above: the slice of the Python module used.
 			const module = py.pyimport("_cerea_figures") as unknown as {
 				begin(importMatplotlib: boolean): void;
 				sweep(): void;
@@ -535,5 +535,5 @@ export function bootstrapWorker(
 // `bootstrapWorker` directly and drive a fake scope, so this file must stay
 // inert wherever `WorkerGlobalScope` does not exist.
 if (typeof WorkerGlobalScope !== "undefined" && self instanceof WorkerGlobalScope) {
-	bootstrapWorker(self as unknown as WorkerScope & Partial<typeof globalThis>);
+	bootstrapWorker(self as WorkerScope & Partial<typeof globalThis>);
 }

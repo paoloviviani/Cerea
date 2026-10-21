@@ -27,6 +27,7 @@ export function extractArticle(html: string, url: string): Article | null {
 		const { document } = parseHTML(html);
 		// Readability resolves relative links against the document's URL.
 		Object.defineProperty(document, "baseURI", { value: url, configurable: true });
+		// linkedom's Document is not typed as the DOM one Readability expects; it implements what it reads.
 		const article = new Readability(document as unknown as Document).parse();
 		if (!article?.content?.trim()) return null;
 		return { title: article.title?.trim() || null, content: article.content };

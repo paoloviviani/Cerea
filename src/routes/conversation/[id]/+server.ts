@@ -35,7 +35,6 @@ import { indexConversation, parseAttachedKnowledgeBaseIds } from "$lib/server/pr
 import { mcpLocalsFor, withoutClientCredentials } from "$lib/server/mcp/selection";
 import type { McpTurnSelection } from "$lib/types/Conversation";
 import type { TextGenerationContext } from "$lib/server/textGeneration/types";
-import type { McpServerConfig } from "$lib/server/mcp/httpClient";
 import { isMlAssistantConversation } from "$lib/server/mlAssistant";
 import { mlAssistantProviderFor } from "$lib/server/mlAssistantModels";
 import { logger } from "$lib/server/logger.js";
@@ -258,10 +257,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				}))
 			).map(({ name, url }) => ({ name, url })),
 		};
-		(locals as unknown as Record<string, unknown>).mcp = await mcpLocalsFor(
-			selection,
-			locals.user?._id
-		);
+		locals.mcp = await mcpLocalsFor(selection, locals.user?._id);
 		// Recorded for a resume: a turn that parks (execute_code, a timer, a
 		// tool approval) continues later with no request, and must run with the
 		// same connectors. Ids and names only; best effort, never fails the turn.
@@ -277,7 +273,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 	// Attach user timezone so the tool prompt can include localized time
 	if (timezone) {
-		(locals as unknown as Record<string, unknown>).timezone = timezone;
+		locals.timezone = timezone;
 	}
 
 	const inputFiles = await Promise.all(
@@ -686,10 +682,9 @@ export async function POST({ request, locals, params, getClientAddress }) {
 						conversationId: convId,
 						elicitationId: resumeElicitationId,
 						generationId: effectiveGenerationId,
-						extraServers: (locals as unknown as { mcp?: { selectedServers?: McpServerConfig[] } })
-							?.mcp?.selectedServers,
+						extraServers: locals.mcp?.selectedServers,
 						signal: ctrl.signal,
-						token: (locals as unknown as { token?: string }).token,
+						token: locals.token,
 					});
 					logger.info(
 						{
@@ -784,7 +779,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				} else {
 					hasError = true;
 					// Extract status code if available from HTTPError or APIError
-					const errObj = err as unknown as Record<string, unknown>;
+					const errObj = err as Error & { statusCode?: unknown; status?: unknown };
 					const statusCode =
 						(typeof errObj.statusCode === "number" ? errObj.statusCode : undefined) ||
 						(typeof errObj.status === "number" ? errObj.status : undefined);

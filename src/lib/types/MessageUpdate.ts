@@ -1,4 +1,3 @@
-import type { InferenceProvider } from "@huggingface/inference";
 import type { ToolCall, ToolResult } from "$lib/types/Tool";
 import type { PlanStep } from "$lib/types/Plan";
 import type { TurnStatus } from "$lib/types/TurnState";
@@ -226,7 +225,8 @@ export interface MessageRouterMetadataUpdate {
 	type: MessageUpdateType.RouterMetadata;
 	route: string;
 	model: string;
-	provider?: InferenceProvider;
+	/** The upstream provider the gateway reported (a free-form header, not a closed set). */
+	provider?: string;
 }
 
 export enum MessageElicitationUpdateType {

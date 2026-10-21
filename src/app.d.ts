@@ -2,6 +2,7 @@
 /// <reference types="unplugin-icons/types/svelte" />
 
 import type { User } from "$lib/types/User";
+import type { McpLocals } from "$lib/server/mcp/selection";
 
 // See https://kit.svelte.dev/docs/types#app
 // for information about these interfaces
@@ -18,6 +19,10 @@ declare global {
 			authTime?: Date;
 			/** Organization to bill inference requests to (from settings) */
 			billingOrganization?: string;
+			/** The browser's IANA timezone for this request (conversation route). */
+			timezone?: string;
+			/** The MCP servers this turn runs with (`mcpLocalsFor`). */
+			mcp?: McpLocals;
 		}
 
 		interface Error {

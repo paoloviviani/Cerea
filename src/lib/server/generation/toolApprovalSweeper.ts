@@ -68,16 +68,15 @@ async function rebuildIdentity(userId?: ObjectId, sessionId?: string) {
 	const settings = await collections.settings.findOne(
 		userId ? { userId } : { sessionId: sessionId ?? "" }
 	);
+	const locals: App.Locals = {
+		user,
+		sessionId: session?.sessionId ?? sessionId ?? "",
+		isAdmin: false,
+		...(token?.value && !tokenExpired ? { token: token.value } : {}),
+		...(settings?.billingOrganization ? { billingOrganization: settings.billingOrganization } : {}),
+	};
 	return {
-		locals: {
-			user,
-			sessionId: session?.sessionId ?? sessionId ?? "",
-			isAdmin: false,
-			...(token?.value && !tokenExpired ? { token: token.value } : {}),
-			...(settings?.billingOrganization
-				? { billingOrganization: settings.billingOrganization }
-				: {}),
-		} as unknown as App.Locals,
+		locals,
 		settings,
 	};
 }
@@ -105,10 +104,7 @@ async function denyAndResume(row: McpElicitation): Promise<void> {
 	// servers, as a fresh turn's failed resolution does.
 	if (conv.mcpSelection) {
 		try {
-			(locals as unknown as Record<string, unknown>).mcp = await mcpLocalsFor(
-				conv.mcpSelection,
-				pending.userId
-			);
+			locals.mcp = await mcpLocalsFor(conv.mcpSelection, pending.userId);
 		} catch (err) {
 			logger.warn({ err }, "[approval] could not restore the turn's MCP selection");
 		}

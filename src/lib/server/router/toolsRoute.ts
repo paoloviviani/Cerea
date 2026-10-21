@@ -31,7 +31,7 @@ export function hasActiveToolsSelection(locals: App.Locals | undefined): boolean
 export function pickToolsCapableModel(
 	models: ProcessedModel[] | undefined
 ): ProcessedModel | undefined {
-	const preferredRaw = (config as unknown as Record<string, string>).LLM_ROUTER_TOOLS_MODEL;
+	const preferredRaw = config.LLM_ROUTER_TOOLS_MODEL;
 	const preferred = preferredRaw?.trim();
 	if (!preferred) {
 		logger.warn("[router] tools bypass requested but LLM_ROUTER_TOOLS_MODEL is not set");

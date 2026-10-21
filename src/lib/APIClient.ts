@@ -26,13 +26,17 @@ interface ApiResponse<T = unknown> {
 	status: number;
 }
 
-async function apiCall<T = unknown>(
+/**
+ * Resolves with the raw response text as `data`: the body is superjson, parsed by
+ * `handleResponse`, so it is a string here, not the caller's type.
+ */
+async function apiCall(
 	fetcher: FetchFn,
 	url: string,
 	method: string,
 	body?: unknown,
 	query?: Record<string, string | number | undefined>
-): Promise<ApiResponse<T>> {
+): Promise<ApiResponse<string>> {
 	const u = new URL(url);
 	if (query) {
 		for (const [k, v] of Object.entries(query)) {
@@ -65,7 +69,7 @@ async function apiCall<T = unknown>(
 		return { data: null, error: null, status: res.status };
 	}
 
-	return { data: text as unknown as T, error: null, status: res.status };
+	return { data: text, error: null, status: res.status };
 }
 
 function endpoint(fetcher: FetchFn, baseUrl: string) {

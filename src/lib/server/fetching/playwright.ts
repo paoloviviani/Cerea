@@ -181,7 +181,8 @@ interface ReadabilityCtor {
 async function extractMainContent(pageHandle: Page): Promise<ReadabilityArticle | null> {
 	await pageHandle.addScriptTag({ content: loadReadabilityScript() });
 	return pageHandle.evaluate(() => {
-		const ReadabilityInPage = (window as unknown as { Readability: ReadabilityCtor }).Readability;
+		const ReadabilityInPage = (window as Window & { Readability?: ReadabilityCtor }).Readability;
+		if (!ReadabilityInPage) throw new Error("Readability did not load in the page");
 		// Readability mutates the document it is given, so hand it a clone and
 		// leave the live document alone for anything else read from the page.
 		const clone = document.cloneNode(true) as Document;

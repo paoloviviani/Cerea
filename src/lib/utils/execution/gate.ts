@@ -93,14 +93,18 @@ export function installNetworkGate(
 	for (const name of REMOVED_NETWORK_GLOBALS) {
 		if (name === "navigator") {
 			// navigator itself is harmless; only its request-launching members go
-			const nav = (scope as unknown as { navigator?: Record<string, unknown> }).navigator;
+			const nav = scope.navigator;
 			if (nav) {
-				delete nav.sendBeacon;
-				delete nav.serviceWorker;
-				delete nav.requestMIDIAccess;
-				delete nav.usb;
-				delete nav.serial;
-				delete nav.bluetooth;
+				for (const member of [
+					"sendBeacon",
+					"serviceWorker",
+					"requestMIDIAccess",
+					"usb",
+					"serial",
+					"bluetooth",
+				]) {
+					Reflect.deleteProperty(nav, member);
+				}
 			}
 			continue;
 		}

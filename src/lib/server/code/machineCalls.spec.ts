@@ -521,6 +521,23 @@ describe("schedule.list, update and delete", () => {
 		expect((await getSchedule(person.user._id, id)).prompt).toBe("run the suite");
 	});
 
+	it("leaves a schedule with a malformed target out of the list, and refuses to edit it", async () => {
+		const good = await createViaCall();
+		const bad = await personSchedule(deviceId, { name: "Broken" });
+		await collections.schedules.updateOne(
+			{ _id: bad._id },
+			{ $set: { target: { deviceId, workspaceId: 42 } } }
+		);
+		const { schedules } = ok(await machine.call("schedule.list")) as {
+			schedules: Array<Record<string, unknown>>;
+		};
+		expect(schedules.map((s) => s.id)).toEqual([good.id]);
+		refused(
+			await machine.call("schedule.update", { id: bad._id.toString(), name: "x" }),
+			"invalid"
+		);
+	});
+
 	it("cannot touch another machine's schedule", async () => {
 		const theirs = await personSchedule(otherDeviceId);
 		const id = theirs._id.toString();

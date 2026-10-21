@@ -4,8 +4,7 @@ export async function GET() {
 	const res = models
 		.filter((m) => m.unlisted == false)
 		.map((model) => {
-			const supportsTools =
-				(model as unknown as { supportsTools?: boolean }).supportsTools ?? false;
+			const supportsTools = model.supportsTools ?? false;
 			return {
 				id: model.id,
 				name: model.name,
@@ -21,13 +20,11 @@ export async function GET() {
 				preprompt: model.preprompt ?? "",
 				multimodal: model.multimodal ?? false,
 				supportsTools,
-				supportsReasoning:
-					(model as unknown as { supportsReasoning?: boolean }).supportsReasoning ?? false,
+				supportsReasoning: model.supportsReasoning ?? false,
 				// The effective default (`artifactsEnabledForTurn`): an explicit
 				// flag on the model entry always wins; absent one, any
 				// tool-capable model has artifacts on.
-				supportsArtifacts:
-					(model as unknown as { supportsArtifacts?: boolean }).supportsArtifacts ?? supportsTools,
+				supportsArtifacts: model.supportsArtifacts ?? supportsTools,
 				unlisted: model.unlisted ?? false,
 				hasInferenceAPI: model.hasInferenceAPI ?? false,
 			};

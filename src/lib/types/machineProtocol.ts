@@ -934,6 +934,9 @@ export const noticeFrameSchema = z.object({
  * never thrown — forward compatibility per the spec). */
 export function parseMachineFrame(raw: unknown): MachineToCereaFrame | null {
 	if (typeof raw !== "object" || raw === null || !("type" in raw)) return null;
+	// Each case checks `raw` against its schema, then returns `raw` itself, not
+	// `.data`: the cast is safe by that check, and zod would strip fields a newer
+	// machine sends that this build does not know yet.
 	switch ((raw as { type: unknown }).type) {
 		case "hello":
 			return helloFrameSchema.safeParse(raw).success ? (raw as unknown as HelloFrame) : null;

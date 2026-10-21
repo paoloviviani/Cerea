@@ -546,8 +546,7 @@
 
 	// Determine tool support for the current model (server-provided capability with user override)
 	let modelSupportsTools = $derived(
-		($settings.toolsOverrides?.[settingsKey] ??
-			(currentModel as unknown as { supportsTools?: boolean }).supportsTools) === true
+		($settings.toolsOverrides?.[settingsKey] ?? currentModel.supportsTools) === true
 	);
 
 	// Get provider override for the current model (HuggingChat only)

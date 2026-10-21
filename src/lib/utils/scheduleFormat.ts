@@ -75,9 +75,7 @@ export function browserTimezone(): string {
 
 export function allTimezones(): string[] {
 	try {
-		const supported = (
-			Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
-		).supportedValuesOf?.("timeZone");
+		const supported = Intl.supportedValuesOf?.("timeZone");
 		if (supported?.length) return ["UTC", ...supported.filter((z) => z !== "UTC")];
 	} catch {
 		/* an older engine: the datalist is a nicety */

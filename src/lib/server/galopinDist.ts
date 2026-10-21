@@ -217,6 +217,7 @@ export async function serveGalopinFile(
 			"content-length": String(size),
 			"x-content-type-options": "nosniff",
 		},
+		// node:stream/web's ReadableStream and the DOM global's are one type to the runtime, two to tsc.
 		body: Readable.toWeb(createReadStream(path)) as unknown as ReadableStream,
 	};
 }

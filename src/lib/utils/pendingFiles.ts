@@ -12,7 +12,9 @@
 
 import { browser } from "$app/environment";
 
-const store: Map<string, File[]> = browser ? new Map() : (null as unknown as Map<string, File[]>);
+// Empty on the server: every access below is guarded by `browser`, so nothing is
+// ever stored there and no request can see another's files.
+const store = new Map<string, File[]>();
 
 /** Save files under a nonce and return the nonce. */
 export function storePendingFiles(files: File[]): string {
