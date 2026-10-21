@@ -182,6 +182,7 @@ describe("NavMenu's Chats header", () => {
  */
 describe("NavMenu's agents list and the /code sign-in", () => {
 	let host: HTMLElement;
+	let screen: { unmount(): unknown } | undefined;
 
 	function stubFetch(status: Record<string, unknown>) {
 		vi.stubGlobal(
@@ -195,7 +196,7 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 	}
 
 	function mount() {
-		return renderWithApp(
+		screen = renderWithApp(
 			NavMenu,
 			{
 				conversations: [],
@@ -205,6 +206,7 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 			} as never,
 			{ page: { route: { id: "/code" }, data: { models: [] } }, baseElement: host }
 		);
+		return screen;
 	}
 
 	beforeEach(() => {
@@ -218,6 +220,12 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 	});
 
 	afterEach(() => {
+		// Unmount first: the sidebar's effect reads `codeReauth.checked`, so a
+		// component left mounted re-asks /status the moment the store is reset
+		// below, with the stub already gone (a real request to the dev server,
+		// whose answer the next test then shares through `statusInflight`).
+		screen?.unmount();
+		screen = undefined;
 		vi.unstubAllGlobals();
 		resetCodeReauth();
 		host.remove();

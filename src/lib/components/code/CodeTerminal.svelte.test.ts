@@ -26,6 +26,13 @@ class FakeWebSocket {
 	static OPEN = 1;
 	/** Every frame the component (any mounted instance) tried to send. */
 	static sent: Array<string | Uint8Array> = [];
+	/** How many sockets the component has constructed: it only assigns `ws`
+	 * (which every send guards on) after the async ticket mint, so a test must
+	 * wait for the socket, not just for xterm's DOM, before typing. */
+	static constructed = 0;
+	constructor() {
+		FakeWebSocket.constructed += 1;
+	}
 	readyState = FakeWebSocket.OPEN;
 	binaryType = "arraybuffer";
 	addEventListener(_type: string, _listener: EventListenerOrEventListenerObject): void {
@@ -55,18 +62,22 @@ beforeEach(() => {
 	clipboard.writeText.mockClear();
 	clipboard.readText.mockClear();
 	FakeWebSocket.sent.length = 0;
+	FakeWebSocket.constructed = 0;
 });
 
 afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-/** Renders the terminal and waits for xterm's own DOM: the lazy import and
- * `term.open()` complete inside the component's effect, after the first
- * paint, so the screen element is the signal the terminal is really there. */
+/** Renders the terminal and waits until it is really wired: xterm's own DOM
+ * (the lazy import and `term.open()` complete inside the component's effect,
+ * after the first paint) and then the socket, which the component creates
+ * only after `mintTerminalTicket` resolves. Until then every send is
+ * silently dropped, so a keystroke typed earlier would vanish. */
 async function mountTerminal() {
 	const screen = render(CodeTerminal, { deviceId: "d1", terminalId: "t1" });
 	await vi.waitFor(() => expect(screen.baseElement.querySelector(".xterm-screen")).toBeTruthy());
+	await vi.waitFor(() => expect(FakeWebSocket.constructed).toBe(1));
 	return screen;
 }
 
