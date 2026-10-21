@@ -63,6 +63,7 @@
 	import CarbonDocument from "~icons/carbon/document";
 	import PlayFilledAlt from "~icons/carbon/play-filled-alt";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
+	import { base } from "$app/paths";
 	import { renderDocxPreview } from "$lib/utils/docxPreview";
 	import {
 		officePreviewEnabledIn,
@@ -313,7 +314,7 @@
 			// size and border while the text survived. Sanitizing before the
 			// panel is still the first layer; the sandboxed iframe is the
 			// second, not the only one.
-			const html = await renderDocxPreview(bytes);
+			const html = await renderDocxPreview(bytes, { fontBase: `${base}/fonts/office` });
 			sidePane.openPreview({ kind: "docx", title: name, content: html });
 		} catch (err) {
 			previewError =

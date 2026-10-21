@@ -585,40 +585,51 @@ export function buildArtifactSrcdoc(kind: ArtifactKind, content: string, channel
  * padding, e.g. 986px total) inside a `.docx-wrapper` that stays narrow and
  * lets the pages overflow it — which is the cut-off a pane narrower than the
  * page showed. Each section is therefore zoomed to `frame ÷ section`, the
- * wrapper is widened to the frame so it stops clipping, and both centre.
+ * wrapper is made exactly the frame wide (border-box, with a slimmer grey
+ * margin once the page no longer fits with the full one) so it neither clips
+ * nor scrolls sideways, and both centre.
  * Each section's natural width is measured once, before any zoom is applied
- * (offsetWidth reports the scaled width afterwards). `zoom` is Chromium's own
- * mechanism and keeps the layout boxes in step, so the pages stack as they
- * did — no height compensation is needed. The script lives here in the srcdoc
+ * (offsetWidth reports the scaled width afterwards), and kept on the
+ * element. `zoom` is Chromium's own mechanism and keeps the layout boxes in
+ * step, so the pages stack as they did — no height compensation is needed. The script lives here in the srcdoc
  * template (the preview sandbox allows inline scripts), never in the
  * document's HTML, which stays DOMPurify-clean.
  */
 function buildDocxFitScript(): string {
 	return `\n<script>
 (function () {
-  var naturals = {};
+  // Each page's natural width is measured once and kept on the element:
+  // after a zoom, offsetWidth reports the scaled width.
+  var PAD = 30, NARROW_PAD = 12;
   function fit() {
     var sections = document.querySelectorAll('section.docx');
     if (!sections.length) return;
     var wrapper = document.querySelector('.docx-wrapper');
     var frameW = document.documentElement.clientWidth;
     if (!frameW) return;
+    var widest = 0;
+    sections.forEach(function (sec) {
+      if (sec.__natural === undefined) {
+        sec.style.zoom = '1';
+        sec.__natural = sec.offsetWidth || 0;
+      }
+      widest = Math.max(widest, sec.__natural);
+    });
+    // The page keeps the document's grey margin when it fits with it, and
+    // gives most of that margin up before the page itself shrinks.
+    var pad = widest && frameW - 2 * PAD < widest ? NARROW_PAD : PAD;
+    document.body.style.margin = '0';
+    document.body.style.padding = '0';
     if (wrapper) {
-      document.body.style.margin = '0';
-      document.body.style.padding = '0';
+      document.documentElement.style.background = 'gray';
+      wrapper.style.boxSizing = 'border-box';
       wrapper.style.width = '100%';
-      wrapper.style.marginLeft = 'auto';
-      wrapper.style.marginRight = 'auto';
+      wrapper.style.paddingLeft = pad + 'px';
+      wrapper.style.paddingRight = pad + 'px';
     }
     sections.forEach(function (sec) {
-      var key = sec.className + '|' + sec.offsetTop + '|' + sec.offsetLeft;
-      if (naturals[key] === undefined) naturals[key] = sec.offsetWidth || 0;
-      var natural = naturals[key];
-      if (!natural) return;
-      var scale = Math.min(1, frameW / natural);
-      sec.style.zoom = String(scale);
-      sec.style.marginLeft = 'auto';
-      sec.style.marginRight = 'auto';
+      if (!sec.__natural) return;
+      sec.style.zoom = String(Math.min(1, (frameW - 2 * pad) / sec.__natural));
     });
   }
   fit();
