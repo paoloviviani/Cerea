@@ -398,7 +398,9 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 			OverlayPath: filepath.Join(stateDir, "opencode-overlay.json"),
 			// opencode's own temp dir, emptied on every (re)start: its binary
 			// extracts native libraries there each start and never cleans up.
-			TmpDir:   filepath.Join(stateDir, "opencode-tmp"),
+			// Outside the state directory: every shell the agent starts
+			// inherits it (opencodetmp.go).
+			TmpDir:   opencodeTmpDir(stateDir),
 			StateDir: stateDir,
 			// A repo's own opencode config is off unless the machine opted in.
 			ProjectConfig: pol.ProjectConfigAllowed(),

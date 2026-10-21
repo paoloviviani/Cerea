@@ -328,10 +328,16 @@ enroll writes by default (`opencode_config` in `credentials.json` records
 where it went); opencode's own config, `~/.config/opencode/opencode.json`, is
 left alone.
 
-`opencode-tmp/` there is opencode's TMPDIR while galopin supervises it,
+opencode's TMPDIR while galopin supervises it is a directory of its own,
 emptied on every (re)start: opencode is a Bun binary that extracts its
 native libraries (~5 MB) into TMPDIR on each start and never removes them,
-which on a machine whose `/tmp` is tmpfs slowly fills RAM.
+which on a machine whose `/tmp` is tmpfs slowly fills RAM. It is
+`$XDG_RUNTIME_DIR/galopin/opencode-tmp` when that exists, else
+`galopin/opencode-tmp` in the user cache directory (`~/.cache` on Linux,
+`~/Library/Caches` on macOS), and never the config directory: every shell
+the agent starts inherits TMPDIR, so temporary files a command makes would
+otherwise land beside the credentials. An older galopin kept it there as
+`opencode-tmp/`; the first start after upgrading deletes it.
 
 A machine enrolled before this move kept those files beside opencode's own
 config, each name prefixed `pystino-` to avoid colliding with opencode's
