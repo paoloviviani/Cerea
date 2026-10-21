@@ -312,3 +312,43 @@ describe("a failed turn says why, on the turn itself", () => {
 		expect(baseElement.querySelector('[data-testid="turn-failed-reason"]')).toBeNull();
 	});
 });
+
+describe("a tool call that took a screenshot", () => {
+	// Exactly the forwarder's attachment route, the only image URL a tool card loads.
+	const SHOT = `/api/v2/code/v1/agents/ses_1/attachments/${"a".repeat(64)}?device=${"b".repeat(24)}`;
+	const tool = (uuid: string, name: string, outputs: unknown[]) => [
+		{ type: "tool", subtype: "call", uuid, call: { name, parameters: {} } },
+		{
+			type: "tool",
+			subtype: "result",
+			uuid,
+			result: { status: "success", call: { name, parameters: {} }, outputs, display: true },
+		},
+	];
+	const finished = (updates: unknown[]) =>
+		render(ChatMessage, {
+			message: { id: "m1", from: "assistant", content: "Done.", children: [], updates },
+			loading: false,
+			isLast: true,
+			isAuthor: true,
+			readOnly: false,
+		} as never);
+
+	it("stays out of the collapsed group once the turn ends", () => {
+		const { baseElement } = finished([
+			...tool("t1", "read", [{ text: "file contents" }]),
+			...tool("t2", "browser_screenshot", [
+				{
+					content: [{ type: "image", mimeType: "image/png", url: SHOT, size: 10 }],
+				},
+			]),
+			...tool("t3", "bash", [{ text: "ok" }]),
+			{ type: "stream", token: "Done." },
+		]);
+		const text = baseElement.textContent ?? "";
+		// The two plain calls fold around it; the screenshot call is its own card.
+		expect(text).not.toContain("Called 3 tools");
+		expect(text).toContain("browser_screenshot");
+		expect(baseElement.querySelector(`img[src="${SHOT}"]`)).not.toBeNull();
+	});
+});

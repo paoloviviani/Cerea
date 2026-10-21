@@ -630,6 +630,28 @@
 		);
 	});
 
+	/** Whether a tool call's result carries images (a screenshot, a rendered
+	 * page): image blocks under an output's `content`, as the agent timeline
+	 * and MCP tools send them. */
+	function toolShowsImages(block: ToolBlock): boolean {
+		return block.updates.some(
+			(update) =>
+				isMessageToolResultUpdate(update) &&
+				(update.result.outputs ?? []).some((output) => {
+					const content = (output as { content?: unknown }).content;
+					return (
+						Array.isArray(content) &&
+						content.some(
+							(item) =>
+								typeof item === "object" &&
+								item !== null &&
+								(item as { type?: unknown }).type === "image"
+						)
+					);
+				})
+		);
+	}
+
 	// Coalesce consecutive process blocks (thinking + tools) into groups so they can
 	// collapse into a single "Called N tools" / "Thought" summary. Text passes through.
 	let renderUnits = $derived.by(() => {
@@ -643,7 +665,14 @@
 			current = null;
 		};
 		for (const block of blocks) {
-			if (block.type === "think" || block.type === "tool") {
+			if (block.type === "tool" && toolShowsImages(block)) {
+				// Never folded either: a screenshot a tool took is something the
+				// person comes back to look for, and behind "Called N tools" it
+				// could only be found by opening every group. A lone tool card
+				// keeps its image strip even when collapsed.
+				flush();
+				units.push({ kind: "group", blocks: [block], toolCount: 1 });
+			} else if (block.type === "think" || block.type === "tool") {
 				(current ??= []).push(block);
 			} else if (block.type === "artifact") {
 				flush();
