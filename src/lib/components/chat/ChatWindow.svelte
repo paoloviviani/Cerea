@@ -408,10 +408,14 @@
 	}
 
 	// Set after every $derived it reads. The server compiler emits a derived
-	// read inside a getter as `return /* @__PURE__ */\n derived()` when the
-	// derived is declared further down, and the newline after `return` is ASI:
-	// the getter returned undefined, so a reload (SSR) of any conversation with
-	// run files 500'd in FileArtifactCard. The client compiler is unaffected.
+	// read inside a getter as `return`, a pure-call annotation comment, a
+	// newline and the call when the derived is declared further down, and the
+	// newline after `return` is ASI: the getter returned undefined, so a reload
+	// (SSR) of any conversation with run files 500'd in FileArtifactCard.
+	// Never spell that annotation out in a comment here: the bundler reads it
+	// in ANY comment and deletes the call that follows as side-effect free,
+	// which removed this very call from the v0.18.2 build (no artifacts
+	// context: plain file cards, unlinked artifacts). A test guards it.
 	setArtifactsContext({
 		get registry() {
 			return artifactRegistry;
