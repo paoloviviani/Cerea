@@ -114,6 +114,13 @@ func (at *agentTools) handle(ctx context.Context, call backend.ToolCall) (string
 		at.mc.audit.agentTool(call.Tool, call.SessionID, "", "refused", "unverified caller")
 		return "", err
 	}
+	return at.dispatch(ctx, call)
+}
+
+// dispatch runs a call whose caller is already proven: by the matching tool
+// part on the event stream (handle), or by the per-session MCP token (mcp.go).
+// Every gate below is the same for both.
+func (at *agentTools) dispatch(ctx context.Context, call backend.ToolCall) (string, error) {
 	dir, workspaceID, operr := at.mc.resolveSession(call.SessionID)
 	if operr != nil {
 		at.mc.audit.agentTool(call.Tool, call.SessionID, "", "refused", "session not tracked")

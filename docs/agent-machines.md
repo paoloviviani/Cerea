@@ -162,6 +162,16 @@ Pi through `pi-acp`. An ACP backend reports fewer capabilities (no usage,
 compaction or subagents), and the chat panel hides those controls. The
 Changes pane works for either backend, because the agent reads it from git.
 
+An ACP agent that can use an HTTP MCP server also gets galopin's coordination
+tools (`session_*` and `schedule_*`) as an MCP server galopin runs on
+loopback. Each session gets its own endpoint and token, handed to the agent when
+the session is created and revoked when it is deleted, and a token acts only as
+its own session. The calls go through the same permission decisions as opencode's
+(Plan, Ask, Allow, the ceiling, the cards), and a delegate's report comes back
+to the session that started it. `--no-agent-tools` turns it off. opencode keeps
+its own route. The design is in the "Coordination tools over MCP" paragraph of
+`agent/PROTOCOL.md`.
+
 Each enrollment mints a new machine id (`machine-id`, in the machine's state
 directory). The chat therefore shows a re-enrolled machine as a new **Pending** machine, which you confirm again. A machine revoked in the panel is refused for good under
 its old id, and `run` reports that and exits with code 78 instead of

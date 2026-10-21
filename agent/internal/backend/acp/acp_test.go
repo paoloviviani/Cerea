@@ -28,6 +28,11 @@ type fakeAgent struct {
 	promptReqs   chan fakePromptReq
 	promptParams chan map[string]any
 	cancels      chan string
+
+	// mcpHTTP is what initialize says about HTTP MCP servers; newParams holds
+	// the params of every session/new and session/load.
+	mcpHTTP   bool
+	newParams chan map[string]any
 }
 
 type fakePromptReq struct {
@@ -41,6 +46,7 @@ func newFakeAgent(t *testing.T, w io.Writer) *fakeAgent {
 		promptReqs:   make(chan fakePromptReq, 16),
 		promptParams: make(chan map[string]any, 16),
 		cancels:      make(chan string, 16),
+		newParams:    make(chan map[string]any, 16),
 	}
 	fa.conn = newRPCConn(w, fa.handleRequest, fa.handleNotify, t.Logf)
 	return fa
@@ -55,10 +61,14 @@ func (fa *fakeAgent) handleRequest(id json.RawMessage, method string, params jso
 				"loadSession":         true,
 				"promptCapabilities":  map[string]any{"image": true},
 				"sessionCapabilities": map[string]any{"list": map[string]any{}, "close": map[string]any{}, "resume": map[string]any{}},
+				"mcpCapabilities":     map[string]any{"http": fa.mcpHTTP},
 			},
 			"agentInfo": map[string]any{"name": "FakeAgent", "version": "0.0.1-test"},
 		})
 	case "session/new", "session/load":
+		var np map[string]any
+		_ = json.Unmarshal(params, &np)
+		fa.newParams <- np
 		fa.sessionCounter++
 		sid := fmt.Sprintf("sess-%d", fa.sessionCounter)
 		fa.respond(id, map[string]any{"sessionId": sid, "configOptions": []any{}})
@@ -133,11 +143,19 @@ var standardPermissionOptions = []permissionOption{
 // Start/runOnce do against a real child (see acp.go's serveConn doc).
 func newTestBackend(t *testing.T) (*Backend, *fakeAgent) {
 	t.Helper()
+	return newTestBackendWith(t, false, false)
+}
+
+// newTestBackendWith is newTestBackend with galopin's tools on and the agent's
+// HTTP MCP capability as given.
+func newTestBackendWith(t *testing.T, tools, mcpHTTP bool) (*Backend, *fakeAgent) {
+	t.Helper()
 	agentReads, backendWrites := io.Pipe() // client(backend) -> agent
 	backendReads, agentWrites := io.Pipe() // agent -> client(backend)
 
-	b := New(Config{Command: []string{"fake-agent"}, Logf: t.Logf})
+	b := New(Config{Command: []string{"fake-agent"}, Tools: tools, Logf: t.Logf})
 	fa := newFakeAgent(t, agentWrites)
+	fa.mcpHTTP = mcpHTTP
 	go fa.conn.readLoop(agentReads)
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -80,8 +80,12 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 	}
 	callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
 	defer cancel()
-	raw, err := conn.call(callCtx, "session/new", map[string]any{"cwd": workspaceDir, "mcpServers": []any{}})
+	servers, ep := b.mcpServers()
+	raw, err := conn.call(callCtx, "session/new", map[string]any{"cwd": workspaceDir, "mcpServers": servers})
 	if err != nil {
+		if ep != nil {
+			ep.Revoke()
+		}
 		return backend.Session{}, fmt.Errorf("acp: session/new: %w", err)
 	}
 	var m map[string]any
@@ -90,6 +94,9 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 	}
 	id := getStr(m, "sessionId")
 	if id == "" {
+		if ep != nil {
+			ep.Revoke()
+		}
 		return backend.Session{}, fmt.Errorf("acp: session/new: response carried no sessionId")
 	}
 	modes, models, curMode, curModel := sessionOptions(m)
@@ -100,7 +107,9 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 	st.title = opts.Title
 	st.modeID = curMode
 	st.modelID = curModel
+	st.spawnedBy = opts.SpawnedBy
 	st.mu.Unlock()
+	b.adoptMCP(st, ep)
 
 	if opts.ModeID != "" && opts.ModeID != curMode {
 		if _, err := b.SetMode(ctx, workspaceDir, id, opts.ModeID); err != nil {
@@ -145,6 +154,17 @@ func (b *Backend) DeleteSession(ctx context.Context, workspaceDir, sessionID str
 				b.cfg.Logf("acp: session/close %s: %v", sessionID, callErr)
 			}
 		}
+	}
+	if st, ok := b.reg.get(sessionID); ok {
+		st.mu.Lock()
+		ep := st.mcp
+		st.mu.Unlock()
+		if ep != nil {
+			ep.Revoke()
+		}
+	}
+	if issuer := b.mcpIssuer(); issuer != nil {
+		issuer.RevokeSession(sessionID)
 	}
 	b.reg.delete(sessionID)
 	b.att.Forget(sessionID)
@@ -198,6 +218,12 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir, sessionID string, pr
 	// synthesis is the only place the marker can be set.
 	if prompt.Command != nil {
 		userMsg.Command = prompt.Command
+	}
+	// A message another session wrote (session_send, a delegate's report) is
+	// marked with its sender, as opencode's is.
+	if prompt.SentBy != nil {
+		sent := *prompt.SentBy
+		userMsg.SentBy = &sent
 	}
 	userPart := backend.Part{ID: userPartID, MessageID: userMsgID, Role: "user", Type: backend.PartText, Text: prompt.Text}
 	st.upsertMessage(userMsg)
@@ -342,6 +368,10 @@ func (b *Backend) SetModel(ctx context.Context, workspaceDir, sessionID, modelID
 // the agent offered none), reject->reject_once (falling back to
 // reject_always)).
 func (b *Backend) ReplyPermission(ctx context.Context, workspaceDir, sessionID, requestID string, decision backend.Decision, message string) error {
+	// galopin's own approvals are held here and never reach the agent.
+	if isGalopinAsk(requestID) {
+		return b.replyGalopinAsk(workspaceDir, sessionID, requestID, decision, message)
+	}
 	conn, err := b.currentConn()
 	if err != nil {
 		return err
@@ -413,9 +443,13 @@ func (b *Backend) Transcript(ctx context.Context, workspaceDir, sessionID string
 			return backend.Transcript{}, err
 		}
 		callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
-		raw, err := conn.call(callCtx, "session/load", map[string]any{"sessionId": sessionID, "cwd": workspaceDir, "mcpServers": []any{}})
+		servers, ep := b.mcpServers()
+		raw, err := conn.call(callCtx, "session/load", map[string]any{"sessionId": sessionID, "cwd": workspaceDir, "mcpServers": servers})
 		cancel()
 		if err != nil {
+			if ep != nil {
+				ep.Revoke()
+			}
 			return backend.Transcript{}, fmt.Errorf("acp: session/load: %w", err)
 		}
 		var m map[string]any
@@ -436,6 +470,7 @@ func (b *Backend) Transcript(ctx context.Context, workspaceDir, sessionID string
 		if !ok {
 			st = b.reg.getOrCreate(sessionID, workspaceDir)
 		}
+		b.adoptMCP(st, ep)
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
