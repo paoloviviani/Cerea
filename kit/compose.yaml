@@ -502,6 +502,10 @@ services:
       # request to /internal/* that carries a proxy header, whatever token
       # it presents.
       CHAT_ERASURE_TOKEN: ${CHAT_ERASURE_TOKEN:-}
+      # Web Push; empty (an .env from before ./configure minted them) = off.
+      CHAT_VAPID_PUBLIC_KEY: ${CHAT_VAPID_PUBLIC_KEY:-}
+      CHAT_VAPID_PRIVATE_KEY: ${CHAT_VAPID_PRIVATE_KEY:-}
+      CHAT_VAPID_SUBJECT: ${CHAT_VAPID_SUBJECT:-}
       PUBLIC_APP_NAME: ${CHAT_APP_NAME:-Cerea}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN}
       ORIGIN: ${PUBLIC_ORIGIN}/chat

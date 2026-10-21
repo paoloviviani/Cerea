@@ -40,6 +40,7 @@ import { availableKinds, getExecutor, type ExecutorOutcome } from "./executors";
 import { schedulesEnabled } from "./limits";
 import { intervalAfter, nextOccurrence } from "./recurrence";
 import { ScheduleError, capReachedReason } from "./store";
+import { afterScheduleRun, safely } from "$lib/server/push/watch";
 import type { Schedule, ScheduleRun } from "$lib/types/Schedule";
 
 export const TICK_MS = 30_000;
@@ -138,6 +139,7 @@ async function record(
 		scheduleName: schedule.name,
 	};
 	await collections.scheduleRuns.insertOne(run);
+	safely(() => afterScheduleRun(run));
 
 	const failures =
 		outcome.status === "failed"
