@@ -51,32 +51,40 @@ type asMetadata struct {
 
 var challengeParam = regexp.MustCompile(`([a-zA-Z_]+)="([^"]*)"`)
 
-// Login signs in to an http or sse server and stores the tokens.
-func Login(ctx context.Context, o LoginOptions) error {
-	e := o.Entry
+// Pending is a sign-in begun and not yet completed: the PKCE verifier and
+// state, kept in memory only.
+type Pending struct {
+	AuthURL string
+
+	entry        *Entry
+	client       *http.Client
+	issuer       string
+	tokenURL     string
+	clientID     string
+	clientSecret string
+	redirect     string
+	verifier     string
+	State        string
+	Created      time.Time
+}
+
+// Begin starts the authorization-code flow for redirect: it reads the
+// server's challenge and the metadata, registers a client dynamically (with
+// that redirect), and builds the authorization URL. It does not wait.
+func Begin(ctx context.Context, client *http.Client, e *Entry, redirect string) (*Pending, error) {
 	if e.Transport == TransportStdio {
-		return fmt.Errorf("%s is a stdio server: its secrets belong in \"env\" in mcp.json, there is nothing to sign in to", e.Name)
+		return nil, fmt.Errorf("%s is a stdio server: its secrets belong in \"env\" in mcp.json, there is nothing to sign in to", e.Name)
 	}
 	if e.Invalid != "" {
-		return fmt.Errorf("%s is invalid: %s", e.Name, e.Invalid)
+		return nil, fmt.Errorf("%s is invalid: %s", e.Name, e.Invalid)
 	}
-	client := o.Client
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	if o.Timeout == 0 {
-		o.Timeout = 5 * time.Minute
-	}
-	say := func(format string, args ...any) {
-		if o.Out != nil {
-			fmt.Fprintf(o.Out, format+"\n", args...)
-		}
-	}
-
 	// 1. What does the server say to a caller with no sign-in?
 	challenge, err := challengeOf(ctx, client, e)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	params := map[string]string{}
 	for _, m := range challengeParam.FindAllStringSubmatch(challenge, -1) {
@@ -91,41 +99,29 @@ func Login(ctx context.Context, o LoginOptions) error {
 	}
 	as, err := fetchAuthServer(ctx, client, issuer)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(as.CodeChallengeMethods) > 0 && !contains(as.CodeChallengeMethods, "S256") {
-		return errors.New("the authorization server does not support PKCE S256")
+		return nil, errors.New("the authorization server does not support PKCE S256")
 	}
 	scope := params["scope"]
 	if scope == "" && pr != nil {
 		scope = strings.Join(pr.ScopesSupported, " ")
 	}
 
-	// 3. A loopback listener first: the redirect URI, port included, is what
-	// the client registers.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return fmt.Errorf("cannot listen on the loopback interface: %w", err)
-	}
-	defer ln.Close()
-	redirect := fmt.Sprintf("http://127.0.0.1:%d/callback", ln.Addr().(*net.TCPAddr).Port)
-
 	clientID, clientSecret, err := registerClient(ctx, client, as, redirect, scope)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
 	verifier := randomString(48)
 	sum := sha256.Sum256([]byte(verifier))
-	challengeCode := base64.RawURLEncoding.EncodeToString(sum[:])
 	state := randomString(24)
-
 	q := url.Values{
 		"response_type":         {"code"},
 		"client_id":             {clientID},
 		"redirect_uri":          {redirect},
 		"state":                 {state},
-		"code_challenge":        {challengeCode},
+		"code_challenge":        {base64.RawURLEncoding.EncodeToString(sum[:])},
 		"code_challenge_method": {"S256"},
 		"resource":              {e.URL},
 	}
@@ -134,13 +130,71 @@ func Login(ctx context.Context, o LoginOptions) error {
 	}
 	authURL, err := url.Parse(as.AuthorizationEndpoint)
 	if err != nil {
-		return fmt.Errorf("the authorization endpoint is not a URL: %w", err)
+		return nil, fmt.Errorf("the authorization endpoint is not a URL: %w", err)
 	}
 	existing := authURL.Query()
 	for k, v := range q {
 		existing[k] = v
 	}
 	authURL.RawQuery = existing.Encode()
+	return &Pending{AuthURL: authURL.String(), entry: e, client: client, issuer: issuer, tokenURL: as.TokenEndpoint,
+		clientID: clientID, clientSecret: clientSecret, redirect: redirect, verifier: verifier, State: state, Created: time.Now()}, nil
+}
+
+// Complete exchanges the code for tokens and stores them (0600). Tokens are
+// never part of an error.
+func (p *Pending) Complete(ctx context.Context, store *TokenStore, code string) error {
+	form := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {p.redirect},
+		"client_id":     {p.clientID},
+		"code_verifier": {p.verifier},
+		"resource":      {p.entry.URL},
+	}
+	if p.clientSecret != "" {
+		form.Set("client_secret", p.clientSecret)
+	}
+	tr, err := postToken(ctx, p.client, p.tokenURL, form)
+	if err != nil {
+		return err
+	}
+	st := &StoredToken{Server: p.entry.URL, Issuer: p.issuer, TokenEndpoint: p.tokenURL, ClientID: p.clientID,
+		ClientSecret: p.clientSecret, AccessToken: tr.AccessToken, RefreshToken: tr.RefreshToken, Scope: tr.Scope}
+	if tr.ExpiresIn > 0 {
+		st.ExpiresAt = time.Now().Add(time.Duration(tr.ExpiresIn) * time.Second).Unix()
+	}
+	if err := store.Save(p.entry.Name, st); err != nil {
+		return fmt.Errorf("storing the sign-in: %w", err)
+	}
+	return nil
+}
+
+// Login is the fallback sign-in on the machine itself: Begin with a loopback
+// redirect, wait for the browser, Complete. Same module, same token store.
+func Login(ctx context.Context, o LoginOptions) error {
+	e := o.Entry
+	if o.Timeout == 0 {
+		o.Timeout = 5 * time.Minute
+	}
+	say := func(format string, args ...any) {
+		if o.Out != nil {
+			fmt.Fprintf(o.Out, format+"\n", args...)
+		}
+	}
+	// A loopback listener first: the redirect URI, port included, is what
+	// the client registers.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return fmt.Errorf("cannot listen on the loopback interface: %w", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	pending, err := Begin(ctx, o.Client, e, fmt.Sprintf("http://127.0.0.1:%d/callback", port))
+	if err != nil {
+		return err
+	}
+	state := pending.State
 
 	type callback struct{ code, err string }
 	got := make(chan callback, 1)
@@ -177,10 +231,10 @@ func Login(ctx context.Context, o LoginOptions) error {
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()
 
-	say("Open this URL to sign in to %s:\n\n  %s\n", e.Name, authURL.String())
+	say("Open this URL to sign in to %s:\n\n  %s\n", e.Name, pending.AuthURL)
 	if o.OpenBrowser != nil {
-		if err := o.OpenBrowser(authURL.String()); err != nil {
-			say("(could not open a browser here: open the URL above on any machine that can reach 127.0.0.1:%d, or forward that port)", ln.Addr().(*net.TCPAddr).Port)
+		if err := o.OpenBrowser(pending.AuthURL); err != nil {
+			say("(could not open a browser here: open the URL above on any machine that can reach 127.0.0.1:%d, or forward that port)", port)
 		}
 	}
 	var cb callback
@@ -194,30 +248,8 @@ func Login(ctx context.Context, o LoginOptions) error {
 	if cb.err != "" {
 		return fmt.Errorf("sign-in failed: %s", cb.err)
 	}
-
-	// 4. The code for tokens.
-	form := url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {cb.code},
-		"redirect_uri":  {redirect},
-		"client_id":     {clientID},
-		"code_verifier": {verifier},
-		"resource":      {e.URL},
-	}
-	if clientSecret != "" {
-		form.Set("client_secret", clientSecret)
-	}
-	tr, err := postToken(ctx, client, as.TokenEndpoint, form)
-	if err != nil {
+	if err := pending.Complete(ctx, o.Store, cb.code); err != nil {
 		return err
-	}
-	st := &StoredToken{Server: e.URL, Issuer: issuer, TokenEndpoint: as.TokenEndpoint, ClientID: clientID,
-		ClientSecret: clientSecret, AccessToken: tr.AccessToken, RefreshToken: tr.RefreshToken, Scope: tr.Scope}
-	if tr.ExpiresIn > 0 {
-		st.ExpiresAt = time.Now().Add(time.Duration(tr.ExpiresIn) * time.Second).Unix()
-	}
-	if err := o.Store.Save(e.Name, st); err != nil {
-		return fmt.Errorf("storing the sign-in: %w", err)
 	}
 	say("Signed in to %s.", e.Name)
 	return nil

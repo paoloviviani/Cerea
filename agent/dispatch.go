@@ -227,7 +227,7 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return nil, opErrf("unsupported", "this machine only serves connectors: %s needs a coding agent", op)
 	}
 	switch op {
-	case "mcp.list", "mcp.open", "mcp.close":
+	case "mcp.list", "mcp.open", "mcp.close", "mcp.login", "mcp.loginComplete":
 		return mc.opMcp(ctx, op, args)
 	case "files.list", "files.stat", "files.read", "files.status":
 		return mc.opFiles(ctx, op, args)

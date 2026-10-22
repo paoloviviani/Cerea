@@ -658,7 +658,11 @@ func resultTarget(op string) any {
 		return &struct {
 			ChannelID string `json:"channelId"`
 		}{}
-	case "mcp.close":
+	case "mcp.login":
+		return &struct {
+			AuthorizationURL string `json:"authorizationUrl"`
+		}{}
+	case "mcp.close", "mcp.loginComplete":
 		return &fxEmptyResult{}
 	case "workspace.archive", "session.prompt", "session.command", "session.cancel", "session.archive",
 		"session.delete", "session.setPermissionMode", "permission.saved.remove", "question.reply",

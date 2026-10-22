@@ -74,7 +74,8 @@ type Hub struct {
 	fileSig     string
 	loadErr     string
 	reloadCount int
-	stopping    sync.WaitGroup // transports closing, for Shutdown to wait on
+	pending     map[string]*Pending // state -> sign-in begun from the chat
+	stopping    sync.WaitGroup      // transports closing, for Shutdown to wait on
 }
 
 // New loads mcp.json and returns the hub.
@@ -111,7 +112,7 @@ func New(cfg Config) *Hub {
 		client = newHTTPClient()
 	}
 	h := &Hub{cfg: cfg, client: client, entries: map[string]*Entry{}, channels: map[string]*channel{},
-		needsLogin: map[string]time.Time{}, probed: map[string]bool{}}
+		needsLogin: map[string]time.Time{}, probed: map[string]bool{}, pending: map[string]*Pending{}}
 	h.tokens = NewTokenStore(cfg.StateDir, client)
 	h.Reload()
 	return h
@@ -416,4 +417,62 @@ func (h *Hub) OpenChannels() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return len(h.channels)
+}
+
+// loginTTL is how long a sign-in begun from the chat waits for its code.
+const loginTTL = 10 * time.Minute
+
+// Login is mcp.login (PROTOCOL.md §10.5): begin the OAuth sign-in with
+// Cerea's redirectUri and answer the authorization URL. The verifier and
+// state stay in memory for ten minutes.
+func (h *Hub) Login(ctx context.Context, name, redirectURI string) (string, *OpenError) {
+	e := h.Entry(name)
+	switch {
+	case e == nil:
+		return "", &OpenError{"not_found", "no connector named " + name}
+	case e.Invalid != "" || e.Disabled:
+		return "", &OpenError{"forbidden", "the connector " + name + " is " + e.State() + " on this machine"}
+	case e.Transport == TransportStdio:
+		return "", &OpenError{"invalid", "the connector " + name + " is a stdio server: it needs no sign-in"}
+	case redirectURI == "":
+		return "", &OpenError{"invalid", "redirectUri is required"}
+	}
+	p, err := Begin(ctx, h.client, e, redirectURI)
+	if err != nil {
+		if strings.Contains(err.Error(), "did not ask for a sign-in") {
+			return "", &OpenError{"invalid", "the connector " + name + " needs no sign-in: " + err.Error()}
+		}
+		return "", &OpenError{"unavailable", err.Error()}
+	}
+	h.mu.Lock()
+	for st, old := range h.pending {
+		if time.Since(old.Created) > loginTTL {
+			delete(h.pending, st)
+		}
+	}
+	h.pending[p.State] = p
+	h.mu.Unlock()
+	return p.AuthURL, nil
+}
+
+// LoginComplete is mcp.loginComplete: exchange the code, store the tokens.
+func (h *Hub) LoginComplete(ctx context.Context, name, code, state string) *OpenError {
+	h.mu.Lock()
+	p := h.pending[state]
+	delete(h.pending, state) // one use
+	h.mu.Unlock()
+	if p == nil || p.entry.Name != name || time.Since(p.Created) > loginTTL {
+		return &OpenError{"invalid", "the sign-in is unknown or expired: start it again"}
+	}
+	if code == "" {
+		return &OpenError{"invalid", "code is required"}
+	}
+	if err := p.Complete(ctx, h.tokens, code); err != nil {
+		return &OpenError{"backend", err.Error()}
+	}
+	h.mu.Lock()
+	delete(h.needsLogin, name)
+	delete(h.probed, name)
+	h.mu.Unlock()
+	return nil
 }

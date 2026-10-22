@@ -416,3 +416,17 @@ func TestRunBackendNoneServesConnectors(t *testing.T) {
 		t.Fatal("run did not stop")
 	}
 }
+
+func TestLoginOpsThroughHandle(t *testing.T) {
+	r := newConnectorsRig(t, 0)
+	for _, c := range []struct{ op, args, code string }{
+		{"mcp.login", `{"server":"nope","redirectUri":"https://c/cb"}`, "not_found"},
+		{"mcp.login", `{"server":"notes","redirectUri":"https://c/cb"}`, "invalid"}, // stdio
+		{"mcp.loginComplete", `{"server":"notes","code":"c","state":"unknown"}`, "invalid"},
+	} {
+		res := r.sc.req("x-"+c.op, c.op, json.RawMessage(c.args))
+		if e, _ := res["error"].(map[string]any); res["ok"] != false || e["code"] != c.code {
+			t.Errorf("%s %s: %v", c.op, c.args, res)
+		}
+	}
+}

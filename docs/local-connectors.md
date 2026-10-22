@@ -115,22 +115,26 @@ Never the arguments or the result, which stay between the chat and the server.
 Secrets for a stdio server belong in its `env`, which never leaves the machine,
 and an http server can be given a token in `headers`. A server that asks for
 **OAuth** (it answers `401` with a `WWW-Authenticate` challenge, per the MCP
-authorization specification) is signed in on the machine itself:
+authorization specification) is listed in the chat as **needs login**. Sign in
+from the chat: its **Sign in** button sends your browser to the provider and back,
+and galopin, not the chat, exchanges the code and keeps the tokens in
+`<config-dir>/galopin/connectors/NAME.json` (mode 0600), refreshing them
+automatically. The chat never sees a token.
+
+A provider that accepts only pre-registered redirect addresses cannot be signed in
+that way. Sign in on the machine instead:
 
 ```sh
 galopin connectors login crm
 ```
 
-galopin prints a URL and tries to open a browser. The sign-in is the standard
-authorization-code flow with PKCE: it discovers the server's authorization server,
-registers itself by dynamic client registration when the server offers it, and
-receives the answer on `127.0.0.1` at a random port, so on a remote machine open
-the URL somewhere that can reach that port (for example through an SSH
-`-L` forward). The tokens are kept in `<config-dir>/galopin/connectors/crm.json`
-(mode 0600) and refreshed automatically; Cerea never sees them. Until you have
-signed in, the chat lists the server as **needs login** and tells you the command.
-A server that offers no dynamic registration cannot be signed in this way, and
-`login` says so.
+It prints a URL and tries to open a browser; the answer comes back to `127.0.0.1`
+at a random port, so on a remote machine open the URL somewhere that can reach
+that port (for example through an SSH `-L` forward). Both ways use the standard
+authorization-code flow with PKCE, discover the server's authorization server and
+register galopin by dynamic client registration when the server offers it (a
+server that offers none cannot be signed in to). A sign-in made while galopin runs
+takes effect without a restart.
 
 ## Lifecycle and limits
 
@@ -164,7 +168,7 @@ take effect without a restart; a change to the environment needs one
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | The machine is **offline**                     | `galopin run` is not running, or cannot reach the chat. `galopin auth status` shows the credential; `journalctl --user -u galopin -f` its log. |
 | The server is **invalid**                      | The reason is shown: an unset `${VAR}` (its name), an unknown `type`, a missing `command` or `url`, a bad name.                           |
-| The server is **needs login**                  | Run `galopin connectors login NAME` on that machine.                                                                                      |
+| The server is **needs login**                  | Sign in from the chat, or run `galopin connectors login NAME` on that machine.                                                                                      |
 | **Unavailable** when the chat opens it         | The process could not start or exited at once (the exit status and the last stderr line are in the message), the HTTP server could not be reached, or 4 channels are open already. |
 | A tool is missing                              | It is outside the entry's `allowedTools`.                                                                                                 |
 | A tool call fails with "not allowed" (-32001)  | The same ceiling; edit `allowedTools` on the machine.                                                                                     |

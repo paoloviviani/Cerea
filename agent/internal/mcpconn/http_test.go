@@ -451,3 +451,123 @@ func TestLegacySSETransport(t *testing.T) {
 		t.Errorf("closed = %+v", c)
 	}
 }
+
+// The chat-started sign-in (PROTOCOL.md §10.5): mcp.login answers an
+// authorization URL built with Cerea's redirect, the provider sends the browser
+// back to Cerea, and mcp.loginComplete exchanges the code on the machine.
+func TestLoginFromTheChatAndComplete(t *testing.T) {
+	f := newFakeHTTPServer(t, true)
+	r := newRig(t, f.config(""), nil)
+	var gotCode, gotState string
+	cerea := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotCode, gotState = req.URL.Query().Get("code"), req.URL.Query().Get("state")
+	}))
+	defer cerea.Close()
+	redirect := cerea.URL + "/chat/api/v2/local-connectors/oauth/callback"
+
+	authURL, oerr := r.hub.Login(t_ctx(t), "web", redirect)
+	if oerr != nil {
+		t.Fatalf("login: %+v", oerr)
+	}
+	if !strings.Contains(authURL, f.srv.URL+"/authorize?") || !strings.Contains(authURL, url.QueryEscape(redirect)) ||
+		!strings.Contains(authURL, "code_challenge_method=S256") {
+		t.Fatalf("authorization url = %s", authURL)
+	}
+	f.mu.Lock()
+	reg := f.registered[0]["redirect_uris"].([]any)[0]
+	f.mu.Unlock()
+	if reg != redirect {
+		t.Errorf("registered redirect = %v", reg)
+	}
+	// The browser goes to the provider, which sends it to Cerea.
+	resp, err := http.Get(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotCode == "" || gotState == "" {
+		t.Fatalf("Cerea's callback got code %q state %q", gotCode, gotState)
+	}
+
+	// Unknown state, another server's name, an expired state: invalid.
+	for name, args := range map[string][3]string{
+		"unknown state": {"web", gotCode, "nope"},
+		"wrong server":  {"other", gotCode, gotState},
+	} {
+		if e := r.hub.LoginComplete(t_ctx(t), args[0], args[1], args[2]); e == nil || e.Code != "invalid" {
+			t.Errorf("%s: %+v", name, e)
+		}
+	}
+	// (The wrong-server attempt consumed the state: a state is single use.)
+	authURL, _ = r.hub.Login(t_ctx(t), "web", redirect)
+	resp, _ = http.Get(authURL)
+	resp.Body.Close()
+	r.hub.mu.Lock()
+	for _, p := range r.hub.pending {
+		p.Created = time.Now().Add(-11 * time.Minute)
+	}
+	r.hub.mu.Unlock()
+	if e := r.hub.LoginComplete(t_ctx(t), "web", gotCode, gotState); e == nil || e.Code != "invalid" || !strings.Contains(e.Message, "expired") {
+		t.Errorf("expired: %+v", e)
+	}
+
+	// A good pair stores the tokens and clears needs-login.
+	if _, oerr := r.hub.Open(t_ctx(t), "web"); oerr == nil || oerr.Code != "forbidden" {
+		t.Fatalf("before sign-in: %+v", oerr)
+	}
+	authURL, _ = r.hub.Login(t_ctx(t), "web", redirect)
+	resp, _ = http.Get(authURL)
+	resp.Body.Close()
+	if e := r.hub.LoginComplete(t_ctx(t), "web", gotCode, gotState); e != nil {
+		t.Fatalf("complete: %+v", e)
+	}
+	if st, err := osStat(r.dir + "/connectors/web.json"); err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("token file: %v %v", st, err)
+	}
+	if s := r.hub.List()[0]; s.State != StateReady {
+		t.Errorf("after sign-in: %+v", s)
+	}
+	ch := r.open("web")
+	if init := r.call(ch, 1, "initialize", `{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}`); !strings.Contains(string(init["result"]), "httpfake") {
+		t.Errorf("initialize with the stored token: %s", init)
+	}
+}
+
+func TestLoginErrors(t *testing.T) {
+	f := newFakeHTTPServer(t, false) // needs no sign-in
+	r := newRig(t, f.config("")[:len(f.config(""))-2]+`,"std":{"command":"x"}}}`, nil)
+	for name, c := range map[string]struct{ server, redirect, code string }{
+		"unknown":        {"zzz", "http://c/cb", "not_found"},
+		"stdio":          {"std", "http://c/cb", "invalid"},
+		"no redirect":    {"web", "", "invalid"},
+		"needs no login": {"web", "http://c/cb", "invalid"},
+	} {
+		if _, e := r.hub.Login(t_ctx(t), c.server, c.redirect); e == nil || e.Code != c.code {
+			t.Errorf("%s: %+v, want %s", name, e, c.code)
+		}
+	}
+}
+
+func TestLoginCompleteTokenEndpointRefusalIsBackend(t *testing.T) {
+	f := newFakeHTTPServer(t, true)
+	r := newRig(t, f.config(""), nil)
+	authURL, oerr := r.hub.Login(t_ctx(t), "web", "http://127.0.0.1:1/cb")
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	state := mustQuery(t, authURL, "state")
+	// A code the provider never issued: its token endpoint says invalid_grant.
+	e := r.hub.LoginComplete(t_ctx(t), "web", "forged", state)
+	if e == nil || e.Code != "backend" || !strings.Contains(e.Message, "invalid_grant") {
+		t.Errorf("complete: %+v", e)
+	}
+}
+
+func mustQuery(t *testing.T, raw, key string) string {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u.Query().Get(key)
+}

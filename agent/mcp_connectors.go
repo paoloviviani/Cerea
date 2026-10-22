@@ -66,7 +66,7 @@ func (mc *machine) LinkDown() {
 
 var _ link.McpHandler = (*machine)(nil)
 
-// opMcp answers mcp.list, mcp.open and mcp.close (PROTOCOL.md §10.3).
+// opMcp answers mcp.list, mcp.open, mcp.close, mcp.login and mcp.loginComplete (PROTOCOL.md §10.3).
 func (mc *machine) opMcp(ctx context.Context, op string, args json.RawMessage) (any, *link.OpError) {
 	switch op {
 	case "mcp.list":
@@ -93,6 +93,38 @@ func (mc *machine) opMcp(ctx context.Context, op string, args json.RawMessage) (
 			return nil, &link.OpError{Code: oerr.Code, Message: oerr.Message}
 		}
 		return map[string]any{"channelId": id}, nil
+	case "mcp.login":
+		var a struct {
+			Server      string `json:"server"`
+			RedirectURI string `json:"redirectUri"`
+		}
+		if err := json.Unmarshal(args, &a); err != nil {
+			return nil, invalidArgs(err)
+		}
+		if mc.mcp == nil {
+			return nil, opErrf("not_found", "no connector named %s", a.Server)
+		}
+		u, oerr := mc.mcp.Login(ctx, a.Server, a.RedirectURI)
+		if oerr != nil {
+			return nil, &link.OpError{Code: oerr.Code, Message: oerr.Message}
+		}
+		return map[string]any{"authorizationUrl": u}, nil
+	case "mcp.loginComplete":
+		var a struct {
+			Server string `json:"server"`
+			Code   string `json:"code"`
+			State  string `json:"state"`
+		}
+		if err := json.Unmarshal(args, &a); err != nil {
+			return nil, invalidArgs(err)
+		}
+		if mc.mcp == nil {
+			return nil, opErrf("not_found", "no connector named %s", a.Server)
+		}
+		if oerr := mc.mcp.LoginComplete(ctx, a.Server, a.Code, a.State); oerr != nil {
+			return nil, &link.OpError{Code: oerr.Code, Message: oerr.Message}
+		}
+		return map[string]any{}, nil
 	case "mcp.close":
 		var a struct {
 			ChannelID string `json:"channelId"`
