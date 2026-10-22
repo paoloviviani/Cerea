@@ -256,8 +256,9 @@ describe("content fetching refuses the internal networks (10/8, 100.64/10)", () 
 });
 
 describe("assertSafeBrowserRequest", () => {
+	const original = env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS;
 	afterEach(() => {
-		delete env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS;
+		env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS = original;
 	});
 
 	it("refuses internal literals, localhost and 10/8", async () => {
