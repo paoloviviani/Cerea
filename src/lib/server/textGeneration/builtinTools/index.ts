@@ -3,8 +3,9 @@ import type { Conversation } from "$lib/types/Conversation";
 import { artifactsModeForTurn, type ArtifactsMode } from "../artifacts";
 import { createArtifactTool } from "./artifactTool";
 import { askUserQuestionBuiltin } from "./askUserQuestion";
-import { createGatewaySearchBuiltins } from "./gatewaySearchTool";
+import { createGatewaySearchBuiltins, WEB_SEARCH_TOOL_NAME } from "./gatewaySearchTool";
 import { createPlanTool } from "./planTool";
+import { createDelegateTools, type DelegateModel } from "./delegateTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
 import { createExecuteCodeBuiltin } from "./executeCodeTool";
 import { createConvertDocumentBuiltin } from "./convertDocumentTool";
@@ -23,6 +24,7 @@ export {
 	FORGET_FOR_PROJECT_TOOL_NAME,
 } from "./memoryTool";
 export { isNestedAgentTool } from "./nestedAgent";
+export { DELEGATE_TOOL_NAME, RESEARCH_TOOL_NAME } from "./delegateTool";
 export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
 
 /**
@@ -119,6 +121,13 @@ export function getEnabledBuiltinTools(params: {
 	 * which are not in the database yet — instead of reporting them unknown.
 	 */
 	artifactTurnBlocks?: string[];
+	/**
+	 * Sub-agent delegation (`delegate`, and `research` where web search is
+	 * available). Present only when the deployment switch is on and the caller
+	 * has resolved the models this person may pick for a sub-agent; absent
+	 * means neither tool is offered. Needs `toolsEnabled` as well.
+	 */
+	delegation?: { models: DelegateModel[] };
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
@@ -248,6 +257,17 @@ export function getEnabledBuiltinTools(params: {
 			createWebFetchStructuredBuiltin({
 				toolApprovalPolicy: params.toolApprovalPolicy,
 				approvedTools: params.approvedTools,
+			})
+		);
+	}
+
+	// Sub-agents come last so they can see which server-side tools this turn
+	// offers. `research` is the web-only preset: only where web search is.
+	if (params.toolsEnabled && params.delegation) {
+		tools.push(
+			...createDelegateTools({
+				models: params.delegation.models,
+				research: tools.some((tool) => tool.name === WEB_SEARCH_TOOL_NAME),
 			})
 		);
 	}

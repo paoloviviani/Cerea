@@ -224,11 +224,49 @@ page** and read it. Some sites stay empty until JavaScript has run. If the assis
 
 ## Tool approvals
 
-Some tools act outside the conversation, so by default (**Tools ask first**) they wait for you. When the assistant wants to open a page that neither you nor a search result supplied, or to use a tool from a [connector](connectors.md), the answer pauses on an approval card showing what it wants to do and with what. You choose: allow this once, allow this tool for the rest of the conversation, or deny. If it wants several, you approve each one. A card you leave unanswered is **denied** when its time runs out.
+Some tools act outside the conversation, so by default (**Tools ask first**) they wait for you. (A [sub-agent](#plans-and-sub-agents) cannot wait for you, so it only uses what you have already allowed.) When the assistant wants to open a page that neither you nor a search result supplied, or to use a tool from a [connector](connectors.md), the answer pauses on an approval card showing what it wants to do and with what. You choose: allow this once, allow this tool for the rest of the conversation, or deny. If it wants several, you approve each one. A card you leave unanswered is **denied** when its time runs out.
 
 The composer's **Tools ask first / Tools auto-approved** pill overrides the
 policy for **this chat only**; the app-wide default lives in your settings.
 Python the assistant runs in the [in-browser sandbox](pyodide.md) never asks first: it runs in your own browser, with no network access, so it cannot act outside the conversation.
+
+## Plans and sub-agents
+
+With a model that can call tools, the assistant keeps a **plan** for work with
+several steps: a short list of steps, one in progress, ticked off as it goes.
+The plan card shows it live and stays in the finished message. It belongs to
+the conversation, so the assistant sees its current plan again on your next
+message and revises it when the request changes. For a simple question there
+is no plan.
+
+The assistant can also hand a self-contained sub-task to a **sub-agent**: a
+second run of a model, in a fresh context, that sees only the brief it was
+given and gives back only its final answer. Each one is its own card in the
+message, with a title, the model it runs on, a live line for what it is doing
+("searching ...", "reading ...") and, once done, its answer and the list of
+steps it took. Up to three run at once; a fourth is refused until one returns.
+
+- **Which model.** By default the conversation's model. The assistant may pick
+  another model you can use (never one of your custom models).
+- **What it can use.** The same server-side tools as the chat: web search,
+  fetching pages, and the [connectors](connectors.md) you have switched on. It
+  cannot run code in your browser, make a plan, or start sub-agents of its own.
+- **Approvals.** A sub-agent cannot stop to ask you. It may use a connector tool
+  only when this conversation already allows it (you chose "allow this tool for
+  the rest of the conversation", or tools are auto-approved); otherwise the call
+  is refused, the card shows it as refused, and the assistant is told which tool
+  needs your approval and can ask for it itself.
+- **Limits.** Each sub-agent stops after 25 rounds of tool calls, a token budget
+  or eight minutes, whichever comes first, and answers with what it has. The
+  per-message limit on pages read is shared with it. **Stop** ends every running
+  sub-agent. Its model calls are billed to you like any message.
+- **Research.** Where web search is on, the assistant can start a **research**
+  sub-agent: it plans queries, reads primary sources, cross-checks them and
+  answers concisely with the sources it cites, saying where they disagree or are
+  thin. It uses the web only.
+
+An administrator can turn sub-agents off for the whole deployment
+([Sub-agents](chat-admin.md#sub-agents)).
 
 ## Memory
 

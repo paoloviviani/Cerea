@@ -45,6 +45,14 @@ const mocks = vi.hoisted(() => ({
 	askQuestionEnabled: undefined as string | undefined,
 	// Servers whose tool listing failed this turn, as `getOpenAiToolsForMcp` reports them.
 	unlisted: [] as Array<{ name: string; reason: string }>,
+	// The sub-agent switch (CHAT_DELEGATION): "false" off, anything else on. Off by
+	// default in this file so the tool lists below stay about what they test.
+	delegation: "false" as string | undefined,
+	// The models the signed-in person may pick for a sub-agent.
+	visible: [] as Array<Record<string, unknown>>,
+	useUserToken: "false",
+	// Web search grants, as `resolveWebSearchFor` reports them.
+	searchGranted: [] as string[],
 }));
 
 // The gate itself is real; only the build flag behind it is forced on.
@@ -66,7 +74,9 @@ vi.mock("$lib/server/config", () => ({
 		HF_TOKEN: "",
 		MCP_FORWARD_HF_USER_TOKEN: "false",
 		EXA_API_KEY: "",
-		USE_USER_TOKEN: "false",
+		get USE_USER_TOKEN() {
+			return mocks.useUserToken;
+		},
 		isHuggingChat: false,
 		// A getter, not a value: the flag is a per-test switch (see
 		// mocks.codeToolEnabled), and the mocked config object is shared.
@@ -76,6 +86,9 @@ vi.mock("$lib/server/config", () => ({
 		get CHAT_ASK_USER_QUESTION_ENABLED() {
 			return mocks.askQuestionEnabled;
 		},
+		get CHAT_DELEGATION() {
+			return mocks.delegation;
+		},
 	},
 }));
 
@@ -84,6 +97,12 @@ vi.mock("$lib/server/mcp/registry", () => ({
 }));
 
 vi.mock("$lib/server/urlSafety", () => ({ isValidUrl: () => true }));
+
+vi.mock("$lib/server/visibleModels", () => ({ visibleModels: async () => mocks.visible }));
+
+vi.mock("$lib/server/webSearch/config", () => ({
+	resolveWebSearchFor: async () => ({ granted: mocks.searchGranted, model: null }),
+}));
 
 vi.mock("$lib/server/mcp/tools", () => ({
 	getOpenAiToolsForMcp: async (servers: unknown[]) =>
@@ -279,6 +298,10 @@ beforeEach(() => {
 	mocks.codeToolEnabled = "true";
 	mocks.askQuestionEnabled = undefined;
 	mocks.unlisted = [];
+	mocks.delegation = "false";
+	mocks.visible = [];
+	mocks.searchGranted = [];
+	mocks.useUserToken = "false";
 	mocks.getAbortTime.mockReturnValue(undefined);
 	scriptToolResults();
 });
@@ -1229,5 +1252,270 @@ describe("leaked execute_code markup recovery", () => {
 		// carries the reasoning inline, as every think-bearing round here does.)
 		expect(mocks.create).toHaveBeenCalledTimes(1);
 		expect(finalAnswer(updates)).toContain("Let me compute that.");
+	});
+});
+
+describe("runMcpFlow and sub-agents", () => {
+	const offered = () =>
+		(
+			(mocks.create.mock.calls[0]?.[0] as { tools?: Array<{ function: { name: string } }> })
+				?.tools ?? []
+		).map((t) => t.function.name);
+	const definition = (name: string) =>
+		(
+			mocks.create.mock.calls[0]?.[0] as {
+				tools?: Array<{ function: { name: string; parameters: Record<string, unknown> } }>;
+			}
+		).tools?.find((t) => t.function.name === name)?.function;
+
+	it("offers delegate by default to a tool-capable model", async () => {
+		mocks.delegation = undefined;
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow();
+		expect(offered()).toContain("delegate");
+		expect(offered()).not.toContain("research");
+		expect(String(requestMessages(0)[0]?.content)).toContain("DELEGATION: use delegate");
+	});
+
+	it("drops delegate and research when the administrator turns sub-agents off", async () => {
+		mocks.delegation = "false";
+		mocks.searchGranted = ["exa"];
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow({ conv: { _id: new ObjectId(), webSearch: true } } as Partial<
+			Parameters<typeof runMcpFlow>[0]
+		>);
+		expect(offered()).toContain("web_search");
+		expect(offered()).not.toContain("delegate");
+		expect(offered()).not.toContain("research");
+	});
+
+	it("offers neither when the model has tool calling off", async () => {
+		mocks.delegation = undefined;
+		scriptRounds([{ content: "the answer" }]);
+		const { result } = await runFlow({ forceTools: false });
+		expect(result).toBe("not_applicable");
+	});
+
+	it("adds research wherever web search is available", async () => {
+		mocks.delegation = undefined;
+		mocks.searchGranted = ["exa"];
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow({ conv: { _id: new ObjectId(), webSearch: true } } as Partial<
+			Parameters<typeof runMcpFlow>[0]
+		>);
+		expect(offered()).toEqual(expect.arrayContaining(["web_search", "delegate", "research"]));
+	});
+
+	it("lets the model pick only models this person can use that can call tools, never custom or the router", async () => {
+		mocks.delegation = undefined;
+		mocks.visible = [
+			{ id: "a/tools", displayName: "A", supportsTools: true },
+			{ id: "b/notools", displayName: "B", supportsTools: false },
+			{ id: "custom:0123456789abcdef01234567", displayName: "Mine", supportsTools: true },
+			{ id: "omni", displayName: "Omni", supportsTools: true, isRouter: true },
+		];
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow();
+		const hint = JSON.stringify(definition("delegate")?.parameters);
+		expect(hint).toContain("a/tools");
+		expect(hint).not.toContain("b/notools");
+		expect(hint).not.toContain("custom:");
+		expect(hint).not.toContain("omni");
+	});
+
+	/**
+	 * A completion script for a turn that delegates: the main model's rounds
+	 * stream, a sub-agent's (stream: false) answer in one piece. The tool
+	 * executor runs builtins for real; for the sub-agent's own calls it applies
+	 * the guard the loop would, and reports what it decided.
+	 */
+	function scriptDelegation(delegateArgs: object, nested: Array<Record<string, unknown>>) {
+		const main = [
+			{ toolCalls: [{ id: "call_d", name: "delegate", arguments: JSON.stringify(delegateArgs) }] },
+			{ content: "Synthesised answer." },
+		];
+		let mainIndex = 0;
+		let nestedIndex = 0;
+		mocks.create.mockImplementation(async (request: { stream?: boolean }) => {
+			if (request.stream === false) {
+				const reply = nested[Math.min(nestedIndex++, nested.length - 1)];
+				return { choices: [{ finish_reason: "stop", message: reply }], usage: { total_tokens: 5 } };
+			}
+			return streamFor(main[mainIndex++]);
+		});
+		mocks.executeToolCalls.mockImplementation(async function* (params: {
+			calls: Array<{ id: string; name: string; arguments: string }>;
+			builtinTools?: Array<{
+				name: string;
+				execute: (args: object, ctx: object) => Promise<{ resultText?: string; error?: string }>;
+			}>;
+			guard?: { before: (call: object) => Promise<{ allow: boolean; message?: string }> };
+			elicitation?: object;
+			abortSignal?: AbortSignal;
+		}) {
+			const toolMessages = [];
+			for (const call of params.calls) {
+				const args = JSON.parse(call.arguments || "{}");
+				const found = params.builtinTools?.find((t) => t.name === call.name);
+				let content: string;
+				if (found) {
+					const out = await found.execute(args, {
+						uuid: call.id,
+						toolCallId: call.id,
+						abortSignal: params.abortSignal,
+					});
+					content = out.error ? `Error: ${out.error}` : (out.resultText ?? "");
+				} else {
+					const verdict = await params.guard?.before({
+						serverUrl: "https://example.test/mcp",
+						tool: call.name,
+						fnName: call.name,
+						args,
+						callUuid: call.id,
+					});
+					content = verdict && !verdict.allow ? `Error: ${verdict.message}` : "mcp ran";
+				}
+				toolMessages.push({ role: "tool" as const, tool_call_id: call.id, content });
+			}
+			yield { type: "complete", summary: { toolMessages, toolRuns: [] } };
+		});
+	}
+
+	const nestedCalls = () =>
+		mocks.create.mock.calls.filter(
+			([request]) => (request as { stream?: boolean }).stream === false
+		);
+
+	it("bills the sub-agent's requests to the person: their token, on their conversation, on the conversation's model", async () => {
+		mocks.delegation = undefined;
+		mocks.useUserToken = "true";
+		scriptDelegation({ task: "Compare the licences of A and B and report back." }, [
+			{ content: "A is MIT." },
+		]);
+		const conv = { _id: new ObjectId() };
+		const { result } = await runFlow({
+			conv,
+			locals: { token: "person-token" },
+		} as unknown as Partial<Parameters<typeof runMcpFlow>[0]>);
+
+		expect(result).toBe("completed");
+		expect(nestedCalls()).toHaveLength(1);
+		const [request, options] = nestedCalls()[0] as [
+			{ model: string },
+			{ headers: Record<string, string> },
+		];
+		expect(request.model).toBe("test/model");
+		expect(options.headers).toMatchObject({
+			Authorization: "Bearer person-token",
+			"ChatUI-Conversation-ID": conv._id.toString(),
+		});
+		// The main model gets the sub-agent's answer back as the tool result.
+		const mainRequests = mocks.create.mock.calls
+			.map(([request]) => request as { stream?: boolean; messages: ChatCompletionMessageParam[] })
+			.filter((request) => request.stream !== false);
+		const toolMessage = mainRequests[1].messages.findLast((m) => m.role === "tool");
+		expect(toolMessage?.content).toBe("A is MIT.");
+	});
+
+	it("keeps a sub-agent from running an MCP tool the person has not approved", async () => {
+		mocks.delegation = undefined;
+		scriptDelegation({ task: "Use do_thing and report what happened." }, [
+			{
+				content: null,
+				tool_calls: [
+					{ id: "n1", type: "function", function: { name: "do_thing", arguments: "{}" } },
+				],
+			},
+		]);
+		await runFlow();
+		const refusal = nestedCalls()
+			.map(([request]) => request as { messages: Array<{ role: string; content?: string }> })
+			.flatMap((request) => request.messages)
+			.find((m) => m.role === "tool");
+		// the first nested reply was the call; the loop ran it through the guard
+		expect(nestedCalls().length).toBeGreaterThan(1);
+		expect(refusal?.content).toContain("needs the person's approval");
+	});
+
+	it("lets a sub-agent use an MCP tool this conversation already approved", async () => {
+		mocks.delegation = undefined;
+		scriptDelegation({ task: "Use do_thing and report what happened." }, [
+			{
+				content: null,
+				tool_calls: [
+					{ id: "n1", type: "function", function: { name: "do_thing", arguments: "{}" } },
+				],
+			},
+			{ content: "It worked." },
+		]);
+		await runFlow({
+			conv: { _id: new ObjectId(), approvedTools: ["hf:do_thing"] },
+		} as unknown as Partial<Parameters<typeof runMcpFlow>[0]>);
+		const toolMessages = nestedCalls()
+			.map(([request]) => request as { messages: Array<{ role: string; content?: string }> })
+			.flatMap((request) => request.messages)
+			.filter((m) => m.role === "tool");
+		expect(toolMessages.some((m) => m.content === "mcp ran")).toBe(true);
+	});
+
+	it("Stop reaches a sub-agent that is mid-request: the turn's abort record cancels it within a poll", async () => {
+		mocks.delegation = undefined;
+		let nestedSignal: AbortSignal | undefined;
+		mocks.create.mockImplementation(
+			async (request: { stream?: boolean }, options: { signal?: AbortSignal }) => {
+				if (request.stream === false) {
+					nestedSignal = options.signal;
+					// Stop is pressed while the sub-agent waits on the model.
+					mocks.getAbortTime.mockReturnValue((Date.now() + 60_000) as unknown as number);
+					return new Promise((_resolve, reject) =>
+						options.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+							once: true,
+						})
+					);
+				}
+				return streamFor({
+					toolCalls: [
+						{
+							id: "call_d",
+							name: "delegate",
+							arguments: JSON.stringify({ task: "Compare A and B and report back." }),
+						},
+					],
+				});
+			}
+		);
+		mocks.executeToolCalls.mockImplementation(async function* (params: {
+			calls: Array<{ id: string; name: string; arguments: string }>;
+			builtinTools?: Array<{
+				name: string;
+				execute: (args: object, ctx: object) => Promise<{ resultText?: string; error?: string }>;
+			}>;
+			abortSignal?: AbortSignal;
+		}) {
+			const call = params.calls[0];
+			const found = params.builtinTools?.find((t) => t.name === call.name);
+			const out = await found?.execute(JSON.parse(call.arguments), {
+				uuid: call.id,
+				toolCallId: call.id,
+				abortSignal: params.abortSignal,
+			});
+			yield {
+				type: "complete",
+				summary: {
+					toolMessages: [
+						{ role: "tool" as const, tool_call_id: call.id, content: out?.error ?? "x" },
+					],
+					toolRuns: [],
+				},
+			};
+		});
+		const controller = new AbortController();
+		const { result } = await runFlow({
+			abortController: controller,
+			abortSignal: controller.signal,
+			promptedAt: new Date(),
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+		expect(result).toBe("aborted");
+		expect(nestedSignal?.aborted).toBe(true);
 	});
 });

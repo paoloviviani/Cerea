@@ -61,6 +61,32 @@ export interface NestedAgentDeps {
 	/** Every builtin offered this turn; filtered by the spec's allowlist here. */
 	hostBuiltinTools: BuiltinTool[];
 	contextLengthTokens?: number;
+	/**
+	 * The turn's tool-approval state (ADR 0075). A sub-agent cannot park the turn
+	 * on a question the way the main loop does, so under the `manual` policy it
+	 * may only call an MCP tool the conversation has already approved; anything
+	 * else is refused, never run. Absent means `manual` with nothing approved.
+	 */
+	toolApproval?: {
+		policy: "always-allow" | "manual";
+		approvedTools: ReadonlySet<string>;
+	};
+}
+
+/** What a run reports as it goes, for a surface that shows it live. */
+export interface NestedAgentObserver {
+	/** A round of calls is about to run. */
+	calling?(calls: Array<{ id: string; name: string; arguments: string }>): void;
+	/** One call finished, or was refused. */
+	step?(step: {
+		id: string;
+		name: string;
+		arguments: string;
+		outcome: "ok" | "error" | "refused";
+		error?: string;
+	}): void;
+	/** Anything else worth a status line (a retry, wrapping up). */
+	activity?(text: string): void;
 }
 
 export interface NestedAgentSpec {
@@ -90,6 +116,15 @@ export interface NestedAgentSpec {
 	 */
 	guard?: ToolCallGuard;
 	maxIterations: number;
+	/**
+	 * Cumulative tokens (every request's `total_tokens`, summed) after which the
+	 * run stops working and answers with what it has. Absent means no budget
+	 * beyond the context window.
+	 */
+	maxTotalTokens?: number;
+	/** Wall-clock limit for the whole run, in ms; the run then answers with what it has. */
+	deadlineMs?: number;
+	observer?: NestedAgentObserver;
 	truncateOutput(text: string): string;
 	/** Injected to steer the loop when it has to stop or is going in circles. */
 	stop: {
@@ -97,6 +132,9 @@ export interface NestedAgentSpec {
 		contextMax: string;
 		iterationLimit: string;
 		repetition: string;
+		/** Falls back to `iterationLimit` when absent. */
+		budget?: string;
+		timeLimit?: string;
 	};
 	/** Returned when a run ends with nothing usable. */
 	failure: {
@@ -105,6 +143,8 @@ export interface NestedAgentSpec {
 		iterationLimit: string;
 		noSummary: string;
 		rateLimited: string;
+		budget?: string;
+		timeLimit?: string;
 	};
 	progress: { start: string; done: string };
 }
@@ -120,6 +160,42 @@ export interface NestedAgentBuiltinTool extends BuiltinTool {
 
 export function isNestedAgentTool(tool: BuiltinTool): tool is NestedAgentBuiltinTool {
 	return typeof (tool as { bind?: unknown }).bind === "function";
+}
+
+/** What a sub-agent's refusal of an unapproved MCP tool starts with; the card and the caller key off it. */
+export const APPROVAL_REFUSAL_PREFIX = "This tool needs the person's approval";
+
+/**
+ * The gate that stands in for the approval card inside a sub-agent. The main
+ * loop meets an unapproved tool by parking the turn on a question and resuming
+ * it when the person answers (`toolApproval.ts`, `resumeElicitation.ts`); a
+ * sub-agent is an in-memory loop inside one tool call and cannot be parked, so
+ * it never gets to ask. It may use a tool the conversation already approved
+ * (or any tool under `always-allow`), and is told plainly about the rest, so
+ * that it can carry on without it and say so in its answer.
+ */
+export function createSubAgentApprovalGuard(
+	mapping: Record<string, McpToolMapping>,
+	approval: NestedAgentDeps["toolApproval"]
+): ToolCallGuard {
+	return {
+		allowParking: false,
+		async before(call) {
+			if (approval?.policy === "always-allow") return { allow: true };
+			const entry = mapping[call.fnName];
+			const qualified = entry ? `${entry.server}:${entry.tool}` : call.fnName;
+			if (approval?.approvedTools.has(qualified)) return { allow: true };
+			return {
+				allow: false,
+				message:
+					`${APPROVAL_REFUSAL_PREFIX} (${qualified}), and a sub-agent cannot ask for it. ` +
+					"Do not retry it. Carry on with the other tools, or say in your answer that this step needs the person's approval.",
+			};
+		},
+		async after() {
+			return undefined;
+		},
+	};
 }
 
 /** Head and tail, because the head carries the finding and the tail the totals. */
@@ -170,9 +246,14 @@ export async function runNestedAgent(
 	if (nestedTools.length === 0) return { error: spec.failure.noTools };
 	const availableNames = new Set(nestedTools.map((tool) => tool.function.name));
 	// Preflight first: it books nothing, which is the ordering composeGuards requires.
-	const preflightGuard = spec.guard
-		? composeGuards(createSchemaPreflightGuard(deps.mapping), spec.guard)
-		: createSchemaPreflightGuard(deps.mapping);
+	// The approval gate follows it, and is always there: a sub-agent never runs
+	// an MCP tool the person would have been asked about in the main chat.
+	const approvalGuard = createSubAgentApprovalGuard(deps.mapping, deps.toolApproval);
+	const preflightGuard = [
+		createSchemaPreflightGuard(deps.mapping),
+		approvalGuard,
+		...(spec.guard ? [spec.guard] : []),
+	].reduce(composeGuards);
 
 	let messages: ChatCompletionMessageParam[] = [
 		{ role: "system", content: spec.systemPrompt },
@@ -197,7 +278,17 @@ export async function runNestedAgent(
 	const contextWarnAt = Math.floor(usableTokens * CONTEXT_WARN_FRACTION);
 	const contextMaxAt = Math.floor(usableTokens * CONTEXT_MAX_FRACTION);
 
-	const complete = async (withTools: boolean) => {
+	// The run's own clock. A user's Stop ends everything at once; the deadline
+	// ends the work but still lets the run answer with what it found.
+	const deadlineSignal = spec.deadlineMs ? AbortSignal.timeout(spec.deadlineMs) : undefined;
+	const runSignal =
+		ctx.abortSignal && deadlineSignal
+			? AbortSignal.any([ctx.abortSignal, deadlineSignal])
+			: (ctx.abortSignal ?? deadlineSignal);
+	const timedOut = () => Boolean(deadlineSignal?.aborted) && !ctx.abortSignal?.aborted;
+	const observer = spec.observer;
+
+	const complete = async (withTools: boolean, signal: AbortSignal | undefined) => {
 		const request: ChatCompletionCreateParamsNonStreaming = {
 			...base,
 			stream: false,
@@ -208,13 +299,14 @@ export async function runNestedAgent(
 			...(withTools ? { tools: nestedTools, tool_choice: "auto" as const } : {}),
 		};
 		return deps.openai.chat.completions.create(request, {
-			signal: ctx.abortSignal,
+			signal,
 			headers: deps.requestHeaders,
 			timeout: NESTED_CALL_TIMEOUT_MS,
 		});
 	};
 
 	const emitProgress = (iteration: number, message: string) => {
+		if (!message.startsWith("▸")) observer?.activity?.(message);
 		ctx.elicitationSink?.emit({
 			type: MessageUpdateType.Tool,
 			subtype: MessageToolUpdateType.Progress,
@@ -230,9 +322,13 @@ export async function runNestedAgent(
 	// the backoff itself. Only when the schedule runs out does the error
 	// surface — with instructions to wait, so the model reaches for the wait
 	// tool instead of hammering the sub-agent again.
-	const completeWithRetry = (withTools: boolean, iteration: number) =>
-		withUpstreamRetry(() => complete(withTools), {
-			signal: ctx.abortSignal,
+	const completeWithRetry = (
+		withTools: boolean,
+		iteration: number,
+		signal: AbortSignal | undefined
+	) =>
+		withUpstreamRetry(() => complete(withTools, signal), {
+			signal,
 			onBackoff: (attempt, delayMs, err) => {
 				logger.warn(
 					{ attempt, delayMs, iteration, err: String(err) },
@@ -249,7 +345,9 @@ export async function runNestedAgent(
 	): Promise<BuiltinToolResult> => {
 		messages = [...messages, { role: "user", content: stopPrompt }];
 		try {
-			const response = await completeWithRetry(false, spec.maxIterations);
+			// The user's signal only: a run that ran out of time or budget still
+			// owes its answer, and the deadline would cancel that request too.
+			const response = await completeWithRetry(false, spec.maxIterations, ctx.abortSignal);
 			const content = response.choices[0]?.message?.content ?? "";
 			return content ? { resultText: content } : { error: failureText };
 		} catch (err) {
@@ -259,6 +357,7 @@ export async function runNestedAgent(
 	};
 
 	let totalTokens = 0;
+	let spentTokens = 0;
 	let warned = false;
 	const callCounts = new Map<string, number>();
 	let repetitionNudged = false;
@@ -269,6 +368,25 @@ export async function runNestedAgent(
 	for (let iteration = 0; iteration < spec.maxIterations; iteration += 1) {
 		if (ctx.abortSignal?.aborted) return { error: "Aborted by user" };
 
+		if (timedOut()) {
+			logger.warn({ iteration }, `[${spec.label}] time limit reached; forcing summary`);
+			emitProgress(iteration, "Time limit reached — wrapping up");
+			return forcedSummary(
+				spec.stop.timeLimit ?? spec.stop.iterationLimit,
+				spec.failure.timeLimit ?? spec.failure.iterationLimit
+			);
+		}
+		if (spec.maxTotalTokens !== undefined && spentTokens >= spec.maxTotalTokens) {
+			logger.warn(
+				{ spentTokens, iteration },
+				`[${spec.label}] token budget spent; forcing summary`
+			);
+			emitProgress(iteration, "Token budget spent — wrapping up");
+			return forcedSummary(
+				spec.stop.budget ?? spec.stop.iterationLimit,
+				spec.failure.budget ?? spec.failure.iterationLimit
+			);
+		}
 		if (totalTokens >= contextMaxAt) {
 			logger.warn(
 				{ totalTokens, iteration },
@@ -284,9 +402,16 @@ export async function runNestedAgent(
 
 		let response: Awaited<ReturnType<typeof complete>>;
 		try {
-			response = await completeWithRetry(true, iteration);
+			response = await completeWithRetry(true, iteration, runSignal);
 		} catch (err) {
 			if (ctx.abortSignal?.aborted) return { error: "Aborted by user" };
+			if (timedOut()) {
+				emitProgress(iteration, "Time limit reached — wrapping up");
+				return forcedSummary(
+					spec.stop.timeLimit ?? spec.stop.iterationLimit,
+					spec.failure.timeLimit ?? spec.failure.iterationLimit
+				);
+			}
 			const message = err instanceof Error ? err.message : String(err);
 			logger.warn({ err: message, iteration }, `[${spec.label}] sub-agent LLM call failed`);
 			if (isRateLimitError(err)) return { error: spec.failure.rateLimited };
@@ -298,6 +423,9 @@ export async function runNestedAgent(
 			// No usage from this provider: a rough absolute estimate keeps the
 			// budget stop functional instead of never firing.
 			Math.ceil(JSON.stringify(messages).length / 4);
+		// Every request re-sends the context, so the sum of what each one cost
+		// is what the person is billed for the run.
+		spentTokens += totalTokens;
 
 		const msg = response.choices[0]?.message;
 		const finishReason = response.choices[0]?.finish_reason;
@@ -382,6 +510,9 @@ export async function runNestedAgent(
 
 		let toolMessages: ChatCompletionMessageParam[] = [];
 		if (allowedCalls.length > 0) {
+			observer?.calling?.(
+				allowedCalls.map(({ id, name, arguments: args }) => ({ id, name, arguments: args }))
+			);
 			emitProgress(
 				iteration + 1,
 				// One per line: the UI renders each as its own row.
@@ -397,7 +528,7 @@ export async function runNestedAgent(
 						? value
 						: undefined,
 				processToolOutput: (text) => ({ annotated: text, sources: [] }),
-				abortSignal: ctx.abortSignal,
+				abortSignal: runSignal,
 				builtinTools: allowedBuiltins,
 				// Preflight only. The budget guard stays absent by design — the
 				// allowlist is what keeps a sub-agent from spending — but checking
@@ -429,6 +560,38 @@ export async function runNestedAgent(
 
 		// Refusals never reach executeToolCalls, so they carry their own name,
 		// arguments and count rather than being reconstructed from the message.
+		if (observer?.step) {
+			const resultOf = new Map<string, string>();
+			for (const message of toolMessages) {
+				if (message.role === "tool" && typeof message.content === "string") {
+					resultOf.set(message.tool_call_id, message.content);
+				}
+			}
+			for (const call of allowedCalls) {
+				const content = resultOf.get(call.id);
+				const failed = content === undefined || content.startsWith("Error: ");
+				observer.step({
+					id: call.id,
+					name: call.name,
+					arguments: call.arguments,
+					outcome: !failed
+						? "ok"
+						: content?.slice(7).startsWith(APPROVAL_REFUSAL_PREFIX)
+							? "refused"
+							: "error",
+					...(failed && content ? { error: content.slice(7) } : {}),
+				});
+			}
+			for (const call of refusedCalls) {
+				observer.step({
+					id: call.id,
+					name: call.name,
+					arguments: call.arguments,
+					outcome: "refused",
+				});
+			}
+		}
+
 		recordNestedAgentCalls(
 			ctx,
 			spec.label,

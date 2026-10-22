@@ -85,6 +85,8 @@ export interface FeatureFlags {
 	 * anything is stored or injected.
 	 */
 	memoryEnabled: boolean;
+	/** Whether the assistant may hand work to sub-agents (`delegate`, `research`). Administration -> Sub-agents. */
+	delegationEnabled: boolean;
 	/**
 	 * Whether this origin serves the Pystino console at /console
 	 * (`CHAT_CONSOLE_ENABLED`). On means the gateway profiles (homelab, team,

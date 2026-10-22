@@ -129,6 +129,19 @@ export async function consumeMessageUpdates(
 						...updatesBuffer.slice(prev + 1),
 					];
 				else updatesBuffer = [...updatesBuffer, update];
+			} else if (update.type === MessageUpdateType.SubAgent) {
+				// Same rule as the stored message (applyUpdateToMessage): a
+				// sub-agent's later state replaces its earlier one in place.
+				const prev = updatesBuffer.findIndex(
+					(u) => u.type === MessageUpdateType.SubAgent && u.uuid === update.uuid
+				);
+				if (prev !== -1)
+					updatesBuffer = [
+						...updatesBuffer.slice(0, prev),
+						update,
+						...updatesBuffer.slice(prev + 1),
+					];
+				else updatesBuffer = [...updatesBuffer, update];
 			} else {
 				updatesBuffer = [...updatesBuffer, update];
 			}

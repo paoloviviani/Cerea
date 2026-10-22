@@ -4,6 +4,7 @@ import { loginEnabled, OIDConfig } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
+import { delegationEnabled } from "$lib/server/delegation";
 import { codeAgentsAllowedFor } from "$lib/server/codeEnabled";
 import { machineClientId } from "$lib/server/code/machineAuth";
 import type { FeatureFlags } from "$lib/server/api/types";
@@ -37,6 +38,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		usageEnabled: config.CHAT_USAGE_ENABLED === "true" && !!config.OPENAI_BASE_URL,
 		knowledgeEnabled: knowledgeEnabled(),
 		memoryEnabled: memoryEnabled(),
+		delegationEnabled: delegationEnabled(),
 		// A deployment fact, not a product toggle: the gateway profiles
 		// serve /console on this origin and the admin panel may link to it;
 		// the standalone profiles do not (satellite's console is central's,

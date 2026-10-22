@@ -14,6 +14,7 @@ import {
 	type MessageCodeExecutionResolvedUpdate,
 	type MessageCodeExecutionOutputsUpdate,
 	type MessagePlanUpdate,
+	type MessageSubAgentUpdate,
 	type MessageMemoryUpdate,
 	type MessageBackgroundTaskUpdate,
 	MessageUpdateType,
@@ -435,6 +436,9 @@ export const isMessageCodeExecutionOutputsUpdate = (
 
 export const isMessagePlanUpdate = (update: MessageUpdate): update is MessagePlanUpdate =>
 	update.type === MessageUpdateType.Plan;
+
+export const isMessageSubAgentUpdate = (update: MessageUpdate): update is MessageSubAgentUpdate =>
+	update.type === MessageUpdateType.SubAgent;
 
 export const isMessageMemoryUpdate = (update: MessageUpdate): update is MessageMemoryUpdate =>
 	update.type === MessageUpdateType.Memory;

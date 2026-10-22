@@ -21,6 +21,7 @@
 	import IconDocument from "~icons/carbon/document";
 	import IconLaunch from "~icons/carbon/launch";
 	import IconPlug from "~icons/carbon/plug";
+	import IconBot from "~icons/lucide/bot";
 	import IconSearch from "~icons/carbon/search";
 	import type { LayoutServerData } from "./$types";
 
@@ -39,6 +40,7 @@
 		{ href: "/admin/fetch", label: "Fetching", icon: IconDocument },
 		{ href: "/admin/connectors", label: "Connectors", icon: IconPlug },
 		{ href: "/admin/skills", label: "Skills", icon: IconDocument },
+		{ href: "/admin/delegation", label: "Sub-agents", icon: IconBot },
 		{ href: "/admin/storage", label: "Storage", icon: IconDataBase },
 	]);
 

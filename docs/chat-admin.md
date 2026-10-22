@@ -33,6 +33,7 @@ server; the page's gate is for navigation, never a permission.
 | **Fetching**   | Which backend fetches a URL: a plain HTTPS request, or the [headless browser](browser.md), with a live check of whether the renderer answers                                                                            |
 | **Connectors** | MCP servers offered to everybody: see [Connectors](connectors.md#connectors-for-everybody)                                                                                                                              |
 | **Skills**     | Deployment-wide skills that every account sees; the bundled ones can be switched off by name (`CHAT_SKILLS_DISABLED`)                                                                                                   |
+| **Sub-agents** | Whether the assistant may hand work to sub-agents (`delegate`, `research`): on by default; see below                                                                                                                    |
 | **Storage**    | How long files produced by code are kept: see below                                                                                                                                                                     |
 
 **Knowledge** puts the configuration and its consequences together on purpose.
@@ -56,6 +57,19 @@ not search for it, you fetch it, and the only question is what does the
 reading. Selecting the headless browser before its service is up is a legitimate
 order of operations, so the health check warns and never locks the setting. The
 status meanings are on the [browser page](browser.md#turning-it-on).
+
+## Sub-agents
+
+**Allow sub-agents** decides whether tool-capable models are offered the
+`delegate` tool, and the `research` preset where web search is available (see
+[Plans and sub-agents](chat.md#plans-and-sub-agents)). It is on by default. A
+sub-agent makes its own model calls, billed to the person like any message, and
+uses the chat's connector tools without the person watching each step (only
+those the conversation already allows: it never raises an approval card), so a
+deployment that wants neither can switch it off here. The value is stored in
+the chat's configuration (changing it is logged with who made the change) and
+overrides `CHAT_DELEGATION`; with `ENABLE_CONFIG_MANAGER` off it can only be
+set in the environment. It applies to the next message anyone sends.
 
 ## Storage
 

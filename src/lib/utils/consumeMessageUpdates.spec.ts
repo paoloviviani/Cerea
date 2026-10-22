@@ -87,3 +87,41 @@ describe("consumeMessageUpdates", () => {
 		expect(renderedText(message)).toBe("hello world");
 	});
 });
+
+describe("sub-agent updates in a live view", () => {
+	const state = (
+		uuid: string,
+		activity: string,
+		status: "running" | "done" = "running"
+	): MessageUpdate => ({
+		type: MessageUpdateType.SubAgent,
+		uuid,
+		title: uuid,
+		model: "m",
+		status,
+		activity,
+		steps: [],
+	});
+
+	it("keeps one entry per sub-agent, replaced in place, so a card keeps its position", async () => {
+		const message: Message = { id: "m", from: "assistant", content: "", updates: [] };
+		await consumeMessageUpdates(
+			fromArray([
+				state("a", "searching"),
+				state("b", "reading"),
+				{ type: MessageUpdateType.Stream, token: "text" },
+				state("a", "reading", "done"),
+			]),
+			message,
+			context()
+		);
+		const kept = (message.updates ?? []).filter((u) => u.type === MessageUpdateType.SubAgent);
+		expect(kept).toHaveLength(2);
+		expect(message.updates?.map((u) => u.type)).toEqual([
+			MessageUpdateType.SubAgent,
+			MessageUpdateType.SubAgent,
+			MessageUpdateType.Stream,
+		]);
+		expect(kept[0]).toMatchObject({ uuid: "a", status: "done" });
+	});
+});

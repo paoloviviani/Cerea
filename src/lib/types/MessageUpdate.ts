@@ -22,6 +22,7 @@ export type MessageUpdate =
 	| MessageRouterMetadataUpdate
 	| MessageElicitationUpdate
 	| MessagePlanUpdate
+	| MessageSubAgentUpdate
 	| MessageMemoryUpdate
 	| MessageTurnStateUpdate
 	| MessageBackgroundTaskUpdate
@@ -39,6 +40,7 @@ export enum MessageUpdateType {
 	RouterMetadata = "routerMetadata",
 	Elicitation = "elicitation",
 	Plan = "plan",
+	SubAgent = "subAgent",
 	Memory = "memory",
 	TurnState = "turnState",
 	BackgroundTask = "backgroundTask",
@@ -337,6 +339,40 @@ export interface MessagePlanUpdate {
 	/** Model-authored one-line changelog for this update. */
 	explanation?: string;
 	version: number;
+}
+
+export type SubAgentStatus = "running" | "done" | "failed" | "stopped";
+
+/** One tool call a sub-agent made, as the card's step list shows it. */
+export interface SubAgentStep {
+	/** The tool's name, as the sub-agent called it. */
+	tool: string;
+	/** What it did, short and readable ("searching ...", "reading ..."). */
+	label: string;
+	outcome: "running" | "ok" | "error" | "refused";
+}
+
+/**
+ * The state of one sub-agent (`delegate` or `research`), re-sent whole as it
+ * works: a later update with the same `uuid` replaces the earlier one, in the
+ * stored message and in a live view alike, so a run of 25 steps stores one
+ * record. The answer itself is the delegate call's ordinary Tool result; this
+ * carries what the card shows around it. Plain JSON only (no Date): it travels
+ * the JSONL stream and is persisted in `Message.updates`.
+ */
+export interface MessageSubAgentUpdate {
+	type: MessageUpdateType.SubAgent;
+	/** uuid of the delegate/research tool call that started this sub-agent. */
+	uuid: string;
+	title: string;
+	/** The model the sub-agent runs on. */
+	model: string;
+	/** Set for the research preset. */
+	preset?: "research";
+	status: SubAgentStatus;
+	/** What it is doing right now, for the live status line. */
+	activity?: string;
+	steps: SubAgentStep[];
 }
 
 /**

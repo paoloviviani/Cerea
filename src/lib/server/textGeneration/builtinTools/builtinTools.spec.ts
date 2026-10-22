@@ -70,6 +70,51 @@ describe("the plan tool", () => {
 	});
 });
 
+describe("sub-agent tools", () => {
+	const webParams = {
+		conv: { _id: new ObjectId() },
+		toolsEnabled: true,
+		webSearchEnabled: true,
+		token: "t",
+		searchModelIds: ["exa"],
+		allowedFetchUrls: new Set<string>(),
+		delegation: { models: [] },
+	};
+	const names = (params: Parameters<typeof getEnabledBuiltinTools>[0]) =>
+		getEnabledBuiltinTools(params).map((tool) => tool.name);
+
+	it("offers delegate to a tool-capable chat when the deployment allows it", () => {
+		expect(
+			names({ conv: { _id: new ObjectId() }, toolsEnabled: true, delegation: { models: [] } })
+		).toContain("delegate");
+	});
+
+	it("offers nothing when the caller passes no delegation (the switch is off)", () => {
+		const off = { ...webParams, delegation: undefined };
+		expect(names(off)).not.toContain("delegate");
+		expect(names(off)).not.toContain("research");
+	});
+
+	it("offers nothing without tool calling", () => {
+		expect(names({ ...webParams, toolsEnabled: false })).not.toContain("delegate");
+	});
+
+	it("offers research where web search is, and not otherwise", () => {
+		expect(names(webParams)).toEqual(expect.arrayContaining(["delegate", "research"]));
+		expect(names({ ...webParams, webSearchEnabled: false })).not.toContain("research");
+		expect(names({ ...webParams, searchModelIds: [] })).not.toContain("research");
+		expect(names({ ...webParams, webSearchEnabled: false })).toContain("delegate");
+	});
+
+	it("puts a short guidance on when to delegate in the preprompt", () => {
+		const tool = getEnabledBuiltinTools(webParams).find((t) => t.name === "delegate");
+		expect(tool?.preprompt).toMatch(/self-contained/);
+		expect(tool?.preprompt).toMatch(/parallel/);
+		expect(tool?.preprompt).toMatch(/Do not delegate/);
+		expect((tool?.preprompt ?? "").length).toBeLessThan(900);
+	});
+});
+
 describe("web search enablement: per-chat state beats the passed default", () => {
 	const searchParams = {
 		token: "caller-token",

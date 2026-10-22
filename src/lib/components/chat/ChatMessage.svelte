@@ -34,6 +34,7 @@
 	import { getCodeSessionLinks } from "$lib/utils/codeSessionLinks";
 	import CodeExecutionCard from "./CodeExecutionCard.svelte";
 	import PlanCard from "./PlanCard.svelte";
+	import SubAgentCard from "./SubAgentCard.svelte";
 	import MemoryCard from "./MemoryCard.svelte";
 	import BackgroundTaskCard from "./BackgroundTaskCard.svelte";
 	import {
@@ -45,6 +46,7 @@
 		isMessageCodeExecutionRequestUpdate,
 		isMessageCodeExecutionResolvedUpdate,
 		isMessagePlanUpdate,
+		isMessageSubAgentUpdate,
 		isMessageMemoryUpdate,
 		isMessageBackgroundTaskUpdate,
 	} from "$lib/utils/messageUpdates";
@@ -58,6 +60,7 @@
 		type MessageCodeExecutionRequestUpdate,
 		type MessageCodeExecutionResolvedUpdate,
 		type MessagePlanUpdate,
+		type MessageSubAgentUpdate,
 		type MessageMemoryUpdate,
 		type MessageBackgroundTaskUpdate,
 	} from "$lib/types/MessageUpdate";
@@ -319,6 +322,13 @@
 		| ElicitationBlock
 		| CodeExecutionBlock
 		| { type: "plan"; update: MessagePlanUpdate }
+		| {
+				type: "delegate";
+				uuid: string;
+				update: MessageSubAgentUpdate;
+				/** The delegate call's own frames: call, result, error. */
+				updates: MessageToolUpdate[];
+		  }
 		| { type: "memory"; update: MessageMemoryUpdate }
 		| { type: "backgroundTask"; update: MessageBackgroundTaskUpdate }
 		| {
@@ -339,6 +349,12 @@
 		| ({ kind: "elicitation" } & Omit<ElicitationBlock, "type">)
 		| ({ kind: "codeExecution" } & Omit<CodeExecutionBlock, "type">)
 		| { kind: "plan"; update: MessagePlanUpdate }
+		| {
+				kind: "delegate";
+				uuid: string;
+				update: MessageSubAgentUpdate;
+				updates: MessageToolUpdate[];
+		  }
 		| { kind: "memory"; update: MessageMemoryUpdate }
 		| { kind: "backgroundTask"; update: MessageBackgroundTaskUpdate }
 		| { kind: "subagent"; uuid: string; anchor: CodeSubagentAnchor; updates: MessageToolUpdate[] };
@@ -469,6 +485,16 @@
 					if (update.partId) target.partId = update.partId;
 				} else res.push({ type: "text" as const, content: chunk, partId: update.partId });
 			} else if (isMessageToolUpdate(update)) {
+				// A sub-agent's own call frames (its result, its error) belong to
+				// its card, not to a generic tool row.
+				const delegateOwner = res.find(
+					(b): b is Extract<Block, { type: "delegate" }> =>
+						b.type === "delegate" && b.uuid === update.uuid
+				);
+				if (delegateOwner) {
+					delegateOwner.updates.push(update);
+					continue;
+				}
 				// The panel's subagent claim, decided per frame — the roster can
 				// pair (or unname) a call between commits, and the builder reruns
 				// from scratch, so the decision must be a pure function of the
@@ -568,6 +594,22 @@
 				if (planIdx !== -1) res.splice(planIdx, 1);
 				// The agent's task plan is placed after the walk (below), not here.
 				res.push({ type: "plan", update });
+			} else if (isMessageSubAgentUpdate(update)) {
+				// One card per sub-agent, each state replacing the last for the
+				// same call. The generic tool row the call opened with gives way
+				// to it (a call that failed before it started has no such update,
+				// so its error row survives), and its frames move into the card.
+				const existing = res.find(
+					(b): b is Extract<Block, { type: "delegate" }> =>
+						b.type === "delegate" && b.uuid === update.uuid
+				);
+				if (existing) {
+					existing.update = update;
+				} else {
+					const toolIdx = res.findIndex((b) => b.type === "tool" && b.uuid === update.uuid);
+					const absorbed = toolIdx !== -1 ? (res.splice(toolIdx, 1)[0] as ToolBlock).updates : [];
+					res.push({ type: "delegate", uuid: update.uuid, update, updates: absorbed });
+				}
 			} else if (isMessageMemoryUpdate(update)) {
 				// Unlike a plan, memory writes accumulate: two facts remembered in
 				// one turn are two things that happened and two things to undo,
@@ -669,6 +711,16 @@
 				// Never folded into the collapsible summary: the plan stays visible.
 				flush();
 				units.push({ kind: "plan", update: block.update });
+			} else if (block.type === "delegate") {
+				// Never folded either: what a sub-agent found is the content of
+				// the turn, and its card carries the live status line.
+				flush();
+				units.push({
+					kind: "delegate",
+					uuid: block.uuid,
+					update: block.update,
+					updates: block.updates,
+				});
 			} else if (block.type === "memory") {
 				// Never folded either: a write to something that outlives the
 				// conversation must not end up behind a "3 steps" disclosure, or
@@ -713,6 +765,14 @@
 				(update) => isMessageToolResultUpdate(update) || isMessageToolErrorUpdate(update)
 			);
 		}
+		if (last.type === "delegate") {
+			return (
+				last.update.status === "running" &&
+				!last.updates.some(
+					(update) => isMessageToolResultUpdate(update) || isMessageToolErrorUpdate(update)
+				)
+			);
+		}
 		if (last.type === "subagent") {
 			return !last.anchor.subagent || last.anchor.subagent.status === "running";
 		}
@@ -739,6 +799,7 @@
 				block.type === "tool" ||
 				block.type === "elicitation" ||
 				block.type === "plan" ||
+				block.type === "delegate" ||
 				block.type === "memory" ||
 				block.type === "backgroundTask" ||
 				block.type === "subagent"
@@ -816,7 +877,7 @@
 				{#if isProcessStreaming}
 					<!-- A streaming turn that used thinking / tools: every block renders flat
 					     and inline until the turn ends, then the nested summary takes over. -->
-					{#each blocks as block, blockIndex (block.type === "tool" ? `tool-${block.uuid}-${blockIndex}` : block.type === "plan" ? `plan-${block.update.version}` : block.type === "subagent" ? `subagent-${block.uuid}` : block.type === "backgroundTask" ? `background-${block.update.taskId}-${block.update.state}` : `block-${blockIndex}`)}
+					{#each blocks as block, blockIndex (block.type === "tool" ? `tool-${block.uuid}-${blockIndex}` : block.type === "plan" ? `plan-${block.update.version}` : block.type === "delegate" ? `delegate-${block.uuid}` : block.type === "subagent" ? `subagent-${block.uuid}` : block.type === "backgroundTask" ? `background-${block.update.taskId}-${block.update.state}` : `block-${blockIndex}`)}
 						{#if block.type === "text"}
 							{#if block.content.trim().length > 0}
 								<div class={proseClasses}>
@@ -862,6 +923,14 @@
 							<div data-exclude-from-copy>
 								<PlanCard update={block.update} />
 							</div>
+						{:else if block.type === "delegate"}
+							<div data-exclude-from-copy>
+								<SubAgentCard
+									update={block.update}
+									tool={block.updates}
+									loading={isLast && loading}
+								/>
+							</div>
 						{:else if block.type === "memory"}
 							<div data-exclude-from-copy>
 								<MemoryCard update={block.update} />
@@ -905,7 +974,7 @@
 					{/if}
 				{:else}
 					<!-- Answer started or generation finished: nest the process blocks. -->
-					{#each renderUnits as unit, unitIndex (unit.kind === "plan" ? `plan-${unit.update.version}` : unit.kind === "subagent" ? `subagent-${unit.uuid}` : unit.kind === "backgroundTask" ? `background-${unit.update.taskId}-${unit.update.state}` : `${unit.kind}-${unitIndex}`)}
+					{#each renderUnits as unit, unitIndex (unit.kind === "plan" ? `plan-${unit.update.version}` : unit.kind === "delegate" ? `delegate-${unit.uuid}` : unit.kind === "subagent" ? `subagent-${unit.uuid}` : unit.kind === "backgroundTask" ? `background-${unit.update.taskId}-${unit.update.state}` : `${unit.kind}-${unitIndex}`)}
 						{#if unit.kind === "text"}
 							{#if isLast && loading && unit.content.length === 0}
 								<MessageAvatar
@@ -955,6 +1024,14 @@
 						{:else if unit.kind === "plan"}
 							<div data-exclude-from-copy>
 								<PlanCard update={unit.update} />
+							</div>
+						{:else if unit.kind === "delegate"}
+							<div data-exclude-from-copy>
+								<SubAgentCard
+									update={unit.update}
+									tool={unit.updates}
+									loading={isLast && loading}
+								/>
 							</div>
 						{:else if unit.kind === "memory"}
 							<div data-exclude-from-copy>

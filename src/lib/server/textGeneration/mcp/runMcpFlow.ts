@@ -227,6 +227,14 @@ export async function* runMcpFlow({
 		artifactsMode: model.artifactsMode,
 	});
 	const webSearch = await resolveWebSearchFor(turnToken);
+	// Sub-agents: the deployment switch, then the models this person may pick
+	// for one. Resolved here, like the search grants, because the second is a
+	// network read that has no place in the synchronous builtin list.
+	const { delegationEnabled, delegationModelsFor } = await import("$lib/server/delegation");
+	const delegation =
+		artifactToolsEnabled && delegationEnabled()
+			? { models: await delegationModelsFor(locals) }
+			: undefined;
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		memoryEnabled: memoryAllowed,
@@ -256,6 +264,7 @@ export async function* runMcpFlow({
 		},
 		toolsEnabled: artifactToolsEnabled,
 		artifactTurnBlocks,
+		...(delegation ? { delegation } : {}),
 	});
 	// Skills (Phase 1, ADR 0072): the `load_skill` builtin joins when the
 	// turn has any enabled skill, so the model loads a body mid-turn through
@@ -719,9 +728,16 @@ export async function* runMcpFlow({
 			mcpTools: shapedMcpTools,
 			hostBuiltinTools: builtinTools,
 			contextLengthTokens: targetContextLength,
+			// A sub-agent never gets to park the turn on an approval card: it may
+			// use what this conversation already approved, and is refused the rest.
+			toolApproval: { policy: toolApprovalPolicy, approvedTools },
 		};
+		const nestedAgentNames = new Set<string>();
 		for (const tool of builtinTools) {
-			if (isNestedAgentTool(tool)) tool.bind(nestedAgentDeps);
+			if (isNestedAgentTool(tool)) {
+				tool.bind(nestedAgentDeps);
+				nestedAgentNames.add(tool.name);
+			}
 		}
 
 		const toPrimitive = (value: unknown) => {
@@ -1249,33 +1265,46 @@ export async function* runMcpFlow({
 				});
 				let toolMsgCount = 0;
 				let toolRunCount = 0;
-				for await (const event of exec) {
-					if (event.type === "update") {
-						producedOutput = true;
-						yield event.update;
-					} else {
-						if (event.summary.awaitingInput) {
-							logger.info({ loop }, "[mcp] parked on a durable prompt; run ends until answered");
-							return "awaiting_input";
+				// Stop is noticed by polling the abort record, and the loop only polls
+				// as events arrive. A sub-agent can sit in one model call for a long
+				// time, so while one runs the poll also runs on a timer, which is
+				// what lets Stop reach every sub-agent through the shared signal.
+				const stopWatch = calls.some((call) => nestedAgentNames.has(call.name))
+					? setInterval(() => {
+							checkAborted();
+						}, 500)
+					: undefined;
+				try {
+					for await (const event of exec) {
+						if (event.type === "update") {
+							producedOutput = true;
+							yield event.update;
+						} else {
+							if (event.summary.awaitingInput) {
+								logger.info({ loop }, "[mcp] parked on a durable prompt; run ends until answered");
+								return "awaiting_input";
+							}
+							messagesOpenAI = [
+								...messagesOpenAI,
+								assistantToolMessage,
+								...(event.summary.toolMessages ?? []),
+							];
+							toolMsgCount = event.summary.toolMessages?.length ?? 0;
+							toolRunCount = event.summary.toolRuns?.length ?? 0;
+							logger.info(
+								{ toolMsgCount, toolRunCount },
+								"[mcp] tools executed; continuing loop for follow-up completion"
+							);
 						}
-						messagesOpenAI = [
-							...messagesOpenAI,
-							assistantToolMessage,
-							...(event.summary.toolMessages ?? []),
-						];
-						toolMsgCount = event.summary.toolMessages?.length ?? 0;
-						toolRunCount = event.summary.toolRuns?.length ?? 0;
-						logger.info(
-							{ toolMsgCount, toolRunCount },
-							"[mcp] tools executed; continuing loop for follow-up completion"
-						);
-					}
 
-					// Check abort during tool execution
-					if (checkAborted()) {
-						logger.info({ loop, toolMsgCount }, "[mcp] aborting during tool execution");
-						return "aborted";
+						// Check abort during tool execution
+						if (checkAborted()) {
+							logger.info({ loop, toolMsgCount }, "[mcp] aborting during tool execution");
+							return "aborted";
+						}
 					}
+				} finally {
+					if (stopWatch) clearInterval(stopWatch);
 				}
 
 				// Check abort after all tools complete before continuing loop
