@@ -3,8 +3,14 @@ import { ObjectId } from "mongodb";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 const insertMany = vi.fn().mockResolvedValue({ insertedCount: 0 });
+const db = vi.hoisted(() => ({ ready: true }));
 vi.mock("$lib/server/database", () => ({
-	collections: { nestedAgentCalls: { insertMany: (...args: unknown[]) => insertMany(...args) } },
+	// Undefined until the connection is up, as in database.ts.
+	get collections() {
+		return db.ready
+			? { nestedAgentCalls: { insertMany: (...args: unknown[]) => insertMany(...args) } }
+			: undefined;
+	},
 }));
 
 const { recordNestedAgentCalls, redactSecrets } = await import("./nestedAgentCallLog");
@@ -33,6 +39,17 @@ function rowsFrom(
 }
 
 describe("nested agent call log", () => {
+	it("never throws when the database has not connected yet", () => {
+		db.ready = false;
+		try {
+			expect(() =>
+				recordNestedAgentCalls(ctx, "sandbox", 0, [call("c1", "x", "{}")], [ok("c1")])
+			).not.toThrow();
+		} finally {
+			db.ready = true;
+		}
+	});
+
 	it("keeps the real command, not the lossy update parameters", () => {
 		const args = '{"cmd":"exec","args":["exec","sbx-1","tail -5 /tmp/run2.log"]}';
 		const rows = rowsFrom([call("c1", "hf_sandbox_exec", args)], [ok("c1")]);
