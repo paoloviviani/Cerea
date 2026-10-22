@@ -313,6 +313,26 @@ def supported_scopes(discovery: dict | None) -> list | None:
 #: RFC 8628. Without it galopin cannot enroll: a machine has no browser, and
 #: the device flow is the one grant that works without one.
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
+# GitLab (Doorkeeper) lists the grant as the short "device_code" and publishes
+# no device endpoint; galopin accepts both spellings and derives the endpoint.
+DEVICE_CODE_GRANTS = (DEVICE_CODE_GRANT, "device_code")
+DOORKEEPER_AUTHORIZE = "/oauth/authorize"
+
+
+def idp_check_detail(proc) -> str:
+    """The lines of `pystino idp check` output that say why it failed.
+
+    Report lines naming FAILED, MISSING or "does NOT match"; the last line of
+    output when none does (a crash, a traceback).
+    """
+    out = (proc.stdout or "").strip().splitlines() or (proc.stderr or "").strip().splitlines()
+    bad = [
+        line.strip() for line in out
+        if "FAILED" in line or "MISSING" in line or "does NOT match" in line
+    ]
+    # The final "idp check: FAILED" summary adds nothing next to a cause.
+    causes = [line for line in bad if line != "idp check: FAILED"]
+    return "; ".join(causes or bad or [out[-1].strip() if out else "?"])
 
 
 def device_flow_problem(discovery: dict | None) -> str | None:
@@ -325,13 +345,16 @@ def device_flow_problem(discovery: dict | None) -> str | None:
     """
     if not discovery:
         return None
-    if not discovery.get("device_authorization_endpoint"):
+    grants = discovery.get("grant_types_supported")
+    listed = isinstance(grants, list) and any(g in DEVICE_CODE_GRANTS for g in grants)
+    authorize = str(discovery.get("authorization_endpoint") or "").rstrip("/")
+    doorkeeper = authorize.endswith(DOORKEEPER_AUTHORIZE) and authorize != DOORKEEPER_AUTHORIZE
+    if not discovery.get("device_authorization_endpoint") and not (listed and doorkeeper):
         return (
             "the issuer's discovery publishes no device_authorization_endpoint, "
             "so galopin cannot enroll: agent machines will not work with it"
         )
-    grants = discovery.get("grant_types_supported")
-    if isinstance(grants, list) and grants and DEVICE_CODE_GRANT not in grants:
+    if isinstance(grants, list) and grants and not listed:
         return (
             "the issuer's grant_types_supported omits the device flow "
             f"({DEVICE_CODE_GRANT}), so galopin cannot enroll: agent machines "
@@ -1755,8 +1778,7 @@ def check_host(values: dict, report: Report, *, root: Path, network: bool) -> No
         if proc is None:
             report.notes.append("docker compose run is not available here; skipped pystino idp check")
         elif proc.returncode != 0:
-            detail = (proc.stdout.strip().splitlines() or proc.stderr.strip().splitlines() or ["?"])[-1]
-            report.errors.append(f"pystino idp check --discovery-only failed: {detail}")
+            report.errors.append(f"pystino idp check --discovery-only failed: {idp_check_detail(proc)}")
         else:
             report.notes.append("pystino idp check --discovery-only: ok")
 
