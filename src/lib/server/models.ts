@@ -263,7 +263,7 @@ const resolveTaskModel = (modelList: ProcessedModel[]): ProcessedModel | undefin
 const buildModels = async (): Promise<ProcessedModel[]> => {
 	if (!openaiBaseUrl) {
 		logger.error(
-			"OPENAI_BASE_URL is required. Set it to an OpenAI-compatible base (e.g., https://router.huggingface.co/v1)."
+			"OPENAI_BASE_URL is required. Set it to an OpenAI-compatible base (a Pystino gateway's /v1, or any other)."
 		);
 		throw new Error("OPENAI_BASE_URL not set");
 	}

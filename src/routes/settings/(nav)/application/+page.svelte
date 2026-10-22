@@ -46,12 +46,6 @@
 	let settings = useSettingsStore();
 
 	// Functional bindings for store fields (Svelte 5): avoid mutating $settings directly
-	function getShareWithAuthors() {
-		return $settings.shareConversationsWithModelAuthors;
-	}
-	function setShareWithAuthors(v: boolean) {
-		settings.update((s) => ({ ...s, shareConversationsWithModelAuthors: v }));
-	}
 	function getStreamingMode() {
 		return $settings.streamingMode;
 	}
@@ -276,23 +270,6 @@
 			class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
 		>
 			<div class="divide-y divide-gray-200 dark:divide-gray-700">
-				{#if publicConfig.PUBLIC_APP_DATA_SHARING === "1"}
-					<div class="flex items-start justify-between py-3">
-						<div>
-							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-								Share with model authors
-							</div>
-							<p class="text-[12px] text-gray-500 dark:text-gray-400">
-								Sharing your data helps improve open models over time.
-							</p>
-						</div>
-						<Switch
-							name="shareConversationsWithModelAuthors"
-							bind:checked={getShareWithAuthors, setShareWithAuthors}
-						/>
-					</div>
-				{/if}
-
 				<div class="flex items-start justify-between py-3">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">

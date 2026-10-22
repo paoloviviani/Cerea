@@ -1,3 +1,4 @@
+import { transcriptionEnabled } from "$lib/server/transcription";
 import type { RequestHandler } from "@sveltejs/kit";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { loginEnabled, OIDConfig } from "$lib/server/auth";
@@ -29,7 +30,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 	return superjsonResponse({
 		loginEnabled,
 		isAdmin: locals.isAdmin,
-		transcriptionEnabled: !!config.get("TRANSCRIPTION_MODEL"),
+		transcriptionEnabled: transcriptionEnabled(),
 		dictationMode: dictationMode(),
 		taskModelId,
 		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",

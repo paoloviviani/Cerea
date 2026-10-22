@@ -117,10 +117,4 @@ export async function initServer(): Promise<void> {
 	}).catch((err) => logger.warn({ err }, "Failed to warm up share thumbnail renderer"));
 
 	adminTokenManager.displayToken();
-
-	if (config.EXPOSE_API) {
-		logger.warn(
-			"The EXPOSE_API flag has been deprecated. The API is now required for chat-ui to work."
-		);
-	}
 }

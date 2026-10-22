@@ -239,7 +239,6 @@
 <svelte:head>
 	<title>{publicConfig.PUBLIC_APP_NAME} - Chat with AI models</title>
 	<meta name="description" content={publicConfig.PUBLIC_APP_DESCRIPTION} />
-	<meta name="twitter:site" content="@huggingface" />
 
 	<!-- use those meta tags everywhere except on special listing pages -->
 	<!-- feel free to refacto if there's a better way -->

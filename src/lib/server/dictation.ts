@@ -5,7 +5,7 @@
  * - `yes`: always offered, where the browser supports it.
  * - `no`: never.
  * - `fallback` (the default): offered only when the deployment has no
- *   server-side transcription model (`TRANSCRIPTION_MODEL`), so the recorder
+ *   server-side transcription (`TRANSCRIPTION_MODEL` and `TRANSCRIPTION_BASE_URL`), so the recorder
  *   button and the dictation button are never both there.
  *
  * Browser dictation may send the audio to the browser vendor's cloud, which is
