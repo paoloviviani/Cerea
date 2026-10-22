@@ -11,6 +11,7 @@
 		{ "flag": "allow-terminal", "kind": "bool", "default": true, "exposed": false },
 		{ "flag": "file-deny", "kind": "list", "default": [], "exposed": true },
 		{ "flag": "max-terminals", "kind": "int", "default": 8, "exposed": true },
+		{ "flag": "mode", "kind": "string", "default": "agent", "exposed": false },
 		{ "flag": "no-agent-tools", "kind": "bool", "default": false, "exposed": true },
 		{ "flag": "no-background-subagents", "kind": "bool", "default": false, "exposed": true },
 		{ "flag": "no-command-shell", "kind": "bool", "default": false, "exposed": true },

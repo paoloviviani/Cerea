@@ -147,7 +147,10 @@ func authLogin(ctx context.Context, opts *authCommandOptions) error {
 	if rec.Issuer == "" || rec.ClientID == "" {
 		return fmt.Errorf("%s records no issuer or client id to sign in with: run 'galopin enroll' first", credsPath)
 	}
-	if rec.Gateway == "" {
+	// A connectors machine (enroll --mode connectors) has no gateway and no
+	// billing group: its sign-in is the whole credential.
+	connectors := rec.Mode == modeConnectors
+	if rec.Gateway == "" && !connectors {
 		return fmt.Errorf("%s records no gateway, so a new token could not be verified: run 'galopin enroll' first", credsPath)
 	}
 	if revokedAt(filepath.Dir(credsPath), credsPath) {
@@ -175,9 +178,12 @@ func authLogin(ctx context.Context, opts *authCommandOptions) error {
 	// group before anything is written: a credential whose x-bill-to the
 	// gateway refuses on every request is worse than no credential, because
 	// nothing in it would say why.
-	groups, err := fetchGroups(ctx, rec.Gateway, tokens.AccessToken)
-	if err != nil {
-		return fmt.Errorf("verifying the new token against the gateway: %w", err)
+	var groups []billableGroup
+	if !connectors {
+		groups, err = fetchGroups(ctx, rec.Gateway, tokens.AccessToken)
+		if err != nil {
+			return fmt.Errorf("verifying the new token against the gateway: %w", err)
+		}
 	}
 	if rec.Group != "" && !slices.ContainsFunc(groups, func(g billableGroup) bool { return g.Name == rec.Group }) {
 		fmt.Fprintf(os.Stderr, "warning: the recorded billing group %q is no longer billable for this user.\n", rec.Group)
@@ -289,6 +295,9 @@ func authGroup(ctx context.Context, credsPath, name string, followDefault bool) 
 	rec, err := lenientLoadCredentials(credsPath)
 	if err != nil {
 		return err
+	}
+	if rec.Mode == modeConnectors {
+		return fmt.Errorf("this machine was enrolled with --mode connectors: it has no billing group")
 	}
 	if rec.Gateway == "" {
 		return fmt.Errorf("%s records no gateway, so the choices cannot be checked: run 'galopin enroll' first", credsPath)
@@ -434,8 +443,12 @@ func authStatus(credsPath string) error {
 	} else {
 		fmt.Printf("user: unknown\n")
 	}
-	fmt.Printf("billing mode: %s\n", statusBillingMode(rec))
-	if rec.Group == "" && !rec.BillToDefault {
+	if rec.Mode == modeConnectors {
+		fmt.Printf("mode: connectors (no coding agent, no billing group)\n")
+	} else {
+		fmt.Printf("billing mode: %s\n", statusBillingMode(rec))
+	}
+	if rec.Group == "" && !rec.BillToDefault && rec.Mode != modeConnectors {
 		fmt.Printf("warning: no billing group recorded; requests will be refused until one is picked ('galopin auth group NAME')\n")
 	}
 	switch {
