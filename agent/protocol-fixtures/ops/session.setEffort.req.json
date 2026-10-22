@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.setEffort"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.setEffort",
+		"args": {
+			"sessionId": "ses_01",
+			"effort": "high"
+		}
+	}
+}

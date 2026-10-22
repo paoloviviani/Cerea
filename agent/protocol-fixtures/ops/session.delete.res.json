@@ -1,0 +1,13 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "session.delete"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {}
+	}
+}

@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "C→M",
+		"op": "files.status"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "files.status",
+		"args": {
+			"workspaceId": "ws_01"
+		}
+	}
+}

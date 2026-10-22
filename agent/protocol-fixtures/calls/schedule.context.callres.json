@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "C→M",
+		"op": "schedule.context",
+		"null": true
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": true,
+		"result": {
+			"scheduledRunOf": null,
+			"enabled": true
+		}
+	}
+}

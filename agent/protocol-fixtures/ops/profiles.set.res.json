@@ -1,0 +1,23 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "profiles.set"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"default": "fast",
+			"profiles": {
+				"fast": {
+					"model": "pystino/claude-haiku"
+				},
+				"deep": {
+					"model": "pystino/claude-opus"
+				}
+			}
+		}
+	}
+}

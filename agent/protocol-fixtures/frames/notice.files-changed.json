@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "§9.5",
+		"direction": "M→C"
+	},
+	"frame": {
+		"type": "notice",
+		"scope": {
+			"workspaceId": "ws_01"
+		},
+		"event": {
+			"kind": "files.changed",
+			"paths": ["agent/main.go"],
+			"overflow": true
+		}
+	}
+}

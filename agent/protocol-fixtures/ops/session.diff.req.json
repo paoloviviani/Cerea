@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.diff"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.diff",
+		"args": {
+			"sessionId": "ses_01"
+		}
+	}
+}

@@ -10,6 +10,8 @@ the `opencode-enrollment` OIDC client id all keep their names below. Only
 the binary, its log prefixes, its on-disk state directory and its packaging
 are galopin now; nothing on the wire changed.
 
+**Shared fixtures.** `agent/protocol-fixtures/` holds a canonical JSON frame for every frame type, op, event kind and error code, read by both implementations' tests (galopin's Go tests and Cerea's `machineProtocol.fixtures.spec.ts`). A protocol change updates the fixtures in the same commit; the completeness checks on both sides fail until it does. See its README.
+
 ## 1. Shape
 
 ```

@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.setMode"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.setMode",
+		"args": {
+			"sessionId": "ses_01",
+			"modeId": "plan"
+		}
+	}
+}

@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "workspace.rename"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "workspace.rename",
+		"args": {
+			"workspaceId": "ws_01",
+			"title": "Cerea"
+		}
+	}
+}

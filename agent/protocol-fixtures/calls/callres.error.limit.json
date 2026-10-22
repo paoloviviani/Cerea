@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§5 (callres error)",
+		"direction": "C→M",
+		"errorCode": "limit"
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": false,
+		"error": {
+			"code": "limit",
+			"message": "Cerea refused this (limit)."
+		}
+	}
+}

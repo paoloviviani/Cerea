@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.children"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.children",
+		"args": {
+			"sessionId": "ses_01"
+		}
+	}
+}

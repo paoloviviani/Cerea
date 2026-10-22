@@ -1,0 +1,44 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "M→C",
+		"op": "files.list"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"path": ".",
+			"entries": [
+				{
+					"name": "main.go",
+					"path": "agent/main.go",
+					"type": "file",
+					"size": 120,
+					"mtime": "2026-10-22T09:00:00Z",
+					"revision": "801:42:120:1760000000000000000",
+					"hidden": false,
+					"ignored": false,
+					"redacted": false
+				},
+				{
+					"name": "link",
+					"path": "link",
+					"type": "symlink",
+					"size": 4,
+					"mtime": "2026-10-22T09:00:00Z",
+					"hidden": false,
+					"ignored": false,
+					"redacted": false,
+					"symlink": {
+						"target": "main.go",
+						"escapes": false,
+						"dangling": false
+					}
+				}
+			],
+			"truncated": false
+		}
+	}
+}

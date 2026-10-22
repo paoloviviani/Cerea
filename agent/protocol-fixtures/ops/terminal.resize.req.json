@@ -1,0 +1,18 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "C→M",
+		"op": "terminal.resize"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "terminal.resize",
+		"args": {
+			"terminalId": "term_01",
+			"cols": 100,
+			"rows": 40,
+			"claim": true
+		}
+	}
+}

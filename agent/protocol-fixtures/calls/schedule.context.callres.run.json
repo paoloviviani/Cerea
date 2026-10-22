@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "§5",
+		"direction": "C→M",
+		"op": "schedule.context",
+		"variant": "run"
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": true,
+		"result": {
+			"scheduledRunOf": "sch_01",
+			"enabled": true
+		}
+	}
+}

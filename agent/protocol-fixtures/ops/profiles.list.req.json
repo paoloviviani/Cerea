@@ -1,0 +1,13 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "profiles.list"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "profiles.list",
+		"args": {}
+	}
+}

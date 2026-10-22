@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "permission.reply",
+		"variant": "already-resolved"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"alreadyResolved": true
+		}
+	}
+}

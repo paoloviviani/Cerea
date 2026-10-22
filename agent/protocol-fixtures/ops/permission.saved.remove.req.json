@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "permission.saved.remove"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "permission.saved.remove",
+		"args": {
+			"sessionId": "ses_01",
+			"id": "sa_01"
+		}
+	}
+}

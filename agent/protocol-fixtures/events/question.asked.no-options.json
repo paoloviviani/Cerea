@@ -1,0 +1,26 @@
+{
+	"_meta": {
+		"spec": "§7",
+		"direction": "M→C",
+		"note": "a free-text question: options is [] (§7 Question)"
+	},
+	"frame": {
+		"type": "event",
+		"sessionId": "ses_01",
+		"epoch": "ep_9f2c",
+		"seq": 7,
+		"rootSessionId": "ses_01",
+		"event": {
+			"kind": "question.asked",
+			"request": {
+				"id": "que_02",
+				"questions": [
+					{
+						"question": "Anything else?",
+						"options": []
+					}
+				]
+			}
+		}
+	}
+}

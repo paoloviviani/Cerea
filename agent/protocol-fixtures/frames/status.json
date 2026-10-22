@@ -1,0 +1,10 @@
+{
+	"_meta": {
+		"spec": "§5 (status)",
+		"direction": "C→M"
+	},
+	"frame": {
+		"type": "status",
+		"status": "paired"
+	}
+}

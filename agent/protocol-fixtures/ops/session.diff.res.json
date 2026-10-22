@@ -1,0 +1,24 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "session.diff"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"files": [
+				{
+					"path": "a.go",
+					"status": "modified",
+					"before": "a",
+					"after": "b",
+					"additions": 1,
+					"deletions": 1
+				}
+			]
+		}
+	}
+}

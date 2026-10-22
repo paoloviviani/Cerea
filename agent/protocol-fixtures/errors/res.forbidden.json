@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§5 (res error), §6, §9.3",
+		"direction": "M→C",
+		"errorCode": "forbidden"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": false,
+		"error": {
+			"code": "forbidden",
+			"message": "terminals are denied by this machine's policy"
+		}
+	}
+}

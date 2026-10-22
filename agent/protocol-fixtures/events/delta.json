@@ -1,0 +1,21 @@
+{
+	"_meta": {
+		"spec": "§7",
+		"direction": "M→C"
+	},
+	"frame": {
+		"type": "event",
+		"sessionId": "ses_01",
+		"epoch": "ep_9f2c",
+		"seq": 7,
+		"rootSessionId": "ses_01",
+		"event": {
+			"kind": "delta",
+			"messageId": "msg_02",
+			"partId": "prt_01",
+			"role": "assistant",
+			"field": "text",
+			"delta": " more"
+		}
+	}
+}

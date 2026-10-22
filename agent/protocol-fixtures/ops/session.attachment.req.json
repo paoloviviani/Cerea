@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.attachment"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.attachment",
+		"args": {
+			"sessionId": "ses_01",
+			"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		}
+	}
+}

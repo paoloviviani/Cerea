@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "session.grantCoordination"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"keys": ["session_list", "session_read"]
+		}
+	}
+}

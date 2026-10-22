@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§5 (res error), §6, §9.3",
+		"direction": "M→C",
+		"errorCode": "too_large"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": false,
+		"error": {
+			"code": "too_large",
+			"message": "file is larger than 8 MiB"
+		}
+	}
+}

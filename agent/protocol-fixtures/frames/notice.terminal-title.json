@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§9.5",
+		"direction": "M→C"
+	},
+	"frame": {
+		"type": "notice",
+		"scope": {
+			"terminalId": "term_01"
+		},
+		"event": {
+			"kind": "terminal.title",
+			"title": "vim"
+		}
+	}
+}

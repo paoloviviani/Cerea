@@ -1,0 +1,76 @@
+{
+	"_meta": {
+		"spec": "§5 (hello), §4 (Policy), §9 (Machine)",
+		"direction": "M→C",
+		"note": "every field current galopin sends"
+	},
+	"frame": {
+		"type": "hello",
+		"protocol": 1,
+		"agent": {
+			"version": "0.20.0",
+			"os": "linux",
+			"arch": "amd64",
+			"hostname": "dev-box"
+		},
+		"backends": [
+			{
+				"id": "opencode",
+				"version": "1.18.32",
+				"capabilities": {
+					"diff": true,
+					"children": true,
+					"usage": true,
+					"compact": true,
+					"images": true,
+					"files": true,
+					"worktrees": false,
+					"questions": true,
+					"revert": true,
+					"revertFiles": true,
+					"efforts": true,
+					"commands": true,
+					"toolImages": true,
+					"agentTools": true,
+					"steer": true,
+					"permissions": true,
+					"coordinationGrant": true,
+					"scheduleTools": true,
+					"historyPaging": true
+				}
+			}
+		],
+		"machine": {
+			"capabilities": {
+				"files": true,
+				"fileSearch": false,
+				"fileWatch": false,
+				"fileWrite": false,
+				"terminal": true,
+				"delegateProfiles": true
+			}
+		},
+		"policy": {
+			"autoAccept": "denied",
+			"permission": {
+				"max": {
+					"bash": "ask"
+				}
+			},
+			"workspaceRoots": [],
+			"allowFreeModels": false,
+			"files": "read",
+			"fileDeny": [".env", "*.pem"],
+			"terminal": "allowed",
+			"maxTerminals": 8,
+			"commandShell": "allowed",
+			"agentTools": "allowed",
+			"projectConfig": "denied",
+			"backgroundSubagents": "allowed",
+			"warnings": ["opencode global config pins a model outside Pystino"]
+		},
+		"credential": {
+			"state": "ok"
+		}
+	}
+}

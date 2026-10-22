@@ -1,0 +1,63 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "permissions.pending"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"permissions": [
+				{
+					"sessionId": "ses_02",
+					"workspaceId": "ws_01",
+					"sessionTitle": "Explore the repo",
+					"rootId": "ses_01",
+					"request": {
+						"id": "per_01",
+						"sessionId": "ses_01",
+						"tool": "bash",
+						"title": "Run npm test",
+						"patterns": ["npm test"],
+						"metadata": {
+							"command": "npm test"
+						},
+						"callId": "call_01",
+						"messageId": "msg_02",
+						"always": ["npm *"]
+					}
+				}
+			],
+			"questions": [
+				{
+					"sessionId": "ses_01",
+					"workspaceId": "ws_01",
+					"sessionTitle": "Fix the flaky test",
+					"rootId": "ses_01",
+					"request": {
+						"id": "que_01",
+						"questions": [
+							{
+								"question": "Which database?",
+								"header": "Database",
+								"options": [
+									{
+										"label": "Postgres",
+										"description": "relational"
+									},
+									{
+										"label": "SQLite"
+									}
+								],
+								"multiple": true
+							}
+						],
+						"callId": "call_02"
+					}
+				}
+			]
+		}
+	}
+}

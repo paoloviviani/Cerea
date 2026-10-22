@@ -1,0 +1,26 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "backend.commands",
+		"variant": "null",
+		"note": "shell is a pointer without omitempty: an unknown shell fact is null on the wire",
+		"null": true
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"commands": [
+				{
+					"name": "mystery",
+					"source": "skill",
+					"origin": null,
+					"hints": [],
+					"shell": null
+				}
+			]
+		}
+	}
+}

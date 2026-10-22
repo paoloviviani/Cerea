@@ -1,0 +1,19 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "C→M",
+		"op": "files.read"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "files.read",
+		"args": {
+			"workspaceId": "ws_01",
+			"path": "agent/main.go",
+			"offset": 0,
+			"length": 1024,
+			"as": "text"
+		}
+	}
+}

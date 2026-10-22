@@ -1,0 +1,20 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "M→C",
+		"op": "schedule.list"
+	},
+	"frame": {
+		"type": "call",
+		"id": "c1",
+		"op": "schedule.list",
+		"sessionId": "ses_02",
+		"rootSessionId": "ses_01",
+		"caller": {
+			"workspaceId": "ws_01",
+			"permissionMode": "ask",
+			"coordination": ["session_list", "session_read", "session_send"]
+		},
+		"args": {}
+	}
+}

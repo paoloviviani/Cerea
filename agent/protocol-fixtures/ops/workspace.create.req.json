@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "workspace.create"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "workspace.create",
+		"args": {
+			"path": "/home/dev/cerea",
+			"title": "cerea"
+		}
+	}
+}

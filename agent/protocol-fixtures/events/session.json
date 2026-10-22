@@ -1,0 +1,48 @@
+{
+	"_meta": {
+		"spec": "§7",
+		"direction": "M→C",
+		"null": true
+	},
+	"frame": {
+		"type": "event",
+		"sessionId": "ses_01",
+		"epoch": "ep_9f2c",
+		"seq": 7,
+		"rootSessionId": "ses_01",
+		"event": {
+			"kind": "session",
+			"session": {
+				"id": "ses_01",
+				"workspaceId": "ws_01",
+				"backend": "opencode",
+				"title": "Fix the flaky test",
+				"status": "idle",
+				"pendingPermissions": 0,
+				"modeId": "build",
+				"modelId": "pystino/claude-sonnet",
+				"parentId": null,
+				"permissionMode": "ask",
+				"rootId": "ses_01",
+				"effort": "high",
+				"childSummary": {
+					"children": 1,
+					"running": 0,
+					"waiting": 0
+				},
+				"createdAt": "2026-10-22T09:00:00Z",
+				"updatedAt": "2026-10-22T09:05:00Z",
+				"usage": {
+					"input": 1200,
+					"output": 340,
+					"reasoning": 80,
+					"cacheRead": 900,
+					"cacheWrite": 0,
+					"cost": 0.0123,
+					"contextUsed": 2520,
+					"contextMax": 200000
+				}
+			}
+		}
+	}
+}

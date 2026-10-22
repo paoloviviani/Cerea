@@ -1,0 +1,32 @@
+{
+	"_meta": {
+		"spec": "§7",
+		"direction": "M→C",
+		"note": "nothing optional set: modeId, modelId, parentId and usage are null, not absent (§6 Types)",
+		"null": true
+	},
+	"frame": {
+		"type": "event",
+		"sessionId": "ses_01",
+		"epoch": "ep_9f2c",
+		"seq": 7,
+		"rootSessionId": "ses_01",
+		"event": {
+			"kind": "session",
+			"session": {
+				"id": "ses_03",
+				"workspaceId": "ws_01",
+				"backend": "opencode",
+				"title": "",
+				"status": "idle",
+				"pendingPermissions": 0,
+				"modeId": null,
+				"modelId": null,
+				"parentId": null,
+				"createdAt": "2026-10-22T09:00:00Z",
+				"updatedAt": "2026-10-22T09:00:00Z",
+				"usage": null
+			}
+		}
+	}
+}

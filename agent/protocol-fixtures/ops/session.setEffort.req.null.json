@@ -1,0 +1,19 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.setEffort",
+		"variant": "null",
+		"note": "null clears the effort (the model's default)",
+		"null": true
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.setEffort",
+		"args": {
+			"sessionId": "ses_01",
+			"effort": null
+		}
+	}
+}

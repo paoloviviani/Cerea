@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.revert"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.revert",
+		"args": {
+			"sessionId": "ses_01",
+			"messageId": "msg_01"
+		}
+	}
+}

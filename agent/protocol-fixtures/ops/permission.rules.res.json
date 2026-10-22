@@ -1,0 +1,45 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "permission.rules"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"agent": "build",
+			"mode": "ask",
+			"rules": [
+				{
+					"permission": "bash",
+					"pattern": "*",
+					"action": "ask",
+					"source": "floor"
+				},
+				{
+					"permission": "bash",
+					"pattern": "*",
+					"action": "ask",
+					"source": "ceiling"
+				}
+			],
+			"savedApprovals": [
+				{
+					"id": "sa_01",
+					"sessionId": "ses_01",
+					"permission": "bash",
+					"patterns": ["npm test"],
+					"removable": true,
+					"grantedAt": "2026-10-22T09:00:00Z"
+				}
+			],
+			"ceiling": {
+				"bash": "ask"
+			},
+			"coordination": ["session_list"],
+			"safeDirs": ["~/notes"]
+		}
+	}
+}

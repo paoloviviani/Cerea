@@ -1,0 +1,19 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "C→M",
+		"op": "terminal.open"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "terminal.open",
+		"args": {
+			"workspaceId": "ws_01",
+			"cwd": "/home/dev/cerea",
+			"cols": 120,
+			"rows": 30,
+			"title": "zsh"
+		}
+	}
+}

@@ -1,0 +1,14 @@
+{
+	"_meta": {
+		"spec": "§5 (welcome)",
+		"direction": "C→M"
+	},
+	"frame": {
+		"type": "welcome",
+		"deviceId": "65f1a2b3c4d5e6f708192a3b",
+		"status": "paired",
+		"features": {
+			"machineCalls": ["schedule"]
+		}
+	}
+}

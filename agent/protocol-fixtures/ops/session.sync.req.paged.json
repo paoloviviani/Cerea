@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.sync",
+		"variant": "paged"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.sync",
+		"args": {
+			"sessionId": "ses_01",
+			"limit": 50
+		}
+	}
+}

@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "C→M",
+		"op": "files.list"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "files.list",
+		"args": {
+			"workspaceId": "ws_01",
+			"path": ".",
+			"ignored": true
+		}
+	}
+}

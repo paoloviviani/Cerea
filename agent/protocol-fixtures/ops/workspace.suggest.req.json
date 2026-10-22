@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "workspace.suggest"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "workspace.suggest",
+		"args": {
+			"prefix": "/home/dev/ce"
+		}
+	}
+}
