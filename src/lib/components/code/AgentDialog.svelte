@@ -135,29 +135,37 @@
 				void handleCreate();
 			}}
 		>
-			<label class={s.LABEL} for="agent-provider">Provider</label>
-			{#if busy && providers.length === 0}
-				<p class="text-sm text-ink-muted">Reading the daemon's providers…</p>
-			{:else}
-				<select
-					id="agent-provider"
-					class={s.INPUT}
-					style="font-size: 16px;"
-					bind:value={provider}
-					disabled={busy || providers.length === 0}
-				>
-					{#if providers.length === 0}
-						<option value="opencode">opencode</option>
-					{/if}
-					{#each providers as p (p.id)}
-						<option value={p.id}>{p.id}</option>
-					{/each}
-				</select>
-				<p class={s.HINT}>
-					{providers.length > 0
-						? "As configured on your daemon."
-						: "No providers reported available; opencode is the default."}
+			{#if !busy && providers.length <= 1}
+				<!-- galopin runs one backend per machine (its --backend flag), so there is
+				     usually nothing to choose: name it rather than offer a one-item list. -->
+				<p class="text-sm text-ink-muted" data-testid="agent-backend">
+					Runs on {providers[0]?.id ?? "opencode"}
 				</p>
+			{:else}
+				<label class={s.LABEL} for="agent-provider">Provider</label>
+				{#if busy && providers.length === 0}
+					<p class="text-sm text-ink-muted">Reading the daemon's providers…</p>
+				{:else}
+					<select
+						id="agent-provider"
+						class={s.INPUT}
+						style="font-size: 16px;"
+						bind:value={provider}
+						disabled={busy || providers.length === 0}
+					>
+						{#if providers.length === 0}
+							<option value="opencode">opencode</option>
+						{/if}
+						{#each providers as p (p.id)}
+							<option value={p.id}>{p.id}</option>
+						{/each}
+					</select>
+					<p class={s.HINT}>
+						{providers.length > 0
+							? "As configured on your daemon."
+							: "No providers reported available; opencode is the default."}
+					</p>
+				{/if}
 			{/if}
 
 			<label class="{s.LABEL} mt-4" for="agent-title-input">Title (optional)</label>
