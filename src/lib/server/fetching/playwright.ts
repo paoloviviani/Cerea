@@ -208,7 +208,7 @@ async function extractMainContent(pageHandle: Page): Promise<ReadabilityArticle 
  * `render` ever runs, for every caller.
  */
 async function withRenderedPage<T>(url: string, render: (page: Page) => Promise<T>): Promise<T> {
-	if (!isValidUrl(url)) {
+	if (!isValidUrl(url, { blockInternalNetworks: true })) {
 		throw new Error("Invalid or unsafe URL (only HTTPS is supported).");
 	}
 

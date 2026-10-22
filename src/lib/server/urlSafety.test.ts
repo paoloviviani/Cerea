@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { env } from "$env/dynamic/private";
-import { isValidUrl, ssrfSafeFetch } from "./urlSafety";
+import { contentFetch, isValidUrl, mcpFetch, ssrfSafeFetch } from "./urlSafety";
 
 describe("isValidUrl", () => {
 	it("allows normal HTTPS URLs", () => {
@@ -145,7 +145,7 @@ describe("isValidUrl with the MCP_ALLOW_INSECURE_URLS escape hatch", () => {
 		expect(isValidUrl("https://example.com/mcp", { allowInsecure: true })).toBe(true);
 	});
 
-	it("keeps link-local, 0.0.0.0/8 and CGNAT blocked when set, over either scheme", () => {
+	it("keeps link-local and 0.0.0.0/8 blocked when set, over either scheme", () => {
 		env.MCP_ALLOW_INSECURE_URLS = "true";
 		expect(isValidUrl("http://169.254.169.254/latest/meta-data/", { allowInsecure: true })).toBe(
 			false
@@ -155,7 +155,15 @@ describe("isValidUrl with the MCP_ALLOW_INSECURE_URLS escape hatch", () => {
 		);
 		expect(isValidUrl("http://[fe80::1]/mcp", { allowInsecure: true })).toBe(false);
 		expect(isValidUrl("http://0.0.0.0:8789/mcp", { allowInsecure: true })).toBe(false);
-		expect(isValidUrl("http://100.64.0.1:8789/mcp", { allowInsecure: true })).toBe(false);
+	});
+
+	it("lets a local MCP server on a mesh VPN (100.64.0.0/10) use http when set", () => {
+		env.MCP_ALLOW_INSECURE_URLS = "true";
+		expect(isValidUrl("http://100.124.156.101:8789/mcp", { allowInsecure: true })).toBe(true);
+		// Without the flag, https to it is allowed and http is not.
+		env.MCP_ALLOW_INSECURE_URLS = "";
+		expect(isValidUrl("http://100.124.156.101:8789/mcp", { allowInsecure: true })).toBe(false);
+		expect(isValidUrl("https://100.124.156.101/mcp", { allowInsecure: true })).toBe(true);
 	});
 
 	it("leaves callers that do not opt in strict even when set", () => {
@@ -172,5 +180,71 @@ describe("isValidUrl with the MCP_ALLOW_INSECURE_URLS escape hatch", () => {
 		expect(isValidUrl("file:///etc/passwd", { allowInsecure: true })).toBe(false);
 		expect(isValidUrl("not-a-url", { allowInsecure: true })).toBe(false);
 		expect(isValidUrl("", { allowInsecure: true })).toBe(false);
+	});
+});
+
+describe("content fetching refuses the internal networks (10/8, 100.64/10)", () => {
+	const original = env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS;
+	afterEach(() => {
+		env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS = original;
+	});
+
+	it("rejects a 10.x literal for web_fetch and attach-from-URL, but not by default", () => {
+		expect(isValidUrl("https://10.1.2.3/doc", { blockInternalNetworks: true })).toBe(false);
+		expect(isValidUrl("https://[::ffff:10.1.2.3]/doc", { blockInternalNetworks: true })).toBe(
+			false
+		);
+		// Mesh VPN addresses (Tailscale, NetBird): carrier-grade NAT, 100.64.0.0/10.
+		expect(isValidUrl("https://100.124.156.101/doc", { blockInternalNetworks: true })).toBe(false);
+		// The shared check (MCP connectors) lets both through.
+		expect(isValidUrl("https://10.1.2.3/doc")).toBe(true);
+		expect(isValidUrl("https://100.124.156.101/mcp")).toBe(true);
+	});
+
+	it("blocks a 10.x literal before connecting", async () => {
+		await expect(contentFetch("https://10.1.2.3:9911/")).rejects.toThrow(/unsafe IP \(SSRF\)/);
+	});
+
+	it("blocks a mesh VPN literal before connecting", async () => {
+		await expect(contentFetch("https://100.100.1.1:9911/")).rejects.toThrow(/unsafe IP \(SSRF\)/);
+	});
+
+	it("keeps Alibaba Cloud's metadata address blocked everywhere, MCP included", () => {
+		expect(isValidUrl("https://100.100.100.200/latest/meta-data/")).toBe(false);
+		expect(isValidUrl("https://[::ffff:100.100.100.200]/")).toBe(false);
+		env.MCP_ALLOW_INSECURE_URLS = "true";
+		expect(isValidUrl("http://100.100.100.200/latest/meta-data/", { allowInsecure: true })).toBe(
+			false
+		);
+		env.MCP_ALLOW_INSECURE_URLS = "";
+		env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS = "true";
+		expect(isValidUrl("https://100.100.100.200/", { blockInternalNetworks: true })).toBe(false);
+	});
+
+	it("blocks the metadata address before connecting, for MCP transports too", async () => {
+		await expect(mcpFetch("https://100.100.100.200:9911/")).rejects.toThrow(/unsafe IP \(SSRF\)/);
+	});
+
+	it("still refuses addresses just outside the mesh range", () => {
+		expect(isValidUrl("https://100.128.0.1/")).toBe(true);
+		expect(isValidUrl("https://100.63.255.255/")).toBe(true);
+	});
+
+	it("leaves MCP transports able to reach 10.x", async () => {
+		// Not refused by the guard: it fails later, on the network, or not at all.
+		await expect(
+			mcpFetch("https://10.255.255.1:9/", { signal: AbortSignal.timeout(300) })
+		).rejects.not.toThrow(/unsafe IP \(SSRF\)/);
+	});
+
+	it("can be switched back off for a deployment that fetches from 10.x hosts", () => {
+		env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS = "true";
+		expect(isValidUrl("https://10.1.2.3/doc", { blockInternalNetworks: true })).toBe(true);
+	});
+
+	it("never relaxes the other private ranges", () => {
+		env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS = "true";
+		expect(isValidUrl("https://192.168.1.1/", { blockInternalNetworks: true })).toBe(false);
+		expect(isValidUrl("https://169.254.169.254/", { blockInternalNetworks: true })).toBe(false);
 	});
 });
