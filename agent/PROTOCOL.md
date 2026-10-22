@@ -560,11 +560,13 @@ op other than `mcp.*` with `unsupported`.
 
 ### 10.3 Operations and frames
 
-| Op          | Args          | Result                                                                                                                                                                                                                                                                                                                                                                                        |
-| ----------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mcp.list`  | `{}`          | `{servers: [McpServer]}`                                                                                                                                                                                                                                                                                                                                                                      |
-| `mcp.open`  | `{server}`    | `{channelId}`: a new channel to that server. stdio: a new process per channel. http: a new MCP session per channel. `not_found` for an unknown name, `forbidden` for a `disabled` or `invalid` server, `unavailable` when it cannot start (the result's message carries the reason: the exit status and the last line of stderr, or the HTTP error) or the server already has 4 open channels |
-| `mcp.close` | `{channelId}` | `{}` (an unknown or already closed channel is `{}` too)                                                                                                                                                                                                                                                                                                                                       |
+| Op                  | Args                    | Result                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcp.list`          | `{}`                    | `{servers: [McpServer]}`                                                                                                                                                                                                                                                                                                                                                                      |
+| `mcp.open`          | `{server}`              | `{channelId}`: a new channel to that server. stdio: a new process per channel. http: a new MCP session per channel. `not_found` for an unknown name, `forbidden` for a `disabled` or `invalid` server, `unavailable` when it cannot start (the result's message carries the reason: the exit status and the last line of stderr, or the HTTP error) or the server already has 4 open channels |
+| `mcp.close`         | `{channelId}`           | `{}` (an unknown or already closed channel is `{}` too)                                                                                                                                                                                                                                                                                                                                       |
+| `mcp.login`         | `{server, redirectUri}` | `{authorizationUrl}`: starts the OAuth sign-in of an http server (§10.5). `not_found`, `invalid` for a server that needs no sign-in, `unavailable` when its metadata cannot be read                                                                                                                                                                                                           |
+| `mcp.loginComplete` | `{server, code, state}` | `{}` once galopin has exchanged the code and stored the tokens; `invalid` for an unknown or expired `state`, `backend` when the token endpoint refuses (its error in the message)                                                                                                                                                                                                             |
 
 `McpServer = {name, transport: "stdio"|"http"|"sse", description: string|null, state:
 "ready"|"disabled"|"invalid"|"needs-login", detail: string|null, allowedTools: string[]|null,
@@ -608,14 +610,27 @@ outcome (`ok`, `error`, `refused`). Never the arguments or the result.
 - stdio servers get their secrets from `env` in `mcp.json`; they stay on the machine.
 - http servers send the configured `headers`.
 - An http server that asks for OAuth (401 with `WWW-Authenticate`, MCP authorization) is
-  signed in on the machine: `galopin connectors login <name>` runs the authorization-code
-  flow with PKCE and a loopback redirect, and keeps the tokens in galopin's state directory,
-  refreshing them as needed. Until then the server is `needs-login` and `mcp.open` answers
-  `forbidden` with a sentence naming the command. Cerea never sees the tokens. galopin
-  learns of the 401 on the first `mcp.open` of an http server (it sends one `ping`, whose
-  answer it ignores but for a 401 with `WWW-Authenticate` or a connection error, which
-  becomes `forbidden` or `unavailable`), and again on any later request; a sign-in made by
-  `galopin connectors login` while galopin runs clears the state without a restart.
+  `needs-login` until signed in, and `mcp.open` answers `forbidden` until then. The sign-in
+  is started from the chat, like a remote connector's, but the tokens live on the machine:
+  1. Cerea calls `mcp.login {server, redirectUri}`, where `redirectUri` is Cerea's own
+     callback (`<origin><base>/api/v2/local-connectors/oauth/callback`).
+  2. galopin reads the protected-resource and authorization-server metadata, registers a
+     client dynamically when the server offers it (with that `redirectUri`), makes a PKCE
+     verifier and a `state`, keeps both in memory for 10 minutes, and answers the
+     `authorizationUrl`.
+  3. Cerea sends the person's browser there. The provider redirects back to Cerea's
+     callback with `code` and `state`; Cerea checks that the signed-in person owns the
+     machine, and calls `mcp.loginComplete {server, code, state}`.
+  4. galopin exchanges the code at the token endpoint itself (it can reach the machine's
+     `localhost`), stores the tokens 0600 in its state directory and refreshes them as
+     needed. Cerea never sees an access or refresh token.
+- A provider that accepts only pre-registered redirect addresses cannot be signed in this
+  way; `galopin connectors login <name>` does the same flow on the machine with a loopback
+  redirect, as a fallback.
+- galopin learns that an http server wants a sign-in on its first `mcp.open` (it sends one
+  `ping`, whose answer it ignores but for a 401 with `WWW-Authenticate` or a connection
+  error, which become `forbidden` and `unavailable`) and on any later request; a sign-in
+  made by `galopin connectors login` while galopin runs clears the state without a restart.
 - Anything the server itself asks of the person over MCP (elicitation, including its URL
   form) passes through like any other message and reaches the chat's usual prompts.
 

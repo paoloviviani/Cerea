@@ -1,0 +1,13 @@
+{
+	"_meta": {
+		"spec": "§10.3, §10.5",
+		"direction": "M→C",
+		"op": "mcp.loginComplete"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r5",
+		"ok": true,
+		"result": {}
+	}
+}
