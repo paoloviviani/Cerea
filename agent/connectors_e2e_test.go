@@ -39,7 +39,7 @@ func connectorsConfig(t *testing.T) string {
 	}}`
 }
 
-// connectorsRig is a connectors-only machine (run --backend none) linked to a
+// connectorsRig is a connectors-only machine (run --connectors-only) linked to a
 // scripted Cerea.
 type connectorsRig struct {
 	t      *testing.T
@@ -300,7 +300,7 @@ func TestAgentHelloSaysAgentMode(t *testing.T) {
 	}
 }
 
-// enroll --mode connectors takes the same sign-in and writes the credential,
+// enroll --connectors-only takes the same sign-in and writes the credential,
 // but no opencode.json, no gateway, no billing group; run then defaults to no
 // backend.
 func TestEnrollConnectorsWritesNoOpencodeConfig(t *testing.T) {
@@ -308,12 +308,12 @@ func TestEnrollConnectorsWritesNoOpencodeConfig(t *testing.T) {
 	root := t.TempDir()
 	creds := filepath.Join(root, "galopin", "credentials.json")
 	opts := &enrollOptions{
-		mode: "connectors", discover: true, issuer: srv.URL, clientID: "opencode-enrollment",
+		connectorsOnly: true, discover: true, issuer: srv.URL, clientID: "opencode-enrollment",
 		device: true, creds: creds, cerea: "https://cerea.example",
 		shimPort: defaultShimPort, yes: true, maxTerminals: 8,
 	}
 	if err := enroll(context.Background(), opts); err != nil {
-		t.Fatalf("enroll --mode connectors: %v", err)
+		t.Fatalf("enroll --connectors-only: %v", err)
 	}
 	got, err := loadCredentials(creds)
 	if err != nil {
@@ -326,39 +326,47 @@ func TestEnrollConnectorsWritesNoOpencodeConfig(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Join(root, "galopin"))
 	for _, e := range entries {
 		if e.Name() == opencodeConfigFileName || e.Name() == policyFileName {
-			t.Errorf("enroll --mode connectors wrote %s", e.Name())
+			t.Errorf("enroll --connectors-only wrote %s", e.Name())
 		}
 	}
 	if _, err := os.Stat(filepath.Join(root, "galopin", machineIDFileName)); err != nil {
 		t.Errorf("no machine id: %v", err)
 	}
-	if k := resolveBackendKind("", got); k != backendNone {
+	if k := resolveBackendKind("", false, got); k != backendNone {
 		t.Errorf("run's default backend = %q, want none", k)
 	}
-	if k := resolveBackendKind("acp", got); k != "acp" {
+	if k := resolveBackendKind("", true, &credentials{}); k != backendNone {
+		t.Errorf("--connectors-only on an agent machine = %q, want none", k)
+	}
+	if k := resolveBackendKind("acp", false, got); k != "acp" {
 		t.Errorf("an explicit --backend must win: %q", k)
 	}
-	if k := resolveBackendKind("", &credentials{}); k != "" {
+	if k := resolveBackendKind("", false, &credentials{}); k != "" {
 		t.Errorf("an agent machine keeps the opencode default: %q", k)
 	}
 }
 
-func TestEnrollRefusesAnUnknownMode(t *testing.T) {
-	err := runEnroll([]string{"--mode", "nope", "--creds", filepath.Join(t.TempDir(), "c.json")})
-	if err == nil || !strings.Contains(err.Error(), "--mode") {
-		t.Fatalf("err = %v", err)
+// run --connectors-only, whole: runAgent with a connectors credential starts no
+// backend (there is no opencode here to start), dials Cerea with the
+// connectors hello and answers mcp.list.
+func TestRunConnectorsOnlyConflicts(t *testing.T) {
+	for _, args := range [][]string{
+		{"--connectors-only", "--backend", "acp"},
+		{"--connectors-only", "--acp-command", "x"},
+		{"--backend", "none"},
+	} {
+		if err := runRun(args); err == nil {
+			t.Errorf("run %v: want an error", args)
+		}
 	}
 }
 
-// run --backend none, whole: runAgent with a connectors credential starts no
-// backend (there is no opencode here to start), dials Cerea with the
-// connectors hello and answers mcp.list.
-func TestRunBackendNoneServesConnectors(t *testing.T) {
+func TestRunConnectorsOnlyServesConnectors(t *testing.T) {
 	idp := fakeEnrollServer(t)
 	dir := t.TempDir()
 	creds := filepath.Join(dir, "credentials.json")
 	if err := enroll(context.Background(), &enrollOptions{
-		mode: "connectors", issuer: idp.URL, clientID: "opencode-enrollment", device: true, creds: creds,
+		connectorsOnly: true, issuer: idp.URL, clientID: "opencode-enrollment", device: true, creds: creds,
 		shimPort: defaultShimPort, yes: true, maxTerminals: 8,
 	}); err != nil {
 		t.Fatal(err)

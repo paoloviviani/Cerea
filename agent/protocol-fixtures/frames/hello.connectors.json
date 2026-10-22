@@ -3,7 +3,7 @@
 		"spec": "§5 (hello), §10.2",
 		"direction": "M→C",
 		"variant": "connectors",
-		"note": "galopin run --backend none"
+		"note": "galopin run --connectors-only"
 	},
 	"frame": {
 		"type": "hello",
