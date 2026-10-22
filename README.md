@@ -13,7 +13,7 @@ artifacts, Python in the browser, and coding agents on your own machines.
 **The name.** _Cerea_ is a Turinese _modo di dire_: a historic, affectionate
 greeting that means both _buongiorno_ and _arrivederci_.
 
-![Cerea](docs/assets/cerea.png)
+![Cerea](docs/assets/cerea-chat-light.webp)
 
 ## Cerea and Pystino
 
@@ -121,7 +121,8 @@ its own OIDC credential, and is confirmed by its owner in `/code`. What a
 machine allows (the permission ceiling, workspace roots, files, the terminal) is fixed on
 the machine at enroll time; the terminal also needs `CODE_TERMINAL_ENABLED=true`
 on the deployment. See [docs/code-panel.md](docs/code-panel.md) (operators),
-[docs/agent-machines.md](docs/agent-machines.md) (users) and
+[docs/agent-machines.md](docs/agent-machines.md) (users; the
+[reference](docs/agent-machines-reference.md) has the depth) and
 [agent/PROTOCOL.md](agent/PROTOCOL.md) (the wire protocol).
 
 ## Development
@@ -163,7 +164,8 @@ The documentation is a [mkdocs](https://www.mkdocs.org) site built from `docs/`:
 [chat](docs/chat.md) · [artifacts](docs/artifacts.md) ·
 [pyodide](docs/pyodide.md) · [skills](docs/skills.md) ·
 [knowledge](docs/knowledge.md) · [connectors](docs/connectors.md) ·
-[agent-machines](docs/agent-machines.md) · [browser](docs/browser.md) ·
+[agent-machines](docs/agent-machines.md) ·
+[agent-machines-reference](docs/agent-machines-reference.md) · [browser](docs/browser.md) ·
 [deploy](docs/deploy.md) · [deploy-kit](docs/deploy-kit.md) ·
 [configuration](docs/configuration.md) · [chat-admin](docs/chat-admin.md) ·
 [code-panel](docs/code-panel.md) · [reference](docs/reference.md) ·

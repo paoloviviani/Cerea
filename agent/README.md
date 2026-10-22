@@ -189,7 +189,7 @@ loginctl enable-linger "$USER"     # keep it up while logged out
 The unit runs `~/.local/bin/galopin run` and does not restart after exit
 code 78 (the machine was revoked). After installing a new binary,
 `systemctl --user restart galopin`. Full flag reference, the same steps in
-more detail, revocation and re-enrollment: `docs/agent-machines.md` at the
+more detail, revocation and re-enrollment: `docs/agent-machines-reference.md` at the
 Cerea repository root.
 
 ## Machine powers: files and a terminal (PROTOCOL.md §9)

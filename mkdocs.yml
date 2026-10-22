@@ -60,6 +60,11 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
+# An old deep link into the pre-split agent-machines page lands on the
+# reference page when its anchor moved there (see the script's header).
+extra_javascript:
+  - assets/agent-machines-redirect.js
+
 markdown_extensions:
   - admonition
   - attr_list
@@ -104,7 +109,9 @@ nav:
       - Notifications: notifications.md
       - "Knowledge and projects": knowledge.md
       - Connectors: connectors.md
-      - "Agent machines": agent-machines.md
+      - "Agent machines":
+          - "Getting started": agent-machines.md
+          - "Reference": agent-machines-reference.md
       - "The headless browser": browser.md
       - "Office previews": office.md
   - Operating Cerea:
