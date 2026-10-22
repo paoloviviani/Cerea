@@ -28,6 +28,8 @@ const (
 	scheduleWindow     = 10 * time.Minute
 	// maxScheduleName bounds a schedule's name.
 	maxScheduleName = 200
+	// maxScheduleRuns bounds maxOccurrences, as Cerea does (1 to 100000).
+	maxScheduleRuns = 100000
 )
 
 // machineCaller is the link's call half (link.Link), an interface so the
@@ -267,6 +269,10 @@ type scheduleFields struct {
 	AgentMode      *string          `json:"agentMode,omitempty"`
 	Coordination   *[]string        `json:"coordination,omitempty"`
 	Paused         *bool            `json:"paused,omitempty"`
+	// MaxOccurrences stops the schedule after that many runs. ClearMax (update
+	// only) removes an earlier limit: the model wrote null or 0.
+	MaxOccurrences *int `json:"maxOccurrences,omitempty"`
+	ClearMax       bool `json:"-"`
 }
 
 // decodeObject reads a JSON object, refusing any key not in allowed.
@@ -339,6 +345,25 @@ func readFields(m map[string]json.RawMessage) (scheduleFields, error) {
 			return f, refuse("paused must be true or false")
 		}
 		f.Paused = &b
+	}
+	if v, ok := m["maxOccurrences"]; ok {
+		if string(v) == "null" {
+			f.ClearMax = true
+		} else {
+			var n float64
+			if json.Unmarshal(v, &n) != nil || n != float64(int(n)) {
+				return f, refuse("maxOccurrences must be a whole number of runs (1 to %d), or 0 for no limit", maxScheduleRuns)
+			}
+			switch {
+			case n == 0:
+				f.ClearMax = true
+			case n < 1 || n > maxScheduleRuns:
+				return f, refuse("maxOccurrences must be between 1 and %d (0 for no limit)", maxScheduleRuns)
+			default:
+				i := int(n)
+				f.MaxOccurrences = &i
+			}
+		}
 	}
 	if f.Name != nil && len(*f.Name) > maxScheduleName {
 		return f, refuse("name is longer than %d characters", maxScheduleName)
@@ -429,6 +454,11 @@ func (at *agentTools) cardFields(tc *toolCaller, f scheduleFields) map[string]an
 	if f.Coordination != nil {
 		out["coordination"] = *f.Coordination
 	}
+	if f.MaxOccurrences != nil {
+		out["maxOccurrences"] = *f.MaxOccurrences
+	} else if f.ClearMax {
+		out["maxOccurrences"] = nil
+	}
 	if f.Prompt != nil {
 		out["prompt"] = *f.Prompt
 	}
@@ -495,7 +525,7 @@ func (at *agentTools) scheduleList(ctx context.Context, tc *toolCaller, call bac
 // schedule's name for the audit row.
 func (at *agentTools) scheduleCreate(ctx context.Context, tc *toolCaller, call backend.ToolCall) (string, string, error) {
 	m, err := decodeObject(call.Args, "the arguments",
-		"name", "prompt", "recurrence", "timezone", "workspaceId", "session", "permissionMode", "agentMode", "coordination")
+		"name", "prompt", "recurrence", "timezone", "workspaceId", "session", "permissionMode", "agentMode", "coordination", "maxOccurrences")
 	if err != nil {
 		return "", "", err
 	}
@@ -503,6 +533,7 @@ func (at *agentTools) scheduleCreate(ctx context.Context, tc *toolCaller, call b
 	if err != nil {
 		return "", "", err
 	}
+	f.ClearMax = false // nothing to clear on a new schedule: 0 or null is "no limit"
 	if f.Name == nil {
 		return "", "", refuse("name is required: say what the schedule does, it outlives this session")
 	}
@@ -555,6 +586,9 @@ func (at *agentTools) scheduleCreate(ctx context.Context, tc *toolCaller, call b
 	if f.Coordination != nil && len(*f.Coordination) > 0 {
 		args["coordination"] = *f.Coordination
 	}
+	if f.MaxOccurrences != nil {
+		args["maxOccurrences"] = *f.MaxOccurrences
+	}
 	raw, err := at.cereaCall(ctx, tc, "create", args)
 	if err != nil {
 		return "", ref, err
@@ -573,7 +607,7 @@ func (at *agentTools) scheduleUpdate(ctx context.Context, tc *toolCaller, call b
 		return "", "", refuse("id is required (a schedule id from schedule_list)")
 	}
 	cm, err := decodeObject(m["changes"], "changes",
-		"name", "prompt", "recurrence", "timezone", "workspaceId", "permissionMode", "agentMode", "coordination", "paused")
+		"name", "prompt", "recurrence", "timezone", "workspaceId", "permissionMode", "agentMode", "coordination", "paused", "maxOccurrences")
 	if err != nil {
 		return "", id, err
 	}

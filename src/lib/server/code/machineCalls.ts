@@ -77,7 +77,8 @@ const WORD: Record<PermissionMode, string> = { deny: "Deny", ask: "Ask", allow: 
 
 const coordinationArg = z.array(z.enum(COORDINATION_KEYS)).max(COORDINATION_KEYS.length);
 
-const createArgs = z.object({
+/** Exported for the shared fixtures spec: the call fixtures' args must parse. */
+export const createArgs = z.object({
 	name: z.string(),
 	prompt: z.string(),
 	recurrence: recurrenceSchema,
@@ -90,7 +91,7 @@ const createArgs = z.object({
 	maxOccurrences: z.number().int().min(1).max(100_000).optional(),
 });
 
-const updateArgs = z.object({
+export const updateArgs = z.object({
 	id: z.string().min(1).max(64),
 	name: z.string().optional(),
 	prompt: z.string().optional(),
@@ -228,6 +229,10 @@ function listItem(schedule: Schedule, self: boolean) {
 		// No stored mode: the executor's own default for a new session.
 		agentMode: target.modeId ?? "plan",
 		coordination: coordinationKeys(target),
+		// Absent = repeats for ever; firedCount is what the limit counts.
+		...(schedule.maxOccurrences !== undefined
+			? { maxOccurrences: schedule.maxOccurrences, firedCount: schedule.firedCount ?? 0 }
+			: {}),
 		createdBy:
 			by?.kind === "agent"
 				? { kind: "agent", sessionId: by.sessionId, title: by.title }

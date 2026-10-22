@@ -1,0 +1,35 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "M→C",
+		"op": "schedule.create",
+		"variant": "max-occurrences"
+	},
+	"frame": {
+		"type": "call",
+		"id": "c1",
+		"op": "schedule.create",
+		"sessionId": "ses_02",
+		"rootSessionId": "ses_01",
+		"caller": {
+			"workspaceId": "ws_01",
+			"permissionMode": "ask",
+			"coordination": ["session_list", "session_read", "session_send"]
+		},
+		"args": {
+			"name": "Nightly triage",
+			"prompt": "triage",
+			"recurrence": {
+				"type": "daily",
+				"at": "09:00"
+			},
+			"workspaceId": "ws_01",
+			"session": "new",
+			"permissionMode": "ask",
+			"timezone": "Europe/Rome",
+			"agentMode": "build",
+			"coordination": ["session_list", "session_read", "session_send"],
+			"maxOccurrences": 5
+		}
+	}
+}

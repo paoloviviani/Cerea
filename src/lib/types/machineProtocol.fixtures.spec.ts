@@ -25,6 +25,7 @@ import {
 	type NormalizedEvent,
 	type Transcript,
 } from "$lib/types/machineProtocol";
+import { createArgs, updateArgs } from "$lib/server/code/machineCalls";
 import {
 	eventToUpdates,
 	newThinkingState,
@@ -194,6 +195,27 @@ describe("protocol fixtures: machine to Cerea frames parse with the production s
 			expect(parsed).toEqual(f.frame);
 		});
 	}
+});
+
+describe("protocol fixtures: schedule call args parse with Cerea's own schemas", () => {
+	for (const f of ofType("call")) {
+		const op = f.frame.op as string;
+		if (op !== "schedule.create" && op !== "schedule.update") continue;
+		it(f.file, () => {
+			const schema = op === "schedule.create" ? createArgs : updateArgs;
+			expect(schema.safeParse(f.frame.args).success).toBe(true);
+		});
+	}
+	it("a maxOccurrences variant exists for create, update and update-clear", () => {
+		const args = ofType("call").map((f) => f.frame.args as Record<string, unknown>);
+		expect(args.some((a) => a.name !== undefined && typeof a.maxOccurrences === "number")).toBe(
+			true
+		);
+		expect(args.some((a) => a.name === undefined && typeof a.maxOccurrences === "number")).toBe(
+			true
+		);
+		expect(args.some((a) => a.maxOccurrences === null)).toBe(true);
+	});
 });
 
 describe("protocol fixtures: events survive Cerea's real consumers", () => {
