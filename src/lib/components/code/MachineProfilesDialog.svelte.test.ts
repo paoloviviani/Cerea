@@ -130,7 +130,8 @@ describe("MachineProfilesDialog", () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount();
 		await vi.waitFor(() => expect(ROWS()).toHaveLength(2));
-		await screen.getByLabelText("Profile 2 name").fill("Bad Name");
+		// A dot is not something the field folds away (unlike a space or a capital).
+		await screen.getByLabelText("Profile 2 name").fill("bad.name");
 		await expect
 			.element(screen.getByTestId("profiles-invalid"))
 			.toHaveTextContent("not a valid name");
