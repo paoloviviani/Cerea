@@ -1,6 +1,7 @@
 import ChatInput from "./ChatInput.svelte";
 import { renderWithApp, appNavigation } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import { tick } from "svelte";
 import { page } from "@vitest/browser/context";
 import { get, writable } from "svelte/store";
 import {
@@ -789,5 +790,56 @@ describe("ChatInput: the / menu", () => {
 		expect(document.getElementById("slash-command-listbox")).toBeNull();
 		expect(onslashcommand).not.toHaveBeenCalled();
 		expect(onsubmit).not.toHaveBeenCalled();
+	});
+});
+
+describe("ChatInput: taking a photo", () => {
+	const renderMultimodal = async (coarse: boolean) => {
+		vi.stubGlobal(
+			"matchMedia",
+			vi.fn((query: string) => ({
+				matches: coarse && query === "(pointer: coarse)",
+				media: query,
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			}))
+		);
+		stubFetch();
+		let host = document.getElementById("app");
+		if (!host) {
+			host = document.createElement("div");
+			host.id = "app";
+			document.body.appendChild(host);
+		}
+		const mounted = renderWithApp(
+			ChatInput,
+			{ mimeTypes: ["text/plain", "image/png"], modelIsMultimodal: true },
+			{
+				page: {
+					params: {},
+					data: { user: { username: "tester" }, loginEnabled: true, shared: false },
+				},
+				baseElement: host,
+				context: settingsContext,
+			}
+		);
+		await tick();
+		return mounted;
+	};
+
+	it("offers the camera on a touch device, through an input that opens it directly", async () => {
+		const { container } = await renderMultimodal(true);
+		fireTap(find(container, 'button[aria-label="Add attachment"]'));
+		await waitSlow(() => expect(document.body.textContent).toContain("Take photo"));
+		const camera = container.querySelector<HTMLInputElement>('input[aria-label="Take photo"]');
+		expect(camera?.getAttribute("capture")).toBe("environment");
+		expect(camera?.getAttribute("accept")).toBe("image/*");
+	});
+
+	it("leaves it out with a mouse, where browsers ignore the camera hint", async () => {
+		const { container } = await renderMultimodal(false);
+		fireTap(find(container, 'button[aria-label="Add attachment"]'));
+		await waitSlow(() => expect(document.body.textContent).toContain("Add image(s)"));
+		expect(document.body.textContent).not.toContain("Take photo");
 	});
 });
