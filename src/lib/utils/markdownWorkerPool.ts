@@ -32,6 +32,8 @@ interface InFlight {
 	requestId: number;
 	clientId: number;
 	content: string;
+	sources: Source[];
+	streaming: boolean;
 	worker: Worker;
 	onResult: ResultCallback;
 	cancelled: boolean;
@@ -142,8 +144,9 @@ function dropWorker(worker: Worker): InFlight[] {
 }
 
 // A worker crashed without replying (top-level error, structured-clone messageerror, or
-// the OS reclaiming it). Don't strand its render or wedge the pool: deliver the fallback,
-// free the slot, and retry queued work on a fresh worker.
+// the OS reclaiming it). Don't strand its render or wedge the pool: render it on the main
+// thread, free the slot, and retry queued work on a fresh worker. The plain-text fallback
+// would stay for good on a message that has finished streaming, since nothing renders it again.
 function handleWorkerDeath(worker: Worker) {
 	worker.onmessage = null;
 	worker.onerror = null;
@@ -151,7 +154,7 @@ function handleWorkerDeath(worker: Worker) {
 	const orphaned = dropWorker(worker);
 	worker.terminate();
 	for (const entry of orphaned) {
-		if (!entry.cancelled) entry.onResult(fallbackBlocks(entry.content), entry.requestId);
+		if (!entry.cancelled) runOnMainThread(entry);
 	}
 	consecutiveDeaths++;
 	if (consecutiveDeaths >= MAX_CONSECUTIVE_DEATHS) {
@@ -196,6 +199,8 @@ function pump() {
 			requestId: job.requestId,
 			clientId,
 			content: job.content,
+			sources: job.sources,
+			streaming: job.streaming,
 			worker,
 			onResult: job.onResult,
 			cancelled: false,
