@@ -1,0 +1,27 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.command"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.command",
+		"args": {
+			"sessionId": "ses_01",
+			"name": "review",
+			"arguments": "main",
+			"clientMessageId": "cm_03",
+			"attachments": [
+				{
+					"type": "file",
+					"mime": "image/png",
+					"filename": "shot.png",
+					"url": "data:image/png;base64,iVBORw0KGgo="
+				}
+			],
+			"templateHash": "9f86d081884c7d65"
+		}
+	}
+}

@@ -1,0 +1,85 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "session.history"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"messages": [
+				{
+					"message": {
+						"id": "msg_01",
+						"role": "user",
+						"createdAt": "2026-10-22T09:00:00Z",
+						"clientMessageId": "cm_01"
+					},
+					"parts": [
+						{
+							"id": "prt_00",
+							"messageId": "msg_01",
+							"role": "user",
+							"type": "text",
+							"text": "fix it"
+						}
+					]
+				},
+				{
+					"message": {
+						"id": "msg_02",
+						"role": "assistant",
+						"parentId": "msg_01",
+						"createdAt": "2026-10-22T09:00:00Z",
+						"modeId": "build",
+						"modelId": "pystino/claude-sonnet",
+						"completedAt": "2026-10-22T09:05:00Z"
+					},
+					"parts": [
+						{
+							"id": "prt_02",
+							"messageId": "msg_02",
+							"role": "assistant",
+							"type": "reasoning",
+							"text": "thinking"
+						},
+						{
+							"id": "prt_03",
+							"messageId": "msg_02",
+							"role": "assistant",
+							"type": "tool",
+							"callId": "call_01",
+							"tool": "bash",
+							"status": "completed",
+							"title": "npm test",
+							"input": {
+								"command": "npm test"
+							},
+							"output": "ok",
+							"attachments": [
+								{
+									"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+									"mime": "image/png",
+									"size": 2048,
+									"filename": "shot.png"
+								}
+							],
+							"attachmentsOmitted": 1
+						},
+						{
+							"id": "prt_01",
+							"messageId": "msg_02",
+							"role": "assistant",
+							"type": "text",
+							"text": "I fixed the test."
+						}
+					]
+				}
+			],
+			"hasMore": true,
+			"before": "msg_01"
+		}
+	}
+}

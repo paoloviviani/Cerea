@@ -1,0 +1,27 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "backend.models"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"models": [
+				{
+					"id": "pystino/claude-sonnet",
+					"label": "Claude Sonnet",
+					"providerId": "pystino",
+					"isDefault": true,
+					"contextWindow": 200000,
+					"images": true,
+					"reasoning": true,
+					"efforts": ["low", "medium", "high"]
+				}
+			],
+			"hidden": 2
+		}
+	}
+}

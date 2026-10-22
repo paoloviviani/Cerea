@@ -1,0 +1,38 @@
+{
+	"_meta": {
+		"spec": "§7",
+		"direction": "M→C",
+		"null": true
+	},
+	"frame": {
+		"type": "event",
+		"sessionId": "ses_02",
+		"epoch": "ep_9f2c",
+		"seq": 7,
+		"rootSessionId": "ses_01",
+		"event": {
+			"kind": "session",
+			"session": {
+				"id": "ses_02",
+				"workspaceId": "ws_01",
+				"backend": "opencode",
+				"title": "Explore the repo",
+				"status": "busy",
+				"pendingPermissions": 1,
+				"modeId": null,
+				"modelId": null,
+				"parentId": "ses_01",
+				"rootId": "ses_01",
+				"agent": "explore",
+				"parentToolCallId": "call_task",
+				"spawnedBy": {
+					"sessionId": "ses_01",
+					"title": "Fix the flaky test"
+				},
+				"createdAt": "2026-10-22T09:00:00Z",
+				"updatedAt": "2026-10-22T09:05:00Z",
+				"usage": null
+			}
+		}
+	}
+}

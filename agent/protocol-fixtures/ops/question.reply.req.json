@@ -1,0 +1,18 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "question.reply"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "question.reply",
+		"args": {
+			"sessionId": "ses_01",
+			"requestId": "que_01",
+			"decision": "answer",
+			"answers": [["Postgres"]]
+		}
+	}
+}

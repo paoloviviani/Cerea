@@ -1,0 +1,25 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.prompt"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.prompt",
+		"args": {
+			"sessionId": "ses_01",
+			"text": "fix it",
+			"clientMessageId": "cm_01",
+			"attachments": [
+				{
+					"type": "file",
+					"mime": "image/png",
+					"filename": "shot.png",
+					"url": "data:image/png;base64,iVBORw0KGgo="
+				}
+			]
+		}
+	}
+}

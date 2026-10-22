@@ -1,0 +1,13 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "permissions.pending"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "permissions.pending",
+		"args": {}
+	}
+}

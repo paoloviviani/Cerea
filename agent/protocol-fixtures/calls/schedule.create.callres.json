@@ -1,0 +1,44 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "C→M",
+		"op": "schedule.create",
+		"null": true
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": true,
+		"result": {
+			"schedule": {
+				"id": "sch_01",
+				"name": "Nightly triage",
+				"recurrenceText": "Every day at 09:00",
+				"timezone": "Europe/Rome",
+				"paused": false,
+				"status": "active",
+				"nextRunAt": "2026-10-23T07:00:00Z",
+				"lastRunAt": null,
+				"workspace": {
+					"id": "ws_01",
+					"name": "cerea"
+				},
+				"session": "new",
+				"permissionMode": "ask",
+				"coordination": ["session_list", "session_read", "session_send"],
+				"createdBy": {
+					"kind": "agent",
+					"sessionId": "ses_02",
+					"title": "Explore the repo"
+				},
+				"self": false,
+				"prompt": "triage",
+				"recurrence": {
+					"type": "daily",
+					"at": "09:00"
+				},
+				"agentMode": "build"
+			}
+		}
+	}
+}

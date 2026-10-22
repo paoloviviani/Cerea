@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.delete"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.delete",
+		"args": {
+			"sessionId": "ses_01"
+		}
+	}
+}

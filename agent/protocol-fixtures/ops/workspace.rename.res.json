@@ -1,0 +1,22 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "workspace.rename"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"workspace": {
+				"id": "ws_01",
+				"name": "Cerea",
+				"path": "/home/dev/cerea",
+				"createdAt": "2026-10-22T09:00:00Z",
+				"archived": false,
+				"isGitRepo": true
+			}
+		}
+	}
+}

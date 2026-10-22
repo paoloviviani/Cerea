@@ -1,0 +1,27 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "session.sync",
+		"variant": "snapshot-empty",
+		"note": "a fresh session: every list is an array, usage is null",
+		"null": true
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"epoch": "ep_9f2c",
+			"seq": 0,
+			"snapshot": {
+				"messages": [],
+				"permissions": [],
+				"questions": [],
+				"status": "idle",
+				"usage": null,
+				"todos": []
+			}
+		}
+	}
+}

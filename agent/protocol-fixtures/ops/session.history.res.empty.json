@@ -1,0 +1,19 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "session.history",
+		"variant": "empty",
+		"note": "an empty page names an empty cursor"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"messages": [],
+			"hasMore": false,
+			"before": ""
+		}
+	}
+}

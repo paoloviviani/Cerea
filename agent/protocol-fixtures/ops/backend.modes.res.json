@@ -1,0 +1,26 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "backend.modes"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"modes": [
+				{
+					"id": "build",
+					"label": "Build",
+					"description": "full access",
+					"model": "pystino/claude-sonnet"
+				},
+				{
+					"id": "plan",
+					"label": "Plan"
+				}
+			]
+		}
+	}
+}

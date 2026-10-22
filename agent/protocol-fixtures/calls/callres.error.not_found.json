@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§5 (callres error)",
+		"direction": "C→M",
+		"errorCode": "not_found"
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": false,
+		"error": {
+			"code": "not_found",
+			"message": "Cerea refused this (not_found)."
+		}
+	}
+}

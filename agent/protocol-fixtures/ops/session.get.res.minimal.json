@@ -1,0 +1,30 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "session.get",
+		"variant": "minimal",
+		"null": true
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"session": {
+				"id": "ses_03",
+				"workspaceId": "ws_01",
+				"backend": "opencode",
+				"title": "",
+				"status": "idle",
+				"pendingPermissions": 0,
+				"modeId": null,
+				"modelId": null,
+				"parentId": null,
+				"createdAt": "2026-10-22T09:00:00Z",
+				"updatedAt": "2026-10-22T09:00:00Z",
+				"usage": null
+			}
+		}
+	}
+}

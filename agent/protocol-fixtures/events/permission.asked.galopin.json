@@ -1,0 +1,29 @@
+{
+	"_meta": {
+		"spec": "§7",
+		"direction": "M→C",
+		"note": "galopin's own ask (gp_ id, metadata.galopin): empty patterns and always are present as [] (§7)"
+	},
+	"frame": {
+		"type": "event",
+		"sessionId": "ses_01",
+		"epoch": "ep_9f2c",
+		"seq": 7,
+		"rootSessionId": "ses_01",
+		"event": {
+			"kind": "permission.asked",
+			"request": {
+				"id": "gp_01",
+				"sessionId": "ses_01",
+				"tool": "session_read",
+				"title": "Read session ses_02",
+				"patterns": [],
+				"metadata": {
+					"galopin": true
+				},
+				"callId": "call_07",
+				"always": []
+			}
+		}
+	}
+}

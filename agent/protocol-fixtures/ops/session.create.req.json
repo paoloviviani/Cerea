@@ -1,0 +1,19 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.create"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.create",
+		"args": {
+			"workspaceId": "ws_01",
+			"backend": "opencode",
+			"title": "New",
+			"modeId": "build",
+			"modelId": "pystino/claude-sonnet"
+		}
+	}
+}

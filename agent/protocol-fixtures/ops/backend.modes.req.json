@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "backend.modes"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "backend.modes",
+		"args": {
+			"backend": "opencode",
+			"workspaceId": "ws_01"
+		}
+	}
+}

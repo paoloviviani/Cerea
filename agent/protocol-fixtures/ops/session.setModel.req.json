@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.setModel"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.setModel",
+		"args": {
+			"sessionId": "ses_01",
+			"modelId": "pystino/claude-opus"
+		}
+	}
+}

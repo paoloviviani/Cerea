@@ -1,0 +1,21 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "workspace.suggest"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"directories": [
+				{
+					"path": "/home/dev/cerea",
+					"name": "cerea",
+					"isGitRepo": true
+				}
+			]
+		}
+	}
+}

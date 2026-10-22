@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "workspace.archive"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "workspace.archive",
+		"args": {
+			"workspaceId": "ws_01",
+			"removeWorktree": true,
+			"force": false
+		}
+	}
+}

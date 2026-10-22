@@ -1,0 +1,30 @@
+{
+	"_meta": {
+		"spec": "§9.5",
+		"direction": "M→C"
+	},
+	"frame": {
+		"type": "notice",
+		"scope": {
+			"workspaceId": "ws_01",
+			"terminalId": "term_01"
+		},
+		"event": {
+			"kind": "terminal.state",
+			"terminal": {
+				"id": "term_01",
+				"workspaceId": "ws_01",
+				"title": "zsh",
+				"cwd": "/home/dev/cerea",
+				"shell": "/bin/zsh",
+				"cols": 120,
+				"rows": 30,
+				"pid": 4242,
+				"createdAt": "2026-10-22T09:00:00Z",
+				"state": "running",
+				"offset": 1024,
+				"viewers": 1
+			}
+		}
+	}
+}

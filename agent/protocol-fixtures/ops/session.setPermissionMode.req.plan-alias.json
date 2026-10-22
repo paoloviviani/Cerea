@@ -1,0 +1,18 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "session.setPermissionMode",
+		"variant": "plan-alias",
+		"note": "plan is accepted on input as deny's alias; Cerea's types never send it"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.setPermissionMode",
+		"args": {
+			"sessionId": "ses_01",
+			"mode": "plan"
+		}
+	}
+}

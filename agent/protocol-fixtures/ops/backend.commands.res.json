@@ -1,0 +1,38 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "backend.commands",
+		"null": true
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"commands": [
+				{
+					"name": "review",
+					"description": "Review changes",
+					"source": "command",
+					"origin": "machine",
+					"hints": ["$1"],
+					"agent": "build",
+					"model": "pystino/claude-sonnet",
+					"subtask": true,
+					"shell": true,
+					"shellSnippets": ["git diff"],
+					"fileRefs": ["@README.md"],
+					"templateHash": "9f86d081884c7d65"
+				},
+				{
+					"name": "init",
+					"source": "command",
+					"origin": null,
+					"hints": [],
+					"shell": false
+				}
+			]
+		}
+	}
+}

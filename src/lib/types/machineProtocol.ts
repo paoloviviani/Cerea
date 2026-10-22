@@ -582,6 +582,29 @@ export type NormalizedEvent =
 	| { kind: "question.asked"; request: { id: string; questions: Question[]; callId?: string } }
 	| { kind: "question.resolved"; requestId: string; answers?: string[][]; rejected?: true };
 
+/** Every `NormalizedEvent` kind, as a runtime list. The type below it fails to compile when
+ * a kind joins the union without joining the list, which is what keeps the shared protocol
+ * fixtures (`agent/protocol-fixtures`) honest: each kind needs one. */
+export const NORMALIZED_EVENT_KINDS = [
+	"message",
+	"part",
+	"delta",
+	"part.removed",
+	"status",
+	"permission.asked",
+	"permission.replied",
+	"usage",
+	"session",
+	"error",
+	"todo",
+	"question.asked",
+	"question.resolved",
+] as const satisfies readonly NormalizedEvent["kind"][];
+export type EventKindsAreComplete = AssertNever<
+	Exclude<NormalizedEvent["kind"], (typeof NORMALIZED_EVENT_KINDS)[number]>
+>;
+type AssertNever<T extends never> = T;
+
 export interface Envelope {
 	sessionId: string;
 	epoch: string;
@@ -596,66 +619,71 @@ export interface Envelope {
 
 // -- operations (§6) ----------------------------------------------------------
 
-/** Every op name a Cerea→machine `req` frame may carry. */
-export type OpName =
-	| "workspace.list"
-	| "workspace.suggest"
-	| "workspace.create"
-	| "workspace.rename"
-	| "workspace.archive"
-	| "session.list"
-	| "session.get"
-	| "session.create"
-	| "session.prompt"
-	| "session.cancel"
-	| "session.rename"
-	| "session.archive"
-	| "session.delete"
-	| "session.setMode"
-	| "session.setModel"
-	| "session.setPermissionMode"
-	| "session.grantCoordination"
-	| "permission.reply"
-	| "permission.rules"
-	| "permission.saved.remove"
-	| "question.reply"
-	| "permissions.pending"
-	| "session.sync"
-	| "session.history"
-	| "session.diff"
-	| "session.children"
-	| "session.compact"
-	| "session.attachment"
-	| "session.revert"
-	| "files.list"
-	| "files.stat"
-	| "files.read"
-	| "files.status"
-	| "session.setEffort"
-	| "session.unrevert"
-	| "backend.modes"
-	| "backend.models"
-	| "backend.commands"
-	| "profiles.list"
-	| "profiles.set"
-	| "session.command"
-	| "terminal.list"
-	| "terminal.open"
-	| "terminal.attach"
-	| "terminal.detach"
-	| "terminal.resize"
-	| "terminal.rename"
-	| "terminal.close";
+/** Every op name a Cerea→machine `req` frame may carry. A runtime list, so the
+ * shared protocol fixtures (`agent/protocol-fixtures`) can check that none lacks one. */
+export const OP_NAMES = [
+	"workspace.list",
+	"workspace.suggest",
+	"workspace.create",
+	"workspace.rename",
+	"workspace.archive",
+	"session.list",
+	"session.get",
+	"session.create",
+	"session.prompt",
+	"session.cancel",
+	"session.rename",
+	"session.archive",
+	"session.delete",
+	"session.setMode",
+	"session.setModel",
+	"session.setPermissionMode",
+	"session.grantCoordination",
+	"permission.reply",
+	"permission.rules",
+	"permission.saved.remove",
+	"question.reply",
+	"permissions.pending",
+	"session.sync",
+	"session.history",
+	"session.diff",
+	"session.children",
+	"session.compact",
+	"session.attachment",
+	"session.revert",
+	"files.list",
+	"files.stat",
+	"files.read",
+	"files.status",
+	"session.setEffort",
+	"session.unrevert",
+	"backend.modes",
+	"backend.models",
+	"backend.commands",
+	"profiles.list",
+	"profiles.set",
+	"session.command",
+	"terminal.list",
+	"terminal.open",
+	"terminal.attach",
+	"terminal.detach",
+	"terminal.resize",
+	"terminal.rename",
+	"terminal.close",
+] as const;
+export type OpName = (typeof OP_NAMES)[number];
 
-export type ErrorCode =
-	| "not_found"
-	| "invalid"
-	| "forbidden"
-	| "unavailable"
-	| "backend"
-	| "unsupported"
-	| "conflict"
-	| "too_large";
+export const ERROR_CODES = [
+	"not_found",
+	"invalid",
+	"forbidden",
+	"unavailable",
+	"backend",
+	"unsupported",
+	"conflict",
+	"too_large",
+] as const;
+export type ErrorCode = (typeof ERROR_CODES)[number];
 
 export class OpError extends Error {
 	constructor(
@@ -763,8 +791,15 @@ export interface CallCaller {
 	coordination: CoordinationKey[];
 }
 
-export type CallErrorCode =
-	"invalid" | "forbidden" | "not_found" | "limit" | "unavailable" | "unsupported";
+export const CALL_ERROR_CODES = [
+	"invalid",
+	"forbidden",
+	"not_found",
+	"limit",
+	"unavailable",
+	"unsupported",
+] as const;
+export type CallErrorCode = (typeof CALL_ERROR_CODES)[number];
 
 /** C→M, answering a `call` by id. */
 export type CallResFrame =
@@ -786,6 +821,44 @@ export interface AuthFrame {
 
 export type MachineToCereaFrame =
 	HelloFrame | ResFrame | EventFrame | CredentialFrame | AuthFrame | NoticeFrame | CallFrame;
+
+/** The `type` of every frame in each direction (§5), as runtime lists for the shared
+ * protocol fixtures; each is checked against its union at compile time. */
+export const MACHINE_TO_CEREA_FRAME_TYPES = [
+	"hello",
+	"res",
+	"event",
+	"credential",
+	"auth",
+	"notice",
+	"call",
+] as const satisfies readonly MachineToCereaFrame["type"][];
+export type MachineFramesAreComplete = AssertNever<
+	Exclude<MachineToCereaFrame["type"], (typeof MACHINE_TO_CEREA_FRAME_TYPES)[number]>
+>;
+export const CEREA_TO_MACHINE_FRAME_TYPES = [
+	"welcome",
+	"status",
+	"req",
+	"callres",
+] as const satisfies readonly (WelcomeFrame | StatusFrame | ReqFrame | CallResFrame)["type"][];
+export type CereaFramesAreComplete = AssertNever<
+	Exclude<
+		(WelcomeFrame | StatusFrame | ReqFrame | CallResFrame)["type"],
+		(typeof CEREA_TO_MACHINE_FRAME_TYPES)[number]
+	>
+>;
+
+/** The `call` op families' ops Cerea answers (§5 Machine calls); `machineCalls.ts` keys its
+ * handler table by this type, so an op cannot be added to one without the other. */
+export const MACHINE_CALL_OPS = [
+	"schedule.context",
+	"schedule.list",
+	"schedule.create",
+	"schedule.update",
+	"schedule.delete",
+] as const;
+export type MachineCallOp = (typeof MACHINE_CALL_OPS)[number];
 
 // -- zod parsing for frames arriving from the machine ------------------------
 //
@@ -865,16 +938,7 @@ export const resFrameSchema = z.union([
 		id: z.string(),
 		ok: z.literal(false),
 		error: z.object({
-			code: z.enum([
-				"not_found",
-				"invalid",
-				"forbidden",
-				"unavailable",
-				"backend",
-				"unsupported",
-				"conflict",
-				"too_large",
-			]),
+			code: z.enum(ERROR_CODES),
 			message: z.string(),
 		}),
 	}),

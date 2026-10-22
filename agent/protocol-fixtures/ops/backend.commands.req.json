@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "backend.commands"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "backend.commands",
+		"args": {
+			"backend": "opencode",
+			"workspaceId": "ws_01",
+			"sessionId": "ses_01"
+		}
+	}
+}

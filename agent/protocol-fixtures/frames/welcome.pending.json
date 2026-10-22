@@ -1,0 +1,12 @@
+{
+	"_meta": {
+		"spec": "§5 (welcome), §4",
+		"direction": "C→M",
+		"note": "older Cerea: no features"
+	},
+	"frame": {
+		"type": "welcome",
+		"deviceId": "65f1a2b3c4d5e6f708192a3b",
+		"status": "pending"
+	}
+}

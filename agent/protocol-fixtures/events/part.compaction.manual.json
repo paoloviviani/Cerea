@@ -1,0 +1,24 @@
+{
+	"_meta": {
+		"spec": "§7",
+		"direction": "M→C",
+		"note": "a person's Compact now: auto is false, present (§7 compaction {auto: bool})"
+	},
+	"frame": {
+		"type": "event",
+		"sessionId": "ses_01",
+		"epoch": "ep_9f2c",
+		"seq": 7,
+		"rootSessionId": "ses_01",
+		"event": {
+			"kind": "part",
+			"part": {
+				"id": "prt_07",
+				"messageId": "msg_02",
+				"role": "assistant",
+				"type": "compaction",
+				"auto": false
+			}
+		}
+	}
+}

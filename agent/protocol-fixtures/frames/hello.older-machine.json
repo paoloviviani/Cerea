@@ -1,0 +1,43 @@
+{
+	"_meta": {
+		"spec": "§5, §4 (\"omitted by older machines\")",
+		"direction": "M→C",
+		"emittedByCurrentGo": false,
+		"note": "a galopin before the machine powers: no machine, no power fields; Cerea must still accept it"
+	},
+	"frame": {
+		"type": "hello",
+		"protocol": 1,
+		"agent": {
+			"version": "0.3.0",
+			"os": "darwin",
+			"arch": "arm64",
+			"hostname": "mac"
+		},
+		"backends": [
+			{
+				"id": "opencode",
+				"version": "1.17.0",
+				"capabilities": {
+					"diff": true,
+					"children": true,
+					"usage": true,
+					"compact": false,
+					"images": false,
+					"files": true,
+					"worktrees": false,
+					"questions": false,
+					"autoAccept": true
+				}
+			}
+		],
+		"policy": {
+			"autoAccept": "allowed",
+			"workspaceRoots": ["/Users/dev"],
+			"allowFreeModels": true
+		},
+		"credential": {
+			"state": "expiring"
+		}
+	}
+}

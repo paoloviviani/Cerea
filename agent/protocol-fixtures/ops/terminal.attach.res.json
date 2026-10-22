@@ -1,0 +1,31 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "M→C",
+		"op": "terminal.attach"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"terminal": {
+				"id": "term_01",
+				"workspaceId": "ws_01",
+				"title": "zsh",
+				"cwd": "/home/dev/cerea",
+				"shell": "/bin/zsh",
+				"cols": 120,
+				"rows": 30,
+				"pid": 4242,
+				"createdAt": "2026-10-22T09:00:00Z",
+				"state": "running",
+				"offset": 1024,
+				"viewers": 1
+			},
+			"from": 0,
+			"reset": true,
+			"prelude": "G1s/MTA0OWg="
+		}
+	}
+}

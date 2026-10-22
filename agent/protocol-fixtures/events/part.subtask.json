@@ -1,0 +1,25 @@
+{
+	"_meta": {
+		"spec": "§7",
+		"direction": "M→C"
+	},
+	"frame": {
+		"type": "event",
+		"sessionId": "ses_01",
+		"epoch": "ep_9f2c",
+		"seq": 7,
+		"rootSessionId": "ses_01",
+		"event": {
+			"kind": "part",
+			"part": {
+				"id": "prt_05",
+				"messageId": "msg_02",
+				"role": "assistant",
+				"type": "subtask",
+				"sessionId": "ses_02",
+				"description": "Explore the repo",
+				"agent": "explore"
+			}
+		}
+	}
+}

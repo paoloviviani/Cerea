@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "C→M",
+		"op": "terminal.list"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "terminal.list",
+		"args": {
+			"workspaceId": "ws_01"
+		}
+	}
+}

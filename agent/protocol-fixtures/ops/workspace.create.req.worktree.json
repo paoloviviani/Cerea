@@ -1,0 +1,21 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "workspace.create",
+		"variant": "worktree"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "workspace.create",
+		"args": {
+			"worktree": {
+				"from": "ws_01",
+				"branch": "feat/x",
+				"base": "main"
+			},
+			"title": "x"
+		}
+	}
+}

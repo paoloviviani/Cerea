@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§5 (callres error)",
+		"direction": "C→M",
+		"errorCode": "unsupported"
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": false,
+		"error": {
+			"code": "unsupported",
+			"message": "Cerea refused this (unsupported)."
+		}
+	}
+}

@@ -45,6 +45,7 @@ import {
 	type CallFrame,
 	type CallResFrame,
 	type CoordinationKey,
+	type MachineCallOp,
 	type PermissionMode,
 } from "$lib/types/machineProtocol";
 import type { Schedule } from "$lib/types/Schedule";
@@ -487,7 +488,10 @@ async function opDelete(ctx: CallContext) {
 	return {};
 }
 
-const OPS: Record<string, { mutating: boolean; run: (ctx: CallContext) => Promise<unknown> }> = {
+const OPS: Record<
+	MachineCallOp,
+	{ mutating: boolean; run: (ctx: CallContext) => Promise<unknown> }
+> = {
 	"schedule.context": { mutating: false, run: opContext },
 	"schedule.list": { mutating: false, run: opList },
 	"schedule.create": { mutating: true, run: opCreate },
@@ -518,7 +522,7 @@ export async function handleMachineCall(deviceId: string, frame: CallFrame): Pro
 		ok: false,
 		error: { code, message },
 	});
-	const op = OPS[frame.op];
+	const op = Object.hasOwn(OPS, frame.op) ? OPS[frame.op as MachineCallOp] : undefined;
 	if (!op) return fail("unsupported", `This Cerea does not know the call "${frame.op}".`);
 
 	let ctx: CallContext;

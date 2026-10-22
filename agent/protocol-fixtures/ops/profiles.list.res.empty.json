@@ -1,0 +1,19 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "profiles.list",
+		"variant": "empty",
+		"note": "default is null, never absent",
+		"null": true
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"default": null,
+			"profiles": {}
+		}
+	}
+}

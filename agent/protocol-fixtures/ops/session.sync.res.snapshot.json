@@ -1,0 +1,149 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "M→C",
+		"op": "session.sync",
+		"variant": "snapshot"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"epoch": "ep_9f2c",
+			"seq": 7,
+			"snapshot": {
+				"messages": [
+					{
+						"message": {
+							"id": "msg_01",
+							"role": "user",
+							"createdAt": "2026-10-22T09:00:00Z",
+							"clientMessageId": "cm_01"
+						},
+						"parts": [
+							{
+								"id": "prt_00",
+								"messageId": "msg_01",
+								"role": "user",
+								"type": "text",
+								"text": "fix it"
+							}
+						]
+					},
+					{
+						"message": {
+							"id": "msg_02",
+							"role": "assistant",
+							"parentId": "msg_01",
+							"createdAt": "2026-10-22T09:00:00Z",
+							"modeId": "build",
+							"modelId": "pystino/claude-sonnet",
+							"completedAt": "2026-10-22T09:05:00Z"
+						},
+						"parts": [
+							{
+								"id": "prt_02",
+								"messageId": "msg_02",
+								"role": "assistant",
+								"type": "reasoning",
+								"text": "thinking"
+							},
+							{
+								"id": "prt_03",
+								"messageId": "msg_02",
+								"role": "assistant",
+								"type": "tool",
+								"callId": "call_01",
+								"tool": "bash",
+								"status": "completed",
+								"title": "npm test",
+								"input": {
+									"command": "npm test"
+								},
+								"output": "ok",
+								"attachments": [
+									{
+										"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+										"mime": "image/png",
+										"size": 2048,
+										"filename": "shot.png"
+									}
+								],
+								"attachmentsOmitted": 1
+							},
+							{
+								"id": "prt_01",
+								"messageId": "msg_02",
+								"role": "assistant",
+								"type": "text",
+								"text": "I fixed the test."
+							}
+						]
+					}
+				],
+				"permissions": [
+					{
+						"id": "per_01",
+						"sessionId": "ses_01",
+						"tool": "bash",
+						"title": "Run npm test",
+						"patterns": ["npm test"],
+						"metadata": {
+							"command": "npm test"
+						},
+						"callId": "call_01",
+						"messageId": "msg_02",
+						"always": ["npm *"]
+					}
+				],
+				"questions": [
+					{
+						"id": "que_01",
+						"questions": [
+							{
+								"question": "Which database?",
+								"header": "Database",
+								"options": [
+									{
+										"label": "Postgres",
+										"description": "relational"
+									},
+									{
+										"label": "SQLite"
+									}
+								],
+								"multiple": true
+							}
+						],
+						"callId": "call_02"
+					}
+				],
+				"status": "idle",
+				"usage": {
+					"input": 1200,
+					"output": 340,
+					"reasoning": 80,
+					"cacheRead": 900,
+					"cacheWrite": 0,
+					"cost": 0.0123,
+					"contextUsed": 2520,
+					"contextMax": 200000
+				},
+				"todos": [
+					{
+						"id": "t1",
+						"content": "Run the tests",
+						"status": "in_progress",
+						"priority": "high"
+					},
+					{
+						"id": "t2",
+						"content": "Fix",
+						"status": "pending"
+					}
+				]
+			}
+		}
+	}
+}
