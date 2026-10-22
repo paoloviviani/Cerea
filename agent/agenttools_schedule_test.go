@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"galopin/internal/decide"
+	"galopin/internal/link"
 	"strings"
 	"testing"
+	"time"
 
 	"galopin/internal/permrules"
 )
@@ -202,4 +205,96 @@ func TestDescribeRecurrence(t *testing.T) {
 		}
 	}
 
+}
+
+// fakeCalls stands Cerea in for the schedule tools: it records every call and
+// answers list with one schedule and everything else with an empty result.
+type fakeCalls struct{ got []link.Call }
+
+func (f *fakeCalls) Supports(string) bool { return true }
+func (f *fakeCalls) Call(_ context.Context, c link.Call) (json.RawMessage, *link.OpError) {
+	f.got = append(f.got, c)
+	switch c.Op {
+	case "schedule.context":
+		return json.RawMessage(`{"scheduledRunOf":null,"enabled":true}`), nil
+	case "schedule.list":
+		return json.RawMessage(`{"schedules":[{"id":"sch_1","name":"n","recurrenceText":"every hour","self":false}]}`), nil
+	}
+	return json.RawMessage(`{"schedule":{"id":"sch_1"}}`), nil
+}
+
+func (f *fakeCalls) last(op string) map[string]any {
+	for i := len(f.got) - 1; i >= 0; i-- {
+		if f.got[i].Op == op {
+			return f.got[i].Args.(map[string]any)
+		}
+	}
+	return nil
+}
+
+// maxOccurrences goes through to Cerea's call frame as given, is absent when
+// unset (or 0 / null on create), and null or 0 clears it on update.
+func TestScheduleToolsMaxOccurrences(t *testing.T) {
+	r := newCoordRig(t, nil)
+	r.cb.mu.Lock()
+	r.cb.sel["caller"] = permrules.Selector{Mode: permrules.Allow}
+	r.cb.mu.Unlock()
+	fc := &fakeCalls{}
+	r.mc.agentTools.calls = fc
+	base := func(extra map[string]any) map[string]any {
+		a := map[string]any{"name": "n", "prompt": "p", "recurrence": map[string]any{"type": "hours", "every": 1}, "permissionMode": "ask"}
+		for k, v := range extra {
+			a[k] = v
+		}
+		return a
+	}
+	create := func(extra map[string]any) map[string]any {
+		t.Helper()
+		if out, err := r.call("caller", "schedule_create", base(extra)); err != nil {
+			t.Fatalf("create %v: %v (%s)", extra, err, out)
+		}
+		return fc.last("schedule.create")
+	}
+	// Rate window is five per ten minutes: reset between calls.
+	reset := func() { r.mc.agentTools.scheduleLog = map[string][]time.Time{} }
+
+	if got := create(map[string]any{"maxOccurrences": 3}); got["maxOccurrences"] != 3 {
+		t.Errorf("create args = %v, want maxOccurrences 3", got)
+	}
+	reset()
+	for _, extra := range []map[string]any{nil, {"maxOccurrences": 0}, {"maxOccurrences": nil}} {
+		if got := create(extra); got["maxOccurrences"] != nil {
+			if _, present := got["maxOccurrences"]; present {
+				t.Errorf("create %v sent maxOccurrences: %v", extra, got)
+			}
+		}
+		reset()
+	}
+	for _, bad := range []any{-1, 100001, 1.5, "3"} {
+		if _, err := r.call("caller", "schedule_create", base(map[string]any{"maxOccurrences": bad})); err == nil {
+			t.Errorf("maxOccurrences %v accepted", bad)
+		}
+		reset()
+	}
+
+	update := func(changes map[string]any) map[string]any {
+		t.Helper()
+		reset()
+		if out, err := r.call("caller", "schedule_update", map[string]any{"id": "sch_1", "changes": changes}); err != nil {
+			t.Fatalf("update %v: %v (%s)", changes, err, out)
+		}
+		return fc.last("schedule.update")
+	}
+	if got := update(map[string]any{"maxOccurrences": 7}); got["maxOccurrences"] != 7 {
+		t.Errorf("update args = %v, want maxOccurrences 7", got)
+	}
+	for _, clear := range []any{nil, 0} {
+		got := update(map[string]any{"maxOccurrences": clear})
+		if v, present := got["maxOccurrences"]; !present || v != nil {
+			t.Errorf("update with %v: args = %v, want maxOccurrences null", clear, got)
+		}
+	}
+	if got := update(map[string]any{"paused": true}); func() bool { _, p := got["maxOccurrences"]; return p }() {
+		t.Errorf("update without it sent maxOccurrences: %v", got)
+	}
 }

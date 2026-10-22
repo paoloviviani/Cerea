@@ -80,7 +80,8 @@ var mcpTools = []mcpserve.Tool{
 			`"session":{"type":"string","description":"\"this\" to run each time as a new prompt in this session, \"new\" for a fresh session per run."},` +
 			`"permissionMode":{"type":"string","description":"The runs' permission mode: \"deny\", \"ask\" or \"allow\"; no looser than yours."},` +
 			`"agentMode":{"type":"string","description":"The runs' agent: \"build\" (can edit; the default for \"\") or \"plan\" (read-only)."},` +
-			`"coordination":{"type":"array","items":{"type":"string"},"description":"Coordination tools the runs may use without a card, within your own grant; [] for none. Two options only: session_list, session_read and session_send TOGETHER (all three or none), and session_spawn on its own."}},` +
+			`"coordination":{"type":"array","items":{"type":"string"},"description":"Coordination tools the runs may use without a card, within your own grant; [] for none. Two options only: session_list, session_read and session_send TOGETHER (all three or none), and session_spawn on its own."},` +
+			`"maxOccurrences":{"type":"integer","minimum":0,"maximum":100000,"description":"Stop after this many runs (1 to 100000); the schedule then switches itself off. Omit, or 0, to repeat for ever."}},` +
 			`"required":["name","prompt","recurrence"]}`),
 	},
 	{
@@ -91,7 +92,8 @@ var mcpTools = []mcpserve.Tool{
 			`"name":{"type":"string"},"prompt":{"type":"string"},"recurrence":` + mcpRecurrenceSchema + `,` +
 			`"timezone":{"type":"string"},"workspaceId":{"type":"string"},"permissionMode":{"type":"string","enum":["deny","ask","allow"]},` +
 			`"agentMode":{"type":"string","enum":["plan","build"]},` +
-			`"coordination":{"type":"array","items":{"type":"string"},"description":"The whole new set: session_list+session_read+session_send together or not at all, session_spawn on its own."},"paused":{"type":"boolean"}}}},` +
+			`"coordination":{"type":"array","items":{"type":"string"},"description":"The whole new set: session_list+session_read+session_send together or not at all, session_spawn on its own."},"paused":{"type":"boolean"},` +
+			`"maxOccurrences":{"type":["integer","null"],"minimum":0,"maximum":100000,"description":"Stop after this many runs (1 to 100000). null or 0 removes an earlier limit."}}}},` +
 			`"required":["id","changes"]}`),
 	},
 	{

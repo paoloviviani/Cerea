@@ -323,6 +323,12 @@ describe("schedule.create", () => {
 		const row = await getSchedule(person.user._id, item.id);
 		expect(row.maxOccurrences).toBe(3);
 		expect(row.firedCount).toBe(0);
+		const { schedules } = ok(await machine.call("schedule.list")) as {
+			schedules: { id: string; maxOccurrences?: number; firedCount?: number }[];
+		};
+		const listed = schedules.find((s) => s.id === item.id);
+		expect(listed?.maxOccurrences).toBe(3);
+		expect(listed?.firedCount).toBe(0);
 	});
 
 	it('session "this" pins the caller\'s root session', async () => {
