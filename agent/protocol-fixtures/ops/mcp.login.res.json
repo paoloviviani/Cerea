@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§10.3, §10.5",
+		"direction": "M→C",
+		"op": "mcp.login"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r4",
+		"ok": true,
+		"result": {
+			"authorizationUrl": "https://auth.example.com/authorize?response_type=code&client_id=dyn_42&redirect_uri=https%3A%2F%2Fchat.example.org%2Fchat%2Fapi%2Fv2%2Flocal-connectors%2Foauth%2Fcallback&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=st_8c1d"
+		}
+	}
+}
