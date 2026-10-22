@@ -21,11 +21,10 @@ const message = (over: Partial<Message> = {}): Message =>
 		...over,
 	}) as Message;
 
-const ctx = (m: Message, initialContent = "", isRouterModel = false) => ({
+const ctx = (m: Message, initialContent = "") => ({
 	message: m,
 	conv: { title: "New Chat" },
 	initialContent,
-	isRouterModel,
 });
 
 const toolCall: MessageUpdate = {
@@ -253,29 +252,18 @@ describe("applyUpdateToMessage", () => {
 		expect(m.updates).toHaveLength(0);
 	});
 
-	it("merges router metadata for a router model and provider alone otherwise", () => {
-		const router = message();
-		applyUpdateToMessage(
-			{ type: MessageUpdateType.RouterMetadata, route: "omni", model: "big" },
-			ctx(router, "", true)
-		);
-		applyUpdateToMessage(
-			{ type: MessageUpdateType.RouterMetadata, route: "", model: "", provider: "together" },
-			ctx(router, "", true)
-		);
-		expect(router.routerMetadata).toEqual({ route: "omni", model: "big", provider: "together" });
-
+	it("takes only the provider from a router metadata update", () => {
 		const plain = message();
 		applyUpdateToMessage(
 			{
 				type: MessageUpdateType.RouterMetadata,
 				route: "ignored",
 				model: "ignored",
-				provider: "hf-inference",
+				provider: "together",
 			},
-			ctx(plain, "", false)
+			ctx(plain)
 		);
-		expect(plain.routerMetadata).toEqual({ route: "", model: "", provider: "hf-inference" });
+		expect(plain.routerMetadata).toEqual({ route: "", model: "", provider: "together" });
 	});
 });
 

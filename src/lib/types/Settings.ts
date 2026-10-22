@@ -116,7 +116,7 @@ export interface Settings extends Timestamps {
 	locationPlace?: string;
 
 	/**
-	 * Per-model toggle to hide Omni prompt suggestions shown near the composer.
+	 * Per-model toggle to hide the prompt suggestions shown near the composer.
 	 * When set to `true`, prompt examples for that model are suppressed.
 	 */
 	hidePromptExamples?: Record<string, boolean>;

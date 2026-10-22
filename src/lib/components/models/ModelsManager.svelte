@@ -40,7 +40,6 @@
 		logoUrl?: string | null;
 		preprompt?: string | null;
 		unlisted?: boolean;
-		isRouter?: boolean;
 		multimodal?: boolean;
 		supportsTools?: boolean;
 		supportsReasoning?: boolean;
@@ -280,9 +279,7 @@
 													<h3 class={s.CARD_TITLE}>{modelLabel(model)}</h3>
 												</div>
 												<p class={s.CARD_SUBTITLE}>
-													{model.isRouter
-														? "Routes your messages to the best model for your request."
-														: model.description || model.id}
+													{model.description || model.id}
 												</p>
 											</div>
 											{#if isDefault}

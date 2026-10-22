@@ -16,7 +16,6 @@ const entry = (over: Partial<GETModelsResponse[number]>): GETModelsResponse[numb
 	supportsArtifacts: true,
 	unlisted: false,
 	hasInferenceAPI: true,
-	isRouter: false,
 	preprompt: "deployment prompt",
 	...over,
 });
@@ -47,7 +46,7 @@ describe("customModelEntries", () => {
 	const view = { id, name: "Menu helper", baseModelId: "org/base" };
 
 	it("inherits everything the base advertises, so gating carries over", () => {
-		const [custom] = customModelEntries([view], [entry({ isRouter: true })]);
+		const [custom] = customModelEntries([view], [entry({})]);
 		expect(custom).toMatchObject({
 			id,
 			name: "Menu helper",
@@ -57,7 +56,6 @@ describe("customModelEntries", () => {
 			supportsTools: true,
 			supportsReasoning: true,
 			supportsArtifacts: true,
-			isRouter: true,
 			logoUrl: "https://logo",
 			unlisted: false,
 			customBase: { id: "org/base", displayName: "GLM 5.3 Flash" },

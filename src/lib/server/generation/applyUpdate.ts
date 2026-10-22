@@ -22,7 +22,6 @@ export interface ApplyUpdateContext {
 	 */
 	initialContent: string;
 	/** Router models record route+model; everything else records provider alone. */
-	isRouterModel: boolean;
 }
 
 export interface AppliedUpdate {
@@ -131,7 +130,7 @@ function firstVisibleIndex(step: PendingStep, token: string): number {
  */
 export function applyUpdateToMessage(
 	event: MessageUpdate,
-	{ message, conv, initialContent, isRouterModel }: ApplyUpdateContext
+	{ message, conv, initialContent }: ApplyUpdateContext
 ): AppliedUpdate {
 	let titleChanged = false;
 	let finalAnswerReceived = false;
@@ -268,15 +267,9 @@ export function applyUpdateToMessage(
 			{ type: "hash", name: event.name, value: event.sha, mime: event.mime },
 		];
 	} else if (event.type === MessageUpdateType.RouterMetadata) {
-		// Merge metadata updates to preserve existing fields (router may send route/model
-		// first, then provider comes later)
-		if (isRouterModel) {
-			message.routerMetadata = {
-				route: event.route || message.routerMetadata?.route || "",
-				model: event.model || message.routerMetadata?.model || "",
-				provider: event.provider || message.routerMetadata?.provider,
-			};
-		} else if (event.provider) {
+		// Only the provider a gateway reports is taken from the update; a
+		// route and model already on the message are preserved.
+		if (event.provider) {
 			message.routerMetadata = {
 				route: message.routerMetadata?.route || "",
 				model: message.routerMetadata?.model || "",

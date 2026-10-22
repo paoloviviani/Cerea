@@ -268,7 +268,6 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 			message,
 			conv,
 			initialContent,
-			isRouterModel: Boolean(model.isRouter),
 		});
 		if (applied.skipped) return;
 		writer.push(event);

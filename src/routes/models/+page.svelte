@@ -53,7 +53,7 @@
 
 		<div class="mt-6 min-h-[50vh]">
 			<div>
-				{#each filteredModels as model, index (model.id)}
+				{#each filteredModels as model (model.id)}
 					{@const isActive = model.id === $settings.activeModel}
 					<a
 						href="{base}/models/{model.id}"
@@ -94,18 +94,9 @@
 										custom
 									</span>
 								{/if}
-								{#if index === 0 && model.isRouter && !isActive}
-									<span
-										class="rounded-sm border border-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500 uppercase dark:border-gray-700 dark:text-gray-400"
-									>
-										Default
-									</span>
-								{/if}
 							</div>
 							<p class="truncate pr-4 text-xs text-gray-500 sm:text-[13px] dark:text-gray-400">
-								{model.isRouter
-									? "Routes your messages to the best model for your request."
-									: model.description || "-"}
+								{model.description || "-"}
 							</p>
 						</div>
 

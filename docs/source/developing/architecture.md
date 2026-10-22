@@ -30,10 +30,6 @@ Provides the streaming interface for OpenAI-compatible endpoints. Models are fet
 
 Implements MCP client functionality for tool discovery and execution. See [MCP Tools](../configuration/mcp-tools) for configuration.
 
-### `llmRouter`
-
-Intelligent routing logic that selects the best model for each request using local heuristics (image input → multimodal route, active MCP tools → agentic route, else default). See [LLM Router](../configuration/llm-router) for details.
-
 ### `migrations`
 
 MongoDB migrations for maintaining backwards compatibility across schema changes. Any schema changes must include a migration.

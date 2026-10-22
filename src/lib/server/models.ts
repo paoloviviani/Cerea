@@ -7,7 +7,6 @@ import endpoints, { endpointSchema, type Endpoint } from "./endpoints/endpoints"
 import JSON5 from "json5";
 import { logger } from "$lib/server/logger";
 import { preservesReasoningByDefault } from "$lib/server/reasoningPolicy";
-import { makeRouterEndpoint } from "$lib/server/router/endpoint";
 import { assertModelModeValid, isPystinoMode, sanitizeJSONEnv } from "$lib/server/modelMode";
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>;
@@ -205,7 +204,6 @@ const addEndpoint = (m: Awaited<ReturnType<typeof processModel>>) => ({
 });
 
 type InternalProcessedModel = Awaited<ReturnType<typeof addEndpoint>> & {
-	isRouter: boolean;
 	hasInferenceAPI: boolean;
 };
 
@@ -432,77 +430,11 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 					.then(async (m) => ({
 						...m,
 						hasInferenceAPI: inferenceApiIds.includes(m.id ?? m.name),
-						// router decoration added later
-						isRouter: false as boolean,
 					}))
 			)
 		);
 
-		const routerRoutesPath = (config.LLM_ROUTER_ROUTES_PATH || "").trim();
-		const routerLabel = (config.PUBLIC_LLM_ROUTER_DISPLAY_NAME || "Omni").trim() || "Omni";
-		const routerLogo = (config.PUBLIC_LLM_ROUTER_LOGO_URL || "").trim();
-		const routerAliasId = (config.PUBLIC_LLM_ROUTER_ALIAS_ID || "omni").trim() || "omni";
-		const routerMultimodalEnabled =
-			(config.LLM_ROUTER_ENABLE_MULTIMODAL || "").toLowerCase() === "true";
-		const routerToolsEnabled = (config.LLM_ROUTER_ENABLE_TOOLS || "").toLowerCase() === "true";
-
-		let decorated = builtModels as ProcessedModel[];
-
-		if (routerRoutesPath) {
-			// Build a minimal model config for the alias
-			const aliasRaw = {
-				id: routerAliasId,
-				name: routerAliasId,
-				displayName: routerLabel,
-				description: "Automatically routes your messages to the best model for your request.",
-				logoUrl: routerLogo || undefined,
-				preprompt: "",
-				endpoints: [
-					{
-						type: "openai" as const,
-						baseURL: openaiBaseUrl,
-					},
-				],
-				// Keep the alias visible
-				unlisted: false,
-			} as ModelConfig;
-
-			if (routerMultimodalEnabled) {
-				aliasRaw.multimodal = true;
-				aliasRaw.multimodalAcceptedMimetypes = ["image/*"];
-			}
-
-			if (routerToolsEnabled) {
-				aliasRaw.supportsTools = true;
-			}
-
-			// Apply MODELS overrides to the router alias too, so flags like
-			// supportsArtifacts can be set on it like on any other model
-			const aliasOverride = getModelOverrides().find(
-				(o) => o.id?.trim() === routerAliasId || o.name?.trim() === routerAliasId
-			);
-			if (aliasOverride) {
-				const { id, name, ...rest } = aliasOverride;
-				void id;
-				void name;
-				Object.assign(aliasRaw, rest);
-			}
-
-			const aliasBase = await processModel(aliasRaw);
-			// Create a self-referential ProcessedModel for the router endpoint
-			const aliasModel: ProcessedModel = {
-				...aliasBase,
-				isRouter: true,
-				hasInferenceAPI: false,
-				// getEndpoint uses the router wrapper regardless of the endpoints array
-				getEndpoint: async (): Promise<Endpoint> => makeRouterEndpoint(aliasModel),
-			} as ProcessedModel;
-
-			// Put alias first
-			decorated = [aliasModel, ...decorated];
-		}
-
-		return decorated;
+		return builtModels as ProcessedModel[];
 	} catch (e) {
 		logger.error(e, "Failed to load models from OpenAI base URL");
 		throw e;

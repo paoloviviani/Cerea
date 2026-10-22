@@ -31,7 +31,6 @@ export function serializeModelSummary(model: ProcessedModel): GETModelsResponse[
 		supportsArtifacts: model.supportsArtifacts ?? supportsTools,
 		unlisted: model.unlisted,
 		hasInferenceAPI: model.hasInferenceAPI,
-		isRouter: model.isRouter,
 	};
 }
 

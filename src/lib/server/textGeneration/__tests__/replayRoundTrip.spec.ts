@@ -794,8 +794,7 @@ describe.sequential("model switching", () => {
 		scriptRounds([{ content: "First answer." }, { content: "Second answer." }]);
 		await sendMessage(conv, locals, "Question?", { withTools: false });
 
-		// What the "omni" alias produces: the turn is stamped with the candidate
-		// that actually answered, which is not the model the conversation is
+		// A turn stamped with the model that actually answered, which is not the model the conversation is
 		// pinned to.
 		await collections.conversations.updateOne(
 			{ _id: conv._id },

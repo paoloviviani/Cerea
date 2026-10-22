@@ -8,7 +8,6 @@ export type Model = Pick<
 	| "id"
 	| "name"
 	| "displayName"
-	| "isRouter"
 	| "websiteUrl"
 	| "datasetName"
 	| "promptExamples"

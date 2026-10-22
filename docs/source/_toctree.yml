@@ -18,8 +18,6 @@
       title: OpenID
     - local: configuration/mcp-tools
       title: MCP Tools
-    - local: configuration/llm-router
-      title: LLM Router
     - local: configuration/metrics
       title: Metrics
     - local: configuration/common-issues

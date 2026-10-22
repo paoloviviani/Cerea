@@ -1,7 +1,23 @@
-import type { RouterExample } from "./routerExamples";
+export type PromptFollowUp = {
+	title: string;
+	prompt: string;
+};
+
+export type PromptExampleAttachment = {
+	src: string;
+};
+
+export type PromptExample = {
+	title: string;
+	prompt: string;
+	followUps?: PromptFollowUp[];
+	attachments?: PromptExampleAttachment[];
+	/** Shows a small artifact icon on the example chip */
+	artifact?: boolean;
+};
 
 // Examples that showcase MCP tool capabilities (web search, Hugging Face, etc.)
-export const mcpExamples: RouterExample[] = [
+export const mcpExamples: PromptExample[] = [
 	{
 		title: "Generate an image",
 		prompt: "Generate an image of a zebra in front of a volcanic eruption",

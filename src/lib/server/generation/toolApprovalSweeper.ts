@@ -138,7 +138,6 @@ async function denyAndResume(row: McpElicitation): Promise<void> {
 			message,
 			conv,
 			initialContent: message.content,
-			isRouterModel: Boolean(model.isRouter),
 		});
 		if (applied.skipped) return;
 		writer.push(event);

@@ -185,12 +185,8 @@ export async function endpointOai(
 			// (see reasoningPolicy.ts). A model that emitted no reasoning has none
 			// to replay, so defaulting on cannot invent one; tool replay stays off
 			// here since this path never declares tools.
-			// currentProducerModel is this call's own resolved model: when invoked
-			// directly for a pinned conversation it's the only model that has ever
-			// produced a turn here, and when invoked as a router candidate (the
-			// "omni" alias resolves a candidate before delegating here) it's that
-			// resolved candidate — either way it gates reasoning_content to history
-			// this same model actually produced.
+			// currentProducerModel is this call's own model: it gates
+			// reasoning_content to history this same model actually produced.
 			let messagesOpenAI: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
 				await prepareMessagesWithFiles(messages, imageProcessor, isMultimodal ?? model.multimodal, {
 					attachReasoning: reasoningOverride ?? model.preservesReasoning !== false,

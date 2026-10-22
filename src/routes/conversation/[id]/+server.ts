@@ -562,7 +562,6 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					message: messageToWriteTo,
 					conv,
 					initialContent: initialMessageContent,
-					isRouterModel: Boolean(model?.isRouter),
 				});
 				// An empty stream token is not an event: it reaches neither the log,
 				// the client, nor the message.
