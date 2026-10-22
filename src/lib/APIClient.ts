@@ -118,7 +118,6 @@ export function useAPIClient({
 		user: {
 			...endpoint(fetcher, `${baseUrl}/user`),
 			settings: endpoint(fetcher, `${baseUrl}/user/settings`),
-			reports: endpoint(fetcher, `${baseUrl}/user/reports`),
 			"billing-orgs": endpoint(fetcher, `${baseUrl}/user/billing-orgs`),
 		},
 		models: Object.assign(
@@ -130,9 +129,6 @@ export function useAPIClient({
 				old: endpoint(fetcher, `${baseUrl}/models/old`),
 			}
 		),
-		spaces: {
-			deploy: endpoint(fetcher, `${baseUrl}/spaces/deploy`),
-		},
 		"public-config": endpoint(fetcher, `${baseUrl}/public-config`),
 		"feature-flags": endpoint(fetcher, `${baseUrl}/feature-flags`),
 		usage: endpoint(fetcher, `${baseUrl}/usage`),

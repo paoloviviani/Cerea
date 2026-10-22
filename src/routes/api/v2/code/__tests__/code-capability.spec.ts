@@ -20,7 +20,7 @@ import { testRequest } from "$lib/server/__tests__/testRequest";
 import { forgetGatewaySession } from "$lib/server/gatewaySession";
 import { GET as devicesGET, PATCH as devicesPATCH } from "../devices/+server";
 import { GET as schedulesGET } from "../schedules/+server";
-import { GET as conversationsGET } from "../../../conversations/+server";
+import { GET as conversationsGET } from "../../conversations/+server";
 import { load as codeLoad } from "../../../../code/+page.server";
 
 const env = vi.hoisted(() => ({ preset: false }));

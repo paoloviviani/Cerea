@@ -116,17 +116,10 @@ export interface Settings extends Timestamps {
 	locationPlace?: string;
 
 	/**
-	 * Per-model toggle to hide Omni prompt suggestions shown near the composer.
+	 * Per-model toggle to hide the prompt suggestions shown near the composer.
 	 * When set to `true`, prompt examples for that model are suppressed.
 	 */
 	hidePromptExamples?: Record<string, boolean>;
-
-	/**
-	 * Per-model inference provider preference.
-	 * Values: "auto" (default), "fastest", "cheapest", or a specific provider name (e.g., "together", "sambanova").
-	 * The value is appended to the model ID when making inference requests (e.g., "model:fastest").
-	 */
-	providerOverrides?: Record<string, string>;
 
 	/**
 	 * Per-model thinking effort. Sent as `reasoning_effort` to the OpenAI-compatible
@@ -164,8 +157,8 @@ export interface Settings extends Timestamps {
 	neutral?: Neutral;
 
 	/**
-	 * Organization to bill inference requests to (HuggingChat only).
-	 * Stores the org's preferred_username. If empty/undefined, bills to personal account.
+	 * Organization to bill inference requests to (ADR 0061).
+	 * Stores the group's name. If empty/undefined, bills to the personal account.
 	 */
 	billingOrganization?: string;
 
@@ -195,7 +188,6 @@ export const DEFAULT_SETTINGS = {
 	toolsOverrides: {},
 	artifactsOverrides: {},
 	hidePromptExamples: {},
-	providerOverrides: {},
 	reasoningEffortOverrides: {},
 	reasoningOverrides: {},
 	streamingMode: "smooth",

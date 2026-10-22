@@ -17,10 +17,6 @@
 	import { collectPaneItems } from "$lib/utils/paneItems";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 
-	import IconOmni from "$lib/components/icons/IconOmni.svelte";
-	import IconCheap from "$lib/components/icons/IconCheap.svelte";
-	import IconFast from "$lib/components/icons/IconFast.svelte";
-	import { PROVIDERS_HUB_ORGS } from "@huggingface/inference";
 	import CarbonDirectionRight from "~icons/carbon/direction-right-01";
 	import IconArrowUp from "~icons/lucide/arrow-up";
 	import IconMic from "~icons/lucide/mic";
@@ -45,7 +41,6 @@
 	} from "$lib/utils/modelEffortPicker";
 	import { browser } from "$app/environment";
 	import SystemPromptModal from "../SystemPromptModal.svelte";
-	import ShareConversationModal from "../ShareConversationModal.svelte";
 	import ChatIntroduction from "./ChatIntroduction.svelte";
 	import ComposerFileChips from "./ComposerFileChips.svelte";
 	import { FileDrag } from "$lib/utils/fileDrag.svelte";
@@ -55,13 +50,10 @@
 	import { error } from "$lib/stores/errors";
 	import ModelSwitch from "./ModelSwitch.svelte";
 	import ModelPicker from "./ModelPicker.svelte";
-	import { routerExamples } from "$lib/constants/routerExamples";
 	import { mcpExamples } from "$lib/constants/mcpExamples";
-	import type { RouterFollowUp, RouterExample } from "$lib/constants/routerExamples";
+	import type { PromptFollowUp, PromptExample } from "$lib/constants/mcpExamples";
 	import { allBaseServersEnabled, mcpServersLoaded } from "$lib/stores/mcpServers";
-	import { shareModal } from "$lib/stores/shareModal";
 	import { exportConversation as exportConversationStore } from "$lib/stores/exportConversation";
-	import IconShare from "$lib/components/icons/IconShare.svelte";
 	import CarbonSidePanelOpen from "~icons/carbon/side-panel-open";
 	import {
 		downloadMarkdown,
@@ -175,11 +167,6 @@
 	let pickerOpen = $state(false);
 
 	const publicConfig = usePublicConfig();
-	let canShare = $derived(
-		publicConfig.isHuggingChat &&
-			Boolean(page.params?.id) &&
-			page.route.id?.startsWith("/conversation/")
-	);
 	let canExport = $derived(
 		Boolean(page.params?.id) && page.route.id?.startsWith("/conversation/") && messages.length > 0
 	);
@@ -284,7 +271,6 @@
 		collectPaneItems(messages, artifactRegistry, trackioDashboards, fileRegistry)
 	);
 
-	let shareModalOpen = $state(false);
 	let pastedLongContent = $state(false);
 
 	// Voice recording state
@@ -345,12 +331,6 @@
 			}
 			return undefined;
 		})()
-	);
-	let streamingRouterMetadata = $derived(streamingAssistantMessage?.routerMetadata ?? null);
-	let streamingRouterModelName = $derived(
-		streamingRouterMetadata?.model
-			? (streamingRouterMetadata.model.split("/").pop() ?? streamingRouterMetadata.model)
-			: ""
 	);
 
 	let lastIsError = $derived(
@@ -428,40 +408,8 @@
 		}
 		return null;
 	});
-	let showRouterDetails = $state(false);
-	let routerDetailsTimeout: ReturnType<typeof setTimeout> | undefined;
-
-	$effect(() => {
-		if (!currentModel.isRouter || !loading) {
-			showRouterDetails = false;
-			if (routerDetailsTimeout) {
-				clearTimeout(routerDetailsTimeout);
-				routerDetailsTimeout = undefined;
-			}
-			return;
-		}
-
-		if (routerDetailsTimeout) {
-			clearTimeout(routerDetailsTimeout);
-		}
-
-		showRouterDetails = false;
-		routerDetailsTimeout = setTimeout(() => {
-			showRouterDetails = true;
-		}, 500);
-	});
-
-	const unsubscribeShareModal = shareModal.subscribe((value) => {
-		shareModalOpen = value;
-	});
-
 	onDestroy(() => {
-		unsubscribeShareModal();
-		shareModal.close();
 		exportConversationStore.reset();
-		if (routerDetailsTimeout) {
-			clearTimeout(routerDetailsTimeout);
-		}
 	});
 
 	let column: ChatMessageColumn | undefined = $state();
@@ -525,7 +473,7 @@
 	const settings = useSettingsStore();
 	// Per-model settings are the base's: a custom model inherits every knob.
 	let settingsKey = $derived(settingsModelId(currentModel));
-	let hideRouterExamples = $derived($settings.hidePromptExamples?.[settingsKey] ?? false);
+	let hidePromptExamples = $derived($settings.hidePromptExamples?.[settingsKey] ?? false);
 
 	// Respect per‑model multimodal toggle from settings (force enable)
 	let modelIsMultimodalOverride = $derived($settings.multimodalOverrides?.[settingsKey]);
@@ -534,12 +482,6 @@
 	// Determine tool support for the current model (server-provided capability with user override)
 	let modelSupportsTools = $derived(
 		($settings.toolsOverrides?.[settingsKey] ?? currentModel.supportsTools) === true
-	);
-
-	// Get provider override for the current model (HuggingChat only)
-	let providerOverride = $derived($settings.providerOverrides?.[settingsKey]);
-	let hasProviderOverride = $derived(
-		providerOverride && providerOverride !== "auto" && !currentModel.isRouter
 	);
 
 	// Always allow common text-like files; add images only when model is multimodal
@@ -654,44 +596,39 @@
 	// group, since that pin only ever lined up with the row by coincidence
 	// (brief item 2 — see the composer markup below for the long version).
 	const narrowViewport = new MediaQuery("(max-width: 639px)");
-	let activeRouterExamplePrompt = $state<string | null>(null);
-	// MCP examples when all base servers are enabled, router examples when they are not.
-	let activeExamples = $derived<RouterExample[]>(
-		$allBaseServersEnabled ? mcpExamples : routerExamples
-	);
-	let routerFollowUps = $derived<RouterFollowUp[]>(
-		activeRouterExamplePrompt
-			? (activeExamples.find((ex) => ex.prompt === activeRouterExamplePrompt)?.followUps ?? [])
+	let activePromptExamplePrompt = $state<string | null>(null);
+	let activeExamples = $derived<PromptExample[]>(mcpExamples);
+	let exampleFollowUps = $derived<PromptFollowUp[]>(
+		activePromptExamplePrompt
+			? (activeExamples.find((ex) => ex.prompt === activePromptExamplePrompt)?.followUps ?? [])
 			: []
 	);
-	let routerUserMessages = $derived(messages.filter((msg) => msg.from === "user"));
-	let shouldShowRouterFollowUps = $derived(
+	let exampleUserMessages = $derived(messages.filter((msg) => msg.from === "user"));
+	let shouldShowPromptFollowUps = $derived(
 		!draft.length &&
-			activeRouterExamplePrompt &&
-			routerFollowUps.length > 0 &&
-			routerUserMessages.length === 1 &&
-			(currentModel.isRouter || (modelSupportsTools && $allBaseServersEnabled)) &&
-			!hideRouterExamples &&
+			activePromptExamplePrompt &&
+			exampleFollowUps.length > 0 &&
+			exampleUserMessages.length === 1 &&
+			modelSupportsTools &&
+			$allBaseServersEnabled &&
+			!hidePromptExamples &&
 			!loading
 	);
 
 	$effect(() => {
-		if (
-			!(currentModel.isRouter || (modelSupportsTools && $allBaseServersEnabled)) ||
-			!messages.length
-		) {
-			activeRouterExamplePrompt = null;
+		if (!(modelSupportsTools && $allBaseServersEnabled) || !messages.length) {
+			activePromptExamplePrompt = null;
 			return;
 		}
 
 		const firstUserMessage = messages.find((msg) => msg.from === "user");
 		if (!firstUserMessage) {
-			activeRouterExamplePrompt = null;
+			activePromptExamplePrompt = null;
 			return;
 		}
 
 		const match = activeExamples.find((ex) => ex.prompt.trim() === firstUserMessage.content.trim());
-		activeRouterExamplePrompt = match ? match.prompt : null;
+		activePromptExamplePrompt = match ? match.prompt : null;
 	});
 
 	// Composer content queued from outside (e.g. an annotated artifact
@@ -719,10 +656,10 @@
 		handleSubmit();
 	}
 
-	async function startExample(example: RouterExample) {
+	async function startExample(example: PromptExample) {
 		if (requireAuthUser()) return;
 
-		activeRouterExamplePrompt = example.prompt;
+		activePromptExamplePrompt = example.prompt;
 
 		if (browser && example.attachments?.length) {
 			const loadedFiles: File[] = [];
@@ -746,7 +683,7 @@
 		triggerPrompt(example.prompt);
 	}
 
-	function startFollowUp(followUp: RouterFollowUp) {
+	function startFollowUp(followUp: PromptFollowUp) {
 		triggerPrompt(followUp.prompt);
 	}
 
@@ -846,10 +783,7 @@
 		bind:this={column}
 	>
 		{#snippet overlay()}
-			{#if shareModalOpen}
-				<ShareConversationModal open={shareModalOpen} onclose={() => shareModal.close()} />
-			{/if}
-			{#if canExport || canShare}
+			{#if canExport}
 				<!-- Lives in the chat column (not the layout) so it stays visible when
 				     the artifact panel is open. The export button used to sit here;
 				     it moved into the artifacts pane and this menu button opens it. -->
@@ -865,18 +799,6 @@
 							title="Artifacts and chat export"
 						>
 							<CarbonSidePanelOpen />
-						</button>
-					{/if}
-					{#if canShare}
-						<button
-							type="button"
-							class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700
-								{loading ? 'cursor-not-allowed opacity-40' : ''}"
-							onclick={() => shareModal.open()}
-							aria-label="Share conversation"
-							disabled={loading}
-						>
-							<IconShare />
 						</button>
 					{/if}
 				</div>
@@ -904,7 +826,7 @@
 			{/if}
 		{/snippet}
 		{#snippet composer()}
-			{#if !draft.length && !messages.length && !files.length && !loading && (currentModel.isRouter || (modelSupportsTools && $allBaseServersEnabled)) && activeExamples.length && !hideRouterExamples && !lastIsError && $mcpServersLoaded}
+			{#if !draft.length && !messages.length && !files.length && !loading && modelSupportsTools && $allBaseServersEnabled && activeExamples.length && !hidePromptExamples && !lastIsError && $mcpServersLoaded}
 				<div
 					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 select-none dark:text-gray-500"
 				>
@@ -921,12 +843,12 @@
 					{/each}
 				</div>
 			{/if}
-			{#if shouldShowRouterFollowUps && !lastIsError}
+			{#if shouldShowPromptFollowUps && !lastIsError}
 				<div
 					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 select-none dark:text-gray-500"
 				>
 					<!-- <span class=" text-gray-500 dark:text-gray-400">Follow ups</span> -->
-					{#each routerFollowUps as followUp}
+					{#each exampleFollowUps as followUp}
 						<button
 							class="flex items-center gap-1 rounded-lg bg-gray-100/90 px-2 py-0.5 text-center text-sm backdrop-blur-sm hover:text-gray-500 dark:bg-gray-700/50 dark:hover:text-gray-400"
 							onclick={() => startFollowUp(followUp)}
@@ -1113,7 +1035,7 @@
 										streamingToolCallName}
 								</span>
 							</span>
-						{:else if !currentModel.isRouter || !loading}
+						{:else}
 							<!-- Opens the picker, not the Models dialog. This control draws a
 							     caret and sits under the composer, so it reads as "change what
 							     this chat runs on" — which is what it now does. The Models
@@ -1133,69 +1055,16 @@
 									pickerOpen = true;
 								}}
 							>
-								{#if currentModel.isRouter}
-									<IconOmni />
-									<span class="truncate">{currentModel.displayName}</span>
-								{:else}
-									<span class="shrink-0">Model:</span>
-									{#if currentModel.logoUrl}
-										<img
-											src={currentModel.logoUrl}
-											alt=""
-											class="size-3 flex-none rounded-sm border bg-white dark:border-gray-700"
-										/>
-									{/if}
-									<span class="truncate">{modelLabel(currentModel)}</span>
-									{#if hasProviderOverride}
-										{@const hubOrg =
-											PROVIDERS_HUB_ORGS[providerOverride as keyof typeof PROVIDERS_HUB_ORGS]}
-										<span
-											class="inline-flex shrink-0 items-center rounded-sm p-0.5 {providerOverride ===
-											'fastest'
-												? 'bg-green-100 text-green-600 dark:bg-green-800/20 dark:text-green-500'
-												: providerOverride === 'cheapest'
-													? 'bg-blue-100 text-blue-600 dark:bg-blue-800/20 dark:text-blue-500'
-													: ''}"
-											title="Provider: {providerOverride}"
-										>
-											{#if providerOverride === "fastest"}
-												<IconFast classNames="text-sm" />
-											{:else if providerOverride === "cheapest"}
-												<IconCheap classNames="text-sm" />
-											{:else if hubOrg}
-												<img
-													src="https://huggingface.co/api/avatars/{hubOrg}"
-													alt={providerOverride}
-													class="size-3 flex-none rounded-xs"
-												/>
-											{/if}
-										</span>
-									{/if}
+								<span class="shrink-0">Model:</span>
+								{#if currentModel.logoUrl}
+									<img
+										src={currentModel.logoUrl}
+										alt=""
+										class="size-3 flex-none rounded-sm border bg-white dark:border-gray-700"
+									/>
 								{/if}
+								<span class="truncate">{modelLabel(currentModel)}</span>
 							</ModelEffortPicker>
-						{:else if showRouterDetails && streamingRouterMetadata?.route}
-							<div
-								class="mr-2 flex items-center gap-1.5 text-xs text-[.70rem] leading-none whitespace-nowrap text-gray-400 dark:text-gray-400"
-							>
-								<IconOmni classNames="text-xs animate-pulse" />
-
-								<span class="router-badge-text router-shimmer">
-									{streamingRouterMetadata.route}
-								</span>
-
-								<span class="text-gray-500">with</span>
-
-								<span class="router-badge-text">
-									{streamingRouterModelName}
-								</span>
-							</div>
-						{:else}
-							<div
-								class="loading-dots relative inline-flex items-center text-gray-400 dark:text-gray-400"
-								aria-label="Routing…"
-							>
-								<IconOmni classNames="text-xs animate-pulse mr-1" /> Routing
-							</div>
 						{/if}
 					{:else}
 						<span class="inline-flex items-center line-through dark:border-gray-700">
@@ -1250,48 +1119,6 @@
 		}
 		100% {
 			box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
-		}
-	}
-
-	.router-badge-text {
-		display: inline-block;
-		position: relative;
-		color: inherit;
-	}
-
-	.router-shimmer {
-		display: inline-block;
-		background-image: linear-gradient(
-			90deg,
-			rgba(156, 163, 175, 1) 0%,
-			rgba(156, 163, 175, 0.6) 10%,
-			rgba(156, 163, 175, 0.6) 50%,
-			rgba(156, 163, 175, 0.6) 90%,
-			rgba(156, 163, 175, 1) 100%
-		);
-		background-size: 220% 100%;
-		animation: router-shimmer 2.8s linear infinite;
-		background-clip: text;
-		-webkit-background-clip: text;
-		color: transparent;
-		-webkit-text-fill-color: transparent;
-	}
-
-	:global(.dark) .router-shimmer {
-		background-image: linear-gradient(
-			90deg,
-			rgba(255, 255, 255, 0.15) 0%,
-			rgba(255, 255, 255, 0.7) 50%,
-			rgba(255, 255, 255, 0.15) 100%
-		);
-	}
-
-	@keyframes router-shimmer {
-		0% {
-			background-position: 200% 0;
-		}
-		100% {
-			background-position: -200% 0;
 		}
 	}
 

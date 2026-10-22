@@ -75,7 +75,7 @@ const messages = [
 
 describe("ChatWindow SSR with persisted run files", () => {
 	it("renders a conversation whose run produced files", () => {
-		const model = { id: "m", displayName: "M", isRouter: false } as never;
+		const model = { id: "m", displayName: "M" } as never;
 		const { body } = render(ChatWindow, {
 			props: { messages, currentModel: model, models: [model] },
 			context: new Map<string, unknown>([

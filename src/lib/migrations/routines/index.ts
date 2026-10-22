@@ -8,7 +8,6 @@ export interface Migration {
 	up: (client: Database) => Promise<boolean>;
 	down?: (client: Database) => Promise<boolean>;
 	runForFreshInstall?: "only" | "never"; // leave unspecified to run for both
-	runForHuggingChat?: "only" | "never"; // leave unspecified to run for both
 	runEveryTime?: boolean;
 }
 

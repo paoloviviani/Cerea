@@ -41,7 +41,7 @@ export interface ConversationSettingsUpdate {
  * Shared rather than duplicated because getting this wrong is silent: switching
  * the model means every prior assistant message was produced by the OLD model,
  * and those messages carry no `routerMetadata.model` of their own — it is only
- * ever stamped for the "omni" router alias. Without the backfill, history
+ * only stamped where a message records the model that produced it. Without the backfill, history
  * replay's same-producer check treats them as produced by the newly selected
  * model and attaches the old model's reasoning to a turn it never produced. An
  * endpoint that changes `model` with a plain `$set` reintroduces exactly that,

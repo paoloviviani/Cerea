@@ -71,13 +71,11 @@ vi.mock("$lib/server/config", () => ({
 	config: {
 		OPENAI_BASE_URL: "https://router.test/v1",
 		OPENAI_API_KEY: "sk-test",
-		HF_TOKEN: "",
 		MCP_FORWARD_HF_USER_TOKEN: "false",
 		EXA_API_KEY: "",
 		get USE_USER_TOKEN() {
 			return mocks.useUserToken;
 		},
-		isHuggingChat: false,
 		// A getter, not a value: the flag is a per-test switch (see
 		// mocks.codeToolEnabled), and the mocked config object is shared.
 		get CHAT_CODE_TOOL_ENABLED() {
@@ -113,13 +111,6 @@ vi.mock("$lib/server/mcp/tools", () => ({
 					mapping: { do_thing: { fnName: "do_thing", server: "hf", tool: "do_thing" } },
 					unavailable: mocks.unlisted,
 				},
-}));
-
-vi.mock("./routerResolution", () => ({
-	resolveRouterTarget: async ({ model }: { model: unknown }) => ({
-		runMcp: true,
-		targetModel: model,
-	}),
 }));
 
 vi.mock("./toolInvocation", () => ({ executeToolCalls: mocks.executeToolCalls }));
@@ -1306,13 +1297,12 @@ describe("runMcpFlow and sub-agents", () => {
 		expect(offered()).toEqual(expect.arrayContaining(["web_search", "delegate", "research"]));
 	});
 
-	it("lets the model pick only models this person can use that can call tools, never custom or the router", async () => {
+	it("lets the model pick only models this person can use that can call tools, never custom ones", async () => {
 		mocks.delegation = undefined;
 		mocks.visible = [
 			{ id: "a/tools", displayName: "A", supportsTools: true },
 			{ id: "b/notools", displayName: "B", supportsTools: false },
 			{ id: "custom:0123456789abcdef01234567", displayName: "Mine", supportsTools: true },
-			{ id: "omni", displayName: "Omni", supportsTools: true, isRouter: true },
 		];
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow();
@@ -1320,7 +1310,6 @@ describe("runMcpFlow and sub-agents", () => {
 		expect(hint).toContain("a/tools");
 		expect(hint).not.toContain("b/notools");
 		expect(hint).not.toContain("custom:");
-		expect(hint).not.toContain("omni");
 	});
 
 	/**

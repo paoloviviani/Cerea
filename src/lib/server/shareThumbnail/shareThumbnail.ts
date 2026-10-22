@@ -6,9 +6,7 @@ import { convertLegacyConversation } from "$lib/utils/tree/convertLegacyConversa
 import { extractFirstUserPrompt, renderableThumbnailText } from "$lib/utils/sharePreviewText";
 import InterRegular from "$lib/server/fonts/Inter-Regular.ttf";
 import InterBold from "$lib/server/fonts/Inter-Bold.ttf";
-import logo from "../../../../static/huggingchat/fulltext-logo.svg?raw";
-// Same 1200x648 background the model thumbnails use (ModelThumbnail.svelte
-// loads it from the CDN), vendored and inlined so rendering needs no network
+// The 1200x648 card background, vendored and inlined so rendering needs no network
 import backgroundDataUri from "./thumbnail-background.png?inline";
 
 // The element tree is built as plain objects instead of going through
@@ -36,39 +34,14 @@ function el(
 	return { type, props: { style, children, ...props } };
 }
 
-// White HuggingChat logo as a data URI so no network fetch happens at render
-// time. The source svg only declares height="55" against a 575x100 viewBox,
-// which makes its intrinsic size ambiguous (renderers stretch it to 575x55),
-// so pin the intrinsic size to the viewBox before encoding.
-const LOGO_HEIGHT = 48;
-const LOGO_WIDTH = Math.round((LOGO_HEIGHT * 575) / 100);
-const logoDataUri = `data:image/svg+xml;base64,${Buffer.from(
-	logo.replace(/<svg [^>]*?height="\d+"/, '<svg width="575" height="100"')
-).toString("base64")}`;
-const logoElement = el(
-	"img",
-	{ width: LOGO_WIDTH, height: LOGO_HEIGHT, marginLeft: 14 },
-	undefined,
-	{
-		src: logoDataUri,
-		width: LOGO_WIDTH,
-		height: LOGO_HEIGHT,
-	}
-);
-
 export interface ShareThumbnailOptions {
 	/** Sanitized prompt text (see renderableThumbnailText); "" renders the generic card */
 	prompt: string;
-	isHuggingChat: boolean;
-	/** Branding used when not HuggingChat */
+	/** The app name printed on the card */
 	appName: string;
 }
 
-function shareThumbnailElement({
-	prompt,
-	isHuggingChat,
-	appName,
-}: ShareThumbnailOptions): SatoriElement {
+function shareThumbnailElement({ prompt, appName }: ShareThumbnailOptions): SatoriElement {
 	const text = prompt || "A conversation shared with you";
 	const fontSize = text.length <= 45 ? 68 : text.length <= 100 ? 56 : 46;
 
@@ -86,16 +59,10 @@ function shareThumbnailElement({
 		text
 	);
 
-	const continueRow = el(
-		"div",
-		{ display: "flex", alignItems: "center", marginTop: 34 },
-		isHuggingChat
-			? [el("div", { fontSize: 30, color: "#d1d5db" }, "Continue the chat on"), logoElement]
-			: [
-					el("div", { fontSize: 30, color: "#d1d5db" }, "Continue the chat on"),
-					el("div", { fontSize: 32, fontWeight: 700, color: "#ffffff", marginLeft: 14 }, appName),
-				]
-	);
+	const continueRow = el("div", { display: "flex", alignItems: "center", marginTop: 34 }, [
+		el("div", { fontSize: 30, color: "#d1d5db" }, "Continue the chat on"),
+		el("div", { fontSize: 32, fontWeight: 700, color: "#ffffff", marginLeft: 14 }, appName),
+	]);
 
 	const contentColumn = el(
 		"div",
@@ -178,7 +145,7 @@ const THUMBNAIL_CACHE_MAX_ENTRIES = 64;
 const thumbnailCache = new Map<string, Promise<Uint8Array>>();
 
 export function getShareThumbnailPng(options: ShareThumbnailOptions): Promise<Uint8Array> {
-	const key = `${options.isHuggingChat}|${options.appName}|${options.prompt}`;
+	const key = `${options.appName}|${options.prompt}`;
 
 	const cached = thumbnailCache.get(key);
 	if (cached) {

@@ -42,8 +42,6 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	scheduleRuns: true, // one row per occurrence considered: the record of what a schedule did
 	pushSubscriptions: true, // the browsers a person turned Web Push on for; owner-keyed
 	conversationStats: false,
-	assistants: true,
-	reports: true,
 	sharedConversations: true, // ADR 0093 deviation: userId added, see SharedConversation.ts
 	abortedGenerations: true, // conversation-keyed, no owner field of its own
 	generations: true,
@@ -62,7 +60,6 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	webFetchCache: true, // text web_fetch extracted; userId and conversationId
 	migrationResults: false,
 	semaphores: false,
-	tools: false,
 	config: false,
 	erasures: false, // the erasure bookkeeping itself, not user content
 };

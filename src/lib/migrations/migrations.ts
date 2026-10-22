@@ -3,7 +3,6 @@ import { migrations } from "./routines";
 import { acquireLock, releaseLock, isDBLocked, refreshLock } from "./lock";
 import { Semaphores } from "$lib/types/Semaphore";
 import { logger } from "$lib/server/logger";
-import { config } from "$lib/server/config";
 
 export async function checkAndRunMigrations() {
 	// make sure all GUIDs are unique
@@ -57,17 +56,6 @@ export async function checkAndRunMigrations() {
 		if (!shouldRun) {
 			logger.debug(`[MIGRATIONS] "${migration.name}" already applied. Skipping...`);
 		} else {
-			// check the modifiers to see if some cases match
-			if (
-				(migration.runForHuggingChat === "only" && !config.isHuggingChat) ||
-				(migration.runForHuggingChat === "never" && config.isHuggingChat)
-			) {
-				logger.debug(
-					`[MIGRATIONS] "${migration.name}" should not be applied for this run. Skipping...`
-				);
-				continue;
-			}
-
 			// otherwise all is good and we can run the migration
 			logger.debug(
 				`[MIGRATIONS] "${migration.name}" ${

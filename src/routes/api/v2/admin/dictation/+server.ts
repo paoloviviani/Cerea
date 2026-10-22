@@ -6,6 +6,7 @@
  * gateway's answer (`requireAdmin`).
  */
 
+import { transcriptionEnabled } from "$lib/server/transcription";
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { config } from "$lib/server/config";
@@ -21,7 +22,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		mode: dictationMode(),
 		available: DICTATION_MODES,
 		// Said so the screen can explain "only when no voice model is available".
-		transcriptionEnabled: !!config.get("TRANSCRIPTION_MODEL"),
+		transcriptionEnabled: transcriptionEnabled(),
 		configurable: config.ENABLE_CONFIG_MANAGER === "true",
 	});
 };

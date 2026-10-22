@@ -99,7 +99,6 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 			!conversation.shared && "knowledgeBaseIds" in conversation
 				? await knowledgeBaseViews(conversation.knowledgeBaseIds)
 				: undefined,
-		deployedSpaces: "deployedSpaces" in conversation ? conversation.deployedSpaces : undefined,
 		webSearch: "webSearch" in conversation ? conversation.webSearch : undefined,
 		toolApprovalOverride:
 			"toolApprovalOverride" in conversation ? conversation.toolApprovalOverride : undefined,

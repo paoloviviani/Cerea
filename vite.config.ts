@@ -84,7 +84,6 @@ const clientTestDeps = [
 	"@codemirror/language-data",
 	"@codemirror/state",
 	"@codemirror/view",
-	"@huggingface/inference",
 	"@xterm/addon-fit",
 	"@xterm/addon-unicode11",
 	"@xterm/addon-web-links",

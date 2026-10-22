@@ -30,8 +30,6 @@ export function serializeModelSummary(model: ProcessedModel): GETModelsResponse[
 		// "unset" read as off.
 		supportsArtifacts: model.supportsArtifacts ?? supportsTools,
 		unlisted: model.unlisted,
-		hasInferenceAPI: model.hasInferenceAPI,
-		isRouter: model.isRouter,
 	};
 }
 

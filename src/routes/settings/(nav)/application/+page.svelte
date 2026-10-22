@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { APP_VERSION } from "$lib/utils/appVersion";
 	import CarbonTrashCan from "~icons/carbon/trash-can";
-	import CarbonArrowUpRight from "~icons/carbon/arrow-up-right";
-	import CarbonLogoGithub from "~icons/carbon/logo-github";
 
 	import { useSettingsStore } from "$lib/stores/settings";
 	import type { StreamingMode } from "$lib/types/Settings";
@@ -48,12 +46,6 @@
 	let settings = useSettingsStore();
 
 	// Functional bindings for store fields (Svelte 5): avoid mutating $settings directly
-	function getShareWithAuthors() {
-		return $settings.shareConversationsWithModelAuthors;
-	}
-	function setShareWithAuthors(v: boolean) {
-		settings.update((s) => ({ ...s, shareConversationsWithModelAuthors: v }));
-	}
 	function getStreamingMode() {
 		return $settings.streamingMode;
 	}
@@ -138,11 +130,7 @@
 		<div>
 			<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">Task model</div>
 			<p class="text-[12px] text-gray-500 dark:text-gray-400">
-				{#if publicConfig.isHuggingChat}
-					Generates conversation titles. Extremely cheap.
-				{:else}
-					Generates conversation titles. Set via <code class="font-mono">TASK_MODEL</code>.
-				{/if}
+				Generates conversation titles. Set via <code class="font-mono">TASK_MODEL</code>.
 			</p>
 		</div>
 		<select
@@ -282,23 +270,6 @@
 			class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
 		>
 			<div class="divide-y divide-gray-200 dark:divide-gray-700">
-				{#if publicConfig.PUBLIC_APP_DATA_SHARING === "1"}
-					<div class="flex items-start justify-between py-3">
-						<div>
-							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-								Share with model authors
-							</div>
-							<p class="text-[12px] text-gray-500 dark:text-gray-400">
-								Sharing your data helps improve open models over time.
-							</p>
-						</div>
-						<Switch
-							name="shareConversationsWithModelAuthors"
-							bind:checked={getShareWithAuthors, setShareWithAuthors}
-						/>
-					</div>
-				{/if}
-
 				<div class="flex items-start justify-between py-3">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
@@ -413,33 +384,6 @@
 		</div>
 
 		<div class="mt-6 flex flex-col gap-2 self-start text-[13px]">
-			{#if publicConfig.isHuggingChat}
-				<a
-					href="https://github.com/huggingface/chat-ui"
-					target="_blank"
-					class="flex items-center underline decoration-gray-300 underline-offset-2 hover:decoration-gray-700 dark:decoration-gray-700 dark:hover:decoration-gray-400"
-					><CarbonLogoGithub class="mr-1.5 shrink-0 text-sm " /> Github repository</a
-				>
-				<a
-					href="https://huggingface.co/spaces/huggingchat/chat-ui/discussions/764"
-					target="_blank"
-					rel="noreferrer"
-					class="flex items-center underline decoration-gray-300 underline-offset-2 hover:decoration-gray-700 dark:decoration-gray-700 dark:hover:decoration-gray-400"
-					><CarbonArrowUpRight class="mr-1.5 shrink-0 text-sm " /> Share your feedback on HuggingChat</a
-				>
-				<a
-					href="https://huggingface.co/models/inference"
-					target="_blank"
-					rel="noreferrer"
-					class="flex items-center underline decoration-gray-300 underline-offset-2 hover:decoration-gray-700 dark:decoration-gray-700 dark:hover:decoration-gray-400"
-					><CarbonArrowUpRight class="mr-1.5 shrink-0 text-sm " /> Compare Inference Providers</a
-				>
-				<a
-					href="{base}/privacy"
-					class="flex items-center underline decoration-gray-300 underline-offset-2 hover:decoration-gray-700 dark:decoration-gray-700 dark:hover:decoration-gray-400"
-					><CarbonArrowUpRight class="mr-1.5 shrink-0 text-sm " /> About & Privacy</a
-				>
-			{/if}
 			<button
 				onclick={(e) => {
 					e.preventDefault();

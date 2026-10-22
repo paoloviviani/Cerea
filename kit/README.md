@@ -870,7 +870,7 @@ and machine links stay revoked, so they sign in again and re-enroll their
 machines.
 
 **Delete** erases the person everywhere, chat included: conversations, files
-and attachments, projects, assistants, knowledge bases, memories, skills,
+and attachments, projects, knowledge bases, memories, skills,
 MCP connectors, settings, sessions and machine links. Content they shared
 with other people disappears for them too; the delete confirmation names it
 and asks you to tick it before it proceeds. Their spend history stays in the

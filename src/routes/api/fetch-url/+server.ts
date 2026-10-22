@@ -43,7 +43,7 @@ export async function GET({ url }) {
 				signal: controller.signal,
 				redirect: "manual",
 				headers: {
-					"User-Agent": "HuggingChat-Attachment-Fetcher/1.0",
+					"User-Agent": "Cerea-Attachment-Fetcher/1.0",
 				},
 			});
 

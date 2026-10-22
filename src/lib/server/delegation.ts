@@ -26,7 +26,7 @@ export interface DelegationModel {
 /**
  * The models this person may pick for a sub-agent: what the models list shows
  * them (`visibleModels`, which the gateway filters by their own token), that
- * can call tools, and are real catalogue models: not the router alias, never a
+ * can call tools, and are real catalogue models: never a
  * custom model. The gateway stays the authority at call time; this decides
  * what `delegate` accepts and names to the model. A failure to read the
  * catalogue means no choice is offered (the sub-agent uses the conversation's
@@ -39,7 +39,7 @@ export async function delegationModelsFor(
 	try {
 		const { visibleModels } = await import("$lib/server/visibleModels");
 		return (await visibleModels(locals))
-			.filter((model) => model.supportsTools && !model.isRouter && !model.id.startsWith("custom:"))
+			.filter((model) => model.supportsTools && !model.id.startsWith("custom:"))
 			.map((model) => {
 				const maxTokens = (model.parameters as { max_tokens?: unknown } | undefined)?.max_tokens;
 				return {

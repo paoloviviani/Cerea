@@ -30,10 +30,6 @@ class PublicConfigManager {
 		return this.#configStore;
 	}
 
-	get isHuggingChat() {
-		return this.#configStore.PUBLIC_APP_ASSETS === "huggingchat";
-	}
-
 	get assetPath() {
 		return (
 			(this.#configStore.PUBLIC_ORIGIN || page.url.origin) +

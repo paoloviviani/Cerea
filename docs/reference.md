@@ -31,7 +31,6 @@ at source:
   (every variable [Configuration](configuration.md) does not list)
 - [OpenID](https://github.com/huggingface/chat-ui/blob/main/docs/source/configuration/open-id.md),
   [MCP tools](https://github.com/huggingface/chat-ui/blob/main/docs/source/configuration/mcp-tools.md),
-  [LLM router](https://github.com/huggingface/chat-ui/blob/main/docs/source/configuration/llm-router.md),
   [metrics](https://github.com/huggingface/chat-ui/blob/main/docs/source/configuration/metrics.md)
   and [theming](https://github.com/huggingface/chat-ui/blob/main/docs/source/configuration/theming.md)
 - [Architecture](https://github.com/huggingface/chat-ui/blob/main/docs/source/developing/architecture.md)

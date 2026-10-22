@@ -268,7 +268,6 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 			message,
 			conv,
 			initialContent,
-			isRouterModel: Boolean(model.isRouter),
 		});
 		if (applied.skipped) return;
 		writer.push(event);
@@ -354,15 +353,9 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 			ip: "sweeper",
 			username: locals.user?.username,
 			// Same per-model capability overrides as a fresh turn: tri-state,
-			// winning in both directions, ignored on HuggingChat.
-			forceMultimodal: !config.isHuggingChat
-				? settings?.multimodalOverrides?.[model.id]
-				: undefined,
-			forceTools: !config.isHuggingChat ? settings?.toolsOverrides?.[model.id] : undefined,
-			provider:
-				config.isHuggingChat && !model.isRouter
-					? settings?.providerOverrides?.[model.id]
-					: undefined,
+			// winning in both directions.
+			forceMultimodal: settings?.multimodalOverrides?.[model.id],
+			forceTools: settings?.toolsOverrides?.[model.id],
 			reasoningEffort: effectiveReasoningEffort(conv, settings, model.id),
 			reasoningOverride: settings?.reasoningOverrides?.[model.id],
 			artifactsOverride: settings?.artifactsOverrides?.[model.id],

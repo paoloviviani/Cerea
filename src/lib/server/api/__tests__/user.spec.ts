@@ -91,7 +91,6 @@ describe("GET /api/v2/user/settings", () => {
 			shareConversationsWithModelAuthors: true,
 			multimodalOverrides: {},
 			toolsOverrides: {},
-			providerOverrides: {},
 		});
 		// The welcome screen is gone: neither the flag nor its timestamp is
 		// reported any more, whatever an old stored document holds.
@@ -115,7 +114,6 @@ describe("GET /api/v2/user/settings", () => {
 			multimodalOverrides: {},
 			toolsOverrides: {},
 			hidePromptExamples: {},
-			providerOverrides: {},
 			// A stray welcomeModalSeenAt left in an old document: stored
 			// settings may keep it, and it is ignored — no migration.
 			welcomeModalSeenAt: new Date("2024-01-01"),
@@ -153,7 +151,6 @@ describe("GET /api/v2/user/settings", () => {
 			multimodalOverrides: {},
 			toolsOverrides: {},
 			hidePromptExamples: {},
-			providerOverrides: {},
 			createdAt: new Date(),
 			updatedAt: new Date(),
 		};
@@ -212,7 +209,6 @@ describe("POST /api/v2/user/settings", () => {
 			customPrompts: {},
 			multimodalOverrides: {},
 			toolsOverrides: {},
-			providerOverrides: {},
 			streamingMode: "raw",
 			directPaste: false,
 			hidePromptExamples: {},
@@ -244,7 +240,6 @@ describe("POST /api/v2/user/settings", () => {
 			customPrompts: {},
 			multimodalOverrides: {},
 			toolsOverrides: {},
-			providerOverrides: {},
 			streamingMode: "smooth",
 			directPaste: false,
 			hidePromptExamples: {},

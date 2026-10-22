@@ -26,7 +26,6 @@ export const GET: RequestHandler = (async ({ params }) => {
 
 	const png = await getShareThumbnailPng({
 		prompt: shareThumbnailPrompt(sharedConversation),
-		isHuggingChat: config.isHuggingChat,
 		appName: config.PUBLIC_APP_NAME,
 	});
 

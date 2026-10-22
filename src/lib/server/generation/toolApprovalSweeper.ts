@@ -3,7 +3,6 @@ import { effectiveReasoningEffort } from "$lib/server/reasoningEffort";
 import { randomUUID } from "crypto";
 import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
-import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { mcpLocalsFor } from "$lib/server/mcp/selection";
 import { onExit } from "$lib/server/exitHandler";
@@ -139,7 +138,6 @@ async function denyAndResume(row: McpElicitation): Promise<void> {
 			message,
 			conv,
 			initialContent: message.content,
-			isRouterModel: Boolean(model.isRouter),
 		});
 		if (applied.skipped) return;
 		writer.push(event);
@@ -193,14 +191,8 @@ async function denyAndResume(row: McpElicitation): Promise<void> {
 				promptedAt,
 				ip: "tool-approval-sweeper",
 				username: locals.user?.username,
-				forceMultimodal: !config.isHuggingChat
-					? settings?.multimodalOverrides?.[model.id]
-					: undefined,
-				forceTools: !config.isHuggingChat ? settings?.toolsOverrides?.[model.id] : undefined,
-				provider:
-					config.isHuggingChat && !model.isRouter
-						? settings?.providerOverrides?.[model.id]
-						: undefined,
+				forceMultimodal: settings?.multimodalOverrides?.[model.id],
+				forceTools: settings?.toolsOverrides?.[model.id],
 				reasoningEffort: effectiveReasoningEffort(conv, settings, model.id),
 				reasoningOverride: settings?.reasoningOverrides?.[model.id],
 				artifactsOverride: settings?.artifactsOverrides?.[model.id],

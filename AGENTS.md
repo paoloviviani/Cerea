@@ -9,7 +9,7 @@ for each subsystem.
 
 ## Overview
 
-Cerea is a SvelteKit application that provides a chat interface for LLMs. A fork of huggingface/chat-ui (the engine behind HuggingChat). The app speaks exclusively to OpenAI-compatible APIs via `OPENAI_BASE_URL`.
+Cerea is a SvelteKit application that provides a chat interface for LLMs. A hard fork of huggingface/chat-ui: it no longer tracks or merges upstream, and nothing in it is kept for upstream's sake. The app speaks exclusively to OpenAI-compatible APIs via `OPENAI_BASE_URL`.
 
 ## Commands
 
@@ -235,32 +235,6 @@ is printed: read them, a release is done only when the script prints
 A step that cannot run (no browser, no credentials) is reported as not run,
 never as passed.
 
-## Merging from upstream
-
-Cerea is a fork of huggingface/chat-ui, now mostly a hard fork. Upstream
-changes are merged by hand where they fit:
-
-```bash
-git remote add upstream https://github.com/huggingface/chat-ui.git   # once
-git fetch upstream && git merge upstream/main
-```
-
-- Merge, never rebase: the fork keeps upstream's history intact.
-- Keep upstream's file layout where a file still exists in both, so the next
-  merge stays mechanical. New first-party code goes in new files where it can.
-- HuggingChat-only behaviour stays behind `publicConfig.isHuggingChat`; do not
-  delete it just because this deployment never takes that path, since that
-  turns every later upstream merge into a conflict.
-- The one deliberate exception: ML Assistant mode (upstream's `mlAssistant*`
-  files, `ML_ASSISTANT_MODE` / `ML_ASSISTANT_MODELS`, the composer strip and
-  pill, the compute budget) was removed on purpose in 2026-10. When an upstream
-  merge touches those files or their call sites in `models.ts`,
-  `reasoningEffort.ts`, `textGeneration/` and the conversation routes, drop
-  upstream's changes rather than resurrecting the feature.
-- Run `npm run check`, `npm run lint` and the tests after a merge, and read the
-  upstream changes to `src/lib/server/models.ts`, auth and the generation path
-  with care: those are where the fork differs most.
-
 ### Running a Single Test
 
 ```bash
@@ -295,7 +269,6 @@ src/
 │   │   ├── api/utils/       # Shared API helpers (auth, superjson, model/conversation resolvers)
 │   │   ├── textGeneration/  # LLM streaming pipeline
 │   │   ├── mcp/          # Model Context Protocol integration
-│   │   ├── router/       # Smart model routing (Omni)
 │   │   ├── database.ts   # MongoDB collections
 │   │   ├── models.ts     # Model registry from OPENAI_BASE_URL/models
 │   │   ├── auth.ts       # OpenID Connect authentication
@@ -325,16 +298,7 @@ src/
 
 ### Model Context Protocol (MCP)
 
-MCP servers are configured via `MCP_SERVERS` env var. When enabled, tools are exposed as OpenAI function calls. The router can auto-select tools-capable models when `LLM_ROUTER_ENABLE_TOOLS=true`.
-
-### LLM Router (Omni)
-
-Upstream's routing alias. Routes come from `LLM_ROUTER_ROUTES_PATH` (a JSON
-file); the route is picked by local heuristics (`router/heuristics.ts`), not
-by a call to an Arch-Router model, and the chosen model is called through
-`OPENAI_BASE_URL` like any other. `LLM_ROUTER_ENABLE_MULTIMODAL` and
-`LLM_ROUTER_ENABLE_TOOLS` send image and tool turns straight to their models.
-A gateway deployment does not configure it.
+MCP servers are configured via `MCP_SERVERS` env var. When enabled, tools are exposed as OpenAI function calls.
 
 ### Database Collections
 
@@ -364,8 +328,8 @@ It was reading **HuggingFace's router shape instead** — `architecture
 sends. Every model therefore came back with no tools, no vision and no
 reasoning, and the capability switches for them had nothing to show. Nothing
 errored and nothing logged; the only symptom was four absent switches. Both
-shapes are read now, gateway first, because this fork also runs against the HF
-router where the nested one is all there is.
+shapes are read now, gateway first, because the standalone mode runs against
+any OpenAI-compatible endpoint, some of which send only the nested one.
 
 Two consequences worth knowing:
 
@@ -410,12 +374,8 @@ Two things worth knowing:
 - **"Default" is what a _new_ chat starts on.** An open conversation keeps the
   model it was started with, so the button says "Set as default" and the pill
   says "Default", not "Active";
-- **`providerOverrides` is not in the dialog, and is not a loss.** It picks
-  which _HuggingFace Inference Provider_ serves a model — inherited from
-  upstream, and meaningless in a gateway deployment, where every call goes to
-  the gateway and which upstream serves a model is the gateway's decision. Its UI was already hidden behind `isHuggingChat`. The
-  server-side plumbing is deliberately left in place, because it is live on the
-  branch this fork came from.
+- **There is no inference-provider choice.** Every call goes to the gateway,
+  and which upstream serves a model is the gateway's decision (ADR 0032).
 
 ### Custom models: the global prompt and custom models
 
@@ -1093,12 +1053,10 @@ See `.env` for full list of variables including router config, MCP servers, auth
 
 When building new features, consider:
 
-1. **HuggingChat vs self-hosted**: Wrap HuggingChat-specific features with `publicConfig.isHuggingChat`
-2. **Settings persistence**: Add new fields to `src/lib/types/Settings.ts`, update API endpoint at `src/routes/api/v2/user/settings/+server.ts`
-3. **Rich dropdowns**: Use `bits-ui` (Select, DropdownMenu) instead of native elements when you need icons/images in options
-4. **Scrollbars**: Use `scrollbar-custom` class for styled scrollbars
-5. **Icons**: Custom icons in `$lib/components/icons/`, use Carbon (`~icons/carbon/*`) or Lucide (`~icons/lucide/*`) for standard icons
-6. **Provider avatars**: Use `PROVIDERS_HUB_ORGS` from `@huggingface/inference` for HF provider avatar URLs
+1. **Settings persistence**: Add new fields to `src/lib/types/Settings.ts`, update API endpoint at `src/routes/api/v2/user/settings/+server.ts`
+2. **Rich dropdowns**: Use `bits-ui` (Select, DropdownMenu) instead of native elements when you need icons/images in options
+3. **Scrollbars**: Use `scrollbar-custom` class for styled scrollbars
+4. **Icons**: Custom icons in `$lib/components/icons/`, use Carbon (`~icons/carbon/*`) or Lucide (`~icons/lucide/*`) for standard icons
 
 ## Office previews and `convert_document`
 

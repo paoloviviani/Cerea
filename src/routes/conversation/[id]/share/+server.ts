@@ -20,7 +20,6 @@ import { nanoid } from "nanoid";
 function prewarmShareThumbnail(shared: SharedConversation): void {
 	getShareThumbnailPng({
 		prompt: shareThumbnailPrompt(shared),
-		isHuggingChat: config.isHuggingChat,
 		appName: config.PUBLIC_APP_NAME,
 	}).catch((err) => logger.warn({ err }, "Failed to prewarm share thumbnail"));
 }
