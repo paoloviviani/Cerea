@@ -83,11 +83,11 @@ your machines keep working meanwhile, the panel just asks you to sign in again
 Every session has one **permission setting**, the selector in its composer.
 **New sessions start on Ask.**
 
-| Setting   | What it does with a tool call the session has no rule for                                                           |
-| --------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Plan**  | the agent plans and reads; anything that would change something is refused, with no card                            |
-| **Ask**   | asks you, with an approval card (reading inside the project does not ask)                                           |
-| **Allow** | lets it through without asking, **up to the machine's limits** (the ceiling its owner set when pairing it)          |
+| Setting   | What it does with a tool call the session has no rule for                                                  |
+| --------- | ---------------------------------------------------------------------------------------------------------- |
+| **Plan**  | the agent plans and reads; anything that would change something is refused, with no card                   |
+| **Ask**   | asks you, with an approval card (reading inside the project does not ask)                                  |
+| **Allow** | lets it through without asking, **up to the machine's limits** (the ceiling its owner set when pairing it) |
 
 When a card appears you can **Allow once**, **Always allow (this session)** for
 that command, or **Deny**. Allow never passes the machine's ceiling: where it
@@ -126,9 +126,9 @@ To keep galopin running when the terminal closes, see
 
 ## Where to go next
 
-| You want…                                                           | Read                                                                                              |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| every pairing option and what a machine will refuse                 | [The pairing dialog](agent-machines-reference.md#the-pairing-dialog) and [the machine policy](agent-machines-reference.md#the-machine-policy) |
-| terminals, the file explorer, a repo's own config                   | [The terminal](agent-machines-reference.md#the-terminal), [the file explorer](agent-machines-reference.md#what-the-file-explorer-may-see) |
-| to run it as a service, remove a machine, install by hand           | [Installing and running galopin](agent-machines-reference.md#installing-and-running-galopin)      |
-| how it works                                                        | [How it works](agent-machines-reference.md#how-it-works)                                          |
+| You want…                                                 | Read                                                                                                                                          |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| every pairing option and what a machine will refuse       | [The pairing dialog](agent-machines-reference.md#the-pairing-dialog) and [the machine policy](agent-machines-reference.md#the-machine-policy) |
+| terminals, the file explorer, a repo's own config         | [The terminal](agent-machines-reference.md#the-terminal), [the file explorer](agent-machines-reference.md#what-the-file-explorer-may-see)     |
+| to run it as a service, remove a machine, install by hand | [Installing and running galopin](agent-machines-reference.md#installing-and-running-galopin)                                                  |
+| how it works                                              | [How it works](agent-machines-reference.md#how-it-works)                                                                                      |

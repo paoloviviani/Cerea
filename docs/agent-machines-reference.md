@@ -10,15 +10,15 @@
 This page is the reference for the Agents panel and for `galopin`, the binary
 that runs on your machine. It is organised so you can jump to what you need:
 
-| You want to know…                                                      | Section                                                                                     |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| what a machine will and will not allow, and how to set that            | [Pairing options and the machine policy](#pairing-options-and-the-machine-policy)           |
-| what Plan, Ask and Allow do, and what the approval card offers         | [Permissions](#permissions)                                                                 |
-| how the panel's parts work                                             | [The panel in detail](#the-panel-in-detail)                                                 |
-| how a session hands work to other sessions, profiles, committees       | [Delegating work](#delegating-work)                                                         |
-| timetables                                                             | [Scheduled actions](#scheduled-actions)                                                     |
-| installing, updating, keeping it running, removing                     | [Installing and running galopin](#installing-and-running-galopin)                           |
-| what runs where                                                        | [How it works](#how-it-works)                                                               |
+| You want to know…                                                | Section                                                                           |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| what a machine will and will not allow, and how to set that      | [Pairing options and the machine policy](#pairing-options-and-the-machine-policy) |
+| what Plan, Ask and Allow do, and what the approval card offers   | [Permissions](#permissions)                                                       |
+| how the panel's parts work                                       | [The panel in detail](#the-panel-in-detail)                                       |
+| how a session hands work to other sessions, profiles, committees | [Delegating work](#delegating-work)                                               |
+| timetables                                                       | [Scheduled actions](#scheduled-actions)                                           |
+| installing, updating, keeping it running, removing               | [Installing and running galopin](#installing-and-running-galopin)                 |
+| what runs where                                                  | [How it works](#how-it-works)                                                     |
 
 ## Pairing options and the machine policy
 
@@ -671,12 +671,12 @@ reconnects it by itself. What you see depends on which one bit:
 
 A session can hand work to others. Four mechanisms, from lightest to heaviest:
 
-| Mechanism                                                    | What it is                                                                                                          |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| [Subagents](#subagents)                                      | a task inside the session's own turn (opencode's `task` tool), shown as a card in the transcript                    |
-| [Delegates](#sessions-that-talk-to-sessions)                 | a separate session the model starts with `session_spawn`; its answer comes back to the session that started it      |
-| [Recipes and the committee](#recipes-and-the-committee)      | handoff, second opinion and committee: ready-made ways to use delegates                                             |
-| [Delegate profiles](#delegate-profiles)                      | which model a delegate runs on, set per machine                                                                     |
+| Mechanism                                               | What it is                                                                                                     |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| [Subagents](#subagents)                                 | a task inside the session's own turn (opencode's `task` tool), shown as a card in the transcript               |
+| [Delegates](#sessions-that-talk-to-sessions)            | a separate session the model starts with `session_spawn`; its answer comes back to the session that started it |
+| [Recipes and the committee](#recipes-and-the-committee) | handoff, second opinion and committee: ready-made ways to use delegates                                        |
+| [Delegate profiles](#delegate-profiles)                 | which model a delegate runs on, set per machine                                                                |
 
 All of the session-to-session tools are on by default and turned off with
 `--no-agent-tools` at enroll.
@@ -900,7 +900,10 @@ look around but every call that would change something is refused.
 every use, so a saved change applies to the next spawn without a restart:
 
 ```json
-{ "default": "fast", "profiles": { "fast": { "model": "pystino/small" }, "deep": { "model": "pystino/large" } } }
+{
+	"default": "fast",
+	"profiles": { "fast": { "model": "pystino/small" }, "deep": { "model": "pystino/large" } }
+}
 ```
 
 The menu is the way to edit it. An older file, from before profiles were just a

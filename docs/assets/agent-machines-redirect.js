@@ -10,5 +10,7 @@
 	if (hash.length < 2) return;
 	var id = decodeURIComponent(hash.slice(1));
 	if (document.getElementById(id)) return;
-	location.replace(path.replace(/agent-machines(\/index\.html|\/)?$/, "agent-machines-reference/") + hash);
+	location.replace(
+		path.replace(/agent-machines(\/index\.html|\/)?$/, "agent-machines-reference/") + hash
+	);
 })();
