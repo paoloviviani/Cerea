@@ -555,7 +555,8 @@ backend sends `"mode": "agent"` (an older galopin omits `mode`; read as `"agent"
 `"mcp": true` when it has an `mcp.json`, so an agent machine can serve connectors as well.
 Cerea lists a `connectors` machine under the workspace's **Local connectors** tab, where its
 pairing is approved, and never in the Agents panel. `galopin enroll --mode connectors`
-enrolls such a machine without touching opencode.
+enrolls such a machine without touching opencode. A connectors machine answers every
+op other than `mcp.*` with `unsupported`.
 
 ### 10.3 Operations and frames
 
@@ -583,9 +584,16 @@ either direction, so tools, resources, prompts, progress, cancellation, logging,
 `list_changed` notifications and elicitation all work, and a later MCP addition needs no
 protocol change. A `closed` frame ends the channel; Cerea fails the channel's pending
 requests with it and opens a new channel on the next use. A message frame for an unknown
-channel is dropped (C→M) or answered with a `closed` frame (`reason: "closed"`). A message
-larger than the frame cap (§9.2's 1 MiB) is not sent: galopin answers a request it cannot
-forward with a JSON-RPC error and drops anything else, logging it.
+channel is answered with a `closed` frame (`reason: "closed"`), so Cerea can fail what it
+has pending. A message larger than the frame cap (§9.2's 1 MiB), in either direction, is
+not sent: galopin answers a request it cannot forward with a JSON-RPC error (`-32603`,
+"message too large for the link …": to Cerea for a response or Cerea's own request, to the
+server for a server request) and drops anything else, logging it.
+
+When galopin itself must answer a request, because the HTTP server cannot be reached or
+answers an error status, it does so with a JSON-RPC error on that request's id: `-32000`
+("the server answered 503 …", "cannot reach the server …"), `-32002` when the server asks
+for a sign-in (§10.5), `-32001` for the ceiling (§10.4), `-32603` for the size cap.
 
 ### 10.4 The machine's ceiling
 
@@ -603,7 +611,11 @@ outcome (`ok`, `error`, `refused`). Never the arguments or the result.
   signed in on the machine: `galopin connectors login <name>` runs the authorization-code
   flow with PKCE and a loopback redirect, and keeps the tokens in galopin's state directory,
   refreshing them as needed. Until then the server is `needs-login` and `mcp.open` answers
-  `forbidden` with a sentence naming the command. Cerea never sees the tokens.
+  `forbidden` with a sentence naming the command. Cerea never sees the tokens. galopin
+  learns of the 401 on the first `mcp.open` of an http server (it sends one `ping`, whose
+  answer it ignores but for a 401 with `WWW-Authenticate` or a connection error, which
+  becomes `forbidden` or `unavailable`), and again on any later request; a sign-in made by
+  `galopin connectors login` while galopin runs clears the state without a restart.
 - Anything the server itself asks of the person over MCP (elicitation, including its URL
   form) passes through like any other message and reaches the chat's usual prompts.
 

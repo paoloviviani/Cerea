@@ -112,6 +112,7 @@ nav:
       - "Agent machines":
           - "Getting started": agent-machines.md
           - "Reference": agent-machines-reference.md
+      - "Local connectors": local-connectors.md
       - "The headless browser": browser.md
       - "Office previews": office.md
   - Operating Cerea:
