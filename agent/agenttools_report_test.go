@@ -382,4 +382,28 @@ func TestReportDeliveryRetriesAfterAListFailure(t *testing.T) {
 	if got := r.toCaller(); len(got) != 1 || !strings.Contains(got[0].prompt.Text, "after the outage") {
 		t.Fatalf("no retry delivered: %+v", got)
 	}
+	// The prompt is recorded before flush persists its bookkeeping. Wait for
+	// that to finish, or the save races the TempDir cleanup.
+	quiesceReports(t, at, "caller")
+}
+
+// quiesceReports blocks until a spawner's queue is drained and no flush is
+// running, so no report state is written after the test returns.
+func quiesceReports(t *testing.T, at *agentTools, spawner string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		at.reports.flushMu.Lock()
+		at.reports.mu.Lock()
+		n := len(at.reports.Queue[spawner])
+		at.reports.mu.Unlock()
+		at.reports.flushMu.Unlock()
+		if n == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("queue for %s never drained (%d left)", spawner, n)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
