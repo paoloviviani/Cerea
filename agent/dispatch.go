@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"galopin/internal/backend"
 	backendopencode "galopin/internal/backend/opencode"
@@ -15,6 +16,7 @@ import (
 	"galopin/internal/decide"
 	"galopin/internal/files"
 	"galopin/internal/link"
+	"galopin/internal/mcpconn"
 	"galopin/internal/permrules"
 	"galopin/internal/policy"
 	"galopin/internal/sessions"
@@ -60,6 +62,11 @@ type machine struct {
 	// agentTools is the agent-coordination tools' state (agenttools.go); nil
 	// when the backend has none.
 	agentTools *agentTools
+	// mcp is the machine's local MCP connectors (mcp_connectors.go); nil in
+	// tests that have none.
+	mcp *mcpconn.Hub
+	// mcpIdle overrides the connector idle timeout (zero: the default); tests.
+	mcpIdle time.Duration
 }
 
 func newMachine(reg *workspaces.Registry, back backend.Backend, mat *sessions.Materializer, pol policy.Policy) *machine {
@@ -214,7 +221,14 @@ func (mc *machine) enrichAll(sessions []backend.Session, workspaceIDs []string) 
 
 // Handle implements link.Handler: PROTOCOL.md §6's whole op table.
 func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) (any, *link.OpError) {
+	// A connectors-only machine (galopin run --backend none) has no backend:
+	// everything but the connector ops is unsupported there.
+	if mc.back == nil && !strings.HasPrefix(op, "mcp.") {
+		return nil, opErrf("unsupported", "this machine only serves connectors: %s needs a coding agent", op)
+	}
 	switch op {
+	case "mcp.list", "mcp.open", "mcp.close":
+		return mc.opMcp(ctx, op, args)
 	case "files.list", "files.stat", "files.read", "files.status":
 		return mc.opFiles(ctx, op, args)
 	case "terminal.list", "terminal.open", "terminal.attach", "terminal.detach", "terminal.resize", "terminal.rename", "terminal.close":

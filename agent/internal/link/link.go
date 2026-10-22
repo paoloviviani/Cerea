@@ -102,6 +102,10 @@ type PolicyInfo struct {
 // owner allows it; both must hold.
 type MachineInfo struct {
 	Capabilities map[string]bool `json:"capabilities"`
+	// Mode is "agent" (a backend runs) or "connectors" (galopin run --backend
+	// none: only the machine's MCP servers, PROTOCOL.md §10.2). An older
+	// galopin omits it, read as "agent".
+	Mode string `json:"mode,omitempty"`
 }
 
 // Hello is the whole first frame's payload (protocol and type are added by
@@ -141,6 +145,15 @@ type BinaryHandler interface {
 	HandleBinary(kind byte, channel string, offset uint64, payload []byte)
 }
 
+// McpHandler carries the mcp frames (PROTOCOL.md §10.3). HandleMcp must not
+// block: frames of one channel arrive in order and the read loop waits for it.
+type McpHandler interface {
+	// HandleMcp gets one C→M mcp frame's message, raw JSON-RPC.
+	HandleMcp(channelID string, message json.RawMessage)
+	// LinkDown is called when the connection ends: every channel is gone.
+	LinkDown()
+}
+
 // Config is everything one Link needs. Defaults are applied by New for
 // zero-valued timeouts/backoff so a caller only sets what it wants to
 // override.
@@ -159,6 +172,9 @@ type Config struct {
 	// term.ack). Left nil on a build/config with no terminal support, in
 	// which case inbound binary frames are simply dropped.
 	Binary BinaryHandler
+	// Mcp receives mcp frames and the link-down signal; nil on a machine with
+	// no connectors, which drops the frames.
+	Mcp McpHandler
 
 	// DialTimeout bounds one connection attempt (default 10s, PROTOCOL.md §3).
 	DialTimeout time.Duration
@@ -371,6 +387,9 @@ func (l *Link) runOnce(ctx context.Context) error {
 		l.machineCalls = nil
 		l.mu.Unlock()
 		l.failPending("the link to Cerea dropped before it answered")
+		if l.cfg.Mcp != nil {
+			l.cfg.Mcp.LinkDown()
+		}
 	}()
 	go sched.run(connCtx)
 
@@ -533,6 +552,18 @@ func (l *Link) serve(ctx context.Context, conn *websocket.Conn) error {
 				continue
 			}
 			go l.handleReq(ctx, req.ID, req.Op, req.Args)
+		case "mcp":
+			if !l.Paired() || l.cfg.Mcp == nil {
+				continue
+			}
+			var f struct {
+				ChannelID string          `json:"channelId"`
+				Message   json.RawMessage `json:"message"`
+			}
+			if json.Unmarshal(raw, &f) != nil || f.ChannelID == "" || len(f.Message) == 0 {
+				continue
+			}
+			l.cfg.Mcp.HandleMcp(f.ChannelID, f.Message)
 		case "callres":
 			l.handleCallRes(raw)
 		default:
@@ -591,6 +622,33 @@ func (l *Link) PublishEvent(sessionID, epoch string, seq int64, rootSessionID st
 	}
 	return l.writeFrame(ctx, map[string]any{
 		"type": "event", "sessionId": sessionID, "epoch": epoch, "seq": seq, "rootSessionId": rootSessionID, "event": json.RawMessage(event),
+	})
+}
+
+// PublishMcp sends one M→C mcp frame: a server's message on a channel,
+// passed through unchanged (PROTOCOL.md §10.3).
+func (l *Link) PublishMcp(channelID string, message json.RawMessage) error {
+	l.mu.Lock()
+	ctx := l.connCtx
+	l.mu.Unlock()
+	if ctx == nil {
+		return errors.New("link: not connected")
+	}
+	return l.writeFrame(ctx, map[string]any{"type": "mcp", "channelId": channelID, "message": message})
+}
+
+// PublishMcpClosed tells Cerea a channel has ended (PROTOCOL.md §10.3);
+// detail may be nil.
+func (l *Link) PublishMcpClosed(channelID, reason string, detail *string) error {
+	l.mu.Lock()
+	ctx := l.connCtx
+	l.mu.Unlock()
+	if ctx == nil {
+		return errors.New("link: not connected")
+	}
+	return l.writeFrame(ctx, map[string]any{
+		"type": "mcp", "channelId": channelID,
+		"closed": map[string]any{"reason": reason, "detail": detail},
 	})
 }
 
