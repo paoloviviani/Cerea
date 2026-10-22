@@ -157,8 +157,8 @@ export interface Settings extends Timestamps {
 	neutral?: Neutral;
 
 	/**
-	 * Organization to bill inference requests to (HuggingChat only).
-	 * Stores the org's preferred_username. If empty/undefined, bills to personal account.
+	 * Organization to bill inference requests to (ADR 0061).
+	 * Stores the group's name. If empty/undefined, bills to the personal account.
 	 */
 	billingOrganization?: string;
 

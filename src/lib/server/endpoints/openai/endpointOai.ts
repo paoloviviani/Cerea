@@ -107,7 +107,6 @@ export async function endpointOai(
 		apiKey: apiKey || "sk-",
 		baseURL,
 		defaultHeaders: {
-			...(config.PUBLIC_APP_NAME === "HuggingChat" && { "User-Agent": "huggingchat" }),
 			...defaultHeaders,
 		},
 		defaultQuery,
