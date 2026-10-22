@@ -2,15 +2,11 @@
 
 !!! info "For operators"
 
-    The environment variables Cerea adds to upstream chat-ui, by feature; everything else is upstream's and documented there.
+    Every environment variable the chat understands, by feature. The repository's `.env` is the defaults file; a test fails if it lists a variable the code does not read, or the code reads one it does not list.
 
-Cerea reads its settings from the environment. **This page lists only the
-variables this fork added.** The rest (`OPENAI_BASE_URL`, `MONGODB_URL`,
-`OPENID_CLIENT_ID`, `MCP_SERVERS`, the router and theming variables and so on)
-are upstream chat-ui's, and are documented in [its configuration
-docs](https://github.com/huggingface/chat-ui/tree/main/docs/source/configuration/overview.md).
-The repository's `.env` lists every variable the app understands, with its
-comments.
+Cerea reads its settings from the environment; the repository's `.env` lists
+every variable the app understands, with its comments and its default. A value
+exported into the environment, or set in `.env.local`, wins over `.env`.
 
 In a deployment you rarely set these by hand: the deploy kit's `.env.example` is
 the deployment's own commented list, and `./configure --set KEY=VALUE` changes a
@@ -19,14 +15,14 @@ single one (see [Deploying](deploy.md)). Switches take the string `true` or
 
 ## The variables that choose your deployment shape
 
-Three upstream-named variables decide what kind of deployment you are
+Three variables decide what kind of deployment you are
 running, before any of the fork's variables below matter:
 
 | Variable              | What it decides                                                                                                                                                                                                                                                                                                                                                                |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `OPENAI_BASE_URL`     | Where inference goes: a Pystino gateway's `/v1`, or any OpenAI-compatible endpoint.                                                                                                                                                                                                                                                                                            |
+| `OPENAI_BASE_URL`     | Where inference goes: a Pystino gateway's `/v1`, or any OpenAI-compatible endpoint. **No default**: empty, the chat refuses to start. The kit sets it to the bundled gateway (`http://gateway:8000/v1`, or `CHAT_OPENAI_BASE_URL`).                                                                                                                                            |
 | `USE_USER_TOKEN`      | Names the mode (below). `true` is **Pystino mode**: people sign in through the gateway and every inference call carries their own token, so quotas and the ledger are theirs. Unset or `false` is **standalone mode**: one shared `OPENAI_API_KEY` and no per-person billing. A hand-built chat pointed at Pystino without `true` silently bills everything to the shared key. |
-| `OPENID_PROVIDER_URL` | The identity provider people sign in with. The machine agent's issuer (`CODE_MACHINE_ISSUER`) defaults to it.                                                                                                                                                                                                                                                                  |
+| `OPENID_PROVIDER_URL` | The identity provider people sign in with. **No default**: empty, sign-in has no issuer to talk to (set it with `OPENID_CLIENT_ID`); the kit sets it from `OIDC_ISSUER`. The machine agent's issuer (`CODE_MACHINE_ISSUER`) defaults to it.                                                                                                                                    |
 
 ### Two modes, never a mix
 
@@ -109,7 +105,7 @@ chat against Pystino and for a chat against any other endpoint.
 | `CHAT_SKILLS_DISABLED`           | Comma-separated skill names to switch off deployment-wide, whatever their source                                                                                                                                                                                                                     |
 | `CHAT_CODE_TOOL_ENABLED`         | `true` offers the `execute_code` tool to tool-capable models: the model's code runs in the signed-in person's own [browser sandbox](pyodide.md). Unset: the assistant's Python runs only as blocks in a finished answer; `true` also lets it run code mid-answer and use the result                  |
 | `CHAT_PYODIDE_PYPI_DISABLED`     | `true` forces off the sandbox's "install packages from PyPI" setting for everyone. The vendored wheels stay installable                                                                                                                                                                              |
-| `CHAT_DICTATION`                 | Whether the composer offers [dictation](chat.md#dictation) with the browser's speech recognition: `yes`, `no`, or `fallback` (the default: only when `TRANSCRIPTION_MODEL` is unset). Settable from [Administration → Voice](chat-admin.md#voice), which overrides this                              |
+| `CHAT_DICTATION`                 | Whether the composer offers [dictation](chat.md#dictation) with the browser's speech recognition: `yes`, `no`, or `fallback` (the default: only when server-side transcription is not configured). Settable from [Administration → Voice](chat-admin.md#voice), which overrides this                 |
 | `CHAT_DELEGATION`                | `false` removes the `delegate` and `research` [sub-agent tools](chat.md#plans-and-sub-agents) from every chat; anything else, or unset, leaves them on. Settable from [Administration → Sub-agents](chat-admin.md#sub-agents), which overrides this                                                  |
 | `CHAT_FILE_RETENTION_DAYS`       | How many days [files a run produced](artifacts.md#file-artifacts) are kept: a whole number, `0` for no expiry, default 30. Settable from [Administration → Storage](chat-admin.md#storage), which overrides this                                                                                     |
 | `DELIVERABLE_SWEEP_INTERVAL_MS`  | How often to sweep [files a run produced](artifacts.md#file-artifacts) for that retention, and free orphaned bytes. Default 3600000 (one hour)                                                                                                                                                       |
@@ -145,3 +141,12 @@ chat against Pystino and for a chat against any other endpoint.
 
 The operator's view of these, and what each does to the panel, is in [The
 `/code` panel](code-panel.md).
+
+## Transcription
+
+`TRANSCRIPTION_MODEL` alone no longer enables the microphone button. It needs
+`TRANSCRIPTION_BASE_URL` too: the audio goes to
+`${TRANSCRIPTION_BASE_URL}/${TRANSCRIPTION_MODEL}` with the person's token, and
+there is no default endpoint any more (it used to be Hugging Face's inference
+router, which would have received a gateway token). With either one empty the
+button is hidden and `/api/transcribe` answers 503.
