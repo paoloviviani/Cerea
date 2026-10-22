@@ -15,7 +15,6 @@ const entry = (over: Partial<GETModelsResponse[number]>): GETModelsResponse[numb
 	supportsReasoning: true,
 	supportsArtifacts: true,
 	unlisted: false,
-	hasInferenceAPI: true,
 	preprompt: "deployment prompt",
 	...over,
 });

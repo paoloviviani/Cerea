@@ -522,7 +522,7 @@ export async function* runMcpFlow({
 		};
 
 		const openai = new OpenAI({
-			apiKey: config.OPENAI_API_KEY || config.HF_TOKEN || "sk-",
+			apiKey: config.OPENAI_API_KEY || "sk-",
 			baseURL: config.OPENAI_BASE_URL,
 			fetch: captureProviderFetch,
 			defaultHeaders: {

@@ -19,7 +19,6 @@ export type Model = Pick<
 	| "multimodal"
 	| "multimodalAcceptedMimetypes"
 	| "unlisted"
-	| "hasInferenceAPI"
 	| "supportsTools"
 	| "supportsReasoning"
 	| "supportsArtifacts"

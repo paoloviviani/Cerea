@@ -50,12 +50,6 @@ describe("refused mixes", () => {
 		);
 	});
 
-	it("treats the legacy HF_TOKEN as a shared key too", () => {
-		expect(() => assertModelModeValid(pystino({ HF_TOKEN: "hf_x" }))).toThrow(
-			/HF_TOKEN is set while USE_USER_TOKEN=true/
-		);
-	});
-
 	it("refuses a MODELS override whose endpoint is not the gateway, naming the model", () => {
 		const MODELS = JSON.stringify([
 			{ id: "gpt-direct", endpoints: [{ type: "openai", baseURL: "https://api.openai.com/v1" }] },

@@ -36,19 +36,6 @@ export async function initServer(): Promise<void> {
 	const mode = assertModelModeValid(config);
 	logger.info({ mode }, "[models] Model mode");
 
-	// Ensure legacy env expected by some libs: map OPENAI_API_KEY -> HF_TOKEN if absent
-	const canonicalToken = config.OPENAI_API_KEY || config.HF_TOKEN;
-	if (canonicalToken) {
-		process.env.HF_TOKEN ??= canonicalToken;
-	}
-
-	// Warn if legacy-only var is used
-	if (!config.OPENAI_API_KEY && config.HF_TOKEN) {
-		logger.warn(
-			"HF_TOKEN is deprecated in favor of OPENAI_API_KEY. Please migrate to OPENAI_API_KEY."
-		);
-	}
-
 	logger.info("Starting server...");
 	initExitHandler();
 

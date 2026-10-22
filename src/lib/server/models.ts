@@ -111,7 +111,6 @@ type ModelOverride = z.infer<typeof overrideEntrySchema>;
 const openaiBaseUrl = config.OPENAI_BASE_URL
 	? config.OPENAI_BASE_URL.replace(/\/$/, "")
 	: undefined;
-const isHFRouter = openaiBaseUrl === "https://router.huggingface.co/v1";
 
 const listSchema = z
 	.object({
@@ -203,12 +202,6 @@ const addEndpoint = (m: Awaited<ReturnType<typeof processModel>>) => ({
 	},
 });
 
-type InternalProcessedModel = Awaited<ReturnType<typeof addEndpoint>> & {
-	hasInferenceAPI: boolean;
-};
-
-const inferenceApiIds: string[] = [];
-
 const getModelOverrides = (): ModelOverride[] => {
 	const overridesEnv = (Reflect.get(config, "MODELS") as string | undefined) ?? "";
 
@@ -224,7 +217,7 @@ const getModelOverrides = (): ModelOverride[] => {
 	}
 };
 
-export type ProcessedModel = InternalProcessedModel;
+export type ProcessedModel = Awaited<ReturnType<typeof addEndpoint>>;
 
 export let models: ProcessedModel[] = [];
 export let defaultModel: ProcessedModel | undefined = undefined;
@@ -283,8 +276,7 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 		// one (the gateway answers /v1/models publicly, ADR 0081) and filtered per
 		// person afterwards (`visibleModels`). A key here would also hide models
 		// people are entitled to. Standalone mode has the shared key and uses it.
-		// Canonical auth token is OPENAI_API_KEY; keep HF_TOKEN as legacy alias.
-		const authToken = isPystinoMode(config) ? undefined : config.OPENAI_API_KEY || config.HF_TOKEN;
+		const authToken = isPystinoMode(config) ? undefined : config.OPENAI_API_KEY;
 
 		// Standalone: use the key from the start to avoid rate limiting, since
 		// some APIs rate-limit unauthenticated requests more aggressively.
@@ -336,12 +328,6 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 		}
 
 		let modelsRaw = serves.map((m) => {
-			let logoUrl: string | undefined = undefined;
-			if (isHFRouter && m.id.includes("/")) {
-				const org = m.id.split("/")[0];
-				logoUrl = `https://huggingface.co/api/avatars/${encodeURIComponent(org)}`;
-			}
-
 			// Gateway first, then the HuggingFace router's nested shape. A
 			// deployment has one or the other, never both, and reading only the
 			// HF shape is why a gateway's models all reported no capabilities.
@@ -377,7 +363,6 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 				// and what stored references key on.
 				displayName: m.display_name?.trim() || m.id,
 				description: m.description ?? undefined,
-				logoUrl,
 				providers: m.providers ?? undefined,
 				contextLength,
 				// Derived, not opted into: see reasoningPolicy.ts. A MODELS override
@@ -391,7 +376,7 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 					{
 						type: "openai" as const,
 						baseURL,
-						// apiKey will be taken from OPENAI_API_KEY or HF_TOKEN automatically
+						// apiKey will be taken from OPENAI_API_KEY automatically
 					},
 				],
 			} as ModelConfig;
@@ -423,16 +408,7 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 			});
 		}
 
-		const builtModels = await Promise.all(
-			modelsRaw.map((e) =>
-				processModel(e)
-					.then(addEndpoint)
-					.then(async (m) => ({
-						...m,
-						hasInferenceAPI: inferenceApiIds.includes(m.id ?? m.name),
-					}))
-			)
-		);
+		const builtModels = await Promise.all(modelsRaw.map((e) => processModel(e).then(addEndpoint)));
 
 		return builtModels as ProcessedModel[];
 	} catch (e) {
@@ -560,5 +536,5 @@ export const validateModel = (_models: BackendModel[]) => {
 // `{}`/`never` instead of real fields once `defaultModel` gained `| undefined`.
 export type BackendModel = Optional<
 	ProcessedModel,
-	"preprompt" | "parameters" | "multimodal" | "unlisted" | "hasInferenceAPI"
+	"preprompt" | "parameters" | "multimodal" | "unlisted"
 >;

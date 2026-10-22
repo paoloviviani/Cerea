@@ -71,7 +71,6 @@ vi.mock("$lib/server/config", () => ({
 	config: {
 		OPENAI_BASE_URL: "https://router.test/v1",
 		OPENAI_API_KEY: "sk-test",
-		HF_TOKEN: "",
 		MCP_FORWARD_HF_USER_TOKEN: "false",
 		EXA_API_KEY: "",
 		get USE_USER_TOKEN() {

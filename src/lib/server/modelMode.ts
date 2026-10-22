@@ -26,8 +26,6 @@ export type ModelMode = "pystino" | "standalone";
 export interface ModelModeInput {
 	OPENAI_BASE_URL?: string | null;
 	OPENAI_API_KEY?: string | null;
-	/** Legacy alias of OPENAI_API_KEY: a shared key all the same. */
-	HF_TOKEN?: string | null;
 	USE_USER_TOKEN?: string | null;
 	MODELS?: string | null;
 }
@@ -46,7 +44,6 @@ const normaliseUrl = (url: string) => url.trim().replace(/\/+$/, "");
 /** The shared key's setting name, or undefined when none is set. */
 export const sharedKeySetting = (input: ModelModeInput): string | undefined => {
 	if (input.OPENAI_API_KEY?.trim()) return "OPENAI_API_KEY";
-	if (input.HF_TOKEN?.trim()) return "HF_TOKEN";
 	return undefined;
 };
 

@@ -168,14 +168,10 @@ export async function updateUser(params: {
 	// session from GET /v1/me (gatewaySession.ts). The HuggingFace-organisation
 	// path this replaced said nothing about who runs this deployment.
 	const isAdmin = false;
-	const isEarlyAccess =
-		(config.HF_ORG_EARLY_ACCESS && orgs?.some((org) => org.sub === config.HF_ORG_EARLY_ACCESS)) ||
-		false;
 
 	logger.debug(
 		{
 			isAdmin,
-			isEarlyAccess,
 			hfUserId,
 		},
 		`Updating user ${hfUserId}`
@@ -264,7 +260,6 @@ export async function updateUser(params: {
 					name,
 					avatarUrl,
 					isAdmin,
-					isEarlyAccess,
 					// §4.3 step 7: on a gateway preset these are informational —
 					// resolution never reads them again — but kept current so an
 					// operator looking at the row sees this login's last identity.
@@ -302,7 +297,6 @@ export async function updateUser(params: {
 			hfUserId,
 			issuer: normalizeIssuer(issuer),
 			isAdmin,
-			isEarlyAccess,
 			...(gatewayUserId ? { gatewayUserId } : {}),
 		});
 

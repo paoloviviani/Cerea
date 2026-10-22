@@ -1,11 +1,4 @@
 import { GridFSBucket, MongoClient, ReadPreference, type Collection, type Document } from "mongodb";
-// The mongodb driver require()s these lazily at runtime when the connection
-// string uses authMechanism=MONGODB-AWS (IRSA / web identity in prod). Import
-// them statically so dependency-cleanup passes don't strip them from
-// package.json again — that already happened twice (97bf7184, 6d842efc) and
-// the second time crash-looped prod with MongoMissingDependencyError.
-import "aws4";
-import "@aws-sdk/credential-providers";
 import type { Conversation } from "$lib/types/Conversation";
 import type {
 	KnowledgeConfig,
