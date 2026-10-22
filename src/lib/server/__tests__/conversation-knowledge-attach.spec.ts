@@ -272,21 +272,4 @@ describe("reading attached bases back", () => {
 		);
 		expect(payload.knowledgeBases).toEqual([{ id: OWNED_BASE_ID, name: "Specs" }]);
 	});
-
-	it("tells a shared view nothing about the owner's bases", async () => {
-		const { user, locals } = await makeUser();
-		await makeBase(user._id, OWNED_BASE_ID, "Specs");
-		const conv = await makeConversation(locals, {
-			knowledgeBaseIds: [OWNED_BASE_ID],
-			meta: { fromShareId: "abc1234" },
-		});
-
-		const response = await getConversationV2({
-			locals,
-			params: { id: conv._id.toString() },
-			url: new URL("http://localhost/api/v2/conversations/x?fromShare=abc1234"),
-		} as never);
-		const payload = superjson.parse<{ knowledgeBases?: unknown }>(await response.text());
-		expect(payload.knowledgeBases).toBeUndefined();
-	});
 });

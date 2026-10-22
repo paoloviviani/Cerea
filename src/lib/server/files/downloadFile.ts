@@ -2,12 +2,11 @@ import { error } from "@sveltejs/kit";
 import mimeTypes from "mime-types";
 import { collections } from "$lib/server/database";
 import type { Conversation } from "$lib/types/Conversation";
-import type { SharedConversation } from "$lib/types/SharedConversation";
 import type { MessageFile } from "$lib/types/Message";
 
 export async function downloadFile(
 	sha256: string,
-	convId: Conversation["_id"] | SharedConversation["_id"]
+	convId: Conversation["_id"] | string
 ): Promise<MessageFile & { type: "base64" }> {
 	const fileId = collections.bucket.find({ filename: `${convId.toString()}-${sha256}` });
 
@@ -42,7 +41,7 @@ export async function downloadFile(
  */
 export async function storedSizes(
 	hashes: readonly string[],
-	convId: Conversation["_id"] | SharedConversation["_id"]
+	convId: Conversation["_id"] | string
 ): Promise<Map<string, number>> {
 	const sizes = new Map<string, number>();
 	if (hashes.length === 0) return sizes;

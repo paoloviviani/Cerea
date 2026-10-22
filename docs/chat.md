@@ -67,12 +67,12 @@ up a week later does not read as one sitting. The prefix is added for the model
 only: it is never saved and never shown in the transcript.
 
 **Deleting.** Deleting a conversation removes everything it stored: attachments
-and the text read from them, code-run files, its indexed transcript, and any
-**share link** made from it (the link stops working). **Delete all
+and the text read from them, code-run files, its indexed transcript, and
+anything a long-retired version copied for sharing it. **Delete all
 conversations** includes chats inside projects. Deleting a **project** keeps its
-chats and returns them to your ordinary list. A daily sweep removes files and
-share links left behind by anything that failed or by older versions, after a
-24-hour grace period.
+chats and returns them to your ordinary list. A daily sweep removes files
+left behind by anything that failed or by older versions, after a 24-hour
+grace period.
 
 ## Dictation
 

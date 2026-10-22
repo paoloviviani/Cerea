@@ -47,7 +47,6 @@
 	import { isConversationGenerationActive, isTurnSubscribable } from "$lib/utils/generationState";
 	import { noteServerNow } from "$lib/utils/clockSkew.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
-	import SharePreviewTags from "$lib/components/SharePreviewTags.svelte";
 	import { setAttachmentSource } from "$lib/utils/execution/attachmentMounts.svelte";
 
 	let { data } = $props();
@@ -749,10 +748,10 @@
 
 	// The sandbox is session-global, so the open conversation's attachments are
 	// offered to it from here and taken back on leaving: never another
-	// conversation's files, and nothing at all for a shared (read-only) view.
+	// conversation's files.
 	// Mounting itself waits for the first code run (attachmentMounts.svelte.ts).
 	$effect(() => {
-		if (data.shared || !convId) {
+		if (!convId) {
 			setAttachmentSource(null);
 			return;
 		}
@@ -807,12 +806,6 @@
 			convsStore.list.find((conv) => conv.id === page.params.id)?.title ?? data.title;
 		return rawTitle ? rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1) : rawTitle;
 	});
-
-	// Social preview tags for shared conversation snapshots (7-char share ids),
-	// for crawlers that scrape /conversation/{shareId} instead of /r/{shareId}
-	let sharePreviewId = $derived(
-		page.params.id && page.params.id.length === 7 ? page.params.id : undefined
-	);
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -821,10 +814,6 @@
 	<title>{title}</title>
 </svelte:head>
 
-{#if sharePreviewId}
-	<SharePreviewTags shareId={sharePreviewId} {title} {messages} {rootMessageId} />
-{/if}
-
 <ChatWindow
 	loading={$loading}
 	{pending}
@@ -832,7 +821,6 @@
 	bind:sendFailedText
 	messages={messagesPath as Message[]}
 	{messagesAlternatives}
-	shared={data.shared}
 	preprompt={data.preprompt}
 	bind:files
 	bind:knowledgeBases

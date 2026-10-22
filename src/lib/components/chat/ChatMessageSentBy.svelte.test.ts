@@ -11,7 +11,7 @@ const links = {
 const mount = (message: Record<string, unknown>, context?: Map<unknown, unknown>) =>
 	renderWithApp(
 		ChatMessage,
-		{ message: { id: "m1", children: [], ...message }, isAuthor: true, readOnly: false } as never,
+		{ message: { id: "m1", children: [], ...message }, readOnly: false } as never,
 		{ context }
 	);
 

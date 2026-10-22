@@ -8,15 +8,10 @@ import { error } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 
 export async function GET({ params, locals }) {
-	const conv =
-		params.id.length === 7
-			? await collections.sharedConversations.findOne({
-					_id: params.id,
-				})
-			: await collections.conversations.findOne({
-					_id: new ObjectId(params.id),
-					...authCondition(locals),
-				});
+	const conv = await collections.conversations.findOne({
+		_id: new ObjectId(params.id),
+		...authCondition(locals),
+	});
 
 	if (conv === null) {
 		error(404, "Conversation not found");

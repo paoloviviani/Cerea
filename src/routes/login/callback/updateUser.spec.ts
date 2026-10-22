@@ -133,7 +133,6 @@ describe("login", () => {
 			updatedAt: new Date(),
 			createdAt: new Date(),
 			...DEFAULT_SETTINGS,
-			shareConversationsWithModelAuthors: false,
 		});
 
 		await updateUser({ userData, locals, cookies: cookiesMock, token });
@@ -152,7 +151,6 @@ describe("login", () => {
 			updatedAt: expect.any(Date),
 			createdAt: expect.any(Date),
 			...DEFAULT_SETTINGS,
-			shareConversationsWithModelAuthors: false,
 		});
 
 		await collections.settings.deleteOne({ userId: user?._id });

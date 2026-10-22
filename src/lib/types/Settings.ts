@@ -11,7 +11,6 @@ export interface Settings extends Timestamps {
 	userId?: User["_id"];
 	sessionId?: string;
 
-	shareConversationsWithModelAuthors: boolean;
 	activeModel: string;
 
 	/**
@@ -176,7 +175,6 @@ export interface Settings extends Timestamps {
 export type SettingsEditable = Omit<Settings, "createdAt" | "updatedAt">;
 // TODO: move this to a constant file along with other constants
 export const DEFAULT_SETTINGS = {
-	shareConversationsWithModelAuthors: true,
 	// defaultModel is unset during `vite build` (models aren't fetched at build time)
 	activeModel: defaultModel?.id ?? "",
 	// New accounts start with web search on. The turn still withholds the

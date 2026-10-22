@@ -105,7 +105,6 @@ export async function cleanupTestData() {
 		collections.sessions.deleteMany({}),
 		collections.settings.deleteMany({}),
 		collections.customModels.deleteMany({}),
-		collections.sharedConversations.deleteMany({}),
 		collections.messageEvents.deleteMany({}),
 		collections.semaphores.deleteMany({}),
 		collections.migrationResults.deleteMany({}),

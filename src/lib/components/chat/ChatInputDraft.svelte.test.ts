@@ -24,7 +24,7 @@ function mount(draftKey: string, onsubmit: () => void = () => {}) {
 		{
 			page: {
 				params: {},
-				data: { user: { username: "tester" }, loginEnabled: true, shared: false },
+				data: { user: { username: "tester" }, loginEnabled: true },
 			},
 			context: settingsContext,
 		}
@@ -155,7 +155,7 @@ for (const [label, width] of [
 					{
 						page: {
 							params: {},
-							data: { user: { username: "tester" }, loginEnabled: true, shared: false },
+							data: { user: { username: "tester" }, loginEnabled: true },
 						},
 						context: settingsContext,
 					}

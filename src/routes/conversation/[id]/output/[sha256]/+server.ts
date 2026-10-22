@@ -16,27 +16,16 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 		error(401, "Unauthorized");
 	}
 
-	if (params.id.length !== 7) {
-		const convId = new ObjectId(z.string().parse(params.id));
+	const convId = new ObjectId(z.string().parse(params.id));
 
-		// check if the user has access to the conversation
-		const conv = await collections.conversations.findOne({
-			_id: convId,
-			...authCondition(locals),
-		});
+	// check if the user has access to the conversation
+	const conv = await collections.conversations.findOne({
+		_id: convId,
+		...authCondition(locals),
+	});
 
-		if (!conv) {
-			error(404, "Conversation not found");
-		}
-	} else {
-		// look for the conversation in shared conversations
-		const conv = await collections.sharedConversations.findOne({
-			_id: params.id,
-		});
-
-		if (!conv) {
-			error(404, "Conversation not found");
-		}
+	if (!conv) {
+		error(404, "Conversation not found");
 	}
 
 	return attachmentResponse(sha256, await downloadFile(sha256, params.id));

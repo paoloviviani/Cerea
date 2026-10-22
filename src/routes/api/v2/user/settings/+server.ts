@@ -15,9 +15,6 @@ import { locationSettingsFields } from "$lib/utils/location";
 import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
 
 const settingsSchema = z.object({
-	shareConversationsWithModelAuthors: z
-		.boolean()
-		.default(DEFAULT_SETTINGS.shareConversationsWithModelAuthors),
 	// On by default for new accounts (DEFAULT_SETTINGS); absent on older
 	// documents still resolves as off. The tool itself also needs the
 	// console's search tier, so a missing backend withholds it.
@@ -100,9 +97,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 		directPaste: settings?.directPaste ?? DEFAULT_SETTINGS.directPaste,
 		hapticsEnabled: settings?.hapticsEnabled ?? DEFAULT_SETTINGS.hapticsEnabled,
 		hidePromptExamples: settings?.hidePromptExamples ?? DEFAULT_SETTINGS.hidePromptExamples,
-		shareConversationsWithModelAuthors:
-			settings?.shareConversationsWithModelAuthors ??
-			DEFAULT_SETTINGS.shareConversationsWithModelAuthors,
 
 		globalSystemPrompt: settings?.globalSystemPrompt ?? undefined,
 		multimodalOverrides: settings?.multimodalOverrides ?? {},

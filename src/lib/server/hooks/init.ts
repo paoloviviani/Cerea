@@ -20,7 +20,6 @@ import { ToolApprovalSweeper } from "$lib/server/generation/toolApprovalSweeper"
 import { DeliverableReaper } from "$lib/server/execution/deliverables";
 import { adminTokenManager } from "$lib/server/adminToken";
 import { MetricsServer } from "$lib/server/metrics";
-import { getShareThumbnailPng } from "$lib/server/shareThumbnail/shareThumbnail";
 
 export async function initServer(): Promise<void> {
 	// Wait for config to be fully loaded
@@ -105,16 +104,6 @@ export async function initServer(): Promise<void> {
 			)
 			.catch((err) => logger.warn({ err }, "playwright_renderer_boot_check_failed"));
 	}
-
-	// Warm up the share-thumbnail renderer: the first satori render in a fresh
-	// process pays ~1s of font parsing + layout engine init, which would
-	// otherwise land on a link unfurler's request and can exceed its timeout
-	// (Slack gives up and shows no preview). Rendering the generic card now
-	// also leaves it cached for shares without a renderable prompt.
-	getShareThumbnailPng({
-		prompt: "",
-		appName: config.PUBLIC_APP_NAME,
-	}).catch((err) => logger.warn({ err }, "Failed to warm up share thumbnail renderer"));
 
 	adminTokenManager.displayToken();
 }

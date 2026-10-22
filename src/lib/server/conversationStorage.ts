@@ -12,41 +12,40 @@
  * stored thing means adding it here, once.
  */
 
-import { collections } from "$lib/server/database";
 import { deleteConversationDeliverables } from "$lib/server/execution/deliverables";
 import { deleteConversationAttachments } from "$lib/server/files/deleteConversationAttachments";
 import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
+import { legacyShares } from "$lib/server/legacyShares";
 import { logger } from "$lib/server/logger";
 import { deleteConversationWebFetchCache } from "$lib/server/webFetchCache";
 import type { Conversation } from "$lib/types/Conversation";
 
 /**
- * The share links made from these conversations, and the files copied for
- * them (`routes/conversation/[id]/share`, which copies the attachments under
- * the share's own id). A link is a snapshot, but it is the conversation's
- * snapshot: "delete this conversation" that leaves a public link serving it
- * is the wrong answer to a deliberate question. The rows go first, so the
- * link is dead whatever happens to the files; the sweep retries those.
- * Shares are found by `conversationId`, which new ones carry and legacy ones
- * get at boot (`backfillSharedConversationIds`).
+ * The legacy share links made from these conversations, and the files copied
+ * for them. Sharing is gone (nothing creates or serves a link), but rows made
+ * by an older version may remain, and "delete this conversation" must not
+ * leave a copy of it behind. The rows go first, so the data is gone whatever
+ * happens to the files; the sweep retries those. Found by `conversationId`,
+ * which every link made after it was kept carries.
  */
 export async function deleteConversationShares(
 	conversationId: Conversation["_id"] | Conversation["_id"][]
 ): Promise<void> {
 	const ids = Array.isArray(conversationId) ? conversationId : [conversationId];
 	if (ids.length === 0) return;
-	const shares = await collections.sharedConversations
+	const shareRows = await legacyShares();
+	const shares = await shareRows
 		.find({ conversationId: { $in: ids } })
-		.project<{ _id: string }>({ _id: 1 })
+		.project<{ _id: unknown }>({ _id: 1 })
 		.toArray();
 	if (shares.length === 0) return;
-	const shareIds = shares.map((share) => share._id);
-	await collections.sharedConversations.deleteMany({ _id: { $in: shareIds } });
+	const shareIds = shares.map((share) => String(share._id));
+	await shareRows.deleteMany({ _id: { $in: shareIds } } as never);
 	await deleteConversationAttachments(shareIds);
 }
 
 /**
- * Delete the deliverables, the attachments, the share links, the fetched-page
+ * Delete the deliverables, the attachments, any legacy share links, the fetched-page
  * text cache and the indexed transcript of a conversation, or of a set of them.
  *
  * The transcript is the project's memory of it: `indexConversation` writes

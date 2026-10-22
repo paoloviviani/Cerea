@@ -20,7 +20,6 @@ import {
 import { GET as settingsGET } from "../../../../routes/api/v2/user/settings/+server";
 import { PATCH as patchConversation } from "../../../../routes/api/v2/conversations/[id]/+server";
 import { PATCH as patchConversationLegacy } from "../../../../routes/conversation/[id]/+server";
-import { POST as shareConversation } from "../../../../routes/conversation/[id]/share/+server";
 import type { CustomModelView } from "$lib/types/CustomModel";
 
 const BASE = "test-org/test-model";
@@ -319,30 +318,5 @@ describe("switching a conversation to and from a custom model", () => {
 		expect((await switchTo(locals, conv, OTHER_BASE)).status).toBe(200);
 		const stored = await collections.conversations.findOne({ _id: conv });
 		expect(stored?.messages[0].routerMetadata?.model).toBe(BASE);
-	});
-});
-
-describe("sharing a conversation on a custom model", () => {
-	it("stores the base model on the link, never the custom id", async () => {
-		const { locals } = await createTestUser();
-		const model = await created(locals, { ...valid, systemPrompt: "SECRET CUSTOM PROMPT" });
-		const id = new ObjectId();
-		await collections.conversations.insertOne({
-			_id: id,
-			userId: locals.user?._id,
-			model: model.id,
-			title: "t",
-			messages: [],
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		} as never);
-
-		const res = await shareConversation({ locals, params: { id: id.toString() } } as never);
-		expect(res.status).toBe(200);
-		const { shareId } = (await res.json()) as { shareId: string };
-		const shared = await collections.sharedConversations.findOne({ _id: shareId });
-		expect(shared?.model).toBe(BASE);
-		expect(JSON.stringify(shared)).not.toContain("SECRET CUSTOM PROMPT");
-		expect(JSON.stringify(shared)).not.toContain("custom:");
 	});
 });

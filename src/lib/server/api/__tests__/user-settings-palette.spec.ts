@@ -120,7 +120,6 @@ describe("GET /api/v2/user/settings palette", () => {
 			createdAt: new Date(),
 			updatedAt: new Date(),
 			// Fields the type requires and this test does not care about.
-			shareConversationsWithModelAuthors: true,
 			activeModel: "m",
 			streamingMode: "smooth",
 			directPaste: false,

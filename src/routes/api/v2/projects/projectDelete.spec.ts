@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 
 describe("DELETE /api/v2/projects/[id]", () => {
-	it("keeps the project's chats and returns them to the ordinary list, files and shares untouched", async () => {
+	it("keeps the project's chats and returns them to the ordinary list, files untouched", async () => {
 		const { user, locals } = await createTestUser();
 		const projectId = new ObjectId();
 		await collections.projects.insertOne({
@@ -33,25 +33,13 @@ describe("DELETE /api/v2/projects/[id]", () => {
 		} as never);
 		const inside = await createTestConversation(locals, { projectId });
 		const loose = await createTestConversation(locals);
-		for (const owner of [inside._id.toString(), loose._id.toString(), "shareIn1"]) {
+		for (const owner of [inside._id.toString(), loose._id.toString()]) {
 			const upload = collections.bucket.openUploadStream(`${owner}-x`, {
 				metadata: { conversation: owner },
 			});
 			upload.end(Buffer.from("b"));
 			await new Promise((resolve) => upload.once("finish", resolve));
 		}
-		await collections.sharedConversations.insertOne({
-			_id: "shareIn1",
-			hash: "h",
-			createdAt: new Date(),
-			updatedAt: new Date(),
-			rootMessageId: "r",
-			messages: [],
-			title: "t",
-			model: "m",
-			conversationId: inside._id,
-		});
-
 		const res = await testRequest(DELETE, {
 			path: `/api/v2/projects/${projectId}`,
 			method: "DELETE",
@@ -65,7 +53,6 @@ describe("DELETE /api/v2/projects/[id]", () => {
 		expect(kept).not.toBeNull();
 		expect(kept?.projectId).toBeUndefined();
 		expect(await collections.conversations.countDocuments({ _id: loose._id })).toBe(1);
-		expect(await collections.sharedConversations.countDocuments({})).toBe(1);
-		expect(await collections.bucketFiles.countDocuments({})).toBe(3);
+		expect(await collections.bucketFiles.countDocuments({})).toBe(2);
 	});
 });

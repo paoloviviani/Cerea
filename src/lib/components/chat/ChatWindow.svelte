@@ -93,7 +93,6 @@
 		loading?: boolean;
 		pending?: boolean;
 		resuming?: boolean;
-		shared?: boolean;
 		currentModel: Model;
 		models: Model[];
 		preprompt?: string | undefined;
@@ -137,7 +136,6 @@
 		loading = false,
 		pending = false,
 		resuming = false,
-		shared = false,
 		currentModel,
 		models,
 		preprompt = undefined,
@@ -430,10 +428,9 @@
 	// is watching it train. Once per URL, so the user can close it and read the
 	// chat while the run continues.
 	//
-	// Declared after the conversation-switch effect for the same reason the shared
-	// artifact open below is: a conversation -> conversation navigation can deliver
-	// the new messages and the new route param in one flush, and effects run in
-	// declaration order. Above the reset, this would open the destination's
+	// Declared after the conversation-switch effect: a conversation -> conversation
+	// navigation can deliver the new messages and the new route param in one flush,
+	// and effects run in declaration order. Above the reset, this would open the destination's
 	// dashboard and record its key, then reset() would close the pane and clear
 	// that key -- and nothing would re-run this, so the dashboard would never open.
 	//
@@ -441,10 +438,8 @@
 	// is what makes this "a run is happening now": without it, every hard load of
 	// any conversation that ever trained something re-opens the pane, because
 	// reset() clears the once-per-URL keys on each switch — framing a Space that
-	// went to sleep months ago. Desktop-only for the reason the shared-artifact
-	// open below is: on mobile the pane is a fullscreen overlay, and a shared
-	// conversation carries its tool results verbatim, so every viewer on a phone
-	// would arrive with the chat covered.
+	// went to sleep months ago. Desktop-only: on mobile the pane is a fullscreen
+	// overlay that would cover the chat.
 	$effect(() => {
 		const latest = trackioDashboards.at(-1);
 		if (!latest || !loading) return;
@@ -453,21 +448,6 @@
 		if (latest.spaceId && trackioStatus.status(latest.url) !== "live") return;
 		if (!window.matchMedia("(min-width: 768px)").matches) return;
 		sidePane.maybeAutoOpenTrackio(latest.url, latest.label);
-	});
-
-	// Shared conversations containing artifacts usually exist to show one off:
-	// open the most recent artifact on load. Desktop only, since on mobile the
-	// panel is a fullscreen overlay that would hide the conversation entirely.
-	// Declared after the conversation-switch effect so its reset() can never
-	// close the panel after this opens it within the same flush.
-	let autoOpenedSharedArtifact = false;
-	$effect(() => {
-		if (autoOpenedSharedArtifact || !shared) return;
-		const latest = [...artifactRegistry.artifacts.values()].at(-1);
-		if (!latest) return;
-		autoOpenedSharedArtifact = true;
-		if (!window.matchMedia("(min-width: 768px)").matches) return;
-		sidePane.openArtifact(latest.identifier, null);
 	});
 
 	const settings = useSettingsStore();
@@ -636,7 +616,7 @@
 	// the same accept rules as paste, text appends to the editable draft
 	$effect(() => {
 		const pending = $pendingComposerPayload;
-		if (!pending || shared) return;
+		if (!pending) return;
 		const accepted = (pending.files ?? []).filter((file) =>
 			mimeMatchesAllowlist(file.type, activeMimeTypes)
 		);
@@ -774,7 +754,6 @@
 		{messagesAlternatives}
 		{loading}
 		{pending}
-		isAuthor={!shared}
 		readOnly={isReadOnly}
 		showPlaceholder={showPendingPlaceholder}
 		conversationKey={page.params?.id}
@@ -1087,8 +1066,8 @@
 		items={paneItems}
 		{loading}
 		drafts={artifactDrafts}
-		canScreenshot={!shared && !isReadOnly && mimeMatchesAllowlist("image/png", activeMimeTypes)}
-		canPersistFiles={!shared && !isReadOnly}
+		canScreenshot={!isReadOnly && mimeMatchesAllowlist("image/png", activeMimeTypes)}
+		canPersistFiles={!isReadOnly}
 		onsend={canSendFix ? sendFixRequest : undefined}
 	/>
 	<PreviewPane onsend={canSendFix ? sendFixRequest : undefined} />

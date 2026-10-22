@@ -7,7 +7,6 @@ import { getContext, setContext } from "svelte";
 import { type Writable, writable, get } from "svelte/store";
 
 type SettingsStore = {
-	shareConversationsWithModelAuthors: boolean;
 	webSearchEnabled?: boolean;
 	toolApprovalPolicy?: "always-allow" | "manual";
 	pyodidePyPiInstallEnabled?: boolean;

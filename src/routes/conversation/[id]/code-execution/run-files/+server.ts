@@ -29,8 +29,7 @@ import { MAX_CODE_RUN_FILES_PER_CONVERSATION } from "$lib/server/execution/runFi
  * Nothing the client says about a file is trusted but its hash. Each ref is
  * rebuilt from this conversation's own store row, so a request can only name
  * bytes this conversation's owner already uploaded here. Same ownership check
- * as the upload (`authCondition`): a shared-conversation viewer is not the
- * owner and is refused, so nobody writes into somebody else's chat.
+ * as the upload (`authCondition`): nobody writes into somebody else's chat.
  */
 
 const body = z.object({

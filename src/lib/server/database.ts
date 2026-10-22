@@ -8,7 +8,6 @@ import type {
 } from "$lib/types/VectorStore";
 import type { Project } from "$lib/types/Project";
 import type { McpConnector, McpOauthPending, McpToken } from "$lib/types/McpConnector";
-import type { SharedConversation } from "$lib/types/SharedConversation";
 import type { AbortedGeneration } from "$lib/types/AbortedGeneration";
 import type { Generation, GenerationEvent } from "$lib/types/Generation";
 import type { TurnState } from "$lib/types/TurnState";
@@ -49,104 +48,6 @@ import type { CodeAuditEntry, CodeDevice } from "$lib/types/CodeAgent";
 import { config } from "$lib/server/config";
 
 export const CONVERSATION_STATS_COLLECTION = "conversations.stats";
-
-/**
- * Give a share made before `conversationId` existed the id of the
- * conversation it was made from, so deleting that conversation can delete the
- * link and its copied files (`conversationStorage.ts`).
- *
- * Matched the way the owner backfill above matches: the share's
- * `rootMessageId` is a message id of its source conversation, copied byte for
- * byte. Conservative on purpose — the share must carry a `userId`, and
- * exactly **one** conversation of that user must carry the message. Two
- * (a conversation started from a share keeps the root message id) or none
- * (the source is already gone) leaves the share as it is rather than guess
- * which conversation's deletion should take a public link with it.
- * Idempotent: only rows without `conversationId` are considered.
- */
-export async function backfillSharedConversationIds(
-	sharedConversations: Pick<Collection<SharedConversation>, "find" | "updateOne">,
-	conversations: Pick<Collection<Conversation>, "find">
-): Promise<{ linked: number; left: number }> {
-	const legacy = await sharedConversations
-		.find({ conversationId: { $exists: false }, userId: { $exists: true } } as never)
-		.project<{ _id: string; rootMessageId?: string; userId: User["_id"] }>({
-			_id: 1,
-			rootMessageId: 1,
-			userId: 1,
-		})
-		.toArray();
-
-	let linked = 0;
-	let left = 0;
-	for (const share of legacy) {
-		const matches = share.rootMessageId
-			? await conversations
-					.find({ "messages.id": share.rootMessageId, userId: share.userId } as never)
-					.project<{ _id: Conversation["_id"] }>({ _id: 1 })
-					.limit(2)
-					.toArray()
-			: [];
-		if (matches.length === 1) {
-			await sharedConversations.updateOne(
-				{ _id: share._id } as never,
-				{ $set: { conversationId: matches[0]._id } } as never
-			);
-			linked++;
-		} else {
-			left++;
-		}
-	}
-	return { linked, left };
-}
-
-/**
- * ADR 0093: attribute a share made before `SharedConversation.userId`
- * existed to the conversation it was shared from, by matching
- * `rootMessageId` (every share has one, and it's copied byte for byte from
- * the source conversation, `id` included) against
- * `conversations.messages.id`. Left unattributed, and counted at a WARNING,
- * when no conversation carries that message id (the source conversation was
- * itself later deleted) or the match has no `userId` (a session-only
- * share). Safe to run on every start: only rows still missing `userId` are
- * considered, so an already-attributed share is never re-matched.
- */
-export async function backfillLegacySharedConversationOwners(
-	sharedConversations: Pick<Collection<SharedConversation>, "find" | "updateOne">,
-	conversations: Pick<Collection<Conversation>, "findOne">
-): Promise<{ attributed: number; unattributed: number }> {
-	const legacy = await sharedConversations
-		.find({ userId: { $exists: false } } as never)
-		.project<{ _id: string; rootMessageId?: string }>({ _id: 1, rootMessageId: 1 })
-		.toArray();
-
-	let attributed = 0;
-	let unattributed = 0;
-	for (const share of legacy) {
-		const owner = share.rootMessageId
-			? await conversations.findOne(
-					{ "messages.id": share.rootMessageId, userId: { $exists: true } } as never,
-					{ projection: { userId: 1 } } as never
-				)
-			: null;
-		if (owner?.userId) {
-			await sharedConversations.updateOne(
-				{ _id: share._id } as never,
-				{ $set: { userId: owner.userId } } as never
-			);
-			attributed++;
-		} else {
-			unattributed++;
-		}
-	}
-	if (unattributed > 0) {
-		logger.warn(
-			{ unattributed },
-			`${unattributed} legacy shared link(s) could not be attributed to an owner`
-		);
-	}
-	return { attributed, unattributed };
-}
 
 /**
  * Make `{ createdAt: 1 }` a plain index on a collection whose earlier versions
@@ -309,7 +210,6 @@ export class Database {
 		const semaphores = db.collection<Semaphore>("semaphores");
 		const configCollection = db.collection<ConfigKey>("config");
 		const migrationResults = db.collection<MigrationResult>("migrationResults");
-		const sharedConversations = db.collection<SharedConversation>("sharedConversations");
 		// One row per erasure run (ADR 0093 §9.3), _id the gateway's own
 		// erasure_id — the idempotency and resume key across a retried
 		// delivery or a crash mid-run.
@@ -413,7 +313,6 @@ export class Database {
 			scheduleRuns,
 			pushSubscriptions,
 			conversationStats,
-			sharedConversations,
 			abortedGenerations,
 			generations,
 			generationEvents,
@@ -461,7 +360,6 @@ export class Database {
 			scheduleRuns,
 			pushSubscriptions,
 			conversationStats,
-			sharedConversations,
 			abortedGenerations,
 			generations,
 			generationEvents,
@@ -783,31 +681,6 @@ export class Database {
 			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 24 * 60 * 60 })
 			.catch((e) => logger.error(e, "Error creating TTL index for mcpElicitations by expiresAt"));
 
-		sharedConversations.createIndex({ hash: 1 }, { unique: true }).catch((e) => logger.error(e));
-		// ADR 0093: the merge/erasure registry's lookup of one person's share
-		// links (absent on links made before the field existed).
-		sharedConversations
-			.createIndex({ userId: 1 }, { sparse: true })
-			.catch((e) => logger.error(e, "Error creating index for sharedConversations by userId"));
-		// Best-effort backfill for a share made before `userId` existed: a
-		// share copies its source conversation's messages verbatim
-		// (`routes/conversation/[id]/share/+server.ts`), so its `rootMessageId`
-		// (every share has one) still names a message that lives, byte for
-		// byte, on the conversation it was shared from. Attribute the share to
-		// that conversation's owner. Idempotent (only rows still missing
-		// `userId` are considered) and safe to float: a share that can't be
-		// attributed this way stays that way and is counted, not retried in a
-		// tight loop.
-		backfillLegacySharedConversationOwners(sharedConversations, conversations)
-			.catch((e) => logger.error(e, "Error backfilling legacy sharedConversations owners"))
-			// After the owners: a share only gets linked once it has one.
-			.then(() => backfillSharedConversationIds(sharedConversations, conversations))
-			.catch((e) => logger.error(e, "Error linking legacy sharedConversations to conversations"));
-		sharedConversations
-			.createIndex({ conversationId: 1 }, { sparse: true })
-			.catch((e) =>
-				logger.error(e, "Error creating index for sharedConversations by conversationId")
-			);
 		settings
 			.createIndex({ sessionId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e, "Error creating index for settings by sessionId"));

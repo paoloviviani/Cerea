@@ -114,7 +114,7 @@ async function renderComposer(
 		{
 			page: {
 				params,
-				data: { user: { username: "tester" }, loginEnabled: true, shared: false, ...pageData },
+				data: { user: { username: "tester" }, loginEnabled: true, ...pageData },
 			},
 			baseElement: host,
 			context: settingsContext,
@@ -257,7 +257,7 @@ describe("ChatInput: attaching knowledge bases", () => {
 			ChatInput,
 			{ mimeTypes: ["text/plain", "image/png"] },
 			{
-				page: { params: {}, data: { loginEnabled: true, shared: false } },
+				page: { params: {}, data: { loginEnabled: true } },
 				baseElement: host,
 				context: settingsContext,
 			}
@@ -728,7 +728,7 @@ describe("ChatInput: the / menu", () => {
 			{
 				page: {
 					params: {},
-					data: { user: { username: "tester" }, loginEnabled: true, shared: false },
+					data: { user: { username: "tester" }, loginEnabled: true },
 				},
 				baseElement: host,
 				context: settingsContext,
@@ -817,7 +817,7 @@ describe("ChatInput: taking a photo", () => {
 			{
 				page: {
 					params: {},
-					data: { user: { username: "tester" }, loginEnabled: true, shared: false },
+					data: { user: { username: "tester" }, loginEnabled: true },
 				},
 				baseElement: host,
 				context: settingsContext,
