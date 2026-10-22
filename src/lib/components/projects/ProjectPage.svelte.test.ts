@@ -301,6 +301,9 @@ describe("ProjectPage knowledge bases, after creation", () => {
 		const seen = stubApi({ project: projectView() });
 		mountExisting(false, "settings");
 		await waitForText("No knowledge bases attached");
+		// The candidate bases load separately from the project: clicking before the
+		// button exists would do nothing (`?.click()`) and the test would wait in vain.
+		await vi.waitFor(() => expect(byLabel("Attach Call texts")).not.toBeNull());
 
 		byLabel("Attach Call texts")?.click();
 		await vi.waitFor(() => expect(seen.some((call) => call.method === "PATCH")).toBe(true));
