@@ -73,9 +73,16 @@ export function recordNestedAgentCalls(
 	}
 	if (rows.length === 0) return;
 
-	collections.nestedAgentCalls
-		.insertMany(rows, { ordered: false })
-		.catch((err) => logger.warn({ err, label }, "[nested-agent-log] insert failed"));
+	// `collections` is assigned when the database connects, a moment after
+	// boot (database.ts `ready`); a call this early would throw on the
+	// undefined binding, and a throw here would abort the sub-agent's run.
+	try {
+		collections.nestedAgentCalls
+			.insertMany(rows, { ordered: false })
+			.catch((err) => logger.warn({ err, label }, "[nested-agent-log] insert failed"));
+	} catch (err) {
+		logger.warn({ err, label }, "[nested-agent-log] database not ready; calls not logged");
+	}
 }
 
 /** How executeToolCalls reports a failed call. */
