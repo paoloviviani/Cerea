@@ -716,7 +716,6 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					endpoint: await model.getEndpoint(),
 					conv,
 					messages: messagesForPrompt,
-					assistant: undefined,
 					promptedAt,
 					ip: getClientAddress(),
 					username: locals.user?.username,

@@ -502,15 +502,6 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.projects, "userId", userId),
 	},
 	{
-		name: "assistants",
-		owner: "createdById",
-		mergeRule: "reassign",
-		eraseRule: "by-owner",
-		ownerField: "createdById",
-		merge: (stray, target) => reassignSimple(collections.assistants, "createdById", stray, target),
-		erase: (userId) => eraseByField(collections.assistants, "createdById", userId),
-	},
-	{
 		name: "knowledgeDocuments",
 		owner:
 			"storeId, via vectorStores.ownerId (indirect: this collection carries no owner field of its own)",
@@ -703,15 +694,6 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		merge: (stray, target) =>
 			reassignSimple(collections.sharedConversations, "userId", stray, target),
 		erase: (userId) => eraseByField(collections.sharedConversations, "userId", userId),
-	},
-	{
-		name: "reports",
-		owner: "createdBy",
-		mergeRule: "reassign",
-		eraseRule: "by-owner",
-		ownerField: "createdBy",
-		merge: (stray, target) => reassignSimple(collections.reports, "createdBy", stray, target),
-		erase: (userId) => eraseByField(collections.reports, "createdBy", userId),
 	},
 	{
 		name: "settings",

@@ -26,8 +26,6 @@ import type { Settings } from "$lib/types/Settings";
 import type { User } from "$lib/types/User";
 import type { MessageEvent } from "$lib/types/MessageEvent";
 import type { Session } from "$lib/types/Session";
-import type { Assistant } from "$lib/types/Assistant";
-import type { Report } from "$lib/types/Report";
 import type { ConversationStats } from "$lib/types/ConversationStats";
 import type { MigrationResult } from "$lib/types/MigrationResult";
 import type { ErasureRecord } from "$lib/types/Erasure";
@@ -388,16 +386,7 @@ export class Database {
 
 		// Collections with secondaryPreferred - heavy reads, can tolerate slight replication lag
 		const secondaryPreferred = ReadPreference.SECONDARY_PREFERRED;
-		const assistants = db.collection<Assistant>("assistants", {
-			readPreference: secondaryPreferred,
-		});
 		const conversationStats = db.collection<ConversationStats>(CONVERSATION_STATS_COLLECTION, {
-			readPreference: secondaryPreferred,
-		});
-		const reports = db.collection<Report>("reports", {
-			readPreference: secondaryPreferred,
-		});
-		const tools = db.collection("tools", {
 			readPreference: secondaryPreferred,
 		});
 		return {
@@ -421,8 +410,6 @@ export class Database {
 			scheduleRuns,
 			pushSubscriptions,
 			conversationStats,
-			assistants,
-			reports,
 			sharedConversations,
 			abortedGenerations,
 			generations,
@@ -443,7 +430,6 @@ export class Database {
 			webFetchCache,
 			migrationResults,
 			semaphores,
-			tools,
 			config: configCollection,
 			erasures,
 		};
@@ -472,8 +458,6 @@ export class Database {
 			scheduleRuns,
 			pushSubscriptions,
 			conversationStats,
-			assistants,
-			reports,
 			sharedConversations,
 			abortedGenerations,
 			generations,
@@ -833,9 +817,6 @@ export class Database {
 		dropPerModelPrompts(settings)
 			.then((n) => n > 0 && logger.info({ n }, "[settings] Dropped stored per-model prompts"))
 			.catch((e) => logger.error(e, "Error dropping stored per-model prompts"));
-		settings
-			.createIndex({ assistants: 1 })
-			.catch((e) => logger.error(e, "Error creating index for settings by assistants"));
 		// Not unique any more (ADR 0093 §3.3): with resolution keyed on
 		// `gatewayUserId`, one `(issuer, hfUserId)` can legitimately appear on a
 		// stale record and on the record it will merge into — the old unique
@@ -889,41 +870,6 @@ export class Database {
 		sessions
 			.createIndex({ sessionId: 1 }, { unique: true })
 			.catch((e) => logger.error(e, "Error creating index for sessions by sessionId"));
-		assistants
-			.createIndex({ createdById: 1, userCount: -1 })
-			.catch((e) =>
-				logger.error(e, "Error creating index for assistants by createdById and userCount")
-			);
-		assistants
-			.createIndex({ userCount: 1 })
-			.catch((e) => logger.error(e, "Error creating index for assistants by userCount"));
-		assistants
-			.createIndex({ review: 1, userCount: -1 })
-			.catch((e) => logger.error(e, "Error creating index for assistants by review and userCount"));
-		assistants
-			.createIndex({ modelId: 1, userCount: -1 })
-			.catch((e) =>
-				logger.error(e, "Error creating index for assistants by modelId and userCount")
-			);
-		assistants
-			.createIndex({ searchTokens: 1 })
-			.catch((e) => logger.error(e, "Error creating index for assistants by searchTokens"));
-		assistants
-			.createIndex({ last24HoursCount: 1 })
-			.catch((e) => logger.error(e, "Error creating index for assistants by last24HoursCount"));
-		assistants
-			.createIndex({ last24HoursUseCount: -1, useCount: -1, _id: 1 })
-			.catch((e) =>
-				logger.error(e, "Error creating index for assistants by last24HoursUseCount and useCount")
-			);
-		reports
-			.createIndex({ assistantId: 1 })
-			.catch((e) => logger.error(e, "Error creating index for reports by assistantId"));
-		reports
-			.createIndex({ createdBy: 1, assistantId: 1 })
-			.catch((e) =>
-				logger.error(e, "Error creating index for reports by createdBy and assistantId")
-			);
 
 		// One document per (base, handle): `addText` finds-then-inserts, and two
 		// turns of one conversation racing there would otherwise leave two

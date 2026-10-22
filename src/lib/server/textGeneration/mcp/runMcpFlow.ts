@@ -54,7 +54,6 @@ export type RunMcpFlowContext = Pick<
 	TextGenerationContext,
 	| "model"
 	| "conv"
-	| "assistant"
 	| "forceMultimodal"
 	| "forceTools"
 	| "reasoningEffort"
@@ -111,7 +110,6 @@ export async function* runMcpFlow({
 	model,
 	conv,
 	messages,
-	assistant,
 	forceMultimodal,
 	forceTools,
 	reasoningEffort,
@@ -565,7 +563,6 @@ export async function* runMcpFlow({
 		// reply allowance this request will actually ask for.
 		const parameters = {
 			...model.parameters,
-			...assistant?.generateSettings,
 		} as Record<string, unknown>;
 		const maxTokens =
 			(parameters?.max_tokens as number | undefined) ??

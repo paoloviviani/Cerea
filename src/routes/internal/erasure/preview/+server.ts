@@ -14,7 +14,7 @@ import { previewErasure } from "$lib/server/identity/erasure";
  * exist rather than silently under-reporting this (or any) person's shares.
  *
  * `shared` names every resource of the person that someone else can see —
- * share links, shared projects and knowledge bases, and approved assistants
+ * share links, shared projects and knowledge bases
  * — each with its own audience, per `previewErasure`'s own doc comment.
  */
 const bodySchema = z.object({

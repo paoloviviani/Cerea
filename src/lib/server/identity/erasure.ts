@@ -34,7 +34,6 @@ import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { dropMachineConnection } from "$lib/server/code/machines";
-import { ReviewStatus } from "$lib/types/Review";
 import type { ProjectShare } from "$lib/types/Project";
 import type { VectorStoreShare } from "$lib/types/VectorStore";
 import { findStrays } from "./gatewayLogin";
@@ -91,15 +90,11 @@ async function deviceIdsFor(userIds: ObjectId[]): Promise<ObjectId[]> {
 /** One resource of the person that someone else can see, named, with who can
  * see it — the confirmation dialog's "shared with others" section (ADR 0093
  * §9.2: "every resource of the user that someone else can see, named, with
- * who can see it"). Four sources, each only while it actually has an
+ * who can see it"). Three sources, each only while it actually has an
  * audience: a share-link row always does (its whole purpose is the link);
- * a project or knowledge base only when its own `shares` list is non-empty;
- * an assistant only once `review` is `APPROVED` — this fork wires no
- * publish/browse route for assistants, but the field is the only fact this
- * codebase has for "everyone can see it", so an approved row is read as
- * published rather than inventing a second flag for the same thing. */
+ * a project or knowledge base only when its own `shares` list is non-empty. */
 export interface SharedResource {
-	kind: "shared_conversation" | "project" | "knowledge_base" | "assistant";
+	kind: "shared_conversation" | "project" | "knowledge_base";
 	id: string;
 	title: string;
 	audience: string;
@@ -194,19 +189,6 @@ async function sharedResourcesFor(userIds: ObjectId[]): Promise<SharedResource[]
 			id: row._id.toString(),
 			title: row.name,
 			audience: audienceFor(row.shares),
-		});
-	}
-
-	const assistants = await collections.assistants
-		.find({ createdById: { $in: userIds }, review: ReviewStatus.APPROVED })
-		.project<{ _id: ObjectId; name: string }>({ _id: 1, name: 1 })
-		.toArray();
-	for (const row of assistants) {
-		resources.push({
-			kind: "assistant",
-			id: row._id.toString(),
-			title: row.name,
-			audience: "everyone (published)",
 		});
 	}
 

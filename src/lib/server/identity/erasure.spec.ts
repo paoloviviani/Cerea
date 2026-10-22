@@ -8,7 +8,6 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ObjectId } from "mongodb";
 
 import { collections, ready } from "$lib/server/database";
-import { ReviewStatus } from "$lib/types/Review";
 
 const dropMachineConnection = vi.fn();
 vi.mock("$lib/server/code/machines", () => ({
@@ -196,21 +195,6 @@ describe("previewErasure", () => {
 			updatedAt: new Date(),
 		} as never);
 
-		const assistantId = new ObjectId();
-		await collections.assistants.insertOne({
-			_id: assistantId,
-			createdById: user._id,
-			name: "Published assistant",
-			modelId: "m",
-			exampleInputs: [],
-			preprompt: "",
-			review: ReviewStatus.APPROVED,
-			searchTokens: [],
-			last24HoursCount: 0,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		} as never);
-
 		try {
 			const preview = await previewErasure(gatewayUserId, []);
 			expect(preview.shared).toEqual(
@@ -239,12 +223,6 @@ describe("previewErasure", () => {
 						title: "Base shared two ways",
 						audience: "members of groups engineering, ops, and 1 person",
 					},
-					{
-						kind: "assistant",
-						id: assistantId.toString(),
-						title: "Published assistant",
-						audience: "everyone (published)",
-					},
 				])
 			);
 			expect(preview.shared.some((r) => r.id === unsharedProjectId.toString())).toBe(false);
@@ -253,7 +231,6 @@ describe("previewErasure", () => {
 			await collections.projects.deleteMany({ _id: { $in: [projectId, unsharedProjectId] } });
 			await collections.vectorStores.deleteOne({ _id: mixedBaseId });
 			await collections.vectorStores.deleteOne({ _id: baseId });
-			await collections.assistants.deleteOne({ _id: assistantId });
 		}
 	});
 });

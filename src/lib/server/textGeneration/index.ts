@@ -188,7 +188,6 @@ async function* textGenerationWithoutTitle(
 			model: ctx.model,
 			conv,
 			messages: processedMessages,
-			assistant: ctx.assistant,
 			forceMultimodal: ctx.forceMultimodal,
 			forceTools: ctx.forceTools,
 			reasoningEffort: ctx.reasoningEffort,

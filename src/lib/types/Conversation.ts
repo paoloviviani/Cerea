@@ -3,7 +3,6 @@ import type { Message } from "./Message";
 import type { PlanState } from "./Plan";
 import type { Timestamps } from "./Timestamps";
 import type { User } from "./User";
-import type { Assistant } from "./Assistant";
 import type { Project } from "./Project";
 
 /**
@@ -41,7 +40,6 @@ export interface Conversation extends Timestamps {
 	};
 
 	preprompt?: string;
-	assistantId?: Assistant["_id"];
 
 	/**
 	 * The project this conversation belongs to, if any. Set at creation and
