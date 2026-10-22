@@ -221,7 +221,7 @@ func (mc *machine) enrichAll(sessions []backend.Session, workspaceIDs []string) 
 
 // Handle implements link.Handler: PROTOCOL.md §6's whole op table.
 func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) (any, *link.OpError) {
-	// A connectors-only machine (galopin run --backend none) has no backend:
+	// A connectors-only machine (galopin run --connectors-only) has no backend:
 	// everything but the connector ops is unsupported there.
 	if mc.back == nil && !strings.HasPrefix(op, "mcp.") {
 		return nil, opErrf("unsupported", "this machine only serves connectors: %s needs a coding agent", op)

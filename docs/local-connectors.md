@@ -19,10 +19,10 @@ a command: the machine's own file lists what it offers, and the chat uses that.
 
 A machine that only serves connectors needs no coding agent, no opencode and no
 billing group. Install `galopin` as for [an agent machine](agent-machines.md),
-then enroll with `--mode connectors` and run it:
+then enroll with `--connectors-only` and run it:
 
 ```sh
-galopin enroll --mode connectors \
+galopin enroll --connectors-only \
   --issuer "$OIDC_ISSUER" \
   --cerea "$CEREA_BASE_URL"
 galopin run
@@ -31,13 +31,14 @@ galopin run
 `enroll` opens your browser to sign in (or prints a link and code for another
 device), stores the refresh credential in `<config-dir>/galopin/credentials.json`
 and writes nothing else: no opencode config, no gateway, no policy file. It
-records that this is a connectors machine, so `run` starts no backend; the same
-as `galopin run --backend none`. The machine then appears under
+records that this is a connectors machine, so a plain `galopin run` starts no
+backend. The machine then appears under
 **Local connectors** in the chat's workspace settings, where you approve it
 (a connectors machine is never listed in the Agents panel).
 
 A machine that already runs a coding agent needs no second enrollment: it offers
-connectors too as soon as it has an `mcp.json`.
+connectors too as soon as it has an `mcp.json`. To run only the connectors on
+such a machine, for one run, use `galopin run --connectors-only`.
 
 ## `mcp.json`
 

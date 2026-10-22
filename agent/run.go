@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -45,10 +46,13 @@ Usage:
                       already point opencode at a reachable provider (used
                       by tests, e.g. a mock LLM).
   --backend NAME      Which backend to run: "opencode" (default), "acp"
-                      (any ACP agent — PROTOCOL.md §2) or "none": no coding
-                      agent, only this machine's MCP servers (mcp.json, beside
-                      the credentials) offered to the chat. A machine enrolled
-                      with 'enroll --mode connectors' defaults to none.
+                      (any ACP agent — PROTOCOL.md §2).
+  --connectors-only   Run no coding agent: only this machine's MCP servers
+                      (mcp.json, beside the credentials) are offered to the
+                      chat. A machine enrolled with 'enroll --connectors-only'
+                      does this with a plain 'galopin run'; on an agent machine
+                      the flag applies to this run only. Conflicts with
+                      --backend and --acp-command.
   --opencode-bin PATH   opencode binary (default "opencode", resolved on PATH).
   --opencode-config PATH  Exported as OPENCODE_CONFIG for the spawned
                       opencode (default: the opencode.json path enroll
@@ -71,6 +75,7 @@ type runOptions struct {
 	stateDir        string
 	noShim          bool
 	backendKind     string
+	connectorsOnly  bool
 	opencodeBin     string
 	opencodeConfig  string
 	acpCommand      string
@@ -87,6 +92,7 @@ func runRun(args []string) error {
 	fs.StringVar(&opts.stateDir, "state-dir", "", "")
 	fs.BoolVar(&opts.noShim, "no-shim", false, "")
 	fs.StringVar(&opts.backendKind, "backend", "", "")
+	fs.BoolVar(&opts.connectorsOnly, "connectors-only", false, "")
 	fs.StringVar(&opts.opencodeBin, "opencode-bin", "opencode", "")
 	fs.StringVar(&opts.opencodeConfig, "opencode-config", "", "")
 	fs.StringVar(&opts.acpCommand, "acp-command", "opencode acp", "")
@@ -98,6 +104,19 @@ func runRun(args []string) error {
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
+	switch opts.backendKind {
+	case "", "opencode", "acp":
+	default:
+		return fmt.Errorf("unknown --backend %q (want \"opencode\" or \"acp\"; --connectors-only runs no backend)", opts.backendKind)
+	}
+	if opts.connectorsOnly {
+		conflict := opts.backendKind != ""
+		fs.Visit(func(f *flag.Flag) { conflict = conflict || f.Name == "acp-command" })
+		if conflict {
+			return fmt.Errorf("--connectors-only runs no coding agent: it conflicts with --backend and --acp-command")
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -138,7 +157,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	// A copy: runAgent is also called by tests with a shared options value.
 	runOpts := *opts
 	opts = &runOpts
-	opts.backendKind = resolveBackendKind(opts.backendKind, creds)
+	opts.backendKind = resolveBackendKind(opts.backendKind, opts.connectorsOnly, creds)
 	if opts.backendKind == "" || opts.backendKind == "opencode" {
 		var warning string
 		opts.opencodeConfig, warning = resolveOpencodeConfig(opts.opencodeConfig, creds)
@@ -722,17 +741,18 @@ func orEmptyStrings(s []string) []string {
 	return s
 }
 
-// resolveBackendKind is the backend run starts: the --backend flag when given,
-// else none for a machine enrolled with --mode connectors, else the default
-// (opencode, which the empty string stands for).
-func resolveBackendKind(flag string, creds *credentials) string {
-	if flag == "" && creds.Mode == modeConnectors {
+// resolveBackendKind is the backend run starts: none for --connectors-only,
+// else the --backend flag when given, else none for a machine enrolled with
+// --connectors-only, else the default (opencode, which the empty string
+// stands for).
+func resolveBackendKind(flag string, connectorsOnly bool, creds *credentials) string {
+	if connectorsOnly || (flag == "" && creds.Mode == modeConnectors) {
 		return backendNone
 	}
 	return flag
 }
 
-// backendNone is --backend none: no coding agent, connectors only.
+// backendNone is the internal backend of a connectors-only run: no coding agent.
 const backendNone = "none"
 
 // waitForLink blocks until shutdown or the link ends. A revoke (4403) writes
@@ -755,7 +775,7 @@ func waitForLink(ctx context.Context, linkErr <-chan error, stateDir, machineID 
 	return revoked, runErr
 }
 
-// runConnectorsOnly is `run --backend none` (PROTOCOL.md §10.2): the link to
+// runConnectorsOnly is `run --connectors-only` (PROTOCOL.md §10.2): the link to
 // Cerea with no coding agent behind it. Nothing of opencode is started; the
 // machine answers the connector ops and the mcp frames, and every other op
 // unsupported.

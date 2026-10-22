@@ -1081,7 +1081,7 @@ func TestGoValuesMarshalToTheSpecFixtures(t *testing.T) {
 	}
 }
 
-// A connectors machine's hello (galopin run --backend none) has the shape of
+// A connectors machine's hello (galopin run --connectors-only) has the shape of
 // hello.connectors.json: no backends, mode connectors, the same capability
 // keys with only mcp true, the same policy keys, and no null.
 func TestConnectorsHelloMatchesItsFixture(t *testing.T) {

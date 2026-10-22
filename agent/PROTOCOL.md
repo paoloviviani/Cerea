@@ -549,12 +549,12 @@ so an existing file can be copied as is:
 
 ### 10.2 Connectors-only mode
 
-`galopin run --backend none` runs no coding agent. Its `hello` carries `"backends": []` and
+`galopin run --connectors-only` runs no coding agent (so does a plain `galopin run` on a machine enrolled with `--connectors-only`). Its `hello` carries `"backends": []` and
 `"machine": {"mode": "connectors", "capabilities": {"mcp": true, …}}`. A machine running a
 backend sends `"mode": "agent"` (an older galopin omits `mode`; read as `"agent"`), and also
 `"mcp": true` when it has an `mcp.json`, so an agent machine can serve connectors as well.
 Cerea lists a `connectors` machine under the workspace's **Local connectors** tab, where its
-pairing is approved, and never in the Agents panel. `galopin enroll --mode connectors`
+pairing is approved, and never in the Agents panel. `galopin enroll --connectors-only`
 enrolls such a machine without touching opencode. A connectors machine answers every
 op other than `mcp.*` with `unsupported`.
 

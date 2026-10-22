@@ -22,13 +22,13 @@ Usage:
                 [--device | --loopback] [--device-endpoint URL]
                 [--group NAME | --default-group] [--output PATH]
                 [--creds PATH] [--shim-port PORT] [--no-discover]
-                [--allow-opencode-provider] [--mode agent|connectors] [--yes]
+                [--allow-opencode-provider] [--connectors-only] [--yes]
 
-  --mode       "agent" (default: a coding agent on this machine, opencode) or
-               "connectors": this machine only offers its local MCP servers
-               (mcp.json) to the chat. A connectors machine signs in the same
-               way but writes no opencode config and needs no gateway or
-               billing group; 'run' then needs no --backend. See
+  --connectors-only  This machine only offers its local MCP servers (mcp.json)
+               to the chat, with no coding agent. It signs in the same way but
+               writes no opencode config and needs no gateway or billing group;
+               a plain 'galopin run' then runs connectors-only. Without the
+               flag the machine is an agent machine (opencode). See
                docs/local-connectors.md.
   --issuer     OIDC issuer where discovery lives (prompted when missing).
   --gateway    Gateway origin or /v1 base, e.g. https://llm.example.org
@@ -165,7 +165,7 @@ const defaultShimPort = 41871
 
 type enrollOptions struct {
 	// mode is "agent" or "connectors" (PROTOCOL.md §10.2).
-	mode           string
+	connectorsOnly bool
 	issuer         string
 	gateway        string
 	cerea          string
@@ -234,7 +234,7 @@ func (f stringListFlag) Set(v string) error {
 // dialog, and enroll_flags_test.go fails when the two differ.
 func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) {
 	fs = flagSetWithHelp("enroll", enrollUsage)
-	fs.StringVar(&opts.mode, "mode", "agent", "")
+	fs.BoolVar(&opts.connectorsOnly, "connectors-only", false, "")
 	fs.StringVar(&opts.issuer, "issuer", "", "")
 	fs.StringVar(&opts.gateway, "gateway", "", "")
 	fs.StringVar(&opts.cerea, "cerea", "", "")
@@ -289,9 +289,6 @@ func runEnroll(args []string) error {
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
-	}
-	if opts.mode != "agent" && opts.mode != "connectors" {
-		return fmt.Errorf("--mode must be agent or connectors, not %q", opts.mode)
 	}
 	if opts.device && opts.loopback {
 		return fmt.Errorf("--device and --loopback conflict: pick one flow")
@@ -386,7 +383,7 @@ func applyRecordedDefaults(opts *enrollOptions, set map[string]bool) bool {
 func enroll(ctx context.Context, opts *enrollOptions) error {
 	// A connectors machine (PROTOCOL.md §10.2) takes the same sign-in and
 	// credential, and nothing of opencode: no config, no gateway, no group.
-	connectors := opts.mode == "connectors"
+	connectors := opts.connectorsOnly
 	var err error
 	if !connectors {
 		// The opencode.json lives beside the credentials unless --output says
@@ -916,7 +913,7 @@ func enrollSafeDirs(opts *enrollOptions) (*[]string, error) {
 }
 
 // modeConnectors is the credential's recorded mode for a machine enrolled
-// with --mode connectors; 'run' then needs no --backend.
+// with --connectors-only; a plain 'run' then runs connectors-only.
 const modeConnectors = "connectors"
 
 // finishConnectorsEnroll is the end of enroll for a connectors machine: a new

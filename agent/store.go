@@ -56,7 +56,7 @@ type credentials struct {
 	// config, so it has no other way to learn the pystino provider). Empty on
 	// a file written before this field: run then warns (resolveOpencodeConfig).
 	OpencodeConfig string `json:"opencode_config,omitempty"`
-	// Mode is "connectors" for a machine enrolled with --mode connectors
+	// Mode is "connectors" for a machine enrolled with --connectors-only
 	// (PROTOCOL.md §10.2): `run` then starts no backend. Empty is an agent
 	// machine.
 	Mode string `json:"mode,omitempty"`

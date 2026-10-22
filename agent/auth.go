@@ -147,7 +147,7 @@ func authLogin(ctx context.Context, opts *authCommandOptions) error {
 	if rec.Issuer == "" || rec.ClientID == "" {
 		return fmt.Errorf("%s records no issuer or client id to sign in with: run 'galopin enroll' first", credsPath)
 	}
-	// A connectors machine (enroll --mode connectors) has no gateway and no
+	// A connectors machine (enroll --connectors-only) has no gateway and no
 	// billing group: its sign-in is the whole credential.
 	connectors := rec.Mode == modeConnectors
 	if rec.Gateway == "" && !connectors {
@@ -297,7 +297,7 @@ func authGroup(ctx context.Context, credsPath, name string, followDefault bool) 
 		return err
 	}
 	if rec.Mode == modeConnectors {
-		return fmt.Errorf("this machine was enrolled with --mode connectors: it has no billing group")
+		return fmt.Errorf("this machine was enrolled with --connectors-only: it has no billing group")
 	}
 	if rec.Gateway == "" {
 		return fmt.Errorf("%s records no gateway, so the choices cannot be checked: run 'galopin enroll' first", credsPath)
