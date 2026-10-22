@@ -46,11 +46,36 @@ describe("dictation helpers", () => {
 		expect(joinTranscript([result("hello"), result(" world")])).toBe("hello world");
 	});
 
+	it("keeps independent desktop segments, one space apart", () => {
+		expect(joinTranscript([result("hello there"), result("how are you", false)])).toBe(
+			"hello there how are you"
+		);
+	});
+
+	it("replaces instead of appending when results are cumulative (Android Chrome)", () => {
+		expect(
+			joinTranscript([result("Hello"), result("hello there"), result("Hello  there friend", false)])
+		).toBe("Hello  there friend");
+	});
+
+	it("drops a re-delivered final result", () => {
+		expect(joinTranscript([result("hello there"), result("Hello  there")])).toBe("hello there");
+		expect(
+			joinTranscript([result("hello there"), result("how are you"), result("how are you")])
+		).toBe("hello there how are you");
+	});
+
+	it("maps Safari's service-not-allowed and not-allowed to specific messages", () => {
+		expect(dictationErrorMessage("service-not-allowed")).toContain("Siri or Dictation");
+		expect(dictationErrorMessage("service-not-allowed")).toContain("Safari");
+		expect(dictationErrorMessage("not-allowed")).toContain("microphone permission is blocked");
+	});
+
 	it("maps the common errors to short messages", () => {
 		for (const code of ["not-allowed", "no-speech", "network", "audio-capture", "other"]) {
 			const m = dictationErrorMessage(code);
 			expect(m?.length ?? 0).toBeGreaterThan(5);
-			expect(m?.length ?? 0).toBeLessThan(100);
+			expect(m?.length ?? 0).toBeLessThan(200);
 		}
 		expect(dictationErrorMessage("aborted")).toBeNull();
 	});

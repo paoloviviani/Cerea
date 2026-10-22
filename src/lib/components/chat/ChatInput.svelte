@@ -26,11 +26,13 @@
 
 	import {
 		composeDictation,
+		DICTATION_SILENT_END_MESSAGE,
 		dictationOffered,
 		parseDictationMode,
 		dictationAnchor,
 		dictationErrorMessage,
 		dictationLanguage,
+		needsMicrophonePrompt,
 		getSpeechRecognition,
 		joinTranscript,
 		type DictationAnchor,
@@ -612,6 +614,7 @@
 
 	/** Ends the session now: no late result is applied. Safe to call anytime. */
 	function cancelDictation() {
+		dictationRequest++;
 		const rec = recognition;
 		recognition = null;
 		listening = false;
@@ -626,9 +629,43 @@
 		}
 	}
 
+	/** Bumped on every start and cancel: a microphone prompt answered after
+	 * that is ignored. */
+	let dictationRequest = 0;
+
 	function startDictation() {
+		if (!getSpeechRecognition() || !textareaElement || disabled || loading) return;
+		const request = ++dictationRequest;
+		const mediaDevices = needsMicrophonePrompt() ? navigator.mediaDevices : undefined;
+		if (!mediaDevices?.getUserMedia) {
+			beginRecognition(false);
+			return;
+		}
+		// Safari: the prompt has to open from inside this click, so nothing
+		// is awaited before this call.
+		listening = true;
+		mediaDevices.getUserMedia({ audio: true }).then(
+			(stream) => {
+				for (const track of stream.getTracks()) track.stop();
+				if (request !== dictationRequest) return;
+				beginRecognition(true);
+			},
+			() => {
+				if (request !== dictationRequest) return;
+				listening = false;
+				errorToast.set(dictationErrorMessage("not-allowed") ?? undefined);
+			}
+		);
+	}
+
+	/** `micGranted`: the microphone prompt was just accepted, so a refusal from
+	 * recognition itself is the system's speech service being off. */
+	function beginRecognition(micGranted: boolean) {
 		const Ctor = getSpeechRecognition();
-		if (!Ctor || !textareaElement || disabled || loading) return;
+		if (!Ctor || !textareaElement || disabled || loading) {
+			listening = false;
+			return;
+		}
 		const ta = textareaElement;
 		// The caret where the person left it; a composer never focused yet
 		// appends at the end.
@@ -640,8 +677,10 @@
 		rec.lang = dictationLanguage();
 		rec.continuous = true;
 		rec.interimResults = true;
+		let heardSomething = false;
 		rec.onresult = (event) => {
 			if (rec !== recognition) return;
+			heardSomething = true;
 			const next = composeDictation(dictationAnchorState, joinTranscript(event.results));
 			lastDictated = next.value;
 			value = next.value;
@@ -651,17 +690,24 @@
 		};
 		rec.onerror = (event) => {
 			if (rec !== recognition) return;
-			const message = dictationErrorMessage(event.error);
+			heardSomething = true;
+			const message = dictationErrorMessage(
+				micGranted && event.error === "not-allowed" ? "service-not-allowed" : event.error
+			);
 			if (message) errorToast.set(message);
 		};
 		rec.onend = () => {
 			if (rec !== recognition) return;
+			// listening is still true only when the session ended by itself.
+			const endedBySelf = listening;
 			recognition = null;
 			listening = false;
+			if (endedBySelf && !heardSomething) errorToast.set(DICTATION_SILENT_END_MESSAGE);
 		};
 		recognition = rec;
 		listening = true;
 		try {
+			// Synchronous inside the click: Safari needs the user gesture.
 			rec.start();
 		} catch {
 			cancelDictation();
@@ -669,7 +715,10 @@
 	}
 
 	function toggleDictation() {
-		if (recognition && listening) {
+		if (!recognition && listening) {
+			// Waiting on the microphone prompt: a second click withdraws it.
+			cancelDictation();
+		} else if (recognition && listening) {
 			// stop(), not abort(): a result still in flight lands before `end`.
 			listening = false;
 			recognition.stop();

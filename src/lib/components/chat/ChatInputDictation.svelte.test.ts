@@ -257,7 +257,8 @@ describe("ChatInput dictation", () => {
 	});
 
 	for (const [code, fragment] of [
-		["not-allowed", "Microphone access is blocked"],
+		["not-allowed", "microphone permission is blocked"],
+		["service-not-allowed", "Siri or Dictation"],
 		["no-speech", "No speech heard"],
 		["network", "network connection"],
 		["audio-capture", "No microphone"],
@@ -275,6 +276,101 @@ describe("ChatInput dictation", () => {
 			expect(mic().getAttribute("aria-pressed")).toBe("false");
 		});
 	}
+
+	it("says so when a session ends by itself without a result or an error", async () => {
+		w.SpeechRecognition = FakeRecognition;
+		mount();
+		await tick();
+		mic().click();
+		await tick();
+		expect(last().started).toBe(true);
+		last().onend?.();
+		await tick();
+		expect(get(errorToast)).toContain("stopped before it heard anything");
+	});
+
+	it("stays quiet when the person stops it, or something was heard", async () => {
+		w.SpeechRecognition = FakeRecognition;
+		mount();
+		await tick();
+		mic().click();
+		await tick();
+		mic().click();
+		last().onend?.();
+		await tick();
+		expect(get(errorToast)).toBeUndefined();
+		mic().click();
+		await tick();
+		last().say(["hi", true]);
+		last().onend?.();
+		await tick();
+		expect(get(errorToast)).toBeUndefined();
+	});
+
+	describe("Safari (prefixed constructor only)", () => {
+		const track = { stop: vi.fn() };
+		let getUserMedia: ReturnType<typeof vi.fn>;
+		const mockMic = (impl: () => Promise<unknown>) => {
+			getUserMedia = vi.fn(impl);
+			Object.defineProperty(navigator, "mediaDevices", {
+				configurable: true,
+				value: { getUserMedia },
+			});
+		};
+		afterEach(() => Reflect.deleteProperty(navigator, "mediaDevices"));
+
+		it("asks for the microphone inside the click, then starts recognition", async () => {
+			w.webkitSpeechRecognition = FakeRecognition;
+			mockMic(async () => ({ getTracks: () => [track] }));
+			mount();
+			await tick();
+			mic().click();
+			// Synchronous: the prompt is requested before the click returns.
+			expect(getUserMedia).toHaveBeenCalledWith({ audio: true });
+			expect(FakeRecognition.instances.length).toBe(0);
+			await tick();
+			expect(track.stop).toHaveBeenCalled();
+			expect(last().started).toBe(true);
+			expect(get(errorToast)).toBeUndefined();
+		});
+
+		it("shows the blocked message only after the prompt is denied", async () => {
+			w.webkitSpeechRecognition = FakeRecognition;
+			mockMic(() => Promise.reject(new DOMException("no", "NotAllowedError")));
+			mount();
+			await tick();
+			mic().click();
+			expect(get(errorToast)).toBeUndefined();
+			await tick();
+			expect(get(errorToast)).toContain("microphone permission is blocked");
+			expect(FakeRecognition.instances.length).toBe(0);
+			expect(mic().getAttribute("aria-pressed")).toBe("false");
+		});
+
+		it("a refusal from recognition after the grant is the Siri/Dictation message", async () => {
+			w.webkitSpeechRecognition = FakeRecognition;
+			mockMic(async () => ({ getTracks: () => [track] }));
+			mount();
+			await tick();
+			mic().click();
+			await tick();
+			last().onerror?.({ error: "not-allowed" });
+			last().onend?.();
+			await tick();
+			expect(get(errorToast)).toContain("Siri or Dictation");
+		});
+
+		it("leaves Chrome alone: no microphone request with the unprefixed constructor", async () => {
+			w.SpeechRecognition = FakeRecognition;
+			w.webkitSpeechRecognition = FakeRecognition;
+			mockMic(async () => ({ getTracks: () => [track] }));
+			mount();
+			await tick();
+			mic().click();
+			expect(getUserMedia).not.toHaveBeenCalled();
+			expect(last().started).toBe(true);
+		});
+	});
 
 	it("a second click after an error starts a fresh session", async () => {
 		w.SpeechRecognition = FakeRecognition;
