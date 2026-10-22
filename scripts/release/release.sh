@@ -26,7 +26,9 @@ git show "$SHA:kit/CHANGELOG.md" | grep "^## $T " >/dev/null || stop "kit/CHANGE
 git ls-remote --exit-code origin "refs/tags/$T" >/dev/null && stop "$T already exists"
 echo "releasing $T at $SHA"
 
-# 1. CI green on the release commit.
+# 1. CI green on the release commit — or, when a path filter skipped it, on
+# the newest earlier commit the workflow did run on. "No run" is not a pass:
+# v0.22.0 was tagged after a kit-only commit sat on top of a red `ci` run.
 for wf in ci.yml kit.yml; do
 	id=""
 	for _ in $(seq 1 40); do
@@ -34,7 +36,14 @@ for wf in ci.yml kit.yml; do
 		[ -n "$id" ] && break
 		sleep 15
 	done
-	[ -n "$id" ] || { echo "$wf: no run for this commit (path filter), skipping"; continue; }
+	if [ -z "$id" ]; then
+		runs=$(gh run list -R "$REPO" --workflow "$wf" --branch main --limit 50 --json databaseId,headSha -q '.[]|.headSha+" "+(.databaseId|tostring)')
+		for c in $(git rev-list --max-count=50 "$SHA"); do
+			id=$(awk -v c="$c" '$1==c{print $2; exit}' <<<"$runs")
+			[ -n "$id" ] && { echo "$wf: no run for $SHA (path filter); using its last run, on ${c:0:8}"; break; }
+		done
+		[ -n "$id" ] || stop "$wf: no run on this commit or its last 50 ancestors"
+	fi
 	until s=$(gh run view -R "$REPO" "$id" --json status,conclusion -q '.status+" "+.conclusion' 2>/dev/null) && [[ $s == completed* ]]; do sleep 30; done
 	echo "$wf $s"
 	[[ $s == *success ]] || stop "$wf failed: gh run view -R $REPO $id --log-failed"
