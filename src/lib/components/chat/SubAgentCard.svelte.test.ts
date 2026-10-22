@@ -66,6 +66,16 @@ describe("the sub-agent card", () => {
 		expect(q(baseElement, "subagent-preview")?.textContent).toContain("A is MIT");
 	});
 
+	it("previews the answer as plain text, without markdown marks", () => {
+		const { baseElement } = render(SubAgentCard, {
+			update: state({ status: "done", activity: undefined }),
+			tool: [result("**A** is `MIT`.\n\n- see [the licence](https://a.test/l)\n- or the FAQ")],
+		});
+		expect(q(baseElement, "subagent-preview")?.textContent?.trim()).toBe(
+			"A is MIT. see the licence or the FAQ"
+		);
+	});
+
 	it("opens to the full answer, and a list of its steps behind a toggle", async () => {
 		const { baseElement } = render(SubAgentCard, {
 			update: state({ status: "done", activity: undefined }),

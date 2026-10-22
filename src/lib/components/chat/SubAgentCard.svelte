@@ -60,12 +60,22 @@
 	const label = $derived(
 		{ working: "Working", done: "Done", failed: "Failed", stopped: "Stopped" }[phase]
 	);
-	const preview = $derived((answer ?? failure ?? "").replace(/\s+/g, " ").trim());
+	// The closed card's one-line taste of the answer: markdown marks off, so it
+	// reads as prose. The open card renders the real thing.
+	const plain = (text: string): string =>
+		text
+			.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+			.replace(/^\s*(?:[-+*]|\d+\.)\s+/gm, "")
+			.replace(/^\s*#{1,6}\s+/gm, "")
+			.replace(/(\*\*|__|[*`])/g, "")
+			.replace(/\s+/g, " ")
+			.trim();
+	const preview = $derived(plain(answer ?? failure ?? ""));
 	const stepCount = $derived(update.steps.length);
 </script>
 
 <div
-	class="my-1 flex w-full max-w-full min-w-0 flex-col rounded-lg border border-gray-200 bg-white/60 dark:border-gray-700 dark:bg-gray-900/30"
+	class="my-1.5 flex w-full max-w-full min-w-0 min-w-[17rem] flex-col rounded-lg border border-gray-200 bg-white/60 sm:min-w-[28rem] dark:border-gray-700 dark:bg-gray-900/30"
 	data-testid="subagent-card"
 	data-status={phase}
 >
@@ -111,22 +121,24 @@
 	</button>
 
 	{#if phase === "working" && update.activity}
-		<p
-			class="truncate px-2.5 pb-2 text-xs text-gray-500 dark:text-gray-400"
-			data-testid="subagent-activity"
-		>
-			{update.activity}
-		</p>
+		<div class="px-2.5 pb-2">
+			<p class="truncate text-xs text-gray-500 dark:text-gray-400" data-testid="subagent-activity">
+				{update.activity}
+			</p>
+		</div>
 	{:else if !isOpen && preview}
-		<p
-			class="line-clamp-2 px-2.5 pb-2 text-xs break-words {failure !== undefined &&
-			answer === undefined
-				? 'text-amber-700 dark:text-amber-300'
-				: 'text-gray-500 dark:text-gray-400'}"
-			data-testid="subagent-preview"
-		>
-			{preview}
-		</p>
+		<!-- The padding sits on the wrapper: on the clamped line itself it would
+		     show the start of a third line under the clamp. -->
+		<div class="px-2.5 pb-2">
+			<p
+				class="line-clamp-2 text-xs break-words {failure !== undefined && answer === undefined
+					? 'text-amber-700 dark:text-amber-300'
+					: 'text-gray-500 dark:text-gray-400'}"
+				data-testid="subagent-preview"
+			>
+				{preview}
+			</p>
+		</div>
 	{/if}
 
 	{#if isOpen}
