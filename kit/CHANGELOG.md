@@ -5,6 +5,40 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.21.1 — 2026-10-22
+
+Pins: Cerea `0.21.1`, **Pystino `0.14.0`**, Authelia 4.39.22 (unchanged).
+Update the deployment (`docker compose pull && docker compose up -d`). Machines
+do not need the galopin update.
+
+- **Pystino 0.14.0** (the gateway):
+  - **Routing policies.** An alias can have up to 16 targets with a selection
+    rule (first available, weighted, or cheapest, with input and output price
+    weights), fallback to the next target when one fails (unreachable,
+    timeout, 429, 5xx, or the provider refusing our own key or balance), at
+    most three attempts, and session stickiness (agents stay on one target).
+    Configured in the console's Routing tab.
+  - **Everyone's own ceiling.** A global quota rule can cap each person
+    separately, and a rule for one person can override it (higher or lower).
+    The chat's usage page shows it as the person's own budget.
+  - Background jobs stop cleanly at shutdown, and a leaked database
+    connection in the tests is fixed.
+- **Internal networks and the assistant's fetching.** Web fetch and "Attach
+  from URL" now refuse 10.0.0.0/8 and 100.64.0.0/10 (the range mesh VPNs such
+  as Tailscale and NetBird use), as they already refused the other private
+  ranges, so a model or a page cannot point them at internal services.
+  `CHAT_FETCH_ALLOW_INTERNAL_NETWORKS=true` allows them for a deployment that
+  needs it. **MCP connectors** may reach both networks (an MCP server on your
+  mesh VPN now works), and `MCP_ALLOW_INSECURE_URLS` covers the mesh range for
+  plain-http local servers. Alibaba Cloud's metadata address stays blocked
+  everywhere.
+- **Converted files show in the chat**: a PDF made by the convert tool
+  appears as a file card in the message, not only in the Artifacts pane.
+- **Dictation fixes:** Android no longer writes the text twice; Safari now
+  asks for the microphone instead of failing, and says when Siri or Dictation
+  must be turned on in macOS.
+- The Location setting is a dropdown like the other Application settings.
+
 ## v0.21.0 — 2026-10-22
 
 Pins: Cerea `0.21.0`, Pystino `0.13.0` (unchanged), Authelia 4.39.22 (unchanged).
