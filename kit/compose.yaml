@@ -436,6 +436,9 @@ services:
       OPENAI_API_KEY: ${CHAT_OPENAI_API_KEY:-}
       USE_USER_TOKEN: ${CHAT_USE_USER_TOKEN:-true}
       AUTOMATIC_LOGIN: "true"
+      # Never print or accept the CLI admin-login token; admin comes from the identity provider.
+      ADMIN_CLI_LOGIN: "false"
+      ALLOW_IFRAME: "false"
       CHAT_PG_URL: postgresql://chat:${CHAT_PG_PASSWORD:-}@postgres:5432/chat
       FETCH_BACKEND: ${FETCH_BACKEND:-direct}
       # Set only while the fetch profile runs the renderer (./configure keeps

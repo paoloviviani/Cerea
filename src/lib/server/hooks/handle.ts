@@ -1,3 +1,4 @@
+import { frameAncestorsPolicy } from "./frameAncestors";
 import type { Handle, RequestEvent } from "@sveltejs/kit";
 import { collections } from "$lib/server/database";
 import { base } from "$app/paths";
@@ -387,12 +388,10 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 			updateRequestContext({ statusCode: response.status });
 
 			// Add CSP header to control iframe embedding
-			// Always allow huggingface.co; when ALLOW_IFRAME=true, allow all domains
-			if (config.ALLOW_IFRAME !== "true") {
-				response.headers.append(
-					"Content-Security-Policy",
-					"frame-ancestors https://huggingface.co;"
-				);
+			// Only this origin may frame the app unless ALLOW_IFRAME=true.
+			const frameAncestors = frameAncestorsPolicy(config.ALLOW_IFRAME);
+			if (frameAncestors) {
+				response.headers.append("Content-Security-Policy", frameAncestors);
 			}
 
 			if (

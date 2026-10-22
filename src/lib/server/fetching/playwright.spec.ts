@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import dns from "node:dns";
 
 const logger = { warn: vi.fn(), info: vi.fn(), error: vi.fn() };
 vi.mock("$lib/server/logger", () => ({ logger }));
@@ -52,6 +53,7 @@ function makeHarness({
 		ariaSnapshot: vi.fn().mockResolvedValue("- generic [ref=e1]: hello"),
 	};
 	const context = {
+		route: vi.fn().mockResolvedValue(undefined),
 		newPage: vi.fn().mockResolvedValue(page),
 		close: vi.fn().mockResolvedValue(undefined),
 	};
@@ -66,6 +68,60 @@ function makeHarness({
 describe("renderWithPlaywright", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+	});
+
+	describe("request interception", () => {
+		async function routeHandler() {
+			const { context } = makeHarness();
+			await renderWithPlaywright("https://example.test/");
+			expect(context.route).toHaveBeenCalledWith("**/*", expect.any(Function));
+			return context.route.mock.calls[0][1] as (route: unknown) => Promise<void>;
+		}
+		function fakeRoute(url: string) {
+			return {
+				request: () => ({ url: () => url }),
+				abort: vi.fn().mockResolvedValue(undefined),
+				continue: vi.fn().mockResolvedValue(undefined),
+			};
+		}
+
+		it("aborts a redirect hop or subresource aimed at an internal address", async () => {
+			const handler = await routeHandler();
+			for (const target of [
+				"http://127.0.0.1:3000/chat",
+				"https://192.168.1.10/",
+				"http://169.254.169.254/latest/meta-data",
+				"http://localhost/",
+			]) {
+				const route = fakeRoute(target);
+				await handler(route);
+				expect(route.abort).toHaveBeenCalled();
+				expect(route.continue).not.toHaveBeenCalled();
+			}
+		});
+
+		it("aborts a hostname that resolves to an internal address", async () => {
+			const lookup = vi
+				.spyOn(dns.promises, "lookup")
+				.mockResolvedValue([{ address: "172.18.0.5", family: 4 }] as never);
+			const handler = await routeHandler();
+			const route = fakeRoute("http://gateway:8000/v1/models");
+			await handler(route);
+			expect(route.abort).toHaveBeenCalled();
+			lookup.mockRestore();
+		});
+
+		it("lets a public page through", async () => {
+			const lookup = vi
+				.spyOn(dns.promises, "lookup")
+				.mockResolvedValue([{ address: "93.184.216.34", family: 4 }] as never);
+			const handler = await routeHandler();
+			const route = fakeRoute("https://example.test/app.js");
+			await handler(route);
+			expect(route.continue).toHaveBeenCalled();
+			expect(route.abort).not.toHaveBeenCalled();
+			lookup.mockRestore();
+		});
 	});
 
 	it("rejects an unsafe URL before ever connecting to the renderer", async () => {
