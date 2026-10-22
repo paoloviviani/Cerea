@@ -70,8 +70,8 @@ const INTERNAL_SERVICE_ROUTES = new Set(["/internal/erasure", "/internal/erasure
  *
  * Matched by route id (`event.route.id`), never by path prefix, so nothing that
  * happens to live under a listed path inherits the entry. The list is the set of
- * requests the signed-out landing page, the sign-in redirect and a share link
- * actually make; `hooks/loginWall.spec.ts` walks the route tree and fails on a
+ * requests the signed-out landing page and the sign-in redirect actually
+ * make; `hooks/loginWall.spec.ts` walks the route tree and fails on a
  * route that is neither listed here nor refused, and on an entry naming no route.
  *
  * `/login`, `/login/callback`, `/logout`, the machine admin endpoints and the
@@ -91,9 +91,6 @@ export const SIGNED_OUT_GET_ROUTES: ReadonlyMap<string, string> = new Map([
 		"/.well-known/oauth-cimd",
 		"OAuth client-ID metadata document, fetched by the identity provider",
 	],
-	["/r/[id]", "public share page"],
-	["/r/[id]/thumbnail.png", "social preview image of a share"],
-	["/conversation/[id]", "shared conversation view (7-character share ids)"],
 	["/models/[...model]", "linkable model page"],
 	["/models/[...model]/thumbnail.png", "social preview image of a model page"],
 	// What the root layout load fetches before anyone is signed in.
@@ -103,7 +100,6 @@ export const SIGNED_OUT_GET_ROUTES: ReadonlyMap<string, string> = new Map([
 	["/api/v2/user/settings", "root layout: defaults for a session with no account"],
 	["/api/v2/models", "root layout: model catalogue the landing page renders"],
 	["/api/v2/conversations", "root layout: sidebar list, empty for a session with no account"],
-	["/api/v2/conversations/[id]", "share view: the shared conversation behind /r/[id]"],
 	["/api/v2/code/status", "answers {signedIn:false}, which drives the redirect to sign-in"],
 ]);
 
@@ -239,7 +235,7 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 						return await triggerOauthFlow(event);
 					}
 				} else {
-					// Redirect to OAuth flow unless on the authorized pages (home, shared conversation, login, healthcheck, model thumbnails)
+					// Redirect to OAuth flow unless on the authorized pages (home, login, healthcheck, model pages)
 					if (
 						event.url.pathname !== `${base}/` &&
 						event.url.pathname !== `${base}` &&
@@ -250,8 +246,6 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 						// the wall intercepts becomes a login, and the sign-out the
 						// person asked for never happens.
 						event.url.pathname !== `${base}/logout` &&
-						!event.url.pathname.startsWith(`${base}/r/`) &&
-						!event.url.pathname.startsWith(`${base}/conversation/`) &&
 						!event.url.pathname.startsWith(`${base}/models/`) &&
 						!event.url.pathname.startsWith(`${base}/api`)
 					) {

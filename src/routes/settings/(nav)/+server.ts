@@ -9,9 +9,6 @@ import { resolveStreamingMode } from "$lib/utils/messageUpdates";
 import type { RequestHandler } from "@sveltejs/kit";
 
 const settingsSchema = z.object({
-	shareConversationsWithModelAuthors: z
-		.boolean()
-		.default(DEFAULT_SETTINGS.shareConversationsWithModelAuthors),
 	// On by default for new accounts (DEFAULT_SETTINGS); the field is the
 	// user's consent to web search, and the tool it enables also needs the
 	// console's search tier. Absent on older documents still resolves as off,

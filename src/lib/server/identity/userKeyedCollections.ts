@@ -57,6 +57,7 @@ import { conversationSourceRef, deleteDerived } from "$lib/server/knowledge/dele
 import { deleteAttachmentsByPrefix } from "$lib/server/files/attachmentStore";
 import { deleteProjectDocuments } from "$lib/server/projectDocuments";
 import { releasePreviewOwners, releasePreviewOwnerStrings } from "$lib/server/office/previewStore";
+import { legacyShares } from "$lib/server/legacyShares";
 
 export type MergeRuleKind =
 	| "reassign"
@@ -322,13 +323,25 @@ async function deleteStrayRows<T extends Document>(
 	return deletedCount;
 }
 
+/** The ids of a person's legacy share rows (the tags of their copied files). */
+async function legacyShareIds(userId: ObjectId): Promise<string[]> {
+	const rows = await (
+		await legacyShares()
+	)
+		.find({ userId })
+		.project<{ _id: unknown }>({ _id: 1 })
+		.toArray();
+	return rows.map((r) => String(r._id));
+}
+
 export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 	// GridFS entries first, in every case where they resolve ownership
 	// through a collection whose own entry (below) deletes the rows they
 	// need to read.
 	{
 		name: "bucket:conversationFiles",
-		owner: "conversations.userId (and sharedConversations.userId, both via metadata.conversation)",
+		owner:
+			"conversations.userId (and the legacy sharedConversations.userId, both via metadata.conversation)",
 		mergeRule: "follows-conversation",
 		eraseRule: "custom",
 		// Files are tagged by conversation id, which a merge never changes —
@@ -336,18 +349,14 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		// move.
 		merge: async () => 0,
 		erase: async (userId, ctx) => {
-			// A shared-conversation copy is tagged with the share's own nanoid
-			// id (`routes/conversation/[id]/share/+server.ts`), not the
-			// original conversation's — a second id space in the same
-			// `metadata.conversation` field, folded into this one entry rather
-			// than a fourth bucket, since the tag shape is identical. Still
-			// self-queried (not from `ctx`): `sharedConversations` runs after
-			// this entry and isn't erased yet.
-			const sharedIds = await collections.sharedConversations
-				.find({ userId })
-				.project<{ _id: string }>({ _id: 1 })
-				.toArray()
-				.then((rows) => rows.map((r) => r._id));
+			// A legacy shared-conversation copy is tagged with the share's own
+			// nanoid id, not the original conversation's — a second id space
+			// in the same `metadata.conversation` field, folded into this one
+			// entry rather than a fourth bucket, since the tag shape is
+			// identical. Still self-queried (not from `ctx`): the retired
+			// `sharedConversations` entry runs after this one and isn't erased
+			// yet.
+			const sharedIds = await legacyShareIds(userId);
 			const tags = [...ctx.conversationIds.map((id) => id.toString()), ...sharedIds];
 			if (tags.length === 0) return 0;
 			const count = await collections.bucketFiles.countDocuments({
@@ -361,11 +370,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			return count;
 		},
 		count: async (userId, ctx) => {
-			const sharedIds = await collections.sharedConversations
-				.find({ userId })
-				.project<{ _id: string }>({ _id: 1 })
-				.toArray()
-				.then((rows) => rows.map((r) => r._id));
+			const sharedIds = await legacyShareIds(userId);
 			const tags = [...ctx.conversationIds.map((id) => id.toString()), ...sharedIds];
 			if (tags.length === 0) return 0;
 			return collections.bucketFiles.countDocuments({ "metadata.conversation": { $in: tags } });
@@ -686,16 +691,6 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		},
 	},
 	{
-		name: "sharedConversations",
-		owner: "userId",
-		mergeRule: "reassign",
-		eraseRule: "by-owner",
-		ownerField: "userId",
-		merge: (stray, target) =>
-			reassignSimple(collections.sharedConversations, "userId", stray, target),
-		erase: (userId) => eraseByField(collections.sharedConversations, "userId", userId),
-	},
-	{
 		name: "settings",
 		owner: "userId",
 		mergeRule: "keep-target-delete-stray",
@@ -847,6 +842,9 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 export const RETIRED_COLLECTIONS: ReadonlyArray<{ name: string; ownerField: string }> = [
 	{ name: "assistants", ownerField: "createdById" },
 	{ name: "reports", ownerField: "createdBy" },
+	// Public share links: nothing creates or serves them now. Their copied
+	// files are tagged by share id, handled by `bucket:conversationFiles`.
+	{ name: "sharedConversations", ownerField: "userId" },
 ];
 
 async function retired(name: string): Promise<Collection<Document>> {

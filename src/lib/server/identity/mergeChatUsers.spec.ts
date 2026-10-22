@@ -101,7 +101,6 @@ describe("mergeChatUsers (ADR 0093 §7.2)", () => {
 		// ...a settings row and a session, which have their own rules...
 		await collections.settings.insertOne({
 			userId: stray,
-			shareConversationsWithModelAuthors: false,
 			streamingMode: "raw",
 			directPaste: true,
 			hapticsEnabled: false,
@@ -110,7 +109,6 @@ describe("mergeChatUsers (ADR 0093 §7.2)", () => {
 		} as never);
 		await collections.settings.insertOne({
 			userId: target,
-			shareConversationsWithModelAuthors: true,
 			streamingMode: "smooth",
 			directPaste: false,
 			hapticsEnabled: true,

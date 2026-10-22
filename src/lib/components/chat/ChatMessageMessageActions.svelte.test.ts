@@ -28,7 +28,6 @@ const mount = (props: Record<string, unknown>) =>
 	render(ChatMessage, {
 		message: message(),
 		loading: false,
-		isAuthor: true,
 		readOnly: false,
 		...props,
 	} as never);

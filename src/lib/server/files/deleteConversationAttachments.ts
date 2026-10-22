@@ -28,7 +28,7 @@ import { releasePreviewOwners } from "$lib/server/office/previewStore";
 
 /**
  * What `metadata.conversation` holds: a conversation's ObjectId, or the
- * nanoid of a shared copy of one (`routes/conversation/[id]/share`).
+ * nanoid of a legacy shared copy of one (see `legacyShares.ts`).
  */
 export type OwnerTag = Conversation["_id"] | string;
 

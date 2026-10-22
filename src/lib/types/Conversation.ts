@@ -35,10 +35,6 @@ export interface Conversation extends Timestamps {
 	rootMessageId?: Message["id"];
 	messages: Message[];
 
-	meta?: {
-		fromShareId?: string;
-	};
-
 	preprompt?: string;
 
 	/**

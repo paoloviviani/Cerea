@@ -90,8 +90,8 @@ describe("previewErasure", () => {
 		insertedConversationIds.push(conversationId);
 
 		const legacyShareId = `share-${new ObjectId().toString().slice(0, 8)}`;
-		await collections.sharedConversations.insertOne({
-			_id: legacyShareId,
+		await (await Database.getInstance()).rawCollection("sharedConversations").insertOne({
+			_id: legacyShareId as never,
 			hash: legacyShareId,
 			title: "t",
 			messages: [],
@@ -109,7 +109,11 @@ describe("previewErasure", () => {
 		expect(await collections.conversations.findOne({ _id: conversationId })).not.toBeNull();
 		expect(await collections.users.findOne({ _id: user._id })).not.toBeNull();
 
-		await collections.sharedConversations.deleteOne({ _id: legacyShareId });
+		await (
+			await Database.getInstance()
+		)
+			.rawCollection("sharedConversations")
+			.deleteOne({ _id: legacyShareId as never });
 	});
 
 	it("counts zero everywhere for an unknown gateway id", async () => {
@@ -124,8 +128,10 @@ describe("previewErasure", () => {
 		const user = await makeUser({ gatewayUserId });
 
 		const shareId = `share-${new ObjectId().toString().slice(0, 8)}`;
-		await collections.sharedConversations.insertOne({
-			_id: shareId,
+		// A link made by an older version: dead now, so it is not advertised as
+		// something anyone can see.
+		await (await Database.getInstance()).rawCollection("sharedConversations").insertOne({
+			_id: shareId as never,
 			hash: shareId,
 			title: "A shared chat",
 			messages: [],
@@ -200,12 +206,6 @@ describe("previewErasure", () => {
 			expect(preview.shared).toEqual(
 				expect.arrayContaining([
 					{
-						kind: "shared_conversation",
-						id: shareId,
-						title: "A shared chat",
-						audience: "anyone with the link",
-					},
-					{
 						kind: "project",
 						id: projectId.toString(),
 						title: "Shared project",
@@ -226,8 +226,13 @@ describe("previewErasure", () => {
 				])
 			);
 			expect(preview.shared.some((r) => r.id === unsharedProjectId.toString())).toBe(false);
+			expect(preview.shared.some((r) => r.id === shareId)).toBe(false);
 		} finally {
-			await collections.sharedConversations.deleteOne({ _id: shareId });
+			await (
+				await Database.getInstance()
+			)
+				.rawCollection("sharedConversations")
+				.deleteOne({ _id: shareId as never });
 			await collections.projects.deleteMany({ _id: { $in: [projectId, unsharedProjectId] } });
 			await collections.vectorStores.deleteOne({ _id: mixedBaseId });
 			await collections.vectorStores.deleteOne({ _id: baseId });
@@ -366,18 +371,21 @@ describe("runErasure", () => {
 	});
 });
 
-describe("retired collections (assistants, reports)", () => {
+describe("retired collections (assistants, reports, sharedConversations)", () => {
 	// No typed handle exists for these any more; the rows are seeded by raw name.
 	const raw = async (name: string) => (await Database.getInstance()).rawCollection(name);
 
 	async function seed(ownerA: ObjectId, ownerB: ObjectId) {
 		const assistants = await raw("assistants");
 		const reports = await raw("reports");
+		const shares = await raw("sharedConversations");
 		const rows = {
 			assistantA: new ObjectId(),
 			assistantB: new ObjectId(),
 			reportA: new ObjectId(),
 			reportB: new ObjectId(),
+			shareA: `shrA-${new ObjectId().toString().slice(-6)}`,
+			shareB: `shrB-${new ObjectId().toString().slice(-6)}`,
 		};
 		await assistants.insertMany([
 			{ _id: rows.assistantA, createdById: ownerA, name: "mine" },
@@ -387,18 +395,23 @@ describe("retired collections (assistants, reports)", () => {
 			{ _id: rows.reportA, createdBy: ownerA, reason: "r" },
 			{ _id: rows.reportB, createdBy: ownerB, reason: "r" },
 		]);
-		return { assistants, reports, rows };
+		await shares.insertMany([
+			{ _id: rows.shareA as never, userId: ownerA, title: "mine", messages: [] },
+			{ _id: rows.shareB as never, userId: ownerB, title: "theirs", messages: [] },
+		]);
+		return { assistants, reports, shares, rows };
 	}
 
 	it("erasure deletes the person's rows and leaves everyone else's", async () => {
 		const gatewayUserId = `gw-${new ObjectId()}`;
 		const user = await makeUser({ gatewayUserId });
 		const other = new ObjectId();
-		const { assistants, reports, rows } = await seed(user._id, other);
+		const { assistants, reports, shares, rows } = await seed(user._id, other);
 		try {
 			const preview = await previewErasure(gatewayUserId, []);
 			expect(preview.counts.assistants).toBe(1);
 			expect(preview.counts.reports).toBe(1);
+			expect(preview.counts.sharedConversations).toBe(1);
 			expect(await assistants.countDocuments({ _id: rows.assistantA })).toBe(1);
 
 			const erasureId = `er-${new ObjectId()}`;
@@ -406,6 +419,9 @@ describe("retired collections (assistants, reports)", () => {
 			const result = await runErasure(erasureId, gatewayUserId, []);
 			expect(result.counts.assistants).toBe(1);
 			expect(result.counts.reports).toBe(1);
+			expect(result.counts.sharedConversations).toBe(1);
+			expect(await shares.countDocuments({ _id: rows.shareA as never })).toBe(0);
+			expect(await shares.countDocuments({ _id: rows.shareB as never })).toBe(1);
 			expect(await assistants.countDocuments({ _id: rows.assistantA })).toBe(0);
 			expect(await reports.countDocuments({ _id: rows.reportA })).toBe(0);
 			expect(await assistants.countDocuments({ _id: rows.assistantB })).toBe(1);
@@ -413,18 +429,23 @@ describe("retired collections (assistants, reports)", () => {
 		} finally {
 			await assistants.deleteMany({ _id: { $in: [rows.assistantA, rows.assistantB] } });
 			await reports.deleteMany({ _id: { $in: [rows.reportA, rows.reportB] } });
+			await shares.deleteMany({ _id: { $in: [rows.shareA, rows.shareB] } as never });
 		}
 	});
 
 	it("a merge moves the stray's rows onto the target", async () => {
 		const stray = new ObjectId();
 		const target = new ObjectId();
-		const { assistants, reports, rows } = await seed(stray, target);
+		const { assistants, reports, shares, rows } = await seed(stray, target);
 		try {
 			const { mergeChatUsers } = await import("./mergeChatUsers");
 			const result = await mergeChatUsers(stray, target);
 			expect(result.counts.assistants).toBe(1);
 			expect(result.counts.reports).toBe(1);
+			expect(result.counts.sharedConversations).toBe(1);
+			expect((await shares.findOne({ _id: rows.shareA as never }))?.userId.equals(target)).toBe(
+				true
+			);
 			expect((await assistants.findOne({ _id: rows.assistantA }))?.createdById.equals(target)).toBe(
 				true
 			);
@@ -432,6 +453,7 @@ describe("retired collections (assistants, reports)", () => {
 		} finally {
 			await assistants.deleteMany({ _id: { $in: [rows.assistantA, rows.assistantB] } });
 			await reports.deleteMany({ _id: { $in: [rows.reportA, rows.reportB] } });
+			await shares.deleteMany({ _id: { $in: [rows.shareA, rows.shareB] } as never });
 		}
 	});
 });

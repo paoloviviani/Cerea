@@ -227,13 +227,6 @@
 					codeNav.agentTitle || "Code Agents"
 				: convsStore.list.find((conv) => conv.id === page.params.id)?.title
 	);
-
-	// Shared conversation views define their own social preview tags
-	// (see SharePreviewTags.svelte), so skip the generic ones there
-	let isSharedConversationView = $derived(
-		page.route.id === "/r/[id]" ||
-			(page.route.id === "/conversation/[id]" && page.params.id?.length === 7)
-	);
 </script>
 
 <svelte:head>
@@ -242,7 +235,7 @@
 
 	<!-- use those meta tags everywhere except on special listing pages -->
 	<!-- feel free to refacto if there's a better way -->
-	{#if !page.url.pathname.includes("/models/") && !isSharedConversationView}
+	{#if !page.url.pathname.includes("/models/")}
 		<meta name="twitter:card" content="summary_large_image" />
 		<meta name="twitter:title" content="{publicConfig.PUBLIC_APP_NAME} - Chat with AI models" />
 		<meta name="twitter:description" content={publicConfig.PUBLIC_APP_DESCRIPTION} />

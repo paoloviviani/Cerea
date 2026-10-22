@@ -88,7 +88,6 @@ describe("GET /api/v2/user/settings", () => {
 		expect(data).toMatchObject({
 			streamingMode: "smooth",
 			directPaste: false,
-			shareConversationsWithModelAuthors: true,
 			multimodalOverrides: {},
 			toolsOverrides: {},
 		});
@@ -103,7 +102,6 @@ describe("GET /api/v2/user/settings", () => {
 
 		await collections.settings.insertOne({
 			userId: user._id,
-			shareConversationsWithModelAuthors: false,
 			activeModel: "custom-model",
 			streamingMode: "raw",
 			directPaste: true,
@@ -125,7 +123,6 @@ describe("GET /api/v2/user/settings", () => {
 		const data = await parseResponse<Record<string, unknown>>(res);
 
 		expect(data).toMatchObject({
-			shareConversationsWithModelAuthors: false,
 			streamingMode: "raw",
 			directPaste: true,
 			globalSystemPrompt: "Answer in Italian.",
@@ -143,7 +140,6 @@ describe("GET /api/v2/user/settings", () => {
 
 		const legacySettingsWithFinal = {
 			userId: user._id,
-			shareConversationsWithModelAuthors: true,
 			activeModel: "custom-model",
 			streamingMode: "final",
 			directPaste: false,
@@ -204,7 +200,6 @@ describe("POST /api/v2/user/settings", () => {
 		const { user, locals } = await createTestUser();
 
 		const body = {
-			shareConversationsWithModelAuthors: false,
 			activeModel: "test-model",
 			customPrompts: {},
 			multimodalOverrides: {},
@@ -224,7 +219,6 @@ describe("POST /api/v2/user/settings", () => {
 
 		const stored = await collections.settings.findOne({ userId: user._id });
 		expect(stored).not.toBeNull();
-		expect(stored?.shareConversationsWithModelAuthors).toBe(false);
 		expect(stored?.streamingMode).toBe("raw");
 		expect(stored?.createdAt).toBeInstanceOf(Date);
 		expect(stored?.updatedAt).toBeInstanceOf(Date);
@@ -235,7 +229,6 @@ describe("POST /api/v2/user/settings", () => {
 
 		const body = {
 			welcomeModalSeen: true,
-			shareConversationsWithModelAuthors: true,
 			activeModel: "test-model",
 			customPrompts: {},
 			multimodalOverrides: {},
@@ -278,7 +271,6 @@ describe("POST /api/v2/user/settings", () => {
 		const stored = await collections.settings.findOne({ userId: user._id });
 		expect(stored).not.toBeNull();
 		// Zod defaults should be applied
-		expect(stored?.shareConversationsWithModelAuthors).toBe(true);
 		expect(stored?.streamingMode).toBe("smooth");
 		expect(stored?.directPaste).toBe(false);
 		expect(stored).not.toHaveProperty("customPrompts");

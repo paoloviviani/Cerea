@@ -14,7 +14,6 @@ export interface ConversationData {
 	id: string;
 	updatedAt: Date;
 	modelId: string;
-	shared: boolean;
 	/** Per-chat web-search state; absent means "inherit defaults at turn time". */
 	webSearch?: boolean;
 	/** Chat-local override of the tool-approval policy (ADR 0075); absent means "inherit the setting". */

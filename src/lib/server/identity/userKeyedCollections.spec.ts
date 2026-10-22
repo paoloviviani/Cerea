@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { ObjectId } from "mongodb";
 
-import { collections, ready } from "$lib/server/database";
+import { collections, Database, ready } from "$lib/server/database";
 import {
 	type EraseContext,
 	previewErasureCounts,
@@ -42,7 +42,6 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	scheduleRuns: true, // one row per occurrence considered: the record of what a schedule did
 	pushSubscriptions: true, // the browsers a person turned Web Push on for; owner-keyed
 	conversationStats: false,
-	sharedConversations: true, // ADR 0093 deviation: userId added, see SharedConversation.ts
 	abortedGenerations: true, // conversation-keyed, no owner field of its own
 	generations: true,
 	generationEvents: true, // conversation-keyed, no owner field of its own
@@ -688,7 +687,7 @@ describe("the conversationFiles bucket entry", () => {
 	// upload used to get its listener only after the first had been awaited,
 	// so when it finished in the meantime the event was already gone and the
 	// test hung until its timeout (CI's check job, 2026-10-10, twice).
-	it("erases a conversation's attachments and a shared copy's, by owner", async () => {
+	it("erases a conversation's attachments and a legacy shared copy's, by owner", async () => {
 		const userId = new ObjectId();
 		const conversationId = new ObjectId();
 		await collections.conversations.insertOne({
@@ -701,8 +700,9 @@ describe("the conversationFiles bucket entry", () => {
 			updatedAt: new Date(),
 		} as never);
 		const sharedId = `shared-${new ObjectId().toString().slice(0, 8)}`;
-		await collections.sharedConversations.insertOne({
-			_id: sharedId,
+		const shares = (await Database.getInstance()).rawCollection("sharedConversations");
+		await shares.insertOne({
+			_id: sharedId as never,
 			userId,
 			hash: sharedId,
 			title: "t",
@@ -737,7 +737,7 @@ describe("the conversationFiles bucket entry", () => {
 		expect(remaining).toHaveLength(0);
 
 		await collections.conversations.deleteOne({ _id: conversationId });
-		await collections.sharedConversations.deleteOne({ _id: sharedId });
+		await shares.deleteOne({ _id: sharedId as never });
 	});
 });
 

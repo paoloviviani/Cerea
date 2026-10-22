@@ -62,7 +62,6 @@ const mount = (updates: unknown[], content = "") =>
 		message: { id: "m1", from: "assistant", content, children: [], updates },
 		loading: true,
 		isLast: true,
-		isAuthor: true,
 		readOnly: false,
 	} as never);
 
@@ -104,7 +103,6 @@ describe("the progress mark", () => {
 			message: { id: "m2", from: "assistant", content: "Done.", children: [], updates: [] },
 			loading: false,
 			isLast: true,
-			isAuthor: true,
 			readOnly: false,
 		} as never);
 		expect(baseElement.querySelectorAll('svg[aria-label="Assistant response"]')).toHaveLength(0);
@@ -276,7 +274,6 @@ describe("a final answer after tools", () => {
 			},
 			loading: false,
 			isLast: true,
-			isAuthor: true,
 			readOnly: false,
 		} as never);
 		const text = baseElement.textContent ?? "";
@@ -330,7 +327,6 @@ describe("a tool call that took a screenshot", () => {
 			message: { id: "m1", from: "assistant", content: "Done.", children: [], updates },
 			loading: false,
 			isLast: true,
-			isAuthor: true,
 			readOnly: false,
 		} as never);
 
@@ -382,7 +378,6 @@ describe("a file a tool produced", () => {
 			message: { id: "m1", from: "assistant", content: "Here it is.", children: [], updates },
 			loading: false,
 			isLast: true,
-			isAuthor: true,
 			readOnly: false,
 		} as never);
 

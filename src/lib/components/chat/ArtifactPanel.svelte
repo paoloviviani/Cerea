@@ -547,10 +547,10 @@
 	// version, so they become file artifacts and survive a reload.
 	//
 	// Gating mirrors ChatMessage's `canPersist`: the owner's own
-	// `/conversation/[id]` page, never a share, a read-only view, or this same
+	// `/conversation/[id]` page, never a read-only view, or this same
 	// panel reused elsewhere (`canPersistFiles` alone does not carry that route
-	// check, since the panel has no per-message `isAuthor`/route prop to
-	// compute it from upstream).
+	// check, since the panel has no per-message route prop to compute it from
+	// upstream).
 	let canPersistCellFiles = $derived(
 		canPersistFiles && (page.route.id ?? "").startsWith("/conversation/[id]")
 	);

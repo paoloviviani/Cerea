@@ -13,14 +13,10 @@ import type { TurnStateSnapshot } from "$lib/types/TurnState";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import { withRunFiles } from "$lib/server/execution/runFiles";
 
-export const GET: RequestHandler = async ({ locals, params, url }) => {
+export const GET: RequestHandler = async ({ locals, params }) => {
 	requireAuth(locals);
 
-	const conversation = await resolveConversation(
-		params.id ?? "",
-		locals,
-		url.searchParams.get("fromShare")
-	);
+	const conversation = await resolveConversation(params.id ?? "", locals);
 
 	// The last assistant message's authoritative liveness, alongside the
 	// snapshot it describes. `serverNow` lets the client correct clock skew so
@@ -28,14 +24,11 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	const lastAssistant = [...conversation.messages]
 		.reverse()
 		.find((message) => message.from === "assistant");
-	// A share view's id is the share's 7-character nanoid, not a conversation
-	// ObjectId (`new ObjectId` throws on it), and a share carries no live turn.
-	const turnStateDoc =
-		lastAssistant && !conversation.shared
-			? await collections.turnStates
-					.findOne({ conversationId: new ObjectId(conversation._id), messageId: lastAssistant.id })
-					.catch(() => null)
-			: null;
+	const turnStateDoc = lastAssistant
+		? await collections.turnStates
+				.findOne({ conversationId: new ObjectId(conversation._id), messageId: lastAssistant.id })
+				.catch(() => null)
+		: null;
 	const turnState: TurnStateSnapshot | undefined = turnStateDoc
 		? {
 				messageId: turnStateDoc.messageId,
@@ -53,7 +46,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	let projectDefaults:
 		{ defaultWebSearch?: boolean; defaultMcpConnectorIds?: string[] } | undefined;
 	try {
-		if (!conversation.shared && "projectId" in conversation && conversation.projectId) {
+		if ("projectId" in conversation && conversation.projectId) {
 			const project = await collections.projects.findOne(
 				{ _id: new ObjectId(conversation.projectId) },
 				{ projection: { defaultWebSearch: 1, defaultMcpConnectorIds: 1 } }
@@ -74,11 +67,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	}
 
 	// A code block's and an artifact cell's stored files, on their messages.
-	// Not for a share view: its id is the share's, and a viewer cannot fetch
-	// the owner's files anyway (owner-only downloads, by the user's decision).
-	const messages = conversation.shared
-		? conversation.messages
-		: await withRunFiles(conversation._id, conversation.messages);
+	const messages = await withRunFiles(conversation._id, conversation.messages);
 
 	return superjsonResponse({
 		messages,
@@ -90,13 +79,9 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 		id: conversation._id.toString(),
 		updatedAt: conversation.updatedAt,
 		modelId: conversation.model,
-		shared: conversation.shared,
-		// The composer's chips read this back on load. A shared view learns
-		// nothing about the owner's bases: its composer is read-only anyway,
-		// and base names are the owner's to disclose, not the share's. The
-		// `in` check is the sharedConversations branch, which carries no bases.
+		// The composer's chips read this back on load.
 		knowledgeBases:
-			!conversation.shared && "knowledgeBaseIds" in conversation
+			"knowledgeBaseIds" in conversation
 				? await knowledgeBaseViews(conversation.knowledgeBaseIds)
 				: undefined,
 		webSearch: "webSearch" in conversation ? conversation.webSearch : undefined,

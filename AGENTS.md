@@ -284,8 +284,7 @@ src/
 │   ├── conversation/[id]/  # Chat page + streaming endpoint
 │   ├── settings/         # User settings pages
 │   ├── api/              # Legacy v1 API endpoints (mcp, transcribe, fetch-url)
-│   ├── api/v2/           # REST API endpoints (+server.ts)
-│   └── r/[id]/           # Shared conversation view
+│   └── api/v2/           # REST API endpoints (+server.ts)
 ```
 
 ### Text Generation Flow
@@ -306,7 +305,7 @@ MCP servers are configured via `MCP_SERVERS` env var. When enabled, tools are ex
 - `projects` - Groups of conversations sharing standing context
 - `users` - User accounts (OIDC-backed)
 - `sessions` - Session data
-- `sharedConversations` - Public share links
+- Retired, never dropped: `assistants`, `reports`, `sharedConversations` (public share links, removed). No type or index; read by raw name only so erasure, merge and conversation delete still reach old rows (`RETIRED_COLLECTIONS`, `legacyShares.ts`)
 - `settings` - User preferences (including the global system prompt)
 - `customModels` - A person's own custom models: a base model plus a system prompt. Owner-keyed like `settings`
 - `codeDevices` - Paired coding-agent machines. Pairing records

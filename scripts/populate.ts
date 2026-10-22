@@ -151,7 +151,6 @@ async function seed() {
 		users.forEach(async (user) => {
 			const settings: Settings = {
 				userId: user._id,
-				shareConversationsWithModelAuthors: faker.datatype.boolean(0.25),
 				hideEmojiOnSidebar: faker.datatype.boolean(0.25),
 				activeModel: faker.helpers.arrayElement(modelIds),
 				createdAt: faker.date.recent({ days: 30 }),

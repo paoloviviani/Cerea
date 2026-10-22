@@ -8,14 +8,12 @@ import { previewErasure } from "$lib/server/identity/erasure";
  * stack, ADR 0093 §9.3): the gateway's delete-preview dialog calls this for
  * the chat's own dry-run counts, per collection — nothing is deleted.
  * `unattributed_legacy_shares` is a system-wide caveat, not a per-person
- * count: shares made before `SharedConversation.userId` existed that the
- * startup backfill could not attribute to anyone can never be tied to a
- * person by this or any later run, so the dialog surfaces it whenever any
- * exist rather than silently under-reporting this (or any) person's shares.
+ * count: legacy share-link rows that were never attributed to anyone can
+ * never be tied to a person by this or any later run, so the dialog surfaces
+ * it whenever any exist.
  *
  * `shared` names every resource of the person that someone else can see —
- * share links, shared projects and knowledge bases
- * — each with its own audience, per `previewErasure`'s own doc comment.
+ * shared projects and knowledge bases — each with its own audience, per `previewErasure`'s own doc comment.
  */
 const bodySchema = z.object({
 	gateway_user_id: z.string().min(1),

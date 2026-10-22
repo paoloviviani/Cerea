@@ -50,7 +50,6 @@ const mount = (updates: unknown[], opts: { loading?: boolean; content?: string }
 		},
 		loading: opts.loading ?? false,
 		isLast: true,
-		isAuthor: true,
 		readOnly: false,
 	} as never);
 

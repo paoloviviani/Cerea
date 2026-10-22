@@ -36,7 +36,6 @@ const mount = (updates: unknown[], content = "The answer.") =>
 		message: { id: "m1", from: "assistant", content, children: [], updates },
 		loading: false,
 		isLast: true,
-		isAuthor: true,
 		readOnly: false,
 	} as never);
 

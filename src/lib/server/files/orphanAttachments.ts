@@ -7,8 +7,8 @@
  * checks the owner from the side that still exists:
  *
  * - a **conversation id** (24 hex) with no conversation;
- * - a **share id** (the nanoid of `sharedConversations`) with no share — and
- *   the shares themselves whose `conversationId` names a conversation that is
+ * - a **share id** (the nanoid of a legacy `sharedConversations` row, see
+ *   `legacyShares.ts`) with no share — and the shares themselves whose `conversationId` names a conversation that is
  *   gone, with their copies;
  * - a **`code:<device>:<session>`** key whose device row is gone. Sessions
  *   live on the machine, not here, so a session cannot be told dead from this
@@ -30,6 +30,7 @@
 import { ObjectId } from "mongodb";
 
 import { collections } from "$lib/server/database";
+import { legacyShares } from "$lib/server/legacyShares";
 import { logger } from "$lib/server/logger";
 import { parseCodeAttachmentKey } from "$lib/server/codeAttachments";
 import { parseProjectOwnerKey } from "$lib/server/projectDocuments";
@@ -78,11 +79,13 @@ async function deadTags(tags: string[]): Promise<string[]> {
 
 	const liveShares = new Set(
 		(
-			await collections.sharedConversations
-				.find({ _id: { $in: shareIds } })
+			await (
+				await legacyShares()
+			)
+				.find({ _id: { $in: shareIds } } as never)
 				.project<{ _id: string }>({ _id: 1 })
 				.toArray()
-		).map((row) => row._id)
+		).map((row) => String(row._id))
 	);
 	dead.push(...shareIds.filter((id) => !liveShares.has(id)));
 
@@ -116,10 +119,11 @@ async function deadTags(tags: string[]): Promise<string[]> {
 
 /** Shares whose source conversation is gone: the link and its copies go too. */
 async function sweepOrphanShares(): Promise<number> {
-	const linked = await collections.sharedConversations
+	const shareRows = await legacyShares();
+	const linked = (await shareRows
 		.find({ conversationId: { $exists: true } })
 		.project<{ _id: string; conversationId: ObjectId }>({ _id: 1, conversationId: 1 })
-		.toArray();
+		.toArray()) as unknown as { _id: string; conversationId: ObjectId }[];
 	let removed = 0;
 	for (const batch of batches(linked)) {
 		const live = new Set(
@@ -133,7 +137,7 @@ async function sweepOrphanShares(): Promise<number> {
 		const gone = batch.filter((share) => !live.has(share.conversationId.toString()));
 		if (gone.length === 0) continue;
 		const ids = gone.map((share) => share._id);
-		await collections.sharedConversations.deleteMany({ _id: { $in: ids } });
+		await shareRows.deleteMany({ _id: { $in: ids } } as never);
 		await deleteConversationAttachments(ids);
 		removed += ids.length;
 	}

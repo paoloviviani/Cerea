@@ -26,16 +26,15 @@ import superjson from "superjson";
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const body = await request.text();
 
-	let title = "";
+	const title = "";
 
 	const parsedBody = z
 		.object({
-			fromShare: z.string().optional(),
 			// A catalogue id or one of this person's own custom models; checked below.
 			model: z.string(),
 			// Accepted for old clients and ignored: the per-model prompts that used to
 			// travel here are gone, and a stale tab must not smuggle one back in. A
-			// conversation's prompt is the model's own, or an imported share's.
+			// conversation's prompt is the model's own.
 			preprompt: z.string().optional(),
 			/** Start this conversation inside a project. */
 			projectId: z.string().optional(),
@@ -90,7 +89,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		error(400, "Invalid model");
 	}
 
-	let messages: Message[] = [
+	const messages: Message[] = [
 		{
 			id: v4(),
 			from: "system",
@@ -102,32 +101,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		},
 	];
 
-	let rootMessageId: Message["id"] = messages[0].id;
-	let fromSharePreprompt: string | undefined;
-
-	if (values.fromShare) {
-		const conversation = await collections.sharedConversations.findOne({
-			_id: values.fromShare,
-		});
-
-		if (!conversation) {
-			error(404, "Conversation not found");
-		}
-
-		// Strip <think> markers from imported titles
-		title = conversation.title.replace(/<\/?think>/gi, "").trim();
-		messages = conversation.messages;
-		rootMessageId = conversation.rootMessageId ?? rootMessageId;
-		values.model = conversation.model;
-		fromSharePreprompt = conversation.preprompt;
-	}
+	const rootMessageId: Message["id"] = messages[0].id;
 
 	if (model?.unlisted) {
 		error(400, "Can't start a conversation with an unlisted model");
 	}
 
-	// The model's own preprompt, unless a share brought one. Never the body's.
-	values.preprompt = fromSharePreprompt ?? model?.preprompt ?? "";
+	// The model's own preprompt, never the body's.
+	values.preprompt = model?.preprompt ?? "";
 
 	if (messages && messages.length > 0 && messages[0].from === "system") {
 		messages[0].content = values.preprompt;
@@ -224,7 +205,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		updatedAt: now,
 		userAgent: request.headers.get("User-Agent") ?? undefined,
 		...(locals.user ? { userId: locals.user._id } : { sessionId: locals.sessionId }),
-		...(values.fromShare ? { meta: { fromShareId: values.fromShare } } : {}),
 		...(projectId ? { projectId } : {}),
 		...(attachedKnowledgeBaseIds?.length ? { knowledgeBaseIds: attachedKnowledgeBaseIds } : {}),
 		...(initialWebSearch !== undefined ? { webSearch: initialWebSearch } : {}),
@@ -264,10 +244,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				...(seedProjectDefaults ? { projectDefaults: seedProjectDefaults } : {}),
 				updatedAt: now,
 				modelId: values.model,
-				// Matches what GET /api/v2/conversations/[id] returns for the normal
-				// post-create navigation (no fromShare query param): resolveConversation
-				// only reports shared=true when the viewing URL's fromShare matches.
-				shared: false,
 				// Resolved to names so the composer's chips render without a second
 				// round trip; a base deleted between validate and this read is left
 				// out here, exactly as the GET endpoint would show it.

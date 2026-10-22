@@ -79,7 +79,6 @@
 	interface Props {
 		message: Message;
 		loading?: boolean;
-		isAuthor?: boolean;
 		readOnly?: boolean;
 		isTapped?: boolean;
 		alternatives?: Message["id"][];
@@ -159,7 +158,6 @@
 	let {
 		message,
 		loading = false,
-		isAuthor = true,
 		readOnly = false,
 		isTapped = $bindable(false),
 		alternatives = [],
@@ -198,7 +196,6 @@
 		get canPersist() {
 			return (
 				message.from === "assistant" &&
-				isAuthor &&
 				!readOnly &&
 				(page.route.id ?? "").startsWith("/conversation/[id]") &&
 				// While this message is still generating it carries a client-minted
@@ -1124,7 +1121,7 @@
 					reason={waitingState.reason}
 					conversationId={convId}
 					messageId={message.id}
-					canWake={isAuthor && !readOnly}
+					canWake={!readOnly}
 				/>
 			{:else if failedReason}
 				<TurnFailedBanner reason={failedReason} isLatest={isLatestFailedTurn} />

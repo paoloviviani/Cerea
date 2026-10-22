@@ -49,7 +49,7 @@ function mount(props: Record<string, unknown> = {}, flags: Record<string, unknow
 		{
 			page: {
 				params: {},
-				data: { user: { username: "tester" }, loginEnabled: true, shared: false, ...flags },
+				data: { user: { username: "tester" }, loginEnabled: true, ...flags },
 			},
 			context: settingsContext,
 		}

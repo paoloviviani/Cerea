@@ -34,6 +34,7 @@ import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { dropMachineConnection } from "$lib/server/code/machines";
+import { legacyShares } from "$lib/server/legacyShares";
 import type { ProjectShare } from "$lib/types/Project";
 import type { VectorStoreShare } from "$lib/types/VectorStore";
 import { findStrays } from "./gatewayLogin";
@@ -90,11 +91,10 @@ async function deviceIdsFor(userIds: ObjectId[]): Promise<ObjectId[]> {
 /** One resource of the person that someone else can see, named, with who can
  * see it — the confirmation dialog's "shared with others" section (ADR 0093
  * §9.2: "every resource of the user that someone else can see, named, with
- * who can see it"). Three sources, each only while it actually has an
- * audience: a share-link row always does (its whole purpose is the link);
- * a project or knowledge base only when its own `shares` list is non-empty. */
+ * who can see it"). Two sources, each only while it actually has an
+ * audience: a project or knowledge base whose own `shares` list is non-empty. */
 export interface SharedResource {
-	kind: "shared_conversation" | "project" | "knowledge_base";
+	kind: "project" | "knowledge_base";
 	id: string;
 	title: string;
 	audience: string;
@@ -145,19 +145,6 @@ async function sharedResourcesFor(userIds: ObjectId[]): Promise<SharedResource[]
 	if (userIds.length === 0) return [];
 	const resources: SharedResource[] = [];
 
-	const links = await collections.sharedConversations
-		.find({ userId: { $in: userIds } })
-		.project<{ _id: string; title: string }>({ _id: 1, title: 1 })
-		.toArray();
-	for (const row of links) {
-		resources.push({
-			kind: "shared_conversation",
-			id: row._id,
-			title: row.title,
-			audience: "anyone with the link",
-		});
-	}
-
 	const projects = await collections.projects
 		.find({ userId: { $in: userIds }, "shares.0": { $exists: true } })
 		.project<{ _id: ObjectId; name: string; shares: ProjectShare[] }>({
@@ -197,12 +184,11 @@ async function sharedResourcesFor(userIds: ObjectId[]): Promise<SharedResource[]
 
 export interface ErasurePreview {
 	counts: Record<string, number>;
-	/** A caveat, not a per-person count: shares made before
-	 * `SharedConversation.userId` existed that the startup backfill could not
-	 * attribute to anyone (`database.ts`'s `backfillLegacySharedConversationOwners`)
-	 * — the orchestrator's decision that the preview surface this whenever
-	 * any exist, system-wide, since they can never be tied to a person by
-	 * this or any later run. */
+	/** A caveat, not a per-person count: share links made by an older version
+	 * that were never attributed to anyone (no `userId`), so no erasure can
+	 * reach them. Public sharing is gone and the links no longer resolve, but
+	 * the rows are kept (never dropped on upgrade), so the preview still
+	 * surfaces them system-wide. */
 	unattributedLegacyShares: number;
 	/** Named and audienced, per `SharedResource`'s own doc comment. */
 	shared: SharedResource[];
@@ -224,9 +210,9 @@ export async function previewErasure(
 	}
 	counts.users = userIds.length;
 
-	const unattributedLegacyShares = await collections.sharedConversations.countDocuments({
-		userId: { $exists: false },
-	});
+	const unattributedLegacyShares = await (
+		await legacyShares()
+	).countDocuments({ userId: { $exists: false } });
 
 	const shared = await sharedResourcesFor(userIds);
 

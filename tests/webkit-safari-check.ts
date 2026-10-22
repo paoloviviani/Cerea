@@ -53,7 +53,6 @@ async function seedSession(mongo: MongoClient): Promise<string> {
 	const now = new Date();
 	await db.collection("settings").insertOne({
 		sessionId,
-		shareConversationsWithModelAuthors: false,
 		activeModel: "test-org/test-model",
 		createdAt: now,
 		updatedAt: now,

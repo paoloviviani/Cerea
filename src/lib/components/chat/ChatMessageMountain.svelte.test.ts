@@ -38,7 +38,6 @@ const mount = () =>
 		},
 		loading: true,
 		isLast: true,
-		isAuthor: true,
 		readOnly: false,
 	} as never);
 

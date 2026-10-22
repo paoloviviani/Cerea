@@ -34,7 +34,6 @@
 		loading?: boolean;
 		/** A send is in flight and nothing on screen will receive its stream yet. */
 		pending?: boolean;
-		isAuthor?: boolean;
 		readOnly?: boolean;
 		/** The caller's pending-placeholder decision (`shouldShowPendingPlaceholder`). */
 		showPlaceholder?: boolean;
@@ -96,7 +95,6 @@
 		messagesAlternatives = [],
 		loading = false,
 		pending = false,
-		isAuthor = true,
 		readOnly = false,
 		showPlaceholder = false,
 		historyPending = false,
@@ -428,7 +426,6 @@
 									{loading}
 									{message}
 									alternatives={messagesAlternatives.find((a) => a.includes(message.id)) ?? []}
-									{isAuthor}
 									{readOnly}
 									isLast={turnIdx === turns.length - 1 && msgIdx === turn.messages.length - 1}
 									isLatestFailedTurn={message.id === latestFailedId}
@@ -464,7 +461,6 @@
 										from: "assistant",
 										children: [],
 									}}
-									{isAuthor}
 									{readOnly}
 								/>
 							{/if}
@@ -484,7 +480,6 @@
 							from: "assistant",
 							children: [],
 						}}
-						{isAuthor}
 						{readOnly}
 					/>
 				</div>

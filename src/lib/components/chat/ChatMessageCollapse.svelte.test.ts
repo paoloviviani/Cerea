@@ -5,7 +5,6 @@ import ChatMessage from "./ChatMessage.svelte";
 const mount = (content: string) =>
 	renderWithApp(ChatMessage, {
 		message: { id: "m1", children: [], from: "user", content },
-		isAuthor: true,
 		readOnly: false,
 	} as never);
 
