@@ -14,7 +14,6 @@ type SettingsStore = {
 	memoryEnabled?: boolean;
 	locationMode?: LocationMode;
 	locationPlace?: string;
-	mlInternOnboardingSeen: boolean;
 	activeModel: string;
 	globalSystemPrompt?: string;
 	multimodalOverrides: Record<string, boolean>;

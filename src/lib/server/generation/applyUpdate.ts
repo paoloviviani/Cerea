@@ -170,6 +170,17 @@ export function applyUpdateToMessage(
 		else message.updates.push(event);
 		message.updatedAt = new Date();
 		return { skipped: false, titleChanged, finalAnswerReceived };
+	} else if (event.type === MessageUpdateType.SubAgent) {
+		// One record per sub-agent: each state it reports replaces the last one
+		// for the same call, so 25 steps store one update rather than 25.
+		message.updates ??= [];
+		const prev = message.updates.findIndex(
+			(u) => u.type === MessageUpdateType.SubAgent && u.uuid === event.uuid
+		);
+		if (prev !== -1) message.updates[prev] = event;
+		else message.updates.push(event);
+		message.updatedAt = new Date();
+		return { skipped: false, titleChanged, finalAnswerReceived };
 	} else if (
 		event.type === MessageUpdateType.Reasoning &&
 		event.subtype === MessageReasoningUpdateType.Stream &&

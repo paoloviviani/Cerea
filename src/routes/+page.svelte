@@ -19,7 +19,6 @@
 	import { loading } from "$lib/stores/loading.js";
 	import { loadAttachmentsFromUrls } from "$lib/utils/loadAttachmentsFromUrls";
 	import { requireAuthUser } from "$lib/utils/auth";
-	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
 	import {
 		adoptNewChatSelection,
 		defaultConnectorIds,
@@ -71,15 +70,8 @@
 			} else {
 				model = data.models[0].id;
 			}
-			// The mode runs on its own fixed set; the server enforces this too.
-			if (mlAssistant.taskStarted && data.mlAssistantModels.length > 0) {
-				model = data.mlAssistantModels.includes(model) ? model : data.mlAssistantModels[0];
-			}
 			const createBody = JSON.stringify({
 				model,
-				// The composer latches the mode before handing the message over, so
-				// the conversation this creates is marked with it from the start.
-				mlAssistant: mlAssistant.taskStarted,
 				knowledgeBaseIds: knowledgeBases.map((base) => base.id),
 				webSearch,
 				// An explicit up-front choice becomes the new chat's override;
@@ -110,8 +102,6 @@
 				}
 				error.set(errorMessage);
 				console.error("Error while creating conversation: ", errorMessage);
-				// The composer latched the mode for a conversation that never happened.
-				mlAssistant.abortTask();
 				// A failed send keeps its draft: the composer already cleared,
 				// so put the text back (persistence re-saves it from there).
 				draft = message;
@@ -146,9 +136,6 @@
 				title: "New Chat",
 				model,
 				updatedAt: new Date(),
-				// Latched before the create request, so the sidebar row carries the
-				// mode's designation from the moment it appears.
-				mlAssistant: mlAssistant.taskStarted,
 			});
 			// The connectors switched on here belong to this first message; the
 			// conversation page would otherwise seed the new id from the defaults.
@@ -159,8 +146,6 @@
 		} catch (err) {
 			error.set((err as Error).message || ERROR_MESSAGES.default);
 			console.error(err);
-			// The composer latched the mode for a conversation that never happened.
-			mlAssistant.abortTask();
 			// A failed send keeps its draft — see above.
 			draft = message;
 		} finally {

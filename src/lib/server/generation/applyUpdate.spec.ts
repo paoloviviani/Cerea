@@ -472,3 +472,42 @@ describe("artifact drafts", () => {
 		expect(m.updates?.some((u) => u.type === MessageUpdateType.ArtifactDraft)).toBe(false);
 	});
 });
+
+describe("sub-agent updates", () => {
+	const state = (
+		uuid: string,
+		steps: number,
+		status: "running" | "done" = "running"
+	): MessageUpdate => ({
+		type: MessageUpdateType.SubAgent,
+		uuid,
+		title: "Compare",
+		model: "m",
+		status,
+		steps: Array.from({ length: steps }, (_, i) => ({
+			tool: "web_search",
+			label: `search ${i}`,
+			outcome: "ok" as const,
+		})),
+	});
+
+	it("stores one record per sub-agent, each state replacing the last", () => {
+		const m = message();
+		applyUpdateToMessage(state("a", 0), ctx(m));
+		applyUpdateToMessage(state("b", 0), ctx(m));
+		applyUpdateToMessage(state("a", 3), ctx(m));
+		applyUpdateToMessage(state("a", 5, "done"), ctx(m));
+
+		const stored = (m.updates ?? []).filter((u) => u.type === MessageUpdateType.SubAgent);
+		expect(stored).toHaveLength(2);
+		expect(stored[0]).toMatchObject({ uuid: "a", status: "done" });
+		expect((stored[0] as { steps: unknown[] }).steps).toHaveLength(5);
+		expect(stored[1]).toMatchObject({ uuid: "b" });
+	});
+
+	it("leaves the answer text alone", () => {
+		const m = message();
+		applyUpdateToMessage(state("a", 1), ctx(m));
+		expect(m.content).toBe("");
+	});
+});

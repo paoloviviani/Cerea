@@ -1,7 +1,6 @@
 import {
 	MessageUpdateStatus,
 	MessageUpdateType,
-	type MessageBudgetUpdate,
 	type MessagePlanUpdate,
 	type MessageStatusUpdate,
 	type MessageTurnStateUpdate,
@@ -24,7 +23,6 @@ export interface ConsumeContext {
 	/** Fired on every plan snapshot, so mode UI can track progress outside the message. */
 	onPlan?: (update: MessagePlanUpdate) => void;
 	/** Fired on every budget ledger change, so the strip's balance tracks the run live. */
-	onBudget?: (update: MessageBudgetUpdate) => void;
 	/** Fired on every turn lifecycle transition; the caller notes serverNow for clock skew. */
 	onTurnState?: (update: MessageTurnStateUpdate) => void;
 }
@@ -131,6 +129,19 @@ export async function consumeMessageUpdates(
 						...updatesBuffer.slice(prev + 1),
 					];
 				else updatesBuffer = [...updatesBuffer, update];
+			} else if (update.type === MessageUpdateType.SubAgent) {
+				// Same rule as the stored message (applyUpdateToMessage): a
+				// sub-agent's later state replaces its earlier one in place.
+				const prev = updatesBuffer.findIndex(
+					(u) => u.type === MessageUpdateType.SubAgent && u.uuid === update.uuid
+				);
+				if (prev !== -1)
+					updatesBuffer = [
+						...updatesBuffer.slice(0, prev),
+						update,
+						...updatesBuffer.slice(prev + 1),
+					];
+				else updatesBuffer = [...updatesBuffer, update];
 			} else {
 				updatesBuffer = [...updatesBuffer, update];
 			}
@@ -176,8 +187,6 @@ export async function consumeMessageUpdates(
 			message.routerMetadata = { route: update.route, model: update.model };
 		} else if (update.type === MessageUpdateType.Plan) {
 			ctx.onPlan?.(update);
-		} else if (update.type === MessageUpdateType.Budget) {
-			ctx.onBudget?.(update);
 		} else if (update.type === MessageUpdateType.TurnState) {
 			ctx.onTurnState?.(update);
 		}

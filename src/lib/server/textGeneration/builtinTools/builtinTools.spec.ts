@@ -6,18 +6,11 @@ const mocks = vi.hoisted(() => ({
 	openAskPrompt: vi.fn(),
 }));
 
-// The gate itself is real; only the build flag behind it is forced on.
-vi.mock("$lib/utils/mlAssistantFlag", () => ({ ML_ASSISTANT_MODE: true }));
-
 vi.mock("$lib/server/askUserQuestion", () => ({
 	ASK_USER_QUESTION_TOOL_NAME: "ask_user_question",
 	askUserQuestionTool: {
 		type: "function",
-		function: { name: "ask_user_question", description: "with setBudgetUsd" },
-	},
-	askUserQuestionToolPlain: {
-		type: "function",
-		function: { name: "ask_user_question", description: "no budget grants" },
+		function: { name: "ask_user_question", description: "ask" },
 	},
 	openAskPrompt: mocks.openAskPrompt,
 }));
@@ -47,21 +40,78 @@ beforeEach(() => {
 });
 
 describe("getEnabledBuiltinTools", () => {
-	it("offers the preset's builtin tools in an ML Assistant conversation", () => {
-		expect(toolNames({ _id: new ObjectId(), mlAssistant: true })).toEqual([
-			"ask_user_question",
-			"update_plan",
-			"wait",
-			"research",
-			"sandbox_task",
-			"check_job",
-			"create_trackio",
-		]);
+	it("offers nothing by default", () => {
+		expect(toolNames({ _id: new ObjectId() })).toEqual([]);
+	});
+});
+
+describe("the plan tool", () => {
+	it("is offered in any chat whose turn has tool calling on", () => {
+		const names = getEnabledBuiltinTools({
+			conv: { _id: new ObjectId() },
+			toolsEnabled: true,
+		}).map((tool) => tool.name);
+		expect(names).toContain("update_plan");
 	});
 
-	it("offers nothing outside the mode", () => {
-		expect(toolNames({ _id: new ObjectId() })).toEqual([]);
-		expect(toolNames({ _id: new ObjectId(), mlAssistant: false })).toEqual([]);
+	it("is withheld when tool calling is off or unresolved", () => {
+		expect(toolNames({ _id: new ObjectId() })).not.toContain("update_plan");
+		const off = getEnabledBuiltinTools({ conv: { _id: new ObjectId() }, toolsEnabled: false });
+		expect(off.map((tool) => tool.name)).not.toContain("update_plan");
+	});
+
+	it("carries a short preprompt that says when to use it and when not", () => {
+		const tool = getEnabledBuiltinTools({ conv: { _id: new ObjectId() }, toolsEnabled: true }).find(
+			(t) => t.name === "update_plan"
+		);
+		expect(tool?.preprompt).toMatch(/multi-step/);
+		expect(tool?.preprompt).toMatch(/Not for simple/);
+		expect((tool?.preprompt ?? "").length).toBeLessThan(500);
+	});
+});
+
+describe("sub-agent tools", () => {
+	const webParams = {
+		conv: { _id: new ObjectId() },
+		toolsEnabled: true,
+		webSearchEnabled: true,
+		token: "t",
+		searchModelIds: ["exa"],
+		allowedFetchUrls: new Set<string>(),
+		delegation: { models: [] },
+	};
+	const names = (params: Parameters<typeof getEnabledBuiltinTools>[0]) =>
+		getEnabledBuiltinTools(params).map((tool) => tool.name);
+
+	it("offers delegate to a tool-capable chat when the deployment allows it", () => {
+		expect(
+			names({ conv: { _id: new ObjectId() }, toolsEnabled: true, delegation: { models: [] } })
+		).toContain("delegate");
+	});
+
+	it("offers nothing when the caller passes no delegation (the switch is off)", () => {
+		const off = { ...webParams, delegation: undefined };
+		expect(names(off)).not.toContain("delegate");
+		expect(names(off)).not.toContain("research");
+	});
+
+	it("offers nothing without tool calling", () => {
+		expect(names({ ...webParams, toolsEnabled: false })).not.toContain("delegate");
+	});
+
+	it("offers research where web search is, and not otherwise", () => {
+		expect(names(webParams)).toEqual(expect.arrayContaining(["delegate", "research"]));
+		expect(names({ ...webParams, webSearchEnabled: false })).not.toContain("research");
+		expect(names({ ...webParams, searchModelIds: [] })).not.toContain("research");
+		expect(names({ ...webParams, webSearchEnabled: false })).toContain("delegate");
+	});
+
+	it("puts a short guidance on when to delegate in the preprompt", () => {
+		const tool = getEnabledBuiltinTools(webParams).find((t) => t.name === "delegate");
+		expect(tool?.preprompt).toMatch(/self-contained/);
+		expect(tool?.preprompt).toMatch(/parallel/);
+		expect(tool?.preprompt).toMatch(/Do not delegate/);
+		expect((tool?.preprompt ?? "").length).toBeLessThan(900);
 	});
 });
 
@@ -247,8 +297,8 @@ describe("askUserQuestionBuiltin", () => {
 	});
 });
 
-describe("ask_user_question beyond the ML Assistant preset", () => {
-	it("joins an ordinary conversation when the deployment switch is on", () => {
+describe("ask_user_question enablement", () => {
+	it("joins a conversation when the deployment switch is on", () => {
 		const names = getEnabledBuiltinTools({
 			conv: { _id: new ObjectId() },
 			askUserQuestionEnabled: true,
@@ -256,27 +306,10 @@ describe("ask_user_question beyond the ML Assistant preset", () => {
 		expect(names).toContain("ask_user_question");
 	});
 
-	it("stays out of an ordinary conversation when the switch is off", () => {
+	it("stays out of a conversation when the switch is off", () => {
 		const names = getEnabledBuiltinTools({ conv: { _id: new ObjectId() } }).map(
 			(tool) => tool.name
 		);
 		expect(names).not.toContain("ask_user_question");
-	});
-
-	it("is offered once, not twice, in an ML Assistant conversation", () => {
-		const names = getEnabledBuiltinTools({
-			conv: { _id: new ObjectId(), mlAssistant: true },
-			askUserQuestionEnabled: true,
-		}).map((tool) => tool.name);
-		expect(names.filter((name) => name === "ask_user_question")).toHaveLength(1);
-	});
-
-	it("offers setBudgetUsd only inside the preset that can grant budget", () => {
-		const definitionIn = (conv: { _id: ObjectId; mlAssistant?: boolean }) =>
-			getEnabledBuiltinTools({ conv, askUserQuestionEnabled: true }).find(
-				(tool) => tool.name === "ask_user_question"
-			)?.definition.function.description;
-		expect(definitionIn({ _id: new ObjectId() })).toBe("no budget grants");
-		expect(definitionIn({ _id: new ObjectId(), mlAssistant: true })).toBe("with setBudgetUsd");
 	});
 });

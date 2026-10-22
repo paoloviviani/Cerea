@@ -1,7 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-
-// The gate itself is real; only the build flag behind it is forced on.
-vi.mock("$lib/utils/mlAssistantFlag", () => ({ ML_ASSISTANT_MODE: true }));
+import { describe, expect, it } from "vitest";
 
 import {
 	ARTIFACT_TOOL_GUIDANCE,
@@ -13,7 +10,6 @@ import {
 } from "./artifacts";
 import { resolvePreprompt } from "./preprompt";
 import { buildToolPreprompt } from "./utils/toolPrompt";
-import { createArtifactTool } from "./builtinTools/artifactTool";
 import { getEnabledBuiltinTools } from "./builtinTools/index";
 import { ObjectId } from "mongodb";
 
@@ -23,30 +19,17 @@ const tool = (name: string) => ({
 });
 
 describe("artifactsEnabledForTurn", () => {
-	it("force-enables for the ML preset", () => {
-		expect(artifactsEnabledForTurn({ mlAssistant: true })).toBe(true);
+	it("is opt-in per model with a user override", () => {
+		expect(artifactsEnabledForTurn({ supportsArtifacts: true })).toBe(true);
+		expect(artifactsEnabledForTurn({ supportsArtifacts: false })).toBe(false);
 		expect(
 			artifactsEnabledForTurn({
-				mlAssistant: true,
-				artifactsOverride: false,
-				supportsArtifacts: false,
-			})
-		).toBe(true);
-	});
-
-	it("is opt-in per model with a user override outside the preset", () => {
-		expect(artifactsEnabledForTurn({ mlAssistant: false, supportsArtifacts: true })).toBe(true);
-		expect(artifactsEnabledForTurn({ mlAssistant: false, supportsArtifacts: false })).toBe(false);
-		expect(
-			artifactsEnabledForTurn({
-				mlAssistant: false,
 				supportsArtifacts: false,
 				artifactsOverride: true,
 			})
 		).toBe(true);
 		expect(
 			artifactsEnabledForTurn({
-				mlAssistant: false,
 				supportsArtifacts: true,
 				artifactsOverride: false,
 			})
@@ -56,49 +39,31 @@ describe("artifactsEnabledForTurn", () => {
 	it("defaults to whether the model does tool calling, with no supportsArtifacts flag set", () => {
 		// A tool-capable gateway model with no MODELS override at all — the
 		// `glm-5.3-flash` case: on by default now, not off.
-		expect(artifactsEnabledForTurn({ mlAssistant: false, supportsTools: true })).toBe(true);
+		expect(artifactsEnabledForTurn({ supportsTools: true })).toBe(true);
 		// A model with no tool calling either: still off.
-		expect(artifactsEnabledForTurn({ mlAssistant: false, supportsTools: false })).toBe(false);
+		expect(artifactsEnabledForTurn({ supportsTools: false })).toBe(false);
 	});
 
 	it("an explicit supportsArtifacts: false stays off even for a tool-capable model", () => {
-		expect(
-			artifactsEnabledForTurn({ mlAssistant: false, supportsArtifacts: false, supportsTools: true })
-		).toBe(false);
+		expect(artifactsEnabledForTurn({ supportsArtifacts: false, supportsTools: true })).toBe(false);
 	});
 
 	it("the user override wins over the tools-based default in both directions", () => {
-		expect(
-			artifactsEnabledForTurn({ mlAssistant: false, supportsTools: false, artifactsOverride: true })
-		).toBe(true);
-		expect(
-			artifactsEnabledForTurn({ mlAssistant: false, supportsTools: true, artifactsOverride: false })
-		).toBe(false);
+		expect(artifactsEnabledForTurn({ supportsTools: false, artifactsOverride: true })).toBe(true);
+		expect(artifactsEnabledForTurn({ supportsTools: true, artifactsOverride: false })).toBe(false);
 	});
 });
 
 describe("artifactsModeForTurn", () => {
 	it("defaults to tool when artifacts and tools are both on, else tags", () => {
-		expect(
-			artifactsModeForTurn({ mlAssistant: false, supportsArtifacts: true, toolsEnabled: true })
-		).toBe("tool");
-		expect(
-			artifactsModeForTurn({ mlAssistant: false, supportsArtifacts: true, toolsEnabled: false })
-		).toBe("tags");
-		expect(
-			artifactsModeForTurn({ mlAssistant: false, supportsArtifacts: false, toolsEnabled: true })
-		).toBe("tags");
-	});
-
-	it("applies tool mode in the ML preset when the model supports tools", () => {
-		expect(artifactsModeForTurn({ mlAssistant: true, toolsEnabled: true })).toBe("tool");
-		expect(artifactsModeForTurn({ mlAssistant: true, toolsEnabled: false })).toBe("tags");
+		expect(artifactsModeForTurn({ supportsArtifacts: true, toolsEnabled: true })).toBe("tool");
+		expect(artifactsModeForTurn({ supportsArtifacts: true, toolsEnabled: false })).toBe("tags");
+		expect(artifactsModeForTurn({ supportsArtifacts: false, toolsEnabled: true })).toBe("tags");
 	});
 
 	it("lets an explicit per-model mode win", () => {
 		expect(
 			artifactsModeForTurn({
-				mlAssistant: false,
 				supportsArtifacts: true,
 				toolsEnabled: true,
 				artifactsMode: "tags",
@@ -106,7 +71,6 @@ describe("artifactsModeForTurn", () => {
 		).toBe("tags");
 		expect(
 			artifactsModeForTurn({
-				mlAssistant: false,
 				supportsArtifacts: false,
 				toolsEnabled: false,
 				artifactsMode: "tool",
@@ -120,7 +84,6 @@ describe("prompt gating", () => {
 		const base = "You are a pirate.";
 		const toolMode = resolvePreprompt({
 			conversationPreprompt: base,
-			mlAssistant: false,
 			supportsArtifacts: true,
 			forceTools: true,
 		});
@@ -130,29 +93,10 @@ describe("prompt gating", () => {
 
 		const tagsMode = resolvePreprompt({
 			conversationPreprompt: base,
-			mlAssistant: false,
 			supportsArtifacts: true,
 			forceTools: false,
 		});
 		expect(tagsMode).toContain(ARTIFACTS_SYSTEM_PROMPT);
-	});
-
-	it("keeps the tags grammar for the ML preset when the model lacks tools", () => {
-		const resolved = resolvePreprompt({
-			conversationPreprompt: undefined,
-			mlAssistant: true,
-			supportsTools: false,
-		});
-		expect(resolved).toContain(ARTIFACTS_SYSTEM_PROMPT);
-	});
-
-	it("drops the grammar for the ML preset when the model supports tools", () => {
-		const resolved = resolvePreprompt({
-			conversationPreprompt: undefined,
-			mlAssistant: true,
-			supportsTools: true,
-		});
-		expect(resolved).not.toContain(ARTIFACTS_SYSTEM_PROMPT);
 	});
 });
 
@@ -222,17 +166,5 @@ describe("artifact builtin enablement", () => {
 			toolsEnabled: true,
 		});
 		expect(tools.map((t) => t.name)).not.toContain("artifact");
-	});
-
-	it("offers the tool in the ML preset when the model supports tools", () => {
-		const tools = getEnabledBuiltinTools({
-			conv: { _id: new ObjectId(), mlAssistant: true },
-			modelArtifacts: { supportsArtifacts: false, supportsTools: true },
-			toolsEnabled: true,
-		});
-		expect(tools.map((t) => t.name)).toContain("artifact");
-		const description = createArtifactTool().definition.function.description;
-		expect(description).toBeDefined();
-		expect(description?.length).toBeGreaterThan(200);
 	});
 });

@@ -47,13 +47,6 @@ export type ElicitationField =
 				value: string;
 				label: string;
 				description?: string;
-				/**
-				 * ML Assistant sessions only: choosing this option sets the session
-				 * compute budget to this many dollars. Applied by trusted server code
-				 * when the user submits the answer — never by the model — and always
-				 * rendered next to the option so the label cannot hide the amount.
-				 */
-				setBudgetUsd?: number;
 			}>;
 			/** Offers an "Other" choice whose value is typed rather than picked. */
 			allowOther?: boolean;

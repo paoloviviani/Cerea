@@ -165,7 +165,6 @@ type ExtraConfigKeys =
 	| "MCP_FORWARD_HF_USER_TOKEN"
 	| "MCP_TOOL_TIMEOUT_MS"
 	| "EXA_API_KEY"
-	| "GITHUB_TOKEN"
 	/** Where the chat reaches Gotenberg (the kit's `office` profile); empty is off. */
 	| "CHAT_GOTENBERG_URL"
 	/** The issuer a machine link's bearer must carry (`iss`, exact match after

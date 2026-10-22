@@ -8,7 +8,6 @@
 	import ChatWindow from "$lib/components/chat/ChatWindow.svelte";
 	import { findCurrentModel } from "$lib/utils/models";
 	import { useSettingsStore } from "$lib/stores/settings";
-	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
 	import { ERROR_MESSAGES, error } from "$lib/stores/errors";
 	import { storePendingFiles } from "$lib/utils/pendingFiles";
@@ -38,31 +37,17 @@
 		try {
 			loading = true;
 
-			// The mode runs on its own fixed set; the server enforces this too.
-			const model =
-				mlAssistant.taskStarted &&
-				data.mlAssistantModels.length > 0 &&
-				!data.mlAssistantModels.includes(modelId)
-					? data.mlAssistantModels[0]
-					: modelId;
 			const res = await fetch(`${base}/conversation`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify({
-					model,
-					// The composer latches the mode before handing the message over, so
-					// the conversation this creates is marked with it from the start.
-					mlAssistant: mlAssistant.taskStarted,
-				}),
+				body: JSON.stringify({ model: modelId }),
 			});
 
 			if (!res.ok) {
 				error.set("Error while creating conversation, try again.");
 				console.error("Error while creating conversation: " + (await res.text()));
-				// The composer latched the mode for a conversation that never happened.
-				mlAssistant.abortTask();
 				return;
 			}
 
@@ -81,11 +66,8 @@
 			convsStore.prepend({
 				id: conversationId,
 				title: "New Chat",
-				model,
+				model: modelId,
 				updatedAt: new Date(),
-				// Latched before the create request, so the sidebar row carries the
-				// mode's designation from the moment it appears.
-				mlAssistant: mlAssistant.taskStarted,
 			});
 			await goto(`${base}/conversation/${conversationId}`, {
 				state: { pendingMessage: message, pendingFilesNonce },
@@ -93,8 +75,6 @@
 		} catch (err) {
 			error.set(ERROR_MESSAGES.default);
 			console.error(err);
-			// The composer latched the mode for a conversation that never happened.
-			mlAssistant.abortTask();
 		} finally {
 			loading = false;
 		}

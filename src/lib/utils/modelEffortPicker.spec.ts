@@ -71,8 +71,7 @@ describe("effort", () => {
 		expect(effortLabel("high")).toBe("High");
 	});
 
-	it("resolves the preset, then the conversation, then the user default", () => {
-		expect(chatEffort({ preset: "high", conversation: "low", userDefault: "medium" })).toBe("high");
+	it("resolves the conversation, then the user default", () => {
 		expect(chatEffort({ conversation: "low", userDefault: "medium" })).toBe("low");
 		expect(chatEffort({ userDefault: "medium" })).toBe("medium");
 		expect(chatEffort({})).toBeUndefined();

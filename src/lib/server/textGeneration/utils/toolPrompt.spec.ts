@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildToolPreprompt } from "./toolPrompt";
-import { ARTIFACT_TOOL_RULE, ARTIFACTS_SYSTEM_PROMPT } from "../artifacts";
-import { ML_ASSISTANT_BUDGET_RULES, ML_ASSISTANT_PREPROMPT } from "$lib/server/mlAssistantPrompt";
-import { askUserQuestionBuiltin } from "../builtinTools/askUserQuestion";
+import { ARTIFACT_TOOL_RULE } from "../artifacts";
 import type { OpenAiTool } from "$lib/server/mcp/tools";
 
 const tool = (name: string): OpenAiTool =>
@@ -124,48 +122,5 @@ describe("buildToolPreprompt artifact rule", () => {
 
 	it("never appears without tools", () => {
 		expect(buildToolPreprompt([], undefined, undefined, { artifacts: true })).toBe("");
-	});
-
-	it("also ships in the ML Assistant doctrine swap when artifacts are on", () => {
-		// The mode force-enables artifacts, so its swapped restraint paragraph
-		// carries the rule too — otherwise the mode that needs it most loses it.
-		const prompt = buildToolPreprompt([tool("hf_jobs")], undefined, undefined, {
-			mlAssistant: true,
-			artifacts: true,
-		});
-
-		expect(prompt).toContain(ARTIFACT_TOOL_RULE);
-		expect(prompt).toContain("USING TOOLS:");
-		expect(prompt.indexOf(ARTIFACT_TOOL_RULE)).toBeGreaterThan(prompt.indexOf("USING TOOLS:"));
-	});
-
-	it("still fits the 32k system-message ceiling with the rule enabled", () => {
-		// Mirrors the ceiling test in mlAssistantPrompt.spec.ts, with the one
-		// difference that matters here: the mode force-enables artifacts, so the
-		// honest worst case carries the rule. The ceiling itself must not move.
-		const composed = [
-			buildToolPreprompt(
-				[
-					tool("hf_jobs"),
-					tool("hf_fs"),
-					tool("hub_repo_details"),
-					tool("hf_fs_write"),
-					tool("ask_user_question"),
-					tool("update_plan"),
-					tool("github_find_examples"),
-					tool("web_search_exa"),
-					tool("hf_sandbox"),
-				],
-				undefined,
-				[askUserQuestionBuiltin],
-				{ mlAssistant: true, artifacts: true }
-			),
-			ML_ASSISTANT_PREPROMPT,
-			ML_ASSISTANT_BUDGET_RULES,
-			ARTIFACTS_SYSTEM_PROMPT,
-		].join("\n\n");
-
-		expect(composed).toContain(ARTIFACT_TOOL_RULE);
-		expect(composed.length).toBeLessThan(32_000);
 	});
 });

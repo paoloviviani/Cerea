@@ -15,9 +15,7 @@ export function mcpClientCapabilities(kind: McpClientKind): ClientCapabilities {
 
 /**
  * Servers can tell these apart, so a health probe stays distinguishable from a
- * session — and ML Intern from ordinary chat, which is the whole point of the
- * third: its traffic is autonomous, long-running and job-shaped, and a server
- * operator asked to be able to see it separately.
+ * session.
  *
  * `elicits` rather than a name check: whether a client declares the elicitation
  * capability is a property of what is behind it (a chat that can answer), not
@@ -26,7 +24,6 @@ export function mcpClientCapabilities(kind: McpClientKind): ClientCapabilities {
  */
 const CLIENT_INFO = {
 	session: { name: "chat-ui-mcp", version: "0.1.0", elicits: true },
-	intern: { name: "chat-ui-intern", version: "0.1.0", elicits: true },
 	health: { name: "chat-ui-health-check", version: "1.0.0", elicits: false },
 } as const;
 

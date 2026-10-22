@@ -6,7 +6,6 @@ import {
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import { ML_ASSISTANT_MIN_COMPLETION_TOKENS } from "$lib/constants/mlAssistant";
 import { RETRY_BACKOFF_MS } from "$lib/server/textGeneration/utils/upstreamRetry";
 import { APIConnectionError } from "openai";
 import type { McpFlowResult, RunMcpFlowContext } from "./runMcpFlow";
@@ -46,10 +45,17 @@ const mocks = vi.hoisted(() => ({
 	askQuestionEnabled: undefined as string | undefined,
 	// Servers whose tool listing failed this turn, as `getOpenAiToolsForMcp` reports them.
 	unlisted: [] as Array<{ name: string; reason: string }>,
+	// The sub-agent switch (CHAT_DELEGATION): "false" off, anything else on. Off by
+	// default in this file so the tool lists below stay about what they test.
+	delegation: "false" as string | undefined,
+	// The models the signed-in person may pick for a sub-agent.
+	visible: [] as Array<Record<string, unknown>>,
+	useUserToken: "false",
+	// Web search grants, as `resolveWebSearchFor` reports them.
+	searchGranted: [] as string[],
 }));
 
 // The gate itself is real; only the build flag behind it is forced on.
-vi.mock("$lib/utils/mlAssistantFlag", () => ({ ML_ASSISTANT_MODE: true }));
 
 // Only the client is stubbed. The SDK's error classes stay real: the retry
 // predicate identifies a dead connection by class, so a mocked-away
@@ -68,7 +74,9 @@ vi.mock("$lib/server/config", () => ({
 		HF_TOKEN: "",
 		MCP_FORWARD_HF_USER_TOKEN: "false",
 		EXA_API_KEY: "",
-		USE_USER_TOKEN: "false",
+		get USE_USER_TOKEN() {
+			return mocks.useUserToken;
+		},
 		isHuggingChat: false,
 		// A getter, not a value: the flag is a per-test switch (see
 		// mocks.codeToolEnabled), and the mocked config object is shared.
@@ -78,6 +86,9 @@ vi.mock("$lib/server/config", () => ({
 		get CHAT_ASK_USER_QUESTION_ENABLED() {
 			return mocks.askQuestionEnabled;
 		},
+		get CHAT_DELEGATION() {
+			return mocks.delegation;
+		},
 	},
 }));
 
@@ -86,6 +97,12 @@ vi.mock("$lib/server/mcp/registry", () => ({
 }));
 
 vi.mock("$lib/server/urlSafety", () => ({ isValidUrl: () => true }));
+
+vi.mock("$lib/server/visibleModels", () => ({ visibleModels: async () => mocks.visible }));
+
+vi.mock("$lib/server/webSearch/config", () => ({
+	resolveWebSearchFor: async () => ({ granted: mocks.searchGranted, model: null }),
+}));
 
 vi.mock("$lib/server/mcp/tools", () => ({
 	getOpenAiToolsForMcp: async (servers: unknown[]) =>
@@ -281,6 +298,10 @@ beforeEach(() => {
 	mocks.codeToolEnabled = "true";
 	mocks.askQuestionEnabled = undefined;
 	mocks.unlisted = [];
+	mocks.delegation = "false";
+	mocks.visible = [];
+	mocks.searchGranted = [];
+	mocks.useUserToken = "false";
 	mocks.getAbortTime.mockReturnValue(undefined);
 	scriptToolResults();
 });
@@ -816,51 +837,38 @@ describe("runMcpFlow offering the question tool", () => {
 				?.tools ?? []
 		).map((t) => t.function.name);
 
-	const inMlMode = { conv: { _id: new ObjectId(), mlAssistant: true } } as unknown as Parameters<
-		typeof runMcpFlow
-	>[0];
-
-	it("offers it alongside the MCP tools in ML Assistant mode", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow(inMlMode);
-		expect(toolNames()).toContain("ask_user_question");
-	});
-
-	it("offers it outside the mode too, unless the deployment switch is off", async () => {
+	it("offers it alongside the MCP tools, unless the deployment switch is off", async () => {
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow();
 		expect(toolNames()).toContain("ask_user_question");
 	});
 
-	it("withholds it from a conversation outside the mode when the switch is off", async () => {
+	it("withholds it when the switch is off", async () => {
 		mocks.askQuestionEnabled = "false";
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow();
-		// execute_code rides on the deployment flag alone, outside the mode
-		// gating — which is why it is here at all with the flag forced on.
-		// load_skill and load_skill_file ride on the seeded skills the same way
+		// execute_code rides on the deployment flag alone — which is why it is
+		// here at all with the flag forced on. load_skill and load_skill_file ride on the seeded skills the same way
 		// (Phase 1/Stage 3): the frontmatter list is in every turn's system
 		// prompt, so the tools that load a body and its bundled files are
 		// offered wherever the list is.
-		expect(toolNames()).toEqual(["execute_code", "load_skill", "load_skill_file", "do_thing"]);
+		expect(toolNames()).toEqual([
+			"update_plan",
+			"execute_code",
+			"load_skill",
+			"load_skill_file",
+			"do_thing",
+		]);
 	});
 
 	it("engages the flow with builtin tools alone when MCP listing yields nothing", async () => {
 		mocks.mcpTools = [];
 		scriptRounds([{ content: "the answer" }]);
-		const { result } = await runFlow(inMlMode);
+		const { result } = await runFlow();
 		expect(result).toBe("completed");
 		expect(toolNames()).toEqual([
-			// Tool mode in the preset (the model supports tools): the artifact
-			// tool joins every conversation, not only the mode's own set.
-			"artifact",
-			"ask_user_question",
 			"update_plan",
-			"wait",
-			"research",
-			"sandbox_task",
-			"check_job",
-			"create_trackio",
+			"ask_user_question",
 			"execute_code",
 			"load_skill",
 			"load_skill_file",
@@ -878,155 +886,77 @@ describe("runMcpFlow offering the question tool", () => {
 		scriptRounds([{ content: "the answer" }]);
 		const { result } = await runFlow();
 		expect(result).toBe("completed");
-		expect(toolNames()).toEqual(["load_skill", "load_skill_file"]);
+		expect(toolNames()).toEqual(["update_plan", "load_skill", "load_skill_file"]);
 	});
 });
 
-describe("runMcpFlow offering the plan tool", () => {
-	const toolNames = () =>
+describe("runMcpFlow and the generic tool preprompt", () => {
+	const systemPrompt = (n = 0) => String(requestMessages(n)[0]?.content ?? "");
+
+	it("sends the generic tool preprompt", async () => {
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow();
+		expect(systemPrompt()).toContain("Do NOT call a tool unless");
+	});
+
+	const plan = {
+		goal: "Ship the feature",
+		steps: [{ step: "write it", status: "pending" }],
+		version: 1,
+		updatedAt: new Date(),
+	};
+	const offeredNames = () =>
 		(
 			(mocks.create.mock.calls[0]?.[0] as { tools?: Array<{ function: { name: string } }> })
 				?.tools ?? []
 		).map((t) => t.function.name);
 
-	const mlConv = (extra: Record<string, unknown> = {}) =>
-		({ _id: new ObjectId(), mlAssistant: true, ...extra }) as unknown as Parameters<
-			typeof runMcpFlow
-		>[0]["conv"];
-
-	it("offers it in ML Assistant mode and nowhere else", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow({ conv: mlConv() } as Partial<Parameters<typeof runMcpFlow>[0]>);
-		expect(toolNames()).toContain("update_plan");
-
-		mocks.create.mockClear();
+	it("offers the plan tool in an ordinary tool-capable chat, with a short preprompt", async () => {
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow();
-		expect(toolNames()).not.toContain("update_plan");
+		expect(offeredNames()).toContain("update_plan");
+		expect(systemPrompt()).toContain("PLAN: for multi-step work");
 	});
 
-	it("drops an MCP tool shadowed by a builtin name", async () => {
-		mocks.mcpTools = [
-			{ type: "function", function: { name: "do_thing" } },
-			{ type: "function", function: { name: "update_plan" } },
-		];
+	it("shows the model its stored plan on the next turn, on the last user message", async () => {
 		scriptRounds([{ content: "the answer" }]);
-		await runFlow({ conv: mlConv() } as Partial<Parameters<typeof runMcpFlow>[0]>);
-		expect(toolNames().filter((name) => name === "update_plan")).toHaveLength(1);
-	});
-
-	it("injects the current plan at the tail of the last user message", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow({
-			conv: mlConv({
-				plan: {
-					goal: "Ship the feature",
-					steps: [{ step: "write it", status: "in_progress" }],
-					version: 2,
-					updatedAt: new Date(),
-				},
-			}),
-		} as Partial<Parameters<typeof runMcpFlow>[0]>);
-
+		await runFlow({ conv: { _id: new ObjectId(), plan } } as Partial<
+			Parameters<typeof runMcpFlow>[0]
+		>);
 		const lastUser = requestMessages(0).findLast((m) => m.role === "user");
-		expect(String(lastUser?.content)).toContain("hello");
 		expect(String(lastUser?.content)).toContain("CURRENT PLAN");
-		expect(String(lastUser?.content)).toContain("PLAN (v2 — 0/1 done)");
+		expect(String(lastUser?.content)).toContain("Ship the feature");
 	});
 
-	it("does not inject a stale plan when the tool is not offered", async () => {
-		// A plan block that says "revise it with update_plan" must never appear
-		// without the tool it names — here, outside ML Assistant mode.
+	it("injects nothing when the chat has no plan yet", async () => {
 		scriptRounds([{ content: "the answer" }]);
-		await runFlow({
-			conv: {
-				_id: new ObjectId(),
-				plan: {
-					goal: "Ship the feature",
-					steps: [{ step: "write it", status: "pending" }],
-					version: 1,
-					updatedAt: new Date(),
-				},
-			},
-		} as Partial<Parameters<typeof runMcpFlow>[0]>);
-
+		await runFlow();
 		const lastUser = requestMessages(0).findLast((m) => m.role === "user");
 		expect(String(lastUser?.content)).not.toContain("CURRENT PLAN");
 	});
-});
 
-describe("runMcpFlow under the ML Assistant preset", () => {
-	const inMlMode = { conv: { _id: new ObjectId(), mlAssistant: true } } as unknown as Parameters<
-		typeof runMcpFlow
-	>[0];
-
-	const systemPrompt = (n = 0) => String(requestMessages(n)[0]?.content ?? "");
-
-	it("sends the preset's tool preprompt instead of the generic one", async () => {
-		// Both in one message is a contradiction: the generic text names writing
-		// code as a case to answer without tools, which is what the preset exists
-		// to overrule.
+	it("neither offers the plan tool nor injects a plan when tool calling is off", async () => {
 		scriptRounds([{ content: "the answer" }]);
-		await runFlow(inMlMode);
-
-		expect(systemPrompt()).toContain("USING TOOLS:");
-		expect(systemPrompt()).not.toContain("Do NOT call a tool unless");
+		const { result } = await runFlow({
+			forceTools: false,
+			conv: { _id: new ObjectId(), plan },
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+		expect(result).toBe("not_applicable");
+		expect(mocks.create).not.toHaveBeenCalled();
 	});
 
-	it("leaves a conversation outside the mode on the generic tool preprompt", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow();
-		expect(systemPrompt()).toContain("Do NOT call a tool unless");
-		expect(systemPrompt()).not.toContain("USING TOOLS:");
-	});
-
-	it("floors the completion budget so reasoning turns are not cut mid-think", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow(inMlMode);
-		expect(mocks.create.mock.calls[0][0].max_tokens).toBe(ML_ASSISTANT_MIN_COMPLETION_TOKENS);
-	});
-
-	it("clamps the completion floor to half a small model window", async () => {
-		scriptRounds([{ content: "the answer" }]);
-		await runFlow({
-			...inMlMode,
-			model: {
-				id: "small/model",
-				name: "small/model",
-				supportsTools: true,
-				parameters: {},
-				contextLength: 16_384,
-			},
-		} as unknown as Parameters<typeof runMcpFlow>[0]);
-		expect(mocks.create.mock.calls[0][0].max_tokens).toBe(8_192);
-	});
-
-	it("leaves the catalog completion budget alone outside the mode", async () => {
+	it("leaves the catalog completion budget alone", async () => {
 		scriptRounds([{ content: "the answer" }]);
 		await runFlow();
 		expect(mocks.create.mock.calls[0][0].max_tokens).toBeUndefined();
 	});
 
-	it("keeps working past the round budget an ordinary conversation stops at", async () => {
+	it("stops at the ordinary round budget", async () => {
 		const toolRound: Round = { toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }] };
-		scriptRounds([...Array.from({ length: 11 }, () => toolRound), { content: "done" }]);
-
-		const { result } = await runFlow(inMlMode);
-
-		// Grounding ids, auditing a dataset and submitting a job is more than ten
-		// rounds on its own; the generic budget ends the turn mid-task.
-		expect(result).toBe("completed");
-		expect(mocks.create).toHaveBeenCalledTimes(12);
-	});
-
-	it("still stops, at the preset's own budget", async () => {
-		const toolRound: Round = { toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }] };
-		scriptRounds(Array.from({ length: 100 }, () => toolRound));
-
-		const { result } = await runFlow(inMlMode);
-
+		scriptRounds(Array.from({ length: 11 }, () => toolRound));
+		const { result } = await runFlow();
 		expect(result).toBe("exhausted");
-		expect(mocks.create).toHaveBeenCalledTimes(100);
+		expect(mocks.create).toHaveBeenCalledTimes(10);
 	});
 });
 
@@ -1037,7 +967,7 @@ describe("leaked tool-call markup", () => {
 	it("retries once when the final answer writes a tool call as markup", async () => {
 		scriptRounds([
 			{
-				content: 'Let me ask: <do_thing>\n<option label="$5">setBudgetUsd=5</option>\n</do_thing>',
+				content: 'Let me ask: <do_thing>\n<option label="$5">five</option>\n</do_thing>',
 			},
 			{ content: "Here is a clean answer." },
 		]);
@@ -1322,5 +1252,270 @@ describe("leaked execute_code markup recovery", () => {
 		// carries the reasoning inline, as every think-bearing round here does.)
 		expect(mocks.create).toHaveBeenCalledTimes(1);
 		expect(finalAnswer(updates)).toContain("Let me compute that.");
+	});
+});
+
+describe("runMcpFlow and sub-agents", () => {
+	const offered = () =>
+		(
+			(mocks.create.mock.calls[0]?.[0] as { tools?: Array<{ function: { name: string } }> })
+				?.tools ?? []
+		).map((t) => t.function.name);
+	const definition = (name: string) =>
+		(
+			mocks.create.mock.calls[0]?.[0] as {
+				tools?: Array<{ function: { name: string; parameters: Record<string, unknown> } }>;
+			}
+		).tools?.find((t) => t.function.name === name)?.function;
+
+	it("offers delegate by default to a tool-capable model", async () => {
+		mocks.delegation = undefined;
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow();
+		expect(offered()).toContain("delegate");
+		expect(offered()).not.toContain("research");
+		expect(String(requestMessages(0)[0]?.content)).toContain("DELEGATION: use delegate");
+	});
+
+	it("drops delegate and research when the administrator turns sub-agents off", async () => {
+		mocks.delegation = "false";
+		mocks.searchGranted = ["exa"];
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow({ conv: { _id: new ObjectId(), webSearch: true } } as Partial<
+			Parameters<typeof runMcpFlow>[0]
+		>);
+		expect(offered()).toContain("web_search");
+		expect(offered()).not.toContain("delegate");
+		expect(offered()).not.toContain("research");
+	});
+
+	it("offers neither when the model has tool calling off", async () => {
+		mocks.delegation = undefined;
+		scriptRounds([{ content: "the answer" }]);
+		const { result } = await runFlow({ forceTools: false });
+		expect(result).toBe("not_applicable");
+	});
+
+	it("adds research wherever web search is available", async () => {
+		mocks.delegation = undefined;
+		mocks.searchGranted = ["exa"];
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow({ conv: { _id: new ObjectId(), webSearch: true } } as Partial<
+			Parameters<typeof runMcpFlow>[0]
+		>);
+		expect(offered()).toEqual(expect.arrayContaining(["web_search", "delegate", "research"]));
+	});
+
+	it("lets the model pick only models this person can use that can call tools, never custom or the router", async () => {
+		mocks.delegation = undefined;
+		mocks.visible = [
+			{ id: "a/tools", displayName: "A", supportsTools: true },
+			{ id: "b/notools", displayName: "B", supportsTools: false },
+			{ id: "custom:0123456789abcdef01234567", displayName: "Mine", supportsTools: true },
+			{ id: "omni", displayName: "Omni", supportsTools: true, isRouter: true },
+		];
+		scriptRounds([{ content: "the answer" }]);
+		await runFlow();
+		const hint = JSON.stringify(definition("delegate")?.parameters);
+		expect(hint).toContain("a/tools");
+		expect(hint).not.toContain("b/notools");
+		expect(hint).not.toContain("custom:");
+		expect(hint).not.toContain("omni");
+	});
+
+	/**
+	 * A completion script for a turn that delegates: the main model's rounds
+	 * stream, a sub-agent's (stream: false) answer in one piece. The tool
+	 * executor runs builtins for real; for the sub-agent's own calls it applies
+	 * the guard the loop would, and reports what it decided.
+	 */
+	function scriptDelegation(delegateArgs: object, nested: Array<Record<string, unknown>>) {
+		const main = [
+			{ toolCalls: [{ id: "call_d", name: "delegate", arguments: JSON.stringify(delegateArgs) }] },
+			{ content: "Synthesised answer." },
+		];
+		let mainIndex = 0;
+		let nestedIndex = 0;
+		mocks.create.mockImplementation(async (request: { stream?: boolean }) => {
+			if (request.stream === false) {
+				const reply = nested[Math.min(nestedIndex++, nested.length - 1)];
+				return { choices: [{ finish_reason: "stop", message: reply }], usage: { total_tokens: 5 } };
+			}
+			return streamFor(main[mainIndex++]);
+		});
+		mocks.executeToolCalls.mockImplementation(async function* (params: {
+			calls: Array<{ id: string; name: string; arguments: string }>;
+			builtinTools?: Array<{
+				name: string;
+				execute: (args: object, ctx: object) => Promise<{ resultText?: string; error?: string }>;
+			}>;
+			guard?: { before: (call: object) => Promise<{ allow: boolean; message?: string }> };
+			elicitation?: object;
+			abortSignal?: AbortSignal;
+		}) {
+			const toolMessages = [];
+			for (const call of params.calls) {
+				const args = JSON.parse(call.arguments || "{}");
+				const found = params.builtinTools?.find((t) => t.name === call.name);
+				let content: string;
+				if (found) {
+					const out = await found.execute(args, {
+						uuid: call.id,
+						toolCallId: call.id,
+						abortSignal: params.abortSignal,
+					});
+					content = out.error ? `Error: ${out.error}` : (out.resultText ?? "");
+				} else {
+					const verdict = await params.guard?.before({
+						serverUrl: "https://example.test/mcp",
+						tool: call.name,
+						fnName: call.name,
+						args,
+						callUuid: call.id,
+					});
+					content = verdict && !verdict.allow ? `Error: ${verdict.message}` : "mcp ran";
+				}
+				toolMessages.push({ role: "tool" as const, tool_call_id: call.id, content });
+			}
+			yield { type: "complete", summary: { toolMessages, toolRuns: [] } };
+		});
+	}
+
+	const nestedCalls = () =>
+		mocks.create.mock.calls.filter(
+			([request]) => (request as { stream?: boolean }).stream === false
+		);
+
+	it("bills the sub-agent's requests to the person: their token, on their conversation, on the conversation's model", async () => {
+		mocks.delegation = undefined;
+		mocks.useUserToken = "true";
+		scriptDelegation({ task: "Compare the licences of A and B and report back." }, [
+			{ content: "A is MIT." },
+		]);
+		const conv = { _id: new ObjectId() };
+		const { result } = await runFlow({
+			conv,
+			locals: { token: "person-token" },
+		} as unknown as Partial<Parameters<typeof runMcpFlow>[0]>);
+
+		expect(result).toBe("completed");
+		expect(nestedCalls()).toHaveLength(1);
+		const [request, options] = nestedCalls()[0] as [
+			{ model: string },
+			{ headers: Record<string, string> },
+		];
+		expect(request.model).toBe("test/model");
+		expect(options.headers).toMatchObject({
+			Authorization: "Bearer person-token",
+			"ChatUI-Conversation-ID": conv._id.toString(),
+		});
+		// The main model gets the sub-agent's answer back as the tool result.
+		const mainRequests = mocks.create.mock.calls
+			.map(([request]) => request as { stream?: boolean; messages: ChatCompletionMessageParam[] })
+			.filter((request) => request.stream !== false);
+		const toolMessage = mainRequests[1].messages.findLast((m) => m.role === "tool");
+		expect(toolMessage?.content).toBe("A is MIT.");
+	});
+
+	it("keeps a sub-agent from running an MCP tool the person has not approved", async () => {
+		mocks.delegation = undefined;
+		scriptDelegation({ task: "Use do_thing and report what happened." }, [
+			{
+				content: null,
+				tool_calls: [
+					{ id: "n1", type: "function", function: { name: "do_thing", arguments: "{}" } },
+				],
+			},
+		]);
+		await runFlow();
+		const refusal = nestedCalls()
+			.map(([request]) => request as { messages: Array<{ role: string; content?: string }> })
+			.flatMap((request) => request.messages)
+			.find((m) => m.role === "tool");
+		// the first nested reply was the call; the loop ran it through the guard
+		expect(nestedCalls().length).toBeGreaterThan(1);
+		expect(refusal?.content).toContain("needs the person's approval");
+	});
+
+	it("lets a sub-agent use an MCP tool this conversation already approved", async () => {
+		mocks.delegation = undefined;
+		scriptDelegation({ task: "Use do_thing and report what happened." }, [
+			{
+				content: null,
+				tool_calls: [
+					{ id: "n1", type: "function", function: { name: "do_thing", arguments: "{}" } },
+				],
+			},
+			{ content: "It worked." },
+		]);
+		await runFlow({
+			conv: { _id: new ObjectId(), approvedTools: ["hf:do_thing"] },
+		} as unknown as Partial<Parameters<typeof runMcpFlow>[0]>);
+		const toolMessages = nestedCalls()
+			.map(([request]) => request as { messages: Array<{ role: string; content?: string }> })
+			.flatMap((request) => request.messages)
+			.filter((m) => m.role === "tool");
+		expect(toolMessages.some((m) => m.content === "mcp ran")).toBe(true);
+	});
+
+	it("Stop reaches a sub-agent that is mid-request: the turn's abort record cancels it within a poll", async () => {
+		mocks.delegation = undefined;
+		let nestedSignal: AbortSignal | undefined;
+		mocks.create.mockImplementation(
+			async (request: { stream?: boolean }, options: { signal?: AbortSignal }) => {
+				if (request.stream === false) {
+					nestedSignal = options.signal;
+					// Stop is pressed while the sub-agent waits on the model.
+					mocks.getAbortTime.mockReturnValue((Date.now() + 60_000) as unknown as number);
+					return new Promise((_resolve, reject) =>
+						options.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+							once: true,
+						})
+					);
+				}
+				return streamFor({
+					toolCalls: [
+						{
+							id: "call_d",
+							name: "delegate",
+							arguments: JSON.stringify({ task: "Compare A and B and report back." }),
+						},
+					],
+				});
+			}
+		);
+		mocks.executeToolCalls.mockImplementation(async function* (params: {
+			calls: Array<{ id: string; name: string; arguments: string }>;
+			builtinTools?: Array<{
+				name: string;
+				execute: (args: object, ctx: object) => Promise<{ resultText?: string; error?: string }>;
+			}>;
+			abortSignal?: AbortSignal;
+		}) {
+			const call = params.calls[0];
+			const found = params.builtinTools?.find((t) => t.name === call.name);
+			const out = await found?.execute(JSON.parse(call.arguments), {
+				uuid: call.id,
+				toolCallId: call.id,
+				abortSignal: params.abortSignal,
+			});
+			yield {
+				type: "complete",
+				summary: {
+					toolMessages: [
+						{ role: "tool" as const, tool_call_id: call.id, content: out?.error ?? "x" },
+					],
+					toolRuns: [],
+				},
+			};
+		});
+		const controller = new AbortController();
+		const { result } = await runFlow({
+			abortController: controller,
+			abortSignal: controller.signal,
+			promptedAt: new Date(),
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+		expect(result).toBe("aborted");
+		expect(nestedSignal?.aborted).toBe(true);
 	});
 });

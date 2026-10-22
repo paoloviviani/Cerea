@@ -1,6 +1,6 @@
 import { browser } from "$app/environment";
 import type { Message } from "$lib/types/Message";
-import type { DeployedSpace, MlBudget } from "$lib/types/Conversation";
+import type { DeployedSpace } from "$lib/types/Conversation";
 import type { PlanState } from "$lib/types/Plan";
 import type { TurnStateSnapshot } from "$lib/types/TurnState";
 
@@ -26,8 +26,6 @@ export interface ConversationData {
 	projectId?: string;
 	/** Project defaults for seeding per-chat state on first open. */
 	projectDefaults?: { defaultWebSearch?: boolean; defaultMcpConnectorIds?: string[] };
-	mlAssistant?: boolean;
-	mlBudget?: MlBudget;
 	plan?: PlanState;
 	/** Bases attached to this conversation, resolved to names for the composer. */
 	knowledgeBases?: { id: string; name: string }[];

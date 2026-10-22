@@ -55,10 +55,6 @@ const PROPERTY_DESCRIPTIONS: Record<string, Record<string, string>> = {
  * The advertised tools with those descriptions applied. Returns fresh objects —
  * the originals come from a shared cache and must not be mutated — and leaves
  * any tool without a repair untouched, identity included.
- *
- * Companion to `withRequiredDiscriminators` in `mlBudget/guard.ts`, which
- * repairs the same schemas for a different reason: the budget gate cannot price
- * a call whose discriminator is missing.
  */
 export function withRepairedToolSchemas(
 	tools: OpenAiTool[],

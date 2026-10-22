@@ -5,7 +5,6 @@ import { z } from "zod";
 import endpoints, { endpointSchema, type Endpoint } from "./endpoints/endpoints";
 
 import JSON5 from "json5";
-import { setMlAssistantCatalog } from "./mlAssistantModels";
 import { logger } from "$lib/server/logger";
 import { preservesReasoningByDefault } from "$lib/server/reasoningPolicy";
 import { makeRouterEndpoint } from "$lib/server/router/endpoint";
@@ -537,7 +536,6 @@ const publishModels = async (): Promise<void> => {
 	// *fetch failure* still throws, here and at startup — an unreachable
 	// gateway is a real outage, and this state must not swallow it.
 	models = newModels;
-	setMlAssistantCatalog(() => models.map((model) => ({ id: model.id, isRouter: model.isRouter })));
 	defaultModel = models[0];
 	taskModel = resolveTaskModel(models);
 	validModelIdSchema = createValidModelIdSchema(models);

@@ -1,5 +1,5 @@
 /**
- * `ask_user_question` in an ordinary conversation, not only the ML Assistant preset: the
+ * `ask_user_question` in a conversation: the
  * model's call pauses the turn on the question card, the card survives a reload, and the
  * answer resumes the turn with the choice in the tool result the model sees.
  */

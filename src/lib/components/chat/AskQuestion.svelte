@@ -9,9 +9,6 @@
 	} from "$lib/types/McpElicitation";
 	import { sendElicitationAnswer } from "$lib/utils/sendElicitationAnswer";
 	import { unregisterQuestion } from "$lib/stores/pendingQuestion";
-	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
-	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
-	import { usdToMicroUsd } from "$lib/utils/mlBudget";
 
 	interface Props {
 		conversationId: string;
@@ -20,9 +17,7 @@
 		 * Pluggable answer path (the user-question tool design): when set, a
 		 * machine-originated question answers through it — the `/code`
 		 * forwarder's own `question.reply` route — instead of chat's
-		 * elicitation endpoint. The ML Assistant budget mirroring below stays
-		 * chat-only regardless, since `mlAssistant.budget` is never set
-		 * outside a chat conversation.
+		 * elicitation endpoint.
 		 */
 		onanswer?: (
 			action: ElicitationAction,
@@ -122,28 +117,6 @@
 			error = result.error ?? null;
 			return;
 		}
-		// Mirror a budget grant into the strip right away — the server applied it
-		// as part of accepting this answer, and the next stream update is a whole
-		// tool round away. Same rule as the server: chosen options only.
-		if (action === "accept" && ML_ASSISTANT_MODE && mlAssistant.budget) {
-			let grantedUsd: number | undefined;
-			for (const f of fields) {
-				if (f.kind !== "select") continue;
-				const value = content[f.name];
-				const values = Array.isArray(value) ? value : [value];
-				for (const option of f.options) {
-					if (option.setBudgetUsd !== undefined && values.includes(option.value)) {
-						grantedUsd = Math.max(grantedUsd ?? 0, option.setBudgetUsd);
-					}
-				}
-			}
-			if (grantedUsd !== undefined) {
-				mlAssistant.setBudget({
-					...mlAssistant.budget,
-					totalMicroUsd: usdToMicroUsd(grantedUsd),
-				});
-			}
-		}
 		// Only this question: another may still be open behind it.
 		unregisterQuestion(request.elicitationId);
 	}
@@ -202,13 +175,6 @@
 							<span class="block text-xs text-gray-500 dark:text-gray-400"
 								>{option.description}</span
 							>
-						{/if}
-						{#if option.setBudgetUsd !== undefined}
-							<!-- From the option's own metadata, never its label: what this
-							     shows is exactly what the server applies if it is picked. -->
-							<span class="block text-xs font-medium text-amber-700 dark:text-amber-400">
-								Sets session budget to ${option.setBudgetUsd.toFixed(2)}
-							</span>
 						{/if}
 					</span>
 				</button>

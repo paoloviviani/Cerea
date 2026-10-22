@@ -22,7 +22,6 @@
 	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import HfHubMentionAutocomplete from "./HfHubMentionAutocomplete.svelte";
-	import MlInternPill from "./MlInternPill.svelte";
 
 	import {
 		composeDictation,
@@ -90,8 +89,6 @@
 		modelIsMultimodal?: boolean;
 		// Whether the currently selected model supports tool calling (incl. overrides)
 		modelSupportsTools?: boolean;
-		// Offers the ML Intern mode switch beside the MCP pill (empty conversations only)
-		showMlPill?: boolean;
 		// Knowledge bases attached to THIS conversation, as {id, name} pairs.
 		// Bindable: the toggle updates it optimistically, and on the home page —
 		// where no conversation exists to PATCH — the list rides into the
@@ -152,7 +149,6 @@
 
 		modelIsMultimodal = false,
 		modelSupportsTools = true,
-		showMlPill = false,
 		knowledgeBases = $bindable([]),
 		webSearch = $bindable(false),
 		chatTools = true,
@@ -1110,7 +1106,7 @@
 		{/if}
 	</div>
 
-	{#if !showNoTools || showMlPill || children || trailingActions}
+	{#if !showNoTools || children || trailingActions}
 		<!-- relative, w-full + min-w-0: the trailing actions (below) anchor
 		     to this, not the inner row's own (intentionally narrower) box,
 		     and not the composer form either — see that block's own
@@ -1638,10 +1634,6 @@
 								<LucideShieldCheck class="size-3.5" />
 							{/snippet}
 						</TogglePill>
-					{/if}
-
-					{#if showMlPill}
-						<MlInternPill />
 					{/if}
 				</div>
 

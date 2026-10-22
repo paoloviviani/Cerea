@@ -138,11 +138,7 @@
 	<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto">
 		{#key `${tab}:${initialItemId ?? ""}`}
 			{#if tab === "models"}
-				<ModelsManager
-					models={data.models}
-					mlAssistantModels={data.mlAssistantModels ?? []}
-					initialId={initialItemId}
-				/>
+				<ModelsManager models={data.models} initialId={initialItemId} />
 			{:else if tab === "custom"}
 				<CustomModelsManager
 					models={data.models}

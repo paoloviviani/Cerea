@@ -50,9 +50,6 @@
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import SharePreviewTags from "$lib/components/SharePreviewTags.svelte";
 	import { setAttachmentSource } from "$lib/utils/execution/attachmentMounts.svelte";
-	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
-	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
-	import { planStepsToMlSteps } from "$lib/utils/planProgress";
 
 	let { data } = $props();
 
@@ -421,18 +418,6 @@
 					resuming = false;
 				},
 				onTitle: (title) => convsStore.update(convId, { title }),
-				onPlan: (update) => {
-					if (ML_ASSISTANT_MODE) mlAssistant.setPlan(planStepsToMlSteps(update.steps));
-				},
-				onBudget: (update) => {
-					if (ML_ASSISTANT_MODE) {
-						mlAssistant.setBudget({
-							totalMicroUsd: update.totalMicroUsd,
-							spentMicroUsd: update.spentMicroUsd,
-							reservedMicroUsd: update.reservedMicroUsd,
-						});
-					}
-				},
 				onTurnState: (update) => {
 					noteServerNow(update.serverNow);
 				},
@@ -545,18 +530,6 @@
 					onAbort: () => controller.abort(),
 					onStreamStart: () => {},
 					onTitle: (title) => convsStore.update(runConvId, { title }),
-					onPlan: (update) => {
-						if (ML_ASSISTANT_MODE) mlAssistant.setPlan(planStepsToMlSteps(update.steps));
-					},
-					onBudget: (update) => {
-						if (ML_ASSISTANT_MODE) {
-							mlAssistant.setBudget({
-								totalMicroUsd: update.totalMicroUsd,
-								spentMicroUsd: update.spentMicroUsd,
-								reservedMicroUsd: update.reservedMicroUsd,
-							});
-						}
-					},
 					onTurnState: (update) => {
 						noteServerNow(update.serverNow);
 					},

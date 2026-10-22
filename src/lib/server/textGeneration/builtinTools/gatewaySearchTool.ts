@@ -13,9 +13,8 @@ import type { BuiltinTool } from "./types";
  * caller that speaks the dialect chooses the backend, and choosing backends
  * is exactly what the group policy takes away from it.
  *
- * **Gated on a search grant** (`/v1/models ?include=search`), the same rule
- * the GitHub tools apply to `GITHUB_TOKEN`: a tool that is offered and always
- * fails costs the model a turn to discover that. The grant is the feature
+ * **Gated on a search grant** (`/v1/models ?include=search`): a tool that is
+ * offered and always fails costs the model a turn to discover that. The grant is the feature
  * switch and the permission in one. A group with no search policy answers
  * the unified route with a 404 naming the missing configuration, which
  * arrives here as a model-readable error, not an exception.

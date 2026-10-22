@@ -25,8 +25,6 @@
 <script lang="ts">
 	import { untrack } from "svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
-	import { mlAssistant } from "$lib/stores/mlAssistant.svelte";
-	import { ML_ASSISTANT_MODE } from "$lib/utils/mlAssistantFlag";
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
 	import { modelLabel, settingsModelId } from "$lib/utils/customModelEntries";
@@ -71,12 +69,11 @@
 
 	interface Props {
 		models: ModelCard[];
-		mlAssistantModels?: string[];
 		/** Open straight onto one model's settings, from anywhere in the app. */
 		initialId?: string;
 	}
 
-	let { models, mlAssistantModels = [], initialId }: Props = $props();
+	let { models, initialId }: Props = $props();
 
 	const settings = useSettingsStore();
 
@@ -92,16 +89,7 @@
 	const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ");
 	const tokens = $derived(normalise(filter).trim().split(/\s+/).filter(Boolean));
 
-	// With the ML Intern switch on, only the mode's fixed set is offered, in its
-	// configured order — anything else would be swapped for the default on send.
-	const mlOnly = $derived(ML_ASSISTANT_MODE && mlAssistant.enabled);
-	const browsable = $derived(
-		mlOnly
-			? mlAssistantModels
-					.map((id) => models.find((model) => model.id === id))
-					.filter((model): model is ModelCard => model !== undefined)
-			: models.filter((model) => !model.unlisted)
-	);
+	const browsable = $derived(models.filter((model) => !model.unlisted));
 
 	const shown = $derived(
 		browsable.filter((model) => {
@@ -281,7 +269,7 @@
 				{:else}
 					<div>
 						<h3 class={s.SECTION_TITLE}>
-							{mlOnly ? "ML Intern models" : "Available"} ({shown.length})
+							Available ({shown.length})
 						</h3>
 						<div class={s.GRID}>
 							{#each shown as model (model.id)}

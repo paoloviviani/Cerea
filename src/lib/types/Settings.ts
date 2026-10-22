@@ -12,8 +12,6 @@ export interface Settings extends Timestamps {
 	sessionId?: string;
 
 	shareConversationsWithModelAuthors: boolean;
-	/** One-time ML Intern onboarding modal acknowledgement */
-	mlInternOnboardingSeenAt?: Date | null;
 	activeModel: string;
 
 	/**
@@ -182,10 +180,7 @@ export interface Settings extends Timestamps {
 	pushEvents?: PushEventPrefs;
 }
 
-export type SettingsEditable = Omit<
-	Settings,
-	"mlInternOnboardingSeenAt" | "createdAt" | "updatedAt"
->;
+export type SettingsEditable = Omit<Settings, "createdAt" | "updatedAt">;
 // TODO: move this to a constant file along with other constants
 export const DEFAULT_SETTINGS = {
 	shareConversationsWithModelAuthors: true,

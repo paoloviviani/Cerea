@@ -51,8 +51,6 @@ export interface FeatureFlags {
 	dictationMode: "yes" | "no" | "fallback";
 	/** Fixed model used for background tasks (e.g. conversation titles); null when tasks follow the conversation's model */
 	taskModelId: string | null;
-	/** Models ML Intern conversations may use, in order; the first is the default. Empty when the mode is off. */
-	mlAssistantModels: string[];
 	/**
 	 * Whether the deployment allows the "install packages from PyPI" code
 	 * sandbox setting at all — false when the admin kill-switch
@@ -89,6 +87,8 @@ export interface FeatureFlags {
 	 * anything is stored or injected.
 	 */
 	memoryEnabled: boolean;
+	/** Whether the assistant may hand work to sub-agents (`delegate`, `research`). Administration -> Sub-agents. */
+	delegationEnabled: boolean;
 	/**
 	 * Whether this origin serves the Pystino console at /console
 	 * (`CHAT_CONSOLE_ENABLED`). On means the gateway profiles (homelab, team,
