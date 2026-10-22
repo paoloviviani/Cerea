@@ -14,7 +14,9 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { RequestHandler } from "@sveltejs/kit";
+import type { RequestEvent, RequestHandler } from "@sveltejs/kit";
+
+type RouteId = RequestEvent["route"]["id"];
 
 vi.mock("$lib/server/auth", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/server/auth")>()),
@@ -122,7 +124,7 @@ describe("login wall: route tree", () => {
 			const calls: string[] = [];
 			const res = await testRequest(stub(calls), {
 				path: route.path,
-				routeId: route.id,
+				routeId: route.id as RouteId,
 				headers: { accept: route.id.startsWith("/api/") ? "*/*" : "text/html" },
 			});
 
@@ -172,7 +174,7 @@ describe("login wall: other methods and signed-in use", () => {
 			const calls: string[] = [];
 			const res = await testRequest(stub(calls), {
 				path: route.path,
-				routeId: route.id,
+				routeId: route.id as RouteId,
 				headers: { cookie },
 			});
 			expect(res.status, route.id).toBe(200);
