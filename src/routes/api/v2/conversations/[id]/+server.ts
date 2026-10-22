@@ -28,12 +28,14 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	const lastAssistant = [...conversation.messages]
 		.reverse()
 		.find((message) => message.from === "assistant");
-	// Share views resolve with a string id; ObjectId accepts both forms.
-	const turnStateDoc = lastAssistant
-		? await collections.turnStates
-				.findOne({ conversationId: new ObjectId(conversation._id), messageId: lastAssistant.id })
-				.catch(() => null)
-		: null;
+	// A share view's id is the share's 7-character nanoid, not a conversation
+	// ObjectId (`new ObjectId` throws on it), and a share carries no live turn.
+	const turnStateDoc =
+		lastAssistant && !conversation.shared
+			? await collections.turnStates
+					.findOne({ conversationId: new ObjectId(conversation._id), messageId: lastAssistant.id })
+					.catch(() => null)
+			: null;
 	const turnState: TurnStateSnapshot | undefined = turnStateDoc
 		? {
 				messageId: turnStateDoc.messageId,
