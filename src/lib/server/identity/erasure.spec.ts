@@ -7,7 +7,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ObjectId } from "mongodb";
 
-import { collections, ready } from "$lib/server/database";
+import { collections, Database, ready } from "$lib/server/database";
 
 const dropMachineConnection = vi.fn();
 vi.mock("$lib/server/code/machines", () => ({
@@ -363,5 +363,75 @@ describe("runErasure", () => {
 		expect(result.counts.conversations).toBe(1);
 		expect(await collections.conversations.findOne({ _id: conversationId })).toBeNull();
 		expect(await collections.users.findOne({ _id: user._id })).toBeNull();
+	});
+});
+
+describe("retired collections (assistants, reports)", () => {
+	// No typed handle exists for these any more; the rows are seeded by raw name.
+	const raw = async (name: string) => (await Database.getInstance()).rawCollection(name);
+
+	async function seed(ownerA: ObjectId, ownerB: ObjectId) {
+		const assistants = await raw("assistants");
+		const reports = await raw("reports");
+		const rows = {
+			assistantA: new ObjectId(),
+			assistantB: new ObjectId(),
+			reportA: new ObjectId(),
+			reportB: new ObjectId(),
+		};
+		await assistants.insertMany([
+			{ _id: rows.assistantA, createdById: ownerA, name: "mine" },
+			{ _id: rows.assistantB, createdById: ownerB, name: "theirs" },
+		]);
+		await reports.insertMany([
+			{ _id: rows.reportA, createdBy: ownerA, reason: "r" },
+			{ _id: rows.reportB, createdBy: ownerB, reason: "r" },
+		]);
+		return { assistants, reports, rows };
+	}
+
+	it("erasure deletes the person's rows and leaves everyone else's", async () => {
+		const gatewayUserId = `gw-${new ObjectId()}`;
+		const user = await makeUser({ gatewayUserId });
+		const other = new ObjectId();
+		const { assistants, reports, rows } = await seed(user._id, other);
+		try {
+			const preview = await previewErasure(gatewayUserId, []);
+			expect(preview.counts.assistants).toBe(1);
+			expect(preview.counts.reports).toBe(1);
+			expect(await assistants.countDocuments({ _id: rows.assistantA })).toBe(1);
+
+			const erasureId = `er-${new ObjectId()}`;
+			insertedErasureIds.push(erasureId);
+			const result = await runErasure(erasureId, gatewayUserId, []);
+			expect(result.counts.assistants).toBe(1);
+			expect(result.counts.reports).toBe(1);
+			expect(await assistants.countDocuments({ _id: rows.assistantA })).toBe(0);
+			expect(await reports.countDocuments({ _id: rows.reportA })).toBe(0);
+			expect(await assistants.countDocuments({ _id: rows.assistantB })).toBe(1);
+			expect(await reports.countDocuments({ _id: rows.reportB })).toBe(1);
+		} finally {
+			await assistants.deleteMany({ _id: { $in: [rows.assistantA, rows.assistantB] } });
+			await reports.deleteMany({ _id: { $in: [rows.reportA, rows.reportB] } });
+		}
+	});
+
+	it("a merge moves the stray's rows onto the target", async () => {
+		const stray = new ObjectId();
+		const target = new ObjectId();
+		const { assistants, reports, rows } = await seed(stray, target);
+		try {
+			const { mergeChatUsers } = await import("./mergeChatUsers");
+			const result = await mergeChatUsers(stray, target);
+			expect(result.counts.assistants).toBe(1);
+			expect(result.counts.reports).toBe(1);
+			expect((await assistants.findOne({ _id: rows.assistantA }))?.createdById.equals(target)).toBe(
+				true
+			);
+			expect((await reports.findOne({ _id: rows.reportA }))?.createdBy.equals(target)).toBe(true);
+		} finally {
+			await assistants.deleteMany({ _id: { $in: [rows.assistantA, rows.assistantB] } });
+			await reports.deleteMany({ _id: { $in: [rows.reportA, rows.reportB] } });
+		}
 	});
 });

@@ -261,6 +261,16 @@ export class Database {
 	}
 
 	/**
+	 * A collection by name, untyped: for data this code no longer models
+	 * (see `RETIRED_COLLECTIONS` in identity/userKeyedCollections.ts).
+	 */
+	public rawCollection(name: string): Collection<Document> {
+		return this.getClient()
+			.db(config.MONGODB_DB_NAME + (import.meta.env.MODE === "test" ? "-test" : ""))
+			.collection(name);
+	}
+
+	/**
 	 * Return mongoClient
 	 */
 	public getClient(): MongoClient {
