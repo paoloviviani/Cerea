@@ -25,6 +25,8 @@ export const RESEARCH_TOOL_NAME = "research";
 
 /** Sub-agents running at once in one turn; a further call is refused. */
 export const MAX_PARALLEL_SUBAGENTS = 3;
+/** Sub-agents one turn may start in all; a further call is refused. */
+export const MAX_SUBAGENTS_PER_TURN = 10;
 /** Rounds of tool calls one sub-agent may make. */
 export const SUBAGENT_MAX_STEPS = 25;
 /** Cumulative tokens (every request's usage, summed) one sub-agent may spend. */
@@ -239,6 +241,8 @@ function createCardState(
 interface SharedState {
 	deps?: NestedAgentDeps;
 	active: number;
+	/** Started this turn, finished or not: the per-turn cap counts these. */
+	started: number;
 }
 
 interface RunParams {
@@ -271,6 +275,13 @@ async function runSubAgent(
 	const deps = state.deps;
 	if (!deps) return { error: "Sub-agents are not available in this turn." };
 	if (ctx.abortSignal?.aborted) return { error: "Aborted by user" };
+	if (state.started >= MAX_SUBAGENTS_PER_TURN) {
+		return {
+			error:
+				`This turn has already started ${MAX_SUBAGENTS_PER_TURN} sub-agents, the most one turn may. ` +
+				"Finish the rest yourself, or tell the person what is left.",
+		};
+	}
 	if (state.active >= MAX_PARALLEL_SUBAGENTS) {
 		return {
 			error:
@@ -311,6 +322,7 @@ async function runSubAgent(
 	};
 
 	state.active += 1;
+	state.started += 1;
 	card.emit();
 	let outcome: BuiltinToolResult;
 	try {
@@ -373,7 +385,7 @@ export interface DelegateToolsParams {
  * spans them, so three sub-agents run at once however they were started.
  */
 export function createDelegateTools(params: DelegateToolsParams): NestedAgentBuiltinTool[] {
-	const state: SharedState = { active: 0 };
+	const state: SharedState = { active: 0, started: 0 };
 	const bind = (deps: NestedAgentDeps) => {
 		state.deps = deps;
 	};
@@ -395,7 +407,7 @@ export function createDelegateTools(params: DelegateToolsParams): NestedAgentBui
 				description:
 					"Hand a self-contained sub-task to a sub-agent that works on its own, in a fresh context, and " +
 					"returns only its final answer. It cannot see this conversation: put everything it needs in `task`. " +
-					`Several delegate calls in one step run in parallel (at most ${MAX_PARALLEL_SUBAGENTS}).`,
+					`Several delegate calls in one step run in parallel (at most ${MAX_PARALLEL_SUBAGENTS}), and a turn may start at most ${MAX_SUBAGENTS_PER_TURN} in all.`,
 				parameters: {
 					type: "object",
 					properties: {

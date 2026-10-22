@@ -20,6 +20,7 @@ const {
 	describeCall,
 	deriveTitle,
 	MAX_PARALLEL_SUBAGENTS,
+	MAX_SUBAGENTS_PER_TURN,
 	RESEARCH_SYSTEM_PROMPT,
 	SUBAGENT_MAX_STEPS,
 	SUBAGENT_TIMEOUT_MS,
@@ -349,6 +350,24 @@ describe("delegate: running several at once", () => {
 			const result = await delegate.execute({ task: `${BRIEF} ${i}` }, context().ctx);
 			expect(result).toMatchObject({ resultText: "ok" });
 		}
+	});
+
+	it("refuses an eleventh sub-agent in one turn, however they were spaced", async () => {
+		const { openai, create } = upstream([{ content: "ok" }]);
+		const { delegate, research } = make(openai, { research: true });
+		for (let i = 0; i < MAX_SUBAGENTS_PER_TURN; i += 1) {
+			const run =
+				i % 2 === 0
+					? delegate.execute({ task: `${BRIEF} ${i}` }, context().ctx)
+					: research?.execute({ question: `Question number ${i}?` }, context().ctx);
+			expect(await run).toMatchObject({ resultText: "ok" });
+		}
+		const calls = create.mock.calls.length;
+		const eleventh = await delegate.execute({ task: `${BRIEF} last` }, context().ctx);
+		expect(eleventh).toMatchObject({
+			error: expect.stringContaining(`${MAX_SUBAGENTS_PER_TURN} sub-agents`),
+		});
+		expect(create.mock.calls.length).toBe(calls);
 	});
 
 	it("counts research agents against the same three", async () => {
