@@ -18,6 +18,7 @@
 	import CarbonEarth from "~icons/carbon/earth";
 	import LucideShieldCheck from "~icons/lucide/shield-check";
 	import LucideMic from "~icons/lucide/mic";
+	import LucideLaptop from "~icons/lucide/laptop";
 	import TogglePill from "$lib/components/TogglePill.svelte";
 	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
 	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
@@ -1267,11 +1268,16 @@
 																	class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
 																>
 																	{#snippet children({ checked })}
-																		<img
-																			src={getMcpServerFaviconUrl(connector.url)}
-																			alt=""
-																			class="size-4 flex-shrink-0 rounded-sm"
-																		/>
+																		{#if connector.local}
+																			<!-- A server on one of the person's own machines has no web address to take an icon from. -->
+																			<LucideLaptop class="size-4 flex-shrink-0 text-gray-500" />
+																		{:else}
+																			<img
+																				src={getMcpServerFaviconUrl(connector.url)}
+																				alt=""
+																				class="size-4 flex-shrink-0 rounded-sm"
+																			/>
+																		{/if}
 																		<span
 																			class={[
 																				"truncate py-1",

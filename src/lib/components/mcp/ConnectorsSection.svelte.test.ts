@@ -230,3 +230,146 @@ describe("ConnectorsSection: adding a token to a connector the probe could not w
 		expect(updates[0]).toMatchObject({ action: "update", token: "secret-token" });
 	});
 });
+
+describe("ConnectorsSection: servers on the person's own machines (ADR 0102)", () => {
+	beforeEach(() => {
+		vi.unstubAllGlobals();
+		connectors.set([]);
+	});
+
+	function local(
+		server: string,
+		state: NonNullable<McpConnectorView["local"]>["state"],
+		extra: Partial<NonNullable<McpConnectorView["local"]>> = {}
+	): McpConnectorView {
+		return connector({
+			id: `local:dev1:${server}`,
+			name: `${server} · on laptop`,
+			url: "",
+			connected: state === "ready",
+			canAuthorize: state === "needs-login" && (extra.transport ?? "stdio") === "http",
+			auth: state === "needs-login" ? "oauth" : "none",
+			manageable: false,
+			local: {
+				deviceId: "dev1",
+				machineName: "laptop",
+				server,
+				transport: "stdio",
+				state,
+				...extra,
+			},
+		});
+	}
+
+	const pills = (screen: ReturnType<typeof mount>) =>
+		[...screen.baseElement.querySelectorAll('[data-testid="local-pill"]')].map((el) =>
+			el.textContent?.trim()
+		);
+
+	it("lists them in their own section, labelled '<server> · on <machine>', with a green 'on' pill while ready", async () => {
+		stubApi([MINE(), local("notes", "ready", { description: "My notes folder" })]);
+		const screen = mount();
+
+		await expect
+			.element(screen.getByText("On your machines (1)", { exact: false }))
+			.toBeInTheDocument();
+		// Not among the person's own, which still counts one.
+		await expect
+			.element(screen.getByText("Your connectors (1)", { exact: true }))
+			.toBeInTheDocument();
+		await expect.element(screen.getByText("notes · on laptop")).toBeInTheDocument();
+		await expect.element(screen.getByText("My notes folder")).toBeInTheDocument();
+		expect(pills(screen)).toEqual(["on"]);
+		const pill = screen.baseElement.querySelector('[data-testid="local-pill"]') as HTMLElement;
+		expect(pill.className).toContain("bg-green-100");
+	});
+
+	it("says why a server is not on: offline, needs login (with the command), disabled, invalid (with the detail)", async () => {
+		stubApi([
+			local("a", "offline", { detail: "laptop is not connected. Start galopin there to use it." }),
+			local("b", "needs-login", {
+				transport: "sse",
+				detail: "Run `galopin connectors login b` on this machine.",
+			}),
+			local("c", "disabled"),
+			local("d", "invalid", { detail: "${API_KEY} is not set" }),
+		]);
+		const screen = mount();
+		await expect
+			.element(screen.getByText("On your machines (4)", { exact: false }))
+			.toBeInTheDocument();
+		expect(pills(screen)).toEqual(["Offline", "Needs sign-in", "Disabled", "Invalid"]);
+		const body = screen.baseElement.textContent ?? "";
+		expect(body).toContain("Start galopin there to use it.");
+		expect(body).toContain("galopin connectors login b");
+		expect(body).toContain("${API_KEY} is not set");
+		// Nothing to switch on while it is unavailable, and nothing a machine's file defines is editable here.
+		const buttons = [...screen.baseElement.querySelectorAll("button")].map((b) =>
+			b.textContent?.trim()
+		);
+		for (const forbidden of ["Edit", "Re-check", "Remove", "Sign in"]) {
+			expect(
+				buttons.some((b) => b === forbidden || b?.includes(forbidden)),
+				forbidden
+			).toBe(false);
+		}
+	});
+
+	it("shows nothing for a person with no local connectors", async () => {
+		stubApi([MINE()]);
+		const screen = mount();
+		await expect
+			.element(screen.getByText("Your connectors (1)", { exact: true }))
+			.toBeInTheDocument();
+		expect(screen.baseElement.querySelector('[data-testid="local-section"]')).toBeNull();
+	});
+
+	it("starts a chat-side sign-in for a local http server that needs one, and returns to this page", async () => {
+		const seen: { url: string; body: Record<string, unknown> }[] = [];
+		const landing = `${window.location.href.split("#")[0]}#local-signin`;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.includes("/api/v2/mcp/connectors") && (init?.method ?? "GET") === "GET") {
+					return Response.json({ data: [local("crm", "needs-login", { transport: "http" })] });
+				}
+				seen.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
+				// A same-page address, so following it does not leave the test.
+				return Response.json({ authorizeUrl: landing });
+			})
+		);
+		const screen = mount();
+		await expect.element(screen.getByText("crm · on laptop")).toBeInTheDocument();
+		await screen.getByRole("button", { name: "Sign in" }).click();
+
+		await vi.waitFor(() => expect(seen).toHaveLength(1));
+		expect(seen[0].url).toContain("/api/v2/local-connectors/oauth/start");
+		expect(seen[0].body.connectorId).toBe("local:dev1:crm");
+		expect(typeof seen[0].body.next).toBe("string");
+		expect(window.location.hash).toBe("#local-signin");
+		window.location.hash = "";
+	});
+
+	it("shows a clear error when the machine cannot be signed in to (offline)", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.includes("/api/v2/mcp/connectors") && (init?.method ?? "GET") === "GET") {
+					return Response.json({ data: [local("crm", "needs-login", { transport: "http" })] });
+				}
+				return Response.json(
+					{ message: "laptop is offline. Start galopin there first." },
+					{ status: 409 }
+				);
+			})
+		);
+		const screen = mount();
+		await expect.element(screen.getByText("crm · on laptop")).toBeInTheDocument();
+		await screen.getByRole("button", { name: "Sign in" }).click();
+		await expect
+			.element(screen.getByText("laptop is offline. Start galopin there first."))
+			.toBeInTheDocument();
+	});
+});

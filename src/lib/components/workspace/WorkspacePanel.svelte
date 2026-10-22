@@ -10,7 +10,7 @@
 	(`overlay/styles.ts`); only the overlay shell is gone, replaced by the card
 	this panel draws around whichever tab is showing.
 
-	**The tab and the item are the address.** `?tab=models|custom|mcp|kb|skills|memory` picks the
+	**The tab and the item are the address.** `?tab=models|custom|mcp|local|kb|skills|memory` picks the
 	tab, an `?id=` opens one item's own view — so the programmatic openers that
 	used to open an overlay navigate here instead, and old `/knowledge/…` links
 	redirect to `?tab=kb&id=…`. `id` is read once by
@@ -29,6 +29,8 @@
 	import KnowledgeManager from "$lib/components/knowledge/KnowledgeManager.svelte";
 	import SkillsManager from "$lib/components/skills/SkillsManager.svelte";
 	import MemoryManager from "$lib/components/memory/MemoryManager.svelte";
+	import LocalConnectors from "$lib/components/workspace/LocalConnectors.svelte";
+	import LucideLaptop from "~icons/lucide/laptop";
 	import LucideBoxes from "~icons/lucide/boxes";
 	import LucideLibrary from "~icons/lucide/library";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
@@ -60,6 +62,7 @@
 		{ key: "kb", label: "Knowledge" },
 		{ key: "skills", label: "Skills" },
 		{ key: "mcp", label: "MCP Servers" },
+		{ key: "local", label: "Local connectors" },
 	] as const;
 	// Memory hides on the same terms as Knowledge, for the same reason: with
 	// `CHAT_MEMORY_ENABLED=false` its routes answer 404, so the tab would only
@@ -70,7 +73,9 @@
 		ALL_TABS.filter(
 			(t) =>
 				(t.key !== "kb" || data.knowledgeEnabled !== false) &&
-				(t.key !== "memory" || data.memoryEnabled !== false)
+				(t.key !== "memory" || data.memoryEnabled !== false) &&
+				// LOCAL_CONNECTORS_ENABLED: off, the endpoints answer 404 and the tab is not offered.
+				(t.key !== "local" || data.localConnectorsEnabled === true)
 		)
 	);
 	type TabKey = (typeof ALL_TABS)[number]["key"];
@@ -84,7 +89,7 @@
 	const initialId = $derived(page.url.searchParams.get("id") ?? undefined);
 	// MCP servers are a flat list with no per-item view, so an `id` beside
 	// `?tab=mcp` has nothing to open and is ignored.
-	const initialItemId = $derived(tab === "mcp" ? undefined : initialId);
+	const initialItemId = $derived(tab === "mcp" || tab === "local" ? undefined : initialId);
 </script>
 
 <!--
@@ -117,6 +122,8 @@
 					<LucideSparkles class="size-3.5 sm:size-4" />
 				{:else if t.key === "mcp"}
 					<IconMCP classNames="size-3.5 sm:size-4" />
+				{:else if t.key === "local"}
+					<LucideLaptop class="size-3.5 sm:size-4" />
 				{:else if t.key === "kb"}
 					<LucideLibrary class="size-3.5 sm:size-4" />
 				{:else if t.key === "memory"}
@@ -147,6 +154,8 @@
 				/>
 			{:else if tab === "mcp"}
 				<MCPServerManager />
+			{:else if tab === "local"}
+				<LocalConnectors />
 			{:else if tab === "kb"}
 				<KnowledgeManager initialId={initialItemId} />
 			{:else if tab === "memory"}
