@@ -1,0 +1,52 @@
+{
+	"_meta": {
+		"spec": "§10.3",
+		"direction": "M→C",
+		"op": "mcp.list"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"servers": [
+				{
+					"name": "notes",
+					"transport": "stdio",
+					"description": "My notes folder",
+					"state": "ready",
+					"detail": null,
+					"allowedTools": null,
+					"openChannels": 1
+				},
+				{
+					"name": "crm",
+					"transport": "http",
+					"description": null,
+					"state": "needs-login",
+					"detail": "Run `galopin connectors login crm` on this machine.",
+					"allowedTools": ["search", "get_contact"],
+					"openChannels": 0
+				},
+				{
+					"name": "old",
+					"transport": "sse",
+					"description": null,
+					"state": "disabled",
+					"detail": null,
+					"allowedTools": null,
+					"openChannels": 0
+				},
+				{
+					"name": "broken",
+					"transport": "stdio",
+					"description": null,
+					"state": "invalid",
+					"detail": "${API_KEY} is not set",
+					"allowedTools": null,
+					"openChannels": 0
+				}
+			]
+		}
+	}
+}

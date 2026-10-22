@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§10.3",
+		"direction": "M→C",
+		"variant": "closed"
+	},
+	"frame": {
+		"type": "mcp",
+		"channelId": "ch_7f3a",
+		"closed": {
+			"reason": "crashed",
+			"detail": "exit status 1: Error: ENOENT: no such file or directory"
+		}
+	}
+}
