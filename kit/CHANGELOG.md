@@ -5,6 +5,40 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.22.0 — 2026-10-22
+
+Pins: Cerea `0.22.0`, **Pystino `0.15.0`**, Authelia 4.39.22 (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`) so the new
+`providers.d/` directory exists, then `docker compose pull && docker compose up -d`.
+Machines do not need the galopin update.
+
+- **Sub-agents in the chat.** The assistant can hand a self-contained task
+  to a sub-agent (`delegate`) that works in its own context and returns only
+  its answer, so long reading never fills the conversation. A **research**
+  preset does web research and answers with cited sources. Up to 3 run at
+  once and 10 per turn; each has a step, token and time limit and is billed to
+  you like any turn; Stop cancels them all. A sub-agent may use your MCP
+  connectors only for tools already approved in the conversation (or all of
+  them when the chat auto-accepts tools); it never runs code or delegates
+  again. It uses the conversation's model unless the assistant picks another
+  one you can use. Each sub-agent is its own card in the reply. On by
+  default; Administration → Sub-agents turns it off.
+- **Plans.** In chats whose model has tools, the assistant can keep a visible
+  plan for multi-step work, updated as it goes.
+- **The ML Assistant mode is removed** (an upstream leftover that was off by
+  default). Conversations started in it continue as ordinary chats.
+- **Pystino 0.15.0:**
+  - **Provider catalogue in YAML.** Provider descriptions (endpoint, plugin,
+    region, data retention, dated price hints) ship with the gateway, and an
+    operator can override any field, or add a provider, with YAML files in the
+    kit's new `providers.d/` directory (read at gateway start; no secrets
+    there). The console shows where each value comes from.
+  - **Usage charts** in the console (spend, tokens and requests over time, by
+    group, user, model or provider) and a per-provider breakdown in the
+    reports. A person's own usage page shows only their own figures.
+- Test reliability: the end-to-end harness starts its own database again, and
+  tests that failed on busy machines are fixed at the cause.
+
 ## v0.21.1 — 2026-10-22
 
 Pins: Cerea `0.21.1`, **Pystino `0.14.0`**, Authelia 4.39.22 (unchanged).
