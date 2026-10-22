@@ -2,12 +2,15 @@
 
 !!! info "For everyone"
 
-    Adding remote MCP servers the assistant can use, signing in to them, and what asks your approval.
+    Adding remote MCP servers the assistant can use, signing in to them, and what asks your approval. Servers on your own machine: see [Local connectors](local-connectors.md).
 
 A **connector** is a remote [MCP](https://modelcontextprotocol.io) server you
 add to Cerea so the assistant can use its tools: your notes, a tracker, a
-search service. You manage them under **Workspace → MCP Servers**. Only
-_remote_ servers are supported; Cerea does not run MCP servers itself.
+search service. You manage them under **Workspace → MCP Servers**. Servers
+added here are _remote_; Cerea does not run MCP servers itself. A server that
+runs on your own laptop or server is a [local connector](local-connectors.md):
+you enroll that machine under **Workspace → Local connectors**, and its servers
+then appear in the same MCP panel, labelled "name · on machine".
 
 ## Adding one
 

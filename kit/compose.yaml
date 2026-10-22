@@ -472,6 +472,10 @@ services:
       # audience pystino-api), validated locally against the same issuer as
       # the browser login, over the same back-channel. No relay.
       CODE_AGENTS_ENABLED: ${CODE_AGENTS_ENABLED-}
+      # Local MCP connectors: servers on a person's own machine, reached over the same machine
+      # link (galopin enroll --connectors-only). On by default in the kit; independent of
+      # CODE_AGENTS_ENABLED. Exactly "true" turns it on.
+      LOCAL_CONNECTORS_ENABLED: ${LOCAL_CONNECTORS_ENABLED:-true}
       # The browser terminal in /code: off unless exactly "true", and even then
       # only for machines enrolled with --allow-terminal.
       CODE_TERMINAL_ENABLED: ${CODE_TERMINAL_ENABLED:-}

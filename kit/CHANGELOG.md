@@ -5,6 +5,15 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Local connectors**: people can connect MCP servers that run on their own
+  machine to their chat (`galopin enroll --connectors-only`, approve it under
+  Workspace → Local connectors). `LOCAL_CONNECTORS_ENABLED` is `true` by default
+  in the kit and independent of `--agents`; set it to anything else to turn it
+  off. No new service or port: the machine dials out over the existing machine
+  link.
+
 ## v0.22.2 — 2026-10-22
 
 Pins: Cerea `0.22.2`, **Pystino `0.16.0`**, Authelia 4.39.22 (unchanged).

@@ -71,15 +71,15 @@ Code use, so an existing file can be copied as is:
 }
 ```
 
-| Entry                      | Meaning                                                                                                                                                                                                                |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `command`, `args`, `env`, `cwd` | A **stdio** server: galopin starts the process when the chat opens it and talks newline-delimited JSON-RPC over its stdin and stdout.                                                                              |
-| `"type": "http"` and `url`      | A server speaking MCP **Streamable HTTP** (`"streamable-http"` is accepted too), with the `headers` you list sent on every request.                                                                                |
-| `"type": "sse"` and `url`       | A server on the older HTTP+SSE transport.                                                                                                                                                                          |
+| Entry                           | Meaning                                                                                                                                                                                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `command`, `args`, `env`, `cwd` | A **stdio** server: galopin starts the process when the chat opens it and talks newline-delimited JSON-RPC over its stdin and stdout.                                                                                                          |
+| `"type": "http"` and `url`      | A server speaking MCP **Streamable HTTP** (`"streamable-http"` is accepted too), with the `headers` you list sent on every request.                                                                                                            |
+| `"type": "sse"` and `url`       | A server on the older HTTP+SSE transport.                                                                                                                                                                                                      |
 | `${VAR}`, `${VAR:-default}`     | Expanded in `command`, `args`, `env`, `url` and `headers` from galopin's own environment, as Claude Code does. A variable that is unset and has no default makes the entry **invalid**; the chat is told the variable's _name_, never a value. |
-| `description`                   | Shown in the chat's MCP panel. Ignored by Claude.                                                                                                                                                                   |
-| `disabled: true`                | Listed in the chat but not startable. Ignored by Claude.                                                                                                                                                            |
-| `allowedTools`                  | The machine's ceiling, below. Ignored by Claude.                                                                                                                                                                    |
+| `description`                   | Shown in the chat's MCP panel. Ignored by Claude.                                                                                                                                                                                              |
+| `disabled: true`                | Listed in the chat but not startable. Ignored by Claude.                                                                                                                                                                                       |
+| `allowedTools`                  | The machine's ceiling, below. Ignored by Claude.                                                                                                                                                                                               |
 
 A server name is letters, digits, `-` and `_` (at most 64, starting with a letter
 or digit); another name is listed as invalid. Keys galopin does not know are
@@ -164,11 +164,11 @@ take effect without a restart; a change to the environment needs one
 
 ## If something is off
 
-| In the chat                                    | Why                                                                                                                                       |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| The machine is **offline**                     | `galopin run` is not running, or cannot reach the chat. `galopin auth status` shows the credential; `journalctl --user -u galopin -f` its log. |
-| The server is **invalid**                      | The reason is shown: an unset `${VAR}` (its name), an unknown `type`, a missing `command` or `url`, a bad name.                           |
-| The server is **needs login**                  | Sign in from the chat, or run `galopin connectors login NAME` on that machine.                                                                                      |
-| **Unavailable** when the chat opens it         | The process could not start or exited at once (the exit status and the last stderr line are in the message), the HTTP server could not be reached, or 4 channels are open already. |
-| A tool is missing                              | It is outside the entry's `allowedTools`.                                                                                                 |
-| A tool call fails with "not allowed" (-32001)  | The same ceiling; edit `allowedTools` on the machine.                                                                                     |
+| In the chat                                   | Why                                                                                                                                                                                |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The machine is **offline**                    | `galopin run` is not running, or cannot reach the chat. `galopin auth status` shows the credential; `journalctl --user -u galopin -f` its log.                                     |
+| The server is **invalid**                     | The reason is shown: an unset `${VAR}` (its name), an unknown `type`, a missing `command` or `url`, a bad name.                                                                    |
+| The server is **needs login**                 | Sign in from the chat, or run `galopin connectors login NAME` on that machine.                                                                                                     |
+| **Unavailable** when the chat opens it        | The process could not start or exited at once (the exit status and the last stderr line are in the message), the HTTP server could not be reached, or 4 channels are open already. |
+| A tool is missing                             | It is outside the entry's `allowedTools`.                                                                                                                                          |
+| A tool call fails with "not allowed" (-32001) | The same ceiling; edit `allowedTools` on the machine.                                                                                                                              |
