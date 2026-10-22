@@ -200,6 +200,7 @@ describe("LocalConnectors", () => {
 		for (const word of ["Ready", "Needs sign-in", "Disabled", "Invalid", "Offline", "Connected"]) {
 			expect(body, word).toContain(word);
 		}
+		expect(body).toContain("Needs a sign-in");
 		expect(body).toContain("galopin connectors login crm");
 		expect(body).toContain("${API_KEY} is not set");
 	});

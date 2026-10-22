@@ -8,7 +8,7 @@
 		refreshMcpServers,
 		healthCheckServer,
 	} from "$lib/stores/mcpServers";
-	import { totalDefaultMcpCount } from "$lib/stores/mcpConnectors";
+	import { connectors, totalDefaultMcpCount } from "$lib/stores/mcpConnectors";
 	import IconRefresh from "~icons/carbon/renew";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import * as s from "$lib/components/overlay/styles";
@@ -20,6 +20,9 @@
 	const baseServers = $derived($allMcpServers.filter((s) => s.type === "base"));
 	// Defaults, not the active chat: this tab edits what new chats start with.
 	const enabledCount = $derived($totalDefaultMcpCount);
+	const onMachines = $derived($connectors.filter((c) => c.local));
+	const onMachinesReady = $derived(onMachines.filter((c) => c.local?.state === "ready").length);
+	const serverCount = $derived($allMcpServers.length + onMachines.length);
 
 	async function handleRefresh() {
 		if (isRefreshing) return;
@@ -61,11 +64,13 @@
 				</div>
 				<div>
 					<p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-						{$allMcpServers.length}
-						{$allMcpServers.length === 1 ? "server" : "servers"} configured
+						{serverCount}
+						{serverCount === 1 ? "server" : "servers"} configured
 					</p>
 					<p class="text-xs text-gray-600 dark:text-gray-400">
-						{enabledCount} enabled
+						{enabledCount} enabled{onMachines.length
+							? ` · ${onMachinesReady} of ${onMachines.length} on your machines connected`
+							: ""}
 					</p>
 				</div>
 			</div>

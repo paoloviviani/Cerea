@@ -840,7 +840,17 @@
 					{/if}
 				</div>
 
-				{#if local.state !== "ready" && local.detail}
+				{#if local.state === "needs-login" && local.transport === "http"}
+					<p
+						class="mb-2 rounded-sm bg-gray-50 px-2 py-1 text-xs wrap-break-word text-gray-700 dark:bg-gray-900/40 dark:text-gray-300"
+					>
+						Needs a sign-in; the tokens stay on {local.machineName}.
+						<span class="text-gray-500 dark:text-gray-400">
+							If the provider refuses the redirect, run
+							<code class="font-mono">galopin connectors login {local.server}</code> on the machine.
+						</span>
+					</p>
+				{:else if local.state !== "ready" && local.detail}
 					<p
 						class="mb-2 line-clamp-3 rounded-sm bg-gray-50 px-2 py-1 text-xs wrap-break-word text-gray-700 dark:bg-gray-900/40 dark:text-gray-300"
 					>
