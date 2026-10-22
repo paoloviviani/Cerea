@@ -41,19 +41,36 @@ export function getSpeechRecognition(): SpeechRecognitionCtor | null {
 	return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+/** Safari and other WebKit browsers: only the prefixed constructor exists.
+ * Their recognition refuses with `not-allowed` without ever showing the
+ * microphone prompt, so the composer asks for the microphone itself first. */
+export function needsMicrophonePrompt(): boolean {
+	if (typeof window === "undefined") return false;
+	const w = window as unknown as {
+		SpeechRecognition?: SpeechRecognitionCtor;
+		webkitSpeechRecognition?: SpeechRecognitionCtor;
+	};
+	return !w.SpeechRecognition && !!w.webkitSpeechRecognition;
+}
+
 /** The recognition language: the browser's, with no setting of its own. */
 export function dictationLanguage(): string {
 	if (typeof navigator === "undefined") return "en-US";
 	return navigator.language || "en-US";
 }
 
+/** Shown when a session ends by itself without a result or an error (Safari
+ * can do that). */
+export const DICTATION_SILENT_END_MESSAGE = "Dictation stopped before it heard anything";
+
 /** A short, non-blocking message per recognition error; null when the end of
  * a session needs none (the person or the composer stopped it). */
 export function dictationErrorMessage(code: string): string | null {
 	switch (code) {
-		case "not-allowed":
 		case "service-not-allowed":
-			return "Microphone access is blocked. Allow it in your browser's site settings to dictate.";
+			return "Safari's speech recognition is off. Turn on Siri or Dictation in System Settings, then allow this site in Safari → Settings → Websites → Microphone.";
+		case "not-allowed":
+			return "This site's microphone permission is blocked. Allow it in your browser's site settings (Safari: Settings → Websites → Microphone).";
 		case "no-speech":
 			return "No speech heard. Try again.";
 		case "network":
@@ -95,11 +112,27 @@ export function composeDictation(
 	return { value: head + trail + anchor.after, caret: head.length };
 }
 
-/** Everything recognised so far in a session, final and interim alike. */
+const normalise = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+
+/** Everything recognised so far in a session, final and interim alike.
+ * Desktop browsers deliver independent segments, joined with one space.
+ * Chrome on Android delivers cumulative results (each transcript repeats the
+ * earlier ones) and may re-deliver a final one: a result that starts with the
+ * text so far replaces it, and one identical to the previous result is
+ * dropped. */
 export function joinTranscript(results: ArrayLike<SpeechRecognitionResultLike>): string {
 	let out = "";
+	let previous = "";
 	for (let i = 0; i < results.length; i++) {
 		const piece = results[i][0].transcript;
+		const norm = normalise(piece);
+		if (!norm || norm === previous) continue;
+		previous = norm;
+		const sofar = normalise(out);
+		if (sofar && norm.startsWith(sofar)) {
+			out = piece;
+			continue;
+		}
 		if (out && !/\s$/.test(out) && !/^\s/.test(piece)) out += " ";
 		out += piece;
 	}

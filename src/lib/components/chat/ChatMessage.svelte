@@ -37,6 +37,9 @@
 	import PlanCard from "./PlanCard.svelte";
 	import MemoryCard from "./MemoryCard.svelte";
 	import BackgroundTaskCard from "./BackgroundTaskCard.svelte";
+	import ProducedFilesCard from "./ProducedFilesCard.svelte";
+	import { isCodeRunKey } from "$lib/utils/execution/keys";
+	import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 	import {
 		isMessageToolUpdate,
 		isMessageToolResultUpdate,
@@ -45,6 +48,7 @@
 		isMessageElicitationResolvedUpdate,
 		isMessageCodeExecutionRequestUpdate,
 		isMessageCodeExecutionResolvedUpdate,
+		isMessageCodeExecutionOutputsUpdate,
 		isMessagePlanUpdate,
 		isMessageMemoryUpdate,
 		isMessageBackgroundTaskUpdate,
@@ -322,6 +326,7 @@
 		| { type: "plan"; update: MessagePlanUpdate }
 		| { type: "memory"; update: MessageMemoryUpdate }
 		| { type: "backgroundTask"; update: MessageBackgroundTaskUpdate }
+		| { type: "files"; files: PersistedDeliverableRef[] }
 		| {
 				type: "subagent";
 				uuid: string;
@@ -342,6 +347,7 @@
 		| { kind: "plan"; update: MessagePlanUpdate }
 		| { kind: "memory"; update: MessageMemoryUpdate }
 		| { kind: "backgroundTask"; update: MessageBackgroundTaskUpdate }
+		| { kind: "files"; files: PersistedDeliverableRef[] }
 		| { kind: "subagent"; uuid: string; anchor: CodeSubagentAnchor; updates: MessageToolUpdate[] };
 
 	// Expand any text block containing <think>…</think> into dedicated think blocks
@@ -558,6 +564,10 @@
 						b.type === "codeExecution" && b.request.executionId === update.executionId
 				);
 				if (codeTarget) codeTarget.resolved = update;
+			} else if (isMessageCodeExecutionOutputsUpdate(update) && !isCodeRunKey(update.runKey)) {
+				// Files a tool produced with no code block to find them by key
+				// (a convert_document PDF) render here, where the tool ran.
+				if (update.files.length > 0) res.push({ type: "files", files: update.files });
 			} else if (isMessagePlanUpdate(update)) {
 				// One live card per message: a later update supersedes the earlier card and
 				// takes its stream position, and the generic tool card for the same call
@@ -712,6 +722,10 @@
 				// the marker.
 				flush();
 				units.push({ kind: "backgroundTask", update: block.update });
+			} else if (block.type === "files") {
+				// Never folded either: the file is the answer to what was asked.
+				flush();
+				units.push({ kind: "files", files: block.files });
 			} else if (block.type === "subagent") {
 				// Never folded into the summary either: a subagent's status has
 				// to stay readable after the turn ends — that is the whole point
@@ -901,6 +915,10 @@
 							<div data-exclude-from-copy>
 								<BackgroundTaskCard update={block.update} />
 							</div>
+						{:else if block.type === "files"}
+							<div data-exclude-from-copy>
+								<ProducedFilesCard conversationId={convId} files={block.files} />
+							</div>
 						{:else if block.type === "subagent"}
 							<div data-exclude-from-copy>
 								{#if subagentCard}
@@ -994,6 +1012,10 @@
 						{:else if unit.kind === "backgroundTask"}
 							<div data-exclude-from-copy>
 								<BackgroundTaskCard update={unit.update} />
+							</div>
+						{:else if unit.kind === "files"}
+							<div data-exclude-from-copy>
+								<ProducedFilesCard conversationId={convId} files={unit.files} />
 							</div>
 						{:else if unit.kind === "subagent"}
 							<div data-exclude-from-copy>

@@ -43,7 +43,12 @@ describe("LocationSettings", () => {
 	it("is off by default, says where the location goes, and does not ask the browser", async () => {
 		const onchange = vi.fn();
 		const screen = render(LocationSettings, { mode: "off", place: "", onchange });
-		await expect.element(screen.getByRole("radio", { name: "Off" })).toBeChecked();
+		const select = screen.getByRole("combobox", { name: "Share my location" });
+		await expect.element(select).toHaveValue("off");
+		expect(select.element().tagName).toBe("SELECT");
+		expect(
+			[...select.element().querySelectorAll("option")].map((o) => o.textContent?.trim())
+		).toEqual(["Off", "A place I type", "From this device"]);
 		await expect
 			.element(screen.getByText(/sent to the model provider with every message/))
 			.toBeVisible();
@@ -53,7 +58,10 @@ describe("LocationSettings", () => {
 	it("choosing a typed place reports the mode without asking the browser, and takes text", async () => {
 		const onchange = vi.fn();
 		const screen = render(LocationSettings, { mode: "off", place: "", onchange });
-		await screen.getByRole("radio", { name: "A place I type" }).click();
+		await userEvent.selectOptions(
+			screen.getByRole("combobox", { name: "Share my location" }).element(),
+			"place"
+		);
 		expect(onchange).toHaveBeenCalledWith({ mode: "place" });
 		expect(getCurrentPosition).not.toHaveBeenCalled();
 
@@ -67,7 +75,10 @@ describe("LocationSettings", () => {
 	it("asks for the browser's permission only when 'From this device' is chosen", async () => {
 		const { screen, onchange } = mountControlled();
 		expect(getCurrentPosition).not.toHaveBeenCalled();
-		await screen.getByRole("radio", { name: "From this device" }).click();
+		await userEvent.selectOptions(
+			screen.getByRole("combobox", { name: "Share my location" }).element(),
+			"device"
+		);
 		expect(onchange).toHaveBeenCalledWith({ mode: "device" });
 		expect(getCurrentPosition).toHaveBeenCalledTimes(1);
 		await expect.element(screen.getByText("Location available.")).toBeVisible();
@@ -76,7 +87,10 @@ describe("LocationSettings", () => {
 	it("says so when permission is denied, and keeps the choice", async () => {
 		mockGeolocation("denied");
 		const { screen, onchange } = mountControlled();
-		await screen.getByRole("radio", { name: "From this device" }).click();
+		await userEvent.selectOptions(
+			screen.getByRole("combobox", { name: "Share my location" }).element(),
+			"device"
+		);
 		await expect.element(screen.getByRole("alert")).toHaveTextContent(/permission was denied/);
 		expect(onchange).toHaveBeenCalledWith({ mode: "device" });
 		expect(onchange).not.toHaveBeenCalledWith({ mode: "off" });
@@ -85,7 +99,10 @@ describe("LocationSettings", () => {
 	it("says so when the device has no location", async () => {
 		mockGeolocation("unavailable");
 		const { screen } = mountControlled();
-		await screen.getByRole("radio", { name: "From this device" }).click();
+		await userEvent.selectOptions(
+			screen.getByRole("combobox", { name: "Share my location" }).element(),
+			"device"
+		);
 		await expect.element(screen.getByRole("alert")).toHaveTextContent(/unavailable/);
 	});
 });

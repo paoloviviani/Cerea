@@ -44,19 +44,21 @@
 		on, your location is sent to the model provider with every message. Off by default.
 	</p>
 
-	<div role="radiogroup" aria-label="Share my location" class="mt-3 flex flex-col gap-2">
-		{#each options as option (option.value)}
-			<label class="flex items-center gap-2 text-[13px] text-gray-800 dark:text-gray-200">
-				<input
-					type="radio"
-					name="locationMode"
-					value={option.value}
-					checked={mode === option.value}
-					onchange={() => choose(option.value)}
-				/>
-				{option.label}
-			</label>
-		{/each}
+	<div class="mt-3 flex items-start justify-between gap-3">
+		<label for="location-mode" class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+			Share my location
+		</label>
+		<select
+			id="location-mode"
+			name="locationMode"
+			class="rounded-md border border-gray-300 bg-white px-1 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+			value={mode}
+			onchange={(e) => choose(e.currentTarget.value as LocationMode)}
+		>
+			{#each options as option (option.value)}
+				<option value={option.value}>{option.label}</option>
+			{/each}
+		</select>
 	</div>
 
 	{#if mode === "place"}
