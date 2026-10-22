@@ -834,6 +834,17 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		merge: (stray) => deleteStrayRows(collections.mcpOauthPending, "userId", stray),
 		erase: (userId) => eraseByField(collections.mcpOauthPending, "userId", userId),
 	},
+	{
+		name: "localConnectorOauth",
+		owner: "userId",
+		mergeRule: "delete-stray",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// A local connector's sign-in in flight (ADR 0102), started as the stray: carrying it to
+		// the target would let the target's browser finish a sign-in it did not begin.
+		merge: (stray) => deleteStrayRows(collections.localConnectorOauth, "userId", stray),
+		erase: (userId) => eraseByField(collections.localConnectorOauth, "userId", userId),
+	},
 ];
 
 /**
