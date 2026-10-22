@@ -5,6 +5,38 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.22.2 — 2026-10-22
+
+Pins: Cerea `0.22.2`, **Pystino `0.16.0`**, Authelia 4.39.22 (unchanged).
+**To update:** `docker compose pull && docker compose up -d`. Machines do not
+need the galopin update.
+
+- **Security hardening** from an architecture review:
+  - with a sign-in configured, a signed-out visitor can only read what the
+    landing page, the sign-in redirect and a share link need; every other
+    route now answers 401 or sends them to sign in. Among what was reachable
+    before: the page-fetching proxy (`/api/fetch-url`), the list of the
+    deployment's MCP servers, and `/metrics` on the app port (the separate
+    `METRICS_PORT` is unchanged);
+  - `ADMIN_CLI_LOGIN` is off by default and always off when OpenID is
+    configured;
+  - the app may no longer be framed by other sites by default
+    (`ALLOW_IFRAME=true` restores it), and the huggingface.co framing
+    allowance is gone;
+  - the anonymous `__debug/openai` route is removed;
+  - the headless browser behind page fetching checks every request it makes,
+    not only the first address.
+- **Take photo** in the composer's attach menu on phones and tablets opens the
+  camera directly.
+- A share link to a chat with an assistant reply failed and redirected home;
+  it opens again.
+- A message whose markdown worker crashed stayed raw text with unformatted
+  code blocks; it is rendered anyway.
+- **Pystino 0.16.0:** decision models (a metered model kind that answers typed
+  questions with probabilities), a fix for a startup race when several
+  gateway workers seed the bundled directory at once, and capability defaults
+  for new groups in the console, with "turn on/off for all" buttons.
+
 ## v0.22.1 — 2026-10-22
 
 Pins: Cerea `0.22.1`, Pystino `0.15.0`, Authelia 4.39.22 (unchanged).
