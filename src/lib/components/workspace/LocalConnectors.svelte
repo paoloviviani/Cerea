@@ -218,7 +218,7 @@ loginctl enable-linger "$USER"`;
 				<p class="{s.SUBTITLE} break-words">
 					Run an MCP server on your own machine (a notes folder, a database, a tool on a private
 					network) and use it from your chats. Nothing is opened to the internet: the machine dials
-					out to {publicConfig.PUBLIC_APP_NAME}.
+					out to {publicConfig.PUBLIC_APP_NAME || "this deployment"}.
 				</p>
 			</div>
 		</div>
