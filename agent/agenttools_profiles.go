@@ -270,13 +270,13 @@ func (mc *machine) opProfilesSet(ctx context.Context, args json.RawMessage) (any
 	}
 	body, err := json.MarshalIndent(set.wire(), "", "  ")
 	if err != nil {
-		return nil, opErrf("internal", "%v", err)
+		return nil, opErrf("unavailable", "%v", err)
 	}
 	at.profilesMu.Lock()
 	err = fsutil.WriteFileAtomic(filepath.Join(at.stateDir, profilesFileName), append(body, '\n'), 0o600)
 	at.profilesMu.Unlock()
 	if err != nil {
-		return nil, opErrf("internal", "writing %s: %v", profilesFileName, err)
+		return nil, opErrf("unavailable", "writing %s: %v", profilesFileName, err)
 	}
 	def := ""
 	if set.Default != nil {

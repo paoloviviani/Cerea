@@ -459,8 +459,9 @@ type Event struct {
 }
 
 // MarshalJSON always emits arrays for the transcript's lists: a fresh session
-// has no messages, permissions or todos, and PROTOCOL.md types all three as
-// arrays that Cerea iterates without a null check.
+// has no messages, permissions, questions or todos, and PROTOCOL.md types all
+// of them as arrays that Cerea iterates without a null check; and a usage the
+// session has not reported is null, not absent (PROTOCOL.md §6 "Types").
 func (t Transcript) MarshalJSON() ([]byte, error) {
 	type plain Transcript
 	out := plain(t)
@@ -475,10 +476,16 @@ func (t Transcript) MarshalJSON() ([]byte, error) {
 	if out.Permissions == nil {
 		out.Permissions = []PermissionRequest{}
 	}
+	if out.Questions == nil {
+		out.Questions = []QuestionRequest{}
+	}
 	if out.Todos == nil {
 		out.Todos = []Todo{}
 	}
-	return json.Marshal(out)
+	return json.Marshal(struct {
+		plain
+		Usage *Usage `json:"usage"`
+	}{out, out.Usage})
 }
 
 // RetryInfo is the reason a session sits in the "retry" status: the backend
