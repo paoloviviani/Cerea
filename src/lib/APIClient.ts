@@ -130,9 +130,6 @@ export function useAPIClient({
 				old: endpoint(fetcher, `${baseUrl}/models/old`),
 			}
 		),
-		spaces: {
-			deploy: endpoint(fetcher, `${baseUrl}/spaces/deploy`),
-		},
 		"public-config": endpoint(fetcher, `${baseUrl}/public-config`),
 		"feature-flags": endpoint(fetcher, `${baseUrl}/feature-flags`),
 		usage: endpoint(fetcher, `${baseUrl}/usage`),

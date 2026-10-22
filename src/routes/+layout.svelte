@@ -28,7 +28,6 @@
 	import { handleResponse, useAPIClient } from "$lib/APIClient";
 	import { isAborted } from "$lib/stores/isAborted";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
-	import { isPro } from "$lib/stores/isPro";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { createConversationsStore } from "$lib/stores/conversations.svelte";
 	import { createActiveGenerationsStore } from "$lib/stores/activeGenerations.svelte";
@@ -191,17 +190,6 @@
 		// subscriber resolves immediately without any added network latency.
 		initWithServers(data.mcpBaseServers ?? []);
 
-		if (publicConfig.isHuggingChat && data.user?.username) {
-			fetch(`https://huggingface.co/api/users/${data.user.username}/overview`)
-				.then((res) => res.json())
-				.then((userData) => {
-					isPro.set(userData.isPro ?? false);
-				})
-				.catch(() => {
-					// Keep isPro as null on error - don't show any badge if status is unknown
-				});
-		}
-
 		if (page.url.searchParams.has("model")) {
 			await settings
 				.instantSet({
@@ -291,14 +279,8 @@
 		<link rel="icon" href="{publicConfig.assetPath}/favicon-dev.svg?v=2" type="image/svg+xml" />
 	{/if}
 	<link rel="apple-touch-icon" href="{publicConfig.assetPath}/apple-touch-icon.png?v=2" />
-	<!-- The manifest is served from a route (base-aware URLs), except in
-	     HuggingChat mode, which keeps upstream's static asset file. -->
-	<link
-		rel="manifest"
-		href={publicConfig.isHuggingChat
-			? `${publicConfig.assetPath}/manifest.json?v=2`
-			: `${base}/manifest.webmanifest`}
-	/>
+	<!-- The manifest is served from a route (base-aware URLs). -->
+	<link rel="manifest" href="{base}/manifest.webmanifest" />
 
 	{#if publicConfig.PUBLIC_PLAUSIBLE_SCRIPT_URL}
 		<script async src={publicConfig.PUBLIC_PLAUSIBLE_SCRIPT_URL}></script>

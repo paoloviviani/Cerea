@@ -191,7 +191,6 @@ async function* textGenerationWithoutTitle(
 			assistant: ctx.assistant,
 			forceMultimodal: ctx.forceMultimodal,
 			forceTools: ctx.forceTools,
-			provider: ctx.provider,
 			reasoningEffort: ctx.reasoningEffort,
 			reasoningOverride: ctx.reasoningOverride,
 			artifactsOverride: ctx.artifactsOverride,

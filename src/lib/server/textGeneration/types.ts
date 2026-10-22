@@ -17,8 +17,6 @@ export interface TextGenerationContext {
 	forceMultimodal?: boolean;
 	/** Per-model user override for tool calling; wins over the model's advertised flag in both directions */
 	forceTools?: boolean;
-	/** Inference provider preference: "auto", "fastest", "cheapest", or a specific provider name */
-	provider?: string;
 	/** Optional thinking-effort override forwarded as `reasoning_effort` to OpenAI-compatible endpoints */
 	reasoningEffort?: "low" | "medium" | "high";
 	/** Per-model user override for reasoning; wins over the model's supportsReasoning flag in both directions */

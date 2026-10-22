@@ -17,15 +17,12 @@
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
 	import IconNew from "$lib/components/icons/IconNew.svelte";
-	import IconShare from "$lib/components/icons/IconShare.svelte";
 	import CarbonSidePanelOpen from "~icons/carbon/side-panel-open";
 	import { NAV_EDGE_SWIPE_ZONE_PX } from "$lib/constants/gestures";
 	import IconBurger from "$lib/components/icons/IconBurger.svelte";
 	import { Spring } from "svelte/motion";
-	import { shareModal } from "$lib/stores/shareModal";
 	import { exportConversation } from "$lib/stores/exportConversation";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
-	import { loading } from "$lib/stores/loading";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { tap } from "$lib/utils/haptics";
 
@@ -49,14 +46,6 @@
 			hasOpenedDrawer = true;
 		}
 	});
-
-	const isHuggingChat = $derived(Boolean(page.data?.publicConfig?.isHuggingChat));
-	const canShare = $derived(
-		isHuggingChat &&
-			!$loading &&
-			Boolean(page.params?.id) &&
-			page.route.id?.startsWith("/conversation/")
-	);
 
 	// Define the width for the drawer (less than 100% to create the gap)
 	const drawerWidthPercentage = 85;
@@ -264,20 +253,6 @@
 		{/if}
 	</div>
 	<div class="-mr-3 flex items-center">
-		{#if isHuggingChat}
-			<button
-				type="button"
-				class="flex h-12 w-6 shrink-0 items-center justify-center text-lg"
-				disabled={!canShare}
-				onclick={() => {
-					if (!canShare) return;
-					shareModal.open();
-				}}
-				aria-label="Share conversation"
-			>
-				<IconShare classNames={!canShare ? "opacity-40" : ""} />
-			</button>
-		{/if}
 		{#if $exportConversation.canExport}
 			<!-- The artifacts pane, which is where export now lives. The desktop
 			     button for this sits in the chat column and is `hidden md:flex`,

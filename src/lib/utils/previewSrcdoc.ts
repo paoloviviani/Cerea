@@ -1,5 +1,4 @@
 import type { ArtifactKind } from "./artifacts";
-import { appendHuggingChatBadge } from "./deployBadge";
 
 /**
  * Builders for sandboxed iframe `srcdoc` documents used by live previews
@@ -655,38 +654,4 @@ ${END_SCRIPT_TAG}`;
 export function buildDocxSrcdoc(content: string, channel: string): string {
 	const baseTag = `<base target="_blank">${previewCspMeta(channel)}`;
 	return `<head>${baseTag}${buildPreviewHookScript(channel)}${buildDocxFitScript()}</head>\n${content}`;
-}
-
-/** Kinds that can be shipped as a self-contained static page (an HF Space). */
-export function isDeployableKind(kind: ArtifactKind): boolean {
-	return kind === "html" || kind === "svg" || kind === "react" || kind === "mermaid";
-}
-
-/**
- * Build the standalone `index.html` shipped to a deployed static Space. Unlike
- * the preview builders this passes an empty channel, so the postMessage hook is
- * stripped (a deployed page has no parent window to talk to). Raw HTML is shipped
- * as-is — it is already a complete self-contained page and we must not inject
- * a `<base target="_blank">` that would rewrite its link behaviour. SVG/React/
- * Mermaid reuse the same wrappers as the preview, minus the hook.
- *
- * Every deployed page then gets the "Made with HuggingChat" badge appended (see
- * `deployBadge.ts`); it is self-contained and shadow-isolated, so it is the one
- * thing added to otherwise untouched artifact markup.
- */
-export function buildDeployableHtml(kind: ArtifactKind, content: string): string {
-	return appendHuggingChatBadge(buildDeployableDocument(kind, content));
-}
-
-function buildDeployableDocument(kind: ArtifactKind, content: string): string {
-	switch (kind) {
-		case "react":
-			return buildReactSrcdoc(content, "");
-		case "mermaid":
-			return buildMermaidSrcdoc(content, "");
-		case "svg":
-			return buildHtmlSrcdoc(content, "");
-		default:
-			return content;
-	}
 }

@@ -22,7 +22,6 @@ export async function* generate(
 		assistant,
 		promptedAt,
 		forceMultimodal,
-		provider,
 		reasoningEffort,
 		reasoningOverride,
 		locals,
@@ -62,7 +61,6 @@ export async function* generate(
 		conversationId: conv._id,
 		locals,
 		abortSignal: abortController.signal,
-		provider,
 		reasoningEffort,
 		reasoningOverride,
 	});

@@ -58,7 +58,6 @@ export type RunMcpFlowContext = Pick<
 	| "assistant"
 	| "forceMultimodal"
 	| "forceTools"
-	| "provider"
 	| "reasoningEffort"
 	| "reasoningOverride"
 	| "artifactsOverride"
@@ -116,7 +115,6 @@ export async function* runMcpFlow({
 	assistant,
 	forceMultimodal,
 	forceTools,
-	provider,
 	reasoningEffort,
 	reasoningOverride,
 	artifactsOverride,
@@ -552,9 +550,8 @@ export async function* runMcpFlow({
 			fetch: captureProviderFetch,
 			defaultHeaders: {
 				// Which group pays, when the person chose one (ADR 0061). The
-				// `isHuggingChat` guard is gone with the header it guarded: the
 				// gateway bills the tool loop's completions like any other, so
-				// scoping this to one deployment would silently bill the default.
+				// leaving this off would silently bill the default.
 				...billToHeader(locals?.billingOrganization),
 			},
 		});
@@ -680,15 +677,12 @@ export async function* runMcpFlow({
 					? (parameters.stop as string[])
 					: undefined;
 
-		// Build model ID with optional provider suffix (e.g., "model:fastest" or "model:together")
-		const baseModelId = targetModel.id ?? targetModel.name;
-		const modelIdWithProvider =
-			provider && provider !== "auto" ? `${baseModelId}:${provider}` : baseModelId;
+		const modelId = targetModel.id ?? targetModel.name;
 
 		const completionBase: Omit<ChatCompletionCreateParamsStreaming, "messages"> & {
 			reasoning_effort?: "low" | "medium" | "high";
 		} = {
-			model: modelIdWithProvider,
+			model: modelId,
 			stream: true,
 			temperature: typeof parameters?.temperature === "number" ? parameters.temperature : undefined,
 			top_p: typeof parameters?.top_p === "number" ? parameters.top_p : undefined,

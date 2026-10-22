@@ -122,13 +122,6 @@ export interface Settings extends Timestamps {
 	hidePromptExamples?: Record<string, boolean>;
 
 	/**
-	 * Per-model inference provider preference.
-	 * Values: "auto" (default), "fastest", "cheapest", or a specific provider name (e.g., "together", "sambanova").
-	 * The value is appended to the model ID when making inference requests (e.g., "model:fastest").
-	 */
-	providerOverrides?: Record<string, string>;
-
-	/**
 	 * Per-model thinking effort. Sent as `reasoning_effort` to the OpenAI-compatible
 	 * endpoint when set; omitted (provider default) when missing.
 	 */
@@ -195,7 +188,6 @@ export const DEFAULT_SETTINGS = {
 	toolsOverrides: {},
 	artifactsOverrides: {},
 	hidePromptExamples: {},
-	providerOverrides: {},
 	reasoningEffortOverrides: {},
 	reasoningOverrides: {},
 	streamingMode: "smooth",

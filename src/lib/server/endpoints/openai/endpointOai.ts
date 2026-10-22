@@ -124,7 +124,6 @@ export async function endpointOai(
 			conversationId,
 			locals,
 			abortSignal,
-			provider,
 		}) => {
 			const prompt = await buildPrompt({
 				messages,
@@ -132,9 +131,7 @@ export async function endpointOai(
 				model,
 			});
 
-			// Build model ID with optional provider suffix (e.g., "model:fastest" or "model:together")
-			const baseModelId = model.id ?? model.name;
-			const modelId = provider && provider !== "auto" ? `${baseModelId}:${provider}` : baseModelId;
+			const modelId = model.id ?? model.name;
 
 			const parameters = { ...model.parameters, ...generateSettings };
 			const body: CompletionCreateParamsStreaming = {
@@ -173,7 +170,6 @@ export async function endpointOai(
 			isMultimodal,
 			locals,
 			abortSignal,
-			provider,
 			reasoningEffort,
 			reasoningOverride,
 		}) => {
@@ -227,9 +223,7 @@ export async function endpointOai(
 				}
 			}
 
-			// Build model ID with optional provider suffix (e.g., "model:fastest" or "model:together")
-			const baseModelId = model.id ?? model.name;
-			const modelId = provider && provider !== "auto" ? `${baseModelId}:${provider}` : baseModelId;
+			const modelId = model.id ?? model.name;
 
 			const body = {
 				model: modelId,

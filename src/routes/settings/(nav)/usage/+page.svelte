@@ -65,9 +65,9 @@
 			loading = false;
 		}
 
-		// Which group pays (ADR 0061). No `isHuggingChat` gate: the gateway
-		// answers this for every deployment, and the endpoint reports an empty
-		// list when it cannot, so the section below hides itself.
+		// Which group pays (ADR 0061). The gateway answers this for every
+		// deployment, and the endpoint reports an empty list when it cannot, so
+		// the section below hides itself.
 		if (page.data.user) {
 			billingOrgsLoading = true;
 			try {

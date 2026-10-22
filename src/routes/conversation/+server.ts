@@ -268,7 +268,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				// post-create navigation (no fromShare query param): resolveConversation
 				// only reports shared=true when the viewing URL's fromShare matches.
 				shared: false,
-				deployedSpaces: undefined,
 				// Resolved to names so the composer's chips render without a second
 				// round trip; a base deleted between validate and this read is left
 				// out here, exactly as the GET endpoint would show it.

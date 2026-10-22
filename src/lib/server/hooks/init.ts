@@ -126,7 +126,6 @@ export async function initServer(): Promise<void> {
 	// also leaves it cached for shares without a renderable prompt.
 	getShareThumbnailPng({
 		prompt: "",
-		isHuggingChat: config.isHuggingChat,
 		appName: config.PUBLIC_APP_NAME,
 	}).catch((err) => logger.warn({ err }, "Failed to warm up share thumbnail renderer"));
 

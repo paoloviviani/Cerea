@@ -18,9 +18,6 @@
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 
 	import IconOmni from "$lib/components/icons/IconOmni.svelte";
-	import IconCheap from "$lib/components/icons/IconCheap.svelte";
-	import IconFast from "$lib/components/icons/IconFast.svelte";
-	import { PROVIDERS_HUB_ORGS } from "@huggingface/inference";
 	import CarbonDirectionRight from "~icons/carbon/direction-right-01";
 	import IconArrowUp from "~icons/lucide/arrow-up";
 	import IconMic from "~icons/lucide/mic";
@@ -45,7 +42,6 @@
 	} from "$lib/utils/modelEffortPicker";
 	import { browser } from "$app/environment";
 	import SystemPromptModal from "../SystemPromptModal.svelte";
-	import ShareConversationModal from "../ShareConversationModal.svelte";
 	import ChatIntroduction from "./ChatIntroduction.svelte";
 	import ComposerFileChips from "./ComposerFileChips.svelte";
 	import { FileDrag } from "$lib/utils/fileDrag.svelte";
@@ -59,9 +55,7 @@
 	import { mcpExamples } from "$lib/constants/mcpExamples";
 	import type { RouterFollowUp, RouterExample } from "$lib/constants/routerExamples";
 	import { allBaseServersEnabled, mcpServersLoaded } from "$lib/stores/mcpServers";
-	import { shareModal } from "$lib/stores/shareModal";
 	import { exportConversation as exportConversationStore } from "$lib/stores/exportConversation";
-	import IconShare from "$lib/components/icons/IconShare.svelte";
 	import CarbonSidePanelOpen from "~icons/carbon/side-panel-open";
 	import {
 		downloadMarkdown,
@@ -175,11 +169,6 @@
 	let pickerOpen = $state(false);
 
 	const publicConfig = usePublicConfig();
-	let canShare = $derived(
-		publicConfig.isHuggingChat &&
-			Boolean(page.params?.id) &&
-			page.route.id?.startsWith("/conversation/")
-	);
 	let canExport = $derived(
 		Boolean(page.params?.id) && page.route.id?.startsWith("/conversation/") && messages.length > 0
 	);
@@ -284,7 +273,6 @@
 		collectPaneItems(messages, artifactRegistry, trackioDashboards, fileRegistry)
 	);
 
-	let shareModalOpen = $state(false);
 	let pastedLongContent = $state(false);
 
 	// Voice recording state
@@ -451,13 +439,7 @@
 		}, 500);
 	});
 
-	const unsubscribeShareModal = shareModal.subscribe((value) => {
-		shareModalOpen = value;
-	});
-
 	onDestroy(() => {
-		unsubscribeShareModal();
-		shareModal.close();
 		exportConversationStore.reset();
 		if (routerDetailsTimeout) {
 			clearTimeout(routerDetailsTimeout);
@@ -534,12 +516,6 @@
 	// Determine tool support for the current model (server-provided capability with user override)
 	let modelSupportsTools = $derived(
 		($settings.toolsOverrides?.[settingsKey] ?? currentModel.supportsTools) === true
-	);
-
-	// Get provider override for the current model (HuggingChat only)
-	let providerOverride = $derived($settings.providerOverrides?.[settingsKey]);
-	let hasProviderOverride = $derived(
-		providerOverride && providerOverride !== "auto" && !currentModel.isRouter
 	);
 
 	// Always allow common text-like files; add images only when model is multimodal
@@ -846,10 +822,7 @@
 		bind:this={column}
 	>
 		{#snippet overlay()}
-			{#if shareModalOpen}
-				<ShareConversationModal open={shareModalOpen} onclose={() => shareModal.close()} />
-			{/if}
-			{#if canExport || canShare}
+			{#if canExport}
 				<!-- Lives in the chat column (not the layout) so it stays visible when
 				     the artifact panel is open. The export button used to sit here;
 				     it moved into the artifacts pane and this menu button opens it. -->
@@ -865,18 +838,6 @@
 							title="Artifacts and chat export"
 						>
 							<CarbonSidePanelOpen />
-						</button>
-					{/if}
-					{#if canShare}
-						<button
-							type="button"
-							class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700
-								{loading ? 'cursor-not-allowed opacity-40' : ''}"
-							onclick={() => shareModal.open()}
-							aria-label="Share conversation"
-							disabled={loading}
-						>
-							<IconShare />
 						</button>
 					{/if}
 				</div>
@@ -1146,31 +1107,6 @@
 										/>
 									{/if}
 									<span class="truncate">{modelLabel(currentModel)}</span>
-									{#if hasProviderOverride}
-										{@const hubOrg =
-											PROVIDERS_HUB_ORGS[providerOverride as keyof typeof PROVIDERS_HUB_ORGS]}
-										<span
-											class="inline-flex shrink-0 items-center rounded-sm p-0.5 {providerOverride ===
-											'fastest'
-												? 'bg-green-100 text-green-600 dark:bg-green-800/20 dark:text-green-500'
-												: providerOverride === 'cheapest'
-													? 'bg-blue-100 text-blue-600 dark:bg-blue-800/20 dark:text-blue-500'
-													: ''}"
-											title="Provider: {providerOverride}"
-										>
-											{#if providerOverride === "fastest"}
-												<IconFast classNames="text-sm" />
-											{:else if providerOverride === "cheapest"}
-												<IconCheap classNames="text-sm" />
-											{:else if hubOrg}
-												<img
-													src="https://huggingface.co/api/avatars/{hubOrg}"
-													alt={providerOverride}
-													class="size-3 flex-none rounded-xs"
-												/>
-											{/if}
-										</span>
-									{/if}
 								{/if}
 							</ModelEffortPicker>
 						{:else if showRouterDetails && streamingRouterMetadata?.route}

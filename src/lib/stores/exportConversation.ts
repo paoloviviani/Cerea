@@ -1,7 +1,7 @@
 import { writable } from "svelte/store";
 
 /**
- * Mirrors shareModal.ts's shape, but the export button lives in two places
+ * The export button lives in two places
  * (the desktop toolbar in ChatWindow, the mobile top bar in MobileNav) that
  * don't share a component tree — MobileNav renders in the root layout, so it
  * can't read ChatWindow's local state directly. ChatWindow keeps this store

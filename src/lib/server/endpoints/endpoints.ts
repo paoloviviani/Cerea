@@ -17,8 +17,6 @@ export interface EndpointParameters {
 	conversationId?: ObjectId;
 	locals: App.Locals | undefined;
 	abortSignal?: AbortSignal;
-	/** Inference provider preference: "auto", "fastest", "cheapest", or a specific provider name */
-	provider?: string;
 	/** Optional thinking-effort, forwarded as OpenAI `reasoning_effort` when set */
 	reasoningEffort?: "low" | "medium" | "high";
 	/** Per-model user override for reasoning; wins over the model's supportsReasoning flag in both directions */

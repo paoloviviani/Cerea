@@ -1,7 +1,6 @@
 import { effectiveReasoningEffort } from "$lib/server/reasoningEffort";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
-import { config } from "$lib/server/config";
 import { validModelIdSchema } from "$lib/server/models";
 import {
 	conversationOwnerFilter,
@@ -725,18 +724,9 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					// Per-model user override for multimodal/tools, in both directions:
 					// an explicit `false` disables a capability the model advertises,
 					// `true` enables one it does not, and `undefined` keeps the
-					// advertised value. On HuggingChat capability comes from the
-					// upstream router, so any stored per-user overrides are ignored
-					// — existing entries don't keep applying.
-					forceMultimodal: !config.isHuggingChat
-						? userSettings?.multimodalOverrides?.[model.id]
-						: undefined,
-					forceTools: !config.isHuggingChat ? userSettings?.toolsOverrides?.[model.id] : undefined,
-					// Inference provider preference (HuggingChat only, skip for router models)
-					provider:
-						config.isHuggingChat && !model.isRouter
-							? userSettings?.providerOverrides?.[model.id]
-							: undefined,
+					// advertised value.
+					forceMultimodal: userSettings?.multimodalOverrides?.[model.id],
+					forceTools: userSettings?.toolsOverrides?.[model.id],
 					// Thinking-effort override (only forwarded for reasoning-capable models;
 					// per-user override can force-enable on self-hosted).
 					reasoningEffort:
@@ -744,8 +734,6 @@ export async function POST({ request, locals, params, getClientAddress }) {
 							? effectiveReasoningEffort(conv, userSettings, model.id)
 							: undefined,
 					reasoningOverride: userSettings?.reasoningOverrides?.[model.id],
-					// Artifacts aren't provider-determined, so the per-model user
-					// override applies on HuggingChat too
 					artifactsOverride: userSettings?.artifactsOverrides?.[model.id],
 					locals,
 					abortController: ctrl,

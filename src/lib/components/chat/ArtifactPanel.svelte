@@ -20,7 +20,6 @@
 		buildArtifactSrcdoc,
 		capturePreviewError,
 		composeFixRequest,
-		isDeployableKind,
 		normalizePreviewError,
 		PREVIEW_ALLOW,
 		PREVIEW_SANDBOX,
@@ -35,7 +34,6 @@
 	import { pendingComposerPayload } from "$lib/stores/pendingComposerPayload";
 	import { formatScreenshotNotes } from "$lib/utils/screenshotNotes";
 	import { error as errorStore } from "$lib/stores/errors";
-	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
 
@@ -47,7 +45,6 @@
 	import CopyToClipBoardBtn from "../CopyToClipBoardBtn.svelte";
 	import ExternalLinkModal from "../ExternalLinkModal.svelte";
 	import HtmlPreviewModal from "../HtmlPreviewModal.svelte";
-	import DeployToSpaceModal from "./DeployToSpaceModal.svelte";
 	import ScreenshotAnnotationModal from "./ScreenshotAnnotationModal.svelte";
 
 	import CarbonCloseLarge from "~icons/carbon/close-large";
@@ -55,7 +52,6 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import CarbonCamera from "~icons/carbon/camera";
 	import CarbonDownload from "~icons/carbon/download";
-	import CarbonRocket from "~icons/carbon/rocket";
 	import CarbonMaximize from "~icons/carbon/maximize";
 	import CarbonPlayFilledAlt from "~icons/carbon/play-filled-alt";
 	import LucideWrapText from "~icons/lucide/wrap-text";
@@ -648,49 +644,11 @@
 		}
 	}
 
-	// ----- deploy to a Hugging Face Space (HuggingChat only) -----
-	const publicConfig = usePublicConfig();
 	let conversationId = $derived(page.params?.id);
 	let fileDownloadUrl = $derived(
 		fileVersion && conversationId
 			? `${base}/conversation/${conversationId}/code-execution/output/${fileVersion.sha256}`
 			: undefined
-	);
-	let deployModalOpen = $state(false);
-	// Deployments made this session, overlaid on the ones loaded with the page so
-	// the button flips to "Update" right after a successful first deploy. Keyed by
-	// conversation id first: ArtifactPanel is not remounted when only the route
-	// param changes, so a flat map would let a stale entry from one conversation
-	// mask another conversation's artifact that happens to share an identifier
-	// (e.g. the "untitled-artifact" fallback).
-	let sessionDeployments = $state<Record<string, Record<string, { repoId: string; url: string }>>>(
-		{}
-	);
-	let loadedDeployments = $derived(
-		(page.data as { deployedSpaces?: Record<string, { repoId: string }> })?.deployedSpaces ?? {}
-	);
-	let currentDeployment = $derived.by(() => {
-		const id = artifact?.identifier;
-		if (!id) return undefined;
-		const session = conversationId ? sessionDeployments[conversationId]?.[id] : undefined;
-		if (session) return session;
-		const loaded = loadedDeployments[id];
-		return loaded
-			? { repoId: loaded.repoId, url: `https://huggingface.co/spaces/${loaded.repoId}` }
-			: undefined;
-	});
-	function recordDeployment(deployment: { repoId: string; url: string }) {
-		const cid = conversationId;
-		const id = artifact?.identifier;
-		if (!cid || !id) return;
-		sessionDeployments[cid] = { ...(sessionDeployments[cid] ?? {}), [id]: deployment };
-	}
-	let canDeploy = $derived(
-		publicConfig.isHuggingChat &&
-			!!conversationId &&
-			!!version &&
-			version.complete &&
-			isDeployableKind(version.type)
 	);
 
 	const tabBase =
@@ -770,26 +728,6 @@
 
 		<div class="flex flex-none items-center gap-0.5 text-gray-500 dark:text-gray-400">
 			{#if version}
-				<!-- Deploy leads the cluster: it's the promoted action and the only
-				     labeled control here, so keeping it next to the tab switcher leaves
-				     the trailing icons as one uniform icon-only group.
-				     The label rides a container query on the header, not the viewport:
-				     the panel is user-resizable, so only its own width says whether
-				     there's room for it beside the title. Below the threshold it
-				     collapses back to the bare rocket. -->
-				{#if canDeploy}
-					<button
-						type="button"
-						class="btn gap-1 rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 @min-[580px]:pr-2 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-						title={currentDeployment ? "Update Space" : "Deploy to Space"}
-						onclick={() => (deployModalOpen = true)}
-					>
-						<CarbonRocket />
-						<span class="hidden font-medium @min-[580px]:inline">
-							{currentDeployment ? "Update" : "Deploy"}
-						</span>
-					</button>
-				{/if}
 				<CopyToClipBoardBtn
 					value={version.content}
 					classNames="btn rounded-md p-1.5 text-sm hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300 focus:ring-0"
@@ -1125,19 +1063,6 @@
 		dataUrl={pendingScreenshot.dataUrl}
 		onconfirm={attachScreenshot}
 		onclose={() => (pendingScreenshot = null)}
-	/>
-{/if}
-
-{#if deployModalOpen && version && artifact && conversationId}
-	<DeployToSpaceModal
-		{conversationId}
-		artifactIdentifier={artifact.identifier}
-		title={version.title}
-		kind={version.type}
-		content={version.content}
-		existing={currentDeployment}
-		onclose={() => (deployModalOpen = false)}
-		ondeployed={recordDeployment}
 	/>
 {/if}
 

@@ -77,7 +77,6 @@ vi.mock("$lib/server/config", () => ({
 		get USE_USER_TOKEN() {
 			return mocks.useUserToken;
 		},
-		isHuggingChat: false,
 		// A getter, not a value: the flag is a per-test switch (see
 		// mocks.codeToolEnabled), and the mocked config object is shared.
 		get CHAT_CODE_TOOL_ENABLED() {

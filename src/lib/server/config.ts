@@ -45,10 +45,6 @@ class ConfigManager {
 		return serverEnv.ENABLE_CONFIG_MANAGER === "true" && import.meta.env.MODE !== "test";
 	}
 
-	get isHuggingChat() {
-		return this.get("PUBLIC_APP_ASSETS") === "huggingchat";
-	}
-
 	async checkForUpdates() {
 		if (await this.isConfigStale()) {
 			await this.updateConfig();

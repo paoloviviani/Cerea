@@ -14,13 +14,6 @@
 	already running — which is why the button says "Set as default" rather than
 	"Use", and why the card's pill says "Default" rather than "Active".
 
-	One thing from the old settings page is deliberately not carried over:
-	`providerOverrides`, which picks *which HuggingFace Inference Provider*
-	serves a model. It is inherited from upstream and does nothing in a
-	gateway deployment — every call goes to the gateway, and which upstream
-	serves a model is the gateway's decision (ADR 0032). Its UI was already
-	hidden behind `isHuggingChat`. The server-side plumbing is left alone,
-	because it is live on the branch this fork came from.
 -->
 <script lang="ts">
 	import { untrack } from "svelte";

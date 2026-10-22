@@ -31,7 +31,7 @@ const DEFAULT_PUBLIC_CONFIG: Record<string, string> = {
 
 export interface RenderWithAppOptions {
 	page?: AppPageOverrides;
-	/** `PUBLIC_*` values merged over the defaults. `PUBLIC_APP_ASSETS` drives `isHuggingChat`. */
+	/** `PUBLIC_*` values merged over the defaults. */
 	publicConfig?: Record<string, string>;
 	artifacts?: ArtifactsContext;
 	/** Extra context entries, applied last so they win over the defaults. */

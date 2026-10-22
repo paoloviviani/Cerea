@@ -41,7 +41,6 @@
 	import type { TreeNode, TreeId } from "$lib/utils/tree/tree";
 	import "katex/dist/katex.min.css";
 	import { updateDebouncer } from "$lib/utils/updates.js";
-	import SubscribeModal from "$lib/components/SubscribeModal.svelte";
 	import { loading } from "$lib/stores/loading.js";
 	import { streamStart } from "$lib/utils/haptics";
 	import { requireAuthUser } from "$lib/utils/auth.js";
@@ -64,7 +63,6 @@
 	/** A fresh send's text, bound down to ChatWindow when its send fails. */
 	let sendFailedText: string | null = $state(null);
 	let initialRun = true;
-	let showSubscribeModal = $state(false);
 	// Conversation-scoped stop tombstone. A boolean reset on page.params.id
 	// changes resurrects the generating UI: invalidation reassigns page.params,
 	// which clears the flag while the stopped conversation's snapshot is still
@@ -422,9 +420,7 @@
 					noteServerNow(update.serverNow);
 				},
 				onError: (update) => {
-					if (update.statusCode === 402) {
-						showSubscribeModal = true;
-					} else if (
+					if (
 						update.statusCode === 401 &&
 						typeof update.message === "string" &&
 						/oauth authorization|has been revoked|requested scopes/i.test(update.message)
@@ -851,7 +847,3 @@
 	currentModel={findCurrentModel(data.models, data.oldModels, data.model)}
 	conversationTitle={title}
 />
-
-{#if showSubscribeModal}
-	<SubscribeModal close={() => (showSubscribeModal = false)} />
-{/if}

@@ -1,13 +1,9 @@
 <script lang="ts">
-	import { base } from "$app/paths";
-	import { goto } from "$app/navigation";
 	import type { Message } from "$lib/types/Message";
 	import { ToolResultStatus } from "$lib/types/Tool";
 	import { tick } from "svelte";
 	import { finalAnswerAddition } from "$lib/utils/mergeFinalAnswer";
 
-	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
-	const publicConfig = usePublicConfig();
 	import CopyToClipBoardBtn from "../CopyToClipBoardBtn.svelte";
 	import CarbonRotate360 from "~icons/carbon/rotate-360";
 	// import CarbonDownload from "~icons/carbon/download";
@@ -21,7 +17,6 @@
 	import OpenReasoningResults from "./OpenReasoningResults.svelte";
 	import Alternatives from "./Alternatives.svelte";
 	import MessageAvatar from "./MessageAvatar.svelte";
-	import { PROVIDERS_HUB_ORGS } from "@huggingface/inference";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import ToolUpdate from "./ToolUpdate.svelte";
 	import TurnWaitBanner from "./TurnWaitBanner.svelte";
@@ -1154,51 +1149,19 @@
 								{message.routerMetadata.route}
 							</span>
 							<span class="text-gray-500">with</span>
-							{#if publicConfig.isHuggingChat}
-								<!-- A button that navigates rather than a link: it sits
-								     inside the message's footer where a nested anchor
-								     would be invalid, and the workspace address is
-								     where a model's settings live now. -->
-								<button
-									type="button"
-									onclick={() => {
-										const model = message.routerMetadata?.model;
-										if (model)
-											void goto(
-												`${base}/workspace?${new URLSearchParams({ tab: "models", id: model })}`
-											);
-									}}
-									class="flex items-center gap-1 truncate rounded-sm bg-gray-100 px-1 font-mono hover:text-gray-500 @xl:py-px dark:bg-gray-800 dark:hover:text-gray-300"
-								>
-									{message.routerMetadata.model.split("/").pop()}
-								</button>
-							{:else}
-								<span
-									class="truncate rounded-sm bg-gray-100 px-1.5 font-mono @xl:py-px dark:bg-gray-800"
-								>
-									{message.routerMetadata.model.split("/").pop()}
-								</span>
-							{/if}
+							<span
+								class="truncate rounded-sm bg-gray-100 px-1.5 font-mono @xl:py-px dark:bg-gray-800"
+							>
+								{message.routerMetadata.model.split("/").pop()}
+							</span>
 						{/if}
 						{#if message.routerMetadata.provider}
-							{@const hubOrg =
-								PROVIDERS_HUB_ORGS[
-									message.routerMetadata.provider as keyof typeof PROVIDERS_HUB_ORGS
-								]}
 							<span class="text-gray-500 @max-xl:hidden">via</span>
-							<a
-								target="_blank"
-								href="https://huggingface.co/{hubOrg}"
-								class="flex items-center gap-1 truncate rounded-sm bg-gray-100 px-1 font-mono hover:text-gray-500 @max-xl:hidden @xl:py-px dark:bg-gray-800 dark:hover:text-gray-300"
+							<span
+								class="truncate rounded-sm bg-gray-100 px-1 font-mono @max-xl:hidden @xl:py-px dark:bg-gray-800"
 							>
-								<img
-									src="https://huggingface.co/api/avatars/{hubOrg}"
-									alt="{message.routerMetadata.provider} logo"
-									class="size-2.5 flex-none rounded-xs"
-									onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
-								/>
 								{message.routerMetadata.provider}
-							</a>
+							</span>
 						{/if}
 					</div>
 				{/if}
