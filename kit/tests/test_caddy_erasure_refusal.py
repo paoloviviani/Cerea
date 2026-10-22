@@ -35,6 +35,10 @@ class CaddyErasureRefusalTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        # Pull first, on its own generous timeout: a cold image cache (after a
+        # `docker image prune`, or on a fresh runner) made the 30 s start below
+        # also cover the download, and the class errored now and then.
+        subprocess.run(["docker", "pull", "-q", IMAGE], check=True, capture_output=True, timeout=600)
         cls.port = _free_port()
         subprocess.run(["docker", "rm", "-f", CONTAINER], capture_output=True, timeout=15)
         subprocess.run(

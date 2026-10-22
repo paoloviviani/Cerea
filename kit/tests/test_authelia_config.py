@@ -54,6 +54,12 @@ class AutheliaConfigTests(unittest.TestCase):
     throwaway JWKS key and SMTP password file under a temp /config -- the
     two paths configuration.yml's own `secret` calls name."""
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Pull once, on its own generous timeout, so a cold image cache does
+        # not count against each test's 60 s `docker run`.
+        subprocess.run(["docker", "pull", "-q", IMAGE], check=True, capture_output=True, timeout=600)
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.config_dir = Path(self.tmp.name)
