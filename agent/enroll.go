@@ -22,8 +22,14 @@ Usage:
                 [--device | --loopback] [--device-endpoint URL]
                 [--group NAME | --default-group] [--output PATH]
                 [--creds PATH] [--shim-port PORT] [--no-discover]
-                [--allow-opencode-provider] [--yes]
+                [--allow-opencode-provider] [--connectors-only] [--yes]
 
+  --connectors-only  This machine only offers its local MCP servers (mcp.json)
+               to the chat, with no coding agent. It signs in the same way but
+               writes no opencode config and needs no gateway or billing group;
+               a plain 'galopin run' then runs connectors-only. Without the
+               flag the machine is an agent machine (opencode). See
+               docs/local-connectors.md.
   --issuer     OIDC issuer where discovery lives (prompted when missing).
   --gateway    Gateway origin or /v1 base, e.g. https://llm.example.org
                (a bare origin gets /v1 appended; prompted when missing).
@@ -158,6 +164,8 @@ re-enroll: run 'galopin models refresh'.
 const defaultShimPort = 41871
 
 type enrollOptions struct {
+	// mode is "agent" or "connectors" (PROTOCOL.md §10.2).
+	connectorsOnly bool
 	issuer         string
 	gateway        string
 	cerea          string
@@ -226,6 +234,7 @@ func (f stringListFlag) Set(v string) error {
 // dialog, and enroll_flags_test.go fails when the two differ.
 func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) {
 	fs = flagSetWithHelp("enroll", enrollUsage)
+	fs.BoolVar(&opts.connectorsOnly, "connectors-only", false, "")
 	fs.StringVar(&opts.issuer, "issuer", "", "")
 	fs.StringVar(&opts.gateway, "gateway", "", "")
 	fs.StringVar(&opts.cerea, "cerea", "", "")
@@ -372,16 +381,24 @@ func applyRecordedDefaults(opts *enrollOptions, set map[string]bool) bool {
 }
 
 func enroll(ctx context.Context, opts *enrollOptions) error {
-	// The opencode.json lives beside the credentials unless --output says
-	// otherwise, and its absolute path is what gets recorded for 'run'.
-	if opts.output == "" {
-		opts.output = defaultOpencodeConfigPath(opts.creds)
+	// A connectors machine (PROTOCOL.md §10.2) takes the same sign-in and
+	// credential, and nothing of opencode: no config, no gateway, no group.
+	connectors := opts.connectorsOnly
+	var err error
+	if !connectors {
+		// The opencode.json lives beside the credentials unless --output says
+		// otherwise, and its absolute path is what gets recorded for 'run'.
+		if opts.output == "" {
+			opts.output = defaultOpencodeConfigPath(opts.creds)
+		}
+		outputAbs, err := filepath.Abs(opts.output)
+		if err != nil {
+			return fmt.Errorf("resolving --output: %w", err)
+		}
+		opts.output = outputAbs
+	} else {
+		opts.output = ""
 	}
-	outputAbs, err := filepath.Abs(opts.output)
-	if err != nil {
-		return fmt.Errorf("resolving --output: %w", err)
-	}
-	opts.output = outputAbs
 	issuer := opts.issuer
 	if issuer == "" {
 		answer, err := promptRequired("OIDC issuer URL (where discovery lives): ")
@@ -392,9 +409,12 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	}
 	issuer = strings.TrimSuffix(issuer, "/")
 
-	gateway, err := normalizeGateway(opts.gateway)
-	if err != nil {
-		return err
+	gateway := ""
+	if !connectors {
+		gateway, err = normalizeGateway(opts.gateway)
+		if err != nil {
+			return err
+		}
 	}
 
 	doc, err := fetchDiscovery(ctx, issuer)
@@ -426,7 +446,9 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	}
 
 	group := ""
-	if opts.defaultGroup {
+	if connectors {
+		// No gateway, no billing group.
+	} else if opts.defaultGroup {
 		if err := requireDefaultGroup(ctx, gateway, tokens.AccessToken); err != nil {
 			return err
 		}
@@ -438,7 +460,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	}
 
 	var models []gatewayModel
-	if opts.discover {
+	if opts.discover && !connectors {
 		// After pickGroup on purpose: the chosen group is what the listing
 		// must be filtered by, or enroll writes the default group's models.
 		models = fetchModels(ctx, gateway, tokens.AccessToken, group)
@@ -449,17 +471,21 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 		}
 	}
 
-	shimAddr, shimPort, err := pickShimAddr(opts.shimPort)
-	if err != nil {
-		return err
-	}
+	var shimAddr, shimSecret string
+	var shimPort int
+	if !connectors {
+		shimAddr, shimPort, err = pickShimAddr(opts.shimPort)
+		if err != nil {
+			return err
+		}
 
-	// C3: a fresh per-install secret every enroll, never reused across
-	// machines or re-enrollments — opencode's config and this one gateway
-	// bearer are the only two places it is ever written.
-	shimSecret, err := randomHex(32)
-	if err != nil {
-		return fmt.Errorf("minting shim secret: %w", err)
+		// C3: a fresh per-install secret every enroll, never reused across
+		// machines or re-enrollments — opencode's config and this one gateway
+		// bearer are the only two places it is ever written.
+		shimSecret, err = randomHex(32)
+		if err != nil {
+			return fmt.Errorf("minting shim secret: %w", err)
+		}
 	}
 
 	if err := confirmOverwrite(opts.output, opts.creds, opts.yes); err != nil {
@@ -483,8 +509,14 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 		CereaOrigin:        strings.TrimSuffix(opts.cerea, "/"),
 		OpencodeConfig:     opts.output,
 	}
+	if connectors {
+		creds.Mode = modeConnectors
+	}
 	if err := saveCredentials(opts.creds, creds); err != nil {
 		return err
+	}
+	if connectors {
+		return finishConnectorsEnroll(opts)
 	}
 	ocConfig := buildOpencodeConfig(shimAddr, shimSecret, models, opts.allowOpencodeProviders, opts.allowFreeModels)
 	ocConfig.Permission = staticPermission()
@@ -878,4 +910,21 @@ func enrollSafeDirs(opts *enrollOptions) (*[]string, error) {
 		}
 	}
 	return &out, nil
+}
+
+// modeConnectors is the credential's recorded mode for a machine enrolled
+// with --connectors-only; a plain 'run' then runs connectors-only.
+const modeConnectors = "connectors"
+
+// finishConnectorsEnroll is the end of enroll for a connectors machine: a new
+// machine id (a new pending device in the chat) and the next steps.
+func finishConnectorsEnroll(opts *enrollOptions) error {
+	if _, err := rotateMachineID(filepath.Dir(opts.creds)); err != nil {
+		return fmt.Errorf("minting a new machine id: %w", err)
+	}
+	dir := filepath.Dir(opts.creds)
+	fmt.Fprintf(os.Stderr, "enrolled as a connectors machine: credentials %s; no opencode config was written.\n", opts.creds)
+	fmt.Fprintf(os.Stderr, "next: put your MCP servers in %s (the format Claude Desktop and Claude Code use),\n", filepath.Join(dir, mcpConfigFileName))
+	fmt.Fprintf(os.Stderr, "      run 'galopin run', then approve this machine under Local connectors in the chat.\n")
+	return nil
 }

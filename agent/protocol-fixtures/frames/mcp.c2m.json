@@ -1,0 +1,21 @@
+{
+	"_meta": {
+		"spec": "§10.3",
+		"direction": "C→M"
+	},
+	"frame": {
+		"type": "mcp",
+		"channelId": "ch_7f3a",
+		"message": {
+			"jsonrpc": "2.0",
+			"id": 3,
+			"method": "tools/call",
+			"params": {
+				"name": "read_file",
+				"arguments": {
+					"path": "todo.md"
+				}
+			}
+		}
+	}
+}

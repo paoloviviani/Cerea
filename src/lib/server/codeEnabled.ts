@@ -22,6 +22,18 @@ export function codeAgentsEnabled(): boolean {
 }
 
 /**
+ * Local MCP connectors (`LOCAL_CONNECTORS_ENABLED`, ADR 0102): servers that run on a person's
+ * own machine, offered to that person's chat over the machine link.
+ *
+ * On only when exactly `"true"`, like the agents switch, and independent of it: a deployment can
+ * serve connectors machines without the Agents panel. Off, the machine endpoint refuses a
+ * connectors-mode machine, the Local connectors tab is hidden and nothing local reaches a turn.
+ */
+export function localConnectorsEnabled(): boolean {
+	return config.LOCAL_CONNECTORS_ENABLED === "true";
+}
+
+/**
  * Whether *this person* may use the `/code` panel (ADR 0096).
  *
  * `codeAgentsEnabled()` is the outer switch and always wins: off is off for

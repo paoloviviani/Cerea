@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§10.3",
+		"direction": "M→C",
+		"op": "mcp.open"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r2",
+		"ok": true,
+		"result": {
+			"channelId": "ch_7f3a"
+		}
+	}
+}

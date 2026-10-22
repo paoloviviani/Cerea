@@ -3,6 +3,7 @@ import type { Client } from "@modelcontextprotocol/client";
 import { createMcpClient, type McpClientKind } from "./client";
 import type { McpServerConfig } from "./httpClient";
 import { mcpFetch } from "$lib/server/urlSafety";
+import { isLocalServerUrl } from "./localUrl";
 
 type PoolEntry = {
 	client: Client;
@@ -68,6 +69,33 @@ function keyOf(server: McpServerConfig, isolation?: string, kind: McpClientKind 
 	return `${server.url}|${headers}|${isolation ?? ""}|${kind}`;
 }
 
+/**
+ * A client on a channel of the person's own machine (ADR 0102): never the HTTP and SSE
+ * fallbacks, which mean nothing for it. Negotiates the protocol era like any other client; one
+ * that times out on the probe (a silent stdio server) is retried once without it.
+ */
+async function connectLocal(url: string, kind: McpClientKind): Promise<Client> {
+	// Imported on demand: the machine link pulls in the database, which a pool user that never
+	// meets a local server should not need.
+	const { createLocalTransport } = await import("./localTransport");
+	const attempt = async (negotiate: boolean) => {
+		const client = createMcpClient(kind, { negotiate });
+		try {
+			await client.connect(await createLocalTransport(url));
+		} catch (err) {
+			await client.close?.().catch(() => {});
+			throw err;
+		}
+		return client;
+	};
+	try {
+		return await attempt(true);
+	} catch (err) {
+		if (!/time(d)? ?out/i.test(err instanceof Error ? err.message : String(err))) throw err;
+		return attempt(false);
+	}
+}
+
 export async function getClient(
 	server: McpServerConfig,
 	signal?: AbortSignal,
@@ -75,7 +103,14 @@ export async function getClient(
 	kind: McpClientKind = "session"
 ): Promise<Client> {
 	const key = keyOf(server, isolation, kind);
-	const existing = pool.get(key);
+	let existing = pool.get(key);
+	if (existing && isLocalServerUrl(server.url) && !existing.client.transport) {
+		// Its connection ended since the last use (a local server's channel closed, the machine
+		// dropped): nothing to ping, and handing it out would fail the caller. Start afresh.
+		pool.delete(key);
+		entries.delete(existing.client);
+		existing = undefined;
+	}
 	if (existing) {
 		if (Date.now() - existing.lastUsedAt <= PING_AFTER_IDLE_MS) {
 			existing.lastUsedAt = Date.now();
@@ -91,6 +126,15 @@ export async function getClient(
 			if (pool.get(key) === existing) pool.delete(key);
 			existing.client.close?.().catch(() => {});
 		}
+	}
+
+	if (isLocalServerUrl(server.url)) {
+		const client = await connectLocal(server.url, kind);
+		const entry: PoolEntry = { client, lastUsedAt: Date.now(), activeCalls: 0 };
+		pool.set(key, entry);
+		entries.set(client, entry);
+		ensureSweeper();
+		return client;
 	}
 
 	let firstError: unknown;

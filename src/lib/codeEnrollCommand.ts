@@ -118,3 +118,38 @@ export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	steps.push(enroll, `${GALOPIN_BIN} run`);
 	return steps.join(" &&\n");
 }
+
+export interface ConnectorsEnrollOptions {
+	/** This deployment's own address, base path included (`PublicConfig`'s `origin`). */
+	origin: string;
+	/** The chat's own OIDC issuer (`codeOidcIssuerUrl`). */
+	issuer: string;
+	/** `codeOidcClientId`; left out of the command when it is the default. */
+	clientId?: string;
+}
+
+/**
+ * The three steps of connecting a machine that only serves local MCP servers (ADR 0102), each
+ * as its own copyable command: install galopin from this deployment's own `/galopin/` download,
+ * enroll it as a connectors machine against this deployment's issuer, and run it with no coding
+ * agent. A connectors machine needs no gateway, no billing group and no opencode, so none of
+ * the agent command's flags appear. The `enroll` flags are one per line, like the agent
+ * command's.
+ */
+export function buildConnectorsCommands(opts: ConnectorsEnrollOptions): {
+	install: string;
+	enroll: string;
+	run: string;
+} {
+	const origin = opts.origin.replace(/\/+$/, "");
+	const flags: string[] = ["--connectors-only"];
+	flags.push(`--issuer ${quoteShellArg(opts.issuer)}`);
+	flags.push(`--cerea ${quoteShellArg(origin)}`);
+	const clientId = opts.clientId?.trim() || DEFAULT_CODE_CLIENT_ID;
+	if (clientId !== DEFAULT_CODE_CLIENT_ID) flags.push(`--client-id ${quoteShellArg(clientId)}`);
+	return {
+		install: `curl -fsSL ${quoteShellArg(`${origin}/galopin/install.sh`)} | sh`,
+		enroll: [`${GALOPIN_BIN} enroll`, ...flags].join(CONT),
+		run: `${GALOPIN_BIN} run`,
+	};
+}

@@ -3,6 +3,7 @@ import { collections } from "$lib/server/database";
 import { MessageUpdateType, type MessageUpdate } from "$lib/types/MessageUpdate";
 import { getMcpServers } from "$lib/server/mcp/registry";
 import { isValidUrl } from "$lib/server/urlSafety";
+import { isLocalServerUrl } from "$lib/server/mcp/localUrl";
 import { getOpenAiToolsForMcp } from "$lib/server/mcp/tools";
 import type {
 	ChatCompletionChunk,
@@ -342,7 +343,9 @@ export async function* runMcpFlow({
 		const before = servers.slice();
 		servers = servers.filter((s) => {
 			try {
-				return isValidUrl(s.url, { allowInsecure: true });
+				// A local connector's address is internal (`machine://`, produced only by the
+				// selection resolution) and is checked by its opener, not by this public-URL rule.
+				return isLocalServerUrl(s.url) || isValidUrl(s.url, { allowInsecure: true });
 			} catch {
 				return false;
 			}

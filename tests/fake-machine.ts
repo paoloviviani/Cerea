@@ -15,6 +15,8 @@
  */
 import { WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
+import type { Transport } from "@modelcontextprotocol/server";
+import { McpServer, fromJsonSchema } from "@modelcontextprotocol/server";
 import { COORDINATION_KEYS, OpError } from "../src/lib/types/machineProtocol";
 import type {
 	Backend,
@@ -150,6 +152,54 @@ export interface FakeMachineOptions {
 	/** Whether this galopin knows the `profiles.*` ops (default true): false
 	 * answers both `unsupported`, as a galopin from before them does. */
 	delegateProfiles?: boolean;
+	/** MCP servers this machine serves (§10): `mcp.list/open/close/login/loginComplete` and the
+	 * `mcp` frames are answered for them. A connectors machine also sets `machine.mode`. */
+	mcp?: FakeMcpOptions;
+}
+
+/** One MCP server a fake machine serves (PROTOCOL.md §10): a real SDK server behind each open
+ * channel, so a Cerea client really initializes, lists and calls over the `mcp` frames. */
+export interface FakeMcpServer {
+	name: string;
+	transport?: "stdio" | "http" | "sse";
+	description?: string;
+	state?: "ready" | "disabled" | "invalid" | "needs-login";
+	detail?: string;
+	allowedTools?: string[];
+	/** Tools to register: each answers its text, or throws for `isError`. */
+	tools?: Array<{
+		name: string;
+		description?: string;
+		/** Raw JSON Schema of the arguments. */
+		inputSchema?: Record<string, unknown>;
+		handler: (args: Record<string, unknown>) => string | Promise<string>;
+	}>;
+	/** Called on each new channel's server, e.g. to ask for an elicitation inside a tool. */
+	onServer?: (server: McpServer, channelId: string) => void;
+}
+
+export interface FakeMcpOptions {
+	servers: FakeMcpServer[];
+	/** What `mcp.login` answers (default: an https authorization URL carrying `state`). */
+	authorizationUrl?: string;
+}
+
+/** The server side of one channel: sends over the machine's socket, receives from it. */
+class FrameServerTransport implements Transport {
+	onclose?: () => void;
+	onerror?: (error: Error) => void;
+	onmessage?: Transport["onmessage"];
+	constructor(private readonly sendFrame: (message: unknown) => void) {}
+	async start(): Promise<void> {}
+	async send(message: Parameters<Transport["send"]>[0]): Promise<void> {
+		this.sendFrame(message);
+	}
+	async close(): Promise<void> {
+		this.onclose?.();
+	}
+	deliver(message: unknown): void {
+		this.onmessage?.(message as never);
+	}
 }
 
 const DEFAULT_BACKEND: Backend = {
@@ -207,6 +257,17 @@ export class FakeMachine {
 	/** `welcome.features` as Cerea sent it (absent from an older Cerea). */
 	features: { machineCalls?: string[] } | undefined;
 	private callWaiters = new Map<string, (res: CallResFrame) => void>();
+	/** Open MCP channels (§10.3): the real SDK server behind each, by channel id. */
+	private mcpChannels = new Map<
+		string,
+		{ server: McpServer; transport: FrameServerTransport; name: string }
+	>();
+	private mcpCounter = 0;
+	/** Every `tools/call` an MCP server of this machine ran: server, tool, arguments. */
+	readonly mcpToolCalls: Array<{ server: string; tool: string; args: Record<string, unknown> }> =
+		[];
+	/** Every `mcp.loginComplete` Cerea sent. */
+	readonly mcpLogins: Array<{ server: string; code: string; state: string }> = [];
 
 	constructor(
 		url: string,
@@ -485,6 +546,10 @@ export class FakeMachine {
 			void this.handleReq(parsed as ReqFrame);
 			return;
 		}
+		if (frame.type === "mcp") {
+			this.handleMcpFrame(parsed as unknown as { channelId: string; message?: unknown });
+			return;
+		}
 		if (frame.type === "callres") {
 			const res = parsed as CallResFrame;
 			const waiter = this.callWaiters.get(res.id);
@@ -495,6 +560,125 @@ export class FakeMachine {
 		if (frame.type === "auth" || frame.type === "status") {
 			return; // nothing to do for a fake machine
 		}
+	}
+
+	/** C→M `mcp` frame: deliver to the channel's server, or answer `closed` for an unknown one
+	 * (§10.3). */
+	private handleMcpFrame(frame: { channelId: string; message?: unknown }): void {
+		const channel = this.mcpChannels.get(frame.channelId);
+		if (!channel) {
+			this.ws.send(
+				JSON.stringify({
+					type: "mcp",
+					channelId: frame.channelId,
+					closed: { reason: "closed", detail: null },
+				})
+			);
+			return;
+		}
+		channel.transport.deliver(frame.message);
+	}
+
+	/** End a channel from the machine's side (§10.3 `closed`): the server's process died, the
+	 * channel idled out. Whatever Cerea has pending on it must fail. */
+	closeMcpChannel(
+		channelId: string,
+		reason: "exited" | "crashed" | "idle" | "closed" | "config" = "crashed",
+		detail: string | null = null
+	): void {
+		this.mcpChannels.delete(channelId);
+		this.ws.send(JSON.stringify({ type: "mcp", channelId, closed: { reason, detail } }));
+	}
+
+	/** Channel ids currently open. */
+	openMcpChannels(): string[] {
+		return [...this.mcpChannels.keys()];
+	}
+
+	/** Send an unsolicited JSON-RPC message from a channel's server (a notification, say). */
+	pushMcpMessage(channelId: string, message: unknown): void {
+		this.ws.send(JSON.stringify({ type: "mcp", channelId, message }));
+	}
+
+	private mcpAnswer(op: string, args: unknown): unknown {
+		const spec = this.options.mcp;
+		if (!spec) throw new OpError("unsupported", `unknown op "${op}"`);
+		const find = (name: string) => spec.servers.find((s) => s.name === name);
+		switch (op) {
+			case "mcp.list":
+				return {
+					servers: spec.servers.map((s) => ({
+						name: s.name,
+						transport: s.transport ?? "stdio",
+						description: s.description ?? null,
+						state: s.state ?? "ready",
+						detail: s.detail ?? null,
+						allowedTools: s.allowedTools ?? null,
+						openChannels: [...this.mcpChannels.values()].filter((c) => c.name === s.name).length,
+					})),
+				};
+			case "mcp.open": {
+				const { server: name } = args as { server: string };
+				const def = find(name);
+				if (!def) throw new OpError("not_found", `no server "${name}"`);
+				if ((def.state ?? "ready") !== "ready") {
+					throw new OpError("forbidden", `"${name}" is ${def.state}`);
+				}
+				const channelId = `ch_${++this.mcpCounter}`;
+				const server = new McpServer(
+					{ name: `fake-${name}`, version: "1.0.0" },
+					{ capabilities: { tools: {} } }
+				);
+				for (const tool of def.tools ?? []) {
+					server.registerTool(
+						tool.name,
+						{
+							description: tool.description,
+							inputSchema: fromJsonSchema<Record<string, unknown>>(
+								tool.inputSchema ?? { type: "object", properties: {} }
+							),
+						},
+						async (toolArgs: Record<string, unknown>) => {
+							this.mcpToolCalls.push({ server: name, tool: tool.name, args: toolArgs });
+							return { content: [{ type: "text" as const, text: await tool.handler(toolArgs) }] };
+						}
+					);
+				}
+				def.onServer?.(server, channelId);
+				const transport = new FrameServerTransport((message) =>
+					this.ws.send(JSON.stringify({ type: "mcp", channelId, message }))
+				);
+				this.mcpChannels.set(channelId, { server, transport, name });
+				void server.connect(transport);
+				return { channelId };
+			}
+			case "mcp.close": {
+				const { channelId } = args as { channelId: string };
+				this.mcpChannels.delete(channelId);
+				return {};
+			}
+			case "mcp.login": {
+				const { server: name, redirectUri } = args as { server: string; redirectUri: string };
+				const def = find(name);
+				if (!def) throw new OpError("not_found", `no server "${name}"`);
+				if (def.state !== "needs-login") throw new OpError("invalid", `"${name}" needs no sign-in`);
+				return {
+					authorizationUrl:
+						spec.authorizationUrl ??
+						`https://auth.example.com/authorize?response_type=code&client_id=dyn_42&redirect_uri=${encodeURIComponent(redirectUri)}&state=st_${name}_${randomUUID()}`,
+				};
+			}
+			case "mcp.loginComplete": {
+				const a = args as { server: string; code: string; state: string };
+				const def = find(a.server);
+				if (!def) throw new OpError("not_found", `no server "${a.server}"`);
+				if (a.code === "bad") throw new OpError("backend", "the token endpoint refused the code");
+				this.mcpLogins.push(a);
+				def.state = "ready";
+				return {};
+			}
+		}
+		throw new OpError("unsupported", `unknown op "${op}"`);
 	}
 
 	private async handleReq(req: ReqFrame): Promise<void> {
@@ -524,6 +708,11 @@ export class FakeMachine {
 	 * enough for a forwarder/bridge test that just needs plausible, mutable
 	 * state, without every test writing its own handler. */
 	private defaultAnswer(op: string, args: unknown): unknown {
+		if (op.startsWith("mcp.")) return this.mcpAnswer(op, args);
+		// A connectors machine answers every other op `unsupported` (PROTOCOL.md §10.2).
+		if (this.options.machine?.mode === "connectors") {
+			throw new OpError("unsupported", `unknown op "${op}"`);
+		}
 		const model = this.model;
 		switch (op) {
 			case "workspace.list":

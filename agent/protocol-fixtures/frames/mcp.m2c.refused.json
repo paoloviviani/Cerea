@@ -1,0 +1,20 @@
+{
+	"_meta": {
+		"spec": "§10.4",
+		"direction": "M→C",
+		"variant": "refused",
+		"note": "galopin's own answer to a tools/call outside allowedTools"
+	},
+	"frame": {
+		"type": "mcp",
+		"channelId": "ch_7f3a",
+		"message": {
+			"jsonrpc": "2.0",
+			"id": 4,
+			"error": {
+				"code": -32001,
+				"message": "this tool is not allowed on this machine"
+			}
+		}
+	}
+}

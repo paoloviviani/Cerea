@@ -17,6 +17,7 @@ import (
 	"galopin/internal/backend"
 	"galopin/internal/files"
 	"galopin/internal/link"
+	"galopin/internal/mcpconn"
 	"galopin/internal/policy"
 	"galopin/internal/protofix"
 	"galopin/internal/terminal"
@@ -649,6 +650,20 @@ func resultTarget(op string) any {
 		return &struct {
 			Applied bool `json:"applied"`
 		}{}
+	case "mcp.list":
+		return &struct {
+			Servers []mcpconn.ServerView `json:"servers"`
+		}{}
+	case "mcp.open":
+		return &struct {
+			ChannelID string `json:"channelId"`
+		}{}
+	case "mcp.login":
+		return &struct {
+			AuthorizationURL string `json:"authorizationUrl"`
+		}{}
+	case "mcp.close", "mcp.loginComplete":
+		return &fxEmptyResult{}
 	case "workspace.archive", "session.prompt", "session.command", "session.cancel", "session.archive",
 		"session.delete", "session.setPermissionMode", "permission.saved.remove", "question.reply",
 		"session.compact", "session.revert", "session.unrevert", "terminal.detach", "terminal.close":
@@ -687,6 +702,8 @@ func TestProtocolFixturesDecodeIntoGoStructs(t *testing.T) {
 				checkEvent(t, f.File, e.Event)
 			case "notice":
 				checkNotice(t, f)
+			case "mcp":
+				checkMcpFrame(t, f)
 			case "res":
 				checkRes(t, f, h)
 			case "call", "callres", "req", "welcome", "status", "credential", "auth":
@@ -696,6 +713,45 @@ func TestProtocolFixturesDecodeIntoGoStructs(t *testing.T) {
 				t.Fatalf("frame type %q has no check here", h.Type)
 			}
 		})
+	}
+}
+
+// checkMcpFrame: an mcp frame (PROTOCOL.md §10.3) carries a channel and
+// exactly one of a JSON-RPC message and a closed object; the closed object
+// re-marshals from Go's shape, a null detail included.
+func checkMcpFrame(t *testing.T, f protofix.Fixture) {
+	t.Helper()
+	var m struct {
+		ChannelID string          `json:"channelId"`
+		Message   json.RawMessage `json:"message"`
+		Closed    *struct {
+			Reason string  `json:"reason"`
+			Detail *string `json:"detail"`
+		} `json:"closed"`
+	}
+	if err := protofix.DecodeStrict(protofix.Strip(f.Frame, "type"), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.ChannelID == "" || (m.Message == nil) == (m.Closed == nil) {
+		t.Fatalf("an mcp frame has a channelId and one of message and closed: %s", f.Frame)
+	}
+	if m.Closed != nil {
+		switch m.Closed.Reason {
+		case "exited", "crashed", "idle", "closed", "config":
+		default:
+			t.Fatalf("closed reason %q", m.Closed.Reason)
+		}
+		out, _ := json.Marshal(m.Closed)
+		if err := protofix.Same(protofix.Field(f.Frame, "closed"), out); err != nil {
+			t.Fatalf("closed does not reproduce the fixture: %v", err)
+		}
+		return
+	}
+	var rpc struct {
+		JSONRPC string `json:"jsonrpc"`
+	}
+	if err := json.Unmarshal(m.Message, &rpc); err != nil || rpc.JSONRPC != "2.0" {
+		t.Fatalf("message is not JSON-RPC 2.0: %s", m.Message)
 	}
 }
 
@@ -1022,5 +1078,57 @@ func TestGoValuesMarshalToTheSpecFixtures(t *testing.T) {
 		if err := protofix.Same(c.want, out); err != nil {
 			t.Errorf("%s: %v", c.name, err)
 		}
+	}
+}
+
+// A connectors machine's hello (galopin run --connectors-only) has the shape of
+// hello.connectors.json: no backends, mode connectors, the same capability
+// keys with only mcp true, the same policy keys, and no null.
+func TestConnectorsHelloMatchesItsFixture(t *testing.T) {
+	var fixture link.Hello
+	var fixtureFrame json.RawMessage
+	for _, f := range protofix.Load(t) {
+		if f.File == "frames/hello.connectors.json" {
+			fixtureFrame = f.Frame
+			if err := protofix.DecodeStrict(protofix.Strip(f.Frame, "type", "protocol", "credential"), &fixture); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	built := buildConnectorsHello(policy.Policy{})
+	body, _ := json.Marshal(built)
+	if protofix.ContainsNull(body) {
+		t.Errorf("connectors hello carries a null: %s", body)
+	}
+	if built.Machine.Mode != fixture.Machine.Mode || len(built.Backends) != 0 || built.Backends == nil {
+		t.Errorf("mode %q backends %#v", built.Machine.Mode, built.Backends)
+	}
+	want, got := map[string]bool{}, map[string]bool{}
+	for k, v := range built.Machine.Capabilities {
+		want[k] = true
+		if v != (k == "mcp") {
+			t.Errorf("capability %s = %v", k, v)
+		}
+	}
+	for k := range fixture.Machine.Capabilities {
+		got[k] = true
+	}
+	if missing, extra := fxDiffSets(want, got); len(missing)+len(extra) > 0 {
+		t.Errorf("capabilities: fixture lacks %v, fixture has %v that buildConnectorsHello does not send", missing, extra)
+	}
+	var wantPolicy, gotPolicy map[string]json.RawMessage
+	_ = json.Unmarshal(protofix.Field(fixtureFrame, "policy"), &wantPolicy)
+	_ = json.Unmarshal(protofix.Field(body, "policy"), &gotPolicy)
+	pw, pg := map[string]bool{}, map[string]bool{}
+	for k := range wantPolicy {
+		pw[k] = true
+	}
+	for k := range gotPolicy {
+		pg[k] = true
+	}
+	delete(pw, "warnings") // optional
+	delete(pg, "warnings")
+	if missing, extra := fxDiffSets(pw, pg); len(missing)+len(extra) > 0 {
+		t.Errorf("policy keys: fixture has %v that the hello lacks, hello has %v the fixture lacks", missing, extra)
 	}
 }

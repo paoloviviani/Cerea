@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§10.3",
+		"direction": "M→C",
+		"op": "mcp.list",
+		"variant": "empty"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"servers": []
+		}
+	}
+}

@@ -1,0 +1,13 @@
+{
+	"_meta": {
+		"spec": "§10.3",
+		"direction": "M→C",
+		"op": "mcp.close"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r3",
+		"ok": true,
+		"result": {}
+	}
+}

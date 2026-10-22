@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§10.3",
+		"direction": "C→M",
+		"op": "mcp.open"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r2",
+		"op": "mcp.open",
+		"args": {
+			"server": "notes"
+		}
+	}
+}

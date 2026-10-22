@@ -17,6 +17,8 @@ import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { bearerFor } from "./oauth";
+import { resolveLocalSelection } from "./local";
+import { withoutLocalUrls } from "./localUrl";
 import type { McpConnector } from "$lib/types/McpConnector";
 import type { McpTurnSelection } from "$lib/types/Conversation";
 
@@ -129,7 +131,9 @@ export function withoutClientCredentials(
 			"mcp_client_headers_ignored: add these as connectors so the credential lives server-side"
 		);
 	}
-	return sent.map(({ name, url }) => ({ name, url }));
+	// A `machine://` address names a channel to somebody's own machine: only the selection
+	// resolution below may produce one, never a browser.
+	return withoutLocalUrls(sent).map(({ name, url }) => ({ name, url }));
 }
 
 /** The `locals.mcp` a turn runs with (read by `runMcpFlow`). */
@@ -168,16 +172,31 @@ export async function mcpLocalsFor(
 		);
 	}
 
+	// Servers on the person's own machines (ADR 0102), by id like any connector. An offline
+	// machine is left out and said so, never waited for.
+	const local = userId
+		? await resolveLocalSelection({ connectorIds: selection.connectorIds, userId }).catch((err) => {
+				logger.warn({ err: String(err) }, "mcp_local_selection_failed");
+				return { servers: [], unavailable: [] };
+			})
+		: { servers: [], unavailable: [] };
+
 	return {
 		// Told to the model this turn (`runMcpFlow`), so it says the
 		// connector needs attention instead of improvising its tools.
-		unavailable: resolved.needAuthorization.map((name) => ({
-			name,
-			reason: "not signed in, or its token is missing",
-		})),
-		selectedServerNames: selection.serverNames,
+		unavailable: [
+			...resolved.needAuthorization.map((name) => ({
+				name,
+				reason: "not signed in, or its token is missing",
+			})),
+			...local.unavailable,
+		],
+		// A local server was chosen by id, so it is in the turn whatever names the browser listed.
+		selectedServerNames: selection.serverNames
+			? [...selection.serverNames, ...local.servers.map((server) => server.name)]
+			: undefined,
 		selectedServers: [
-			...selection.customServers.map(({ name, url }) => ({ name, url })),
+			...withoutLocalUrls(selection.customServers).map(({ name, url }) => ({ name, url })),
 			// Connectors **last**, because `runMcpFlow` deduplicates by name
 			// and the later entry wins. Two of these can share a name — a
 			// connector called "Notion" beside a stale custom server of the
@@ -185,6 +204,7 @@ export async function mcpLocalsFor(
 			// survive is the one carrying a credential this browser never
 			// held.
 			...resolved.servers,
+			...local.servers,
 		],
 	};
 }

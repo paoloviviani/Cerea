@@ -1,0 +1,29 @@
+{
+	"_meta": {
+		"spec": "§10.3, §10.5",
+		"direction": "M→C",
+		"variant": "server-request",
+		"note": "elicitation from the server, answered by Cerea over C→M"
+	},
+	"frame": {
+		"type": "mcp",
+		"channelId": "ch_7f3a",
+		"message": {
+			"jsonrpc": "2.0",
+			"id": "s1",
+			"method": "elicitation/create",
+			"params": {
+				"message": "Which folder?",
+				"requestedSchema": {
+					"type": "object",
+					"properties": {
+						"folder": {
+							"type": "string"
+						}
+					},
+					"required": ["folder"]
+				}
+			}
+		}
+	}
+}

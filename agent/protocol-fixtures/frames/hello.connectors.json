@@ -1,0 +1,53 @@
+{
+	"_meta": {
+		"spec": "§5 (hello), §10.2",
+		"direction": "M→C",
+		"variant": "connectors",
+		"note": "galopin run --connectors-only"
+	},
+	"frame": {
+		"type": "hello",
+		"protocol": 1,
+		"agent": {
+			"version": "0.20.0",
+			"os": "linux",
+			"arch": "amd64",
+			"hostname": "dev-box"
+		},
+		"backends": [],
+		"machine": {
+			"mode": "connectors",
+			"capabilities": {
+				"files": false,
+				"fileSearch": false,
+				"fileWatch": false,
+				"fileWrite": false,
+				"terminal": false,
+				"delegateProfiles": false,
+				"mcp": true
+			}
+		},
+		"policy": {
+			"autoAccept": "denied",
+			"permission": {
+				"max": {
+					"bash": "ask"
+				}
+			},
+			"workspaceRoots": [],
+			"allowFreeModels": false,
+			"files": "read",
+			"fileDeny": [".env", "*.pem"],
+			"terminal": "allowed",
+			"maxTerminals": 8,
+			"commandShell": "allowed",
+			"agentTools": "allowed",
+			"projectConfig": "denied",
+			"backgroundSubagents": "allowed",
+			"warnings": ["opencode global config pins a model outside Pystino"]
+		},
+		"credential": {
+			"state": "ok"
+		}
+	}
+}

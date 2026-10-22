@@ -929,6 +929,20 @@ running as a systemd user unit, on macOS as a LaunchAgent (both files ship in
 After re-running the install line, `systemctl --user restart galopin` starts
 the new binary.
 
+## Local connectors
+
+`LOCAL_CONNECTORS_ENABLED='true'` (the kit's default) lets people connect MCP
+servers that run on their own machine to their chat, without the Agents panel
+and without a coding agent on the machine. The machine runs galopin in
+connectors mode (`galopin enroll --connectors-only`, then
+`galopin run`), dials out to the same machine link as an agent
+machine, and is approved by its owner under **Workspace → Local connectors**,
+which also prints the whole how-to filled in with this deployment's address. The
+servers are listed in the machine's own `mcp.json`; nothing on the link starts a
+command that is not in that file. Set the variable to anything else to turn the
+feature off: connectors machines are then refused and the tab is hidden. See
+[Local connectors](https://paoloviviani.github.io/Cerea/local-connectors/).
+
 **Scheduled actions** come with `--agents`: people can have a prompt sent to a
 session on one of their machines on a timetable, and agents can make schedules
 on their own machine. `CHAT_SCHEDULES_ENABLED='false'` is the kill switch (on

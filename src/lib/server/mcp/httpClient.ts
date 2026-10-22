@@ -10,6 +10,7 @@ import {
 import type { McpClientKind } from "./client";
 import { withElicitationContext, type ElicitationSink } from "./elicitation";
 import { config } from "$lib/server/config";
+import { isLocalServerUrl } from "./localUrl";
 
 function isConnectionClosedError(err: unknown): boolean {
 	const message = err instanceof Error ? err.message : String(err);
@@ -236,6 +237,9 @@ export async function callMcpTool(
 				if (
 					attempt >= maxReconnectAttempts ||
 					signal?.aborted ||
+					// A local server that died mid-call may have done part of what it was asked:
+					// the call fails and the next one reopens, never a silent second run.
+					isLocalServerUrl(server.url) ||
 					!(isConnectionClosedError(err) || isSessionExpiredError(err))
 				) {
 					throw err;

@@ -1,0 +1,13 @@
+{
+	"_meta": {
+		"spec": "§10.3",
+		"direction": "C→M",
+		"op": "mcp.list"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "mcp.list",
+		"args": {}
+	}
+}

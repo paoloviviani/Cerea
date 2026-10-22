@@ -30,6 +30,13 @@ import {
 	OpError,
 	decodeBinaryFrame,
 	encodeBinaryFrame,
+	machineMode,
+	mcpOpenResultSchema,
+	mcpLoginResultSchema,
+	parseMcpList,
+	type McpClosedReason,
+	type McpServer,
+	type MachineMode,
 	BIN_TERM_OUTPUT,
 	BIN_TERM_INPUT,
 	BIN_TERM_ACK,
@@ -59,6 +66,7 @@ import {
 import type { CodeDevice } from "$lib/types/CodeAgent";
 import { observeMachineEvent, safely } from "$lib/server/push/watch";
 import { handleMachineCall, MACHINE_CALL_FEATURES } from "$lib/server/code/machineCalls";
+import { codeAgentsEnabled, localConnectorsEnabled } from "$lib/server/codeEnabled";
 
 const HELLO_TIMEOUT_MS = 10_000;
 const PING_INTERVAL_MS = 20_000;
@@ -100,9 +108,33 @@ interface ConnectionState {
 	 * .state. Lossy and unsequenced by design — a listener that might have
 	 * missed one re-queries `terminal.list`. */
 	terminalNoticeListeners: Map<string, Set<(notice: Notice) => void>>;
+	/** `hello.machine.mode` (§10.2): a connectors machine runs no coding agent. */
+	mode: MachineMode;
+	/** One listener per open MCP channel (§10.3), by channel id. */
+	mcpChannels: Map<string, (event: McpChannelEvent) => void>;
 	authDeadline: ReturnType<typeof setTimeout> | null;
 	pingInterval: ReturnType<typeof setInterval> | null;
 	lastPongAt: number;
+}
+
+/** What an MCP channel's listener is told: a JSON-RPC message from the server, or the end of
+ * the channel (§10.3 `closed`, or the link dropping, which reads as `closed`). */
+export type McpChannelEvent =
+	| { kind: "message"; message: unknown }
+	| { kind: "closed"; reason: McpClosedReason; detail: string | null };
+
+/** End every MCP channel of a connection: the machine is gone, so nothing will answer what is
+ * pending on them, and a listener left waiting would hang a turn. */
+function closeMcpChannels(state: ConnectionState, detail: string): void {
+	const listeners = [...state.mcpChannels.values()];
+	state.mcpChannels.clear();
+	for (const listener of listeners) {
+		try {
+			listener({ kind: "closed", reason: "closed", detail });
+		} catch (err) {
+			logger.warn({ err, deviceId: state.deviceId }, "machine link: an MCP channel listener threw");
+		}
+	}
 }
 
 /** deviceId (the codeDevices row's hex _id) → its one live connection. */
@@ -142,6 +174,11 @@ export function deviceBackends(deviceId: string): Backend[] | null {
 	return registry.get(deviceId)?.backends ?? null;
 }
 
+/** The mode a connected machine reported (`null` when it is not connected). */
+export function deviceMode(deviceId: string): MachineMode | null {
+	return registry.get(deviceId)?.mode ?? null;
+}
+
 export function devicePolicy(deviceId: string): Policy | null {
 	return registry.get(deviceId)?.policy ?? null;
 }
@@ -154,6 +191,7 @@ function closeConnection(state: ConnectionState, code: number, reason: string): 
 		pending.reject(new OpError("unavailable", "The machine link closed."));
 	}
 	state.pending.clear();
+	closeMcpChannels(state, "The machine link closed.");
 	try {
 		state.ws.close(code, reason);
 	} catch {
@@ -652,6 +690,40 @@ export class MachineLink {
 	}): Promise<unknown> {
 		return this.call("profiles.set", args);
 	}
+	/** The machine's MCP servers (PROTOCOL.md §10.3). `unsupported` from a machine without
+	 * an `mcp.json`. */
+	async mcpList(): Promise<McpServer[]> {
+		return parseMcpList(await this.call("mcp.list", {}));
+	}
+	/** A new channel to one of the machine's servers (§10.3). `not_found`, `forbidden` (disabled,
+	 * invalid, needs sign-in) and `unavailable` carry the machine's reason. */
+	async mcpOpen(server: string): Promise<{ channelId: string }> {
+		const parsed = mcpOpenResultSchema.safeParse(await this.call("mcp.open", { server }));
+		if (!parsed.success)
+			throw new OpError("backend", "The machine answered mcp.open without a channel.");
+		return parsed.data;
+	}
+	mcpClose(channelId: string): Promise<Record<string, never>> {
+		return this.call("mcp.close", { channelId });
+	}
+	/** Start a local http server's OAuth sign-in (§10.5); the tokens stay on the machine. */
+	async mcpLogin(args: {
+		server: string;
+		redirectUri: string;
+	}): Promise<{ authorizationUrl: string }> {
+		const parsed = mcpLoginResultSchema.safeParse(await this.call("mcp.login", args));
+		if (!parsed.success) {
+			throw new OpError("backend", "The machine answered mcp.login without an authorization URL.");
+		}
+		return parsed.data;
+	}
+	mcpLoginComplete(args: {
+		server: string;
+		code: string;
+		state: string;
+	}): Promise<Record<string, never>> {
+		return this.call("mcp.loginComplete", args);
+	}
 	/** The workspace's slash commands (PROTOCOL.md §6 backend.commands):
 	 * origins, shell facts and template hashes — never a template. */
 	backendCommands(args: {
@@ -673,6 +745,42 @@ export class MachineLink {
 		templateHash?: string;
 	}): Promise<Record<string, never>> {
 		return this.call("session.command", args);
+	}
+}
+
+/**
+ * Route one MCP channel's traffic (§10.3) to `listener`: every JSON-RPC message the machine
+ * sends on it, then one `closed` when the machine ends it or the link drops. Returns the
+ * unregister. Called by the transport right after `mcp.open` answers. A machine that is no
+ * longer connected by then closes the channel at once, so the caller fails instead of waiting.
+ */
+export function registerMcpChannel(
+	deviceId: string,
+	channelId: string,
+	listener: (event: McpChannelEvent) => void
+): () => void {
+	const state = registry.get(deviceId);
+	if (!state) {
+		queueMicrotask(() =>
+			listener({ kind: "closed", reason: "closed", detail: "This machine is not connected." })
+		);
+		return () => {};
+	}
+	state.mcpChannels.set(channelId, listener);
+	return () => {
+		if (state.mcpChannels.get(channelId) === listener) state.mcpChannels.delete(channelId);
+	};
+}
+
+/** Send one JSON-RPC message on an open channel (C→M `mcp` frame). Throws `unavailable`
+ * when the machine is not connected or the socket refuses it. */
+export function sendMcpMessage(deviceId: string, channelId: string, message: unknown): void {
+	const state = registry.get(deviceId);
+	if (!state) throw new OpError("unavailable", "This machine is not connected.");
+	try {
+		state.ws.send(JSON.stringify({ type: "mcp", channelId, message }));
+	} catch (err) {
+		throw new OpError("unavailable", err instanceof Error ? err.message : String(err));
 	}
 }
 
@@ -944,6 +1052,23 @@ export function acceptMachineConnection(
 				void handleMachineCall(current.deviceId, frame).then((res) => sendCallRes(current, res));
 				return;
 			}
+			case "mcp": {
+				// Traffic of one channel (§10.3). A frame for a channel nobody listens on (closed
+				// on our side meanwhile) is dropped: the machine already closed or will close it.
+				const listener = state.mcpChannels.get(frame.channelId);
+				if (!listener) return;
+				if (frame.closed) {
+					state.mcpChannels.delete(frame.channelId);
+					listener({
+						kind: "closed",
+						reason: (frame.closed.reason as McpClosedReason) ?? "closed",
+						detail: frame.closed.detail ?? null,
+					});
+				} else if (frame.message !== undefined) {
+					listener({ kind: "message", message: frame.message });
+				}
+				return;
+			}
 			case "credential": {
 				touchDeviceRow(state.deviceId, { credentialState: frame.state });
 				return;
@@ -991,6 +1116,7 @@ export function acceptMachineConnection(
 				clearTimeout(pending.timer);
 				pending.reject(new OpError("unavailable", "The machine link closed."));
 			}
+			closeMcpChannels(state, "The machine link closed.");
 			registry.delete(state.deviceId);
 			notifyConnectionChange(state.deviceId, false);
 		}
@@ -1007,6 +1133,31 @@ async function onHello(
 	hello: import("$lib/types/machineProtocol").HelloFrame,
 	token: string
 ): Promise<ConnectionState | null> {
+	// The deployment's switches decide which kind of machine it serves: a connectors machine
+	// needs LOCAL_CONNECTORS_ENABLED, a coding-agent machine CODE_AGENTS_ENABLED, each on its
+	// own. 4404: the machine retries, nothing is revoked, so turning the switch on later brings
+	// it in without a re-enroll.
+	if (
+		machineMode(hello.machine) === "connectors" ? !localConnectorsEnabled() : !codeAgentsEnabled()
+	) {
+		const connectors = machineMode(hello.machine) === "connectors";
+		logger.info(
+			{ machineId: principal.machineId, mode: machineMode(hello.machine) },
+			"machine link: this kind of machine is not enabled on this deployment"
+		);
+		try {
+			ws.close(
+				4404,
+				connectors
+					? "local connectors are not enabled on this deployment"
+					: "coding agents are not enabled on this deployment"
+			);
+		} catch {
+			/* already gone */
+		}
+		return null;
+	}
+
 	const now = new Date();
 	const existing = await collections.codeDevices.findOne({
 		userId: principal.userId,
@@ -1090,6 +1241,8 @@ async function onHello(
 		rootListeners,
 		terminalChannels: new Map(),
 		terminalNoticeListeners: new Map(),
+		mode: machineMode(hello.machine),
+		mcpChannels: new Map(),
 		authDeadline: null,
 		pingInterval: null,
 		lastPongAt: Date.now(),

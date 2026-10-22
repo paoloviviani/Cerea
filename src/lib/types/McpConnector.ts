@@ -214,6 +214,26 @@ export interface McpConnectorView {
 	tools?: { name: string; description?: string }[];
 	checkedAt?: string;
 	updatedAt: string;
+	/**
+	 * Set on a server that runs on one of this person's own machines (ADR 0102): `id` is then
+	 * `local:<deviceId>:<server>` and `name` reads "<server> · on <machine>". `connected` means
+	 * the machine is online and the server `ready`; otherwise `state` and `detail` say why not.
+	 * Nothing here is a credential: a sign-in's tokens stay on the machine.
+	 */
+	local?: McpLocalView;
+}
+
+export interface McpLocalView {
+	deviceId: string;
+	machineName: string;
+	server: string;
+	transport: "stdio" | "http" | "sse";
+	description?: string;
+	/** `offline` is the machine not being connected, whatever the server's last known state. */
+	state: "ready" | "disabled" | "invalid" | "needs-login" | "offline";
+	detail?: string;
+	/** The machine's own ceiling (`allowedTools`), when it sets one. */
+	allowedTools?: string[];
 }
 
 /**
@@ -232,6 +252,28 @@ export interface McpOauthPending {
 	userId: User["_id"];
 	sessionId: string;
 	verifier: string;
+	/** Where to land afterwards, within this app. */
+	next: string;
+	createdAt: Date;
+	expiresAt: Date;
+}
+
+/**
+ * One in-flight sign-in of a local connector (ADR 0102, PROTOCOL.md §10.5): from the redirect
+ * out to the callback back.
+ *
+ * Keyed by the `state` the machine put in the authorization URL, and bound to the person and
+ * the session that started it, the device and the server it is for. Holds no token and no PKCE
+ * verifier: both stay on the machine. Single use (deleted when consumed) and short-lived (a TTL
+ * index drops an abandoned one).
+ */
+export interface LocalConnectorOauth {
+	_id: ObjectId;
+	state: string;
+	userId: User["_id"];
+	sessionId: string;
+	deviceId: string;
+	server: string;
 	/** Where to land afterwards, within this app. */
 	next: string;
 	createdAt: Date;

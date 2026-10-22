@@ -93,6 +93,8 @@ const TEST_CODE_MACHINE_CLIENT_ID = "opencode-enrollment";
 // `.env` ships this off (it needs a machine actually dialling in, ADR 0089); every `/code` server spec needs it on, or `requireCodeAgents`
 // 404s before the handler under test ever runs.
 const TEST_CODE_AGENTS_ENABLED = "true";
+// Local MCP connectors (ADR 0102): on for the specs that serve them; the flag-off specs mock the switch.
+const TEST_LOCAL_CONNECTORS_ENABLED = "true";
 
 vi.mock("$env/dynamic/private", async () => {
 	// A CPU without AVX cannot run the memory server's binary (MongoDB 5.0+
@@ -111,6 +113,7 @@ vi.mock("$env/dynamic/private", async () => {
 				CODE_MACHINE_AUDIENCE: TEST_CODE_MACHINE_AUDIENCE,
 				CODE_MACHINE_CLIENT_ID: TEST_CODE_MACHINE_CLIENT_ID,
 				CODE_AGENTS_ENABLED: TEST_CODE_AGENTS_ENABLED,
+				LOCAL_CONNECTORS_ENABLED: TEST_LOCAL_CONNECTORS_ENABLED,
 			},
 		};
 	}
@@ -129,6 +132,7 @@ vi.mock("$env/dynamic/private", async () => {
 			CODE_MACHINE_AUDIENCE: TEST_CODE_MACHINE_AUDIENCE,
 			CODE_MACHINE_CLIENT_ID: TEST_CODE_MACHINE_CLIENT_ID,
 			CODE_AGENTS_ENABLED: TEST_CODE_AGENTS_ENABLED,
+			LOCAL_CONNECTORS_ENABLED: TEST_LOCAL_CONNECTORS_ENABLED,
 		},
 	};
 });

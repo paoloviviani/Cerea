@@ -33,6 +33,17 @@ onCodeReauth(() => {
 // poll tick.
 let listEpoch = 0;
 
+/**
+ * Whether a device belongs in the Agents panel. A connectors machine (`machine.mode`, ADR 0102)
+ * runs no coding agent: it is managed under the workspace's Local connectors tab, and the nav
+ * tree, the empty state, the handoff and schedule target pickers must never offer it. The server
+ * leaves such machines out of this list already; this is the same rule at the one place every
+ * consumer reads, so a machine that slips through (an older server) still never shows.
+ */
+export function isAgentDevice(device: CodeDeviceView): boolean {
+	return device.machine?.mode !== "connectors";
+}
+
 /** A machine was revoked/removed: drop it from the shared list now, without
  * waiting on a round trip, and discard any list read still in flight. */
 export function dropCodeDevice(id: string): void {
@@ -45,7 +56,7 @@ export async function refreshCodeDevices(): Promise<void> {
 	const epoch = ++listEpoch;
 	try {
 		const { devices } = await listDevices();
-		if (epoch === listEpoch) codeDeviceList.devices = devices;
+		if (epoch === listEpoch) codeDeviceList.devices = devices.filter(isAgentDevice);
 	} catch (err) {
 		// A 401 that is not the stale-sign-in answer means there is no session
 		// at all (it lapsed while the tab was open): the list cannot come back

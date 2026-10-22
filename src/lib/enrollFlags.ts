@@ -58,6 +58,7 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "default-group", kind: "bool", default: false, exposed: true },
 	{ flag: "file-deny", kind: "list", default: [], exposed: true },
 	{ flag: "max-terminals", kind: "int", default: 8, exposed: true },
+	{ flag: "connectors-only", kind: "bool", default: false, exposed: false },
 	{ flag: "no-agent-tools", kind: "bool", default: false, exposed: true },
 	{ flag: "no-background-subagents", kind: "bool", default: false, exposed: true },
 	{ flag: "no-command-shell", kind: "bool", default: false, exposed: true },
