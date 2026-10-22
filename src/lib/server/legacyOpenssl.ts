@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { cpuHasAvx } from "./mongoMemoryVersion";
+import { cpuHasAvx } from "./mongoMemoryVersion.ts";
 
 const DEB = "libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb";
 const DEB_URL = `https://security.ubuntu.com/ubuntu/pool/main/o/openssl/${DEB}`;
