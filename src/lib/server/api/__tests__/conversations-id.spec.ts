@@ -56,6 +56,45 @@ describe.sequential("GET /api/v2/conversations/[id]", () => {
 		expect(data.id).toBe(conv._id.toString());
 	});
 
+	it("serves a share view whose id is a 7-character share id", async () => {
+		const shareId = "shr" + new ObjectId().toString().slice(-4);
+		const now = new Date();
+		await collections.sharedConversations.insertOne({
+			_id: shareId,
+			hash: "h",
+			model: "test-model",
+			title: "Shared one",
+			rootMessageId: "m1",
+			createdAt: now,
+			updatedAt: now,
+			messages: [
+				{ id: "m1", from: "user", content: "hi", createdAt: now, updatedAt: now, children: ["m2"] },
+				{
+					id: "m2",
+					from: "assistant",
+					content: "hello",
+					createdAt: now,
+					updatedAt: now,
+					ancestors: ["m1"],
+					children: [],
+				},
+			],
+		} as never);
+
+		try {
+			const res = await GET({
+				locals: createTestLocals(),
+				params: { id: shareId },
+				url: mockUrl(),
+			} as never);
+
+			expect(res.status).toBe(200);
+			expect((await parseResponse<{ title: string }>(res)).title).toBe("Shared one");
+		} finally {
+			await collections.sharedConversations.deleteOne({ _id: shareId });
+		}
+	});
+
 	it("throws 404 for non-existent conversation", async () => {
 		const { locals } = await createTestUser();
 		const fakeId = new ObjectId().toString();

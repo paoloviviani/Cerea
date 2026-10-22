@@ -63,6 +63,51 @@ const PUBLIC_ROUTES = new Set(["/galopin/[file]", "/manifest.webmanifest"]);
 const INTERNAL_SERVICE_ROUTES = new Set(["/internal/erasure", "/internal/erasure/preview"]);
 
 /**
+ * The login wall's allow-list: every route a signed-out visitor may GET when a
+ * sign-in is configured. Everything else is refused with 401 (pages the wall
+ * does not redirect, and every /api route) — deny by default, so a route added
+ * later is private until somebody decides, here, that it is not.
+ *
+ * Matched by route id (`event.route.id`), never by path prefix, so nothing that
+ * happens to live under a listed path inherits the entry. The list is the set of
+ * requests the signed-out landing page, the sign-in redirect and a share link
+ * actually make; `hooks/loginWall.spec.ts` walks the route tree and fails on a
+ * route that is neither listed here nor refused, and on an entry naming no route.
+ *
+ * `/login`, `/login/callback`, `/logout`, the machine admin endpoints and the
+ * gateway's service routes are exempt from the wall for every method and are
+ * handled below, not listed.
+ */
+export const SIGNED_OUT_GET_ROUTES: ReadonlyMap<string, string> = new Map([
+	// Pages and page-like endpoints.
+	["/", "landing page: renders the sign-in prompt and starts the sign-in redirect"],
+	["/healthcheck", "liveness probe for the orchestrator and the e2e harness"],
+	["/manifest.webmanifest", "web app manifest, resolved by install prompts without a session"],
+	[
+		"/galopin/[file]",
+		"galopin binaries and installer, fetched by curl on a machine that never signed in",
+	],
+	[
+		"/.well-known/oauth-cimd",
+		"OAuth client-ID metadata document, fetched by the identity provider",
+	],
+	["/r/[id]", "public share page"],
+	["/r/[id]/thumbnail.png", "social preview image of a share"],
+	["/conversation/[id]", "shared conversation view (7-character share ids)"],
+	["/models/[...model]", "linkable model page"],
+	["/models/[...model]/thumbnail.png", "social preview image of a model page"],
+	// What the root layout load fetches before anyone is signed in.
+	["/api/v2/public-config", "root layout: deployment's public settings"],
+	["/api/v2/feature-flags", "root layout: tells the page whether login is enabled"],
+	["/api/v2/user", "root layout: null when signed out, which is how the page knows"],
+	["/api/v2/user/settings", "root layout: defaults for a session with no account"],
+	["/api/v2/models", "root layout: model catalogue the landing page renders"],
+	["/api/v2/conversations", "root layout: sidebar list, empty for a session with no account"],
+	["/api/v2/conversations/[id]", "share view: the shared conversation behind /r/[id]"],
+	["/api/v2/code/status", "answers {signedIn:false}, which drives the redirect to sign-in"],
+]);
+
+/**
  * The /code stale-session guard. Everything under `/api/v2/code/` needs a
  * sign-in within the last 7 days (`stepUp.ts`), EXCEPT `/status`, which tells
  * the page whether it has one. Deny-by-default by path prefix, so a route added
@@ -85,6 +130,10 @@ const INTERNAL_SERVICE_ROUTES = new Set(["/internal/erasure", "/internal/erasure
  */
 const CODE_API_PREFIX = `${base}/api/v2/code`;
 const CODE_API_OPEN_PATHS = new Set([`${CODE_API_PREFIX}/status`]);
+
+function isReadMethod(method: string): boolean {
+	return method === "GET" || method === "HEAD" || method === "OPTIONS";
+}
 
 export function isCodeApiPath(pathname: string): boolean {
 	return pathname === CODE_API_PREFIX || pathname.startsWith(`${CODE_API_PREFIX}/`);
@@ -349,12 +398,25 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				// never reaches this hook at all, see `isApi` above.)
 				!MACHINE_ADMIN_PATHS.some((path) => event.url.pathname.startsWith(`${base}${path}`)) &&
 				!INTERNAL_SERVICE_ROUTES.has(event.route.id ?? "") &&
-				!event.url.pathname.startsWith(`${base}/settings`) &&
 				// And `/logout` answers for itself: refusing a 401 to a session
 				// that is already gone is refusing to clean up after it.
 				event.url.pathname !== `${base}/logout` &&
-				!["GET", "OPTIONS", "HEAD"].includes(event.request.method)
+				// Deny by default. A read is let through only when its route is
+				// on the allow-list; a write only under `/settings`, as before.
+				// This used to be `!== GET`, which left every GET public unless
+				// the route happened to guard itself.
+				(isReadMethod(event.request.method)
+					? !SIGNED_OUT_GET_ROUTES.has(event.route.id ?? "")
+					: !event.url.pathname.startsWith(`${base}/settings`))
 			) {
+				// An /api caller always gets JSON, whatever Accept it sent: the
+				// wall now answers reads too, and a bare fetch has no Accept.
+				if (event.url.pathname.startsWith(`${base}/api/`)) {
+					return new Response(JSON.stringify({ error: ERROR_MESSAGES.authOnly }), {
+						status: 401,
+						headers: { "content-type": "application/json" },
+					});
+				}
 				return errorResponse(401, ERROR_MESSAGES.authOnly);
 			}
 
