@@ -2,7 +2,8 @@
 	"_meta": {
 		"spec": "§10.3",
 		"direction": "M→C",
-		"op": "mcp.list"
+		"op": "mcp.list",
+		"null": true
 	},
 	"frame": {
 		"type": "res",
