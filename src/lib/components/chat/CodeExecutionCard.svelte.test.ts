@@ -15,6 +15,7 @@ const sessionMock = vi.hoisted(() => ({
 	readFile: vi.fn(async () => new Uint8Array([104, 105]).buffer as ArrayBuffer),
 	run: vi.fn(async () => ({ ok: true, stdout: "", stderr: "" })),
 	listFiles: vi.fn(async () => []),
+	onStatus: vi.fn(),
 }));
 
 vi.mock("$lib/utils/execution/runtime", () => ({
@@ -142,6 +143,39 @@ describe("CodeExecutionCard file presentation (replay)", () => {
 				.toBeVisible();
 		} finally {
 			vi.stubGlobal("fetch", realFetch);
+		}
+	});
+});
+
+describe("CodeExecutionCard file presentation (live run)", () => {
+	it("turns the run's own file into the artifact card once its upload answered", async () => {
+		// The tab that ran the code still holds the run: its listing has no
+		// sha256, so the card joins the registry on the upload's answer.
+		sessionMock.listFiles.mockResolvedValueOnce([
+			{ path: "/home/pyodide/report.docx", size: 12 },
+		] as never);
+		const fetchMock = vi.fn(async (url: string) => {
+			if (String(url).endsWith("/code-execution/output")) {
+				return new Response(
+					JSON.stringify({ files: [{ name: "report.docx", size: 12, sha256: SHA }] }),
+					{
+						status: 200,
+					}
+				);
+			}
+			return new Response("{}", { status: 200 });
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const screen = render(CodeExecutionCard, {
+				props: { conversationId: "conv-live", request: { ...request, code: "make_live_report()" } },
+				context: context(fileRegistry),
+			} as never);
+			await expect
+				.element(screen.getByRole("button", { name: "Open report.docx in panel" }))
+				.toBeVisible();
+		} finally {
+			vi.unstubAllGlobals();
 		}
 	});
 });

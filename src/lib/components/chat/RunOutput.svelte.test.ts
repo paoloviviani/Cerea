@@ -105,6 +105,35 @@ describe("RunOutput file presentation", () => {
 		await expect.element(screen.getByRole("button", { name: "Download notes.txt" })).toBeVisible();
 	});
 
+	it("renders a live run's file as an artifact card once its upload's sha is in the registry", async () => {
+		const state: RunState = {
+			status: "done",
+			startedAt: 0,
+			finishedAt: 1,
+			outputFiles: [{ path: "/home/pyodide/report.docx", size: 12 }],
+			uploaded: [{ name: "report.docx", size: 12, sha256: SHA }],
+		};
+		const screen = mount(state);
+		await expect
+			.element(screen.getByRole("button", { name: "Open report.docx in panel" }))
+			.toBeVisible();
+	});
+
+	it("keeps a live file plain when the uploaded reference is for other bytes (size differs)", async () => {
+		const state: RunState = {
+			status: "done",
+			startedAt: 0,
+			finishedAt: 1,
+			outputFiles: [{ path: "/home/pyodide/report.docx", size: 99 }],
+			uploaded: [{ name: "report.docx", size: 12, sha256: SHA }],
+		};
+		const screen = mount(state);
+		await expect.element(screen.getByText("report.docx")).toBeVisible();
+		expect(
+			screen.baseElement.querySelector('button[aria-label="Open report.docx in panel"]')
+		).toBeNull();
+	});
+
 	it("opens a live run's raster figure without waiting for a click", async () => {
 		sessionMock.readFile.mockResolvedValueOnce(
 			new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer as ArrayBuffer

@@ -63,6 +63,19 @@ export async function uploadRunFiles(
 	}
 }
 
+/**
+ * The sha256 the store gave a live run's output file, when its upload has
+ * answered: matched on the bare filename and the size, so a file the run
+ * rewrote with other bytes is never joined to a stale reference.
+ */
+export function uploadedSha(
+	uploaded: Array<{ name: string; size: number; sha256: string }> | undefined,
+	file: { path: string; size: number }
+): string | undefined {
+	const name = file.path.split("/").pop() || file.path;
+	return uploaded?.find((ref) => ref.name === name && ref.size === file.size)?.sha256;
+}
+
 /** Waits between retries of a record the server refused with 409 ("message
  * not saved yet"): about ten seconds in all, the time a turn's save takes. */
 export const RECORD_RETRY_DELAYS_MS = [1000, 3000, 6000];

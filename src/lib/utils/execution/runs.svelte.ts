@@ -50,6 +50,13 @@ export interface RunState {
 	 * inline file artifact card joins the registry by it.
 	 */
 	persistedFiles?: Array<{ name: string; size: number; sha256?: string; downloadUrl: string }>;
+	/**
+	 * What the server's output store answered for this run's own `outputFiles`
+	 * once they were uploaded (name, size, sha256). A live run's listing has
+	 * no sha256, so this is what lets its file cards join the artifact
+	 * registry without waiting for a reload.
+	 */
+	uploaded?: Array<{ name: string; size: number; sha256: string }>;
 	startedAt: number;
 	finishedAt?: number;
 }
@@ -78,6 +85,18 @@ class RunsStore {
 
 	get(key: string): RunState | undefined {
 		return this.#runs[key];
+	}
+
+	/**
+	 * Remember the store references the upload of `key`'s output files
+	 * returned, on the settled run they belong to. A run that was replaced or
+	 * has not settled yet is left alone.
+	 */
+	noteUploaded(key: string, refs: Array<{ name: string; size: number; sha256: string }>): void {
+		const current = untrack(() => this.#runs[key]);
+		if (!current || refs.length === 0) return;
+		if (current.status !== "done" && current.status !== "error") return;
+		this.#runs[key] = { ...current, uploaded: refs };
 	}
 
 	/** Record that `key`'s fence was observed while its message was still streaming. */

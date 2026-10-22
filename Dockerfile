@@ -53,7 +53,7 @@ RUN --mount=type=cache,target=/app/.npm \
 COPY --link --chown=1000 . .
 
 RUN git config --global --add safe.directory /app && \
-    npm run build
+    npm run build && node scripts/check-bundle.mjs
 
 # Runtime dependencies only. The builder needs the whole tree (vite, svelte-check,
 # the test tooling); the running server needs only `dependencies`, which is what

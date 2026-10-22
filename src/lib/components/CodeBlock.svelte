@@ -252,6 +252,7 @@
 		const listed = state.outputFiles;
 		void (async () => {
 			const files = await uploadRunFiles(conversationId, listed);
+			runsStore?.noteUploaded(key, files);
 			const update = await recordRunFiles({
 				conversationId,
 				messageId,

@@ -4,6 +4,7 @@
 	import CarbonCheckmark from "~icons/carbon/checkmark";
 	import FileArtifactCard from "./FileArtifactCard.svelte";
 	import type { RunState } from "$lib/utils/execution/runs.svelte";
+	import { uploadedSha } from "$lib/utils/execution/runFiles";
 
 	/**
 	 * Shared presentation of one code execution outcome: a status strip and the
@@ -114,10 +115,16 @@
 							</div>
 							<ul class="space-y-1">
 								{#each runState.outputFiles as file (file.path)}
-									<!-- A live run's listing carries no sha256 yet: the card stays
-									     a plain FileCard until the run's record lands. Raster
-									     figures open their image preview unasked. -->
-									<FileArtifactCard {file} {inPanel} autoExpand />
+									<!-- A live run's listing carries no sha256 of its own: it comes
+									     from the upload's answer once that lands, and until then (or
+									     if the upload failed) the card stays a plain FileCard.
+									     Raster figures open their image preview unasked. -->
+									<FileArtifactCard
+										{file}
+										sha256={uploadedSha(runState.uploaded, file)}
+										{inPanel}
+										autoExpand
+									/>
 								{/each}
 							</ul>
 						</div>

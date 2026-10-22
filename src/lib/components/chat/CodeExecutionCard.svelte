@@ -8,7 +8,7 @@
 	import FileArtifactCard from "./FileArtifactCard.svelte";
 	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
 	import { isCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
-	import { uploadRunFiles } from "$lib/utils/execution/runFiles";
+	import { uploadRunFiles, uploadedSha } from "$lib/utils/execution/runFiles";
 	import { chatRunKey } from "$lib/utils/execution/keys";
 	import type { MessageCodeExecutionRequestUpdate } from "$lib/types/MessageUpdate";
 	import type { MessageCodeExecutionResolvedUpdate } from "$lib/types/MessageUpdate";
@@ -58,8 +58,11 @@
 	 * (`uploadRunFiles`), so a tool run's files are kept exactly like a code
 	 * block's.
 	 */
-	const uploadDeliverables = (files: Array<{ path: string; size: number }>) =>
-		uploadRunFiles(conversationId, files);
+	const uploadDeliverables = async (files: Array<{ path: string; size: number }>) => {
+		const refs = await uploadRunFiles(conversationId, files);
+		runsStore?.noteUploaded(runKey, refs);
+		return refs;
+	};
 
 	// Post the outcome back exactly once per mounted card once the run settles.
 	// A re-mounted card (navigation) may re-post; the endpoint's CAS answers 409
@@ -238,7 +241,11 @@
 			<ul class="space-y-1 border-t border-blue-200/70 px-3 py-2 dark:border-blue-800/60">
 				{#if outputFiles.length > 0}
 					{#each outputFiles as file (file.path)}
-						<FileArtifactCard {file} autoExpand />
+						<FileArtifactCard
+							{file}
+							sha256={uploadedSha(displayState?.uploaded, file)}
+							autoExpand
+						/>
 					{/each}
 				{:else}
 					{#each persistedFiles as file (file.downloadUrl)}
