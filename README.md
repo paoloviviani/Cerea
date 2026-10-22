@@ -147,16 +147,11 @@ documentation.
 **The image** fixes SvelteKit's base path at build time, and builds galopin
 too: `docker build --build-arg APP_BASE=/chat -t cerea .`
 
-## Upstream
+## Origin
 
 Cerea began as a fork of [huggingface/chat-ui](https://github.com/huggingface/chat-ui),
-with its history intact, and is now mostly a hard fork. Upstream changes are
-merged by hand where they fit:
-
-```sh
-git remote add upstream https://github.com/huggingface/chat-ui.git
-git fetch upstream && git merge upstream/main
-```
+with its history intact, and is now a hard fork: it does not merge upstream and
+carries nothing for upstream's sake. The attribution stays in [NOTICE](NOTICE).
 
 ## Documentation
 

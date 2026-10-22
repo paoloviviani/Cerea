@@ -16,7 +16,7 @@ first saves work on both sides.
 By contributing you agree that your contribution is licensed under the
 Apache License 2.0, the licence of this repository. Cerea began as a fork of
 [huggingface/chat-ui](https://github.com/huggingface/chat-ui) (Apache-2.0) and
-is now mostly a hard fork; a dependency must be under an OSI-approved licence.
+is now a hard fork; a dependency must be under an OSI-approved licence.
 
 ## Setup
 
@@ -505,16 +505,6 @@ its links as absolute URLs. Links to other repositories' pages are absolute too
   the commands, the architecture, and the traps that are not recoverable from the
   code. Read it before changing anything. Agent-specific files for a particular tool
   are kept local and are not committed.
-- **Merging from upstream.** Upstream changes are merged by hand where they fit:
-  `git remote add upstream https://github.com/huggingface/chat-ui.git` (once), then
-  `git fetch upstream && git merge upstream/main`. Merge, never rebase: the fork
-  keeps upstream's history intact. Keep upstream's file layout where a file still
-  exists in both, so the next merge stays mechanical, and put new first-party code
-  in new files where it can go. HuggingChat-only behaviour stays behind
-  `publicConfig.isHuggingChat`: do not delete it because this deployment never takes
-  that path. After a merge run `npm run check`, `npm run lint` and the tests, and
-  read upstream's changes to `src/lib/server/models.ts`, auth and the generation
-  path with care: those are where the fork differs most.
 - **The shared tokens.** `src/styles/tokens.css` and `src/styles/fonts/` are a
   **byte copy** of Pystino's `packages/ui/src/tokens.css` and `fonts/`, so the two
   repositories stay independently clonable. Change the file in Pystino and copy it

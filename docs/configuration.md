@@ -33,18 +33,18 @@ running, before any of the fork's variables below matter:
 The chat reaches models in exactly one of two ways, decided by `USE_USER_TOKEN`
 (no other setting names the mode):
 
-|                               | **Pystino mode** (`USE_USER_TOKEN=true`)                                        | **Standalone mode** (unset or not `true`) |
-| ----------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------- |
-| Credential                    | each person's own sign-in token, only                                           | one shared `OPENAI_API_KEY`, only         |
-| Endpoints                     | the gateway at `OPENAI_BASE_URL`, for every model, including `MODELS` overrides | one OpenAI-compatible endpoint            |
-| `OPENAI_API_KEY` / `HF_TOKEN` | must be empty                                                                   | the shared key                            |
-| Boot catalogue                | fetched with no key, then filtered per person and billing group                 | fetched with the shared key               |
+|                  | **Pystino mode** (`USE_USER_TOKEN=true`)                                        | **Standalone mode** (unset or not `true`) |
+| ---------------- | ------------------------------------------------------------------------------- | ----------------------------------------- |
+| Credential       | each person's own sign-in token, only                                           | one shared `OPENAI_API_KEY`, only         |
+| Endpoints        | the gateway at `OPENAI_BASE_URL`, for every model, including `MODELS` overrides | one OpenAI-compatible endpoint            |
+| `OPENAI_API_KEY` | must be empty                                                                   | the shared key                            |
+| Boot catalogue   | fetched with no key, then filtered per person and billing group                 | fetched with the shared key               |
 
 A mix either bypasses the gateway's per-person access, billing and redaction,
 or hides models people are entitled to, so **the chat refuses to start** on
 one, and the error names the setting to change:
 
-- `OPENAI_API_KEY` (or the legacy `HF_TOKEN`) set while `USE_USER_TOKEN=true`:
+- `OPENAI_API_KEY` set while `USE_USER_TOKEN=true`:
   empty it, or set `USE_USER_TOKEN=false` for a standalone endpoint.
 - In Pystino mode, a `MODELS` entry whose `endpoints` name a `baseURL` other
   than `OPENAI_BASE_URL` (an endpoint with no `baseURL` counts: it defaults to
