@@ -5,7 +5,24 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.22.1 — 2026-10-22
+
+Pins: Cerea `0.22.1`, Pystino `0.15.0`, Authelia 4.39.22 (unchanged).
+**Use this release, not v0.22.0.** v0.22.0 was tagged and its image published
+while CI was red on it; `stable` never moved to it and there is no GitHub
+release for it. Everything v0.22.0 describes below ships here.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`) so the new
+`providers.d/` directory exists, then `docker compose pull && docker compose up -d`.
+Machines do not need the galopin update.
+
+- A sub-agent could fail on its first tool call if it ran in the first
+  moments after the chat started (before the database connection was up): the
+  log of its steps is now best-effort and never stops it.
+- The release script no longer treats "no CI run on this commit" as a pass.
+
 ## v0.22.0 — 2026-10-22
+
+**Superseded by v0.22.1; do not deploy v0.22.0.**
 
 Pins: Cerea `0.22.0`, **Pystino `0.15.0`**, Authelia 4.39.22 (unchanged).
 **To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`) so the new
