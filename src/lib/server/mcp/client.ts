@@ -34,7 +34,10 @@ export type McpClientKind = keyof typeof CLIENT_INFO;
  * tool runs, so a capability added to the listing client in `tools.ts` instead of here
  * would look declared and never fire.
  */
-export function createMcpClient(kind: McpClientKind = "session"): Client {
+export function createMcpClient(
+	kind: McpClientKind = "session",
+	options: { negotiate?: boolean } = {}
+): Client {
 	const capabilities = mcpClientCapabilities(kind);
 	const { name, version } = CLIENT_INFO[kind];
 	const client = new Client(
@@ -43,7 +46,9 @@ export function createMcpClient(kind: McpClientKind = "session"): Client {
 			capabilities,
 			// The SDK defaults to `legacy`, i.e. never negotiating. Probe instead, and let the
 			// probe fall back on its own for the 2025-era servers that are still the majority.
-			versionNegotiation: { mode: "auto" },
+			// A local server (`localTransport.ts`) can retry without it: a stdio server that never
+			// answers an unknown pre-initialize request would otherwise time the probe out.
+			versionNegotiation: { mode: options.negotiate === false ? "legacy" : "auto" },
 			// A 2026-era prompt outlives this call, so the driver must not block our handler
 			// waiting for one. `callMcpTool` opts each call into receiving `input_required`.
 			inputRequired: { autoFulfill: false },
