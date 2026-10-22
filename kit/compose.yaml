@@ -438,6 +438,7 @@ services:
       AUTOMATIC_LOGIN: "true"
       # Never print or accept the CLI admin-login token; admin comes from the identity provider.
       ADMIN_CLI_LOGIN: "false"
+      ALLOW_IFRAME: "false"
       CHAT_PG_URL: postgresql://chat:${CHAT_PG_PASSWORD:-}@postgres:5432/chat
       FETCH_BACKEND: ${FETCH_BACKEND:-direct}
       # Set only while the fetch profile runs the renderer (./configure keeps
