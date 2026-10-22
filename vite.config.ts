@@ -56,6 +56,78 @@ function machineLinkDevUpgrade() {
 		},
 	};
 }
+/**
+ * Everything the client tests import from node_modules. Left to discovery, Vite finds these
+ * while the first test files are already running, re-bundles, and reloads the page under
+ * them: under load that surfaced as a mock factory failing to resolve, or a run that never
+ * produced a result. Listing them makes the cold start bundle once, before any test.
+ */
+const clientTestDeps = [
+	"svelte",
+	"svelte/animate",
+	"svelte/attachments",
+	"svelte/easing",
+	"svelte/internal",
+	"svelte/internal/client",
+	"svelte/internal/disclose-version",
+	"svelte/internal/flags/async",
+	"svelte/internal/flags/legacy",
+	"svelte/internal/flags/tracing",
+	"svelte/legacy",
+	"svelte/motion",
+	"svelte/reactivity",
+	"svelte/reactivity/window",
+	"svelte/store",
+	"svelte/transition",
+	"svelte/events",
+	"@codemirror/language",
+	"@codemirror/language-data",
+	"@codemirror/state",
+	"@codemirror/view",
+	"@huggingface/inference",
+	"@xterm/addon-fit",
+	"@xterm/addon-unicode11",
+	"@xterm/addon-web-links",
+	"@xterm/xterm",
+	"bits-ui",
+	"bson-objectid",
+	"devalue",
+	"docx-preview",
+	"esm-env",
+	"fflate",
+	"highlight.js/lib/core",
+	"highlight.js/lib/languages/bash",
+	"highlight.js/lib/languages/c",
+	"highlight.js/lib/languages/cpp",
+	"highlight.js/lib/languages/csharp",
+	"highlight.js/lib/languages/css",
+	"highlight.js/lib/languages/go",
+	"highlight.js/lib/languages/java",
+	"highlight.js/lib/languages/javascript",
+	"highlight.js/lib/languages/json",
+	"highlight.js/lib/languages/markdown",
+	"highlight.js/lib/languages/plaintext",
+	"highlight.js/lib/languages/python",
+	"highlight.js/lib/languages/rust",
+	"highlight.js/lib/languages/scss",
+	"highlight.js/lib/languages/shell",
+	"highlight.js/lib/languages/sql",
+	"highlight.js/lib/languages/typescript",
+	"highlight.js/lib/languages/xml",
+	"highlight.js/lib/languages/yaml",
+	"htmlparser2",
+	"isomorphic-dompurify",
+	"json5",
+	"katex",
+	"katex/dist/contrib/mhchem.mjs",
+	"marked",
+	"pptx-glimpse",
+	"remend",
+	"superjson",
+	"web-haptics",
+	"zod",
+];
+
 export default defineConfig({
 	define: {
 		// Build flag for ML Assistant mode, fixed at build time rather than read from
@@ -111,6 +183,7 @@ export default defineConfig({
 				// Runs a real Chromium via Playwright, so `npx playwright install chromium`
 				// is a prerequisite. Selected with `--project=client`.
 				extends: "./vite.config.ts",
+				optimizeDeps: { include: clientTestDeps },
 				test: {
 					name: "client",
 					environment: "browser",
