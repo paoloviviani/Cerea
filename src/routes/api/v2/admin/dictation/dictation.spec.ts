@@ -18,7 +18,12 @@ vi.mock("$lib/server/config", () => ({
 				setMock(key, value);
 				if (key === "CHAT_DICTATION") state.stored = value;
 			},
-			get: (key: string) => (key === "TRANSCRIPTION_MODEL" ? state.transcription : ""),
+			get: (key: string) =>
+				key === "TRANSCRIPTION_MODEL"
+					? state.transcription
+					: key === "TRANSCRIPTION_BASE_URL"
+						? "https://stt.example.org/models"
+						: "",
 		} as Record<string, unknown>,
 		{
 			get(target, key: string) {

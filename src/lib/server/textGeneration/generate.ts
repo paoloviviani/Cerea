@@ -19,10 +19,8 @@ export async function* generate(
 		endpoint,
 		conv,
 		messages,
-		assistant,
 		promptedAt,
 		forceMultimodal,
-		provider,
 		reasoningEffort,
 		reasoningOverride,
 		locals,
@@ -56,13 +54,11 @@ export async function* generate(
 	const stream = await endpoint({
 		messages,
 		preprompt,
-		generateSettings: assistant?.generateSettings,
 		// Per-model user override for multimodal, winning in both directions
 		isMultimodal: forceMultimodal ?? model.multimodal,
 		conversationId: conv._id,
 		locals,
 		abortSignal: abortController.signal,
-		provider,
 		reasoningEffort,
 		reasoningOverride,
 	});

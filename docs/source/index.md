@@ -30,8 +30,6 @@ Chat UI connects to any OpenAI-compatible API endpoint, making it work with:
 
 **[MCP Tools](./configuration/mcp-tools)**: Function calling via Model Context Protocol (MCP) servers
 
-**[LLM Router](./configuration/llm-router)**: Intelligent routing to select the best model for each request
-
 **[Multimodal](./configuration/overview)**: Image uploads on models that support vision
 
 **[OpenID](./configuration/open-id)**: Optional user authentication via OpenID Connect

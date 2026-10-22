@@ -19,7 +19,8 @@ function toKeyPart(s: string | undefined): string {
 
 const appLabel = toKeyPart(publicEnv.PUBLIC_APP_ASSETS || publicEnv.PUBLIC_APP_NAME);
 const baseLabel = toKeyPart(typeof base === "string" ? base : "");
-// Final prefix format requested: "huggingchat:key" (no mcp:/chat)
+// Storage keys read "<assets directory>:mcp:..." (kept as is: renaming would reset
+// what people already chose).
 const KEY_PREFIX = appLabel || baseLabel || "app";
 
 const STORAGE_KEYS = {

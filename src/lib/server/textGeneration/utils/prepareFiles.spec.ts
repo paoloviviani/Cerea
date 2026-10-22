@@ -865,9 +865,8 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 		expect(prepared).toEqual([{ role: "assistant", content: "Hello" }]);
 	});
 
-	it("suppresses reasoning_content for a message produced by a different router-resolved model", async () => {
-		// Under the "omni" router alias, each turn can be produced by a
-		// different model. Reasoning is conditioned on its own producer, so a
+	it("suppresses reasoning_content for a message produced by a different model", async () => {
+		// A message can record a producing model other than the current one. Reasoning is conditioned on its own producer, so a
 		// message routed to model A must not have its reasoning replayed when
 		// the current turn targets model B.
 		const messages: EndpointMessage[] = [

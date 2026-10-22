@@ -1,4 +1,4 @@
-import type { TextGenerationStreamOutput } from "@huggingface/inference";
+import type { TextGenerationStreamOutput } from "../endpoints";
 import type OpenAI from "openai";
 import type { Stream } from "openai/streaming";
 

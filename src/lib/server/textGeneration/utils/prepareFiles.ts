@@ -145,8 +145,8 @@ const isToolErrorUpdate = (u: MessageUpdate): u is MessageToolErrorUpdate =>
 
 /**
  * Whether a historical message's own producer (its persisted
- * `routerMetadata.model`, set for messages generated through the "omni"
- * router alias) matches the model about to consume the request. A message
+ * `routerMetadata.model`, set when a message records the model that
+ * produced it) matches the model about to consume the request. A message
  * with no routerMetadata was produced by whatever single model the
  * conversation is pinned to — the common case — and is always treated as
  * same-producer since there is nothing to contradict. Reasoning is
@@ -388,7 +388,7 @@ function replayAssistantTurn(
  *   Callers gate it on the model's reasoning capability; with
  *   `replayToolHistory` it defaults to on unless explicitly disabled.
  * - `currentProducerModel` additionally gates reasoning_content per message:
- *   a message routed (via the router alias) to a different model than the
+ *   a message produced by a different model than the
  *   one about to consume this request has its reasoning suppressed, since
  *   reasoning is conditioned on the producing model's own prior thoughts.
  *   Messages with no routerMetadata (the common pinned-model case) are

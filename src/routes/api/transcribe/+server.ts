@@ -1,3 +1,4 @@
+import { transcriptionBaseUrl } from "$lib/server/transcription";
 import { error, json } from "@sveltejs/kit";
 import { config } from "$lib/server/config";
 import { getApiToken } from "$lib/server/apiToken";
@@ -19,8 +20,9 @@ const ALLOWED_CONTENT_TYPES = [
 
 export async function POST({ request, locals }) {
 	const transcriptionModel = config.get("TRANSCRIPTION_MODEL");
+	const baseUrl = transcriptionBaseUrl();
 
-	if (!transcriptionModel) {
+	if (!transcriptionModel || !baseUrl) {
 		throw error(503, "Transcription is not configured");
 	}
 
@@ -53,8 +55,6 @@ export async function POST({ request, locals }) {
 			throw error(413, "Audio file too large (max 25MB)");
 		}
 
-		const baseUrl =
-			config.get("TRANSCRIPTION_BASE_URL") || "https://router.huggingface.co/hf-inference/models";
 		const apiUrl = `${baseUrl}/${transcriptionModel}`;
 
 		const controller = new AbortController();

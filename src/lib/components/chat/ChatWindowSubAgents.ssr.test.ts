@@ -102,7 +102,7 @@ const messages = [
 
 describe("ChatWindow SSR with sub-agent cards", () => {
 	it("renders a reloaded conversation with its sub-agents as cards, not tool rows", () => {
-		const model = { id: "m", displayName: "M", isRouter: false } as never;
+		const model = { id: "m", displayName: "M" } as never;
 		const { body } = render(ChatWindow, {
 			props: { messages, currentModel: model, models: [model] },
 			context: new Map<string, unknown>([

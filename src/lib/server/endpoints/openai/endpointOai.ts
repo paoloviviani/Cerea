@@ -24,8 +24,7 @@ export const endpointOAIParametersSchema = z.object({
 	model: z.any(),
 	type: z.literal("openai"),
 	baseURL: z.string().url().default("https://api.openai.com/v1"),
-	// Canonical auth token is OPENAI_API_KEY; keep HF_TOKEN as legacy alias
-	apiKey: z.string().default(config.OPENAI_API_KEY || config.HF_TOKEN || "sk-"),
+	apiKey: z.string().default(config.OPENAI_API_KEY || "sk-"),
 	completion: z
 		.union([z.literal("completions"), z.literal("chat_completions")])
 		.default("chat_completions"),
@@ -107,7 +106,6 @@ export async function endpointOai(
 		apiKey: apiKey || "sk-",
 		baseURL,
 		defaultHeaders: {
-			...(config.PUBLIC_APP_NAME === "HuggingChat" && { "User-Agent": "huggingchat" }),
 			...defaultHeaders,
 		},
 		defaultQuery,
@@ -124,7 +122,6 @@ export async function endpointOai(
 			conversationId,
 			locals,
 			abortSignal,
-			provider,
 		}) => {
 			const prompt = await buildPrompt({
 				messages,
@@ -132,9 +129,7 @@ export async function endpointOai(
 				model,
 			});
 
-			// Build model ID with optional provider suffix (e.g., "model:fastest" or "model:together")
-			const baseModelId = model.id ?? model.name;
-			const modelId = provider && provider !== "auto" ? `${baseModelId}:${provider}` : baseModelId;
+			const modelId = model.id ?? model.name;
 
 			const parameters = { ...model.parameters, ...generateSettings };
 			const body: CompletionCreateParamsStreaming = {
@@ -173,7 +168,6 @@ export async function endpointOai(
 			isMultimodal,
 			locals,
 			abortSignal,
-			provider,
 			reasoningEffort,
 			reasoningOverride,
 		}) => {
@@ -189,12 +183,8 @@ export async function endpointOai(
 			// (see reasoningPolicy.ts). A model that emitted no reasoning has none
 			// to replay, so defaulting on cannot invent one; tool replay stays off
 			// here since this path never declares tools.
-			// currentProducerModel is this call's own resolved model: when invoked
-			// directly for a pinned conversation it's the only model that has ever
-			// produced a turn here, and when invoked as a router candidate (the
-			// "omni" alias resolves a candidate before delegating here) it's that
-			// resolved candidate — either way it gates reasoning_content to history
-			// this same model actually produced.
+			// currentProducerModel is this call's own model: it gates
+			// reasoning_content to history this same model actually produced.
 			let messagesOpenAI: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
 				await prepareMessagesWithFiles(messages, imageProcessor, isMultimodal ?? model.multimodal, {
 					attachReasoning: reasoningOverride ?? model.preservesReasoning !== false,
@@ -227,9 +217,7 @@ export async function endpointOai(
 				}
 			}
 
-			// Build model ID with optional provider suffix (e.g., "model:fastest" or "model:together")
-			const baseModelId = model.id ?? model.name;
-			const modelId = provider && provider !== "auto" ? `${baseModelId}:${provider}` : baseModelId;
+			const modelId = model.id ?? model.name;
 
 			const body = {
 				model: modelId,

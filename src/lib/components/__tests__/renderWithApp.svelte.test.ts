@@ -16,7 +16,7 @@ function message(from: Message["from"], content: string, extra: Partial<Message>
 	return { id: MESSAGE_ID, from, content, ...extra };
 }
 
-/** An assistant message whose router metadata forces the `publicConfig.isHuggingChat` branch. */
+/** An assistant message carrying the metadata of the model a gateway actually used. */
 function routedMessage(): Message {
 	return message("assistant", "Answer.", {
 		routerMetadata: { route: "default", model: MODEL },
@@ -75,28 +75,13 @@ describe("renderWithApp", () => {
 		expect(link?.getAttribute("href")).toBe("/conversation/conv-42/output/abc123");
 	});
 
-	it("supplies the publicConfig context ChatMessage dereferences", async () => {
+	it("renders the model a gateway reports having used", async () => {
 		const screen = renderWithApp(ChatMessage, { message: routedMessage() });
 
 		await expect.element(screen.getByText("default", { exact: true })).toBeInTheDocument();
 		await expect
 			.element(screen.getByText("Llama-3.3-70B-Instruct", { exact: true }))
 			.toHaveProperty("tagName", "SPAN");
-	});
-
-	it("lets a test switch publicConfig to HuggingChat", async () => {
-		const screen = renderWithApp(
-			ChatMessage,
-			{ message: routedMessage() },
-			{ publicConfig: { PUBLIC_APP_ASSETS: "huggingchat" } }
-		);
-
-		// A button, not a link: per-model settings are a dialog now, and a dialog
-		// has no address. The page this used to point at is gone.
-		await expect
-			.element(screen.getByText("Llama-3.3-70B-Instruct", { exact: true }))
-			.toHaveProperty("tagName", "BUTTON");
-		expect(screen.baseElement.querySelector(`a[href="/chat/settings/${MODEL}"]`)).toBeNull();
 	});
 
 	it("exposes the $app/navigation spies without navigating", async () => {

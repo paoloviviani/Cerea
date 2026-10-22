@@ -51,7 +51,7 @@
 
 import type { Collection, Document, ObjectId } from "mongodb";
 
-import { collections } from "$lib/server/database";
+import { collections, Database } from "$lib/server/database";
 import { deleteConversationAttachments } from "$lib/server/files/deleteConversationAttachments";
 import { conversationSourceRef, deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import { deleteAttachmentsByPrefix } from "$lib/server/files/attachmentStore";
@@ -502,15 +502,6 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.projects, "userId", userId),
 	},
 	{
-		name: "assistants",
-		owner: "createdById",
-		mergeRule: "reassign",
-		eraseRule: "by-owner",
-		ownerField: "createdById",
-		merge: (stray, target) => reassignSimple(collections.assistants, "createdById", stray, target),
-		erase: (userId) => eraseByField(collections.assistants, "createdById", userId),
-	},
-	{
 		name: "knowledgeDocuments",
 		owner:
 			"storeId, via vectorStores.ownerId (indirect: this collection carries no owner field of its own)",
@@ -705,15 +696,6 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.sharedConversations, "userId", userId),
 	},
 	{
-		name: "reports",
-		owner: "createdBy",
-		mergeRule: "reassign",
-		eraseRule: "by-owner",
-		ownerField: "createdBy",
-		merge: (stray, target) => reassignSimple(collections.reports, "createdBy", stray, target),
-		erase: (userId) => eraseByField(collections.reports, "createdBy", userId),
-	},
-	{
 		name: "settings",
 		owner: "userId",
 		mergeRule: "keep-target-delete-stray",
@@ -853,6 +835,37 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.mcpOauthPending, "userId", userId),
 	},
 ];
+
+/**
+ * Collections whose feature is gone from the code (no type, no typed handle,
+ * no index) but whose rows may still sit in an existing database. They are
+ * read by raw name so an erased person's rows still go, and a merged-away
+ * account's rows still move, exactly as when they were typed. A collection
+ * that does not exist is a no-op: Mongo counts, updates and deletes nothing in
+ * it and creates nothing. `tools` held no owner field and is not listed.
+ */
+export const RETIRED_COLLECTIONS: ReadonlyArray<{ name: string; ownerField: string }> = [
+	{ name: "assistants", ownerField: "createdById" },
+	{ name: "reports", ownerField: "createdBy" },
+];
+
+async function retired(name: string): Promise<Collection<Document>> {
+	return (await Database.getInstance()).rawCollection(name);
+}
+
+for (const { name, ownerField } of RETIRED_COLLECTIONS) {
+	USER_KEYED_COLLECTIONS.push({
+		name,
+		owner: ownerField,
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
+		ownerField,
+		merge: async (stray, target) => reassignSimple(await retired(name), ownerField, stray, target),
+		erase: async (userId) => eraseByField(await retired(name), ownerField, userId),
+		count: async (userId) =>
+			(await retired(name)).countDocuments({ [ownerField]: userId } as never),
+	});
+}
 
 /** Every plain (non-`bucket:`) collection this registry names is declared in
  * `database.ts`'s `getCollections()` under this exact key — asserted by the

@@ -13,7 +13,6 @@ import type {
 import type { Stream } from "openai/streaming";
 import { buildToolPreprompt, unavailableConnectorsNotice } from "../utils/toolPrompt";
 import type { EndpointMessage } from "../../endpoints/endpoints";
-import { resolveRouterTarget } from "./routerResolution";
 import { executeToolCalls, type NormalizedToolCall } from "./toolInvocation";
 import { hasTruncatedToolCall, parseToolArguments, withParseableArguments } from "./toolArgs";
 import type { TextGenerationContext } from "../types";
@@ -55,10 +54,8 @@ export type RunMcpFlowContext = Pick<
 	TextGenerationContext,
 	| "model"
 	| "conv"
-	| "assistant"
 	| "forceMultimodal"
 	| "forceTools"
-	| "provider"
 	| "reasoningEffort"
 	| "reasoningOverride"
 	| "artifactsOverride"
@@ -113,10 +110,8 @@ export async function* runMcpFlow({
 	model,
 	conv,
 	messages,
-	assistant,
 	forceMultimodal,
 	forceTools,
-	provider,
 	reasoningEffort,
 	reasoningOverride,
 	artifactsOverride,
@@ -468,26 +463,6 @@ export async function* runMcpFlow({
 		maxHeight: 1024,
 	});
 
-	const hasImageInput = messages.some((msg) =>
-		(msg.files ?? []).some(
-			(file) => typeof file?.mime === "string" && file.mime.startsWith("image/")
-		)
-	);
-
-	const { runMcp, targetModel, candidateModelId, resolvedRoute } = await resolveRouterTarget({
-		model,
-		hasImageInput,
-		locals,
-	});
-
-	if (!runMcp) {
-		logger.info(
-			{ model: targetModel.id ?? targetModel.name, resolvedRoute },
-			"[mcp] runMcp=false (routing chose non-tools candidate)"
-		);
-		return "not_applicable";
-	}
-
 	// Declared outside the try so the catch can see it: whether the user has been shown
 	// anything for this turn, which decides whether a failure is recoverable.
 	let producedOutput = false;
@@ -547,25 +522,22 @@ export async function* runMcpFlow({
 		};
 
 		const openai = new OpenAI({
-			apiKey: config.OPENAI_API_KEY || config.HF_TOKEN || "sk-",
+			apiKey: config.OPENAI_API_KEY || "sk-",
 			baseURL: config.OPENAI_BASE_URL,
 			fetch: captureProviderFetch,
 			defaultHeaders: {
 				// Which group pays, when the person chose one (ADR 0061). The
-				// `isHuggingChat` guard is gone with the header it guarded: the
 				// gateway bills the tool loop's completions like any other, so
-				// scoping this to one deployment would silently bill the default.
+				// leaving this off would silently bill the default.
 				...billToHeader(locals?.billingOrganization),
 			},
 		});
 
-		const mmEnabled = forceMultimodal ?? targetModel.multimodal;
+		const mmEnabled = forceMultimodal ?? model.multimodal;
 		logger.info(
 			{
-				targetModel: targetModel.id ?? targetModel.name,
+				model: model.id ?? model.name,
 				mmEnabled,
-				route: resolvedRoute,
-				candidateModelId,
 				toolCount: oaTools.length,
 				hasUserToken: Boolean(locals?.token),
 			},
@@ -585,19 +557,18 @@ export async function* runMcpFlow({
 		// Nothing is invented by defaulting on — reasoning is only echoed when
 		// the model actually produced it, so a non-reasoning model is unaffected
 		// either way.
-		const mayEchoReasoning = reasoningOverride ?? targetModel.preservesReasoning !== false;
+		const mayEchoReasoning = reasoningOverride ?? model.preservesReasoning !== false;
 
 		// Hoisted above the message prep so the history budget can reserve the
 		// reply allowance this request will actually ask for.
 		const parameters = {
-			...targetModel.parameters,
-			...assistant?.generateSettings,
+			...model.parameters,
 		} as Record<string, unknown>;
 		const maxTokens =
 			(parameters?.max_tokens as number | undefined) ??
 			(parameters?.max_new_tokens as number | undefined) ??
 			(parameters?.max_completion_tokens as number | undefined);
-		const targetContextLength = targetModel.contextLength;
+		const targetContextLength = model.contextLength;
 
 		const userTimezone = locals?.timezone;
 		let messagesOpenAI: ChatCompletionMessageParam[] = await prepareMessagesWithFiles(
@@ -607,15 +578,11 @@ export async function* runMcpFlow({
 			{
 				replayToolHistory: true,
 				attachReasoning: mayEchoReasoning,
-				// The model resolved for THIS turn. Under the "omni" router alias a
-				// prior turn in the same conversation can have been produced by a
-				// different model (per-message routing, no user action needed); this
-				// gates reasoning_content to only replay onto its own producer.
-				currentProducerModel: candidateModelId ?? targetModel.id ?? targetModel.name,
-				// The resolved target's window, not the router alias's: under "omni"
-				// the alias itself has none, and the candidate is what serves this
-				// request. Tool schemas are prepended after this returns, which is
-				// part of what CONTEXT_RESERVE_TOKENS holds back.
+				// The model serving THIS turn: gates reasoning_content to only
+				// replay onto its own producer. Tool schemas are prepended after
+				// this returns, which is part of what CONTEXT_RESERVE_TOKENS
+				// holds back.
+				currentProducerModel: model.id ?? model.name,
 				contextLengthTokens: targetContextLength,
 				maxOutputTokens: maxTokens,
 				timezone: userTimezone,
@@ -680,15 +647,12 @@ export async function* runMcpFlow({
 					? (parameters.stop as string[])
 					: undefined;
 
-		// Build model ID with optional provider suffix (e.g., "model:fastest" or "model:together")
-		const baseModelId = targetModel.id ?? targetModel.name;
-		const modelIdWithProvider =
-			provider && provider !== "auto" ? `${baseModelId}:${provider}` : baseModelId;
+		const modelId = model.id ?? model.name;
 
 		const completionBase: Omit<ChatCompletionCreateParamsStreaming, "messages"> & {
 			reasoning_effort?: "low" | "medium" | "high";
 		} = {
-			model: modelIdWithProvider,
+			model: modelId,
 			stream: true,
 			temperature: typeof parameters?.temperature === "number" ? parameters.temperature : undefined,
 			top_p: typeof parameters?.top_p === "number" ? parameters.top_p : undefined,
@@ -783,18 +747,6 @@ export async function* runMcpFlow({
 		// For the leaked-markup check: only names that are really callable this
 		// run can make "<name" in a final answer mean a call that never happened.
 		const advertisedToolNames = oaTools.map((tool) => tool.function.name);
-
-		if (resolvedRoute && candidateModelId) {
-			yield {
-				type: MessageUpdateType.RouterMetadata,
-				route: resolvedRoute,
-				model: candidateModelId,
-			};
-			logger.debug(
-				{ route: resolvedRoute, model: candidateModelId },
-				"[mcp] router metadata emitted"
-			);
-		}
 
 		for (let loop = 0; loop < maxToolRounds; loop += 1) {
 			// Check for abort at the start of each loop iteration

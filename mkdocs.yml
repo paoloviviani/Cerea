@@ -4,9 +4,9 @@
 # link that silently 404s is a document that lies. The Python dependencies are
 # pinned in docs/requirements.txt, not in a project file: Cerea is a Node repo.
 #
-# docs/source/ is upstream huggingface/chat-ui's documentation, kept as
-# upstream wrote it (a doc-builder tree that is not valid mkdocs and that a
-# later upstream merge should carry untouched), so it is excluded, not moved.
+# docs/source/ is upstream huggingface/chat-ui's old documentation (a
+# doc-builder tree that is not valid mkdocs), left as it was and excluded from
+# the site; parts of it do not apply to Cerea.
 # This site's pages are the flat files beside it.
 #
 # mkdocs-material is MIT, mkdocs BSD-2-Clause, pymdown-extensions MIT and

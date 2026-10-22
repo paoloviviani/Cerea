@@ -25,8 +25,7 @@ describe("renderShareThumbnailPng", () => {
 	it("renders a PNG for a normal prompt", async () => {
 		const png = await renderShareThumbnailPng({
 			prompt: renderableThumbnailText("How do I fine-tune a model on my own dataset?", 240),
-			isHuggingChat: true,
-			appName: "HuggingChat",
+			appName: "Cerea",
 		});
 		expectValidPng(png);
 	}, 30000);
@@ -34,7 +33,6 @@ describe("renderShareThumbnailPng", () => {
 	it("renders the generic card when the prompt is empty", async () => {
 		const png = await renderShareThumbnailPng({
 			prompt: "",
-			isHuggingChat: false,
 			appName: "ChatUI",
 		});
 		expectValidPng(png);
@@ -43,8 +41,7 @@ describe("renderShareThumbnailPng", () => {
 	it("memoizes renders for identical options", async () => {
 		const options = {
 			prompt: renderableThumbnailText("What is the capital of France?", 240),
-			isHuggingChat: true,
-			appName: "HuggingChat",
+			appName: "Cerea",
 		};
 		// Concurrent requests for the same card share a single render
 		const [first, second] = await Promise.all([
@@ -69,8 +66,7 @@ describe("renderShareThumbnailPng", () => {
 		for (const input of inputs) {
 			const png = await renderShareThumbnailPng({
 				prompt: renderableThumbnailText(input, 240),
-				isHuggingChat: true,
-				appName: "HuggingChat",
+				appName: "Cerea",
 			});
 			expectValidPng(png);
 		}

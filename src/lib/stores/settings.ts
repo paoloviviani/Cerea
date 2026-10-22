@@ -20,7 +20,6 @@ type SettingsStore = {
 	toolsOverrides: Record<string, boolean>;
 	artifactsOverrides: Record<string, boolean>;
 	hidePromptExamples: Record<string, boolean>;
-	providerOverrides: Record<string, string>;
 	reasoningEffortOverrides: Record<string, ReasoningEffort>;
 	reasoningOverrides: Record<string, boolean>;
 	recentlySaved: boolean;

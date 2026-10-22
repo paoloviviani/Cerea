@@ -1,7 +1,6 @@
 /**
  * The `/` autocomplete's state machine, kept out of `ChatInput` so it can be
- * tested directly — the same split `hubMention.svelte.ts` uses for the `@`
- * menu it mirrors. No debounce and no network: it filters the list it is
+ * tested directly. No debounce and no network: it filters the list it is
  * given, synchronously, by prefix first and then substring.
  *
  * The panel is open exactly when the draft starts with `/` and the caret is

@@ -190,7 +190,7 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 			// answer than the session already in hand. The UI is gated by the
 			// signed-in user, and by the gateway refusing anyone who is not one.
 			if (MACHINE_ADMIN_ROUTES.has(event.route.id ?? "")) {
-				const ADMIN_SECRET = config.ADMIN_API_SECRET || config.PARQUET_EXPORT_SECRET;
+				const ADMIN_SECRET = config.ADMIN_API_SECRET;
 
 				if (!ADMIN_SECRET) {
 					return errorResponse(500, "Admin API is not configured");

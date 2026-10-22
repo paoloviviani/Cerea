@@ -71,14 +71,3 @@ When a model decides to use a tool:
 2. Chat UI executes the call against the MCP server
 3. Results are displayed in the chat as a collapsible "tool" block
 4. Results are fed back to the model for follow-up responses
-
-## Integration with LLM Router
-
-When using the [LLM Router](./llm-router), you can configure automatic routing to a tools-capable model:
-
-```ini
-LLM_ROUTER_ENABLE_TOOLS=true
-LLM_ROUTER_TOOLS_MODEL=meta-llama/Llama-3.3-70B-Instruct
-```
-
-When a user has MCP servers enabled and selects the Omni model, the router will automatically use the specified tools model.

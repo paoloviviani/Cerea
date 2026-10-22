@@ -16,9 +16,8 @@ commit 11dbfc8fb81bcfb1857b10fff56dddaac4530463 (the import this fork
 started from).
 
 "Hugging Face" and "HuggingChat" are trademarks of Hugging Face, Inc.
-This project is not affiliated with or endorsed by Hugging Face. Branding
-assets under static/huggingchat are used only when publicConfig.isHuggingChat
-is set, which this deployment never sets.
+This project is not affiliated with or endorsed by Hugging Face. It carries
+no Hugging Face branding assets.
 
 Third-party components under other licences
 -------------------------------------------

@@ -73,7 +73,7 @@ afterEach(() => {
 	sidePane.reset();
 });
 
-const model = { id: "deepseek-r1", displayName: "DeepSeek-R1", isRouter: false } as never;
+const model = { id: "deepseek-r1", displayName: "DeepSeek-R1" } as never;
 
 const messages = [
 	{ id: "user-1", from: "user", content: "What is 2+2?", children: ["assistant-1"] },

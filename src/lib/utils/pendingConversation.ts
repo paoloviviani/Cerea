@@ -1,6 +1,5 @@
 import { browser } from "$app/environment";
 import type { Message } from "$lib/types/Message";
-import type { DeployedSpace } from "$lib/types/Conversation";
 import type { PlanState } from "$lib/types/Plan";
 import type { TurnStateSnapshot } from "$lib/types/TurnState";
 
@@ -16,7 +15,6 @@ export interface ConversationData {
 	updatedAt: Date;
 	modelId: string;
 	shared: boolean;
-	deployedSpaces?: Record<string, DeployedSpace>;
 	/** Per-chat web-search state; absent means "inherit defaults at turn time". */
 	webSearch?: boolean;
 	/** Chat-local override of the tool-approval policy (ADR 0075); absent means "inherit the setting". */

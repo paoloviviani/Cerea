@@ -1,7 +1,7 @@
 /**
  * The boot path Pystino no longer mints a key for (ADR 0081): against a
  * gateway whose `GET /v1/models` answers publicly, `buildModels` must build
- * the catalogue with no `OPENAI_API_KEY`/`HF_TOKEN` configured at all — the
+ * the catalogue with no `OPENAI_API_KEY` configured at all — the
  * `authToken ? { Authorization: ... } : undefined` branch in
  * `src/lib/server/models.ts` already does this, this only confirms it against
  * a stand-in for the public endpoint rather than redesigning it.
@@ -21,7 +21,7 @@ vi.mock("$env/dynamic/private", () => ({
 		// Without a MONGODB_URL the database module starts mongodb-memory-server, which needs AVX.
 		MONGODB_URL: process.env.TEST_MONGODB_URL,
 		OPENAI_BASE_URL: KEYLESS_BASE_URL,
-		// OPENAI_API_KEY and HF_TOKEN are deliberately absent — the point of the test.
+		// OPENAI_API_KEY is deliberately absent — the point of the test.
 	},
 }));
 

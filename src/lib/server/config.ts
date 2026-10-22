@@ -45,10 +45,6 @@ class ConfigManager {
 		return serverEnv.ENABLE_CONFIG_MANAGER === "true" && import.meta.env.MODE !== "test";
 	}
 
-	get isHuggingChat() {
-		return this.get("PUBLIC_APP_ASSETS") === "huggingchat";
-	}
-
 	async checkForUpdates() {
 		if (await this.isConfigStale()) {
 			await this.updateConfig();
@@ -156,9 +152,7 @@ export const ready = (async () => {
 })();
 
 type ExtraConfigKeys =
-	| "HF_TOKEN"
 	| "OLD_MODELS"
-	| "ENABLE_ASSISTANTS"
 	| "METRICS_ENABLED"
 	| "METRICS_PORT"
 	| "MCP_SERVERS"

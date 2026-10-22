@@ -24,7 +24,6 @@
 	import { base } from "$app/paths";
 	import { onDestroy } from "svelte";
 	import { browser } from "$app/environment";
-	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { switchTheme, subscribeToTheme } from "$lib/switchTheme";
 	import { clearAllComposerDrafts } from "$lib/utils/composerDraft";
 	import { clearTranscripts } from "$lib/stores/agentTranscriptCache";
@@ -40,8 +39,6 @@
 	}
 
 	let { user }: Props = $props();
-
-	const publicConfig = usePublicConfig();
 
 	const label = $derived(user?.username || user?.email || "Account");
 	// Two letters, because an avatar is not always there and a coloured disc
@@ -70,19 +67,11 @@
 </script>
 
 <div class="flex h-10 items-center gap-1.5 rounded-lg px-2">
-	{#if publicConfig.isHuggingChat && user?.username}
-		<img
-			src="https://huggingface.co/api/users/{user.username}/avatar?redirect=true"
-			class="size-6 shrink-0 rounded-full border bg-gray-500 dark:border-white/40"
-			alt=""
-		/>
-	{:else}
-		<span
-			class="flex size-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[0.6rem] font-semibold text-white"
-		>
-			{initials}
-		</span>
-	{/if}
+	<span
+		class="flex size-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[0.6rem] font-semibold text-white"
+	>
+		{initials}
+	</span>
 	<span class="min-w-0 flex-1 truncate text-sm text-gray-700 dark:text-gray-300">{label}</span>
 
 	<button

@@ -75,13 +75,11 @@ describe("GET /api/v2/feature-flags", () => {
 		const res = await testRequest(featureFlagsGET, { path: "/api/v2/feature-flags", locals });
 		const data = await parseResponse<FeatureFlags>(res);
 
-		expect(data).toHaveProperty("enableAssistants");
 		expect(data).toHaveProperty("loginEnabled");
 		expect(data).toHaveProperty("isAdmin");
 		expect(data).toHaveProperty("transcriptionEnabled");
 		expect(data).toHaveProperty("taskModelId");
 		expect(data).toHaveProperty("knowledgeEnabled");
-		expect(typeof data.enableAssistants).toBe("boolean");
 		expect(typeof data.loginEnabled).toBe("boolean");
 		expect(typeof data.isAdmin).toBe("boolean");
 		expect(typeof data.transcriptionEnabled).toBe("boolean");
@@ -381,7 +379,6 @@ describe("GET /api/v2/public-config", () => {
 
 		for (const secret of [
 			"OPENAI_API_KEY",
-			"HF_TOKEN",
 			"MONGODB_URL",
 			"OPENID_CLIENT_SECRET",
 			"ADMIN_API_SECRET",

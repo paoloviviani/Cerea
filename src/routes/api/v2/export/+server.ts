@@ -37,14 +37,10 @@ export const GET: RequestHandler = async ({ locals }) => {
 		nConversations: number;
 		nMessages: number;
 		nFiles: number;
-		nAssistants: number;
-		nAvatars: number;
 	} = {
 		nConversations: 0,
 		nMessages: 0,
 		nFiles: 0,
-		nAssistants: 0,
-		nAvatars: 0,
 	};
 
 	const zipfile = new yazl.ZipFile();
@@ -106,63 +102,6 @@ export const GET: RequestHandler = async ({ locals }) => {
 				zipfile.addBuffer(
 					Buffer.from(JSON.stringify(formattedConversations, null, 2)),
 					"conversations.json"
-				);
-			}),
-		collections.assistants
-			.find({ createdById: locals.user._id })
-			.toArray()
-			.then(async (assistants) => {
-				const formattedAssistants = await Promise.all(
-					assistants.map(async (assistant) => {
-						if (assistant.avatar) {
-							const fileId = collections.bucket.find({
-								filename: assistant._id.toString(),
-							});
-
-							const content = await fileId.next().then(async (file) => {
-								if (!file?._id) return;
-
-								const fileStream = collections.bucket.openDownloadStream(file?._id);
-
-								const fileBuffer = await new Promise<Buffer>((resolve, reject) => {
-									const chunks: Uint8Array[] = [];
-									fileStream.on("data", (chunk) => chunks.push(chunk));
-									fileStream.on("error", reject);
-									fileStream.on("end", () => resolve(Buffer.concat(chunks)));
-								});
-
-								return fileBuffer;
-							});
-
-							if (!content) return;
-
-							zipfile.addBuffer(content, `avatar-${assistant._id.toString()}.jpg`);
-							stats.nAvatars++;
-						}
-
-						stats.nAssistants++;
-
-						return {
-							_id: assistant._id.toString(),
-							name: assistant.name,
-							createdById: assistant.createdById.toString(),
-							createdByName: assistant.createdByName,
-							avatar: `avatar-${assistant._id.toString()}.jpg`,
-							modelId: assistant.modelId,
-							preprompt: assistant.preprompt,
-							description: assistant.description,
-							dynamicPrompt: assistant.dynamicPrompt,
-							exampleInputs: assistant.exampleInputs,
-							generateSettings: assistant.generateSettings,
-							createdAt: assistant.createdAt.toISOString(),
-							updatedAt: assistant.updatedAt.toISOString(),
-						};
-					})
-				);
-
-				zipfile.addBuffer(
-					Buffer.from(JSON.stringify(formattedAssistants, null, 2)),
-					"assistants.json"
 				);
 			}),
 	];
