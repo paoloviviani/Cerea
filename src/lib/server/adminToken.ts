@@ -2,6 +2,19 @@ import { config } from "$lib/server/config";
 import type { Session } from "$lib/types/Session";
 import { logger } from "./logger";
 import { v4 } from "uuid";
+import JSON5 from "json5";
+
+/** Same test as `loginEnabled` in auth.ts, without importing it (auth.ts imports this module). */
+function openIdConfigured(): boolean {
+	if (config.OPENID_CLIENT_ID) return true;
+	try {
+		const parsed = JSON5.parse(config.OPENID_CONFIG || "{}");
+		return !!parsed?.CLIENT_ID;
+	} catch {
+		// An unparseable OPENID_CONFIG: fail closed, treat OpenID as configured.
+		return true;
+	}
+}
 
 class AdminTokenManager {
 	private token = config.ADMIN_TOKEN || v4();
@@ -9,8 +22,8 @@ class AdminTokenManager {
 	private adminSessions: Array<Session["sessionId"]> = [];
 
 	public get enabled() {
-		// if open id is configured, disable the feature
-		return config.ADMIN_CLI_LOGIN === "true";
+		// Off whenever OpenID is configured, whatever the flag says.
+		return config.ADMIN_CLI_LOGIN === "true" && !openIdConfigured();
 	}
 	public isAdmin(sessionId: Session["sessionId"]) {
 		if (!this.enabled) return false;
