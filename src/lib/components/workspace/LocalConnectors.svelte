@@ -27,6 +27,7 @@
 		confirmLocalMachine,
 		listLocalMachines,
 		revokeLocalMachine,
+		startLocalSignIn,
 	} from "$lib/localConnectorsApi";
 	import type { LocalMachineView, LocalServerView } from "$lib/types/LocalConnectors";
 	import IconLaptop from "~icons/carbon/laptop";
@@ -42,6 +43,15 @@
 
 	const publicConfig = usePublicConfig();
 	const origin = $derived(publicConfig.origin);
+	/** What the sentence calls this deployment: its name, else the host the machine dials. */
+	const deploymentName = $derived.by(() => {
+		if (publicConfig.PUBLIC_APP_NAME) return publicConfig.PUBLIC_APP_NAME;
+		try {
+			return new URL(origin || page.url.origin).host;
+		} catch {
+			return page.url.host;
+		}
+	});
 	const commands = $derived(
 		buildConnectorsCommands({
 			origin,
@@ -55,6 +65,21 @@
 	let failure = $state<string | null>(null);
 	let busy = $state<string | null>(null);
 	let needsFreshSignIn = $state(false);
+	let signingIn = $state<string | null>(null);
+
+	/** Chat-side sign-in for a local http server: carries the browser to the provider and back. */
+	async function signIn(server: LocalServerView) {
+		signingIn = server.id;
+		failure = null;
+		try {
+			const back = new URL(page.url);
+			for (const key of ["mcp", "mcpDetail", "mcpConnector"]) back.searchParams.delete(key);
+			window.location.href = await startLocalSignIn(server.id, `${back.pathname}${back.search}`);
+		} catch (err) {
+			failure = err instanceof Error ? err.message : "Could not start the sign-in.";
+			signingIn = null;
+		}
+	}
 
 	const pending = $derived(machines.filter((m) => m.status === "pending"));
 	const paired = $derived(machines.filter((m) => m.status === "paired"));
@@ -214,11 +239,11 @@ loginctl enable-linger "$USER"`;
 				<LucidePlug class="size-5 text-accent" />
 			</div>
 			<div class="min-w-0">
-				<h2 class={s.TITLE}>Connect a machine</h2>
-				<p class="{s.SUBTITLE} break-words">
+				<h3 class="{s.CARD_TITLE} leading-10 !whitespace-normal">Connect a machine</h3>
+				<p class="{s.SUBTITLE} mt-1 break-words">
 					Run an MCP server on your own machine (a notes folder, a database, a tool on a private
 					network) and use it from your chats. Nothing is opened to the internet: the machine dials
-					out to {publicConfig.PUBLIC_APP_NAME || "this deployment"}.
+					out to {deploymentName}.
 				</p>
 			</div>
 		</div>
@@ -437,7 +462,26 @@ loginctl enable-linger "$USER"`;
 													<span class="text-xs text-ink-muted">{server.transport}</span>
 													<span class="{s.PILL} {s.PILL_TONES[state.tone]}">{state.label}</span>
 												</div>
-												{#if server.state !== "ready" && server.detail}
+												{#if server.state === "needs-login" && server.transport === "http"}
+													<p class="text-xs wrap-break-word text-ink-muted">
+														Needs a sign-in; the tokens stay on {machine.name}.
+													</p>
+													<div class="flex flex-wrap items-center gap-2">
+														<button
+															type="button"
+															class={s.CARD_ACTION}
+															disabled={signingIn === server.id}
+															onclick={() => void signIn(server)}
+														>
+															Sign in
+														</button>
+														<span class="text-xs text-ink-muted">
+															If the provider refuses this page's redirect, run
+															<code class="font-mono">galopin connectors login {server.name}</code> on
+															the machine.
+														</span>
+													</div>
+												{:else if server.state !== "ready" && server.detail}
 													<p class="text-xs wrap-break-word text-ink-muted">{server.detail}</p>
 												{/if}
 											</li>
