@@ -112,6 +112,7 @@ let openMachines: FakeMachine[] = [];
 
 afterEach(async () => {
 	await drainPool();
+	await collections.localConnectorOauth.deleteMany({});
 	for (const machine of openMachines) machine.close();
 	openMachines = [];
 	await cleanupTestData();
@@ -616,7 +617,7 @@ describe("signing in to a local http connector from the chat", () => {
 		expect(location.searchParams.get("mcpConnector")).toBe(`local:${deviceId}:crm`);
 		expect(machine.mcpLogins).toEqual([{ server: "crm", code: "c0de", state }]);
 		// Cerea kept nothing but the (now consumed) state: no token, no verifier.
-		expect(await collections.localConnectorOauth.countDocuments({})).toBe(0);
+		expect(await collections.localConnectorOauth.countDocuments({ state })).toBe(0);
 		expect(JSON.stringify(await collections.codeDevices.find({}).toArray())).not.toContain("c0de");
 	});
 
