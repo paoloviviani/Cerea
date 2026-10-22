@@ -255,10 +255,20 @@ describe("ScheduleEditor timetable", () => {
 			)
 		);
 
-		api.previewRecurrence.mockResolvedValue({
-			ok: false,
-			error: "Runs must be at least 15 minutes apart; that expression fires sooner.",
-		});
+		// Refuse only the typed expression. Answering every call with the refusal
+		// let the debounced preview of the cron default, fired when "cron" is
+		// picked, put the error up before the typed expression was ever sent, so
+		// the call assertion below raced the 250 ms debounce.
+		const accepted = await api.previewRecurrence({ type: "daily", at: "09:00" }, "UTC");
+		api.previewRecurrence.mockClear();
+		api.previewRecurrence.mockImplementation(async (rec: { expr?: string }) =>
+			rec.expr === "*/5 * * * *"
+				? {
+						ok: false as const,
+						error: "Runs must be at least 15 minutes apart; that expression fires sooner.",
+					}
+				: accepted
+		);
 		await screen.getByLabelText("Repeats").selectOptions("cron");
 		await screen.getByLabelText("Cron expression").fill("*/5 * * * *");
 		await expect.element(screen.getByTestId("preview-error")).toHaveTextContent("15 minutes");
