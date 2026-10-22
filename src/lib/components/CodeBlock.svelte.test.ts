@@ -1,7 +1,8 @@
 import CodeBlock from "./CodeBlock.svelte";
 import ChatMessage from "./chat/ChatMessage.svelte";
+import { markdownPoolReady } from "$lib/utils/markdownWorkerPool";
 import { render } from "vitest-browser-svelte";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { tick } from "svelte";
 import type { RunOutcome } from "$lib/utils/execution/protocol";
 import { sidePane } from "$lib/stores/sidePane.svelte";
@@ -366,6 +367,11 @@ describe("CodeBlock with code execution disabled (the agent transcript)", () => 
 		expect(screen.baseElement.querySelector("pre")).not.toBeNull();
 		expect(screen.baseElement.querySelector('button[title="Copy to clipboard"]')).not.toBeNull();
 	});
+
+	// Booting the markdown worker (marked, KaTeX, highlight.js) is a one-off cost that took
+	// 3 to 5 s on a loaded CPU, the same order as the render waits below. Wait for the worker
+	// itself, so those waits measure rendering, not the cold start.
+	beforeAll(() => markdownPoolReady(), 60_000);
 
 	it("an assistant message in the agent view with a python fence never runs", async () => {
 		const rawCode = "print('agent-chat-disabled')";

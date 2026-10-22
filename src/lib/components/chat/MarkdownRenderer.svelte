@@ -1,3 +1,10 @@
+<script module lang="ts">
+	import { markdownPoolReady } from "$lib/utils/markdownWorkerPool";
+	// Boot the worker as soon as the chat UI loads, in parallel with fetching the
+	// conversation, so the first message is not rendered by a cold worker.
+	void markdownPoolReady();
+</script>
+
 <script lang="ts">
 	import { fallbackBlocks, findClosedFences, type BlockToken } from "$lib/utils/markedLight";
 	import {

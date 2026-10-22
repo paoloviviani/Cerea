@@ -23,6 +23,9 @@ export type OutgoingMessage = {
 // coalescing) lives in the shared pool (markdownWorkerPool.ts), so the worker just
 // processes whatever it is handed and replies once. The pool never posts a second job to
 // a busy worker, hence no internal queue/buffer here.
+// Imports above have been fetched and evaluated by the time this runs.
+postMessage({ type: "ready" });
+
 onmessage = async (event) => {
 	const data = event.data as IncomingMessage;
 	if (data.type !== "process") {

@@ -62,6 +62,22 @@ const canUseWorker = () => hasWorkerSupport && !workersBroken;
 const MAX_CONSECUTIVE_DEATHS = 3;
 let consecutiveDeaths = 0;
 
+// A worker's module graph (marked, KaTeX, highlight.js) takes real time to fetch and
+// evaluate: about half a second on an idle desktop, several seconds on a loaded or slow
+// device. The worker announces itself with a "ready" message once that is done, so callers
+// that care can wait on readiness (markdownPoolReady) instead of guessing at a duration.
+const readyWaiters: Array<() => void> = [];
+let anyWorkerReady = false;
+const settleReadyWaiters = () => {
+	for (const resolve of readyWaiters.splice(0)) resolve();
+};
+
+// How long a cancelled (component destroyed) job may keep running before its worker is
+// terminated. Terminating on the spot throws away a booted worker, and the next view then
+// pays the whole cold start again; a normal parse finishes in milliseconds, so the worker
+// is kept unless the obsolete job is genuinely long.
+const CANCEL_GRACE_MS = 1500;
+
 let nextRequestId = 1;
 let nextClientId = 1;
 
@@ -117,6 +133,7 @@ function ensureWorker() {
 		// for the session and degrade gracefully.
 		workersBroken = true;
 		drainToMainThread();
+		settleReadyWaiters();
 		return;
 	}
 	worker.onmessage = (event: MessageEvent) => onWorkerMessage(worker, event);
@@ -160,13 +177,21 @@ function handleWorkerDeath(worker: Worker) {
 	if (consecutiveDeaths >= MAX_CONSECUTIVE_DEATHS) {
 		workersBroken = true;
 		drainToMainThread();
+		settleReadyWaiters();
 		return;
 	}
+	// Someone is waiting for a booted worker: replace the dead one even with no job queued.
+	if (readyWaiters.length > 0) ensureWorker();
 	pump();
 }
 
 function onWorkerMessage(worker: Worker, event: MessageEvent) {
 	const data = event.data as { type?: string; blocks?: BlockToken[]; requestId?: number };
+	if (data?.type === "ready") {
+		anyWorkerReady = true;
+		settleReadyWaiters();
+		return;
+	}
 	if (data?.type !== "processed" || data.requestId === undefined) return;
 
 	consecutiveDeaths = 0;
@@ -257,27 +282,39 @@ export function cancelMarkdownClient(clientId: number): void {
 		if (i !== -1) queue.splice(i, 1);
 	}
 
-	// If a render is already running for this client, abort it: the component is gone, so
-	// terminate its worker (truly stopping the obsolete parse, rather than letting it hold
-	// a scarce pool slot) and free the slot. A fresh worker is created lazily on the next
-	// pump for whatever view is now active. At most one in-flight job per client (renders
-	// are serialized per client), so this terminates at most one worker.
-	let abortedWorker: Worker | undefined;
+	// If a render is already running for this client, its result is no longer wanted. Mark
+	// it cancelled so the reply is dropped, and let the worker finish: it returns to the
+	// pool already booted. Only a job that outlives CANCEL_GRACE_MS (a huge obsolete parse
+	// holding a scarce slot) gets its worker terminated; a fresh one is created lazily on
+	// the next pump. At most one in-flight job per client.
 	for (const entry of inFlight.values()) {
-		if (entry.clientId === clientId) {
-			entry.cancelled = true;
-			abortedWorker = entry.worker;
-			break;
-		}
+		if (entry.clientId !== clientId) continue;
+		entry.cancelled = true;
+		const { worker, requestId } = entry;
+		setTimeout(() => {
+			if (inFlight.get(requestId)?.worker !== worker) return; // it replied in time
+			worker.onmessage = null;
+			worker.onerror = null;
+			worker.onmessageerror = null;
+			dropWorker(worker);
+			worker.terminate();
+			pump();
+		}, CANCEL_GRACE_MS);
+		break;
 	}
-	if (abortedWorker) {
-		abortedWorker.onmessage = null;
-		abortedWorker.onerror = null;
-		abortedWorker.onmessageerror = null;
-		dropWorker(abortedWorker);
-		abortedWorker.terminate();
-		pump();
-	}
+}
+
+/**
+ * Start booting a worker now, so the first render does not pay for it. Resolves once a
+ * worker has finished loading its pipeline, or straight away when workers are not in play
+ * (SSR, unsupported, broken): then renders take the main-thread path and there is nothing
+ * to wait for.
+ */
+export function markdownPoolReady(): Promise<void> {
+	if (!canUseWorker() || anyWorkerReady) return Promise.resolve();
+	ensureWorker();
+	if (!canUseWorker()) return Promise.resolve();
+	return new Promise((resolve) => readyWaiters.push(resolve));
 }
 
 // Debug hook: read `__mdWorkerPool.workers()` in the console to confirm the live worker
