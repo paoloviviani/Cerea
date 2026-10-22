@@ -375,16 +375,15 @@ describe("CodeBlock with code execution disabled (the agent transcript)", () => 
 				message: { id: "m-agent-1", from: "assistant", content, children: [], updates: [] },
 				loading: true,
 				isLast: true,
+				isAuthor: true,
 				readOnly: true,
 			},
 			context: new Map<unknown, unknown>([[CODE_EXECUTION_DISABLED, true]]),
 		} as never);
 		await tick();
 		// The fence renders through the markdown pipeline…
-		// Generous: the first markdown render in a cold browser worker has taken
-		// over 5s when the whole client project runs on a loaded machine.
 		await vi.waitFor(() => expect(screen.baseElement.querySelector("pre")).not.toBeNull(), {
-			timeout: 20000,
+			timeout: 5000,
 		});
 		// …the turn settles, the fence closes — and nothing executes.
 		await screen.rerender({ loading: false });
@@ -401,11 +400,12 @@ describe("CodeBlock with code execution disabled (the agent transcript)", () => 
 			message: { id: "m-agent-2", from: "assistant", content, children: [], updates: [] },
 			loading: true,
 			isLast: true,
+			isAuthor: true,
 			readOnly: true,
 		} as never);
 		await tick();
 		await vi.waitFor(() => expect(screen.baseElement.querySelector("pre")).not.toBeNull(), {
-			timeout: 20000,
+			timeout: 5000,
 		});
 		await screen.rerender({ loading: false });
 		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledWith(rawCode), {
