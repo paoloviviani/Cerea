@@ -1834,6 +1834,8 @@ def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Repor
         report.warnings.append(f"{FIRST_SIGN_IN} still exists: sign in once, then delete it")
     if not (root / "proxy.d").is_dir():
         report.errors.append("proxy.d/ is missing (the proxy mounts it); restore it with git checkout proxy.d")
+    if not (root / "providers.d").is_dir():
+        report.errors.append("providers.d/ is missing (the gateway mounts it); restore it with git checkout providers.d")
     check_values(values, report)
     check_mongo(values, report, *detect_host())
     if network:

@@ -5,6 +5,9 @@
 first-sign-in.txt
 # Your own proxy snippets: an upgrade never touches them.
 proxy.d/*.caddy
+# Your own provider catalogue entries: an upgrade never touches them.
+providers.d/*.yaml
+providers.d/*.yml
 # Your own additions to the stack: Compose merges compose.override.yaml into
 # compose.yaml by itself, and an upgrade never touches it.
 compose.override.yaml

@@ -58,7 +58,7 @@ class Deploy(unittest.TestCase):
         self.dir = Path(tempfile.mkdtemp(prefix="configure-test-"))
         for name in (".env.example", "compose.yaml"):
             shutil.copy(ROOT / name, self.dir / name)
-        for name in ("caddy", "authelia", "proxy.d"):
+        for name in ("caddy", "authelia", "proxy.d", "providers.d"):
             shutil.copytree(ROOT / name, self.dir / name)
         # No test reaches a real issuer; one that needs a discovery document
         # sets `self.discovery`.
@@ -761,6 +761,12 @@ class TestCommands(Deploy):
         cfg.check_values(values, report)
         self.assertTrue(any("COMPOSE_FILE" in w for w in report.warnings))
         self.assertTrue(any("PYSTINO_VERSION" in w for w in report.warnings))
+
+    def test_check_wants_providers_dir(self):
+        self.configure("--tls", "internal")
+        shutil.rmtree(self.dir / "providers.d")
+        report = cfg.check(self.dir, network=False, probe_host=False)
+        self.assertTrue(any("providers.d/ is missing" in e for e in report.errors))
 
     def test_check_catches_hand_edit_mistakes(self):
         self.configure()

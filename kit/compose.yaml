@@ -310,6 +310,9 @@ services:
       # The bundled Authelia's users file, which the console manages
       # and the authelia_file adapter reads. Empty when the profile is off.
       - authelia-config:/authelia
+      # Your own provider catalogue entries (providers.d/*.yaml), read at gateway
+      # start. The directory ships in the kit so Docker never creates it as root.
+      - ${PYSTINO_PROVIDERS_DIR:-./providers.d}:/etc/pystino/providers.d:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -37,10 +37,10 @@ Install the Cerea deploy kit into DIR/kit, or upgrade or migrate one.
   --upgrade       move an existing checkout made by this script to --version.
                   Run it inside the checkout, or name it with --dir. Files git
                   does not track (.env, compose.override.yaml, proxy.d/*.caddy,
-                  first-sign-in.txt, backups) stay exactly as they are.
+                  providers.d/*.yaml, first-sign-in.txt, backups) stay exactly as they are.
   --from PATH     migrate an install made by cloning the old cerea-deploy
                   repository: install as usual, then copy PATH's .env,
-                  compose.override.yaml, proxy.d/*.caddy and first-sign-in.txt
+                  compose.override.yaml, proxy.d/*.caddy, providers.d/*.y*ml and first-sign-in.txt
                   into the new kit and pin its compose project name, so Docker
                   finds the same volumes. Prints the two steps left to you.
   -h, --help      show this text
@@ -328,7 +328,7 @@ if [ -n "$FROM" ]; then
 	copy_one compose.override.yaml
 	copy_one compose.override.yml
 	copy_one first-sign-in.txt
-	for f in "$FROM"/.env.bak-* "$FROM"/proxy.d/*.caddy; do
+	for f in "$FROM"/.env.bak-* "$FROM"/proxy.d/*.caddy "$FROM"/providers.d/*.yaml "$FROM"/providers.d/*.yml; do
 		[ -f "$f" ] || continue
 		copy_one "${f#"$FROM"/}"
 	done
