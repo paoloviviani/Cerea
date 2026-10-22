@@ -6,9 +6,9 @@ vi.mock("$lib/server/config", () => ({
 }));
 const connect = vi.fn();
 vi.mock("playwright", () => ({ chromium: { connect } }));
-const ssrfSafeFetch = vi.fn();
+const contentFetch = vi.fn();
 vi.mock("$lib/server/urlSafety", () => ({
-	ssrfSafeFetch,
+	contentFetch,
 	isValidUrl: (u: string) => u.startsWith("https://"),
 }));
 vi.mock("$lib/server/files/extractDocument", () => ({
@@ -22,7 +22,7 @@ describe("renderWithPlaywright on a document", () => {
 	beforeEach(() => vi.resetAllMocks());
 
 	it("fetches a PDF through the SSRF guard as bytes and never opens the browser", async () => {
-		ssrfSafeFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+		contentFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
 			const headers = { "content-type": "application/octet-stream" };
 			return init?.method === "HEAD"
 				? new Response(null, { headers })
@@ -32,6 +32,6 @@ describe("renderWithPlaywright on a document", () => {
 		expect(page.document?.mime).toBe("application/pdf");
 		expect(page.backend).toBe("playwright");
 		expect(connect).not.toHaveBeenCalled();
-		expect(ssrfSafeFetch).toHaveBeenCalledTimes(2);
+		expect(contentFetch).toHaveBeenCalledTimes(2);
 	});
 });

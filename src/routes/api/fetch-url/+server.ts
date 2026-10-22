@@ -1,6 +1,6 @@
 import { error } from "@sveltejs/kit";
 import { logger } from "$lib/server/logger.js";
-import { isValidUrl, ssrfSafeFetch } from "$lib/server/urlSafety";
+import { contentFetch, isValidUrl } from "$lib/server/urlSafety";
 import { configuredBackend, fetchPage } from "$lib/server/fetching";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -23,7 +23,7 @@ export async function GET({ url }) {
 		throw error(400, "Missing 'url' parameter");
 	}
 
-	if (!isValidUrl(targetUrl)) {
+	if (!isValidUrl(targetUrl, { blockInternalNetworks: true })) {
 		logger.warn({ targetUrl }, "Invalid or unsafe URL (only HTTPS is supported)");
 		throw error(400, "Invalid or unsafe URL (only HTTPS is supported)");
 	}
@@ -39,7 +39,7 @@ export async function GET({ url }) {
 	try {
 		// eslint-disable-next-line no-constant-condition
 		while (true) {
-			response = await ssrfSafeFetch(currentUrl, {
+			response = await contentFetch(currentUrl, {
 				signal: controller.signal,
 				redirect: "manual",
 				headers: {
@@ -61,7 +61,7 @@ export async function GET({ url }) {
 				// Resolve relative redirects against the current URL
 				const redirectUrl = new URL(location, currentUrl).toString();
 
-				if (!isValidUrl(redirectUrl)) {
+				if (!isValidUrl(redirectUrl, { blockInternalNetworks: true })) {
 					logger.warn(
 						{ redirectUrl, originalUrl: targetUrl },
 						"Redirect to unsafe URL blocked (SSRF)"

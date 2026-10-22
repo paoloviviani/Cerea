@@ -14,7 +14,7 @@
  */
 
 import { fileTypeFromBuffer } from "file-type";
-import { ssrfSafeFetch, isValidUrl } from "$lib/server/urlSafety";
+import { contentFetch, isValidUrl } from "$lib/server/urlSafety";
 import { documentMime, isExtractableDocument } from "$lib/server/files/extractDocument";
 import type { FetchBackend, FetchedPage } from "./index";
 
@@ -32,7 +32,7 @@ export interface FetchedBytes {
 }
 
 function assertValid(url: string): void {
-	if (!isValidUrl(url)) {
+	if (!isValidUrl(url, { blockInternalNetworks: true })) {
 		throw new Error("Invalid or unsafe URL (only HTTPS is supported).");
 	}
 }
@@ -40,7 +40,7 @@ function assertValid(url: string): void {
 /** A GET through the SSRF guard, body read as bytes, capped at `MAX_BYTES`. */
 export async function fetchBytes(url: string): Promise<FetchedBytes> {
 	assertValid(url);
-	const response = await ssrfSafeFetch(url, {
+	const response = await contentFetch(url, {
 		headers: { "user-agent": USER_AGENT },
 		signal: AbortSignal.timeout(TIMEOUT_MS),
 	});
@@ -66,7 +66,7 @@ export async function fetchBytes(url: string): Promise<FetchedBytes> {
 export async function probeContentType(url: string): Promise<string | null> {
 	assertValid(url);
 	try {
-		const response = await ssrfSafeFetch(url, {
+		const response = await contentFetch(url, {
 			method: "HEAD",
 			headers: { "user-agent": USER_AGENT },
 			signal: AbortSignal.timeout(10_000),

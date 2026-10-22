@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const ssrfSafeFetch = vi.fn();
+const contentFetch = vi.fn();
 vi.mock("$lib/server/urlSafety", () => ({
-	ssrfSafeFetch,
+	contentFetch,
 	isValidUrl: (u: string) => u.startsWith("https://"),
 }));
 vi.mock("$lib/server/files/extractDocument", async () => {
@@ -18,7 +18,7 @@ const { fetchDirect } = await import("./direct");
 function respond(body: string, contentType: string, url = "https://x.test/f") {
 	const response = new Response(body, { headers: { "content-type": contentType } });
 	Object.defineProperty(response, "url", { value: url });
-	ssrfSafeFetch.mockResolvedValue(response);
+	contentFetch.mockResolvedValue(response);
 }
 
 describe("direct fetch of documents", () => {
