@@ -219,6 +219,14 @@ limited to **10 MB** each.
   `/mnt/data/<name>`, with the text read from each beside it as `<name>.md`
   ([Python in the browser](pyodide.md#files-you-attach)).
 
+**Previews and converted files.** Click a file in the conversation to open it in
+the side pane. A deployment with the document converter ([Office
+previews](office.md)) shows Word, Excel, PowerPoint and OpenDocument files as a
+PDF, and the assistant can **convert** a file already in the conversation to a
+PDF, or write Markdown or HTML out as one; the result is saved in the
+conversation like any file it produced. Without the converter, decks are drawn in
+the browser and other Office files can still be downloaded.
+
 Which model reads documents is decided by the **Knowledge** settings (an
 administrator's choice, see [Administering the chat](chat-admin.md)); a
 deployment can also point extraction at a reader directly
@@ -250,6 +258,15 @@ then off. Nothing done inside a chat writes back to the settings.
 
 When you paste a link, or search finds one, the assistant can also **fetch the
 page** and read it. Some sites stay empty until JavaScript has run. If the assistant reports a page as empty, your deployment may not have the headless browser that reads pages the way a browser does; that is an operator's choice.
+
+Fetching refuses addresses on the deployment's internal networks, so a page or a
+model cannot point it at internal services: the `10.0.0.0/8` range and the
+`100.64.0.0/10` range that mesh VPNs such as Tailscale and NetBird use are
+refused, and so are loopback, link-local and the other private ranges. An
+operator who must fetch from an internal host can allow the first two with
+`CHAT_FETCH_ALLOW_INTERNAL_NETWORKS` ([Configuration](configuration.md#web-fetch));
+[connectors](connectors.md) are not covered by this rule and may reach them. The same
+rule applies to **Attach from URL**.
 
 ## Tool approvals
 
@@ -285,20 +302,26 @@ to the /code panel or to title generation.
 
 With a model that can call tools, the assistant keeps a **plan** for work with
 several steps: a short list of steps, one in progress, ticked off as it goes.
-The plan card shows it live and stays in the finished message. It belongs to
-the conversation, so the assistant sees its current plan again on your next
-message and revises it when the request changes. For a simple question there
-is no plan.
+The plan card shows it live and stays in the finished message. A plan has at
+most 20 steps, with one in progress at a time, and the assistant rewrites it
+whole on each update (it keeps a one-paragraph statement of your goal beside it,
+folding in corrections as you make them). It belongs to the conversation, so the
+assistant sees its current plan again on your next message and revises it when
+the request changes. For a simple question there is no plan. The plan is the
+assistant's own working list: there is nothing to approve, and it does not
+change what the assistant may do.
 
 The assistant can also hand a self-contained sub-task to a **sub-agent**: a
 second run of a model, in a fresh context, that sees only the brief it was
 given and gives back only its final answer. Each one is its own card in the
 message, with a title, the model it runs on, a live line for what it is doing
 ("searching ...", "reading ...") and, once done, its answer and the list of
-steps it took. Up to three run at once; a fourth is refused until one returns.
+steps it took. The assistant starts one with its `delegate` tool, and several
+`delegate` calls in one step run side by side.
 
 - **Which model.** By default the conversation's model. The assistant may pick
-  another model you can use (never one of your custom models).
+  another tool-capable model you can use (never one of your custom models), for
+  instance a cheaper one for a simple lookup. The card names the model it ran on.
 - **What it can use.** The same server-side tools as the chat: web search,
   fetching pages, and the [connectors](connectors.md) you have switched on. It
   cannot run code in your browser, make a plan, or start sub-agents of its own.
@@ -307,17 +330,33 @@ steps it took. Up to three run at once; a fourth is refused until one returns.
   the rest of the conversation", or tools are auto-approved); otherwise the call
   is refused, the card shows it as refused, and the assistant is told which tool
   needs your approval and can ask for it itself.
-- **Limits.** Each sub-agent stops after 25 rounds of tool calls, a token budget
-  or eight minutes, whichever comes first, and answers with what it has. The
-  per-message limit on pages read is shared with it. **Stop** ends every running
-  sub-agent. Its model calls are billed to you like any message.
+- **Limits.** **Three** run at once (a fourth is refused until one returns) and
+  one message may start **ten** in all; the eleventh is refused, and the assistant
+  is told to finish the rest itself or say what is left. Each sub-agent stops after
+  **25 rounds** of tool calls, a budget of **400,000 tokens** or **eight minutes**,
+  whichever comes first, and answers with what it has. The per-message limit on
+  pages read is shared with it.
+- **Stop.** The composer's **Stop** ends the message, and every running sub-agent
+  with it.
+- **Cost.** A sub-agent's model calls are billed to you like any message, and
+  several in parallel use your quota faster.
 - **Research.** Where web search is on, the assistant can start a **research**
   sub-agent: it plans queries, reads primary sources, cross-checks them and
   answers concisely with the sources it cites, saying where they disagree or are
   thin. It uses the web only.
 
-An administrator can turn sub-agents off for the whole deployment
-([Sub-agents](chat-admin.md#sub-agents)).
+An administrator can turn sub-agents off for the whole deployment, under
+**Administration → Sub-agents** ([Sub-agents](chat-admin.md#sub-agents)); the
+assistant is then not offered `delegate` or `research`. Coding agents on your own
+machines have their own, separate kind of delegation: see
+[Delegating work](agent-machines-reference.md#delegating-work).
+
+## Notifications
+
+Cerea can send a notification to your phone or desktop when a long chat answer is
+ready, or when one of your coding agents needs you or has finished, even with the
+tab closed. It is off until you turn it on, per device, under **Settings,
+Notifications**; see [Notifications](notifications.md).
 
 ## Memory
 

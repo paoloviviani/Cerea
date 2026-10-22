@@ -29,6 +29,6 @@ Before committing, prove it locally (real opencode, one at a time on a shared bo
   cd .. && npx vitest run --project=server src/lib/codeEnrollCommand.spec.ts
 
 Then update the prose that names the release if it changed behaviour
-(docs/agent-machines.md, agent/PROTOCOL.md "verified against" notes) and
+(docs/agent-machines-reference.md, agent/PROTOCOL.md "verified against" notes) and
 commit with the pipeline's issue number.
 MSG

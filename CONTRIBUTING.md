@@ -216,7 +216,7 @@ agent/packaging/bump-opencode.sh 1.18.35     # rewrites both places and prints t
 
 Run the printed commands (the full suite under that opencode, then the TypeScript
 spec), skim opencode's release notes for permission names or events the suite
-cannot see, update prose that names the release (`docs/agent-machines.md`,
+cannot see, update prose that names the release (`docs/agent-machines-reference.md`,
 `agent/PROTOCOL.md`), and commit. Pystino's setup script names the same release
 (`opencode_pin` in its `opencode-install.sh`) and is **not** moved by this script:
 change it in the Pystino repository too.

@@ -173,7 +173,7 @@ jobs:
           - [ ] \`agent/packaging/bump-opencode.sh $VERSION\` (rewrites \`agent/packaging/opencode-version\` and \`OPENCODE_VERSION\` in \`src/lib/codeEnrollCommand.ts\`)
           - [ ] run the printed local commands (full suite under the real opencode, then the TS spec)
           - [ ] skim the opencode release notes for permission names, event or route changes the suite cannot see
-          - [ ] update prose that names the release (\`docs/agent-machines.md\`, \`agent/PROTOCOL.md\` "verified against" notes) if behaviour changed
+          - [ ] update prose that names the release (\`docs/agent-machines-reference.md\`, \`agent/PROTOCOL.md\` "verified against" notes) if behaviour changed
           - [ ] commit, merge; the \`pinned\` job then re-runs this suite on the new pin
 
           _Opened by the daily \`latest\` job._

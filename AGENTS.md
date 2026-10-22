@@ -871,7 +871,8 @@ agent, `galopin`, which lives in this repository as `agent/`. Coding agents run 
 **the person's own machine**, supervised by one binary that dials **out** to
 this deployment over WSS with its own OIDC credential — no relay in between,
 nothing capability-bearing at rest in Cerea. `docs/code-panel.md`
-is the operator guide and `docs/agent-machines.md` the user's (it also
+is the operator guide and `docs/agent-machines.md` the user's getting-started page and
+`docs/agent-machines-reference.md` the user's reference (it also
 covers building, installing and running `galopin` itself); what matters when
 changing the code:
 
