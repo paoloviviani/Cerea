@@ -912,7 +912,11 @@ describe("tool-output images through the forwarder", () => {
 		expect(res.headers.get("content-type")).toBe("image/png");
 		expect(res.headers.get("content-disposition")).toBe("inline");
 		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-		expect(res.headers.get("content-security-policy")).toBe("sandbox; default-src 'none'");
+		// The hook appends its own frame-ancestors policy to this response's, so the
+		// header is a list; the route's sandbox policy is its first member.
+		expect(res.headers.get("content-security-policy")?.split(", ")[0]).toBe(
+			"sandbox; default-src 'none'"
+		);
 		expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
 		expect(Buffer.from(await res.arrayBuffer()).equals(image)).toBe(true);
 
