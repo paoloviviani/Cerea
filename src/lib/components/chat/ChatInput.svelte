@@ -7,6 +7,7 @@
 	import { DropdownMenu } from "bits-ui";
 	import IconPlus from "~icons/lucide/plus";
 	import CarbonImage from "~icons/carbon/image";
+	import CarbonCamera from "~icons/carbon/camera";
 	import CarbonDocument from "~icons/carbon/document";
 	import CarbonUpload from "~icons/carbon/upload";
 	import CarbonLink from "~icons/carbon/link";
@@ -242,6 +243,8 @@
 		if (!e.target) return;
 		const target = e.target as HTMLInputElement;
 		const selected = Array.from(target.files ?? []);
+		// Cleared so the same file, or a second photo, fires change again.
+		target.value = "";
 		if (selected.length === 0) return;
 		files = [...files, ...selected];
 		await tick();
@@ -318,6 +321,21 @@
 	}
 
 	let fileInputEl: HTMLInputElement | undefined = $state();
+	let cameraInputEl: HTMLInputElement | undefined = $state();
+	/**
+	 * A phone or tablet: offer "Take photo", which opens the camera directly.
+	 * Android's picker often leaves the camera out when the input lists
+	 * specific image types, and desktop browsers ignore `capture` (the item
+	 * would only open the file picker again), so it is touch-only. Read after
+	 * mount: SSR has no window.
+	 */
+	let canTakePhoto = $state(false);
+	onMount(() => {
+		canTakePhoto =
+			typeof window !== "undefined" &&
+			typeof window.matchMedia === "function" &&
+			window.matchMedia("(pointer: coarse)").matches;
+	});
 	let isUrlModalOpen = $state(false);
 	let isDropdownOpen = $state(false);
 
@@ -412,6 +430,10 @@
 			mimeTypes.filter((m) => !(m === "image/*" || m.startsWith("image/"))).join(",") ||
 			TEXT_MIME_ALLOWLIST.join(",");
 		openPickerWithAccept(textAccept);
+	}
+
+	function openCamera() {
+		cameraInputEl?.click();
 	}
 
 	function openFilePickerImage() {
@@ -1152,6 +1174,21 @@
 							}}
 							accept={mimeTypes.join(",")}
 						/>
+						<input
+							bind:this={cameraInputEl}
+							disabled={loading}
+							class="absolute hidden size-0"
+							aria-label="Take photo"
+							type="file"
+							accept="image/*"
+							capture="environment"
+							onchange={onFileChange}
+							onclick={(e) => {
+								if (requireAuthUser()) {
+									e.preventDefault();
+								}
+							}}
+						/>
 
 						<DropdownMenu.Root
 							bind:open={isDropdownOpen}
@@ -1188,6 +1225,15 @@
 											<CarbonImage class="size-4 opacity-90 dark:opacity-80" />
 											Add image(s)
 										</DropdownMenu.Item>
+										{#if canTakePhoto}
+											<DropdownMenu.Item
+												class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+												onSelect={() => openCamera()}
+											>
+												<CarbonCamera class="size-4 opacity-90 dark:opacity-80" />
+												Take photo
+											</DropdownMenu.Item>
+										{/if}
 									{/if}
 
 									<DropdownMenu.Sub>
