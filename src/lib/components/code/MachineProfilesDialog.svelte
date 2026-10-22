@@ -92,6 +92,14 @@
 		return [{ id: row.model, label: `${row.model} (not offered)` }, ...models];
 	}
 
+	/** Lower case, whitespace as "-", and no leading "-" or "_" (a name starts with a-z or 0-9). */
+	function normaliseProfileName(value: string): string {
+		return value
+			.toLowerCase()
+			.replace(/\s+/g, "-")
+			.replace(/^[-_]+/, "");
+	}
+
 	function problem(): string | null {
 		const seen = new Set<string>();
 		for (const row of rows) {
@@ -186,7 +194,7 @@
 				</p>
 			{:else if rows.length > 0}
 				<div
-					class="mb-1 grid grid-cols-[2rem_1fr_1.4fr_2rem] items-center gap-2 text-xs text-ink-faint"
+					class="mb-1 grid grid-cols-[3.5rem_1fr_1.4fr_2rem] items-center gap-2 text-xs text-ink-faint"
 				>
 					<span class="text-center">Default</span>
 					<span>Name</span>
@@ -195,7 +203,7 @@
 				</div>
 				<ul class="space-y-2" data-testid="profile-rows">
 					{#each rows as row, i (row.key)}
-						<li class="grid grid-cols-[2rem_1fr_1.4fr_2rem] items-center gap-2">
+						<li class="grid grid-cols-[3.5rem_1fr_1.4fr_2rem] items-center gap-2">
 							<input
 								type="radio"
 								name="profile-default"
@@ -213,8 +221,18 @@
 								placeholder="name"
 								maxlength={32}
 								aria-label="Profile {i + 1} name"
+								autocapitalize="none"
+								autocomplete="off"
+								autocorrect="off"
+								spellcheck={false}
 								bind:value={row.name}
-								oninput={() => (saved = false)}
+								oninput={() => {
+									// A phone keyboard capitalises, autocorrects and adds a space after a
+									// suggestion: fold what it typed into the allowed form rather than
+									// refuse a name that looks right.
+									row.name = normaliseProfileName(row.name);
+									saved = false;
+								}}
 								disabled={!editable}
 							/>
 							<select

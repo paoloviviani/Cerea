@@ -492,6 +492,30 @@ describe("CodeNavTree session Permissions menu", () => {
 		expect(apiMock.getDelegateProfiles).toHaveBeenCalledWith("d1");
 	});
 
+	it("folds what a phone keyboard types into a valid profile name", async () => {
+		apiMock.getDelegateProfiles.mockResolvedValue({ default: null, profiles: [] });
+		apiMock.listProviderModels.mockResolvedValue({ models: [{ id: "gw/fast", label: "Fast" }] });
+		go("?device=d1&ws=w1");
+		const screen = mount([
+			device("d1", {
+				backends: [{ id: "opencode", version: "1", capabilities: {} }],
+				machine: { capabilities: { delegateProfiles: true } },
+			}),
+		]);
+		await expect.element(screen.getByText("alpha")).toBeVisible();
+		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("menuitem", { name: "Profiles" }).click();
+		await screen.getByRole("button", { name: "Add profile" }).click();
+		const name = screen.getByLabelText("Profile 1 name");
+		await expect.element(name).toHaveAttribute("autocapitalize", "none");
+		// A suggestion's leading space and the keyboard's capital, as on Android.
+		await name.fill(" Default");
+		await expect.element(name).toHaveValue("default");
+		await name.fill("Code Review");
+		await expect.element(name).toHaveValue("code-review");
+		expect(screen.getByTestId("profiles-invalid").elements()).toHaveLength(0);
+	});
+
 	it("says to update galopin in the profiles dialog of a machine without the capability", async () => {
 		apiMock.getDelegateProfiles.mockReset();
 		go("?device=d1&ws=w1");
