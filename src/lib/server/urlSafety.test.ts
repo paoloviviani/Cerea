@@ -1,6 +1,12 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { env } from "$env/dynamic/private";
-import { contentFetch, isValidUrl, mcpFetch, ssrfSafeFetch } from "./urlSafety";
+import {
+	assertSafeBrowserRequest,
+	contentFetch,
+	isValidUrl,
+	mcpFetch,
+	ssrfSafeFetch,
+} from "./urlSafety";
 
 describe("isValidUrl", () => {
 	it("allows normal HTTPS URLs", () => {
@@ -246,5 +252,35 @@ describe("content fetching refuses the internal networks (10/8, 100.64/10)", () 
 		env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS = "true";
 		expect(isValidUrl("https://192.168.1.1/", { blockInternalNetworks: true })).toBe(false);
 		expect(isValidUrl("https://169.254.169.254/", { blockInternalNetworks: true })).toBe(false);
+	});
+});
+
+describe("assertSafeBrowserRequest", () => {
+	afterEach(() => {
+		delete env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS;
+	});
+
+	it("refuses internal literals, localhost and 10/8", async () => {
+		for (const u of [
+			"http://127.0.0.1/",
+			"https://[::1]/",
+			"http://localhost:3000/",
+			"http://169.254.169.254/",
+			"https://10.1.2.3/",
+			"https://[::ffff:7f00:1]/",
+		]) {
+			await expect(assertSafeBrowserRequest(u), u).rejects.toThrow();
+		}
+	});
+
+	it("refuses unsupported schemes and lets data: through", async () => {
+		await expect(assertSafeBrowserRequest("file:///etc/passwd")).rejects.toThrow();
+		await expect(assertSafeBrowserRequest("data:text/plain,hi")).resolves.toBeUndefined();
+	});
+
+	it("honours CHAT_FETCH_ALLOW_INTERNAL_NETWORKS for 10/8 only", async () => {
+		env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS = "true";
+		await expect(assertSafeBrowserRequest("https://10.1.2.3/")).resolves.toBeUndefined();
+		await expect(assertSafeBrowserRequest("http://127.0.0.1/")).rejects.toThrow();
 	});
 });

@@ -168,6 +168,31 @@ export function isValidUrl(
 }
 
 /**
+ * Refuse a request URL a headless browser is about to make (a navigation, a redirect hop or a
+ * subresource). Applies the content-fetch rule: IP literals and `localhost` are checked up
+ * front, any other hostname is resolved and every address it resolves to must be safe.
+ * Schemes that never touch the network (`data:`, `blob:`, `about:`) pass; anything but
+ * http(s) otherwise is refused. Honours `CHAT_FETCH_ALLOW_INTERNAL_NETWORKS`.
+ */
+export async function assertSafeBrowserRequest(urlString: string): Promise<void> {
+	const url = new URL(urlString);
+	if (["data:", "blob:", "about:"].includes(url.protocol)) return;
+	if (url.protocol !== "https:" && url.protocol !== "http:") {
+		throw new Error(`Blocked request with unsupported scheme: ${url.protocol}`);
+	}
+	const host = stripBrackets(url.hostname.toLowerCase());
+	if (host === "localhost" || host.endsWith(".localhost")) {
+		throw new Error(`Blocked request to unsafe host: ${host}`);
+	}
+	if (isIP(host)) {
+		assertSafeIp(host, host, true);
+		return;
+	}
+	const addresses = await dns.promises.lookup(host, { all: true });
+	for (const { address } of addresses) assertSafeIp(address, host, true);
+}
+
+/**
  * Assert that a resolved IP address is safe (not internal/private).
  * Throws if the IP is internal. Used in undici's custom DNS lookup
  * to validate IPs at connection time (prevents TOCTOU DNS rebinding).

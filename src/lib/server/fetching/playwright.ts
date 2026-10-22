@@ -24,7 +24,7 @@
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import http from "node:http";
-import { isValidUrl } from "$lib/server/urlSafety";
+import { assertSafeBrowserRequest, isValidUrl } from "$lib/server/urlSafety";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import type { FetchedPage } from "./index";
@@ -238,6 +238,20 @@ async function withRenderedPage<T>(url: string, render: (page: Page) => Promise<
 		const context = await browser.newContext({
 			userAgent: "Cerea-Chat-Fetcher/1.0",
 			javaScriptEnabled: true,
+		});
+		// The initial URL was validated above, but the browser follows redirects and loads
+		// subresources on its own. Every request, redirect hops included, goes through the
+		// same host check. The route runs in this process (Playwright's client side), so the
+		// name resolution is the chat container's, the one that sees the compose hosts.
+		await context.route("**/*", async (route) => {
+			try {
+				await assertSafeBrowserRequest(route.request().url());
+			} catch (err) {
+				logger.warn({ err: String(err) }, "playwright_request_blocked");
+				await route.abort("blockedbyclient").catch(() => {});
+				return;
+			}
+			await route.continue().catch(() => {});
 		});
 		const pageHandle = await context.newPage();
 		try {
