@@ -30,37 +30,54 @@ function scroller(container: HTMLElement): HTMLElement {
 
 // A cold or busy markdown worker answers late (CI's does). Every render result
 // arrives this long after it was asked for, so the column is exercised the way
-// a slow worker would show it, whatever the machine running the test.
+// a slow worker would show it, whatever the machine running the test. The mock
+// also records which render each client is still waiting for, so a test can wait
+// for the real event (every message holds its rendered blocks) instead of a
+// guessed pause.
+const waiting = vi.hoisted(() => new Map<number, number>());
 vi.mock("$lib/utils/markdownWorkerPool", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("$lib/utils/markdownWorkerPool")>();
 	return {
 		...actual,
 		renderMarkdownBlocks: (...args: Parameters<typeof actual.renderMarkdownBlocks>) => {
 			const [clientId, content, sources, streaming, onResult] = args;
-			return actual.renderMarkdownBlocks(clientId, content, sources, streaming, (blocks, id) => {
-				setTimeout(() => onResult(blocks, id), 150);
-			});
+			const requestId = actual.renderMarkdownBlocks(
+				clientId,
+				content,
+				sources,
+				streaming,
+				(blocks, id) => {
+					setTimeout(() => {
+						onResult(blocks, id);
+						if (waiting.get(clientId) === id) waiting.delete(clientId);
+					}, 150);
+				}
+			);
+			waiting.set(clientId, requestId);
+			return requestId;
+		},
+		cancelMarkdownClient: (clientId: number) => {
+			waiting.delete(clientId);
+			actual.cancelMarkdownClient(clientId);
 		},
 	};
 });
 
-/** Resolves once the markdown worker is booted and the transcript's height has
- * stopped changing (the messages have swapped from the fallback to rendered
- * blocks). A cold worker takes the better part of a second to boot, so a
- * height that merely sat still for a moment proves nothing before it is up. */
+/** Resolves once the markdown worker is up and every message on screen has its
+ * rendered blocks (no render still outstanding), then lets the layout settle
+ * for a couple of frames. A cold worker takes the better part of a second to
+ * boot, so the first renders land long after a fixed pause would have ended. */
 async function rested(el: HTMLElement): Promise<void> {
 	await markdownPoolReady();
+	await vi.waitFor(() => expect(waiting.size).toBe(0), { timeout: 20_000 });
 	let last = -1;
-	let still = 0;
-	const start = Date.now();
-	while (still < 8) {
-		await new Promise((resolve) => setTimeout(resolve, 50));
+	for (let still = 0; still < 3;) {
+		await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
 		if (el.scrollHeight === last) still += 1;
 		else {
 			last = el.scrollHeight;
 			still = 0;
 		}
-		if (Date.now() - start > 20_000) throw new Error("the transcript never came to rest");
 	}
 }
 
@@ -120,8 +137,23 @@ describe("the column's history-paging surface", () => {
 			prependPage(): void;
 			messageCount(): number;
 		};
+		// Tag the existing messages' nodes: a prepend must insert new DOM above
+		// and leave these components alone (no remount, so no flash back to the
+		// light markdown and no height swap below the reader).
+		const tagged = ["u2", "a2"].map((id) => {
+			const node = view.container.querySelector(`[data-message-id="${id}"]`) as HTMLElement;
+			(node as HTMLElement & { __tag?: string }).__tag = id;
+			return node;
+		});
 		host.prependPage();
-		await settled();
+		// At rest: the prepended messages' own markdown swap lands over the
+		// following frames, and a check taken between a swap and the column's
+		// same-frame correction would see the transient, not the outcome.
+		await rested(el);
+		for (const node of tagged) {
+			const id = (node as HTMLElement & { __tag?: string }).__tag as string;
+			expect(view.container.querySelector(`[data-message-id="${id}"]`)).toBe(node);
+		}
 
 		expect(host.messageCount()).toBe(4);
 		// The page's own messages landed above.
