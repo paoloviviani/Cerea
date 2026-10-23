@@ -2,6 +2,7 @@ package link
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -163,5 +164,57 @@ func TestCallRefusedWhileUnpaired(t *testing.T) {
 	_, err := l.Call(context.Background(), Call{Op: "schedule.list"})
 	if err == nil || err.Code != "unavailable" || !strings.Contains(err.Message, "not paired") {
 		t.Fatalf("err = %#v", err)
+	}
+}
+
+// failingWriter is a wsWriter whose every write fails.
+type failingWriter struct{}
+
+func (failingWriter) Write(context.Context, websocket.MessageType, []byte) error {
+	return errors.New("write failed")
+}
+
+// callOnBrokenWrite runs Call against a link whose write always fails and
+// whose connection context is cancelled (linkDown) or live.
+func callOnBrokenWrite(t *testing.T, linkDown bool) *OpError {
+	t.Helper()
+	l := New(Config{CallTimeout: 5 * time.Second})
+	s := newScheduler(failingWriter{})
+	connCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.run(context.Background())
+	l.mu.Lock()
+	l.sched, l.connCtx, l.paired = s, connCtx, true
+	l.mu.Unlock()
+	if linkDown {
+		cancel()
+		// What the connection's teardown does once the link is down.
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			l.mu.Lock()
+			l.sched = nil
+			l.mu.Unlock()
+			l.failPending("the link to Cerea dropped before it answered")
+		}()
+	}
+	_, err := l.Call(context.Background(), Call{Op: "schedule.list"})
+	return err
+}
+
+// A call whose write failed because the link went down may have reached
+// Cerea, so it ends as dropped, whichever of the write error and the
+// teardown the caller observes first.
+func TestCallWriteFailureDuringLinkDownIsDropped(t *testing.T) {
+	err := callOnBrokenWrite(t, true)
+	if err == nil || err.Code != "unavailable" || !strings.Contains(err.Message, "dropped") {
+		t.Fatalf("err = %#v, want unavailable (dropped)", err)
+	}
+}
+
+// With the link still up, a failed write means the call was never sent.
+func TestCallWriteFailureOnLiveLinkIsNotReachable(t *testing.T) {
+	err := callOnBrokenWrite(t, false)
+	if err == nil || err.Code != "unavailable" || !strings.Contains(err.Message, "not reachable") {
+		t.Fatalf("err = %#v, want unavailable (not reachable)", err)
 	}
 }
