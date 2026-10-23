@@ -99,6 +99,30 @@ for (const [label, width] of [
 			expect(screen.getByRole("button", { name: "More ways to send" }).elements()).toHaveLength(0);
 		});
 
+		it("keeps what was typed while a send was in flight", async () => {
+			await browserPage.viewport(width, 800);
+			let land: () => void = () => {};
+			onsend.mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						land = resolve;
+					})
+			);
+			const screen = mount(false);
+			const box = screen.getByPlaceholder("Follow up with the agent…");
+			await box.fill("first message");
+			await screen.getByRole("button", { name: "Send message" }).click();
+			await vi.waitFor(() => expect(onsend).toHaveBeenCalledTimes(1));
+
+			// The next message, typed before the first has landed.
+			await box.fill("second message");
+			land();
+			await vi.waitFor(() => expect(onsend).toHaveBeenCalledTimes(1));
+			await expect.element(box).toHaveValue("second message");
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			await expect.element(box).toHaveValue("second message");
+		});
+
 		it("still refuses a slash command while a turn runs, on Send and on Stop and send", async () => {
 			await browserPage.viewport(width, 800);
 			const screen = mount(true);

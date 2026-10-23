@@ -313,9 +313,13 @@
 		try {
 			await onsend(message, files);
 			// Cleared only on a landed send: a refused follow-up keeps its text
-			// and its files, like every composer here.
-			draft = "";
-			files = [];
+			// and its files, like every composer here. And only the text that was
+			// sent: what was typed while the send was in flight is the next
+			// message, not something to wipe.
+			if (draft.trim() === message) {
+				draft = "";
+				files = [];
+			}
 		} catch {
 			// The view shows the failure; the draft stays for another try.
 		} finally {
@@ -338,8 +342,10 @@
 		try {
 			if ((await onstop?.()) === false) return;
 			await onsend(message, files);
-			draft = "";
-			files = [];
+			if (draft.trim() === message) {
+				draft = "";
+				files = [];
+			}
 		} catch {
 			// As in submit: the view shows why, the draft stays.
 		} finally {

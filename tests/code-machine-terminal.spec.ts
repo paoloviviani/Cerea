@@ -54,12 +54,24 @@ test.describe("the terminal on a real machine", () => {
 
 	/** The wrapper shows before xterm's lazy imports land and before the socket is open, and a
 	 * click or keystroke in that gap goes nowhere (typed input is dropped on a closed socket).
-	 * The shell's own prompt is the sign both are done; xterm's hidden character-measure row is
-	 * all dollar signs, so the prompt is matched by its user@host shape. */
+	 * The shell's prompt is no sign of readiness (it is "user@host:" under bash and a bare "#"
+	 * under sh, as in CI's root container), and xterm's hidden character-measure row fills the
+	 * text with one repeated character. So ask: type a marker until the shell echoes it back,
+	 * which is proof the input arrived. */
 	async function shellPrompt(page: import("playwright/test").Page) {
-		await expect(page.getByTestId("code-terminal")).toContainText(/\w+@[\w.-]+:/, {
-			timeout: 30_000,
-		});
+		const term = page.getByTestId("code-terminal");
+		await expect
+			.poll(
+				async () => {
+					if ((await term.textContent())?.includes("shell-ready")) return true;
+					await term.click();
+					await page.keyboard.type("echo shell-ready");
+					await page.keyboard.press("Enter");
+					return false;
+				},
+				{ timeout: 30_000, intervals: [1_000] }
+			)
+			.toBe(true);
 	}
 
 	/** A terminal opened with "New" while an exited one was showing: the exited pane (its banner)
