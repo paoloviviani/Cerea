@@ -90,6 +90,14 @@ Two things about running the suites in a container:
 
 ### End-to-end tests (Playwright)
 
+`npx playwright test --grep @smoke` is the subset CI runs on every PR; the
+whole suite is `npx playwright test --project=chromium`. Nothing is retried
+(`retries: 0`) and none is known to fail: a spec that passes only on a second
+try is a bug in the spec or the app, fixed at its cause. Two causes recur: an
+action taken before the page hydrates (a server-rendered input or button does
+nothing until then: `waitForHydration` in `tests/fixtures.ts`), and a wait
+shorter than the thing it waits for (a poll's interval, a background cleanup).
+
 `npx playwright test` builds the app, starts its own MongoDB and drives
 Chromium. The `E2E_*` variables move it: `E2E_APP_PORT`, `E2E_MONGO_PORT`,
 `E2E_DB_NAME`, and `E2E_APP_BASE` for the base path. SvelteKit's base path is
@@ -122,12 +130,18 @@ lint` (or `npx prettier --check` on the files you changed), the server tests
 - **A failure is "pre-existing" only once it fails on main too.** Before
   dismissing a failure, rebuild main without your change and run the same test
   there. Same assertion failing on both: pre-existing, say so. Only on your
-  branch: yours, even when it looks unrelated. Two composer-mobile "ring" e2e
-  tests are known pre-existing failures; anything new needs this check.
+  branch: yours, even when it looks unrelated. There are no known failing
+  e2e specs: the whole Playwright suite passes, and a failure in it is yours
+  until main shows the same one.
 - **End-to-end tests run against a fresh build.** `npm run build` first,
   then `E2E_SKIP_BUILD=1`. A stale `build/` passes or fails for reasons that have
   nothing to do with the change.
-- **CI runs on every push to main** (`ci.yml`: `check`, `client`, `go`). Push,
+- **CI runs on every push to main** (`ci.yml`: `check`, `client`, `go`,
+  `e2e-smoke`; the whole e2e suite nightly, or `-f full=true` on a dispatch,
+  and on a PR the `client` job only when it touches `src/lib/components`).
+  The smoke subset is the Playwright specs tagged `@smoke` in their title:
+  add the tag to a spec that guards a main path, never to a slow or timing-
+  sensitive one. Push,
   then wait for it to be green before tagging. Its client job runs in CI's
   Chromium on slower hardware: timing-sensitive tests fail there first, so fix
   them at the cause (wait for the state, tap where the element really is)
