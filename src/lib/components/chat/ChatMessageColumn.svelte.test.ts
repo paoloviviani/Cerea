@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { markdownPoolReady } from "$lib/utils/markdownWorkerPool";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import ChatMessageColumnTestHost from "./ChatMessageColumnTestHost.svelte";
 import type { Message } from "$lib/types/Message";
@@ -25,6 +26,42 @@ function scroller(container: HTMLElement): HTMLElement {
 	const el = container.querySelector('[aria-label="Conversation messages"]');
 	if (!(el instanceof HTMLElement)) throw new Error("no scroll container");
 	return el;
+}
+
+// A cold or busy markdown worker answers late (CI's does). Every render result
+// arrives this long after it was asked for, so the column is exercised the way
+// a slow worker would show it, whatever the machine running the test.
+vi.mock("$lib/utils/markdownWorkerPool", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("$lib/utils/markdownWorkerPool")>();
+	return {
+		...actual,
+		renderMarkdownBlocks: (...args: Parameters<typeof actual.renderMarkdownBlocks>) => {
+			const [clientId, content, sources, streaming, onResult] = args;
+			return actual.renderMarkdownBlocks(clientId, content, sources, streaming, (blocks, id) => {
+				setTimeout(() => onResult(blocks, id), 150);
+			});
+		},
+	};
+});
+
+/** Resolves once the markdown worker is booted and the transcript's height has
+ * stopped changing (the messages have swapped from the fallback to rendered
+ * blocks). A cold worker takes the better part of a second to boot, so a
+ * height that merely sat still for a moment proves nothing before it is up. */
+async function rested(el: HTMLElement): Promise<void> {
+	await markdownPoolReady();
+	let last = -1;
+	let still = 0;
+	const start = Date.now();
+	while (still < 8) {
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		if (el.scrollHeight === last) still += 1;
+		else {
+			last = el.scrollHeight;
+			still = 0;
+		}
+		if (Date.now() - start > 20_000) throw new Error("the transcript never came to rest");
+	}
 }
 
 async function settled(): Promise<void> {
@@ -60,7 +97,11 @@ describe("the column's history-paging surface", () => {
 			onNearTop: () => {},
 		});
 		const el = scroller(view.container);
-		await settled();
+		// Measure only once the initial messages have their rendered markdown:
+		// the swap from the fallback adds ~10px below the anchor, and a swap
+		// landing between the "before" and "after" measurements (a cold worker
+		// finishing booting) reads as the position not following the height.
+		await rested(el);
 
 		// Mid-transcript, on the second prompt: the position the prepend
 		// must preserve. Scrolled with a wheel gesture behind it, as a
@@ -103,7 +144,7 @@ describe("the column's history-paging surface", () => {
 			onNearTop: () => {},
 		});
 		const el = scroller(view.container);
-		await settled();
+		await rested(el);
 		const anchor = view.container.querySelector('[data-message-id="u2"]');
 		if (!(anchor instanceof HTMLElement)) throw new Error("no anchor message");
 		el.dispatchEvent(new WheelEvent("wheel", { deltaY: -500, bubbles: true, cancelable: true }));
