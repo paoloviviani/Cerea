@@ -31,6 +31,8 @@ const sessionMock = vi.hoisted(() => {
 		listFiles: vi.fn(async () => [] as Array<{ path: string; size: number }>),
 		readFile: vi.fn(async (_path: string) => new ArrayBuffer(0)),
 		onStatus: vi.fn(() => () => undefined),
+		pendingCount: () => pending.length,
+		drain: () => pending.splice(0).length,
 		settleNext: (value: unknown) => pending.shift()?.resolve(value),
 		failNext: (error: unknown) => pending.shift()?.reject(error),
 	};
@@ -77,6 +79,14 @@ const mount = (props: Record<string, unknown>) => {
 		runButton: () => screen.getByTitle("Run this code in the browser sandbox"),
 	};
 };
+
+// The pending queue is file-global: a run a test leaves unsettled would be
+// the one a later test's settleNext settles, hanging that test instead of
+// this one. Fail at the leaking test, with the queue emptied for the next.
+afterEach(() => {
+	const leaked = sessionMock.drain();
+	expect(leaked, "a test left runs unsettled in the shared session mock").toBe(0);
+});
 
 beforeEach(() => {
 	sessionMock.run.mockClear();
@@ -210,13 +220,19 @@ describe("CodeBlock execution", () => {
 	it("re-runs on the explicit Run button even after a settled outcome", async () => {
 		const { runButton } = mount({ rawCode: "print('g')" });
 		await tick();
-		await runButton().click();
+		// A DOM click, not a pointer-driven locator click: the contract here
+		// is "an enabled Run button re-runs", not hit-testing. A locator click
+		// round-trips through the Vitest server and Playwright's actionability
+		// polling, which stalls for seconds (once past the 15 s test timeout)
+		// in a full client run, where ~100 files share one busy Node process
+		// and three Chromium sessions on few cores. Nothing about this test
+		// depends on those hops.
+		(runButton().element() as HTMLButtonElement).click();
 		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledTimes(1));
 		sessionMock.settleNext(outcome({ stdout: "a" }));
 		await vi.waitFor(() => expect(runButton().elements()[0]).toBeEnabled());
-		await runButton().click();
-		await tick();
-		expect(sessionMock.run).toHaveBeenCalledTimes(2);
+		(runButton().element() as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledTimes(2));
 		// Drain the second run: the pending queue is shared within this file,
 		// and an unsettled entry would be consumed by a later test's settle.
 		sessionMock.settleNext(outcome({ stdout: "a" }));
