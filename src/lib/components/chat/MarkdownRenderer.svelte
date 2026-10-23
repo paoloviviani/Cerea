@@ -12,6 +12,7 @@
 		cancelMarkdownClient,
 		renderMarkdownBlocks,
 	} from "$lib/utils/markdownWorkerPool";
+	import { cachedMarkdownBlocks, rememberMarkdownBlocks } from "$lib/utils/renderedMarkdownCache";
 	import MarkdownBlock from "./MarkdownBlock.svelte";
 	import { browser } from "$app/environment";
 	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
@@ -38,7 +39,13 @@
 	// loop. See fallbackBlocks.
 	let fallback = $derived(fallbackBlocks(content));
 	let workerBlocks: BlockToken[] | null = $state(null);
-	let blocks = $derived(workerBlocks ?? fallback);
+	// A recreated instance with the same settled input starts from its earlier
+	// render, not from the shorter fallback (see renderedMarkdownCache).
+	let blocks = $derived(
+		workerBlocks ?? (loading ? null : cachedMarkdownBlocks(content, sources)) ?? fallback
+	);
+	// What the pending worker result was rendered for.
+	let requested: { content: string; sources: typeof sources; loading: boolean } | null = null;
 
 	// Stable id so the pool can coalesce this instance's successive (streaming) renders.
 	const clientId = acquireMarkdownClientId();
@@ -47,6 +54,9 @@
 	function handleBlocks(result: BlockToken[], requestId: number) {
 		if (requestId !== latestRequestId) return;
 		workerBlocks = result;
+		if (requested && !requested.loading) {
+			rememberMarkdownBlocks(requested.content, requested.sources, result);
+		}
 		updateDebouncer.endRender();
 	}
 
@@ -73,6 +83,7 @@
 		if (!browser) return;
 		updateDebouncer.startRender();
 		markLiveFences();
+		requested = { content, sources, loading };
 		latestRequestId = renderMarkdownBlocks(clientId, content, sources, loading, handleBlocks);
 	});
 
