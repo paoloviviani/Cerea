@@ -268,7 +268,13 @@ loginctl enable-linger "$USER"`;
 			billing group.
 		</p>
 
-		{@render step(3, "Run it")}
+		{@render step(3, "Sign in to Cerea in your browser once before running galopin")}
+		<p class="mt-1 text-xs text-ink-muted">
+			Open this chat and sign in with the same account. Cerea only accepts a machine for an account
+			it has seen, so <code class="font-mono">galopin run</code> is refused (403) until you have.
+		</p>
+
+		{@render step(4, "Run it")}
 		{@render code(commands.run, "local-run-command")}
 		<details class="mt-2 text-xs text-ink-muted">
 			<summary class="cursor-pointer">Keep it running as a service (Linux)</summary>
@@ -291,7 +297,7 @@ loginctl enable-linger "$USER"`;
 			</div>
 		</details>
 
-		{@render step(4, "List the servers it offers in mcp.json")}
+		{@render step(5, "List the servers it offers in mcp.json")}
 		<p class="mb-2 text-xs text-ink-muted">
 			The file is in galopin's config directory, next to
 			<code class="font-mono">credentials.json</code>:
@@ -324,7 +330,7 @@ loginctl enable-linger "$USER"`;
 			</li>
 		</ul>
 
-		{@render step(5, "Approve the machine below")}
+		{@render step(6, "Approve the machine below")}
 		<p class="text-xs text-ink-muted">
 			It appears under <em>Waiting for approval</em> as soon as it checks in. After you approve it,
 			its servers show in the MCP panel and the composer, labelled with the machine's name.

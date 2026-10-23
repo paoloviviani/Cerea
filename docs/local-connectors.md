@@ -32,7 +32,10 @@ is not configured for the chat. Without a gateway nothing changes.
 
 A machine that only serves connectors needs no coding agent, no opencode and no
 billing group. Install `galopin` as for [an agent machine](agent-machines.md),
-then enroll with `--connectors-only` and run it:
+then enroll with `--connectors-only` and run it. Sign in to the chat in your
+browser once first: Cerea only accepts a machine for an account it has seen, and
+until then `galopin run` is refused with "Sign in to Cerea once before
+connecting a machine".
 
 ```sh
 galopin enroll --connectors-only \
