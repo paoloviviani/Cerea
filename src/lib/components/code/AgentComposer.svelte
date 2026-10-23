@@ -1143,7 +1143,7 @@
      Outside ChatInput's scrollable toolbar row, so on mobile nothing
      masks any of it. -->
 <div
-	class="mt-1.5 flex h-5 flex-wrap items-center gap-1.5 self-stretch px-0.5 text-xs whitespace-nowrap text-gray-400/90 max-md:mb-2"
+	class="mt-1.5 flex h-5 items-center gap-1.5 self-stretch px-0.5 text-xs whitespace-nowrap text-gray-400/90 max-md:mb-2"
 >
 	<!-- The model/effort pill: the chat composer's own `ModelEffortPicker`,
 	     rendered exactly as chat renders it below its composer — the
