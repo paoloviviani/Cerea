@@ -50,7 +50,7 @@ describe("the protocol era of a local server", () => {
 		expect(ms).toBeLessThan(LOCAL_PROBE_TIMEOUT_MS + 3_000);
 		// The handshake carries on over the same channel: no second process is started.
 		expect(machine.opens).toBe(1);
-	}, 20_000);
+	}, 30_000);
 
 	it("is remembered, so a reconnect does not probe again", async () => {
 		const first = await connect();
@@ -58,19 +58,19 @@ describe("the protocol era of a local server", () => {
 		const second = await connect();
 		expect(second.era).toBe("legacy");
 		expect(second.ms).toBeLessThan(LOCAL_PROBE_TIMEOUT_MS / 2);
-	}, 30_000);
+	}, 45_000);
 
 	it("is forgotten when the machine closes the channel because the entry changed", async () => {
 		await connect();
 		machine.onConfigClosed.at(-1)?.();
 		const again = await connect();
 		expect(again.ms).toBeGreaterThanOrEqual(LOCAL_PROBE_TIMEOUT_MS - 500);
-	}, 30_000);
+	}, 45_000);
 
 	it("is forgotten when the server reappears with a different entry", async () => {
 		await connect();
 		fingerprint.value = "entry-2";
 		const again = await connect();
 		expect(again.ms).toBeGreaterThanOrEqual(LOCAL_PROBE_TIMEOUT_MS - 500);
-	}, 30_000);
+	}, 45_000);
 });

@@ -11,9 +11,11 @@
 
 /**
  * How long the era probe on a local channel waits for an answer. Long enough for a process
- * that has to start (`npx` resolving a package from its cache), far short of the SDK's 60 s.
+ * that has to start (an `npx` cold start fetching its package), so a newer-protocol server is
+ * not mistaken for an older one; far short of the SDK's 60 s. Paid once per server: the era is
+ * then remembered.
  */
-export const LOCAL_PROBE_TIMEOUT_MS = 3_000;
+export const LOCAL_PROBE_TIMEOUT_MS = 10_000;
 
 /** A remembered era is re-checked after this, so a server upgraded to the newer protocol is noticed. */
 const ERA_TTL_MS = 60 * 60_000;
