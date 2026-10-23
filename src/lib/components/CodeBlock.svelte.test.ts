@@ -29,7 +29,8 @@ const sessionMock = vi.hoisted(() => {
 		// lands. A mock without listFiles would leave every files assertion
 		// in this file (and any file sharing the mocked module) untestable.
 		listFiles: vi.fn(async () => [] as Array<{ path: string; size: number }>),
-		readFile: vi.fn(async (_path: string) => new ArrayBuffer(0)),
+		// Every file reads back as the bytes 1, 2, 3.
+		readFile: vi.fn(async (_path: string) => new Uint8Array([1, 2, 3]).buffer),
 		onStatus: vi.fn(() => () => undefined),
 		settleNext: (value: unknown) => pending.shift()?.resolve(value),
 		failNext: (error: unknown) => pending.shift()?.reject(error),
@@ -81,6 +82,7 @@ const mount = (props: Record<string, unknown>) => {
 beforeEach(() => {
 	sessionMock.run.mockClear();
 	sessionMock.listFiles.mockClear();
+	sessionMock.readFile.mockClear();
 	// sidePane is a module singleton: a preview left open by one test would
 	// leak into the next one's assertions.
 	sidePane.reset();
@@ -250,55 +252,41 @@ describe("CodeBlock execution", () => {
 		expect(screen.baseElement.querySelector("details")).toBeNull();
 	});
 
-	it("aligns the run output with the code text and the disclosure", async () => {
-		// Files plus stdout so all three stacked siblings render: the fence's
-		// code text, the disclosure box and the RunOutput box.
+	it("draws the fence's run as ONE surface: status, code fold and file rows, no frames inside frames", async () => {
 		sessionMock.listFiles.mockResolvedValueOnce([{ path: "/home/pyodide/out.txt", size: 3 }]);
 		const { screen } = mount({ rawCode: "print('j')", autorun: true, loading: true });
 		await screen.rerender({ loading: false });
 		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledTimes(1));
 		sessionMock.settleNext(outcome({ stdout: "out\n" }));
 		await vi.waitFor(() => expect(screen.baseElement.textContent ?? "").toContain("Finished"));
+		await expect.element(screen.getByRole("button", { name: "Download out.txt" })).toBeVisible();
 
-		const fence = screen.baseElement.querySelector("pre");
-		const details = screen.baseElement.querySelector("details");
-		const cluster = screen.baseElement.querySelector(".group.relative div.pointer-events-auto");
-		const runOutput = details?.nextElementSibling;
-		expect(fence).not.toBeNull();
+		const surface = screen.baseElement.querySelector('[data-testid="run-output"]') as HTMLElement;
+		const details = surface.querySelector("details") as HTMLElement;
+		const files = surface.querySelector('[data-testid="run-files"]') as HTMLElement;
 		expect(details).not.toBeNull();
-		expect(cluster).not.toBeNull();
-		expect(runOutput).not.toBeNull();
-
-		// One left edge for everything the block stacks: the fence's
-		// text inset. This regressed once as mx-3 against the fence's px-5, which
-		// pushed the run-output box 8px left of the code and the disclosure.
-		const fenceTextLeft = Number.parseFloat(getComputedStyle(fence as HTMLElement).paddingLeft);
-		const detailsRect = (details as HTMLElement).getBoundingClientRect();
-		const runRect = (runOutput as HTMLElement).getBoundingClientRect();
-		expect(Math.abs(detailsRect.left - fenceTextLeft)).toBeLessThan(1);
-		expect(Math.abs(runRect.left - fenceTextLeft)).toBeLessThan(1);
-
-		// The button cluster ends where the fold box ends: the unfolded-state
-		// position (top-2/right-2, md:top-3/md:right-3) left the cluster's
-		// right edge 8px past the fold box on md+ and 12px past on small
-		// screens, straddling the box's rounded corner, while vertically it
-		// hung 6-10px below the header row. Folded, the cluster is pinned to
-		// the box's right edge and centred on its header row.
+		expect(details.hasAttribute("open")).toBe(false);
+		expect(files).not.toBeNull();
+		expect(screen.baseElement.textContent).toContain("View code · 1 file");
+		// The fold carries no frame of its own, and nothing inside the surface is a bordered card.
+		expect(getComputedStyle(details).borderTopWidth).toBe("0px");
+		expect(surface.querySelectorAll('[data-testid="file-artifact-card"]').length).toBe(1);
+		const card = surface.querySelector('[data-testid="file-artifact-card"]') as HTMLElement;
+		expect(getComputedStyle(card).borderTopWidth).toBe("0px");
+		// The surface starts at the code's own text inset: no empty left gutter.
+		const fence = screen.baseElement.querySelector("pre") as HTMLElement;
+		const inset = Number.parseFloat(getComputedStyle(fence).paddingLeft);
+		expect(Math.abs(surface.getBoundingClientRect().left - inset)).toBeLessThan(1);
+		// File rows sit inside the surface, rows are li's of one list.
+		expect(surface.contains(files)).toBe(true);
+		for (const child of Array.from(files.children)) expect(child.tagName).toBe("LI");
+		// The button cluster sits inside the surface's header row.
+		const cluster = screen.baseElement.querySelector(".group.relative div.pointer-events-auto");
 		const clusterRect = (cluster as HTMLElement).getBoundingClientRect();
-		expect(Math.abs(clusterRect.right - detailsRect.right)).toBeLessThan(1);
-		const topGap = clusterRect.top - detailsRect.top;
-		const bottomGap = detailsRect.bottom - clusterRect.bottom;
-		expect(Math.abs(topGap - bottomGap)).toBeLessThan(1);
-
-		// And the run-output box shares the fold box's edges on the right too.
-		expect(Math.abs(detailsRect.right - runRect.right)).toBeLessThan(1);
-
-		// The FILES list is a real list: every child of its ul is an li card.
-		const filesList = runOutput?.querySelector("ul");
-		expect(filesList).not.toBeNull();
-		for (const child of Array.from(filesList?.children ?? [])) {
-			expect(child.tagName).toBe("LI");
-		}
+		const surfaceRect = surface.getBoundingClientRect();
+		expect(clusterRect.right).toBeLessThanOrEqual(surfaceRect.right);
+		expect(clusterRect.top).toBeGreaterThanOrEqual(surfaceRect.top);
+		expect(clusterRect.bottom).toBeLessThan(files.getBoundingClientRect().top);
 	});
 
 	it("keeps the button cluster pinned to the container corner when unfolded", async () => {
@@ -584,7 +572,8 @@ describe("CodeBlock direct-emission file blocks", () => {
 });
 
 describe("CodeBlock keeps the files its run produced", () => {
-	const SHA = "a".repeat(64);
+	// sha256 of the bytes 1, 2, 3: the browser fingerprints what it reads.
+	const SHA = "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81";
 	type Seen = { url: string; body: unknown };
 
 	function stubServer(seen: Seen[]) {
@@ -666,7 +655,10 @@ describe("CodeBlock keeps the files its run produced", () => {
 		await vi.waitFor(() => expect(seen).toHaveLength(2));
 		expect(seen[0]).toEqual({ url: "/conversation/conv-1/code-execution/output", body: "form" });
 		expect(seen[1].url).toBe("/conversation/conv-1/code-execution/run-files");
-		expect(seen[1].body).toMatchObject({ messageId: "asst-1", sha256: [SHA] });
+		expect(seen[1].body).toMatchObject({
+			messageId: "asst-1",
+			files: [{ name: "hello_world.docx", size: 3, sha256: SHA }],
+		});
 		expect((seen[1].body as { runKey: string }).runKey).toMatch(/^chat:/);
 		await vi.waitFor(() => expect(runFiles.for("asst-1").length).toBeGreaterThan(0));
 	});
@@ -698,7 +690,7 @@ describe("CodeBlock keeps the files its run produced", () => {
 
 	function stubServerWithRunFilesResponder(
 		seen: Seen[],
-		respond: (body: { messageId: string; runKey: string; sha256: string[] }) => Response
+		respond: (body: { messageId: string; runKey: string; files: { sha256: string }[] }) => Response
 	) {
 		vi.stubGlobal(
 			"fetch",
@@ -710,7 +702,7 @@ describe("CodeBlock keeps the files its run produced", () => {
 				if (url.endsWith("/code-execution/output")) {
 					return Response.json({ files: [{ name: "hello_world.docx", size: 3, sha256: SHA }] });
 				}
-				return respond(body as { messageId: string; runKey: string; sha256: string[] });
+				return respond(body as { messageId: string; runKey: string; files: { sha256: string }[] });
 			})
 		);
 	}

@@ -1,14 +1,15 @@
 import FileArtifactCard from "./FileArtifactCard.svelte";
 import { render } from "vitest-browser-svelte";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { page } from "@vitest/browser/context";
+import { cacheFileBytes, clearFileByteCache } from "$lib/utils/execution/fileIdentity";
 import { sidePane } from "$lib/stores/sidePane.svelte";
 import { ARTIFACTS_CONTEXT_KEY, type ArtifactsContext } from "$lib/utils/artifactsContext";
 import type { FileArtifactRegistry } from "$lib/utils/fileArtifacts";
 
 /**
- * The session underneath the fallback FileCard is a controllable fake; the
- * card under test is real, so download wiring and fallback rendering are
- * exercised as shipped.
+ * The session underneath is a controllable fake; the card under test is real,
+ * so download wiring is exercised as shipped.
  */
 const sessionMock = vi.hoisted(() => ({
 	readFile: vi.fn(async () => new Uint8Array([104, 105]).buffer as ArrayBuffer),
@@ -18,6 +19,10 @@ const sessionMock = vi.hoisted(() => ({
 
 vi.mock("$lib/utils/execution/runtime", () => ({
 	getExecutionSession: () => sessionMock,
+}));
+
+vi.mock("$app/state", () => ({
+	page: { data: {}, url: new URL("http://localhost/conversation/c1"), params: { id: "c1" } },
 }));
 
 const SHA_V1 = "1".repeat(64);
@@ -111,7 +116,7 @@ describe("FileArtifactCard", () => {
 		expect(open).not.toHaveBeenCalled();
 	});
 
-	it("falls back to the plain FileCard while the sha is unresolved", async () => {
+	it("renders the same card, without Open, while the sha is not in the registry", async () => {
 		const screen = mountCard({
 			file: { path: "report.docx", size: 12 },
 			sha256: "f".repeat(64),
@@ -120,22 +125,22 @@ describe("FileArtifactCard", () => {
 		expect(
 			screen.baseElement.querySelector('button[aria-label="Open report.docx in panel"]')
 		).toBeNull();
-		// The fallback is the FileCard itself, preview included.
-		await expect.element(screen.getByRole("button", { name: "Preview report.docx" })).toBeVisible();
+		// One design: no second, plain card with its own Preview button.
+		expect(screen.baseElement.querySelector('[data-testid="file-artifact-card"]')).not.toBeNull();
+		expect(screen.baseElement.querySelector('button[aria-label^="Preview"]')).toBeNull();
+		await expect.element(screen.getByText("Word · 12 B")).toBeVisible();
 		await expect
 			.element(screen.getByRole("button", { name: "Download report.docx" }))
 			.toBeVisible();
 	});
 
-	it("falls back to the plain FileCard when no sha is known", async () => {
+	it("renders a live sandbox path as its name relative to the working directory", async () => {
 		const screen = mountCard({ file: { path: "/home/pyodide/notes.txt", size: 25 } });
-		expect(
-			screen.baseElement.querySelector('button[aria-label="Open notes.txt in panel"]')
-		).toBeNull();
-		await expect.element(screen.getByRole("button", { name: "Preview notes.txt" })).toBeVisible();
+		await expect.element(screen.getByText("Text · 25 B")).toBeVisible();
+		expect(screen.baseElement.querySelector('[data-testid="file-artifact-card"]')).not.toBeNull();
 	});
 
-	it("falls back to the plain FileCard without an artifacts context", async () => {
+	it("renders the card without an artifacts context", async () => {
 		const screen = render(FileArtifactCard, {
 			props: { file: { path: "report.docx", size: 12 }, sha256: SHA_V2 },
 		} as never);
@@ -148,7 +153,139 @@ describe("FileArtifactCard", () => {
 		expect(sessionMock.readFile).not.toHaveBeenCalled();
 	});
 
-	it("downloads through FileCard's machinery, from the persisted store", async () => {
+	it("keeps two files with the same basename in different directories apart", async () => {
+		const A = "a".repeat(64);
+		const B = "b".repeat(64);
+		const registry: FileArtifactRegistry = {
+			artifacts: new Map([
+				[
+					"a/x.pdf",
+					{
+						name: "a/x.pdf",
+						versions: [{ name: "a/x.pdf", size: 5, sha256: A, version: 1, messageId: "m" }],
+					},
+				],
+				[
+					"b/x.pdf",
+					{
+						name: "b/x.pdf",
+						versions: [{ name: "b/x.pdf", size: 6, sha256: B, version: 1, messageId: "m" }],
+					},
+				],
+			]),
+		};
+		const open = vi.spyOn(sidePane, "openArtifact");
+		const screen = mountCard(
+			{ file: { path: "/home/pyodide/b/x.pdf", size: 6 }, sha256: B },
+			registry
+		);
+		await expect.element(screen.getByText("b/ · PDF · 6 B")).toBeVisible();
+		await screen.getByRole("button", { name: "Open x.pdf in panel" }).click();
+		expect(open).toHaveBeenCalledWith("b/x.pdf", null);
+	});
+
+	it("opens the name the card shows when identical bytes sit under two names", async () => {
+		const SAME = "c".repeat(64);
+		const registry: FileArtifactRegistry = {
+			artifacts: new Map([
+				[
+					"a.csv",
+					{
+						name: "a.csv",
+						versions: [{ name: "a.csv", size: 5, sha256: SAME, version: 1, messageId: "m" }],
+					},
+				],
+				[
+					"b.csv",
+					{
+						name: "b.csv",
+						versions: [{ name: "b.csv", size: 5, sha256: SAME, version: 1, messageId: "m" }],
+					},
+				],
+			]),
+		};
+		const open = vi.spyOn(sidePane, "openArtifact");
+		const screen = mountCard({ file: { path: "b.csv", size: 5 }, sha256: SAME }, registry);
+		await screen.getByRole("button", { name: "Open b.csv in panel" }).click();
+		expect(open).toHaveBeenCalledWith("b.csv", null);
+	});
+
+	it("says a file was not saved instead of offering a dead download", async () => {
+		const NS = "d".repeat(64);
+		const registry: FileArtifactRegistry = {
+			artifacts: new Map([
+				[
+					"lost.csv",
+					{
+						name: "lost.csv",
+						versions: [
+							{
+								name: "lost.csv",
+								size: 5,
+								sha256: NS,
+								version: 1,
+								messageId: "m",
+								uploaded: false,
+							},
+						],
+					},
+				],
+			]),
+		};
+		const screen = mountCard({ file: { path: "lost.csv", size: 5 }, sha256: NS }, registry);
+		await expect.element(screen.getByTestId("file-not-saved")).toBeVisible();
+		await expect
+			.element(screen.getByTestId("file-not-saved"))
+			.toHaveTextContent(/no longer available/);
+		expect(screen.baseElement.querySelector('button[aria-label^="Download"]')).toBeNull();
+	});
+
+	it("offers download and a retry while this tab still holds the bytes of an unsaved file", async () => {
+		const NS = "e1".repeat(32);
+		cacheFileBytes(NS, new Uint8Array([1, 2, 3]));
+		const registry: FileArtifactRegistry = {
+			artifacts: new Map([
+				[
+					"kept.csv",
+					{
+						name: "kept.csv",
+						versions: [
+							{
+								name: "kept.csv",
+								size: 3,
+								sha256: NS,
+								version: 1,
+								messageId: "m",
+								uploaded: false,
+							},
+						],
+					},
+				],
+			]),
+		};
+		const screen = mountCard({ file: { path: "kept.csv", size: 3 }, sha256: NS }, registry);
+		await expect.element(screen.getByRole("button", { name: "Download kept.csv" })).toBeVisible();
+		await expect.element(screen.getByRole("button", { name: /Retry saving/ })).toBeVisible();
+		clearFileByteCache();
+	});
+
+	it("middle-truncates a long name keeping the extension, at phone width", async () => {
+		await page.viewport(390, 800);
+		const name = "preview_Cerea_and_Pystino_Overview_final.pptx";
+		const screen = mountCard({ file: { path: name, size: 31_000 }, sha256: SHA_V2 });
+		const el = screen.baseElement.querySelector('[data-testid="file-name"]') as HTMLElement;
+		expect(el.getAttribute("title")).toBe(name);
+		expect(el.textContent).toContain("final.pptx".slice(-9));
+		// One line: never the mid-word wrap of the old design.
+		const head = el.firstElementChild as HTMLElement;
+		expect(head.scrollWidth).toBeGreaterThan(head.clientWidth);
+		expect(el.getBoundingClientRect().height).toBeLessThan(26);
+		// Icon-only actions below 520px keep their accessible names.
+		const open = screen.baseElement.querySelector('button[aria-label^="Download"]') as HTMLElement;
+		expect(open.innerText.trim()).toBe("");
+	});
+
+	it("downloads from the persisted store", async () => {
 		const blobs: Blob[] = [];
 		const createObjectURL = vi
 			.spyOn(URL, "createObjectURL")
@@ -206,7 +343,7 @@ describe("FileArtifactCard autoExpand (the chat figure capture)", () => {
 		]),
 	};
 
-	it("forwards the flag to the fallback FileCard for an unresolved file", async () => {
+	it("shows a raster figure under an unresolved file too", async () => {
 		sessionMock.readFile.mockResolvedValueOnce(pngBytes() as ArrayBuffer);
 		const screen = mountCard(
 			{ file: { path: "/home/pyodide/figure-1.png", size: 8 }, autoExpand: true },

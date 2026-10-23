@@ -1,9 +1,9 @@
 /**
  * A file a run has just produced, in the tab that ran it, is the linked file
- * artifact card (opens in the side panel) and not the plain file card. The
- * live run's own listing carries no sha256, so the card used to stay plain
- * for as long as the tab held the run; only a reload turned it into the
- * artifact card.
+ * artifact card (opens in the side panel), and it is the same card after a
+ * reload from what the turn stored. The browser fingerprints the file (sha256)
+ * when the sandbox lists it, so the card never waits on an upload, and the
+ * turn's record of it survives a reload.
  *
  * Real Pyodide in the browser: the model's answer (fence included) arrives
  * in one chunk and the block auto-runs, as in chat-autoinstall-imports.spec.ts.
@@ -38,11 +38,27 @@ test("a freshly produced file is an artifact card without a reload", async ({
 		timeout: 10_000,
 	});
 
-	// Once the upload and the record land, the card is the artifact card.
-	await expect(
-		assistantMessage.getByRole("button", { name: "Open hello_world.docx in panel" })
-	).toBeVisible({ timeout: 30_000 });
-	await page.screenshot({
-		path: process.env.FILECARD_SHOT ?? "/var/tmp/filecard-tmp/live-card.png",
+	// The card is the artifact card at once: the file has its identity from the
+	// moment the sandbox lists it, and the fence's run is one surface.
+	const openButton = assistantMessage.getByRole("button", {
+		name: "Open hello_world.docx in panel",
 	});
+	await expect(openButton).toBeVisible({ timeout: 30_000 });
+	await expect(assistantMessage.getByTestId("run-output")).toBeVisible();
+	await expect(assistantMessage.getByTestId("file-artifact-card")).toHaveCount(1);
+	const live = await assistantMessage.getByTestId("file-artifact-card").innerText();
+	await page.screenshot({
+		path: process.env.FILECARD_SHOT ?? "/var/tmp/artifacts-tmp/live-card.png",
+	});
+
+	// Wait for the record to be kept (the page re-syncs the turn), then reload:
+	// the card is the same one, from what was stored.
+	await page.waitForTimeout(4000);
+	await page.reload();
+	const reloaded = page.locator('[data-message-role="assistant"]').last();
+	await expect(
+		reloaded.getByRole("button", { name: "Open hello_world.docx in panel" })
+	).toBeVisible({ timeout: 30_000 });
+	await expect(reloaded.getByTestId("file-artifact-card")).toHaveCount(1);
+	expect(await reloaded.getByTestId("file-artifact-card").innerText()).toBe(live);
 });

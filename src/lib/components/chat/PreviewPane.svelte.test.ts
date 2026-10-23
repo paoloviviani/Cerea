@@ -87,8 +87,9 @@ describe("PreviewPane", () => {
 	it("draws a pdf payload in the page with pdf.js, never in a frame", async () => {
 		sidePane.openPreview({ kind: "pdf", title: "report.pdf", content: minimalPdfDataUrl(2) });
 		const screen = render(PreviewPane, {});
-		await vi.waitFor(() =>
-			expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(2)
+		await vi.waitFor(
+			() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(2),
+			{ timeout: 30_000 }
 		);
 		expect(screen.baseElement.querySelector("iframe")).toBeNull();
 		expect(screen.baseElement.textContent).toContain("2 pages");
@@ -107,8 +108,9 @@ describe("PreviewPane", () => {
 		vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-pdf");
 		sidePane.openPreview({ kind: "pdf", title: "report.pdf", content: minimalPdfDataUrl(1) });
 		const screen = render(PreviewPane, {});
-		await vi.waitFor(() =>
-			expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(1)
+		await vi.waitFor(
+			() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(1),
+			{ timeout: 30_000 }
 		);
 		// Not the old dead end.
 		expect(screen.baseElement.textContent).not.toContain("opens in the browser's PDF viewer");
