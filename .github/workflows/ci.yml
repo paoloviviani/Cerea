@@ -182,6 +182,9 @@ jobs:
         with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
       # mongodb-memory-server's mongod links libcurl.
       - run: apt-get update -qq && (apt-get install -y -qq libcurl4t64 || apt-get install -y -qq libcurl4)
+      # The checkout is owned by another uid than root: without this git (and so go build's VCS
+      # stamping of galopin) refuses it as a "dubious ownership" repository.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/cache@v4
         with:
           path: /root/.cache/mongodb-binaries
@@ -224,6 +227,9 @@ jobs:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
       - run: apt-get update -qq && (apt-get install -y -qq libcurl4t64 || apt-get install -y -qq libcurl4)
+      # The checkout is owned by another uid than root: without this git (and so go build's VCS
+      # stamping of galopin) refuses it as a "dubious ownership" repository.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/cache@v4
         with:
           path: /root/.cache/mongodb-binaries

@@ -609,16 +609,20 @@ describe("signing in to a local http connector from the chat", () => {
 			redirectUri: "https://chat.example.org/api/v2/local-connectors/oauth/callback",
 		});
 
-		const back = await callback(user, { state, code: "c0de" });
+		const back = await callback(user, { state, code: "zcode-9q" });
 		expect(back.status).toBe(303);
 		const location = new URL(back.headers.get("location") as string, "http://x");
 		expect(location.pathname).toBe("/workspace");
 		expect(location.searchParams.get("mcp")).toBe("connected");
 		expect(location.searchParams.get("mcpConnector")).toBe(`local:${deviceId}:crm`);
-		expect(machine.mcpLogins).toEqual([{ server: "crm", code: "c0de", state }]);
-		// Cerea kept nothing but the (now consumed) state: no token, no verifier.
+		expect(machine.mcpLogins).toEqual([{ server: "crm", code: "zcode-9q", state }]);
+		// Cerea kept nothing but the (now consumed) state: no token, no verifier. (The code is not
+		// made of hex digits: the dump below holds random ids and uuids, and "c0de" turned up in
+		// one now and then.)
 		expect(await collections.localConnectorOauth.countDocuments({ state })).toBe(0);
-		expect(JSON.stringify(await collections.codeDevices.find({}).toArray())).not.toContain("c0de");
+		expect(JSON.stringify(await collections.codeDevices.find({}).toArray())).not.toContain(
+			"zcode-9q"
+		);
 	});
 
 	it("refuses a state started by another person, and leaves it for its owner", async () => {
@@ -628,14 +632,14 @@ describe("signing in to a local http connector from the chat", () => {
 		const state = new URL(authorizeUrl).searchParams.get("state") as string;
 
 		const stranger = await createTestUser();
-		const refused = await callback(stranger, { state, code: "c0de" });
+		const refused = await callback(stranger, { state, code: "zcode-9q" });
 		expect(
 			new URL(refused.headers.get("location") as string, "http://x").searchParams.get("mcp")
 		).toBe("failed");
 		expect(machine.mcpLogins).toEqual([]);
 		// Still there for the person who started it.
 		expect(await collections.localConnectorOauth.countDocuments({ state })).toBe(1);
-		const ok = await callback(user, { state, code: "c0de" });
+		const ok = await callback(user, { state, code: "zcode-9q" });
 		expect(new URL(ok.headers.get("location") as string, "http://x").searchParams.get("mcp")).toBe(
 			"connected"
 		);
@@ -647,7 +651,7 @@ describe("signing in to a local http connector from the chat", () => {
 		const { authorizeUrl } = await (await start(user, deviceId)).json();
 		const state = new URL(authorizeUrl).searchParams.get("state") as string;
 		const refused = await testRequest(oauthCallback, {
-			path: `/api/v2/local-connectors/oauth/callback?state=${state}&code=c0de`,
+			path: `/api/v2/local-connectors/oauth/callback?state=${state}&code=zcode-9q`,
 			locals: { ...user.locals, sessionId: "another-session" },
 		});
 		expect(
@@ -663,8 +667,8 @@ describe("signing in to a local http connector from the chat", () => {
 		const state = new URL(authorizeUrl).searchParams.get("state") as string;
 		const second = await (await start(user, deviceId)).json();
 		const state2 = new URL(second.authorizeUrl).searchParams.get("state") as string;
-		await callback(user, { state, code: "c0de" });
-		const reused = await callback(user, { state, code: "c0de" });
+		await callback(user, { state, code: "zcode-9q" });
+		const reused = await callback(user, { state, code: "zcode-9q" });
 		expect(
 			new URL(reused.headers.get("location") as string, "http://x").searchParams.get("mcpDetail")
 		).toBe("expired");
@@ -674,7 +678,7 @@ describe("signing in to a local http connector from the chat", () => {
 			{ state: state2 },
 			{ $set: { expiresAt: new Date(Date.now() - 1000) } }
 		);
-		const expired = await callback(user, { state: state2, code: "c0de" });
+		const expired = await callback(user, { state: state2, code: "zcode-9q" });
 		expect(
 			new URL(expired.headers.get("location") as string, "http://x").searchParams.get("mcpDetail")
 		).toBe("expired");
@@ -692,7 +696,7 @@ describe("signing in to a local http connector from the chat", () => {
 		expect(res.status).toBe(409);
 		expect(await res.text()).toMatch(/laptop is offline/);
 
-		const back = await callback(user, { state, code: "c0de" });
+		const back = await callback(user, { state, code: "zcode-9q" });
 		expect(
 			new URL(back.headers.get("location") as string, "http://x").searchParams.get("mcpDetail")
 		).toBe("offline");
