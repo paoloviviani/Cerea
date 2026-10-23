@@ -392,12 +392,12 @@ func (h *Hub) Message(channelID string, raw []byte) {
 
 // LinkDown closes every channel (PROTOCOL.md §10.6): nobody is left to hear
 // a closed frame.
-func (h *Hub) LinkDown() { h.closeAll() }
+func (h *Hub) LinkDown() { h.closeAll("link down") }
 
 // Shutdown closes every channel and waits for the servers to stop.
-func (h *Hub) Shutdown() { h.closeAll() }
+func (h *Hub) Shutdown() { h.closeAll("galopin stopping") }
 
-func (h *Hub) closeAll() {
+func (h *Hub) closeAll(why string) {
 	h.mu.Lock()
 	all := make([]*channel, 0, len(h.channels))
 	for _, ch := range h.channels {
@@ -405,7 +405,7 @@ func (h *Hub) closeAll() {
 	}
 	h.mu.Unlock()
 	for _, ch := range all {
-		ch.shutdown("closed", nil, false)
+		ch.end(why, "closed", nil, false)
 	}
 	done := make(chan struct{})
 	go func() { h.stopping.Wait(); close(done) }()
