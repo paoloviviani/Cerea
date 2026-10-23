@@ -487,6 +487,12 @@ services:
       # "false" (the kill switch); at most this many schedules per person.
       CHAT_SCHEDULES_ENABLED: ${CHAT_SCHEDULES_ENABLED:-}
       CHAT_SCHEDULES_MAX_PER_USER: ${CHAT_SCHEDULES_MAX_PER_USER:-}
+      # Deployment-wide MCP servers (JSON list of {"name","url"}) and the exact
+      # hostnames among them that may be plain http on this network (for
+      # example mcp-search from tools/mcp). Both empty: none. See the README,
+      # "Server-side MCP servers".
+      MCP_SERVERS: ${MCP_SERVERS:-}
+      MCP_INTERNAL_HOSTS: ${MCP_INTERNAL_HOSTS:-}
       CHAT_FILE_RETENTION_DAYS: ${CHAT_FILE_RETENTION_DAYS:-}
       CHAT_WEBFETCH_CACHE_DAYS: ${CHAT_WEBFETCH_CACHE_DAYS:-}
       CHAT_WEBFETCH_FRESH_MINUTES: ${CHAT_WEBFETCH_FRESH_MINUTES:-}

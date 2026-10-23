@@ -7,6 +7,13 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Server-side MCP servers**: `tools/mcp/` is an example override that runs
+  stdio MCP servers (`uvx` ones: web search, OpenStreetMap) as containers on the
+  stack's network through `mcp-proxy`, offered to everyone as Base Servers. The
+  chat reads `MCP_SERVERS` from `.env`, and the new `MCP_INTERNAL_HOSTS` names
+  the exact service hostnames allowed over plain http on that network; nothing
+  else is opened. Shared by everyone who signs in: no personal credentials. See
+  the README, "Server-side MCP servers".
 - **Local connectors**: people can connect MCP servers that run on their own
   machine to their chat (`galopin enroll --connectors-only`, approve it under
   Workspace → Local connectors). `LOCAL_CONNECTORS_ENABLED` is `true` by default
