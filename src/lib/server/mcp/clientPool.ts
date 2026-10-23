@@ -244,6 +244,11 @@ export function evictFromPool(server: McpServerConfig, isolation?: string): Clie
  * when every call on that connection belongs to the same conversation; sharing one instead
  * means a prompt raised for one chat gets declined because another chat is also mid-call.
  * A modern server answers the call itself, so it keeps the shared connection.
+ *
+ * A local server (a process on the person's machine) never gets a connection of its own per
+ * conversation: each one would be a new server process there, started on every new chat and
+ * counted against the machine's per-server channel cap. It keeps the one shared connection
+ * and `leaseConnection` makes its prompts attributable instead.
  */
 export async function getAttributableClient(
 	server: McpServerConfig,
@@ -251,10 +256,86 @@ export async function getAttributableClient(
 	signal?: AbortSignal,
 	kind: McpClientKind = "session"
 ): Promise<{ client: Client; isolation?: string }> {
+	if (isLocalServerUrl(server.url)) {
+		return { client: await getClient(server, signal, undefined, kind) };
+	}
 	const isolation = `conversation:${conversationId}`;
 	if (!pool.has(keyOf(server, isolation, kind))) {
 		const shared = await getClient(server, signal, undefined, kind);
 		if (shared.getProtocolEra() === "modern") return { client: shared };
 	}
 	return { client: await getClient(server, signal, isolation, kind), isolation };
+}
+
+type Lease = {
+	owner?: object;
+	holders: number;
+	waiting: Array<{ owner: object; grant: () => void }>;
+};
+
+const leases = new WeakMap<Client, Lease>();
+
+/**
+ * Makes the conversation whose call is in flight the only one on a connection, which is what
+ * lets an unsolicited `elicitation/create` from a legacy server be attributed to it
+ * (`elicitation.ts` routes it to the calls in flight, and declines when they belong to more
+ * than one conversation).
+ *
+ * Calls of one owner share the connection as they always did. A call from another owner waits
+ * until the connection is free of the first one's calls, in arrival order (a newcomer from the
+ * current owner queues behind a waiting call too, so nobody is starved). The owner is the
+ * elicitation sink, the same identity the router compares. Waiting ends when `signal` aborts.
+ * Release by calling the returned function once.
+ */
+export async function leaseConnection(
+	client: Client,
+	owner: object,
+	signal?: AbortSignal
+): Promise<() => void> {
+	let lease = leases.get(client);
+	if (!lease) {
+		lease = { holders: 0, waiting: [] };
+		leases.set(client, lease);
+	}
+	const state = lease;
+	const take = () => {
+		state.owner = owner;
+		state.holders++;
+		let released = false;
+		return () => {
+			if (released) return;
+			released = true;
+			state.holders--;
+			if (state.holders === 0) state.owner = undefined;
+			// Wake the next in line, and whoever behind it belongs to the same owner.
+			while (state.waiting.length > 0) {
+				const next = state.waiting[0];
+				if (state.holders > 0 && state.owner !== next.owner) break;
+				state.waiting.shift();
+				next.grant();
+			}
+		};
+	};
+	if (state.waiting.length === 0 && (state.holders === 0 || state.owner === owner)) return take();
+
+	return new Promise<() => void>((resolve, reject) => {
+		const waiter = {
+			owner,
+			// Taken here, not when the promise settles, so the next wake-up sees the new owner.
+			grant: () => {
+				signal?.removeEventListener("abort", onAbort);
+				resolve(take());
+			},
+		};
+		const onAbort = () => {
+			const at = state.waiting.indexOf(waiter);
+			if (at >= 0) state.waiting.splice(at, 1);
+			reject(
+				signal?.reason ?? new Error("The call was cancelled while waiting for the connector.")
+			);
+		};
+		state.waiting.push(waiter);
+		if (signal?.aborted) onAbort();
+		else signal?.addEventListener("abort", onAbort, { once: true });
+	});
 }

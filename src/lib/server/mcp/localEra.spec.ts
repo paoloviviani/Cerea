@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ObjectId } from "mongodb";
+import { ChildLocalTransport, machine, resetMachine } from "./testing/childLocalTransport";
 
 const fingerprint = vi.hoisted(() => ({ value: "entry-1" as string | undefined }));
 
@@ -8,18 +9,14 @@ vi.mock("./elicitationConfig", () => ({
 	getElicitationTimeoutMs: () => 30_000,
 }));
 vi.mock("./local", () => ({ localServerFingerprint: () => fingerprint.value }));
-vi.mock("./localTransport", async () => {
-	const { ChildLocalTransport, machine } = await import("./testing/childLocalTransport");
-	return {
-		createLocalTransport: async (_url: string, onConfigClosed?: () => void) => {
-			machine.onConfigClosed.push(onConfigClosed);
-			return new ChildLocalTransport();
-		},
-	};
-});
+vi.mock("./localTransport", () => ({
+	createLocalTransport: async (_url: string, onConfigClosed?: () => void) => {
+		machine.onConfigClosed.push(onConfigClosed);
+		return new ChildLocalTransport();
+	},
+}));
 
 const { getClient, drainPool } = await import("./clientPool");
-const { machine, resetMachine } = await import("./testing/childLocalTransport");
 const { localServerUrl } = await import("./localUrl");
 const { LOCAL_PROBE_TIMEOUT_MS, resetLocalEras } = await import("./localEra");
 

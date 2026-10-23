@@ -3,6 +3,7 @@ import type { InputRequests, InputResponses } from "@modelcontextprotocol/client
 import {
 	getClient,
 	getAttributableClient,
+	leaseConnection,
 	evictFromPool,
 	retainClient,
 	releaseClient,
@@ -179,6 +180,14 @@ export async function callMcpTool(
 	let activeClient =
 		scoped?.client ?? client ?? (await getClient(server, signal, undefined, clientKind));
 
+	// A legacy local server's prompts carry nothing that names the call they belong to, and
+	// every conversation shares its one connection: take it for this conversation first, so
+	// the prompt can only be this one's. Before the call's clock starts: waiting is not running.
+	const releaseLease =
+		elicitation && isLocalServerUrl(server.url) && activeClient.getProtocolEra() === "legacy"
+			? await leaseConnection(activeClient, elicitation.sink, signal)
+			: undefined;
+
 	const deadline = createCallDeadline(timeoutMs, signal);
 
 	const callToolOptions = {
@@ -260,6 +269,7 @@ export async function callMcpTool(
 		}
 	} finally {
 		deadline.dispose();
+		releaseLease?.();
 	}
 
 	if (isInputRequiredResult(response)) {

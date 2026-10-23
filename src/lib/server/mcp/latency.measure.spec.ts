@@ -5,6 +5,7 @@ vi.mock("./elicitationConfig", () => ({
 	isElicitationEnabled: () => true,
 	getElicitationTimeoutMs: () => 30_000,
 }));
+vi.mock("./local", () => ({ localServerFingerprint: () => undefined }));
 vi.mock("./localTransport", async () => {
 	const { ChildLocalTransport } = await import("./testing/childLocalTransport");
 	return { createLocalTransport: async () => new ChildLocalTransport() };
