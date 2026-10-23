@@ -98,6 +98,9 @@ func (c *channel) start(ctx context.Context) *OpenError {
 	early := c.early
 	c.idle = time.AfterFunc(c.hub.cfg.IdleTimeout, func() { c.shutdown("idle", nil, true) })
 	c.mu.Unlock()
+	if sc, ok := c.tr.(*stdioConn); ok {
+		c.logf("connectors: %s: started (pid %d, channel %s)", e.Name, sc.Pid(), c.id)
+	}
 	go c.writer()
 	if early != nil {
 		c.shutdown(early.reason, &early.detail, true)
@@ -146,12 +149,21 @@ func (c *channel) transportClosed(reason, detail string) {
 
 // shutdown ends the channel once. emit sends the closed frame.
 func (c *channel) shutdown(reason string, detail *string, emit bool) {
+	c.end("", reason, detail, emit)
+}
+
+// end is shutdown with the reason to log when it is not the one sent to
+// Cerea (the link going down is a "closed" frame nobody hears).
+func (c *channel) end(why, reason string, detail *string, emit bool) {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
 		return
 	}
 	c.closed = true
+	if why == "" {
+		why = reason
+	}
 	if c.idle != nil {
 		c.idle.Stop()
 	}
@@ -168,6 +180,16 @@ func (c *channel) shutdown(reason string, detail *string, emit bool) {
 	c.hub.stopping.Add(1)
 	go func() { <-c.tr.Done(); c.hub.stopping.Done() }()
 	c.tr.Close()
+	if sc, ok := c.tr.(*stdioConn); ok {
+		// Only the reason and, for a process that died, its exit status: never
+		// its arguments, environment or output.
+		stopped := why
+		if reason == "crashed" || reason == "exited" {
+			<-sc.Done()
+			stopped += ": " + sc.ExitStatus()
+		}
+		c.logf("connectors: %s: stopped (channel %s, %s)", c.entry.Name, c.id, stopped)
+	}
 	if emit {
 		c.hub.cfg.Closed(c.id, reason, detail)
 	}
