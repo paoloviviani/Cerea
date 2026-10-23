@@ -42,3 +42,7 @@ src/**/__screenshots__/
 
 # mkdocs build output
 /site
+
+# Scratch output, never committed
+server.log
+screenshots/

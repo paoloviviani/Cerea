@@ -47,10 +47,6 @@ export function symbolFontKind(fontName: string): "symbol" | "wingdings" | null 
 	return null;
 }
 
-export function isPrivateUseSymbol(code: number): boolean {
-	return code >= 0xf020 && code <= 0xf0ff;
-}
-
 /** The Unicode glyph for a private-use symbol character of the given font. */
 export function mapSymbolGlyph(code: number, kind: "symbol" | "wingdings"): string {
 	const table = kind === "symbol" ? SYMBOL_GLYPHS : WINGDINGS_GLYPHS;
