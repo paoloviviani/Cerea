@@ -1,4 +1,7 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import dns from "node:dns";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { env } from "$env/dynamic/private";
 import {
 	assertSafeBrowserRequest,
@@ -186,6 +189,112 @@ describe("isValidUrl with the MCP_ALLOW_INSECURE_URLS escape hatch", () => {
 		expect(isValidUrl("file:///etc/passwd", { allowInsecure: true })).toBe(false);
 		expect(isValidUrl("not-a-url", { allowInsecure: true })).toBe(false);
 		expect(isValidUrl("", { allowInsecure: true })).toBe(false);
+	});
+});
+
+describe("isValidUrl with MCP_INTERNAL_HOSTS (named compose-network hosts)", () => {
+	const originalHosts = env.MCP_INTERNAL_HOSTS;
+	const originalFlag = env.MCP_ALLOW_INSECURE_URLS;
+	afterEach(() => {
+		env.MCP_INTERNAL_HOSTS = originalHosts;
+		env.MCP_ALLOW_INSECURE_URLS = originalFlag;
+	});
+
+	it("refuses http to a service name until it is named", () => {
+		env.MCP_ALLOW_INSECURE_URLS = "true";
+		env.MCP_INTERNAL_HOSTS = "";
+		expect(isValidUrl("http://mcp-search:8096/mcp", { allowInsecure: true })).toBe(false);
+	});
+
+	it("allows exactly the named hosts over http, without MCP_ALLOW_INSECURE_URLS", () => {
+		env.MCP_ALLOW_INSECURE_URLS = "";
+		env.MCP_INTERNAL_HOSTS = "mcp-search, MCP-OSM";
+		expect(isValidUrl("http://mcp-search:8096/mcp", { allowInsecure: true })).toBe(true);
+		expect(isValidUrl("http://mcp-osm:8096/mcp", { allowInsecure: true })).toBe(true);
+		// Exact names: no suffix, prefix or sibling matches.
+		expect(isValidUrl("http://mcp-search.evil.com/mcp", { allowInsecure: true })).toBe(false);
+		expect(isValidUrl("http://xmcp-search:8096/mcp", { allowInsecure: true })).toBe(false);
+		expect(isValidUrl("http://mcp-other:8096/mcp", { allowInsecure: true })).toBe(false);
+	});
+
+	it("does not turn on for callers that do not opt in, nor widen to addresses", () => {
+		env.MCP_INTERNAL_HOSTS = "mcp-search,10.0.0.1,localhost,169.254.169.254";
+		expect(isValidUrl("http://mcp-search:8096/mcp")).toBe(false);
+		expect(isValidUrl("http://mcp-search:8096/mcp", { blockInternalNetworks: true })).toBe(false);
+		env.MCP_ALLOW_INSECURE_URLS = "";
+		expect(isValidUrl("http://10.0.0.1:8096/mcp", { allowInsecure: true })).toBe(false);
+		expect(isValidUrl("http://localhost:8096/mcp", { allowInsecure: true })).toBe(false);
+		expect(isValidUrl("http://169.254.169.254/mcp", { allowInsecure: true })).toBe(false);
+	});
+});
+
+describe("mcpFetch to a host named in MCP_INTERNAL_HOSTS", () => {
+	const originalHosts = env.MCP_INTERNAL_HOSTS;
+	const originalFlag = env.MCP_ALLOW_INSECURE_URLS;
+	let resolveTo = "127.0.0.1";
+
+	function serve() {
+		const server = http.createServer((_req, res) => res.end("ok"));
+		return new Promise<{ port: number; close: () => void }>((resolve) =>
+			server.listen(0, "127.0.0.1", () =>
+				resolve({ port: (server.address() as AddressInfo).port, close: () => server.close() })
+			)
+		);
+	}
+
+	function fakeDns() {
+		// A compose service name does not resolve on a developer machine: point it at `resolveTo`.
+		vi.spyOn(dns, "lookup").mockImplementation(((
+			_host: string,
+			options: { all?: boolean },
+			cb: (...args: unknown[]) => void
+		) => {
+			if (options?.all) cb(null, [{ address: resolveTo, family: 4 }]);
+			else cb(null, resolveTo, 4);
+		}) as unknown as typeof dns.lookup);
+	}
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+		resolveTo = "127.0.0.1";
+		env.MCP_INTERNAL_HOSTS = originalHosts;
+		env.MCP_ALLOW_INSECURE_URLS = originalFlag;
+	});
+
+	it("connects over http to a named host that resolves to a private address", async () => {
+		env.MCP_ALLOW_INSECURE_URLS = "";
+		env.MCP_INTERNAL_HOSTS = "mcp-test";
+		fakeDns();
+		const { port, close } = await serve();
+		try {
+			const res = await mcpFetch(`http://mcp-test:${port}/mcp`);
+			expect(await res.text()).toBe("ok");
+		} finally {
+			close();
+		}
+	});
+
+	it("refuses the same name when it is not listed", async () => {
+		env.MCP_ALLOW_INSECURE_URLS = "";
+		env.MCP_INTERNAL_HOSTS = "mcp-other";
+		fakeDns();
+		const { port, close } = await serve();
+		try {
+			await expect(mcpFetch(`http://mcp-test:${port}/mcp`)).rejects.toThrow();
+		} finally {
+			close();
+		}
+	});
+
+	it("refuses a listed name that resolves to link-local or cloud metadata", async () => {
+		env.MCP_INTERNAL_HOSTS = "mcp-test";
+		fakeDns();
+		for (const address of ["169.254.169.254", "100.100.100.200", "0.0.0.0"]) {
+			resolveTo = address;
+			// undici wraps the lookup's refusal as the `cause` of "fetch failed".
+			const error = await mcpFetch("http://mcp-test:8096/mcp").catch((e) => e);
+			expect(String((error as Error).cause)).toMatch(/is internal/);
+		}
 	});
 });
 

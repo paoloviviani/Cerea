@@ -56,3 +56,9 @@ A deployment can also configure base servers with the upstream `MCP_SERVERS`
 variable (see [Configuration](configuration.md)); they appear beside the
 connectors as **Base Servers**, each with a health check. Connector credentials need `CHAT_SECRET_KEY`:
 without it, connectors cannot store a token and say so.
+
+On a kit install, stdio MCP servers can run as containers beside the stack and
+be offered as base servers, with no host port: see "Server-side MCP servers" in
+the kit README. They are shared by everyone who signs in, so use them for servers
+without a personal credential; personal accounts belong in
+[local connectors](local-connectors.md).

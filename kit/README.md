@@ -508,6 +508,57 @@ files, newest snapshot by default (`BACKUP_RESTORE_CHOWN` hands them to you). Th
 [Backup and restore](#backup-and-restore) from `cp "$B/.env" .env`. Delete
 `restore/` afterwards: it holds every secret in the clear.
 
+### Server-side MCP servers
+
+Simple stdio MCP servers (the kind a README tells you to start with `uvx
+<package>`) can run as containers beside the kit and appear in everyone's chat
+as Base Servers, with no host port and no VPN. `tools/mcp/` has an example
+override with two of them, a web search (`duckduckgo-mcp-server`) and
+OpenStreetMap (`osm-mcp-server`). Each service is one
+[`mcp-proxy`](https://github.com/sparfenyuk/mcp-proxy) wrapping one server:
+stdio in, Streamable HTTP out on the stack's own network, at
+`http://mcp-search:8096/mcp`. The image (`tools/mcp/Dockerfile`) is
+`python:3.13-slim` with `mcp-proxy` and `uv` pinned: the upstream mcp-proxy
+image has no `uv`, so `uvx` servers need this one. For npm servers, add Node to
+that image (the Dockerfile says how) and start them with `npx -y <package>`.
+
+1. Add the example's services and its `mcp-cache` volume to
+   `compose.override.yaml`: copy `tools/mcp/compose.override.example.yaml` if you
+   have no override yet, otherwise paste the two services under your `services:`
+   and the volume under `volumes:`, leaving the rest of your override as it is.
+   The `build: ./tools/mcp` path is relative to the kit directory.
+   (Compose's `include:` also accepts the file, from Compose 2.20, and the
+   services join the stack's network. But it resolves `build:` relative to the
+   included file, so the build path would need to be `.`; merging by hand keeps
+   the example as it is.)
+2. In `.env`, name the servers and the hosts they live on:
+
+   ```
+   MCP_SERVERS='[{"name":"search","url":"http://mcp-search:8096/mcp"},{"name":"osm","url":"http://mcp-osm:8096/mcp"}]'
+   MCP_INTERNAL_HOSTS='mcp-search,mcp-osm'
+   ```
+
+3. `docker compose up -d --build`. The first start of each server downloads its
+   package into the `mcp-cache` volume; the healthcheck allows 90 s for that.
+
+`MCP_INTERNAL_HOSTS` is the only opening the chat needs. An MCP URL has to be
+https, and `MCP_ALLOW_INSECURE_URLS` only covers IP addresses; a Compose service
+name is a hostname that resolves to a private address over plain http. The
+listed hostnames, matched exactly, are allowed for MCP connections only (never
+for `web_fetch` or attachments), and the address they resolve to must still be a
+private one: link-local and cloud-metadata addresses stay refused. A name you
+do not list is refused as before.
+
+To add a server, copy a service, change its name and the package after `--`,
+and add the name to both `.env` lines. Containers you add by hand are not
+`docker compose pull`ed (the example sets `pull_policy: never`); rebuild with
+`docker compose build --pull mcp-search` to refresh the base image.
+
+A server here is shared by everyone who signs in, and so is any token it holds,
+so run only servers that need no personal credential. Personal accounts (mail,
+calendar, files) belong in [local connectors](#local-connectors), where each
+person's server runs on their own machine.
+
 ## TLS modes
 
 | `--tls` | When | What you need |
