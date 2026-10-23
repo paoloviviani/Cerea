@@ -19,7 +19,8 @@ vi.mock("$lib/server/identity/gatewayLogin", async () => {
 	return { ...actual, isGatewayPreset: () => true };
 });
 
-const { resolveMachineUser, resetMachineUserCacheForTests } = await import("./machineAuth");
+const { resolveMachineUser, resetMachineUserCacheForTests, machineCapabilityRefusal } =
+	await import("./machineAuth");
 
 const BASE_URL = "http://gateway.invalid/v1";
 let insertedUserIds: ObjectId[] = [];
@@ -275,5 +276,64 @@ describe("resolveMachineUser on a gateway preset", () => {
 			fetchImpl: gateway.fetch,
 		});
 		expect(resolution).toMatchObject({ ok: true, sessionsValidAfter: "2026-01-01T00:00:00Z" });
+	});
+});
+
+describe("machine capabilities from the gateway (Pystino local_connectors)", () => {
+	async function resolveWith(
+		sub: string,
+		person: { codeAgents?: boolean | null; localConnectors?: boolean | null }
+	) {
+		const gateway = mockGateway();
+		const userId = new ObjectId();
+		await collections.users.insertOne({
+			_id: userId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			name: "n",
+			hfUserId: new ObjectId().toString(),
+			gatewayUserId: `gw-${sub}`,
+		} as never);
+		insertedUserIds.push(userId);
+		gateway.tokens.set(`tok-${sub}`, { id: `gw-${sub}`, identities: [], ...person });
+		const resolution = await resolveMachineUser(sub, 1, `tok-${sub}`, {
+			baseUrl: BASE_URL,
+			fetchImpl: gateway.fetch,
+		});
+		if (!resolution.ok) throw new Error("expected an ok resolution");
+		return resolution.capabilities;
+	}
+
+	it("an agent machine needs code_agents, a connectors machine local_connectors", async () => {
+		const onlyAgents = await resolveWith("a", { codeAgents: true, localConnectors: false });
+		expect(machineCapabilityRefusal(onlyAgents, "agent")).toBeNull();
+		expect(machineCapabilityRefusal(onlyAgents, "connectors")).toMatch(/local connectors/);
+
+		const onlyConnectors = await resolveWith("b", { codeAgents: false, localConnectors: true });
+		expect(machineCapabilityRefusal(onlyConnectors, "connectors")).toBeNull();
+		expect(machineCapabilityRefusal(onlyConnectors, "agent")).toMatch(/coding agents/);
+
+		const both = await resolveWith("c", { codeAgents: true, localConnectors: true });
+		expect(machineCapabilityRefusal(both, "agent")).toBeNull();
+		expect(machineCapabilityRefusal(both, "connectors")).toBeNull();
+	});
+
+	it("a gateway that predates local_connectors allows a connectors machine", async () => {
+		const caps = await resolveWith("d", { codeAgents: true });
+		expect(machineCapabilityRefusal(caps, "connectors")).toBeNull();
+	});
+
+	it("a gateway with no chat configured says so, for either kind of machine", async () => {
+		const caps = await resolveWith("e", { codeAgents: null, localConnectors: null });
+		for (const mode of ["agent", "connectors"] as const) {
+			expect(machineCapabilityRefusal(caps, mode)).toMatch(/not configured for the chat/);
+		}
+	});
+
+	it("a body with no capabilities at all (older gateway) restricts nothing", async () => {
+		const caps = await resolveWith("f", {});
+		expect(caps).toBeUndefined();
+		expect(machineCapabilityRefusal(caps, "connectors")).toBeNull();
+		expect(machineCapabilityRefusal(caps, "agent")).toBeNull();
 	});
 });

@@ -972,6 +972,14 @@
 			</div>
 		{/if}
 
+		{#if page.data.localConnectorsDenied}
+			<p class="text-xs text-gray-600 dark:text-gray-400" data-testid="local-denied-note">
+				{page.data.localConnectorsDenied === "not_configured"
+					? "This gateway is not configured for the chat, so local connectors are unavailable."
+					: "Your administrator has not enabled local connectors for your groups."}
+			</p>
+		{/if}
+
 		{#if onMachines.length > 0}
 			<!-- Servers on the person's own machines (ADR 0102): defined in each machine's
 			     mcp.json, so nothing here is added or edited. Only the person's own are ever

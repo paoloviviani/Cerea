@@ -305,6 +305,10 @@ services:
       # means delete refuses at request time with "this deployment's chat
       # is not reachable from the gateway", not a startup failure.
       GATEWAY_CHAT__ERASURE_URL: http://chat:3000/chat/internal/erasure
+      # This is a full chat + Pystino deployment: code agents and local
+      # connectors (chat concepts) are capabilities here. Standalone Pystino
+      # leaves it unset (false) and hides them.
+      GATEWAY_CHAT__ENABLED: "true"
       GATEWAY_CHAT__ERASURE_TOKEN: ${CHAT_ERASURE_TOKEN:-}
     volumes:
       # The bundled Authelia's users file, which the console manages

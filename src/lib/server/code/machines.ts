@@ -19,6 +19,7 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import {
 	MachineAuthError,
+	machineCapabilityRefusal,
 	resolveMachineUser,
 	revalidateMachineAuth,
 	validateMachineToken,
@@ -276,8 +277,22 @@ export async function revalidateLiveMachineConnections(): Promise<void> {
 			const staleEnrolment = Boolean(
 				device && sessionsValidAfter && sessionsValidAfter.getTime() > device.createdAt.getTime()
 			);
-			if (!staleEnrolment) continue;
-			await revokeAndClose(state, "sessions_valid_after");
+			if (staleEnrolment) {
+				await revokeAndClose(state, "sessions_valid_after");
+				continue;
+			}
+			// The machine's kind decides which capability it needs (`code_agents` for an agent
+			// machine, `local_connectors` for a connectors one). Losing it closes the link with
+			// 4404 like the join and agents gates do: nothing is revoked, and the machine comes
+			// back by itself once a group grants the flag. Closing also closes its MCP channels.
+			const refusal = machineCapabilityRefusal(resolution.capabilities, state.mode);
+			if (refusal) {
+				logger.info(
+					{ deviceId: state.deviceId, mode: state.mode },
+					"machine link: capability lost for this machine kind; closing (not revoking)"
+				);
+				closeConnection(state, 4404, refusal);
+			}
 		} else if (resolution.refused) {
 			// ADR 0095 / ADR 0096: the join gate or the code_agents gate
 			// refusing an authenticated caller is a loss regaining the group
@@ -1156,6 +1171,40 @@ async function onHello(
 			/* already gone */
 		}
 		return null;
+	}
+
+	// The person's capability for this kind of machine. The pre-upgrade check could not know the
+	// mode (it is only in the hello), so it is asked here, through the same `/v1/me` answer the
+	// upgrade just cached. 4404, never a revoke: a group flag restores it without a re-enroll.
+	const resolved = await resolveMachineUser(principal.sub, principal.exp, token).catch(() => null);
+	if (resolved && !resolved.ok) {
+		const code = resolved.code;
+		try {
+			ws.close(
+				resolved.refused && (code === "agents_not_allowed" || code === "outside_access_groups")
+					? 4404
+					: 1013,
+				resolved.message.slice(0, 120)
+			);
+		} catch {
+			/* already gone */
+		}
+		return null;
+	}
+	if (resolved?.ok) {
+		const refusal = machineCapabilityRefusal(resolved.capabilities, machineMode(hello.machine));
+		if (refusal) {
+			logger.info(
+				{ machineId: principal.machineId, mode: machineMode(hello.machine) },
+				"machine link: the account lacks the capability for this kind of machine"
+			);
+			try {
+				ws.close(4404, refusal.slice(0, 120));
+			} catch {
+				/* already gone */
+			}
+			return null;
+		}
 	}
 
 	const now = new Date();

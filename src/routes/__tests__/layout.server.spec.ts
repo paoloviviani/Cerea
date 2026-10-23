@@ -100,6 +100,7 @@ interface LayoutCodeFlags {
 	codeFilesEnabled: boolean;
 	codeTerminalEnabled: boolean;
 	codeSchedulesEnabled: boolean;
+	localConnectorsDenied: "not_granted" | "not_configured" | null;
 }
 
 async function layoutFor(locals: App.Locals): Promise<LayoutCodeFlags> {
@@ -158,6 +159,25 @@ describe("the layout's per-person /code flags", () => {
 		const data = await layoutFor(createTestLocals({ sessionId, token: "tok" }));
 		expect(data.codeAgentsEnabled).toBe(true);
 		forgetGatewaySession(sessionId);
+	});
+
+	it("local connectors: granted, not granted, no chat configured, and an older gateway", async () => {
+		gatewayPreset();
+		const cases: [unknown, LayoutCodeFlags["localConnectorsDenied"]][] = [
+			[{ code_agents: false, local_connectors: true }, null],
+			[{ code_agents: true, local_connectors: false }, "not_granted"],
+			[{ code_agents: null, local_connectors: null }, "not_configured"],
+			// A gateway that predates the capability never gated connectors.
+			[{ code_agents: true }, null],
+			[undefined, null],
+		];
+		for (const [capabilities, expected] of cases) {
+			const { sessionId, body } = await makeSession(capabilities);
+			stubMe({ status: 200, body });
+			const data = await layoutFor(createTestLocals({ sessionId, token: "tok" }));
+			expect(data.localConnectorsDenied, JSON.stringify(capabilities)).toBe(expected);
+			forgetGatewaySession(sessionId);
+		}
 	});
 
 	it("a signed-out visitor on a gateway deployment: no switch", async () => {

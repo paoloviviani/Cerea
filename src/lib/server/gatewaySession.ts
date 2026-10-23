@@ -56,7 +56,16 @@ export type GatewaySessionOutcome =
 			 * that carries the key is a gateway that speaks capabilities, and
 			 * its `code_agents` is true only when the body says so: silence
 			 * inside a present key is a denial, not the allowance. */
-			capabilities: { code_agents: boolean } | "absent";
+			capabilities:
+				| {
+						code_agents: boolean;
+						/** Absent from the body (a gateway that predates the capability) reads as
+						 * allowed: local connectors were never gated before. */
+						local_connectors: boolean;
+						/** Both reported null: the gateway is not configured for the chat. */
+						chat_unconfigured: boolean;
+				  }
+				| "absent";
 	  }
 	| { kind: "ended" }
 	| { kind: "open" }
@@ -203,7 +212,17 @@ export async function gatewaySessionCheck(
 			const capabilities =
 				body.capabilities === undefined
 					? ("absent" as const)
-					: { code_agents: body.capabilities?.code_agents === true };
+					: {
+							code_agents: body.capabilities?.code_agents === true,
+							local_connectors:
+								body.capabilities !== null &&
+								(body.capabilities.local_connectors === undefined ||
+									body.capabilities.local_connectors === true),
+							chat_unconfigured:
+								body.capabilities !== null &&
+								body.capabilities.code_agents === null &&
+								body.capabilities.local_connectors === null,
+						};
 			outcome = {
 				kind: "valid",
 				isAdmin: body.is_admin === true,

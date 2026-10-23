@@ -17,7 +17,11 @@ export interface MockPerson {
 	sessionsValidAfter?: string | null;
 	mergedAt?: string | null;
 	/** ADR 0096: the person's coding-agents capability, answered on /me. */
-	codeAgents?: boolean;
+	codeAgents?: boolean | null;
+	/** Local connectors capability (ADR 0102): answered on /me beside `codeAgents`; null is
+	 * "the gateway has no chat configured". Left unset it is absent from the body, like a
+	 * gateway that predates it. */
+	localConnectors?: boolean | null;
 	/** Refuse this token outright with the gateway's own error code (a 403
 	 * carrying `code`), e.g. `outside_access_groups` or `agents_not_allowed`. */
 	refusedCode?: string;
@@ -74,9 +78,16 @@ export function mockGateway(): MockGateway {
 					groups: person.groups ?? [],
 					sessions_valid_after: person.sessionsValidAfter ?? null,
 					merged_at: person.mergedAt ?? null,
-					...(person.codeAgents === undefined
+					...(person.codeAgents === undefined && person.localConnectors === undefined
 						? {}
-						: { capabilities: { code_agents: person.codeAgents } }),
+						: {
+								capabilities: {
+									...(person.codeAgents === undefined ? {} : { code_agents: person.codeAgents }),
+									...(person.localConnectors === undefined
+										? {}
+										: { local_connectors: person.localConnectors }),
+								},
+							}),
 				};
 				return json(body);
 			}

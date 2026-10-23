@@ -116,6 +116,7 @@ export const load = async ({ fetch, url, data }) => {
 		codeSchedulesEnabled: data.codeSchedulesEnabled,
 		officePreviewEnabled: data.officePreviewEnabled,
 		localConnectorsEnabled: data.localConnectorsEnabled,
+		localConnectorsDenied: data.localConnectorsDenied,
 		settings,
 		publicConfig: getConfigManager(publicConfig as Record<`PUBLIC_${string}`, string>),
 		mcpBaseServers,

@@ -16,6 +16,7 @@ import {
 	codeFilesEnabled,
 	codeSchedulesEnabled,
 	codeTerminalEnabled,
+	localConnectorsAccessFor,
 	localConnectorsEnabled,
 } from "$lib/server/codeEnabled";
 import { isGotenbergEnabled } from "$lib/server/office/gotenberg";
@@ -58,6 +59,11 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		// Local MCP connectors (ADR 0102): the workspace's Local connectors tab. A deployment
 		// switch of its own, independent of the Agents panel's per-person one.
 		localConnectorsEnabled: localConnectorsEnabled(),
+		// Per person (Pystino's `local_connectors` capability): null when granted, else why not,
+		// so the tab says so instead of showing a how-to that cannot work for them.
+		localConnectorsDenied: await localConnectorsAccessFor(locals).then((a) =>
+			a === "ok" ? null : a
+		),
 		// Office files preview as PDF through Gotenberg (the kit's `office` profile); off, a
 		// PowerPoint deck previews in the browser and the rest keep today's behaviour.
 		officePreviewEnabled: isGotenbergEnabled(),
