@@ -69,8 +69,3 @@ export interface MCPServer {
 	// Indicates server reports or appears to require OAuth or other auth
 	authRequired?: boolean;
 }
-
-export interface MCPServerApi {
-	url: string;
-	headers?: KeyValuePair[];
-}

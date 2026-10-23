@@ -56,10 +56,6 @@ export const PUSH_EVENT_INFO: Record<PushEvent, PushEventInfo> = {
 	},
 };
 
-export function isPushEvent(value: unknown): value is PushEvent {
-	return typeof value === "string" && (PUSH_EVENTS as readonly string[]).includes(value);
-}
-
 /** The person's choice for one event, falling back to its default. */
 export function pushEventEnabled(prefs: PushEventPrefs | null | undefined, event: PushEvent) {
 	return prefs?.[event] ?? PUSH_EVENT_INFO[event].defaultOn;

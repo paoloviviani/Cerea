@@ -305,11 +305,6 @@ export function toggleDefaultConnector(id: string): void {
 	});
 }
 
-/** Replace the whole defaults set (the workspace tab's bulk edits). */
-export function setDefaultConnectors(ids: Iterable<string>): void {
-	defaultConnectorIds.set(new Set(ids));
-}
-
 /** Turn a default on (a sign-in from the workspace tab means it for new chats too). */
 export function selectDefaultConnector(id: string): void {
 	if (get(defaultConnectorIds).has(id)) return;

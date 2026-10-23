@@ -39,13 +39,21 @@ export class MachineMcpTransport implements Transport {
 	onmessage?: Transport["onmessage"];
 	sessionId?: string;
 
+	// Present, and null, like the SDK's own stdio transport: that is how its version probe knows
+	// the other end is a process, where silence means "an older server" and the handshake goes on
+	// in place, rather than a network where silence is an outage.
+	readonly stderr = null;
+	readonly pid = null;
+
 	private channelId: string | null = null;
 	private unregister: (() => void) | null = null;
 	private closed = false;
 
 	constructor(
 		private readonly deviceId: string,
-		private readonly server: string
+		private readonly server: string,
+		/** The machine ended the channel because the server's entry changed or went away. */
+		private readonly onConfigClosed?: () => void
 	) {}
 
 	async start(): Promise<void> {
@@ -79,6 +87,7 @@ export class MachineMcpTransport implements Transport {
 		this.closed = true;
 		this.unregister?.();
 		this.unregister = null;
+		if (event.reason === "config") this.onConfigClosed?.();
 		if (event.reason === "crashed" || event.reason === "exited" || event.reason === "config") {
 			this.onerror?.(
 				new Error(`The local server ${event.reason}${event.detail ? `: ${event.detail}` : ""}`)
@@ -114,7 +123,10 @@ export class MachineMcpTransport implements Transport {
  * thing a caller supplies, so this is where a forged one (another person's device, a revoked
  * one) stops. Throws with a sentence the model and the person can be told.
  */
-export async function createLocalTransport(url: string): Promise<MachineMcpTransport> {
+export async function createLocalTransport(
+	url: string,
+	onConfigClosed?: () => void
+): Promise<MachineMcpTransport> {
 	const target = parseLocalServerUrl(url);
 	if (!target) throw new Error("That is not a local connector address.");
 	if (!localConnectorsEnabled()) throw new Error("Local connectors are not enabled here.");
@@ -127,5 +139,5 @@ export async function createLocalTransport(url: string): Promise<MachineMcpTrans
 		logger.warn({ deviceId: target.deviceId }, "mcp_local_unowned_device");
 		throw new Error("No such machine is paired to this account.");
 	}
-	return new MachineMcpTransport(target.deviceId, target.server);
+	return new MachineMcpTransport(target.deviceId, target.server, onConfigClosed);
 }

@@ -77,6 +77,15 @@ func (l *Link) Call(ctx context.Context, c Call) (json.RawMessage, *OpError) {
 		"rootSessionId": c.RootSessionID, "caller": c.Caller, "args": c.Args,
 	})
 	if err != nil {
+		if connCtx.Err() != nil {
+			// The link went down around the write, so the frame may well
+			// have reached Cerea: this is a dropped call, not a refused
+			// one. The connection's teardown fails every pending call
+			// (registered under the lock that also cleared sched), so the
+			// answer is certain to arrive.
+			r := <-ch
+			return r.result, r.err
+		}
 		drop()
 		return nil, unavailable("Cerea is not reachable from this machine right now")
 	}

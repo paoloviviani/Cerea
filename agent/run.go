@@ -42,6 +42,11 @@ Usage:
   --state-dir PATH    Directory for this run's own state: policy.json,
                       the workspace registry, the machine id, the opencode
                       mode/model overlay (default: beside --creds).
+  --mcp-config PATH   Read the local MCP servers from this file instead of
+                      <state-dir>/mcp.json (default also from $GALOPIN_MCP_CONFIG;
+                      the flag wins). ~ and a path relative to the current
+                      directory work; it must exist. A Claude Desktop or
+                      Claude Code config (mcpServers) can be used in place.
   --no-shim           Don't start the local shim; --opencode-config must
                       already point opencode at a reachable provider (used
                       by tests, e.g. a mock LLM).
@@ -73,6 +78,7 @@ type runOptions struct {
 	cerea           string
 	credsPath       string
 	stateDir        string
+	mcpConfig       string
 	noShim          bool
 	backendKind     string
 	connectorsOnly  bool
@@ -90,6 +96,7 @@ func runRun(args []string) error {
 	fs.StringVar(&opts.cerea, "cerea", "", "")
 	fs.StringVar(&opts.credsPath, "creds", "", "")
 	fs.StringVar(&opts.stateDir, "state-dir", "", "")
+	fs.StringVar(&opts.mcpConfig, "mcp-config", "", "")
 	fs.BoolVar(&opts.noShim, "no-shim", false, "")
 	fs.StringVar(&opts.backendKind, "backend", "", "")
 	fs.BoolVar(&opts.connectorsOnly, "connectors-only", false, "")
@@ -173,6 +180,13 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return fmt.Errorf("creating state dir: %w", err)
 	}
+	mcpPath, mcpExplicit, err := resolveMcpConfig(opts.mcpConfig, os.Getenv, stateDir)
+	if err != nil {
+		return err
+	}
+	if mcpExplicit {
+		logf("connectors: using %s", mcpPath)
+	}
 
 	cereaOrigin := opts.cerea
 	if cereaOrigin == "" {
@@ -254,7 +268,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 
 	if opts.backendKind == backendNone {
-		return runConnectorsOnly(ctx, opts, credsPath, stateDir, cereaOrigin, machineID, machineName, sh, pol)
+		return runConnectorsOnly(ctx, opts, credsPath, stateDir, mcpPath, cereaOrigin, machineID, machineName, sh, pol)
 	}
 
 	// The permission policy as the running agent holds it: loaded from
@@ -287,7 +301,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	mc.AttachReportState(stateDir)
 	// The machine's local MCP connectors (mcp.json, PROTOCOL.md §10): served
 	// whenever the file exists, whatever the backend.
-	connectors := mc.startConnectors(stateDir)
+	connectors := mc.startConnectors(stateDir, mcpPath)
 	defer connectors.Shutdown()
 	go connectors.Watch(ctx)
 	mcpSrv, err := mc.startMCP()
@@ -779,7 +793,7 @@ func waitForLink(ctx context.Context, linkErr <-chan error, stateDir, machineID 
 // Cerea with no coding agent behind it. Nothing of opencode is started; the
 // machine answers the connector ops and the mcp frames, and every other op
 // unsupported.
-func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDir, cereaOrigin, machineID, machineName string, sh *shim, pol policy.Policy) error {
+func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDir, mcpPath, cereaOrigin, machineID, machineName string, sh *shim, pol policy.Policy) error {
 	auditLog, err := newAuditLogger(stateDir)
 	if err != nil {
 		return err
@@ -787,11 +801,11 @@ func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDi
 	defer auditLog.Close()
 	mc := &machine{pol: pol}
 	mc.AttachAudit(auditLog)
-	connectors := mc.startConnectors(stateDir)
+	connectors := mc.startConnectors(stateDir, mcpPath)
 	defer connectors.Shutdown()
 	go connectors.Watch(ctx)
 	if !connectors.Configured() {
-		logf("no %s yet: create %s to offer MCP servers to the chat (docs: local connectors)", mcpConfigFileName, filepath.Join(stateDir, mcpConfigFileName))
+		logf("no %s yet: create %s to offer MCP servers to the chat (docs: local connectors)", mcpConfigFileName, mcpPath)
 	}
 
 	lnk := link.New(link.Config{

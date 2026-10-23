@@ -28,6 +28,7 @@ type stdioConn struct {
 	lastErr string
 
 	reason, detail string // how it ended; valid once done is closed
+	status         string // the exit status alone, no stderr; valid once done is closed
 }
 
 // startStdio starts the entry's process. Newline-delimited JSON-RPC goes over
@@ -74,6 +75,10 @@ func startStdio(e *Entry, s *sink) (*stdioConn, error) {
 		// Recorded before Done closes, so an open that sees the process gone
 		// can say why.
 		c.reason, c.detail = c.exitReason(err)
+		c.status = "exit status 0"
+		if err != nil {
+			c.status = err.Error()
+		}
 		close(c.done)
 		if c.closing.Load() {
 			return
@@ -117,6 +122,12 @@ func (c *stdioConn) Send(msg []byte) {
 		c.sink.logf("connector: writing to the server failed: %v", err)
 	}
 }
+
+// Pid is the server process's id.
+func (c *stdioConn) Pid() int { return c.cmd.Process.Pid }
+
+// ExitStatus is how the process ended, without anything it wrote; valid once Done is closed.
+func (c *stdioConn) ExitStatus() string { return c.status }
 
 // Exit is how the process ended; valid once Done is closed.
 func (c *stdioConn) Exit() (reason, detail string) { return c.reason, c.detail }

@@ -131,6 +131,28 @@ function insecureMcpUrlsAllowed(): boolean {
 	return env.MCP_ALLOW_INSECURE_URLS === "true";
 }
 
+/**
+ * Exact hostnames an operator named in `MCP_INTERNAL_HOSTS` (comma-separated), for MCP servers
+ * that run as containers beside the chat on the compose network (`mcp-search`, ...). Such a
+ * name resolves to a private address and speaks plain http, which the IP-literal rule above
+ * cannot express. Exact match only: no wildcards, no suffixes, no addresses. Read from the
+ * process environment, like `MCP_ALLOW_INSECURE_URLS`, so a database row can never widen it.
+ * The connection is still checked: whatever the name resolves to must be in
+ * `LOCAL_MCP_IPV4_SUBNETS` (link-local and cloud metadata stay refused).
+ */
+function internalMcpHosts(): Set<string> {
+	return new Set(
+		(env.MCP_INTERNAL_HOSTS ?? "")
+			.split(",")
+			.map((h) => h.trim().toLowerCase())
+			.filter((h) => h && isIP(h) === 0 && h !== "localhost")
+	);
+}
+
+function isInternalMcpHost(hostname: string): boolean {
+	return internalMcpHosts().has(hostname.toLowerCase());
+}
+
 export interface UrlSafetyOptions {
 	/** Inert unless `MCP_ALLOW_INSECURE_URLS=true`, and even then only for local hosts. */
 	allowInsecure?: boolean;
@@ -148,7 +170,9 @@ export function isValidUrl(
 	try {
 		const url = new URL(urlString.trim());
 		const hostname = url.hostname.toLowerCase();
-		const insecure = allowInsecure && insecureMcpUrlsAllowed() && isLocalMcpHost(hostname);
+		const insecure =
+			allowInsecure &&
+			((insecureMcpUrlsAllowed() && isLocalMcpHost(hostname)) || isInternalMcpHost(hostname));
 
 		if (url.protocol !== "https:" && !(insecure && url.protocol === "http:")) {
 			return false;
@@ -208,7 +232,7 @@ export function assertSafeIp(address: string, hostname: string, strict = false):
  * preventing TOCTOU DNS rebinding attacks.
  */
 function createSsrfAgent(
-	exempt: (hostname: string) => boolean = () => false,
+	exempt: (hostname: string, addresses: string[]) => boolean = () => false,
 	strict = false
 ): Agent {
 	return new Agent({
@@ -216,7 +240,9 @@ function createSsrfAgent(
 			lookup: (hostname, options, callback) => {
 				dns.lookup(hostname, options, (err, address, family) => {
 					if (err) return callback(err, "", 4);
-					if (exempt(hostname.toLowerCase())) return callback(null, address, family);
+					const resolved =
+						typeof address === "string" ? [address] : address.map((entry) => entry.address);
+					if (exempt(hostname.toLowerCase(), resolved)) return callback(null, address, family);
 					if (typeof address === "string") {
 						try {
 							assertSafeIp(address, hostname, strict);
@@ -249,8 +275,20 @@ const contentFetchAgent = createSsrfAgent(() => false, true);
  */
 let localMcpAgent: Agent | undefined;
 function getLocalMcpAgent(): Agent {
-	localMcpAgent ??= createSsrfAgent((hostname) => hostname === "localhost");
+	localMcpAgent ??= createSsrfAgent(
+		(hostname, addresses) =>
+			hostname === "localhost" || (isInternalMcpHost(hostname) && addresses.every(isLocalMcpIp))
+	);
 	return localMcpAgent;
+}
+
+/** MCP transports without the insecure flag: only the named internal hosts are exempt. */
+let internalMcpAgent: Agent | undefined;
+function getInternalMcpAgent(): Agent {
+	internalMcpAgent ??= createSsrfAgent(
+		(hostname, addresses) => isInternalMcpHost(hostname) && addresses.every(isLocalMcpIp)
+	);
+	return internalMcpAgent;
 }
 
 const MAX_REDIRECTS = 5;
@@ -287,7 +325,13 @@ async function guardedFetch(
 ): Promise<Response> {
 	const allowLocal = Boolean(options.allowInsecure) && insecureMcpUrlsAllowed();
 	const strict = Boolean(options.blockInternalNetworks);
-	const dispatcher = allowLocal ? getLocalMcpAgent() : strict ? contentFetchAgent : ssrfSafeAgent;
+	const dispatcher = allowLocal
+		? getLocalMcpAgent()
+		: options.allowInsecure
+			? getInternalMcpAgent()
+			: strict
+				? contentFetchAgent
+				: ssrfSafeAgent;
 	const callerRedirect = init?.redirect ?? "follow";
 
 	if (callerRedirect === "error") {

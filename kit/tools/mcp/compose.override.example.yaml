@@ -1,0 +1,84 @@
+# Server-side MCP servers: stdio MCP servers run as containers beside the kit
+# and offered to the chat as deployment-wide connectors. Copy this file to
+# compose.override.yaml, or merge its services into the one you have (the
+# README, "Server-side MCP servers", has the merge and the .env lines), then
+#
+#   docker compose up -d --build mcp-search mcp-osm
+#
+# Each service is one `mcp-proxy` wrapping one stdio server: stdio in,
+# Streamable HTTP out on port 8096 of the stack's own network. No host port,
+# no VPN, no proxy route: only containers of this stack can reach it, and the
+# chat does so at http://<service>:8096/mcp.
+#
+# Package versions are pinned so a restart never pulls a new release (osm-mcp-server
+# does not pin `mcp`, and breaks on mcp 2.x: hence `--with mcp<2`). Bump them
+# on purpose.
+#
+# To add a server: copy a service, give it a new name, and change the command
+# after `--` (`uvx <pypi package>==<version>`). Add its name to MCP_INTERNAL_HOSTS and its
+# URL to MCP_SERVERS in .env (see the README), then `docker compose up -d`.
+# Npm servers (`npx -y <package>`) need Node in the image: see the comment in
+# the Dockerfile.
+#
+# Only servers that need no personal credential belong here. A server in this
+# file is shared by everyone who can sign in to the deployment, and so is any
+# token it holds. Personal accounts (mail, calendar, files) belong in galopin
+# local connectors, where each person's server runs on their own machine.
+services:
+  mcp-search:
+    build: ./tools/mcp
+    image: cerea-mcp:1
+    # Built on this machine and published nowhere: a plain `docker compose
+    # pull` in the upgrade flow must skip it (see the backup example).
+    pull_policy: never
+    restart: unless-stopped
+    # --stateless: no session to lose when the container restarts.
+    # --pass-environment: the server inherits the container's environment.
+    command: [--port=8096, --host=0.0.0.0, --stateless, --pass-environment, --, uvx, duckduckgo-mcp-server==0.7.0]
+    environment:
+      # Everything uv writes goes to the cache volume: the root is read-only.
+      UV_CACHE_DIR: /cache/uv
+      UV_TOOL_DIR: /cache/tools
+      UV_TOOL_BIN_DIR: /cache/bin
+    volumes:
+      - mcp-cache:/cache             # uv's download cache: packages are fetched once, not at every start
+    tmpfs:
+      - /tmp
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      # The proxy answers GET /status once it is up.
+      test: ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8096/status', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s              # the first start downloads the package
+
+  mcp-osm:
+    build: ./tools/mcp
+    image: cerea-mcp:1
+    pull_policy: never
+    restart: unless-stopped
+    command: [--port=8096, --host=0.0.0.0, --stateless, --pass-environment, --, uvx, --with, mcp<2, osm-mcp-server==0.1.1]
+    environment:
+      # Everything uv writes goes to the cache volume: the root is read-only.
+      UV_CACHE_DIR: /cache/uv
+      UV_TOOL_DIR: /cache/tools
+      UV_TOOL_BIN_DIR: /cache/bin
+    volumes:
+      - mcp-cache:/cache
+    tmpfs:
+      - /tmp
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8096/status', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  mcp-cache:

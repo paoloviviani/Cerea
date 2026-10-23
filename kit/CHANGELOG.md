@@ -5,14 +5,38 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.23.1 — 2026-10-23
 
-- **Local connectors**: people can connect MCP servers that run on their own
-  machine to their chat (`galopin enroll --connectors-only`, approve it under
-  Workspace → Local connectors). `LOCAL_CONNECTORS_ENABLED` is `true` by default
-  in the kit and independent of `--agents`; set it to anything else to turn it
-  off. No new service or port: the machine dials out over the existing machine
-  link.
+Pins: Cerea `0.23.1`, **Pystino `0.17.1`**, Authelia 4.39.22 (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Update galopin on machines that
+serve local connectors (faster connectors, clearer logs, `--mcp-config`).
+
+- **Local connectors are much faster.** Each server keeps one shared
+  connection instead of one per conversation (a new chat no longer starts a new
+  server process on the machine), and the protocol a server speaks is
+  remembered, with a 10-second probe instead of the SDK's 60 seconds. galopin
+  logs each server process it starts and stops, with the reason.
+- **`galopin run --mcp-config <path>`** (or `GALOPIN_MCP_CONFIG`) reads the
+  connectors from any file, e.g. an existing Claude Desktop or Claude Code
+  config; only its `mcpServers` is read.
+- **Server-side MCP servers**: `tools/mcp/` is an example override that runs
+  stdio MCP servers (`uvx` ones: web search, OpenStreetMap) as containers on the
+  stack's network through `mcp-proxy`, offered to everyone as Base Servers. The
+  chat reads `MCP_SERVERS` from `.env`, and the new `MCP_INTERNAL_HOSTS` names
+  the exact service hostnames allowed over plain http on that network; nothing
+  else is opened. Shared by everyone who signs in: no personal credentials (use
+  local connectors for those). See the README, "Server-side MCP servers".
+- **Pystino 0.17.1:** every built-in provider states where it processes data,
+  its retention, zero-retention and training terms from dated primary sources
+  (routers say "Various"); Nebius moves to its Token Factory endpoint and
+  Mistral to its EU endpoint (EU inference, billed at 1.1x by Mistral), with a
+  "Use catalogue endpoint" button for existing providers whose address differs;
+  the console uses one type scale on every page.
+- Fixes: `kit/dev/build.sh` builds origin's commit and every image the profiles
+  need; galopin explains why Cerea refused its connection, and a call in flight
+  when the link drops is reported as dropped, not unreachable; the setup guide
+  says to sign in to Cerea once before running galopin.
 
 ## v0.23.0 — 2026-10-23
 

@@ -36,7 +36,7 @@ export type McpClientKind = keyof typeof CLIENT_INFO;
  */
 export function createMcpClient(
 	kind: McpClientKind = "session",
-	options: { negotiate?: boolean } = {}
+	options: { negotiate?: boolean; probeTimeoutMs?: number } = {}
 ): Client {
 	const capabilities = mcpClientCapabilities(kind);
 	const { name, version } = CLIENT_INFO[kind];
@@ -48,7 +48,13 @@ export function createMcpClient(
 			// probe fall back on its own for the 2025-era servers that are still the majority.
 			// A local server (`localTransport.ts`) can retry without it: a stdio server that never
 			// answers an unknown pre-initialize request would otherwise time the probe out.
-			versionNegotiation: { mode: options.negotiate === false ? "legacy" : "auto" },
+			versionNegotiation:
+				options.negotiate === false
+					? { mode: "legacy" }
+					: {
+							mode: "auto",
+							...(options.probeTimeoutMs ? { probe: { timeoutMs: options.probeTimeoutMs } } : {}),
+						},
 			// A 2026-era prompt outlives this call, so the driver must not block our handler
 			// waiting for one. `callMcpTool` opts each call into receiving `input_required`.
 			inputRequired: { autoFulfill: false },
