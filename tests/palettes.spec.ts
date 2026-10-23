@@ -51,7 +51,7 @@ async function utilityColours(page: Page) {
 }
 
 test.describe("Appearance", () => {
-	test("the defaults carry no attribute and keep today's look", async ({ page }) => {
+	test("@smoke the defaults carry no attribute and keep today's look", async ({ page }) => {
 		const response = await page.goto(SETTINGS);
 		expect(await response?.text()).not.toMatch(/<html[^>]*data-(accent|neutral)/);
 		await expect(page.locator("html")).not.toHaveAttribute("data-accent", /.*/);

@@ -11,7 +11,7 @@
  *   is a receipt, not the outcome. Mid-permission-prompt is the case that
  *   matters: the daemon resolves the outstanding request denied, the card
  *   settles ("Denied"), and no dots hang;
- * - the permission selector (Deny · Ask · Allow) renders from the agent
+ * - the permission selector (Plan · Ask · Allow) renders from the agent
  *   snapshot's `permissionMode` — the machine's word, never an optimistic
  *   guess: a click posts `{ mode }` and the segment moves only when the
  *   re-read snapshot says so. A refusal leaves the old word standing, a
@@ -367,7 +367,9 @@ test.describe("the permission selector", () => {
 		await installStubs(page);
 		await goto(page);
 
-		const mode = page.getByRole("button", { name: "Plan" });
+		// The mode pill is gone (the selector drives build and plan); the
+		// permission-details button is the selector's own sibling.
+		const mode = page.getByRole("button", { name: "Permission details for this session" });
 		const model = page.getByRole("button", { name: "Model and effort" });
 		await expect(mode).toBeVisible();
 		await expect(model).toBeVisible();

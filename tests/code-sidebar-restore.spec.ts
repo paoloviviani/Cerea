@@ -75,7 +75,9 @@ test.beforeEach(async ({ page }) => {
 	);
 });
 
-test("loading an agent session URL directly opens the sidebar on Agents", async ({ page }) => {
+test("@smoke loading an agent session URL directly opens the sidebar on Agents", async ({
+	page,
+}) => {
 	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 
 	// The switch itself reads as Agents-selected — scoped by testid, not role

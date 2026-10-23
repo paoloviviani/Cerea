@@ -373,6 +373,9 @@ test.describe("the / menu", () => {
 		// menu, and the text goes out verbatim.
 		await box(page).fill("//x");
 		await expect(menu(page)).toHaveCount(0);
+		// Enter is ignored while the first message is still being sent: send is enabled only
+		// once that has settled (CI's slower run pressed it too early).
+		await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled();
 		await page.keyboard.press("Enter");
 		await expect.poll(() => h.messageBodies, { timeout: 10_000 }).toHaveLength(2);
 		expect(h.messageBodies[1]).toMatchObject({ text: "//x" });

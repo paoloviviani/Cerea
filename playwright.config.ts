@@ -44,7 +44,9 @@ export default defineConfig({
 	fullyParallel: false,
 	workers: Number(process.env.PLAYWRIGHT_WORKERS ?? 1),
 	forbidOnly: isCI,
-	retries: isCI ? 2 : 0,
+	// Never: a test that passes on its second try is a flaky test, and the answer is to fix it at
+	// its cause (wait for the state it needs), not to retry it into green.
+	retries: 0,
 
 	timeout: 60_000,
 	expect: { timeout: 15_000 },
@@ -61,7 +63,10 @@ export default defineConfig({
 		// `tests/fixtures.ts`). A `baseURL` with a path would just be dead
 		// weight here, never actually applied.
 		baseURL: E2E_APP_ORIGIN,
-		trace: "on-first-retry",
+		// Off: a trace is recorded for every test and dropped on a pass, and that cost made timing-
+		// sensitive specs (the throttled long-transcript load) fail. A failure keeps its screenshot
+		// and, in CI, its video.
+		trace: "off",
 		screenshot: "only-on-failure",
 		// Video encodes every test and is discarded on pass: on a small box
 		// that cost is real, so only CI keeps it.

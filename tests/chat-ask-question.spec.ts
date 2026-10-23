@@ -93,6 +93,12 @@ test("a typed answer reaches the model marked as custom, and a model-authored Ot
 	const card = page.getByRole("group", { name: "Question from the assistant" });
 	await expect(card).toBeVisible({ timeout: 30_000 });
 	// The card's own free-text choice is the only catch-all: the model's is dropped.
+	// Interacting the instant the card appears is a race: the turn's late updates (parking it,
+	// the title) re-render the card, which drops what was just picked or typed (CI saw "Pick an
+	// option to continue" after a typed answer). The card is durable, so a reload gives the
+	// instance that stays, as the first spec here does.
+	await page.reload();
+	await expect(card).toBeVisible({ timeout: 30_000 });
 	await expect(card.getByRole("button", { name: /Other \(please specify\)/ })).toHaveCount(0);
 	await expect(card.getByRole("button", { name: /Something else/ })).toHaveCount(1);
 

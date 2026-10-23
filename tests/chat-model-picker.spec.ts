@@ -74,7 +74,7 @@ test("effort is set on the pill, sent upstream, and kept per conversation", asyn
 	await expect(page.getByRole("button", { name: "Model and effort" })).toContainText("High");
 });
 
-test("the pill searches models and switches the conversation's model", async ({
+test("@smoke the pill searches models and switches the conversation's model", async ({
 	page,
 	db,
 	session,

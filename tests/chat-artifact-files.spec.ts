@@ -170,7 +170,7 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 	await expect(library.getByText("hello.pdf")).toBeVisible({ timeout: 30_000 });
 	await expect(library.getByText("hello.docx")).toBeVisible();
 
-	// The PDF opens as a file artifact at v2 with an unsandboxed native preview.
+	// The PDF opens as a file artifact at v2 drawn by pdf.js in the panel itself.
 	await library.getByRole("button", { name: "Open hello.pdf in panel" }).click();
 	const panel = page.getByLabel("Artifact panel", { exact: true });
 	await expect(panel.getByRole("heading", { name: "hello.pdf" })).toBeVisible({
@@ -179,10 +179,10 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 	await expect(panel.getByText("v2 / 2")).toBeVisible({ timeout: 30_000 });
 	const pdfView = panel.getByTestId("file-artifact-view");
 	await expect(pdfView).toHaveAttribute("data-kind", "pdf");
-	const pdfFrame = pdfView.locator('iframe[title="Preview of hello.pdf"]');
-	await expect(pdfFrame).toHaveAttribute("src", /^data:application\/pdf/, { timeout: 30_000 });
-	// Deliberately unsandboxed: the native viewer refuses sandboxed frames.
-	await expect(pdfFrame).not.toHaveAttribute("sandbox");
+	// No frame at all: the viewer draws each page onto a canvas of its own.
+	await expect(pdfView.getByTestId("pdf-viewer")).toBeVisible({ timeout: 30_000 });
+	await expect(pdfView.getByLabel("hello.pdf, page 1 of 1")).toBeVisible({ timeout: 30_000 });
+	await expect(pdfView.locator("iframe")).toHaveCount(0);
 
 	await panel.screenshot({ path: "reports/artifact-file-pdf.png" });
 
@@ -255,8 +255,8 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 		timeout: 30_000,
 	});
 	await expect(
-		panel.getByTestId("file-artifact-view").locator('iframe[title="Preview of hello.pdf"]')
-	).toHaveAttribute("src", /^data:application\/pdf/, { timeout: 30_000 });
+		panel.getByTestId("file-artifact-view").getByLabel("hello.pdf, page 1 of 1")
+	).toBeVisible({ timeout: 30_000 });
 });
 
 /**

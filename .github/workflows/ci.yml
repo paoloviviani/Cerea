@@ -9,7 +9,14 @@
 #   - a second, independent job for gofmt/vet/test in agent/, since it needs
 #     no Node and would otherwise wait behind npm ci for nothing;
 #   - the client project (a real Chromium in the Playwright image, the
-#     costliest suite) runs weekly and on demand, not on every PR.
+#     costliest suite) runs on pushes to main, weekly and on demand, and on a
+#     PR only when it touches src/lib/components (job `changes` decides);
+#   - the end-to-end suite (tests/, Playwright against a real build, its own
+#     Mongo and a mock LLM upstream): a tagged smoke subset (@smoke in the
+#     title, ~15 specs, a few minutes) on every push to main and every PR, and
+#     the whole suite nightly and on demand (`gh workflow run ci.yml --ref
+#     <branch> -f full=true`). Every spec in either set must pass: nothing is
+#     skipped or retried into green.
 # Image builds are images.yml (main and tags); the gateway contract is
 # contract.yml; galopin's real-opencode suite, on the pinned opencode and on its
 # newest release, is opencode.yml.
@@ -32,14 +39,22 @@ on:
       # The deploy kit has its own workflow, kit.yml.
       - "kit/**"
   workflow_dispatch:
+    inputs:
+      full:
+        description: "Also run the whole end-to-end suite (about 40 minutes)"
+        type: boolean
+        default: false
   schedule:
     - cron: "41 4 * * 1" # Mondays: the client project
+    - cron: "17 3 * * *" # nightly: the whole end-to-end suite
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # The nightly and a dispatched full run get their own groups, so a push to
+  # main does not cancel a 40-minute run that is not about that push.
+  group: ci-${{ github.ref }}-${{ github.event.schedule || (inputs.full && 'full') || 'main' }}
   cancel-in-progress: true
 
 env:
@@ -102,8 +117,33 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
+  # Whether the client project should run: always, except on a PR that leaves
+  # src/lib/components alone (a component change is what the project tests).
+  changes:
+    if: github.event.schedule != '17 3 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      client: ${{ steps.diff.outputs.client }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "client=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE" "$GITHUB_SHA" | grep -q '^src/lib/components/'; then
+            echo "client=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "client=false" >> "$GITHUB_OUTPUT"
+          fi
+
   client:
-    if: github.event_name != 'pull_request'
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # The Playwright image's browsers must match the *installed* Playwright
@@ -120,3 +160,99 @@ jobs:
         with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
       - run: npm ci
       - run: npx vitest run --project=client
+
+  # The end-to-end smoke subset: the specs tagged @smoke (sign-in-free landing,
+  # a chat turn against the mock upstream, sidebar and projects, workspace
+  # tabs, settings, the /code panel's basics, file cards). Builds once, then
+  # the harness (playwright.config.ts) starts its own Mongo, mock upstream,
+  # mock IdP and the app from that build: no service container needed.
+  e2e-smoke:
+    if: github.event.schedule == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      options: --user root
+    env:
+      HOME: /root
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      # mongodb-memory-server's mongod links libcurl.
+      - run: apt-get update -qq && (apt-get install -y -qq libcurl4t64 || apt-get install -y -qq libcurl4)
+      # The checkout is owned by another uid than root: without this git (and so go build's VCS
+      # stamping of galopin) refuses it as a "dubious ownership" repository.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/cache@v4
+        with:
+          path: /root/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-v1
+      - run: npm ci
+      - run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+      - run: npx playwright test --project=chromium --grep @smoke
+        env:
+          E2E_SKIP_BUILD: "1"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-smoke-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+
+  # The whole end-to-end suite, chromium: nightly, and on demand with
+  # `-f full=true`. The real-machine specs run a real galopin (built from
+  # agent/) over a real opencode, so this job carries Go and opencode too.
+  e2e-full:
+    if: github.event.schedule == '17 3 * * *' || (github.event_name == 'workflow_dispatch' && inputs.full)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      options: --user root
+    env:
+      HOME: /root
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - run: apt-get update -qq && (apt-get install -y -qq libcurl4t64 || apt-get install -y -qq libcurl4)
+      # The checkout is owned by another uid than root: without this git (and so go build's VCS
+      # stamping of galopin) refuses it as a "dubious ownership" repository.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/cache@v4
+        with:
+          path: /root/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-v1
+      - name: Install the pinned opencode
+        run: |
+          want=$(cat agent/packaging/opencode-version)
+          npm install -g "opencode-ai@${want}"
+          [ "$(opencode --version)" = "$want" ] || { echo "::error::wrong opencode"; exit 1; }
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+      - run: npm ci
+      - run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+      - run: npx playwright test --project=chromium
+        env:
+          E2E_SKIP_BUILD: "1"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-full-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

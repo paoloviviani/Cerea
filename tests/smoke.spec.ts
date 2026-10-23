@@ -6,7 +6,7 @@ import { test, expect, E2E_APP_BASE } from "./fixtures.ts";
 
 const PLAIN_TEXT_REPLY = "Hello from the mock server.";
 
-test("sends a message, streams a reply, and persists it", async ({
+test("@smoke sends a message, streams a reply, and persists it", async ({
 	page,
 	db,
 	session,
@@ -48,7 +48,10 @@ test("sends a message, streams a reply, and persists it", async ({
 	expect(page.url()).toContain(conversationId);
 });
 
-test("renders a conversation seeded directly into Mongo", async ({ page, seedConversation }) => {
+test("@smoke renders a conversation seeded directly into Mongo", async ({
+	page,
+	seedConversation,
+}) => {
 	const id = await seedConversation({
 		title: "Seeded smoke conversation",
 		messages: [

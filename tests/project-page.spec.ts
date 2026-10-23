@@ -58,6 +58,10 @@ test("create a project on its page, attach a base afterwards, add a document, re
 	expect(created?.instructions).toBe("Answer briefly.");
 	expect(created?.knowledgeBaseIds).toEqual([]);
 
+	// A new project opens on its conversations tab; the five levels, the
+	// knowledge bases and the documents are on the settings tab.
+	await page.goto(`${E2E_APP_BASE}/projects/${projectId}?tab=settings`);
+
 	// The five levels are explained, in order.
 	const levels = page.locator("[aria-labelledby='project-levels'] li");
 	await expect(levels).toHaveCount(5);
@@ -109,7 +113,7 @@ test("create a project on its page, attach a base afterwards, add a document, re
 		title: "Budget questions",
 		raw: { projectId: new ObjectId(projectId), userId },
 	});
-	await page.reload();
+	await page.goto(`${E2E_APP_BASE}/projects/${projectId}`);
 	await expect(page.getByText("Chats (1)")).toBeVisible();
 	page.once("dialog", (dialog) => void dialog.accept());
 	await page.getByRole("button", { name: "Remove Budget questions from project" }).click();
@@ -130,7 +134,7 @@ test("the project page is one column on a phone", async ({ page, db, session }) 
 	expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(390);
 });
 
-test("the project page is two columns on a desktop, with nothing scrolling sideways", async ({
+test("@smoke the project page is two columns on a desktop, with nothing scrolling sideways", async ({
 	page,
 	db,
 	session,

@@ -150,6 +150,29 @@ async function viewportOffset(page: Page, needle: string): Promise<number | null
 	);
 }
 
+/** The transcript has landed at the bottom and stopped growing: the column's landing follows late
+ * height changes (markdown, fonts) for a moment, and a scroll made before it settles is undone by
+ * it. A reader cannot scroll within those milliseconds; the test can. */
+async function landedAtBottom(page: Page): Promise<void> {
+	let last = "";
+	await expect
+		.poll(
+			async () => {
+				const now = await page.evaluate(() => {
+					const el = document.querySelector('[aria-label="Conversation messages"]');
+					if (!el) return "none";
+					const gap = el.scrollHeight - el.clientHeight - el.scrollTop;
+					return gap < 2 ? `bottom:${el.scrollHeight}` : `gap:${Math.round(gap)}`;
+				});
+				const stable = now.startsWith("bottom:") && now === last;
+				last = now;
+				return stable;
+			},
+			{ intervals: [300], timeout: 15_000 }
+		)
+		.toBe(true);
+}
+
 async function scrollToTop(page: Page): Promise<void> {
 	await page.evaluate(() => {
 		document.querySelector('[aria-label="Conversation messages"]')?.scrollTo({ top: 0 });
@@ -214,6 +237,7 @@ test.describe("paging a long agent session", () => {
 		await expect.poll(() => viewportOffset(page, "prompt 1:"), { timeout: 15_000 }).toBe(null);
 		await expect(page.getByText("Start of the session")).toHaveCount(0);
 		await expect(page.getByText("Loading earlier messages…")).toHaveCount(0);
+		await landedAtBottom(page);
 
 		// First page up: the loading row shows while the fetch is stalled,
 		// the top message holds still, then the older page lands above it.

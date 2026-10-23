@@ -176,7 +176,9 @@ test("an offline device never reads as a dead credential, and its tree is never 
 });
 
 test.describe("live lists", () => {
-	test("an agent created elsewhere appears in the tree without a reload", async ({ page }) => {
+	test("@smoke an agent created elsewhere appears in the tree without a reload", async ({
+		page,
+	}) => {
 		await installBaseStubs(page);
 		await page.route("**/api/v2/code/devices", (route) =>
 			route.fulfill({

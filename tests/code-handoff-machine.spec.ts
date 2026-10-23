@@ -87,7 +87,7 @@ test.describe("owned machine agent: fork handoff", () => {
 		// The dialog opened, prefilled from the source.
 		await expect(page.getByRole("heading", { name: "Fork from here" })).toBeVisible();
 		await expect(page.getByText(/^From /)).toBeVisible();
-		await expect(page.getByLabel("Carry the conversation up to here")).toBeChecked();
+		await expect(page.getByLabel("Carry the conversation up to here")).toHaveCount(0);
 
 		await page.getByLabel("Prompt").fill("keep going on this");
 		await page.getByRole("button", { name: "Fork", exact: true }).click();

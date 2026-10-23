@@ -313,9 +313,13 @@
 		try {
 			await onsend(message, files);
 			// Cleared only on a landed send: a refused follow-up keeps its text
-			// and its files, like every composer here.
-			draft = "";
-			files = [];
+			// and its files, like every composer here. And only the text that was
+			// sent: what was typed while the send was in flight is the next
+			// message, not something to wipe.
+			if (draft.trim() === message) {
+				draft = "";
+				files = [];
+			}
 		} catch {
 			// The view shows the failure; the draft stays for another try.
 		} finally {
@@ -338,8 +342,10 @@
 		try {
 			if ((await onstop?.()) === false) return;
 			await onsend(message, files);
-			draft = "";
-			files = [];
+			if (draft.trim() === message) {
+				draft = "";
+				files = [];
+			}
 		} catch {
 			// As in submit: the view shows why, the draft stays.
 		} finally {
@@ -1143,7 +1149,7 @@
      Outside ChatInput's scrollable toolbar row, so on mobile nothing
      masks any of it. -->
 <div
-	class="mt-1.5 flex h-5 flex-wrap items-center gap-1.5 self-stretch px-0.5 text-xs whitespace-nowrap text-gray-400/90 max-md:mb-2"
+	class="mt-1.5 flex h-5 items-center gap-1.5 self-stretch px-0.5 text-xs whitespace-nowrap text-gray-400/90 max-md:mb-2"
 >
 	<!-- The model/effort pill: the chat composer's own `ModelEffortPicker`,
 	     rendered exactly as chat renders it below its composer — the
