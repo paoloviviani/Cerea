@@ -22,6 +22,8 @@ const sessionMock = vi.hoisted(() => {
 			(_code: string) => new Promise((resolve, reject) => pendingRuns.push({ resolve, reject }))
 		),
 		listFiles: vi.fn(() => listFilesImpl()),
+		// Every file reads back as the bytes 1, 2, 3.
+		readFile: vi.fn(async (_path: string) => new Uint8Array([1, 2, 3]).buffer),
 		onStatus: vi.fn(() => () => undefined),
 		settleNext: (value: unknown) => pendingRuns.shift()?.resolve(value),
 		failNext: (error: unknown) => pendingRuns.shift()?.reject(error),
@@ -76,8 +78,14 @@ describe("runs store output collection", () => {
 
 		release([{ path: "/home/pyodide/out.csv", size: 120 }]);
 		await vi.waitFor(() => expect(store?.get(chatRunKey(code))?.outputsCollected).toBe(true));
+		// Fingerprinted where the bytes are first read: the size is the bytes'
+		// own and the sha256 is theirs, so no card waits on an upload to know it.
 		expect(store?.get(chatRunKey(code))?.outputFiles).toEqual([
-			{ path: "/home/pyodide/out.csv", size: 120 },
+			{
+				path: "/home/pyodide/out.csv",
+				size: 3,
+				sha256: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+			},
 		]);
 	});
 

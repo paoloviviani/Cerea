@@ -411,3 +411,31 @@ export class DeliverableReaper {
 		return DeliverableReaper.instance;
 	}
 }
+
+/**
+ * Mark which of a client's file references are really in this conversation's
+ * store. The client says what its run produced (name, size, sha256 it
+ * computed) whether or not its upload succeeded; nothing about "uploaded" is
+ * taken on its word. A reference whose bytes are stored keeps `uploaded: true`,
+ * every other one is recorded `uploaded: false` — produced, but only
+ * downloadable from the tab that made it, which its card says. Names and
+ * sizes stay the client's own: the store dedupes by content and would
+ * otherwise hand back whichever name stored those bytes first.
+ */
+export async function markStoredRefs(
+	conversationId: Conversation["_id"],
+	refs: Array<{ name: string; size: number; sha256: string }>
+): Promise<PersistedDeliverableRef[]> {
+	if (refs.length === 0) return [];
+	const rows = await collections.codeExecutionOutputs
+		.find({ conversationId, sha256: { $in: [...new Set(refs.map((r) => r.sha256))] } })
+		.project<{ sha256: string }>({ sha256: 1 })
+		.toArray();
+	const stored = new Set(rows.map((row) => row.sha256));
+	return refs.map((ref) => ({
+		name: ref.name,
+		size: ref.size,
+		sha256: ref.sha256,
+		uploaded: stored.has(ref.sha256),
+	}));
+}

@@ -231,6 +231,7 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 					subtype: MessageCodeExecutionUpdateType.Request,
 					executionId: parkedCallId,
 					code,
+					toolUuid: ctx.uuid,
 					expiresAt: resumeAt.getTime(),
 				});
 

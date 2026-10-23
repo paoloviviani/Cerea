@@ -20,7 +20,8 @@ vi.mock("$lib/utils/execution/runtime", () => ({
 
 vi.mock("$app/paths", () => ({ base: "" }));
 
-import { uploadRunFiles, recordRunFiles } from "./runFiles";
+import { uploadRunFiles, recordRunFiles, uploadAndDescribe, retryFileUpload } from "./runFiles";
+import { cacheFileBytes, clearFileByteCache } from "./fileIdentity";
 
 function jsonResponse(body: unknown): Response {
 	return new Response(JSON.stringify(body), {
@@ -40,7 +41,7 @@ describe("uploadRunFiles: keepalive across a reload", () => {
 		const fetchMock = vi.mocked(fetch);
 		fetchMock.mockResolvedValue(jsonResponse({ files: [] }));
 
-		await uploadRunFiles("conv1", [{ path: "/home/pyodide/small.txt", size: 10 }]);
+		await uploadRunFiles("conv1", [{ path: "/home/pyodide/small.txt" }]);
 
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const [, init] = fetchMock.mock.calls[0];
@@ -57,7 +58,7 @@ describe("uploadRunFiles: keepalive across a reload", () => {
 		const fetchMock = vi.mocked(fetch);
 		fetchMock.mockResolvedValue(jsonResponse({ files: [] }));
 
-		await uploadRunFiles("conv1", [{ path: "/home/pyodide/big.bin", size: 100_000 }]);
+		await uploadRunFiles("conv1", [{ path: "/home/pyodide/big.bin" }]);
 
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const [, init] = fetchMock.mock.calls[0];
@@ -164,5 +165,80 @@ describe("recordRunFiles: a 409 (message not saved yet) is retried", () => {
 
 		expect(update).toBeUndefined();
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("uploadAndDescribe: a failed save is still a record", () => {
+	const SHA = "a".repeat(64);
+	beforeEach(() => {
+		sessionMock.readFile.mockReset();
+		sessionMock.readFile.mockResolvedValue(new ArrayBuffer(4));
+		vi.stubGlobal("fetch", vi.fn());
+		clearFileByteCache();
+	});
+
+	it("marks the file uploaded: false when the store refuses it, keeping name, size and sha", async () => {
+		vi.mocked(fetch).mockResolvedValue(new Response("nope", { status: 500 }));
+		const refs = await uploadAndDescribe("conv1", [
+			{ path: "/home/pyodide/out/x.pdf", size: 4, sha256: SHA },
+		]);
+		expect(refs).toEqual([{ name: "out/x.pdf", size: 4, sha256: SHA, uploaded: false }]);
+	});
+
+	it("marks it uploaded: true only when the store answers with that sha", async () => {
+		vi.mocked(fetch).mockResolvedValue(
+			jsonResponse({ files: [{ name: "x.pdf", size: 4, sha256: SHA }] })
+		);
+		const refs = await uploadAndDescribe("conv1", [
+			{ path: "/home/pyodide/b/x.pdf", size: 4, sha256: SHA },
+		]);
+		// The run's own name wins over whichever name the store first saw.
+		expect(refs).toEqual([{ name: "b/x.pdf", size: 4, sha256: SHA, uploaded: true }]);
+	});
+
+	it("uploads this tab's fingerprinted bytes, not whatever the sandbox holds now", async () => {
+		cacheFileBytes(SHA, new Uint8Array([9, 9, 9, 9]));
+		vi.mocked(fetch).mockResolvedValue(jsonResponse({ files: [] }));
+		await uploadAndDescribe("conv1", [{ path: "/home/pyodide/x.bin", size: 4, sha256: SHA }]);
+		expect(sessionMock.readFile).not.toHaveBeenCalled();
+	});
+});
+
+describe("retryFileUpload", () => {
+	const SHA = "c".repeat(64);
+	beforeEach(() => {
+		vi.stubGlobal("fetch", vi.fn());
+		clearFileByteCache();
+	});
+
+	it("cannot retry once this tab no longer holds the bytes", async () => {
+		const ok = await retryFileUpload({
+			conversationId: "conv1",
+			messageId: "m1",
+			runKey: "chat:abc",
+			file: { name: "x.csv", size: 3, sha256: SHA },
+		});
+		expect(ok).toBe(false);
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it("uploads the kept bytes and records the file as stored", async () => {
+		cacheFileBytes(SHA, new Uint8Array([1, 2, 3]));
+		vi.mocked(fetch)
+			.mockResolvedValueOnce(jsonResponse({ files: [{ name: "x.csv", size: 3, sha256: SHA }] }))
+			.mockResolvedValueOnce(jsonResponse({ update: undefined }));
+		const ok = await retryFileUpload({
+			conversationId: "conv1",
+			messageId: "m1",
+			runKey: "chat:abc",
+			file: { name: "x.csv", size: 3, sha256: SHA },
+		});
+		expect(ok).toBe(true);
+		const [, record] = vi.mocked(fetch).mock.calls[1];
+		expect(JSON.parse(String(record?.body))).toMatchObject({
+			messageId: "m1",
+			runKey: "chat:abc",
+			files: [{ name: "x.csv", size: 3, sha256: SHA }],
+		});
 	});
 });

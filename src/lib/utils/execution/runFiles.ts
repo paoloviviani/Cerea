@@ -1,7 +1,13 @@
 import { base } from "$app/paths";
 import { getExecutionSession } from "$lib/utils/execution/runtime";
 import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
-import type { MessageCodeExecutionOutputsUpdate } from "$lib/types/MessageUpdate";
+import {
+	MessageCodeExecutionUpdateType,
+	MessageUpdateType,
+	type MessageCodeExecutionOutputsUpdate,
+} from "$lib/types/MessageUpdate";
+import { runFiles } from "$lib/stores/runFiles.svelte";
+import { cachedFileBytes, fileBaseName, runFileName, type RunOutputFile } from "./fileIdentity";
 
 /**
  * A run's own output listing renders the instant the sandbox lists it — well
@@ -28,20 +34,24 @@ const KEEPALIVE_SAFE_BYTES = 60_000;
  */
 export async function uploadRunFiles(
 	conversationId: string,
-	files: Array<{ path: string; size: number }>
+	files: Array<{ path: string; sha256?: string }>
 ): Promise<PersistedDeliverableRef[]> {
 	if (files.length === 0) return [];
 	const session = getExecutionSession();
-	if (!session) return [];
 
 	const form = new FormData();
 	let any = false;
 	let totalBytes = 0;
 	for (const f of files) {
 		try {
-			const data = await session.readFile(f.path);
+			// The bytes read when the file was fingerprinted, when still held:
+			// what is uploaded is then exactly what the sha256 names, even if
+			// the sandbox file was rewritten since.
+			const kept = f.sha256 ? cachedFileBytes(f.sha256) : undefined;
+			const data = kept ?? (session ? await session.readFile(f.path) : undefined);
+			if (!data) continue;
 			totalBytes += data.byteLength;
-			form.append("file", new Blob([data]), f.path.split("/").pop() || f.path);
+			form.append("file", new Blob([data as Uint8Array<ArrayBuffer>]), fileBaseName(f.path));
 			any = true;
 		} catch {
 			// Gone from the runtime already; the live outcome still names it.
@@ -49,6 +59,14 @@ export async function uploadRunFiles(
 	}
 	if (!any) return [];
 
+	return postUpload(conversationId, form, totalBytes);
+}
+
+async function postUpload(
+	conversationId: string,
+	form: FormData,
+	totalBytes: number
+): Promise<PersistedDeliverableRef[]> {
 	try {
 		const res = await fetch(`${base}/conversation/${conversationId}/code-execution/output`, {
 			method: "POST",
@@ -64,16 +82,93 @@ export async function uploadRunFiles(
 }
 
 /**
- * The sha256 the store gave a live run's output file, when its upload has
- * answered: matched on the bare filename and the size, so a file the run
- * rewrote with other bytes is never joined to a stale reference.
+ * Upload a run's files and describe what the run produced, whether or not
+ * the upload worked: one reference per file, named by the run's own relative
+ * path and the sha256 computed in the browser, `uploaded` true only when the
+ * store answered with that sha. A failed save therefore still leaves a
+ * record, and the card says "not saved" instead of the file vanishing.
  */
-export function uploadedSha(
-	uploaded: Array<{ name: string; size: number; sha256: string }> | undefined,
-	file: { path: string; size: number }
-): string | undefined {
-	const name = file.path.split("/").pop() || file.path;
-	return uploaded?.find((ref) => ref.name === name && ref.size === file.size)?.sha256;
+export async function uploadAndDescribe(
+	conversationId: string,
+	files: RunOutputFile[]
+): Promise<PersistedDeliverableRef[]> {
+	const stored = await uploadRunFiles(conversationId, files);
+	const storedShas = new Set(stored.map((ref) => ref.sha256));
+	return describeRunFiles(files, storedShas);
+}
+
+/** The references for a run's files; `storedShas` undefined leaves `uploaded` unset (in flight). */
+export function describeRunFiles(
+	files: RunOutputFile[],
+	storedShas?: Set<string>
+): PersistedDeliverableRef[] {
+	return files.map((f) => ({
+		name: runFileName(f.path),
+		size: f.size,
+		sha256: f.sha256,
+		...(storedShas ? { uploaded: storedShas.has(f.sha256) } : {}),
+	}));
+}
+
+/**
+ * Put a run's files in this tab's live registry feed the moment they are
+ * fingerprinted, under the message the run belongs to.
+ */
+export function noteLiveRunFiles(
+	messageId: string,
+	runKey: string,
+	files: PersistedDeliverableRef[]
+): void {
+	if (files.length === 0) return;
+	runFiles.setLive(messageId, {
+		type: MessageUpdateType.CodeExecution,
+		subtype: MessageCodeExecutionUpdateType.Outputs,
+		runKey,
+		files,
+	});
+}
+
+/**
+ * Upload a file that was not saved the first time from the bytes this tab
+ * still holds, then record it as stored. Resolves true when the store now
+ * has it; false when the bytes are gone from this tab or the upload failed
+ * again.
+ */
+export async function retryFileUpload(options: {
+	conversationId: string;
+	messageId: string;
+	runKey: string;
+	file: { name: string; size: number; sha256: string };
+}): Promise<boolean> {
+	const bytes = cachedFileBytes(options.file.sha256);
+	if (!bytes) return false;
+	const form = new FormData();
+	form.append(
+		"file",
+		new Blob([bytes as Uint8Array<ArrayBuffer>]),
+		fileBaseName(options.file.name)
+	);
+	const stored = await postUpload(options.conversationId, form, bytes.byteLength);
+	if (!stored.some((ref) => ref.sha256 === options.file.sha256)) return false;
+	const update = await recordRunFiles({
+		conversationId: options.conversationId,
+		messageId: options.messageId,
+		runKey: options.runKey,
+		files: [{ name: options.file.name, size: options.file.size, sha256: options.file.sha256 }],
+	});
+	if (update) runFiles.add(options.messageId, update);
+	// Even when the record is refused the bytes are stored: the live entry
+	// shows them as saved until the next load reads the server's own record.
+	else
+		noteLiveRunFiles(options.messageId, options.runKey, [
+			{
+				name: options.file.name,
+				size: options.file.size,
+				sha256: options.file.sha256,
+				uploaded: true,
+			},
+		]);
+	return true;
 }
 
 /** Waits between retries of a record the server refused with 409 ("message
@@ -118,7 +213,7 @@ export async function recordRunFiles(options: {
 					body: JSON.stringify({
 						messageId,
 						runKey: options.runKey,
-						sha256: options.files.map((f) => f.sha256),
+						files: options.files.map((f) => ({ name: f.name, size: f.size, sha256: f.sha256 })),
 					}),
 					// Always small (hashes only): safe to keep alive past an unload
 					// unconditionally, unlike the byte upload above.

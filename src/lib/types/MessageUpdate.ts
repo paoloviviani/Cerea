@@ -251,6 +251,12 @@ export interface MessageCodeExecutionRequestUpdate {
 	executionId: string;
 	/** The code the browser's ExecutionSession runs. */
 	code: string;
+	/**
+	 * uuid of the `execute_code` tool call this request belongs to, so the
+	 * chat shows one card for the run instead of a tool row plus a card.
+	 * Absent on messages stored before it was recorded.
+	 */
+	toolUuid?: string;
 	/** Epoch ms of the sweeper's backstop deadline; shown like a 2026-era prompt (no countdown). */
 	expiresAt?: number;
 }

@@ -1,4 +1,5 @@
 import type { Message } from "$lib/types/Message";
+import { chatRunKey } from "./execution/keys";
 import {
 	MessageCodeExecutionUpdateType,
 	MessageUpdateType,
@@ -34,6 +35,18 @@ export interface FileArtifactVersion {
 	/** 1-based version number within the file artifact. */
 	version: number;
 	messageId: Message["id"];
+	/**
+	 * False when the run produced these bytes but the store does not hold them
+	 * (the browser's upload failed): the card says "not saved". Anything else,
+	 * records written before the field included, is stored.
+	 */
+	uploaded?: boolean;
+	/**
+	 * Key of the run that produced it, so a retried upload can be recorded
+	 * under the same run. For an `execute_code` tool run it is the chat key of
+	 * the code the run was asked to execute.
+	 */
+	runKey?: string;
 }
 
 export interface FileArtifact {
@@ -57,6 +70,15 @@ export function collectFileArtifacts(messages: FileMessage[]): FileArtifactRegis
 	const artifacts = new Map<string, FileArtifact>();
 	for (const message of messages) {
 		if (message.from !== "assistant") continue;
+		const requests = new Map<string, string>();
+		for (const update of message.updates ?? []) {
+			if (
+				update.type === MessageUpdateType.CodeExecution &&
+				update.subtype === MessageCodeExecutionUpdateType.Request
+			) {
+				requests.set(update.executionId, chatRunKey(update.code));
+			}
+		}
 		for (const update of message.updates ?? []) {
 			if (
 				update.type !== MessageUpdateType.CodeExecution ||
@@ -65,6 +87,10 @@ export function collectFileArtifacts(messages: FileMessage[]): FileArtifactRegis
 			) {
 				continue;
 			}
+			const runKey =
+				update.subtype === MessageCodeExecutionUpdateType.Outputs
+					? update.runKey
+					: requests.get(update.executionId);
 			for (const file of update.files ?? []) {
 				if (!file?.name || !file?.sha256) continue;
 				let artifact = artifacts.get(file.name);
@@ -72,15 +98,24 @@ export function collectFileArtifacts(messages: FileMessage[]): FileArtifactRegis
 					artifact = { name: file.name, versions: [] };
 					artifacts.set(file.name, artifact);
 				}
-				// Byte-identical re-runs share the store row already; they add
-				// no new version here either.
-				if (artifact.versions.at(-1)?.sha256 === file.sha256) continue;
+				// The same file produced again (byte-identical) is the same
+				// version: it appends nothing, but a record that says the bytes
+				// are stored upgrades a version first seen as not saved (a
+				// retried upload, or the live entry the server's record
+				// replaces).
+				const last = artifact.versions.at(-1);
+				if (last?.sha256 === file.sha256) {
+					if (last.uploaded === false && file.uploaded !== false) last.uploaded = true;
+					continue;
+				}
 				artifact.versions.push({
 					name: file.name,
 					size: file.size,
 					sha256: file.sha256,
 					version: artifact.versions.length + 1,
 					messageId: message.id,
+					...(file.uploaded === false ? { uploaded: false } : {}),
+					...(runKey ? { runKey } : {}),
 				});
 			}
 		}
@@ -88,16 +123,42 @@ export function collectFileArtifacts(messages: FileMessage[]): FileArtifactRegis
 	return { artifacts };
 }
 
-/** Find the version carrying these exact bytes, for deep-linking a store row. */
-export function findFileVersionBySha(
+/**
+ * Every version carrying these exact bytes, for deep-linking a store row.
+ * Identical bytes can sit under several names (`a.csv` copied to `b.csv`), so
+ * the answer is all of them, newest name last in registry order.
+ */
+export function findFileVersionsBySha(
 	registry: FileArtifactRegistry,
 	sha256: string
-): { name: string; version: number } | undefined {
+): Array<{ name: string; version: number }> {
+	const found: Array<{ name: string; version: number }> = [];
 	for (const artifact of registry.artifacts.values()) {
-		const found = artifact.versions.find((v) => v.sha256 === sha256);
-		if (found) return { name: artifact.name, version: found.version };
+		for (const v of artifact.versions) {
+			if (v.sha256 === sha256) found.push({ name: artifact.name, version: v.version });
+		}
 	}
-	return undefined;
+	return found;
+}
+
+/**
+ * The version carrying these exact bytes. When the bytes are under more than
+ * one name, `preferredName` (the name the caller's own card shows) wins, then
+ * the latest version of the first name; never just whichever name the
+ * registry happened to hold first.
+ */
+export function findFileVersionBySha(
+	registry: FileArtifactRegistry,
+	sha256: string,
+	preferredName?: string
+): { name: string; version: number } | undefined {
+	const all = findFileVersionsBySha(registry, sha256);
+	if (all.length === 0) return undefined;
+	if (preferredName) {
+		const own = all.filter((f) => f.name === preferredName);
+		if (own.length > 0) return own.at(-1);
+	}
+	return all[0];
 }
 
 export interface DeliverableRow {
@@ -135,20 +196,41 @@ export function withLiveRunFiles<T extends FileMessage>(
 ): T[] {
 	if (Object.keys(live).length === 0) return messages;
 	const fingerprint = (u: MessageCodeExecutionOutputsUpdate) =>
-		`${u.runKey}|${u.files.map((f) => f.sha256).join(",")}`;
+		`${u.runKey}|${u.files.map((f) => f.sha256 + (f.uploaded === false ? "!" : "")).join(",")}`;
 	return messages.map((message) => {
 		const extra = live[message.id];
 		if (!extra?.length) return message;
-		const served = new Set(
-			(message.updates ?? [])
-				.filter(
-					(u): u is MessageCodeExecutionOutputsUpdate =>
-						u.type === MessageUpdateType.CodeExecution &&
-						u.subtype === MessageCodeExecutionUpdateType.Outputs
-				)
-				.map(fingerprint)
-		);
-		const missing = extra.filter((u) => !served.has(fingerprint(u)));
+		// What the loader already served on this message: Outputs records by
+		// fingerprint, and every sha a stored run (tool or block) carries, so a
+		// tool run's file is not added a second time by its live entry.
+		const served = new Set<string>();
+		const servedAny = new Set<string>();
+		const servedStored = new Set<string>();
+		for (const u of message.updates ?? []) {
+			if (u.type !== MessageUpdateType.CodeExecution) continue;
+			if (u.subtype === MessageCodeExecutionUpdateType.Outputs) served.add(fingerprint(u));
+			if (
+				u.subtype === MessageCodeExecutionUpdateType.Outputs ||
+				u.subtype === MessageCodeExecutionUpdateType.Resolved
+			) {
+				for (const f of u.files ?? []) {
+					servedAny.add(f.sha256);
+					if (f.uploaded !== false) servedStored.add(f.sha256);
+				}
+			}
+		}
+		const missing: MessageCodeExecutionOutputsUpdate[] = [];
+		for (const u of extra) {
+			const key = fingerprint(u);
+			// A record that says "stored" for bytes only served as "not saved"
+			// is news (a retried upload); anything the loader covers is not.
+			const covered = u.files.every(
+				(f) => servedStored.has(f.sha256) || (f.uploaded === false && servedAny.has(f.sha256))
+			);
+			if (served.has(key) || covered) continue;
+			served.add(key);
+			missing.push(u);
+		}
 		return missing.length
 			? { ...message, updates: [...(message.updates ?? []), ...missing] }
 			: message;

@@ -4,6 +4,7 @@ import { collections } from "$lib/server/database";
 import { submitCodeExecutionResult } from "$lib/server/generation/codeExecution";
 import { sweepParkedCalls } from "$lib/server/generation/parkedSweeper";
 import { logger } from "$lib/server/logger";
+import { markStoredRefs } from "$lib/server/execution/deliverables";
 import { error, json } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
@@ -20,12 +21,19 @@ const bodySchema = z.object({
 			.array(z.object({ path: z.string(), size: z.number() }))
 			.max(200)
 			.default([]),
-		// Set when the browser uploaded the run's output files to the persisted
-		// output store (see `code-execution/output/+server.ts`) before posting
-		// this outcome. Absent means nothing was persisted — the run's files
-		// still show live through `files` above, just not durably.
+		// Every file the run produced, named by the sha256 the browser computed,
+		// whether or not its upload (see `code-execution/output/+server.ts`)
+		// succeeded: the server marks which ones are really stored, so a failed
+		// save is recorded as such instead of leaving no trace.
 		fileRefs: z
-			.array(z.object({ name: z.string(), size: z.number(), sha256: z.string() }))
+			.array(
+				z.object({
+					name: z.string().min(1).max(512),
+					size: z.number().int().nonnegative(),
+					sha256: z.string().regex(/^[0-9a-f]{64}$/),
+					uploaded: z.boolean().optional(),
+				})
+			)
 			.max(200)
 			.optional(),
 	}),
@@ -54,10 +62,14 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 	const parsed = bodySchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) error(400, "Invalid code execution outcome");
 
+	const { fileRefs, ...rest } = parsed.data.outcome;
 	const result = await submitCodeExecutionResult({
 		executionId: parsed.data.executionId,
 		conversationId,
-		outcome: parsed.data.outcome,
+		outcome: {
+			...rest,
+			...(fileRefs?.length ? { fileRefs: await markStoredRefs(conversationId, fileRefs) } : {}),
+		},
 	});
 
 	if (!result.ok) error(result.status, result.error);

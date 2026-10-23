@@ -1,15 +1,17 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion -- assertions on values the test just created */
 import { describe, expect, it } from "vitest";
 import {
 	collectFileArtifacts,
 	dedupeDeliverablesByName,
 	findFileVersionBySha,
+	findFileVersionsBySha,
 	withLiveRunFiles,
 } from "./fileArtifacts";
 import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 
 const resolved = (
 	executionId: string,
-	files: { name: string; size: number; sha256: string }[]
+	files: { name: string; size: number; sha256: string; uploaded?: boolean }[]
 ) => ({
 	type: MessageUpdateType.CodeExecution as const,
 	subtype: MessageCodeExecutionUpdateType.Resolved as const,
@@ -125,6 +127,114 @@ describe("findFileVersionBySha", () => {
 	});
 });
 
+describe("sub-directories, shared bytes and unsaved files", () => {
+	const msg = (
+		id: string,
+		files: { name: string; size: number; sha256: string; uploaded?: boolean }[]
+	) => ({
+		id,
+		from: "assistant" as const,
+		updates: [resolved(`e-${id}`, files)],
+	});
+
+	it("keeps a/x.pdf and b/x.pdf as two artifacts", () => {
+		const registry = collectFileArtifacts([
+			msg("m1", [
+				{ name: "a/x.pdf", size: 1, sha256: "s1" },
+				{ name: "b/x.pdf", size: 2, sha256: "s2" },
+			]),
+		]);
+		expect([...registry.artifacts.keys()]).toEqual(["a/x.pdf", "b/x.pdf"]);
+		expect(findFileVersionBySha(registry, "s2")).toEqual({ name: "b/x.pdf", version: 1 });
+	});
+
+	it("resolves identical bytes under two names to the name asked for, not the first", () => {
+		const registry = collectFileArtifacts([
+			msg("m1", [
+				{ name: "a.csv", size: 1, sha256: "same" },
+				{ name: "b.csv", size: 1, sha256: "same" },
+			]),
+		]);
+		expect(findFileVersionsBySha(registry, "same")).toEqual([
+			{ name: "a.csv", version: 1 },
+			{ name: "b.csv", version: 1 },
+		]);
+		expect(findFileVersionBySha(registry, "same", "b.csv")).toEqual({ name: "b.csv", version: 1 });
+		expect(findFileVersionBySha(registry, "same")).toEqual({ name: "a.csv", version: 1 });
+	});
+
+	it("carries uploaded: false and lets a later stored record of the same bytes upgrade it", () => {
+		const registry = collectFileArtifacts([
+			msg("m1", [{ name: "r.csv", size: 1, sha256: "s", uploaded: false }]),
+			msg("m1b", [{ name: "r.csv", size: 1, sha256: "s", uploaded: true }]),
+		]);
+		const versions = registry.artifacts.get("r.csv")!.versions;
+		expect(versions).toHaveLength(1);
+		expect(versions[0].uploaded).toBe(true);
+		const lost = collectFileArtifacts([
+			msg("m1", [{ name: "r.csv", size: 1, sha256: "s", uploaded: false }]),
+		]);
+		expect(lost.artifacts.get("r.csv")!.versions[0].uploaded).toBe(false);
+	});
+
+	it("reads an old reference without the field as stored", () => {
+		const registry = collectFileArtifacts([msg("m1", [{ name: "old.csv", size: 1, sha256: "s" }])]);
+		expect(registry.artifacts.get("old.csv")!.versions[0].uploaded).toBeUndefined();
+	});
+
+	it("treats the same file produced again with other bytes as the next version", () => {
+		const registry = collectFileArtifacts([
+			msg("m1", [{ name: "r.csv", size: 1, sha256: "s1" }]),
+			msg("m2", [{ name: "r.csv", size: 2, sha256: "s2" }]),
+		]);
+		expect(registry.artifacts.get("r.csv")!.versions.map((v) => v.version)).toEqual([1, 2]);
+	});
+});
+
+describe("withLiveRunFiles: live entries feed the registry", () => {
+	const base = { id: "m1", from: "assistant" as const, updates: [] as never[] };
+	const outputs = (
+		runKey: string,
+		files: { name: string; size: number; sha256: string; uploaded?: boolean }[]
+	) => ({
+		type: MessageUpdateType.CodeExecution as const,
+		subtype: MessageCodeExecutionUpdateType.Outputs as const,
+		runKey,
+		files,
+	});
+
+	it("registers a live file before any server record exists", () => {
+		const merged = withLiveRunFiles([base], {
+			m1: [outputs("chat:1", [{ name: "x.pdf", size: 1, sha256: "s" }])],
+		});
+		expect(collectFileArtifacts(merged).artifacts.get("x.pdf")?.versions).toHaveLength(1);
+	});
+
+	it("does not add a tool run's file a second time from its live entry", () => {
+		const message = {
+			...base,
+			updates: [resolved("e1", [{ name: "x.pdf", size: 1, sha256: "s" }])] as never[],
+		};
+		const merged = withLiveRunFiles([message], {
+			m1: [outputs("chat:1", [{ name: "x.pdf", size: 1, sha256: "s" }])],
+		});
+		expect(merged[0].updates).toHaveLength(1);
+	});
+
+	it("lets a record that says stored through when the server only had it as unsaved", () => {
+		const message = {
+			...base,
+			updates: [
+				resolved("e1", [{ name: "x.pdf", size: 1, sha256: "s", uploaded: false }]),
+			] as never[],
+		};
+		const merged = withLiveRunFiles([message], {
+			m1: [outputs("chat:1", [{ name: "x.pdf", size: 1, sha256: "s", uploaded: true }])],
+		});
+		expect(collectFileArtifacts(merged).artifacts.get("x.pdf")!.versions[0].uploaded).toBe(true);
+	});
+});
+
 describe("dedupeDeliverablesByName", () => {
 	it("keeps the newest row per filename (input is newest-first)", () => {
 		const rows = [
@@ -136,7 +246,10 @@ describe("dedupeDeliverablesByName", () => {
 	});
 });
 
-const outputs = (runKey: string, files: { name: string; size: number; sha256: string }[]) => ({
+const outputs = (
+	runKey: string,
+	files: { name: string; size: number; sha256: string; uploaded?: boolean }[]
+) => ({
 	type: MessageUpdateType.CodeExecution as const,
 	subtype: MessageCodeExecutionUpdateType.Outputs as const,
 	runKey,

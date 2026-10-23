@@ -93,8 +93,78 @@ describe.sequential("POST /conversation/[id]/code-execution/run-files", () => {
 		expect(rows[0]).toMatchObject({ messageId: "asst-1", runKey: "chat:abc" });
 		// Name and size come from the store row, never from the request.
 		expect(rows[0].files).toEqual([
-			{ name: "hello_world.docx", size: stored.size, sha256: stored.sha256 },
+			{ name: "hello_world.docx", size: stored.size, sha256: stored.sha256, uploaded: true },
 		]);
+	});
+
+	it("records a file whose upload failed as uploaded: false instead of dropping it", async () => {
+		const { locals, conv } = await ownerWithConversation();
+		const sha256 = "d".repeat(64);
+
+		const res = await record({
+			params: { id: conv._id.toString() },
+			locals,
+			request: recordRequest({
+				messageId: "asst-1",
+				runKey: "chat:abc",
+				files: [{ name: "out/lost.pdf", size: 7, sha256 }],
+			}),
+		} as never);
+
+		expect(res.status).toBe(200);
+		const rows = await collections.codeRunFiles.find({ conversationId: conv._id }).toArray();
+		expect(rows[0].files).toEqual([{ name: "out/lost.pdf", size: 7, sha256, uploaded: false }]);
+		// And the loader serves it back on the message, so a reload shows "not saved".
+		const [message] = await withRunFiles(conv._id, [
+			{ ...assistant, updates: [] } as unknown as Message,
+		]);
+		expect(JSON.stringify(message.updates)).toContain('"uploaded":false');
+	});
+
+	it("keeps the run's own names for identical bytes and for same-named files in two directories", async () => {
+		const { locals, conv } = await ownerWithConversation();
+		const stored = await uploadFile(locals, conv._id, "first.csv", "same bytes");
+
+		await record({
+			params: { id: conv._id.toString() },
+			locals,
+			request: recordRequest({
+				messageId: "asst-1",
+				runKey: "chat:abc",
+				files: [
+					{ name: "a/x.csv", size: stored.size, sha256: stored.sha256 },
+					{ name: "b/x.csv", size: stored.size, sha256: stored.sha256 },
+				],
+			}),
+		} as never);
+
+		const rows = await collections.codeRunFiles.find({ conversationId: conv._id }).toArray();
+		expect(rows[0].files.map((f) => f.name)).toEqual(["a/x.csv", "b/x.csv"]);
+		expect(rows[0].files.every((f) => f.uploaded === true)).toBe(true);
+	});
+
+	it("flips a not-saved record to stored when the upload is retried and recorded again", async () => {
+		const { locals, conv } = await ownerWithConversation();
+		const first = await uploadFile(locals, conv._id, "late.csv", "late bytes");
+		// Same bytes, recorded before the store had them: simulate by recording a
+		// different sha first would not share a fingerprint, so drop the row.
+		await collections.codeExecutionOutputs.deleteMany({ conversationId: conv._id });
+		const file = { name: "late.csv", size: first.size, sha256: first.sha256 };
+		const post = () =>
+			record({
+				params: { id: conv._id.toString() },
+				locals,
+				request: recordRequest({ messageId: "asst-1", runKey: "chat:abc", files: [file] }),
+			} as never);
+		await post();
+		let rows = await collections.codeRunFiles.find({ conversationId: conv._id }).toArray();
+		expect(rows[0].files[0].uploaded).toBe(false);
+
+		await uploadFile(locals, conv._id, "late.csv", "late bytes");
+		await post();
+		rows = await collections.codeRunFiles.find({ conversationId: conv._id }).toArray();
+		expect(rows).toHaveLength(1);
+		expect(rows[0].files[0].uploaded).toBe(true);
 	});
 
 	it("records a run once however many times it is posted", async () => {
@@ -280,10 +350,27 @@ describe.sequential("serving and deleting a conversation's run files", () => {
 				type: MessageUpdateType.CodeExecution,
 				subtype: MessageCodeExecutionUpdateType.Outputs,
 				runKey: "chat:abc",
-				files: [{ name: "a.pdf", size: stored.size, sha256: stored.sha256 }],
+				files: [{ name: "a.pdf", size: stored.size, sha256: stored.sha256, uploaded: true }],
 			},
 		]);
 		expect(served[1]).toBe(other);
+	});
+
+	it("serves a record stored before `uploaded` existed exactly as it was (read as stored)", async () => {
+		const { conv } = await ownerWithConversation();
+		const legacy = [{ name: "old.pdf", size: 3, sha256: "a".repeat(64) }];
+		await collections.codeRunFiles.insertOne({
+			_id: new ObjectId(),
+			conversationId: conv._id,
+			messageId: "asst-1",
+			runKey: "chat:old",
+			files: legacy,
+			fingerprint: "a".repeat(64),
+			createdAt: new Date(),
+		} as never);
+		const [message] = await withRunFiles(conv._id, [{ ...assistant, updates: [] }]);
+		expect(message.updates?.[0]).toMatchObject({ runKey: "chat:old", files: legacy });
+		expect(JSON.stringify(message.updates)).not.toContain("uploaded");
 	});
 
 	it("deletes the records with the conversation's files", async () => {
