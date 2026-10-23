@@ -4,6 +4,7 @@ import { render } from "vitest-browser-svelte";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { tick } from "svelte";
 import { sidePane } from "$lib/stores/sidePane.svelte";
+import { minimalPdf } from "$lib/utils/minimalPdf";
 import deckUrl from "../../server/office/fixtures/hello.pptx?url";
 const carlitoUrl = "/fonts/office/Carlito-Regular.ttf";
 
@@ -20,7 +21,7 @@ vi.mock("$app/state", () => ({
 	},
 }));
 
-const PDF = new Uint8Array([...new TextEncoder().encode("%PDF-1.7\nx")]);
+const PDF = minimalPdf(1);
 let calls: string[] = [];
 let previewStatus = 200;
 
@@ -37,7 +38,9 @@ beforeEach(() => {
 			calls.push(url);
 			if (url.includes("/preview")) {
 				return previewStatus === 200
-					? new Response(PDF, { headers: { "Content-Type": "application/pdf" } })
+					? new Response(PDF as unknown as BodyInit, {
+							headers: { "Content-Type": "application/pdf" },
+						})
 					: new Response(JSON.stringify({ message: "The converter is busy; try again shortly." }), {
 							status: previewStatus,
 						});
@@ -54,20 +57,59 @@ const open = (name: string) =>
 	render(FileArtifactView, { version: version(name), conversationId: "c1" });
 
 describe("file artifact view", () => {
-	it("shows an Office file as the PDF the server made, when the deployment converts", async () => {
+	it(
+		"shows an Office file as the PDF the server made, when the deployment converts",
+		{ timeout: 60_000 },
+		async () => {
+			state.data = { officePreviewEnabled: true };
+			const screen = open("budget.xlsx");
+			await vi.waitFor(
+				() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(1),
+				{ timeout: 30_000 }
+			);
+			expect(calls).toEqual(["/conversation/c1/code-execution/output/abc/preview"]);
+			// Drawn in the page by pdf.js, not handed to a frame.
+			expect(screen.baseElement.querySelector("iframe")).toBeNull();
+		}
+	);
+
+	it(
+		"draws that PDF the same way on a phone: canvases, not an 'Open in a new tab' dead end",
+		{ timeout: 60_000 },
+		async () => {
+			vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+				"Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+			);
+			vi.spyOn(navigator, "maxTouchPoints", "get").mockReturnValue(5);
+			state.data = { officePreviewEnabled: true };
+			const screen = open("budget.xlsx");
+			await vi.waitFor(
+				() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(1),
+				{ timeout: 30_000 }
+			);
+			expect(screen.baseElement.textContent).not.toContain("opens in the browser's PDF viewer");
+			vi.restoreAllMocks();
+		}
+	);
+
+	it("draws a stored deck with the browser renderer when the converter cannot make its PDF", async () => {
 		state.data = { officePreviewEnabled: true };
-		const screen = open("budget.xlsx");
-		await vi.waitFor(() => expect(screen.baseElement.querySelector("iframe")).not.toBeNull());
-		expect(calls).toEqual(["/conversation/c1/code-execution/output/abc/preview"]);
-		expect(screen.baseElement.querySelector("iframe")?.getAttribute("src")).toMatch(
-			/^data:application\/pdf/
+		previewStatus = 503;
+		const screen = open("deck.pptx");
+		await vi.waitFor(
+			() =>
+				expect(screen.baseElement.querySelectorAll('[data-testid="pptx-slides"] img')).toHaveLength(
+					1
+				),
+			{ timeout: 20_000 }
 		);
 	});
 
 	it("says why when the converter cannot make the preview", async () => {
 		state.data = { officePreviewEnabled: true };
 		previewStatus = 503;
-		const screen = open("notes.docx");
+		// A spreadsheet has no browser renderer to fall back to.
+		const screen = open("notes.xlsx");
 		await expect.element(screen.getByText("converter is busy", { exact: false })).toBeVisible();
 	});
 

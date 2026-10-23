@@ -116,56 +116,6 @@ export function previewCspMeta(channel: string): string {
 export const PREVIEW_ALLOW =
 	"fullscreen *; pointer-lock *; accelerometer *; gyroscope *; magnetometer *; gamepad *; autoplay *; clipboard-write *";
 
-/**
- * The src for a PDF preview frame. The native viewers pick a zoom when the
- * document loads and keep it, so a pane made narrower cut the page off on
- * the right. `#view=FitH` (PDF open parameters; Chromium's viewer and
- * pdf.js honour it) puts the viewer in fit-to-width mode, which re-fits on
- * every resize of the frame. A fragment is not part of a data: URL's bytes.
- */
-export function pdfFrameSrc(url: string): string {
-	return url.includes("#") ? url : `${url}#view=FitH`;
-}
-
-/**
- * Whether this browser can draw a PDF inside our preview frame. Mobile
- * engines ship no in-frame viewer at all, and the desktop ones — for this
- * pane — refuse to attach theirs to a sandboxed opaque-origin frame, so
- * the pane's pdf branch deliberately frames WITHOUT the sandbox and this
- * check only answers whether an in-frame viewer exists to attach at all:
- * no on mobile, yes on desktop. There is no capability probe for this,
- * so the platform is read from the user agent: a coarse, standard signal
- * (Chromium and WebKit both publish the mobile tokens on their mobile
- * builds and not on their desktop ones), and the fallback on a wrong
- * read is graceful — a desktop that tests as mobile gets an
- * Open-in-new-tab chip it did not strictly need, not a broken preview.
- *
- * Evaluated lazily (not at module load) so SSR never touches `navigator`,
- * and cached because the answer cannot change within a page session.
- */
-let canRenderPdfInFrame: boolean | null = null;
-export function browserRendersPdfInFrame(): boolean {
-	if (canRenderPdfInFrame === null) {
-		const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
-		const isMobileUa = /android|iphone|ipad|ipod|mobile/i.test(ua);
-		// iPadOS 13+ masquerades as desktop Safari; the touch-pointing Mac is
-		// the tell (Apple documents this exact combination).
-		const isIpadOs =
-			typeof navigator !== "undefined" && navigator.maxTouchPoints > 1 && /macintosh/i.test(ua);
-		canRenderPdfInFrame = !(isMobileUa || isIpadOs);
-	}
-	return canRenderPdfInFrame;
-}
-
-/**
- * Test seam only: the cached answer is derived from the real navigator and
- * cannot change in production, but tests need to pretend platforms. Calling
- * this from app code would defeat the cache on the happy path too.
- */
-export function __resetPdfInFrameCacheForTests(): void {
-	canRenderPdfInFrame = null;
-}
-
 /** An uncaught error forwarded from a preview iframe via the postMessage hook. */
 export interface PreviewError {
 	message: string;

@@ -33,6 +33,26 @@ function dataUrlOf(blob: Blob): Promise<string> {
 	});
 }
 
+/** The PDF the server made of a file, as bytes for pdf.js. */
+export async function fetchPreviewPdfBytes(previewUrl: string): Promise<Uint8Array> {
+	const res = await fetch(previewUrl);
+	if (!res.ok) {
+		let message = "the preview is unavailable; the download still works";
+		try {
+			const body = (await res.json()) as { message?: unknown };
+			if (typeof body.message === "string" && body.message) message = body.message;
+		} catch {
+			// Not JSON: the generic sentence stands.
+		}
+		throw new Error(message);
+	}
+	const buffer = await res.arrayBuffer();
+	if (buffer.byteLength > FILE_PREVIEW_MAX_BYTES) {
+		throw new Error("too large to preview — download it to read the whole document");
+	}
+	return new Uint8Array(buffer);
+}
+
 /** The PDF the server made of a file, as a `data:` URL typed application/pdf. */
 export async function fetchPreviewPdfDataUrl(previewUrl: string): Promise<string> {
 	const res = await fetch(previewUrl);

@@ -2,6 +2,8 @@ import FileArtifactView from "./FileArtifactView.svelte";
 import { render } from "vitest-browser-svelte";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderAsync } from "docx-preview";
+import { minimalPdf } from "$lib/utils/minimalPdf";
+import { cacheFileBytes, clearFileByteCache } from "$lib/utils/execution/fileIdentity";
 
 // The renderer is a real dependency with its own upstream tests; what is
 // under test here is the wiring (and, specifically, the size re-check), so
@@ -90,32 +92,84 @@ describe("FileArtifactView — actual bytes, not just recorded metadata", () => 
 		}
 	});
 
-	it("still previews a pdf whose recorded and actual sizes agree and are within the cap", async () => {
-		const bytes = new Uint8Array([37, 80, 68, 70]);
-		const restore = stubFetch(bytes);
-		try {
-			const screen = render(FileArtifactView, {
-				version: {
-					name: "report.pdf",
-					size: bytes.length,
-					sha256: "abc",
-					version: 1,
-					messageId: "m1",
-				},
-				conversationId: "conv1",
-			});
-			await vi.waitFor(() =>
+	it(
+		"still previews a pdf whose recorded and actual sizes agree and are within the cap",
+		{ timeout: 60_000 },
+		async () => {
+			const bytes = minimalPdf(1);
+			const restore = stubFetch(bytes);
+			try {
+				const screen = render(FileArtifactView, {
+					version: {
+						name: "report.pdf",
+						size: bytes.length,
+						sha256: "abc",
+						version: 1,
+						messageId: "m1",
+					},
+					conversationId: "conv1",
+				});
+				// pdf.js drew the page in the panel itself.
+				await vi.waitFor(
+					() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(1),
+					{ timeout: 30_000 }
+				);
 				expect(
-					screen.baseElement.querySelector('[data-testid="file-artifact-view"]')
-				).not.toBeNull()
-			);
-			expect(
-				screen.baseElement.querySelector('[data-testid="file-artifact-view"]')?.textContent
-			).not.toContain("too large to preview");
-		} finally {
-			restore();
+					screen.baseElement.querySelector('[data-testid="file-artifact-view"]')?.textContent
+				).not.toContain("too large to preview");
+			} finally {
+				restore();
+			}
 		}
+	);
+});
+
+describe("FileArtifactView — a file whose upload failed", () => {
+	const unsaved = (bytes: Uint8Array, sha256: string) => ({
+		name: "report.pdf",
+		size: bytes.length,
+		sha256,
+		version: 1,
+		messageId: "m1",
+		uploaded: false,
 	});
+
+	it("says it was not saved when no copy is left, without asking the store", async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		const bytes = minimalPdf(1);
+		const screen = render(FileArtifactView, {
+			version: unsaved(bytes, "f1".repeat(32)),
+			conversationId: "conv1",
+		});
+		await expect.element(screen.getByText(/was not saved/)).toBeVisible();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it(
+		"previews from this tab's own bytes while it still holds them",
+		{ timeout: 60_000 },
+		async () => {
+			const fetchMock = vi.fn();
+			vi.stubGlobal("fetch", fetchMock);
+			const bytes = minimalPdf(1);
+			const sha = "f2".repeat(32);
+			cacheFileBytes(sha, bytes);
+			try {
+				const screen = render(FileArtifactView, {
+					version: unsaved(bytes, sha),
+					conversationId: "conv1",
+				});
+				await vi.waitFor(
+					() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(1),
+					{ timeout: 30_000 }
+				);
+				expect(fetchMock).not.toHaveBeenCalled();
+			} finally {
+				clearFileByteCache();
+			}
+		}
+	);
 });
 
 describe("FileArtifactView — image preview", () => {

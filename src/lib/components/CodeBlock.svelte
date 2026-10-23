@@ -19,7 +19,12 @@
 	import { isCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
 	import { base } from "$app/paths";
 	import { getMessageRunContext } from "$lib/utils/execution/messageContext";
-	import { recordRunFiles, uploadRunFiles } from "$lib/utils/execution/runFiles";
+	import {
+		describeRunFiles,
+		noteLiveRunFiles,
+		recordRunFiles,
+		uploadAndDescribe,
+	} from "$lib/utils/execution/runFiles";
 	import { runFiles } from "$lib/stores/runFiles.svelte";
 
 	interface Props {
@@ -223,6 +228,15 @@
 	function streamedKey(): string {
 		return `${messageRun?.conversationId ?? ""}|${runKey}`;
 	}
+	// Live feed: the files are in this message's registry the moment they are
+	// listed and fingerprinted, before any upload — so the card is the same
+	// artifact card now as after a reload.
+	$effect(() => {
+		const state = runState;
+		const messageId = messageRun?.messageId;
+		if (!state?.outputsCollected || !state.outputFiles?.length || !messageId || !runKey) return;
+		noteLiveRunFiles(messageId, runKey, describeRunFiles(state.outputFiles));
+	});
 	$effect(() => {
 		const state = runState;
 		const ctx = messageRun;
@@ -251,7 +265,10 @@
 		const key = runKey;
 		const listed = state.outputFiles;
 		void (async () => {
-			const files = await uploadRunFiles(conversationId, listed);
+			// One reference per produced file, saved or not: a failed upload is
+			// recorded as `uploaded: false` and its card says so.
+			const files = await uploadAndDescribe(conversationId, listed);
+			noteLiveRunFiles(messageId, key, files);
 			const update = await recordRunFiles({
 				conversationId,
 				messageId,
@@ -286,6 +303,7 @@
 				name: f.name,
 				size: f.size,
 				sha256: f.sha256,
+				uploaded: f.uploaded,
 				downloadUrl: `${base}/conversation/${messageRun.conversationId}/code-execution/output/${f.sha256}`,
 			})),
 		};
@@ -322,7 +340,7 @@
 	<div class="pointer-events-none sticky top-0 w-full">
 		<div
 			class="pointer-events-auto absolute flex items-center gap-1.5 {generatedFileCount > 0
-				? 'top-px right-5'
+				? 'top-[1.1rem] right-4'
 				: // A titled fence carries the filename header above the code, so the
 					// floating row drops below it instead of sitting on top of it.
 					fileBlock && !loading
@@ -370,20 +388,22 @@
 			></pre>
 	{/snippet}
 
-	{#if generatedFileCount > 0}
-		<details
-			class="mx-5 mb-2 rounded-lg border border-gray-200/70 px-3 py-1.5 text-xs text-gray-500 dark:border-gray-700/70 dark:text-gray-400"
-		>
-			<!-- leading-4: the header row is what the folded button cluster centres on;
-			     a line height that follows the text size moves it off-centre. -->
+	{#snippet codeFold()}
+		<!-- Inside the run's one surface: no frame of its own. leading-4: the
+		     header row is what the folded button cluster centres on; a line
+		     height that follows the text size moves it off-centre. -->
+		<details class="px-4 pb-2 text-xs text-gray-500 dark:text-gray-400">
 			<summary class="cursor-pointer leading-4">
-				View code · {generatedFileCount} generated file{generatedFileCount === 1 ? "" : "s"} below
+				View code · {generatedFileCount} file{generatedFileCount === 1 ? "" : "s"}
 			</summary>
-			<div class="pt-1">{@render codeFence()}</div>
+			<div class="-mx-4 pt-1">{@render codeFence()}</div>
 		</details>
+	{/snippet}
+
+	{#if generatedFileCount > 0}
+		<RunOutput state={shownState} class="mt-2 mb-3" before={codeFold} />
 	{:else}
 		{@render codeFence()}
+		<RunOutput state={shownState} class="mb-3" />
 	{/if}
-
-	<RunOutput state={shownState} class="mx-5 mb-3" />
 </div>

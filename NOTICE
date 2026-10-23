@@ -96,4 +96,9 @@ components (gmpy2 with GMP and MPFR; GDAL), which are unmodified upstream
 builds — source: https://github.com/pyodide/pyodide and each project's
 upstream repository.
 
+PDF previews are drawn in the page by pdf.js (the pdfjs-dist package, version
+6.3.289, Apache-2.0, Copyright Mozilla Foundation), unmodified, bundled into the
+build with its worker served from the same origin; nothing is loaded from a CDN.
+  source: https://github.com/mozilla/pdf.js
+
 MPL-2.0 npm packages, unmodified: pyodide, satori, @resvg/resvg-js, @resvg/resvg-wasm (via pptx-glimpse), web-push (builds the Web Push request; its dependencies are MIT, ISC, BSD-3-Clause and Apache-2.0).

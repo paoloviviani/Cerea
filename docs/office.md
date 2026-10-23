@@ -14,7 +14,9 @@ default; `--no-office-preview` removes it). The chat reaches Gotenberg at
 `CHAT_GOTENBERG_URL`. Then:
 
 - **Previews.** docx, pptx, xlsx, odt and the other formats LibreOffice reads
-  open as a PDF in the existing PDF preview. The PDF is made the first time a
+  open as a PDF, drawn in the page (the same on a desktop and a phone; see
+  below). If the converter cannot make a deck's or a Word file's PDF, the
+  browser preview described under "Without it" is used instead. The PDF is made the first time a
   file is opened, except for files a model produced, which are converted as soon
   as they are stored. It is kept in the chat's file store, keyed by the SHA-256
   of the file's bytes and a converter version: identical files share one
@@ -41,3 +43,12 @@ only when a deck is previewed. When the library reports features it cannot draw
 (charts, SmartArt, some effects) the pane says it is an approximate rendering.
 Word files keep the previous browser preview; Excel and the rest have none, and
 the download is always there.
+
+## How a PDF is shown
+
+Every PDF, including the one the converter makes of an Office file, is drawn in
+the page with [pdf.js](https://github.com/mozilla/pdf.js) (Apache-2.0), one
+canvas per page, on every device. The library and its worker are part of the
+chat's own build and are served from the same origin: nothing is fetched from a
+CDN, and nothing is loaded until a PDF is opened. The first 60 pages are drawn;
+"New tab" and "Download" stay in the header as secondary actions.

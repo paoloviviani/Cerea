@@ -7,7 +7,7 @@ import type { RunState } from "$lib/utils/execution/runs.svelte";
 import type { FileArtifactRegistry } from "$lib/utils/fileArtifacts";
 
 /**
- * The session underneath the fallback FileCard is a controllable fake; the
+ * The session underneath is a controllable fake; the
  * output rendering under test is real.
  */
 const sessionMock = vi.hoisted(() => ({
@@ -72,7 +72,7 @@ describe("RunOutput file presentation", () => {
 			.toBeVisible();
 	});
 
-	it("renders a persisted file with an unknown sha as the plain FileCard", async () => {
+	it("renders a persisted file with an unknown sha as the same card, without Open", async () => {
 		const state: RunState = {
 			status: "done",
 			startedAt: 0,
@@ -86,23 +86,48 @@ describe("RunOutput file presentation", () => {
 		expect(
 			screen.baseElement.querySelector('button[aria-label="Open other.txt in panel"]')
 		).toBeNull();
-		// The fallback is the FileCard itself, preview included.
-		await expect.element(screen.getByRole("button", { name: "Preview other.txt" })).toBeVisible();
+		expect(screen.baseElement.querySelector('[data-testid="file-artifact-card"]')).not.toBeNull();
+		expect(screen.baseElement.querySelector('button[aria-label^="Preview"]')).toBeNull();
 	});
 
-	it("renders a live run's output files as the plain FileCard — no sha to join on", async () => {
+	it("gives a live run's file the artifact card the moment its sha is in the registry, no upload needed", async () => {
+		// The run's own listing carries the sha256 the browser computed: nothing
+		// waits on an upload answer, which is what left the plain card live.
 		const state: RunState = {
 			status: "done",
 			startedAt: 0,
 			finishedAt: 1,
-			outputFiles: [{ path: "/home/pyodide/notes.txt", size: 25 }],
+			outputFiles: [{ path: "/home/pyodide/report.docx", size: 12, sha256: SHA }],
 		};
 		const screen = mount(state);
-		await expect.element(screen.getByText("notes.txt")).toBeVisible();
-		expect(
-			screen.baseElement.querySelector('button[aria-label="Open notes.txt in panel"]')
-		).toBeNull();
-		await expect.element(screen.getByRole("button", { name: "Download notes.txt" })).toBeVisible();
+		await expect
+			.element(screen.getByRole("button", { name: "Open report.docx in panel" }))
+			.toBeVisible();
+	});
+
+	it("draws files as divided rows inside the one surface, never cards in the card", async () => {
+		const state: RunState = {
+			status: "done",
+			startedAt: 0,
+			finishedAt: 1,
+			outputFiles: [
+				{ path: "/home/pyodide/report.docx", size: 12, sha256: SHA },
+				{ path: "/home/pyodide/other.txt", size: 3, sha256: "b".repeat(64) },
+			],
+		};
+		const screen = mount(state);
+		const cards = screen.baseElement.querySelectorAll('[data-testid="file-artifact-card"]');
+		expect(cards.length).toBe(2);
+		// Rows, not tiles: no border box of their own, only a divider between rows.
+		for (const card of cards) {
+			expect(getComputedStyle(card).borderLeftWidth).toBe("0px");
+			expect(getComputedStyle(card).borderRadius).toBe("0px");
+			expect(getComputedStyle(card).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+		}
+		expect(getComputedStyle(cards[0]).borderTopWidth).toBe("0px");
+		const surface = screen.baseElement.querySelector('[data-testid="run-output"]') as HTMLElement;
+		expect(surface.contains(cards[0])).toBe(true);
+		expect(getComputedStyle(cards[1]).borderTopWidth).toBe("1px");
 	});
 
 	it("opens a live run's raster figure without waiting for a click", async () => {
@@ -113,7 +138,7 @@ describe("RunOutput file presentation", () => {
 			status: "done",
 			startedAt: 0,
 			finishedAt: 1,
-			outputFiles: [{ path: "/home/pyodide/figure-1.png", size: 8 }],
+			outputFiles: [{ path: "/home/pyodide/figure-1.png", size: 8, sha256: "9".repeat(64) }],
 		};
 		const screen = mount(state);
 		await expect

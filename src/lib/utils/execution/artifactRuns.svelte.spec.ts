@@ -13,6 +13,7 @@ const sessionMock = vi.hoisted(() => {
 			(_code: string) => new Promise((resolve, reject) => pending.push({ resolve, reject }))
 		),
 		listFiles: vi.fn(async () => [] as Array<{ path: string; size: number }>),
+		readFile: vi.fn(async (_path: string) => new Uint8Array([1, 2, 3]).buffer),
 		onStatus: vi.fn(() => () => undefined),
 		settleNext: (value: unknown) => pending.shift()?.resolve(value),
 		failNext: (error: unknown) => pending.shift()?.reject(error),
@@ -130,7 +131,11 @@ describe("artifact run outputs", () => {
 		// it lands, so wait for the amendment rather than the persist.
 		await vi.waitFor(() =>
 			expect(store?.get(artifactRunKey("analysis", 1, "build()"))?.outputFiles).toEqual([
-				{ path: "/home/pyodide/report.docx", size: 2916 },
+				{
+					path: "/home/pyodide/report.docx",
+					size: 3,
+					sha256: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+				},
 			])
 		);
 		await waitForPersisted(artifactRunKey("analysis", 1, "build()"));

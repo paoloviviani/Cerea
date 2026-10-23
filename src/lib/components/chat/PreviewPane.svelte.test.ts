@@ -1,17 +1,17 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion -- assertions on values the test just created */
 import PreviewPane from "./PreviewPane.svelte";
 import { render } from "vitest-browser-svelte";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { tick } from "svelte";
 import { sidePane } from "$lib/stores/sidePane.svelte";
-import { __resetPdfInFrameCacheForTests } from "$lib/utils/previewSrcdoc";
+import { minimalPdfDataUrl } from "$lib/utils/minimalPdf";
 
 beforeEach(() => {
 	sidePane.reset();
-	__resetPdfInFrameCacheForTests();
 });
 
 afterEach(() => {
-	__resetPdfInFrameCacheForTests();
+	vi.restoreAllMocks();
 });
 
 const iframeSrcdoc = (base: HTMLElement): string | null =>
@@ -84,72 +84,48 @@ describe("PreviewPane", () => {
 		);
 	});
 
-	it("frames a pdf payload by URL instead of building a srcdoc", async () => {
-		sidePane.openPreview({
-			kind: "pdf",
-			title: "report.pdf",
-			content: "data:application/pdf;base64,AAA",
-		});
-		const screen = render(PreviewPane, {});
-		await tick();
-		const iframe = screen.baseElement.querySelector('iframe[title="Preview of report.pdf"]');
-		// Fit-to-width, so the native viewer re-fits when the pane is resized.
-		expect(iframe?.getAttribute("src")).toBe("data:application/pdf;base64,AAA#view=FitH");
-		expect(iframe?.hasAttribute("srcdoc")).toBe(false);
-		// The sandbox token set is deliberately ABSENT for a pdf: native
-		// viewers refuse to attach to a sandboxed opaque-origin frame —
-		// that refusal was Chrome's "blocked" panel and Safari's white box
-		// on every desktop. A regression to sandbox={PREVIEW_SANDBOX} here
-		// would blank the preview again, so pin the absence.
-		expect(iframe?.hasAttribute("sandbox")).toBe(false);
-	});
+	it(
+		"draws a pdf payload in the page with pdf.js, never in a frame",
+		{ timeout: 60_000 },
+		async () => {
+			sidePane.openPreview({ kind: "pdf", title: "report.pdf", content: minimalPdfDataUrl(2) });
+			const screen = render(PreviewPane, {});
+			await vi.waitFor(
+				() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(2),
+				{ timeout: 30_000 }
+			);
+			expect(screen.baseElement.querySelector("iframe")).toBeNull();
+			expect(screen.baseElement.textContent).toContain("2 pages");
+			// The canvas holds real pixels: the page was drawn, not just allocated.
+			const canvas = screen.baseElement.querySelector("canvas") as HTMLCanvasElement;
+			const data = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+			expect(data.some((v, i) => i % 4 !== 3 && v < 128)).toBe(true);
+		}
+	);
 
-	it("gives a mobile browser a working pop-out instead of the dead iframe placeholder", async () => {
-		// Mobile engines draw no PDF in an iframe; Chrome Android's placeholder
-		// "Open" is dead under the preview sandbox. The pane must offer the
-		// working version of that button: a new tab on the payload.
-		const uaGetter = vi
-			.spyOn(navigator, "userAgent", "get")
-			.mockReturnValue(
+	it(
+		"draws the same pdf the same way on a phone, with new-tab as a secondary action",
+		{ timeout: 60_000 },
+		async () => {
+			vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
 				"Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 			);
-		const maxTouch = vi
-			.spyOn(navigator, "maxTouchPoints", "get")
-			.mockReturnValue(5) as unknown as () => void;
-		const open = vi.spyOn(window, "open").mockReturnValue(null);
-		const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-pdf");
-		const fetch_ = vi
-			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(new Response(new Uint8Array([1, 2, 3]).buffer));
-		try {
-			sidePane.openPreview({
-				kind: "pdf",
-				title: "report.pdf",
-				content: "data:application/pdf;base64,AAA",
-			});
+			vi.spyOn(navigator, "maxTouchPoints", "get").mockReturnValue(5);
+			const open = vi.spyOn(window, "open").mockReturnValue(null);
+			vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-pdf");
+			sidePane.openPreview({ kind: "pdf", title: "report.pdf", content: minimalPdfDataUrl(1) });
 			const screen = render(PreviewPane, {});
-			await tick();
-			// No iframe to hold the dead placeholder — the pop-out replaces it.
-			expect(screen.baseElement.querySelector("iframe")).toBeNull();
-			const button = await screen.getByRole("button", { name: "Open in a new tab" });
-			await button.click();
+			await vi.waitFor(
+				() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(1),
+				{ timeout: 30_000 }
+			);
+			// Not the old dead end.
+			expect(screen.baseElement.textContent).not.toContain("opens in the browser's PDF viewer");
+			await screen.getByRole("button", { name: /in a new tab/ }).click();
 			await vi.waitFor(() => expect(open).toHaveBeenCalled());
-			// data: URL converted to a blob URL: Chrome refuses top-level
-			// data: navigations, so the unconverted form would be as dead as
-			// the placeholder it replaces.
-			expect(fetch_).toHaveBeenCalledWith("data:application/pdf;base64,AAA");
-			expect(createObjectURL).toHaveBeenCalled();
-			const [url, target] = open.mock.calls[0] as unknown as [string, string];
-			expect(url).toBe("blob:mock-pdf");
-			expect(target).toBe("_blank");
-		} finally {
-			uaGetter.mockRestore();
-			(maxTouch as unknown as { mockRestore: () => void }).mockRestore();
-			open.mockRestore();
-			createObjectURL.mockRestore();
-			fetch_.mockRestore();
+			expect((open.mock.calls[0] as unknown as [string])[0]).toBe("blob:mock-pdf");
 		}
-	});
+	);
 
 	it("closes the pane from its close button", async () => {
 		sidePane.openPreview({ kind: "html", title: "index.html", content: "<h1>Hi</h1>" });

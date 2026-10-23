@@ -88,6 +88,7 @@ const clientTestDeps = [
 	"@xterm/addon-unicode11",
 	"@xterm/addon-web-links",
 	"@xterm/xterm",
+	"pdfjs-dist/legacy/build/pdf.mjs",
 	"bits-ui",
 	"bson-objectid",
 	"devalue",

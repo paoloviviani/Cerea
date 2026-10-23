@@ -11,9 +11,17 @@ import type { RunOutcome, RuntimeFile } from "$lib/utils/execution/protocol";
  * addressed by conversation + sha256, exactly like a message attachment.
  */
 export interface PersistedDeliverableRef {
+	/** Path under the run's working directory, so `a/x.pdf` and `b/x.pdf` are two files. */
 	name: string;
 	size: number;
 	sha256: string;
+	/**
+	 * Whether the bytes are in the output store. False when the browser's upload
+	 * failed: the file was produced but is only downloadable while the tab that
+	 * made it is open, and its card says so. Absent on records written before
+	 * this field existed, which read as stored.
+	 */
+	uploaded?: boolean;
 }
 
 /**

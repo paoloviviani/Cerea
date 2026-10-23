@@ -3,8 +3,9 @@
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
 	import SlideImages from "./SlideImages.svelte";
+	import PdfViewer from "./PdfViewer.svelte";
 	import {
-		fetchPreviewPdfDataUrl,
+		fetchPreviewPdfBytes,
 		officePreviewEnabledIn,
 		previewUrlFor,
 		slidesPayloadFor,
@@ -13,31 +14,28 @@
 	import CarbonDownload from "~icons/carbon/download";
 	import { renderDocxPreview } from "$lib/utils/docxPreview";
 	import type { FileArtifactVersion } from "$lib/utils/fileArtifacts";
+	import { readFileBytes, triggerBrowserDownload } from "$lib/utils/fileBytes";
+	import { cachedFileBytes, fileBaseName } from "$lib/utils/execution/fileIdentity";
 	import {
 		FILE_PREVIEW_MAX_BYTES,
 		FILE_PREVIEW_TEXT_CHARS,
 		FILE_PREVIEW_TEXT_MAX_BYTES,
 		fileExtensionOf,
-		filePreviewKindFor,
 		filePreviewMimeType,
 		formatFileSize,
+		previewPlan,
+		type FilePreviewKind,
 	} from "$lib/utils/filePreview";
-	import {
-		browserRendersPdfInFrame,
-		pdfFrameSrc,
-		buildDocxSrcdoc,
-		PREVIEW_ALLOW,
-		PREVIEW_SANDBOX,
-	} from "$lib/utils/previewSrcdoc";
+	import { buildDocxSrcdoc, PREVIEW_ALLOW, PREVIEW_SANDBOX } from "$lib/utils/previewSrcdoc";
 	import { escapeHTML } from "$lib/utils/markedLight";
 
 	/**
-	 * One version of a file artifact in the artifact panel: the persisted
-	 * bytes fetched from the server-side output store (GridFS, addressed by
-	 * conversation + sha256 — never duplicated), rendered through the shared
-	 * `$lib/utils/filePreview` selection with FileCard's exact posture:
-	 * typed application/pdf in an UNSANDBOXED frame (the native viewer
-	 * refuses sandboxed frames), docx-preview offscreen + DOMPurify, and a
+	 * One version of a file artifact in the artifact panel. The bytes come from
+	 * this tab's own copy while it holds them, else from the server-side output
+	 * store (GridFS, addressed by conversation + sha256, never duplicated).
+	 * What renders is `previewPlan`'s answer, the same on every device: PDFs in
+	 * the page by pdf.js, decks by pptx-glimpse (or the server's PDF when it
+	 * has one), Word files by docx-preview + DOMPurify in a sandboxed frame, a
 	 * download card for everything else.
 	 */
 	interface Props {
@@ -47,21 +45,27 @@
 
 	let { version, conversationId }: Props = $props();
 
+	const stored = $derived(version.uploaded !== false);
 	const downloadUrl = $derived(
-		conversationId
+		conversationId && stored
 			? `${base}/conversation/${conversationId}/code-execution/output/${version.sha256}`
 			: undefined
 	);
-	// Persisted files are always in the server's store, so a deployment with a
-	// converter turns any Office file into a PDF; without one a deck is drawn
-	// in the browser.
-	const officePreview = $derived(officePreviewEnabledIn(page.data));
-	const kind = $derived(filePreviewKindFor(version.name, { officePreview }));
+	// This tab's own bytes make a file available even before (or without) the store.
+	const available = $derived(
+		downloadUrl !== undefined || cachedFileBytes(version.sha256) !== undefined
+	);
+	const converter = $derived(officePreviewEnabledIn(page.data));
+	const plan = $derived(
+		previewPlan(version.name, { converter, stored: downloadUrl !== undefined })
+	);
+	const kind = $derived(plan.kind);
+	const baseName = $derived(fileBaseName(version.name));
 
 	type Payload =
 		| { kind: "text"; text: string; truncated: boolean }
 		| { kind: "image"; url: string }
-		| { kind: "pdf"; dataUrl: string }
+		| { kind: "pdf"; bytes: Uint8Array }
 		| { kind: "docx"; html: string }
 		| {
 				kind: "slides";
@@ -88,15 +92,7 @@
 
 	onDestroy(revokeObjectUrl);
 
-	function dataUrlOf(blob: Blob): Promise<string> {
-		return new Promise((resolve, reject) => {
-			const reader = new FileReader();
-			reader.onload = () => resolve(reader.result as string);
-			reader.onerror = () =>
-				reject(reader.error ?? new Error("the preview is unavailable; the download still works"));
-			reader.readAsDataURL(blob);
-		});
-	}
+	const TOO_BIG = "too large to preview — download it to read the whole document";
 
 	// Refetch whenever the version (or its conversation) changes; a slow
 	// earlier fetch that resolves after a version switch is dropped.
@@ -104,9 +100,11 @@
 		const url = downloadUrl;
 		const name = version.name;
 		const size = version.size;
-		const selected = filePreviewKindFor(name, { officePreview });
+		const sha = version.sha256;
+		const { kind: selected, fallback } = plan;
 		const ext = fileExtensionOf(name);
-		if (!url || selected === "none") {
+		const here = available;
+		if (!here || selected === "none") {
 			status = "idle";
 			payload = null;
 			error = null;
@@ -115,11 +113,11 @@
 		}
 		if (
 			size > FILE_PREVIEW_MAX_BYTES &&
-			(selected === "pdf" || selected === "docx" || selected === "pptx")
+			(selected === "pdf" || selected === "docx" || selected === "pptx" || selected === "office")
 		) {
 			status = "error";
 			payload = null;
-			error = "too large to preview — download it to read the whole document";
+			error = TOO_BIG;
 			revokeObjectUrl();
 			return;
 		}
@@ -135,86 +133,73 @@
 		payload = null;
 		error = null;
 		revokeObjectUrl();
+
+		const bytesOf = async () => {
+			const data = await readFileBytes({
+				file: { path: name, size },
+				sha256: sha,
+				downloadUrl: url,
+			});
+			return data instanceof Uint8Array ? data : new Uint8Array(data);
+		};
+
+		async function render(kindToRender: FilePreviewKind): Promise<Payload> {
+			if (kindToRender === "office") {
+				// The server's PDF of this file (made on the first view and
+				// kept), drawn by pdf.js like any PDF.
+				return { kind: "pdf", bytes: await fetchPreviewPdfBytes(previewUrlFor(url ?? "")) };
+			}
+			const bytes = await bytesOf();
+			if (kindToRender === "pptx") {
+				if (bytes.byteLength > FILE_PREVIEW_MAX_BYTES) throw new Error(TOO_BIG);
+				const shown = await slidesPayloadFor(name, bytes);
+				return {
+					kind: "slides",
+					slides: shown.slides ?? [],
+					note: shown.note ?? null,
+					details: shown.details ?? [],
+				};
+			}
+			if (kindToRender === "text") {
+				// The recorded size is metadata, not the bytes themselves.
+				if (bytes.byteLength > FILE_PREVIEW_TEXT_MAX_BYTES) {
+					throw new Error("too large to preview — download it to read the whole file");
+				}
+				const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+				return text.length > FILE_PREVIEW_TEXT_CHARS
+					? { kind: "text", text: text.slice(0, FILE_PREVIEW_TEXT_CHARS), truncated: true }
+					: { kind: "text", text, truncated: false };
+			}
+			if (kindToRender === "image") {
+				objectUrl = URL.createObjectURL(
+					new Blob([bytes as Uint8Array<ArrayBuffer>], { type: filePreviewMimeType(ext) })
+				);
+				return { kind: "image", url: objectUrl };
+			}
+			if (kindToRender === "pdf") {
+				if (bytes.byteLength > FILE_PREVIEW_MAX_BYTES) throw new Error(TOO_BIG);
+				return { kind: "pdf", bytes };
+			}
+			if (bytes.byteLength > FILE_PREVIEW_MAX_BYTES) throw new Error(TOO_BIG);
+			const html = await renderDocxPreview(bytes, { fontBase: `${base}/fonts/office` });
+			return { kind: "docx", html };
+		}
+
 		void (async () => {
 			try {
-				if (selected === "office") {
-					// The server's PDF of this file (made on the first view and kept),
-					// shown through the same path as a PDF.
-					const dataUrl = await fetchPreviewPdfDataUrl(previewUrlFor(url));
-					if (cancelled) return;
-					payload = { kind: "pdf", dataUrl };
-					status = "ready";
-					return;
+				let shown: Payload;
+				try {
+					shown = await render(selected);
+				} catch (err) {
+					// The server's conversion failed or is not there: draw it from the bytes.
+					if (!fallback || cancelled) throw err;
+					shown = await render(fallback);
 				}
-				const res = await fetch(url);
-				if (!res.ok) throw new Error("that file is no longer available");
-				if (selected === "pptx") {
-					const buffer = await res.arrayBuffer();
-					if (cancelled) return;
-					const shown = await slidesPayloadFor(name, new Uint8Array(buffer));
-					if (cancelled) return;
-					payload = {
-						kind: "slides",
-						slides: shown.slides ?? [],
-						note: shown.note ?? null,
-						details: shown.details ?? [],
-					};
-					status = "ready";
-					return;
-				}
-				if (selected === "text") {
-					const blob = await res.blob();
-					if (cancelled) return;
-					// The recorded size is metadata from the message, not the bytes
-					// themselves — re-check what actually arrived before decoding it all.
-					if (blob.size > FILE_PREVIEW_TEXT_MAX_BYTES) {
-						throw new Error("too large to preview — download it to read the whole file");
-					}
-					const text = await blob.text();
-					if (cancelled) return;
-					payload =
-						text.length > FILE_PREVIEW_TEXT_CHARS
-							? {
-									kind: "text",
-									text: text.slice(0, FILE_PREVIEW_TEXT_CHARS),
-									truncated: true,
-								}
-							: { kind: "text", text, truncated: false };
-				} else if (selected === "image") {
-					const blob = await res.blob();
-					if (cancelled) return;
+				if (cancelled) {
 					revokeObjectUrl();
-					objectUrl = URL.createObjectURL(new Blob([blob], { type: filePreviewMimeType(ext) }));
-					payload = { kind: "image", url: objectUrl };
-				} else if (selected === "pdf") {
-					const blob = await res.blob();
-					if (cancelled) return;
-					// The recorded size is metadata from the message, not the bytes
-					// themselves — re-check what actually arrived before building the
-					// data: URL (base64 inflates a third on top of it).
-					if (blob.size > FILE_PREVIEW_MAX_BYTES) {
-						throw new Error("too large to preview — download it to read the whole document");
-					}
-					// Typed application/pdf by this app: a typeless blob framed
-					// here downloads instead of rendering.
-					const dataUrl = await dataUrlOf(new Blob([blob], { type: "application/pdf" }));
-					if (cancelled) return;
-					payload = { kind: "pdf", dataUrl };
-				} else {
-					const buffer = await res.arrayBuffer();
-					if (cancelled) return;
-					// The recorded size is metadata from the message, not the bytes
-					// themselves — re-check what actually arrived before handing it to
-					// docx-preview.
-					if (buffer.byteLength > FILE_PREVIEW_MAX_BYTES) {
-						throw new Error("too large to preview — download it to read the whole document");
-					}
-					const html = await renderDocxPreview(new Uint8Array(buffer), {
-						fontBase: `${base}/fonts/office`,
-					});
-					if (cancelled) return;
-					payload = { kind: "docx", html };
+					return;
 				}
+				payload = shown;
 				status = "ready";
 			} catch (err) {
 				if (cancelled) return;
@@ -231,29 +216,35 @@
 		};
 	});
 
+	async function downloadNone(): Promise<void> {
+		try {
+			triggerBrowserDownload(
+				baseName,
+				await readFileBytes({
+					file: { path: version.name, size: version.size },
+					sha256: version.sha256,
+					downloadUrl,
+				})
+			);
+		} catch {
+			// The card stays as it is.
+		}
+	}
+
 	const docxChannel = `file_${Math.random().toString(36).slice(2)}`;
 	let docxSrcdoc = $derived(
 		payload?.kind === "docx" ? buildDocxSrcdoc(payload.html, docxChannel) : ""
 	);
-
-	// Mobile engines draw no PDF in an iframe even unsandboxed (see
-	// browserRendersPdfInFrame): the pop-out opens the bytes in the
-	// browser's own viewer, like PreviewPane's.
-	async function openPdfInNewTab(dataUrl: string): Promise<void> {
-		try {
-			const res = await fetch(dataUrl);
-			const blob = await res.blob();
-			window.open(URL.createObjectURL(blob), "_blank", "noopener,noreferrer");
-		} catch {
-			// The panel stays useful as-is; the close button is the exit.
-		}
-	}
 </script>
 
 <div class="flex h-full flex-col" data-testid="file-artifact-view" data-kind={kind}>
-	{#if !downloadUrl}
+	{#if !available}
 		<div class="flex flex-1 items-center justify-center px-6 py-8">
-			<p class="text-sm text-gray-400">This file is no longer available.</p>
+			<p class="max-w-sm text-center text-sm text-gray-400">
+				{stored
+					? "This file is no longer available."
+					: "This file was not saved and is no longer available. Run the code again to recreate it."}
+			</p>
 		</div>
 	{:else if kind === "none"}
 		<div class="flex flex-1 items-center justify-center px-6 py-8">
@@ -270,14 +261,14 @@
 					</p>
 					<p class="text-xs text-gray-500 dark:text-gray-400">{formatFileSize(version.size)}</p>
 				</div>
-				<a
-					href={downloadUrl}
-					download={version.name}
+				<button
+					type="button"
+					onclick={downloadNone}
 					class="flex flex-none items-center gap-1 rounded-md px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10"
-					aria-label={`Download ${version.name}`}
+					aria-label={`Download ${baseName}`}
 				>
 					<CarbonDownload class="size-3.5" /> Download
-				</a>
+				</button>
 			</div>
 		</div>
 	{:else if status === "loading" || status === "idle"}
@@ -315,34 +306,7 @@
 		</div>
 	{:else if payload?.kind === "pdf"}
 		<div class="relative min-h-0 flex-1">
-			{#if browserRendersPdfInFrame()}
-				<!-- No sandbox token set, deliberately: the native viewer
-				     refuses sandboxed opaque-origin frames. Bytes typed
-				     application/pdf by this app; no document script executes. -->
-				<iframe
-					title={`Preview of ${version.name}`}
-					class="h-full w-full bg-white dark:bg-gray-900"
-					allow={PREVIEW_ALLOW}
-					allowfullscreen
-					referrerpolicy="no-referrer"
-					src={pdfFrameSrc(payload.dataUrl)}
-				></iframe>
-			{:else}
-				<div
-					class="flex h-full flex-col items-center justify-center gap-3 bg-gray-50 px-6 text-center dark:bg-gray-900"
-				>
-					<CarbonDocument class="size-10 text-gray-400" />
-					<p class="text-sm text-gray-600 dark:text-gray-300">
-						{version.name} opens in the browser's PDF viewer
-					</p>
-					<button
-						class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
-						onclick={() => payload?.kind === "pdf" && openPdfInNewTab(payload.dataUrl)}
-					>
-						Open in a new tab
-					</button>
-				</div>
-			{/if}
+			<PdfViewer title={baseName} bytes={payload.bytes} />
 		</div>
 	{:else if payload?.kind === "slides"}
 		<div class="min-h-0 flex-1">

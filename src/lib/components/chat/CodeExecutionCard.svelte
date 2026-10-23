@@ -3,12 +3,19 @@
 	import EosIconsLoading from "~icons/eos-icons/loading";
 	import CarbonChip from "~icons/carbon/chip";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
+	import CarbonCheckmark from "~icons/carbon/checkmark";
+	import CarbonClose from "~icons/carbon/close";
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import RunOutput from "./RunOutput.svelte";
-	import FileArtifactCard from "./FileArtifactCard.svelte";
+	import RunFiles from "./RunFiles.svelte";
 	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
 	import { isCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
-	import { uploadRunFiles } from "$lib/utils/execution/runFiles";
+	import {
+		describeRunFiles,
+		noteLiveRunFiles,
+		uploadAndDescribe,
+	} from "$lib/utils/execution/runFiles";
+	import { getMessageRunContext } from "$lib/utils/execution/messageContext";
 	import { chatRunKey } from "$lib/utils/execution/keys";
 	import type { MessageCodeExecutionRequestUpdate } from "$lib/types/MessageUpdate";
 	import type { MessageCodeExecutionResolvedUpdate } from "$lib/types/MessageUpdate";
@@ -52,14 +59,18 @@
 		runsStore.run(runKey, request.code);
 	});
 
-	/**
-	 * Upload the run's own output files to the persisted deliverable store
-	 * before the outcome is posted — the same upload every run path uses
-	 * (`uploadRunFiles`), so a tool run's files are kept exactly like a code
-	 * block's.
-	 */
-	const uploadDeliverables = (files: Array<{ path: string; size: number }>) =>
-		uploadRunFiles(conversationId, files);
+	const messageRun = getMessageRunContext();
+
+	// Live feed: the run's files are in this message's registry the moment they
+	// are listed and fingerprinted, so the card is the artifact card now and
+	// after a reload alike.
+	$effect(() => {
+		const state = runState;
+		const messageId = messageRun?.messageId;
+		if (resolved || !state?.outputsCollected || !state.outputFiles?.length) return;
+		if (!messageId || !runKey) return;
+		noteLiveRunFiles(messageId, runKey, describeRunFiles(state.outputFiles));
+	});
 
 	// Post the outcome back exactly once per mounted card once the run settles.
 	// A re-mounted card (navigation) may re-post; the endpoint's CAS answers 409
@@ -93,7 +104,10 @@
 		if (!outcome) return;
 		posted = true;
 		void (async () => {
-			const fileRefs = await uploadDeliverables(state.outputFiles ?? []);
+			// One reference per produced file whether or not its upload worked: a
+			// failed save is recorded `uploaded: false`, never silently absent.
+			const fileRefs = await uploadAndDescribe(conversationId, state.outputFiles ?? []);
+			if (messageRun?.messageId) noteLiveRunFiles(messageRun.messageId, runKey, fileRefs);
 			await fetch(`${base}/conversation/${conversationId}/code-execution`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -105,7 +119,7 @@
 						stderr: outcome.stderr,
 						...(outcome.result ? { result: outcome.result } : {}),
 						...(outcome.error ? { error: outcome.error } : {}),
-						files: state.outputFiles ?? [],
+						files: (state.outputFiles ?? []).map((f) => ({ path: f.path, size: f.size })),
 						...(fileRefs.length ? { fileRefs } : {}),
 					},
 				}),
@@ -135,6 +149,7 @@
 				name: f.name,
 				size: f.size,
 				sha256: f.sha256,
+				uploaded: f.uploaded,
 				downloadUrl: `${base}/conversation/${conversationId}/code-execution/output/${f.sha256}`,
 			})),
 		};
@@ -165,9 +180,6 @@
 	// it from also drawing them inside). Live-session bytes (`outputFiles`) win
 	// over the persisted references (`persistedFiles`, used on replay), the same
 	// precedence RunOutput uses.
-	let outputFiles = $derived(displayState?.outputFiles ?? []);
-	let persistedFiles = $derived(displayState?.persistedFiles ?? []);
-	let hasFiles = $derived(outputFiles.length > 0 || persistedFiles.length > 0);
 
 	// Collapse the output the way a thinking section does (see
 	// OpenReasoningResults.svelte): open while the code is actually running so
@@ -183,6 +195,24 @@
 				runState.status === "queued")
 	);
 	let isOpen = $state(false);
+	let failed = $derived(!!displayState && displayState.status === "error" && !isRunning);
+	let errorText = $derived(
+		displayState?.sandboxError ??
+			displayState?.outcome?.error ??
+			displayState?.outcome?.stderr ??
+			""
+	);
+	let duration = $derived.by(() => {
+		const st = displayState;
+		if (!st?.finishedAt || !st.startedAt) return "";
+		const ms = st.finishedAt - st.startedAt;
+		return ms < 100
+			? ""
+			: ms < 10_000
+				? `${(ms / 1000).toFixed(1)} s`
+				: `${Math.round(ms / 1000)} s`;
+	});
+	let startingPython = $derived(runState?.status === "loading" && !resolved);
 	let wasRunning = $state(false);
 	let initialized = $state(false);
 	$effect(() => {
@@ -205,52 +235,53 @@
 
 <BlockWrapper>
 	<div
-		class="rounded-lg border border-blue-200/70 bg-blue-50/30 dark:border-blue-800/60 dark:bg-blue-950/20"
+		class="my-3 min-w-[min(26rem,calc(100vw-4.5rem))] rounded-[14px] border border-gray-300/60 bg-gray-500/[0.06] dark:border-gray-600/50"
+		data-testid="code-execution-card"
 	>
 		<button
 			type="button"
 			onclick={() => (isOpen = !isOpen)}
 			aria-expanded={isOpen}
 			aria-label={isOpen ? "Collapse code output" : "Expand code output"}
-			class="group/header flex w-full cursor-pointer items-center gap-1.5 border-b border-blue-200/70 px-3 py-1.5 text-left text-xs text-gray-500 select-none focus:outline-hidden dark:border-blue-800/60 dark:text-gray-400"
+			class="flex w-full cursor-pointer items-center gap-2 px-4 py-3 text-left text-sm text-gray-700 select-none focus:outline-hidden dark:text-gray-300"
 		>
-			{#if runState && (runState.status === "loading" || runState.status === "running" || runState.status === "queued") && !resolved}
-				<EosIconsLoading class="text-gray-400" />
-				<span>{runState.status === "loading" ? "Starting Python" : "Running in your browser"}</span>
-			{:else}
-				<CarbonChip class="text-gray-400" />
-				<span>Assistant-run code</span>
-			{/if}
+			<CarbonChip class="text-gray-400" />
+			<span class="font-medium">
+				{isRunning ? (startingPython ? "Starting Python" : "Running Python") : "Ran Python"}
+			</span>
+			<span class="ml-auto flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+				{#if isRunning}
+					<EosIconsLoading class="text-gray-400" />
+				{:else if failed}
+					<CarbonClose class="text-red-500 dark:text-red-400" />
+					<span class="text-red-600 dark:text-red-400">Failed</span>
+				{:else if displayState}
+					<CarbonCheckmark class="text-green-600 dark:text-green-500" />
+					{#if duration}<span>{duration}</span>{/if}
+				{/if}
+			</span>
 			<CarbonChevronRight
-				class="ml-auto size-3.5 transition-transform duration-200 {isOpen ? 'rotate-90' : ''}"
+				class="size-3.5 flex-none text-gray-400 transition-transform duration-200 {isOpen
+					? 'rotate-90'
+					: ''}"
 			/>
 		</button>
+		{#if failed && !isOpen && errorText}
+			<!-- The failure stays readable with the code folded. -->
+			<pre
+				class="mx-4 mb-3 scrollbar-custom max-h-28 overflow-y-auto rounded-lg bg-amber-50 p-2 font-mono text-xs break-all whitespace-pre-wrap text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+				data-testid="run-error">{errorText}</pre>
+		{/if}
 		{#if isOpen}
-			<div class="px-3 py-2">
-				<RunOutput state={displayState} showFiles={false} />
+			<div class="space-y-2 border-t border-gray-300/50 px-4 py-3 dark:border-gray-600/40">
+				<pre
+					class="scrollbar-custom max-h-60 overflow-auto rounded-lg bg-gray-500/10 p-2 font-mono text-xs whitespace-pre-wrap"
+					data-testid="run-code">{request.code}</pre>
+				<RunOutput state={displayState} showFiles={false} bare />
 			</div>
 		{/if}
-		{#if hasFiles}
-			<!-- Deliverables, never collapsed: a file the person asked for stays in
-			     its own box below the (foldable) code output. Cards with a sha the
-			     registry knows render as file artifact cards; a live run's listing
-			     (no sha yet) stays a plain FileCard. -->
-			<ul class="space-y-1 border-t border-blue-200/70 px-3 py-2 dark:border-blue-800/60">
-				{#if outputFiles.length > 0}
-					{#each outputFiles as file (file.path)}
-						<FileArtifactCard {file} autoExpand />
-					{/each}
-				{:else}
-					{#each persistedFiles as file (file.downloadUrl)}
-						<FileArtifactCard
-							file={{ path: file.name, size: file.size }}
-							downloadUrl={file.downloadUrl}
-							sha256={file.sha256}
-							autoExpand
-						/>
-					{/each}
-				{/if}
-			</ul>
-		{/if}
+		<!-- Deliverables, never collapsed: rows under the header whatever the
+		     code section is doing. -->
+		<RunFiles state={displayState} />
 	</div>
 </BlockWrapper>

@@ -57,7 +57,8 @@ COPY --link --chown=1000 . .
 # the kit's dev/build.sh). Builder stage only: the running server keeps the default.
 ARG BUILD_HEAP_MB=3072
 RUN git config --global --add safe.directory /app && \
-    NODE_OPTIONS=--max-old-space-size=${BUILD_HEAP_MB} npm run build
+    NODE_OPTIONS=--max-old-space-size=${BUILD_HEAP_MB} npm run build && \
+    node scripts/check-bundle.mjs
 
 # Runtime dependencies only. The builder needs the whole tree (vite, svelte-check,
 # the test tooling); the running server needs only `dependencies`, which is what

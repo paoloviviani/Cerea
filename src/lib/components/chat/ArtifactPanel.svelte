@@ -10,7 +10,12 @@
 	import { artifactFileName, isPreviewableKind } from "$lib/utils/artifacts";
 	import { artifactRunKey } from "$lib/utils/execution/keys";
 	import { getArtifactRunsStore } from "$lib/utils/execution/artifactRuns.svelte";
-	import { recordRunFiles, uploadRunFiles } from "$lib/utils/execution/runFiles";
+	import {
+		describeRunFiles,
+		noteLiveRunFiles,
+		recordRunFiles,
+		uploadAndDescribe,
+	} from "$lib/utils/execution/runFiles";
 	import { runFiles } from "$lib/stores/runFiles.svelte";
 	import RunOutput from "./RunOutput.svelte";
 	import ExecutionFiles from "./ExecutionFiles.svelte";
@@ -571,11 +576,13 @@
 		// does, or this can claim and upload a partial list.
 		if (!state.outputsCollected || !state.outputFiles?.length) return;
 		const claimKey = `${messageId}|${cellRunKey}@${state.startedAt}`;
-		if (!runFiles.claim(claimKey)) return;
 		const key = cellRunKey;
 		const listed = state.outputFiles;
+		noteLiveRunFiles(messageId, key, describeRunFiles(listed));
+		if (!runFiles.claim(claimKey)) return;
 		void (async () => {
-			const files = await uploadRunFiles(cid, listed);
+			const files = await uploadAndDescribe(cid, listed);
+			noteLiveRunFiles(version?.messageId ?? messageId, key, files);
 			const update = await recordRunFiles({
 				conversationId: cid,
 				messageId,

@@ -2,6 +2,7 @@ import { untrack } from "svelte";
 import { withAttachmentMounts } from "./attachmentMounts.svelte";
 import { getExecutionSession, type ExecutionSession, type ExecutionStatus } from "./runtime";
 import type { RunOutcome } from "./protocol";
+import { cacheFileBytes, sha256Hex, type RunOutputFile } from "./fileIdentity";
 
 /**
  * Reactive record of code executions, keyed by the caller's identity for the
@@ -32,7 +33,7 @@ export interface RunState {
 	 * CodeExecutionCard, CodeBlock and the artifact panel — but that is a
 	 * parallel path, not something RunsStore itself does.)
 	 */
-	outputFiles?: Array<{ path: string; size: number }>;
+	outputFiles?: RunOutputFile[];
 	/**
 	 * Set once the async file listing for a settled run has finished (even
 	 * when it found nothing). The outcome settles synchronously for fence
@@ -49,7 +50,13 @@ export interface RunState {
 	 * a live run. `sha256` travels when the source reference carries it — the
 	 * inline file artifact card joins the registry by it.
 	 */
-	persistedFiles?: Array<{ name: string; size: number; sha256?: string; downloadUrl: string }>;
+	persistedFiles?: Array<{
+		name: string;
+		size: number;
+		sha256?: string;
+		uploaded?: boolean;
+		downloadUrl: string;
+	}>;
 	startedAt: number;
 	finishedAt?: number;
 }
@@ -166,9 +173,25 @@ let store: RunsStore | undefined;
  */
 export async function collectOutputFiles(
 	session: ExecutionSession
-): Promise<Array<{ path: string; size: number }> | undefined> {
+): Promise<RunOutputFile[] | undefined> {
 	try {
-		const files = await session.listFiles();
+		const listed = await session.listFiles();
+		const files: RunOutputFile[] = [];
+		for (const file of listed) {
+			try {
+				// Fingerprinted here, where the bytes are first read: every card,
+				// registry entry and record names the file by this sha256, so no
+				// card ever waits on an upload to know what it shows. A file that
+				// cannot be read any more (removed mid-run) is not a deliverable.
+				const data = await session.readFile(file.path);
+				const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+				const sha256 = await sha256Hex(bytes);
+				cacheFileBytes(sha256, bytes);
+				files.push({ path: file.path, size: bytes.byteLength, sha256 });
+			} catch {
+				// Gone already.
+			}
+		}
 		return files.length > 0 ? files : undefined;
 	} catch {
 		return undefined;

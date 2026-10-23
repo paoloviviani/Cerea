@@ -38,6 +38,7 @@
 	import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 	import {
 		isMessageToolUpdate,
+		isMessageToolCallUpdate,
 		isMessageToolResultUpdate,
 		isMessageToolErrorUpdate,
 		isMessageElicitationRequestUpdate,
@@ -460,7 +461,35 @@
 			);
 		}
 
+		// The `execute_code` tool call a code-execution card stands for: the
+		// card IS the call, so its generic "Called tool" row is not drawn.
+		// Requests carry the call's uuid; older stored ones are paired with
+		// the nearest unclaimed `execute_code` call before them.
+		const codeToolUuids = new Set<string>();
+		{
+			const unclaimed: string[] = [];
+			for (const update of updates) {
+				if (isMessageToolCallUpdate(update) && update.call.name === "execute_code") {
+					unclaimed.push(update.uuid);
+				} else if (isMessageCodeExecutionRequestUpdate(update)) {
+					const uuid = update.toolUuid ?? unclaimed.at(-1);
+					if (uuid) {
+						codeToolUuids.add(uuid);
+						const i = unclaimed.indexOf(uuid);
+						if (i !== -1) unclaimed.splice(i, 1);
+					}
+				}
+			}
+		}
+
 		for (const update of updates) {
+			if (
+				isMessageToolUpdate(update) &&
+				codeToolUuids.has(update.uuid) &&
+				!isMessageToolErrorUpdate(update)
+			) {
+				continue;
+			}
 			if (update.type === MessageUpdateType.Stream) {
 				const token =
 					typeof update.token === "string" && update.token.length > 0 ? update.token : null;

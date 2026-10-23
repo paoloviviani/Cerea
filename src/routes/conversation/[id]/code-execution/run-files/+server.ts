@@ -10,7 +10,10 @@ import {
 	type MessageCodeExecutionOutputsUpdate,
 } from "$lib/types/MessageUpdate";
 import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
-import { MAX_DELIVERABLES_PER_CONVERSATION } from "$lib/server/execution/deliverables";
+import {
+	MAX_DELIVERABLES_PER_CONVERSATION,
+	markStoredRefs,
+} from "$lib/server/execution/deliverables";
 import { MAX_CODE_RUN_FILES_PER_CONVERSATION } from "$lib/server/execution/runFiles";
 
 /**
@@ -32,14 +35,32 @@ import { MAX_CODE_RUN_FILES_PER_CONVERSATION } from "$lib/server/execution/runFi
  * as the upload (`authCondition`): nobody writes into somebody else's chat.
  */
 
-const body = z.object({
-	messageId: z.string().min(1).max(128),
-	runKey: z.string().min(1).max(512),
-	sha256: z
-		.array(z.string().regex(/^[0-9a-f]{64}$/))
-		.min(1)
-		.max(MAX_DELIVERABLES_PER_CONVERSATION),
-});
+const sha = z.string().regex(/^[0-9a-f]{64}$/);
+
+const body = z
+	.object({
+		messageId: z.string().min(1).max(128),
+		runKey: z.string().min(1).max(512),
+		/**
+		 * What the run produced, as the browser fingerprinted it. Recorded even
+		 * when the upload failed (then as `uploaded: false`); the server marks
+		 * which bytes it really holds.
+		 */
+		files: z
+			.array(
+				z.object({
+					name: z.string().min(1).max(512),
+					size: z.number().int().nonnegative(),
+					sha256: sha,
+				})
+			)
+			.min(1)
+			.max(MAX_DELIVERABLES_PER_CONVERSATION)
+			.optional(),
+		/** The earlier shape: hashes only, each rebuilt from a stored row. */
+		sha256: z.array(sha).min(1).max(MAX_DELIVERABLES_PER_CONVERSATION).optional(),
+	})
+	.refine((value) => value.files || value.sha256);
 
 export const POST: RequestHandler = async ({ params, locals, request }) => {
 	if (!locals.user && !locals.sessionId) error(401, "Unauthorized");
@@ -49,7 +70,6 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 	const parsed = body.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) error(400, "Invalid request");
 	const { messageId, runKey } = parsed.data;
-	const hashes = [...new Set(parsed.data.sha256)];
 
 	const conversation = await collections.conversations.findOne(
 		{ _id: conversationId, ...authCondition(locals) },
@@ -68,17 +88,32 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 	if (!message) error(409, "message not saved yet");
 	if (message.from !== "assistant") error(400, "Not an assistant message");
 
-	const rows = await collections.codeExecutionOutputs
-		.find({ conversationId, sha256: { $in: hashes } })
-		.project<{ name: string; size: number; sha256: string }>({ name: 1, size: 1, sha256: 1 })
-		.toArray();
-	const bySha = new Map(rows.map((row) => [row.sha256, row]));
-	// In the order the run listed them; a hash this conversation never stored is dropped.
-	const files: PersistedDeliverableRef[] = hashes.flatMap((sha256) => {
-		const row = bySha.get(sha256);
-		return row ? [{ name: row.name, size: row.size, sha256 }] : [];
-	});
-	if (files.length === 0) error(400, "None of those files are stored for this conversation");
+	let files: PersistedDeliverableRef[];
+	if (parsed.data.files) {
+		// Several names for identical bytes stay several files; the same name and
+		// bytes listed twice is one.
+		const seen = new Set<string>();
+		const unique = parsed.data.files.filter((f) => {
+			const key = `${f.name}\0${f.sha256}`;
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		});
+		files = await markStoredRefs(conversationId, unique);
+	} else {
+		const hashes = [...new Set(parsed.data.sha256 ?? [])];
+		const rows = await collections.codeExecutionOutputs
+			.find({ conversationId, sha256: { $in: hashes } })
+			.project<{ name: string; size: number; sha256: string }>({ name: 1, size: 1, sha256: 1 })
+			.toArray();
+		const bySha = new Map(rows.map((row) => [row.sha256, row]));
+		// In the order the run listed them; a hash this conversation never stored is dropped.
+		files = hashes.flatMap((sha256) => {
+			const row = bySha.get(sha256);
+			return row ? [{ name: row.name, size: row.size, sha256, uploaded: true }] : [];
+		});
+		if (files.length === 0) error(400, "None of those files are stored for this conversation");
+	}
 
 	const update: MessageCodeExecutionOutputsUpdate = {
 		type: MessageUpdateType.CodeExecution,
@@ -114,12 +149,14 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 		.updateOne(
 			{ conversationId, messageId, runKey, fingerprint },
 			{
+				// `files` is rewritten on every call: a retried upload turns an
+				// `uploaded: false` record into a stored one under the same key.
+				$set: { files },
 				$setOnInsert: {
 					conversationId,
 					messageId,
 					runKey,
 					fingerprint,
-					files,
 					createdAt: new Date(),
 				},
 			},
