@@ -19,9 +19,10 @@
 #   3. writes PYSTINO_REGISTRY/PYSTINO_VERSION/CEREA_REGISTRY/CEREA_VERSION
 #      into .env through ./configure --set, so `docker compose up -d` runs them.
 #
-# Only the images .env's COMPOSE_PROFILES need are built (gateway always,
-# redaction with the redaction profile, cerea with the chat profile); --all
-# builds every one. Scratch files go to dev/src/tmp, not /tmp.
+# Only the images .env's COMPOSE_PROFILES need are built (gateway always;
+# compose.yaml says which profile takes which image: redaction for the
+# redaction and documents profiles, cerea for chat); --all builds every one.
+# A ref names the remote branch first, then a tag, then a commit. Scratch files go to dev/src/tmp, not /tmp.
 #
 # Environment:
 #   PYSTINO_REPO, CEREA_REPO   clone URLs (default: github.com/paoloviviani/…)
@@ -30,6 +31,7 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$ROOT/dev/build-lib.sh"
 SRC="$ROOT/dev/src"
 PYSTINO_REPO=${PYSTINO_REPO:-https://github.com/paoloviviani/Pystino.git}
 CEREA_REPO=${CEREA_REPO:-https://github.com/paoloviviani/Cerea.git}
@@ -79,9 +81,16 @@ if [ -f "$ROOT/.env" ]; then
   profiles=$(sed -n "s/^COMPOSE_PROFILES=//p" "$ROOT/.env" | tr -d "'\"")
 fi
 wants() { [ "$all" = 1 ] || [ -z "$profiles" ] || [[ ",$profiles," == *",$1,"* ]]; }
+# compose.yaml says which profile needs which local image.
 build_gateway=1 build_redaction=0 build_cerea=0
-wants redaction && build_redaction=1
-wants chat && build_cerea=1
+while read -r prof anchor; do
+  wants "$prof" || continue
+  case $anchor in
+    gateway-image) build_gateway=1 ;;
+    redaction-image) build_redaction=1 ;;
+    cerea-image) build_cerea=1 ;;
+  esac
+done < <(profile_images "$ROOT/compose.yaml")
 [ "$ner" = 1 ] && build_redaction=1
 
 # --- sources --------------------------------------------------------------------
@@ -97,9 +106,9 @@ checkout() {  # <dir> <url> <ref> -> prints the full commit
     # context, and a worktree's .git points outside it.
     git clone -q --no-hardlinks "$url" "$dir" >&2
   fi
-  git -C "$dir" -c advice.detachedHead=false checkout -q --detach "$ref" 2>/dev/null \
-    || git -C "$dir" -c advice.detachedHead=false checkout -q --detach "origin/$ref" \
-    || die "$ref is not a commit, tag or branch of $url"
+  local want
+  want=$(resolve_ref "$dir" "$ref") || die "$ref is not a commit, tag or branch of $url"
+  git -C "$dir" -c advice.detachedHead=false checkout -q --detach "$want"
   [ -z "$(git -C "$dir" status --porcelain)" ] || die "$dir has local changes; the image would not match its commit"
   git -C "$dir" rev-parse HEAD
 }
