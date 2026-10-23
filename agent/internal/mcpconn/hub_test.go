@@ -325,3 +325,28 @@ func TestProcessGroupIsKilledOnClose(t *testing.T) {
 	}
 	t.Fatalf("grandchild %d outlived the channel", pid)
 }
+
+// A sign-in stored right after the server was flagged must clear the flag. The
+// file's mtime comes from the kernel's coarse clock and can read earlier than
+// the instant the flag was raised, so the flag compares the stored file, not
+// clocks.
+func TestSignInStoredRightAfterFlagClearsNeedsLogin(t *testing.T) {
+	f := newFakeHTTPServer(t, true)
+	r := newRig(t, f.config(""), nil)
+	e := r.hub.Entry("web")
+	for i := 0; i < 500; i++ {
+		r.hub.flagLogin("web")
+		if !r.hub.loginNeeded(e) {
+			t.Fatalf("round %d: a flagged server with no sign-in must need one", i)
+		}
+		tok := &StoredToken{Server: e.URL, TokenEndpoint: f.srv.URL + "/token", ClientID: "c",
+			AccessToken: fmt.Sprintf("a%d", i), ExpiresAt: time.Now().Add(time.Hour).Unix()}
+		if err := r.hub.Tokens().Save("web", tok); err != nil {
+			t.Fatal(err)
+		}
+		if r.hub.loginNeeded(e) {
+			t.Fatalf("round %d: still needs-login right after a sign-in was stored", i)
+		}
+		r.hub.Tokens().Delete("web")
+	}
+}

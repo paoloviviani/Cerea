@@ -2,6 +2,8 @@ package mcpconn
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -211,11 +213,13 @@ func postToken(ctx context.Context, client *http.Client, endpoint string, form u
 	return &tr, nil
 }
 
-// ModTime is when the sign-in file was last written (zero if none).
-func (s *TokenStore) ModTime(name string) time.Time {
-	st, err := os.Stat(s.path(name))
+// Fingerprint identifies the stored sign-in's current content ("" if none), so
+// a caller can tell that a different sign-in has been stored since.
+func (s *TokenStore) Fingerprint(name string) string {
+	body, err := os.ReadFile(s.path(name))
 	if err != nil {
-		return time.Time{}
+		return ""
 	}
-	return st.ModTime()
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
 }
