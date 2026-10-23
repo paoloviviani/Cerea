@@ -144,7 +144,7 @@ test.describe("the sidebar's Projects and Chats headers", () => {
 		).toBeVisible();
 	});
 
-	test("the Projects label opens the list of projects", async ({ page, db, session }) => {
+	test("@smoke the Projects label opens the list of projects", async ({ page, db, session }) => {
 		const userId = await installUserSession(db, session.sessionId);
 		await seedChats(db, session.sessionId, userId);
 
@@ -155,7 +155,7 @@ test.describe("the sidebar's Projects and Chats headers", () => {
 		await expect(page.getByRole("link", { name: /Mortgage/ }).last()).toBeVisible();
 	});
 
-	test("the chevrons collapse and expand each branch without navigating", async ({
+	test("@smoke the chevrons collapse and expand each branch without navigating", async ({
 		page,
 		db,
 		session,

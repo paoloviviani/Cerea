@@ -36,7 +36,7 @@ function deviceRow(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-test("an offline device's open agent shows a clean offline state and asks the daemon for nothing", async ({
+test("@smoke an offline device's open agent shows a clean offline state and asks the daemon for nothing", async ({
 	page,
 }) => {
 	await page.route("**/api/v2/code/devices*", (route) =>

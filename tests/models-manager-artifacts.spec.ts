@@ -8,7 +8,9 @@
  */
 import { test, expect, E2E_APP_BASE } from "./fixtures.ts";
 
-test("the Artifacts switch shows on by default for a tool-capable model", async ({ page }) => {
+test("@smoke the Artifacts switch shows on by default for a tool-capable model", async ({
+	page,
+}) => {
 	await page.goto(`${E2E_APP_BASE}/workspace`);
 
 	// The filter tokenizes on non-alphanumerics and matches each token as a

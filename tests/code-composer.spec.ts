@@ -164,7 +164,7 @@ async function stubModelPicker(
  * effort"`, whatever the model's own label reads as beneath it — not a
  * pill named after the model, like the /code-only dropdown it replaced.
  */
-test("the model picker checks the default model when the agent has no explicit choice", async ({
+test("@smoke the model picker checks the default model when the agent has no explicit choice", async ({
 	page,
 }) => {
 	const AGENT_DEFAULT = "agent_e2e_default_model";

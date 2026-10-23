@@ -57,7 +57,7 @@ async function seedTurn(db: Db, seedConversation: SeedFn) {
 	return cid;
 }
 
-test("a stored run shows one header and the same card for every file, at phone width", async ({
+test("@smoke a stored run shows one header and the same card for every file, at phone width", async ({
 	page,
 	db,
 	seedConversation,
