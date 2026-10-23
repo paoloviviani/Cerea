@@ -66,7 +66,7 @@ test.describe("owned machine agent (P0)", () => {
 		await expect(page.getByText("repo", { exact: true })).toBeVisible();
 
 		await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
-		await page.getByRole("button", { name: "Write" }).click();
+		await page.getByRole("button", { name: "Build" }).click();
 		await page.getByRole("button", { name: "Create agent" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 
@@ -90,6 +90,10 @@ test.describe("owned machine agent (P0)", () => {
 			content: ["Wrote", " the", " file", "."],
 			chunkDelayMs: 10,
 			finishReason: "stop",
+			// opencode follows a bash result with a user-role message of its own, which the mock
+			// reads as a new prompt and answers with the tool call again (a second approval, never
+			// "Wrote the file."). One call is what the scenario means.
+			toolCallsOnce: true,
 		});
 		await box.fill("write the file");
 		await page.getByRole("button", { name: "Send message" }).click();

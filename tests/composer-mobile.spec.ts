@@ -6,7 +6,7 @@
  * What is pinned here, at 390×844 (the operator's phone): the `+`, every
  * pill, the context ring and send share one row (their boxes overlap
  * vertically, no second row); the pill group never wraps; the permission
- * selector (Deny · Ask · Allow) stays one pill-height group of three labelled
+ * selector (Plan · Ask · Allow) stays one pill-height group of three labelled
  * segments with its accessible name and its `aria-checked` state, and its
  * "what the ceiling still caps" note steps aside on a phone (the Allow
  * segment's title carries it). At 1280×800, the same composer keeps its text
@@ -165,9 +165,13 @@ test.describe("/code composer at 390×844", () => {
 		await expect(page.getByRole("combobox")).toBeVisible();
 	});
 
-	test("the +, every pill, the ring and send share one unwrapped row", async ({ page }) => {
+	test("the +, the permission selector and send share one unwrapped row, the model and the ring one below", async ({
+		page,
+	}) => {
 		const attach = page.getByRole("button", { name: "Add attachment" });
-		const mode = page.getByRole("button", { name: "Build" });
+		// The selector's Plan and Ask/Allow drive the build and plan agents, so
+		// those two are no longer a pill of their own.
+		await expect(page.getByRole("button", { name: "Build" })).toHaveCount(0);
 		// The model and its effort now share one pill — the chat composer's
 		// own `ModelEffortPicker` — rather than the /code-only dropdown and
 		// its separate Effort pill this replaced.
@@ -176,8 +180,10 @@ test.describe("/code composer at 390×844", () => {
 		const ring = page.getByRole("button", { name: "20.2k" });
 		const send = page.getByRole("button", { name: "Send message" });
 
-		const all = [attach, mode, modelEffort, selector, ring, send];
-		for (const locator of all) {
+		// Two rows: the `+`, the selector and send sit in the prompt box; the
+		// model/effort pill and the ring sit on the line under it.
+		const all = [attach, selector, send];
+		for (const locator of [...all, modelEffort, ring]) {
 			await expect(locator).toBeVisible();
 		}
 		await expect(modelEffort).toContainText("Coder Large With A Rather Long Name");
@@ -191,6 +197,10 @@ test.describe("/code composer at 390×844", () => {
 		const heights = boxes.map((b) => b.height);
 		expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(20);
 
+		const [modelBox, ringBox] = await Promise.all([modelEffort, ring].map(box));
+		expect(overlapsVertically(modelBox, ringBox)).toBe(true);
+		expect(modelBox.y).toBeGreaterThan(boxes[0].y + boxes[0].height);
+
 		// The `+`, ring and send sit inside the viewport; the pill group
 		// between them is free to run past it (it scrolls, checked below).
 		for (const locator of [attach, ring, send]) {
@@ -203,7 +213,7 @@ test.describe("/code composer at 390×844", () => {
 		// label kept for a screen reader: the same row height as chat's toggles.
 		const selectorBox = await box(selector);
 		expect(selectorBox.height).toBeLessThanOrEqual(32);
-		await expect(selector.getByRole("radio")).toHaveText(["Deny", "Ask", "Allow"]);
+		await expect(selector.getByRole("radio")).toHaveText(["Plan", "Ask", "Allow"]);
 
 		// The model name itself truncates rather than pushing the row wider
 		// (the pill's own bounding box also carries the effort suffix and
@@ -254,7 +264,7 @@ test.describe("/code composer: the ceiling note on mobile", () => {
 });
 
 test.describe("/code composer at 1280×800", () => {
-	test("keeps the text labels: Deny · Ask · Allow and the ring's value", async ({ page }) => {
+	test("keeps the text labels: Plan · Ask · Allow and the ring's value", async ({ page }) => {
 		await installStubs(page);
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await goto(page);
@@ -265,7 +275,7 @@ test.describe("/code composer at 1280×800", () => {
 		await expect(selector).toBeVisible();
 		await expect(ring).toBeVisible();
 
-		await expect(selector.getByRole("radio")).toHaveText(["Deny", "Ask", "Allow"]);
+		await expect(selector.getByRole("radio")).toHaveText(["Plan", "Ask", "Allow"]);
 		const askBox = await box(selector.getByRole("radio", { name: "Ask" }));
 		expect(askBox.width).toBeGreaterThan(20);
 		const ringLabelBox = await box(ring.locator("span").first());
@@ -274,21 +284,23 @@ test.describe("/code composer at 1280×800", () => {
 		await page.screenshot({ path: "test-results/mobile-composer-code-desktop.png" });
 	});
 
-	test("the +, the pills, the ring and send share one row", async ({ page }) => {
+	test("the +, the selector and send share one row, the ring on the line below", async ({
+		page,
+	}) => {
 		await installStubs(page);
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await goto(page);
 		await expect(page.getByRole("combobox")).toBeVisible();
 
 		const attach = page.getByRole("button", { name: "Add attachment" });
-		const modePill = page.getByRole("button", { name: "Build" });
+		const selector = page.getByRole("radiogroup", { name: "Permission for this session" });
 		const ring = page.getByRole("button", { name: "20.2k" });
 		const send = page.getByRole("button", { name: "Send message" });
-		const [attachBox, modeBox, ringBox, sendBox] = await Promise.all(
-			[attach, modePill, ring, send].map(box)
+		const [attachBox, selectorBox, ringBox, sendBox] = await Promise.all(
+			[attach, selector, ring, send].map(box)
 		);
-		expect(overlapsVertically(attachBox, modeBox)).toBe(true);
-		expect(overlapsVertically(attachBox, ringBox)).toBe(true);
+		expect(overlapsVertically(attachBox, selectorBox)).toBe(true);
+		expect(ringBox.y).toBeGreaterThan(attachBox.y + attachBox.height);
 		expect(overlapsVertically(attachBox, sendBox)).toBe(true);
 	});
 

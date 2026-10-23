@@ -163,7 +163,8 @@ test("hands off a completed reply to a new session, carrying the history up to i
 	const dialogTitle = page.getByRole("heading", { name: "Fork from here" });
 	await expect(dialogTitle).toBeVisible();
 	await expect(page.getByText("From e2e agent")).toBeVisible();
-	await expect(page.getByLabel("Carry the conversation up to here")).toBeChecked();
+	// The conversation is always carried: there is no toggle to turn it off.
+	await expect(page.getByLabel("Carry the conversation up to here")).toHaveCount(0);
 
 	await page.getByLabel("Prompt").fill("keep going on this");
 	await page.getByRole("button", { name: "Fork", exact: true }).click();
@@ -185,7 +186,9 @@ test("hands off a completed reply to a new session, carrying the history up to i
 	await expect(page.getByText("Forked from e2e agent")).toBeVisible();
 });
 
-test("carrying can be turned off, and the prompt is required", async ({ page }) => {
+test("the prompt is required, and the conversation is carried without a toggle", async ({
+	page,
+}) => {
 	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 	await expect(page.getByText("Sure thing.")).toBeVisible();
 
@@ -195,11 +198,10 @@ test("carrying can be turned off, and the prompt is required", async ({ page }) 
 	// Nothing typed yet: the dialog refuses to submit.
 	await expect(submit).toBeDisabled();
 
-	await page.getByLabel("Carry the conversation up to here").uncheck();
 	await page.getByLabel("Prompt").fill("start fresh");
 	await submit.click();
 
 	await expect.poll(() => handoffBodies.length).toBe(1);
-	expect(handoffBodies[0]).toMatchObject({ prompt: "start fresh", carry: false });
-	expect(handoffBodies[0]).not.toHaveProperty("uptoMessageId");
+	expect(handoffBodies[0]).toMatchObject({ prompt: "start fresh", carry: true });
+	expect(handoffBodies[0]).toHaveProperty("uptoMessageId");
 });

@@ -69,9 +69,9 @@ async function openAgentDialog(page: Page) {
 	await visibleTreeButton(page, "Start a coding session in this workspace").click();
 	const dialog = page.getByRole("dialog");
 	await expect(dialog).toBeVisible();
-	// The provider list has landed (the loading note is gone) — past this
-	// point the dialog's layout is stable.
-	await expect(dialog.getByText("As configured on your daemon.")).toBeVisible();
+	// The provider list has landed (a machine's one backend is named, not
+	// offered as a list) — past this point the dialog's layout is stable.
+	await expect(dialog.getByTestId("agent-backend")).toHaveText("Runs on opencode");
 }
 
 /** A dialog holds the viewport: no clipping, nothing past its right edge. */
