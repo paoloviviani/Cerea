@@ -1,16 +1,14 @@
 <script lang="ts">
 	import { browser } from "$app/environment";
 	import { onMount, onDestroy } from "svelte";
-	import CarbonDocument from "~icons/carbon/document";
 	import SidePane from "./SidePane.svelte";
 	import SlideImages from "./SlideImages.svelte";
+	import PdfViewer from "./PdfViewer.svelte";
 	import ExternalLinkModal from "../ExternalLinkModal.svelte";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import {
 		buildArtifactSrcdoc,
 		buildDocxSrcdoc,
-		browserRendersPdfInFrame,
-		pdfFrameSrc,
 		capturePreviewError,
 		composeFixRequest,
 		normalizePreviewError,
@@ -27,11 +25,8 @@
 	 * only holds what is showing. The iframe runs the same sandboxed builders
 	 * as every other preview, so the security posture is identical — only the
 	 * surface moved, from the fullscreen modal to this pane. Two payloads are
-	 * exceptions. A pdf is framed WITHOUT the sandbox: the browser's native
-	 * viewer refuses to attach to a sandboxed opaque-origin frame (Chrome
-	 * shows its "blocked" interstitial, Safari a white box), the bytes are
-	 * typed application/pdf by this app, and no document script executes. A
-	 * docx is not an ArtifactKind either: its content is already-sanitized
+	 * exceptions. A pdf is drawn in the page by pdf.js (no frame, the same
+	 * on every device). A docx is not an ArtifactKind either: its content is already-sanitized
 	 * docx-preview HTML, and it goes through buildDocxSrcdoc so the frame
 	 * carries the postMessage hook plus the fit-to-width script, like the
 	 * artifact panel's own docx view.
@@ -75,27 +70,6 @@
 					buildDocxSrcdoc(payload.content, channel)
 				: buildArtifactSrcdoc(payload.kind, payload.content, channel)
 	);
-
-	// Mobile engines draw no PDF in an iframe — see
-	// browserRendersPdfInFrame. The pop-out converts the payload's data:
-	// URL to a blob URL because Chrome refuses top-level data:
-	// navigations (a throw that would make the chip as dead as the
-	// placeholder it replaces), while a same-origin blob URL opens in the
-	// browser's own viewer, which every mobile browser has. The object
-	// URL outlives the click by design: the new tab keeps loading from it
-	// after this pane closes, so revoking it eagerly would race the
-	// navigation. It is reclaimed when the document unloads regardless —
-	// a few MB held for a tab's lifetime, only on this incapable path.
-	async function openPdfInNewTab(): Promise<void> {
-		if (!payload || payload.kind !== "pdf") return;
-		try {
-			const res = await fetch(payload.content);
-			const blob = await res.blob();
-			window.open(URL.createObjectURL(blob), "_blank", "noopener,noreferrer");
-		} catch {
-			// The panel stays useful as-is; the close button is the exit.
-		}
-	}
 
 	type PreviewMessage = {
 		type: string;
@@ -149,45 +123,9 @@
 							note={payload.note}
 							details={payload.details}
 						/>
-					{:else if payload.kind === "pdf" && browserRendersPdfInFrame()}
-						<!-- A pdf IS its own document type: the browser's native
-						     viewer draws it, so there is no srcdoc to build and
-						     nothing generated to execute. The sandbox token set is
-						     withheld deliberately — a native viewer refuses to
-						     attach to a sandboxed opaque-origin frame, which was
-						     the Chrome "blocked" panel and the Safari white box
-		    		         on every desktop, not a mobile quirk. The bytes are
-						     typed application/pdf by this app (8 MB cap, DOMPurify
-						     never sees them; there is no HTML to sanitize). -->
-						<iframe
-							title={`Preview of ${payload.title}`}
-							class="h-full w-full bg-white dark:bg-gray-900 {resizing
-								? 'pointer-events-none'
-								: ''}"
-							allow={PREVIEW_ALLOW}
-							allowfullscreen
-							referrerpolicy="no-referrer"
-							src={pdfFrameSrc(payload.content)}
-						></iframe>
 					{:else if payload.kind === "pdf"}
-						<!-- A mobile browser: no in-frame viewer exists even
-						     unsandboxed, and the placeholder's "Open" is dead under
-						     the preview sandbox — the pop-out chip is the working
-						     version of that button. -->
-						<div
-							class="flex h-full flex-col items-center justify-center gap-3 bg-gray-50 px-6 text-center dark:bg-gray-900"
-						>
-							<CarbonDocument class="size-10 text-gray-400" />
-							<p class="text-sm text-gray-600 dark:text-gray-300">
-								{payload.title} opens in the browser's PDF viewer
-							</p>
-							<button
-								class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
-								onclick={openPdfInNewTab}
-							>
-								Open in a new tab
-							</button>
-						</div>
+						<!-- A PDF is drawn in the page by pdf.js on every device. -->
+						<PdfViewer title={payload.title} dataUrl={payload.content} />
 					{:else}
 						<iframe
 							bind:this={iframeEl}

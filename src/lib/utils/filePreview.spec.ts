@@ -9,6 +9,7 @@ import {
 	formatFileSize,
 	isInlineRasterImage,
 	isInlineRasterMime,
+	previewPlan,
 } from "./filePreview";
 
 describe("filePreviewKindFor", () => {
@@ -116,5 +117,49 @@ describe("filePreviewKindFor, Office files", () => {
 		expect(filePreviewKindFor("a.pptx", { fromBytes: false })).toBe("none");
 		expect(filePreviewKindFor("a.xlsx")).toBe("none");
 		expect(filePreviewKindFor("a.odt")).toBe("none");
+	});
+});
+
+describe("previewPlan: one plan per type, whatever the device", () => {
+	const mobileUa =
+		"Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36";
+
+	test("a PDF is drawn by pdf.js, never by the browser's own frame viewer", () => {
+		expect(previewPlan("a.pdf", { converter: false, stored: true })).toEqual({ kind: "pdf" });
+		expect(previewPlan("a.pdf", { converter: true, stored: true })).toEqual({ kind: "pdf" });
+	});
+
+	test("a deck is drawn in the browser without a converter, or when its bytes are not stored", () => {
+		expect(previewPlan("d.pptx", { converter: false, stored: true })).toEqual({ kind: "pptx" });
+		expect(previewPlan("d.pptx", { converter: true, stored: false })).toEqual({ kind: "pptx" });
+	});
+
+	test("with a converter and a stored file the server's PDF is used, drawn by pdf.js, with the browser renderer as the fallback", () => {
+		expect(previewPlan("d.pptx", { converter: true, stored: true })).toEqual({
+			kind: "office",
+			fallback: "pptx",
+		});
+		expect(previewPlan("w.docx", { converter: true, stored: true })).toEqual({
+			kind: "office",
+			fallback: "docx",
+		});
+		// No client renderer for a spreadsheet: no fallback.
+		expect(previewPlan("s.xlsx", { converter: true, stored: true })).toEqual({ kind: "office" });
+	});
+
+	test("the answer does not depend on the user agent", () => {
+		const names = ["a.pdf", "d.pptx", "w.docx", "s.xlsx", "n.txt", "p.png"];
+		const desktop = names.map((n) => previewPlan(n, { converter: true, stored: true }));
+		const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+		Object.defineProperty(globalThis, "navigator", {
+			value: { userAgent: mobileUa, maxTouchPoints: 5 },
+			configurable: true,
+		});
+		try {
+			const phone = names.map((n) => previewPlan(n, { converter: true, stored: true }));
+			expect(phone).toEqual(desktop);
+		} finally {
+			if (original) Object.defineProperty(globalThis, "navigator", original);
+		}
 	});
 });

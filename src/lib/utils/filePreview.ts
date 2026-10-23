@@ -1,13 +1,11 @@
 /**
  * Renderer selection for files a run generated — the single place that
- * decides how a filename previews, so the chat `FileCard`, the one-shot
+ * decides how a filename previews, so the file cards, the one-shot
  * side-panel preview and the artifact panel's file view cannot drift.
  *
  * The security posture travels with the selection:
- * - `pdf` renders in the browser's native viewer framed WITHOUT the
- *   sandbox (Chrome and Safari refuse sandboxed PDF frames), from bytes
- *   this app typed `application/pdf`, under an 8 MB cap, with a mobile
- *   fallback for engines that draw no PDF in a frame;
+ * - `pdf` is drawn in the page by pdf.js (lazy-loaded, its worker served
+ *   from this origin), under an 8 MB cap, the same on every device;
  * - `docx` renders through docx-preview offscreen and is sanitised with
  *   DOMPurify before it reaches any panel;
  * - `office` is a Word, Excel, PowerPoint or OpenDocument file the server
@@ -107,6 +105,29 @@ export function filePreviewKindFor(
 	// byte source qualifies — live sandbox, persisted store, replay.
 	if (extension === "docx") return fromBytes ? "docx" : "none";
 	return "none";
+}
+
+/**
+ * The one preview plan for a file, the same on a desktop and a phone: nothing
+ * in it asks what device this is. A deck or document the server can convert
+ * (the deployment has a converter AND the file is in the store) previews as
+ * the server's PDF, drawn in the page by pdf.js; `fallback` is what draws it
+ * from the bytes when that conversion is unavailable or fails. Without a
+ * converter a deck is drawn by pptx-glimpse and a Word file by docx-preview.
+ * A PDF is drawn by pdf.js. Everything else keeps its own renderer.
+ */
+export function previewPlan(
+	name: string,
+	options: { converter: boolean; stored: boolean; fromBytes?: boolean }
+): { kind: FilePreviewKind; fallback?: FilePreviewKind } {
+	const fromBytes = options.fromBytes ?? true;
+	const kind = filePreviewKindFor(name, {
+		fromBytes,
+		officePreview: options.converter && options.stored,
+	});
+	if (kind !== "office") return { kind };
+	const fallback = filePreviewKindFor(name, { fromBytes, officePreview: false });
+	return fallback === "none" ? { kind } : { kind, fallback };
 }
 
 /**
