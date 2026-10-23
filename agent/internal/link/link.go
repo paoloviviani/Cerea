@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -337,6 +338,29 @@ func dialURL(origin string) (string, error) {
 
 // runOnce performs exactly one connection's lifecycle: dial, hello,
 // welcome, then serve frames until the connection ends.
+// refusalReason reads the (short) body of a refused upgrade response.
+func refusalReason(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	reason := strings.TrimSpace(string(body))
+	// A JSON error body ({"error":"..."}) reads better as its message.
+	var j struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &j) == nil {
+		if j.Error != "" {
+			reason = j.Error
+		} else if j.Message != "" {
+			reason = j.Message
+		}
+	}
+	return reason
+}
+
 func (l *Link) runOnce(ctx context.Context) error {
 	target, err := dialURL(l.cfg.CereaOrigin)
 	if err != nil {
@@ -355,11 +379,16 @@ func (l *Link) runOnce(ctx context.Context) error {
 	header.Set("X-Pystino-Machine-Name", l.cfg.MachineName)
 
 	l.cfg.Logf("link: dialing %s", l.cfg.CereaOrigin)
-	conn, _, err := websocket.Dial(dialCtx, target, &websocket.DialOptions{
+	conn, resp, err := websocket.Dial(dialCtx, target, &websocket.DialOptions{
 		HTTPHeader:   header,
 		Subprotocols: []string{"pystino-machine.v1"},
 	})
 	if err != nil {
+		// A refused upgrade carries Cerea's reason in the body (for example
+		// "Sign in to Cerea once before connecting a machine"): show it.
+		if reason := refusalReason(resp); reason != "" {
+			return fmt.Errorf("dialing cerea: %w: %s", err, reason)
+		}
 		return fmt.Errorf("dialing cerea: %w", err)
 	}
 	defer conn.CloseNow()
