@@ -3,7 +3,13 @@ import type { Client } from "@modelcontextprotocol/client";
 import { createMcpClient, type McpClientKind } from "./client";
 import type { McpServerConfig } from "./httpClient";
 import { mcpFetch } from "$lib/server/urlSafety";
-import { isLocalServerUrl } from "./localUrl";
+import { isLocalServerUrl, parseLocalServerUrl } from "./localUrl";
+import {
+	forgetLocalEra,
+	knownLocalEra,
+	LOCAL_PROBE_TIMEOUT_MS,
+	rememberLocalEra,
+} from "./localEra";
 
 type PoolEntry = {
 	client: Client;
@@ -71,28 +77,38 @@ function keyOf(server: McpServerConfig, isolation?: string, kind: McpClientKind 
 
 /**
  * A client on a channel of the person's own machine (ADR 0102): never the HTTP and SSE
- * fallbacks, which mean nothing for it. Negotiates the protocol era like any other client; one
- * that times out on the probe (a silent stdio server) is retried once without it.
+ * fallbacks, which mean nothing for it. Negotiates the protocol era like any other client, but
+ * only as long as a process takes to start (`localEra.ts`), and remembers the outcome: a server
+ * known to be legacy is connected as one directly, without a probe it would ignore.
  */
 async function connectLocal(url: string, kind: McpClientKind): Promise<Client> {
 	// Imported on demand: the machine link pulls in the database, which a pool user that never
 	// meets a local server should not need.
 	const { createLocalTransport } = await import("./localTransport");
+	const { localServerFingerprint } = await import("./local");
+	const target = parseLocalServerUrl(url);
+	const fingerprint = target ? localServerFingerprint(target.deviceId, target.server) : undefined;
 	const attempt = async (negotiate: boolean) => {
-		const client = createMcpClient(kind, { negotiate });
+		const client = createMcpClient(kind, { negotiate, probeTimeoutMs: LOCAL_PROBE_TIMEOUT_MS });
 		try {
-			await client.connect(await createLocalTransport(url));
+			await client.connect(await createLocalTransport(url, () => forgetLocalEra(url)));
 		} catch (err) {
 			await client.close?.().catch(() => {});
 			throw err;
 		}
 		return client;
 	};
+	const remember = (client: Client) => {
+		const era = client.getProtocolEra();
+		if (era === "legacy" || era === "modern") rememberLocalEra(url, era, fingerprint);
+		return client;
+	};
+	if (knownLocalEra(url, fingerprint) === "legacy") return remember(await attempt(false));
 	try {
-		return await attempt(true);
+		return remember(await attempt(true));
 	} catch (err) {
 		if (!/time(d)? ?out/i.test(err instanceof Error ? err.message : String(err))) throw err;
-		return attempt(false);
+		return remember(await attempt(false));
 	}
 }
 

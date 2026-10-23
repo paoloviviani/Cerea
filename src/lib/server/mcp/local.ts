@@ -47,6 +47,21 @@ export function resetLocalListCache(deviceId?: string): void {
 	else listCache.clear();
 }
 
+/**
+ * What identifies a server's entry in the last list heard from its machine, apart from its
+ * state (which moves with sign-ins and restarts); undefined when no list has been heard.
+ */
+export function localServerFingerprint(deviceId: string, server: string): string | undefined {
+	const entry = listCache.get(deviceId)?.servers.find((s) => s.name === server);
+	if (!entry) return undefined;
+	return JSON.stringify([
+		entry.name,
+		entry.transport,
+		entry.description ?? "",
+		entry.allowedTools ?? null,
+	]);
+}
+
 /** Whether a device can serve local connectors: a connectors machine, or an agent machine that
  * has an `mcp.json` (`capabilities.mcp`). */
 export function servesLocalConnectors(device: Pick<CodeDevice, "machine">): boolean {
