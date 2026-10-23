@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -372,4 +373,24 @@ func head(s []string) []string {
 		return s[:3]
 	}
 	return s
+}
+
+// A refused upgrade (403 "Sign in to Cerea once...") must surface Cerea's
+// reason, not only the status.
+func TestRefusedUpgradeLogsServerReason(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Sign in to Cerea once before connecting a machine", http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+	l := New(Config{
+		CereaOrigin: srv.URL,
+		Cred:        &fakeCred{token: "tok"},
+		Hello:       func() Hello { return Hello{} },
+		Handler:     &fakeHandler{calls: make(chan string, 1)},
+	})
+	err := l.runOnce(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "Sign in to Cerea once before connecting a machine") ||
+		!strings.Contains(err.Error(), "403") {
+		t.Fatalf("error = %v, want the status and the body text", err)
+	}
 }
