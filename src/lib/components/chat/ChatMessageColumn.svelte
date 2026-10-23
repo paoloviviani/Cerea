@@ -290,16 +290,33 @@
 	// as one group so the anchored turn's reservation is a single CSS
 	// min-height. Reads only
 	// ids/from, so token flushes never regroup.
+	// Each group also carries a `slot`, its DOM identity: its position counted
+	// from where the transcript started when it first rendered. Plain positions
+	// would hand every existing group a new identity when a history page is
+	// prepended above them, remounting every message below the reader. The
+	// slot base advances by the number of groups that appeared above the group
+	// that used to be first, so the existing groups keep their slots and the new
+	// ones take the negative slots above. A re-key (new ids, same shape) finds
+	// no previous first group and keeps positions, as the comment above the
+	// groups requires.
+	let slotBase = 0;
+	let previousFirstKey: string | null = null;
 	let turns = $derived.by(() => {
-		const groups: { key: string; messages: Message[] }[] = [];
+		const groups: { key: string; slot: number; messages: Message[] }[] = [];
 		for (const message of messages) {
 			const last = groups.at(-1);
 			if (message.from === "user" || !last) {
-				groups.push({ key: message.id, messages: [message] });
+				groups.push({ key: message.id, slot: 0, messages: [message] });
 			} else {
 				last.messages.push(message);
 			}
 		}
+		if (previousFirstKey !== null) {
+			const shifted = groups.findIndex((g) => g.key === previousFirstKey);
+			if (shifted > 0) slotBase += shifted;
+		}
+		previousFirstKey = groups[0]?.key ?? null;
+		groups.forEach((g, i) => (g.slot = i - slotBase));
 		return groups;
 	});
 
@@ -414,13 +431,14 @@
 					class="flex h-max flex-col gap-8"
 					style:padding-bottom="{chatScroll.bottomClearancePx}px"
 				>
-					<!-- Turn groups are identified by position, not key: the post-stream
-					     reconciliation re-keys every message, and re-created group
-					     elements would give Safari an in-between layout to clamp the
-					     view against (it clamps synchronously mid-DOM-swap). Messages
-					     inside stay keyed by id; the group's reservation binds to the
-					     anchored INDEX for the same reason. -->
-					{#each turns as turn, turnIdx}
+					<!-- Turn groups are identified by slot (position, shifted when a page
+					     is prepended), not by message id: the post-stream reconciliation
+					     re-keys every message, and re-created group elements would give
+					     Safari an in-between layout to clamp the view against (it clamps
+					     synchronously mid-DOM-swap). Messages inside stay keyed by id;
+					     the group's reservation binds to the anchored INDEX for the same
+					     reason. -->
+					{#each turns as turn, turnIdx (turn.slot)}
 						<div
 							class="flex flex-col gap-8"
 							style:min-height={turnIdx === chatScroll.anchoredTurnIndex
