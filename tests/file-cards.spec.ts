@@ -75,6 +75,12 @@ test("a stored run shows one header and the same card for every file, at phone w
 	const cards = message.getByTestId("file-artifact-card");
 	await expect(cards).toHaveCount(5);
 	const surface = message.getByTestId("code-execution-card");
+	// The surface stays inside the message column on a phone (a minimum width
+	// wider than the column once pushed it out on the right).
+	const column = await message.boundingBox();
+	const frame = await surface.boundingBox();
+	expect(frame!.x + frame!.width).toBeLessThanOrEqual(column!.x + column!.width + 1);
+	expect(frame!.x).toBeGreaterThanOrEqual(column!.x - 1);
 	for (let i = 0; i < 5; i++) {
 		const box = await cards.nth(i).boundingBox();
 		const outer = await surface.boundingBox();

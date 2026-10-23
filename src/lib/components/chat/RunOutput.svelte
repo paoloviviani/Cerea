@@ -114,7 +114,7 @@
 	<div class="space-y-2 {className}">{@render blocksView()}</div>
 {:else if runState}
 	<div
-		class="min-w-[min(26rem,calc(100vw-3rem))] rounded-[14px] border border-gray-300/60 bg-gray-500/[0.06] dark:border-gray-600/50 {className}"
+		class="min-w-[min(26rem,calc(100vw-4.5rem))] rounded-[14px] border border-gray-300/60 bg-gray-500/[0.06] dark:border-gray-600/50 {className}"
 		data-testid="run-output"
 	>
 		<div class="flex items-center gap-2 px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">

@@ -184,7 +184,7 @@
 <li
 	class="@container list-none {variant === 'row'
 		? 'py-3 first:pt-1 last:pb-1 [&:not(:first-child)]:border-t [&:not(:first-child)]:border-gray-300/50 dark:[&:not(:first-child)]:border-gray-600/40'
-		: `my-1 w-full max-w-md min-w-[min(26rem,calc(100vw-3rem))] rounded-xl border bg-gray-500/[0.06] px-3 py-3 ${isActive ? 'border-blue-300 ring-1 ring-blue-300 dark:border-blue-500/30 dark:ring-blue-500/30' : 'border-gray-300/60 dark:border-gray-600/50'}`}"
+		: `my-1 w-full max-w-md min-w-[min(26rem,calc(100vw-4.5rem))] rounded-xl border bg-gray-500/[0.06] px-3 py-3 ${isActive ? 'border-blue-300 ring-1 ring-blue-300 dark:border-blue-500/30 dark:ring-blue-500/30' : 'border-gray-300/60 dark:border-gray-600/50'}`}"
 	data-exclude-from-copy
 	data-testid="file-artifact-card"
 >
