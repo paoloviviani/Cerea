@@ -340,7 +340,7 @@
 	<div class="pointer-events-none sticky top-0 w-full">
 		<div
 			class="pointer-events-auto absolute flex items-center gap-1.5 {generatedFileCount > 0
-				? 'top-[1.1rem] right-8'
+				? 'top-[1.1rem] right-4'
 				: // A titled fence carries the filename header above the code, so the
 					// floating row drops below it instead of sitting on top of it.
 					fileBlock && !loading
@@ -401,9 +401,9 @@
 	{/snippet}
 
 	{#if generatedFileCount > 0}
-		<RunOutput state={shownState} class="mx-5 mt-2 mb-3" before={codeFold} />
+		<RunOutput state={shownState} class="mt-2 mb-3" before={codeFold} />
 	{:else}
 		{@render codeFence()}
-		<RunOutput state={shownState} class="mx-5 mb-3" />
+		<RunOutput state={shownState} class="mb-3" />
 	{/if}
 </div>

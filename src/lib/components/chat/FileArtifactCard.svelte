@@ -178,7 +178,7 @@
 	const showsImage = $derived(autoExpand && isInlineRasterImage(baseName) && !gone);
 
 	const ACTION =
-		"flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs text-blue-600 hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:text-blue-400 dark:hover:bg-blue-500/10";
+		"flex items-center justify-center gap-1 rounded-md px-1.5 py-1.5 @[520px]:px-2 text-xs text-blue-600 hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:text-blue-400 dark:hover:bg-blue-500/10";
 </script>
 
 <li
@@ -188,7 +188,7 @@
 	data-exclude-from-copy
 	data-testid="file-artifact-card"
 >
-	<div class="flex items-center gap-3">
+	<div class="flex items-center gap-2.5 @[520px]:gap-3">
 		<div
 			class="flex size-9 flex-none items-center justify-center rounded-lg bg-gray-500/10 text-gray-500 dark:text-gray-300"
 		>

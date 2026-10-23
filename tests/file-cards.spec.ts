@@ -123,7 +123,11 @@ test("a PDF opens drawn in the panel by pdf.js on a phone, not as a new-tab dead
 	const cid = await seedTurn(db, seedConversation);
 	await page.goto(`${E2E_APP_BASE}/conversation/${cid}`);
 	const message = page.locator('[data-message-role="assistant"]').last();
-	await message.getByRole("button", { name: "Open report.pdf in panel" }).click();
+	// A click before the page has hydrated does nothing: click until the panel is there.
+	await expect(async () => {
+		await message.getByRole("button", { name: "Open report.pdf in panel" }).click();
+		await expect(page.getByTestId("pdf-viewer")).toBeVisible({ timeout: 2000 });
+	}).toPass({ timeout: 30_000 });
 
 	const pages = page.getByTestId("pdf-viewer").locator("canvas");
 	await expect(pages).toHaveCount(2, { timeout: 30_000 });
@@ -144,9 +148,12 @@ test("a deck opens as slide images on a phone", async ({ page, db, seedConversat
 	const cid = await seedTurn(db, seedConversation);
 	await page.goto(`${E2E_APP_BASE}/conversation/${cid}`);
 	const message = page.locator('[data-message-role="assistant"]').last();
-	await message
-		.getByRole("button", { name: /Open preview_Cerea_and_Pystino_Overview_final.pptx in panel/ })
-		.click();
+	await expect(async () => {
+		await message
+			.getByRole("button", { name: /Open preview_Cerea_and_Pystino_Overview_final.pptx in panel/ })
+			.click();
+		await expect(page.getByLabel(/Close|close/).first()).toBeVisible({ timeout: 2000 });
+	}).toPass({ timeout: 30_000 });
 	await expect(page.locator('[data-testid="pptx-slides"] img').first()).toBeVisible({
 		timeout: 60_000,
 	});

@@ -273,10 +273,15 @@ describe("CodeBlock execution", () => {
 		expect(surface.querySelectorAll('[data-testid="file-artifact-card"]').length).toBe(1);
 		const card = surface.querySelector('[data-testid="file-artifact-card"]') as HTMLElement;
 		expect(getComputedStyle(card).borderTopWidth).toBe("0px");
-		// The surface starts at the code's own text inset: no empty left gutter.
-		const fence = screen.baseElement.querySelector("pre") as HTMLElement;
-		const inset = Number.parseFloat(getComputedStyle(fence).paddingLeft);
-		expect(Math.abs(surface.getBoundingClientRect().left - inset)).toBeLessThan(1);
+		// The surface spans the block's own column, like the "Ran Python" card:
+		// same left edge, same width, no inset.
+		const block = screen.baseElement.querySelector(".group.relative") as HTMLElement;
+		expect(
+			Math.abs(surface.getBoundingClientRect().left - block.getBoundingClientRect().left)
+		).toBeLessThan(1);
+		expect(
+			Math.abs(surface.getBoundingClientRect().right - block.getBoundingClientRect().right)
+		).toBeLessThan(1);
 		// File rows sit inside the surface, rows are li's of one list.
 		expect(surface.contains(files)).toBe(true);
 		for (const child of Array.from(files.children)) expect(child.tagName).toBe("LI");

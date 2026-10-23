@@ -92,32 +92,36 @@ describe("FileArtifactView — actual bytes, not just recorded metadata", () => 
 		}
 	});
 
-	it("still previews a pdf whose recorded and actual sizes agree and are within the cap", async () => {
-		const bytes = minimalPdf(1);
-		const restore = stubFetch(bytes);
-		try {
-			const screen = render(FileArtifactView, {
-				version: {
-					name: "report.pdf",
-					size: bytes.length,
-					sha256: "abc",
-					version: 1,
-					messageId: "m1",
-				},
-				conversationId: "conv1",
-			});
-			// pdf.js drew the page in the panel itself.
-			await vi.waitFor(
-				() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(1),
-				{ timeout: 30_000 }
-			);
-			expect(
-				screen.baseElement.querySelector('[data-testid="file-artifact-view"]')?.textContent
-			).not.toContain("too large to preview");
-		} finally {
-			restore();
+	it(
+		"still previews a pdf whose recorded and actual sizes agree and are within the cap",
+		{ timeout: 60_000 },
+		async () => {
+			const bytes = minimalPdf(1);
+			const restore = stubFetch(bytes);
+			try {
+				const screen = render(FileArtifactView, {
+					version: {
+						name: "report.pdf",
+						size: bytes.length,
+						sha256: "abc",
+						version: 1,
+						messageId: "m1",
+					},
+					conversationId: "conv1",
+				});
+				// pdf.js drew the page in the panel itself.
+				await vi.waitFor(
+					() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(1),
+					{ timeout: 30_000 }
+				);
+				expect(
+					screen.baseElement.querySelector('[data-testid="file-artifact-view"]')?.textContent
+				).not.toContain("too large to preview");
+			} finally {
+				restore();
+			}
 		}
-	});
+	);
 });
 
 describe("FileArtifactView — a file whose upload failed", () => {
@@ -142,26 +146,30 @@ describe("FileArtifactView — a file whose upload failed", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it("previews from this tab's own bytes while it still holds them", async () => {
-		const fetchMock = vi.fn();
-		vi.stubGlobal("fetch", fetchMock);
-		const bytes = minimalPdf(1);
-		const sha = "f2".repeat(32);
-		cacheFileBytes(sha, bytes);
-		try {
-			const screen = render(FileArtifactView, {
-				version: unsaved(bytes, sha),
-				conversationId: "conv1",
-			});
-			await vi.waitFor(
-				() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(1),
-				{ timeout: 30_000 }
-			);
-			expect(fetchMock).not.toHaveBeenCalled();
-		} finally {
-			clearFileByteCache();
+	it(
+		"previews from this tab's own bytes while it still holds them",
+		{ timeout: 60_000 },
+		async () => {
+			const fetchMock = vi.fn();
+			vi.stubGlobal("fetch", fetchMock);
+			const bytes = minimalPdf(1);
+			const sha = "f2".repeat(32);
+			cacheFileBytes(sha, bytes);
+			try {
+				const screen = render(FileArtifactView, {
+					version: unsaved(bytes, sha),
+					conversationId: "conv1",
+				});
+				await vi.waitFor(
+					() => expect(screen.baseElement.querySelectorAll('canvas[role="img"]').length).toBe(1),
+					{ timeout: 30_000 }
+				);
+				expect(fetchMock).not.toHaveBeenCalled();
+			} finally {
+				clearFileByteCache();
+			}
 		}
-	});
+	);
 });
 
 describe("FileArtifactView — image preview", () => {

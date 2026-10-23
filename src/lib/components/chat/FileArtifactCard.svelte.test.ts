@@ -269,6 +269,38 @@ describe("FileArtifactCard", () => {
 		clearFileByteCache();
 	});
 
+	it("keeps every character that fits: a name with room is not cut, a long one fills the row", async () => {
+		await page.viewport(390, 800);
+		const fits = mountCard({
+			file: { path: "Cerea_and_Pystino.pptx", size: 31_000 },
+			sha256: SHA_V2,
+		});
+		const whole = fits.baseElement.querySelector('[data-testid="file-name"]') as HTMLElement;
+		const wholeHead = whole.firstElementChild as HTMLElement;
+		expect(wholeHead.scrollWidth).toBeLessThanOrEqual(wholeHead.clientWidth);
+		expect(whole.textContent).toContain("Cerea_and_Pystino.pptx");
+		fits.unmount();
+
+		const long = mountCard({
+			file: { path: "preview_Cerea_and_Pystino_Overview_final_v2.pptx", size: 31_000 },
+			sha256: SHA_V2,
+		});
+		const el = long.baseElement.querySelector('[data-testid="file-name"]') as HTMLElement;
+		const head = el.firstElementChild as HTMLElement;
+		const tail = el.lastElementChild as HTMLElement;
+		expect(head.scrollWidth).toBeGreaterThan(head.clientWidth);
+		// Head plus pinned tail use the whole name column: nothing is left empty.
+		expect(
+			Math.abs(
+				head.getBoundingClientRect().width +
+					tail.getBoundingClientRect().width -
+					el.getBoundingClientRect().width
+			)
+		).toBeLessThan(2);
+		// Only the extension and two characters are pinned.
+		expect(tail.textContent).toBe("v2.pptx".slice(-7));
+	});
+
 	it("middle-truncates a long name keeping the extension, at phone width", async () => {
 		await page.viewport(390, 800);
 		const name = "preview_Cerea_and_Pystino_Overview_final.pptx";

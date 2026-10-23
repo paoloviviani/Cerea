@@ -66,6 +66,20 @@
 		}
 	}
 
+	// Draw once both the document and the host element exist. The element is
+	// bound after the status flips and the DOM updates, so drawing straight
+	// after opening raced it and, when it lost, drew nothing at all.
+	let drawn = false;
+	$effect(() => {
+		if (status === "ready" && host && !drawn) {
+			drawn = true;
+			void draw().catch((err) => {
+				status = "error";
+				failure = `this PDF could not be shown (${err instanceof Error ? err.message : "render failed"}); download it to read it`;
+			});
+		}
+	});
+
 	onMount(() => {
 		void (async () => {
 			try {
@@ -78,8 +92,6 @@
 				}
 				pageCount = doc.numPages;
 				status = "ready";
-				await Promise.resolve();
-				await draw();
 			} catch (err) {
 				if (destroyed) return;
 				status = "error";
