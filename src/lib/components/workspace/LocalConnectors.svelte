@@ -198,6 +198,7 @@ Wants=network-online.target
 
 [Service]
 ExecStart=%h/.local/bin/galopin run
+# Another connectors file: ExecStart=%h/.local/bin/galopin run --mcp-config /path/to/file.json
 Restart=on-failure
 RestartSec=10
 # 78 means this machine was revoked: restarting cannot fix it.
@@ -302,8 +303,10 @@ loginctl enable-linger "$USER"`;
 			The file is in galopin's config directory, next to
 			<code class="font-mono">credentials.json</code>:
 			<code class="font-mono">~/.config/galopin/mcp.json</code> on Linux,
-			<code class="font-mono">~/Library/Application Support/galopin/mcp.json</code> on macOS. It is the
-			format Claude Desktop and Claude Code use, so an existing file can be copied as is.
+			<code class="font-mono">~/Library/Application Support/galopin/mcp.json</code> on macOS. It is
+			the format Claude Desktop and Claude Code use, so an existing file can be copied as is, or
+			point galopin at another file:
+			<code class="font-mono">galopin run --mcp-config /path/to/claude_desktop_config.json</code>
 		</p>
 		{@render code(MCP_JSON, "local-mcp-json")}
 		<ul class="mt-2 list-disc space-y-1 pl-5 text-xs text-ink-muted">

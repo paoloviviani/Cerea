@@ -111,6 +111,7 @@ describe("LocalConnectors", () => {
 		// mcp.json: where it lives per OS, the Claude format, allowedTools, no restart, then approve.
 		expect(text(screen)).toContain("~/.config/galopin/mcp.json");
 		expect(text(screen)).toContain("~/Library/Application Support/galopin/mcp.json");
+		expect(text(screen)).toContain("galopin run --mcp-config /path/to/claude_desktop_config.json");
 		expect(byId("local-mcp-json")).toContain('"mcpServers"');
 		expect(byId("local-mcp-json")).toContain('"command": "npx"');
 		expect(byId("local-mcp-json")).toContain('"type": "http"');

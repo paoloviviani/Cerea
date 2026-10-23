@@ -61,7 +61,16 @@ such a machine, for one run, use `galopin run --connectors-only`.
 Put the file in galopin's config directory, beside `credentials.json`
 (`~/.config/galopin/mcp.json` on Linux, `~/Library/Application
 Support/galopin/mcp.json` on macOS). It is the format Claude Desktop and Claude
-Code use, so an existing file can be copied as is:
+Code use, so an existing file can be copied as is. To use a file where it
+already is instead, point galopin at it:
+`galopin run --mcp-config /path/to/claude_desktop_config.json` (also
+`galopin connectors list|test|login --mcp-config ...`, or the environment
+variable `GALOPIN_MCP_CONFIG`; the flag wins). `~` works, and a relative path is
+taken from the directory galopin is started in. The file must exist, and it gets
+the same live reload, `${VAR}` expansion and per-server checks as the default;
+galopin logs which file it uses at start. A Claude Code `~/.claude.json` works
+too: only its top-level `mcpServers` is read, everything else in it is ignored,
+and a server galopin cannot run is listed as invalid.
 
 ```json
 {
@@ -175,9 +184,10 @@ the user service in [Keeping it running](agent-machines-reference.md#keeping-it-
 The unit's `PATH` must include whatever the servers' `command`s need (`npx`,
 `uvx`, your own binaries), and any `${VAR}` an entry uses must be in the unit's
 environment (`Environment=CRM_TOKEN=...`, or an `EnvironmentFile=` with mode
-0600), because a service does not read your shell profile. Edits to `mcp.json`
+0600), because a service does not read your shell profile. Edits to the connectors file
 take effect without a restart; a change to the environment needs one
-(`systemctl --user restart galopin`).
+(`systemctl --user restart galopin`). To use another file, add
+`--mcp-config /path/to/file.json` to the unit's `ExecStart=` line.
 
 ## If something is off
 

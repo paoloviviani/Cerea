@@ -65,7 +65,7 @@ func newConnectorsRig(t *testing.T, idle time.Duration) *connectorsRig {
 	}
 	t.Cleanup(func() { audit.Close() })
 	mc.AttachAudit(audit)
-	hub := mc.startConnectors(dir)
+	hub := mc.startConnectors(dir, filepath.Join(dir, mcpConfigFileName))
 	t.Cleanup(hub.Shutdown)
 
 	r := &connectorsRig{t: t, mc: mc, dir: dir, linkUp: make(chan struct{}, 1)}
