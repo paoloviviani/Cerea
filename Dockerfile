@@ -52,8 +52,12 @@ RUN --mount=type=cache,target=/app/.npm \
 
 COPY --link --chown=1000 . .
 
+# Node's default heap is sized from the machine and is too small for this build
+# on a small host (an out-of-memory abort, exit 134, on a 5 GB box building with
+# the kit's dev/build.sh). Builder stage only: the running server keeps the default.
+ARG BUILD_HEAP_MB=3072
 RUN git config --global --add safe.directory /app && \
-    npm run build
+    NODE_OPTIONS=--max-old-space-size=${BUILD_HEAP_MB} npm run build
 
 # Runtime dependencies only. The builder needs the whole tree (vite, svelte-check,
 # the test tooling); the running server needs only `dependencies`, which is what
