@@ -80,6 +80,32 @@ export async function codeAgentsAllowedFor(locals: App.Locals): Promise<boolean>
 }
 
 /**
+ * Whether *this person* may use local connectors, and if not why (ADR 0102, Pystino's
+ * `local_connectors` capability). `localConnectorsEnabled()` stays the outer switch; this folds
+ * the person's `/v1/me` answer through the same session cache and blip grace as
+ * `codeAgentsAllowedFor`. "ok" without a gateway or on a gateway that predates the capability;
+ * "not_configured" when the gateway reports neither capability because it has no chat
+ * (a misconfiguration, said as such); "not_granted" otherwise.
+ */
+export async function localConnectorsAccessFor(
+	locals: App.Locals
+): Promise<"ok" | "not_granted" | "not_configured"> {
+	if (!localConnectorsEnabled() || !isGatewayPreset()) return "ok";
+	if (!locals.token) return "not_granted";
+	const outcome = await gatewaySessionCheck(locals.sessionId, locals.token);
+	const answer =
+		outcome?.kind === "valid"
+			? outcome
+			: outcome && outcome.kind !== "ended"
+				? recentValidGatewayOutcome(locals.sessionId)
+				: null;
+	if (!answer) return "not_granted";
+	if (answer.capabilities === "absent") return "ok";
+	if (answer.capabilities.chat_unconfigured) return "not_configured";
+	return answer.capabilities.local_connectors ? "ok" : "not_granted";
+}
+
+/**
  * The /code file explorer (ADR 0090): on with the code panel, unless the
  * deployment switches it off. Each machine can still veto it (--no-files).
  */

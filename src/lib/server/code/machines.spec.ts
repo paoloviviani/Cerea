@@ -140,6 +140,8 @@ describe("revalidateLiveMachineConnections", () => {
 		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
 		openMachines.push(machine);
 		const { deviceId } = await machine.hello();
+		// The hello asked the gateway (cached for a minute); the tick under test must ask again.
+		resetMachineUserCacheForTests();
 
 		await revalidateLiveMachineConnections();
 
@@ -152,6 +154,8 @@ describe("revalidateLiveMachineConnections", () => {
 		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
 		openMachines.push(machine);
 		const { deviceId } = await machine.hello();
+		// The hello asked the gateway (cached for a minute); the tick under test must ask again.
+		resetMachineUserCacheForTests();
 		const closed = waitForClose(machine);
 
 		meAnswer = { ok: false, refused: true, status: 401, message: "disabled" };
@@ -172,6 +176,8 @@ describe("revalidateLiveMachineConnections", () => {
 		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
 		openMachines.push(machine);
 		const { deviceId } = await machine.hello();
+		// The hello asked the gateway (cached for a minute); the tick under test must ask again.
+		resetMachineUserCacheForTests();
 		const closed = waitForClose(machine);
 
 		meAnswer = {
@@ -197,6 +203,8 @@ describe("revalidateLiveMachineConnections", () => {
 		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
 		openMachines.push(machine);
 		const { deviceId } = await machine.hello();
+		// The hello asked the gateway (cached for a minute); the tick under test must ask again.
+		resetMachineUserCacheForTests();
 		const closed = waitForClose(machine);
 
 		meAnswer = {
@@ -214,12 +222,119 @@ describe("revalidateLiveMachineConnections", () => {
 		expect(device?.status).not.toBe("revoked");
 	});
 
+	function meWith(capabilities: NonNullable<GatewayMe["capabilities"]>): GatewayCall<GatewayMe> {
+		return {
+			ok: true,
+			value: {
+				id: `gw-${user.user._id.toString()}`,
+				is_admin: false,
+				groups: [],
+				sessions_valid_after: null,
+				merged_at: null,
+				capabilities,
+			},
+		};
+	}
+	const CONNECTORS = { mode: "connectors", capabilities: { mcp: true } };
+
+	it("closes a connectors machine with 4404, revoking nothing, when local_connectors is lost", async () => {
+		const machine = new FakeMachine(
+			`ws://127.0.0.1:${port}/api/v2/code/machine`,
+			{},
+			{ backends: [], machine: CONNECTORS }
+		);
+		openMachines.push(machine);
+		const { deviceId } = await machine.hello();
+		// The hello asked the gateway (cached for a minute); the tick under test must ask again.
+		resetMachineUserCacheForTests();
+		const closed = waitForClose(machine);
+
+		meAnswer = meWith({ code_agents: true, api_keys: true, local_connectors: false });
+		await revalidateLiveMachineConnections();
+
+		expect(await closed).toBe(4404);
+		expect(isMachineOnline(deviceId)).toBe(false);
+		const device = await collections.codeDevices.findOne({ _id: new ObjectId(deviceId) });
+		expect(device?.status).not.toBe("revoked");
+	});
+
+	it("keeps a connectors machine for a person with only local_connectors", async () => {
+		meAnswer = meWith({ code_agents: false, api_keys: true, local_connectors: true });
+		const connectors = new FakeMachine(
+			`ws://127.0.0.1:${port}/api/v2/code/machine`,
+			{},
+			{ backends: [], machine: CONNECTORS }
+		);
+		openMachines.push(connectors);
+		const { deviceId } = await connectors.hello();
+		await revalidateLiveMachineConnections();
+		expect(isMachineOnline(deviceId)).toBe(true);
+	});
+
+	it("closes an agent machine with 4404 when only local_connectors is held", async () => {
+		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+		openMachines.push(machine);
+		const { deviceId } = await machine.hello();
+		// The hello asked the gateway (cached for a minute); the tick under test must ask again.
+		resetMachineUserCacheForTests();
+		const closed = waitForClose(machine);
+
+		meAnswer = meWith({ code_agents: false, api_keys: true, local_connectors: true });
+		await revalidateLiveMachineConnections();
+
+		expect(await closed).toBe(4404);
+		const device = await collections.codeDevices.findOne({ _id: new ObjectId(deviceId) });
+		expect(device?.status).not.toBe("revoked");
+	});
+
+	it("refuses a connectors hello with 4404 when the person lacks local_connectors", async () => {
+		meAnswer = meWith({ code_agents: true, api_keys: true, local_connectors: false });
+		const machine = new FakeMachine(
+			`ws://127.0.0.1:${port}/api/v2/code/machine`,
+			{},
+			{ backends: [], machine: CONNECTORS }
+		);
+		openMachines.push(machine);
+		const closed = waitForClose(machine);
+		machine.hello().catch(() => undefined);
+		expect(await closed).toBe(4404);
+		const devices = await collections.codeDevices
+			.find({ machineId: principal.machineId })
+			.toArray();
+		expect(devices).toEqual([]);
+	});
+
+	it("refuses an agent hello with 4404 when the person has only local_connectors", async () => {
+		meAnswer = meWith({ code_agents: false, api_keys: true, local_connectors: true });
+		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+		openMachines.push(machine);
+		const closed = waitForClose(machine);
+		machine.hello().catch(() => undefined);
+		expect(await closed).toBe(4404);
+	});
+
+	it("accepts a connectors hello for a person with only local_connectors", async () => {
+		meAnswer = meWith({ code_agents: false, api_keys: true, local_connectors: true });
+		const machine = new FakeMachine(
+			`ws://127.0.0.1:${port}/api/v2/code/machine`,
+			{},
+			{ backends: [], machine: CONNECTORS }
+		);
+		openMachines.push(machine);
+		const { deviceId } = await machine.hello();
+		// The hello asked the gateway (cached for a minute); the tick under test must ask again.
+		resetMachineUserCacheForTests();
+		expect(isMachineOnline(deviceId)).toBe(true);
+	});
+
 	it("asks the machine to renew, and revokes nothing, when the refused token itself no longer validates", async () => {
 		// GitLab revokes the previous access token on refresh: for a moment the
 		// connection holds a token the gateway refuses while the machine is fine.
 		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
 		openMachines.push(machine);
 		const { deviceId } = await machine.hello();
+		// The hello asked the gateway (cached for a minute); the tick under test must ask again.
+		resetMachineUserCacheForTests();
 		const closed = waitForClose(machine);
 
 		meAnswer = { ok: false, refused: true, status: 401, message: "Invalid API key provided." };
@@ -236,6 +351,8 @@ describe("revalidateLiveMachineConnections", () => {
 		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
 		openMachines.push(machine);
 		const { deviceId } = await machine.hello();
+		// The hello asked the gateway (cached for a minute); the tick under test must ask again.
+		resetMachineUserCacheForTests();
 		const closed = waitForClose(machine);
 
 		meAnswer = { ok: false, refused: true, status: 401, message: "Invalid API key provided." };
@@ -251,6 +368,8 @@ describe("revalidateLiveMachineConnections", () => {
 		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
 		openMachines.push(machine);
 		const { deviceId } = await machine.hello();
+		// The hello asked the gateway (cached for a minute); the tick under test must ask again.
+		resetMachineUserCacheForTests();
 		const closed = waitForClose(machine);
 
 		meAnswer = {

@@ -60,6 +60,11 @@
 		})
 	);
 
+	/** Pystino's `local_connectors` capability, per person (layout data): null when granted. */
+	const denied = $derived<"not_granted" | "not_configured" | null>(
+		page.data.localConnectorsDenied ?? null
+	);
+
 	let machines = $state<LocalMachineView[]>([]);
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
@@ -369,7 +374,20 @@ loginctl enable-linger "$USER"`;
 		</div>
 	{/if}
 
-	{#if loading}
+	{#if denied}
+		<!-- Not the how-to: a machine enrolled now would be refused, so say why instead. -->
+		<div
+			class="rounded-2xl border border-line bg-surface p-4 text-sm sm:p-6"
+			data-testid="local-denied"
+		>
+			{#if denied === "not_configured"}
+				This gateway is not configured for the chat, so local connectors are unavailable. Ask your
+				administrator to check the deployment.
+			{:else}
+				Your administrator has not enabled local connectors for your groups.
+			{/if}
+		</div>
+	{:else if loading}
 		<p class="text-sm text-ink-muted">Loading…</p>
 	{:else}
 		{#if !hasMachine}

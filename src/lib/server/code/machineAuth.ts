@@ -356,8 +356,56 @@ export type MachineAuthResult =
 	| { ok: true; principal: MachinePrincipal; token: string }
 	| { ok: false; status: 401 | 403; message: string };
 
+/** What the gateway says this person holds, for the machine kinds Cerea serves (Pystino's
+ * `code_agents` and `local_connectors` capabilities). Absent on a resolution means no
+ * restriction: standalone (no gateway) or a gateway that predates capabilities. */
+export interface MachineCapabilities {
+	codeAgents: boolean;
+	localConnectors: boolean;
+	/** The gateway reports neither capability because it has no chat configured
+	 * (`GATEWAY_CHAT__ENABLED` false): a misconfiguration, not a refusal of the person. */
+	chatUnconfigured: boolean;
+}
+
+/** Why this person's machine of `mode` may not connect, or null when it may. Agent machines
+ * need `code_agents`, connectors machines `local_connectors`; the mode is only known at the
+ * machine's hello, so this is asked there and again on every revalidation. */
+export function machineCapabilityRefusal(
+	capabilities: MachineCapabilities | undefined,
+	mode: "agent" | "connectors"
+): string | null {
+	if (!capabilities) return null;
+	if (capabilities.chatUnconfigured) {
+		return "this gateway is not configured for the chat (GATEWAY_CHAT__ENABLED is off)";
+	}
+	if (mode === "connectors") {
+		return capabilities.localConnectors
+			? null
+			: "local connectors are not enabled for this account's groups; reconnect when they say so";
+	}
+	return capabilities.codeAgents
+		? null
+		: "coding agents are not available for this account; reconnect when they say so";
+}
+
+function capabilitiesFromMe(
+	raw: import("$lib/server/identity/gatewayIdentity").GatewayMe["capabilities"]
+): MachineCapabilities | undefined {
+	if (!raw) return undefined;
+	return {
+		codeAgents: raw.code_agents === true,
+		localConnectors: raw.local_connectors === undefined || raw.local_connectors === true,
+		chatUnconfigured: raw.code_agents === null && raw.local_connectors === null,
+	};
+}
+
 export type MachineUserResolution =
-	| { ok: true; user: User; sessionsValidAfter: string | null }
+	| {
+			ok: true;
+			user: User;
+			sessionsValidAfter: string | null;
+			capabilities?: MachineCapabilities;
+	  }
 	// `refused: true` is a real answer from the gateway (401/403): the
 	// account is refused, and a device row may be revoked over it. `refused:
 	// false` is a network error or 5xx that outlasted the bounded fail-open
@@ -481,7 +529,12 @@ export async function resolveMachineUser(
 	} else {
 		const user = await collections.users.findOne({ gatewayUserId: result.value.id });
 		if (user) {
-			resolution = { ok: true, user, sessionsValidAfter: result.value.sessions_valid_after };
+			resolution = {
+				ok: true,
+				user,
+				sessionsValidAfter: result.value.sessions_valid_after,
+				capabilities: capabilitiesFromMe(result.value.capabilities),
+			};
 			lastGoodBySub.set(sub, { at: now, resolution });
 		} else {
 			resolution = {

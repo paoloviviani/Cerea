@@ -43,7 +43,13 @@ export interface GatewayMe {
 	/** ADR 0096: which capabilities the person holds. Absent on an older
 	 * gateway — which reads as *allowed*, never as a refusal, so an upgrade
 	 * never locks anyone out of a surface they had. */
-	capabilities?: { code_agents?: boolean; api_keys?: boolean } | null;
+	capabilities?: {
+		/** `null`: the gateway has no chat configured (`GATEWAY_CHAT__ENABLED` false). */
+		code_agents?: boolean | null;
+		api_keys?: boolean;
+		/** Local connectors (ADR 0102). Absent on a gateway that predates the capability. */
+		local_connectors?: boolean | null;
+	} | null;
 }
 
 export type GatewayCall<T> =

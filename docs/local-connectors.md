@@ -15,6 +15,19 @@ traffic through, so the assistant can use its tools while the server, its files
 and its secrets stay where they are. Nothing on the link adds a server or starts
 a command: the machine's own file lists what it offers, and the chat uses that.
 
+## Who may use it
+
+On a deployment with the Pystino gateway, local connectors are their own per-group
+capability, `local_connectors` (set in the gateway console under Groups, on by default for new
+groups; separate from `code_agents`). A connectors machine needs it, an agent machine needs
+`code_agents`, and the machine's kind is only known at its first message, so it is checked there
+and again every minute. Without it the Local connectors tab says "Your administrator has not
+enabled local connectors for your groups" instead of the how-to, the machine is closed with
+`4404` and its MCP channels with it, and nothing is revoked: it reconnects by itself once a group
+grants the flag. If the gateway reports neither capability because it has no chat configured
+(`GATEWAY_CHAT__ENABLED` unset on a standalone Pystino), the tab and the machine say the gateway
+is not configured for the chat. Without a gateway nothing changes.
+
 ## Enroll a connectors-only machine
 
 A machine that only serves connectors needs no coding agent, no opencode and no

@@ -49,13 +49,14 @@ function stubApi(
 	);
 }
 
-function mount() {
+function mount(extraData: Record<string, unknown> = {}) {
 	return renderWithApp(LocalConnectors, {} as never, {
 		page: {
 			url: "http://localhost:3000/workspace?tab=local",
 			data: {
 				codeOidcIssuerUrl: "https://auth.example.org",
 				codeOidcClientId: "opencode-enrollment",
+				...extraData,
 			},
 		},
 	});
@@ -65,6 +66,26 @@ const text = (screen: ReturnType<typeof mount>) => screen.baseElement.textConten
 
 describe("LocalConnectors", () => {
 	beforeEach(() => vi.unstubAllGlobals());
+
+	it("says the administrator has not enabled it, instead of the how-to, without the capability", async () => {
+		stubApi(() => []);
+		const screen = mount({ localConnectorsDenied: "not_granted" });
+
+		await expect
+			.element(
+				screen.getByText("Your administrator has not enabled local connectors for your groups.")
+			)
+			.toBeInTheDocument();
+		expect(screen.baseElement.querySelector('[data-testid="local-howto"]')).toBeNull();
+		expect(text(screen)).not.toContain("Connect a machine");
+	});
+
+	it("says the gateway is not configured for the chat when it reports neither capability", async () => {
+		stubApi(() => []);
+		const screen = mount({ localConnectorsDenied: "not_configured" });
+		await expect.element(screen.getByText(/not configured for the chat/)).toBeInTheDocument();
+		expect(screen.baseElement.querySelector('[data-testid="local-howto"]')).toBeNull();
+	});
 
 	it("shows the whole how-to, with this deployment's address, while no machine is paired", async () => {
 		stubApi(() => []);
