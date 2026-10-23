@@ -26,6 +26,11 @@ vi.mock("$lib/server/config", () => ({
 		}
 	),
 }));
+// The real deliverables module is imported below only for its constants and
+// parser. It reaches for the database at import, and with `config` mocked here
+// (no MONGODB_URL) that would start its own in-memory MongoDB, outside the
+// suite's shared test database. Nothing in this spec touches a collection.
+vi.mock("$lib/server/database", () => ({ collections: {} }));
 vi.mock("$lib/server/execution/deliverables", async () => {
 	const actual = await vi.importActual<typeof import("$lib/server/execution/deliverables")>(
 		"$lib/server/execution/deliverables"

@@ -180,36 +180,42 @@
 		for (const type of ["wheel", "touchstart", "keydown", "mousedown"] as const) {
 			container.addEventListener(type, cancel, { once: true, passive: true });
 		}
-		const raf =
-			typeof requestAnimationFrame === "function"
-				? (fn: () => void) => requestAnimationFrame(fn)
-				: (fn: () => void) => setTimeout(fn, 16);
-		let lastHeight = -1;
-		let stableFrames = 0;
+		// A ResizeObserver, not a frame poll: it fires after layout and before
+		// paint in the very frame a height changed, so the correction is never
+		// a painted frame late, and a render that lands late (a cold markdown
+		// worker, a slow device) is still held. It ends when the reader takes
+		// over, a newer prepend supersedes it, or the heights have been quiet
+		// for a while (bounded overall so it cannot follow forever).
+		const content = messagesEl;
+		if (!content || typeof ResizeObserver === "undefined") return;
 		const started = Date.now();
-		const tick = () => {
-			if (token !== settleToken || cancelled) return;
-			if (container.scrollHeight !== lastHeight) {
-				lastHeight = container.scrollHeight;
-				stableFrames = 0;
-			} else {
-				stableFrames += 1;
-			}
+		let quietTimer: ReturnType<typeof setTimeout> | undefined;
+		const observer = new ResizeObserver(() => {
+			if (token !== settleToken || cancelled) return finish();
 			const anchorNow = messageViewportTop(container, anchorId);
 			// The anchor left the transcript (a reset cleared it): nothing
 			// to hold anymore.
-			if (anchorNow === null) return;
+			if (anchorNow === null) return finish();
 			if (Math.abs(anchorNow - anchorBefore) > 1) {
 				chatScroll.keepScrollAt(container.scrollTop + (anchorNow - anchorBefore));
 			}
-			// Keep following until the heights rest (and at least past the
-			// first paint, whose effects render the fresh markdown), bounded
-			// so a never-settling page cannot follow forever.
-			if ((stableFrames < 3 || Date.now() - started < 500) && Date.now() - started < 2500) {
-				raf(tick);
+			armQuiet();
+		});
+		const scroller: HTMLElement = container;
+		function finish() {
+			observer.disconnect();
+			clearTimeout(quietTimer);
+			for (const type of ["wheel", "touchstart", "keydown", "mousedown"] as const) {
+				scroller.removeEventListener(type, cancel);
 			}
-		};
-		raf(tick);
+		}
+		function armQuiet() {
+			clearTimeout(quietTimer);
+			const left = Math.max(0, 10_000 - (Date.now() - started));
+			quietTimer = setTimeout(finish, Math.min(left, 3000));
+		}
+		observer.observe(content);
+		armQuiet();
 	}
 
 	/** Swap the whole transcript for another copy of it (the agent panel

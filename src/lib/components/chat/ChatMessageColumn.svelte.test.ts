@@ -95,6 +95,52 @@ describe("the column's history-paging surface", () => {
 		// settle follower's pixel rounding).
 		expect(Math.abs(el.scrollTop - topBefore - (el.scrollHeight - heightBefore))).toBeLessThan(2);
 	});
+
+	it("keeps holding the visible message when a prepended message grows after the heights first rested", async () => {
+		const view = renderWithApp(ChatMessageColumnTestHost, {
+			initial: [user("u2", long("second prompt")), assistant("a2", long("second answer"))],
+			page: [user("u1", long("first prompt")), assistant("a1", long("first answer"))],
+			onNearTop: () => {},
+		});
+		const el = scroller(view.container);
+		await settled();
+		const anchor = view.container.querySelector('[data-message-id="u2"]');
+		if (!(anchor instanceof HTMLElement)) throw new Error("no anchor message");
+		el.dispatchEvent(new WheelEvent("wheel", { deltaY: -500, bubbles: true, cancelable: true }));
+		el.scrollTop = 200;
+		await settled();
+		const before = anchor.getBoundingClientRect().top - el.getBoundingClientRect().top;
+		const host = view.component as unknown as { prependPage(): void };
+		host.prependPage();
+		await settled();
+
+		// A prepended message's rendered markdown lands late and taller than
+		// its fallback. Observers run in creation order within a frame, so one
+		// registered here sees the column's own correction already applied:
+		// the anchor must not have moved by the time the frame can paint.
+		const first = view.container.querySelector('[data-message-id="u1"]');
+		const anchorNow = view.container.querySelector('[data-message-id="u2"]');
+		const content = first_wrapper(el);
+		if (!(first instanceof HTMLElement) || !(anchorNow instanceof HTMLElement) || !content) {
+			throw new Error("no messages");
+		}
+		let painted = Number.NaN;
+		const probe = new ResizeObserver(() => {
+			painted = anchorNow.getBoundingClientRect().top - el.getBoundingClientRect().top;
+		});
+		probe.observe(content);
+		// Past the point where heights first came to rest (a cold worker can
+		// answer well after that).
+		await new Promise((r) => setTimeout(r, 900));
+		// Native scroll anchoring absorbs growth only in part in real
+		// browsers; switch it off so the column's own hold is what is measured.
+		el.style.overflowAnchor = "none";
+		first.style.paddingBottom = "37px";
+		await new Promise((r) => setTimeout(r, 100));
+		probe.disconnect();
+		expect(Number.isNaN(painted)).toBe(false);
+		expect(Math.abs(painted - before)).toBeLessThan(2);
+	});
 });
 
 describe("the column's failed-turn banners", () => {
@@ -139,3 +185,12 @@ describe("the column's failed-turn banners", () => {
 		).toBe("false");
 	});
 });
+
+/** The element wrapping every turn: the one whose height follows the transcript's. */
+function first_wrapper(scrollEl: HTMLElement): HTMLElement | null {
+	const msg = scrollEl.querySelector("[data-message-id]");
+	for (let n = msg?.parentElement; n && n !== scrollEl; n = n.parentElement) {
+		if (n.parentElement === scrollEl || n.parentElement?.parentElement === scrollEl) return n;
+	}
+	return null;
+}

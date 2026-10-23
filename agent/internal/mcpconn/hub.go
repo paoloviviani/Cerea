@@ -69,8 +69,8 @@ type Hub struct {
 	entries     map[string]*Entry
 	order       []string
 	channels    map[string]*channel
-	needsLogin  map[string]time.Time // name -> when it was flagged
-	probed      map[string]bool      // name -> the server answered a probe without asking for a sign-in
+	needsLogin  map[string]string // name -> fingerprint of the stored sign-in when it was flagged
+	probed      map[string]bool   // name -> the server answered a probe without asking for a sign-in
 	fileSig     string
 	loadErr     string
 	reloadCount int
@@ -112,7 +112,7 @@ func New(cfg Config) *Hub {
 		client = newHTTPClient()
 	}
 	h := &Hub{cfg: cfg, client: client, entries: map[string]*Entry{}, channels: map[string]*channel{},
-		needsLogin: map[string]time.Time{}, probed: map[string]bool{}, pending: map[string]*Pending{}}
+		needsLogin: map[string]string{}, probed: map[string]bool{}, pending: map[string]*Pending{}}
 	h.tokens = NewTokenStore(cfg.StateDir, client)
 	h.Reload()
 	return h
@@ -213,12 +213,15 @@ func loginSentence(name string) string {
 // since it was flagged clears it.
 func (h *Hub) loginNeeded(e *Entry) bool {
 	h.mu.Lock()
-	at, flagged := h.needsLogin[e.Name]
+	was, flagged := h.needsLogin[e.Name]
 	h.mu.Unlock()
 	if !flagged {
 		return false
 	}
-	if mt := h.tokens.ModTime(e.Name); mt.After(at) && h.tokens.Load(e.Name, e.URL) != nil {
+	// Compare what is stored now with what was stored when the flag was raised:
+	// file mtimes come from a coarse kernel clock and cannot be ordered against
+	// time.Now().
+	if h.tokens.Fingerprint(e.Name) != was && h.tokens.Load(e.Name, e.URL) != nil {
 		h.mu.Lock()
 		delete(h.needsLogin, e.Name)
 		delete(h.probed, e.Name)
@@ -230,7 +233,7 @@ func (h *Hub) loginNeeded(e *Entry) bool {
 
 func (h *Hub) flagLogin(name string) {
 	h.mu.Lock()
-	h.needsLogin[name] = time.Now()
+	h.needsLogin[name] = h.tokens.Fingerprint(name)
 	h.mu.Unlock()
 }
 
