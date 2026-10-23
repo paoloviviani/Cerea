@@ -515,7 +515,8 @@ command that is not in the machine's own file. Cerea uses what the machine offer
 ### 10.1 Configuration (machine side)
 
 `mcp.json` in galopin's config directory, in the format Claude Desktop and Claude Code use,
-so an existing file can be copied as is:
+so an existing file can be copied as is; `--mcp-config PATH` (or `GALOPIN_MCP_CONFIG`) reads
+another file in place instead, which must exist, and only its top-level `mcpServers` is read:
 
 ```json
 {

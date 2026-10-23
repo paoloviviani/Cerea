@@ -17,9 +17,9 @@ import (
 const connectorsUsage = `galopin connectors — the MCP servers this machine offers to the chat.
 
 Usage:
-  galopin connectors list [--creds PATH] [--state-dir PATH]
-  galopin connectors test NAME [--creds PATH] [--state-dir PATH]
-  galopin connectors login NAME [--creds PATH] [--state-dir PATH]
+  galopin connectors list [--creds PATH] [--state-dir PATH] [--mcp-config PATH]
+  galopin connectors test NAME [--creds PATH] [--state-dir PATH] [--mcp-config PATH]
+  galopin connectors login NAME [--creds PATH] [--state-dir PATH] [--mcp-config PATH]
 
   list    Print each server of mcp.json: name, transport, state and whether
           this machine is signed in to it.
@@ -31,11 +31,13 @@ Usage:
 
 mcp.json lives in the state directory (default <config-dir>/galopin, beside
 credentials.json; --state-dir, or the directory of --creds, changes it).
-Variables like ${TOKEN} expand from this process's environment.
+--mcp-config PATH (or $GALOPIN_MCP_CONFIG) reads another file in place, for
+instance claude_desktop_config.json; a relative path is taken from the current
+directory. Variables like ${TOKEN} expand from this process's environment.
 `
 
 type connectorsOptions struct {
-	creds, stateDir string
+	creds, stateDir, mcpConfig string
 }
 
 func runConnectors(args []string) error {
@@ -55,6 +57,7 @@ func runConnectors(args []string) error {
 	var opts connectorsOptions
 	fs.StringVar(&opts.creds, "creds", "", "")
 	fs.StringVar(&opts.stateDir, "state-dir", "", "")
+	fs.StringVar(&opts.mcpConfig, "mcp-config", "", "")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -67,7 +70,11 @@ func runConnectors(args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg := mcpconn.Config{Path: filepath.Join(dir, mcpConfigFileName), StateDir: dir, Logf: logf}
+	mcpPath, _, err := resolveMcpConfig(opts.mcpConfig, os.Getenv, dir)
+	if err != nil {
+		return err
+	}
+	cfg := mcpconn.Config{Path: mcpPath, StateDir: dir, Logf: logf}
 	switch sub {
 	case "list":
 		return connectorsList(cfg)

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"galopin/internal/link"
 	"galopin/internal/mcpconn"
@@ -19,12 +21,53 @@ import (
 // mcpConfigFileName is the connectors file beside credentials.json.
 const mcpConfigFileName = "mcp.json"
 
-// startConnectors builds the machine's connector hub from <stateDir>/mcp.json
+// mcpConfigEnv names the environment variable that points galopin at another
+// connectors file; --mcp-config wins over it.
+const mcpConfigEnv = "GALOPIN_MCP_CONFIG"
+
+// resolveMcpConfig picks the connectors file: --mcp-config, else
+// $GALOPIN_MCP_CONFIG, else <stateDir>/mcp.json. A leading ~ is the home
+// directory and a relative path is taken from the current directory at start.
+// An explicit file must exist (the default may be absent). explicit says which.
+func resolveMcpConfig(flagValue string, getenv func(string) string, stateDir string) (path string, explicit bool, err error) {
+	src, raw := "--mcp-config", flagValue
+	if raw == "" {
+		src, raw = mcpConfigEnv, getenv(mcpConfigEnv)
+	}
+	if raw == "" {
+		return filepath.Join(stateDir, mcpConfigFileName), false, nil
+	}
+	p := raw
+	if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, "~"+string(filepath.Separator)) {
+		home, herr := os.UserHomeDir()
+		if herr != nil {
+			return "", true, fmt.Errorf("%s %q: locating the home directory: %w", src, raw, herr)
+		}
+		p = filepath.Join(home, p[1:])
+	}
+	abs, aerr := filepath.Abs(p)
+	if aerr != nil {
+		return "", true, fmt.Errorf("%s %q: %w", src, raw, aerr)
+	}
+	st, serr := os.Stat(abs)
+	if serr != nil {
+		if os.IsNotExist(serr) {
+			return "", true, fmt.Errorf("%s: no such file: %s", src, abs)
+		}
+		return "", true, fmt.Errorf("%s %s: %w", src, abs, serr)
+	}
+	if st.IsDir() {
+		return "", true, fmt.Errorf("%s: %s is a directory, not a file", src, abs)
+	}
+	return abs, true, nil
+}
+
+// startConnectors builds the machine's connector hub from mcpPath
 // and wires it to the link and the audit log. The hub reads mc.lnk when it
 // sends, so it may be built before the link exists.
-func (mc *machine) startConnectors(stateDir string) *mcpconn.Hub {
+func (mc *machine) startConnectors(stateDir, mcpPath string) *mcpconn.Hub {
 	hub := mcpconn.New(mcpconn.Config{
-		Path:     filepath.Join(stateDir, mcpConfigFileName),
+		Path:     mcpPath,
 		StateDir: stateDir,
 		Lookup:   os.LookupEnv,
 		Logf:     logf,
