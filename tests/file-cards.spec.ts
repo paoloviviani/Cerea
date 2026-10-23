@@ -92,13 +92,21 @@ test("a stored run shows one header and the same card for every file, at phone w
 	await expect(long).toHaveAttribute("title", "preview_Cerea_and_Pystino_Overview_final.pptx");
 	const lineBox = await long.boundingBox();
 	expect(lineBox!.height).toBeLessThan(26);
+	// The name gets real room (a shrink-wrapped surface once squeezed it to nothing
+	// and left only the extension visible).
+	expect(lineBox!.width).toBeGreaterThan(120);
+	const head = await long.locator("span").first().boundingBox();
+	expect(head!.width).toBeGreaterThan(60);
 
 	// A file whose save failed says so instead of vanishing.
 	await expect(message.getByTestId("file-not-saved")).toContainText("no longer available");
 
 	// Phone: actions are icon-only but still named.
 	await expect(message.getByRole("button", { name: "Download report.pdf" })).toBeVisible();
-	await expect(message.getByRole("button", { name: "Download report.pdf" })).toHaveText("");
+	const label = await message
+		.getByRole("button", { name: "Download report.pdf" })
+		.evaluate((el: HTMLElement) => el.innerText.trim());
+	expect(label).toBe("");
 
 	// No horizontal overflow of the page.
 	const overflow = await page.evaluate(
