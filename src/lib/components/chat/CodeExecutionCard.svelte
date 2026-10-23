@@ -235,7 +235,7 @@
 
 <BlockWrapper>
 	<div
-		class="my-3 min-w-[min(20rem,calc(100vw-3rem))] rounded-[14px] border border-gray-300/60 bg-gray-500/[0.06] dark:border-gray-600/50"
+		class="my-3 min-w-[min(26rem,calc(100vw-3rem))] rounded-[14px] border border-gray-300/60 bg-gray-500/[0.06] dark:border-gray-600/50"
 		data-testid="code-execution-card"
 	>
 		<button
