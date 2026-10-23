@@ -13,7 +13,13 @@
  * hook that runs before it. `mongodb-memory-server` is imported dynamically so Playwright
  * workers, which import this module for its fixtures, never pay for it.
  */
-import { test as base, expect, type APIRequestContext, type BrowserContext } from "playwright/test";
+import {
+	test as base,
+	expect,
+	type APIRequestContext,
+	type BrowserContext,
+	type Page,
+} from "playwright/test";
 import { createHash, randomUUID } from "node:crypto";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { pathToFileURL } from "node:url";
@@ -390,6 +396,38 @@ function apiHelpers(request: APIRequestContext): ApiHelpers {
 /** `/code`'s open route: whether the sign-in is fresh enough to use it. */
 export const CODE_STATUS_GLOB = "**/api/v2/code/status";
 
+/**
+ * Waits until a chat page's own code is running. The page is server-rendered, so an input or a
+ * click made before hydration reaches no handler and is silently lost. The composer is the probe:
+ * Send turns on only once the page has seen typed text.
+ */
+export async function waitForHydration(page: Page): Promise<void> {
+	const composer = page.getByPlaceholder("Ask anything");
+	await composer.fill("x");
+	await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled();
+	await composer.fill("");
+}
+
+/**
+ * The fresh answer to `/code`'s sign-in probe, for one page. The `page` fixture does this for its
+ * own page; a spec that opens another page itself (`context.newPage()`) must call it on that one
+ * too, or the new page gets the real answer for an anonymous session ("signed out") and the
+ * sidebar sends it to a login that does not exist in the hermetic stack.
+ */
+export async function stubCodeStatus(page: Page): Promise<void> {
+	await page.route(CODE_STATUS_GLOB, (route) =>
+		route.fulfill({
+			contentType: "application/json",
+			body: superjson.stringify({
+				enabled: true,
+				fresh: true,
+				reauthPath: `${E2E_APP_BASE}/login?reauth=1&next=${E2E_APP_BASE}/code`,
+				freshUntil: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+			}),
+		})
+	);
+}
+
 interface Fixtures {
 	db: Db;
 	session: TestSession;
@@ -448,17 +486,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 	// `page.unroute(CODE_STATUS_GLOB)`, or its own `page.route` on top.
 	page: async ({ page, session }, use) => {
 		void session;
-		await page.route(CODE_STATUS_GLOB, (route) =>
-			route.fulfill({
-				contentType: "application/json",
-				body: superjson.stringify({
-					enabled: true,
-					fresh: true,
-					reauthPath: `${E2E_APP_BASE}/login?reauth=1&next=${E2E_APP_BASE}/code`,
-					freshUntil: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-				}),
-			})
-		);
+		await stubCodeStatus(page);
 		await use(page);
 	},
 

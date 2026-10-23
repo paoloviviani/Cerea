@@ -112,8 +112,9 @@ test.describe("the /code tree appears without a manual reload", () => {
 		await addSession(page, deviceId, workspaceId);
 
 		// No reload from here: the already-mounted tree must pick up the
-		// newly-online, newly-populated device on its own.
-		await expect(firstAgentRow(page)).toBeVisible({ timeout: 3_000 });
+		// newly-online, newly-populated device on its own. Its poll runs every 8 s
+		// (codeDeviceList's POLL_MS), so that is the wait to allow for, twice over.
+		await expect(firstAgentRow(page)).toBeVisible({ timeout: 20_000 });
 	});
 
 	test("switching from Chats to Agents shows an already-populated device without a reload", async ({

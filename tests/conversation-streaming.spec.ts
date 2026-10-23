@@ -7,7 +7,7 @@
  * conversation never blanks or loses messages mid-stream — so the rewrite can't reintroduce
  * them silently.
  */
-import { test, expect, E2E_APP_BASE } from "./fixtures.ts";
+import { test, expect, E2E_APP_BASE, stubCodeStatus } from "./fixtures.ts";
 import type { Page } from "playwright/test";
 import { ObjectId } from "mongodb";
 
@@ -156,6 +156,7 @@ test("a second viewer of a live generation sees it stream and complete", async (
 		timeout: 20_000,
 	});
 	const page2 = await context.newPage();
+	await stubCodeStatus(page2);
 	await page2.goto(`${E2E_APP_BASE}/conversation/${convId}`);
 
 	// It must show partial content and then reach completion, without the starter tab.

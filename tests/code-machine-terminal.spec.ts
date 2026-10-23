@@ -49,6 +49,24 @@ test.describe("the terminal on a real machine", () => {
 		// longer exists; assert its absence so a regression fails loudly.
 		await expect(page.getByRole("heading", { name: "A terminal is a full shell" })).toHaveCount(0);
 		await expect(page.getByTestId("code-terminal")).toBeVisible({ timeout: 30_000 });
+		await shellPrompt(page);
+	}
+
+	/** The wrapper shows before xterm's lazy imports land and before the socket is open, and a
+	 * click or keystroke in that gap goes nowhere (typed input is dropped on a closed socket).
+	 * The shell's own prompt is the sign both are done; xterm's hidden character-measure row is
+	 * all dollar signs, so the prompt is matched by its user@host shape. */
+	async function shellPrompt(page: import("playwright/test").Page) {
+		await expect(page.getByTestId("code-terminal")).toContainText(/\w+@[\w.-]+:/, {
+			timeout: 30_000,
+		});
+	}
+
+	/** A terminal opened with "New" while an exited one was showing: the exited pane (its banner)
+	 * is gone and the new shell has printed its prompt. */
+	async function freshShell(page: import("playwright/test").Page) {
+		await expect(page.getByText(/Exited/)).toHaveCount(0);
+		await shellPrompt(page);
 	}
 
 	test("echo $((6*7)) → 42, a resize follows through, exit shows the exit state", async ({
@@ -69,14 +87,36 @@ test.describe("the terminal on a real machine", () => {
 		await page.keyboard.press("Enter");
 		await expect(term).toContainText("42", { timeout: 15_000 });
 
-		// Resize: a wide viewport should widen the pty (`tput cols` prints it).
-		// `\b` doesn't work here — xterm's rows come out of the DOM glued
-		// together with no separating whitespace (e.g. "cols101ubuntu@…"),
-		// so the boundary has to be "not another digit", not "not a word char".
+		// Resize: a wider viewport widens the terminal, and the new width reaches the shell. The
+		// side pane is a share of the window, so no number is asserted: the width xterm drew
+		// (its screen over one measured cell) is what `tput cols` must come to. Asking again until
+		// they agree absorbs the resize frame's trip to the machine, which the first answer may
+		// not yet reflect; the width only has to settle, never to be asked at the right instant.
+		const drawnCols = () =>
+			page.evaluate(() => {
+				const screen = document.querySelector(".xterm-screen")?.getBoundingClientRect().width;
+				const probe = document
+					.querySelector(".xterm-char-measure-element")
+					?.getBoundingClientRect().width;
+				return screen && probe ? Math.round(screen / (probe / 32)) : 0;
+			});
+		const before = await drawnCols();
+		expect(before).toBeGreaterThan(0);
 		await page.setViewportSize({ width: 1600, height: 900 });
-		await page.keyboard.type("tput cols");
-		await page.keyboard.press("Enter");
-		await expect(term).toContainText(/(?<!\d)[12]\d\d(?!\d)/, { timeout: 15_000 });
+		await expect.poll(drawnCols, { timeout: 15_000 }).toBeGreaterThan(before);
+		let agreed = false;
+		for (let attempt = 0; attempt < 6 && !agreed; attempt++) {
+			await page.keyboard.type("tput cols");
+			await page.keyboard.press("Enter");
+			const want = await drawnCols();
+			agreed = await expect(term)
+				.toContainText(new RegExp(`tput cols${want}(?!\\d)`), { timeout: 3_000 })
+				.then(
+					() => true,
+					() => false
+				);
+		}
+		expect(agreed, "the shell never reported the width xterm drew").toBe(true);
 
 		await page.keyboard.type("exit");
 		await page.keyboard.press("Enter");
@@ -226,7 +266,7 @@ test.describe("the terminal on a real machine", () => {
 		await page.keyboard.press("Enter");
 		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 15_000 });
 
-		await page.getByRole("button", { name: "Close terminal" }).click();
+		await page.getByRole("button", { name: "Close terminal", exact: true }).click();
 		await expect(page.getByText("No terminals open in this workspace.")).toBeVisible();
 
 		// Not just gone from this mount's in-memory list — gone from the
@@ -255,6 +295,7 @@ test.describe("the terminal on a real machine", () => {
 		await page.getByRole("button", { name: "New", exact: true }).click();
 		term = page.getByTestId("code-terminal");
 		await expect(term).toBeVisible({ timeout: 15_000 });
+		await freshShell(page);
 		await term.click();
 		await page.keyboard.type("exit");
 		await page.keyboard.press("Enter");
@@ -267,6 +308,7 @@ test.describe("the terminal on a real machine", () => {
 		term = page.getByTestId("code-terminal");
 		await expect(term).toBeVisible({ timeout: 15_000 });
 		await expect(page.getByText("Could not open a terminal.")).not.toBeVisible();
+		await freshShell(page);
 		await term.click();
 		await page.keyboard.type("echo maxslot-ok");
 		await page.keyboard.press("Enter");

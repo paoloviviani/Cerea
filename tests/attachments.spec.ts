@@ -11,7 +11,14 @@
  * message, download-only serving, another session's refusal, and the revoke
  * path's cleanup.
  */
-import { test, expect, installSession, E2E_APP_URL, E2E_APP_BASE } from "./fixtures";
+import {
+	test,
+	expect,
+	installSession,
+	E2E_APP_URL,
+	E2E_APP_BASE,
+	waitForHydration,
+} from "./fixtures";
 import { randomUUID as deviceIdSeed } from "node:crypto";
 import { seedUser } from "./machineHarness";
 import { ObjectId } from "mongodb";
@@ -25,6 +32,7 @@ test("a picked file is sent and still opens from chat's route after a reload", a
 }) => {
 	await mockOpenAI.setDefaultScenario("plainText");
 	await page.goto(`${E2E_APP_BASE}/`);
+	await waitForHydration(page);
 
 	await page.getByLabel("Upload file").setInputFiles({
 		name: "notes.txt",
@@ -43,6 +51,8 @@ test("a picked file is sent and still opens from chat's route after a reload", a
 	);
 
 	await page.reload();
+	// A click on the chip before the page hydrates does nothing, and no request would follow.
+	await waitForHydration(page);
 	const served = page.waitForResponse((res) =>
 		res.url().includes(`/conversation/${conversationId}/output/`)
 	);
@@ -57,6 +67,8 @@ test("a long paste becomes a clipboard chip", async ({ page, browserName }) => {
 	test.skip(browserName !== "chromium", "WebKit ignores clipboardData on synthetic paste events");
 	await page.goto(`${E2E_APP_BASE}/`);
 	const composer = page.getByPlaceholder("Ask anything");
+	// A paste dispatched before the page hydrates reaches no handler and is lost.
+	await waitForHydration(page);
 	await composer.click();
 	await composer.evaluate((el) => {
 		const data = new DataTransfer();
@@ -145,8 +157,10 @@ test.describe("/code attachment routes", () => {
 			{ headers: { origin: E2E_APP_URL } }
 		);
 		expect(revoked.status()).toBe(200);
-		expect(
-			await db.collection("files.files").countDocuments({ "metadata.conversation": key })
-		).toBe(0);
+		// The route answers, then clears the attachments in the background (a `void` after the
+		// revoke): the count reaches zero shortly after, not before the response.
+		await expect
+			.poll(() => db.collection("files.files").countDocuments({ "metadata.conversation": key }))
+			.toBe(0);
 	});
 });
