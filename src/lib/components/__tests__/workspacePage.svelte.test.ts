@@ -41,7 +41,7 @@ function settingsContext() {
 	};
 }
 
-function mountWorkspace(query: string) {
+function mountWorkspace(query: string, extra: Record<string, unknown> = {}) {
 	let host = document.getElementById("app");
 	if (!host) {
 		host = document.createElement("div");
@@ -51,7 +51,7 @@ function mountWorkspace(query: string) {
 	return renderWithApp(
 		WorkspacePanel,
 		{
-			data: { models: [MODEL] },
+			data: { models: [MODEL], ...extra },
 		} as never,
 		{
 			page: { url: `http://localhost:3000/workspace${query}` },
@@ -93,6 +93,25 @@ describe("the workspace panel", () => {
 
 		const kb = mountWorkspace("?tab=kb");
 		expect(kb.getByRole("heading", { name: "Knowledge bases" })).toBeInTheDocument();
+	});
+
+	it("offers the Local connectors tab only when LOCAL_CONNECTORS_ENABLED is on (ADR 0102)", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => Response.json({ machines: [], data: [] }))
+		);
+		const off = mountWorkspace("?tab=local", { localConnectorsEnabled: false });
+		expect(off.baseElement.textContent).not.toContain("Local connectors");
+		// A hidden tab's address lands on Models, like Knowledge with its pipeline off.
+		expect(off.getByRole("heading", { name: "Models" })).toBeInTheDocument();
+		off.unmount();
+		document.getElementById("app")?.remove();
+
+		const on = mountWorkspace("?tab=local", { localConnectorsEnabled: true });
+		await expect.element(on.getByRole("link", { name: "Local connectors" })).toBeInTheDocument();
+		await expect
+			.element(on.getByRole("heading", { name: "Connect a machine" }))
+			.toBeInTheDocument();
 	});
 
 	it("a mistyped tab param falls back to Models", () => {

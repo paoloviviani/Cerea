@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§10.3, §10.5",
+		"direction": "C→M",
+		"op": "mcp.login"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r4",
+		"op": "mcp.login",
+		"args": {
+			"server": "crm",
+			"redirectUri": "https://chat.example.org/chat/api/v2/local-connectors/oauth/callback"
+		}
+	}
+}

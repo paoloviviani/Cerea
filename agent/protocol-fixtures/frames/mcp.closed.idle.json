@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§10.6",
+		"direction": "M→C",
+		"variant": "closed-idle",
+		"null": true
+	},
+	"frame": {
+		"type": "mcp",
+		"channelId": "ch_7f3a",
+		"closed": {
+			"reason": "idle",
+			"detail": null
+		}
+	}
+}

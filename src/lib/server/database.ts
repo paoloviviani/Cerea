@@ -7,7 +7,12 @@ import type {
 	VectorStore,
 } from "$lib/types/VectorStore";
 import type { Project } from "$lib/types/Project";
-import type { McpConnector, McpOauthPending, McpToken } from "$lib/types/McpConnector";
+import type {
+	LocalConnectorOauth,
+	McpConnector,
+	McpOauthPending,
+	McpToken,
+} from "$lib/types/McpConnector";
 import type { AbortedGeneration } from "$lib/types/AbortedGeneration";
 import type { Generation, GenerationEvent } from "$lib/types/Generation";
 import type { TurnState } from "$lib/types/TurnState";
@@ -255,6 +260,9 @@ export class Database {
 		const mcpConnectors = db.collection<McpConnector>("mcpConnectors");
 		const mcpTokens = db.collection<McpToken>("mcpTokens");
 		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
+		// A local connector's sign-in in flight (ADR 0102): who started it, for which device and
+		// server. No token or verifier: those stay on the machine.
+		const localConnectorOauth = db.collection<LocalConnectorOauth>("localConnectorOauth");
 		// Paired coding-agent devices for the `/code` panel (one person's
 		// machines running galopin). The machine owns every live
 		// thing — workspaces, sessions, transcripts — so these rows are the
@@ -307,6 +315,7 @@ export class Database {
 			mcpConnectors,
 			mcpTokens,
 			mcpOauthPending,
+			localConnectorOauth,
 			codeDevices,
 			codeAudit,
 			schedules,
@@ -354,6 +363,7 @@ export class Database {
 			mcpConnectors,
 			mcpTokens,
 			mcpOauthPending,
+			localConnectorOauth,
 			codeDevices,
 			codeAudit,
 			schedules,
@@ -437,6 +447,12 @@ export class Database {
 		mcpOauthPending
 			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
 			.catch((e) => logger.error(e, "Error creating TTL index for mcpOauthPending"));
+		localConnectorOauth
+			.createIndex({ state: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for localConnectorOauth by state"));
+		localConnectorOauth
+			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+			.catch((e) => logger.error(e, "Error creating TTL index for localConnectorOauth"));
 		projects
 			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for projects by userId"));

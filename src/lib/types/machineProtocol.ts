@@ -102,9 +102,22 @@ export interface Policy {
 	backgroundSubagents?: "allowed" | "denied";
 }
 
+export type MachineMode = "agent" | "connectors";
+
+/** A hello's mode: anything but "connectors" (absent, null, a mode this build does not know)
+ * reads as an agent machine. */
+export function machineMode(machine: Machine | undefined | null): MachineMode {
+	return machine?.mode === "connectors" ? "connectors" : "agent";
+}
+
 /** hello.machine (§9): what this galopin build implements on this OS. */
 export interface Machine {
+	/** `"connectors"` for a connectors-only galopin (§10.2): no coding agent, only local MCP
+	 * servers. Absent (an older galopin) reads as `"agent"`. */
+	mode?: string | null;
 	capabilities: {
+		/** The machine has an `mcp.json` and answers the `mcp.*` ops (§10). */
+		mcp?: boolean;
 		files?: boolean;
 		fileSearch?: boolean;
 		fileWatch?: boolean;
@@ -670,8 +683,76 @@ export const OP_NAMES = [
 	"terminal.resize",
 	"terminal.rename",
 	"terminal.close",
+	"mcp.list",
+	"mcp.open",
+	"mcp.close",
+	"mcp.login",
+	"mcp.loginComplete",
 ] as const;
 export type OpName = (typeof OP_NAMES)[number];
+
+// -- local MCP connectors (§10) ------------------------------------------------
+
+export const MCP_SERVER_STATES = ["ready", "disabled", "invalid", "needs-login"] as const;
+export type McpServerState = (typeof MCP_SERVER_STATES)[number];
+export const MCP_CLOSED_REASONS = ["exited", "crashed", "idle", "closed", "config"] as const;
+export type McpClosedReason = (typeof MCP_CLOSED_REASONS)[number];
+
+/** One entry of `mcp.list` (§10.3). */
+export interface McpServer {
+	name: string;
+	transport: "stdio" | "http" | "sse";
+	description?: string | null;
+	state: McpServerState;
+	detail?: string | null;
+	allowedTools?: string[] | null;
+	openChannels?: number | null;
+}
+
+// Every optional field is nullish: Go marshals an unset pointer or nil slice as null.
+// An unknown state or transport is carried as a string and read as invalid by the
+// consumer, so a newer galopin's extra state never drops the whole list.
+const mcpServerSchema = z.object({
+	name: z.string(),
+	transport: z.string(),
+	description: z.string().nullish(),
+	state: z.string(),
+	detail: z.string().nullish(),
+	allowedTools: z.array(z.string()).nullish(),
+	openChannels: z.number().nullish(),
+});
+export const mcpListResultSchema = z.object({ servers: z.array(mcpServerSchema).nullish() });
+export const mcpOpenResultSchema = z.object({ channelId: z.string().min(1) });
+export const mcpLoginResultSchema = z.object({ authorizationUrl: z.string().min(1) });
+
+/** Parse `mcp.list`'s result into well-formed servers (unknown states read as invalid). */
+export function parseMcpList(raw: unknown): McpServer[] {
+	const parsed = mcpListResultSchema.safeParse(raw);
+	if (!parsed.success) return [];
+	return (parsed.data.servers ?? []).map((s) => ({
+		...s,
+		transport: s.transport === "http" || s.transport === "sse" ? s.transport : "stdio",
+		state: (MCP_SERVER_STATES as readonly string[]).includes(s.state)
+			? (s.state as McpServerState)
+			: "invalid",
+	}));
+}
+
+/** The `mcp` frame, both directions (§10.3): a JSON-RPC message for a channel, or (M→C) the
+ * channel's end. */
+export interface McpFrame {
+	type: "mcp";
+	channelId: string;
+	message?: unknown;
+	closed?: { reason: McpClosedReason; detail?: string | null };
+}
+
+export const mcpFrameSchema = z.object({
+	type: z.literal("mcp"),
+	channelId: z.string().min(1).max(256),
+	message: z.unknown().optional(),
+	closed: z.object({ reason: z.string(), detail: z.string().nullish() }).nullish(),
+});
 
 export const ERROR_CODES = [
 	"not_found",
@@ -820,7 +901,14 @@ export interface AuthFrame {
 }
 
 export type MachineToCereaFrame =
-	HelloFrame | ResFrame | EventFrame | CredentialFrame | AuthFrame | NoticeFrame | CallFrame;
+	| HelloFrame
+	| ResFrame
+	| EventFrame
+	| CredentialFrame
+	| AuthFrame
+	| NoticeFrame
+	| CallFrame
+	| McpFrame;
 
 /** The `type` of every frame in each direction (§5), as runtime lists for the shared
  * protocol fixtures; each is checked against its union at compile time. */
@@ -832,6 +920,7 @@ export const MACHINE_TO_CEREA_FRAME_TYPES = [
 	"auth",
 	"notice",
 	"call",
+	"mcp",
 ] as const satisfies readonly MachineToCereaFrame["type"][];
 export type MachineFramesAreComplete = AssertNever<
 	Exclude<MachineToCereaFrame["type"], (typeof MACHINE_TO_CEREA_FRAME_TYPES)[number]>
@@ -841,10 +930,13 @@ export const CEREA_TO_MACHINE_FRAME_TYPES = [
 	"status",
 	"req",
 	"callres",
-] as const satisfies readonly (WelcomeFrame | StatusFrame | ReqFrame | CallResFrame)["type"][];
+	"mcp",
+] as const satisfies readonly (
+	WelcomeFrame | StatusFrame | ReqFrame | CallResFrame | McpFrame
+)["type"][];
 export type CereaFramesAreComplete = AssertNever<
 	Exclude<
-		(WelcomeFrame | StatusFrame | ReqFrame | CallResFrame)["type"],
+		(WelcomeFrame | StatusFrame | ReqFrame | CallResFrame | McpFrame)["type"],
 		(typeof CEREA_TO_MACHINE_FRAME_TYPES)[number]
 	>
 >;
@@ -907,6 +999,7 @@ const policySchema = z.object({
 });
 
 const machineSchema = z.object({
+	mode: z.string().nullish(),
 	// A capability this build does not know is carried through untouched
 	// (`delegateProfiles` among the known ones: absent reads false).
 	capabilities: z.record(z.string(), z.boolean()),
@@ -1031,6 +1124,11 @@ export function parseMachineFrame(raw: unknown): MachineToCereaFrame | null {
 		case "call": {
 			const parsed = callFrameSchema.safeParse(raw);
 			return parsed.success ? parsed.data : null;
+		}
+		case "mcp": {
+			const parsed = mcpFrameSchema.safeParse(raw);
+			if (!parsed.success) return null;
+			return raw as unknown as McpFrame;
 		}
 		default:
 			return null;

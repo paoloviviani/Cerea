@@ -360,6 +360,19 @@ export interface CodeDevice {
 	 * A revoked device needs a fresh `galopin enroll`. */
 	revokedAt?: Date;
 	revokedReason?: "account_disabled" | "account_merged";
+	/** The machine's MCP servers as `mcp.list` last answered (PROTOCOL.md §10), kept so the
+	 * Local connectors tab and the MCP panel can still name them, as unavailable, while the
+	 * machine is offline. Names and states only: nothing from `mcp.json` beyond what
+	 * `mcp.list` carries, never a command, env or header. */
+	mcpServers?: Array<{
+		name: string;
+		transport: "stdio" | "http" | "sse";
+		description?: string | null;
+		state: "ready" | "disabled" | "invalid" | "needs-login";
+		detail?: string | null;
+		allowedTools?: string[] | null;
+	}>;
+	mcpServersAt?: Date;
 }
 
 /** A working directory the daemon serves agents from. Lives on the daemon. */

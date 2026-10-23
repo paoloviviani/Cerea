@@ -27,8 +27,10 @@
 	import IconLogin from "~icons/carbon/login";
 	import IconEdit from "~icons/carbon/edit";
 	import LucidePlug from "~icons/lucide/plug";
+	import LucideLaptop from "~icons/lucide/laptop";
+	import { startLocalSignIn } from "$lib/localConnectorsApi";
 	import Switch from "$lib/components/Switch.svelte";
-	import type { McpConnectorView } from "$lib/types/McpConnector";
+	import type { McpConnectorView, McpLocalView } from "$lib/types/McpConnector";
 	import {
 		connectors,
 		connectorsLoaded,
@@ -56,8 +58,12 @@
 	// One mixed grid made an administrator's Remove button work on rows they
 	// were only looking at because they administer the place (the backend
 	// now refuses that regardless).
-	const own = $derived($connectors.filter((c) => c.scope === "user"));
+	const own = $derived($connectors.filter((c) => c.scope === "user" && !c.local));
 	const provided = $derived($connectors.filter((c) => c.scope === "deployment"));
+	// A third kind (ADR 0102): servers on the person's own machines. Not theirs to add or edit
+	// here (the machine's `mcp.json` defines them), only to use and, for an http one that asks,
+	// to sign in to; the tokens stay on the machine.
+	const onMachines = $derived($connectors.filter((c) => c.local));
 
 	let name = $state("");
 	let url = $state("");
@@ -196,6 +202,45 @@
 		} catch (err) {
 			failure = err instanceof Error ? err.message : "Could not start the sign-in.";
 			busy = false;
+		}
+	}
+
+	/**
+	 * Sign in to a local http connector: the machine starts the OAuth flow and keeps the tokens;
+	 * this only carries the browser to the provider and back, the same way a remote connector's
+	 * sign-in does (a full navigation to the consent screen).
+	 */
+	async function signInLocal(connector: McpConnectorView) {
+		busy = true;
+		busyConnector = connector.id;
+		failure = null;
+		try {
+			// Back to this very page, minus the previous outcome, so the result shows here.
+			const back = new URL(page.url);
+			for (const key of ["mcp", "mcpDetail", "mcpConnector"]) back.searchParams.delete(key);
+			window.location.href = await startLocalSignIn(connector.id, `${back.pathname}${back.search}`);
+		} catch (err) {
+			failure = err instanceof Error ? err.message : "Could not start the sign-in.";
+			busy = false;
+			busyConnector = null;
+		}
+	}
+
+	/** What a failed callback tells the person, by the short code it came back with. */
+	function outcomeMessage(detail: string | null): string {
+		switch (detail) {
+			case "declined":
+				return "The sign-in was declined.";
+			case "expired":
+				return "That sign-in expired, was already used, or was started somewhere else. Try again.";
+			case "offline":
+				return "The machine went offline before the sign-in finished. Start galopin there and try again.";
+			case "machine":
+				return "The machine could not finish the sign-in. Its log says why.";
+			case "refused":
+				return "That server does not need a sign-in, or cannot be signed in to from here.";
+			default:
+				return `The sign-in did not complete${detail ? ` (${detail})` : ""}.`;
 		}
 	}
 
@@ -579,7 +624,7 @@
 							{busyConnector === connector.id ? "Checking…" : "Re-check"}
 						</button>
 					{/if}
-					{#if connector.scope === "user"}
+					{#if connector.scope === "user" && !connector.local}
 						<!-- Removing a connector you own ends here, whoever you are.
 						     A deployment connector is not on this dialog to be
 						     deleted — even by the administrator who added it, whose
@@ -725,6 +770,111 @@
 		</div>
 	{/snippet}
 
+	{#snippet localCard(connector: McpConnectorView, local: McpLocalView)}
+		<div
+			class="rounded-lg border bg-linear-to-br transition-colors {connector.connected
+				? 'border-blue-600/20 bg-blue-50 from-blue-500/5 to-transparent dark:border-blue-700/60 dark:bg-blue-900/10 dark:from-blue-900/20'
+				: 'border-gray-200 bg-white from-black/5 dark:border-gray-700 dark:bg-gray-800 dark:from-white/5'}"
+			data-testid="local-connector"
+		>
+			<div class="px-4 py-3.5">
+				<div class="mb-2 flex items-start justify-between gap-2">
+					<div class="min-w-0">
+						<h4 class="truncate font-semibold text-gray-900 dark:text-gray-100">
+							{local.server} · on {local.machineName}
+						</h4>
+						<p class="truncate text-sm text-gray-600 dark:text-gray-400">
+							{local.description ?? `${local.transport} server`}
+						</p>
+					</div>
+					<div
+						class="flex shrink-0 items-center gap-2 pt-0.5"
+						title={connector.connected ? "On for new chats" : "Not available right now"}
+					>
+						<span class="text-xs text-gray-600 dark:text-gray-400">
+							{connector.connected ? "On by default in new chats" : "Unavailable"}
+						</span>
+						<Switch
+							name={`use-connector-${connector.id}`}
+							disabled={!connector.connected}
+							bind:checked={
+								() => $defaultConnectorIds.has(connector.id),
+								() => toggleDefaultConnector(connector.id)
+							}
+						/>
+					</div>
+				</div>
+
+				<div class="mb-2 flex flex-wrap items-center gap-2">
+					{#if local.state === "ready"}
+						<span
+							data-testid="local-pill"
+							class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
+						>
+							<IconCheckmark class="size-3" />
+							on
+						</span>
+					{:else}
+						<span
+							data-testid="local-pill"
+							class="inline-flex items-center gap-1 rounded-full bg-gray-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+						>
+							<IconWarning class="size-3" />
+							{local.state === "offline"
+								? "Offline"
+								: local.state === "needs-login"
+									? "Needs sign-in"
+									: local.state === "disabled"
+										? "Disabled"
+										: "Invalid"}
+						</span>
+					{/if}
+					<span class="text-xs text-gray-600 dark:text-gray-400">{local.transport}</span>
+					{#if local.allowedTools}
+						<span
+							class="text-xs text-gray-500 dark:text-gray-500"
+							title={`The machine allows only: ${local.allowedTools.join(", ")}`}
+						>
+							{local.allowedTools.length} tool{local.allowedTools.length === 1 ? "" : "s"} allowed
+						</span>
+					{/if}
+				</div>
+
+				{#if local.state === "needs-login" && local.transport === "http"}
+					<p
+						class="mb-2 rounded-sm bg-gray-50 px-2 py-1 text-xs wrap-break-word text-gray-700 dark:bg-gray-900/40 dark:text-gray-300"
+					>
+						Needs a sign-in; the tokens stay on {local.machineName}.
+						<span class="text-gray-500 dark:text-gray-400">
+							If the provider refuses the redirect, run
+							<code class="font-mono">galopin connectors login {local.server}</code> on the machine.
+						</span>
+					</p>
+				{:else if local.state !== "ready" && local.detail}
+					<p
+						class="mb-2 line-clamp-3 rounded-sm bg-gray-50 px-2 py-1 text-xs wrap-break-word text-gray-700 dark:bg-gray-900/40 dark:text-gray-300"
+					>
+						{local.detail}
+					</p>
+				{/if}
+
+				{#if local.state === "needs-login" && local.transport === "http"}
+					<div class="flex flex-wrap gap-1">
+						<button
+							onclick={() => signInLocal(connector)}
+							disabled={busy}
+							title="Sign in to this server; the tokens stay on {local.machineName}"
+							class="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-[.29rem] text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+						>
+							<IconLogin class="size-3" />
+							Sign in
+						</button>
+					</div>
+				{/if}
+			</div>
+		</div>
+	{/snippet}
+
 	{#if loading}
 		<p class="text-sm text-gray-600 dark:text-gray-400">Loading…</p>
 	{:else}
@@ -759,9 +909,7 @@
 				<p
 					class="mt-3 rounded-lg border border-red-500/15 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/25 dark:bg-red-900/20 dark:text-red-300"
 				>
-					{outcomeDetail === "declined"
-						? "The sign-in was declined."
-						: `The sign-in did not complete${outcomeDetail ? ` (${outcomeDetail})` : ""}.`}
+					{outcomeMessage(outcomeDetail)}
 				</p>
 			{/if}
 
@@ -819,6 +967,29 @@
 				<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
 					{#each provided as connector (connector.id)}
 						{@render connectorCard(connector)}
+					{/each}
+				</div>
+			</div>
+		{/if}
+
+		{#if onMachines.length > 0}
+			<!-- Servers on the person's own machines (ADR 0102): defined in each machine's
+			     mcp.json, so nothing here is added or edited. Only the person's own are ever
+			     listed. -->
+			<div data-testid="local-section">
+				<h3 class="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+					<LucideLaptop class="size-4" />
+					On your machines ({onMachines.length})
+				</h3>
+				<p class="text-xs text-gray-600 dark:text-gray-400">
+					MCP servers running on machines you connected. Used while the machine is connected;
+					managed in the machine's <code class="font-mono">mcp.json</code> and under Local connectors.
+				</p>
+				<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+					{#each onMachines as connector (connector.id)}
+						{#if connector.local}
+							{@render localCard(connector, connector.local)}
+						{/if}
 					{/each}
 				</div>
 			</div>

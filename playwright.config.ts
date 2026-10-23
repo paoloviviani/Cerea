@@ -184,6 +184,7 @@ export default defineConfig({
 				// The /code surface's own tests mount it; the flag is the same
 				// gate production sets (the route 404s without it).
 				CODE_AGENTS_ENABLED: "true",
+				LOCAL_CONNECTORS_ENABLED: "true",
 				// The terminal's deployment switch (ADR 0090 §6.1) defaults OFF,
 				// unlike CODE_FILES_ENABLED — the terminal specs need it on; each
 				// machine's own policy (--allow-terminal) still gates per test.

@@ -203,3 +203,9 @@ func (a *auditLogger) coordinationGrant(session string, keys []string, outcome s
 func (a *auditLogger) permissionTightened(restarted bool) {
 	a.write(map[string]any{"action": "permission.tightened", "restarted": restarted})
 }
+
+// mcpCall records one MCP tools/call (PROTOCOL.md §10.4): the connector, the
+// tool and the outcome (ok, error, refused) — never the arguments or the result.
+func (a *auditLogger) mcpCall(server, tool, outcome string) {
+	a.write(map[string]any{"action": "mcp.call", "server": server, "tool": tool, "outcome": outcome})
+}

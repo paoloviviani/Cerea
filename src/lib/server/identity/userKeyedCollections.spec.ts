@@ -36,6 +36,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	mcpConnectors: true,
 	mcpTokens: true,
 	mcpOauthPending: true,
+	localConnectorOauth: true, // a local connector's sign-in in flight; deleted on merge, erased with the account
 	codeDevices: true,
 	codeAudit: true,
 	schedules: true, // a person's scheduled actions; owner-keyed, erased and merged with the account

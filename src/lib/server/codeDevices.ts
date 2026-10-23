@@ -6,6 +6,7 @@ import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { isMachineOnline } from "$lib/server/code/machines";
 import { machineIssuer } from "$lib/server/code/machineAuth";
 import type { CodeDevice } from "$lib/types/CodeAgent";
+import { machineMode } from "$lib/types/machineProtocol";
 
 /**
  * `enrolledIssuer`/`revokedAt`/`revokedReason` (ADR 0093 §4.7, §12) land on
@@ -111,6 +112,9 @@ export async function listDevices(locals: App.Locals): Promise<CodeDeviceView[]>
 		.find({
 			userId: locals.user._id,
 			$or: [{ status: { $ne: "revoked" } }, { revokedAt: { $exists: true } }],
+			// A connectors machine (ADR 0102) runs no coding agent: it belongs to the Local
+			// connectors tab and never appears in the Agents panel.
+			"machine.mode": { $ne: "connectors" },
 		})
 		.sort({ updatedAt: -1 })
 		.toArray();
@@ -148,5 +152,8 @@ export async function getPairedDevice(
 ): Promise<CodeDevice> {
 	const device = await getOwnedDevice(locals, deviceId);
 	if (device.status !== "paired") error(409, "That device is not paired yet.");
+	// Nothing of the Agents panel's reaches a connectors machine: it answers every non-mcp op
+	// `unsupported` (PROTOCOL.md §10.2), so the panel does not poll it at all.
+	if (machineMode(device.machine) === "connectors") error(404, "No such paired device.");
 	return device;
 }

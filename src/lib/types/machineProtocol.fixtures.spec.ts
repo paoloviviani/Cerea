@@ -19,7 +19,12 @@ import {
 	OP_NAMES,
 	delegateProfilesBody,
 	eventFrameSchema,
+	machineMode,
+	mcpLoginResultSchema,
+	mcpOpenResultSchema,
 	parseDelegateProfiles,
+	parseMcpList,
+	type HelloFrame,
 	parseMachineFrame,
 	parsePermissionRules,
 	type NormalizedEvent,
@@ -323,5 +328,59 @@ describe("protocol fixtures: Cerea to machine frames", () => {
 			expect(["pending", "paired"]).toContain(f.frame.status);
 		}
 		expect(ofType("status").every((f) => f.frame.status === "paired")).toBe(true);
+	});
+});
+
+describe("protocol fixtures: local MCP connectors (§10)", () => {
+	it("a connectors hello reads as a connectors machine with mcp; a hello without a mode reads as an agent", () => {
+		const connectors = parseMachineFrame(
+			fixtureAt("frames/hello.connectors.json").frame
+		) as HelloFrame;
+		expect(machineMode(connectors.machine)).toBe("connectors");
+		expect(connectors.machine?.capabilities.mcp).toBe(true);
+		expect(connectors.backends).toEqual([]);
+		const agent = parseMachineFrame(fixtureAt("frames/hello.json").frame) as HelloFrame;
+		expect(machineMode(agent.machine)).toBe("agent");
+		expect(machineMode(undefined)).toBe("agent");
+		expect(machineMode({ mode: null, capabilities: {} })).toBe("agent");
+		// A mode a newer galopin invents is an agent machine to this Cerea, never a dropped hello.
+		const future = structuredClone(connectors) as unknown as { machine: { mode: string } };
+		future.machine.mode = "relay";
+		const parsed = parseMachineFrame(future) as HelloFrame;
+		expect(parsed).not.toBeNull();
+		expect(machineMode(parsed.machine)).toBe("agent");
+	});
+
+	it("mcp.list parses every server, nulls included, and reads an unknown state as invalid", () => {
+		const servers = parseMcpList(resultOf("mcp.list"));
+		expect(servers.map((s) => [s.name, s.transport, s.state])).toEqual([
+			["notes", "stdio", "ready"],
+			["crm", "http", "needs-login"],
+			["old", "sse", "disabled"],
+			["broken", "stdio", "invalid"],
+		]);
+		expect(servers[1].allowedTools).toEqual(["search", "get_contact"]);
+		expect(servers[0].description).toBe("My notes folder");
+		expect(parseMcpList(resultOf("mcp.list", "empty"))).toEqual([]);
+		expect(parseMcpList({ servers: null })).toEqual([]);
+		expect(
+			parseMcpList({ servers: [{ name: "x", transport: "ws", state: "melting" }] })[0]
+		).toMatchObject({ transport: "stdio", state: "invalid" });
+	});
+
+	it("mcp.open and mcp.login results parse", () => {
+		expect(mcpOpenResultSchema.parse(resultOf("mcp.open")).channelId).toBe("ch_7f3a");
+		expect(mcpLoginResultSchema.parse(resultOf("mcp.login")).authorizationUrl).toContain("state=");
+		expect(mcpOpenResultSchema.safeParse({}).success).toBe(false);
+	});
+
+	it("mcp frames travel in both directions, with the closed variants carrying null or text", () => {
+		expect(MACHINE_TO_CEREA_FRAME_TYPES).toContain("mcp");
+		expect(CEREA_TO_MACHINE_FRAME_TYPES).toContain("mcp");
+		expect(fixtureAt("frames/mcp.c2m.json").meta.direction).toBe("C→M");
+		const closed = parseMachineFrame(fixtureAt("frames/mcp.closed.idle.json").frame);
+		expect(closed).toMatchObject({ type: "mcp", closed: { reason: "idle", detail: null } });
+		// A frame with no channel is dropped, not thrown.
+		expect(parseMachineFrame({ type: "mcp", message: {} })).toBeNull();
 	});
 });

@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§10.3",
+		"direction": "M→C",
+		"variant": "notification"
+	},
+	"frame": {
+		"type": "mcp",
+		"channelId": "ch_7f3a",
+		"message": {
+			"jsonrpc": "2.0",
+			"method": "notifications/tools/list_changed"
+		}
+	}
+}

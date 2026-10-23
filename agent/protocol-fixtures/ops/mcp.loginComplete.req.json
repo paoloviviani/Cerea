@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "§10.3, §10.5",
+		"direction": "C→M",
+		"op": "mcp.loginComplete"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r5",
+		"op": "mcp.loginComplete",
+		"args": {
+			"server": "crm",
+			"code": "c0de",
+			"state": "st_8c1d"
+		}
+	}
+}

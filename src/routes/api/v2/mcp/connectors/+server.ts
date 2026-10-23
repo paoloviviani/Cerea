@@ -20,6 +20,7 @@ import { probe } from "$lib/server/mcp/discovery";
 import { seal, sealingAvailable } from "$lib/server/mcp/secretBox";
 import { staticRegistration } from "$lib/server/mcp/oauth";
 import { view, viewsFor } from "$lib/server/mcp/connectors";
+import { localConnectorViews } from "$lib/server/mcp/local";
 import { callerIdentity, requireAdmin } from "$lib/server/admin";
 import type { McpConnector } from "$lib/types/McpConnector";
 
@@ -74,7 +75,13 @@ export const GET: RequestHandler = async ({ locals }) => {
 	// buttons render — never what is listed. Everybody sees the deployment's
 	// connectors, because they are offered to them.
 	const identity = await callerIdentity(locals);
-	return json({ data: await viewsFor(user._id, identity?.isAdmin ?? false) });
+	// This person's own machines' servers ride the same list (ADR 0102), after the configured
+	// connectors; empty unless LOCAL_CONNECTORS_ENABLED.
+	const [configured, local] = await Promise.all([
+		viewsFor(user._id, identity?.isAdmin ?? false),
+		localConnectorViews(user._id),
+	]);
+	return json({ data: [...configured, ...local] });
 };
 
 export const POST: RequestHandler = async ({ locals, request }) => {

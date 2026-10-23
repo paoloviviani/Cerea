@@ -505,3 +505,139 @@ The deny list prevents **accidental** exposure: screen sharing, and content flow
   3. The upgrade at `${base}/api/v2/code/terminal?ticket=…` redeems the ticket and requires `Origin` to equal the public origin.
   4. The socket re-checks the session and the device every 60 s and closes with 4403 on logout, revoke or unpair.
 - **Audit:** Cerea `codeAudit` (90-day TTL) and galopin's local `audit.log` record actions (terminal open, attach and close; file writes; refusals; ticket failures). They never record keystrokes, output or file content.
+
+## 10. Local MCP connectors (ADR 0102)
+
+A machine can serve MCP servers that run on it to its owner's chat. The servers are
+configured on the machine and only there: nothing on this link adds, changes or starts a
+command that is not in the machine's own file. Cerea uses what the machine offers.
+
+### 10.1 Configuration (machine side)
+
+`mcp.json` in galopin's config directory, in the format Claude Desktop and Claude Code use,
+so an existing file can be copied as is:
+
+```json
+{
+	"mcpServers": {
+		"notes": {
+			"command": "npx",
+			"args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/notes"],
+			"env": { "LOG_LEVEL": "warn" },
+			"cwd": "/home/me"
+		},
+		"crm": {
+			"type": "http",
+			"url": "http://127.0.0.1:9000/mcp",
+			"headers": { "Authorization": "Bearer ${CRM_TOKEN}" }
+		}
+	}
+}
+```
+
+- A server with `command` is **stdio**; one with `"type": "http"` (or `"streamable-http"`) and
+  `url` is **http** (MCP Streamable HTTP). `"type": "sse"` is the legacy HTTP+SSE transport and
+  is accepted too. Anything else is listed with `state: "invalid"` and a reason.
+- `${VAR}` and `${VAR:-default}` in `command`, `args`, `env`, `url` and `headers` expand from
+  galopin's own environment when the server starts (as Claude Code does). An unset variable
+  with no default makes the server `invalid`, naming the variable, never its value.
+- galopin's own keys, ignored by Claude: `description` (shown in the chat's MCP panel),
+  `disabled: true` (listed, not startable), `allowedTools: ["name", …]` (the machine's
+  ceiling, §10.4; absent = every tool the server lists).
+- Names match `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`; another name is `invalid`.
+- The file is re-read on change; a server whose entry changed is restarted on its next open.
+
+### 10.2 Connectors-only mode
+
+`galopin run --connectors-only` runs no coding agent (so does a plain `galopin run` on a machine enrolled with `--connectors-only`). Its `hello` carries `"backends": []` and
+`"machine": {"mode": "connectors", "capabilities": {"mcp": true, …}}`. A machine running a
+backend sends `"mode": "agent"` (an older galopin omits `mode`; read as `"agent"`), and also
+`"mcp": true` when it has an `mcp.json`, so an agent machine can serve connectors as well.
+Cerea lists a `connectors` machine under the workspace's **Local connectors** tab, where its
+pairing is approved, and never in the Agents panel. `galopin enroll --connectors-only`
+enrolls such a machine without touching opencode. A connectors machine answers every
+op other than `mcp.*` with `unsupported`.
+
+### 10.3 Operations and frames
+
+| Op                  | Args                    | Result                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcp.list`          | `{}`                    | `{servers: [McpServer]}`                                                                                                                                                                                                                                                                                                                                                                      |
+| `mcp.open`          | `{server}`              | `{channelId}`: a new channel to that server. stdio: a new process per channel. http: a new MCP session per channel. `not_found` for an unknown name, `forbidden` for a `disabled` or `invalid` server, `unavailable` when it cannot start (the result's message carries the reason: the exit status and the last line of stderr, or the HTTP error) or the server already has 4 open channels |
+| `mcp.close`         | `{channelId}`           | `{}` (an unknown or already closed channel is `{}` too)                                                                                                                                                                                                                                                                                                                                       |
+| `mcp.login`         | `{server, redirectUri}` | `{authorizationUrl}`: starts the OAuth sign-in of an http server (§10.5). `not_found`, `invalid` for a server that needs no sign-in, `unavailable` when its metadata cannot be read                                                                                                                                                                                                           |
+| `mcp.loginComplete` | `{server, code, state}` | `{}` once galopin has exchanged the code and stored the tokens; `invalid` for an unknown or expired `state`, `backend` when the token endpoint refuses (its error in the message)                                                                                                                                                                                                             |
+
+`McpServer = {name, transport: "stdio"|"http"|"sse", description: string|null, state:
+"ready"|"disabled"|"invalid"|"needs-login", detail: string|null, allowedTools: string[]|null,
+openChannels: number}`. `ready` means startable, not running; `needs-login` is an http server
+whose OAuth sign-in has not been done on the machine (§10.5).
+
+Traffic travels in a frame of its own, in both directions, with no ack:
+
+| Direction | Frame                                                                                                                      |
+| --------- | -------------------------------------------------------------------------------------------------------------------------- |
+| C→M       | `{"type":"mcp","channelId":"…","message":{JSON-RPC 2.0}}`                                                                  |
+| M→C       | `{"type":"mcp","channelId":"…","message":{JSON-RPC 2.0}}`                                                                  |
+| M→C       | `{"type":"mcp","channelId":"…","closed":{"reason":"exited"\|"crashed"\|"idle"\|"closed"\|"config","detail":string\|null}}` |
+
+`message` is passed through unchanged: requests, responses, notifications and batches in
+either direction, so tools, resources, prompts, progress, cancellation, logging,
+`list_changed` notifications and elicitation all work, and a later MCP addition needs no
+protocol change. A `closed` frame ends the channel; Cerea fails the channel's pending
+requests with it and opens a new channel on the next use. A message frame for an unknown
+channel is answered with a `closed` frame (`reason: "closed"`), so Cerea can fail what it
+has pending. A message larger than the frame cap (§9.2's 1 MiB), in either direction, is
+not sent: galopin answers a request it cannot forward with a JSON-RPC error (`-32603`,
+"message too large for the link …": to Cerea for a response or Cerea's own request, to the
+server for a server request) and drops anything else, logging it.
+
+When galopin itself must answer a request, because the HTTP server cannot be reached or
+answers an error status, it does so with a JSON-RPC error on that request's id: `-32000`
+("the server answered 503 …", "cannot reach the server …"), `-32002` when the server asks
+for a sign-in (§10.5), `-32001` for the ceiling (§10.4), `-32603` for the size cap.
+
+### 10.4 The machine's ceiling
+
+When `allowedTools` is set, galopin filters `tools/list` results to those tools and answers a
+`tools/call` for any other tool itself, with JSON-RPC error `-32001` ("this tool is not
+allowed on this machine"), never forwarding it. Cerea cannot change the list.
+galopin appends one line per `tools/call` to its `audit.log`: time, server, tool, and the
+outcome (`ok`, `error`, `refused`). Never the arguments or the result.
+
+### 10.5 Authentication
+
+- stdio servers get their secrets from `env` in `mcp.json`; they stay on the machine.
+- http servers send the configured `headers`.
+- An http server that asks for OAuth (401 with `WWW-Authenticate`, MCP authorization) is
+  `needs-login` until signed in, and `mcp.open` answers `forbidden` until then. The sign-in
+  is started from the chat, like a remote connector's, but the tokens live on the machine:
+  1. Cerea calls `mcp.login {server, redirectUri}`, where `redirectUri` is Cerea's own
+     callback (`<origin><base>/api/v2/local-connectors/oauth/callback`).
+  2. galopin reads the protected-resource and authorization-server metadata, registers a
+     client dynamically when the server offers it (with that `redirectUri`), makes a PKCE
+     verifier and a `state`, keeps both in memory for 10 minutes, and answers the
+     `authorizationUrl`.
+  3. Cerea sends the person's browser there. The provider redirects back to Cerea's
+     callback with `code` and `state`; Cerea checks that the signed-in person owns the
+     machine, and calls `mcp.loginComplete {server, code, state}`.
+  4. galopin exchanges the code at the token endpoint itself (it can reach the machine's
+     `localhost`), stores the tokens 0600 in its state directory and refreshes them as
+     needed. Cerea never sees an access or refresh token.
+- A provider that accepts only pre-registered redirect addresses cannot be signed in this
+  way; `galopin connectors login <name>` does the same flow on the machine with a loopback
+  redirect, as a fallback.
+- galopin learns that an http server wants a sign-in on its first `mcp.open` (it sends one
+  `ping`, whose answer it ignores but for a 401 with `WWW-Authenticate` or a connection
+  error, which become `forbidden` and `unavailable`) and on any later request; a sign-in
+  made by `galopin connectors login` while galopin runs clears the state without a restart.
+- Anything the server itself asks of the person over MCP (elicitation, including its URL
+  form) passes through like any other message and reaches the chat's usual prompts.
+
+### 10.6 Lifecycle
+
+A stdio process starts on `mcp.open` and stops on `mcp.close`, when the link drops, or when
+the channel has seen no traffic for 10 minutes (`closed`, `reason: "idle"`). galopin
+supervises it like opencode (process group, parent-death signal). Its stderr goes to
+galopin's log, never over the link. Cerea keeps at most one channel per (person, server) open
+between turns and closes it after 10 idle minutes of its own.

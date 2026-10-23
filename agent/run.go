@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -44,8 +45,14 @@ Usage:
   --no-shim           Don't start the local shim; --opencode-config must
                       already point opencode at a reachable provider (used
                       by tests, e.g. a mock LLM).
-  --backend NAME      Which backend to run: "opencode" (default) or "acp"
+  --backend NAME      Which backend to run: "opencode" (default), "acp"
                       (any ACP agent — PROTOCOL.md §2).
+  --connectors-only   Run no coding agent: only this machine's MCP servers
+                      (mcp.json, beside the credentials) are offered to the
+                      chat. A machine enrolled with 'enroll --connectors-only'
+                      does this with a plain 'galopin run'; on an agent machine
+                      the flag applies to this run only. Conflicts with
+                      --backend and --acp-command.
   --opencode-bin PATH   opencode binary (default "opencode", resolved on PATH).
   --opencode-config PATH  Exported as OPENCODE_CONFIG for the spawned
                       opencode (default: the opencode.json path enroll
@@ -68,6 +75,7 @@ type runOptions struct {
 	stateDir        string
 	noShim          bool
 	backendKind     string
+	connectorsOnly  bool
 	opencodeBin     string
 	opencodeConfig  string
 	acpCommand      string
@@ -83,7 +91,8 @@ func runRun(args []string) error {
 	fs.StringVar(&opts.credsPath, "creds", "", "")
 	fs.StringVar(&opts.stateDir, "state-dir", "", "")
 	fs.BoolVar(&opts.noShim, "no-shim", false, "")
-	fs.StringVar(&opts.backendKind, "backend", "opencode", "")
+	fs.StringVar(&opts.backendKind, "backend", "", "")
+	fs.BoolVar(&opts.connectorsOnly, "connectors-only", false, "")
 	fs.StringVar(&opts.opencodeBin, "opencode-bin", "opencode", "")
 	fs.StringVar(&opts.opencodeConfig, "opencode-config", "", "")
 	fs.StringVar(&opts.acpCommand, "acp-command", "opencode acp", "")
@@ -95,6 +104,19 @@ func runRun(args []string) error {
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
+	switch opts.backendKind {
+	case "", "opencode", "acp":
+	default:
+		return fmt.Errorf("unknown --backend %q (want \"opencode\" or \"acp\"; --connectors-only runs no backend)", opts.backendKind)
+	}
+	if opts.connectorsOnly {
+		conflict := opts.backendKind != ""
+		fs.Visit(func(f *flag.Flag) { conflict = conflict || f.Name == "acp-command" })
+		if conflict {
+			return fmt.Errorf("--connectors-only runs no coding agent: it conflicts with --backend and --acp-command")
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -135,6 +157,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	// A copy: runAgent is also called by tests with a shared options value.
 	runOpts := *opts
 	opts = &runOpts
+	opts.backendKind = resolveBackendKind(opts.backendKind, opts.connectorsOnly, creds)
 	if opts.backendKind == "" || opts.backendKind == "opencode" {
 		var warning string
 		opts.opencodeConfig, warning = resolveOpencodeConfig(opts.opencodeConfig, creds)
@@ -201,7 +224,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	go sh.refreshLoop()
 
 	var shimServer *http.Server
-	if !opts.noShim {
+	if !opts.noShim && opts.backendKind != backendNone {
 		if creds.Gateway == "" {
 			return fmt.Errorf("creds file has no gateway: re-run 'galopin enroll' (the shim has nothing to forward to)")
 		}
@@ -228,6 +251,10 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		// A copy: the shim's refresh loop owns creds from here on.
 		snapshot := *creds
 		refreshModelsAtStart(ctx, &snapshot, sh.Token)
+	}
+
+	if opts.backendKind == backendNone {
+		return runConnectorsOnly(ctx, opts, credsPath, stateDir, cereaOrigin, machineID, machineName, sh, pol)
 	}
 
 	// The permission policy as the running agent holds it: loaded from
@@ -258,6 +285,11 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	defer auditLog.Close()
 	mc.AttachAudit(auditLog)
 	mc.AttachReportState(stateDir)
+	// The machine's local MCP connectors (mcp.json, PROTOCOL.md §10): served
+	// whenever the file exists, whatever the backend.
+	connectors := mc.startConnectors(stateDir)
+	defer connectors.Shutdown()
+	go connectors.Watch(ctx)
 	mcpSrv, err := mc.startMCP()
 	if err != nil {
 		return err
@@ -293,10 +325,17 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		MachineID:   machineID,
 		MachineName: machineName,
 		Cred:        sh,
-		Hello:       func() link.Hello { return buildHello(back, pol) },
-		Handler:     mc,
-		Binary:      mc,
-		Logf:        func(format string, args ...any) { logf(format, args...) },
+		Hello: func() link.Hello {
+			h := buildHello(back, pol)
+			if connectors.Configured() {
+				h.Machine.Capabilities["mcp"] = true
+			}
+			return h
+		},
+		Handler: mc,
+		Binary:  mc,
+		Mcp:     mc,
+		Logf:    func(format string, args ...any) { logf(format, args...) },
 	})
 	mc.AttachLink(lnk)
 	sh.onExpired = func(message string) {
@@ -318,22 +357,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	linkErr := make(chan error, 1)
 	go func() { linkErr <- lnk.Run(ctx) }()
 
-	var runErr error
-	revoked := false
-	select {
-	case <-ctx.Done():
-		logf("shutting down")
-	case err := <-linkErr:
-		if errors.Is(err, link.ErrRevoked) {
-			revoked = true
-			_ = writeRevokedMarker(stateDir, machineID)
-			fmt.Fprint(os.Stderr, revokedHelp)
-			runErr = exitError{code: exitRevoked, err: err}
-		} else if err != nil && !errors.Is(err, context.Canceled) {
-			logf("link stopped: %v", err)
-			runErr = err
-		}
-	}
+	revoked, runErr := waitForLink(ctx, linkErr, stateDir, machineID)
 
 	// Every terminal is closed here on every way out of run — a normal
 	// shutdown and a 4403 revoke alike (PROTOCOL.md §9.3): SIGHUP to each
@@ -475,6 +499,35 @@ func forwardEvents(ctx context.Context, mat *sessions.Materializer, lnk *link.Li
 // policy state (PROTOCOL.md §5).
 func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 	caps := back.Capabilities()
+	h := buildHelloBase(pol)
+	h.Backends = []link.BackendInfo{{
+		ID:      back.ID(),
+		Version: back.Version(),
+		Capabilities: map[string]bool{
+			"diff": caps.Diff, "children": caps.Children, "usage": caps.Usage,
+			"compact": caps.Compact, "images": caps.Images, "files": caps.Files,
+			"worktrees": caps.Worktrees,
+			"questions": caps.Questions, "revert": caps.Revert, "revertFiles": caps.RevertFiles,
+			"efforts": caps.Efforts, "commands": caps.Commands, "toolImages": caps.ToolImages,
+			"agentTools": caps.AgentTools, "steer": caps.Steer,
+			"permissions": caps.Permissions, "coordinationGrant": caps.CoordinationGrant,
+			"scheduleTools": caps.ScheduleTools, "historyPaging": caps.HistoryPaging,
+		},
+	}}
+	h.Machine = link.MachineInfo{Mode: "agent", Capabilities: map[string]bool{
+		"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": false, "terminal": terminal.Supported,
+		// Delegate profiles (PROTOCOL.md §6): the profiles.list/set ops, with
+		// the agent tools they are for.
+		"delegateProfiles": caps.AgentTools && pol.AgentToolsAllowed(),
+		// Local MCP connectors (§10.2): run sets it when an mcp.json exists.
+		"mcp": false,
+	}}
+	return h
+}
+
+// buildHelloBase is the part of the hello both kinds of machine send: who
+// this galopin is, and the policy.
+func buildHelloBase(pol policy.Policy) link.Hello {
 	hostname, _ := os.Hostname()
 	// A nil slice marshals to null, and Cerea validates the hello strictly:
 	// PROTOCOL.md types workspaceRoots as an array, so an unconfigured
@@ -490,26 +543,6 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			Arch:     runtime.GOARCH,
 			Hostname: hostname,
 		},
-		Backends: []link.BackendInfo{{
-			ID:      back.ID(),
-			Version: back.Version(),
-			Capabilities: map[string]bool{
-				"diff": caps.Diff, "children": caps.Children, "usage": caps.Usage,
-				"compact": caps.Compact, "images": caps.Images, "files": caps.Files,
-				"worktrees": caps.Worktrees,
-				"questions": caps.Questions, "revert": caps.Revert, "revertFiles": caps.RevertFiles,
-				"efforts": caps.Efforts, "commands": caps.Commands, "toolImages": caps.ToolImages,
-				"agentTools": caps.AgentTools, "steer": caps.Steer,
-				"permissions": caps.Permissions, "coordinationGrant": caps.CoordinationGrant,
-				"scheduleTools": caps.ScheduleTools, "historyPaging": caps.HistoryPaging,
-			},
-		}},
-		Machine: link.MachineInfo{Capabilities: map[string]bool{
-			"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": false, "terminal": terminal.Supported,
-			// Delegate profiles (PROTOCOL.md §6): the profiles.list/set ops, with
-			// the agent tools they are for.
-			"delegateProfiles": caps.AgentTools && pol.AgentToolsAllowed(),
-		}},
 		Policy: link.PolicyInfo{
 			AutoAccept:          autoAcceptRetired,
 			Permission:          permissionInfo(pol),
@@ -706,4 +739,111 @@ func orEmptyStrings(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// resolveBackendKind is the backend run starts: none for --connectors-only,
+// else the --backend flag when given, else none for a machine enrolled with
+// --connectors-only, else the default (opencode, which the empty string
+// stands for).
+func resolveBackendKind(flag string, connectorsOnly bool, creds *credentials) string {
+	if connectorsOnly || (flag == "" && creds.Mode == modeConnectors) {
+		return backendNone
+	}
+	return flag
+}
+
+// backendNone is the internal backend of a connectors-only run: no coding agent.
+const backendNone = "none"
+
+// waitForLink blocks until shutdown or the link ends. A revoke (4403) writes
+// the revoked marker and says so; revoked is true for it.
+func waitForLink(ctx context.Context, linkErr <-chan error, stateDir, machineID string) (revoked bool, runErr error) {
+	select {
+	case <-ctx.Done():
+		logf("shutting down")
+	case err := <-linkErr:
+		if errors.Is(err, link.ErrRevoked) {
+			revoked = true
+			_ = writeRevokedMarker(stateDir, machineID)
+			fmt.Fprint(os.Stderr, revokedHelp)
+			runErr = exitError{code: exitRevoked, err: err}
+		} else if err != nil && !errors.Is(err, context.Canceled) {
+			logf("link stopped: %v", err)
+			runErr = err
+		}
+	}
+	return revoked, runErr
+}
+
+// runConnectorsOnly is `run --connectors-only` (PROTOCOL.md §10.2): the link to
+// Cerea with no coding agent behind it. Nothing of opencode is started; the
+// machine answers the connector ops and the mcp frames, and every other op
+// unsupported.
+func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDir, cereaOrigin, machineID, machineName string, sh *shim, pol policy.Policy) error {
+	auditLog, err := newAuditLogger(stateDir)
+	if err != nil {
+		return err
+	}
+	defer auditLog.Close()
+	mc := &machine{pol: pol}
+	mc.AttachAudit(auditLog)
+	connectors := mc.startConnectors(stateDir)
+	defer connectors.Shutdown()
+	go connectors.Watch(ctx)
+	if !connectors.Configured() {
+		logf("no %s yet: create %s to offer MCP servers to the chat (docs: local connectors)", mcpConfigFileName, filepath.Join(stateDir, mcpConfigFileName))
+	}
+
+	lnk := link.New(link.Config{
+		CereaOrigin: cereaOrigin,
+		MachineID:   machineID,
+		MachineName: machineName,
+		Cred:        sh,
+		Hello:       func() link.Hello { return buildConnectorsHello(pol) },
+		Handler:     mc,
+		Mcp:         mc,
+		Logf:        func(format string, args ...any) { logf(format, args...) },
+	})
+	mc.AttachLink(lnk)
+	sh.onExpired = func(message string) {
+		_ = lnk.PublishCredentialState("expired", message)
+	}
+	logf("connectors machine started (no coding agent)")
+
+	linkErr := make(chan error, 1)
+	go func() { linkErr <- lnk.Run(ctx) }()
+	revoked, runErr := waitForLink(ctx, linkErr, stateDir, machineID)
+
+	_ = lnk.Close()
+	connectors.Shutdown()
+	if revoked {
+		revokeCtx, cancelRevoke := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := revokeRefreshToken(revokeCtx, credsPath); err != nil {
+			logf("could not revoke this machine's refresh token at the IdP: %v", err)
+		} else {
+			logf("revoked this machine's refresh token at the IdP")
+		}
+		cancelRevoke()
+	}
+	return runErr
+}
+
+// buildConnectorsHello is the hello of a connectors-only machine
+// (PROTOCOL.md §10.2): no backend, mode "connectors", every capability false
+// but mcp, and a policy that offers nothing of a coding machine.
+func buildConnectorsHello(pol policy.Policy) link.Hello {
+	h := buildHelloBase(pol)
+	h.Backends = []link.BackendInfo{}
+	h.Machine = link.MachineInfo{Mode: "connectors", Capabilities: map[string]bool{
+		"files": false, "fileSearch": false, "fileWatch": false, "fileWrite": false,
+		"terminal": false, "delegateProfiles": false, "mcp": true,
+	}}
+	h.Policy.Files = policy.FilesOff
+	h.Policy.Terminal = policy.TerminalDenied
+	h.Policy.CommandShell = policy.TerminalDenied
+	h.Policy.AgentTools = policy.TerminalDenied
+	h.Policy.ProjectConfig = policy.TerminalDenied
+	h.Policy.BackgroundSubagents = policy.TerminalDenied
+	h.Policy.Warnings = nil
+	return h
 }

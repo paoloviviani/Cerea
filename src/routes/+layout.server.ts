@@ -16,6 +16,7 @@ import {
 	codeFilesEnabled,
 	codeSchedulesEnabled,
 	codeTerminalEnabled,
+	localConnectorsEnabled,
 } from "$lib/server/codeEnabled";
 import { isGotenbergEnabled } from "$lib/server/office/gotenberg";
 import { resolveWebSearchFor } from "$lib/server/webSearch/config";
@@ -54,6 +55,9 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		// Scheduled actions (the kill switch is `CHAT_SCHEDULES_ENABLED=false`): the
 		// sidebar's Schedules row reads it, and the API answers 404 when it is off.
 		codeSchedulesEnabled: codeAllowed && codeSchedulesEnabled(),
+		// Local MCP connectors (ADR 0102): the workspace's Local connectors tab. A deployment
+		// switch of its own, independent of the Agents panel's per-person one.
+		localConnectorsEnabled: localConnectorsEnabled(),
 		// Office files preview as PDF through Gotenberg (the kit's `office` profile); off, a
 		// PowerPoint deck previews in the browser and the rest keep today's behaviour.
 		officePreviewEnabled: isGotenbergEnabled(),

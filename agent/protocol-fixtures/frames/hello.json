@@ -1,6 +1,6 @@
 {
 	"_meta": {
-		"spec": "§5 (hello), §4 (Policy), §9 (Machine)",
+		"spec": "§5 (hello), §4 (Policy), §9 (Machine), §10.2 (mode, mcp)",
 		"direction": "M→C",
 		"note": "every field current galopin sends"
 	},
@@ -47,8 +47,10 @@
 				"fileWatch": false,
 				"fileWrite": false,
 				"terminal": true,
-				"delegateProfiles": true
-			}
+				"delegateProfiles": true,
+				"mcp": true
+			},
+			"mode": "agent"
 		},
 		"policy": {
 			"autoAccept": "denied",

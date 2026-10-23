@@ -39,6 +39,19 @@ describe("codeDeviceList", () => {
 		expect(codeDeviceList.devices.map((d) => d.id)).toEqual(["b"]);
 	});
 
+	it("never lists a connectors machine, whatever the server sent (ADR 0102)", async () => {
+		listDevices.mockResolvedValueOnce({
+			devices: [
+				{ id: "agent", machine: { capabilities: {} } },
+				{ id: "older" },
+				{ id: "connectors", machine: { mode: "connectors", capabilities: { mcp: true } } },
+				{ id: "both", machine: { mode: "agent", capabilities: { mcp: true } } },
+			],
+		});
+		await refreshCodeDevices();
+		expect(codeDeviceList.devices.map((d) => d.id)).toEqual(["agent", "older", "both"]);
+	});
+
 	it("a failing read keeps the list", async () => {
 		listDevices.mockRejectedValueOnce(new Error("boom"));
 		await refreshCodeDevices();

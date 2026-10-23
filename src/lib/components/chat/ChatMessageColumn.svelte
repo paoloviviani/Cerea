@@ -180,36 +180,42 @@
 		for (const type of ["wheel", "touchstart", "keydown", "mousedown"] as const) {
 			container.addEventListener(type, cancel, { once: true, passive: true });
 		}
-		const raf =
-			typeof requestAnimationFrame === "function"
-				? (fn: () => void) => requestAnimationFrame(fn)
-				: (fn: () => void) => setTimeout(fn, 16);
-		let lastHeight = -1;
-		let stableFrames = 0;
+		// A ResizeObserver, not a frame poll: it fires after layout and before
+		// paint in the very frame a height changed, so the correction is never
+		// a painted frame late, and a render that lands late (a cold markdown
+		// worker, a slow device) is still held. It ends when the reader takes
+		// over, a newer prepend supersedes it, or the heights have been quiet
+		// for a while (bounded overall so it cannot follow forever).
+		const content = messagesEl;
+		if (!content || typeof ResizeObserver === "undefined") return;
 		const started = Date.now();
-		const tick = () => {
-			if (token !== settleToken || cancelled) return;
-			if (container.scrollHeight !== lastHeight) {
-				lastHeight = container.scrollHeight;
-				stableFrames = 0;
-			} else {
-				stableFrames += 1;
-			}
+		let quietTimer: ReturnType<typeof setTimeout> | undefined;
+		const observer = new ResizeObserver(() => {
+			if (token !== settleToken || cancelled) return finish();
 			const anchorNow = messageViewportTop(container, anchorId);
 			// The anchor left the transcript (a reset cleared it): nothing
 			// to hold anymore.
-			if (anchorNow === null) return;
+			if (anchorNow === null) return finish();
 			if (Math.abs(anchorNow - anchorBefore) > 1) {
 				chatScroll.keepScrollAt(container.scrollTop + (anchorNow - anchorBefore));
 			}
-			// Keep following until the heights rest (and at least past the
-			// first paint, whose effects render the fresh markdown), bounded
-			// so a never-settling page cannot follow forever.
-			if ((stableFrames < 3 || Date.now() - started < 500) && Date.now() - started < 2500) {
-				raf(tick);
+			armQuiet();
+		});
+		const scroller: HTMLElement = container;
+		function finish() {
+			observer.disconnect();
+			clearTimeout(quietTimer);
+			for (const type of ["wheel", "touchstart", "keydown", "mousedown"] as const) {
+				scroller.removeEventListener(type, cancel);
 			}
-		};
-		raf(tick);
+		}
+		function armQuiet() {
+			clearTimeout(quietTimer);
+			const left = Math.max(0, 10_000 - (Date.now() - started));
+			quietTimer = setTimeout(finish, Math.min(left, 3000));
+		}
+		observer.observe(content);
+		armQuiet();
 	}
 
 	/** Swap the whole transcript for another copy of it (the agent panel
@@ -284,16 +290,33 @@
 	// as one group so the anchored turn's reservation is a single CSS
 	// min-height. Reads only
 	// ids/from, so token flushes never regroup.
+	// Each group also carries a `slot`, its DOM identity: its position counted
+	// from where the transcript started when it first rendered. Plain positions
+	// would hand every existing group a new identity when a history page is
+	// prepended above them, remounting every message below the reader. The
+	// slot base advances by the number of groups that appeared above the group
+	// that used to be first, so the existing groups keep their slots and the new
+	// ones take the negative slots above. A re-key (new ids, same shape) finds
+	// no previous first group and keeps positions, as the comment above the
+	// groups requires.
+	let slotBase = 0;
+	let previousFirstKey: string | null = null;
 	let turns = $derived.by(() => {
-		const groups: { key: string; messages: Message[] }[] = [];
+		const groups: { key: string; slot: number; messages: Message[] }[] = [];
 		for (const message of messages) {
 			const last = groups.at(-1);
 			if (message.from === "user" || !last) {
-				groups.push({ key: message.id, messages: [message] });
+				groups.push({ key: message.id, slot: 0, messages: [message] });
 			} else {
 				last.messages.push(message);
 			}
 		}
+		if (previousFirstKey !== null) {
+			const shifted = groups.findIndex((g) => g.key === previousFirstKey);
+			if (shifted > 0) slotBase += shifted;
+		}
+		previousFirstKey = groups[0]?.key ?? null;
+		groups.forEach((g, i) => (g.slot = i - slotBase));
 		return groups;
 	});
 
@@ -408,13 +431,14 @@
 					class="flex h-max flex-col gap-8"
 					style:padding-bottom="{chatScroll.bottomClearancePx}px"
 				>
-					<!-- Turn groups are identified by position, not key: the post-stream
-					     reconciliation re-keys every message, and re-created group
-					     elements would give Safari an in-between layout to clamp the
-					     view against (it clamps synchronously mid-DOM-swap). Messages
-					     inside stay keyed by id; the group's reservation binds to the
-					     anchored INDEX for the same reason. -->
-					{#each turns as turn, turnIdx}
+					<!-- Turn groups are identified by slot (position, shifted when a page
+					     is prepended), not by message id: the post-stream reconciliation
+					     re-keys every message, and re-created group elements would give
+					     Safari an in-between layout to clamp the view against (it clamps
+					     synchronously mid-DOM-swap). Messages inside stay keyed by id;
+					     the group's reservation binds to the anchored INDEX for the same
+					     reason. -->
+					{#each turns as turn, turnIdx (turn.slot)}
 						<div
 							class="flex flex-col gap-8"
 							style:min-height={turnIdx === chatScroll.anchoredTurnIndex

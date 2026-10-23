@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§10.3",
+		"direction": "C→M",
+		"op": "mcp.close"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r3",
+		"op": "mcp.close",
+		"args": {
+			"channelId": "ch_7f3a"
+		}
+	}
+}

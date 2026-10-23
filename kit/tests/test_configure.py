@@ -1279,6 +1279,36 @@ class TestScopes(Deploy):
             self.assertIn(line, migrate)
 
 
+class TestIdpCheckDetail(unittest.TestCase):
+    def _proc(self, stdout, stderr=""):
+        return subprocess.CompletedProcess([], 1, stdout=stdout, stderr=stderr)
+
+    def test_shows_the_failing_lines_not_the_summary(self):
+        out = (
+            "discovery: issuer 'https://x' (matches OIDC_ISSUER)\n"
+            "  device flow: MISSING - no device_authorization_endpoint in discovery\n"
+            "  end_session_endpoint: (none published)\n"
+            "idp check: FAILED\n"
+        )
+        detail = cfg.idp_check_detail(self._proc(out))
+        self.assertIn("device flow: MISSING", detail)
+        self.assertNotIn("matches OIDC_ISSUER", detail)
+        self.assertNotEqual(detail, "idp check: FAILED")
+
+    def test_several_failures_are_all_shown(self):
+        out = "discovery: issuer 'a' does NOT match OIDC_ISSUER 'b'\n  device flow: MISSING x\nidp check: FAILED\n"
+        detail = cfg.idp_check_detail(self._proc(out))
+        self.assertIn("does NOT match", detail)
+        self.assertIn("MISSING", detail)
+
+    def test_falls_back_to_the_last_line(self):
+        self.assertEqual(cfg.idp_check_detail(self._proc("a\nTraceback boom\n")), "Traceback boom")
+
+    def test_falls_back_to_stderr_then_a_question_mark(self):
+        self.assertEqual(cfg.idp_check_detail(self._proc("", "oops\n")), "oops")
+        self.assertEqual(cfg.idp_check_detail(self._proc("")), "?")
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -1453,6 +1483,28 @@ class TestDeviceFlowCheck(unittest.TestCase):
             {"issuer": "https://id.example.org",
              "device_authorization_endpoint": "https://id.example.org/device",
              "grant_types_supported": ["authorization_code", cfg.DEVICE_CODE_GRANT]}
+        ))
+
+    def test_gitlab_shaped_discovery_is_not_a_problem(self):
+        # No device endpoint, the short grant spelling, Doorkeeper's authorize.
+        self.assertIsNone(cfg.device_flow_problem(
+            {"issuer": "https://gitlab.example.org",
+             "authorization_endpoint": "https://gitlab.example.org/oauth/authorize",
+             "grant_types_supported": ["authorization_code", "device_code"]}
+        ))
+
+    def test_no_endpoint_and_a_foreign_authorize_path_is_a_problem(self):
+        self.assertIn("device_authorization_endpoint", cfg.device_flow_problem(
+            {"issuer": "https://id.example.org",
+             "authorization_endpoint": "https://id.example.org/auth",
+             "grant_types_supported": ["device_code"]}
+        ))
+
+    def test_the_short_spelling_passes_with_an_advertised_endpoint(self):
+        self.assertIsNone(cfg.device_flow_problem(
+            {"issuer": "https://id.example.org",
+             "device_authorization_endpoint": "https://id.example.org/device",
+             "grant_types_supported": ["device_code"]}
         ))
 
     def test_an_unreachable_issuer_is_not_a_device_problem(self):
