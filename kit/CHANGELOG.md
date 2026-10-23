@@ -14,6 +14,75 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   off. No new service or port: the machine dials out over the existing machine
   link.
 
+## v0.23.0 — 2026-10-23
+
+Pins: Cerea `0.23.0`, **Pystino `0.17.0`**, Authelia 4.39.22 (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. The gateway runs two database
+migrations on start (0070, 0071). Update galopin on machines to use local
+connectors; existing agent machines keep working without the update.
+
+**Upgrade notes**
+
+- **Conversation sharing is removed**, with the HuggingChat mode it came from
+  (no Cerea user could create a share link). Old `/r/<id>` links stop working;
+  stored share rows stay in the database, are still erased with an account and
+  swept with their conversation.
+- **Dictation** now needs `TRANSCRIPTION_BASE_URL` as well as
+  `TRANSCRIPTION_MODEL` (with only the model set, the microphone used to send
+  the person's token to the Hugging Face router).
+- Gone with the hard fork: the Omni router and every `LLM_ROUTER_*` setting,
+  the `HF_*` settings and the `HF_TOKEN` alias of `OPENAI_API_KEY`, the legacy
+  v1 API routes, MongoDB IAM (`MONGODB-AWS`) authentication, and the unused
+  `assistants` collection (its data is left in place). `.env` is rewritten:
+  `OPENAI_BASE_URL` and `OPENID_PROVIDER_URL` have no default (the kit sets
+  both).
+- **Keycloak** is an ordinary external OIDC provider now, no longer a bundled
+  kind: providers of kind `keycloak` become `generic`, and the Keycloak admin
+  sync adapter is withdrawn (SCIM is unchanged). `GATEWAY_OIDC__KIND=keycloak`
+  still boots.
+- **Code agents and the new Local connectors capability** are group
+  capabilities shown and enforced only on a deployment with the chat
+  (`GATEWAY_CHAT__ENABLED`, which the kit sets). On a standalone Pystino they
+  are hidden. Local connectors is on for existing and new groups.
+
+**New**
+
+- **Local MCP connectors** (ADR 0102): run MCP servers on your own machine and
+  use them from your chats, with nothing exposed to the internet. A
+  connectors-only galopin (`galopin enroll --connectors-only`, then
+  `galopin run`) reads a Claude-format `mcp.json`, dials out to Cerea, and
+  passes MCP through unchanged. Approve the machine in Workspace → **Local
+  connectors**, where the setup guide is; its servers appear in the MCP panel
+  as "<server> · on <machine>". The machine's `allowedTools` is a ceiling the
+  chat cannot raise, every tool asks for approval, and a server's OAuth sign-in
+  is started from the chat with the tokens kept on the machine. Such a machine
+  never appears in the Agents panel. `LOCAL_CONNECTORS_ENABLED` (on in the kit).
+- **One card for every produced file**, live and after a reload: the run shows
+  as one "Ran Python" row with its status, files as rows inside it with names
+  that keep their extension, a file whose save failed says so (with Retry), and
+  PDFs and converted Office files preview in the page with pdf.js on every
+  device, phones included.
+- Agent-made schedules can stop after a number of runs.
+- Pystino 0.17.0: console tables are denser and list pages wider, row actions
+  sit in a "⋯" menu, and the console's API types are generated from the
+  gateway's schema.
+
+**Fixes**
+
+- `pystino idp check` and `./configure` recognise GitLab's device flow (as
+  galopin always did), and configure shows why the check failed.
+- The chat image builds on a small host (`BUILD_HEAP_MB`, default 3072); the
+  kit's `dev/build.sh` builds origin's commit of a branch, and every image the
+  profiles need.
+- Loading older messages keeps the visible one in place and leaves the messages
+  on screen untouched; markdown renders faster after a view change.
+- Delegate profile names typed on a phone are accepted; the new-session dialog
+  names the machine's backend instead of a one-item list.
+- galopin: a sign-in no longer reads as "needs sign-in" for a moment; it logs
+  why Cerea refused it; it writes the protocol's null and empty fields (five
+  fixes found by the new shared protocol fixtures).
+
 ## v0.22.2 — 2026-10-22
 
 Pins: Cerea `0.22.2`, **Pystino `0.16.0`**, Authelia 4.39.22 (unchanged).
