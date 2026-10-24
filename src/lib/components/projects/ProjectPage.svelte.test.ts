@@ -122,6 +122,15 @@ function stubApi(
 			if (/\/projects\/[^/]+\/conversations$/.test(url) && method === "GET") {
 				return Response.json({ data: options.chats ?? [] });
 			}
+			if (url.endsWith("/api/v2/projects") && method === "GET") {
+				return Response.json({
+					data: [projectView(), projectView({ id: "proj-2", name: "Annual report" })],
+				});
+			}
+			if (/\/api\/v2\/conversations\/[^/]+$/.test(url) && method === "PATCH") {
+				seen.push({ method, url, body });
+				return Response.json({ success: true });
+			}
 			if (/\/projects\/[^/]+\/conversations\/[^/]+$/.test(url) && method === "DELETE") {
 				seen.push({ method, url, body });
 				return new Response(null, { status: 204 });
@@ -223,7 +232,7 @@ describe("ProjectPage tabs", () => {
 		await waitForText("Budget questions");
 
 		expect(text()).toContain("Chats (2)");
-		expect(byLabel("Remove Budget questions from project")).not.toBeNull();
+		expect(byLabel("Actions for Budget questions")).not.toBeNull();
 		expect(document.body.querySelector("#project-name")).toBeNull();
 		expect(document.body.querySelector('[aria-label="Standing instructions"]')).toBeNull();
 		expect(document.body.querySelector('[data-testid="project-knowledge"]')).toBeNull();
@@ -286,12 +295,12 @@ describe("ProjectPage sections", () => {
 		expect(document.body.querySelector('[data-testid="project-documents"]')).not.toBeNull();
 	});
 
-	it("a shared project still lists its chats, with removal only for one's own", async () => {
+	it("a shared project still lists its chats, with actions only for one's own", async () => {
 		stubApi({ project: projectView({ owned: false }), chats: CHATS });
 		mountExisting();
 		await waitForText("Budget questions");
 		// Not theirs, not the owner's: no removal for the chat they did not start.
-		expect(byLabel("Remove Budget questions from project")).not.toBeNull();
+		expect(byLabel("Actions for Budget questions")).not.toBeNull();
 		expect(byLabel("Remove Their thread from project")).toBeNull();
 	});
 });
@@ -336,30 +345,68 @@ describe("ProjectPage knowledge bases, after creation", () => {
 	});
 });
 
+/** Open a row's `⋯` menu the way a pointer does, and return the item named `name`. */
+async function menuItem(rowTitle: string, name: string): Promise<HTMLElement> {
+	const trigger = byLabel(`Actions for ${rowTitle}`);
+	if (!trigger) throw new Error(`no menu for ${rowTitle}`);
+	trigger.dispatchEvent(
+		new PointerEvent("pointerdown", {
+			button: 0,
+			bubbles: true,
+			cancelable: true,
+			pointerType: "mouse",
+		})
+	);
+	let item: HTMLElement | undefined;
+	await vi.waitFor(() => {
+		item = [...document.body.querySelectorAll('[role="menuitem"]')].find((el) =>
+			el.textContent?.includes(name)
+		) as HTMLElement | undefined;
+		if (!item) throw new Error(`no menu item ${name}`);
+	});
+	return item as HTMLElement;
+}
+
 describe("ProjectPage chats", () => {
-	it("removes a chat from the project after confirming, and keeps the others", async () => {
+	it("removes a chat from the project without a native confirm, and keeps the others", async () => {
 		const seen = stubApi({ project: projectView({ conversationCount: 2 }), chats: CHATS });
-		vi.spyOn(window, "confirm").mockReturnValue(true);
+		const confirmSpy = vi.spyOn(window, "confirm");
 		mountExisting();
 		await waitForText("Budget questions");
 
-		byLabel("Remove Budget questions from project")?.click();
-		await vi.waitFor(() => expect(seen.some((call) => call.method === "DELETE")).toBe(true));
-		expect(seen[0].url).toContain("/api/v2/projects/proj-1/conversations/c1");
+		(await menuItem("Budget questions", "Remove from project")).click();
+		await vi.waitFor(() => expect(seen.some((call) => call.method === "PATCH")).toBe(true));
+		expect(seen[0].url).toContain("/api/v2/conversations/c1");
+		expect(seen[0].body).toEqual({ projectId: null });
 		await vi.waitFor(() => expect(text()).toContain("Chats (1)"));
 		expect(text()).not.toContain("Budget questions");
 		expect(text()).toContain("Their thread");
+		expect(confirmSpy).not.toHaveBeenCalled();
 	});
 
-	it("does nothing when the confirmation is declined", async () => {
-		const seen = stubApi({ project: projectView(), chats: CHATS });
-		vi.spyOn(window, "confirm").mockReturnValue(false);
+	it("moves a chat to another project from the picker, which marks the current one", async () => {
+		const seen = stubApi({ project: projectView({ conversationCount: 2 }), chats: CHATS });
 		mountExisting();
 		await waitForText("Budget questions");
-		byLabel("Remove Budget questions from project")?.click();
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(seen).toHaveLength(0);
-		expect(text()).toContain("Chats (2)");
+
+		(await menuItem("Budget questions", "Move to project")).click();
+		await waitForText("Annual report");
+		expect(text()).toContain("None (remove from project)");
+		expect(text()).toContain("Current");
+		button("Annual report")?.click();
+		await vi.waitFor(() => expect(seen.some((call) => call.method === "PATCH")).toBe(true));
+		expect(seen[0].body).toEqual({ projectId: "proj-2" });
+		await vi.waitFor(() => expect(text()).toContain("Chats (1)"));
+		await vi.waitFor(() => expect(text()).not.toContain("Budget questions"));
+	});
+
+	it("offers the project's owner removal, but not a move, for a chat someone else started", async () => {
+		stubApi({ project: projectView({ conversationCount: 2 }), chats: CHATS });
+		mountExisting();
+		await waitForText("Their thread");
+		const items = await menuItem("Their thread", "Remove from project");
+		expect(items).not.toBeNull();
+		expect(text()).not.toContain("Move to project…");
 	});
 });
 

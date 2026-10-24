@@ -42,6 +42,8 @@
 	import { handleResponse, useAPIClient } from "$lib/APIClient";
 	import { useSettingsStore } from "$lib/stores/settings.js";
 	import { projectsRevision } from "$lib/stores/projectsRevision";
+	import { chatDrag } from "$lib/stores/chatDrag.svelte";
+	import { useMoveConversation } from "$lib/utils/useMoveConversation";
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
 	import type { ProjectView } from "$lib/types/Project";
@@ -53,6 +55,7 @@
 	const client = useAPIClient();
 	// A chat named by its first generation gets the title here too, live.
 	const convsStore = useConversationsStore();
+	const moveConversation = useMoveConversation();
 
 	interface ProjectConversation {
 		id: string;
@@ -99,16 +102,34 @@
 	async function toggleFolder(project: ProjectView) {
 		const next = !expanded[project.id];
 		expanded = { ...expanded, [project.id]: next };
-		if (next && chats[project.id] === undefined) {
-			try {
-				const response = await fetch(`${base}/api/v2/projects/${project.id}/conversations`);
-				if (!response.ok) throw new Error(String(response.status));
-				const listed = (await response.json()) as { data: ProjectConversation[] };
-				chats = { ...chats, [project.id]: listed.data };
-			} catch {
-				chats = { ...chats, [project.id]: [] };
-			}
+		if (next && chats[project.id] === undefined) await loadChats(project.id);
+	}
+
+	async function loadChats(projectId: string) {
+		try {
+			const response = await fetch(`${base}/api/v2/projects/${projectId}/conversations`);
+			if (!response.ok) throw new Error(String(response.status));
+			const listed = (await response.json()) as { data: ProjectConversation[] };
+			chats = { ...chats, [projectId]: listed.data };
+		} catch {
+			chats = { ...chats, [projectId]: [] };
 		}
+	}
+
+	/** A sidebar chat was dropped on a project's row: move it in. */
+	async function dropOn(project: ProjectView) {
+		const dragged = chatDrag.current;
+		chatDrag.current = null;
+		if (!dragged || dragged.projectId === project.id) return;
+		const from = dragged.projectId
+			? projects.find((entry) => entry.id === dragged.projectId)
+			: undefined;
+		const ok = await moveConversation(
+			{ id: dragged.id, title: dragged.title, model: dragged.model },
+			{ id: project.id, name: project.name },
+			from?.name
+		);
+		if (ok) expanded = { ...expanded, [project.id]: true };
 	}
 
 	/**
@@ -283,6 +304,12 @@
 		if (!loaded && !open) return;
 		chats = {};
 		await loadProjects();
+		// A folder that is open must show its chats again, not wait for a toggle.
+		await Promise.all(
+			Object.entries(expanded)
+				.filter(([id, isOpen]) => isOpen && projects.some((project) => project.id === id))
+				.map(([id]) => loadChats(id))
+		);
 	}
 
 	let seenRevision = $projectsRevision;
@@ -323,6 +350,8 @@
 				onactivate={() => toggleFolder(project)}
 				onadd={() => startChat(project)}
 				addTitle="New chat"
+				acceptsChat={() => chatDrag.current !== null && chatDrag.current.projectId !== project.id}
+				ondropchat={() => dropOn(project)}
 			>
 				{#snippet icon()}
 					<CarbonFolder class="size-3.5 shrink-0" />
@@ -383,6 +412,7 @@
 								id: conversation.id,
 								title: convsStore?.titles[conversation.id] ?? conversation.title,
 								model: conversation.model,
+								projectId: project.id,
 								updatedAt: new Date(conversation.updatedAt),
 							} as ConvSidebar}
 							<NavConversationItem

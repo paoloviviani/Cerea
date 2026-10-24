@@ -63,6 +63,16 @@ class ConversationsStore {
 		this.#list[idx] = { ...this.#list[idx], ...patch };
 	}
 
+	/**
+	 * Put a conversation in a project, or (undefined) back in the loose list.
+	 * Replaces the array rather than patching an element: the sidebar list
+	 * assigns its own copy of the prop once it pages, and only a new array
+	 * reaches it.
+	 */
+	setProject(id: string, projectId: string | undefined): void {
+		this.#list = this.#list.map((c) => (String(c.id) === id ? { ...c, projectId } : c));
+	}
+
 	/** The latest title set for each conversation this session, by id. */
 	get titles(): Readonly<Record<string, string>> {
 		return this.#titles;

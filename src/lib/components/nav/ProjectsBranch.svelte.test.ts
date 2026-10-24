@@ -2,6 +2,7 @@ import ProjectsBranch from "./ProjectsBranch.svelte";
 import { renderWithApp, appNavigation } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { writable } from "svelte/store";
+import { chatDrag } from "$lib/stores/chatDrag.svelte";
 import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
 import { CONVERSATIONS_CONTEXT_KEY, newConversationsStore } from "$lib/stores/conversations.svelte";
 
@@ -145,6 +146,48 @@ const openBranch = async (container: HTMLElement) => {
 	find(container, "button").click();
 	await vi.waitFor(() => expect(container.textContent).toContain("Mortgage"));
 };
+
+describe("ProjectsBranch: dropping a sidebar chat on a project", () => {
+	it("moves the chat into the project and opens the folder", async () => {
+		stubFetch(undefined, [existingChat]);
+		const { container } = await renderBranch("model-a");
+		await openBranch(container);
+		const folder = [...container.querySelectorAll("button")].find((b) =>
+			b.textContent?.includes("Mortgage")
+		);
+		const row = folder?.parentElement;
+		if (!row) throw new Error("no folder row for the project");
+
+		chatDrag.current = { id: "conv-42", title: "Loose chat" };
+		row.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true }));
+		row.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true }));
+
+		await vi.waitFor(() =>
+			expect(posts).toEqual([
+				{ url: "/api/v2/conversations/conv-42", body: { projectId: project.id } },
+			])
+		);
+		await vi.waitFor(() => expect(container.textContent).toContain("First chat"));
+		expect(chatDrag.current).toBeNull();
+	});
+
+	it("ignores a chat that is already in that project", async () => {
+		stubFetch(undefined, [existingChat]);
+		const { container } = await renderBranch("model-a");
+		await openBranch(container);
+		const folder = [...container.querySelectorAll("button")].find((b) =>
+			b.textContent?.includes("Mortgage")
+		);
+		const row = folder?.parentElement;
+		if (!row) throw new Error("no folder row for the project");
+
+		chatDrag.current = { id: "conv-1", title: "First chat", projectId: project.id };
+		row.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true }));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(posts).toEqual([]);
+		chatDrag.current = null;
+	});
+});
 
 describe("ProjectsBranch: starting a chat from the row", () => {
 	it("the + creates the conversation with the project attached and navigates to it", async () => {

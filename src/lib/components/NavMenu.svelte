@@ -60,6 +60,8 @@
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { requireAuthUser } from "$lib/utils/auth";
+	import { chatDrag } from "$lib/stores/chatDrag.svelte";
+	import { useMoveConversation } from "$lib/utils/useMoveConversation";
 	import CarbonChat from "~icons/carbon/chat";
 	import CarbonCode from "~icons/carbon/code";
 	import CarbonEdit from "~icons/carbon/edit";
@@ -98,6 +100,24 @@
 	}: Props = $props();
 
 	let hasMore = $state(true);
+
+	const moveConversation = useMoveConversation();
+
+	/** A project chat was dropped on the Chats branch: take it out of its project. */
+	async function dropOut() {
+		const dragged = chatDrag.current;
+		chatDrag.current = null;
+		if (!dragged?.projectId) return;
+		const projects = (await fetch(`${base}/api/v2/projects`)
+			.then((response) => (response.ok ? response.json() : { data: [] }))
+			.catch(() => ({ data: [] }))) as { data: { id: string; name: string }[] };
+		const from = projects.data.find((project) => project.id === dragged.projectId)?.name;
+		await moveConversation(
+			{ id: dragged.id, title: dragged.title, model: dragged.model },
+			null,
+			from
+		);
+	}
 
 	function handleNewChatClick(e: MouseEvent) {
 		isAborted.set(true);
@@ -222,6 +242,8 @@
 			href="{base}/chats"
 			badge={loose.length || undefined}
 			bind:open={chatsOpen}
+			acceptsChat={() => chatDrag.current?.projectId !== undefined}
+			ondropchat={dropOut}
 		>
 			{#snippet icon()}
 				<CarbonChat class="size-3.5 shrink-0" />

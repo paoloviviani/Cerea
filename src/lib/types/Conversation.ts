@@ -38,10 +38,11 @@ export interface Conversation extends Timestamps {
 	preprompt?: string;
 
 	/**
-	 * The project this conversation belongs to, if any. Set at creation and
-	 * never changed: a project supplies the standing context every turn is
-	 * generated against, so moving a conversation between projects would make
-	 * its earlier turns unreproducible.
+	 * The project this conversation belongs to, if any. Set at creation, and
+	 * changed by an explicit move (`moveConversationToProject`). A project
+	 * supplies the standing context every turn is generated against, read from
+	 * this field at each turn; a move therefore applies from the next message
+	 * on and rewrites nothing in the history.
 	 */
 	projectId?: Project["_id"];
 

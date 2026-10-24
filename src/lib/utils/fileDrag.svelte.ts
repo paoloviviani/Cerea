@@ -1,3 +1,5 @@
+import { CHAT_DRAG_TYPE } from "$lib/stores/chatDrag.svelte";
+
 /**
  * Whether files are being dragged over the window — the cue for a composer
  * to swap its input for `FileDropzone`. `dragleave` fires for every child
@@ -12,6 +14,8 @@ export class FileDrag {
 	#lastTarget: EventTarget | null = null;
 
 	enter = (e: DragEvent) => {
+		// A sidebar chat being moved to a project is not a file.
+		if (e.dataTransfer?.types.includes(CHAT_DRAG_TYPE)) return;
 		this.#lastTarget = e.target;
 		this.active = true;
 	};

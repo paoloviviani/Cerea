@@ -31,6 +31,7 @@
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { createConversationsStore } from "$lib/stores/conversations.svelte";
 	import { createActiveGenerationsStore } from "$lib/stores/activeGenerations.svelte";
+	import { projectTitle } from "$lib/stores/projectTitle";
 	import { createNotificationsStore } from "$lib/stores/notifications.svelte";
 	import { initAppViewport } from "$lib/utils/appViewport";
 
@@ -222,10 +223,12 @@
 	let mobileNavTitle = $derived(
 		["/models", "/privacy"].includes(page.route.id ?? "")
 			? ""
-			: page.route.id === "/code"
-				? // The agent screen names itself once the daemon answers.
-					codeNav.agentTitle || "Code Agents"
-				: convsStore.list.find((conv) => conv.id === page.params.id)?.title
+			: page.route.id === "/projects/[id]"
+				? $projectTitle || "Project"
+				: page.route.id === "/code"
+					? // The agent screen names itself once the daemon answers.
+						codeNav.agentTitle || "Code Agents"
+					: convsStore.list.find((conv) => conv.id === page.params.id)?.title
 	);
 </script>
 

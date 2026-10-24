@@ -31,6 +31,9 @@
 	import IconClose from "~icons/carbon/close";
 	import IconSearch from "~icons/carbon/search";
 	import LucideFolderOpen from "~icons/lucide/folder-open";
+	import MoveMenu from "$lib/components/MoveMenu.svelte";
+	import MoveToProjectModal from "$lib/components/MoveToProjectModal.svelte";
+	import { useMoveConversation } from "$lib/utils/useMoveConversation";
 
 	interface ChatRow {
 		id: { toString(): string } | string;
@@ -41,6 +44,16 @@
 	}
 
 	const client = useAPIClient();
+	const moveConversation = useMoveConversation();
+	let moving = $state<ChatRow | null>(null);
+
+	/** Keep the row's project badge true after a move, without a reload. */
+	function moved(row: ChatRow, to: { id: string; name: string } | null) {
+		rows = rows.map((entry) =>
+			String(entry.id) === String(row.id) ? { ...entry, projectId: to?.id } : entry
+		);
+		if (to) projectNames = { ...projectNames, [to.id]: to.name };
+	}
 
 	let input = $state("");
 	/** What the list is currently filtered by: `input`, after the pause. */
@@ -137,6 +150,20 @@
 	});
 </script>
 
+{#if moving}
+	<MoveToProjectModal
+		chat={{
+			id: String(moving.id),
+			title: moving.title,
+			model: moving.model,
+			updatedAt: moving.updatedAt,
+			projectId: moving.projectId,
+		}}
+		onclose={() => (moving = null)}
+		onmoved={(to) => moving && moved(moving, to)}
+	/>
+{/if}
+
 <div class="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
 	<header>
 		<h1 class="text-xl font-semibold text-ink">Chats</h1>
@@ -212,13 +239,13 @@
 		{#if rows.length > 0}
 			<ul class="flex flex-col gap-2" data-testid="chats-list">
 				{#each rows as row (String(row.id))}
-					<li>
+					<li class="relative">
 						<a
 							href="{base}/conversation/{row.id}"
 							data-testid="chats-row"
 							class="{s.card(false)} block no-underline hover:border-line-strong"
 						>
-							<div class="px-4 py-3">
+							<div class="py-3 pr-12 pl-4">
 								<h2 class="{s.CARD_TITLE} font-medium">{row.title}</h2>
 								<div
 									class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-muted"
@@ -241,6 +268,25 @@
 								</div>
 							</div>
 						</a>
+						<div class="absolute top-2 right-2">
+							<MoveMenu
+								label={row.title}
+								onmove={() => (moving = row)}
+								onremove={row.projectId
+									? () =>
+											moveConversation(
+												{
+													id: String(row.id),
+													title: row.title,
+													model: row.model,
+													updatedAt: row.updatedAt,
+												},
+												null,
+												projectNames[row.projectId as string]
+											).then((ok) => ok && moved(row, null))
+									: undefined}
+							/>
+						</div>
 					</li>
 				{/each}
 			</ul>
