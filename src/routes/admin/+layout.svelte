@@ -24,6 +24,7 @@
 	import IconPlug from "~icons/carbon/plug";
 	import IconBot from "~icons/lucide/bot";
 	import IconSearch from "~icons/carbon/search";
+	import SectionSwitcher from "$lib/components/nav/SectionSwitcher.svelte";
 	import type { LayoutServerData } from "./$types";
 
 	let { data, children }: { data: LayoutServerData; children: import("svelte").Snippet } = $props();
@@ -47,6 +48,10 @@
 	]);
 
 	const current = $derived(page.url.pathname);
+	const switcherSections = $derived(sections.map((s) => ({ ...s, href: `${base}${s.href}` })));
+	const currentSection = $derived(
+		switcherSections.find((s) => current.startsWith(s.href))?.href ?? ""
+	);
 </script>
 
 <!--
@@ -105,6 +110,11 @@
 	<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 p-6">
 		<header class="flex flex-col gap-1">
 			<h1 class="text-xl font-semibold">Administration</h1>
+			<SectionSwitcher
+				label="Administration sections"
+				sections={switcherSections}
+				current={currentSection}
+			/>
 			{#if (page.data as { consoleEnabled?: boolean }).consoleEnabled}
 				<!-- Not a section of this panel but a way out of it: the platform
 				     side — providers, models, prices, quotas, users — lives in the
@@ -126,7 +136,10 @@
 			{/if}
 		</header>
 
-		<nav class="flex flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 dark:border-gray-700">
+		<nav
+			aria-label="Administration sections"
+			class="hidden flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 md:flex dark:border-gray-700"
+		>
 			{#each sections as section (section.href)}
 				{@const active = current.startsWith(`${base}${section.href}`)}
 				<a

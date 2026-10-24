@@ -37,6 +37,7 @@
 	import IconDocument from "~icons/carbon/document";
 	import LucideBrain from "~icons/lucide/brain";
 	import LucideSparkles from "~icons/lucide/sparkles";
+	import SectionSwitcher from "$lib/components/nav/SectionSwitcher.svelte";
 
 	interface Props {
 		data: LayoutData;
@@ -56,13 +57,13 @@
 	// `/workspace`, a mistyped `?tab=...`, or `?tab=kb` while hidden — lands on
 	// Models.
 	const ALL_TABS = [
-		{ key: "models", label: "Models" },
-		{ key: "custom", label: "Custom models" },
-		{ key: "memory", label: "Memory" },
-		{ key: "kb", label: "Knowledge" },
-		{ key: "skills", label: "Skills" },
-		{ key: "mcp", label: "MCP Servers" },
-		{ key: "local", label: "Local connectors" },
+		{ key: "models", label: "Models", icon: LucideBoxes },
+		{ key: "custom", label: "Custom models", icon: LucideSparkles },
+		{ key: "memory", label: "Memory", icon: LucideBrain },
+		{ key: "kb", label: "Knowledge", icon: LucideLibrary },
+		{ key: "skills", label: "Skills", icon: IconDocument },
+		{ key: "mcp", label: "MCP Servers", icon: IconMCP },
+		{ key: "local", label: "Local connectors", icon: LucideLaptop },
 	] as const;
 	// Memory hides on the same terms as Knowledge, for the same reason: with
 	// `CHAT_MEMORY_ENABLED=false` its routes answer 404, so the tab would only
@@ -86,6 +87,10 @@
 		TABS.find((candidate) => candidate.key === page.url.searchParams.get("tab"))?.key ??
 			("models" satisfies TabKey)
 	);
+	// The same sections, for the phone's switcher (below `md`, where the tab row hides).
+	const switcherSections = $derived(
+		TABS.map((t) => ({ href: `${base}/workspace?tab=${t.key}`, label: t.label, icon: t.icon }))
+	);
 	const initialId = $derived(page.url.searchParams.get("id") ?? undefined);
 	// MCP servers are a flat list with no per-item view, so an `id` beside
 	// `?tab=mcp` has nothing to open and is ignored.
@@ -101,11 +106,16 @@
 <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 p-6">
 	<header class="flex flex-col gap-1">
 		<h1 class="text-xl font-semibold">Workspace</h1>
+		<SectionSwitcher
+			label="Workspace sections"
+			sections={switcherSections}
+			current={`${base}/workspace?tab=${tab}`}
+		/>
 	</header>
 
 	<nav
 		aria-label="Workspace sections"
-		class="flex flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 dark:border-gray-700"
+		class="hidden flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 md:flex dark:border-gray-700"
 	>
 		{#each TABS as t (t.key)}
 			{@const active = tab === t.key}
@@ -116,21 +126,7 @@
 					? 'border-blue-600 text-blue-700 dark:text-blue-400'
 					: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}"
 			>
-				{#if t.key === "models"}
-					<LucideBoxes class="size-3.5 sm:size-4" />
-				{:else if t.key === "custom"}
-					<LucideSparkles class="size-3.5 sm:size-4" />
-				{:else if t.key === "mcp"}
-					<IconMCP classNames="size-3.5 sm:size-4" />
-				{:else if t.key === "local"}
-					<LucideLaptop class="size-3.5 sm:size-4" />
-				{:else if t.key === "kb"}
-					<LucideLibrary class="size-3.5 sm:size-4" />
-				{:else if t.key === "memory"}
-					<LucideBrain class="size-3.5 sm:size-4" />
-				{:else}
-					<IconDocument class="size-3.5 sm:size-4" />
-				{/if}
+				<t.icon class="size-3.5 sm:size-4" />
 				{t.label}
 			</a>
 		{/each}
