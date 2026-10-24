@@ -9,6 +9,7 @@ import type { Transport } from "@modelcontextprotocol/client";
 type Message = Parameters<NonNullable<Transport["onmessage"]>>[0];
 
 const SERVER = fileURLToPath(new URL("./silentProbeServer.mjs", import.meta.url));
+export const SLOW_MODERN_SERVER = fileURLToPath(new URL("./slowModernServer.mjs", import.meta.url));
 
 export const machine = {
 	opens: 0,
@@ -33,9 +34,18 @@ export class ChildLocalTransport implements Transport {
 	private child?: ChildProcess;
 	private ended = false;
 
+	/** A different server script, and the environment it is started with. */
+	constructor(
+		private readonly script: string = SERVER,
+		private readonly env: Record<string, string> = {}
+	) {}
+
 	async start() {
 		machine.opens++;
-		const child = spawn(process.execPath, [SERVER], { stdio: ["pipe", "pipe", "ignore"] });
+		const child = spawn(process.execPath, [this.script], {
+			stdio: ["pipe", "pipe", "ignore"],
+			env: { ...process.env, ...this.env },
+		});
 		this.child = child;
 		let buffer = "";
 		child.stdout.on("data", (chunk: Buffer) => {

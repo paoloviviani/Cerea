@@ -1,4 +1,5 @@
-import { getClient, releaseClient, retainClient } from "./clientPool";
+import { forgetLocalConnection, getClient, releaseClient, retainClient } from "./clientPool";
+import { isLocalServerUrl } from "./localUrl";
 import type { McpServerConfig } from "./httpClient";
 import { logger } from "$lib/server/logger";
 // use console.* for lightweight diagnostics in production logs
@@ -181,12 +182,26 @@ const ANNOTATION_HINTS = [
  * a query string, or a server's own error body, and it is going into a prompt.
  */
 function describeListingFailure(err: unknown): string {
+	if (err instanceof EmptyLocalListing) {
+		return "the connector started but listed no tools";
+	}
 	const message = String(err instanceof Error ? err.message : err).toLowerCase();
 	if (/\b(401|403)\b|unauthori[sz]ed|forbidden/.test(message)) {
 		return "the server refused the credential (not signed in, or the token is missing or wrong)";
 	}
 	if (/abort|timed? ?out|timeout/.test(message)) return "the server did not answer in time";
 	return "the server could not be reached or did not answer as an MCP server";
+}
+
+/**
+ * A local server's listing that held no tools, or whose `tools` was not an array. A process
+ * on the person's machine that answered `tools/list` with nothing is far likelier to be
+ * mid-start or on the wrong protocol era than to have nothing to offer, so it is a failure.
+ */
+class EmptyLocalListing extends Error {
+	constructor(readonly reason: string) {
+		super(`local server listed no tools (${reason})`);
+	}
 }
 
 /** Booleans only: a truthy string must not be stored as a declared hint. */
@@ -217,7 +232,16 @@ async function listServerTools(
 	retainClient(client);
 	try {
 		const response = await client.listTools({}, opts.signal ? { signal: opts.signal } : undefined);
-		const tools = Array.isArray(response?.tools) ? (response.tools as ListedTool[]) : [];
+		const isArray = Array.isArray(response?.tools);
+		const tools = isArray ? (response.tools as ListedTool[]) : [];
+		if (isLocalServerUrl(server.url) && tools.length === 0) {
+			throw new EmptyLocalListing(isArray ? "empty tools array" : "tools was not an array");
+		}
+		if (tools.length === 0) {
+			try {
+				logger.info({ server: server.name, url: server.url }, "[mcp] server listed no tools");
+			} catch {}
+		}
 		try {
 			logger.debug(
 				{
@@ -261,6 +285,33 @@ async function fetchServerTools(
 	return normalized;
 }
 
+/**
+ * A local server's listing is retried once on a fresh connection when it came back empty or
+ * failed, since the connection (and the era remembered for it) is the likeliest culprit. Never
+ * cached when it fails, and the stale connection and era are dropped either way.
+ */
+async function fetchWithLocalRetry(
+	server: McpServerConfig,
+	opts: { signal?: AbortSignal }
+): Promise<CachedServerTool[]> {
+	if (!isLocalServerUrl(server.url)) return fetchServerTools(server, opts);
+	try {
+		return await fetchServerTools(server, opts);
+	} catch (err) {
+		if (opts.signal?.aborted) throw err;
+		forgetLocalConnection(server);
+		if (!(err instanceof EmptyLocalListing)) throw err;
+		logger.warn(
+			{ server: server.name, url: server.url, reason: err.reason },
+			"[mcp] local server listed no tools"
+		);
+		return await fetchServerTools(server, opts).catch((again) => {
+			forgetLocalConnection(server);
+			throw again;
+		});
+	}
+}
+
 export async function getOpenAiToolsForMcp(
 	servers: McpServerConfig[],
 	{ ttlMs = DEFAULT_TTL_MS, signal }: { ttlMs?: number; signal?: AbortSignal } = {}
@@ -290,7 +341,7 @@ export async function getOpenAiToolsForMcp(
 				return cached.tools;
 			}
 			try {
-				const tools = await fetchServerTools(server, { signal });
+				const tools = await fetchWithLocalRetry(server, { signal });
 				cache.set(key, { fetchedAt: now, ttlMs, tools });
 				return tools;
 			} catch (err) {
