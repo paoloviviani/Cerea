@@ -238,7 +238,7 @@
 							Background tone
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Cool or warm greys behind the text.
+							Neutral, cool or warm greys behind the text.
 						</p>
 					</div>
 					<SwatchGroup
