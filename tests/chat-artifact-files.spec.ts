@@ -13,7 +13,13 @@ import { readFile } from "node:fs/promises";
 import { GridFSBucket, ObjectId, type Db } from "mongodb";
 import { zipSync } from "fflate";
 import type { Page } from "playwright/test";
-import { test, expect, E2E_APP_BASE, type SeedConversationInput } from "./fixtures.ts";
+import {
+	test,
+	expect,
+	E2E_APP_BASE,
+	waitForHydration,
+	type SeedConversationInput,
+} from "./fixtures.ts";
 
 /** Minimal one-page PDF with correct xref offsets, so the native viewer accepts it. */
 function makePdf(text: string): Buffer {
@@ -248,6 +254,7 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 
 	// Everything survives a reload: rows, registry entries and bytes.
 	await page.reload();
+	await waitForHydration(page);
 	await page.getByRole("button", { name: "Open artifacts panel" }).click();
 	await expect(library.getByText("hello.pdf")).toBeVisible({ timeout: 30_000 });
 	await library.getByRole("button", { name: "Open hello.pdf in panel" }).click();
@@ -332,6 +339,10 @@ test("a code block's file is a file artifact too, and comes back after a reload"
 	for (const pass of ["first load", "after a reload"]) {
 		if (pass === "after a reload") await page.reload();
 		else await page.goto(`${E2E_APP_BASE}/conversation/${conversationId.toString()}`);
+		// Server-rendered: an "Open artifacts panel" click before hydration
+		// reaches no handler, the library never opens, and the button below
+		// is never found.
+		await waitForHydration(page);
 
 		// Under the block, the stored file stands in for the sandbox's (dead) one.
 		await expect(page.getByText("hello_world.docx").first(), pass).toBeVisible({
@@ -386,6 +397,7 @@ test("the inline file card keeps its filename visible when the chat column is na
 	// with no filename at all, plus a stray list marker.
 	const conversationId = await seedHelloWorldDocxConversation(db, seedConversation);
 	await page.goto(`${E2E_APP_BASE}/conversation/${conversationId.toString()}`);
+	await waitForHydration(page);
 
 	await page.getByRole("button", { name: "Open artifacts panel" }).click();
 	const library = page.getByLabel("Artifacts panel", { exact: true });

@@ -7,7 +7,7 @@
  * Set `MOVE_SHOTS=/some/dir` to also write screenshots there (desktop and
  * phone, light and dark); without it the spec only asserts.
  */
-import { test, expect, seedConversation, E2E_APP_BASE } from "./fixtures.ts";
+import { test, expect, seedConversation, waitForHydration, E2E_APP_BASE } from "./fixtures.ts";
 import { ObjectId, type Db } from "mongodb";
 import type { Locator, Page } from "playwright/test";
 
@@ -91,6 +91,9 @@ for (const scheme of ["light", "dark"] as const) {
 		});
 
 		await page.goto(`${E2E_APP_BASE}/`);
+		// The sidebar is server-rendered: an "Expand Projects" click before
+		// hydration reaches no handler and is lost (the folder never opens).
+		await waitForHydration(page);
 		await page.getByRole("button", { name: "Expand Projects" }).click();
 		await expect(page.getByText("Budget 2027")).toBeVisible();
 

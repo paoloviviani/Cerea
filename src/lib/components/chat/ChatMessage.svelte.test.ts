@@ -208,6 +208,27 @@ describe("collapsed process blocks during streaming", () => {
 	});
 });
 
+describe("a Thinking block a person opened while the turn was still running", () => {
+	const stream = (token: string) => ({ type: "stream", token });
+	const updates = [stream("<think>Weighing the two options.</think>"), stream("Option B wins.")];
+
+	it("stays open when the turn ends and the message re-renders as the nested summary", async () => {
+		// While the turn runs the blocks render flat; once it ends the nested
+		// branch takes over, which used to mount a fresh block and snap an
+		// expanded one shut under the reader's eyes.
+		const screen = mount(updates);
+		const el = screen.baseElement as HTMLElement;
+		(el.querySelector('button[aria-label="Expand"]') as HTMLButtonElement).click();
+		await tick();
+		expect(el.textContent).toContain("Weighing the two options.");
+
+		await screen.rerender({ loading: false } as never);
+		await tick();
+		expect(el.querySelector('button[aria-label="Collapse"]')).not.toBeNull();
+		expect(el.textContent).toContain("Weighing the two options.");
+	});
+});
+
 describe("a row arriving inside a streaming text part", () => {
 	const stream = (token: string, partId: string) => ({ type: "stream", token, partId });
 	const permissionAsked = {

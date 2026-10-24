@@ -76,21 +76,36 @@
 	// reopened folder does not blink.
 	let expanded = $state<Record<string, boolean>>({});
 	let chats = $state<Record<string, ProjectConversation[]>>({});
+	/** Folders whose last read of their chats failed, so they offer a retry. */
+	let chatsFailed = $state<Record<string, boolean>>({});
 	/** The project whose new chat is being created, for the in-flight guard. */
 	let starting = $state<string | null>(null);
 
+	/**
+	 * Which read of each list is the latest. A response that arrives after a
+	 * newer read began (a folder opened, then a move bumps the revision and the
+	 * tree reloads) describes the list as it was before that change, and must
+	 * not overwrite what the newer read shows.
+	 */
+	let projectsRead = 0;
+	const chatsRead: Record<string, number> = {};
+
 	async function loadProjects() {
+		const read = ++projectsRead;
 		try {
 			const response = await fetch(`${base}/api/v2/projects`);
 			if (!response.ok) throw new Error(String(response.status));
-			projects = ((await response.json()) as { data: ProjectView[] }).data;
+			const listed = ((await response.json()) as { data: ProjectView[] }).data;
+			if (read !== projectsRead) return;
+			projects = listed;
 			failed = false;
 		} catch {
+			if (read !== projectsRead) return;
 			// A sidebar branch is not the place to report a failure loudly: the
 			// label says "unavailable" and the rest of the panel still works.
 			failed = true;
 		} finally {
-			loaded = true;
+			if (read === projectsRead) loaded = true;
 		}
 	}
 
@@ -102,17 +117,24 @@
 	async function toggleFolder(project: ProjectView) {
 		const next = !expanded[project.id];
 		expanded = { ...expanded, [project.id]: next };
-		if (next && chats[project.id] === undefined) await loadChats(project.id);
+		if (next && (chats[project.id] === undefined || chatsFailed[project.id]))
+			await loadChats(project.id);
 	}
 
 	async function loadChats(projectId: string) {
+		const read = (chatsRead[projectId] = (chatsRead[projectId] ?? 0) + 1);
 		try {
 			const response = await fetch(`${base}/api/v2/projects/${projectId}/conversations`);
 			if (!response.ok) throw new Error(String(response.status));
 			const listed = (await response.json()) as { data: ProjectConversation[] };
+			if (read !== chatsRead[projectId]) return;
 			chats = { ...chats, [projectId]: listed.data };
+			chatsFailed = { ...chatsFailed, [projectId]: false };
 		} catch {
-			chats = { ...chats, [projectId]: [] };
+			if (read !== chatsRead[projectId]) return;
+			// Not an empty folder: saying "No chats yet" about a folder that
+			// could not be read would be wrong, and kept, would never be retried.
+			chatsFailed = { ...chatsFailed, [projectId]: true };
 		}
 	}
 
@@ -303,6 +325,9 @@
 	async function reload() {
 		if (!loaded && !open) return;
 		chats = {};
+		chatsFailed = {};
+		// A folder read already in flight began before whatever changed.
+		for (const id of Object.keys(chatsRead)) chatsRead[id] += 1;
 		await loadProjects();
 		// A folder that is open must show its chats again, not wait for a toggle.
 		await Promise.all(
@@ -391,7 +416,14 @@
 					</RowMenu>
 				{/snippet}
 
-				{#if chats[project.id] === undefined}
+				{#if chatsFailed[project.id]}
+					<TreeLeaf
+						label="Could not load chats"
+						depth={2}
+						onclick={() => loadChats(project.id)}
+						title="Try again"
+					/>
+				{:else if chats[project.id] === undefined}
 					<TreeLeaf label="Loading…" depth={2} />
 				{:else if chats[project.id].length === 0}
 					<TreeLeaf

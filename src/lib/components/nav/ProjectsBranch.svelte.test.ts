@@ -3,6 +3,7 @@ import { renderWithApp, appNavigation } from "$lib/components/__tests__/renderWi
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { writable } from "svelte/store";
 import { chatDrag } from "$lib/stores/chatDrag.svelte";
+import { projectsChanged } from "$lib/stores/projectsRevision";
 import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
 import { CONVERSATIONS_CONTEXT_KEY, newConversationsStore } from "$lib/stores/conversations.svelte";
 
@@ -186,6 +187,80 @@ describe("ProjectsBranch: dropping a sidebar chat on a project", () => {
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(posts).toEqual([]);
 		chatDrag.current = null;
+	});
+});
+
+describe("ProjectsBranch: a folder never shows what is older than the last change", () => {
+	const folderButton = (container: HTMLElement) =>
+		[...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Mortgage"));
+
+	it("keeps the newer list when an older read of the folder lands after it", async () => {
+		// The folder is opened (read 1, slow), then a move bumps the revision and
+		// the tree reloads (read 2, fast). Read 1's answer, the list from before
+		// the move, arrives last and must not replace read 2's.
+		const releases: Array<() => void> = [];
+		let chatReads = 0;
+		const moved = { ...existingChat, id: "conv-moved", title: "Moved in" };
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string | URL) => {
+				const href = String(url);
+				if (href.endsWith("/api/v2/projects")) {
+					return new Response(JSON.stringify({ data: [project] }), { status: 200 });
+				}
+				if (href.endsWith("/conversations")) {
+					chatReads += 1;
+					if (chatReads === 1) {
+						await new Promise<void>((resolve) => releases.push(resolve));
+						return new Response(JSON.stringify({ data: [existingChat] }), { status: 200 });
+					}
+					return new Response(JSON.stringify({ data: [moved] }), { status: 200 });
+				}
+				throw new Error(`unexpected fetch: ${href}`);
+			})
+		);
+		const { container } = await renderBranch("model-a");
+		await openBranch(container);
+		folderButton(container)?.click();
+		await vi.waitFor(() => expect(chatReads).toBe(1));
+
+		projectsChanged();
+		await vi.waitFor(() => expect(container.textContent).toContain("Moved in"));
+		releases.forEach((release) => release());
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(container.textContent).toContain("Moved in");
+		expect(container.textContent).not.toContain("First chat");
+	});
+
+	it("says it could not read a folder, instead of calling it empty, and retries on a click", async () => {
+		let failing = true;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string | URL) => {
+				const href = String(url);
+				if (href.endsWith("/api/v2/projects")) {
+					return new Response(JSON.stringify({ data: [project] }), { status: 200 });
+				}
+				if (href.endsWith("/conversations")) {
+					return failing
+						? new Response("{}", { status: 502 })
+						: new Response(JSON.stringify({ data: [existingChat] }), { status: 200 });
+				}
+				throw new Error(`unexpected fetch: ${href}`);
+			})
+		);
+		const { container } = await renderBranch("model-a");
+		await openBranch(container);
+		folderButton(container)?.click();
+		await vi.waitFor(() => expect(container.textContent).toContain("Could not load chats"));
+		expect(container.textContent).not.toContain("No chats yet");
+
+		failing = false;
+		const retry = [...container.querySelectorAll("button")].find((b) =>
+			b.textContent?.includes("Could not load chats")
+		);
+		retry?.click();
+		await vi.waitFor(() => expect(container.textContent).toContain("First chat"));
 	});
 });
 
