@@ -97,9 +97,10 @@ class Choice(unittest.TestCase):
         self.assertRegex(cfg.MONGO_DEFAULT, r"^mongo:8\.0\.\d+$")
         self.assertRegex(cfg.MONGO_FALLBACK, r"^mongo:4\.4\.\d+$")
 
-    def test_compose_default_is_the_fallback(self):
+    def test_compose_default_is_mongo_8(self):
         compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
-        self.assertIn("image: ${MONGO_IMAGE:-" + cfg.MONGO_FALLBACK + "}", compose)
+        self.assertIn("image: ${MONGO_IMAGE:-" + cfg.MONGO_DEFAULT + "}", compose)
+        self.assertNotIn("${MONGO_IMAGE:-" + cfg.MONGO_FALLBACK + "}", compose)
 
     def test_example_shows_the_default_and_is_a_known_key(self):
         _, commented = cfg.template_keys(TEMPLATE)
@@ -135,13 +136,16 @@ class WritesTheChoice(unittest.TestCase):
         again = _build(existing=first, mongo=cfg.choose_mongo(True, "6.8.0"))
         self.assertEqual(again.values["MONGO_IMAGE"], "mongo:7.0.45")
 
-    def test_existing_env_without_the_key_is_not_switched(self):
-        # Its data is on 4.4; 8 cannot open it. Only tools/mongo-upgrade moves it.
+    def test_existing_env_without_the_key_is_not_written_but_told_what_to_pin(self):
+        # Compose now runs 8; data on 4.4 needs the pin, which only the operator can know.
         values = _build(mongo=cfg.choose_mongo(True, "6.8.0")).values
         del values["MONGO_IMAGE"]
         again = _build(existing=values, mongo=cfg.choose_mongo(True, "6.8.0"))
         self.assertNotIn("MONGO_IMAGE", again.values)
-        self.assertTrue(any("mongo-upgrade" in n for n in again.notes))
+        note = next(n for n in again.notes if "MONGO_IMAGE is not set" in n)
+        self.assertIn("compose now runs MongoDB 8", note)
+        self.assertIn(f"--set MONGO_IMAGE={cfg.MONGO_FALLBACK}", note)
+        self.assertIn("tools/mongo-upgrade", note)
 
     def test_not_asked_writes_nothing(self):
         self.assertNotIn("MONGO_IMAGE", _build().values)
@@ -169,7 +173,15 @@ class Check(unittest.TestCase):
     def test_mongo5_without_avx_is_an_error_but_4_4_is_fine(self):
         self.assertTrue(self.report("mongo:5.0.33", False, "6.8.0").errors)
         self.assertFalse(self.report("mongo:4.4.30", False, "6.8.0").errors)
-        self.assertFalse(self.report(None, False, "7.0.0").errors)  # compose's default
+
+    def test_missing_key_is_judged_as_the_default_mongo_8(self):
+        # Compose's default is 8: no key on a no-AVX host or an affected kernel is an error.
+        r = self.report(None, False, "6.8.0")
+        self.assertEqual(len(r.errors), 1)
+        self.assertIn("AVX", r.errors[0])
+        self.assertIn(cfg.MONGO_DEFAULT, r.errors[0])
+        self.assertTrue(self.report(None, True, "7.0.0-38-generic").errors)
+        self.assertFalse(self.report(None, True, "6.8.0").errors)
 
     def test_mongo7_is_fine_on_the_affected_kernel(self):
         self.assertFalse(self.report("mongo:7.0.45", True, "7.0.0").errors)

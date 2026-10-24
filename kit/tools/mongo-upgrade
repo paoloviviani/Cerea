@@ -94,6 +94,8 @@ def current_series(env: dict, state: dict) -> tuple:
     done = state.get("completed") or []
     if done:
         return SERIES[done[-1]]
+    # No key: an install from before the setting, its data on 4.4. (Compose now defaults
+    # to 8, but the first step reads the FCV it finds, so a mistaken guess is refused.)
     image = env.get("MONGO_IMAGE") or cfg.MONGO_FALLBACK
     series = cfg.mongo_series(image)
     if series is None:
