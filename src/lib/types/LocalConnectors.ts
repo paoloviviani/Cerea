@@ -30,3 +30,8 @@ export interface LocalMachineView {
 	serversAt?: string;
 	servers: LocalServerView[];
 }
+
+/** `GET /api/v2/local-connectors/tools`: one local server's tool names, or why they could not be listed. */
+export type LocalToolsAnswer =
+	| { tools: { name: string; description?: string }[]; error?: undefined }
+	| { error: string; tools?: undefined };

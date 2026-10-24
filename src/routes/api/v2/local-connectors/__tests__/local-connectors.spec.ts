@@ -57,6 +57,7 @@ import { GET as listGET } from "../+server";
 import { PATCH as machinePATCH, DELETE as machineDELETE } from "../machines/[id]/+server";
 import { POST as oauthStart } from "../oauth/start/+server";
 import { GET as oauthCallback } from "../oauth/callback/+server";
+import { GET as toolsGET } from "../tools/+server";
 import { GET as connectorsGET } from "../../mcp/connectors/+server";
 
 let httpServer: Server;
@@ -724,5 +725,58 @@ describe("signing in to a local http connector from the chat", () => {
 		const location = new URL(back.headers.get("location") as string, "http://x");
 		expect(location.searchParams.get("mcp")).toBe("failed");
 		expect(location.searchParams.get("mcpDetail")).toBe("machine");
+	});
+});
+
+describe("GET /api/v2/local-connectors/tools", () => {
+	const ask = (id: string, who: TestUser = user) =>
+		testRequest(toolsGET, {
+			method: "GET",
+			path: `/api/v2/local-connectors/tools?id=${encodeURIComponent(id)}`,
+			locals: who.locals,
+		});
+
+	it("lists the tools of the caller's own server, through the chat's cached listing", async () => {
+		const machine = connectorsMachine();
+		const deviceId = await pair(machine);
+		const res = await ask(`local:${deviceId}:notes`);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { tools: { name: string; description?: string }[] };
+		expect(body.tools.map((t) => t.name).sort()).toEqual(["echo", "hang"]);
+		expect(body.tools.find((t) => t.name === "echo")?.description).toBe("Echo the text");
+	});
+
+	it("is a 404 for another person's local server, and never opens a channel to it", async () => {
+		const other = await createTestUser();
+		await collections.sessions.updateOne(
+			{ sessionId: other.locals.sessionId },
+			{ $set: { authTime: new Date() } }
+		);
+		principal = principalFor(other, "their laptop");
+		const machine = connectorsMachine();
+		const deviceId = await pair(machine, other);
+
+		const res = await ask(`local:${deviceId}:notes`);
+		expect(res.status).toBe(404);
+		expect(machine.opLog.filter((o) => o.op === "mcp.open")).toHaveLength(0);
+		// The owner still reaches it.
+		expect((await ask(`local:${deviceId}:notes`, other)).status).toBe(200);
+	});
+
+	it("is a 404 for an id that is not a local connector, or names a machine that does not exist", async () => {
+		expect((await ask("not-a-local-id")).status).toBe(404);
+		expect((await ask(`local:${"0".repeat(24)}:notes`)).status).toBe(404);
+	});
+
+	it("answers with the reason when the machine is offline, and 404 when the switch is off", async () => {
+		const machine = connectorsMachine();
+		const deviceId = await pair(machine);
+		await offline(machine, deviceId);
+		const res = await ask(`local:${deviceId}:notes`);
+		expect(res.status).toBe(200);
+		expect(((await res.json()) as { error: string }).error).toMatch(/offline/);
+
+		overrides.LOCAL_CONNECTORS_ENABLED = "false";
+		expect((await ask(`local:${deviceId}:notes`)).status).toBe(404);
 	});
 });

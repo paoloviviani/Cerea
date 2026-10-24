@@ -30,6 +30,8 @@
 	import LucideLaptop from "~icons/lucide/laptop";
 	import { startLocalSignIn } from "$lib/localConnectorsApi";
 	import Switch from "$lib/components/Switch.svelte";
+	import ServerCardFrame from "./ServerCardFrame.svelte";
+	import ConnectorDetailSheet from "./ConnectorDetailSheet.svelte";
 	import type { McpConnectorView, McpLocalView } from "$lib/types/McpConnector";
 	import {
 		connectors,
@@ -51,6 +53,8 @@
 	/** Which connector an in-flight row action belongs to, so only its icon spins. */
 	let busyConnector = $state<string | null>(null);
 	let adding = $state(false);
+	/** The connector whose detail sheet is open. */
+	let detail = $state<McpConnectorView | null>(null);
 
 	// Two sections, because the two kinds of connector are not the same thing
 	// to the person reading the list: their own are theirs to edit and remove,
@@ -479,401 +483,366 @@
 	{/if}
 
 	{#snippet connectorCard(connector: McpConnectorView)}
-		<div
-			class="rounded-lg border bg-linear-to-br transition-colors {connector.connected
-				? 'border-blue-600/20 bg-blue-50 from-blue-500/5 to-transparent dark:border-blue-700/60 dark:bg-blue-900/10 dark:from-blue-900/20'
-				: 'border-gray-200 bg-white from-black/5 dark:border-gray-700 dark:bg-gray-800 dark:from-white/5'}"
+		<ServerCardFrame
+			active={connector.connected}
+			name={connector.name}
+			description={connector.url}
+			toggleLabel={connector.connected ? "On by default in new chats" : "Sign in first"}
+			toggleLabelShort={connector.connected ? "Default in new chats" : "Sign in first"}
+			toggleTitle={connector.connected ? "On for new chats" : "Sign in first"}
+			onopen={() => (detail = connector)}
 		>
-			<div class="px-4 py-3.5">
-				<div class="mb-2 flex items-start justify-between gap-2">
-					<div class="min-w-0">
-						<h4 class="truncate font-semibold text-gray-900 dark:text-gray-100">
-							{connector.name}
-						</h4>
-						<p class="truncate text-sm text-gray-600 dark:text-gray-400">{connector.url}</p>
-					</div>
-					<!-- On by default for new chats. Disabled until it is
-					     connected, because an unauthorised connector contributes
-					     no tools and would fail the handshake mid-generation.
-					     Per-chat toggles live in the composer, not here:
-					     settings hold *defaults*, a chat holds *per-chat
-					     state*. -->
-					<div
-						class="flex shrink-0 items-center gap-2 pt-0.5"
-						title={connector.connected ? "On for new chats" : "Sign in first"}
+			{#snippet pills()}
+				{#if connector.connected}
+					<span
+						class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
 					>
-						<span class="text-xs text-gray-600 dark:text-gray-400">
-							{connector.connected ? "On by default in new chats" : "Sign in first"}
-						</span>
-						<Switch
-							name={`use-connector-${connector.id}`}
-							disabled={!connector.connected}
-							bind:checked={
-								() => $defaultConnectorIds.has(connector.id),
-								() => toggleDefaultConnector(connector.id)
-							}
-						/>
-					</div>
-				</div>
-
-				<div class="mb-3 flex flex-wrap items-center gap-2">
-					{#if connector.connected}
-						<span
-							class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
-						>
-							<IconCheckmark class="size-3" />
-							{connector.auth === "none" ? "Open" : "Connected"}
-						</span>
-					{:else}
-						<span
-							class="inline-flex items-center gap-1 rounded-full bg-gray-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400"
-						>
-							<IconWarning class="size-3" />
-							Not signed in
-						</span>
-					{/if}
-					<span class="text-xs text-gray-600 dark:text-gray-400">
-						{connector.auth === "oauth"
-							? "OAuth"
-							: connector.auth === "token"
-								? "token"
-								: "no auth"}
+						<IconCheckmark class="size-3" />
+						{connector.auth === "none" ? "Open" : "Connected"}
 					</span>
-					{#if connector.registrationSource === "static"}
-						<!-- Worth saying: it explains why Sign in works on a server
+				{:else}
+					<span
+						class="inline-flex items-center gap-1 rounded-full bg-gray-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+					>
+						<IconWarning class="size-3" />
+						Not signed in
+					</span>
+				{/if}
+				<span class="text-xs text-gray-600 dark:text-gray-400">
+					{connector.auth === "oauth" ? "OAuth" : connector.auth === "token" ? "token" : "no auth"}
+				</span>
+				{#if connector.registrationSource === "static"}
+					<!-- Worth saying: it explains why Sign in works on a server
 						     that refuses to register clients, and why a re-check
 						     will not replace these credentials. -->
-						<span
-							class="text-xs text-gray-500 dark:text-gray-500"
-							title={`Client ID ${connector.clientId}`}
-						>
-							own client
-						</span>
-					{/if}
-				</div>
-
-				{#if connector.lastError}
-					<p
-						class="mb-2 line-clamp-3 rounded-sm bg-red-50 px-2 py-1 text-xs wrap-break-word text-red-800 dark:bg-red-900/20 dark:text-red-200"
+					<span
+						class="text-xs text-gray-500 dark:text-gray-500"
+						title={`Client ID ${connector.clientId}`}
 					>
-						{connector.lastError}
-					</p>
+						own client
+					</span>
 				{/if}
+			{/snippet}
+			{#snippet toggle()}
+				<Switch
+					name={`use-connector-${connector.id}`}
+					disabled={!connector.connected}
+					bind:checked={
+						() => $defaultConnectorIds.has(connector.id), () => toggleDefaultConnector(connector.id)
+					}
+				/>
+			{/snippet}
 
-				<div class="flex flex-wrap gap-1">
-					<!-- Changing a connector — its URL, its credentials, the shared
+			{#if connector.lastError}
+				<p
+					class="mb-2 line-clamp-3 rounded-sm bg-red-50 px-2 py-1 text-xs wrap-break-word text-red-800 dark:bg-red-900/20 dark:text-red-200"
+				>
+					{connector.lastError}
+				</p>
+			{/if}
+
+			<div class="flex flex-wrap gap-1">
+				<!-- Changing a connector — its URL, its credentials, the shared
 					     record of how it authenticates — is `manageable`'s whole
 					     question, computed server-side per caller. A deployment
 					     connector renders these only for an administrator: for
 					     everybody else they were buttons whose requests the server
 					     was already refusing. -->
-					{#if connector.manageable}
-						<button
-							onclick={() => beginEdit(connector)}
-							disabled={busy}
-							class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
-						>
-							<IconEdit class="size-3" />
-							Edit
-						</button>
-					{/if}
-					{#if connector.auth === "oauth" && !connector.connected}
-						<button
-							onclick={() => signIn(connector)}
-							disabled={busy || !connector.canAuthorize}
-							title={connector.canAuthorize
-								? "Sign in to this connector"
-								: "This server will not register a client automatically — add credentials instead"}
-							class="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-[.29rem] text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
-						>
-							<IconLogin class="size-3" />
-							Sign in
-						</button>
-						{#if connector.manageable && !connector.canAuthorize}
-							<!-- The way out of a dead end. A provider that does not
+				{#if connector.manageable}
+					<button
+						onclick={() => beginEdit(connector)}
+						disabled={busy}
+						class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+					>
+						<IconEdit class="size-3" />
+						Edit
+					</button>
+				{/if}
+				{#if connector.auth === "oauth" && !connector.connected}
+					<button
+						onclick={() => signIn(connector)}
+						disabled={busy || !connector.canAuthorize}
+						title={connector.canAuthorize
+							? "Sign in to this connector"
+							: "This server will not register a client automatically — add credentials instead"}
+						class="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-[.29rem] text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+					>
+						<IconLogin class="size-3" />
+						Sign in
+					</button>
+					{#if connector.manageable && !connector.canAuthorize}
+						<!-- The way out of a dead end. A provider that does not
 							     offer RFC 7591 leaves Sign in disabled for good, and
 							     pasting a client id is what makes it usable. -->
-							<button
-								onclick={() =>
-									(credentialsFor = credentialsFor === connector.id ? null : connector.id)}
-								disabled={busy}
-								class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
-							>
-								Add credentials
-							</button>
-						{/if}
-					{:else if connector.auth === "oauth"}
 						<button
-							onclick={() => act(connector, "disconnect")}
+							onclick={() =>
+								(credentialsFor = credentialsFor === connector.id ? null : connector.id)}
 							disabled={busy}
 							class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 						>
-							Disconnect
+							Add credentials
 						</button>
 					{/if}
-					{#if connector.manageable}
-						<button
-							onclick={() => act(connector, "reprobe")}
-							disabled={busy}
-							title={connector.auth === "token"
-								? "Try the token and list the server's tools"
-								: "Ask the server again how it authenticates"}
-							class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
-						>
-							<IconRefresh class="size-3 {busyConnector === connector.id ? 'animate-spin' : ''}" />
-							{busyConnector === connector.id ? "Checking…" : "Re-check"}
-						</button>
-					{/if}
-					{#if connector.scope === "user" && !connector.local}
-						<!-- Removing a connector you own ends here, whoever you are.
+				{:else if connector.auth === "oauth"}
+					<button
+						onclick={() => act(connector, "disconnect")}
+						disabled={busy}
+						class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+					>
+						Disconnect
+					</button>
+				{/if}
+				{#if connector.manageable}
+					<button
+						onclick={() => act(connector, "reprobe")}
+						disabled={busy}
+						title={connector.auth === "token"
+							? "Try the token and list the server's tools"
+							: "Ask the server again how it authenticates"}
+						class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+					>
+						<IconRefresh class="size-3 {busyConnector === connector.id ? 'animate-spin' : ''}" />
+						{busyConnector === connector.id ? "Checking…" : "Re-check"}
+					</button>
+				{/if}
+				{#if connector.scope === "user" && !connector.local}
+					<!-- Removing a connector you own ends here, whoever you are.
 						     A deployment connector is not on this dialog to be
 						     deleted — even by the administrator who added it, whose
 						     remove lives on the admin screen where "for everyone" is
 					     the sentence being confirmed. -->
-						<button
-							onclick={() => remove(connector)}
-							disabled={busy}
-							class="flex items-center gap-1.5 rounded-lg border border-red-500/15 bg-red-50 px-2.5 py-[.29rem] text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 dark:border-red-500/25 dark:bg-red-900/30 dark:text-red-400"
-						>
-							<IconTrash class="size-3" />
-							Remove
-						</button>
-					{/if}
-				</div>
-
-				{#if credentialsFor === connector.id}
-					<form
-						class="mt-3 space-y-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700"
-						onsubmit={(event) => saveCredentials(event, connector)}
+					<button
+						onclick={() => remove(connector)}
+						disabled={busy}
+						class="flex items-center gap-1.5 rounded-lg border border-red-500/15 bg-red-50 px-2.5 py-[.29rem] text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 dark:border-red-500/25 dark:bg-red-900/30 dark:text-red-400"
 					>
+						<IconTrash class="size-3" />
+						Remove
+					</button>
+				{/if}
+			</div>
+
+			{#if credentialsFor === connector.id}
+				<form
+					class="mt-3 space-y-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700"
+					onsubmit={(event) => saveCredentials(event, connector)}
+				>
+					<input
+						autocomplete="off"
+						placeholder="Client ID"
+						class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+						bind:value={rowClientId}
+						required
+						disabled={busy}
+					/>
+					<input
+						type="password"
+						autocomplete="off"
+						placeholder="Client secret (if it has one)"
+						class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+						bind:value={rowClientSecret}
+						disabled={busy}
+					/>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						Register this redirect URI with the provider:
+						<code class="rounded-sm bg-gray-100 px-1 py-0.5 dark:bg-gray-800">{redirectUri}</code>
+					</p>
+					<div class="flex justify-end">
+						<button
+							type="submit"
+							disabled={busy || !rowClientId.trim()}
+							class="btn rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+						>
+							Save
+						</button>
+					</div>
+				</form>
+			{/if}
+
+			{#if editing?.id === connector.id}
+				<form
+					class="mt-3 space-y-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700"
+					onsubmit={saveEdit}
+				>
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Name</span>
 						<input
-							autocomplete="off"
-							placeholder="Client ID"
 							class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
-							bind:value={rowClientId}
+							bind:value={editName}
 							required
 							disabled={busy}
 						/>
+					</label>
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">URL</span>
 						<input
-							type="password"
-							autocomplete="off"
-							placeholder="Client secret (if it has one)"
+							type="url"
 							class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
-							bind:value={rowClientSecret}
+							bind:value={editUrl}
+							required
 							disabled={busy}
 						/>
-						<p class="text-xs text-gray-500 dark:text-gray-400">
-							Register this redirect URI with the provider:
-							<code class="rounded-sm bg-gray-100 px-1 py-0.5 dark:bg-gray-800">{redirectUri}</code>
-						</p>
-						<div class="flex justify-end">
-							<button
-								type="submit"
-								disabled={busy || !rowClientId.trim()}
-								class="btn rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
-							>
-								Save
-							</button>
-						</div>
-					</form>
-				{/if}
-
-				{#if editing?.id === connector.id}
-					<form
-						class="mt-3 space-y-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700"
-						onsubmit={saveEdit}
-					>
-						<label class="flex flex-col gap-1">
-							<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Name</span>
-							<input
-								class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
-								bind:value={editName}
-								required
-								disabled={busy}
-							/>
-						</label>
-						<label class="flex flex-col gap-1">
-							<span class="text-xs font-medium text-gray-700 dark:text-gray-300">URL</span>
-							<input
-								type="url"
-								class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
-								bind:value={editUrl}
-								required
-								disabled={busy}
-							/>
-						</label>
-						<!-- Offered on a "no auth" connector too: that is where auto mode
+					</label>
+					<!-- Offered on a "no auth" connector too: that is where auto mode
 						     leaves a server that answered 401 with no OAuth metadata, and
 						     its row tells the person to add a token here. -->
-						{#if connector.auth === "token" || connector.auth === "none"}
-							<label class="flex flex-col gap-1">
-								<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
-									>{connector.auth === "token" ? "Replacement token" : "Token"}
-									<span class="font-normal text-gray-500"
-										>{connector.auth === "token"
-											? "(leave blank to keep)"
-											: "(if the server takes an API key or token)"}</span
-									></span
-								>
-								<input
-									type="password"
-									autocomplete="off"
-									class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
-									bind:value={editToken}
-									disabled={busy}
-								/>
-							</label>
-							<label class="flex flex-col gap-1">
-								<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Header</span>
-								<input
-									placeholder="Authorization"
-									class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
-									bind:value={editTokenHeader}
-									disabled={busy || !editToken.trim()}
-								/>
-							</label>
-							{#if connector.auth === "token"}
-								<label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
-									<input
-										type="checkbox"
-										bind:checked={clearEditToken}
-										disabled={busy || !!editToken.trim()}
-									/>
-									Remove the stored token
-								</label>
-							{/if}
-						{/if}
-						<p class="text-xs text-gray-500 dark:text-gray-400">
-							Changing the URL clears cached server details; re-check it, then sign in again if
-							needed.
-						</p>
-						<div class="flex justify-end gap-2">
-							<button
-								type="button"
-								onclick={cancelEdit}
+					{#if connector.auth === "token" || connector.auth === "none"}
+						<label class="flex flex-col gap-1">
+							<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+								>{connector.auth === "token" ? "Replacement token" : "Token"}
+								<span class="font-normal text-gray-500"
+									>{connector.auth === "token"
+										? "(leave blank to keep)"
+										: "(if the server takes an API key or token)"}</span
+								></span
+							>
+							<input
+								type="password"
+								autocomplete="off"
+								class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+								bind:value={editToken}
 								disabled={busy}
-								class="btn rounded-lg border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
-							>
-								Cancel
-							</button>
-							<button
-								type="submit"
-								disabled={busy || !editName.trim() || !editUrl.trim()}
-								class="btn rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
-							>
-								{busy ? "Saving…" : "Save changes"}
-							</button>
-						</div>
-					</form>
-				{/if}
-			</div>
-		</div>
+							/>
+						</label>
+						<label class="flex flex-col gap-1">
+							<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Header</span>
+							<input
+								placeholder="Authorization"
+								class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+								bind:value={editTokenHeader}
+								disabled={busy || !editToken.trim()}
+							/>
+						</label>
+						{#if connector.auth === "token"}
+							<label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+								<input
+									type="checkbox"
+									bind:checked={clearEditToken}
+									disabled={busy || !!editToken.trim()}
+								/>
+								Remove the stored token
+							</label>
+						{/if}
+					{/if}
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						Changing the URL clears cached server details; re-check it, then sign in again if
+						needed.
+					</p>
+					<div class="flex justify-end gap-2">
+						<button
+							type="button"
+							onclick={cancelEdit}
+							disabled={busy}
+							class="btn rounded-lg border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+						>
+							Cancel
+						</button>
+						<button
+							type="submit"
+							disabled={busy || !editName.trim() || !editUrl.trim()}
+							class="btn rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+						>
+							{busy ? "Saving…" : "Save changes"}
+						</button>
+					</div>
+				</form>
+			{/if}
+		</ServerCardFrame>
 	{/snippet}
 
 	{#snippet localCard(connector: McpConnectorView, local: McpLocalView)}
-		<div
-			class="rounded-lg border bg-linear-to-br transition-colors {connector.connected
-				? 'border-blue-600/20 bg-blue-50 from-blue-500/5 to-transparent dark:border-blue-700/60 dark:bg-blue-900/10 dark:from-blue-900/20'
-				: 'border-gray-200 bg-white from-black/5 dark:border-gray-700 dark:bg-gray-800 dark:from-white/5'}"
-			data-testid="local-connector"
+		<ServerCardFrame
+			active={connector.connected}
+			name={local.server}
+			machine={local.machineName}
+			description={local.description ?? `${local.transport} server`}
+			toggleLabel={connector.connected ? "On by default in new chats" : "Unavailable"}
+			toggleLabelShort={connector.connected ? "Default in new chats" : "Unavailable"}
+			toggleTitle={connector.connected ? "On for new chats" : "Not available right now"}
+			testid="local-connector"
+			onopen={() => (detail = connector)}
 		>
-			<div class="px-4 py-3.5">
-				<div class="mb-2 flex items-start justify-between gap-2">
-					<div class="min-w-0">
-						<h4 class="truncate font-semibold text-gray-900 dark:text-gray-100">
-							{local.server} · on {local.machineName}
-						</h4>
-						<p class="truncate text-sm text-gray-600 dark:text-gray-400">
-							{local.description ?? `${local.transport} server`}
-						</p>
-					</div>
-					<div
-						class="flex shrink-0 items-center gap-2 pt-0.5"
-						title={connector.connected ? "On for new chats" : "Not available right now"}
+			{#snippet pills()}
+				{#if local.state === "ready"}
+					<span
+						data-testid="local-pill"
+						class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
 					>
-						<span class="text-xs text-gray-600 dark:text-gray-400">
-							{connector.connected ? "On by default in new chats" : "Unavailable"}
-						</span>
-						<Switch
-							name={`use-connector-${connector.id}`}
-							disabled={!connector.connected}
-							bind:checked={
-								() => $defaultConnectorIds.has(connector.id),
-								() => toggleDefaultConnector(connector.id)
-							}
-						/>
-					</div>
-				</div>
-
-				<div class="mb-2 flex flex-wrap items-center gap-2">
-					{#if local.state === "ready"}
-						<span
-							data-testid="local-pill"
-							class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
-						>
-							<IconCheckmark class="size-3" />
-							on
-						</span>
-					{:else}
-						<span
-							data-testid="local-pill"
-							class="inline-flex items-center gap-1 rounded-full bg-gray-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400"
-						>
-							<IconWarning class="size-3" />
-							{local.state === "offline"
-								? "Offline"
-								: local.state === "needs-login"
-									? "Needs sign-in"
-									: local.state === "disabled"
-										? "Disabled"
-										: "Invalid"}
-						</span>
-					{/if}
-					<span class="text-xs text-gray-600 dark:text-gray-400">{local.transport}</span>
-					{#if local.allowedTools}
-						<span
-							class="text-xs text-gray-500 dark:text-gray-500"
-							title={`The machine allows only: ${local.allowedTools.join(", ")}`}
-						>
-							{local.allowedTools.length} tool{local.allowedTools.length === 1 ? "" : "s"} allowed
-						</span>
-					{/if}
-				</div>
-
-				{#if local.state === "needs-login" && local.transport === "http"}
-					<p
-						class="mb-2 rounded-sm bg-gray-50 px-2 py-1 text-xs wrap-break-word text-gray-700 dark:bg-gray-900/40 dark:text-gray-300"
+						<IconCheckmark class="size-3" />
+						on
+					</span>
+				{:else}
+					<span
+						data-testid="local-pill"
+						class="inline-flex items-center gap-1 rounded-full bg-gray-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400"
 					>
-						Needs a sign-in; the tokens stay on {local.machineName}.
-						<span class="text-gray-500 dark:text-gray-400">
-							If the provider refuses the redirect, run
-							<code class="font-mono">galopin connectors login {local.server}</code> on the machine.
-						</span>
-					</p>
-				{:else if local.state !== "ready" && local.detail}
-					<p
-						class="mb-2 line-clamp-3 rounded-sm bg-gray-50 px-2 py-1 text-xs wrap-break-word text-gray-700 dark:bg-gray-900/40 dark:text-gray-300"
-					>
-						{local.detail}
-					</p>
+						<IconWarning class="size-3" />
+						{local.state === "offline"
+							? "Offline"
+							: local.state === "needs-login"
+								? "Needs sign-in"
+								: local.state === "disabled"
+									? "Disabled"
+									: "Invalid"}
+					</span>
 				{/if}
-
-				{#if local.state === "needs-login" && local.transport === "http"}
-					<div class="flex flex-wrap gap-1">
-						<button
-							onclick={() => signInLocal(connector)}
-							disabled={busy}
-							title="Sign in to this server; the tokens stay on {local.machineName}"
-							class="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-[.29rem] text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
-						>
-							<IconLogin class="size-3" />
-							Sign in
-						</button>
-					</div>
+				<span class="text-xs text-gray-600 dark:text-gray-400">{local.transport}</span>
+				{#if local.allowedTools}
+					<span
+						class="text-xs text-gray-500 dark:text-gray-500"
+						title={`The machine allows only: ${local.allowedTools.join(", ")}`}
+					>
+						{local.allowedTools.length} tool{local.allowedTools.length === 1 ? "" : "s"} allowed
+					</span>
 				{/if}
-			</div>
-		</div>
+			{/snippet}
+			{#snippet toggle()}
+				<Switch
+					name={`use-connector-${connector.id}`}
+					disabled={!connector.connected}
+					bind:checked={
+						() => $defaultConnectorIds.has(connector.id), () => toggleDefaultConnector(connector.id)
+					}
+				/>
+			{/snippet}
+
+			{#if local.state === "needs-login" && local.transport === "http"}
+				<p
+					class="mb-2 rounded-sm bg-gray-50 px-2 py-1 text-xs wrap-break-word text-gray-700 dark:bg-gray-900/40 dark:text-gray-300"
+				>
+					Needs a sign-in; the tokens stay on {local.machineName}.
+					<span class="text-gray-500 dark:text-gray-400">
+						If the provider refuses the redirect, run
+						<code class="font-mono">galopin connectors login {local.server}</code> on the machine.
+					</span>
+				</p>
+			{:else if local.state !== "ready" && local.detail}
+				<p
+					class="mb-2 line-clamp-3 rounded-sm bg-gray-50 px-2 py-1 text-xs wrap-break-word text-gray-700 dark:bg-gray-900/40 dark:text-gray-300"
+				>
+					{local.detail}
+				</p>
+			{/if}
+
+			{#if local.state === "needs-login" && local.transport === "http"}
+				<div class="flex flex-wrap gap-1">
+					<button
+						onclick={() => signInLocal(connector)}
+						disabled={busy}
+						title="Sign in to this server; the tokens stay on {local.machineName}"
+						class="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-[.29rem] text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+					>
+						<IconLogin class="size-3" />
+						Sign in
+					</button>
+				</div>
+			{/if}
+		</ServerCardFrame>
 	{/snippet}
+
+	{#if detail}
+		<ConnectorDetailSheet connector={detail} onclose={() => (detail = null)} />
+	{/if}
 
 	{#if loading}
 		<p class="text-sm text-gray-600 dark:text-gray-400">Loading…</p>

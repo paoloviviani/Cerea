@@ -1,0 +1,176 @@
+<!--
+	One connector in full: what a card has no room for. The complete name and
+	description, the machine for a local server, its state and the detail behind
+	it, the transport, the machine's `allowedTools` when it sets one, and the
+	tool names.
+
+	Tools come from where each kind keeps them. A local server is listed through
+	`GET /api/v2/local-connectors/tools` (the chat's own cached listing, owner
+	checked on the server); a remote connector shows what its last check found,
+	which the connector view already carries. Neither is fetched for a server
+	that is not reachable: the sheet says why instead.
+-->
+<script lang="ts">
+	import { onMount } from "svelte";
+	import Modal from "$lib/components/Modal.svelte";
+	import { listLocalServerTools } from "$lib/localConnectorsApi";
+	import type { McpConnectorView } from "$lib/types/McpConnector";
+	import CarbonClose from "~icons/carbon/close";
+
+	interface Props {
+		connector: McpConnectorView;
+		onclose: () => void;
+	}
+
+	let { connector, onclose }: Props = $props();
+
+	const local = $derived(connector.local);
+	const title = $derived(local ? local.server : connector.name);
+	const titleId = `connector-detail-${Math.random().toString(36).slice(2, 8)}`;
+
+	const STATES = {
+		ready: "On",
+		offline: "Offline",
+		"needs-login": "Needs sign-in",
+		disabled: "Disabled",
+		invalid: "Invalid",
+	} as const;
+
+	const stateLabel = $derived(
+		local
+			? STATES[local.state]
+			: connector.connected
+				? connector.auth === "none"
+					? "Open"
+					: "Connected"
+				: "Not signed in"
+	);
+	const stateDetail = $derived(local ? local.detail : connector.lastError);
+	const transport = $derived(local ? local.transport : "http");
+	const description = $derived(local ? local.description : undefined);
+
+	type Listing =
+		| { kind: "idle" }
+		| { kind: "loading" }
+		| { kind: "tools"; tools: { name: string; description?: string }[] }
+		| { kind: "error"; reason: string };
+	let listing = $state<Listing>({ kind: "idle" });
+
+	onMount(() => {
+		if (!local) {
+			listing = connector.tools ? { kind: "tools", tools: connector.tools } : { kind: "idle" };
+			return;
+		}
+		if (local.state !== "ready" || !connector.connected) return;
+		listing = { kind: "loading" };
+		let live = true;
+		listLocalServerTools(connector.id).then(
+			(answer) => {
+				if (!live) return;
+				listing = answer.error
+					? { kind: "error", reason: answer.error }
+					: { kind: "tools", tools: answer.tools ?? [] };
+			},
+			(err) => {
+				if (live)
+					listing = { kind: "error", reason: err instanceof Error ? err.message : String(err) };
+			}
+		);
+		return () => {
+			live = false;
+		};
+	});
+
+	const row = "grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 text-sm";
+	const term = "text-gray-500 dark:text-gray-400";
+</script>
+
+<Modal sheet width="sm:w-[28rem]" labelledBy={titleId} {onclose}>
+	<div class="p-5 pb-6" data-testid="connector-detail">
+		<div class="mb-4 flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<h2 id={titleId} class="text-lg font-semibold break-words text-gray-900 dark:text-gray-100">
+					{title}
+				</h2>
+				{#if local}
+					<p class="text-sm text-gray-500 dark:text-gray-400">on {local.machineName}</p>
+				{/if}
+			</div>
+			<button
+				type="button"
+				aria-label="Close"
+				onclick={onclose}
+				class="-m-1 shrink-0 rounded-lg p-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+			>
+				<CarbonClose class="size-5" />
+			</button>
+		</div>
+
+		{#if description}
+			<p class="mb-4 text-sm break-words text-gray-700 dark:text-gray-300">{description}</p>
+		{/if}
+
+		<dl class="flex flex-col gap-2">
+			<div class={row}>
+				<dt class={term}>State</dt>
+				<dd class="break-words text-gray-900 dark:text-gray-100">
+					{stateLabel}{#if stateDetail}<span class="block text-gray-600 dark:text-gray-400"
+							>{stateDetail}</span
+						>{/if}
+				</dd>
+			</div>
+			<div class={row}>
+				<dt class={term}>Transport</dt>
+				<dd class="text-gray-900 dark:text-gray-100">{transport}</dd>
+			</div>
+			{#if !local}
+				<div class={row}>
+					<dt class={term}>Address</dt>
+					<dd class="break-all text-gray-900 dark:text-gray-100">{connector.url}</dd>
+				</div>
+			{/if}
+			{#if local?.allowedTools}
+				<div class={row}>
+					<dt class={term}>Allowed tools</dt>
+					<dd class="break-words text-gray-900 dark:text-gray-100">
+						{local.allowedTools.join(", ")}
+					</dd>
+				</div>
+			{/if}
+		</dl>
+
+		<h3 class="mt-5 mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Tools</h3>
+		{#if listing.kind === "loading"}
+			<p class="text-sm text-gray-600 dark:text-gray-400">Listing tools…</p>
+		{:else if listing.kind === "error"}
+			<p
+				class="rounded-sm bg-red-50 px-2 py-1 text-sm break-words text-red-800 dark:bg-red-900/20 dark:text-red-200"
+			>
+				Couldn't list tools: {listing.reason}
+			</p>
+		{:else if listing.kind === "tools"}
+			{#if listing.tools.length === 0}
+				<p class="text-sm text-gray-600 dark:text-gray-400">No tools.</p>
+			{:else}
+				<ul class="flex flex-col gap-1.5" aria-label="Tools">
+					{#each listing.tools as tool (tool.name)}
+						<li class="text-sm break-words">
+							<span class="font-mono text-gray-900 dark:text-gray-100">{tool.name}</span>
+							{#if tool.description}
+								<span class="line-clamp-2 block text-xs text-gray-500 dark:text-gray-400"
+									>{tool.description}</span
+								>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		{:else}
+			<p class="text-sm text-gray-600 dark:text-gray-400">
+				{local
+					? "Tools are listed while the server is on."
+					: "Not checked yet. Use Re-check on the card to list them."}
+			</p>
+		{/if}
+	</div>
+</Modal>
