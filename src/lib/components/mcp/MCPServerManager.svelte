@@ -1,13 +1,7 @@
 <script lang="ts">
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
-	import ServerCard from "./ServerCard.svelte";
 	import ConnectorsSection from "./ConnectorsSection.svelte";
-	import {
-		allMcpServers,
-		selectedServerIds,
-		refreshMcpServers,
-		healthCheckServer,
-	} from "$lib/stores/mcpServers";
+	import { allMcpServers, refreshMcpServers, healthCheckServer } from "$lib/stores/mcpServers";
 	import { connectors, totalDefaultMcpCount } from "$lib/stores/mcpConnectors";
 	import IconRefresh from "~icons/carbon/renew";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
@@ -17,7 +11,6 @@
 
 	let isRefreshing = $state(false);
 
-	const baseServers = $derived($allMcpServers.filter((s) => s.type === "base"));
 	// Defaults, not the active chat: this tab edits what new chats start with.
 	const enabledCount = $derived($totalDefaultMcpCount);
 	const onMachines = $derived($connectors.filter((c) => c.local));
@@ -91,23 +84,9 @@
 			     (ADR 0064). The way a person brings their own server — the
 			     user-added custom-server form this dialog used to carry is gone,
 			     because a second credential path beside connectors was the
-			     redundancy, and the deployment-configured base list below is not
-			     the user's to extend. -->
+			     redundancy. The deployment's own servers (the `.env` base list and
+			     the administrator's connectors) sit in one group inside it. -->
 			<ConnectorsSection />
-
-			<!-- Base Servers -->
-			{#if baseServers.length > 0}
-				<div>
-					<h3 class="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
-						Base Servers ({baseServers.length})
-					</h3>
-					<div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-						{#each baseServers as server (server.id)}
-							<ServerCard {server} isSelected={$selectedServerIds.has(server.id)} />
-						{/each}
-					</div>
-				</div>
-			{/if}
 
 			<!-- Help Text -->
 			<div class="rounded-lg bg-gray-50 p-4 dark:bg-gray-700">

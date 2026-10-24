@@ -15,6 +15,8 @@ import { page } from "@vitest/browser/context";
 import ConnectorsSection from "./ConnectorsSection.svelte";
 import type { McpConnectorView } from "$lib/types/McpConnector";
 import { connectors } from "$lib/stores/mcpConnectors";
+import { allMcpServers } from "$lib/stores/mcpServers";
+import type { MCPServer } from "$lib/types/Tool";
 import { renderWithApp } from "../__tests__/renderWithApp";
 
 // The client setup mocks `$app/*` but not `$env/dynamic/*`: the store behind
@@ -88,6 +90,7 @@ describe("ConnectorsSection", () => {
 		// heading the previous render left behind satisfies the next test's
 		// retrying assertion while the list it reads is still the old one.
 		connectors.set([]);
+		allMcpServers.set([]);
 	});
 
 	it("lists an administrator's connectors apart from the person's own", async () => {
@@ -98,7 +101,7 @@ describe("ConnectorsSection", () => {
 			.element(screen.getByText("Your connectors (1)", { exact: true }))
 			.toBeInTheDocument();
 		await expect
-			.element(screen.getByText("Provided by your administrator (1)", { exact: true }))
+			.element(screen.getByText("Provided by this deployment (1)", { exact: true }))
 			.toBeInTheDocument();
 		await expect.element(screen.getByText("Mine", { exact: true })).toBeInTheDocument();
 		await expect.element(screen.getByText("Shared", { exact: true })).toBeInTheDocument();
@@ -148,9 +151,9 @@ describe("ConnectorsSection", () => {
 		const screen = mount();
 
 		await expect
-			.element(screen.getByText("Provided by your administrator (1)", { exact: true }))
+			.element(screen.getByText("Provided by this deployment (1)", { exact: true }))
 			.toBeInTheDocument();
-		const names = sectionButtons(screen.baseElement, "Provided by your administrator (1)");
+		const names = sectionButtons(screen.baseElement, "Provided by this deployment (1)");
 		// Manageable stays: editing and re-checking somebody else's deployment
 		// connector is still an administrator's job. Removal left for the
 		// admin screen, which is the only place that confirms "for everyone".
@@ -164,9 +167,9 @@ describe("ConnectorsSection", () => {
 		const screen = mount();
 
 		await expect
-			.element(screen.getByText("Provided by your administrator (1)", { exact: true }))
+			.element(screen.getByText("Provided by this deployment (1)", { exact: true }))
 			.toBeInTheDocument();
-		const names = sectionButtons(screen.baseElement, "Provided by your administrator (1)");
+		const names = sectionButtons(screen.baseElement, "Provided by this deployment (1)");
 		// These were buttons whose requests the server was already refusing;
 		// `manageable` is the server saying so, and the row finally listens.
 		expect(names).not.toContain("Edit");
@@ -551,5 +554,30 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		const screen = mount();
 		await screen.getByRole("button", { name: "Remote one" }).click();
 		await expect.element(page.getByTestId("connector-detail")).toHaveTextContent("lookup");
+	});
+
+	it("groups the .env servers and the administrator's connectors in one list, by name", async () => {
+		const env = (name: string): MCPServer => ({
+			id: `base-${name}`,
+			name,
+			url: `https://${name}.test/mcp`,
+			type: "base",
+		});
+		allMcpServers.set([env("osm"), env("search")]);
+		stubApi([MINE(), SHARED(false)]);
+		const screen = mount();
+
+		await expect
+			.element(screen.getByText("Provided by this deployment (3)", { exact: true }))
+			.toBeInTheDocument();
+		// No separate "Base Servers" group any more.
+		expect(screen.baseElement.textContent).not.toContain("Base Servers");
+		const section = screen.baseElement.querySelector('[data-testid="provided-section"]');
+		const names = [...(section?.querySelectorAll('[data-testid="card-name"]') ?? [])].map((el) =>
+			el.textContent?.trim()
+		);
+		expect(names).toEqual(["osm", "search", "Shared"]);
+		// The person's own connector stays out of the group.
+		expect(section?.textContent).not.toContain("Mine");
 	});
 });

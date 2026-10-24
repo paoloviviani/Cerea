@@ -18,6 +18,7 @@
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconAddLarge from "~icons/carbon/add-large";
 	import type { McpConnectorView } from "$lib/types/McpConnector";
+	import { allMcpServers, healthCheckServer } from "$lib/stores/mcpServers";
 
 	let connectors = $state<McpConnectorView[]>([]);
 	let loading = $state(true);
@@ -30,6 +31,12 @@
 	let authMode = $state<"auto" | "none" | "token">("auto");
 	let token = $state("");
 	let tokenHeader = $state("");
+
+	// The servers `.env` (`MCP_SERVERS`) defines: the same store the chat reads, so their
+	// state is whatever the health route last said, with no probe loop of its own. Read-only.
+	const envServers = $derived(
+		$allMcpServers.filter((s) => s.type === "base").sort((a, b) => a.name.localeCompare(b.name))
+	);
 
 	const shared = $derived(connectors.filter((c) => c.scope === "deployment"));
 
@@ -255,14 +262,63 @@
 		</form>
 	{/if}
 
+	{#if envServers.length > 0}
+		<div class="flex flex-col gap-2" data-testid="env-servers">
+			<p class="text-xs text-gray-500 dark:text-gray-400">
+				Defined in <code class="font-mono">.env</code> (<code class="font-mono">MCP_SERVERS</code>):
+				edit them there, not here. They are offered to everybody alongside the connectors below.
+			</p>
+			<ul class="flex flex-col gap-2">
+				{#each envServers as server (server.id)}
+					<li
+						data-testid="env-server"
+						class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+					>
+						<div class="min-w-0">
+							<p class="truncate text-sm font-medium">{server.name}</p>
+							<p class="truncate text-xs text-gray-500 dark:text-gray-400">{server.url}</p>
+							{#if server.errorMessage}
+								<p class="mt-1 text-xs text-red-600 dark:text-red-400">{server.errorMessage}</p>
+							{/if}
+						</div>
+						<div class="flex shrink-0 items-center gap-2">
+							<span
+								class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+							>
+								from .env
+							</span>
+							<span class="text-xs text-gray-500">
+								{server.status === "connected"
+									? `reachable${server.tools ? ` · ${server.tools.length} ${server.tools.length === 1 ? "tool" : "tools"}` : ""}`
+									: server.status === "error"
+										? "unreachable"
+										: server.status === "connecting"
+											? "checking…"
+											: "not checked"}
+							</span>
+							<button
+								type="button"
+								onclick={() => healthCheckServer(server)}
+								disabled={server.status === "connecting"}
+								class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+							>
+								Check
+							</button>
+						</div>
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+
 	{#if loading}
 		<p class="text-sm text-gray-500">Loading…</p>
-	{:else if shared.length === 0}
+	{:else if shared.length === 0 && envServers.length === 0}
 		<p class="text-sm text-gray-600 dark:text-gray-400">
 			None yet. Anything added here appears in everybody's MCP dialog, switched off until they turn
 			it on.
 		</p>
-	{:else}
+	{:else if shared.length > 0}
 		<ul class="flex flex-col gap-2">
 			{#each shared as connector (connector.id)}
 				<li
