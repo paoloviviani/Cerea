@@ -276,7 +276,9 @@
 					>
 						<div class="min-w-0">
 							<p class="truncate text-sm font-medium">{server.name}</p>
-							<p class="truncate text-xs text-gray-500 dark:text-gray-400">{server.url}</p>
+							<p class="truncate text-xs text-gray-500 dark:text-gray-400" title={server.url}>
+								{server.url}
+							</p>
 							{#if server.errorMessage}
 								<p class="mt-1 text-xs text-red-600 dark:text-red-400">{server.errorMessage}</p>
 							{/if}
@@ -326,7 +328,9 @@
 				>
 					<div class="min-w-0">
 						<p class="truncate text-sm font-medium">{connector.name}</p>
-						<p class="truncate text-xs text-gray-500 dark:text-gray-400">{connector.url}</p>
+						<p class="truncate text-xs text-gray-500 dark:text-gray-400" title={connector.url}>
+							{connector.url}
+						</p>
 						{#if connector.lastError}
 							<p class="mt-1 text-xs text-red-600 dark:text-red-400">{connector.lastError}</p>
 						{/if}

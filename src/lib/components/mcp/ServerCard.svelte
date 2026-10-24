@@ -146,7 +146,7 @@
 			class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
 		>
 			<IconRefresh class="size-3 {isLoadingHealth ? 'animate-spin' : ''}" />
-			Health Check
+			Check
 		</button>
 
 		{#if isHfMcp}

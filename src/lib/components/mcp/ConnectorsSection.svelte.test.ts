@@ -158,7 +158,7 @@ describe("ConnectorsSection", () => {
 		// connector is still an administrator's job. Removal left for the
 		// admin screen, which is the only place that confirms "for everyone".
 		expect(names).toContain("Edit");
-		expect(names).toContain("Re-check");
+		expect(names).toContain("Check");
 		expect(names.some((name) => name?.includes("Remove"))).toBe(false);
 	});
 
@@ -173,7 +173,7 @@ describe("ConnectorsSection", () => {
 		// These were buttons whose requests the server was already refusing;
 		// `manageable` is the server saying so, and the row finally listens.
 		expect(names).not.toContain("Edit");
-		expect(names).not.toContain("Re-check");
+		expect(names).not.toContain("Check");
 		// Using it is still theirs: the switch and the sign-in stay.
 		expect(names).toContain("Sign in");
 		expect(names.some((name) => name?.includes("Remove"))).toBe(false);
@@ -311,7 +311,7 @@ describe("ConnectorsSection: servers on the person's own machines (ADR 0102)", (
 		const buttons = [...screen.baseElement.querySelectorAll("button")].map((b) =>
 			b.textContent?.trim()
 		);
-		for (const forbidden of ["Edit", "Re-check", "Remove", "Sign in"]) {
+		for (const forbidden of ["Edit", "Check", "Remove", "Sign in"]) {
 			expect(
 				buttons.some((b) => b === forbidden || b?.includes(forbidden)),
 				forbidden
@@ -454,10 +454,9 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		// The machine is its own small line, and the description is clamped.
 		const card = screen.baseElement.querySelector('[data-testid="local-connector"]') as HTMLElement;
 		expect(card.textContent).toContain("on laptop");
-		expect(
-			getComputedStyle(card.querySelector('[data-testid="card-description"]') as Element)
-				.webkitLineClamp
-		).toBe("2");
+		const description = card.querySelector('[data-testid="card-description"]') as HTMLElement;
+		expect(getComputedStyle(description).textOverflow).toBe("ellipsis");
+		expect(description.getAttribute("title")).toBe(description.textContent?.trim());
 
 		// The footer row: the short label, then the switch, below the pills.
 		const footers = [
@@ -564,7 +563,7 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 			type: "base",
 		});
 		allMcpServers.set([env("osm"), env("search")]);
-		stubApi([MINE(), SHARED(false)]);
+		stubApi([MINE(), SHARED(true)]);
 		const screen = mount();
 
 		await expect
@@ -577,6 +576,19 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 			el.textContent?.trim()
 		);
 		expect(names).toEqual(["osm", "search", "Shared"]);
+		// Alike: every card leads with an icon, one verb for the probe, the URL on one line.
+		const cards = [...(section?.querySelectorAll('[data-testid="card-name"]') ?? [])].map(
+			(el) => el.closest("div.rounded-lg") as HTMLElement
+		);
+		for (const card of cards) {
+			expect(card.querySelector("h4 img"), card.textContent ?? "").not.toBeNull();
+			expect(
+				[...card.querySelectorAll("button")].some((b) => b.textContent?.trim() === "Check")
+			).toBe(true);
+			const url = card.querySelector('[data-testid="card-description"]') as HTMLElement;
+			expect(getComputedStyle(url).textOverflow).toBe("ellipsis");
+			expect(url.getAttribute("title")).toMatch(/^https?:\/\//);
+		}
 		// The person's own connector stays out of the group.
 		expect(section?.textContent).not.toContain("Mine");
 	});

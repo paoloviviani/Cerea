@@ -94,7 +94,7 @@
 				<ul class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
 					<li>• Only connect to servers you trust</li>
 					<li>• Enable servers to make their tools available in chat</li>
-					<li>• Use the Health Check button to verify server connectivity</li>
+					<li>• Use the Check button to verify server connectivity</li>
 				</ul>
 			</div>
 		</div>

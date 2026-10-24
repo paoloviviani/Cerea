@@ -31,6 +31,7 @@
 	import Switch from "$lib/components/Switch.svelte";
 	import ServerCardFrame from "./ServerCardFrame.svelte";
 	import ServerCard from "./ServerCard.svelte";
+	import { getMcpServerFaviconUrl } from "$lib/utils/favicon";
 	import { allMcpServers, selectedServerIds } from "$lib/stores/mcpServers";
 	import type { MCPServer } from "$lib/types/Tool";
 	import ConnectorDetailSheet from "./ConnectorDetailSheet.svelte";
@@ -508,6 +509,7 @@
 		<ServerCardFrame
 			active={connector.connected}
 			name={connector.name}
+			iconSrc={getMcpServerFaviconUrl(connector.url)}
 			description={connector.url}
 			toggleLabel={connector.connected ? "On by default in new chats" : "Sign in first"}
 			toggleLabelShort={connector.connected ? "Default in new chats" : "Sign in first"}
@@ -624,7 +626,7 @@
 						class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 					>
 						<IconRefresh class="size-3 {busyConnector === connector.id ? 'animate-spin' : ''}" />
-						{busyConnector === connector.id ? "Checking…" : "Re-check"}
+						{busyConnector === connector.id ? "Checking…" : "Check"}
 					</button>
 				{/if}
 				{#if connector.scope === "user" && !connector.local}

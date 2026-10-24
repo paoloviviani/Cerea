@@ -104,7 +104,8 @@
 				{#if description}
 					<p
 						data-testid="card-description"
-						class="line-clamp-2 text-sm break-words text-gray-600 dark:text-gray-400"
+						title={description}
+						class="truncate text-sm text-gray-600 dark:text-gray-400"
 					>
 						{description}
 					</p>
