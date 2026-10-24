@@ -18,7 +18,6 @@
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
 	import { onMount } from "svelte";
-	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import IconAddLarge from "~icons/carbon/add-large";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -31,6 +30,10 @@
 	import { startLocalSignIn } from "$lib/localConnectorsApi";
 	import Switch from "$lib/components/Switch.svelte";
 	import ServerCardFrame from "./ServerCardFrame.svelte";
+	import ServerCard from "./ServerCard.svelte";
+	import { getMcpServerFaviconUrl } from "$lib/utils/favicon";
+	import { allMcpServers, selectedServerIds } from "$lib/stores/mcpServers";
+	import type { MCPServer } from "$lib/types/Tool";
 	import ConnectorDetailSheet from "./ConnectorDetailSheet.svelte";
 	import type { McpConnectorView, McpLocalView } from "$lib/types/McpConnector";
 	import {
@@ -47,7 +50,6 @@
 	// on, and a copy held by a dialog that is destroyed when it closes cannot
 	// tell them.
 	const loading = $derived(!$connectorsLoaded);
-	const publicConfig = usePublicConfig();
 	let failure = $state<string | null>(null);
 	let busy = $state(false);
 	/** Which connector an in-flight row action belongs to, so only its icon spins. */
@@ -63,7 +65,28 @@
 	// were only looking at because they administer the place (the backend
 	// now refuses that regardless).
 	const own = $derived($connectors.filter((c) => c.scope === "user" && !c.local));
-	const provided = $derived($connectors.filter((c) => c.scope === "deployment"));
+	// One group for everything the deployment provides: the `.env` base servers and the
+	// administrator's connectors read the same to a person, so they are listed together,
+	// by name. Presentation only: ids and selection stay each kind's own.
+	type Provided =
+		| { kind: "base"; name: string; id: string; server: MCPServer }
+		| { kind: "connector"; name: string; id: string; connector: McpConnectorView };
+	const provided = $derived<Provided[]>(
+		[
+			...$allMcpServers
+				.filter((s) => s.type === "base")
+				.map((server): Provided => ({ kind: "base", name: server.name, id: server.id, server })),
+			...$connectors
+				.filter((c) => c.scope === "deployment")
+				.map((connector): Provided => ({
+					kind: "connector",
+					name: connector.name,
+					id: connector.id,
+					connector,
+				})),
+		].sort((a, b) => a.name.localeCompare(b.name))
+	);
+	const isAdmin = $derived(page.data.gatewayIsAdmin === true);
 	// A third kind (ADR 0102): servers on the person's own machines. Not theirs to add or edit
 	// here (the machine's `mcp.json` defines them), only to use and, for an http one that asks,
 	// to sign in to; the tokens stay on the machine.
@@ -486,6 +509,7 @@
 		<ServerCardFrame
 			active={connector.connected}
 			name={connector.name}
+			iconSrc={getMcpServerFaviconUrl(connector.url)}
 			description={connector.url}
 			toggleLabel={connector.connected ? "On by default in new chats" : "Sign in first"}
 			toggleLabelShort={connector.connected ? "Default in new chats" : "Sign in first"}
@@ -602,7 +626,7 @@
 						class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 					>
 						<IconRefresh class="size-3 {busyConnector === connector.id ? 'animate-spin' : ''}" />
-						{busyConnector === connector.id ? "Checking…" : "Re-check"}
+						{busyConnector === connector.id ? "Checking…" : "Check"}
 					</button>
 				{/if}
 				{#if connector.scope === "user" && !connector.local}
@@ -918,24 +942,31 @@
 		</div>
 
 		{#if provided.length > 0}
-			<!-- A different section on purpose: whose decision a connector was
-			     is the first thing to know when it misbehaves, and the one
-			     thing a mixed grid could not say. These rows are here to be
-			     turned on and signed in to; their editing and their removal
-			     are the admin screen's job, for administrators — the server
-			     refuses this dialog's delete on them regardless of who calls
-			     it. -->
-			<div>
+			<!-- Whose decision these are is the first thing to know when one
+			     misbehaves, so they are a group of their own, apart from the person's
+			     connectors. Rows are here to be turned on and signed in to; editing
+			     and removal are the admin screen's job (the server refuses this
+			     dialog's delete on a connector regardless of who calls it), and a
+			     `.env` server is edited in `.env`. -->
+			<div data-testid="provided-section">
 				<h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">
-					Provided by your administrator ({provided.length})
+					Provided by this deployment ({provided.length})
 				</h3>
 				<p class="text-xs text-gray-600 dark:text-gray-400">
-					Offered to every account. Turn one on and sign in to it as yourself; it is managed —
-					changed or removed — by whoever runs {publicConfig.PUBLIC_APP_NAME}, not from here.
+					Offered to every account. Turn one on and, where it asks, sign in to it as yourself; they
+					are managed by whoever runs this deployment, not from here.
 				</p>
 				<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-					{#each provided as connector (connector.id)}
-						{@render connectorCard(connector)}
+					{#each provided as item (item.id)}
+						{#if item.kind === "base"}
+							<ServerCard
+								server={item.server}
+								isSelected={$selectedServerIds.has(item.server.id)}
+								fromEnv={isAdmin}
+							/>
+						{:else}
+							{@render connectorCard(item.connector)}
+						{/if}
 					{/each}
 				</div>
 			</div>

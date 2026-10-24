@@ -169,7 +169,7 @@
 			<p class="text-sm text-gray-600 dark:text-gray-400">
 				{local
 					? "Tools are listed while the server is on."
-					: "Not checked yet. Use Re-check on the card to list them."}
+					: "Not checked yet. Use Check on the card to list them."}
 			</p>
 		{/if}
 	</div>

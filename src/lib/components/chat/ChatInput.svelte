@@ -56,6 +56,8 @@
 		totalEnabledMcpCount,
 		disableAllConnectors,
 	} from "$lib/stores/mcpConnectors";
+	import type { MCPServer } from "$lib/types/Tool";
+	import type { McpConnectorView } from "$lib/types/McpConnector";
 	import { getMcpServerFaviconUrl } from "$lib/utils/favicon";
 	import {
 		SlashCommandState,
@@ -345,6 +347,29 @@
 			knowledgeStoresLoading = false;
 		}
 	}
+
+	// The composer's MCP flyout lists what the deployment provides (the `.env` servers and the
+	// administrator's connectors) as one section, by name; the person's own connectors and the
+	// ones on their machines follow it. Ids and selection are each kind's own.
+	const ownConnectors = $derived($connectors.filter((c) => c.scope !== "deployment"));
+	const provided = $derived(
+		[
+			...$allMcpServers.map((server) => ({
+				kind: "base" as const,
+				id: server.id,
+				name: server.name,
+				server,
+			})),
+			...$connectors
+				.filter((c) => c.scope === "deployment")
+				.map((connector) => ({
+					kind: "connector" as const,
+					id: connector.id,
+					name: connector.name,
+					connector,
+				})),
+		].sort((a, b) => a.name.localeCompare(b.name))
+	);
 
 	function isBaseAttached(id: string): boolean {
 		return knowledgeBases.some((base) => base.id === id);
@@ -1183,41 +1208,24 @@
 												onCloseAutoFocus={(e) => e.preventDefault()}
 												interactOutsideBehavior="defer-otherwise-close"
 											>
-												{#each $allMcpServers as server (server.id)}
-													<DropdownMenu.CheckboxItem
-														checked={$selectedServerIds.has(server.id)}
-														onCheckedChange={() => toggleServer(server.id)}
-														closeOnSelect={false}
-														class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+												{#if provided.length > 0}
+													<div
+														role="presentation"
+														data-testid="mcp-provided-heading"
+														class="px-2 pt-1 pb-0.5 text-xs font-medium text-gray-500 select-none dark:text-gray-400"
 													>
-														{#snippet children({ checked })}
-															<img
-																src={getMcpServerFaviconUrl(server.url)}
-																alt=""
-																class="size-4 flex-shrink-0 rounded-sm"
-															/>
-															<span class="max-w-52 truncate py-1">{server.name}</span>
-															<div class="ml-auto flex items-center">
-																<!-- Toggle visual -->
-																<span
-																	class={[
-																		"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
-																		checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
-																	]}
-																>
-																	<span
-																		class={[
-																			"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
-																			checked ? "translate-x-[14px]" : "translate-x-0.5",
-																		]}
-																	></span>
-																</span>
-															</div>
-														{/snippet}
-													</DropdownMenu.CheckboxItem>
-												{/each}
+														Provided by this deployment
+													</div>
+													{#each provided as item (item.id)}
+														{#if item.kind === "base"}
+															{@render baseItem(item.server)}
+														{:else}
+															{@render connectorItem(item.connector)}
+														{/if}
+													{/each}
+												{/if}
 
-												{#if $allMcpServers.length > 0 && signedIn && (!$connectorsLoaded || $connectorsFailed || $connectors.length > 0)}
+												{#if provided.length > 0 && signedIn && (!$connectorsLoaded || $connectorsFailed || ownConnectors.length > 0)}
 													<DropdownMenu.Separator
 														class="my-1 h-px bg-gray-200 dark:bg-gray-700/60"
 													/>
@@ -1238,10 +1246,9 @@
 														>
 															Could not load connectors
 														</DropdownMenu.Item>
-													{:else if $connectors.length === 0}
-														<!-- Only when there is nothing else to toggle: a
-											     deployment with base servers needs no lecture. -->
-														{#if $allMcpServers.length === 0}
+													{:else if ownConnectors.length === 0}
+														<!-- Only when there is nothing else to toggle: a deployment with servers needs no lecture. -->
+														{#if provided.length === 0}
 															<DropdownMenu.Item
 																class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
 																disabled
@@ -1250,100 +1257,13 @@
 															</DropdownMenu.Item>
 														{/if}
 													{:else}
-														{#each $connectors as connector (connector.id)}
-															{#if connector.connected}
-																<DropdownMenu.CheckboxItem
-																	checked={$selectedConnectorIds.has(connector.id)}
-																	onCheckedChange={() => toggleConnector(connector.id)}
-																	closeOnSelect={false}
-																	class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-																>
-																	{#snippet children({ checked })}
-																		{#if connector.local}
-																			<!-- A server on one of the person's own machines has no web address to take an icon from. -->
-																			<LucideLaptop class="size-4 flex-shrink-0 text-gray-500" />
-																		{:else}
-																			<img
-																				src={getMcpServerFaviconUrl(connector.url)}
-																				alt=""
-																				class="size-4 flex-shrink-0 rounded-sm"
-																			/>
-																		{/if}
-																		<span
-																			class={[
-																				"truncate py-1",
-																				connector.lastError ? "max-w-32" : "max-w-52",
-																			]}>{connector.name}</span
-																		>
-																		{#if connector.lastError}
-																			<!-- Its last check failed, so a turn may well get
-																			     no tools from it; said here, where it is
-																			     switched on, not only in the manager. -->
-																			<span
-																				class="truncate py-1 text-xs text-amber-600 dark:text-amber-400"
-																				title={connector.lastError}
-																			>
-																				Needs attention
-																			</span>
-																		{/if}
-																		<div class="ml-auto flex items-center">
-																			<!-- Toggle visual -->
-																			<span
-																				class={[
-																					"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
-																					checked
-																						? "bg-blue-600/80"
-																						: "bg-gray-300 dark:bg-gray-700",
-																				]}
-																			>
-																				<span
-																					class={[
-																						"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
-																						checked ? "translate-x-[14px]" : "translate-x-0.5",
-																					]}
-																				></span>
-																			</span>
-																		</div>
-																	{/snippet}
-																</DropdownMenu.CheckboxItem>
-															{:else}
-																<!-- Not connected (OAuth sign-in pending): it
-													     contributes no tools, so there is nothing to
-													     toggle. Tapping opens the manager, where the
-													     sign-in lives, instead of selecting a no-op. -->
-																<DropdownMenu.Item
-																	class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-																	title="Sign in from Manage MCP Servers"
-																	onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
-																>
-																	<img
-																		src={getMcpServerFaviconUrl(connector.url)}
-																		alt=""
-																		class="size-4 flex-shrink-0 rounded-sm"
-																	/>
-																	<span class="max-w-32 truncate py-1">{connector.name}</span>
-																	<span
-																		class="truncate py-1 text-xs text-gray-500 dark:text-gray-400"
-																	>
-																		Not signed in
-																	</span>
-																	<div class="ml-auto flex items-center">
-																		<!-- Toggle visual, visibly off -->
-																		<span
-																			class="relative mt-px flex h-4 w-7 items-center self-center rounded-full bg-gray-300 transition-colors dark:bg-gray-700"
-																		>
-																			<span
-																				class="block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform"
-																			></span>
-																		</span>
-																	</div>
-																</DropdownMenu.Item>
-															{/if}
+														{#each ownConnectors as connector (connector.id)}
+															{@render connectorItem(connector)}
 														{/each}
 													{/if}
 												{/if}
 
-												{#if $allMcpServers.length > 0 || (signedIn && $connectorsLoaded && !$connectorsFailed && $connectors.length > 0)}
+												{#if provided.length > 0 || (signedIn && $connectorsLoaded && !$connectorsFailed && ownConnectors.length > 0)}
 													<DropdownMenu.Separator
 														class="my-1 h-px bg-gray-200 dark:bg-gray-700/60"
 													/>
@@ -1570,6 +1490,122 @@
 		onfiles={handleFetchedFiles}
 	/>
 </div>
+
+{#snippet baseItem(server: MCPServer)}
+	<DropdownMenu.CheckboxItem
+		checked={$selectedServerIds.has(server.id)}
+		onCheckedChange={() => toggleServer(server.id)}
+		closeOnSelect={false}
+		class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+	>
+		{#snippet children({ checked })}
+			<img
+				src={getMcpServerFaviconUrl(server.url)}
+				alt=""
+				class="size-4 flex-shrink-0 rounded-sm"
+			/>
+			<span class="max-w-52 truncate py-1">{server.name}</span>
+			<div class="ml-auto flex items-center">
+				<!-- Toggle visual -->
+				<span
+					class={[
+						"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
+						checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
+					]}
+				>
+					<span
+						class={[
+							"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
+							checked ? "translate-x-[14px]" : "translate-x-0.5",
+						]}
+					></span>
+				</span>
+			</div>
+		{/snippet}
+	</DropdownMenu.CheckboxItem>
+{/snippet}
+
+{#snippet connectorItem(connector: McpConnectorView)}
+	{#if connector.connected}
+		<DropdownMenu.CheckboxItem
+			checked={$selectedConnectorIds.has(connector.id)}
+			onCheckedChange={() => toggleConnector(connector.id)}
+			closeOnSelect={false}
+			class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+		>
+			{#snippet children({ checked })}
+				{#if connector.local}
+					<!-- A server on one of the person's own machines has no web address to take an icon from. -->
+					<LucideLaptop class="size-4 flex-shrink-0 text-gray-500" />
+				{:else}
+					<img
+						src={getMcpServerFaviconUrl(connector.url)}
+						alt=""
+						class="size-4 flex-shrink-0 rounded-sm"
+					/>
+				{/if}
+				<span class={["truncate py-1", connector.lastError ? "max-w-32" : "max-w-52"]}
+					>{connector.name}</span
+				>
+				{#if connector.lastError}
+					<!-- Its last check failed, so a turn may well get
+																			     no tools from it; said here, where it is
+																			     switched on, not only in the manager. -->
+					<span
+						class="truncate py-1 text-xs text-amber-600 dark:text-amber-400"
+						title={connector.lastError}
+					>
+						Needs attention
+					</span>
+				{/if}
+				<div class="ml-auto flex items-center">
+					<!-- Toggle visual -->
+					<span
+						class={[
+							"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
+							checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
+						]}
+					>
+						<span
+							class={[
+								"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
+								checked ? "translate-x-[14px]" : "translate-x-0.5",
+							]}
+						></span>
+					</span>
+				</div>
+			{/snippet}
+		</DropdownMenu.CheckboxItem>
+	{:else}
+		<!-- Not connected (OAuth sign-in pending): it
+													     contributes no tools, so there is nothing to
+													     toggle. Tapping opens the manager, where the
+													     sign-in lives, instead of selecting a no-op. -->
+		<DropdownMenu.Item
+			class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
+			title="Sign in from Manage MCP Servers"
+			onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
+		>
+			<img
+				src={getMcpServerFaviconUrl(connector.url)}
+				alt=""
+				class="size-4 flex-shrink-0 rounded-sm"
+			/>
+			<span class="max-w-32 truncate py-1">{connector.name}</span>
+			<span class="truncate py-1 text-xs text-gray-500 dark:text-gray-400"> Not signed in </span>
+			<div class="ml-auto flex items-center">
+				<!-- Toggle visual, visibly off -->
+				<span
+					class="relative mt-px flex h-4 w-7 items-center self-center rounded-full bg-gray-300 transition-colors dark:bg-gray-700"
+				>
+					<span
+						class="block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform"
+					></span>
+				</span>
+			</div>
+		</DropdownMenu.Item>
+	{/if}
+{/snippet}
 
 <style>
 	/* In the base layer so utility classes (font-mono, text-xs, prose) keep

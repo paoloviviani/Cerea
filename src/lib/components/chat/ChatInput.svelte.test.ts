@@ -14,7 +14,7 @@ import {
 	resetConversationSelections,
 	selectedConnectorIds,
 } from "$lib/stores/mcpConnectors";
-import { allMcpServers } from "$lib/stores/mcpServers";
+import { allMcpServers, selectedServerIds } from "$lib/stores/mcpServers";
 import type { McpConnectorView } from "$lib/types/McpConnector";
 import type { MCPServer } from "$lib/types/Tool";
 
@@ -431,6 +431,49 @@ describe("ChatInput: MCP connector toggles", () => {
 		// …and nothing was selected: a no-op toggle would send no tools.
 		expect(get(selectedConnectorIds).size).toBe(0);
 		expect(get(enabledConnectors)).toEqual([]);
+	});
+
+	it("lists the .env servers and the administrator's connectors as one section, by name", async () => {
+		const shared: McpConnectorView = {
+			...notionConnector,
+			id: "conn-shared",
+			name: "Notion",
+			scope: "deployment",
+		};
+		const mine: McpConnectorView = { ...notionConnector, id: "conn-mine", name: "Zed (mine)" };
+		allMcpServers.set([
+			{ id: "base-search", name: "search", url: "https://s.test/mcp", type: "base" },
+			{ id: "base-osm", name: "osm", url: "https://o.test/mcp", type: "base" },
+		]);
+		selectedServerIds.set(new Set(["base-search"]));
+		seedConnectors([mine, shared], []);
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		await openMenu(container);
+		await openMcpSubmenu();
+		try {
+			await waitSlow(() => expect(findConnectorItem("Notion")).toBeTruthy());
+			const menu = findConnectorItem("Notion").closest('[role="menu"]') as HTMLElement;
+			// One heading for everything the deployment provides, not one per kind.
+			expect(menu.querySelectorAll('[data-testid="mcp-provided-heading"]')).toHaveLength(1);
+			const labels = [
+				...menu.querySelectorAll<HTMLElement>(
+					'[data-testid="mcp-provided-heading"], [role^="menuitem"]'
+				),
+			].map((el) => el.textContent?.replace(/\s+/g, " ").trim());
+			expect(labels.slice(0, 5)).toEqual([
+				"Provided by this deployment",
+				"Notion",
+				"osm",
+				"search",
+				"Zed (mine)",
+			]);
+			// Selection semantics are unchanged: the base row toggles its `base-` id.
+			findConnectorItem("search").click();
+			await waitSlow(() => expect(get(selectedServerIds).has("base-search")).toBe(false));
+		} finally {
+			allMcpServers.set([]);
+		}
 	});
 
 	it("with no connectors the submenu says where to add one, keeping the manager row", async () => {

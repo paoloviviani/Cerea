@@ -14,9 +14,11 @@
 	interface Props {
 		server: MCPServer;
 		isSelected: boolean;
+		/** Marks a server the deployment's `.env` defines (shown to administrators). */
+		fromEnv?: boolean;
 	}
 
-	let { server, isSelected }: Props = $props();
+	let { server, isSelected, fromEnv = false }: Props = $props();
 
 	let isLoadingHealth = $state(false);
 
@@ -76,20 +78,31 @@
 </script>
 
 {#snippet statusPills()}
-	<span
-		class="inline-flex items-center gap-1 rounded-full {statusInfo.bgColor} py-0.5 pr-2 pl-1.5 text-xs font-medium {statusInfo.color}"
-	>
-		{#if server.status === "connected"}
-			<IconCheckmark class="size-3" />
-		{:else if server.status === "connecting"}
-			<IconPending class="size-3" />
-		{:else if server.status === "error"}
-			<IconWarning class="size-3" />
-		{:else}
-			<IconPending class="size-3" />
-		{/if}
-		{statusInfo.label}
-	</span>
+	{#if fromEnv}
+		<span
+			data-testid="from-env"
+			title="Defined in the deployment's .env (MCP_SERVERS); edited there, not here"
+			class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+		>
+			from .env
+		</span>
+	{/if}
+	{#if server.status}
+		<span
+			class="inline-flex items-center gap-1 rounded-full {statusInfo.bgColor} py-0.5 pr-2 pl-1.5 text-xs font-medium {statusInfo.color}"
+		>
+			{#if server.status === "connected"}
+				<IconCheckmark class="size-3" />
+			{:else if server.status === "connecting"}
+				<IconPending class="size-3" />
+			{:else if server.status === "error"}
+				<IconWarning class="size-3" />
+			{:else}
+				<IconPending class="size-3" />
+			{/if}
+			{statusInfo.label}
+		</span>
+	{/if}
 
 	{#if server.tools && server.tools.length > 0}
 		<span class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
@@ -101,7 +114,7 @@
 {/snippet}
 
 <ServerCardFrame
-	pills={server.status ? statusPills : undefined}
+	pills={server.status || fromEnv ? statusPills : undefined}
 	active={isSelected}
 	name={server.name}
 	iconSrc={getMcpServerFaviconUrl(server.url)}
@@ -133,7 +146,7 @@
 			class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
 		>
 			<IconRefresh class="size-3 {isLoadingHealth ? 'animate-spin' : ''}" />
-			Health Check
+			Check
 		</button>
 
 		{#if isHfMcp}
