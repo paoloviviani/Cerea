@@ -238,12 +238,12 @@
 							Background tone
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Cool or warm greys behind the text.
+							Neutral, cool or warm greys behind the text.
 						</p>
 					</div>
 					<SwatchGroup
 						label="Background tone"
-						value={$settings.neutral ?? DEFAULT_NEUTRAL}
+						value={parseNeutral($settings.neutral) ?? DEFAULT_NEUTRAL}
 						options={NEUTRALS.map((n) => ({
 							value: n,
 							label: NEUTRAL_LABELS[n],

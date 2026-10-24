@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ACCENTS, NEUTRALS, paletteAttributes } from "$lib/utils/palettes";
+import { ACCENTS, NEUTRALS, migrateNeutral, paletteAttributes } from "$lib/utils/palettes";
 import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import { logger } from "$lib/server/logger";
@@ -13,7 +13,8 @@ import { logger } from "$lib/server/logger";
  */
 export const paletteFields = {
 	accent: z.enum(ACCENTS).optional().catch(undefined),
-	neutral: z.enum(NEUTRALS).optional().catch(undefined),
+	// An old tone id ("gray", "slate", "stone") from an older client is its replacement, not an unknown.
+	neutral: z.preprocess(migrateNeutral, z.enum(NEUTRALS).optional().catch(undefined)),
 };
 
 /**

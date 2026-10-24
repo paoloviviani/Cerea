@@ -192,5 +192,5 @@ export const DEFAULT_SETTINGS = {
 	directPaste: false,
 	hapticsEnabled: true,
 	accent: "blue",
-	neutral: "gray",
+	neutral: "neutral",
 } satisfies SettingsEditable;

@@ -85,7 +85,7 @@
 	<DropdownMenu.Trigger class={triggerClass} aria-label="Model and effort" {disabled}>
 		{@render children()}
 		{#if efforts}
-			<span class="shrink-0 text-gray-500 dark:text-gray-400">· {effortLabel(effort)}</span>
+			<span class="shrink-0 text-ink-faint">· {effortLabel(effort)}</span>
 		{/if}
 		<CarbonCaretDown class="-ml-0.5 shrink-0 text-xxs" />
 	</DropdownMenu.Trigger>

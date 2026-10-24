@@ -204,7 +204,7 @@
 </div>
 
 <div
-	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-gray-50 px-2 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent dark:from-gray-800/30"
+	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-sidebar px-2 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent"
 >
 	{#if codeAgentsEnabled && effectiveView === "agents"}
 		<!-- While the sign-in is stale (or not yet known) the tree draws nothing:
@@ -265,7 +265,7 @@
 				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {effectiveView ===
 				'chats'
 					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
-					: 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}"
+					: 'text-ink-muted hover:text-ink'}"
 				onclick={() => (codeNav.view = "chats")}
 			>
 				<CarbonChat class="size-3.5" />
@@ -276,7 +276,7 @@
 				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {effectiveView ===
 				'agents'
 					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
-					: 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'}"
+					: 'text-ink-muted hover:text-ink'}"
 				onclick={() => (codeNav.view = "agents")}
 			>
 				<CarbonCode class="size-3.5" />
@@ -287,7 +287,7 @@
 {/if}
 
 <div
-	class="flex touch-none flex-col gap-px rounded-r-xl border border-l-0 border-gray-100 p-2 text-base sm:text-sm md:mt-3 md:bg-linear-to-l md:from-gray-50 dark:border-transparent md:dark:from-gray-800/30"
+	class="flex touch-none flex-col gap-px rounded-r-xl border border-l-0 border-gray-100 p-2 text-base sm:text-sm md:mt-3 md:bg-linear-to-l md:from-sidebar dark:border-transparent"
 >
 	<!-- Rows, not branches: each is one address and contains nothing to expand.
 	     Workspace is the tabbed page that hosts the managers (models, MCP

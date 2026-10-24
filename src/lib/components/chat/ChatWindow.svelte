@@ -755,7 +755,7 @@
 						handleSubmit();
 					}}
 					class={{
-						"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-surface shadow-sm focus-within:border-accent/40 dark:border-gray-700": true,
+						"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-surface shadow-sm focus-within:border-accent/40 dark:border-gray-700 dark:bg-raised": true,
 						"opacity-30": isReadOnly,
 						"max-sm:mb-4": focused && isVirtualKeyboard(),
 					}}
@@ -889,7 +889,7 @@
 				{/snippet}
 				<div
 					class={{
-						"mt-1.5 flex h-5 items-center self-stretch px-0.5 text-xs whitespace-nowrap text-gray-400/90 max-md:mb-2 max-sm:gap-2": true,
+						"mt-1.5 flex h-5 items-center self-stretch px-0.5 text-xs whitespace-nowrap text-ink-faint max-md:mb-2 max-sm:gap-2": true,
 						"max-sm:hidden": focused && isVirtualKeyboard(),
 					}}
 				>

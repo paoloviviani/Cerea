@@ -157,7 +157,7 @@
 						bind:value={urlValue}
 						type="url"
 						placeholder="https://example.com/file.txt"
-						class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-[15px] text-gray-800 outline-hidden placeholder:text-gray-400 focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:ring-gray-700"
+						class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-[15px] text-gray-800 outline-hidden placeholder:text-ink-faint focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-gray-700"
 						aria-invalid={errorMsg ? "true" : "false"}
 						onkeydown={(e) => {
 							if (e.key === "Enter") {

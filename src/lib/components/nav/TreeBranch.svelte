@@ -126,7 +126,7 @@
 
 		{#if badge !== undefined && badge !== ""}
 			<span
-				class="shrink-0 rounded-md bg-gray-500/5 px-1.5 py-0.5 text-xs text-gray-400 dark:bg-gray-500/20"
+				class="shrink-0 rounded-md bg-gray-500/5 px-1.5 py-0.5 text-xs text-ink-faint dark:bg-gray-500/20"
 			>
 				{badge}
 			</span>

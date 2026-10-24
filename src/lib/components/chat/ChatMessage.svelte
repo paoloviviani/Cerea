@@ -924,7 +924,7 @@
 		<div
 			class="relative flex min-w-[60px] flex-col gap-2 wrap-break-word text-gray-600 dark:text-gray-300 prose-pre:my-2 {awaitingFirstContent
 				? 'py-2.5'
-				: 'rounded-2xl border border-line bg-linear-to-br from-gray-50 px-3 py-2.5 sm:px-4 sm:py-3 dark:from-gray-800/80'}"
+				: 'rounded-2xl border border-line bg-linear-to-br from-page px-3 py-2.5 sm:px-4 sm:py-3 dark:from-surface dark:to-surface/60'}"
 		>
 			{#if message.files?.length}
 				<div class="flex h-fit flex-wrap gap-x-5 gap-y-2">
@@ -1166,7 +1166,7 @@
 			>
 				{#if message.routerMetadata && (message.routerMetadata.route || message.routerMetadata.model || message.routerMetadata.provider) && (!isLast || !loading)}
 					<div
-						class="mr-2 flex items-center gap-1.5 truncate text-[.65rem] whitespace-nowrap text-gray-400 @xl:text-xs dark:text-gray-400 dark:opacity-50"
+						class="mr-2 flex items-center gap-1.5 truncate text-[.65rem] whitespace-nowrap text-ink-faint @xl:text-xs"
 					>
 						{#if message.routerMetadata.route && message.routerMetadata.model}
 							<span
@@ -1196,13 +1196,13 @@
 						onClick={() => {
 							isCopied = true;
 						}}
-						classNames="btn rounded-xs p-1 text-sm text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
+						classNames="btn rounded-xs p-1 text-sm text-ink-faint hover:text-ink-muted focus:ring-0"
 						value={contentWithoutThink}
 						iconClassNames="text-xs"
 					/>
 					{#if onretry}
 						<button
-							class="btn rounded-xs p-1 text-xs text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
+							class="btn rounded-xs p-1 text-xs text-ink-faint hover:text-ink-muted focus:ring-0"
 							title="Retry"
 							type="button"
 							onclick={() => {
@@ -1298,9 +1298,7 @@
 									: ""}
 							</p>
 							<details class="mt-1">
-								<summary
-									class="cursor-pointer text-xs text-gray-400 select-none dark:text-gray-500"
-								>
+								<summary class="cursor-pointer text-xs text-ink-faint select-none">
 									Expanded command
 								</summary>
 								<p
@@ -1348,7 +1346,7 @@
 							</button>
 							<button
 								type="button"
-								class="btn rounded-xs p-2 text-sm text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
+								class="btn rounded-xs p-2 text-sm text-ink-faint hover:text-ink-muted focus:ring-0"
 								onclick={() => {
 									editMsdgId = null;
 								}}
@@ -1391,7 +1389,7 @@
 							? '[@media(hover:none)]:flex'
 							: ''} {isUserMsgCopied
 							? 'text-green-500 dark:text-green-400'
-							: 'text-gray-400 hover:text-gray-500 dark:text-gray-400 dark:hover:text-gray-300'}"
+							: 'text-ink-faint hover:text-ink-muted'}"
 						title="Copy to clipboard"
 						type="button"
 						onclick={async () => {

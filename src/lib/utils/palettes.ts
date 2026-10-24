@@ -9,13 +9,13 @@
  */
 
 export const ACCENTS = ["blue", "violet", "teal", "green", "rose", "orange"] as const;
-export const NEUTRALS = ["gray", "slate", "stone"] as const;
+export const NEUTRALS = ["neutral", "cool", "warm"] as const;
 
 export type Accent = (typeof ACCENTS)[number];
 export type Neutral = (typeof NEUTRALS)[number];
 
 export const DEFAULT_ACCENT: Accent = "blue";
-export const DEFAULT_NEUTRAL: Neutral = "gray";
+export const DEFAULT_NEUTRAL: Neutral = "neutral";
 
 export const ACCENT_LABELS: Record<Accent, string> = {
 	blue: "Blue",
@@ -27,9 +27,9 @@ export const ACCENT_LABELS: Record<Accent, string> = {
 };
 
 export const NEUTRAL_LABELS: Record<Neutral, string> = {
-	gray: "Gray",
-	slate: "Slate",
-	stone: "Stone",
+	neutral: "Neutral",
+	cool: "Cool",
+	warm: "Warm",
 };
 
 /**
@@ -48,9 +48,9 @@ export const ACCENT_SWATCHES: Record<Accent, string> = {
 };
 
 export const NEUTRAL_SWATCHES: Record<Neutral, string> = {
-	gray: "#737373",
-	slate: "#62748e",
-	stone: "#79716b",
+	neutral: "#737373",
+	cool: "#6c747e",
+	warm: "#78726c",
 };
 
 /** An unknown or missing value is "not chosen", never an error: settings written by a newer build must not break an older one. */
@@ -58,8 +58,27 @@ export function parseAccent(value: unknown): Accent | undefined {
 	return ACCENTS.find((a) => a === value);
 }
 
+/**
+ * The tones' earlier names. A choice saved as "gray", "slate" or "stone" (in
+ * Mongo, in a client's cached settings) means the tone that replaced it, so it
+ * is translated wherever a tone is read; nothing is migrated in the database.
+ */
+export const LEGACY_NEUTRALS: Record<string, Neutral> = {
+	gray: "neutral",
+	slate: "cool",
+	stone: "warm",
+};
+
+/** An old tone id becomes its replacement; anything else passes through untouched. */
+export function migrateNeutral(value: unknown): unknown {
+	return typeof value === "string" && Object.hasOwn(LEGACY_NEUTRALS, value)
+		? LEGACY_NEUTRALS[value]
+		: value;
+}
+
 export function parseNeutral(value: unknown): Neutral | undefined {
-	return NEUTRALS.find((n) => n === value);
+	const current = migrateNeutral(value);
+	return NEUTRALS.find((n) => n === current);
 }
 
 /** The attributes for `<html>`: nothing at all for the defaults. */

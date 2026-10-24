@@ -47,7 +47,7 @@
 			placeholder="Search by name"
 			aria-label="Search models by name or id"
 			class="mt-4 w-full rounded-3xl border border-gray-300 bg-white px-5 py-2 text-[15px]
-				placeholder:text-gray-400 focus:ring-2 focus:ring-gray-300 focus:outline-hidden
+				placeholder:text-ink-faint focus:ring-2 focus:ring-gray-300 focus:outline-hidden
 				dark:border-gray-700 dark:bg-gray-900 dark:focus:ring-gray-700"
 		/>
 

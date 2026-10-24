@@ -531,10 +531,10 @@
 	<div
 		bind:clientHeight={composerHeight}
 		class="pointer-events-none absolute inset-x-0 bottom-0 z-0 mx-auto flex w-full
-		max-w-3xl flex-col items-center justify-center bg-linear-to-t from-white
-		via-white to-white/0 px-[calc(0.875rem+var(--scrollbar-gutter,0px))] pt-2 *:pointer-events-auto
+		max-w-3xl flex-col items-center justify-center bg-linear-to-t from-page
+		via-page to-page/0 px-[calc(0.875rem+var(--scrollbar-gutter,0px))] pt-2 *:pointer-events-auto
 		max-sm:py-0 sm:px-[calc(1.25rem+var(--scrollbar-gutter,0px))]
-		md:pb-4 xl:max-w-4xl dark:border-gray-800 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900/0"
+		md:pb-4 xl:max-w-4xl"
 	>
 		{@render composer()}
 	</div>

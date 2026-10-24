@@ -799,7 +799,7 @@
 							></pre>
 					</div>
 					<div
-						class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-white/90 to-transparent dark:from-gray-900/90"
+						class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-page/90 to-transparent"
 					></div>
 				</div>
 			</div>
@@ -909,7 +909,7 @@
 					</div>
 					{#if isStreamingVersion}
 						<div
-							class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-white/90 to-transparent dark:from-gray-900/90"
+							class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-page/90 to-transparent"
 						></div>
 					{/if}
 				</div>

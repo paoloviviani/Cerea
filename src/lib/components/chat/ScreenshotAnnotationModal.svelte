@@ -621,7 +621,7 @@
 	// overflow-y-hidden by default; autogrow flips it to auto only when the note
 	// is clamped at max-height, so no scrollbar gutter shows for short notes
 	const noteInput =
-		"scrollbar-custom max-h-32 min-w-0 flex-1 resize-none overflow-y-hidden rounded-md border border-gray-200 bg-white px-2 py-1 text-sm leading-snug text-gray-800 outline-hidden placeholder:text-gray-400 focus:border-blue-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:focus:border-blue-500";
+		"scrollbar-custom max-h-32 min-w-0 flex-1 resize-none overflow-y-hidden rounded-md border border-gray-200 bg-white px-2 py-1 text-sm leading-snug text-gray-800 outline-hidden placeholder:text-ink-faint focus:border-blue-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:focus:border-blue-500";
 </script>
 
 <svelte:window onkeydown={onKeydown} onresize={() => (resizeNonce += 1)} />
