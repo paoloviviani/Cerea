@@ -14,6 +14,7 @@
 	import CarbonSettings from "~icons/carbon/settings";
 	import CarbonMeter from "~icons/carbon/meter";
 	import CarbonNotification from "~icons/carbon/notification";
+	import SectionSwitcher from "$lib/components/nav/SectionSwitcher.svelte";
 
 	interface Props {
 		children?: import("svelte").Snippet;
@@ -41,6 +42,10 @@
 	]);
 
 	const current = $derived(page.url.pathname);
+	const switcherSections = $derived(sections.map((s) => ({ ...s, href: `${base}${s.href}` })));
+	const currentSection = $derived(
+		switcherSections.find((s) => current.startsWith(s.href))?.href ?? ""
+	);
 </script>
 
 <!--
@@ -56,9 +61,17 @@
 <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 p-6">
 	<header class="flex flex-col gap-1">
 		<h1 class="text-xl font-semibold">Settings</h1>
+		<SectionSwitcher
+			label="Settings sections"
+			sections={switcherSections}
+			current={currentSection}
+		/>
 	</header>
 
-	<nav class="flex flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 dark:border-gray-700">
+	<nav
+		aria-label="Settings sections"
+		class="hidden flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 md:flex dark:border-gray-700"
+	>
 		{#each sections as section (section.href)}
 			{@const active = current.startsWith(`${base}${section.href}`)}
 			<a

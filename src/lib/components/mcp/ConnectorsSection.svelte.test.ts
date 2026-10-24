@@ -9,7 +9,8 @@
  * admin screen, whose Remove names `?scope=deployment`.
  */
 
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { page } from "@vitest/browser/context";
 
 import ConnectorsSection from "./ConnectorsSection.svelte";
 import type { McpConnectorView } from "$lib/types/McpConnector";
@@ -266,7 +267,7 @@ describe("ConnectorsSection: servers on the person's own machines (ADR 0102)", (
 			el.textContent?.trim()
 		);
 
-	it("lists them in their own section, labelled '<server> · on <machine>', with a green 'on' pill while ready", async () => {
+	it("lists them in their own section, named for the server, with the machine on a second line, with a green 'on' pill while ready", async () => {
 		stubApi([MINE(), local("notes", "ready", { description: "My notes folder" })]);
 		const screen = mount();
 
@@ -277,7 +278,7 @@ describe("ConnectorsSection: servers on the person's own machines (ADR 0102)", (
 		await expect
 			.element(screen.getByText("Your connectors (1)", { exact: true }))
 			.toBeInTheDocument();
-		await expect.element(screen.getByText("notes · on laptop")).toBeInTheDocument();
+		await expect.element(screen.getByText("notes", { exact: true })).toBeInTheDocument();
 		await expect.element(screen.getByText("My notes folder")).toBeInTheDocument();
 		expect(pills(screen)).toEqual(["on"]);
 		const pill = screen.baseElement.querySelector('[data-testid="local-pill"]') as HTMLElement;
@@ -340,7 +341,7 @@ describe("ConnectorsSection: servers on the person's own machines (ADR 0102)", (
 			})
 		);
 		const screen = mount();
-		await expect.element(screen.getByText("crm · on laptop")).toBeInTheDocument();
+		await expect.element(screen.getByText("crm", { exact: true })).toBeInTheDocument();
 		await screen.getByRole("button", { name: "Sign in" }).click();
 
 		await vi.waitFor(() => expect(seen).toHaveLength(1));
@@ -366,10 +367,189 @@ describe("ConnectorsSection: servers on the person's own machines (ADR 0102)", (
 			})
 		);
 		const screen = mount();
-		await expect.element(screen.getByText("crm · on laptop")).toBeInTheDocument();
+		await expect.element(screen.getByText("crm", { exact: true })).toBeInTheDocument();
 		await screen.getByRole("button", { name: "Sign in" }).click();
 		await expect
 			.element(screen.getByText("laptop is offline. Start galopin there first."))
 			.toBeInTheDocument();
+	});
+});
+
+describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
+	const LONG = ["kdrive-personal", "kdrive-photos"];
+
+	function localOf(
+		server: string,
+		extra: Partial<NonNullable<McpConnectorView["local"]>> = {}
+	): McpConnectorView {
+		return connector({
+			id: `local:dev1:${server}`,
+			name: `${server} · on laptop`,
+			url: "",
+			connected: (extra.state ?? "ready") === "ready",
+			manageable: false,
+			local: {
+				deviceId: "dev1",
+				machineName: "laptop",
+				server,
+				transport: "stdio",
+				state: "ready",
+				description: `kDrive (${server}) — a deliberately long description that cannot fit on one line of a phone card, so it has to be clamped to two lines at most and never push the switch out of view`,
+				...extra,
+			},
+		});
+	}
+
+	/** List endpoint plus the local tools route, answering by connector id. */
+	function stub(
+		list: McpConnectorView[],
+		tools: (id: string) => Response = () => Response.json({ tools: [] })
+	) {
+		const asked: string[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				if (url.includes("/api/v2/local-connectors/tools")) {
+					const id = new URL(url, "http://x").searchParams.get("id") ?? "";
+					asked.push(id);
+					return tools(id);
+				}
+				if (url.includes("/api/v2/mcp/connectors")) return Response.json({ data: list });
+				return Response.json({});
+			})
+		);
+		return asked;
+	}
+
+	beforeEach(async () => {
+		connectors.set([]);
+		await page.viewport(390, 800);
+	});
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		connectors.set([]);
+	});
+
+	it("keeps each server name whole at 390px and puts the switch in a footer row", async () => {
+		stub([...LONG.map((name) => localOf(name)), localOf("calendar")]);
+		const screen = mount();
+		await expect
+			.element(screen.getByText("On your machines (3)", { exact: false }))
+			.toBeInTheDocument();
+
+		const names = [
+			...screen.baseElement.querySelectorAll('[data-testid="card-name"]'),
+		] as HTMLElement[];
+		expect(names.map((n) => n.textContent?.trim())).toEqual([...LONG, "calendar"]);
+		for (const name of names) {
+			// Not an ellipsis: nothing hides part of the name, so two servers never look alike.
+			expect(getComputedStyle(name).textOverflow).not.toBe("ellipsis");
+			expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth);
+			expect(name.getBoundingClientRect().width).toBeGreaterThan(200);
+		}
+		// The machine is its own small line, and the description is clamped.
+		const card = screen.baseElement.querySelector('[data-testid="local-connector"]') as HTMLElement;
+		expect(card.textContent).toContain("on laptop");
+		expect(
+			getComputedStyle(card.querySelector('[data-testid="card-description"]') as Element)
+				.webkitLineClamp
+		).toBe("2");
+
+		// The footer row: the short label, then the switch, below the pills.
+		const footers = [
+			...(card.parentElement as HTMLElement).querySelectorAll('[data-testid="card-footer"]'),
+		];
+		expect(footers).toHaveLength(3);
+		const footer = card.querySelector('[data-testid="card-footer"]') as HTMLElement;
+		const shortLabel = [...footer.querySelectorAll("span")].find(
+			(el) => el.textContent === "Default in new chats"
+		) as HTMLElement;
+		expect(getComputedStyle(shortLabel).display).not.toBe("none");
+		const pill = card.querySelector('[data-testid="local-pill"]') as HTMLElement;
+		expect(footer.getBoundingClientRect().top).toBeGreaterThan(
+			pill.getBoundingClientRect().bottom - 1
+		);
+		expect(footer.querySelector('[role="switch"]')).not.toBeNull();
+	});
+
+	it("opens the detail sheet from the card with the full name, machine, state, transport, allowed tools and the tool names", async () => {
+		const asked = stub(
+			[
+				localOf("kdrive-personal", {
+					allowedTools: ["search", "read"],
+					description: "The full description of the server, in every word.",
+				}),
+			],
+			() =>
+				Response.json({
+					tools: [{ name: "search", description: "Search files" }, { name: "read" }],
+				})
+		);
+		const screen = mount();
+		await expect.element(screen.getByText("kdrive-personal", { exact: true })).toBeInTheDocument();
+		expect(document.querySelector('[data-testid="connector-detail"]')).toBeNull();
+
+		// A click on the card body, not on its name button.
+		(screen.baseElement.querySelector('[data-testid="card-description"]') as HTMLElement).click();
+		const sheet = page.getByTestId("connector-detail");
+		await expect.element(sheet).toBeVisible();
+		await expect.element(sheet).toHaveTextContent("kdrive-personal");
+		await expect.element(sheet).toHaveTextContent("on laptop");
+		await expect
+			.element(sheet)
+			.toHaveTextContent("The full description of the server, in every word.");
+		await expect.element(sheet).toHaveTextContent("On");
+		await expect.element(sheet).toHaveTextContent("stdio");
+		await expect.element(sheet).toHaveTextContent("search, read");
+		await expect.element(sheet).toHaveTextContent("Search files");
+		expect(asked).toEqual(["local:dev1:kdrive-personal"]);
+		await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+	});
+
+	it("opens from the keyboard through the name, and not from the switch", async () => {
+		stub([localOf("notes")]);
+		const screen = mount();
+		await expect.element(screen.getByText("notes", { exact: true })).toBeInTheDocument();
+
+		(screen.baseElement.querySelector('[role="switch"]') as HTMLElement).click();
+		expect(document.querySelector('[data-testid="connector-detail"]')).toBeNull();
+
+		await screen.getByRole("button", { name: "notes" }).click();
+		await expect.element(page.getByTestId("connector-detail")).toBeVisible();
+	});
+
+	it("says why the tools could not be listed", async () => {
+		stub([localOf("notes")], () => Response.json({ error: "laptop is offline" }));
+		const screen = mount();
+		await screen.getByRole("button", { name: "notes" }).click();
+		await expect
+			.element(page.getByTestId("connector-detail"))
+			.toHaveTextContent("Couldn't list tools: laptop is offline");
+	});
+
+	it("does not ask for tools of a server that is not on, and says so", async () => {
+		const asked = stub([
+			localOf("notes", { state: "offline", detail: "laptop is not connected." }),
+		]);
+		const screen = mount();
+		await screen.getByRole("button", { name: "notes" }).click();
+		const sheet = page.getByTestId("connector-detail");
+		await expect.element(sheet).toHaveTextContent("Offline");
+		await expect.element(sheet).toHaveTextContent("laptop is not connected.");
+		expect(asked).toEqual([]);
+	});
+
+	it("shows a remote connector's last-checked tools", async () => {
+		stub([
+			connector({
+				id: "c1",
+				name: "Remote one",
+				tools: [{ name: "lookup", description: "Look it up" }],
+			}),
+		]);
+		const screen = mount();
+		await screen.getByRole("button", { name: "Remote one" }).click();
+		await expect.element(page.getByTestId("connector-detail")).toHaveTextContent("lookup");
 	});
 });

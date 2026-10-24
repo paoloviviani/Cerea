@@ -15,6 +15,8 @@
 		closeOnBackdrop?: boolean;
 		/** id of the element naming the dialog, typically its heading */
 		labelledBy?: string;
+		/** Below `sm` the dialog sits on the bottom edge as a sheet; from `sm` up it is centred as ever. */
+		sheet?: boolean;
 		onclose?: () => void;
 		children?: import("svelte").Snippet;
 	}
@@ -26,6 +28,7 @@
 		disableFly = false,
 		closeOnBackdrop = true,
 		labelledBy,
+		sheet = false,
 		onclose,
 	}: Props = $props();
 
@@ -49,7 +52,12 @@
 		}
 	}
 
+	// Whatever had focus when the dialog opened gets it back on close, so a
+	// keyboard user lands on the control that opened it.
+	let opener: HTMLElement | null = null;
+
 	onMount(() => {
+		opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		document.getElementById("app")?.setAttribute("inert", "true");
 		modalEl?.focus();
 		tap();
@@ -61,6 +69,7 @@
 		if (!browser) return;
 		document.getElementById("app")?.removeAttribute("inert");
 		window.removeEventListener("keydown", handleKeydown, { capture: true });
+		if (opener?.isConnected) opener.focus();
 	});
 </script>
 
@@ -74,7 +83,9 @@
 			handleBackdropClick(e);
 		}}
 		transition:fade|local={{ easing: cubicOut, duration: 300 }}
-		class="fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-xs dark:bg-black/50"
+		class="fixed inset-0 z-40 flex justify-center bg-black/80 {sheet
+			? 'items-end sm:items-center'
+			: 'items-center'} backdrop-blur-xs dark:bg-black/50"
 	>
 		{#if disableFly}
 			<div
@@ -84,7 +95,10 @@
 				bind:this={modalEl}
 				onkeydown={handleKeydown}
 				class={[
-					"relative mx-auto scrollbar-custom max-h-[95dvh] max-w-[90dvw] overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-2xl outline-hidden dark:bg-gray-800 dark:text-gray-200 dark:ring-1 dark:ring-white/15",
+					"relative mx-auto scrollbar-custom max-h-[95dvh] overflow-x-hidden overflow-y-auto bg-white shadow-2xl outline-hidden dark:bg-gray-800 dark:text-gray-200 dark:ring-1 dark:ring-white/15",
+					sheet
+						? "max-sm:w-full max-sm:max-w-none max-sm:rounded-t-2xl sm:max-w-[90dvw] sm:rounded-2xl"
+						: "max-w-[90dvw] rounded-2xl",
 					width,
 				]}
 			>
@@ -104,7 +118,10 @@
 				onkeydown={handleKeydown}
 				in:fly={{ y: 100 }}
 				class={[
-					"relative mx-auto scrollbar-custom max-h-[95dvh] max-w-[90dvw] overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-2xl outline-hidden dark:bg-gray-800 dark:text-gray-200 dark:ring-1 dark:ring-white/15",
+					"relative mx-auto scrollbar-custom max-h-[95dvh] overflow-x-hidden overflow-y-auto bg-white shadow-2xl outline-hidden dark:bg-gray-800 dark:text-gray-200 dark:ring-1 dark:ring-white/15",
+					sheet
+						? "max-sm:w-full max-sm:max-w-none max-sm:rounded-t-2xl sm:max-w-[90dvw] sm:rounded-2xl"
+						: "max-w-[90dvw] rounded-2xl",
 					width,
 				]}
 			>

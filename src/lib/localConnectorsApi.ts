@@ -4,7 +4,7 @@
  * named here is the caller's own.
  */
 import { base } from "$app/paths";
-import type { LocalMachineView } from "$lib/types/LocalConnectors";
+import type { LocalMachineView, LocalToolsAnswer } from "$lib/types/LocalConnectors";
 
 export class LocalConnectorsApiError extends Error {
 	constructor(
@@ -39,6 +39,18 @@ export async function listLocalMachines(): Promise<LocalMachineView[]> {
 		await fetch(root(), { signal: AbortSignal.timeout(20_000) })
 	);
 	return machines;
+}
+
+/**
+ * The tool names of one of the person's own local servers, by connector id
+ * (`local:<device>:<server>`). Resolves with `{ error }` when the server cannot be listed now.
+ */
+export async function listLocalServerTools(connectorId: string): Promise<LocalToolsAnswer> {
+	return unwrap<LocalToolsAnswer>(
+		await fetch(`${root()}/tools?id=${encodeURIComponent(connectorId)}`, {
+			signal: AbortSignal.timeout(40_000),
+		})
+	);
 }
 
 /** Approve a machine that connected and is waiting: the fresh human confirmation. */
