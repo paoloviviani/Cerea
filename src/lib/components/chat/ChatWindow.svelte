@@ -807,11 +807,11 @@
 		{#snippet composer()}
 			{#if !draft.length && !messages.length && !files.length && !loading && modelSupportsTools && $allBaseServersEnabled && activeExamples.length && !hidePromptExamples && !lastIsError && $mcpServersLoaded}
 				<div
-					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 select-none dark:text-gray-500"
+					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-ink-faint select-none"
 				>
 					{#each activeExamples as ex}
 						<button
-							class="flex items-center gap-1 rounded-lg bg-gray-100/90 px-2 py-0.5 text-center text-sm backdrop-blur-sm hover:text-gray-500 dark:bg-gray-700/50 dark:hover:text-gray-400"
+							class="flex items-center gap-1 rounded-lg bg-gray-100/90 px-2 py-0.5 text-center text-sm backdrop-blur-sm hover:text-ink-muted dark:bg-gray-700/50"
 							onclick={() => startExample(ex)}
 						>
 							{ex.title}
@@ -824,12 +824,12 @@
 			{/if}
 			{#if shouldShowPromptFollowUps && !lastIsError}
 				<div
-					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 select-none dark:text-gray-500"
+					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-ink-faint select-none"
 				>
 					<!-- <span class=" text-gray-500 dark:text-gray-400">Follow ups</span> -->
 					{#each exampleFollowUps as followUp}
 						<button
-							class="flex items-center gap-1 rounded-lg bg-gray-100/90 px-2 py-0.5 text-center text-sm backdrop-blur-sm hover:text-gray-500 dark:bg-gray-700/50 dark:hover:text-gray-400"
+							class="flex items-center gap-1 rounded-lg bg-gray-100/90 px-2 py-0.5 text-center text-sm backdrop-blur-sm hover:text-ink-muted dark:bg-gray-700/50"
 							onclick={() => startFollowUp(followUp)}
 						>
 							<CarbonDirectionRight class="scale-y-[-1] text-xs" />
@@ -866,7 +866,7 @@
 						handleSubmit();
 					}}
 					class={{
-						"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-surface shadow-sm focus-within:border-accent/40 dark:border-gray-700": true,
+						"relative flex w-full max-w-4xl flex-1 flex-col rounded-xl border bg-surface shadow-sm focus-within:border-accent/40 dark:border-gray-700 dark:bg-raised": true,
 						"opacity-30": isReadOnly,
 						"max-sm:mb-4": focused && isVirtualKeyboard(),
 					}}
@@ -1000,7 +1000,7 @@
 				{/snippet}
 				<div
 					class={{
-						"mt-1.5 flex h-5 items-center self-stretch px-0.5 text-xs whitespace-nowrap text-gray-400/90 max-md:mb-2 max-sm:gap-2": true,
+						"mt-1.5 flex h-5 items-center self-stretch px-0.5 text-xs whitespace-nowrap text-ink-faint max-md:mb-2 max-sm:gap-2": true,
 						"max-sm:hidden": focused && isVirtualKeyboard(),
 					}}
 				>

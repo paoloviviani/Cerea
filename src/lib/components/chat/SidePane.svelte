@@ -93,7 +93,7 @@
 {#if isDesktop.current}
 	<aside
 		bind:this={asideEl}
-		class="pointer-events-auto relative z-10 my-1.5 flex h-[calc(100%-0.75rem)] flex-none flex-col overflow-hidden rounded-l-xl border border-r-0 border-gray-100 bg-linear-to-r from-gray-50 to-white shadow-[-1px_0_12px_-6px_rgba(0,0,0,0.08)] dark:border-transparent dark:from-gray-800/30 dark:to-gray-900 dark:shadow-none"
+		class="pointer-events-auto relative z-10 my-1.5 flex h-[calc(100%-0.75rem)] flex-none flex-col overflow-hidden rounded-l-xl border border-r-0 border-gray-100 bg-linear-to-r from-page to-surface shadow-[-1px_0_12px_-6px_rgba(0,0,0,0.08)] dark:border-transparent dark:from-sidebar dark:to-page dark:shadow-none"
 		style="width: {sidePane.widthPx !== null
 			? `${sidePane.widthPx}px`
 			: SIDE_PANE_DEFAULT_FRACTION}; min-width: max(20%, 300px); max-width: 80%;"

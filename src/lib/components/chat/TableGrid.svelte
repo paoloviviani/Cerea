@@ -87,7 +87,7 @@
 					bind:value={query}
 					placeholder="Filter rows…"
 					aria-label="Filter rows"
-					class="w-full rounded-md border border-gray-200/80 bg-white px-2.5 py-1.5 text-xs text-gray-800 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none dark:border-gray-700/80 dark:bg-gray-900 dark:text-gray-200"
+					class="w-full rounded-md border border-gray-200/80 bg-white px-2.5 py-1.5 text-xs text-gray-800 placeholder:text-ink-faint focus:border-blue-400 focus:outline-none dark:border-gray-700/80 dark:bg-gray-900 dark:text-gray-200"
 				/>
 			</label>
 			<span class="flex-none text-xs text-gray-500 tabular-nums dark:text-gray-400">

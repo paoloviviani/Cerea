@@ -90,6 +90,8 @@ select {
  * time rather than rendering unstyled.
  */
 @theme inline {
+	/* The sidebar's ground: one dark elevation step above the page (palettes.css). */
+	--color-sidebar: var(--colour-sidebar);
 	--color-page: var(--colour-bg);
 	--color-surface: var(--colour-surface);
 	--color-raised: var(--colour-surface-raised);
@@ -170,7 +172,7 @@ select {
 	}
 
 	::placeholder {
-		color: var(--color-gray-400);
+		color: var(--colour-text-faint);
 		opacity: 1;
 	}
 }
