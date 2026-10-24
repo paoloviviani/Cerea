@@ -138,13 +138,13 @@ rows in the shared database, a background task outliving its test, a timing
 assumption) and fix it, do not re-run it until it passes.
 
 **The client project needs a real browser**, which `npm run test` does not run.
-Its Playwright browsers must match the _installed_ Playwright (1.61.1), not the
+Its Playwright browsers must match the _installed_ Playwright (1.64.1), not the
 range in `package.json`, or the project reports "no tests" and an empty
 `Serialized Error`. The Playwright container has the right ones:
 
 ```sh
 docker run --rm -v $PWD:/chat -w /chat --entrypoint /bin/sh \
-  mcr.microsoft.com/playwright:v1.61.1-noble \
+  mcr.microsoft.com/playwright:v1.64.1-noble \
   -c 'export HOME=/root CI=true; corepack enable; npx vitest run --project=client'
 ```
 

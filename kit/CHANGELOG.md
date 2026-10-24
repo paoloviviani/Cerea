@@ -13,6 +13,9 @@ kit** (or `./configure --set MONGO_IMAGE=mongo:4.4.30`), or move the data with
 `tools/mongo-upgrade`. Without the pin the chat database would start on MongoDB 8,
 which cannot open data left by 4.4.
 
+- **Security: headless browser image updated to Playwright 1.64.1** (Node 24.22.1,
+  Brotli decoder fix, CVE-2026-111497). `PLAYWRIGHT_IMAGE` and `PLAYWRIGHT_VERSION`
+  default to 1.64.1; a pinned older image keeps its old Node until you change it.
 - **MongoDB 8 is the default everywhere.** `compose.yaml` now defaults
   `MONGO_IMAGE` to `mongo:8.0.34`; 4.4 runs only when `MONGO_IMAGE` pins it. A fresh
   install still gets the host-based choice written by `./configure` (4.4 on a host
