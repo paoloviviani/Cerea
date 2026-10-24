@@ -120,7 +120,9 @@ describe("PATCH /api/v2/conversations/[id] { projectId }", () => {
 	it("accepts a project shared with the caller, and refuses one they cannot see", async () => {
 		const { owner, theirs, sharedWithOwner } = await setup();
 		const chat = await createTestConversation(owner.locals);
-		expect((await patch(chat._id, { projectId: theirs.toString() }, owner.locals)).status).toBe(404);
+		expect((await patch(chat._id, { projectId: theirs.toString() }, owner.locals)).status).toBe(
+			404
+		);
 		expect((await stored(chat._id))?.projectId).toBeUndefined();
 		expect(indexMock).not.toHaveBeenCalled();
 		const ok = await patch(chat._id, { projectId: sharedWithOwner.toString() }, owner.locals);
@@ -132,9 +134,9 @@ describe("PATCH /api/v2/conversations/[id] { projectId }", () => {
 		const loose = await createTestConversation(otherLocals);
 		const inProject = await createTestConversation(otherLocals, { projectId: mine });
 		expect((await patch(loose._id, { projectId: mine.toString() }, owner.locals)).status).toBe(404);
-		expect(
-			(await patch(inProject._id, { projectId: mine2.toString() }, owner.locals)).status
-		).toBe(404);
+		expect((await patch(inProject._id, { projectId: mine2.toString() }, owner.locals)).status).toBe(
+			404
+		);
 		expect((await stored(inProject._id))?.projectId?.toString()).toBe(mine.toString());
 		expect(indexMock).not.toHaveBeenCalled();
 		expect(deleteDerivedMock).not.toHaveBeenCalled();

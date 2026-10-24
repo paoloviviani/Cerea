@@ -20,9 +20,31 @@ export interface GenerationNotification {
 	status: GenerationStatus;
 }
 
+/** A plain confirmation or failure ("Moved to X"): no link, same corner. */
+export interface MessageToast {
+	id: number;
+	text: string;
+	tone: "ok" | "error";
+}
+
 class NotificationsStore {
 	#items = $state<GenerationNotification[]>([]);
+	#messages = $state<MessageToast[]>([]);
 	#nextId = 0;
+
+	get messages(): MessageToast[] {
+		return this.#messages;
+	}
+
+	pushMessage(text: string, tone: MessageToast["tone"] = "ok"): void {
+		const id = this.#nextId++;
+		this.#messages = [...this.#messages, { id, text, tone }];
+		setTimeout(() => this.dismissMessage(id), tone === "error" ? AUTO_DISMISS_MS : 4_000);
+	}
+
+	dismissMessage(id: number): void {
+		this.#messages = this.#messages.filter((item) => item.id !== id);
+	}
 
 	get items(): GenerationNotification[] {
 		return this.#items;

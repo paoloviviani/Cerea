@@ -32,10 +32,7 @@ import type { Conversation } from "$lib/types/Conversation";
 
 /** Clear `projectId` and drop the transcript from the project's memory. */
 export async function detachConversation(conversationId: Conversation["_id"]): Promise<void> {
-	await collections.conversations.updateOne(
-		{ _id: conversationId },
-		{ $unset: { projectId: "" } }
-	);
+	await collections.conversations.updateOne({ _id: conversationId }, { $unset: { projectId: "" } });
 	await deleteDerived({ conversationId }).catch((err) =>
 		logger.warn({ err, conversationId }, "project_detach_transcript_cleanup_failed")
 	);

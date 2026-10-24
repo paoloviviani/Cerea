@@ -7,10 +7,13 @@
 	import CarbonTrashCan from "~icons/carbon/trash-can";
 	import CarbonEdit from "~icons/carbon/edit";
 	import LucideEllipsis from "~icons/lucide/ellipsis";
+	import LucideFolderInput from "~icons/lucide/folder-input";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
 
 	import EditConversationModal from "$lib/components/EditConversationModal.svelte";
 	import DeleteConversationModal from "$lib/components/DeleteConversationModal.svelte";
+	import MoveToProjectModal from "$lib/components/MoveToProjectModal.svelte";
+	import { CHAT_DRAG_TYPE, chatDrag } from "$lib/stores/chatDrag.svelte";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { useActiveGenerationsStore } from "$lib/stores/activeGenerations.svelte";
 
@@ -27,6 +30,7 @@
 
 	let deleteOpen = $state(false);
 	let renameOpen = $state(false);
+	let moveOpen = $state(false);
 	let isMenuOpen = $state(false);
 	let inlineEditing = $state(false);
 	let inlineCancelled = $state(false);
@@ -59,6 +63,17 @@
 </script>
 
 <div
+	role="presentation"
+	draggable={!readOnly && !inlineEditing}
+	ondragstart={(event) => {
+		if (readOnly || !event.dataTransfer) return;
+		const id = conv.id.toString();
+		chatDrag.current = { id, title: conv.title, model: conv.model, projectId: conv.projectId };
+		event.dataTransfer.setData(CHAT_DRAG_TYPE, id);
+		event.dataTransfer.setData("text/plain", conv.title);
+		event.dataTransfer.effectAllowed = "move";
+	}}
+	ondragend={() => (chatDrag.current = null)}
 	class="group flex h-8 flex-none items-center gap-1.5 rounded-lg pr-1.5 pl-2 text-base max-sm:h-10 sm:text-sm
 		{conv.id === page.params.id
 		? 'bg-accent-subtle font-medium text-accent'
@@ -141,6 +156,13 @@
 							Rename
 						</DropdownMenu.Item>
 						<DropdownMenu.Item
+							class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+							onSelect={() => (moveOpen = true)}
+						>
+							<LucideFolderInput class="size-4 opacity-90 dark:opacity-80" />
+							Move to project…
+						</DropdownMenu.Item>
+						<DropdownMenu.Item
 							class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-red-500 select-none focus-visible:outline-hidden data-highlighted:bg-red-50 data-highlighted:text-red-600 sm:h-8 dark:text-red-400 dark:data-highlighted:bg-red-500/10 dark:data-highlighted:text-red-400"
 							onSelect={() => (deleteOpen = true)}
 						>
@@ -164,6 +186,20 @@
 			renameOpen = false;
 			oneditConversationTitle?.({ id: conv.id.toString(), title: payload.title });
 		}}
+	/>
+{/if}
+
+<!-- Move to project picker -->
+{#if moveOpen}
+	<MoveToProjectModal
+		chat={{
+			id: conv.id.toString(),
+			title: conv.title,
+			model: conv.model,
+			updatedAt: conv.updatedAt,
+			projectId: conv.projectId,
+		}}
+		onclose={() => (moveOpen = false)}
 	/>
 {/if}
 

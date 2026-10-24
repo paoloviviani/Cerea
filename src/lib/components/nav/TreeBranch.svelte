@@ -48,6 +48,12 @@
 		href?: string;
 		/** Given, the row itself acts on click instead of toggling. */
 		onactivate?: () => void;
+		/**
+		 * Given, the row is a drop target for a dragged sidebar chat while this
+		 * says yes (`chatDrag` holds what is in flight), and `ondropchat` runs on drop.
+		 */
+		acceptsChat?: () => boolean;
+		ondropchat?: () => void;
 		icon?: Snippet;
 		/** Row controls of the caller's own — a `⋯` menu, typically. */
 		actions?: Snippet;
@@ -63,6 +69,8 @@
 		addTitle,
 		href,
 		onactivate,
+		acceptsChat,
+		ondropchat,
 		icon,
 		actions,
 		children,
@@ -72,6 +80,8 @@
 	// activates rather than toggling. That keeps "MCP Servers" — which opens a
 	// dialog and contains nothing — the same shape as its neighbours.
 	const isLeaf = $derived(children === undefined);
+
+	let dropOver = $state(false);
 
 	function toggle() {
 		if (onactivate) {
@@ -86,6 +96,21 @@
 	<div
 		class="group flex h-8 items-center gap-1 rounded-lg pr-1 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
 		style="padding-left: {0.25 + depth * 0.75}rem"
+		class:ring-2={dropOver}
+		class:ring-accent={dropOver}
+		role="presentation"
+		ondragover={(event) => {
+			if (!acceptsChat?.()) return;
+			event.preventDefault();
+			dropOver = true;
+		}}
+		ondragleave={() => (dropOver = false)}
+		ondrop={(event) => {
+			if (!acceptsChat?.()) return;
+			event.preventDefault();
+			dropOver = false;
+			ondropchat?.();
+		}}
 	>
 		{#if href}
 			<!-- The triangle's box is 20px so it can be hit; the negative margins

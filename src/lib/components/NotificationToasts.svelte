@@ -24,6 +24,20 @@
 	<div
 		class="pointer-events-none fixed right-0 bottom-0 z-50 flex flex-col items-end gap-2 p-4 max-sm:text-sm"
 	>
+		{#each notifications.messages as message (message.id)}
+			<div
+				role="status"
+				transition:fade|global={{ duration: 200 }}
+				class="pointer-events-auto flex max-w-xs items-center gap-2 rounded-lg bg-white/95 px-3 py-2 text-sm text-gray-800 shadow-lg ring-1 ring-gray-200 dark:bg-gray-800/95 dark:text-gray-100 dark:ring-gray-700"
+			>
+				<span
+					class="size-2 flex-none rounded-full {message.tone === 'error'
+						? 'bg-red-500'
+						: 'bg-green-500'}"
+				></span>
+				<span class="min-w-0">{message.text}</span>
+			</div>
+		{/each}
 		{#each notifications.items as item (item.id)}
 			<a
 				href="{base}/conversation/{item.conversationId}"

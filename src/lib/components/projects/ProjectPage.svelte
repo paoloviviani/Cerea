@@ -44,6 +44,10 @@
 	import Switch from "$lib/components/Switch.svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { projectsChanged } from "$lib/stores/projectsRevision";
+	import MoveMenu from "$lib/components/MoveMenu.svelte";
+	import MoveToProjectModal from "$lib/components/MoveToProjectModal.svelte";
+	import { useMoveConversation } from "$lib/utils/useMoveConversation";
+	import { projectTitle } from "$lib/stores/projectTitle";
 	import {
 		connectors as mcpConnectors,
 		connectorsLoaded as mcpConnectorsLoaded,
@@ -192,6 +196,12 @@
 				: $settings.webSearchEnabled === true;
 		defaultConnectors = [...(from?.defaultMcpConnectorIds ?? [])];
 	}
+
+	// The phone's top bar names the project instead of "New Chat".
+	$effect(() => {
+		projectTitle.set(project?.name ?? "");
+		return () => projectTitle.set("");
+	});
 
 	onMount(async () => {
 		if (creating) seed(null);
@@ -351,23 +361,30 @@
 		}
 	}
 
+	const moveConversation = useMoveConversation();
+	let moving = $state<ProjectConversation | null>(null);
+
+	/** The chat is no longer in this project: drop its row and count. */
+	function leftProject(conversation: ProjectConversation) {
+		if (!project) return;
+		conversations = conversations.filter((entry) => entry.id !== conversation.id);
+		project = { ...project, conversationCount: Math.max(0, project.conversationCount - 1) };
+	}
+
+	/**
+	 * Take a chat out of the project. No confirmation: the chat is kept, and
+	 * moving it back in (the row's menu, or a drag in the sidebar) restores it;
+	 * the toast says what happened.
+	 */
 	async function removeChat(conversation: ProjectConversation) {
 		if (!project) return;
-		if (
-			!confirm(
-				`Remove “${conversation.title}” from this project?\n\nThe chat is kept and goes back to the ordinary list; it stops using this project's context.`
-			)
-		)
-			return;
 		failure = null;
-		try {
-			await api(`/projects/${project.id}/conversations/${conversation.id}`, { method: "DELETE" });
-			conversations = conversations.filter((entry) => entry.id !== conversation.id);
-			project = { ...project, conversationCount: Math.max(0, project.conversationCount - 1) };
-			projectsChanged();
-		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not remove that chat.";
-		}
+		const ok = await moveConversation(
+			{ id: conversation.id, title: conversation.title, model: conversation.model },
+			null,
+			project.name
+		);
+		if (ok) leftProject(conversation);
 	}
 
 	// ---- sharing and deleting -------------------------------------------------
@@ -447,6 +464,14 @@
 		{ title: "Past chats", how: "searched" },
 	] as const;
 </script>
+
+{#if moving}
+	<MoveToProjectModal
+		chat={{ id: moving.id, title: moving.title, model: moving.model, projectId: project?.id }}
+		onclose={() => (moving = null)}
+		onmoved={() => moving && leftProject(moving)}
+	/>
+{/if}
 
 <div class="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-4 p-4 sm:p-6">
 	<header class="flex flex-col gap-1">
@@ -957,15 +982,14 @@
 													</span>
 												</span>
 											</a>
+											<!-- Moving a chat is its author's alone; the project's
+											     owner may only take a member's chat out. -->
 											{#if conversation.mine || project.owned}
-												<button
-													type="button"
-													class={s.CARD_ACTION}
-													aria-label="Remove {conversation.title} from project"
-													onclick={() => removeChat(conversation)}
-												>
-													Remove from project
-												</button>
+												<MoveMenu
+													label={conversation.title}
+													onmove={conversation.mine ? () => (moving = conversation) : undefined}
+													onremove={() => removeChat(conversation)}
+												/>
 											{/if}
 										</li>
 									{/each}
