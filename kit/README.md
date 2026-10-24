@@ -232,10 +232,15 @@ and if the CPU has AVX and the kernel is fine, `./configure --set MONGO_IMAGE=mo
 
 Your own `MONGO_IMAGE` is kept: `./configure` never overwrites it, and
 `./configure --check` reports one the host cannot run as an error. A `.env`
-with no `MONGO_IMAGE` runs `mongo:4.4.30` (compose's default): such an install
-predates the setting and its data is on 4.4, which MongoDB 8 cannot open, so
-the default is the image every host can run and re-running `./configure` does
-not change it.
+with no `MONGO_IMAGE` runs `mongo:8.0.34` (compose's default, kit 0.24 and later),
+and `./configure --check` judges it as 8 (an error on a host without AVX, with the
+fix). Re-running `./configure` on such a `.env` writes nothing but prints a note.
+
+**Upgrading from 0.23.x:** earlier kits defaulted to 4.4, so an install whose `.env`
+has no `MONGO_IMAGE` has its data on 4.4, which MongoDB 8 cannot open. Before you pull
+the new kit, add `MONGO_IMAGE='mongo:4.4.30'` to `.env` (or
+`./configure --set MONGO_IMAGE=mongo:4.4.30`), or move the data with `tools/mongo-upgrade`
+(below). A host without AVX stays on 4.4.
 
 ### Upgrading an existing install to MongoDB 8
 

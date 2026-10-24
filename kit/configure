@@ -800,10 +800,11 @@ def site_for(tls: str, host: str) -> tuple:
 #     ignored: the upstream x.y.z is what counts.
 #
 # The pins are exact patch versions so a pull never changes the database under
-# a running install. MONGO_FALLBACK is also compose.yaml's default for a .env
-# that names no MONGO_IMAGE (a unit test keeps the two equal): an install that
-# predates this setting has its data on 4.4, and 8 cannot open it, so the safe
-# default is the one every host can run.
+# a running install. MONGO_DEFAULT is also compose.yaml's default for a .env
+# that names no MONGO_IMAGE (a unit test keeps the two equal). An install from
+# before this setting has its data on 4.4, which 8 cannot open: it must pin
+# MONGO_IMAGE=mongo:4.4.30 (or move with tools/mongo-upgrade), and configure
+# says so. A fresh install on a host that cannot run 8 gets the 4.4 pin written.
 
 MONGO_DEFAULT = "mongo:8.0.34"
 MONGO_FALLBACK = "mongo:4.4.30"
@@ -1110,16 +1111,18 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         )
     # --- MongoDB ------------------------------------------------------------------
     # Chosen once, for a fresh install, and then the operator's. An existing
-    # .env without the key keeps compose's default (4.4): its data is on 4.4,
-    # which 8 cannot open, so only tools/mongo-upgrade moves it.
+    # .env without the key now means compose's default, MongoDB 8, which cannot
+    # open data left by 4.4: nothing is written (we cannot tell where the data
+    # is), but the note says what to pin.
     if "chat" in profiles and not values.get("MONGO_IMAGE"):
         if fresh and mongo is not None:
             values["MONGO_IMAGE"] = mongo.image
             notes.append(mongo.reason)
         elif not fresh:
             notes.append(
-                f"MongoDB stays on {MONGO_FALLBACK} (MONGO_IMAGE is not set); on a host with AVX, "
-                "tools/mongo-upgrade moves existing data to MongoDB 8"
+                f"MONGO_IMAGE is not set, and compose now runs MongoDB 8 ({MONGO_DEFAULT}), which cannot "
+                f"open data left by 4.4. If this install's data is on 4.4, pin it before starting: "
+                f"./configure --set MONGO_IMAGE={MONGO_FALLBACK} (or move to 8 with tools/mongo-upgrade)"
             )
     values["PYSTINO_PRESET"] = preset.name
     if preset_changed:
@@ -1825,7 +1828,7 @@ def check_mongo(values: dict, report: Report, avx: bool | None, release: str) ->
     """MONGO_IMAGE against this host: an image it cannot run is an error."""
     if "chat" not in {p for p in values.get("COMPOSE_PROFILES", "").split(",") if p}:
         return
-    image = values.get("MONGO_IMAGE") or MONGO_FALLBACK
+    image = values.get("MONGO_IMAGE") or MONGO_DEFAULT
     report.errors.extend(mongo_image_problems(image, avx, release))
     series = mongo_series(image)
     if series is None:

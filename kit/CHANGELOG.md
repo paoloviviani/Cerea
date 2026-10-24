@@ -5,6 +5,22 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+**Upgrading from 0.23.x: if your `.env` has no `MONGO_IMAGE` and your data is on
+MongoDB 4.4, add `MONGO_IMAGE='mongo:4.4.30'` to `.env` BEFORE you pull the new
+kit** (or `./configure --set MONGO_IMAGE=mongo:4.4.30`), or move the data with
+`tools/mongo-upgrade`. Without the pin the chat database would start on MongoDB 8,
+which cannot open data left by 4.4.
+
+- **MongoDB 8 is the default everywhere.** `compose.yaml` now defaults
+  `MONGO_IMAGE` to `mongo:8.0.34`; 4.4 runs only when `MONGO_IMAGE` pins it. A fresh
+  install still gets the host-based choice written by `./configure` (4.4 on a host
+  without AVX or on a Linux 6.19 to 7.0.13 kernel). `./configure` on an existing
+  `.env` with no `MONGO_IMAGE` writes nothing and prints the note above;
+  `./configure --check` treats a missing `MONGO_IMAGE` as MongoDB 8 (an error on a
+  host that cannot run it, with the image to use instead).
+
 ## v0.23.1 — 2026-10-23
 
 Pins: Cerea `0.23.1`, **Pystino `0.17.1`**, Authelia 4.39.22 (unchanged).

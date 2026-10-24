@@ -37,6 +37,10 @@ IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 	--preset homelab --tls internal --idp authelia --agents --terminal --project "$PROJECT" \
 	>"$SCRATCH/configure.log" 2>&1 || { cat "$SCRATCH/configure.log"; exit 1; }
 
+# A fresh install pins its MongoDB explicitly (4.4 on a host without AVX or on an
+# affected kernel, 8 otherwise); the run must not depend on compose's default.
+grep -q "^MONGO_IMAGE='mongo:" .env
+
 # Anonymous pulls: what an operator without a registry login gets.
 mkdir -p "$SCRATCH/anon-docker" && echo '{}' >"$SCRATCH/anon-docker/config.json"
 DOCKER_CONFIG=$SCRATCH/anon-docker docker compose pull -q
