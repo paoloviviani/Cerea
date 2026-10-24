@@ -27,7 +27,6 @@ vi.mock("$lib/stores/mcpServers", async () => {
 		enabledServers,
 		enabledServersCount: derived(enabledServers, ($enabled) => ($enabled as unknown[]).length),
 		mcpServersLoaded: writable(true),
-		allBaseServersEnabled: writable(true),
 		toggleServer: vi.fn(),
 		disableAllServers: vi.fn(),
 		healthCheckServer: vi.fn(async () => ({ status: "unknown" })),

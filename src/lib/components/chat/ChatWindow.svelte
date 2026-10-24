@@ -17,7 +17,6 @@
 	import { collectPaneItems } from "$lib/utils/paneItems";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 
-	import CarbonDirectionRight from "~icons/carbon/direction-right-01";
 	import IconArrowUp from "~icons/lucide/arrow-up";
 	import IconMic from "~icons/lucide/mic";
 
@@ -50,9 +49,6 @@
 	import { error } from "$lib/stores/errors";
 	import ModelSwitch from "./ModelSwitch.svelte";
 	import ModelPicker from "./ModelPicker.svelte";
-	import { mcpExamples } from "$lib/constants/mcpExamples";
-	import type { PromptFollowUp, PromptExample } from "$lib/constants/mcpExamples";
-	import { allBaseServersEnabled, mcpServersLoaded } from "$lib/stores/mcpServers";
 	import { exportConversation as exportConversationStore } from "$lib/stores/exportConversation";
 	import CarbonSidePanelOpen from "~icons/carbon/side-panel-open";
 	import {
@@ -66,7 +62,6 @@
 	import { pendingComposerPayload } from "$lib/stores/pendingComposerPayload";
 	import { mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
 	import LucideHammer from "~icons/lucide/hammer";
-	import LucideSparkles from "~icons/lucide/sparkles";
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
 	import { MediaQuery } from "svelte/reactivity";
 
@@ -453,7 +448,6 @@
 	const settings = useSettingsStore();
 	// Per-model settings are the base's: a custom model inherits every knob.
 	let settingsKey = $derived(settingsModelId(currentModel));
-	let hidePromptExamples = $derived($settings.hidePromptExamples?.[settingsKey] ?? false);
 
 	// Respect per‑model multimodal toggle from settings (force enable)
 	let modelIsMultimodalOverride = $derived($settings.multimodalOverrides?.[settingsKey]);
@@ -576,41 +570,6 @@
 	// group, since that pin only ever lined up with the row by coincidence
 	// (brief item 2 — see the composer markup below for the long version).
 	const narrowViewport = new MediaQuery("(max-width: 639px)");
-	let activePromptExamplePrompt = $state<string | null>(null);
-	let activeExamples = $derived<PromptExample[]>(mcpExamples);
-	let exampleFollowUps = $derived<PromptFollowUp[]>(
-		activePromptExamplePrompt
-			? (activeExamples.find((ex) => ex.prompt === activePromptExamplePrompt)?.followUps ?? [])
-			: []
-	);
-	let exampleUserMessages = $derived(messages.filter((msg) => msg.from === "user"));
-	let shouldShowPromptFollowUps = $derived(
-		!draft.length &&
-			activePromptExamplePrompt &&
-			exampleFollowUps.length > 0 &&
-			exampleUserMessages.length === 1 &&
-			modelSupportsTools &&
-			$allBaseServersEnabled &&
-			!hidePromptExamples &&
-			!loading
-	);
-
-	$effect(() => {
-		if (!(modelSupportsTools && $allBaseServersEnabled) || !messages.length) {
-			activePromptExamplePrompt = null;
-			return;
-		}
-
-		const firstUserMessage = messages.find((msg) => msg.from === "user");
-		if (!firstUserMessage) {
-			activePromptExamplePrompt = null;
-			return;
-		}
-
-		const match = activeExamples.find((ex) => ex.prompt.trim() === firstUserMessage.content.trim());
-		activePromptExamplePrompt = match ? match.prompt : null;
-	});
-
 	// Composer content queued from outside (e.g. an annotated artifact
 	// screenshot plus its notes), consumed and cleared on arrival: files use
 	// the same accept rules as paste, text appends to the editable draft
@@ -629,43 +588,6 @@
 		}
 		pendingComposerPayload.set(undefined);
 	});
-
-	function triggerPrompt(prompt: string) {
-		if (requireAuthUser() || loading) return;
-		draft = prompt;
-		handleSubmit();
-	}
-
-	async function startExample(example: PromptExample) {
-		if (requireAuthUser()) return;
-
-		activePromptExamplePrompt = example.prompt;
-
-		if (browser && example.attachments?.length) {
-			const loadedFiles: File[] = [];
-			for (const attachment of example.attachments) {
-				try {
-					const response = await fetch(`${base}/${attachment.src}`);
-					if (!response.ok) continue;
-
-					const blob = await response.blob();
-					const name = attachment.src.split("/").pop() ?? "attachment";
-					loadedFiles.push(
-						new File([blob], name, { type: blob.type || "application/octet-stream" })
-					);
-				} catch (err) {
-					console.error("Error loading attachment:", err);
-				}
-			}
-			files = loadedFiles;
-		}
-
-		triggerPrompt(example.prompt);
-	}
-
-	function startFollowUp(followUp: PromptFollowUp) {
-		triggerPrompt(followUp.prompt);
-	}
 
 	async function handleRecordingConfirm(audioBlob: Blob) {
 		isRecording = false;
@@ -805,39 +727,6 @@
 			{/if}
 		{/snippet}
 		{#snippet composer()}
-			{#if !draft.length && !messages.length && !files.length && !loading && modelSupportsTools && $allBaseServersEnabled && activeExamples.length && !hidePromptExamples && !lastIsError && $mcpServersLoaded}
-				<div
-					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 select-none dark:text-gray-500"
-				>
-					{#each activeExamples as ex}
-						<button
-							class="flex items-center gap-1 rounded-lg bg-gray-100/90 px-2 py-0.5 text-center text-sm backdrop-blur-sm hover:text-gray-500 dark:bg-gray-700/50 dark:hover:text-gray-400"
-							onclick={() => startExample(ex)}
-						>
-							{ex.title}
-							{#if ex.artifact}
-								<LucideSparkles class="size-3 flex-none text-blue-600 dark:text-blue-400" />
-							{/if}
-						</button>
-					{/each}
-				</div>
-			{/if}
-			{#if shouldShowPromptFollowUps && !lastIsError}
-				<div
-					class="mb-3 no-scrollbar flex w-full justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 select-none dark:text-gray-500"
-				>
-					<!-- <span class=" text-gray-500 dark:text-gray-400">Follow ups</span> -->
-					{#each exampleFollowUps as followUp}
-						<button
-							class="flex items-center gap-1 rounded-lg bg-gray-100/90 px-2 py-0.5 text-center text-sm backdrop-blur-sm hover:text-gray-500 dark:bg-gray-700/50 dark:hover:text-gray-400"
-							onclick={() => startFollowUp(followUp)}
-						>
-							<CarbonDirectionRight class="scale-y-[-1] text-xs" />
-							{followUp.title}</button
-						>
-					{/each}
-				</div>
-			{/if}
 			<ComposerFileChips bind:files hidden={loading} />
 
 			<div class="w-full">
