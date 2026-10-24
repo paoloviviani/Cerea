@@ -12,6 +12,7 @@ import type { McpClientKind } from "./client";
 import { withElicitationContext, type ElicitationSink } from "./elicitation";
 import { config } from "$lib/server/config";
 import { isLocalServerUrl } from "./localUrl";
+import { forgetLocalEra } from "./localEra";
 
 function isConnectionClosedError(err: unknown): boolean {
 	const message = err instanceof Error ? err.message : String(err);
@@ -243,6 +244,9 @@ export async function callMcpTool(
 					: await invoke();
 				break;
 			} catch (err) {
+				// A call that failed on a local server may mean the era it was connected under was
+				// wrong; forget it so the next connection finds it out again.
+				if (isLocalServerUrl(server.url)) forgetLocalEra(server.url);
 				if (
 					attempt >= maxReconnectAttempts ||
 					signal?.aborted ||

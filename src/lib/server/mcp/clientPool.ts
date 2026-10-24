@@ -98,17 +98,32 @@ async function connectLocal(url: string, kind: McpClientKind): Promise<Client> {
 		}
 		return client;
 	};
-	const remember = (client: Client) => {
-		const era = client.getProtocolEra();
-		if (era === "legacy" || era === "modern") rememberLocalEra(url, era, fingerprint);
+	// The era is remembered once a `tools/list` has been answered on the connection, not when
+	// it connects: a cold start that missed the probe may have settled on the wrong era, and
+	// only a connection that then did its job proves the era it ended up with.
+	const rememberOnListing = (client: Client) => {
+		const listTools = client.listTools.bind(client);
+		client.listTools = (async (...args: Parameters<Client["listTools"]>) => {
+			const response = await listTools(...args);
+			const era = client.getProtocolEra();
+			// An empty listing proves nothing: it is what a connection on the wrong era answers.
+			if (
+				Array.isArray(response?.tools) &&
+				response.tools.length > 0 &&
+				(era === "legacy" || era === "modern")
+			) {
+				rememberLocalEra(url, era, fingerprint);
+			}
+			return response;
+		}) as Client["listTools"];
 		return client;
 	};
-	if (knownLocalEra(url, fingerprint) === "legacy") return remember(await attempt(false));
+	if (knownLocalEra(url, fingerprint) === "legacy") return rememberOnListing(await attempt(false));
 	try {
-		return remember(await attempt(true));
+		return rememberOnListing(await attempt(true));
 	} catch (err) {
 		if (!/time(d)? ?out/i.test(err instanceof Error ? err.message : String(err))) throw err;
-		return remember(await attempt(false));
+		return rememberOnListing(await attempt(false));
 	}
 }
 
@@ -236,6 +251,18 @@ export function evictFromPool(server: McpServerConfig, isolation?: string): Clie
 	}
 	entries.delete(entry.client);
 	return entry.client;
+}
+
+/**
+ * Throw away what is known about a local server's connection: its pooled client (closed once
+ * no call is using it) and the era remembered for it. For a listing that failed or came back
+ * empty, so the next try starts a fresh process and finds the era out again.
+ */
+export function forgetLocalConnection(server: McpServerConfig): void {
+	forgetLocalEra(server.url);
+	evictFromPool(server)
+		?.close?.()
+		.catch(() => {});
 }
 
 /**

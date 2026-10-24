@@ -193,7 +193,7 @@ export async function mcpLocalsFor(
 		],
 		// A local server was chosen by id, so it is in the turn whatever names the browser listed.
 		selectedServerNames: selection.serverNames
-			? [...selection.serverNames, ...local.servers.map((server) => server.name)]
+			? [...new Set([...selection.serverNames, ...local.servers.map((server) => server.name)])]
 			: undefined,
 		selectedServers: [
 			...withoutLocalUrls(selection.customServers).map(({ name, url }) => ({ name, url })),

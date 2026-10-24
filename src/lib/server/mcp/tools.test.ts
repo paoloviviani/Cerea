@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { logger } from "$lib/server/logger";
 import { sanitizeJsonSchema, getOpenAiToolsForMcp, resetMcpToolsCache } from "./tools";
 import type { McpServerConfig } from "./httpClient";
 
@@ -269,6 +270,21 @@ describe("getOpenAiToolsForMcp per-server cache", () => {
 		const { unavailable } = await getOpenAiToolsForMcp([SERVER_A]);
 
 		expect(unavailable).toEqual([]);
+	});
+
+	it("logs a remote server's empty listing at info and keeps it as an empty success", async () => {
+		const info = vi.spyOn(logger, "info").mockImplementation(() => undefined as never);
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+		mcpMock.responses.set(SERVER_A.url, { tools: [] });
+
+		const { tools, unavailable } = await getOpenAiToolsForMcp([SERVER_A]);
+
+		expect(tools).toEqual([]);
+		expect(unavailable).toEqual([]);
+		expect(info.mock.calls.map((c) => c[1])).toContain("[mcp] server listed no tools");
+		expect(warn).not.toHaveBeenCalled();
+		info.mockRestore();
+		warn.mockRestore();
 	});
 
 	it("does not cache a failed listing and retries it on the next request", async () => {
