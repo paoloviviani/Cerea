@@ -885,13 +885,6 @@
 	// Show file upload when any mime is allowed (text always; images if multimodal)
 	let showFileUpload = $derived(mimeTypes.length > 0);
 	let showNoTools = $derived(!showFileUpload);
-	// Servers and connectors together, because the badge is about what this
-	// message carries and a favicon is a favicon either way. `id` stays unique
-	// across the two: one is a uuid or `base-…`, the other a Mongo id.
-	let selectedServers = $derived([
-		...$allMcpServers.filter((server) => $selectedServerIds.has(server.id)),
-		...$enabledConnectors,
-	]);
 </script>
 
 <!-- min-w-0: a flex item's default min-width is its content's natural
@@ -1485,24 +1478,6 @@
 									onclick={() => void goto(`${base}/workspace?tab=mcp`)}
 									class:line-through={!modelSupportsTools}
 								>
-									{#if selectedServers.length}
-										<span class="flex items-center -space-x-1">
-											{#each selectedServers.slice(0, 3) as server (server.id)}
-												<img
-													src={getMcpServerFaviconUrl(server.url)}
-													alt=""
-													class="size-4 shrink-0 rounded-sm bg-white p-px shadow-xs ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10"
-												/>
-											{/each}
-											{#if selectedServers.length > 3}
-												<span
-													class="ml-1 text-[10px] font-semibold text-blue-800 dark:text-blue-200"
-												>
-													+{selectedServers.length - 3}
-												</span>
-											{/if}
-										</span>
-									{/if}
 									MCP ({$totalEnabledMcpCount})
 								</button>
 								<button
