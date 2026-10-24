@@ -54,6 +54,11 @@ const mount = (fields: ElicitationField[]) => {
 const rows = (el: HTMLElement) => [
 	...el.querySelectorAll<HTMLButtonElement>("button[aria-pressed]"),
 ];
+const need = <T>(value: T | null | undefined): T => {
+	if (value == null) throw new Error("expected element is missing");
+	return value;
+};
+
 const rowFor = (el: HTMLElement, text: string) =>
 	rows(el).find((b) => (b.textContent ?? "").includes(text));
 const button = (el: HTMLElement, label: string) =>
@@ -225,21 +230,21 @@ describe("a late re-render of the same question", () => {
 	it("keeps the picked option and the typed text when the card itself gets a new request object", async () => {
 		const screen = render(AskQuestion, { conversationId: "abc", request: fresh() });
 		const el = screen.baseElement;
-		rowFor(el, "Something else")!.click();
+		need(rowFor(el, "Something else")).click();
 		await vi.waitFor(() => expect(el.querySelector("input")).not.toBeNull());
-		const input = el.querySelector("input")!;
+		const input = need(el.querySelector("input"));
 		input.value = "Surreal";
 		input.dispatchEvent(new Event("input", { bubbles: true }));
 		await screen.rerender({ conversationId: "abc", request: fresh() });
-		expect(el.querySelector("input")!.value).toBe("Surreal");
-		expect(rowFor(el, "Something else")!.getAttribute("aria-pressed")).toBe("true");
+		expect(need(el.querySelector("input")).value).toBe("Surreal");
+		expect(need(rowFor(el, "Something else")).getAttribute("aria-pressed")).toBe("true");
 	});
 
 	it("keeps the pick and the typed text when the card is remounted for the same question", async () => {
 		const first = render(AskQuestion, { conversationId: "abc", request: fresh() });
-		rowFor(first.baseElement, "Something else")!.click();
+		need(rowFor(first.baseElement, "Something else")).click();
 		await vi.waitFor(() => expect(first.baseElement.querySelector("input")).not.toBeNull());
-		const typed = first.baseElement.querySelector("input")!;
+		const typed = need(first.baseElement.querySelector("input"));
 		typed.value = "Surreal";
 		typed.dispatchEvent(new Event("input", { bubbles: true }));
 		await first.unmount();
@@ -249,17 +254,17 @@ describe("a late re-render of the same question", () => {
 		const second = render(AskQuestion, { conversationId: "abc", request: fresh() });
 		const el = second.baseElement;
 		await vi.waitFor(() => expect(el.querySelector("input")).not.toBeNull());
-		expect(el.querySelector("input")!.value).toBe("Surreal");
-		expect(rowFor(el, "Something else")!.getAttribute("aria-pressed")).toBe("true");
+		expect(need(el.querySelector("input")).value).toBe("Surreal");
+		expect(need(rowFor(el, "Something else")).getAttribute("aria-pressed")).toBe("true");
 		expect(el.textContent).not.toContain("Pick an option to continue");
 	});
 
 	it("starts clean for a different question", async () => {
 		const first = render(AskQuestion, { conversationId: "abc", request: fresh() });
-		rowFor(first.baseElement, "Mongo")!.click();
+		need(rowFor(first.baseElement, "Mongo")).click();
 		await first.unmount();
 		const other = { ...fresh(), elicitationId: "33333333-3333-4333-8333-333333333333" };
 		const second = render(AskQuestion, { conversationId: "abc", request: other });
-		expect(rowFor(second.baseElement, "Mongo")!.getAttribute("aria-pressed")).toBe("false");
+		expect(need(rowFor(second.baseElement, "Mongo")).getAttribute("aria-pressed")).toBe("false");
 	});
 });
