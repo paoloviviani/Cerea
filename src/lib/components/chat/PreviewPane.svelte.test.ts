@@ -134,6 +134,13 @@ describe("PreviewPane", () => {
 		// Below desktop the backdrop carries the same name; the header's is last.
 		const close = screen.getByRole("button", { name: "Close Preview" }).last();
 		await expect.element(close).toBeVisible();
+		// Below desktop the drawer flies in over 300ms. A click is a mousedown and a
+		// mouseup a few ms apart; if the button is still moving, the two land on
+		// different elements and no click is dispatched at all. Wait for the
+		// intro to finish so the target is at rest.
+		await vi.waitFor(() =>
+			expect(screen.baseElement.getAnimations({ subtree: true })).toHaveLength(0)
+		);
 		await close.click();
 		await tick();
 		expect(sidePane.open).toBe(false);
