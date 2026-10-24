@@ -6,12 +6,17 @@
 	interface Props {
 		content: string;
 		loading?: boolean;
+		/** Whether the block is expanded. Bind it when the same reasoning is
+		 * drawn by more than one branch of its parent (a message renders flat
+		 * while it streams and nested once it ends, which mounts a new block):
+		 * the parent keeps the state, so a block somebody opened stays open. */
+		open?: boolean;
 	}
 
-	let { content, loading = false }: Props = $props();
 	// Collapsed by default, streaming included: the shimmering header is the
 	// live indicator, and the reader expands a section when they want to read it.
-	let isOpen = $state(false);
+	let { content, loading = false, open = $bindable() }: Props = $props();
+	const isOpen = $derived(open ?? false);
 	// Reactive size bindings (powered by ResizeObserver under the hood) — used
 	// to apply the fade mask only when the streamed content actually overflows
 	// the viewport, so short reasoning isn't unnecessarily faded at the top.
@@ -24,7 +29,7 @@
 	<button
 		type="button"
 		class="group/header flex w-fit cursor-pointer items-center gap-1 text-left select-none focus:outline-hidden"
-		onclick={() => (isOpen = !isOpen)}
+		onclick={() => (open = !isOpen)}
 		aria-label={isOpen ? "Collapse" : "Expand"}
 	>
 		<span

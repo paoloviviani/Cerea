@@ -857,6 +857,10 @@
 	let awaitingFirstContent = $derived(
 		isLast && loading && blocks.length === 0 && !message.files?.length
 	);
+	// Which Thinking blocks the reader has opened, by position in `blocks`. The
+	// streaming branch and the finished-turn branch mount separate blocks, so
+	// without this one an expanded block snapped shut when the turn ended.
+	let thinkingOpen = $state<Record<number, boolean>>({});
 	let isProcessStreaming = $derived.by(() => {
 		if (!isLast || !loading) return false;
 		return blocks.some(
@@ -1029,6 +1033,7 @@
 									<OpenReasoningResults
 										content={block.content}
 										loading={isLast && loading && !block.closed && blockIndex === blocks.length - 1}
+										bind:open={thinkingOpen[blockIndex]}
 									/>
 								{:else}
 									<ToolUpdate tool={block.updates} {loading} />
@@ -1133,7 +1138,11 @@
 									<!-- A lone process block stays standalone -->
 									{@const only = unit.blocks[0]}
 									{#if only.type === "think"}
-										<OpenReasoningResults content={only.content} loading={false} />
+										<OpenReasoningResults
+											content={only.content}
+											loading={false}
+											bind:open={thinkingOpen[blocks.indexOf(only)]}
+										/>
 									{:else}
 										<ToolUpdate tool={only.updates} loading={false} />
 									{/if}
