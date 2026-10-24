@@ -746,6 +746,20 @@ is exactly what project delete does to each chat: clear `projectId`, then
 `deleteDerived` its transcript from the project's memory base. The chat's author
 or the project's owner may.
 
+**Moving a chat in, between and out** is one operation, `PATCH
+/api/v2/conversations/<id>` with `{ projectId: string | null }`
+(`server/conversationProject.ts`; the DELETE above delegates to the same
+detach). Into a project or between projects: the chat's author only, who must
+also have access to the target (404 otherwise, like every project route). Out:
+the author or the owner of the project the chat is in. Leaving a project calls
+`deleteDerived`; entering one calls `indexConversation` with the whole existing
+thread (it is whole-thread and idempotent by handle, so there is no per-message
+backfill), not awaited. Instructions, documents and memory are read from
+`projectId` every turn, so they apply from the next message. The UI shares
+`useMoveConversation` (sidebar store, Projects tree, toast) between the row
+menu, the picker (`MoveToProjectModal`), the sidebar drag (`chatDrag`) and the
+project page's `MoveMenu`.
+
 ### Attaching a document to a message
 
 A PDF or an Office file is bytes no model reads. `POST /v1/ocr` in the gateway

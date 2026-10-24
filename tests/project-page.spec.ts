@@ -115,8 +115,8 @@ test("create a project on its page, attach a base afterwards, add a document, re
 	});
 	await page.goto(`${E2E_APP_BASE}/projects/${projectId}`);
 	await expect(page.getByText("Chats (1)")).toBeVisible();
-	page.once("dialog", (dialog) => void dialog.accept());
-	await page.getByRole("button", { name: "Remove Budget questions from project" }).click();
+	await page.getByRole("button", { name: "Actions for Budget questions" }).click();
+	await page.getByRole("menuitem", { name: "Remove from project" }).click();
 	await expect(page.getByText("Chats (0)")).toBeVisible();
 	const kept = await db.collection("conversations").findOne({ _id: conversationId });
 	expect(kept).not.toBeNull();

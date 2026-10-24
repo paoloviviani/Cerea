@@ -121,12 +121,7 @@
 				<p class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">Loading…</p>
 			{:else}
 				{#if chat.projectId}
-					<button
-						type="button"
-						class={ROW}
-						disabled={busy}
-						onclick={() => choose(null)}
-					>
+					<button type="button" class={ROW} disabled={busy} onclick={() => choose(null)}>
 						<LucideFolderMinus class="size-4 shrink-0 opacity-80" />
 						<span class="min-w-0 flex-1 truncate">None (remove from project)</span>
 					</button>

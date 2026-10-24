@@ -36,3 +36,22 @@ describe("conversationsStore.refresh", () => {
 		]);
 	});
 });
+
+describe("conversationsStore.setProject", () => {
+	it("moves a chat in and out of a project by replacing the list", () => {
+		const store = newConversationsStore();
+		store.init([
+			{ id: "a", title: "A", updatedAt: new Date() },
+			{ id: "b", title: "B", updatedAt: new Date() },
+		]);
+		const before = store.list;
+		store.setProject("a", "p1");
+		expect(store.list).not.toBe(before);
+		expect(store.list.map((c) => [c.id, c.projectId])).toEqual([
+			["a", "p1"],
+			["b", undefined],
+		]);
+		store.setProject("a", undefined);
+		expect(store.list[0].projectId).toBeUndefined();
+	});
+});

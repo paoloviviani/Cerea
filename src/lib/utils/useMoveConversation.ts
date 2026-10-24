@@ -63,7 +63,7 @@ export function useMoveConversation() {
 		if (convs) {
 			const listed = convs.list.some((entry) => String(entry.id) === chat.id);
 			if (listed) {
-				convs.update(chat.id, { projectId: to?.id });
+				convs.setProject(chat.id, to?.id);
 			} else if (!to) {
 				convs.prepend({
 					id: chat.id,
