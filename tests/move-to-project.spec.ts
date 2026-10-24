@@ -9,7 +9,14 @@
  */
 import { test, expect, seedConversation, E2E_APP_BASE } from "./fixtures.ts";
 import { ObjectId, type Db } from "mongodb";
-import type { Page } from "playwright/test";
+import type { Locator, Page } from "playwright/test";
+
+/** A locator's box; fails the test if the element is not laid out. */
+async function boxOf(locator: Locator) {
+	const box = await locator.boundingBox();
+	if (!box) throw new Error("element has no bounding box");
+	return box;
+}
 
 const SHOTS = process.env.MOVE_SHOTS;
 async function shot(page: Page, name: string) {
@@ -107,7 +114,7 @@ for (const scheme of ["light", "dark"] as const) {
 		const target = page.getByRole("button", { name: "Budget 2027", exact: true });
 		await dragged.hover();
 		await page.mouse.down();
-		const box = (await target.boundingBox())!;
+		const box = await boxOf(target);
 		await page.mouse.move(box.x + 40, box.y + box.height / 2, { steps: 8 });
 		await page.mouse.move(box.x + 44, box.y + box.height / 2 + 1);
 		await expect(page.locator(".ring-accent")).toBeVisible();
@@ -122,7 +129,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await expect(inside).toBeVisible();
 		await inside.hover();
 		await page.mouse.down();
-		const chats = (await page.getByRole("link", { name: "Chats" }).first().boundingBox())!;
+		const chats = await boxOf(page.getByRole("link", { name: "Chats" }).first());
 		await page.mouse.move(chats.x + 30, chats.y + chats.height / 2, { steps: 8 });
 		await page.mouse.up();
 		await expect.poll(() => projectOf(db, second)).toBeUndefined();
@@ -154,7 +161,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await expect(page.locator("nav").first()).not.toContainText("New Chat");
 		// A title shows more than a few letters.
 		const title = page.getByText("Travel costs for the Brussels meeting");
-		expect((await title.boundingBox())!.width).toBeGreaterThan(150);
+		expect((await boxOf(title)).width).toBeGreaterThan(150);
 		await shot(page, `${scheme}-390-project-page`);
 
 		await page.getByRole("button", { name: "Actions for Eligible staff costs" }).click();
