@@ -8,7 +8,12 @@
 		ElicitationValue,
 	} from "$lib/types/McpElicitation";
 	import { sendElicitationAnswer } from "$lib/utils/sendElicitationAnswer";
-	import { unregisterQuestion } from "$lib/stores/pendingQuestion";
+	import {
+		unregisterQuestion,
+		questionDraft,
+		saveQuestionDraft,
+		clearQuestionDraft,
+	} from "$lib/stores/pendingQuestion";
 
 	interface Props {
 		conversationId: string;
@@ -29,10 +34,22 @@
 
 	const fields = $derived(request.fields ?? []);
 
-	let step = $state(0);
-	let picks = $state<Record<string, string[]>>({});
-	let otherText = $state<Record<string, string>>({});
-	let showOther = $state<Record<string, boolean>>({});
+	// A remount for the same question (id) restores what the person had done; see
+	// `questionDraft`. Read once, on purpose: later prop changes must not reset state.
+	// svelte-ignore state_referenced_locally
+	const restored = questionDraft(request.elicitationId);
+	let step = $state(restored?.step ?? 0);
+	let picks = $state<Record<string, string[]>>(restored?.picks ?? {});
+	let otherText = $state<Record<string, string>>(restored?.otherText ?? {});
+	let showOther = $state<Record<string, boolean>>(restored?.showOther ?? {});
+	$effect(() => {
+		saveQuestionDraft(request.elicitationId, {
+			step,
+			picks: $state.snapshot(picks),
+			otherText: $state.snapshot(otherText),
+			showOther: $state.snapshot(showOther),
+		});
+	});
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
 
@@ -118,6 +135,7 @@
 			return;
 		}
 		// Only this question: another may still be open behind it.
+		clearQuestionDraft(request.elicitationId);
 		unregisterQuestion(request.elicitationId);
 	}
 
