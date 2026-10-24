@@ -50,7 +50,6 @@
 		connectors,
 		connectorsFailed,
 		connectorsLoaded,
-		enabledConnectors,
 		refreshConnectors,
 		selectedConnectorIds,
 		toggleConnector,
