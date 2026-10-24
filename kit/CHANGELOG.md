@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.24.0 — 2026-10-24
+
+Pins: Cerea `0.24.0`, **Pystino `0.17.2`**, Authelia 4.39.22 (unchanged).
+**To update:** first read the MongoDB note below, then `cd ~/cerea/kit && git pull`
+(or `./get-kit.sh`), then `docker compose pull && docker compose up -d`.
 
 **Upgrading from 0.23.x: if your `.env` has no `MONGO_IMAGE` and your data is on
 MongoDB 4.4, add `MONGO_IMAGE='mongo:4.4.30'` to `.env` BEFORE you pull the new
@@ -20,6 +24,31 @@ which cannot open data left by 4.4.
   `.env` with no `MONGO_IMAGE` writes nothing and prints the note above;
   `./configure --check` treats a missing `MONGO_IMAGE` as MongoDB 8 (an error on a
   host that cannot run it, with the image to use instead).
+- **Move chats into, between and out of projects**: "Move to project…" in the
+  menu of every chat (sidebar, chats list, project page), with a project picker;
+  on desktop, drag a chat onto a project folder, or out to Chats. Only the
+  person who started a chat moves it into a project; a project's owner can still
+  take a chat out. The project's memory follows: a chat moved in is indexed into
+  it (its earlier messages included), one moved out leaves it. On a phone the
+  project page keeps chat titles readable and the top bar shows the project.
+- **New background tones: Neutral, Cool and Warm** replace Gray, Slate and Stone
+  (a saved choice carries over: Gray → Neutral, Slate → Cool, Stone → Warm),
+  with a clear step from page to sidebar to cards to composer in dark mode, and
+  secondary text that meets WCAG AA contrast everywhere it was faint.
+- **"Provided by this deployment"**: the `MCP_SERVERS` servers from `.env` and
+  the connectors an admin adds in the app now appear together in one group, for
+  everyone, in Workspace → MCP and in the composer's menu; the admin MCP page
+  lists the `.env` servers read-only.
+- Removed: the upstream prompt-example bar above an empty chat, and the favicon
+  stack in the composer's MCP pill.
+- Fixes: a question card no longer loses the option you picked or text you were
+  typing when it redraws; a Thinking block you opened stays open when the reply
+  ends; the Projects sidebar no longer shows a folder's chats from before a move,
+  and a folder that failed to load says so and retries; no white band around
+  the composer on tinted backgrounds.
+- **Pystino 0.17.2:** the console dims Presidio-only redaction settings when
+  Presidio is not the engine in force, and long values (redirect URIs, ids,
+  tokens) wrap on a phone.
 
 ## v0.23.1 — 2026-10-23
 
