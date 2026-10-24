@@ -63,16 +63,6 @@ function tailwindScale(name) {
 	return scale;
 }
 
-const mix = (a, b) =>
-	"#" +
-	[1, 3, 5]
-		.map((i) =>
-			Math.round((parseInt(a.slice(i, i + 2), 16) + parseInt(b.slice(i, i + 2), 16)) / 2)
-				.toString(16)
-				.padStart(2, "0")
-		)
-		.join("");
-
 /*
  * -- accents ----------------------------------------------------------------
  *
@@ -100,14 +90,40 @@ const ACCENTS = {
 /*
  * -- neutrals ---------------------------------------------------------------
  *
- * The app's gray is its own ramp (main.css), darker at the low end than
- * Tailwind's: its gray-600/700/800/900 sit where Tailwind's slate and stone
- * 700/800/900/950 do. Mapping step-for-step would make every dark surface
- * lighter and bluer than today; mapping by luminance keeps the contrast
- * structure of the default and only adds the tint.
+ * Three background tones (Neutral, Cool, Warm) on ONE OKLCH lightness ladder.
+ * They differ only in hue and chroma, so they behave identically (same
+ * contrast, same elevation steps) and read as clearly different. Neutral has no
+ * chroma at all; Cool is hue 255 and Warm hue 70, both faint enough that
+ * Cool never drifts toward navy.
+ *
+ * Dark mode has an explicit elevation ladder, a steady lightness step per
+ * level: page < sidebar < card (surface) < composer (surface-raised) < border.
+ * Light mode keeps white cards and composer on the tinted page.
  */
-const NEUTRAL_STEPS = { ...identity, 600: 700, 700: 800, 800: 900, 900: 950, 950: 950 };
-const NEUTRALS = { slate: "slate", stone: "stone" };
+const LADDER = {
+	50: 0.985,
+	100: 0.967,
+	200: 0.928,
+	300: 0.872,
+	400: 0.708,
+	500: 0.556,
+	600: 0.446,
+	700: 0.373,
+	800: 0.269,
+	900: 0.205,
+	950: 0.145,
+};
+const DARK_LADDER = { page: 0.165, sidebar: 0.2, card: 0.235, composer: 0.27, border: 0.31 };
+// One chroma per tone keeps the ramp simple; the low-lightness steps clip anyway.
+const TONES = {
+	neutral: { hue: 0, chroma: 0 },
+	cool: { hue: 255, chroma: 0.018 },
+	warm: { hue: 70, chroma: 0.011 },
+};
+
+function oklchHex(L, C, H) {
+	return oklchToHex(`oklch(${L * 100}% ${C} ${H})`);
+}
 
 const lines = [];
 const out = (s = "") => lines.push(s);
@@ -120,7 +136,7 @@ out(`/*
  * (tokens.drift.test.ts), so nothing here may live in it. The choice is two
  * attributes on <html> — \`data-accent\` and \`data-neutral\` — set on the server
  * from the person's settings so the first paint is already right. The default
- * (blue, gray) is the *absence* of an attribute, so with neither present none
+ * (blue, neutral) is the *absence* of an attribute, so with neither present none
  * of this applies and the look is exactly tokens.css.
  *
  * How it reaches the components without touching them: Tailwind 4 compiles
@@ -163,47 +179,52 @@ function accentBlock(name, { from, steps }) {
 	out(`}`);
 }
 
-function neutralBlock(name, from) {
-	const src = tailwindScale(from);
-	const at = (step) => src[NEUTRAL_STEPS[step]];
-	const label = (step) => `${from}-${NEUTRAL_STEPS[step]}`;
+function neutralBlock(name, { hue, chroma }) {
+	const at = (L) => oklchHex(L, chroma, hue);
+	const g = Object.fromEntries(STEPS.map((step) => [step, at(LADDER[step])]));
+	const note = (L) => `oklch(${L} ${chroma} ${hue})`;
+	// The default tone is the *absence* of the attribute, so its rules must
+	// also match an unattributed <html>.
+	const sel = (dark) => {
+		const root = dark ? ":root.dark" : ":root";
+		return (
+			`${root}[data-neutral="${name}"]` +
+			(name === "neutral" ? `,\n${root}:not([data-neutral])` : "")
+		);
+	};
 	out();
-	out(
-		`/* -- neutral tone: ${name} (gray ${STEPS.map((s) => `${s}→${NEUTRAL_STEPS[s]}`).join(" ")}) */`
-	);
-	out(`:root[data-neutral="${name}"] {`);
-	for (const step of STEPS) out(`\t--color-gray-${step}: ${at(step)}; /* ${label(step)} */`);
+	out(`/* -- neutral tone: ${name} (oklch hue ${hue}, chroma ${chroma}) */`);
+	out(`${sel(false)} {`);
+	for (const step of STEPS) out(`\t--color-gray-${step}: ${g[step]}; /* ${note(LADDER[step])} */`);
 	out(`}`);
-	out(`:root[data-neutral="${name}"] {`);
-	out(`\t--colour-bg: ${at(50)}; /* ${label(50)} */`);
-	out(`\t--colour-surface-sunken: ${at(100)}; /* ${label(100)} */`);
-	out(`\t--colour-border: ${at(200)}; /* ${label(200)} */`);
-	out(`\t--colour-border-strong: ${at(400)}; /* ${label(400)} */`);
-	out(`\t--colour-border-quiet: ${at(100)}; /* ${label(100)} */`);
-	out(`\t--colour-text: ${at(900)}; /* ${label(900)} */`);
-	out(`\t--colour-text-muted: ${at(600)}; /* ${label(600)} */`);
-	out(`\t--colour-text-faint: ${at(500)}; /* ${label(500)} */`);
+	out(`${sel(false)} {`);
+	out(`\t--colour-bg: ${g[50]};`);
+	out(`\t--colour-sidebar: ${g[50]};`);
+	out(`\t--colour-surface-sunken: ${g[100]};`);
+	out(`\t--colour-border: ${g[200]};`);
+	out(`\t--colour-border-strong: ${g[400]};`);
+	out(`\t--colour-border-quiet: ${g[100]};`);
+	out(`\t--colour-text: ${g[950]};`);
+	out(`\t--colour-text-muted: ${g[700]};`);
+	out(`\t--colour-text-faint: ${g[600]};`);
 	out(`}`);
-	out(`:root.dark[data-neutral="${name}"] {`);
-	out(`\t--colour-bg: ${at(900)}; /* ${label(900)} */`);
-	out(`\t--colour-surface: ${at(800)}; /* ${label(800)} */`);
-	out(`\t--colour-surface-raised: ${at(700)}; /* ${label(700)} */`);
-	out(`\t--colour-surface-sunken: ${at(900)}; /* ${label(900)} */`);
-	out(`\t--colour-border: ${at(700)}; /* ${label(700)} */`);
-	out(`\t--colour-border-strong: ${at(600)}; /* ${label(600)} */`);
-	out(
-		`\t--colour-border-quiet: ${mix(at(800), at(700))}; /* midway ${label(800)} / ${label(700)} */`
-	);
-	out(`\t--colour-text: ${at(100)}; /* ${label(100)} */`);
-	out(`\t--colour-text-muted: ${at(400)}; /* ${label(400)} */`);
-	out(
-		`\t--colour-text-faint: ${mix(at(400), at(500))}; /* midway ${label(400)} / ${label(500)} */`
-	);
+	out(`${sel(true)} {`);
+	out(`\t--colour-bg: ${at(DARK_LADDER.page)}; /* page ${note(DARK_LADDER.page)} */`);
+	out(`\t--colour-sidebar: ${at(DARK_LADDER.sidebar)}; /* sidebar */`);
+	out(`\t--colour-surface: ${at(DARK_LADDER.card)}; /* card */`);
+	out(`\t--colour-surface-raised: ${at(DARK_LADDER.composer)}; /* composer */`);
+	out(`\t--colour-surface-sunken: ${at(DARK_LADDER.page)};`);
+	out(`\t--colour-border: ${at(DARK_LADDER.border)};`);
+	out(`\t--colour-border-strong: ${g[600]};`);
+	out(`\t--colour-border-quiet: ${at((DARK_LADDER.card + DARK_LADDER.composer) / 2)};`);
+	out(`\t--colour-text: ${g[100]};`);
+	out(`\t--colour-text-muted: ${g[300]};`);
+	out(`\t--colour-text-faint: ${g[400]};`);
 	out(`}`);
 }
 
 for (const [name, spec] of Object.entries(ACCENTS)) accentBlock(name, spec);
-for (const [name, from] of Object.entries(NEUTRALS)) neutralBlock(name, from);
+for (const [name, tone] of Object.entries(TONES)) neutralBlock(name, tone);
 
 writeFileSync(`${root}src/styles/palettes.css`, lines.join("\n") + "\n");
 console.log(`wrote src/styles/palettes.css (${lines.length} lines)`);

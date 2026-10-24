@@ -6,7 +6,7 @@
  * (tokens.drift.test.ts), so nothing here may live in it. The choice is two
  * attributes on <html> — `data-accent` and `data-neutral` — set on the server
  * from the person's settings so the first paint is already right. The default
- * (blue, gray) is the *absence* of an attribute, so with neither present none
+ * (blue, neutral) is the *absence* of an attribute, so with neither present none
  * of this applies and the look is exactly tokens.css.
  *
  * How it reaches the components without touching them: Tailwind 4 compiles
@@ -175,76 +175,122 @@
 	--colour-blue: #ff8904;
 }
 
-/* -- neutral tone: slate (gray 50→50 100→100 200→200 300→300 400→400 500→500 600→700 700→800 800→900 900→950 950→950) */
-:root[data-neutral="slate"] {
-	--color-gray-50: #f8fafc; /* slate-50 */
-	--color-gray-100: #f1f5f9; /* slate-100 */
-	--color-gray-200: #e2e8f0; /* slate-200 */
-	--color-gray-300: #cad5e2; /* slate-300 */
-	--color-gray-400: #90a1b9; /* slate-400 */
-	--color-gray-500: #62748e; /* slate-500 */
-	--color-gray-600: #314158; /* slate-700 */
-	--color-gray-700: #1d293d; /* slate-800 */
-	--color-gray-800: #0f172b; /* slate-900 */
-	--color-gray-900: #020618; /* slate-950 */
-	--color-gray-950: #020618; /* slate-950 */
+/* -- neutral tone: neutral (oklch hue 0, chroma 0) */
+:root[data-neutral="neutral"],
+:root:not([data-neutral]) {
+	--color-gray-50: #fafafa; /* oklch(0.985 0 0) */
+	--color-gray-100: #f4f4f4; /* oklch(0.967 0 0) */
+	--color-gray-200: #e7e7e7; /* oklch(0.928 0 0) */
+	--color-gray-300: #d5d5d5; /* oklch(0.872 0 0) */
+	--color-gray-400: #a1a1a1; /* oklch(0.708 0 0) */
+	--color-gray-500: #737373; /* oklch(0.556 0 0) */
+	--color-gray-600: #545454; /* oklch(0.446 0 0) */
+	--color-gray-700: #404040; /* oklch(0.373 0 0) */
+	--color-gray-800: #262626; /* oklch(0.269 0 0) */
+	--color-gray-900: #171717; /* oklch(0.205 0 0) */
+	--color-gray-950: #0a0a0a; /* oklch(0.145 0 0) */
 }
-:root[data-neutral="slate"] {
-	--colour-bg: #f8fafc; /* slate-50 */
-	--colour-surface-sunken: #f1f5f9; /* slate-100 */
-	--colour-border: #e2e8f0; /* slate-200 */
-	--colour-border-strong: #90a1b9; /* slate-400 */
-	--colour-border-quiet: #f1f5f9; /* slate-100 */
-	--colour-text: #020618; /* slate-950 */
-	--colour-text-muted: #314158; /* slate-700 */
-	--colour-text-faint: #62748e; /* slate-500 */
+:root[data-neutral="neutral"],
+:root:not([data-neutral]) {
+	--colour-bg: #fafafa;
+	--colour-sidebar: #fafafa;
+	--colour-surface-sunken: #f4f4f4;
+	--colour-border: #e7e7e7;
+	--colour-border-strong: #a1a1a1;
+	--colour-border-quiet: #f4f4f4;
+	--colour-text: #0a0a0a;
+	--colour-text-muted: #404040;
+	--colour-text-faint: #545454;
 }
-:root.dark[data-neutral="slate"] {
-	--colour-bg: #020618; /* slate-950 */
-	--colour-surface: #0f172b; /* slate-900 */
-	--colour-surface-raised: #1d293d; /* slate-800 */
-	--colour-surface-sunken: #020618; /* slate-950 */
-	--colour-border: #1d293d; /* slate-800 */
-	--colour-border-strong: #314158; /* slate-700 */
-	--colour-border-quiet: #162034; /* midway slate-900 / slate-800 */
-	--colour-text: #f1f5f9; /* slate-100 */
-	--colour-text-muted: #90a1b9; /* slate-400 */
-	--colour-text-faint: #798ba4; /* midway slate-400 / slate-500 */
+:root.dark[data-neutral="neutral"],
+:root.dark:not([data-neutral]) {
+	--colour-bg: #0e0e0e; /* page oklch(0.165 0 0) */
+	--colour-sidebar: #161616; /* sidebar */
+	--colour-surface: #1e1e1e; /* card */
+	--colour-surface-raised: #262626; /* composer */
+	--colour-surface-sunken: #0e0e0e;
+	--colour-border: #303030;
+	--colour-border-strong: #545454;
+	--colour-border-quiet: #222222;
+	--colour-text: #f4f4f4;
+	--colour-text-muted: #d5d5d5;
+	--colour-text-faint: #a1a1a1;
 }
 
-/* -- neutral tone: stone (gray 50→50 100→100 200→200 300→300 400→400 500→500 600→700 700→800 800→900 900→950 950→950) */
-:root[data-neutral="stone"] {
-	--color-gray-50: #fafaf9; /* stone-50 */
-	--color-gray-100: #f5f5f4; /* stone-100 */
-	--color-gray-200: #e7e5e4; /* stone-200 */
-	--color-gray-300: #d6d3d1; /* stone-300 */
-	--color-gray-400: #a6a09b; /* stone-400 */
-	--color-gray-500: #79716b; /* stone-500 */
-	--color-gray-600: #44403b; /* stone-700 */
-	--color-gray-700: #292524; /* stone-800 */
-	--color-gray-800: #1c1917; /* stone-900 */
-	--color-gray-900: #0c0a09; /* stone-950 */
-	--color-gray-950: #0c0a09; /* stone-950 */
+/* -- neutral tone: cool (oklch hue 255, chroma 0.018) */
+:root[data-neutral="cool"] {
+	--color-gray-50: #f2fbff; /* oklch(0.985 0.018 255) */
+	--color-gray-100: #ecf5ff; /* oklch(0.967 0.018 255) */
+	--color-gray-200: #dfe8f3; /* oklch(0.928 0.018 255) */
+	--color-gray-300: #cdd6e1; /* oklch(0.872 0.018 255) */
+	--color-gray-400: #9aa2ac; /* oklch(0.708 0.018 255) */
+	--color-gray-500: #6c747e; /* oklch(0.556 0.018 255) */
+	--color-gray-600: #4e555e; /* oklch(0.446 0.018 255) */
+	--color-gray-700: #3a414a; /* oklch(0.373 0.018 255) */
+	--color-gray-800: #20272f; /* oklch(0.269 0.018 255) */
+	--color-gray-900: #12181f; /* oklch(0.205 0.018 255) */
+	--color-gray-950: #060a12; /* oklch(0.145 0.018 255) */
 }
-:root[data-neutral="stone"] {
-	--colour-bg: #fafaf9; /* stone-50 */
-	--colour-surface-sunken: #f5f5f4; /* stone-100 */
-	--colour-border: #e7e5e4; /* stone-200 */
-	--colour-border-strong: #a6a09b; /* stone-400 */
-	--colour-border-quiet: #f5f5f4; /* stone-100 */
-	--colour-text: #0c0a09; /* stone-950 */
-	--colour-text-muted: #44403b; /* stone-700 */
-	--colour-text-faint: #79716b; /* stone-500 */
+:root[data-neutral="cool"] {
+	--colour-bg: #f2fbff;
+	--colour-sidebar: #f2fbff;
+	--colour-surface-sunken: #ecf5ff;
+	--colour-border: #dfe8f3;
+	--colour-border-strong: #9aa2ac;
+	--colour-border-quiet: #ecf5ff;
+	--colour-text: #060a12;
+	--colour-text-muted: #3a414a;
+	--colour-text-faint: #4e555e;
 }
-:root.dark[data-neutral="stone"] {
-	--colour-bg: #0c0a09; /* stone-950 */
-	--colour-surface: #1c1917; /* stone-900 */
-	--colour-surface-raised: #292524; /* stone-800 */
-	--colour-surface-sunken: #0c0a09; /* stone-950 */
-	--colour-border: #292524; /* stone-800 */
-	--colour-border-strong: #44403b; /* stone-700 */
-	--colour-border-quiet: #231f1e; /* midway stone-900 / stone-800 */
-	--colour-text: #f5f5f4; /* stone-100 */
-	--colour-text-muted: #a6a09b; /* stone-400 */
-	--colour-text-faint: #908983; /* midway stone-400 / stone-500 */
+:root.dark[data-neutral="cool"] {
+	--colour-bg: #090f16; /* page oklch(0.165 0.018 255) */
+	--colour-sidebar: #11161e; /* sidebar */
+	--colour-surface: #181f27; /* card */
+	--colour-surface-raised: #21272f; /* composer */
+	--colour-surface-sunken: #090f16;
+	--colour-border: #2a3139;
+	--colour-border-strong: #4e555e;
+	--colour-border-quiet: #1c232b;
+	--colour-text: #ecf5ff;
+	--colour-text-muted: #cdd6e1;
+	--colour-text-faint: #9aa2ac;
+}
+
+/* -- neutral tone: warm (oklch hue 70, chroma 0.011) */
+:root[data-neutral="warm"] {
+	--color-gray-50: #fff9f2; /* oklch(0.985 0.011 70) */
+	--color-gray-100: #f9f3ec; /* oklch(0.967 0.011 70) */
+	--color-gray-200: #ece6df; /* oklch(0.928 0.011 70) */
+	--color-gray-300: #dad4cd; /* oklch(0.872 0.011 70) */
+	--color-gray-400: #a5a09a; /* oklch(0.708 0.011 70) */
+	--color-gray-500: #78726c; /* oklch(0.556 0.011 70) */
+	--color-gray-600: #58534e; /* oklch(0.446 0.011 70) */
+	--color-gray-700: #44403a; /* oklch(0.373 0.011 70) */
+	--color-gray-800: #2a2520; /* oklch(0.269 0.011 70) */
+	--color-gray-900: #1a1612; /* oklch(0.205 0.011 70) */
+	--color-gray-950: #0d0906; /* oklch(0.145 0.011 70) */
+}
+:root[data-neutral="warm"] {
+	--colour-bg: #fff9f2;
+	--colour-sidebar: #fff9f2;
+	--colour-surface-sunken: #f9f3ec;
+	--colour-border: #ece6df;
+	--colour-border-strong: #a5a09a;
+	--colour-border-quiet: #f9f3ec;
+	--colour-text: #0d0906;
+	--colour-text-muted: #44403a;
+	--colour-text-faint: #58534e;
+}
+:root.dark[data-neutral="warm"] {
+	--colour-bg: #110e09; /* page oklch(0.165 0.011 70) */
+	--colour-sidebar: #191511; /* sidebar */
+	--colour-surface: #221d19; /* card */
+	--colour-surface-raised: #2a2621; /* composer */
+	--colour-surface-sunken: #110e09;
+	--colour-border: #342f2a;
+	--colour-border-strong: #58534e;
+	--colour-border-quiet: #26211d;
+	--colour-text: #f9f3ec;
+	--colour-text-muted: #dad4cd;
+	--colour-text-faint: #a5a09a;
 }

@@ -243,7 +243,7 @@
 					</div>
 					<SwatchGroup
 						label="Background tone"
-						value={$settings.neutral ?? DEFAULT_NEUTRAL}
+						value={parseNeutral($settings.neutral) ?? DEFAULT_NEUTRAL}
 						options={NEUTRALS.map((n) => ({
 							value: n,
 							label: NEUTRAL_LABELS[n],
