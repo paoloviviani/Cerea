@@ -11,6 +11,7 @@ import { applyConversationSettings } from "$lib/server/conversationSettings";
 import { knowledgeBaseViews, parseAttachedKnowledgeBaseIds } from "$lib/server/projects";
 import type { TurnStateSnapshot } from "$lib/types/TurnState";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
+import { moveConversationToProject } from "$lib/server/conversationProject";
 import { withRunFiles } from "$lib/server/execution/runFiles";
 
 export const GET: RequestHandler = async ({ locals, params }) => {
@@ -121,6 +122,21 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	requireAuth(locals);
 
 	const body = await request.json();
+
+	// Moving a chat into, between or out of projects: its own operation, with
+	// its own permission rules (see conversationProject.ts).
+	let moved: { projectId: string | null; projectName: string | null } | undefined;
+	if (body && "projectId" in body) {
+		moved = await moveConversationToProject({
+			locals,
+			conversationId: params.id ?? "",
+			projectId: body.projectId,
+		});
+		if (Object.keys(body).every((key) => key === "projectId")) {
+			return superjsonResponse({ success: true, ...moved });
+		}
+	}
+
 	const title = body?.title as string | undefined;
 	const model = body?.model as string | undefined;
 	const webSearch = body?.webSearch as boolean | undefined;

@@ -56,11 +56,9 @@ export async function deleteConversationShares(
  * routes come through here (the v1 bulk route, unlike v2's, does not exclude
  * project conversations), so this is the one place that has to know.
  *
- * A constraint for the route nobody has written yet: moving a conversation
- * *out of* a project (there is none today, `projectId` is set once at
- * creation) must call `deleteDerived({ conversationId })` too, or the
- * transcript stays in the project's memory and keeps surfacing in a
- * project the conversation no longer belongs to.
+ * A constraint for whoever moves a conversation *out of* a project: it must
+ * call `deleteDerived({ conversationId })` too, or the transcript stays in
+ * the project's memory. `moveConversationToProject` is that one place.
  *
  * Both halves are attempted even if one throws — `allSettled`, not `all`.
  * These are independent stores, and a failure to remove a code-execution

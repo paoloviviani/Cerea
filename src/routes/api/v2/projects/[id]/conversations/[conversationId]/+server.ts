@@ -15,8 +15,7 @@
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
-import { logger } from "$lib/server/logger";
-import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
+import { detachConversation } from "$lib/server/conversationProject";
 import { requireProjectAccess } from "$lib/server/projects";
 
 export const DELETE: RequestHandler = async ({ locals, params }) => {
@@ -33,15 +32,6 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 	if (!theirs && !owned) {
 		error(403, "Only the person who started a chat, or the project's owner, can remove it.");
 	}
-	await collections.conversations.updateOne(
-		{ _id: conversation._id },
-		{ $unset: { projectId: "" } }
-	);
-	await deleteDerived({ conversationId: conversation._id }).catch((err) =>
-		logger.warn(
-			{ err, conversationId: conversation._id },
-			"project_detach_transcript_cleanup_failed"
-		)
-	);
+	await detachConversation(conversation._id);
 	return new Response(null, { status: 204 });
 };
