@@ -113,10 +113,17 @@ test("the pill's checkmark lands on the active model on first open, including a 
 	// explicit choice yet" case the /code picker got wrong.
 	await page.goto(`${E2E_APP_BASE}/`);
 
-	await page.getByRole("button", { name: "Model and effort" }).click();
+	// The pill is server-rendered before the page hydrates, and a click that
+	// lands first is lost, so click again until the menu is really open.
+	const search = page.getByRole("textbox", { name: "Search models" });
+	await expect(async () => {
+		if (!(await search.isVisible()))
+			await page.getByRole("button", { name: "Model and effort" }).click();
+		await expect(search).toBeVisible({ timeout: 2_000 });
+	}).toPass({ timeout: 30_000 });
 	// A query matching every fixture model's `test-org/…` id lists them all,
 	// current first — enough rows to tell "checked" from "unchecked" apart.
-	await page.getByRole("textbox", { name: "Search models" }).fill("test-org");
+	await search.fill("test-org");
 
 	// The search-result rows only — "More models" would be its own menu item,
 	// not one of the search hits (and with five models it is not shown at all).
