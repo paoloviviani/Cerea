@@ -18,7 +18,6 @@
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
 	import { onMount } from "svelte";
-	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import IconAddLarge from "~icons/carbon/add-large";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -50,7 +49,6 @@
 	// on, and a copy held by a dialog that is destroyed when it closes cannot
 	// tell them.
 	const loading = $derived(!$connectorsLoaded);
-	const publicConfig = usePublicConfig();
 	let failure = $state<string | null>(null);
 	let busy = $state(false);
 	/** Which connector an in-flight row action belongs to, so only its icon spins. */
@@ -954,7 +952,7 @@
 				</h3>
 				<p class="text-xs text-gray-600 dark:text-gray-400">
 					Offered to every account. Turn one on and, where it asks, sign in to it as yourself; they
-					are managed by whoever runs {publicConfig.PUBLIC_APP_NAME}, not from here.
+					are managed by whoever runs this deployment, not from here.
 				</p>
 				<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
 					{#each provided as item (item.id)}

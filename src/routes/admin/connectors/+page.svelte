@@ -272,7 +272,7 @@
 				{#each envServers as server (server.id)}
 					<li
 						data-testid="env-server"
-						class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+						class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 max-sm:flex-col max-sm:items-stretch dark:border-gray-700"
 					>
 						<div class="min-w-0">
 							<p class="truncate text-sm font-medium">{server.name}</p>
@@ -281,7 +281,7 @@
 								<p class="mt-1 text-xs text-red-600 dark:text-red-400">{server.errorMessage}</p>
 							{/if}
 						</div>
-						<div class="flex shrink-0 items-center gap-2">
+						<div class="flex shrink-0 flex-wrap items-center gap-2">
 							<span
 								class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300"
 							>
@@ -322,7 +322,7 @@
 		<ul class="flex flex-col gap-2">
 			{#each shared as connector (connector.id)}
 				<li
-					class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+					class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 max-sm:flex-col max-sm:items-stretch dark:border-gray-700"
 				>
 					<div class="min-w-0">
 						<p class="truncate text-sm font-medium">{connector.name}</p>
@@ -331,7 +331,7 @@
 							<p class="mt-1 text-xs text-red-600 dark:text-red-400">{connector.lastError}</p>
 						{/if}
 					</div>
-					<div class="flex shrink-0 items-center gap-2">
+					<div class="flex shrink-0 flex-wrap items-center gap-2">
 						<span class="text-xs text-gray-500">
 							{connector.auth === "oauth"
 								? "OAuth — each person signs in"
