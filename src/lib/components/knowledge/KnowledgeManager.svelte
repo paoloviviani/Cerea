@@ -547,8 +547,6 @@
 	}
 </script>
 
-{#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
-
 <!-- The workspace tab's card, where the overlay shell used to be. -->
 <div class={s.EMBEDDED}>
 	<div class={s.PANEL}>

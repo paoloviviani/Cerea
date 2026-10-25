@@ -395,7 +395,6 @@
 	}
 </script>
 
-{#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
 {#snippet code(text: string)}<code>{text}</code>{/snippet}
 
 <div class={s.EMBEDDED}>
