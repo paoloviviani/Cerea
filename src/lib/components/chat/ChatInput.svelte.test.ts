@@ -100,7 +100,8 @@ async function renderComposer(
 	params: Record<string, string>,
 	attached: { id: string; name: string }[] = [],
 	webSearch = false,
-	pageData: Record<string, unknown> = {}
+	pageData: Record<string, unknown> = {},
+	extraProps: Record<string, unknown> = {}
 ) {
 	let host = document.getElementById("app");
 	if (!host) {
@@ -110,7 +111,7 @@ async function renderComposer(
 	}
 	const mounted = renderWithApp(
 		ChatInput,
-		{ knowledgeBases: attached, mimeTypes: ["text/plain", "image/png"], webSearch },
+		{ knowledgeBases: attached, mimeTypes: ["text/plain", "image/png"], webSearch, ...extraProps },
 		{
 			page: {
 				params,
@@ -494,6 +495,51 @@ describe("ChatInput: MCP connector toggles", () => {
 
 		await waitSlow(() => expect(document.body.textContent).toContain("Could not load connectors"));
 		expect(document.body.textContent).toContain("Manage connectors");
+	});
+
+	it("dims the pill and explains it when the model cannot use connectors", async () => {
+		seedConnectors([notionConnector], ["conn-notion"]);
+		stubFetch();
+		const { container } = await renderComposer(
+			{ id: CONV_ID },
+			[],
+			false,
+			{},
+			{
+				modelSupportsTools: false,
+			}
+		);
+		const pill = container.querySelector<HTMLElement>('[data-testid="connectors-pill"]');
+		expect(pill?.hasAttribute("data-no-tools")).toBe(true);
+		expect(pill?.className).toContain("opacity-60");
+		expect(pill?.innerHTML).not.toContain("line-through");
+		const note = container.querySelector<HTMLElement>('[data-testid="connectors-no-tools-note"]');
+		expect(note?.textContent).toContain("This model can't use connectors. Pick another model");
+		// Hidden until asked for, but a tap shows it.
+		expect(note?.className).toContain("sr-only");
+		pill?.querySelector<HTMLButtonElement>("button")?.click();
+		await waitSlow(() => expect(note?.className).not.toContain("sr-only"));
+
+		await openMenu(container);
+		await openMcpSubmenu();
+		await waitSlow(() =>
+			expect(document.body.querySelector('[data-testid="mcp-no-tools-menu-note"]')).not.toBeNull()
+		);
+	});
+
+	it("shows no dimming or explanation when the model can use connectors", async () => {
+		seedConnectors([notionConnector], ["conn-notion"]);
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		const pill = container.querySelector<HTMLElement>('[data-testid="connectors-pill"]');
+		expect(pill).not.toBeNull();
+		expect(pill?.hasAttribute("data-no-tools")).toBe(false);
+		expect(pill?.className).not.toContain("opacity-60");
+		expect(container.querySelector('[data-testid="connectors-no-tools-note"]')).toBeNull();
+		await openMenu(container);
+		await openMcpSubmenu();
+		await waitSlow(() => expect(findConnectorItem("Notion")).toBeTruthy());
+		expect(document.body.querySelector('[data-testid="mcp-no-tools-menu-note"]')).toBeNull();
 	});
 });
 

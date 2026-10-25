@@ -19,6 +19,7 @@
 	import LucideShieldCheck from "~icons/lucide/shield-check";
 	import LucideMic from "~icons/lucide/mic";
 	import LucideLaptop from "~icons/lucide/laptop";
+	import LucideInfo from "~icons/lucide/info";
 	import TogglePill from "$lib/components/TogglePill.svelte";
 	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
 	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
@@ -355,6 +356,10 @@
 	// The composer's MCP flyout lists what the deployment provides (the `.env` servers and the
 	// administrator's connectors) as one section, by name; the person's own connectors and the
 	// ones on their machines follow it. Ids and selection are each kind's own.
+	// Said once, shown on the pill and at the top of the Connectors menu.
+	const NO_TOOLS_NOTE = "This model can't use connectors. Pick another model to use them.";
+	let noToolsNoteOpen = $state(false);
+	let noToolsNoteHover = $state(false);
 	const ownConnectors = $derived($connectors.filter((c) => c.scope !== "deployment"));
 	const provided = $derived(
 		[
@@ -1214,6 +1219,15 @@
 												onCloseAutoFocus={(e) => e.preventDefault()}
 												interactOutsideBehavior="defer-otherwise-close"
 											>
+												{#if !modelSupportsTools}
+													<div
+														role="note"
+														data-testid="mcp-no-tools-menu-note"
+														class="mb-1 max-w-64 rounded-md bg-gray-100 px-2 py-1.5 text-xs text-gray-700 dark:bg-white/10 dark:text-gray-200"
+													>
+														{NO_TOOLS_NOTE}
+													</div>
+												{/if}
 												{#if provided.length > 0}
 													<div
 														role="presentation"
@@ -1385,35 +1399,69 @@
 						</DropdownMenu.Root>
 
 						{#if chatTools && $totalEnabledMcpCount > 0}
-							<div
-								class="ml-1.5 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-blue-600/10 pr-1 pl-2 text-xs font-semibold text-blue-700 sm:h-7 dark:bg-blue-600/20 dark:text-blue-400"
-								class:grayscale={!modelSupportsTools}
-								class:opacity-60={!modelSupportsTools}
-								class:cursor-help={!modelSupportsTools}
-								title={modelSupportsTools ? "Connectors on" : "This model can't use connectors"}
-							>
-								<!-- The manager is a workspace tab now, not an overlay
+							<!-- A model that cannot use tools leaves the pill visible but dimmed,
+							     with a note a tap, hover or keyboard focus reveals. -->
+							<div class="relative ml-1.5 shrink-0">
+								<div
+									class="inline-flex h-8 items-center gap-1.5 rounded-full bg-blue-600/10 pr-1 pl-2 text-xs font-semibold text-blue-700 sm:h-7 dark:bg-blue-600/20 dark:text-blue-400"
+									class:opacity-60={!modelSupportsTools}
+									data-testid="connectors-pill"
+									data-no-tools={!modelSupportsTools ? "" : undefined}
+								>
+									<!-- The manager is a workspace tab now, not an overlay
 							     mounted here — every opener navigates to it. -->
-								<button
-									class="inline-flex cursor-pointer items-center gap-1 bg-transparent p-0 leading-none whitespace-nowrap text-current select-none focus:outline-hidden"
-									type="button"
-									title="Manage connectors"
-									onclick={() => void goto(`${base}/workspace?tab=mcp`)}
-									class:line-through={!modelSupportsTools}
-								>
-									Connectors ({$totalEnabledMcpCount})
-								</button>
-								<button
-									class="grid size-5 place-items-center rounded-full bg-blue-600/15 text-blue-700 transition-colors hover:bg-blue-600/25 dark:bg-blue-600/25 dark:text-blue-300 dark:hover:bg-blue-600/35"
-									aria-label="Turn off all connectors"
-									onclick={() => {
-										disableAllServers();
-										disableAllConnectors();
-									}}
-									type="button"
-								>
-									<CarbonClose class="size-3.5" />
-								</button>
+									<button
+										class="inline-flex cursor-pointer items-center gap-1 bg-transparent p-0 leading-none whitespace-nowrap text-current select-none focus:outline-hidden"
+										type="button"
+										title={modelSupportsTools ? "Manage connectors" : undefined}
+										aria-describedby={modelSupportsTools ? undefined : "connectors-no-tools-note"}
+										aria-expanded={modelSupportsTools ? undefined : noToolsNoteOpen}
+										onclick={() => {
+											if (modelSupportsTools) void goto(`${base}/workspace?tab=mcp`);
+											else noToolsNoteOpen = !noToolsNoteOpen;
+										}}
+										onmouseenter={() => (noToolsNoteHover = true)}
+										onmouseleave={() => (noToolsNoteHover = false)}
+										onfocus={() => (noToolsNoteHover = true)}
+										onblur={() => (noToolsNoteHover = false)}
+									>
+										{#if !modelSupportsTools}
+											<LucideInfo class="size-3.5" aria-hidden="true" />
+										{/if}
+										Connectors ({$totalEnabledMcpCount})
+									</button>
+									<button
+										class="grid size-5 place-items-center rounded-full bg-blue-600/15 text-blue-700 transition-colors hover:bg-blue-600/25 dark:bg-blue-600/25 dark:text-blue-300 dark:hover:bg-blue-600/35"
+										aria-label="Turn off all connectors"
+										onclick={() => {
+											disableAllServers();
+											disableAllConnectors();
+										}}
+										type="button"
+									>
+										<CarbonClose class="size-3.5" />
+									</button>
+								</div>
+								{#if !modelSupportsTools}
+									<div
+										id="connectors-no-tools-note"
+										role="note"
+										data-testid="connectors-no-tools-note"
+										class={[
+											"absolute bottom-full left-0 z-20 mb-1.5 w-64 rounded-xl border border-gray-200 bg-white p-2.5 text-xs font-normal text-gray-700 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200",
+											!(noToolsNoteOpen || noToolsNoteHover) && "sr-only",
+										]}
+									>
+										{NO_TOOLS_NOTE}
+										<button
+											type="button"
+											class="mt-1.5 block font-semibold text-blue-700 underline dark:text-blue-400"
+											onclick={() => void goto(`${base}/workspace?tab=mcp`)}
+										>
+											Manage connectors
+										</button>
+									</div>
+								{/if}
 							</div>
 						{/if}
 					</div>
