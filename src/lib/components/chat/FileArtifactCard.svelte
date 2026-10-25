@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
 	import { getArtifactsContext } from "$lib/utils/artifactsContext";
@@ -147,7 +148,7 @@
 			downloadError =
 				err instanceof Error
 					? err.message
-					: "that file is no longer in the runtime; run the code again to recreate it";
+					: m["chat.file_card.gone_error"]();
 		} finally {
 			downloading = false;
 		}
@@ -208,25 +209,25 @@
 				<button
 					type="button"
 					class={ACTION}
-					aria-label="Open {baseName} in panel"
-					title="Open {baseName} in panel"
+					aria-label={m["chat.file_card.open_label"]({ name: baseName })}
+					title={m["chat.file_card.open_label"]({ name: baseName })}
 					onclick={openInPanel}
 				>
 					<CarbonLaunch class="size-4 @[520px]:size-3.5" />
-					<span class="hidden @[520px]:inline">Open</span>
+					<span class="hidden @[520px]:inline">{m["chat.file_card.open"]()}</span>
 				</button>
 			{/if}
 			{#if !gone}
 				<button
 					type="button"
 					class={ACTION}
-					aria-label="Download {baseName}"
-					title="Download {baseName}"
+					aria-label={m["chat.file_card.download_label"]({ name: baseName })}
+					title={m["chat.file_card.download_label"]({ name: baseName })}
 					disabled={downloading}
 					onclick={downloadFile}
 				>
 					<CarbonDownload class="size-4 @[520px]:size-3.5" />
-					<span class="hidden @[520px]:inline">Download</span>
+					<span class="hidden @[520px]:inline">{m["chat.file_card.download"]()}</span>
 				</button>
 			{/if}
 		</div>
@@ -237,9 +238,9 @@
 			data-testid="file-not-saved"
 		>
 			{#if gone}
-				<span>Not saved, and no longer available. Run the code again to make it again.</span>
+				<span>{m["chat.file_card.not_saved_gone"]()}</span>
 			{:else}
-				<span>Not saved. Download it while this tab is open.</span>
+				<span>{m["chat.file_card.not_saved"]()}</span>
 				{#if canRetry}
 					<button
 						type="button"
@@ -248,10 +249,10 @@
 						onclick={retry}
 					>
 						<CarbonRenew class="size-3" />
-						{retrying ? "Saving…" : "Retry saving"}
+						{retrying ? m["chat.file_card.saving"]() : m["chat.file_card.retry"]()}
 					</button>
 				{/if}
-				{#if retryFailed}<span>Saving failed again.</span>{/if}
+				{#if retryFailed}<span>{m["chat.file_card.retry_failed"]()}</span>{/if}
 			{/if}
 		</p>
 	{/if}

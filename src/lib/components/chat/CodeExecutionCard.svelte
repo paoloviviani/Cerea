@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import { formatNumber } from "$lib/i18n/format";
 	import { base } from "$app/paths";
 	import EosIconsLoading from "~icons/eos-icons/loading";
 	import CarbonChip from "~icons/carbon/chip";
@@ -209,8 +211,10 @@
 		return ms < 100
 			? ""
 			: ms < 10_000
-				? `${(ms / 1000).toFixed(1)} s`
-				: `${Math.round(ms / 1000)} s`;
+				? m["chat.run.seconds"]({
+						value: formatNumber(ms / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+					})
+				: m["chat.run.seconds"]({ value: formatNumber(Math.round(ms / 1000)) });
 	});
 	let startingPython = $derived(runState?.status === "loading" && !resolved);
 	let wasRunning = $state(false);
@@ -242,19 +246,23 @@
 			type="button"
 			onclick={() => (isOpen = !isOpen)}
 			aria-expanded={isOpen}
-			aria-label={isOpen ? "Collapse code output" : "Expand code output"}
+			aria-label={isOpen ? m["chat.code_card.collapse"]() : m["chat.code_card.expand"]()}
 			class="flex w-full cursor-pointer items-center gap-2 px-4 py-3 text-left text-sm text-gray-700 select-none focus:outline-hidden dark:text-gray-300"
 		>
 			<CarbonChip class="text-gray-400" />
 			<span class="font-medium">
-				{isRunning ? (startingPython ? "Starting Python" : "Running Python") : "Ran Python"}
+				{isRunning
+					? startingPython
+						? m["chat.code_card.starting"]()
+						: m["chat.code_card.running"]()
+					: m["chat.code_card.ran"]()}
 			</span>
 			<span class="ml-auto flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
 				{#if isRunning}
 					<EosIconsLoading class="text-gray-400" />
 				{:else if failed}
 					<CarbonClose class="text-red-500 dark:text-red-400" />
-					<span class="text-red-600 dark:text-red-400">Failed</span>
+					<span class="text-red-600 dark:text-red-400">{m["chat.code_card.failed"]()}</span>
 				{:else if displayState}
 					<CarbonCheckmark class="text-green-600 dark:text-green-500" />
 					{#if duration}<span>{duration}</span>{/if}

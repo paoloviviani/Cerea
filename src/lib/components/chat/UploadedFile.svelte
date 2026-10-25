@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import { page } from "$app/state";
 	import type { MessageFile } from "$lib/types/Message";
 	import CarbonClose from "~icons/carbon/close";
@@ -103,13 +105,13 @@
 				sidePane.openPreview(await pdfPayloadFor(file.name, previewUrlFor(fileUrl, file.name)));
 			} else {
 				const res = await fetch(fileUrl);
-				if (!res.ok) throw new Error("that file is no longer available");
+				if (!res.ok) throw new Error(m["chat.uploaded.gone"]());
 				sidePane.openPreview(
 					await slidesPayloadFor(file.name, new Uint8Array(await res.arrayBuffer()))
 				);
 			}
 		} catch (err) {
-			officeError = err instanceof Error ? err.message : "the preview is unavailable";
+			officeError = err instanceof Error ? err.message : m["chat.uploaded.preview_unavailable"]();
 		} finally {
 			officeBusy = false;
 		}
@@ -124,17 +126,19 @@
 	}
 </script>
 
+{#snippet link(text: string)}<a href={`${base}/settings`} class="underline">{text}</a>{/snippet}
+
 {#if showModal && isClickable}
 	<!-- show the image file full screen, click outside to exit -->
 	<Modal width="xl:max-w-[75dvw]" onclose={() => (showModal = false)}>
 		{#if isImage(file.mime)}
 			{#if file.type === "hash"}
-				<img src={outputBase + "/" + file.value} alt="input from user" class="aspect-auto" />
+				<img src={outputBase + "/" + file.value} alt={m["chat.uploaded.input_alt"]()} class="aspect-auto" />
 			{:else}
 				<!-- handle the case where this is a base64 encoded image -->
 				<img
 					src={`data:${file.mime};base64,${file.value}`}
-					alt="input from user"
+					alt={m["chat.uploaded.input_alt"]()}
 					class="aspect-auto"
 				/>
 			{/if}
@@ -146,8 +150,7 @@
 				</div>
 				{#if file.mime === "application/vnd.chatui.clipboard"}
 					<p class="text-sm text-gray-500">
-						If you would rather paste long text straight into the chat, you can turn this off in the
-						<a href={`${base}/settings`} class="underline">settings page</a>.
+						<Rich parts={m["chat.uploaded.paste_hint"].parts()} tags={{ link }} />
 					</p>
 				{/if}
 				<button
@@ -241,7 +244,7 @@
 						{truncateMiddle(file.name, 28)}
 					</dd>
 					{#if file.mime === "application/vnd.chatui.clipboard"}
-						<dt class="text-xs text-gray-400">Pasted text</dt>
+						<dt class="text-xs text-gray-400">{m["chat.uploaded.pasted"]()}</dt>
 					{:else}
 						<dt class="text-xs text-gray-400">{file.mime}</dt>
 					{/if}
@@ -261,7 +264,7 @@
 					<dd class="text-sm">
 						{truncateMiddle(file.name, 28)}
 					</dd>
-					<dt class="text-xs text-gray-400">Could not tell what kind of file this is</dt>
+					<dt class="text-xs text-gray-400">{m["chat.uploaded.unknown_kind"]()}</dt>
 				</dl>
 				<a
 					href={file.type === "base64"
@@ -290,7 +293,7 @@
 					{#if officeError}
 						<dt class="text-xs text-amber-600 dark:text-amber-400">{officeError}</dt>
 					{:else if officeBusy}
-						<dt class="text-xs text-gray-400">Preparing preview…</dt>
+						<dt class="text-xs text-gray-400">{m["chat.uploaded.preparing"]()}</dt>
 					{:else}
 						<dt class="text-xs text-gray-400">{file.mime}</dt>
 					{/if}
