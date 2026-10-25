@@ -123,4 +123,6 @@ nav:
       - "The /code panel": code-panel.md
   - Reference:
       - reference.md
-  - Development: development.md
+  - Development:
+      - development.md
+      - "Writing the interface": writing.md

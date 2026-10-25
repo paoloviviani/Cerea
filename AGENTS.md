@@ -7,6 +7,10 @@ negotiable, how a change is made, verified and released, the traps that have
 already cost time, and the open items. This file is the detailed reference
 for each subsystem.
 
+**Interface text** (labels, toasts, errors, empty states, tooltips) follows
+[docs/writing.md](docs/writing.md): plain language, sentence case, and its
+term list. Read it before adding or extracting any string.
+
 ## Overview
 
 Cerea is a SvelteKit application that provides a chat interface for LLMs. A hard fork of huggingface/chat-ui: it no longer tracks or merges upstream, and nothing in it is kept for upstream's sake. The app speaks exclusively to OpenAI-compatible APIs via `OPENAI_BASE_URL`.
