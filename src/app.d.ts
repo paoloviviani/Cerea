@@ -25,6 +25,8 @@ declare global {
 			location?: { lat: number; lon: number; accuracy?: number };
 			/** The MCP servers this turn runs with (`mcpLocalsFor`). */
 			mcp?: McpLocals;
+			/** The language this request is rendered in (`$lib/i18n/resolve`); set for page requests. */
+			locale?: import("$lib/i18n/resolve").Locale;
 		}
 
 		interface Error {

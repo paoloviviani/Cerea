@@ -16,6 +16,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { formatNumber } from "$lib/i18n/format";
 	import * as s from "$lib/components/overlay/styles";
 	import { KNOWLEDGE_ACCEPT, MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 	import {
@@ -50,7 +51,7 @@
 		"Folders can't be added. Whole documents go into every prompt in this project, so add the individual files you want.";
 
 	const tokens = (chars: number) => Math.round(chars / PROJECT_DOCUMENT_CHARS_PER_TOKEN);
-	const number = (n: number) => n.toLocaleString("en-US");
+	const number = (n: number) => formatNumber(n);
 	const percent = $derived(Math.min(100, (used / PROJECT_DOCUMENTS_MAX_CHARS) * 100));
 	const warn = $derived(used > PROJECT_DOCUMENTS_WARN_CHARS);
 

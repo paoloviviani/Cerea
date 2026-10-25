@@ -1,3 +1,4 @@
+import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import Icons from "unplugin-icons/vite";
@@ -137,6 +138,10 @@ export default defineConfig({
 		),
 	},
 	plugins: [
+		// Compiles messages/{locale}.json into typed message functions before anything
+		// imports them, in dev and in build. The options live in
+		// project.inlang/paraglide.config.ts, shared with the `i18n:*` scripts.
+		paraglideVitePlugin({ project: "./project.inlang" }),
 		tailwindcss(),
 		sveltekit(),
 		Icons({

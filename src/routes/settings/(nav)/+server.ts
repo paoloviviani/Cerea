@@ -2,6 +2,7 @@ import { collections } from "$lib/server/database";
 import { z } from "zod";
 import { locationSettingsFields } from "$lib/utils/location";
 import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
+import { localeFields, localePatch } from "$lib/server/localeSettings";
 import { authCondition } from "$lib/server/auth";
 import { GLOBAL_SYSTEM_PROMPT_MAX } from "$lib/types/CustomModel";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
@@ -44,12 +45,13 @@ const settingsSchema = z.object({
 	billingOrganization: z.string().optional(),
 	...locationSettingsFields,
 	...paletteFields,
+	...localeFields,
 });
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const body = await request.json();
 
-	const { accent, neutral, ...parsedSettings } = settingsSchema.parse(body);
+	const { accent, neutral, locale, ...parsedSettings } = settingsSchema.parse(body);
 	const streamingMode = resolveStreamingMode(parsedSettings);
 
 	const settings = {
@@ -63,6 +65,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			$set: {
 				...settings,
 				...palettePatch({ accent, neutral }),
+				...localePatch({ locale }),
 				updatedAt: new Date(),
 			},
 			$setOnInsert: {

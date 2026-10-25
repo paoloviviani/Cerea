@@ -8,7 +8,7 @@ module.exports = {
 		"prettier",
 	],
 	plugins: ["@typescript-eslint"],
-	ignorePatterns: ["*.cjs"],
+	ignorePatterns: ["*.cjs", "src/lib/paraglide/"],
 	overrides: [
 		{
 			files: ["*.svelte"],

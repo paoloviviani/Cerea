@@ -21,6 +21,8 @@ import {
 } from "$lib/server/codeEnabled";
 import { isGotenbergEnabled } from "$lib/server/office/gotenberg";
 import { resolveWebSearchFor } from "$lib/server/webSearch/config";
+import { pseudoLocaleEnabled } from "$lib/server/localeSettings";
+import { baseLocale } from "$lib/i18n/resolve";
 import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = async ({ locals }) => {
@@ -42,6 +44,11 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 	// five minutes before it hides the row.
 	const codeAllowed = await codeAgentsAllowedFor(locals);
 	return {
+		// The language this request was rendered in (hooks.server.ts decided it): the
+		// browser adopts it before its first render so hydration matches the HTML.
+		locale: locals.locale ?? baseLocale,
+		// Whether the pseudo-locale may be offered in the language selector.
+		pseudoLocaleEnabled: pseudoLocaleEnabled(),
 		webSearchAvailable,
 		gatewayIsAdmin: identity?.isAdmin === true,
 		// Threaded the same way `gatewayIsAdmin` is (see +layout.ts): the
