@@ -287,7 +287,7 @@
 							<span
 								class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300"
 							>
-								from .env
+								Set in the .env file
 							</span>
 							<span class="text-xs text-gray-500">
 								{server.status === "connected"
