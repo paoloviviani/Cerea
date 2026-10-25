@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import ChatWindow from "$lib/components/chat/ChatWindow.svelte";
 	import { consumePendingFiles } from "$lib/utils/pendingFiles";
 	import { isAborted } from "$lib/stores/isAborted";
@@ -271,7 +272,7 @@
 				const messageToRetry = messages.find((message) => message.id === messageId);
 
 				if (!messageToRetry) {
-					$error = "Message not found";
+					$error = m["chat.page.not_found"]();
 				}
 
 				if (messageToRetry?.from === "user" && prompt) {
@@ -345,7 +346,7 @@
 			const userMessage = messages.find((message) => message.id === messageId);
 			const messageToWriteTo = messages.find((message) => message.id === messageToWriteToId);
 			if (!messageToWriteTo) {
-				throw new Error("Message to write to not found");
+				throw new Error(m["chat.page.write_target_missing"]());
 			}
 
 			const streamingMode = resolveStreamingMode($settings);
@@ -440,7 +441,7 @@
 						const next = encodeURIComponent(`${base}/conversation/${convId}`);
 						window.location.assign(`${base}/login?next=${next}`);
 					} else {
-						$error = update.message ?? "Something went wrong. Try again.";
+						$error = update.message ?? ERROR_MESSAGES.default;
 					}
 				},
 			});
@@ -448,7 +449,7 @@
 			if ($isAborted || (err instanceof DOMException && err.name === "AbortError")) {
 				// User-initiated abort, not an error
 			} else if (err instanceof Error && err.message.includes("overloaded")) {
-				$error = "Too many people are using this right now. Try again in a moment.";
+				$error = m["chat.page.overloaded"]();
 			} else if (err instanceof Error && err.message.includes("429")) {
 				$error = ERROR_MESSAGES.rateLimited;
 			} else if (err instanceof Error) {
@@ -540,7 +541,7 @@
 						noteServerNow(update.serverNow);
 					},
 					onError: (update) => {
-						$error = update.message ?? "Something went wrong. Try again.";
+						$error = update.message ?? ERROR_MESSAGES.default;
 					},
 				}
 			);
@@ -630,7 +631,7 @@
 				} catch (err) {
 					if (attempt === delays.length - 1) {
 						console.error("Failed to stop generation", err);
-						$error = "Could not stop the reply. Try again.";
+						$error = m["chat.page.stop_failed"]();
 					}
 				}
 			}

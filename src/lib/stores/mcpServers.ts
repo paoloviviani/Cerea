@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * MCP Servers Store
  * Manages base (env-configured) MCP servers. User-added custom servers were
@@ -296,7 +297,7 @@ export async function healthCheckServer(
 			return { ready: false, error: result.error };
 		}
 	} catch (error) {
-		const errorMessage = error instanceof Error ? error.message : "Unknown error";
+		const errorMessage = error instanceof Error ? error.message : m["chat.errors.unknown"]();
 		updateServerStatus(server.id, "error", errorMessage);
 		return { ready: false, error: errorMessage };
 	}

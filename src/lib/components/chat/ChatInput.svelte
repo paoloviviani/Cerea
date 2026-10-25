@@ -28,7 +28,7 @@
 
 	import {
 		composeDictation,
-		DICTATION_SILENT_END_MESSAGE,
+		dictationSilentEndMessage,
 		dictationOffered,
 		parseDictationMode,
 		dictationAnchor,
@@ -722,7 +722,7 @@
 			const endedBySelf = listening;
 			recognition = null;
 			listening = false;
-			if (endedBySelf && !heardSomething) errorToast.set(DICTATION_SILENT_END_MESSAGE);
+			if (endedBySelf && !heardSomething) errorToast.set(dictationSilentEndMessage());
 		};
 		recognition = rec;
 		listening = true;

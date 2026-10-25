@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 import { base } from "$app/paths";
 import { FILE_PREVIEW_MAX_BYTES } from "./filePreview";
 import type { FencePreview } from "$lib/stores/sidePane.svelte";
@@ -28,7 +29,9 @@ function dataUrlOf(blob: Blob): Promise<string> {
 		const reader = new FileReader();
 		reader.onload = () => resolve(reader.result as string);
 		reader.onerror = () =>
-			reader.error ? reject(reader.error) : reject(new Error("the preview is unavailable"));
+			reader.error
+				? reject(reader.error)
+				: reject(new Error(m["chat.uploaded.preview_unavailable"]()));
 		reader.readAsDataURL(blob);
 	});
 }

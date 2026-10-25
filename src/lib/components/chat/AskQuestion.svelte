@@ -158,7 +158,7 @@
 			</p>
 			{#if fields.length > 1}
 				<span class="shrink-0 text-xs text-gray-500 dark:text-gray-400">
-					{step + 1} of {fields.length}
+					{m["chat.ask.step"]({ step: step + 1, total: fields.length })}
 				</span>
 			{/if}
 		</div>

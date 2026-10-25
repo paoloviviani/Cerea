@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 import { base } from "$app/paths";
 import { elicitationToResume } from "$lib/stores/elicitationResume";
 import type { ElicitationAction, ElicitationValue } from "$lib/types/McpElicitation";
@@ -23,7 +24,7 @@ export async function sendElicitationAnswer({
 			body: JSON.stringify({ elicitationId, action, ...(content ? { content } : {}) }),
 		});
 	} catch {
-		return { ok: false, error: "Could not send your answer." };
+		return { ok: false, error: m["chat.errors.answer_not_sent"]() };
 	}
 
 	const body = await res.json().catch(() => null);
@@ -31,7 +32,7 @@ export async function sendElicitationAnswer({
 		const message = (body as { message?: unknown } | null)?.message;
 		return {
 			ok: false,
-			error: typeof message === "string" ? message : "Could not send your answer.",
+			error: typeof message === "string" ? message : m["chat.errors.answer_not_sent"](),
 		};
 	}
 

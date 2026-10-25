@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { goto, replaceState } from "$app/navigation";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
@@ -97,7 +98,7 @@
 				} catch {
 					// Response wasn't JSON (e.g., HTML error page)
 					if (res.status === 401) {
-						errorMessage = "Please sign in first.";
+						errorMessage = ERROR_MESSAGES.authOnly;
 					}
 				}
 				error.set(errorMessage);
@@ -133,7 +134,7 @@
 			// update once the LLM generates one.
 			convsStore.prepend({
 				id: conversationId,
-				title: "New Chat",
+				title: m["app.default_chat_title"](),
 				model,
 				updatedAt: new Date(),
 			});
@@ -176,7 +177,7 @@
 				if (result.errors.length > 0) {
 					console.error("Failed to load some attachments:", result.errors);
 					error.set(
-						`Failed to load ${result.errors.length} attachment(s). Check console for details.`
+						m["app.home.attachments_failed"]({ count: result.errors.length })
 					);
 				}
 
@@ -254,9 +255,9 @@
 	/>
 {:else}
 	<div class="mx-auto my-20 max-w-xl rounded-xl border p-6 text-center dark:border-gray-700">
-		<h2 class="mb-2 text-xl font-semibold">No models available</h2>
+		<h2 class="mb-2 text-xl font-semibold">{m["app.home.no_models"]()}</h2>
 		<p class="text-gray-600 dark:text-gray-300">
-			No models are available yet. Ask your administrator to set one up, then reload this page.
+			{m["app.home.no_models_detail"]()}
 		</p>
 	</div>
 {/if}

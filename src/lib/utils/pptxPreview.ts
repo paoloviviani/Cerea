@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * PowerPoint previews in the browser, for deployments without a converter
  * (the deploy kit's `office` profile off): pptx-glimpse draws each slide as an
@@ -142,7 +143,7 @@ export async function renderPptxPreview(
 		}
 		slides.push({ number: slide.slideNumber, src: toDataUrl(slide.svg) });
 	}
-	if (slides.length === 0) throw new Error("the deck has no slides this preview can draw");
+	if (slides.length === 0) throw new Error(m["chat.errors.no_slides"]());
 
 	const details = [
 		...new Set(
@@ -151,16 +152,13 @@ export async function renderPptxPreview(
 				.map((d) => d.message)
 		),
 	];
-	if (refused > 0) details.push(`${refused} slide(s) left out`);
+	if (refused > 0) details.push(m["chat.errors.slides_left_out"]({ count: refused }));
 	const cut = report.slides.length >= PPTX_PREVIEW_MAX_SLIDES;
-	if (cut) details.push(`only the first ${PPTX_PREVIEW_MAX_SLIDES} slides are shown`);
+	if (cut) details.push(m["chat.errors.slides_cut"]({ count: PPTX_PREVIEW_MAX_SLIDES }));
 
 	return {
 		slides,
 		details,
-		note:
-			details.length > 0
-				? "Approximate rendering: this deck uses features the browser preview does not draw. Download it for the real thing."
-				: null,
+		note: details.length > 0 ? m["chat.errors.approximate"]() : null,
 	};
 }

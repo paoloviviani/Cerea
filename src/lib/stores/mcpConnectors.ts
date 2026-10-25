@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * Which connectors this person has, and which are on for the next message
  * (ADR 0064).
@@ -454,7 +455,9 @@ export async function addConnector(input: NewConnector): Promise<McpConnectorVie
 	});
 	if (!response.ok) {
 		const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-		throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+		throw new Error(
+			parsed?.message ?? m["chat.errors.request_failed"]({ status: response.status })
+		);
 	}
 	const created = (await response.json()) as McpConnectorView;
 	await refreshConnectors();
