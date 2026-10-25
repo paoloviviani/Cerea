@@ -63,6 +63,13 @@ function projectView(overrides: Partial<ProjectView> = {}): ProjectView {
 const STORES = [
 	{ id: "a".repeat(24), name: "Call texts", file_counts: { completed: 3 }, owned: true },
 	{ id: "b".repeat(24), name: "Past proposals", file_counts: { completed: 9 }, owned: false },
+	{
+		id: "d".repeat(24),
+		name: "Chats of Annual report",
+		file_counts: { completed: 5 },
+		owned: true,
+		memory_of: { project_id: "proj-2", project_name: "Annual report" },
+	},
 ];
 
 const CHATS = [
@@ -326,6 +333,14 @@ describe("ProjectPage knowledge bases, after creation", () => {
 		byLabel("Detach Call texts")?.click();
 		await vi.waitFor(() => expect(seen).toHaveLength(2));
 		expect(seen[1].body).toEqual({ knowledgeBaseIds: [] });
+	});
+
+	it("never offers a project's chat memory as a base to attach", async () => {
+		stubApi({ project: projectView() });
+		mountExisting(false, "settings");
+		await vi.waitFor(() => expect(byLabel("Attach Call texts")).not.toBeNull());
+		expect(byLabel("Attach Chats of Annual report")).toBeNull();
+		expect(text()).not.toContain("Chats of Annual report");
 	});
 
 	it("searches the list, and links to the workspace to create a base", async () => {

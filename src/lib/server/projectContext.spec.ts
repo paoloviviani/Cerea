@@ -301,3 +301,30 @@ describe("projectContext: the five levels, in order", () => {
 		expect(stranger).not.toContain("LEVEL3");
 	});
 });
+
+describe("projectContext never searches a memory base as an attached base", () => {
+	it("skips a memory base found in the project's or the conversation's list", async () => {
+		const memoryOfOther = "d1d1d1d1d1d1d1d1d1d1d1d1";
+		const ordinary = "e1e1e1e1e1e1e1e1e1e1e1e1";
+		const { collections } = await import("$lib/server/database");
+		const other = makeProject({ name: "Other", memoryBaseId: memoryOfOther });
+		await collections.projects.insertOne(other);
+		try {
+			searchBaseMock.mockImplementation((baseId: string) =>
+				Promise.resolve({ data: hitsForBase(baseId) })
+			);
+			const own = "f1f1f1f1f1f1f1f1f1f1f1f1";
+			const project = makeProject({
+				knowledgeBaseIds: [ordinary, memoryOfOther, own],
+				indexPastChats: true,
+				memoryBaseId: own,
+			});
+			await projectContext(contextOptions({ project, knowledgeBaseIds: [memoryOfOther] }));
+			// The ordinary base once; another project's memory never; the
+			// project's own memory exactly once, as its own past chats.
+			expect(searchedBases().sort()).toEqual([ordinary, own].sort());
+		} finally {
+			await collections.projects.deleteOne({ _id: other._id });
+		}
+	});
+});

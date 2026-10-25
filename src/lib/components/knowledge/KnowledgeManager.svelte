@@ -56,7 +56,13 @@
 	// to the list inside the dialog.
 	let view = $state<View>(untrack(() => (initialId ? "detail" : "list")));
 
-	let stores = $state<VectorStore[]>([]);
+	// Everything the person can reach, memory bases included; the screen uses
+	// `knowledgeBases` and `memoryBases`, never this directly.
+	let allStores = $state<VectorStore[]>([]);
+	// A project's past-chat index is not one of the person's knowledge bases:
+	// listed apart, read-only, below.
+	const stores = $derived(allStores.filter((store) => !store.memory_of));
+	const memoryStores = $derived(allStores.filter((store) => store.memory_of));
 	let status = $state<KnowledgeStatus | null>(null);
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
@@ -73,7 +79,7 @@
 				gwGet<{ data: VectorStore[] }>("vector_stores"),
 				gwGet<KnowledgeStatus>("vector_stores/status"),
 			]);
-			stores = listed.data;
+			allStores = listed.data;
 			status = state;
 		} catch (err) {
 			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.unreachable"]();
@@ -253,7 +259,7 @@
 				gwGet<{ data: VectorStore[] }>("vector_stores"),
 				gwGet<KnowledgeStatus>("vector_stores/status"),
 			]);
-			stores = listed.data;
+			allStores = listed.data;
 			status = state;
 			if (current) {
 				const [base, docs] = await Promise.all([
@@ -693,6 +699,28 @@
 							{/each}
 						</div>
 					</div>
+				{/if}
+
+				{#if !loading && memoryStores.length > 0}
+					<details class="text-sm" data-testid="memory-bases">
+						<summary class="cursor-pointer text-ink-muted">
+							{m["knowledge.manager.memory.title"]({ count: memoryStores.length })}
+						</summary>
+						<p class="mt-2 text-xs text-ink-muted">{m["knowledge.manager.memory.detail"]()}</p>
+						<ul class="mt-2 space-y-1">
+							{#each memoryStores as store (store.id)}
+								<li class="flex flex-wrap items-center justify-between gap-2">
+									<span class="min-w-0 truncate">{store.memory_of?.project_name}</span>
+									<a
+										href="{appBase}/projects/{store.memory_of?.project_id}"
+										class="text-xs text-accent"
+									>
+										{m["knowledge.manager.memory.open"]()}
+									</a>
+								</li>
+							{/each}
+						</ul>
+					</details>
 				{/if}
 
 				<div class={s.TIPS}>

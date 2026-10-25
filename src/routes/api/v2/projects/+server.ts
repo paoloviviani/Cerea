@@ -17,6 +17,7 @@
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
+import { rejectMemoryBases } from "$lib/server/knowledge/memoryBases";
 import { knowledgeBaseId, listProjects, projectView, viewerPrincipals } from "$lib/server/projects";
 import type { Project } from "$lib/types/Project";
 import { ObjectId } from "mongodb";
@@ -56,6 +57,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	if (!parsed.success) {
 		error(400, parsed.error.issues[0]?.message ?? "That project is not valid.");
 	}
+	await rejectMemoryBases(parsed.data.knowledgeBaseIds);
 	const now = new Date();
 	const project: Project = {
 		_id: new ObjectId(),
