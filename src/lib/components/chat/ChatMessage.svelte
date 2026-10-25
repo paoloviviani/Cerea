@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { THINK_CLOSE, THINK_OPEN, thinkBlockWholePattern } from "$lib/utils/thinkTags";
 	import { m } from "$lib/paraglide/messages";
 	import type { Message } from "$lib/types/Message";
 	import { ToolResultStatus } from "$lib/types/Tool";
@@ -292,8 +293,8 @@
 	let editContentEl: HTMLTextAreaElement | undefined = $state();
 	let editFormEl: HTMLFormElement | undefined = $state();
 
-	// Zero-config reasoning autodetection: detect <think> blocks in content
-	const THINK_BLOCK_REGEX = /(<think>[\s\S]*?(?:<\/think>|$))/gi;
+	// Zero-config reasoning autodetection: detect think blocks in content
+	const THINK_BLOCK_REGEX = thinkBlockWholePattern("gi");
 
 	// Strip think blocks and artifact tags for clipboard copy (always, regardless of detection)
 	let contentWithoutThink = $derived.by(() =>
@@ -360,7 +361,7 @@
 		| { kind: "files"; files: PersistedDeliverableRef[] }
 		| { kind: "subagent"; uuid: string; anchor: CodeSubagentAnchor; updates: MessageToolUpdate[] };
 
-	// Expand any text block containing <think>…</think> into dedicated think blocks
+	// Expand any text block containing a think block into dedicated think blocks
 	// so reasoning can be grouped/collapsed separately from the answer text.
 	function expandThinkBlocks(input: Block[]): Block[] {
 		const out: Block[] = [];
@@ -371,9 +372,13 @@
 			}
 			for (const part of block.content.split(THINK_BLOCK_REGEX)) {
 				if (!part) continue;
-				if (part.startsWith("<think>")) {
-					const closed = part.endsWith("</think>");
-					out.push({ type: "think", content: part.slice(7, closed ? -8 : undefined), closed });
+				if (part.startsWith(THINK_OPEN)) {
+					const closed = part.endsWith(THINK_CLOSE);
+					out.push({
+						type: "think",
+						content: part.slice(THINK_OPEN.length, closed ? -THINK_CLOSE.length : undefined),
+						closed,
+					});
 				} else if (part.trim().length > 0) {
 					out.push({ type: "text", content: part });
 				}

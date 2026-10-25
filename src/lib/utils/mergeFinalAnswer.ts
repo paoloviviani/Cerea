@@ -87,7 +87,7 @@ export function finalAnswerAlreadyStreamed(streamed: string, finalText: string):
 	const trimmedFinalSuffix = normFinal.replace(/\s+$/, "");
 	// Whitespace-free form for the step-break case: after a tool, the server
 	// inserts a paragraph break where the next step's visible text starts,
-	// which for a reasoning model is right after `</think>` — inside the
+	// which for a reasoning model is right after the closing think tag — inside the
 	// final text, not at its edges. Without this the final answer reads as
 	// new and is appended a second time.
 	const squashedFinal = squashWhitespace(normFinal);

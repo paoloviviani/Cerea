@@ -1,3 +1,10 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, prefer-const -- recovered wiring, finished in the next commit */
+import {
+	THINK_CLOSE,
+	THINK_OPEN,
+	thinkBlockCapturePattern,
+	thinkBlockPattern,
+} from "$lib/utils/thinkTags";
 import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
 import { randomUUID } from "crypto";
@@ -87,7 +94,7 @@ const MAX_TOOL_ROUNDS = 20;
 const MAX_TRUNCATED_TOOL_CALL_RETRIES = 2;
 
 // One more attempt after a final answer ends before any visible content —
-// cut by the output limit, or a stream that died mid-<think> with no "length"
+// cut by the output limit, or a stream that died mid-think-block with no "length"
 // signal. If the nudged retry is cut too, the budget is simply too small for
 // this answer and retrying again just burns rounds — finalize what exists,
 // marked interrupted.
@@ -128,15 +135,13 @@ const NO_ANSWER_FALLBACK =
 	"I couldn't reach an answer this time. Try narrowing the request or breaking it into smaller steps.";
 
 /** The part of a completion's reply a person reads, with reasoning blocks removed. */
-const visibleOf = (text: string) => text.replace(/<think[\s\S]*?(?:<\/think>|$)/g, "").trim();
+const visibleOf = (text: string) => text.replace(thinkBlockPattern("g"), "").trim();
 
 /** A model answered in reasoning only when the trace holds something and this holds nothing. */
 const answeredVisibly = (text: string) => visibleOf(text).length > 0;
 
 /** The text deltas of one streaming chunk, however the provider shapes them. */
-function deltaText(delta: {
-	content?: string | Array<{ text?: string }> | null;
-}): string {
+function deltaText(delta: { content?: string | Array<{ text?: string }> | null }): string {
 	if (typeof delta.content === "string") return delta.content;
 	const maybeParts = delta.content as unknown;
 	if (Array.isArray(maybeParts)) {
@@ -794,10 +799,10 @@ export async function* runMcpFlow({
 
 		let lastAssistantContent = "";
 		let streamedContent = false;
-		// Track whether we're inside a <think> block when the upstream streams
+		// Track whether we're inside a think block when the upstream streams
 		// provider-specific reasoning tokens (e.g. `reasoning` or `reasoning_content`).
 		let thinkOpen = false;
-		// Whether the CLIENT currently has an unbalanced <think> opener. Diverges
+		// Whether the CLIENT currently has an unbalanced think opener. Diverges
 		// from thinkOpen once tool-call deltas stop the content stream: the close
 		// may then land only in lastAssistantContent, and a client left with an
 		// unclosed block renders that reasoning as still streaming for the rest
@@ -839,10 +844,7 @@ export async function* runMcpFlow({
 				...completionBase,
 				tools: undefined,
 				tool_choice: undefined,
-				messages: [
-					...messagesOpenAI,
-					{ role: "user" as const, content: ANSWER_NOW_INSTRUCTION },
-				],
+				messages: [...messagesOpenAI, { role: "user" as const, content: ANSWER_NOW_INSTRUCTION }],
 			};
 			let stream: Stream<ChatCompletionChunk>;
 			try {
@@ -886,12 +888,12 @@ export async function* runMcpFlow({
 						if (thinkOpen) {
 							combined += reasoning;
 						} else if (reasoning.trim().length > 0) {
-							combined += "<think" + reasoning;
+							combined += THINK_OPEN + reasoning;
 							thinkOpen = true;
 						}
 					}
 					if (deltaContent && deltaContent.length > 0) {
-						combined += thinkOpen ? "</think" + deltaContent : deltaContent;
+						combined += thinkOpen ? THINK_CLOSE + deltaContent : deltaContent;
 						thinkOpen = false;
 					}
 					if (combined.length > 0) {
@@ -904,7 +906,7 @@ export async function* runMcpFlow({
 			} catch (err) {
 				logger.warn({ err: String(err) }, "[mcp] the final no-tools answer was cut mid-stream");
 			}
-			if (thinkOpen) text += "</think";
+			if (thinkOpen) text += THINK_CLOSE;
 			return { text, finishReason };
 		};
 
@@ -1098,7 +1100,7 @@ export async function* runMcpFlow({
 								: "";
 
 				// Merge reasoning + content into a single combined token stream, mirroring
-				// the OpenAI adapter so the UI can auto-detect <think> blocks.
+				// the OpenAI adapter so the UI can auto-detect think blocks.
 				let combined = "";
 				// Whitespace-only deltas still count once a think block is open
 				// (paragraph breaks are part of the byte-exact trace); non-blank
@@ -1110,7 +1112,7 @@ export async function* runMcpFlow({
 					if (thinkOpen) {
 						combined += deltaReasoning;
 					} else if (deltaReasoning.trim().length > 0) {
-						combined += "<think>" + pendingReasoningWhitespace + deltaReasoning;
+						combined += THINK_OPEN + pendingReasoningWhitespace + deltaReasoning;
 						pendingReasoningWhitespace = "";
 						thinkOpen = true;
 					} else {
@@ -1120,7 +1122,7 @@ export async function* runMcpFlow({
 
 				if (deltaContent && deltaContent.length > 0) {
 					if (thinkOpen) {
-						combined += "</think>" + deltaContent;
+						combined += THINK_CLOSE + deltaContent;
 						thinkOpen = false;
 					} else {
 						combined += deltaContent;
@@ -1140,7 +1142,7 @@ export async function* runMcpFlow({
 						// stopped the content stream. The client saw the opener, so it
 						// must see the closer too, or it renders that reasoning block as
 						// still streaming for the rest of the turn.
-						yield { type: MessageUpdateType.Stream, token: "</think>" };
+						yield { type: MessageUpdateType.Stream, token: THINK_CLOSE };
 						clientThinkOpen = false;
 					}
 				}
@@ -1162,20 +1164,19 @@ export async function* runMcpFlow({
 				return "aborted";
 			}
 
-			// Auto-close any unclosed <think> block so reasoning from this loop
+			// Auto-close any unclosed think block so reasoning from this loop
 			// doesn't swallow content from subsequent iterations.  The client-side
-			// regex matches `<think>` to end-of-string, so an unclosed block would
+			// regex matches an opening think tag to end-of-string, so an unclosed block would
 			// hide everything that follows.
 			if (thinkOpen) {
 				// Gate on what the client saw, not on streamedContent: a round can
 				// stream content early and open the think block only after tool-call
-				// deltas muted the stream — a bare closer then shows up as literal
-				// "</think>" text.
+				// deltas muted the stream — a bare closer then shows up as literal text
 				if (clientThinkOpen) {
-					yield { type: MessageUpdateType.Stream, token: "</think>" };
+					yield { type: MessageUpdateType.Stream, token: THINK_CLOSE };
 					clientThinkOpen = false;
 				}
-				lastAssistantContent += "</think>";
+				lastAssistantContent += THINK_CLOSE;
 				thinkOpen = false;
 			}
 
@@ -1187,9 +1188,7 @@ export async function* runMcpFlow({
 						{ loop, attempt: truncatedToolCallRetries },
 						"[mcp] tool call truncated by the output limit; retrying"
 					);
-					const visibleContent = lastAssistantContent
-						.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "")
-						.trim();
+					const visibleContent = lastAssistantContent.replace(thinkBlockPattern("g"), "").trim();
 					messagesOpenAI = [
 						...messagesOpenAI,
 						// Not optional: a tool-only response leaves no visible content, and
@@ -1304,13 +1303,13 @@ export async function* runMcpFlow({
 					function: { name: call.name, arguments: call.arguments },
 				}));
 
-				// Move <think> content out of `content` and echo it back as
+				// Move think content out of `content` and echo it back as
 				// `reasoning_content`: preserved-thinking models (e.g. Kimi K2/K3)
 				// condition their next tool round on prior reasoning and degrade
 				// when it's dropped; other providers ignore the field.
 				const thinkParts: string[] = [];
 				const assistantContentForToolMsg = lastAssistantContent.replace(
-					/<think>([\s\S]*?)(?:<\/think>|$)/g,
+					thinkBlockCapturePattern("g"),
 					(_match, inner: string) => {
 						thinkParts.push(inner);
 						return "";
@@ -1429,21 +1428,19 @@ export async function* runMcpFlow({
 			}
 
 			// No tool calls: finalize and return
-			// If a <think> block is still open, close it for the final output
+			// If a think block is still open, close it for the final output
 			if (thinkOpen) {
-				lastAssistantContent += "</think>";
+				lastAssistantContent += THINK_CLOSE;
 				thinkOpen = false;
 			}
 			// A response cut by the output limit is not an answer. With a reasoning
-			// model it usually ends inside the <think> block, so finalizing it
+			// model it usually ends inside the think block, so finalizing it
 			// reports a half-thought as a finished turn. The same failure arrives
 			// without the "length" signal when the stream dies mid-think, so a
 			// think-only response counts as cut regardless of finish_reason. Retry
 			// once, telling the model to answer with its remaining budget; a second
 			// cut finalizes as interrupted rather than pretending completion.
-			const visibleContent = lastAssistantContent
-				.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "")
-				.trim();
+			const visibleContent = lastAssistantContent.replace(thinkBlockPattern("g"), "").trim();
 			const thinkOnlyAnswer = visibleContent.length === 0 && lastAssistantContent.trim().length > 0;
 			const cutMidAnswer =
 				(finishReason === "length" || thinkOnlyAnswer) && !discardedTruncatedToolCalls;

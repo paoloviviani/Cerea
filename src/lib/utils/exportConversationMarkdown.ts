@@ -25,7 +25,7 @@ import { isMessageToolCallUpdate } from "$lib/utils/messageUpdates";
  *   collapsed on GitHub and elsewhere — mirroring the UI's collapsed
  *   "Thinking" block.
  * - Both reasoning sources are included — the `reasoning` field AND inline
- *   `<think>` blocks — deduplicated: when the UI folded one into the other
+ *   think blocks — deduplicated: when the UI folded one into the other
  *   the export keeps a single copy.
  * - `<artifact>` tag chrome is dropped and create/rewrite bodies are kept as
  *   fenced code with their language; update operations become a one-line
@@ -90,7 +90,7 @@ function normalizeWhitespace(text: string): string {
 
 /**
  * Merge the two reasoning sources, dropping exact duplicates. The UI folds
- * the `reasoning` field and `<think>` blocks together, so when one already
+ * the `reasoning` field and think blocks together, so when one already
  * contains the other only a single copy is kept.
  */
 export function collectReasoning(message: Message): string[] {
@@ -166,7 +166,7 @@ export function collectExecutedFiles(message: Message): string[] {
 }
 
 /**
- * Render the answer body: `<think>` blocks removed (they live in the
+ * Render the answer body: think blocks removed (they live in the
  * reasoning section), `<artifact>` operations converted per the module
  * policy. All other text is verbatim.
  */

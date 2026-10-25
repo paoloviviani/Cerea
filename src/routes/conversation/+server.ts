@@ -1,3 +1,4 @@
+import { thinkTagPattern } from "$lib/utils/thinkTags";
 import type { RequestHandler } from "./$types";
 import { collections } from "$lib/server/database";
 import { ObjectId } from "mongodb";
@@ -191,7 +192,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	}
 
 	// Always store sanitized titles
-	const storedTitle = (title || "New Chat").replace(/<\/?think>/gi, "").trim();
+	const storedTitle = (title || "New Chat").replace(thinkTagPattern("gi"), "").trim();
 	const now = new Date();
 
 	const res = await collections.conversations.insertOne({

@@ -1,3 +1,4 @@
+import { THINK_CLOSE, THINK_OPEN, thinkTagPattern } from "$lib/utils/thinkTags";
 import {
 	MessageReasoningUpdateType,
 	MessageToolUpdateType,
@@ -34,8 +35,6 @@ export interface AppliedUpdate {
 
 const SKIPPED: AppliedUpdate = { skipped: true, titleChanged: false, finalAnswerReceived: false };
 
-const THINK_CLOSE = "</think>";
-
 /**
  * Join two consecutive tool-loop steps' text with a paragraph break.
  *
@@ -52,7 +51,7 @@ export function joinStepText(existing: string, next: string): string {
 
 /** The break {@link joinStepText} inserts: `"\n\n"` or `""`. */
 export function stepSeparator(existing: string, next: string): string {
-	// Visible text is what counts: a step of pure `<think>` reasoning is an
+	// Visible text is what counts: a step of pure think-block reasoning is an
 	// empty segment, and so is a message that holds nothing but reasoning.
 	if (stripThink(existing).trim().length === 0) return "";
 	if (stripThink(next).trim().length === 0) return "";
@@ -62,7 +61,7 @@ export function stepSeparator(existing: string, next: string): string {
 
 /**
  * A tool-loop step whose first visible words have not arrived yet: whether
- * the message is inside a `<think>` block right now, and any tag prefix a
+ * the message is inside a think block right now, and any tag prefix a
  * token ended on ("<thi"), which only the next token can settle. Set when a
  * tool update passes, dropped once that step's answer starts. Kept beside the
  * message and advanced one token at a time, never recomputed from the whole
@@ -76,11 +75,9 @@ interface PendingStep {
 }
 const pendingSteps = new WeakMap<Message, PendingStep>();
 
-const THINK_OPEN = "<think>";
-
 /**
  * Advance `step` over `token`; the index in `token` where the step's first
- * visible (non-blank, outside `<think>`) character lands, or -1 while it is
+ * visible (non-blank, outside a think block) character lands, or -1 while it is
  * still reasoning or blank. The same case-sensitive tags {@link stripThink}
  * recognises, so the two agree on what is visible.
  */
@@ -189,7 +186,7 @@ export function applyUpdateToMessage(
 		message.reasoning += event.token;
 	} else if (event.type === MessageUpdateType.Title) {
 		// A reasoning model will put think markers in a title if nothing removes them.
-		conv.title = event.title.replace(/<\/?think>/gi, "").trim();
+		conv.title = event.title.replace(thinkTagPattern("gi"), "").trim();
 		titleChanged = true;
 	} else if (event.type === MessageUpdateType.FinalAnswer) {
 		message.interrupted = event.interrupted;
@@ -224,7 +221,7 @@ export function applyUpdateToMessage(
 			// permanently.
 			const trimmedFinalSuffix = normFinal.replace(/\s+$/, "");
 			// The step break this function inserts after a tool lands right after
-			// `</think>` for a reasoning model — inside the final text, not at its
+			// a closing think tag for a reasoning model — inside the final text, not at its
 			// edges — so compare whitespace-free too, or the answer is stored twice.
 			const squash = (text: string): string => text.replace(/\s+/g, "");
 			const squashedFinal = squash(normFinal);

@@ -17,6 +17,7 @@
  * its later live tail render identically.
  */
 
+import { THINK_CLOSE, THINK_OPEN } from "$lib/utils/thinkTags";
 import {
 	MessageElicitationUpdateType,
 	MessageToolUpdateType,
@@ -250,7 +251,7 @@ function backgroundTaskUpdate(
  * How an agent's thinking reaches the panel: the chat's own wire shape.
  *
  * The chat folds a model's reasoning into the answer stream wrapped in
- * `<think>…</think>` (`runMcpFlow` does it for provider `reasoning` deltas),
+ * the think tag (`runMcpFlow` does it for provider `reasoning` deltas),
  * and `ChatMessage` already splits that into a collapsible "Thinking" block
  * beside the answer text — collapsed once the turn is over, stripped from the
  * copy button. The agent view renders through the same component, so
@@ -263,8 +264,6 @@ function backgroundTaskUpdate(
  * closed lazily, by the next frame that is not more reasoning (an answer
  * token, a tool call, a turn state, the next message).
  */
-const THINK_OPEN = "<think>";
-const THINK_CLOSE = "</think>";
 
 export interface ThinkingState {
 	/** Part id → what its text is, learned from `part` events. */
@@ -275,7 +274,7 @@ export interface ThinkingState {
 	 * the message) ends first, so a part the machine never announced loses
 	 * nothing. */
 	held: Map<string, string>;
-	/** The part whose `<think>` block is open on the client, if any. */
+	/** The part whose think block is open on the client, if any. */
 	openPart: string | null;
 	/** The last todo list this stream sent, per session (content, status,
 	 * priority): opencode re-publishes `todo.updated` with an unchanged list,
@@ -466,7 +465,7 @@ function partToUpdates(
 			return [update];
 		}
 		// A reload finds the whole part: its thinking, closed, in the chat's
-		// own `<think>` wrapping (see `ThinkingState`).
+		// own think-tag wrapping (see `ThinkingState`).
 		case "reasoning":
 			return part.text ? [streamToken(THINK_OPEN + part.text + THINK_CLOSE)] : [];
 		// file/subtask: the diff pane and the polled subagent roster are the

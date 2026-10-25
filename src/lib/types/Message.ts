@@ -20,7 +20,7 @@ export type Message = Partial<Timestamps> & {
 	content: string;
 	updates?: MessageUpdate[];
 
-	// Optional server or client-side reasoning content (<think> blocks)
+	// Optional server or client-side reasoning content (inside the think tag)
 	reasoning?: string;
 	score?: -1 | 0 | 1;
 

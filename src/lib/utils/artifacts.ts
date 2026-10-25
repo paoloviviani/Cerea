@@ -1,3 +1,4 @@
+import { thinkBlockPattern } from "$lib/utils/thinkTags";
 import type { Message } from "$lib/types/Message";
 
 /**
@@ -364,11 +365,11 @@ export function collectArtifacts(
 	for (const message of messages) {
 		if (message.from !== "assistant" || !message.content.includes("<artifact")) continue;
 
-		// Drop <think> reasoning before parsing: models rehearse artifact tags in
+		// Drop think reasoning before parsing: models rehearse artifact tags in
 		// there, which must not become phantom versions. Mirrors ChatMessage,
 		// which splits think blocks out before expanding artifact cards, keeping
 		// opIndex numbering consistent between the two.
-		const visibleContent = message.content.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, "");
+		const visibleContent = message.content.replace(thinkBlockPattern("gi"), "");
 
 		let opIndex = 0;
 		for (const segment of splitArtifactSegments(visibleContent)) {
