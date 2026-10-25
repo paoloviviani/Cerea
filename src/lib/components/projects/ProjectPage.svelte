@@ -228,7 +228,11 @@
 		try {
 			// The bases this person can reach, for the picker. Not fatal: a
 			// project without knowledge bases is still a project.
-			stores = (await gwGet<{ data: VectorStore[] }>("vector_stores")).data;
+			// A project's own past-chat index is listed too; it is never
+			// attachable (server refuses it), so it is not offered.
+			stores = (await gwGet<{ data: VectorStore[] }>("vector_stores")).data.filter(
+				(store) => !store.memory_of
+			);
 		} catch (err) {
 			if (!(err instanceof GatewayError)) throw err;
 		}

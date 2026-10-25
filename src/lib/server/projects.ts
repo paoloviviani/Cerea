@@ -45,6 +45,7 @@ import { logger } from "$lib/server/logger";
 import { gateway, type GatewayGroup, type GatewaySearchHit } from "$lib/server/gatewayServer";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { conversationSourceRef } from "$lib/server/knowledge/deleteDerived";
+import { rejectMemoryBases, withoutMemoryBases } from "$lib/server/knowledge/memoryBases";
 import {
 	callerFrom,
 	reachableStores,
@@ -229,7 +230,8 @@ export async function projectView(access: ProjectAccess): Promise<ProjectView> {
 		name: project.name,
 		description: project.description ?? "",
 		instructions: project.instructions,
-		knowledgeBaseIds: project.knowledgeBaseIds,
+		// Memory bases are not attachable; existing data may still hold one.
+		knowledgeBaseIds: await withoutMemoryBases(project.knowledgeBaseIds),
 		indexPastChats: project.indexPastChats,
 		hasMemory: Boolean(project.memoryBaseId),
 		retrievalLimit: project.retrievalLimit,
@@ -339,7 +341,13 @@ export async function projectContext(options: {
 	const conversationBases = options.knowledgeBaseIds ?? [];
 	// The memory base is searched only while the feature is on, so turning it
 	// off stops retrieval without detaching anything a person attached by hand.
-	const bases = [...(project?.knowledgeBaseIds ?? []), ...conversationBases];
+	// Attached bases never include a memory base: existing data may carry one
+	// (it once could be attached), and searching it here would read a project's
+	// chats twice, or another project's chats outright.
+	const bases = await withoutMemoryBases([
+		...(project?.knowledgeBaseIds ?? []),
+		...conversationBases,
+	]);
 	const memoryId = project?.indexPastChats ? project.memoryBaseId : undefined;
 	if (memoryId) bases.push(memoryId);
 	// Deduped: a base attached to both the project and the conversation must
@@ -615,6 +623,7 @@ export async function parseAttachedKnowledgeBaseIds(
 	}
 	if (!parsed.data) return undefined;
 	if (!parsed.data.length) return parsed.data;
+	await rejectMemoryBases(parsed.data);
 	// The UI hides attaching when the pipeline is off, so a non-empty list
 	// here names bases a deployment without a store cannot check — refuse
 	// rather than storing ids every later turn would silently skip. 404, not
@@ -647,6 +656,7 @@ export async function knowledgeBaseViews(
 	ids: string[] | undefined
 ): Promise<{ id: string; name: string }[]> {
 	if (!ids || ids.length === 0) return [];
+	ids = await withoutMemoryBases(ids);
 	const objectIds = ids.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
 	if (objectIds.length === 0) return [];
 	const rows = await collections.vectorStores

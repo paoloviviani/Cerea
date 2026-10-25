@@ -38,6 +38,7 @@
 		chunk_count: number;
 		failed_count: number;
 		stale: boolean;
+		memory_of?: { project_id: string; project_name: string } | null;
 		share_count: number;
 		created_at: string;
 	}
@@ -93,6 +94,10 @@
 	let saveError = $state<string | null>(null);
 	let notice = $state<string | null>(null);
 	let reindexing = $state<string | null>(null);
+	// Project chat memory is its own category: an administrator still sees it
+	// (and can update it), but it is not one of the bases people make.
+	const ordinaryBases = $derived((status?.bases ?? []).filter((row) => !row.memory_of));
+	const memoryBases = $derived((status?.bases ?? []).filter((row) => row.memory_of));
 
 	let embedding = $state("");
 	let extractor = $state("");
@@ -361,6 +366,79 @@
 			</div>
 		</form>
 
+		{#snippet baseTable(rows: BaseSummary[])}
+			<div class="overflow-x-auto">
+				<table class="w-full text-sm">
+					<thead class="text-left text-xs text-gray-500 uppercase dark:text-gray-400">
+						<tr>
+							<th class="py-2 pr-3">{m["admin.knowledge.bases.col.base"]()}</th>
+							<th class="py-2 pr-3">{m["admin.knowledge.bases.col.owner"]()}</th>
+							<th class="py-2 pr-3">{m["admin.knowledge.bases.col.embedded_with"]()}</th>
+							<th class="py-2 pr-3 text-right">{m["admin.knowledge.bases.col.documents"]()}</th>
+							<th class="py-2 pr-3 text-right">{m["admin.knowledge.bases.col.passages"]()}</th>
+							<th class="py-2"></th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each rows as row (row.id)}
+							<tr class="border-t border-gray-100 dark:border-gray-800">
+								<td class="py-2 pr-3">
+									<div>{row.name}</div>
+									{#if row.memory_of}
+										<div class="text-xs text-gray-500" data-testid="memory-base-project">
+											{m["admin.knowledge.bases.memory.project"]({
+												name: row.memory_of.project_name,
+											})}
+										</div>
+									{/if}
+									{#if row.description}
+										<div class="text-xs text-gray-500">{row.description}</div>
+									{/if}
+								</td>
+								<td class="py-2 pr-3">
+									<div>{row.owner_email ?? m["admin.knowledge.erased"]()}</div>
+									{#if row.group_name}
+										<div class="text-xs text-gray-500">{row.group_name}</div>
+									{/if}
+								</td>
+								<td class="py-2 pr-3 whitespace-nowrap">
+									{row.embedding_model ?? m["admin.knowledge.bases.not_indexed"]()}
+									{#if row.stale}
+										<span
+											class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-900 dark:text-amber-100"
+											>{m["admin.knowledge.bases.older_model"]()}</span
+										>
+									{/if}
+								</td>
+								<td class="py-2 pr-3 text-right whitespace-nowrap">
+									{row.document_count}
+									{#if row.failed_count > 0}
+										<span
+											class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-900 dark:bg-red-900 dark:text-red-100"
+											>{m["admin.knowledge.bases.failed"]({ count: row.failed_count })}</span
+										>
+									{/if}
+								</td>
+								<td class="py-2 pr-3 text-right">{row.chunk_count}</td>
+								<td class="py-2 text-right">
+									<button
+										type="button"
+										onclick={() => reindex(row)}
+										disabled={reindexing !== null || !status?.ready}
+										class="rounded-full border border-gray-300 px-3 py-1 text-xs disabled:opacity-50 dark:border-gray-600"
+									>
+										{reindexing === row.id
+											? m["admin.knowledge.bases.reindexing"]()
+											: m["admin.knowledge.bases.reindex"]()}
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/snippet}
+
 		<section class="flex flex-col gap-3 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
 			<div class="flex flex-col gap-1">
 				<h2 class="font-medium">{m["admin.knowledge.bases.title"]()}</h2>
@@ -381,69 +459,18 @@
 					{m["admin.knowledge.bases.none"]()}
 				</p>
 			{:else}
-				<div class="overflow-x-auto">
-					<table class="w-full text-sm">
-						<thead class="text-left text-xs text-gray-500 uppercase dark:text-gray-400">
-							<tr>
-								<th class="py-2 pr-3">{m["admin.knowledge.bases.col.base"]()}</th>
-								<th class="py-2 pr-3">{m["admin.knowledge.bases.col.owner"]()}</th>
-								<th class="py-2 pr-3">{m["admin.knowledge.bases.col.embedded_with"]()}</th>
-								<th class="py-2 pr-3 text-right">{m["admin.knowledge.bases.col.documents"]()}</th>
-								<th class="py-2 pr-3 text-right">{m["admin.knowledge.bases.col.passages"]()}</th>
-								<th class="py-2"></th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each status.bases as row (row.id)}
-								<tr class="border-t border-gray-100 dark:border-gray-800">
-									<td class="py-2 pr-3">
-										<div>{row.name}</div>
-										{#if row.description}
-											<div class="text-xs text-gray-500">{row.description}</div>
-										{/if}
-									</td>
-									<td class="py-2 pr-3">
-										<div>{row.owner_email ?? m["admin.knowledge.erased"]()}</div>
-										{#if row.group_name}
-											<div class="text-xs text-gray-500">{row.group_name}</div>
-										{/if}
-									</td>
-									<td class="py-2 pr-3 whitespace-nowrap">
-										{row.embedding_model ?? m["admin.knowledge.bases.not_indexed"]()}
-										{#if row.stale}
-											<span
-												class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-900 dark:text-amber-100"
-												>{m["admin.knowledge.bases.older_model"]()}</span
-											>
-										{/if}
-									</td>
-									<td class="py-2 pr-3 text-right whitespace-nowrap">
-										{row.document_count}
-										{#if row.failed_count > 0}
-											<span
-												class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-900 dark:bg-red-900 dark:text-red-100"
-												>{m["admin.knowledge.bases.failed"]({ count: row.failed_count })}</span
-											>
-										{/if}
-									</td>
-									<td class="py-2 pr-3 text-right">{row.chunk_count}</td>
-									<td class="py-2 text-right">
-										<button
-											type="button"
-											onclick={() => reindex(row)}
-											disabled={reindexing !== null || !status.ready}
-											class="rounded-full border border-gray-300 px-3 py-1 text-xs disabled:opacity-50 dark:border-gray-600"
-										>
-											{reindexing === row.id
-												? m["admin.knowledge.bases.reindexing"]()
-												: m["admin.knowledge.bases.reindex"]()}
-										</button>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
+				{#if ordinaryBases.length > 0}
+					{@render baseTable(ordinaryBases)}
+				{/if}
+				{#if memoryBases.length > 0}
+					<div class="flex flex-col gap-1 pt-2" data-testid="memory-bases">
+						<h3 class="text-sm font-medium">{m["admin.knowledge.bases.memory.title"]()}</h3>
+						<p class="text-xs text-gray-500 dark:text-gray-400">
+							{m["admin.knowledge.bases.memory.description"]()}
+						</p>
+					</div>
+					{@render baseTable(memoryBases)}
+				{/if}
 			{/if}
 		</section>
 

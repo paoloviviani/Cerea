@@ -88,6 +88,8 @@ export interface VectorStore {
 	embedding_model: string | null;
 	owned: boolean;
 	role: string;
+	/** Set when this is a project's chat memory (not attachable; shown apart). */
+	memory_of?: { project_id: string; project_name: string } | null;
 }
 
 export interface KnowledgeDocument {

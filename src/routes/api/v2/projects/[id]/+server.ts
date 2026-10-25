@@ -21,6 +21,7 @@ import { z } from "zod";
 import { collections } from "$lib/server/database";
 import type { Conversation } from "$lib/types/Conversation";
 import { logger } from "$lib/server/logger";
+import { rejectMemoryBases } from "$lib/server/knowledge/memoryBases";
 import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import { deleteProjectDocuments } from "$lib/server/projectDocuments";
 import {
@@ -65,6 +66,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	if (!parsed.success) {
 		error(400, parsed.error.issues[0]?.message ?? "That change is not valid.");
 	}
+	if (parsed.data.knowledgeBaseIds) await rejectMemoryBases(parsed.data.knowledgeBaseIds);
 	const changes = { ...parsed.data, updatedAt: new Date() };
 	await collections.projects.updateOne({ _id: access.project._id }, { $set: changes });
 	const updated = await collections.projects.findOne({ _id: access.project._id });

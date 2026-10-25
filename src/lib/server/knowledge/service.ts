@@ -20,6 +20,7 @@ import { INDEXED_DIMENSIONS, toUuid, withClient } from "./db";
 import { fromUuid } from "./db";
 import { deleteDerived } from "./deleteDerived";
 import { embed } from "./embed";
+import { memoryBaseOwner, memoryBaseOwners, type MemoryBaseOwner } from "./memoryBases";
 import {
 	resolveExtractor,
 	type ExtractorCandidate,
@@ -236,7 +237,9 @@ async function fileCounts(storeId: ObjectId): Promise<FileCounts> {
 
 export async function storeObject(
 	base: VectorStore,
-	caller: Caller
+	caller: Caller,
+	/** The project this base is the chat memory of; looked up when not given. */
+	memoryOf?: MemoryBaseOwner | null
 ): Promise<{
 	id: string;
 	created_at: number;
@@ -247,7 +250,10 @@ export async function storeObject(
 	embedding_model: string | null;
 	owned: boolean;
 	role: string;
+	/** Set when this is a project's chat memory: not attachable, not editable here. */
+	memory_of: { project_id: string; project_name: string } | null;
 }> {
+	const owner = memoryOf === undefined ? await memoryBaseOwner(base._id.toString()) : memoryOf;
 	const owned = base.ownerId.equals(caller.userId);
 	const share = base.shares.find(
 		(s) =>
@@ -264,6 +270,7 @@ export async function storeObject(
 		embedding_model: base.embeddingModel ?? null,
 		owned,
 		role: owned ? "owner" : (share?.role ?? "viewer"),
+		memory_of: owner ? { project_id: owner.projectId, project_name: owner.projectName } : null,
 	};
 }
 
@@ -378,6 +385,8 @@ export async function adminStatus(token: string | undefined): Promise<{
 		chunk_count: number;
 		failed_count: number;
 		stale: boolean;
+		/** The project whose chat memory this base is, if it is one. */
+		memory_of: { project_id: string; project_name: string } | null;
 		share_count: number;
 		created_at: number;
 	}[];
@@ -460,7 +469,9 @@ export async function adminStatus(token: string | undefined): Promise<{
 		.toArray();
 	const byStore = new Map(counts.map((row) => [row._id.toString(), row]));
 
+	const memory = await memoryBaseOwners();
 	const bases = rows.map((base) => {
+		const memoryOf = memory.get(base._id.toString());
 		const row = byStore.get(base._id.toString());
 		// A base with nothing indexed is not stale: it has no vectors to be
 		// comparable with the current model, and calling it stale would send
@@ -479,6 +490,9 @@ export async function adminStatus(token: string | undefined): Promise<{
 			chunk_count: row?.chunks ?? 0,
 			failed_count: row?.failed ?? 0,
 			stale,
+			memory_of: memoryOf
+				? { project_id: memoryOf.projectId, project_name: memoryOf.projectName }
+				: null,
 			share_count: base.shares.length,
 			created_at: base.createdAt.getTime(),
 		};
@@ -530,7 +544,10 @@ export async function listStores(
 ): Promise<{ data: Awaited<ReturnType<typeof storeObject>>[] }> {
 	const rows = await collections.vectorStores.find().sort({ createdAt: -1 }).toArray();
 	const mine = rows.filter((base) => mayReach(base, caller, "viewer"));
-	const objects = await Promise.all(mine.map((base) => storeObject(base, caller)));
+	const memory = await memoryBaseOwners();
+	const objects = await Promise.all(
+		mine.map((base) => storeObject(base, caller, memory.get(base._id.toString()) ?? null))
+	);
 	return { data: objects };
 }
 
@@ -557,7 +574,7 @@ export async function createStore(
 		updatedAt: new Date(),
 	};
 	await collections.vectorStores.insertOne(base);
-	return storeObject(base, caller);
+	return storeObject(base, caller, null);
 }
 
 export async function deleteStore(storeId: string, caller: Caller): Promise<void> {

@@ -335,7 +335,10 @@
 		knowledgeStoresLoading = true;
 		knowledgeStoresFailed = false;
 		try {
-			knowledgeStores = (await gwGet<{ data: VectorStore[] }>("vector_stores")).data;
+			// A project's past-chat index is never attachable: not offered.
+			knowledgeStores = (await gwGet<{ data: VectorStore[] }>("vector_stores")).data.filter(
+				(store) => !store.memory_of
+			);
 		} catch (err) {
 			if (err instanceof GatewayError) {
 				// The bases list failing to load must not break the menu: it is the
