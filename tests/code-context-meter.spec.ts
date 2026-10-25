@@ -106,7 +106,7 @@ test("the meter shows a percentage and its popover carries the breakdown", async
 	await trigger.click();
 	const menu = page.getByRole("menu");
 	await expect(menu).toBeVisible();
-	await expect(menu.getByText("400 / 1000 tokens")).toBeVisible();
+	await expect(menu.getByText("400 / 1,000 tokens")).toBeVisible();
 	await expect(menu.getByText("300", { exact: true })).toBeVisible();
 });
 
@@ -247,7 +247,7 @@ test("the Quotas section shows a muted 'No quotas' line when the gateway reports
 	await expect(menu).toBeVisible();
 	// The rest of the popup still renders, and the Quotas heading stays with
 	// a muted line rather than hiding.
-	await expect(menu.getByText("400 / 1000 tokens")).toBeVisible();
+	await expect(menu.getByText("400 / 1,000 tokens")).toBeVisible();
 	await expect(menu.getByText("Quotas", { exact: true })).toBeVisible();
 	await expect(menu.getByText("No quotas")).toBeVisible();
 });
