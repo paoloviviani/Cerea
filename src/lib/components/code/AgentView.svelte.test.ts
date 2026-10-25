@@ -543,7 +543,7 @@ describe("AgentView fork action", () => {
 		expect(forkButtons(screen)).toHaveLength(1);
 	});
 
-	it("offers nothing while the turn still runs", async () => {
+	it("offers the fork on a finished answer while a later turn still runs", async () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount();
 		await arrive([
@@ -559,7 +559,12 @@ describe("AgentView fork action", () => {
 			turnState("running"),
 		]);
 		await expect.element(screen.getByText("Working...")).toBeVisible();
-		expect(forkButtons(screen)).toHaveLength(0);
+		// The finished answer keeps its action; only the streaming one hides it.
+		expect(forkButtons(screen)).toHaveLength(1);
+		const streaming = [
+			...screen.baseElement.querySelectorAll<HTMLElement>('[data-message-role="assistant"]'),
+		].find((el) => el.textContent?.includes("Working..."));
+		expect(streaming?.querySelector('button[aria-label="Fork from here"]')).toBeNull();
 	});
 });
 
