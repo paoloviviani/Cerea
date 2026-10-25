@@ -5,6 +5,28 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.25.0 — 2026-10-25
+
+Pins: Cerea `0.25.0`, Pystino `0.17.2` (unchanged), Authelia 4.39.22 (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. (From 0.23.x, read the MongoDB note
+under v0.24.0 first.)
+
+- **Plainer wording throughout.** MCP servers are now **Connectors**, the ones
+  everyone gets are **Built-in connectors**, artifacts are **Files**, system prompts
+  are **Instructions**, and error messages say what happened and what to do. The
+  agent area and Local connectors keep their technical terms. Connector cards no
+  longer change colour with their state; only the status label does. The
+  wording rules are in `docs/writing.md`.
+- **A project's default connectors include the built-in ones**, and a new chat in
+  the project starts with them on.
+- **Groundwork for translations**: the interface text is moving into message
+  files (Settings first). English is the only language; nothing changes for
+  people using it.
+- **Security: headless browser image updated to Playwright 1.64.1** (Node 24.22.1,
+  Brotli decoder fix, CVE-2026-111497). `PLAYWRIGHT_IMAGE` and `PLAYWRIGHT_VERSION`
+  default to 1.64.1; a pinned older image keeps its old Node until you change it.
+
 ## v0.24.0 — 2026-10-24
 
 Pins: Cerea `0.24.0`, **Pystino `0.17.2`**, Authelia 4.39.22 (unchanged).
@@ -17,9 +39,6 @@ kit** (or `./configure --set MONGO_IMAGE=mongo:4.4.30`), or move the data with
 `tools/mongo-upgrade`. Without the pin the chat database would start on MongoDB 8,
 which cannot open data left by 4.4.
 
-- **Security: headless browser image updated to Playwright 1.64.1** (Node 24.22.1,
-  Brotli decoder fix, CVE-2026-111497). `PLAYWRIGHT_IMAGE` and `PLAYWRIGHT_VERSION`
-  default to 1.64.1; a pinned older image keeps its old Node until you change it.
 - **MongoDB 8 is the default everywhere.** `compose.yaml` now defaults
   `MONGO_IMAGE` to `mongo:8.0.34`; 4.4 runs only when `MONGO_IMAGE` pins it. A fresh
   install still gets the host-based choice written by `./configure` (4.4 on a host
