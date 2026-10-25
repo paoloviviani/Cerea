@@ -173,10 +173,23 @@ async function landedAtBottom(page: Page): Promise<void> {
 		.toBe(true);
 }
 
+/** Scroll to the top the way a reader does: with the wheel. The column's scroll controller reads
+ * an upward move with no gesture behind it, while the DOM changed in the last ~120ms, as the
+ * browser's own doing (Safari clamping mid-swap) and undoes it back to the bottom. A bare
+ * `scrollTo` is gestureless, so any late mutation (a status pill, a settling tool row) made the
+ * scroll bounce back; a wheel is the input the controller honours. */
 async function scrollToTop(page: Page): Promise<void> {
-	await page.evaluate(() => {
-		document.querySelector('[aria-label="Conversation messages"]')?.scrollTo({ top: 0 });
-	});
+	const box = await page.locator('[aria-label="Conversation messages"]').boundingBox();
+	if (!box) throw new Error("the transcript has no box");
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	await page.mouse.wheel(0, -1_000_000);
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() => document.querySelector('[aria-label="Conversation messages"]')?.scrollTop ?? -1
+			)
+		)
+		.toBeLessThanOrEqual(1);
 }
 
 test.describe("paging a long agent session", () => {
