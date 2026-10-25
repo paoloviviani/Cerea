@@ -46,6 +46,7 @@
 	on a given engine.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
 	import IconCode from "~icons/carbon/code";
@@ -76,7 +77,7 @@
 			providers = result.providers.filter((p) => p.available);
 			provider = providers[0]?.id ?? "opencode";
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not read the daemon's providers.";
+			failure = err instanceof Error ? err.message : m["code.agent_dialog.could_not_providers"]();
 		} finally {
 			busy = false;
 		}
@@ -96,7 +97,7 @@
 			oncreated(created.agent);
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not create the agent.";
+			failure = err instanceof Error ? err.message : m["code.agent_dialog.could_not_create"]();
 		} finally {
 			busy = false;
 		}
@@ -114,8 +115,10 @@
 			     and everything past the first line clips. pr-8 keeps the
 			     wrapped lines clear of the close button floating at top-right. -->
 			<div class="min-w-0 pr-8">
-				<h2 id="agent-title" class={s.TITLE}>New agent</h2>
-				<p class="{s.SUBTITLE} break-words">In {workspace.name} — {workspace.path}</p>
+				<h2 id="agent-title" class={s.TITLE}>{m["code.agent_dialog.title"]()}</h2>
+				<p class="{s.SUBTITLE} break-words">
+					{m["code.agent_dialog.subtitle"]({ name: workspace.name, path: workspace.path })}
+				</p>
 			</div>
 		</div>
 
@@ -123,7 +126,7 @@
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Agent failed
+					{m["code.agent_dialog.failed"]()}
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -139,12 +142,12 @@
 				<!-- galopin runs one backend per machine (its --backend flag), so there is
 				     usually nothing to choose: name it rather than offer a one-item list. -->
 				<p class="text-sm text-ink-muted" data-testid="agent-backend">
-					Runs on {providers[0]?.id ?? "opencode"}
+					{m["code.agent_dialog.runs_on"]({ provider: providers[0]?.id ?? "opencode" })}
 				</p>
 			{:else}
-				<label class={s.LABEL} for="agent-provider">Provider</label>
+				<label class={s.LABEL} for="agent-provider">{m["code.agent_dialog.provider"]()}</label>
 				{#if busy && providers.length === 0}
-					<p class="text-sm text-ink-muted">Reading the daemon's providers…</p>
+					<p class="text-sm text-ink-muted">{m["code.agent_dialog.reading_providers"]()}</p>
 				{:else}
 					<select
 						id="agent-provider"
@@ -154,6 +157,7 @@
 						disabled={busy || providers.length === 0}
 					>
 						{#if providers.length === 0}
+							<!-- i18n: literal (the backend's name) -->
 							<option value="opencode">opencode</option>
 						{/if}
 						{#each providers as p (p.id)}
@@ -162,24 +166,26 @@
 					</select>
 					<p class={s.HINT}>
 						{providers.length > 0
-							? "As configured on your daemon."
-							: "No providers reported available; opencode is the default."}
+							? m["code.agent_dialog.provider_configured"]()
+							: m["code.agent_dialog.provider_none"]()}
 					</p>
 				{/if}
 			{/if}
 
-			<label class="{s.LABEL} mt-4" for="agent-title-input">Title (optional)</label>
+			<label class="{s.LABEL} mt-4" for="agent-title-input"
+				>{m["code.agent_dialog.title_label"]()}</label
+			>
 			<input
 				id="agent-title-input"
 				class={s.INPUT}
 				style="font-size: 16px;"
-				placeholder="Refactor the login flow"
+				placeholder={m["code.agent_dialog.title_placeholder"]()}
 				maxlength={120}
 				bind:value={title}
 				disabled={busy}
 			/>
 
-			<span class="{s.LABEL} mt-4">Posture</span>
+			<span class="{s.LABEL} mt-4">{m["code.agent_dialog.posture"]()}</span>
 			<div class="flex flex-wrap gap-2">
 				<button
 					type="button"
@@ -187,7 +193,7 @@
 					onclick={() => (posture = "plan")}
 					disabled={busy}
 				>
-					Plan
+					{m["code.agent_dialog.plan"]()}
 				</button>
 				<button
 					type="button"
@@ -195,13 +201,13 @@
 					onclick={() => (posture = "build")}
 					disabled={busy}
 				>
-					Build
+					{m["code.agent_dialog.build"]()}
 				</button>
 			</div>
 			<p class={s.HINT}>
 				{posture === "plan"
-					? "Proposes; asks before it writes anything."
-					: "Writes; still asks before anything destructive."}
+					? m["code.agent_dialog.plan_hint"]()
+					: m["code.agent_dialog.build_hint"]()}
 			</p>
 
 			<!-- flex-wrap, not fixed widths: side-by-side whenever both buttons
@@ -226,10 +232,10 @@
 				class="sticky bottom-0 -mx-4 mt-4 -mb-4 flex flex-wrap justify-end gap-2 border-t border-line bg-white px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6 dark:border-white/10 dark:bg-gray-800"
 			>
 				<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
-					Cancel
+					{m["code.common.cancel"]()}
 				</button>
 				<button type="submit" class={s.PRIMARY} disabled={busy}>
-					{busy ? "Creating…" : "Create agent"}
+					{busy ? m["code.agent_dialog.creating"]() : m["code.agent_dialog.create"]()}
 				</button>
 			</div>
 		</form>

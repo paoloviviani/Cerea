@@ -4,17 +4,14 @@
 	its status, why, and a link to the session a run reached.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import IconTime from "~icons/carbon/time";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
 	import { listScheduleRuns, type ScheduleRunView, type ScheduleView } from "$lib/codeApi";
-	import {
-		formatWhenLong,
-		recurrenceText,
-		RUN_STATUS_LABEL,
-		RUN_STATUS_TONE,
-	} from "$lib/utils/scheduleFormat";
+	import { formatWhenLong, RUN_STATUS_TONE } from "$lib/utils/scheduleFormat";
+	import { recurrenceLabel, runStatusLabel } from "./scheduleLabels";
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
@@ -36,7 +33,7 @@
 			runs = answer.runs;
 			failure = null;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load the history.";
+			failure = err instanceof Error ? err.message : m["code.schedule_history.could_not_load"]();
 		} finally {
 			loading = false;
 		}
@@ -63,13 +60,16 @@
 				class="mb-4 flex items-center gap-1.5 text-xs text-ink-muted hover:text-ink"
 				onclick={onback}
 			>
-				<IconArrowLeft class="size-3.5" /> All schedules
+				<IconArrowLeft class="size-3.5" />
+				{m["code.schedule_history.all_schedules"]()}
 			</button>
 			<div class={s.HEADER}>
-				<h2 class="{s.TITLE} break-words">{schedule?.name ?? "History"}</h2>
+				<h2 class="{s.TITLE} break-words">
+					{schedule?.name ?? m["code.schedule_history.heading"]()}
+				</h2>
 				{#if schedule}
 					<p class="{s.SUBTITLE} break-words">
-						{schedule.targetLabel} · {recurrenceText(schedule.recurrence)} ({schedule.timezone})
+						{schedule.targetLabel} · {recurrenceLabel(schedule.recurrence)} ({schedule.timezone})
 					</p>
 				{/if}
 			</div>
@@ -77,28 +77,26 @@
 			{#if failure}
 				<div class={s.ERROR} role="alert">{failure}</div>
 			{:else if loading}
-				<p class="text-sm text-ink-muted">Loading…</p>
+				<p class="text-sm text-ink-muted">{m["code.schedule_history.loading"]()}</p>
 			{:else if runs.length === 0}
 				<div class={s.EMPTY}>
 					<IconTime class={s.EMPTY_ICON} />
-					<p class={s.EMPTY_TITLE}>No runs yet</p>
-					<p class={s.EMPTY_DETAIL}>
-						Every occurrence is listed here, including the ones that did not fire and why.
-					</p>
+					<p class={s.EMPTY_TITLE}>{m["code.schedule_history.empty_title"]()}</p>
+					<p class={s.EMPTY_DETAIL}>{m["code.schedule_history.empty_detail"]()}</p>
 				</div>
 			{:else}
-				<h3 class={s.SECTION_TITLE}>{runs.length} {runs.length === 1 ? "run" : "runs"}</h3>
+				<h3 class={s.SECTION_TITLE}>{m["code.schedule_history.count"]({ count: runs.length })}</h3>
 				<ul class="space-y-2" data-testid="run-list">
 					{#each runs as run (run.id)}
 						{@const href = sessionHref(run)}
 						<li class="{s.card(false)} {s.CARD_BODY}" data-testid="run-row">
 							<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
 								<span class="{s.PILL} {s.PILL_TONES[RUN_STATUS_TONE[run.status]]}">
-									{RUN_STATUS_LABEL[run.status]}
+									{runStatusLabel(run.status)}
 								</span>
 								<span class="text-sm text-ink">{formatWhenLong(run.firedAt)}</span>
 								{#if run.trigger === "manual"}
-									<span class="text-xs text-ink-muted">Run now</span>
+									<span class="text-xs text-ink-muted">{m["code.schedule_history.run_now"]()}</span>
 								{/if}
 							</div>
 							{#if run.detail}
@@ -109,7 +107,9 @@
 									{href}
 									class="mt-1.5 inline-block max-w-full truncate text-xs text-accent hover:underline"
 								>
-									Open session{run.result?.label ? `: ${run.result.label}` : ""}
+									{run.result?.label
+										? m["code.schedule_history.open_session_label"]({ label: run.result.label })
+										: m["code.schedule_history.open_session"]()}
 								</a>
 							{/if}
 						</li>

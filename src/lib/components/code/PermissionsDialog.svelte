@@ -32,6 +32,7 @@
 	op answers 404, and the dialog says so instead of listing rules.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { untrack } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
 	import {
@@ -154,8 +155,12 @@
 	function safeDirNote(row: CapabilityRow): string | null {
 		if (row.id !== "external" || row.capped || safeDirs.length === 0) return null;
 		const elsewhere =
-			row.action === "deny" ? "blocked" : row.action === "allow" ? "allowed" : "asks";
-		return `Allowed: ${safeDirs.join(", ")}; elsewhere ${elsewhere}`;
+			row.action === "deny"
+				? m["code.permissions.where_blocked"]()
+				: row.action === "allow"
+					? m["code.permissions.where_allowed"]()
+					: m["code.permissions.where_asks"]();
+		return m["code.permissions.safe_dirs"]({ dirs: safeDirs.join(", "), where: elsewhere });
 	}
 
 	/** A machine enrolled before ceilings: nothing caps its Allow. Said up
@@ -181,7 +186,7 @@
 			await load();
 			onchanged?.();
 		} catch (err) {
-			errorToast.set(err instanceof Error ? err.message : "Could not remove that exception.");
+			errorToast.set(err instanceof Error ? err.message : m["code.permissions.could_not_remove"]());
 		} finally {
 			removing = null;
 		}
@@ -204,7 +209,7 @@
 			await load();
 			onchanged?.();
 		} catch (err) {
-			errorToast.set(err instanceof Error ? err.message : "Could not change the grant.");
+			errorToast.set(err instanceof Error ? err.message : m["code.permissions.could_not_grant"]());
 		} finally {
 			coordinating = false;
 		}
@@ -219,10 +224,10 @@
 			</div>
 			<div class="min-w-0 pr-8">
 				<h2 id="permissions-dialog-title" class="{s.TITLE} truncate">
-					Permissions — {sessionTitle}
+					{m["code.permissions.title"]({ session: sessionTitle })}
 				</h2>
 				<p class="{s.SUBTITLE} break-words">
-					What this session will do about its tool calls, and the exceptions you have allowed.
+					{m["code.permissions.subtitle"]()}
 				</p>
 			</div>
 		</div>
@@ -235,15 +240,14 @@
 						data-testid="legacy-machine-flag"
 					>
 						<span class="min-w-0 flex-1">
-							<span class="font-medium">Re-enroll this machine to set limits.</span> Its policy predates
-							ceilings, so nothing caps Allow: on Allow, edits, commands and fetches run without asking,
-							subagents too.
+							<span class="font-medium">{m["code.permissions.legacy_title"]()}</span>
+							{m["code.permissions.legacy_detail"]()}
 						</span>
 						{#if onreenroll}
 							<button
 								type="button"
 								class="shrink-0 rounded-lg border border-amber-300 bg-white px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-transparent dark:text-amber-200"
-								onclick={onreenroll}>Re-enroll this machine</button
+								onclick={onreenroll}>{m["code.permissions.reenroll"]()}</button
 							>
 						{/if}
 					</div>
@@ -262,7 +266,9 @@
 								>{actionLabel(row.action)}</span
 							>
 							{#if row.except.length > 0}
-								<span class="text-ink-muted">except {row.except.join("; ")}</span>
+								<span class="text-ink-muted"
+									>{m["code.permissions.except"]({ what: row.except.join("; ") })}</span
+								>
 							{/if}
 							{#if safeDirNote(row)}
 								<span class="text-ink-faint" data-testid="permission-safe-dirs">
@@ -271,7 +277,7 @@
 							{/if}
 							{#if row.capped}
 								<span class="text-ink-faint" data-testid="permission-capped"
-									>limited by this machine</span
+									>{m["code.permissions.limited"]()}</span
 								>
 							{/if}
 						</li>
@@ -279,15 +285,14 @@
 				</ul>
 
 				<p class="text-ink-muted">
-					Set by this session's Deny / Ask / Allow switch, within the limits this machine was
-					enrolled with.
+					{m["code.permissions.set_by"]()}
 				</p>
 
 				<div>
-					<p class="mb-1 font-medium text-ink">Exceptions</p>
+					<p class="mb-1 font-medium text-ink">{m["code.permissions.exceptions"]()}</p>
 					{#if exceptions.length === 0}
 						<p class="text-ink-muted">
-							None. "Always allow (this session)" on a card would add one here.
+							{m["code.permissions.exceptions_none"]()}
 						</p>
 					{:else}
 						<ul class="flex flex-col gap-1" data-testid="permission-exceptions">
@@ -296,7 +301,7 @@
 									class="flex flex-wrap items-center gap-1.5"
 									data-testid="permission-exception-item"
 								>
-									<span class="text-ink-muted">Allowed for this session:</span>
+									<span class="text-ink-muted">{m["code.permissions.allowed_for_session"]()}</span>
 									<span class="min-w-0 truncate font-mono text-ink">
 										{exception.patterns.length > 0
 											? exception.patterns.join(", ")
@@ -307,45 +312,49 @@
 									{/if}
 									<span class="min-w-0 flex-1"></span>
 									{#if exception.removable === false}
-										<span class="text-ink-faint">held by the machine</span>
+										<span class="text-ink-faint">{m["code.permissions.held"]()}</span>
 									{:else}
 										<button
 											type="button"
 											class="rounded-lg border border-line px-2 py-0.5 text-xs font-medium text-ink-muted hover:bg-sunken disabled:opacity-60"
 											disabled={removing !== null}
-											title="Remove this exception: the next matching call asks again."
-											aria-label="Remove exception for {exception.permission}"
+											title={m["code.permissions.remove_title"]()}
+											aria-label={m["code.permissions.remove_label"]({
+												permission: exception.permission,
+											})}
 											onclick={() => void remove(exception.id)}
 										>
-											{removing === exception.id ? "Removing…" : "Remove"}
+											{removing === exception.id
+												? m["code.permissions.removing"]()
+												: m["code.permissions.remove"]()}
 										</button>
 									{/if}
 								</li>
 							{/each}
 						</ul>
 						<p class="mt-1 text-ink-faint">
-							Exceptions last for this session only. Deny blocks them without deleting them;
-							switching back to Ask restores them.
+							{m["code.permissions.exceptions_note"]()}
 						</p>
 					{/if}
 				</div>
 
 				<div>
-					<p class="mb-1 font-medium text-ink">Coordination</p>
+					<p class="mb-1 font-medium text-ink">{m["code.permissions.coordination"]()}</p>
 					{#if subagent}
 						<p class="text-ink-muted">
-							A subagent follows its root's setting and holds no grant of its own. Open this dialog
-							on the main session to change it.
+							{m["code.permissions.subagent_note"]()}
 						</p>
 					{:else if grantable && !grantable.ok}
 						<p class="text-ink-muted" data-testid="coordination-unavailable">
-							{grantable.detail}
+							{grantable.reason === "tools-off"
+								? m["code.permissions.coord_tools_off"]()
+								: m["code.permissions.coord_too_old"]()}
 						</p>
 					{:else}
 						<div
 							class="space-y-2"
 							role="group"
-							aria-label="Coordination with other sessions"
+							aria-label={m["code.permissions.coordination_label"]()}
 							data-testid="coordination-options"
 						>
 							<label class="flex items-start gap-2 text-sm text-ink">
@@ -357,7 +366,7 @@
 									onchange={() =>
 										void setGrant({ canMessage: !grant.canMessage, canSpawn: grant.canSpawn })}
 								/>
-								<span>Can find, read and message other sessions</span>
+								<span>{m["code.permissions.can_message"]()}</span>
 							</label>
 							<label class="flex items-start gap-2 text-sm text-ink">
 								<input
@@ -368,13 +377,11 @@
 									onchange={() =>
 										void setGrant({ canMessage: grant.canMessage, canSpawn: !grant.canSpawn })}
 								/>
-								<span>Can start new sessions</span>
+								<span>{m["code.permissions.can_spawn"]()}</span>
 							</label>
 						</div>
 						<p class="mt-1 text-ink-faint">
-							Takes effect on the session's next turn. Still asks: a session in another workspace, a
-							send past three hops, anything this machine caps at Ask — and the rate limits still
-							apply. A session it spawns starts with the same grant.
+							{m["code.permissions.grant_note"]()}
 						</p>
 						{#if ceilingWarning}
 							<p class="mt-1 text-ink-faint">{ceilingWarning}</p>
@@ -384,14 +391,13 @@
 
 				<details data-testid="permission-raw">
 					<summary class="cursor-pointer text-ink-faint hover:text-ink-muted">
-						Show the raw rules (for troubleshooting)
+						{m["code.permissions.raw"]()}
 					</summary>
 					<p class="my-1 text-ink-muted">
-						opencode's rules in evaluation order: the last one that matches wins, so an earlier rule
-						for the same permission can be replaced by a later one.
+						{m["code.permissions.raw_note"]()}
 					</p>
 					{#if rules.length === 0}
-						<p class="text-ink-muted">No rules: opencode asks for everything it checks.</p>
+						<p class="text-ink-muted">{m["code.permissions.no_rules"]()}</p>
 					{:else}
 						<ul class="flex flex-col gap-1" data-testid="permission-rules">
 							{#each rules as rule, index (index)}
@@ -425,15 +431,15 @@
 		{:else if !codeReauth.required}
 			{#if loading}
 				<p class="text-sm text-ink-muted" data-testid="permissions-loading">
-					Reading the session's rules…
+					{m["code.permissions.reading"]()}
 				</p>
 			{:else if missing}
 				<p class="text-sm text-ink-muted" data-testid="permissions-unavailable">
-					This machine's galopin is too old to report permissions; update it to see them.
+					{m["code.permissions.too_old"]()}
 				</p>
 			{:else}
 				<p class="text-sm text-ink-muted" data-testid="permissions-unavailable">
-					The machine has not answered yet. Close and open this again in a moment.
+					{m["code.permissions.no_answer"]()}
 				</p>
 			{/if}
 		{/if}

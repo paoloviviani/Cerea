@@ -27,6 +27,8 @@
 	split is unit-tested without mounting this component.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import { formatNumber } from "$lib/i18n/format";
 	import { DropdownMenu } from "bits-ui";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import { base } from "$app/paths";
@@ -81,7 +83,7 @@
 			const report = (await apiClient.usage.get().then(handleResponse)) as UsageReport | null;
 			quotaSections = report?.sections ?? [];
 		} catch {
-			quotaError = "Could not load quotas.";
+			quotaError = m["code.context.quotas_error"]();
 		}
 	}
 
@@ -137,17 +139,17 @@
 
 	function formatTokenCount(n: number | undefined): string {
 		const value = n ?? 0;
-		if (value >= 1000) return `${Math.round(value / 100) / 10}k`;
-		return String(value);
+		if (value >= 1000) return `${formatNumber(Math.round(value / 100) / 10)}k`;
+		return formatNumber(value);
 	}
 
 	let label = $derived(percent !== null ? `${percent}%` : formatTokenCount(usage?.used));
 
 	let compactionNote = $derived.by(() => {
 		if (!lastCompaction) return null;
-		if (lastCompaction.auto === false) return "Compacted manually";
-		if (lastCompaction.auto === true) return "Compacted automatically";
-		return "Compacted";
+		if (lastCompaction.auto === false) return m["code.context.compacted_manually"]();
+		if (lastCompaction.auto === true) return m["code.context.compacted_automatically"]();
+		return m["code.context.compacted"]();
 	});
 
 	async function compactNow() {
@@ -161,7 +163,7 @@
 			if (err instanceof CodeApiError && err.status === 404) {
 				compactUnsupported = true;
 			} else {
-				compactFailure = err instanceof Error ? err.message : "The daemon refused to compact.";
+				compactFailure = err instanceof Error ? err.message : m["code.context.compact_refused"]();
 			}
 		} finally {
 			compacting = false;
@@ -176,7 +178,7 @@
 	<DropdownMenu.Root onOpenChange={onPopupOpenChange}>
 		<DropdownMenu.Trigger
 			class="flex h-7 flex-none items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 max-sm:h-6 max-sm:w-6 max-sm:justify-center max-sm:gap-0 max-sm:px-0 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-			title="Context usage"
+			title={m["code.context.title"]()}
 		>
 			<svg viewBox="0 0 18 18" class="size-3.5 {RING_CLASS[tone]}">
 				<circle
@@ -219,18 +221,25 @@
 					<div
 						class="flex items-center justify-between font-medium text-gray-800 dark:text-gray-100"
 					>
-						<span>Context</span>
-						<span>{usage.used ?? 0}{usage.max ? ` / ${usage.max}` : ""} tokens</span>
+						<span>{m["code.context.heading"]()}</span>
+						<span>
+							{usage.max
+								? m["code.context.tokens_of"]({
+										used: formatNumber(usage.used ?? 0),
+										max: formatNumber(usage.max),
+									})
+								: m["code.context.tokens"]({ used: formatNumber(usage.used ?? 0) })}
+						</span>
 					</div>
 					<dl class="grid grid-cols-2 gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400">
-						<dt>Input</dt>
-						<dd class="text-right">{usage.input ?? 0}</dd>
-						<dt>Output</dt>
-						<dd class="text-right">{usage.output ?? 0}</dd>
-						<dt>Cache read</dt>
-						<dd class="text-right">{usage.cacheRead ?? 0}</dd>
-						<dt>Reasoning</dt>
-						<dd class="text-right">{usage.reasoning ?? 0}</dd>
+						<dt>{m["code.context.input"]()}</dt>
+						<dd class="text-right">{formatNumber(usage.input ?? 0)}</dd>
+						<dt>{m["code.context.output"]()}</dt>
+						<dd class="text-right">{formatNumber(usage.output ?? 0)}</dd>
+						<dt>{m["code.context.cache_read"]()}</dt>
+						<dd class="text-right">{formatNumber(usage.cacheRead ?? 0)}</dd>
+						<dt>{m["code.context.reasoning"]()}</dt>
+						<dd class="text-right">{formatNumber(usage.reasoning ?? 0)}</dd>
 					</dl>
 					{#if compactionNote}
 						<div class="text-gray-500 dark:text-gray-400">{compactionNote}</div>
@@ -248,20 +257,22 @@
 							disabled={compacting}
 							onclick={() => void compactNow()}
 						>
-							{compacting ? "Compacting…" : "Compact now"}
+							{compacting ? m["code.context.compacting"]() : m["code.context.compact_now"]()}
 						</button>
 					{/if}
 
 					{#if quotaDisplay.kind !== "hidden"}
 						<div class="mt-1 border-t border-gray-200 pt-2 dark:border-gray-700">
-							<div class="mb-1 font-medium text-gray-800 dark:text-gray-100">Quotas</div>
+							<div class="mb-1 font-medium text-gray-800 dark:text-gray-100">
+								{m["code.context.quotas"]()}
+							</div>
 							{#if quotaDisplay.kind === "error"}
 								<div class="flex items-center gap-1 text-amber-600 dark:text-amber-400">
 									<IconWarning class="size-3 shrink-0" />
 									<span>{quotaDisplay.message}</span>
 								</div>
 							{:else if quotaDisplay.kind === "empty"}
-								<p class="text-gray-500 dark:text-gray-400">No quotas</p>
+								<p class="text-gray-500 dark:text-gray-400">{m["code.context.no_quotas"]()}</p>
 							{:else}
 								<div class="-mx-3 divide-y divide-gray-200 px-3 dark:divide-gray-700">
 									{#each quotaDisplay.quotas as quota, i (`${i}:${quota.label}`)}
@@ -272,7 +283,7 @@
 									href="{base}/settings/usage"
 									class="flex items-center gap-1 text-[12px] text-blue-600 hover:underline dark:text-blue-400"
 								>
-									Settings → Usage
+									{m["code.context.settings_usage"]()}
 									<CarbonArrowUpRight class="text-xs" />
 								</a>
 							{/if}

@@ -8,6 +8,7 @@
 	is redrawn from the daemon after the daemon says yes.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
 	import IconTrash from "~icons/carbon/trash-can";
@@ -54,7 +55,7 @@
 			await onconfirm(checked);
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "The daemon refused.";
+			failure = err instanceof Error ? err.message : m["code.confirm.refused"]();
 		} finally {
 			busy = false;
 		}
@@ -89,7 +90,7 @@
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Failed
+					{m["code.confirm.failed"]()}
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -105,7 +106,9 @@
 		{/if}
 
 		<div class="mt-4 flex justify-end gap-2">
-			<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}> Cancel </button>
+			<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
+				{m["code.common.cancel"]()}
+			</button>
 			<!-- Destructive borrows the danger text tone rather than a red
 				fill, per the palette's own convention (styles.ts). -->
 			<button

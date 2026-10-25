@@ -14,6 +14,7 @@
 	layout gives it; the page scrolls in its own panes under pinned bars.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
 	import { browser } from "$app/environment";
@@ -90,13 +91,13 @@
 	{#if !enabled}
 		<div class="pointer-events-auto {s.EMPTY}">
 			<IconCode class={s.EMPTY_ICON} />
-			<p class={s.EMPTY_TITLE}>Coding agents are not enabled</p>
-			<p class={s.EMPTY_DETAIL}>This deployment has no machine link configured.</p>
+			<p class={s.EMPTY_TITLE}>{m["code.panel.disabled_title"]()}</p>
+			<p class={s.EMPTY_DETAIL}>{m["code.panel.disabled_detail"]()}</p>
 		</div>
 	{:else if !codeReauth.checked}
 		<div class="pointer-events-auto {s.EMPTY}">
 			<IconLaptop class={s.EMPTY_ICON} />
-			<p class={s.EMPTY_TITLE}>Loading…</p>
+			<p class={s.EMPTY_TITLE}>{m["code.panel.loading"]()}</p>
 		</div>
 	{:else if codeReauth.required}
 		<CodeReauthCard />
@@ -113,7 +114,7 @@
 			{:else if codeDeviceList.loading}
 				<div class="pointer-events-auto {s.EMPTY}">
 					<IconLaptop class={s.EMPTY_ICON} />
-					<p class={s.EMPTY_TITLE}>Loading…</p>
+					<p class={s.EMPTY_TITLE}>{m["code.panel.loading"]()}</p>
 				</div>
 			{:else if selected?.status === "pending"}
 				<div class="pointer-events-auto scrollbar-custom min-h-0 flex-1 overflow-y-auto p-6">
@@ -122,7 +123,7 @@
 							<div class={s.HEADER}>
 								<h2 class={s.TITLE}>{selected.name}</h2>
 								<p class={s.SUBTITLE}>
-									This machine checked in and is waiting for you to confirm it in the Agents panel.
+									{m["code.panel.pending"]()}
 								</p>
 							</div>
 						</div>
@@ -142,16 +143,18 @@
 					>
 						<IconLaptop class="mb-3 size-7 text-ink-faint" />
 						<p class="mb-1 text-xs font-medium text-ink">
-							{codeDeviceList.devices.length === 0 ? "No paired devices" : "No agent selected"}
+							{codeDeviceList.devices.length === 0
+								? m["code.panel.no_devices"]()
+								: m["code.panel.no_agent"]()}
 						</p>
 						<p class="mb-4 text-xs text-ink-muted">
 							{codeDeviceList.devices.length === 0
-								? "Pair the machine your coding agents run on to begin."
-								: "Pick a session from the Agents panel in the sidebar."}
+								? m["code.panel.pair_prompt"]()
+								: m["code.panel.pick_session"]()}
 						</p>
 						<button onclick={openAgentsPanel} class={s.PRIMARY}>
 							<IconCode class="size-4" />
-							Open Agents panel
+							{m["code.panel.open_agents"]()}
 						</button>
 					</div>
 				</div>

@@ -12,6 +12,7 @@
 	server owns the rows and the executor does the work.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
@@ -36,12 +37,8 @@
 	import ScheduleEditor from "./ScheduleEditor.svelte";
 	import ScheduleHistory from "./ScheduleHistory.svelte";
 	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
-	import {
-		formatWhen,
-		recurrenceText,
-		RUN_STATUS_LABEL,
-		RUN_STATUS_TONE,
-	} from "$lib/utils/scheduleFormat";
+	import { formatWhen, RUN_STATUS_TONE } from "$lib/utils/scheduleFormat";
+	import { recurrenceLabel, runStatusLabel } from "./scheduleLabels";
 	import * as s from "$lib/components/overlay/styles";
 
 	const params = $derived(page.url.searchParams);
@@ -70,7 +67,7 @@
 			limit = answer.limit;
 			failure = null;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load your schedules.";
+			failure = err instanceof Error ? err.message : m["code.schedules.could_not_load"]();
 		} finally {
 			loading = false;
 		}
@@ -98,7 +95,7 @@
 			await updateSchedule(schedule.id, { enabled: !schedule.enabled });
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not change the schedule.";
+			failure = err instanceof Error ? err.message : m["code.schedules.could_not_change"]();
 		} finally {
 			busyId = null;
 		}
@@ -112,7 +109,7 @@
 			notice = { id: schedule.id, run };
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not run the schedule.";
+			failure = err instanceof Error ? err.message : m["code.schedules.could_not_run"]();
 		} finally {
 			busyId = null;
 		}
@@ -145,9 +142,9 @@
 			<ScheduleEditor editing={edited} onsaved={toList} oncancel={toList} />
 		{/key}
 	{:else if loading}
-		<p class="p-6 text-sm text-ink-muted">Loading…</p>
+		<p class="p-6 text-sm text-ink-muted">{m["code.schedules.loading"]()}</p>
 	{:else}
-		<div class="p-6"><div class={s.ERROR}>No such schedule.</div></div>
+		<div class="p-6"><div class={s.ERROR}>{m["code.schedules.no_such"]()}</div></div>
 	{/if}
 {:else if scheduleId}
 	<ScheduleHistory {scheduleId} onback={toList} />
@@ -156,8 +153,8 @@
 		<div class={s.EMBEDDED} data-testid="schedules-list">
 			<div class="p-4 sm:p-6">
 				<div class={s.HEADER}>
-					<h2 class={s.TITLE}>Schedules</h2>
-					<p class={s.SUBTITLE}>Prompts sent to your coding sessions on a timetable.</p>
+					<h2 class={s.TITLE}>{m["code.schedules.title"]()}</h2>
+					<p class={s.SUBTITLE}>{m["code.schedules.subtitle"]()}</p>
 				</div>
 
 				<div class="{s.STRIP} {schedules.length ? s.STRIP_ACTIVE : s.STRIP_IDLE}">
@@ -167,16 +164,19 @@
 						</div>
 						<div class="min-w-0">
 							<p class={s.STRIP_HEADLINE}>
-								{schedules.length}
-								{schedules.length === 1 ? "schedule" : "schedules"}
+								{m["code.schedules.count"]({ count: schedules.length })}
 							</p>
 							<p class={s.STRIP_DETAIL}>
-								{schedules.filter((x) => x.enabled).length} on · up to {limit}
+								{m["code.schedules.on_up_to"]({
+									on: schedules.filter((x) => x.enabled).length,
+									limit,
+								})}
 							</p>
 						</div>
 					</div>
 					<a href={address({ new: "1" })} class={s.PRIMARY} data-testid="new-schedule">
-						<IconAdd class="size-4" /> New schedule
+						<IconAdd class="size-4" />
+						{m["code.schedules.new"]()}
 					</a>
 				</div>
 
@@ -185,16 +185,17 @@
 				{/if}
 
 				{#if loading}
-					<p class="text-sm text-ink-muted">Loading…</p>
+					<p class="text-sm text-ink-muted">{m["code.schedules.loading"]()}</p>
 				{:else if schedules.length === 0}
 					<div class={s.EMPTY}>
 						<IconTime class={s.EMPTY_ICON} />
-						<p class={s.EMPTY_TITLE}>No schedules yet</p>
+						<p class={s.EMPTY_TITLE}>{m["code.schedules.empty_title"]()}</p>
 						<p class="{s.EMPTY_DETAIL} text-center">
-							Make one here, or choose “Schedule this…” in a session's menu to start from it.
+							{m["code.schedules.empty_detail"]()}
 						</p>
 						<a href={address({ new: "1" })} class={s.PRIMARY}>
-							<IconAdd class="size-4" /> New schedule
+							<IconAdd class="size-4" />
+							{m["code.schedules.new"]()}
 						</a>
 					</div>
 				{:else}
@@ -218,7 +219,9 @@
 											type="button"
 											role="switch"
 											aria-checked={schedule.enabled}
-											aria-label="{schedule.enabled ? 'Turn off' : 'Turn on'} {schedule.name}"
+											aria-label={schedule.enabled
+												? m["code.schedules.turn_off"]({ name: schedule.name })
+												: m["code.schedules.turn_on"]({ name: schedule.name })}
 											class="relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors {schedule.enabled
 												? 'bg-accent-solid'
 												: 'bg-line-strong'} disabled:opacity-50"
@@ -235,41 +238,46 @@
 
 									<dl class="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
 										<div class="min-w-0">
-											<dt class="text-ink-faint">Repeats</dt>
+											<dt class="text-ink-faint">{m["code.schedules.repeats"]()}</dt>
 											<dd class="break-words text-ink">
-												{recurrenceText(schedule.recurrence)}
+												{recurrenceLabel(schedule.recurrence)}
 												<span class="text-ink-muted">· {schedule.timezone}</span>
 											</dd>
 										</div>
 										<div class="min-w-0">
-											<dt class="text-ink-faint">Next run</dt>
+											<dt class="text-ink-faint">{m["code.schedules.next_run"]()}</dt>
 											<dd class="text-ink" data-testid="next-run">
-												{schedule.enabled ? formatWhen(schedule.nextRunAt) : "Off"}
+												{schedule.enabled
+													? formatWhen(schedule.nextRunAt)
+													: m["code.schedules.off"]()}
 											</dd>
 										</div>
 										<div class="min-w-0">
-											<dt class="text-ink-faint">Last run</dt>
+											<dt class="text-ink-faint">{m["code.schedules.last_run"]()}</dt>
 											<dd class="flex flex-wrap items-center gap-1.5 text-ink">
 												{#if schedule.lastStatus}
 													<span
 														class="{s.PILL} {s.PILL_TONES[RUN_STATUS_TONE[schedule.lastStatus]]}"
 														data-testid="last-status"
 													>
-														{RUN_STATUS_LABEL[schedule.lastStatus]}
+														{runStatusLabel(schedule.lastStatus)}
 													</span>
 													{#if schedule.lastRunAt}
 														<span class="text-ink-muted">{formatWhen(schedule.lastRunAt)}</span>
 													{/if}
 												{:else}
-													<span class="text-ink-muted">Never</span>
+													<span class="text-ink-muted">{m["code.schedules.never"]()}</span>
 												{/if}
 											</dd>
 										</div>
 										{#if schedule.maxOccurrences !== undefined}
 											<div class="min-w-0">
-												<dt class="text-ink-faint">Runs</dt>
+												<dt class="text-ink-faint">{m["code.schedules.runs"]()}</dt>
 												<dd class="text-ink" data-testid="run-progress">
-													{schedule.firedCount}/{schedule.maxOccurrences} run
+													{m["code.schedules.run_progress"]({
+														fired: schedule.firedCount,
+														max: schedule.maxOccurrences,
+													})}
 												</dd>
 											</div>
 										{/if}
@@ -285,15 +293,18 @@
 										</p>
 									{:else if !deviceOnline(schedule) && schedule.enabled}
 										<p class="mt-2 text-xs text-ink-muted">
-											That machine is offline; runs are recorded as missed until it is back.
+											{m["code.schedules.offline_note"]()}
 										</p>
 									{/if}
 
 									{#if notice?.id === schedule.id}
 										<p class="{s.NOTICE} mt-2 break-words" data-testid="run-notice">
-											{RUN_STATUS_LABEL[notice.run.status]}{notice.run.detail
-												? `: ${notice.run.detail}`
-												: ""}
+											{notice.run.detail
+												? m["code.schedules.run_notice"]({
+														status: runStatusLabel(notice.run.status),
+														detail: notice.run.detail,
+													})
+												: runStatusLabel(notice.run.status)}
 										</p>
 									{/if}
 
@@ -304,20 +315,24 @@
 											disabled={busyId === schedule.id}
 											onclick={() => runNow(schedule)}
 										>
-											<IconPlay class="size-3.5" /> Run now
+											<IconPlay class="size-3.5" />
+											{m["code.schedules.run_now"]()}
 										</button>
 										<a href={address({ schedule: schedule.id })} class={s.CARD_ACTION}>
-											<IconList class="size-3.5" /> History
+											<IconList class="size-3.5" />
+											{m["code.schedules.history"]()}
 										</a>
 										<a href={address({ schedule: schedule.id, edit: "1" })} class={s.CARD_ACTION}>
-											<IconEdit class="size-3.5" /> Edit
+											<IconEdit class="size-3.5" />
+											{m["code.schedules.edit"]()}
 										</a>
 										<button
 											type="button"
 											class={s.CARD_DESTRUCTIVE}
 											onclick={() => (confirmDelete = schedule)}
 										>
-											<IconTrash class="size-3.5" /> Delete
+											<IconTrash class="size-3.5" />
+											{m["code.schedules.delete"]()}
 										</button>
 									</div>
 								</div>
@@ -327,18 +342,12 @@
 				{/if}
 
 				<div class="{s.TIPS} mt-6">
-					<p class={s.TIPS_TITLE}>Good to know</p>
+					<p class={s.TIPS_TITLE}>{m["code.schedules.tips.title"]()}</p>
 					<ul class={s.TIPS_LIST}>
-						<li>Runs are at least 15 minutes apart. Times are read in the schedule's timezone.</li>
-						<li>
-							A run on a machine that is offline is recorded as missed, never queued. Machines pay
-							for their own runs with their own credential.
-						</li>
-						<li>
-							If the previous run's session is still working, the next one is skipped. If Cerea was
-							down, at most one late run is made up, and only when it is not very late.
-						</li>
-						<li>Three failed runs in a row switch a schedule off.</li>
+						<li>{m["code.schedules.tips.spacing"]()}</li>
+						<li>{m["code.schedules.tips.offline"]()}</li>
+						<li>{m["code.schedules.tips.skipped"]()}</li>
+						<li>{m["code.schedules.tips.failures"]()}</li>
 					</ul>
 				</div>
 			</div>
@@ -349,11 +358,11 @@
 {#if confirmDelete}
 	{@const target = confirmDelete}
 	<CodeConfirmDialog
-		title="Delete schedule"
+		title={m["code.schedules.delete_title"]()}
 		target={target.name}
-		message="The schedule stops and is removed. Sessions it already started stay on the machine, and its past runs stay on record for 90 days."
-		confirmLabel="Delete schedule"
-		busyLabel="Deleting…"
+		message={m["code.schedules.delete_message"]()}
+		confirmLabel={m["code.schedules.delete_title"]()}
+		busyLabel={m["code.schedules.deleting"]()}
 		onconfirm={() => remove(target)}
 		onclose={() => (confirmDelete = null)}
 	/>

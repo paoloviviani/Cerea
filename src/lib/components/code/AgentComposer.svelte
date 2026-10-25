@@ -36,6 +36,7 @@
 	Sending twice against a slow machine would print twice.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { untrack } from "svelte";
 	import { MediaQuery } from "svelte/reactivity";
 	import { DropdownMenu } from "bits-ui";
@@ -293,7 +294,7 @@
 			if (running) {
 				// A prompt steers a running turn; a command must not join it
 				// half-explained, so it waits for the turn or for a stop.
-				errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
+				errorToast.set(m["code.composer.mid_turn"]());
 				return;
 			}
 			busy = true;
@@ -335,7 +336,7 @@
 		const message = draft.trim();
 		if (!message) return;
 		if (matchSlashCommand(message, allCommands)) {
-			errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
+			errorToast.set(m["code.composer.mid_turn"]());
 			return;
 		}
 		busy = true;
@@ -358,7 +359,7 @@
 	async function onSlashCommand(command: SlashCommand, args: string) {
 		if (enrollmentExpired || offline || busy) return;
 		if (running) {
-			errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
+			errorToast.set(m["code.composer.mid_turn"]());
 			return;
 		}
 		busy = true;
@@ -383,7 +384,7 @@
 	async function runBackendCommand(command: SlashCommand, args: string): Promise<boolean> {
 		const full = backendCommands.find((candidate) => candidate.name === command.name);
 		if (!full) {
-			errorToast.set("That command is no longer listed on this machine.");
+			errorToast.set(m["code.composer.command_gone"]());
 			return true;
 		}
 		// A project-origin or shell-expanding command asks once per (device,
@@ -412,11 +413,11 @@
 			void refreshBackendCommands();
 		} catch (err) {
 			if (err instanceof CodeApiError && err.status === 409) {
-				errorToast.set("This command changed on the machine; review it again.");
+				errorToast.set(m["code.composer.command_changed"]());
 			} else if (err instanceof Error) {
 				errorToast.set(err.message);
 			} else {
-				errorToast.set("The daemon refused the command.");
+				errorToast.set(m["code.composer.command_refused"]());
 			}
 		}
 	}
@@ -454,9 +455,11 @@
 					onchanged();
 				} catch (err) {
 					if (err instanceof CodeApiError && err.status === 404) {
-						errorToast.set("This backend cannot compact on request.");
+						errorToast.set(m["code.composer.cannot_compact"]());
 					} else {
-						errorToast.set(err instanceof Error ? err.message : "The daemon refused to compact.");
+						errorToast.set(
+							err instanceof Error ? err.message : m["code.composer.compact_refused"]()
+						);
 					}
 				}
 				return true;
@@ -471,9 +474,7 @@
 					await unrevertAgent(deviceId, agentId);
 					onchanged();
 				} catch (err) {
-					errorToast.set(
-						err instanceof Error ? err.message : "The daemon refused to undo the rollback."
-					);
+					errorToast.set(err instanceof Error ? err.message : m["code.composer.undo_refused"]());
 				}
 				return true;
 			}
@@ -651,7 +652,7 @@
 			if (result.notice) applyFailure = result.notice;
 			onchanged();
 		} catch (err) {
-			applyFailure = err instanceof Error ? err.message : "The daemon refused the mode.";
+			applyFailure = err instanceof Error ? err.message : m["code.composer.mode_refused"]();
 		} finally {
 			applying = null;
 		}
@@ -665,7 +666,7 @@
 			await setAgentModel(deviceId, agentId, modelId);
 			onchanged();
 		} catch (err) {
-			applyFailure = err instanceof Error ? err.message : "The daemon refused the model.";
+			applyFailure = err instanceof Error ? err.message : m["code.composer.model_refused"]();
 		} finally {
 			applying = null;
 		}
@@ -694,8 +695,7 @@
 			}
 			(onpermissionchanged ?? onchanged)();
 		} catch (err) {
-			applyFailure =
-				err instanceof Error ? err.message : "The machine refused the permission setting.";
+			applyFailure = err instanceof Error ? err.message : m["code.composer.permission_refused"]();
 		} finally {
 			applying = null;
 		}
@@ -706,29 +706,27 @@
 	 * server refuses the call anyway. */
 	const PERMISSION_SEGMENTS: Array<{
 		mode: PermissionMode;
-		label: string;
-		title: string;
+		label: () => string;
+		title: () => string;
 		icon: typeof IconShieldX;
 	}> = [
 		{
 			mode: "deny",
-			label: "Plan",
+			label: m["code.permission_mode.plan"],
 			icon: IconShieldX,
-			title:
-				"Plan: the agent reads and plans. Edits, commands and fetches are refused without asking. Reading still works. Your exceptions are kept, but blocked.",
+			title: m["code.composer.plan_title"],
 		},
 		{
 			mode: "ask",
-			label: "Ask",
+			label: m["code.permission_mode.ask"],
 			icon: IconShieldQuestion,
-			title:
-				"Edits, commands and fetches ask first. Reading is allowed. Your exceptions for this session run without asking.",
+			title: m["code.composer.ask_title"],
 		},
 		{
 			mode: "allow",
-			label: "Allow",
+			label: m["code.permission_mode.allow"],
 			icon: IconShieldCheck,
-			title: `Edits, commands and fetches run without asking, up to this machine's limits. Still asks: writing outside the project folder and an agent that is stuck repeating itself. New subagents follow it too.`,
+			title: m["code.composer.allow_title"],
 		},
 	];
 	let isSubagent = $derived(Boolean(agent?.parentId));
@@ -736,11 +734,11 @@
 	let showPermissionSelector = $derived(permissionMode !== null && !codeReauth.required);
 	/** Under Allow, what this machine's ceiling still holds back. */
 	let permissionNote = $derived.by(() => {
-		if (isSubagent) return "Follows the main session";
+		if (isSubagent) return m["code.composer.follows_main"]();
 		if (permissionMode !== "allow") return "";
 		const held = ceilingNote(ceiling);
 		// Nothing capped: the selected segment already says Allow.
-		return held ? `Allow · ${held} (machine limit)` : "";
+		return held ? m["code.composer.allow_held"]({ held }) : "";
 	});
 
 	/** build and plan are driven by the selector (Plan runs plan, Ask and Allow
@@ -751,11 +749,11 @@
 	}
 	function selectorAgent(mode: PermissionMode): string | null {
 		const want = mode === "deny" ? "plan" : "build";
-		return (modes ?? []).some((m) => m.id === want) ? want : null;
+		return (modes ?? []).some((x) => x.id === want) ? want : null;
 	}
 	let listedModes = $derived(
 		showPermissionSelector && !isSubagent
-			? (modes ?? []).filter((m) => !SELECTOR_AGENTS.includes(m.id))
+			? (modes ?? []).filter((x) => !SELECTOR_AGENTS.includes(x.id))
 			: (modes ?? [])
 	);
 	/** The mode pill stays only when there is a custom agent to pick. */
@@ -764,7 +762,7 @@
 	);
 
 	let modeLabel = $derived.by(() => {
-		if (!agent?.modeId) return "Mode";
+		if (!agent?.modeId) return m["code.composer.mode"]();
 		return modes?.find((mode) => mode.id === (agent?.modeId ?? null))?.label ?? agent.modeId;
 	});
 	/** The model the agent runs: its explicit one, else the backend's
@@ -774,7 +772,7 @@
 	let currentModel = $derived(resolveActiveModel(agent?.modelId, models));
 	let modelLabel = $derived.by(() => {
 		if (agent?.modelId) return currentModel?.label ?? agent.modelId;
-		return currentModel?.label ?? "Model";
+		return currentModel?.label ?? m["code.composer.model"]();
 	});
 
 	/** The effort submenu inside the model/effort pill: only for a backend
@@ -831,7 +829,7 @@
 			await setAgentEffort(deviceId, agentId, effort);
 			onchanged();
 		} catch (err) {
-			applyFailure = err instanceof Error ? err.message : "The daemon refused the effort.";
+			applyFailure = err instanceof Error ? err.message : m["code.composer.effort_refused"]();
 		} finally {
 			applying = null;
 		}
@@ -910,11 +908,16 @@
 			     row to the dropzone, exactly as the chat composer does. The
 			     mobile send control goes with it — there is nothing to send
 			     while a drop is pending. -->
-			<FileDropzone bind:files bind:onDrag={drag.active} {mimeTypes} label="Drop File to attach" />
+			<FileDropzone
+				bind:files
+				bind:onDrag={drag.active}
+				{mimeTypes}
+				label={m["code.composer.drop_label"]()}
+			/>
 		{:else}
 			<div class="flex w-full flex-1 rounded-xl border-none bg-transparent">
 				<ChatInput
-					placeholder="Follow up with the agent…"
+					placeholder={m["code.composer.placeholder"]()}
 					bind:value={draft}
 					{draftKey}
 					{mimeTypes}
@@ -943,7 +946,7 @@
 								<DropdownMenu.Trigger
 									class={pillClass}
 									disabled={applying === "mode"}
-									title="How much the agent may do on its own — the machine's modes, as the backend defines them"
+									title={m["code.composer.mode_title"]()}
 								>
 									<span class="max-sm:max-w-20 max-sm:truncate">{modeLabel}</span>
 									<IconChevronDown class={chevronClass} />
@@ -960,15 +963,15 @@
 									>
 										{#if modes === null && !modesFailure}
 											<DropdownMenu.Item class={menuNoteClass} disabled
-												>Loading modes…</DropdownMenu.Item
+												>{m["code.composer.loading_modes"]()}</DropdownMenu.Item
 											>
 										{:else if modesFailure}
 											<DropdownMenu.Item class={menuNoteClass} disabled>
-												Could not load modes: {modesFailure}
+												{m["code.composer.modes_failed"]({ reason: modesFailure })}
 											</DropdownMenu.Item>
 										{:else if !listedModes.length}
 											<DropdownMenu.Item class={menuNoteClass} disabled>
-												The daemon lists no modes.
+												{m["code.composer.no_modes"]()}
 											</DropdownMenu.Item>
 										{:else}
 											{#each listedModes as mode (mode.id)}
@@ -1001,13 +1004,13 @@
 						{#if showPermissionSelector}
 							<div
 								role="radiogroup"
-								aria-label="Permission for this session"
+								aria-label={m["code.composer.permission_label"]()}
 								aria-busy={applying === "permission"}
 								data-testid="permission-mode"
 								data-mode={permissionMode}
 								title={isSubagent
-									? "A subagent follows the main session's permission setting."
-									: "What this session does about a tool call it has no rule for."}
+									? m["code.composer.permission_subagent"]()
+									: m["code.composer.permission_title"]()}
 								class="flex h-7 flex-none items-center rounded-full border p-0.5 max-sm:h-8 max-sm:border-0 max-sm:bg-transparent max-sm:p-0 {PILL_REST}"
 							>
 								{#each PERMISSION_SEGMENTS as segment (segment.mode)}
@@ -1016,7 +1019,7 @@
 										role="radio"
 										aria-checked={permissionMode === segment.mode}
 										disabled={isSubagent || applying !== null}
-										title={segment.title}
+										title={segment.title()}
 										data-testid="permission-mode-{segment.mode}"
 										onclick={() => void applyPermissionMode(segment.mode)}
 										class={[
@@ -1027,7 +1030,7 @@
 										]}
 									>
 										<segment.icon class="hidden size-3.5 max-sm:block" />
-										<span class="max-sm:sr-only">{segment.label}</span>
+										<span class="max-sm:sr-only">{segment.label()}</span>
 									</button>
 								{/each}
 							</div>
@@ -1040,8 +1043,8 @@
 								<button
 									type="button"
 									class={composerPillClass({ compact: true })}
-									aria-label="Permission details for this session"
-									title="What this session will do about its tool calls"
+									aria-label={m["code.composer.details_label"]()}
+									title={m["code.composer.details_title"]()}
 									data-testid="permission-details"
 									onclick={() => (permissionDetailsOpen = true)}
 								>
@@ -1086,20 +1089,20 @@
 								class="flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
 							>
 								<IconWarning class="size-3 shrink-0" />
-								<span class="min-w-0 truncate">This machine is offline.</span>
+								<span class="min-w-0 truncate">{m["code.composer.offline"]()}</span>
 							</span>
 						{:else if enrollmentExpired}
 							<span class="flex min-w-0 items-center gap-1 text-xs text-red-600 dark:text-red-400">
 								<IconWarning class="size-3 shrink-0" />
 								<span class="min-w-0 truncate">
-									This machine's enrollment expired or was revoked.
+									{m["code.composer.enrollment_expired"]()}
 								</span>
 								<button
 									type="button"
 									class="shrink-0 font-medium underline underline-offset-2"
 									onclick={() => onreenroll?.()}
 								>
-									Re-enroll
+									{m["code.composer.reenroll"]()}
 								</button>
 							</span>
 						{/if}
@@ -1158,14 +1161,16 @@
 	     The daemon's loading and failure states keep the quiet-text look
 	     too. Only the machine-policy footer differs from chat's. -->
 	{#if models === null && !modelsFailure}
-		<span class="text-xs whitespace-nowrap text-gray-400/90 opacity-60"> Loading models… </span>
+		<span class="text-xs whitespace-nowrap text-gray-400/90 opacity-60">
+			{m["code.composer.loading_models"]()}
+		</span>
 	{:else if modelsFailure}
 		<span class="text-xs whitespace-nowrap text-gray-400/90 opacity-60" title={modelsFailure}>
-			Could not load models
+			{m["code.composer.models_failed"]()}
 		</span>
 	{:else if !models?.length}
 		<span class="text-xs whitespace-nowrap text-gray-400/90 opacity-60">
-			The daemon lists no models.
+			{m["code.composer.no_models"]()}
 		</span>
 	{:else}
 		<ModelEffortPicker
@@ -1183,13 +1188,12 @@
 			onmore={() => (modelDialogOpen = true)}
 			disabled={applying === "model" || applying === "effort"}
 		>
-			<span class="shrink-0">Model:</span>
+			<span class="shrink-0">{m["code.composer.model_prefix"]()}</span>
 			<span class="truncate" title={modelLabel}>{modelLabel}</span>
 			{#snippet footer()}
 				{#if modelsHidden > 0}
 					<div class={menuNoteClass}>
-						{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this machine
-						was enrolled without --allow-free-models.
+						{m["code.composer.models_hidden"]({ count: modelsHidden })}
 					</div>
 				{/if}
 			{/snippet}
@@ -1217,8 +1221,8 @@
 	<ModelPickerDialog
 		models={pickerModels}
 		currentId={currentModel?.id ?? agent?.modelId ?? ""}
-		title="Switch model"
-		subtitle="Changes this agent only."
+		title={m["code.composer.switch_model"]()}
+		subtitle={m["code.composer.switch_model_subtitle"]()}
 		onchoose={(id) => {
 			modelDialogOpen = false;
 			rememberCodeModel(id);
@@ -1292,8 +1296,8 @@
 						: 'bg-accent-solid! text-white! focus:ring-offset-2 focus:ring-offset-surface enabled:hover:bg-accent-solid-hover!'}"
 					disabled={!draft.trim() || busy || enrollmentExpired || offline}
 					type="submit"
-					aria-label="Send message"
-					title={running ? "Send to the running turn" : undefined}
+					aria-label={m["code.composer.send"]()}
+					title={running ? m["code.composer.send_running"]() : undefined}
 					name="submit"
 				>
 					<IconArrowUp />
@@ -1307,7 +1311,7 @@
 								? ''
 								: 'bg-accent-solid! text-white! focus:ring-offset-2 focus:ring-offset-surface enabled:hover:bg-accent-solid-hover!'}"
 							disabled={!draft.trim() || busy || enrollmentExpired || offline}
-							aria-label="More ways to send"
+							aria-label={m["code.composer.more_send"]()}
 						>
 							<IconChevronDown class="size-3" />
 						</DropdownMenu.Trigger>
@@ -1322,7 +1326,7 @@
 								interactOutsideBehavior="defer-otherwise-close"
 							>
 								<DropdownMenu.Item class={menuItemClass} onSelect={() => void stopAndSend()}>
-									<span class="whitespace-nowrap">Stop and send</span>
+									<span class="whitespace-nowrap">{m["code.composer.stop_and_send"]()}</span>
 								</DropdownMenu.Item>
 							</DropdownMenu.Content>
 						</DropdownMenu.Portal>

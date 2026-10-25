@@ -9,6 +9,7 @@
 	arrives as the failure below, never as a row that pretends.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import Modal from "$lib/components/Modal.svelte";
 	import IconFolder from "~icons/carbon/folder";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -83,7 +84,7 @@
 			oncreated(created.workspace);
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not create the workspace.";
+			failure = err instanceof Error ? err.message : m["code.workspace_dialog.could_not"]();
 		} finally {
 			busy = false;
 		}
@@ -97,8 +98,8 @@
 				<IconFolder class="size-5 text-blue-600" />
 			</div>
 			<div>
-				<h2 id="workspace-title" class={s.TITLE}>Add a workspace</h2>
-				<p class={s.SUBTITLE}>A directory on this machine the daemon serves agents from.</p>
+				<h2 id="workspace-title" class={s.TITLE}>{m["code.workspace_dialog.title"]()}</h2>
+				<p class={s.SUBTITLE}>{m["code.workspace_dialog.subtitle"]()}</p>
 			</div>
 		</div>
 
@@ -106,7 +107,7 @@
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Workspace failed
+					{m["code.workspace_dialog.failed"]()}
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -118,12 +119,12 @@
 				void handleCreate();
 			}}
 		>
-			<label class={s.LABEL} for="workspace-path">Directory on the machine</label>
+			<label class={s.LABEL} for="workspace-path">{m["code.workspace_dialog.directory"]()}</label>
 			<div class="relative">
 				<input
 					id="workspace-path"
 					class={s.INPUT}
-					placeholder="/home/you/checkouts/myrepo"
+					placeholder={m["code.workspace_dialog.directory_placeholder"]()}
 					maxlength={1024}
 					autocomplete="off"
 					role="combobox"
@@ -146,7 +147,7 @@
 					<div
 						id="workspace-path-listbox"
 						role="listbox"
-						aria-label="Matching directories"
+						aria-label={m["code.workspace_dialog.matching"]()}
 						class="absolute z-20 mt-1 scrollbar-custom max-h-48 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 text-sm shadow-lg dark:border-gray-700 dark:bg-gray-900"
 					>
 						{#each suggestions as dir (dir.path)}
@@ -161,6 +162,7 @@
 								<IconFolder class="size-3.5 shrink-0 text-gray-400" />
 								<span class="min-w-0 flex-1 truncate">{dir.path}</span>
 								{#if dir.isGitRepo}
+									<!-- i18n: literal (the git command) -->
 									<span class="shrink-0 text-[10px] text-gray-400">git</span>
 								{/if}
 							</button>
@@ -168,22 +170,24 @@
 					</div>
 				{/if}
 			</div>
-			<p class={s.HINT}>Absolute path, as the daemon sees it — not this browser.</p>
-			<label class="{s.LABEL} mt-4" for="workspace-name">Title (optional)</label>
+			<p class={s.HINT}>{m["code.workspace_dialog.hint"]()}</p>
+			<label class="{s.LABEL} mt-4" for="workspace-name"
+				>{m["code.workspace_dialog.title_label"]()}</label
+			>
 			<input
 				id="workspace-name"
 				class={s.INPUT}
-				placeholder="myrepo"
+				placeholder={m["code.workspace_dialog.title_placeholder"]()}
 				maxlength={120}
 				bind:value={title}
 				disabled={busy}
 			/>
 			<div class="mt-4 flex justify-end gap-2">
 				<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
-					Cancel
+					{m["code.common.cancel"]()}
 				</button>
 				<button type="submit" class={s.PRIMARY} disabled={busy || !path.trim()}>
-					{busy ? "Adding…" : "Add workspace"}
+					{busy ? m["code.workspace_dialog.adding"]() : m["code.workspace_dialog.add"]()}
 				</button>
 			</div>
 		</form>

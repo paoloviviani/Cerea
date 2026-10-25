@@ -20,6 +20,7 @@
 	lands where the action put them.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount, untrack } from "svelte";
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
@@ -119,6 +120,14 @@
 	let agentDialogFor = $state<CodeWorkspace | null>(null);
 	/** The workspace whose rename dialog is open, with its device. */
 	let renameFor = $state<{ device: CodeDeviceView; workspace: CodeWorkspace } | null>(null);
+	const STATE_LABELS: Record<CodeAgentSession["state"], () => string> = {
+		idle: m["code.view.state.idle"],
+		running: m["code.view.state.running"],
+		"waiting-permission": m["code.view.state.waiting_permission"],
+		done: m["code.view.state.done"],
+		error: m["code.view.state.error"],
+	};
+
 	/** The repo workspace a "New worktree…" dialog is open for, with its device. */
 	let worktreeFor = $state<{ device: CodeDeviceView; workspace: CodeWorkspace } | null>(null);
 	/** The machine whose delegate-profiles dialog is open. */
@@ -380,7 +389,7 @@
 			await confirmDevice(id);
 			await refreshCodeDevices();
 		} catch (err) {
-			actionFailure = err instanceof Error ? err.message : "Could not confirm the machine.";
+			actionFailure = err instanceof Error ? err.message : m["code.nav.could_not_confirm"]();
 		}
 	}
 
@@ -491,18 +500,20 @@
 			data-testid="schedules-link"
 		>
 			<IconTime class="size-3.5 shrink-0" />
-			Schedules
+			{m["code.nav.schedules"]()}
 		</a>
 	{/if}
 	<div class="flex items-center justify-between px-2 pt-1">
-		<span class="text-xs font-semibold text-gray-400 dark:text-gray-500">Devices</span>
+		<span class="text-xs font-semibold text-gray-400 dark:text-gray-500"
+			>{m["code.nav.devices"]()}</span
+		>
 		<button
 			class="flex h-6 items-center gap-1 rounded-lg px-1.5 text-xs text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-			title="Pair a new device"
+			title={m["code.nav.pair_title"]()}
 			onclick={() => (pairingOpen = true)}
 		>
 			<IconAdd class="size-3.5" />
-			Pair
+			{m["code.nav.pair"]()}
 		</button>
 	</div>
 
@@ -519,20 +530,20 @@
 	{#if codeDeviceList.loading}
 		<p class="flex items-center gap-2 px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
 			<IconRenew class="size-4 animate-spin" />
-			Loading paired devices…
+			{m["code.nav.loading"]()}
 		</p>
 	{:else if codeDeviceList.devices.length === 0}
 		<div class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
 			<p class="flex items-center gap-1.5">
 				<IconLaptop class="size-4 shrink-0" />
-				No paired devices
+				{m["code.nav.no_devices"]()}
 			</p>
 			<button
 				class="mt-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-2 text-sm font-medium text-white hover:bg-blue-700"
 				onclick={() => (pairingOpen = true)}
 			>
 				<IconAdd class="size-4" />
-				Pair a device
+				{m["code.nav.pair_device"]()}
 			</button>
 		</div>
 	{:else}
@@ -550,7 +561,7 @@
 				>
 					{#if showSubagents}<IconCheck class="size-2.5" />{/if}
 				</span>
-				Show subagents
+				{m["code.nav.show_subagents"]()}
 			</button>
 		{/if}
 		{#each codeDeviceList.devices as device (device.id)}
@@ -567,7 +578,9 @@
 							type="button"
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
 							aria-expanded={deviceExpanded}
-							aria-label="{deviceExpanded ? 'Collapse' : 'Expand'} {device.name}"
+							aria-label={deviceExpanded
+								? m["code.nav.collapse"]({ name: device.name })
+								: m["code.nav.expand"]({ name: device.name })}
 							onclick={() => toggleDeviceCollapsed(device.id)}
 						>
 							<IconChevronRight
@@ -610,7 +623,7 @@
 						<button
 							type="button"
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30"
-							title="Confirm this machine"
+							title={m["code.nav.confirm_title"]()}
 							onclick={() => void handleConfirm(device.id)}
 						>
 							<IconCheck class="size-3.5" />
@@ -618,7 +631,7 @@
 						<button
 							type="button"
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-							title="Reject this machine"
+							title={m["code.nav.reject_title"]()}
 							onclick={() => (confirmRequest = { kind: "device", device })}
 						>
 							<IconClose class="size-3.5" />
@@ -632,14 +645,14 @@
 						<span
 							class="shrink-0 rounded-full bg-red-100 px-1.5 text-[.65rem] text-red-800 dark:bg-red-900/60 dark:text-red-300"
 						>
-							access revoked
+							{m["code.nav.revoked"]()}
 						</span>
 						<!-- Nothing to pair or unpair, but the row can go: once the
 						     machine is re-enrolled (a new row) or retired, the banner
 						     is only clutter. Removing it keeps the tombstone. -->
 						<button
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-							title="Remove this machine from the list"
+							title={m["code.nav.remove_machine_title"]()}
 							onclick={() => (confirmRequest = { kind: "device", device })}
 						>
 							<IconTrash class="size-3.5" />
@@ -654,16 +667,16 @@
 									? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300'
 									: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}"
 							title={device.credentialState === "expired"
-								? "This machine's gateway credential expired or was revoked."
+								? m["code.nav.credential_title"]()
 								: online
-									? "Connected"
-									: "Not connected"}
+									? m["code.nav.connected"]()
+									: m["code.nav.not_connected"]()}
 						>
 							{device.credentialState === "expired"
-								? "credential expired"
+								? m["code.nav.credential_expired"]()
 								: online
-									? "online"
-									: "offline"}
+									? m["code.nav.online"]()
+									: m["code.nav.offline"]()}
 						</span>
 						{#if !deviceExpanded && deviceCounts[device.id] !== undefined}
 							<!-- The last-known count (`deviceCounts`, persisted
@@ -675,8 +688,7 @@
 								class="shrink-0 rounded-full bg-gray-100 px-1.5 text-[.65rem] text-gray-500 dark:bg-gray-700 dark:text-gray-300"
 								data-testid="device-collapsed-count"
 							>
-								{deviceCounts[device.id]}
-								{deviceCounts[device.id] === 1 ? "workspace" : "workspaces"}
+								{m["code.nav.workspace_count"]({ count: deviceCounts[device.id] })}
 							</span>
 						{/if}
 						<!-- Mirrors the workspace row's agent "+": always visible,
@@ -686,7 +698,7 @@
 						     empty-state button (below) is gone. -->
 						<button
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
-							title="Add a workspace to this device"
+							title={m["code.nav.add_workspace_title"]()}
 							disabled={!online}
 							onclick={() => (workspaceDialogFor = device.id)}
 						>
@@ -698,8 +710,8 @@
 						<DropdownMenu.Root>
 							<DropdownMenu.Trigger
 								class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
-								title="Machine settings"
-								aria-label="Machine settings"
+								title={m["code.nav.machine_settings"]()}
+								aria-label={m["code.nav.machine_settings"]()}
 							>
 								<IconKebab class="size-3.5" />
 							</DropdownMenu.Trigger>
@@ -718,14 +730,14 @@
 										onSelect={() => (profilesFor = device)}
 									>
 										<IconUsers class="size-4 opacity-90 dark:opacity-80" />
-										Profiles
+										{m["code.nav.profiles"]()}
 									</DropdownMenu.Item>
 								</DropdownMenu.Content>
 							</DropdownMenu.Portal>
 						</DropdownMenu.Root>
 						<button
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-							title="Remove this pairing"
+							title={m["code.nav.remove_pairing_title"]()}
 							onclick={() => (confirmRequest = { kind: "device", device })}
 						>
 							<IconTrash class="size-3.5" />
@@ -738,9 +750,9 @@
 					>
 						<p class="mb-1.5 flex items-center gap-1.5 font-medium">
 							<IconWarning class="size-3.5 shrink-0" />
-							Re-enroll this machine: {device.reenroll === "revoked"
-								? "access was revoked"
-								: "the identity provider changed"}
+							{device.reenroll === "revoked"
+								? m["code.nav.reenroll_revoked"]()
+								: m["code.nav.reenroll_idp"]()}
 						</p>
 						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
 							<pre
@@ -763,9 +775,9 @@
 					>
 						<p class="mb-1.5 flex items-center gap-1.5 font-medium">
 							<IconWarning class="size-3.5 shrink-0" />
-							Re-enroll this machine: its policy predates ceilings
+							{m["code.nav.reenroll_legacy"]()}
 						</p>
-						<p class="mb-1.5">It still allows everything. One re-enroll tightens it.</p>
+						<p class="mb-1.5">{m["code.nav.legacy_detail"]()}</p>
 						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
 							<pre
 								class="min-w-0 flex-1 overflow-x-auto font-mono text-[.65rem] whitespace-pre text-ink">{reenrollCommand}</pre>
@@ -788,14 +800,16 @@
 						     an unreachable machine is never even asked for its
 						     tree (see `loadableDevices` above), so there is
 						     nothing here to wait on. -->
-							<p class="py-0.5 pl-2 text-xs text-gray-400 dark:text-gray-500">Offline.</p>
+							<p class="py-0.5 pl-2 text-xs text-gray-400 dark:text-gray-500">
+								{m["code.nav.offline_dot"]()}
+							</p>
 						{:else if tree && tree.workspaces.length === 0}
 							<button
 								class="flex items-center gap-1.5 py-0.5 pl-2 text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
 								onclick={() => (workspaceDialogFor = device.id)}
 							>
 								<IconAdd class="size-3" />
-								Add workspace
+								{m["code.nav.add_workspace"]()}
 							</button>
 						{:else}
 							{#each tree?.workspaces ?? [] as ws (ws.id)}
@@ -808,7 +822,9 @@
 											type="button"
 											class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
 											aria-expanded={wsExpanded}
-											aria-label="{wsExpanded ? 'Collapse' : 'Expand'} {ws.name}"
+											aria-label={wsExpanded
+												? m["code.nav.collapse"]({ name: ws.name })
+												: m["code.nav.expand"]({ name: ws.name })}
 											onclick={() => toggleWorkspaceCollapsed(device.id, ws.id)}
 										>
 											<IconChevronRight
@@ -833,7 +849,7 @@
 											     simple rather than building a second tree level. -->
 												<span
 													class="flex shrink-0 items-center gap-0.5 text-[10px] text-gray-400"
-													title="git worktree on {ws.branch}"
+													title={m["code.nav.worktree_on"]({ branch: ws.branch })}
 												>
 													<IconBranch class="size-2.5" />
 													{ws.branch}
@@ -844,14 +860,13 @@
 													class="shrink-0 rounded-full bg-gray-100 px-1.5 text-[10px] text-gray-500 dark:bg-gray-700 dark:text-gray-300"
 													data-testid="workspace-collapsed-count"
 												>
-													{wsSessionCount}
-													{wsSessionCount === 1 ? "session" : "sessions"}
+													{m["code.nav.session_count"]({ count: wsSessionCount })}
 												</span>
 											{/if}
 										</span>
 										<button
 											class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
-											title="Start a coding session in this workspace"
+											title={m["code.nav.start_session_title"]()}
 											onclick={() => (agentDialogFor = ws)}
 										>
 											<IconAdd class="size-3.5" />
@@ -874,8 +889,8 @@
 								     Same idiom as NavConversationItem's chat kebab. -->
 											<DropdownMenu.Trigger
 												class="ml-1 flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
-												title="Workspace actions"
-												aria-label="Workspace actions"
+												title={m["code.nav.workspace_actions"]()}
+												aria-label={m["code.nav.workspace_actions"]()}
 											>
 												<IconKebab class="size-3.5" />
 											</DropdownMenu.Trigger>
@@ -894,7 +909,7 @@
 														onSelect={() => (renameFor = { device, workspace: ws })}
 													>
 														<IconEdit class="size-4 opacity-90 dark:opacity-80" />
-														Rename
+														{m["code.nav.rename"]()}
 													</DropdownMenu.Item>
 													{#if ws.isGitRepo}
 														<!-- Only a git repo can be branched into a worktree;
@@ -905,7 +920,7 @@
 															onSelect={() => (worktreeFor = { device, workspace: ws })}
 														>
 															<IconBranch class="size-4 opacity-90 dark:opacity-80" />
-															New worktree…
+															{m["code.nav.new_worktree"]()}
 														</DropdownMenu.Item>
 													{/if}
 													<DropdownMenu.Item
@@ -914,7 +929,7 @@
 															(confirmRequest = { kind: "workspace", device, workspace: ws })}
 													>
 														<IconTrash class="size-4 opacity-90 dark:opacity-80" />
-														Archive
+														{m["code.nav.archive"]()}
 													</DropdownMenu.Item>
 												</DropdownMenu.Content>
 											</DropdownMenu.Portal>
@@ -966,32 +981,32 @@
 															{#if isScheduledTitle(agent.title)}
 																<IconTime
 																	class="size-3 shrink-0 text-gray-400"
-																	title="Started by a schedule"
+																	title={m["code.nav.scheduled_title"]()}
 																	data-testid="scheduled-badge"
 																/>
 															{/if}
 															{#if sub}
 																<span
 																	class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 uppercase dark:bg-gray-700 dark:text-gray-300"
-																	data-testid="subagent-badge">sub</span
+																	data-testid="subagent-badge">{m["code.nav.sub"]()}</span
 																>
 															{/if}
 															{#if sub && agent.cancelled && agent.state !== "running" && agent.state !== "waiting-permission"}
 																<span
 																	class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-300"
-																	title="Stopped before it finished; its work was not completed"
-																	data-testid="subagent-cancelled">cancelled</span
+																	title={m["code.nav.cancelled_title"]()}
+																	data-testid="subagent-cancelled">{m["code.nav.cancelled"]()}</span
 																>
 															{:else if agent.state === "waiting-permission" || kids?.waiting}
 																<span
 																	class="shrink-0 rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
 																	title={agent.state === "waiting-permission"
-																		? "Waiting for your approval"
-																		: "A subagent is waiting for your approval"}
+																		? m["code.nav.waiting_title"]()
+																		: m["code.nav.sub_waiting_title"]()}
 																	data-testid="waiting-approval"
 																	>{agent.state === "waiting-permission"
-																		? "waiting for approval"
-																		: "subagent waiting"}</span
+																		? m["code.nav.waiting"]()
+																		: m["code.nav.sub_waiting"]()}</span
 																>
 															{:else}
 																<span
@@ -1002,7 +1017,7 @@
 																			: agent.state === 'done'
 																				? 'bg-green-700'
 																				: 'bg-gray-400'}"
-																	title={agent.state}
+																	title={STATE_LABELS[agent.state]()}
 																></span>
 															{/if}
 														</a>
@@ -1010,10 +1025,10 @@
 															<DropdownMenu.Root>
 																<DropdownMenu.Trigger
 																	class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-																	title="Sessions spawned by this one"
+																	title={m["code.nav.spawned_title"]()}
 																	data-testid="spawned-count"
 																>
-																	spawned {spawns.count}
+																	{m["code.nav.spawned_count"]({ count: spawns.count })}
 																</DropdownMenu.Trigger>
 																<DropdownMenu.Portal>
 																	<DropdownMenu.Content
@@ -1046,11 +1061,10 @@
 															<DropdownMenu.Root>
 																<DropdownMenu.Trigger
 																	class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-																	title="Subagents of this session"
+																	title={m["code.nav.subagents_title"]()}
 																	data-testid="subagent-count"
 																>
-																	{kids.count}
-																	{kids.count === 1 ? "subagent" : "subagents"}
+																	{m["code.nav.subagent_count"]({ count: kids.count })}
 																</DropdownMenu.Trigger>
 																<DropdownMenu.Portal>
 																	<DropdownMenu.Content
@@ -1076,7 +1090,7 @@
 																			</DropdownMenu.Item>
 																		{:else}
 																			<p class="px-2 py-1 text-xs text-gray-500">
-																				In another workspace not listed here.
+																				{m["code.nav.other_workspace"]()}
 																			</p>
 																		{/each}
 																	</DropdownMenu.Content>
@@ -1094,8 +1108,8 @@
 										     hover. -->
 															<DropdownMenu.Trigger
 																class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
-																title="Session actions"
-																aria-label="Session actions"
+																title={m["code.nav.session_actions"]()}
+																aria-label={m["code.nav.session_actions"]()}
 															>
 																<IconKebab class="size-3.5" />
 															</DropdownMenu.Trigger>
@@ -1118,7 +1132,7 @@
 																				)}
 																		>
 																			<IconTime class="size-4 opacity-90 dark:opacity-80" />
-																			Schedule this…
+																			{m["code.nav.schedule_this"]()}
 																		</DropdownMenu.Item>
 																	{/if}
 																	{#if !sub}
@@ -1132,7 +1146,7 @@
 																			onSelect={() => (permissionsFor = { device, agent })}
 																		>
 																			<IconPermissions class="size-4 opacity-90 dark:opacity-80" />
-																			Permissions…
+																			{m["code.nav.permissions"]()}
 																		</DropdownMenu.Item>
 																	{/if}
 																	<DropdownMenu.Item
@@ -1140,7 +1154,7 @@
 																		onSelect={() => (renameAgentFor = { device, agent })}
 																	>
 																		<IconEdit class="size-4 opacity-90 dark:opacity-80" />
-																		Rename
+																		{m["code.nav.rename"]()}
 																	</DropdownMenu.Item>
 																	<DropdownMenu.Item
 																		class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
@@ -1148,7 +1162,7 @@
 																			(confirmRequest = { kind: "agent", device, agent })}
 																	>
 																		<IconTrash class="size-4 opacity-90 dark:opacity-80" />
-																		Archive
+																		{m["code.nav.archive"]()}
 																	</DropdownMenu.Item>
 																	<DropdownMenu.Item
 																		class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-red-600 select-none focus-visible:outline-hidden data-highlighted:bg-red-50 sm:h-8 dark:text-red-400 dark:data-highlighted:bg-red-500/10"
@@ -1156,7 +1170,7 @@
 																			(confirmRequest = { kind: "agent-delete", device, agent })}
 																	>
 																		<IconTrash class="size-4 opacity-90 dark:opacity-80" />
-																		Delete
+																		{m["code.nav.delete"]()}
 																	</DropdownMenu.Item>
 																</DropdownMenu.Content>
 															</DropdownMenu.Portal>
@@ -1171,9 +1185,12 @@
 															>
 																<IconFork class="size-3 shrink-0" />
 																<span class="truncate"
-																	>spawned by {spawned.title}{spawned.elsewhere
-																		? ` · ${spawned.elsewhere}`
-																		: ""}</span
+																	>{spawned.elsewhere
+																		? m["code.nav.spawned_by_elsewhere"]({
+																				title: spawned.title,
+																				where: spawned.elsewhere,
+																			})
+																		: m["code.nav.spawned_by"]({ title: spawned.title })}</span
 																>
 															</a>
 														{:else}
@@ -1182,7 +1199,9 @@
 																data-testid="spawned-from"
 															>
 																<IconFork class="size-3 shrink-0" />
-																<span class="truncate">spawned by {spawned.title} (gone)</span>
+																<span class="truncate"
+																	>{m["code.nav.spawned_by_gone"]({ title: spawned.title })}</span
+																>
 															</p>
 														{/if}
 													{/if}
@@ -1192,16 +1211,19 @@
 																href="{base}/code?device={device.id}&ws={sub.parentWorkspaceId}&agent={sub.parentId}"
 																class="block truncate pl-2 text-[11px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
 																data-testid="subagent-from"
-																>↳ from {sub.parentTitle}{sub.elsewhere
-																	? ` · ${sub.elsewhere}`
-																	: ""}</a
+																>{sub.elsewhere
+																	? m["code.nav.from_elsewhere"]({
+																			title: sub.parentTitle ?? "",
+																			where: sub.elsewhere,
+																		})
+																	: m["code.nav.from"]({ title: sub.parentTitle ?? "" })}</a
 															>
 														{:else}
 															<p
 																class="truncate pl-2 text-[11px] text-gray-400 dark:text-gray-500"
 																data-testid="subagent-from"
 															>
-																↳ from a session not listed here
+																{m["code.nav.from_unlisted"]()}
 															</p>
 														{/if}
 													{/if}
@@ -1209,7 +1231,7 @@
 											{/each}
 											{#if wsActive && agentsOf(tree, ws.id).length === 0}
 												<p class="py-0.5 pl-2 text-xs text-gray-400 dark:text-gray-500">
-													No agents yet.
+													{m["code.nav.no_agents"]()}
 												</p>
 											{/if}
 										</div>
@@ -1300,56 +1322,56 @@
 	{@const request = confirmRequest}
 	{#if request.kind === "agent"}
 		<CodeConfirmDialog
-			title="Archive session"
+			title={m["code.nav.archive_session"]()}
 			target={request.agent.title}
-			message="This session disappears from the daemon's active list, its transcript archived with it. Local files on the device are untouched."
-			confirmLabel="Archive session"
-			busyLabel="Archiving…"
+			message={m["code.nav.archive_session_message"]()}
+			confirmLabel={m["code.nav.archive_session"]()}
+			busyLabel={m["code.nav.archiving"]()}
 			onconfirm={() => handleArchiveAgent(request.device, request.agent)}
 			onclose={() => (confirmRequest = null)}
 		/>
 	{:else if request.kind === "agent-delete"}
 		<CodeConfirmDialog
-			title="Delete session"
+			title={m["code.nav.delete_session"]()}
 			target={request.agent.title}
-			message="The session is gone for good: its transcript and any files attached to it are deleted too. Local files on the device are untouched."
-			confirmLabel="Delete session"
-			busyLabel="Deleting…"
+			message={m["code.nav.delete_session_message"]()}
+			confirmLabel={m["code.nav.delete_session"]()}
+			busyLabel={m["code.nav.deleting"]()}
 			onconfirm={() => handleDeleteAgent(request.device, request.agent)}
 			onclose={() => (confirmRequest = null)}
 		/>
 	{:else if request.kind === "device"}
 		<CodeConfirmDialog
 			title={request.device.status === "pending"
-				? "Reject this machine"
+				? m["code.nav.reject_title"]()
 				: request.device.reenroll === "revoked"
-					? "Remove this machine"
-					: "Remove this pairing"}
+					? m["code.nav.remove_machine"]()
+					: m["code.nav.remove_pairing_title"]()}
 			target={request.device.name}
 			message={request.device.status === "pending"
-				? "A rejected machine never pairs: the row becomes a tombstone and a reconnect under the same machine id is refused. The machine must re-enroll to try again."
+				? m["code.nav.reject_message"]()
 				: request.device.reenroll === "revoked"
-					? "Its access is already revoked; this only removes it from the list. If the machine is still in use, re-enroll it: that pairs it as a new machine."
-					: "Revoking ends this machine's access: the row becomes a tombstone, a reconnect under the same machine id is refused, and its sessions stop. The machine must re-enroll to pair again."}
+					? m["code.nav.remove_message"]()
+					: m["code.nav.revoke_message"]()}
 			confirmLabel={request.device.status === "pending"
-				? "Reject machine"
+				? m["code.nav.reject_machine"]()
 				: request.device.reenroll === "revoked"
-					? "Remove machine"
-					: "Revoke pairing"}
-			busyLabel={request.device.reenroll === "revoked" ? "Removing…" : "Revoking…"}
+					? m["code.nav.remove_machine_button"]()
+					: m["code.nav.revoke_pairing"]()}
+			busyLabel={request.device.reenroll === "revoked"
+				? m["code.nav.removing"]()
+				: m["code.nav.revoking"]()}
 			onconfirm={() => handleRevoke(request.device.id)}
 			onclose={() => (confirmRequest = null)}
 		/>
 	{:else}
 		<CodeConfirmDialog
-			title="Archive workspace"
+			title={m["code.nav.archive_workspace"]()}
 			target={request.workspace.name}
-			message="The workspace and its sessions disappear from the daemon's active list, their transcripts archived with them. Local files on the device are untouched."
-			confirmLabel="Archive workspace"
-			busyLabel="Archiving…"
-			checkboxLabel={request.workspace.worktreeOf
-				? "Also remove the git worktree (refused if it has uncommitted changes)"
-				: undefined}
+			message={m["code.nav.archive_workspace_message"]()}
+			confirmLabel={m["code.nav.archive_workspace"]()}
+			busyLabel={m["code.nav.archiving"]()}
+			checkboxLabel={request.workspace.worktreeOf ? m["code.nav.remove_worktree"]() : undefined}
 			onconfirm={(removeWorktree) =>
 				handleArchiveWorkspace(request.device, request.workspace, removeWorktree)}
 			onclose={() => (confirmRequest = null)}

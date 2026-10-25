@@ -2,6 +2,7 @@
  * The /code explorer's pure parts: git decorations for the tree (a file's
  * own letter, rolled up to every folder above it) and human sizes.
  */
+import { formatNumber } from "$lib/i18n/format";
 
 export type GitBadge = "M" | "A" | "D" | "R" | "U" | "?";
 
@@ -50,7 +51,8 @@ export function gitBadges(
 }
 
 export function humanSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
+	// i18n: literal (unit symbols are the same in every language)
+	if (bytes < 1024) return `${formatNumber(bytes)} B`;
 	const units = ["KB", "MB", "GB"];
 	let value = bytes / 1024;
 	let unit = 0;
@@ -58,5 +60,6 @@ export function humanSize(bytes: number): string {
 		value /= 1024;
 		unit += 1;
 	}
-	return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+	const digits = value < 10 ? 1 : 0;
+	return `${formatNumber(value, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${units[unit]}`;
 }

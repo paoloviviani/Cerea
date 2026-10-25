@@ -19,6 +19,7 @@
 	fresh dialog open used to.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
 	import type { LayoutData } from "../../../routes/$types";
@@ -57,13 +58,13 @@
 	// `/workspace`, a mistyped `?tab=...`, or `?tab=kb` while hidden — lands on
 	// Models.
 	const ALL_TABS = [
-		{ key: "models", label: "Models", icon: LucideBoxes },
-		{ key: "custom", label: "Custom models", icon: LucideSparkles },
-		{ key: "memory", label: "Memory", icon: LucideBrain },
-		{ key: "kb", label: "Knowledge", icon: LucideLibrary },
-		{ key: "skills", label: "Skills", icon: IconDocument },
-		{ key: "mcp", label: "Connectors", icon: IconMCP },
-		{ key: "local", label: "Local connectors", icon: LucideLaptop },
+		{ key: "models", label: m["workspace.tab.models"], icon: LucideBoxes },
+		{ key: "custom", label: m["workspace.tab.custom"], icon: LucideSparkles },
+		{ key: "memory", label: m["workspace.tab.memory"], icon: LucideBrain },
+		{ key: "kb", label: m["workspace.tab.kb"], icon: LucideLibrary },
+		{ key: "skills", label: m["workspace.tab.skills"], icon: IconDocument },
+		{ key: "mcp", label: m["workspace.tab.mcp"], icon: IconMCP },
+		{ key: "local", label: m["workspace.tab.local"], icon: LucideLaptop },
 	] as const;
 	// Memory hides on the same terms as Knowledge, for the same reason: with
 	// `CHAT_MEMORY_ENABLED=false` its routes answer 404, so the tab would only
@@ -89,7 +90,7 @@
 	);
 	// The same sections, for the phone's switcher (below `md`, where the tab row hides).
 	const switcherSections = $derived(
-		TABS.map((t) => ({ href: `${base}/workspace?tab=${t.key}`, label: t.label, icon: t.icon }))
+		TABS.map((t) => ({ href: `${base}/workspace?tab=${t.key}`, label: t.label(), icon: t.icon }))
 	);
 	const initialId = $derived(page.url.searchParams.get("id") ?? undefined);
 	// MCP servers are a flat list with no per-item view, so an `id` beside
@@ -105,16 +106,16 @@
 -->
 <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 p-6">
 	<header class="flex flex-col gap-1">
-		<h1 class="text-xl font-semibold">Workspace</h1>
+		<h1 class="text-xl font-semibold">{m["workspace.title"]()}</h1>
 		<SectionSwitcher
-			label="Workspace sections"
+			label={m["workspace.sections_label"]()}
 			sections={switcherSections}
 			current={`${base}/workspace?tab=${tab}`}
 		/>
 	</header>
 
 	<nav
-		aria-label="Workspace sections"
+		aria-label={m["workspace.sections_label"]()}
 		class="hidden flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 md:flex dark:border-gray-700"
 	>
 		{#each TABS as t (t.key)}
@@ -127,7 +128,7 @@
 					: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}"
 			>
 				<t.icon class="size-3.5 sm:size-4" />
-				{t.label}
+				{t.label()}
 			</a>
 		{/each}
 	</nav>

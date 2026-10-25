@@ -79,6 +79,7 @@ export const CONVERTED = [
 	"src/lib/components/UpdateBanner.svelte",
 	"src/lib/components/chat",
 	"src/lib/components/chats",
+	"src/lib/components/code",
 	"src/lib/components/knowledge",
 	"src/lib/components/mcp",
 	"src/lib/components/memory",
@@ -87,16 +88,19 @@ export const CONVERTED = [
 	"src/lib/components/projects",
 	"src/lib/components/settings",
 	"src/lib/components/skills",
+	"src/lib/components/workspace",
 	"src/routes/+error.svelte",
 	"src/routes/+layout.svelte",
 	"src/routes/+page.svelte",
 	"src/routes/admin",
 	"src/routes/chats",
+	"src/routes/code",
 	"src/routes/conversation",
 	"src/routes/models",
 	"src/routes/privacy",
 	"src/routes/projects",
 	"src/routes/settings",
+	"src/routes/workspace",
 ];
 
 /** Props whose string value is read by a person, one way or another. */

@@ -9,6 +9,7 @@
 	dialog does not touch the filesystem itself.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import Modal from "$lib/components/Modal.svelte";
 	import IconCode from "~icons/carbon/code";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -45,7 +46,7 @@
 			oncreated(created.workspace);
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not create the worktree.";
+			failure = err instanceof Error ? err.message : m["code.worktree.could_not"]();
 		} finally {
 			busy = false;
 		}
@@ -59,8 +60,8 @@
 				<IconCode class="size-5 text-blue-600" />
 			</div>
 			<div>
-				<h2 id="worktree-title" class={s.TITLE}>New worktree</h2>
-				<p class={s.SUBTITLE}>From {workspace.name}</p>
+				<h2 id="worktree-title" class={s.TITLE}>{m["code.worktree.title"]()}</h2>
+				<p class={s.SUBTITLE}>{m["code.worktree.subtitle"]({ name: workspace.name })}</p>
 			</div>
 		</div>
 
@@ -68,7 +69,7 @@
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Worktree failed
+					{m["code.worktree.failed"]()}
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -80,32 +81,32 @@
 				void handleCreate();
 			}}
 		>
-			<label class={s.LABEL} for="worktree-branch">Branch name</label>
+			<label class={s.LABEL} for="worktree-branch">{m["code.worktree.branch"]()}</label>
 			<input
 				id="worktree-branch"
 				class={s.INPUT}
-				placeholder="feature/my-change"
+				placeholder={m["code.worktree.branch_placeholder"]()}
 				maxlength={200}
 				bind:value={branch}
 				disabled={busy}
 			/>
-			<p class={s.HINT}>Also the new checkout's directory name.</p>
-			<label class="{s.LABEL} mt-4" for="worktree-base">Base (optional)</label>
+			<p class={s.HINT}>{m["code.worktree.branch_hint"]()}</p>
+			<label class="{s.LABEL} mt-4" for="worktree-base">{m["code.worktree.base"]()}</label>
 			<input
 				id="worktree-base"
 				class={s.INPUT}
-				placeholder="main"
+				placeholder={m["code.worktree.base_placeholder"]()}
 				maxlength={200}
 				bind:value={base}
 				disabled={busy}
 			/>
-			<p class={s.HINT}>Defaults to {workspace.name}'s current HEAD.</p>
+			<p class={s.HINT}>{m["code.worktree.base_hint"]({ name: workspace.name })}</p>
 			<div class="mt-4 flex justify-end gap-2">
 				<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
-					Cancel
+					{m["code.common.cancel"]()}
 				</button>
 				<button type="submit" class={s.PRIMARY} disabled={busy || !branch.trim()}>
-					{busy ? "Creating…" : "Create worktree"}
+					{busy ? m["code.worktree.creating"]() : m["code.worktree.create"]()}
 				</button>
 			</div>
 		</form>

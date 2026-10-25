@@ -24,8 +24,9 @@
 	person's message back, and the stream is the transcript's source of truth.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { setContext, untrack } from "svelte";
-	import { ALREADY_ANSWERED_NOTE, replyOutcome } from "$lib/utils/permissionReply";
+	import { replyOutcome } from "$lib/utils/permissionReply";
 	import { throttleTrailing } from "$lib/utils/throttleTrailing";
 	import { MediaQuery } from "svelte/reactivity";
 	import { browser } from "$app/environment";
@@ -481,7 +482,7 @@
 			modesFailure = null;
 		} catch (err) {
 			modes = [];
-			modesFailure = err instanceof Error ? err.message : "Could not load the modes.";
+			modesFailure = err instanceof Error ? err.message : m["code.view.could_not_modes"]();
 		}
 		try {
 			const result = await listProviderModels(deviceId, provider);
@@ -491,7 +492,7 @@
 		} catch (err) {
 			models = [];
 			modelsHidden = 0;
-			modelsFailure = err instanceof Error ? err.message : "Could not load the models.";
+			modelsFailure = err instanceof Error ? err.message : m["code.view.could_not_models"]();
 		}
 	}
 
@@ -690,7 +691,7 @@
 					});
 				} catch (err) {
 					if (!abort.signal.aborted) {
-						failure = err instanceof Error ? err.message : "The agent stream failed.";
+						failure = err instanceof Error ? err.message : m["code.view.stream_failed"]();
 					}
 				} finally {
 					// A stream that ended on its own (the machine went away, the
@@ -789,9 +790,9 @@
 				// (an old cursor, a retried fetch) must not double it: the
 				// machine's own ids decide, and they survive every fold.
 				const known = new Set(
-					messages.flatMap((m) => (m.machineMessageId ? [m.machineMessageId] : []))
+					messages.flatMap((x) => (x.machineMessageId ? [x.machineMessageId] : []))
 				);
-				const fresh = folded.filter((m) => !m.machineMessageId || !known.has(m.machineMessageId));
+				const fresh = folded.filter((x) => !x.machineMessageId || !known.has(x.machineMessageId));
 				// In place, never a reassignment: the live tail's fold holds
 				// this same array and keeps appending where it was.
 				if (fresh.length > 0) column?.prependWithAnchor(() => messages.unshift(...fresh));
@@ -800,7 +801,7 @@
 			if (page.before) historyBefore = page.before;
 		} catch (err) {
 			if (epoch !== pagingEpoch) return;
-			historyError = err instanceof Error ? err.message : "Could not load earlier messages.";
+			historyError = err instanceof Error ? err.message : m["code.view.could_not_earlier"]();
 		} finally {
 			if (epoch === pagingEpoch) historyFetching = false;
 		}
@@ -826,19 +827,19 @@
 			if (messages[i].from !== "user") continue;
 			const user = messages[i];
 			if (!user.machineMessageId) {
-				errorToast.set("The last prompt has no id on the machine's transcript yet.");
+				errorToast.set(m["code.view.no_prompt_id"]());
 				return;
 			}
 			undoTarget = {
 				userMessageId: user.machineMessageId,
 				text: user.content,
 				files: revertRestoresFiles
-					? "Files the agent changed from that point on are restored too."
-					: "Files on disk are NOT restored: only the conversation is rolled back.",
+					? m["code.view.files_restored"]()
+					: m["code.view.files_not_restored"](),
 			};
 			return;
 		}
-		errorToast.set("Nothing to roll back yet.");
+		errorToast.set(m["code.view.nothing_to_roll_back"]());
 	}
 
 	async function confirmUndo() {
@@ -858,14 +859,14 @@
 
 	function openNewAgentDialog() {
 		if (!workspace) {
-			errorToast.set("The agent's workspace is not loaded yet.");
+			errorToast.set(m["code.view.workspace_not_loaded"]());
 			return;
 		}
 		newAgentDialogOpen = true;
 	}
 
 	function onretry(payload: { id: Message["id"]; content?: string }) {
-		const index = messages.findIndex((m) => m.id === payload.id);
+		const index = messages.findIndex((x) => x.id === payload.id);
 		if (index < 0) return;
 		// An answer retries the prompt before it; a prompt is its own point.
 		let userIndex = index;
@@ -876,8 +877,8 @@
 			userMessageId: user.machineMessageId,
 			text: payload.content ?? user.content,
 			files: revertRestoresFiles
-				? "Files the agent changed from that point on are restored too."
-				: "Files on disk are NOT restored: only the conversation is rolled back.",
+				? m["code.view.files_restored"]()
+				: m["code.view.files_not_restored"](),
 		};
 	}
 
@@ -1097,6 +1098,14 @@
 		};
 	}
 
+	const STATE_LABELS: Record<CodeTurnState, () => string> = {
+		idle: m["code.view.state.idle"],
+		running: m["code.view.state.running"],
+		"waiting-permission": m["code.view.state.waiting_permission"],
+		done: m["code.view.state.done"],
+		error: m["code.view.state.error"],
+	};
+
 	function stateTone(state: CodeTurnState): s.PillTone {
 		if (state === "running" || state === "waiting-permission") return "busy";
 		if (state === "error") return "bad";
@@ -1113,7 +1122,7 @@
 		// enrollment; this is the backstop for a send that raced ahead of
 		// the probe's answer (Enter fired before `enrollmentExpired` landed).
 		if (enrollmentExpired) {
-			failure = "This machine's enrollment expired or was revoked — re-enroll to send.";
+			failure = m["code.view.enrollment_expired"]();
 			return;
 		}
 		// A steer joins a turn that already shows its own indicator.
@@ -1136,7 +1145,7 @@
 			if (err instanceof CodeApiError && err.status === 401) {
 				codeEnrollment[deviceId] = "expired";
 			}
-			failure = err instanceof Error ? err.message : "Could not send the follow-up.";
+			failure = err instanceof Error ? err.message : m["code.view.could_not_send"]();
 			// Tell the composer it did not land, so it keeps the draft.
 			throw err;
 		}
@@ -1155,7 +1164,7 @@
 			await cancelAgent(deviceId, agentId);
 			return true;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not stop the agent.";
+			failure = err instanceof Error ? err.message : m["code.view.could_not_stop"]();
 			return false;
 		}
 	}
@@ -1175,7 +1184,7 @@
 		// A card in the cached copy may have been answered since: refuse until
 		// the fresh replay (which carries the truth) has replaced it.
 		if (cachedView) {
-			return { ok: false, error: "Still refreshing this conversation. Try again in a moment." };
+			return { ok: false, error: m["code.view.refreshing"]() };
 		}
 		try {
 			const reply = await respondPermission(
@@ -1186,10 +1195,10 @@
 				request.childSessionId
 			);
 			permissionsKey += 1;
-			if (reply?.alreadyResolved) return { ok: true, note: ALREADY_ANSWERED_NOTE };
+			if (reply?.alreadyResolved) return { ok: true, note: m["code.view.already_answered"]() };
 			return { ok: true };
 		} catch (err) {
-			return replyOutcome(err, "Could not answer the request.");
+			return replyOutcome(err, m["code.view.could_not_answer"]());
 		}
 	}
 
@@ -1209,7 +1218,7 @@
 		action: ElicitationAction,
 		content?: Record<string, ElicitationValue>
 	): Promise<{ ok: boolean; error?: string }> {
-		if (!askQuestion) return { ok: false, error: "No question is open." };
+		if (!askQuestion) return { ok: false, error: m["code.view.no_question"]() };
 		const requestId = askQuestion.request.elicitationId;
 		try {
 			const answers = content
@@ -1232,7 +1241,7 @@
 		} catch (err) {
 			return {
 				ok: false,
-				error: err instanceof Error ? err.message : "Could not answer the question.",
+				error: err instanceof Error ? err.message : m["code.view.could_not_answer_question"](),
 			};
 		}
 	}
@@ -1267,8 +1276,8 @@
 {#snippet messageActions(message: Message)}
 	<button
 		class="btn rounded-xs p-1 text-xs text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
-		title="Fork from here"
-		aria-label="Fork from here"
+		title={m["code.view.fork"]()}
+		aria-label={m["code.view.fork"]()}
 		type="button"
 		onclick={() => (handoffFor = message)}
 	>
@@ -1294,9 +1303,13 @@
 			>
 				<span
 					class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium uppercase dark:bg-gray-700"
-					>sub</span
+					>{m["code.view.sub_badge"]()}</span
 				>
-				<span class="truncate">Subagent of {parentAgent?.title ?? "its parent session"}</span>
+				<span class="truncate"
+					>{m["code.view.subagent_of"]({
+						title: parentAgent?.title ?? m["code.view.parent_fallback"](),
+					})}</span
+				>
 			</a>
 		{/if}
 		{#if agent?.spawnedBy && !agent.parentId}
@@ -1306,7 +1319,9 @@
 				data-testid="spawned-by"
 			>
 				<span class="truncate"
-					>spawned by {sessionLinks.title(agent.spawnedBy.sessionId) ?? agent.spawnedBy.title}</span
+					>{m["code.view.spawned_by"]({
+						title: sessionLinks.title(agent.spawnedBy.sessionId) ?? agent.spawnedBy.title,
+					})}</span
 				>
 			</a>
 		{/if}
@@ -1320,16 +1335,21 @@
 			<span class="min-w-0 flex-1"></span>
 			{#if agent}
 				<span class="{s.PILL} {s.PILL_TONES.neutral}">{agent.provider}</span>
-				<span class="{s.PILL} {s.PILL_TONES[stateTone(shownState)]}">{shownState}</span>
+				<span class="{s.PILL} {s.PILL_TONES[stateTone(shownState)]}"
+					>{STATE_LABELS[shownState]()}</span
+				>
 			{/if}
 			<TogglePill
 				compact
 				pressed={sidePane.open && sidePane.view === "tasks"}
 				label={tasksProgress.total > 0
-					? `Tasks ${tasksProgress.done}/${tasksProgress.total}`
-					: "Tasks"}
+					? m["code.view.tasks_progress"]({
+							done: tasksProgress.done,
+							total: tasksProgress.total,
+						})
+					: m["code.view.tasks"]()}
 				badge={tasksProgress.total > 0 ? `${tasksProgress.done}/${tasksProgress.total}` : undefined}
-				title="The agent's task list"
+				title={m["code.view.tasks_title"]()}
 				onclick={() => sidePane.toggleTasks()}
 			>
 				{#snippet icon()}<IconTaskComplete class="size-3.5" />{/snippet}
@@ -1337,8 +1357,8 @@
 			<TogglePill
 				compact
 				pressed={sidePane.open && sidePane.view === "diff"}
-				label="Changes"
-				title="Files this agent changed, as diffs"
+				label={m["code.view.changes"]()}
+				title={m["code.view.changes_title"]()}
 				onclick={() => sidePane.toggleDiff()}
 			>
 				{#snippet icon()}<IconDiff class="size-3.5" />{/snippet}
@@ -1347,11 +1367,9 @@
 				<TogglePill
 					compact
 					pressed={sidePane.open && sidePane.view === "files"}
-					label="Files"
+					label={m["code.view.files"]()}
 					disabled={filesVetoed}
-					title={filesVetoed
-						? "This machine was enrolled with --no-files: re-enroll without it to browse files here."
-						: "Browse this workspace's files (read-only)"}
+					title={filesVetoed ? m["code.view.files_vetoed"]() : m["code.view.files_title"]()}
 					onclick={() => sidePane.toggleFiles()}
 				>
 					{#snippet icon()}<IconFolder class="size-3.5" />{/snippet}
@@ -1361,11 +1379,11 @@
 				<TogglePill
 					compact
 					pressed={sidePane.open && sidePane.view === "terminal"}
-					label="Terminal"
+					label={m["code.view.terminal"]()}
 					disabled={terminalVetoed}
 					title={terminalVetoed
-						? "This machine was enrolled with terminals off. Re-enroll it (terminals are on by default) to use them here."
-						: "Open a shell on this workspace"}
+						? m["code.view.terminal_vetoed"]()
+						: m["code.view.terminal_title"]()}
 					onclick={() => sidePane.toggleTerminal()}
 				>
 					{#snippet icon()}<IconTerminal class="size-3.5" />{/snippet}
@@ -1377,7 +1395,7 @@
 			     see the `handedOffFromTitle` derivation above. -->
 			<span class="flex items-center gap-1 truncate pl-6 text-xs text-ink-muted">
 				<IconFork class="size-3 shrink-0" />
-				Forked from {handedOffFromTitle}
+				{m["code.view.forked_from"]({ title: handedOffFromTitle })}
 			</span>
 		{/if}
 		{#if backgroundRunning}
@@ -1389,15 +1407,14 @@
 				class="flex items-center gap-1.5 truncate pl-6 text-xs text-ink-muted"
 				data-testid="background-running"
 			>
-				<span class="size-2 shrink-0 animate-pulse rounded-full bg-blue-500" aria-label="running"
+				<span
+					class="size-2 shrink-0 animate-pulse rounded-full bg-blue-500"
+					aria-label={m["code.view.running_label"]()}
 				></span>
 				<span class="truncate">
-					{backgroundRunningCount === 1
-						? "A subagent is"
-						: `${backgroundRunningCount} subagents are`} still running in the background.
+					{m["code.view.bg_running"]({ count: backgroundRunningCount })}
 					{#if backgroundWaitingCount > 0}
-						{backgroundWaitingCount === 1 ? "One is" : `${backgroundWaitingCount} are`} waiting on your
-						approval below.
+						{m["code.view.bg_waiting"]({ count: backgroundWaitingCount })}
 					{/if}
 				</span>
 			</span>
@@ -1421,7 +1438,7 @@
 		<div
 			class="pointer-events-auto mx-4 mb-2 flex items-center gap-1.5 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 		>
-			This machine is offline. It will pick back up here once it reconnects.
+			{m["code.view.offline"]()}
 		</div>
 	{:else if failure}
 		<div class="pointer-events-auto {s.ERROR} mx-4 mb-2">{failure}</div>
@@ -1434,8 +1451,7 @@
 			class="pointer-events-auto mx-4 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
 			data-testid="stale-deny"
 		>
-			An earlier Deny is stuck in this session's history (opencode keeps it). Subagents started from
-			here will have their first turn refused. Start a new session to use subagents.
+			{m["code.view.stale_deny"]()}
 		</div>
 	{/if}
 	{#if agent?.stalePolicy}
@@ -1445,8 +1461,7 @@
 			class="pointer-events-auto mx-4 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
 			data-testid="stale-policy"
 		>
-			An earlier machine policy is stuck in this session's history (opencode keeps it). Tools it
-			denied may still be refused here. Start a new session for the current policy.
+			{m["code.view.stale_policy"]()}
 		</div>
 	{/if}
 
@@ -1489,20 +1504,20 @@
 				{#if !historyPending && historyHasMore !== null}
 					<div class="flex flex-col items-center py-1 text-center" aria-live="polite">
 						{#if historyFetching}
-							<p class="animate-pulse text-xs text-ink-muted">Loading earlier messages…</p>
+							<p class="animate-pulse text-xs text-ink-muted">{m["code.view.loading_earlier"]()}</p>
 						{:else if historyError}
 							<p class="text-xs text-ink-muted">
-								Couldn't load earlier messages.
+								{m["code.view.earlier_failed"]()}
 								<button
 									type="button"
 									class="underline underline-offset-2"
 									onclick={requestPreviousPage}
 								>
-									Retry
+									{m["code.view.retry"]()}
 								</button>
 							</p>
 						{:else if historyHasMore === false}
-							<p class="text-xs text-ink-faint">Start of the session</p>
+							<p class="text-xs text-ink-faint">{m["code.view.start"]()}</p>
 						{/if}
 					</div>
 				{/if}
@@ -1516,7 +1531,7 @@
 					data-testid="transcript-loading"
 				>
 					<IconRenew class="size-7 animate-spin text-ink-faint" aria-hidden="true" />
-					<p class="text-sm font-medium text-ink">Loading conversation…</p>
+					<p class="text-sm font-medium text-ink">{m["code.view.loading_conversation"]()}</p>
 					<!-- Two turns' worth of skeleton rows, the shape of what is
 					     about to land: a prompt, then its reply. -->
 					<div class="mt-4 flex w-full max-w-lg flex-col gap-4" aria-hidden="true">
@@ -1537,10 +1552,9 @@
 			{#snippet introduction()}
 				<div class="flex h-full flex-col items-center justify-center gap-2 pb-24 text-center">
 					<IconCode class="size-10 text-ink-faint" />
-					<p class="text-sm font-medium text-ink">Ready when you are</p>
+					<p class="text-sm font-medium text-ink">{m["code.view.ready"]()}</p>
 					<p class="max-w-xs text-xs text-ink-muted">
-						Describe the task below. The mode pill sets how much the agent may do on its own, and it
-						asks before anything destructive.
+						{m["code.view.ready_detail"]()}
 					</p>
 				</div>
 			{/snippet}
@@ -1592,19 +1606,19 @@
 		</ChatMessageColumn>
 
 		{#if sidePane.open && sidePane.view === "tasks"}
-			<SidePane label="Tasks" title="Tasks">
+			<SidePane label={m["code.view.tasks"]()} title={m["code.view.tasks"]()}>
 				<CodeTasks plan={latestTasks} />
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "diff"}
-			<SidePane label="Agent changes" title="Changes">
+			<SidePane label={m["code.view.changes_label"]()} title={m["code.view.changes"]()}>
 				{#snippet actions()}
 					<button
 						type="button"
 						class="btn rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
 						onclick={() => (diffRefreshKey += 1)}
 						disabled={diffLoading}
-						aria-label="Refresh changes"
-						title="Refresh from the daemon"
+						aria-label={m["code.view.refresh_label"]()}
+						title={m["code.view.refresh_title"]()}
 					>
 						<IconRenew class="size-4 {diffLoading ? 'animate-spin' : ''}" />
 					</button>
@@ -1612,7 +1626,7 @@
 				<AgentDiff {deviceId} {agentId} refreshKey={diffRefreshKey} bind:loading={diffLoading} />
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "files" && filesOffered && (workspace?.id ?? workspaceId)}
-			<SidePane label="Workspace files" title="Files">
+			<SidePane label={m["code.view.files_label"]()} title={m["code.view.files"]()}>
 				<CodeFiles
 					{deviceId}
 					workspaceId={(workspace?.id ?? workspaceId) as string}
@@ -1620,7 +1634,7 @@
 				/>
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "terminal" && terminalOffered && !terminalVetoed && (workspace?.id ?? workspaceId)}
-			<SidePane label="Terminal" title="Terminal">
+			<SidePane label={m["code.view.terminal"]()} title={m["code.view.terminal"]()}>
 				<CodeTerminals {deviceId} workspaceId={(workspace?.id ?? workspaceId) as string} />
 			</SidePane>
 		{/if}
@@ -1641,11 +1655,11 @@
 
 {#if rollback}
 	<CodeConfirmDialog
-		title="Retry from here?"
+		title={m["code.view.retry_title"]()}
 		target={rollback.text.length > 80 ? `${rollback.text.slice(0, 80)}…` : rollback.text}
-		message="The conversation is rolled back to before this prompt, which is then sent again. {rollback.files}"
-		confirmLabel="Roll back and send"
-		busyLabel="Rolling back…"
+		message={m["code.view.retry_message"]({ files: rollback.files })}
+		confirmLabel={m["code.view.retry_confirm"]()}
+		busyLabel={m["code.view.rolling_back"]()}
 		onconfirm={confirmRollback}
 		onclose={() => (rollback = null)}
 	/>
@@ -1655,11 +1669,11 @@
 	<!-- /undo's confirmation: the transcript's own revert dialog, without the
 	     re-send — the command undoes the last prompt and stops there. -->
 	<CodeConfirmDialog
-		title="Roll back?"
+		title={m["code.view.undo_title"]()}
 		target={undoTarget.text.length > 80 ? `${undoTarget.text.slice(0, 80)}…` : undoTarget.text}
-		message="The conversation is rolled back to before this prompt. {undoTarget.files}"
-		confirmLabel="Roll back"
-		busyLabel="Rolling back…"
+		message={m["code.view.undo_message"]({ files: undoTarget.files })}
+		confirmLabel={m["code.view.undo_confirm"]()}
+		busyLabel={m["code.view.rolling_back"]()}
 		onconfirm={confirmUndo}
 		onclose={() => (undoTarget = null)}
 	/>

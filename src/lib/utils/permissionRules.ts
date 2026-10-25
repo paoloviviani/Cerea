@@ -9,6 +9,7 @@
  * overrides. Nothing here writes a rule: the panel's own writes are the
  * session's mode and the removal of an exception, neither of which is a rule.
  */
+import { m } from "$lib/paraglide/messages";
 import type { PermissionRule, PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
 
 export type RuleAction = PermissionRule["action"];
@@ -53,36 +54,40 @@ export function evaluate(rules: PermissionRule[], permission: string, pattern = 
 
 interface CapabilitySpec {
 	id: string;
-	label: string;
+	label: () => string;
 	keys: string[];
 	/** When the keys' answers differ: a row per key, with these labels. */
-	split?: string[];
+	split?: Array<() => string>;
 	/** Left out when its answer is the same as that row's: the keys are
 	 * folded into it instead of repeating it. */
 	foldInto?: string;
 }
 
 const CAPABILITIES: CapabilitySpec[] = [
-	{ id: "edit", label: "Edit and write files", keys: ["edit"] },
-	{ id: "bash", label: "Run commands", keys: ["bash"] },
-	{ id: "web", label: "Fetch from the web", keys: ["webfetch"] },
+	{ id: "edit", label: m["code.permissions.cap.edit"], keys: ["edit"] },
+	{ id: "bash", label: m["code.permissions.cap.bash"], keys: ["bash"] },
+	{ id: "web", label: m["code.permissions.cap.web"], keys: ["webfetch"] },
 	{
 		id: "search",
-		label: "Search the web",
+		label: m["code.permissions.cap.search"],
 		keys: ["websearch", "codesearch"],
-		split: ["Search the web", "Search code"],
+		split: [m["code.permissions.cap.search"], m["code.permissions.cap.search_code"]],
 		foldInto: "web",
 	},
-	{ id: "task", label: "Start subagents", keys: ["task"] },
-	{ id: "read", label: "Read files", keys: ["read"] },
-	{ id: "external", label: "Work outside the project folder", keys: ["external_directory"] },
+	{ id: "task", label: m["code.permissions.cap.task"], keys: ["task"] },
+	{ id: "read", label: m["code.permissions.cap.read"], keys: ["read"] },
+	{ id: "external", label: m["code.permissions.cap.external"], keys: ["external_directory"] },
 	{
 		id: "sessions",
-		label: "Start, message or read other sessions",
+		label: m["code.permissions.cap.sessions"],
 		keys: ["session_spawn", "session_send", "session_read"],
-		split: ["Start other sessions", "Message other sessions", "Read other sessions"],
+		split: [
+			m["code.permissions.cap.session_spawn"],
+			m["code.permissions.cap.session_send"],
+			m["code.permissions.cap.session_read"],
+		],
 	},
-	{ id: "question", label: "Ask you questions", keys: ["question"] },
+	{ id: "question", label: m["code.permissions.cap.question"], keys: ["question"] },
 ];
 
 export interface CapabilityRow {
@@ -117,6 +122,12 @@ const SECRET_FILE = /\.env/;
 
 /** The narrower `read` patterns that answer stricter than the catch-all,
  * worded for a person: ".env" files are "secret files like .env". */
+const ACTION_WORD: Record<RuleAction, () => string> = {
+	allow: m["code.permissions.action_word.allow"],
+	ask: m["code.permissions.action_word.ask"],
+	deny: m["code.permissions.action_word.deny"],
+};
+
 function readExceptions(rules: PermissionRule[], answer: RuleAction): string[] {
 	const patterns = new Set<string>();
 	for (const rule of rules) {
@@ -126,12 +137,17 @@ function readExceptions(rules: PermissionRule[], answer: RuleAction): string[] {
 	for (const pattern of patterns) {
 		const got = evaluate(rules, "read", pattern);
 		if (RANK[got] >= RANK[answer]) continue;
-		const name = SECRET_FILE.test(pattern) ? "secret files like .env" : pattern;
+		const name = SECRET_FILE.test(pattern) ? m["code.permissions.secret_files"]() : pattern;
 		const names = byAction.get(got) ?? [];
 		if (!names.includes(name)) names.push(name);
 		byAction.set(got, names);
 	}
-	return [...byAction].map(([action, names]) => `${names.join(", ")}: ${action}`);
+	return [...byAction].map(([action, names]) =>
+		m["code.permissions.read_exception"]({
+			names: names.join(", "),
+			action: ACTION_WORD[action](),
+		})
+	);
 }
 
 /**
@@ -152,7 +168,7 @@ export function capabilityRows(result: PermissionRulesResult): CapabilityRow[] {
 			const action = evaluate(result.rules, keys[0]);
 			rows.push({
 				id: groups.length > 1 ? `${spec.id}:${keys[0]}` : spec.id,
-				label: groups.length > 1 && spec.split ? spec.split[index] : spec.label,
+				label: groups.length > 1 && spec.split ? spec.split[index]() : spec.label(),
 				action,
 				capped: keys.some((key) => isCappedKey(result, key, evaluate(result.rules, key))),
 				except: spec.id === "read" ? readExceptions(result.rules, action) : [],
@@ -164,22 +180,30 @@ export function capabilityRows(result: PermissionRulesResult): CapabilityRow[] {
 
 /** "Allowed", "Asks first", "Blocked": the row's answer in a word. */
 export function actionLabel(action: RuleAction): string {
-	return action === "allow" ? "Allowed" : action === "deny" ? "Blocked" : "Asks first";
+	return action === "allow"
+		? m["code.permissions.action.allow"]()
+		: action === "deny"
+			? m["code.permissions.action.deny"]()
+			: m["code.permissions.action.ask"]();
 }
 
 /** The collapsed line: "Edits blocked · commands blocked · web blocked". */
 export function permissionSummary(rows: CapabilityRow[]): string {
 	const word = (action: RuleAction) =>
-		action === "allow" ? "allowed" : action === "deny" ? "blocked" : "ask";
+		action === "allow"
+			? m["code.permissions.summary.allow"]()
+			: action === "deny"
+				? m["code.permissions.summary.deny"]()
+				: m["code.permissions.summary.ask"]();
 	const parts: Array<[string, string]> = [
-		["edit", "Edits"],
-		["bash", "commands"],
-		["web", "web"],
+		["edit", m["code.permissions.summary.edits"]()],
+		["bash", m["code.permissions.summary.commands"]()],
+		["web", m["code.permissions.summary.web"]()],
 	];
 	return parts
 		.flatMap(([id, noun]) => {
 			const row = rows.find((candidate) => candidate.id === id);
-			return row ? [`${noun} ${word(row.action)}`] : [];
+			return row ? [m["code.permissions.summary.item"]({ noun, state: word(row.action) })] : [];
 		})
 		.join(" · ");
 }
@@ -235,24 +259,26 @@ export function annotateRules(rules: PermissionRule[]): AnnotatedRule[] {
 
 /** "overridden by Cerea", "overridden by this machine's limits", … */
 export function overriddenLabel(by: string): string {
-	return by === "cerea" ? "overridden by Cerea" : `overridden by ${sourceLabel(by)}`;
+	return by === "cerea"
+		? m["code.permissions.overridden_cerea"]()
+		: m["code.permissions.overridden"]({ source: sourceLabel(by) });
 }
 
 export function sourceLabel(source: string | undefined): string {
 	switch (source) {
 		case "cerea":
-			return "Cerea";
+			return m["code.permissions.source.cerea"]();
 		case "machine":
-			return "this machine's rules";
+			return m["code.permissions.source.machine"]();
 		case "ceiling":
-			return "this machine's limits";
+			return m["code.permissions.source.ceiling"]();
 		case "floor":
-			return "this machine's floor";
+			return m["code.permissions.source.floor"]();
 		case "file":
 		case "opencode":
-			return "opencode's rules";
+			return m["code.permissions.source.opencode"]();
 		case "default":
-			return "opencode's default";
+			return m["code.permissions.source.default"]();
 		default:
 			return source ?? "";
 	}
@@ -308,9 +334,12 @@ export function isCapped(ceiling: Record<string, "ask" | "deny">, permission: st
  * "edit is denied". Empty when it caps nothing. The key `*` reads "everything". */
 export function ceilingNote(ceiling: Record<string, "ask" | "deny">): string {
 	return Object.entries(ceiling)
-		.map(
-			([key, max]) => `${key === "*" ? "everything" : key} ${max === "ask" ? "asks" : "is denied"}`
-		)
+		.map(([key, max]) => {
+			const name = key === "*" ? m["code.permissions.ceiling_everything"]() : key;
+			return max === "ask"
+				? m["code.permissions.ceiling_asks"]({ key: name })
+				: m["code.permissions.ceiling_denied"]({ key: name });
+		})
 		.join(", ");
 }
 

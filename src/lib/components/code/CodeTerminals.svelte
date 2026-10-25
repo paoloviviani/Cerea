@@ -5,6 +5,7 @@
 	per-machine acknowledgement; CodeTerminal.svelte owns one live view.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { untrack } from "svelte";
 	import IconAdd from "~icons/carbon/add";
 	import IconClose from "~icons/carbon/close";
@@ -62,7 +63,7 @@
 				activeId = list[0]?.id ?? null;
 			}
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not list terminals.";
+			failure = err instanceof Error ? err.message : m["code.terminals.could_not_list"]();
 		} finally {
 			loading = false;
 		}
@@ -77,7 +78,7 @@
 			activeId = terminal.id;
 			exited.delete(terminal.id);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not open a terminal.";
+			failure = err instanceof Error ? err.message : m["code.terminals.could_not_open"]();
 		} finally {
 			pendingOpen = false;
 		}
@@ -107,7 +108,7 @@
 			const { terminal } = await renameTerminal(deviceId, id, title);
 			terminals = terminals.map((t) => (t.id === id ? terminal : t));
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not rename.";
+			failure = err instanceof Error ? err.message : m["code.terminals.could_not_rename"]();
 		}
 	}
 
@@ -141,7 +142,7 @@
 			terminals = [...terminals, terminal];
 			activeId = terminal.id;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not restart.";
+			failure = err instanceof Error ? err.message : m["code.terminals.could_not_restart"]();
 		}
 	}
 
@@ -199,12 +200,12 @@
 						{t.title}
 					</button>
 					{#if exited.has(t.id)}
-						<span class="text-gray-400">·exited</span>
+						<span class="text-gray-400">{m["code.terminals.exited_tag"]()}</span>
 					{/if}
 				{/if}
 				<button
 					type="button"
-					aria-label="Close terminal"
+					aria-label={m["code.terminals.close"]()}
 					class="opacity-0 group-hover:opacity-100"
 					onclick={() => close(t.id)}
 				>
@@ -219,13 +220,13 @@
 			onclick={requestNew}
 		>
 			<IconAdd class="size-3.5" />
-			New
+			{m["code.terminals.new"]()}
 		</button>
 		<button
 			type="button"
 			class="flex size-6 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
-			title="Refresh"
-			aria-label="Refresh terminals"
+			title={m["code.terminals.refresh"]()}
+			aria-label={m["code.terminals.refresh_label"]()}
 			onclick={refresh}
 		>
 			<IconRenew class="size-3.5 {loading ? 'animate-spin' : ''}" />
@@ -245,13 +246,13 @@
 		{#if active}
 			{#if exited.has(active.id)}
 				<div class="flex h-full flex-col items-center justify-center gap-3 text-sm text-gray-500">
-					<p>Exited (code {exited.get(active.id)})</p>
+					<p>{m["code.terminals.exited"]({ code: exited.get(active.id) ?? 0 })}</p>
 					<button
 						type="button"
 						class="rounded-md border border-gray-200 px-3 py-1 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
 						onclick={() => active && restart(active)}
 					>
-						Restart
+						{m["code.terminals.restart"]()}
 					</button>
 				</div>
 			{:else}
@@ -266,7 +267,7 @@
 			{/if}
 		{:else if !loading}
 			<div class="flex h-full items-center justify-center text-sm text-gray-400">
-				No terminals open in this workspace.
+				{m["code.terminals.empty"]()}
 			</div>
 		{/if}
 	</div>

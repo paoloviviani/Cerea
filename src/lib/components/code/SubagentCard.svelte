@@ -19,6 +19,7 @@
 	settled row whose roster entry has not moved serves its cache instead.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { setCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
 	import { tick } from "svelte";
 	import type {
@@ -57,11 +58,19 @@
 	let fetchedFor: { id: string; updatedAt: string } | null = null;
 	let lastFetchAt = 0;
 
-	let title = $derived(anchor.subagent?.title || anchor.fallbackTitle || "Subagent");
+	let title = $derived(
+		anchor.subagent?.title || anchor.fallbackTitle || m["code.subagent.fallback_title"]()
+	);
 	let status = $derived<CodeSubagentStatus>(anchor.subagent?.status ?? "running");
 	let subtitle = $derived(anchor.subagent?.subtitle ?? "");
 	let expandable = $derived(Boolean(anchor.load));
 
+	const STATUS_LABELS: Record<CodeSubagentStatus, () => string> = {
+		running: m["code.subagent.status.running"],
+		completed: m["code.subagent.status.completed"],
+		failed: m["code.subagent.status.failed"],
+		canceled: m["code.subagent.status.canceled"],
+	};
 	const DOT_TONES: Record<CodeSubagentStatus, string> = {
 		running: "bg-blue-500 animate-pulse",
 		completed: "bg-green-500",
@@ -105,7 +114,7 @@
 			fetchedFor = { id: current.id, updatedAt: current.updatedAt };
 			await tick();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load the subagent's transcript.";
+			failure = err instanceof Error ? err.message : m["code.subagent.could_not_load"]();
 		} finally {
 			working = false;
 		}
@@ -141,7 +150,9 @@
 		class="group/header flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 text-left whitespace-nowrap select-none focus:outline-hidden"
 		onclick={toggle}
 		aria-expanded={open}
-		aria-label={open ? `Collapse ${title}` : `Expand ${title}`}
+		aria-label={open
+			? m["code.subagent.collapse"]({ title })
+			: m["code.subagent.expand"]({ title })}
 	>
 		<LucideUsers
 			class="size-3.5 shrink-0 text-gray-400 transition-colors group-hover/header:text-gray-600 dark:text-gray-500 dark:group-hover/header:text-gray-300"
@@ -156,8 +167,8 @@
 		</span>
 		<span
 			class="size-2 shrink-0 rounded-full {DOT_TONES[status]}"
-			title={status}
-			aria-label={status}
+			title={STATUS_LABELS[status]()}
+			aria-label={STATUS_LABELS[status]()}
 		>
 		</span>
 		{#if subtitle}
@@ -177,7 +188,7 @@
 	{#if open}
 		<div class="mt-1.5 ml-4 min-w-0 border-l border-gray-200 pl-3 dark:border-gray-700">
 			{#if working && !transcript}
-				<p class="py-1 text-xs text-gray-400 dark:text-gray-500">Loading the transcript…</p>
+				<p class="py-1 text-xs text-gray-400 dark:text-gray-500">{m["code.subagent.loading"]()}</p>
 			{:else if failure}
 				<p class="py-1 text-xs text-red-600 dark:text-red-400">{failure}</p>
 			{:else if transcript && transcript.length > 0}
@@ -194,7 +205,7 @@
 					{/each}
 				</div>
 			{:else}
-				<p class="py-1 text-xs text-gray-400 dark:text-gray-500">No transcript recorded yet.</p>
+				<p class="py-1 text-xs text-gray-400 dark:text-gray-500">{m["code.subagent.empty"]()}</p>
 			{/if}
 		</div>
 	{/if}
