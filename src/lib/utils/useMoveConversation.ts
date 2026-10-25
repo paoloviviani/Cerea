@@ -48,7 +48,7 @@ export function useMoveConversation() {
 				body: JSON.stringify({ projectId: to ? to.id : null }),
 			});
 			if (!response.ok) {
-				let message = m["projects.move.failed"]();
+				let message: string = m["projects.move.failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
