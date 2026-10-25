@@ -63,9 +63,6 @@ const ALLOWED: (string | RegExp)[] = [
 	"embed-1",
 	"policy.pdf",
 	"draft.docx",
-	// The drop area is the shared `FileDrop`, a top-level component outside this screen.
-	/^Drop files here, or click to choose$/,
-	/^PDF, Word, Excel/,
 ];
 
 afterEach(() => {

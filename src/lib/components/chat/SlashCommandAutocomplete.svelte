@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { SlashCommand, SlashCommandGroup } from "$lib/utils/slashCommand.svelte";
 	import LucideTerminal from "~icons/lucide/terminal";
 
@@ -20,11 +21,21 @@
 	let listboxElement: HTMLDivElement | undefined = $state();
 
 	const labels: Record<SlashCommandGroup, string> = {
-		panel: "Panel",
-		project: "Project",
-		machine: "Machine",
-		skill: "Skills",
-		mcp: "MCP",
+		get panel() {
+			return m["chat.slash.group.panel"]();
+		},
+		get project() {
+			return m["chat.slash.group.project"]();
+		},
+		get machine() {
+			return m["chat.slash.group.machine"]();
+		},
+		get skill() {
+			return m["chat.slash.group.skill"]();
+		},
+		get mcp() {
+			return m["chat.slash.group.mcp"]();
+		},
 	};
 
 	/**
@@ -55,9 +66,9 @@
      rule the hub panel's notes: a listbox may only own options and groups. -->
 <div class="sr-only" role="status" aria-live="polite">
 	{#if results.length === 0}
-		No matching commands
+		{m["chat.slash.none"]()}
 	{:else}
-		{results.length} commands available
+		{m["chat.slash.available"]({ count: results.length })}
 	{/if}
 </div>
 
@@ -69,11 +80,11 @@
 		bind:this={listboxElement}
 		id="slash-command-listbox"
 		role="listbox"
-		aria-label="Slash commands"
+		aria-label={m["chat.slash.label"]()}
 		class="pointer-events-auto scrollbar-custom max-h-64 w-72 max-w-[min(20rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 text-[13px] shadow-lg dark:border-gray-700 dark:bg-gray-900"
 	>
 		{#if results.length === 0}
-			<p class="px-2.5 py-1.5 text-gray-400 dark:text-gray-500">No matching commands</p>
+			<p class="px-2.5 py-1.5 text-gray-400 dark:text-gray-500">{m["chat.slash.none"]()}</p>
 		{:else}
 			{#each groups as entry (entry.group)}
 				<div role="group" aria-label={labels[entry.group]}>
@@ -116,14 +127,14 @@
 									class="size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
 									aria-hidden="true"
 								/>
-								<span class="sr-only">runs shell on the machine</span>
+								<span class="sr-only">{m["chat.slash.runs_shell"]()}</span>
 							{/if}
 							<span class="font-mono text-gray-800 dark:text-gray-200">
 								/{option.result.name}
 							</span>
 							{#if option.result.shadowed}
 								<span class="min-w-0 flex-1 truncate text-right text-gray-400 dark:text-gray-500">
-									shadowed by a panel command
+									{m["chat.slash.shadowed"]()}
 								</span>
 							{:else}
 								<span class="min-w-0 flex-1 truncate text-right text-gray-500 dark:text-gray-400">

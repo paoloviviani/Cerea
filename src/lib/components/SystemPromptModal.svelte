@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import Modal from "./Modal.svelte";
 	import CarbonClose from "~icons/carbon/close";
 	import CarbonBlockchain from "~icons/carbon/blockchain";
@@ -18,7 +19,8 @@
 	onclick={() => (isOpen = !isOpen)}
 	onkeydown={(e) => e.key === "Enter" && (isOpen = !isOpen)}
 >
-	<CarbonBlockchain class="text-xxs" /> Using custom instructions
+	<CarbonBlockchain class="text-xxs" />
+	{m["app.system_prompt.using"]()}
 </button>
 
 {#if isOpen}
@@ -27,7 +29,7 @@
 			<div
 				class="flex items-start justify-between text-xl font-semibold text-gray-800 dark:text-gray-200"
 			>
-				<h2>Instructions</h2>
+				<h2>{m["app.system_prompt.heading"]()}</h2>
 				<button type="button" class="group" onclick={() => (isOpen = false)}>
 					<CarbonClose
 						class="mt-auto text-gray-900 group-hover:text-gray-500 dark:text-gray-200 dark:group-hover:text-gray-400"

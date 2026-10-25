@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import ConnectorsSection from "./ConnectorsSection.svelte";
 	import { allMcpServers, refreshMcpServers, healthCheckServer } from "$lib/stores/mcpServers";
@@ -36,9 +37,11 @@
 	<div class="p-6">
 		<!-- Header -->
 		<div class="mb-6">
-			<h2 class="mb-1 text-xl font-semibold text-gray-900 dark:text-gray-200">Connectors</h2>
+			<h2 class="mb-1 text-xl font-semibold text-gray-900 dark:text-gray-200">
+				{m["mcp.manager.title"]()}
+			</h2>
 			<p class="text-sm text-gray-600 dark:text-gray-400">
-				Connect {publicConfig.PUBLIC_APP_NAME} to other apps and services so the assistant can use them.
+				{m["mcp.manager.intro"]({ name: publicConfig.PUBLIC_APP_NAME })}
 			</p>
 		</div>
 
@@ -57,13 +60,16 @@
 				</div>
 				<div>
 					<p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-						{serverCount}
-						{serverCount === 1 ? "connector" : "connectors"} set up
+						{m["mcp.manager.set_up"]({ count: serverCount })}
 					</p>
 					<p class="text-xs text-gray-600 dark:text-gray-400">
-						{enabledCount} enabled{onMachines.length
-							? ` · ${onMachinesReady} of ${onMachines.length} on your machines connected`
-							: ""}
+						{onMachines.length
+							? m["mcp.manager.enabled_machines"]({
+									count: enabledCount,
+									ready: onMachinesReady,
+									total: onMachines.length,
+								})
+							: m["mcp.manager.enabled"]({ count: enabledCount })}
 					</p>
 				</div>
 			</div>
@@ -75,7 +81,7 @@
 					class="btn gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
 				>
 					<IconRefresh class="size-4 {isRefreshing ? 'animate-spin' : ''}" />
-					{isRefreshing ? "Refreshing…" : "Refresh"}
+					{isRefreshing ? m["mcp.manager.refreshing"]() : m["mcp.manager.refresh"]()}
 				</button>
 			</div>
 		</div>
@@ -90,11 +96,13 @@
 
 			<!-- Help Text -->
 			<div class="rounded-lg bg-gray-50 p-4 dark:bg-gray-700">
-				<h4 class="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">💡 Quick tips</h4>
+				<h4 class="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+					{m["mcp.manager.tips_heading"]()}
+				</h4>
 				<ul class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
-					<li>• Only connect to services you trust</li>
-					<li>• Turn a connector on to let the assistant use it in your chats</li>
-					<li>• Use Check to see whether a connector is working</li>
+					<li>{m["mcp.manager.tip_trust"]()}</li>
+					<li>{m["mcp.manager.tip_enable"]()}</li>
+					<li>{m["mcp.manager.tip_check"]()}</li>
 				</ul>
 			</div>
 		</div>

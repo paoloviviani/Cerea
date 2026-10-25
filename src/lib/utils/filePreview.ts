@@ -1,3 +1,5 @@
+import { m } from "$lib/paraglide/messages";
+import { formatNumber } from "$lib/i18n/format";
 /**
  * Renderer selection for files a run generated — the single place that
  * decides how a filename previews, so the file cards, the one-shot
@@ -161,36 +163,54 @@ export function filePreviewMimeType(extension: string): string {
 	}
 }
 
+/** Byte units are symbols, not words: the number goes through `Intl`, the unit stays. */
 export function formatFileSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	const tenth = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
+	// i18n: literal (unit symbols)
+	if (bytes < 1024) return `${formatNumber(bytes)} B`;
+	// i18n: literal (unit symbols)
+	if (bytes < 1024 * 1024) return `${formatNumber(bytes / 1024, tenth)} KB`;
+	// i18n: literal (unit symbols)
+	return `${formatNumber(bytes / (1024 * 1024), tenth)} MB`;
 }
 
+export type FileKind =
+	| "pdf"
+	| "spreadsheet"
+	| "markdown"
+	| "data"
+	| "image"
+	| "code"
+	| "word"
+	| "slides"
+	| "text"
+	| "file";
+
 /**
- * The kind badge a produced file carries, from its name — the same label the
- * library panel's file rows show, single-sourced here so the inline file
- * artifact card and the library row cannot drift. `mime` only backs the
- * untyped fallback for callers that have it (a stored row does; a bare
- * filename does not).
+ * The kind a produced file is, from its name (see `fileKindLabel` for the
+ * words). `mime` only backs the untyped fallback for callers that have it (a
+ * stored row does; a bare filename does not).
  */
-export function fileKindLabel(name: string, mime?: string): string {
+export function fileKindOf(name: string, mime?: string): FileKind {
 	const extension = name.includes(".") ? (name.split(".").pop()?.toLowerCase() ?? "") : "";
 	switch (extension) {
 		case "pdf":
-			return "PDF";
+			return "pdf";
 		case "csv":
 		case "tsv":
-			return "Spreadsheet";
+		case "xls":
+		case "xlsx":
+		case "ods":
+			return "spreadsheet";
 		case "md":
 		case "markdown":
-			return "Markdown";
+			return "markdown";
 		case "json":
 		case "jsonl":
 		case "yaml":
 		case "yml":
 		case "toml":
-			return "Data";
+			return "data";
 		case "png":
 		case "jpg":
 		case "jpeg":
@@ -199,31 +219,57 @@ export function fileKindLabel(name: string, mime?: string): string {
 		case "svg":
 		case "bmp":
 		case "avif":
-			return "Image";
+			return "image";
 		case "py":
 		case "js":
 		case "ts":
 		case "html":
 		case "xml":
 		case "tex":
-			return "Code";
+			return "code";
 		case "doc":
 		case "docx":
 		case "odt":
 		case "rtf":
-			return "Word";
-		case "xls":
-		case "xlsx":
-		case "ods":
-			return "Spreadsheet";
+			return "word";
 		case "ppt":
 		case "pptx":
 		case "odp":
-			return "Slides";
+			return "slides";
 		case "txt":
 		case "log":
-			return "Text";
+			return "text";
 		default:
-			return mime?.split("/")[0] === "text" ? "Text" : "File";
+			return mime?.split("/")[0] === "text" ? "text" : "file";
+	}
+}
+
+/**
+ * The kind badge a produced file carries, from its name — the same label the
+ * library panel's file rows show, single-sourced here so the inline file
+ * artifact card and the library row cannot drift.
+ */
+export function fileKindLabel(name: string, mime?: string): string {
+	switch (fileKindOf(name, mime)) {
+		case "pdf":
+			return m["chat.file_kind.pdf"]();
+		case "spreadsheet":
+			return m["chat.file_kind.spreadsheet"]();
+		case "markdown":
+			return m["chat.file_kind.markdown"]();
+		case "data":
+			return m["chat.file_kind.data"]();
+		case "image":
+			return m["chat.file_kind.image"]();
+		case "code":
+			return m["chat.file_kind.code"]();
+		case "word":
+			return m["chat.file_kind.word"]();
+		case "slides":
+			return m["chat.file_kind.slides"]();
+		case "text":
+			return m["chat.file_kind.text"]();
+		default:
+			return m["chat.file_kind.file"]();
 	}
 }

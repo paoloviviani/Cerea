@@ -5,6 +5,7 @@
 	sidebar's own `⋯` is on touch screens: there is no hover there.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { DropdownMenu } from "bits-ui";
 	import LucideEllipsis from "~icons/lucide/ellipsis";
 	import LucideFolderInput from "~icons/lucide/folder-input";
@@ -28,8 +29,8 @@
 <DropdownMenu.Root>
 	<DropdownMenu.Trigger
 		class="flex size-8 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-200 hover:text-gray-600 data-[state=open]:bg-gray-200 data-[state=open]:text-gray-600 dark:hover:bg-gray-600 dark:hover:text-gray-200 dark:data-[state=open]:bg-gray-600 dark:data-[state=open]:text-gray-200"
-		aria-label="Actions for {label}"
-		title="More options"
+		aria-label={m["app.move_menu.actions_for"]({ label })}
+		title={m["app.move_menu.more_options"]()}
 	>
 		<LucideEllipsis class="size-4" />
 	</DropdownMenu.Trigger>
@@ -45,13 +46,13 @@
 			{#if onmove}
 				<DropdownMenu.Item class={ITEM} onSelect={onmove}>
 					<LucideFolderInput class="size-4 opacity-90 dark:opacity-80" />
-					Move to project…
+					{m["app.move_menu.move"]()}
 				</DropdownMenu.Item>
 			{/if}
 			{#if onremove}
 				<DropdownMenu.Item class={ITEM} onSelect={onremove}>
 					<LucideFolderMinus class="size-4 opacity-90 dark:opacity-80" />
-					Remove from project
+					{m["app.move_menu.remove"]()}
 				</DropdownMenu.Item>
 			{/if}
 		</DropdownMenu.Content>

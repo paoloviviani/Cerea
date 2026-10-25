@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { findPaneItemIndex, type PaneItem } from "$lib/utils/paneItems";
 
@@ -51,7 +52,9 @@
 			type="button"
 			class="btn rounded-sm p-0.5 hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-gray-300"
 			disabled={index <= 0}
-			title={prevLabel ? `Previous: ${prevLabel}` : "Previous"}
+			title={prevLabel
+				? m["chat.pane_nav.previous_named"]({ label: prevLabel })
+				: m["chat.pane_nav.previous"]()}
 			onclick={() => goto(index - 1)}
 		>
 			<CarbonChevronLeft class="text-xs" />
@@ -63,7 +66,9 @@
 			type="button"
 			class="btn rounded-sm p-0.5 hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-gray-300"
 			disabled={index < 0 || index >= items.length - 1}
-			title={nextLabel ? `Next: ${nextLabel}` : "Next"}
+			title={nextLabel
+				? m["chat.pane_nav.next_named"]({ label: nextLabel })
+				: m["chat.pane_nav.next"]()}
 			onclick={() => goto(index + 1)}
 		>
 			<CarbonChevronRight class="text-xs" />

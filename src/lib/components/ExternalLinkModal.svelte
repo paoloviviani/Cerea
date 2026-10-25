@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import Modal from "$lib/components/Modal.svelte";
 
 	import CarbonClose from "~icons/carbon/close";
@@ -29,8 +30,15 @@
 <Modal onclose={close} width="w-[90dvh] md:w-[480px]">
 	<div class="flex w-full flex-col gap-5 p-6">
 		<div class="flex items-start justify-between">
-			<h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">Open external link?</h2>
-			<button type="button" class="group outline-hidden" onclick={close} aria-label="Close">
+			<h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">
+				{m["app.external_link.title"]()}
+			</h2>
+			<button
+				type="button"
+				class="group outline-hidden"
+				onclick={close}
+				aria-label={m["app.close"]()}
+			>
 				<CarbonClose
 					class="size-5 text-gray-700 group-hover:text-gray-500 dark:text-gray-300 dark:group-hover:text-gray-400"
 				/>
@@ -38,7 +46,7 @@
 		</div>
 
 		<p class="text-sm text-gray-600 dark:text-gray-400">
-			This link goes to another website and opens in a new tab. Only continue if you trust it.
+			{m["app.external_link.body"]()}
 		</p>
 
 		<!-- Built from URL components (host has no userinfo ambiguity) so the
@@ -56,14 +64,14 @@
 				class="inline-flex items-center rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-900 shadow-sm outline-hidden hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
 				onclick={close}
 			>
-				Cancel
+				{m["app.cancel"]()}
 			</button>
 			<button
 				type="button"
 				class="inline-flex items-center gap-1.5 rounded-xl border border-gray-900 bg-gray-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-black focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 focus:outline-hidden dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white dark:focus:ring-offset-gray-800"
 				onclick={confirmOpen}
 			>
-				Open link
+				{m["app.external_link.open"]()}
 				<CarbonArrowUpRight class="size-3.5" />
 			</button>
 		</div>

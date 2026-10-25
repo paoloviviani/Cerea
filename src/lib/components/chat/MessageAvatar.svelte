@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	let { animating = false, classNames = "" } = $props();
 </script>
 
@@ -20,7 +21,7 @@
 	shape-rendering="crispEdges"
 	class="text-black dark:text-white {classNames}"
 	role="img"
-	aria-label={animating ? "Generating response" : "Assistant response"}
+	aria-label={animating ? m["chat.avatar.generating"]() : m["chat.avatar.response"]()}
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<g fill="currentColor" class:pixel-draw={animating}>

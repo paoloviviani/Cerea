@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onDestroy, onMount } from "svelte";
 	import { dataUrlBytes, openPdf, type PdfDocument } from "$lib/utils/pdfRender";
 	import { triggerBrowserDownload } from "$lib/utils/fileBytes";
@@ -37,7 +38,7 @@
 	function source(): Uint8Array {
 		if (bytes) return bytes;
 		if (dataUrl) return dataUrlBytes(dataUrl);
-		throw new Error("there is nothing to show");
+		throw new Error(m["chat.pdf.nothing"]());
 	}
 
 	async function draw(): Promise<void> {
@@ -59,7 +60,10 @@
 			canvas.style.height = `${Math.floor(viewport.height / dpr)}px`;
 			canvas.className = "mx-auto mb-3 max-w-full bg-white shadow-sm";
 			canvas.setAttribute("role", "img");
-			canvas.setAttribute("aria-label", `${title}, page ${n} of ${doc.numPages}`);
+			canvas.setAttribute(
+				"aria-label",
+				m["chat.pdf.page_label"]({ title, page: n, total: doc.numPages })
+			);
 			canvas.dataset.testid = "pdf-page";
 			host.appendChild(canvas);
 			await page.render({ canvas, viewport }).promise;
@@ -75,7 +79,9 @@
 			drawn = true;
 			void draw().catch((err) => {
 				status = "error";
-				failure = `this PDF could not be shown (${err instanceof Error ? err.message : "render failed"}); download it to read it`;
+				failure = m["chat.pdf.error_reason"]({
+					reason: err instanceof Error ? err.message : m["chat.pdf.render_failed"](),
+				});
 			});
 		}
 	});
@@ -97,8 +103,8 @@
 				status = "error";
 				failure =
 					err instanceof Error
-						? `this PDF could not be shown (${err.message}); download it to read it`
-						: "this PDF could not be shown; download it to read it";
+						? m["chat.pdf.error_reason"]({ reason: err.message })
+						: m["chat.pdf.error"]();
 			}
 		})();
 		// Redraw when the pane is resized to a clearly different width.
@@ -144,27 +150,27 @@
 		class="flex flex-none items-center gap-2 border-b border-gray-200/70 px-3 py-1.5 text-xs text-gray-500 dark:border-gray-700/70 dark:text-gray-400"
 	>
 		<span class="min-w-0 flex-1 truncate">
-			{#if status === "loading"}Loading the PDF…{:else if status === "ready"}{pageCount} page{pageCount ===
-				1
-					? ""
-					: "s"}{pageCount > shown ? ` (first ${shown} shown)` : ""}{/if}
+			{#if status === "loading"}{m["chat.pdf.loading"]()}{:else if status === "ready"}{pageCount >
+				shown
+					? m["chat.pdf.pages_partial"]({ count: pageCount, shown })
+					: m["chat.pdf.pages"]({ count: pageCount })}{/if}
 		</span>
 		<button
 			type="button"
 			class="flex items-center gap-1 rounded-md px-2 py-1 hover:bg-gray-500/10"
 			onclick={openInNewTab}
-			aria-label="Open {title} in a new tab"
-			title="Open in a new tab"
+			aria-label={m["chat.pdf.open_label"]({ title })}
+			title={m["chat.pdf.open_title"]()}
 		>
 			<CarbonLaunch class="size-3.5" />
-			<span>New tab</span>
+			<span>{m["chat.pdf.new_tab"]()}</span>
 		</button>
 		<button
 			type="button"
 			class="flex items-center gap-1 rounded-md px-2 py-1 hover:bg-gray-500/10"
 			onclick={download}
-			aria-label="Download {title}"
-			title="Download"
+			aria-label={m["chat.pdf.download_label"]({ title })}
+			title={m["chat.pdf.download"]()}
 		>
 			<CarbonDownload class="size-3.5" />
 		</button>

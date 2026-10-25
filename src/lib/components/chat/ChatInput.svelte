@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onDestroy, onMount, tick, untrack } from "svelte";
 	import { MediaQuery } from "svelte/reactivity";
 
@@ -27,7 +28,7 @@
 
 	import {
 		composeDictation,
-		DICTATION_SILENT_END_MESSAGE,
+		dictationSilentEndMessage,
 		dictationOffered,
 		parseDictationMode,
 		dictationAnchor,
@@ -189,7 +190,7 @@
 				body: JSON.stringify({ webSearch: next }),
 			});
 			if (!response.ok) {
-				let message = "Could not change web search. Try again.";
+				let message: string = m["chat.input.web_search_failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -201,9 +202,7 @@
 			// Roll back the optimistic toggle so the pill never claims a state
 			// the server refused.
 			webSearch = previous;
-			errorToast.set(
-				err instanceof Error ? err.message : "Could not change web search. Try again."
-			);
+			errorToast.set(err instanceof Error ? err.message : m["chat.input.web_search_failed"]());
 		}
 	}
 
@@ -224,7 +223,7 @@
 				body: JSON.stringify({ toolApprovalOverride: next ? "always-allow" : "manual" }),
 			});
 			if (!response.ok) {
-				let message = "Could not change this setting. Try again.";
+				let message: string = m["chat.input.setting_failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -236,9 +235,7 @@
 			// Home page has no PATCH to fail (returned above); this rollback
 			// is for the conversation-page PATCH only.
 			autoApproveTools = previous;
-			errorToast.set(
-				err instanceof Error ? err.message : "Could not change this setting. Try again."
-			);
+			errorToast.set(err instanceof Error ? err.message : m["chat.input.setting_failed"]());
 		}
 	}
 
@@ -357,7 +354,7 @@
 	// administrator's connectors) as one section, by name; the person's own connectors and the
 	// ones on their machines follow it. Ids and selection are each kind's own.
 	// Said once, shown on the pill and at the top of the Connectors menu.
-	const NO_TOOLS_NOTE = "This model can't use connectors. Pick another model to use them.";
+	const NO_TOOLS_NOTE = $derived(m["chat.input.no_tools"]());
 	let noToolsNoteOpen = $state(false);
 	let noToolsNoteHover = $state(false);
 	const ownConnectors = $derived($connectors.filter((c) => c.scope !== "deployment"));
@@ -402,7 +399,7 @@
 				body: JSON.stringify({ knowledgeBaseIds: next.map((base) => base.id) }),
 			});
 			if (!response.ok) {
-				let message = "Could not change the knowledge bases. Try again.";
+				let message: string = m["chat.input.knowledge_failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -415,9 +412,7 @@
 			// attachment the server refused; the turn's retrieval would silently
 			// miss the base otherwise.
 			knowledgeBases = previous;
-			errorToast.set(
-				err instanceof Error ? err.message : "Could not change the knowledge bases. Try again."
-			);
+			errorToast.set(err instanceof Error ? err.message : m["chat.input.knowledge_failed"]());
 		}
 	}
 
@@ -431,7 +426,7 @@
 
 	function openFilePickerText() {
 		const textAccept =
-			mimeTypes.filter((m) => !(m === "image/*" || m.startsWith("image/"))).join(",") ||
+			mimeTypes.filter((mime) => !(mime === "image/*" || mime.startsWith("image/"))).join(",") ||
 			TEXT_MIME_ALLOWLIST.join(",");
 		openPickerWithAccept(textAccept);
 	}
@@ -442,7 +437,7 @@
 
 	function openFilePickerImage() {
 		const imageAccept =
-			mimeTypes.filter((m) => m === "image/*" || m.startsWith("image/")).join(",") ||
+			mimeTypes.filter((mime) => mime === "image/*" || mime.startsWith("image/")).join(",") ||
 			IMAGE_MIME_ALLOWLIST_DEFAULT.join(",");
 		openPickerWithAccept(imageAccept);
 	}
@@ -721,7 +716,7 @@
 			const endedBySelf = listening;
 			recognition = null;
 			listening = false;
-			if (endedBySelf && !heardSomething) errorToast.set(DICTATION_SILENT_END_MESSAGE);
+			if (endedBySelf && !heardSomething) errorToast.set(dictationSilentEndMessage());
 		};
 		recognition = rec;
 		listening = true;
@@ -1024,8 +1019,10 @@
 						: "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white",
 				]}
 				aria-pressed={listening}
-				aria-label={listening ? "Stop dictation" : "Start dictation"}
-				title={listening ? "Stop dictation" : "Dictate with your browser's speech recognition"}
+				aria-label={listening
+					? m["chat.input.dictation_stop"]()
+					: m["chat.input.dictation_start"]()}
+				title={listening ? m["chat.input.dictation_stop"]() : m["chat.input.dictation_hint"]()}
 				onmousedown={(event) => event.preventDefault()}
 				onclick={toggleDictation}
 				onblur={(event) => {
@@ -1034,7 +1031,7 @@
 			>
 				<LucideMic class="size-4" />
 			</button>
-			<span class="sr-only" role="status">{listening ? "Listening" : ""}</span>
+			<span class="sr-only" role="status">{listening ? m["chat.input.listening"]() : ""}</span>
 		{/if}
 	</div>
 
@@ -1073,7 +1070,7 @@
 							bind:this={fileInputEl}
 							disabled={loading}
 							class="absolute hidden size-0"
-							aria-label="Upload file"
+							aria-label={m["chat.input.upload_label"]()}
 							type="file"
 							multiple
 							onchange={onFileChange}
@@ -1088,7 +1085,7 @@
 							bind:this={cameraInputEl}
 							disabled={loading}
 							class="absolute hidden size-0"
-							aria-label="Take photo"
+							aria-label={m["chat.input.photo_label"]()}
 							type="file"
 							accept="image/*"
 							capture="environment"
@@ -1113,7 +1110,7 @@
 							<DropdownMenu.Trigger
 								class="btn size-8 rounded-full border bg-white text-black shadow-sm transition-none enabled:hover:bg-white enabled:hover:shadow-inner sm:size-7 dark:border-transparent dark:bg-gray-600/50 dark:text-white dark:hover:enabled:bg-gray-600"
 								disabled={loading}
-								aria-label="Add attachment"
+								aria-label={m["chat.input.attach"]()}
 							>
 								<IconPlus class="text-base sm:text-sm" />
 							</DropdownMenu.Trigger>
@@ -1133,7 +1130,7 @@
 											onSelect={() => openFilePickerImage()}
 										>
 											<CarbonImage class="size-4 opacity-90 dark:opacity-80" />
-											Add image(s)
+											{m["chat.input.add_images"]()}
 										</DropdownMenu.Item>
 										{#if canTakePhoto}
 											<DropdownMenu.Item
@@ -1141,7 +1138,7 @@
 												onSelect={() => openCamera()}
 											>
 												<CarbonCamera class="size-4 opacity-90 dark:opacity-80" />
-												Take photo
+												{m["chat.input.take_photo"]()}
 											</DropdownMenu.Item>
 										{/if}
 									{/if}
@@ -1152,7 +1149,7 @@
 										>
 											<div class="flex items-center gap-1">
 												<CarbonDocument class="size-4 opacity-90 dark:opacity-80" />
-												Add text file
+												{m["chat.input.add_text_file"]()}
 											</div>
 											<div class="ml-auto flex items-center">
 												<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
@@ -1174,14 +1171,14 @@
 												onSelect={() => openFilePickerText()}
 											>
 												<CarbonUpload class="size-4 opacity-90 dark:opacity-80" />
-												Upload from this device
+												{m["chat.input.upload_device"]()}
 											</DropdownMenu.Item>
 											<DropdownMenu.Item
 												class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
 												onSelect={() => (isUrlModalOpen = true)}
 											>
 												<CarbonLink class="size-4 opacity-90 dark:opacity-80" />
-												Add from a web address
+												{m["chat.input.add_url"]()}
 											</DropdownMenu.Item>
 										</DropdownMenu.SubContent>
 									</DropdownMenu.Sub>
@@ -1202,7 +1199,7 @@
 											>
 												<div class="flex items-center gap-1">
 													<IconMCP classNames="size-4 opacity-90 dark:opacity-80" />
-													Connectors
+													{m["chat.input.connectors"]()}
 												</div>
 												<div class="ml-auto flex items-center">
 													<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
@@ -1234,7 +1231,7 @@
 														data-testid="mcp-provided-heading"
 														class="px-2 pt-1 pb-0.5 text-xs font-medium text-gray-500 select-none dark:text-gray-400"
 													>
-														Built-in
+														{m["chat.input.built_in"]()}
 													</div>
 													{#each provided as item (item.id)}
 														{#if item.kind === "base"}
@@ -1257,14 +1254,14 @@
 															class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
 															disabled
 														>
-															Loading connectors…
+															{m["chat.input.connectors_loading"]()}
 														</DropdownMenu.Item>
 													{:else if $connectorsFailed}
 														<DropdownMenu.Item
 															class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
 															disabled
 														>
-															Could not load connectors
+															{m["chat.input.connectors_failed"]()}
 														</DropdownMenu.Item>
 													{:else if ownConnectors.length === 0}
 														<!-- Only when there is nothing else to toggle: a deployment with servers needs no lecture. -->
@@ -1273,7 +1270,7 @@
 																class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
 																disabled
 															>
-																No connectors yet. Add one under Manage connectors.
+																{m["chat.input.connectors_none"]()}
 															</DropdownMenu.Item>
 														{/if}
 													{:else}
@@ -1292,7 +1289,7 @@
 													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
 													onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
 												>
-													Manage connectors
+													{m["chat.input.manage_connectors"]()}
 												</DropdownMenu.Item>
 											</DropdownMenu.SubContent>
 										</DropdownMenu.Sub>
@@ -1313,7 +1310,7 @@
 											>
 												<div class="flex items-center gap-1">
 													<LucideLibrary class="size-4 opacity-90 dark:opacity-80" />
-													Knowledge bases
+													{m["chat.input.knowledge"]()}
 													{#if knowledgeBases.length > 0}
 														<span
 															class="rounded-md bg-blue-600/10 px-1.5 text-xs text-blue-600 dark:bg-blue-600/20 dark:text-blue-400"
@@ -1342,21 +1339,21 @@
 														class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
 														disabled
 													>
-														Loading knowledge bases…
+														{m["chat.input.knowledge_loading"]()}
 													</DropdownMenu.Item>
 												{:else if knowledgeStoresFailed}
 													<DropdownMenu.Item
 														class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
 														disabled
 													>
-														Could not load knowledge bases
+														{m["chat.input.knowledge_load_failed"]()}
 													</DropdownMenu.Item>
 												{:else if !knowledgeStores || knowledgeStores.length === 0}
 													<DropdownMenu.Item
 														class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
 														disabled
 													>
-														No knowledge bases yet. Create one from the Knowledge screen.
+														{m["chat.input.knowledge_none"]()}
 													</DropdownMenu.Item>
 												{:else}
 													{#each knowledgeStores as store (store.id)}
@@ -1413,7 +1410,7 @@
 									<button
 										class="inline-flex cursor-pointer items-center gap-1 bg-transparent p-0 leading-none whitespace-nowrap text-current select-none focus:outline-hidden"
 										type="button"
-										title={modelSupportsTools ? "Manage connectors" : undefined}
+										title={modelSupportsTools ? m["chat.input.manage_connectors"]() : undefined}
 										aria-describedby={modelSupportsTools ? undefined : "connectors-no-tools-note"}
 										aria-expanded={modelSupportsTools ? undefined : noToolsNoteOpen}
 										onclick={() => {
@@ -1428,11 +1425,11 @@
 										{#if !modelSupportsTools}
 											<LucideInfo class="size-3.5" aria-hidden="true" />
 										{/if}
-										Connectors ({$totalEnabledMcpCount})
+										{m["chat.input.connectors_count"]({ count: $totalEnabledMcpCount })}
 									</button>
 									<button
 										class="grid size-5 place-items-center rounded-full bg-blue-600/15 text-blue-700 transition-colors hover:bg-blue-600/25 dark:bg-blue-600/25 dark:text-blue-300 dark:hover:bg-blue-600/35"
-										aria-label="Turn off all connectors"
+										aria-label={m["chat.input.connectors_off"]()}
 										onclick={() => {
 											disableAllServers();
 											disableAllConnectors();
@@ -1458,7 +1455,7 @@
 											class="mt-1.5 block font-semibold text-blue-700 underline dark:text-blue-400"
 											onclick={() => void goto(`${base}/workspace?tab=mcp`)}
 										>
-											Manage connectors
+											{m["chat.input.manage_connectors"]()}
 										</button>
 									</div>
 								{/if}
@@ -1485,8 +1482,8 @@
 								compact
 								pressed={webSearch && !webSearchUnavailable}
 								disabled={!!webSearchUnavailable}
-								label="Web search"
-								title={webSearchUnavailable ?? "Let the assistant search the web (this chat only)"}
+								label={m["chat.input.web_search"]()}
+								title={webSearchUnavailable ?? m["chat.input.web_search_hint"]()}
 								onclick={toggleWebSearch}
 							>
 								{#snippet icon()}
@@ -1502,10 +1499,8 @@
 						<TogglePill
 							compact
 							pressed={autoApproveTools}
-							label={autoApproveTools ? "Runs without asking" : "Asks first"}
-							title={autoApproveTools
-								? "The assistant can open web pages and use connectors in this chat without asking. Select to be asked first again."
-								: "The assistant asks before opening web pages or using connectors. Select to let it go ahead without asking, in this chat only."}
+							label={autoApproveTools ? m["chat.input.runs"]() : m["chat.input.asks"]()}
+							title={autoApproveTools ? m["chat.input.runs_hint"]() : m["chat.input.asks_hint"]()}
 							onclick={toggleAutoApproveTools}
 						>
 							{#snippet icon()}
@@ -1606,7 +1601,7 @@
 						class="truncate py-1 text-xs text-amber-600 dark:text-amber-400"
 						title={connector.lastError}
 					>
-						Needs attention
+						{m["chat.input.needs_attention"]()}
 					</span>
 				{/if}
 				<div class="ml-auto flex items-center">
@@ -1634,7 +1629,7 @@
 													     sign-in lives, instead of selecting a no-op. -->
 		<DropdownMenu.Item
 			class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-			title="Sign in from Manage connectors"
+			title={m["chat.input.sign_in_hint"]()}
 			onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
 		>
 			<img
@@ -1643,7 +1638,9 @@
 				class="size-4 flex-shrink-0 rounded-sm"
 			/>
 			<span class="max-w-32 truncate py-1">{connector.name}</span>
-			<span class="truncate py-1 text-xs text-gray-500 dark:text-gray-400"> Not signed in </span>
+			<span class="truncate py-1 text-xs text-gray-500 dark:text-gray-400">
+				{m["chat.input.not_signed_in"]()}
+			</span>
 			<div class="ml-auto flex items-center">
 				<!-- Toggle visual, visibly off -->
 				<span

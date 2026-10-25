@@ -1,3 +1,4 @@
+import { formatNumber } from "$lib/i18n/format";
 /**
  * Direct-emission file blocks: a fenced code block whose info string names a
  * file (```markdown title=report.md) is the model handing over a finished
@@ -55,9 +56,13 @@ export function fileBlockByteSize(content: string): number {
 
 /** Human size for the file row; mirrors FileCard so the two cards agree. */
 export function formatFileSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	const tenth = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
+	// i18n: literal (unit symbols)
+	if (bytes < 1024) return `${formatNumber(bytes)} B`;
+	// i18n: literal (unit symbols)
+	if (bytes < 1024 * 1024) return `${formatNumber(bytes / 1024, tenth)} KB`;
+	// i18n: literal (unit symbols)
+	return `${formatNumber(bytes / (1024 * 1024), tenth)} MB`;
 }
 
 /**

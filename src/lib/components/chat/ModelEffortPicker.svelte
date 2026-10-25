@@ -14,6 +14,7 @@
 	conversation PATCH or the new-chat default here; machine ops there).
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { DropdownMenu } from "bits-ui";
 	import type { Snippet } from "svelte";
 	import CarbonCaretDown from "~icons/carbon/caret-down";
@@ -82,7 +83,11 @@
 </script>
 
 <DropdownMenu.Root bind:open>
-	<DropdownMenu.Trigger class={triggerClass} aria-label="Model and effort" {disabled}>
+	<DropdownMenu.Trigger
+		class={triggerClass}
+		aria-label={m["chat.effort_picker.label"]()}
+		{disabled}
+	>
 		{@render children()}
 		{#if efforts}
 			<span class="shrink-0 text-ink-faint">· {effortLabel(effort)}</span>
@@ -100,8 +105,8 @@
 				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					class="h-8 w-full rounded-md border border-gray-200 bg-transparent px-2 text-sm outline-hidden focus:border-gray-400 dark:border-gray-600"
-					placeholder="Search models"
-					aria-label="Search models"
+					placeholder={m["chat.effort_picker.search"]()}
+					aria-label={m["chat.effort_picker.search"]()}
 					autofocus
 					bind:value={query}
 					onkeydown={(e) => {
@@ -125,7 +130,7 @@
 							{#if row.baseName}
 								<span
 									class="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-px text-[10px] font-medium text-blue-700 dark:text-blue-400"
-									>custom</span
+									>{m["chat.effort_picker.custom"]()}</span
 								>
 							{/if}
 						</span>
@@ -140,7 +145,7 @@
 					{/if}
 				</DropdownMenu.Item>
 			{:else}
-				<p class="px-2 py-1.5 text-xs text-gray-500">No model matches.</p>
+				<p class="px-2 py-1.5 text-xs text-gray-500">{m["chat.effort_picker.none"]()}</p>
 			{/each}
 			{@render footer?.()}
 			<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700" />
@@ -149,7 +154,7 @@
 					<DropdownMenu.SubTrigger
 						class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
 					>
-						<span>Effort</span>
+						<span>{m["chat.effort_picker.effort"]()}</span>
 						<span class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
 							{effortLabel(effort)}
 							<CarbonChevronRight class="size-3" />
@@ -181,7 +186,7 @@
 						onmore();
 					}}
 				>
-					<span>More models</span>
+					<span>{m["chat.effort_picker.more"]()}</span>
 					<CarbonChevronRight class="size-3 text-gray-500" />
 				</DropdownMenu.Item>
 			{/if}

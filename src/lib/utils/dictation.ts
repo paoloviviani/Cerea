@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * Dictation into the composer with the browser's own speech recognition
  * (`SpeechRecognition`, `webkitSpeechRecognition` in Chrome and Safari). No
@@ -61,26 +62,27 @@ export function dictationLanguage(): string {
 
 /** Shown when a session ends by itself without a result or an error (Safari
  * can do that). */
-export const DICTATION_SILENT_END_MESSAGE = "Dictation stopped before it heard anything";
+/** A function, so the words follow the language in use when they are shown. */
+export const dictationSilentEndMessage = (): string => m["chat.dictation.silent_end"]();
 
 /** A short, non-blocking message per recognition error; null when the end of
  * a session needs none (the person or the composer stopped it). */
 export function dictationErrorMessage(code: string): string | null {
 	switch (code) {
 		case "service-not-allowed":
-			return "Safari's speech recognition is off. Turn on Siri or Dictation in System Settings, then allow this site in Safari → Settings → Websites → Microphone.";
+			return m["chat.dictation.service_not_allowed"]();
 		case "not-allowed":
-			return "This site's microphone permission is blocked. Allow it in your browser's site settings (Safari: Settings → Websites → Microphone).";
+			return m["chat.dictation.not_allowed"]();
 		case "no-speech":
-			return "No speech heard. Try again.";
+			return m["chat.dictation.no_speech"]();
 		case "network":
-			return "Dictation needs a network connection to your browser's speech service.";
+			return m["chat.dictation.network"]();
 		case "audio-capture":
-			return "No microphone found.";
+			return m["chat.dictation.no_microphone"]();
 		case "aborted":
 			return null;
 		default:
-			return "Dictation stopped unexpectedly.";
+			return m["chat.dictation.unexpected"]();
 	}
 }
 

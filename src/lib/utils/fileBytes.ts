@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 import { getExecutionSession } from "$lib/utils/execution/runtime";
 import { cachedFileBytes } from "$lib/utils/execution/fileIdentity";
 
@@ -29,11 +30,11 @@ export async function readFileBytes(
 	if (source.inlineContent !== undefined) return new TextEncoder().encode(source.inlineContent);
 	if (source.downloadUrl !== undefined) {
 		const res = await fetch(source.downloadUrl);
-		if (!res.ok) throw new Error("that file is no longer available");
+		if (!res.ok) throw new Error(m["chat.errors.file_gone"]());
 		return await res.arrayBuffer();
 	}
 	const session = getExecutionSession();
-	if (!session) throw new Error("the execution sandbox is not available in this context");
+	if (!session) throw new Error(m["chat.errors.no_sandbox"]());
 	return session.readFile(source.file.path);
 }
 

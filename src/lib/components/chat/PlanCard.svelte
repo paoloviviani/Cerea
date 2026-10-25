@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { MessagePlanUpdate } from "$lib/types/MessageUpdate";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import PlanSteps from "./PlanSteps.svelte";
@@ -21,14 +22,14 @@
 		class="group/header flex max-w-full cursor-pointer items-center gap-1.5 text-left whitespace-nowrap select-none focus:outline-hidden"
 		onclick={() => (isOpen = !isOpen)}
 		aria-expanded={isOpen}
-		aria-label={isOpen ? "Collapse plan" : "Expand plan"}
+		aria-label={isOpen ? m["chat.plan.collapse"]() : m["chat.plan.expand"]()}
 	>
 		<span
 			class="shrink-0 text-sm font-medium transition-colors group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {isOpen
 				? 'text-gray-600 dark:text-gray-300'
 				: 'text-gray-500 dark:text-gray-400'}"
 		>
-			Plan
+			{m["chat.plan.title"]()}
 		</span>
 		<span
 			class="shrink-0 rounded-sm bg-gray-100 px-1 py-px font-mono text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"

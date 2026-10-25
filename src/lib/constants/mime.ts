@@ -46,10 +46,6 @@ export const KNOWLEDGE_ACCEPT = [
 	".md,.markdown,.csv,.tsv,.json,.xml,.yaml,.yml,.txt",
 ].join(",");
 
-/** The same set, for people. */
-export const KNOWLEDGE_ACCEPT_HINT =
-	"PDF, Word, Excel, PowerPoint, OpenDocument, e-books and text files (Markdown, CSV, JSON)";
-
 /**
  * The per-file ceiling every attachment entry point enforces: chat's upload
  * (`conversation/[id]`), its drop zone, and the owner-keyed store's upload

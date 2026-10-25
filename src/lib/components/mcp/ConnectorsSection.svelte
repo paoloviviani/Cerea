@@ -15,6 +15,7 @@
 	saying how it went.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
 	import { onMount } from "svelte";
@@ -29,6 +30,7 @@
 	import LucideLaptop from "~icons/lucide/laptop";
 	import { startLocalSignIn } from "$lib/localConnectorsApi";
 	import Switch from "$lib/components/Switch.svelte";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import ServerCardFrame from "./ServerCardFrame.svelte";
 	import ServerCard from "./ServerCard.svelte";
 	import { getMcpServerFaviconUrl } from "$lib/utils/favicon";
@@ -132,7 +134,9 @@
 		const response = await fetch(`${base}/api/v2/mcp${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+			throw new Error(
+				parsed?.message ?? m["mcp.connectors.error.generic"]({ status: response.status })
+			);
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
@@ -209,10 +213,7 @@
 			adding = false;
 			await load();
 		} catch (err) {
-			failure =
-				err instanceof Error
-					? err.message
-					: "Could not add the connector. Check the address and try again.";
+			failure = err instanceof Error ? err.message : m["mcp.connectors.error.add"]();
 		} finally {
 			busy = false;
 		}
@@ -230,7 +231,7 @@
 			// another origin and it has to be the browser that goes there.
 			window.location.href = authorizeUrl;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not start signing in. Try again.";
+			failure = err instanceof Error ? err.message : m["mcp.connectors.error.sign_in_start"]();
 			busy = false;
 		}
 	}
@@ -250,7 +251,7 @@
 			for (const key of ["mcp", "mcpDetail", "mcpConnector"]) back.searchParams.delete(key);
 			window.location.href = await startLocalSignIn(connector.id, `${back.pathname}${back.search}`);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not start signing in. Try again.";
+			failure = err instanceof Error ? err.message : m["mcp.connectors.error.sign_in_start"]();
 			busy = false;
 			busyConnector = null;
 		}
@@ -260,17 +261,19 @@
 	function outcomeMessage(detail: string | null): string {
 		switch (detail) {
 			case "declined":
-				return "You did not allow the sign-in.";
+				return m["mcp.connectors.outcome.declined"]();
 			case "expired":
-				return "That sign-in link expired or was already used. Start signing in again.";
+				return m["mcp.connectors.outcome.expired"]();
 			case "offline":
-				return "The machine went offline before the sign-in finished. Start Cerea on that machine (galopin) and try again.";
+				return m["mcp.connectors.outcome.offline"]();
 			case "machine":
-				return "That machine could not finish the sign-in. Its log has the details.";
+				return m["mcp.connectors.outcome.machine"]();
 			case "refused":
-				return "This connector does not need a sign-in, or you cannot sign in to it from here.";
+				return m["mcp.connectors.outcome.refused"]();
 			default:
-				return `The sign-in did not complete${detail ? ` (${detail})` : ""}.`;
+				return detail
+					? m["mcp.connectors.outcome.incomplete_detail"]({ detail })
+					: m["mcp.connectors.outcome.incomplete"]();
 		}
 	}
 
@@ -319,7 +322,7 @@
 			cancelEdit();
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save the connector. Try again.";
+			failure = err instanceof Error ? err.message : m["mcp.connectors.error.save"]();
 		} finally {
 			busy = false;
 		}
@@ -344,7 +347,7 @@
 			credentialsFor = null;
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save those details. Try again.";
+			failure = err instanceof Error ? err.message : m["mcp.connectors.error.save_details"]();
 		} finally {
 			busy = false;
 		}
@@ -358,7 +361,7 @@
 			await api(`/connectors/${connector.id}`, json({ action }));
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That did not work. Try again.";
+			failure = err instanceof Error ? err.message : m["mcp.connectors.error.act"]();
 		} finally {
 			busy = false;
 			busyConnector = null;
@@ -366,18 +369,21 @@
 	}
 
 	async function remove(connector: McpConnectorView) {
-		if (!confirm(`Remove “${connector.name}”? You will be signed out of it too.`)) return;
+		if (!confirm(m["mcp.connectors.confirm_remove"]({ name: connector.name }))) return;
 		busy = true;
 		try {
 			await api(`/connectors/${connector.id}`, { method: "DELETE" });
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not remove it. Try again.";
+			failure = err instanceof Error ? err.message : m["mcp.connectors.error.remove"]();
 		} finally {
 			busy = false;
 		}
 	}
 </script>
+
+{#snippet hint(text: string)}<span class="font-normal text-gray-500">{text}</span>{/snippet}
+{#snippet code(text: string)}<code class="font-mono">{text}</code>{/snippet}
 
 <div class="space-y-3">
 	{#if adding}
@@ -387,20 +393,24 @@
 		>
 			<div class="flex flex-wrap gap-2">
 				<label class="flex flex-1 flex-col gap-1">
-					<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Name</span>
+					<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+						>{m["mcp.connectors.name"]()}</span
+					>
 					<input
 						class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
-						placeholder="Notion"
+						placeholder={m["mcp.connectors.name_placeholder"]()}
 						bind:value={name}
 						required
 						disabled={busy}
 					/>
 				</label>
 				<label class="flex flex-2 flex-col gap-1" style="flex-grow:2">
-					<span class="text-xs font-medium text-gray-700 dark:text-gray-300">URL</span>
+					<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+						>{m["mcp.connectors.url"]()}</span
+					>
 					<input
 						class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
-						placeholder="https://mcp.notion.com/mcp"
+						placeholder={"https://mcp.notion.com/mcp"}
 						bind:value={url}
 						required
 						disabled={busy}
@@ -408,28 +418,28 @@
 				</label>
 			</div>
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-gray-700 dark:text-gray-300">How to sign in</span>
+				<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+					>{m["mcp.connectors.how_to_sign_in"]()}</span
+				>
 				<select
 					class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
 					bind:value={authMode}
 					disabled={busy}
 				>
-					<option value="auto">Automatic (recommended)</option>
-					<option value="none">No sign-in needed</option>
-					<option value="token">Access key</option>
-					<option value="oauth_static">Sign in with my own app details (advanced)</option>
+					<option value="auto">{m["mcp.connectors.mode.auto"]()}</option>
+					<option value="none">{m["mcp.connectors.mode.none"]()}</option>
+					<option value="token">{m["mcp.connectors.mode.token"]()}</option>
+					<option value="oauth_static">{m["mcp.connectors.mode.oauth_static"]()}</option>
 				</select>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					{#if authMode === "auto"}
-						We ask the connector how it wants you to sign in. If it can, a Sign in button appears.
+						{m["mcp.connectors.mode_hint.auto"]()}
 					{:else if authMode === "oauth_static"}
-						For providers that need you to set up an app first. Create one in the provider's
-						developer settings with the address below, then paste its details here.
+						{m["mcp.connectors.mode_hint.oauth_static"]()}
 					{:else if authMode === "token"}
-						An access key from the service. It is stored safely on the server and never sent back to
-						this browser.
+						{m["mcp.connectors.mode_hint.token"]()}
 					{:else}
-						Nothing is sent to sign in.
+						{m["mcp.connectors.mode_hint.none"]()}
 					{/if}
 				</span>
 			</label>
@@ -437,7 +447,9 @@
 			{#if authMode === "token"}
 				<div class="flex flex-wrap gap-2">
 					<label class="flex flex-2 flex-col gap-1" style="flex-grow:2">
-						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Access key</span>
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+							>{m["mcp.connectors.access_key"]()}</span
+						>
 						<input
 							type="password"
 							autocomplete="off"
@@ -449,11 +461,11 @@
 					</label>
 					<label class="flex flex-1 flex-col gap-1">
 						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">
-							Header <span class="font-normal text-gray-500">(optional)</span>
+							<Rich parts={m["mcp.connectors.header_optional"].parts()} tags={{ hint }} />
 						</span>
 						<input
 							class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
-							placeholder="Authorization"
+							placeholder={"Authorization"}
 							bind:value={tokenHeader}
 							disabled={busy}
 						/>
@@ -462,7 +474,9 @@
 			{:else if authMode === "oauth_static"}
 				<div class="flex flex-wrap gap-2">
 					<label class="flex flex-1 flex-col gap-1">
-						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Client ID</span>
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+							>{m["mcp.connectors.client_id"]()}</span
+						>
 						<input
 							autocomplete="off"
 							class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
@@ -473,7 +487,7 @@
 					</label>
 					<label class="flex flex-1 flex-col gap-1">
 						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">
-							Client secret <span class="font-normal text-gray-500">(if it has one)</span>
+							<Rich parts={m["mcp.connectors.client_secret_optional"].parts()} tags={{ hint }} />
 						</span>
 						<input
 							type="password"
@@ -485,7 +499,7 @@
 					</label>
 				</div>
 				<p class="text-xs text-gray-500 dark:text-gray-400">
-					Address to give the provider (redirect URI):
+					{m["mcp.connectors.redirect_uri_add"]()}
 					<code class="rounded-sm bg-gray-100 px-1 py-0.5 dark:bg-gray-800">{redirectUri}</code>
 				</p>
 			{/if}
@@ -495,14 +509,14 @@
 					onclick={() => (adding = false)}
 					class="btn rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
 				>
-					Cancel
+					{m["mcp.connectors.cancel"]()}
 				</button>
 				<button
 					type="submit"
 					disabled={busy || !name.trim() || !url.trim()}
 					class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 				>
-					{busy ? "Adding…" : "Add connector"}
+					{busy ? m["mcp.connectors.adding"]() : m["mcp.connectors.add"]()}
 				</button>
 			</div>
 		</form>
@@ -513,9 +527,15 @@
 			name={connector.name}
 			iconSrc={getMcpServerFaviconUrl(connector.url)}
 			description={connector.url}
-			toggleLabel={connector.connected ? "On by default in new chats" : "Sign in first"}
-			toggleLabelShort={connector.connected ? "Default in new chats" : "Sign in first"}
-			toggleTitle={connector.connected ? "On for new chats" : "Sign in first"}
+			toggleLabel={connector.connected
+				? m["mcp.card.toggle_label"]()
+				: m["mcp.connectors.sign_in_first"]()}
+			toggleLabelShort={connector.connected
+				? m["mcp.card.toggle_label_short"]()
+				: m["mcp.connectors.sign_in_first"]()}
+			toggleTitle={connector.connected
+				? m["mcp.connectors.on_for_new"]()
+				: m["mcp.connectors.sign_in_first"]()}
 			onopen={() => (detail = connector)}
 		>
 			{#snippet pills()}
@@ -524,22 +544,24 @@
 						class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
 					>
 						<IconCheckmark class="size-3" />
-						{connector.auth === "none" ? "Ready" : "Connected"}
+						{connector.auth === "none"
+							? m["mcp.connectors.ready"]()
+							: m["mcp.connectors.connected"]()}
 					</span>
 				{:else}
 					<span
 						class="inline-flex items-center gap-1 rounded-full bg-gray-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400"
 					>
 						<IconWarning class="size-3" />
-						Not signed in
+						{m["mcp.connectors.not_signed_in"]()}
 					</span>
 				{/if}
 				<span class="text-xs text-gray-600 dark:text-gray-400">
 					{connector.auth === "oauth"
-						? "sign-in"
+						? m["mcp.connectors.auth.oauth"]()
 						: connector.auth === "token"
-							? "access key"
-							: "no sign-in"}
+							? m["mcp.connectors.auth.token"]()
+							: m["mcp.connectors.auth.none"]()}
 				</span>
 				{#if connector.registrationSource === "static"}
 					<!-- Worth saying: it explains why Sign in works on a server
@@ -547,9 +569,9 @@
 						     will not replace these credentials. -->
 					<span
 						class="text-xs text-gray-500 dark:text-gray-500"
-						title={`Client ID ${connector.clientId}`}
+						title={m["mcp.connectors.client_id_title"]({ id: connector.clientId ?? "" })}
 					>
-						own app details
+						{m["mcp.connectors.own_app"]()}
 					</span>
 				{/if}
 			{/snippet}
@@ -585,7 +607,7 @@
 						class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 					>
 						<IconEdit class="size-3" />
-						Edit
+						{m["mcp.connectors.edit"]()}
 					</button>
 				{/if}
 				{#if connector.auth === "oauth" && !connector.connected}
@@ -593,12 +615,12 @@
 						onclick={() => signIn(connector)}
 						disabled={busy || !connector.canAuthorize}
 						title={connector.canAuthorize
-							? "Sign in to this connector"
-							: "This connector needs your own app details first. Use Add app details."}
+							? m["mcp.connectors.sign_in_title"]()
+							: m["mcp.connectors.sign_in_blocked"]()}
 						class="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-[.29rem] text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 					>
 						<IconLogin class="size-3" />
-						Sign in
+						{m["mcp.connectors.sign_in"]()}
 					</button>
 					{#if connector.manageable && !connector.canAuthorize}
 						<!-- The way out of a dead end. A provider that does not
@@ -610,7 +632,7 @@
 							disabled={busy}
 							class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 						>
-							Add app details
+							{m["mcp.connectors.add_app_details"]()}
 						</button>
 					{/if}
 				{:else if connector.auth === "oauth"}
@@ -619,7 +641,7 @@
 						disabled={busy}
 						class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 					>
-						Disconnect
+						{m["mcp.connectors.disconnect"]()}
 					</button>
 				{/if}
 				{#if connector.manageable}
@@ -627,12 +649,14 @@
 						onclick={() => act(connector, "reprobe")}
 						disabled={busy}
 						title={connector.auth === "token"
-							? "Try the access key and list the connector's tools"
-							: "Ask the connector again how to sign in"}
+							? m["mcp.connectors.check_token_title"]()
+							: m["mcp.connectors.check_title"]()}
 						class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 					>
 						<IconRefresh class="size-3 {busyConnector === connector.id ? 'animate-spin' : ''}" />
-						{busyConnector === connector.id ? "Checking…" : "Check"}
+						{busyConnector === connector.id
+							? m["mcp.connectors.checking"]()
+							: m["mcp.connectors.check"]()}
 					</button>
 				{/if}
 				{#if connector.scope === "user" && !connector.local}
@@ -647,7 +671,7 @@
 						class="flex items-center gap-1.5 rounded-lg border border-red-500/15 bg-red-50 px-2.5 py-[.29rem] text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 dark:border-red-500/25 dark:bg-red-900/30 dark:text-red-400"
 					>
 						<IconTrash class="size-3" />
-						Remove
+						{m["mcp.connectors.remove"]()}
 					</button>
 				{/if}
 			</div>
@@ -659,7 +683,7 @@
 				>
 					<input
 						autocomplete="off"
-						placeholder="Client ID"
+						placeholder={m["mcp.connectors.client_id"]()}
 						class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
 						bind:value={rowClientId}
 						required
@@ -668,13 +692,13 @@
 					<input
 						type="password"
 						autocomplete="off"
-						placeholder="Client secret (if it has one)"
+						placeholder={m["mcp.connectors.client_secret_placeholder"]()}
 						class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
 						bind:value={rowClientSecret}
 						disabled={busy}
 					/>
 					<p class="text-xs text-gray-500 dark:text-gray-400">
-						Give the provider this address (redirect URI):
+						{m["mcp.connectors.redirect_uri_row"]()}
 						<code class="rounded-sm bg-gray-100 px-1 py-0.5 dark:bg-gray-800">{redirectUri}</code>
 					</p>
 					<div class="flex justify-end">
@@ -683,7 +707,7 @@
 							disabled={busy || !rowClientId.trim()}
 							class="btn rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 						>
-							Save
+							{m["mcp.connectors.save"]()}
 						</button>
 					</div>
 				</form>
@@ -695,7 +719,9 @@
 					onsubmit={saveEdit}
 				>
 					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Name</span>
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+							>{m["mcp.connectors.name"]()}</span
+						>
 						<input
 							class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
 							bind:value={editName}
@@ -704,7 +730,9 @@
 						/>
 					</label>
 					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">URL</span>
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+							>{m["mcp.connectors.url"]()}</span
+						>
 						<input
 							type="url"
 							class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
@@ -719,11 +747,13 @@
 					{#if connector.auth === "token" || connector.auth === "none"}
 						<label class="flex flex-col gap-1">
 							<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
-								>{connector.auth === "token" ? "New access key" : "Token"}
+								>{connector.auth === "token"
+									? m["mcp.connectors.new_access_key"]()
+									: m["mcp.connectors.token"]()}
 								<span class="font-normal text-gray-500"
 									>{connector.auth === "token"
-										? "(leave blank to keep)"
-										: "(if the connector uses an access key)"}</span
+										? m["mcp.connectors.leave_blank"]()
+										: m["mcp.connectors.if_access_key"]()}</span
 								></span
 							>
 							<input
@@ -735,9 +765,11 @@
 							/>
 						</label>
 						<label class="flex flex-col gap-1">
-							<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Header</span>
+							<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+								>{m["mcp.connectors.header"]()}</span
+							>
 							<input
-								placeholder="Authorization"
+								placeholder={"Authorization"}
 								class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
 								bind:value={editTokenHeader}
 								disabled={busy || !editToken.trim()}
@@ -750,13 +782,12 @@
 									bind:checked={clearEditToken}
 									disabled={busy || !!editToken.trim()}
 								/>
-								Remove the saved access key
+								{m["mcp.connectors.remove_saved_key"]()}
 							</label>
 						{/if}
 					{/if}
 					<p class="text-xs text-gray-500 dark:text-gray-400">
-						Changing the address clears what we know about this connector. Check it again, then sign
-						in if needed.
+						{m["mcp.connectors.address_change"]()}
 					</p>
 					<div class="flex justify-end gap-2">
 						<button
@@ -765,14 +796,14 @@
 							disabled={busy}
 							class="btn rounded-lg border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
 						>
-							Cancel
+							{m["mcp.connectors.cancel"]()}
 						</button>
 						<button
 							type="submit"
 							disabled={busy || !editName.trim() || !editUrl.trim()}
 							class="btn rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 						>
-							{busy ? "Saving…" : "Save changes"}
+							{busy ? m["mcp.connectors.saving"]() : m["mcp.connectors.save_changes"]()}
 						</button>
 					</div>
 				</form>
@@ -784,10 +815,17 @@
 		<ServerCardFrame
 			name={local.server}
 			machine={local.machineName}
-			description={local.description ?? `${local.transport} server`}
-			toggleLabel={connector.connected ? "On by default in new chats" : "Unavailable"}
-			toggleLabelShort={connector.connected ? "Default in new chats" : "Unavailable"}
-			toggleTitle={connector.connected ? "On for new chats" : "Not available right now"}
+			description={local.description ??
+				m["mcp.connectors.server_description"]({ transport: local.transport })}
+			toggleLabel={connector.connected
+				? m["mcp.card.toggle_label"]()
+				: m["mcp.connectors.unavailable"]()}
+			toggleLabelShort={connector.connected
+				? m["mcp.card.toggle_label_short"]()
+				: m["mcp.connectors.unavailable"]()}
+			toggleTitle={connector.connected
+				? m["mcp.connectors.on_for_new"]()
+				: m["mcp.connectors.unavailable_title"]()}
 			testid="local-connector"
 			onopen={() => (detail = connector)}
 		>
@@ -798,7 +836,7 @@
 						class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
 					>
 						<IconCheckmark class="size-3" />
-						on
+						{m["mcp.connectors.pill_on"]()}
 					</span>
 				{:else}
 					<span
@@ -807,21 +845,21 @@
 					>
 						<IconWarning class="size-3" />
 						{local.state === "offline"
-							? "Offline"
+							? m["mcp.detail.state.offline"]()
 							: local.state === "needs-login"
-								? "Needs sign-in"
+								? m["mcp.detail.state.needs_login"]()
 								: local.state === "disabled"
-									? "Disabled"
-									: "Invalid"}
+									? m["mcp.detail.state.disabled"]()
+									: m["mcp.detail.state.invalid"]()}
 					</span>
 				{/if}
 				<span class="text-xs text-gray-600 dark:text-gray-400">{local.transport}</span>
 				{#if local.allowedTools}
 					<span
 						class="text-xs text-gray-500 dark:text-gray-500"
-						title={`That machine allows only: ${local.allowedTools.join(", ")}`}
+						title={m["mcp.connectors.allowed_only"]({ tools: local.allowedTools.join(", ") })}
 					>
-						{local.allowedTools.length} tool{local.allowedTools.length === 1 ? "" : "s"} allowed
+						{m["mcp.connectors.tools_allowed"]({ count: local.allowedTools.length })}
 					</span>
 				{/if}
 			{/snippet}
@@ -839,10 +877,14 @@
 				<p
 					class="mb-2 rounded-sm bg-gray-50 px-2 py-1 text-xs wrap-break-word text-gray-700 dark:bg-gray-900/40 dark:text-gray-300"
 				>
-					Needs a sign-in. Your sign-in stays on {local.machineName}.
+					{m["mcp.connectors.needs_sign_in_local"]({ machine: local.machineName })}
 					<span class="text-gray-500 dark:text-gray-400">
-						If the provider does not accept the sign-in, run
-						<code class="font-mono">galopin connectors login {local.server}</code> on the machine.
+						<Rich
+							parts={m["mcp.connectors.needs_sign_in_help"].parts({
+								command: `galopin connectors login ${local.server}`,
+							})}
+							tags={{ code }}
+						/>
 					</span>
 				</p>
 			{:else if local.state !== "ready" && local.detail}
@@ -858,11 +900,11 @@
 					<button
 						onclick={() => signInLocal(connector)}
 						disabled={busy}
-						title="Sign in to this connector. Your sign-in stays on {local.machineName}"
+						title={m["mcp.connectors.sign_in_local_title"]({ machine: local.machineName })}
 						class="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-[.29rem] text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 					>
 						<IconLogin class="size-3" />
-						Sign in
+						{m["mcp.connectors.sign_in"]()}
 					</button>
 				</div>
 			{/if}
@@ -874,17 +916,16 @@
 	{/if}
 
 	{#if loading}
-		<p class="text-sm text-gray-600 dark:text-gray-400">Loading…</p>
+		<p class="text-sm text-gray-600 dark:text-gray-400">{m["mcp.connectors.loading"]()}</p>
 	{:else}
 		<div>
 			<div class="flex items-start justify-between gap-3">
 				<div>
 					<h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">
-						Your connectors ({own.length})
+						{m["mcp.connectors.yours"]({ count: own.length })}
 					</h3>
 					<p class="text-xs text-gray-600 dark:text-gray-400">
-						Connectors you added from the web. Your sign-in details are kept on the server, never in
-						this browser.
+						{m["mcp.connectors.yours_hint"]()}
 					</p>
 				</div>
 				<button
@@ -893,7 +934,7 @@
 					class="btn flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 py-1.5 pr-3 pl-2 text-sm font-medium text-white hover:bg-blue-600"
 				>
 					<IconAddLarge class="size-4" />
-					Add
+					{m["mcp.connectors.add_short"]()}
 				</button>
 			</div>
 
@@ -901,7 +942,7 @@
 				<p
 					class="mt-3 rounded-lg bg-green-50 px-3 py-2 text-xs text-green-800 dark:bg-green-900/20 dark:text-green-300"
 				>
-					Connected.
+					{m["mcp.connectors.outcome_connected"]()}
 				</p>
 			{:else if outcome === "failed"}
 				<p
@@ -924,9 +965,11 @@
 					class="mt-3 flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 p-6 dark:border-gray-700"
 				>
 					<LucidePlug class="mb-3 size-10 text-gray-400" />
-					<p class="mb-1 text-sm font-medium text-gray-900 dark:text-gray-100">No connectors yet</p>
+					<p class="mb-1 text-sm font-medium text-gray-900 dark:text-gray-100">
+						{m["mcp.connectors.none_yet"]()}
+					</p>
 					<p class="mb-3 text-xs text-gray-600 dark:text-gray-400">
-						Add a connector from the web and sign in to it
+						{m["mcp.connectors.none_hint"]()}
 					</p>
 					<button
 						type="button"
@@ -934,7 +977,7 @@
 						class="btn flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600"
 					>
 						<IconAddLarge class="size-4" />
-						Add your first connector
+						{m["mcp.connectors.add_first"]()}
 					</button>
 				</div>
 			{:else}
@@ -955,11 +998,10 @@
 			     `.env` server is edited in `.env`. -->
 			<div data-testid="provided-section">
 				<h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">
-					Built-in connectors ({provided.length})
+					{m["mcp.connectors.built_in"]({ count: provided.length })}
 				</h3>
 				<p class="text-xs text-gray-600 dark:text-gray-400">
-					Ready to use for everyone here. Turn one on to use it in your chats; some ask you to sign
-					in first.
+					{m["mcp.connectors.built_in_hint"]()}
 				</p>
 				<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
 					{#each provided as item (item.id)}
@@ -980,8 +1022,8 @@
 		{#if page.data.localConnectorsDenied}
 			<p class="text-xs text-gray-600 dark:text-gray-400" data-testid="local-denied-note">
 				{page.data.localConnectorsDenied === "not_configured"
-					? "Local connectors are not available here yet. Ask your administrator."
-					: "Your administrator has not enabled local connectors for your groups."}
+					? m["mcp.connectors.local_denied_not_configured"]()
+					: m["mcp.connectors.local_denied_groups"]()}
 			</p>
 		{/if}
 
@@ -992,11 +1034,10 @@
 			<div data-testid="local-section">
 				<h3 class="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
 					<LucideLaptop class="size-4" />
-					On your machines ({onMachines.length})
+					{m["mcp.connectors.on_machines"]({ count: onMachines.length })}
 				</h3>
 				<p class="text-xs text-gray-600 dark:text-gray-400">
-					Connectors running on machines you connected. They work while that machine is connected.
-					Set up in that machine's <code class="font-mono">mcp.json</code> and under Local connectors.
+					<Rich parts={m["mcp.connectors.on_machines_hint"].parts()} tags={{ code }} />
 				</p>
 				<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
 					{#each onMachines as connector (connector.id)}

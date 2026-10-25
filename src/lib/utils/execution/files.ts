@@ -1,4 +1,6 @@
+import { m } from "$lib/paraglide/messages";
 import { MAX_FILE_BYTES, MOUNT_ROOT } from "./protocol";
+import { formatNumber } from "$lib/i18n/format";
 import type { ExecutionSession } from "./runtime";
 
 /**
@@ -19,7 +21,12 @@ import type { ExecutionSession } from "./runtime";
 export class OverCapError extends Error {
 	constructor(readonly bytes: number) {
 		super(
-			`this file is ${(bytes / (1024 * 1024)).toFixed(1)} MB; the runtime accepts files up to 50 MB`
+			m["chat.errors.over_cap"]({
+				size: formatNumber(bytes / (1024 * 1024), {
+					minimumFractionDigits: 1,
+					maximumFractionDigits: 1,
+				}),
+			})
 		);
 	}
 }
@@ -66,7 +73,7 @@ export async function fetchWithinCap(
 		throw new FetchFailedError(
 			url,
 			response.status,
-			detail || `the request failed (${response.status})`
+			detail || m["chat.errors.request_failed_status"]({ status: response.status })
 		);
 	}
 

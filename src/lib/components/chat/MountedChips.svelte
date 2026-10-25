@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import CarbonClose from "~icons/carbon/close";
 	import { getMountsStore } from "$lib/utils/execution/mounts.svelte";
 
@@ -15,7 +16,7 @@
 {#if mounts?.files.length || mounts?.skipped.length}
 	<div class="flex flex-wrap items-center gap-1.5 px-5 pb-1.5 text-xs">
 		<span class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
-			Shared with the code
+			{m["chat.mounted.heading"]()}
 		</span>
 		{#each mounts.files as file (file.path)}
 			<span
@@ -25,7 +26,7 @@
 				<button
 					type="button"
 					class="btn rounded-full p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-					title="Stop sharing {file.path} with the code"
+					title={m["chat.mounted.stop"]({ path: file.path })}
 					onclick={() => void mounts?.remove(file.path)}
 				>
 					<CarbonClose class="text-[10px]" />
@@ -35,9 +36,9 @@
 		{#each mounts.skipped as note (note.name)}
 			<span
 				class="rounded-full bg-amber-50 px-2 py-0.5 font-mono text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
-				title="{note.name} is not in /mnt/data: {note.reason}"
+				title={m["chat.mounted.unavailable_title"]({ name: note.name, reason: note.reason })}
 			>
-				{note.name} not available: {note.reason}
+				{m["chat.mounted.unavailable"]({ name: note.name, reason: note.reason })}
 			</span>
 		{/each}
 	</div>

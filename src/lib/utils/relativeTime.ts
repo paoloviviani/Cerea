@@ -1,3 +1,6 @@
+import { m } from "$lib/paraglide/messages";
+import { intlLocale } from "$lib/i18n/format";
+
 const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
 	["year", 365 * 24 * 3600],
 	["month", 30 * 24 * 3600],
@@ -19,10 +22,10 @@ export function formatRelativeTime(
 ): string {
 	const seconds = Math.round((new Date(now).getTime() - new Date(date).getTime()) / 1000);
 	if (!Number.isFinite(seconds)) return "";
-	if (seconds < 60) return "just now";
-	const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+	if (seconds < 60) return m["app.relative_time.just_now"]();
+	const formatter = new Intl.RelativeTimeFormat(intlLocale(locale), { numeric: "auto" });
 	for (const [unit, size] of UNITS) {
 		if (seconds >= size) return formatter.format(-Math.floor(seconds / size), unit);
 	}
-	return "just now";
+	return m["app.relative_time.just_now"]();
 }

@@ -43,6 +43,7 @@
 		bind:this={column}
 	>
 		{#snippet composer()}
+			<!-- i18n: literal (test fixture) -->
 			<div>composer</div>
 		{/snippet}
 	</ChatMessageColumn>

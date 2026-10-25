@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
 	import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
@@ -20,7 +21,7 @@
 		mimeTypes = [],
 		onDrag = $bindable(false),
 		onDragInner = $bindable(false),
-		label = "Drop a file to add it to the chat",
+		label = m["chat.dropzone.label"](),
 	}: Props = $props();
 
 	async function dropHandle(event: DragEvent) {
@@ -39,9 +40,7 @@
 						// else abort
 						if (!mimeMatchesAllowlist(file.type, mimeTypes)) {
 							setErrorMsg(
-								`Some file type not supported. Only allowed: ${mimeTypes.join(
-									", "
-								)}. Uploaded document is of type ${file.type}`
+								m["chat.dropzone.bad_type"]({ allowed: mimeTypes.join(", "), type: file.type })
 							);
 							files = [];
 							return;
@@ -49,7 +48,7 @@
 
 						// if file is bigger than 10MB abort
 						if (file.size > MAX_ATTACHMENT_BYTES) {
-							setErrorMsg("A file is too big (10 MB at most).");
+							setErrorMsg(m["chat.dropzone.too_big"]());
 							files = [];
 							return;
 						}

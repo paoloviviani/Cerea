@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { PreviewSlide } from "$lib/utils/pptxPreview";
 
 	/**
@@ -34,7 +35,7 @@
 	{#each slides as slide (slide.number)}
 		<img
 			src={slide.src}
-			alt={`${title}, slide ${slide.number}`}
+			alt={m["chat.slides.alt"]({ title, number: slide.number })}
 			class="w-full flex-none rounded-md border border-gray-200 bg-white shadow-xs dark:border-gray-700"
 			loading="lazy"
 			decoding="async"

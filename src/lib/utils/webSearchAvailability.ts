@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * Whether the web-search switches should be offered as working, from the
  * root layout's data (`webSearchAvailable`, computed per caller on the server:
@@ -11,6 +12,6 @@ export function webSearchUnavailableReason(data: {
 }): string | null {
 	if (data.webSearchAvailable !== false) return null;
 	return data.gatewayIsAdmin
-		? "Web search isn't set up here yet. An administrator can set it up in Admin → Web search."
-		: "Web search isn't set up here yet.";
+		? m["app.web_search.unavailable_admin"]()
+		: m["app.web_search.unavailable"]();
 }

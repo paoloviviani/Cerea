@@ -4,6 +4,7 @@
 	pane (the session's current list), so the two never drift apart.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { PlanStep, PlanStepStatus } from "$lib/types/Plan";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
 	import CarbonInProgress from "~icons/carbon/in-progress";
@@ -45,7 +46,7 @@
 			{#if step.priority === "high"}
 				<span
 					class="mt-0.5 shrink-0 rounded-sm bg-red-100 px-1 text-[10px] font-medium text-red-700 uppercase dark:bg-red-900/40 dark:text-red-300"
-					data-testid="priority-high">high</span
+					data-testid="priority-high">{m["chat.plan.priority_high"]()}</span
 				>
 			{/if}
 		</li>

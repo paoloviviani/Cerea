@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import Portal from "../Portal.svelte";
 	import PinchZoomImage from "./PinchZoomImage.svelte";
@@ -41,7 +42,7 @@
 		<button
 			class="absolute top-3 right-3 z-10 grid size-8 place-items-center rounded-full border border-white/25 bg-white/20 text-gray-300 hover:bg-white/30 sm:top-6 sm:right-6"
 			onclick={onclose}
-			aria-label="Close"
+			aria-label={m["app.close"]()}
 		>
 			<CarbonClose />
 		</button>

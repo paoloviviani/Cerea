@@ -7,6 +7,7 @@
 	find-in-page still see every word.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	interface Props {
 		text: string;
 		class?: string;
@@ -61,7 +62,7 @@
 			aria-expanded={expanded}
 			onclick={() => (expanded = !expanded)}
 		>
-			{expanded ? "Show less" : "Show more"}
+			{expanded ? m["chat.collapsible.less"]() : m["chat.collapsible.more"]()}
 		</button>
 	{/if}
 </div>

@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * The `/` autocomplete's state machine, kept out of `ChatInput` so it can be
  * tested directly. No debounce and no network: it filters the list it is
@@ -62,27 +63,27 @@ export interface PanelCommandFlags {
 export function panelCommands(flags: PanelCommandFlags): SlashCommand[] {
 	return [
 		...(flags.compact
-			? [{ name: "compact", description: "Compact the conversation now", group: "panel" as const }]
+			? [{ name: "compact", description: m["chat.slash.cmd.compact"](), group: "panel" as const }]
 			: []),
 		...(flags.revert
 			? [
 					{
 						name: "undo",
-						description: "Roll back to before the last prompt",
+						description: m["chat.slash.cmd.undo"](),
 						group: "panel" as const,
 					},
-					{ name: "redo", description: "Undo the last rollback", group: "panel" as const },
+					{ name: "redo", description: m["chat.slash.cmd.redo"](), group: "panel" as const },
 				]
 			: []),
 		{
 			name: "model",
-			description: "Switch the model the agent runs",
+			description: m["chat.slash.cmd.model"](),
 			hint: "[model]",
 			group: "panel" as const,
 		},
 		{
 			name: "mode",
-			description: "Switch the agent's mode",
+			description: m["chat.slash.cmd.mode"](),
 			hint: "[mode]",
 			group: "panel" as const,
 		},
@@ -90,13 +91,13 @@ export function panelCommands(flags: PanelCommandFlags): SlashCommand[] {
 			? [
 					{
 						name: "effort",
-						description: "Set the thinking effort",
+						description: m["chat.slash.cmd.effort"](),
 						hint: "[level]",
 						group: "panel" as const,
 					},
 				]
 			: []),
-		{ name: "new", description: "Start a new agent on this workspace", group: "panel" as const },
+		{ name: "new", description: m["chat.slash.cmd.new"](), group: "panel" as const },
 	];
 }
 

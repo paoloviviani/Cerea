@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { modelLabel, settingsModelId } from "$lib/utils/customModelEntries";
 	import type { Message } from "$lib/types/Message";
 	import { onDestroy, untrack } from "svelte";
@@ -534,7 +535,7 @@
 			body: JSON.stringify({ model: id }),
 		});
 		if (!response.ok) {
-			error.set("Could not switch model. Try again.");
+			error.set(m["chat.window.switch_failed"]());
 			return;
 		}
 		await Promise.all([safeInvalidate(UrlDependency.Conversation), convsStore.refresh()]);
@@ -559,7 +560,7 @@
 			body: JSON.stringify({ reasoningEffort: value }),
 		});
 		if (!response.ok) {
-			error.set("Could not change the effort. Try again.");
+			error.set(m["chat.window.effort_failed"]());
 			return;
 		}
 		pickedEffort = { value };
@@ -612,7 +613,7 @@
 			}
 		} catch (err) {
 			console.error("Could not turn your voice into text:", err);
-			$error = "Could not turn your voice into text. Try again.";
+			$error = m["chat.window.voice_failed"]();
 		} finally {
 			isTranscribing = false;
 		}
@@ -642,7 +643,7 @@
 			}
 		} catch (err) {
 			console.error("Could not turn your voice into text:", err);
-			$error = "Could not turn your voice into text. Try again.";
+			$error = m["chat.window.voice_failed"]();
 		} finally {
 			isTranscribing = false;
 		}
@@ -696,8 +697,8 @@
 							type="button"
 							class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700"
 							onclick={() => sidePane.toggleLibrary()}
-							aria-label="Open files panel"
-							title="Files and chat export"
+							aria-label={m["app.mobile_nav.open_files"]()}
+							title={m["app.mobile_nav.files_title"]()}
 						>
 							<CarbonSidePanelOpen />
 						</button>
@@ -749,7 +750,7 @@
 				</div>
 				<form
 					tabindex="-1"
-					aria-label={isFileUploadEnabled ? "file dropzone" : undefined}
+					aria-label={isFileUploadEnabled ? m["chat.window.dropzone"]() : undefined}
 					onsubmit={(e) => {
 						e.preventDefault();
 						handleSubmit();
@@ -792,13 +793,10 @@
 								class:paste-glow={pastedLongContent}
 							>
 								{#if lastIsError}
-									<ChatInput
-										value="Sorry, something went wrong. Please try again."
-										disabled={true}
-									/>
+									<ChatInput value={m["chat.window.error_reply"]()} disabled={true} />
 								{:else}
 									<ChatInput
-										placeholder={isReadOnly ? "This conversation is read-only." : "Ask anything"}
+										placeholder={isReadOnly ? m["chat.window.read_only"]() : m["chat.window.ask"]()}
 										{loading}
 										bind:value={draft}
 										{draftKey}
@@ -866,7 +864,7 @@
 								onclick={() => {
 									isRecording = true;
 								}}
-								aria-label="Start voice recording"
+								aria-label={m["chat.window.record"]()}
 							>
 								<IconMic class="size-4" />
 							</button>
@@ -880,7 +878,7 @@
 								: 'bg-accent-solid! text-white! focus:ring-offset-2 focus:ring-offset-surface enabled:hover:bg-accent-solid-hover!'}"
 							disabled={!draft || isReadOnly}
 							type="submit"
-							aria-label="Send message"
+							aria-label={m["chat.window.send"]()}
 							name="submit"
 						>
 							<IconArrowUp />
@@ -897,7 +895,7 @@
 						{#if loading && streamingToolCallName}
 							<span class="inline-flex items-center gap-1 text-xs whitespace-nowrap">
 								<LucideHammer class="size-3" />
-								Using a tool
+								{m["chat.window.using_tool"]()}
 								<span class="loading-dots font-medium">
 									{availableTools.find((t) => t.name === streamingToolCallName)?.displayName ??
 										streamingToolCallName}
@@ -923,7 +921,7 @@
 									pickerOpen = true;
 								}}
 							>
-								<span class="shrink-0">Model:</span>
+								<span class="shrink-0">{m["chat.window.model"]()}</span>
 								{#if currentModel.logoUrl}
 									<img
 										src={currentModel.logoUrl}
@@ -941,8 +939,7 @@
 					{/if}
 					{#if !messages.length && !loading}
 						<span class="max-sm:hidden"
-							>{publicConfig.PUBLIC_CAVEAT ||
-								"The assistant can make mistakes. Check important information."}</span
+							>{publicConfig.PUBLIC_CAVEAT || m["chat.window.caveat"]()}</span
 						>
 					{/if}
 				</div>

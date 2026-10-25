@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import CarbonDocumentAttachment from "~icons/carbon/document-attachment";
 	import CarbonClose from "~icons/carbon/close";
 	import EosIconsLoading from "~icons/eos-icons/loading";
@@ -31,7 +32,7 @@
 			try {
 				files = await listKnowledgeFiles();
 			} catch (err) {
-				error = err instanceof Error ? err.message : "could not list knowledge files";
+				error = err instanceof Error ? err.message : m["chat.exec_files.list_failed"]();
 			} finally {
 				loading = false;
 			}
@@ -46,7 +47,7 @@
 			await mounts.addKnowledge(ref);
 			open = false;
 		} catch (err) {
-			error = err instanceof Error ? err.message : "could not load the file";
+			error = err instanceof Error ? err.message : m["chat.exec_files.load_failed"]();
 		} finally {
 			busyName = null;
 		}
@@ -67,7 +68,7 @@
 	<button
 		type="button"
 		class="btn rounded-md border border-gray-200/80 bg-white/90 p-1.5 text-xs text-gray-500 backdrop-blur-xs hover:bg-gray-100 hover:text-gray-600 dark:border-gray-700/80 dark:bg-gray-900/90 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-		title="Make knowledge files available to the code"
+		title={m["chat.exec_files.button_title"]()}
 		aria-expanded={open}
 		onclick={toggle}
 	>
@@ -85,11 +86,11 @@
 			<div
 				class="flex items-center justify-between border-b border-gray-100 px-3 py-2 text-xs font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300"
 			>
-				<span>Knowledge files for the code</span>
+				<span>{m["chat.exec_files.heading"]()}</span>
 				<button
 					type="button"
 					class="btn rounded p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-					title="Close"
+					title={m["app.close"]()}
 					onclick={() => (open = false)}
 				>
 					<CarbonClose class="text-xs" />
@@ -99,7 +100,7 @@
 				{#if loading}
 					<div class="flex items-center justify-center gap-2 p-4 text-xs text-gray-400">
 						<EosIconsLoading />
-						Loading knowledge files
+						{m["chat.exec_files.loading"]()}
 					</div>
 				{:else if error}
 					<div class="flex items-start gap-1.5 p-2 text-xs text-amber-600 dark:text-amber-400">
@@ -107,7 +108,7 @@
 						<span>{error}</span>
 					</div>
 				{:else if grouped(files).length === 0}
-					<div class="p-3 text-xs text-gray-400">No knowledge files are ready yet.</div>
+					<div class="p-3 text-xs text-gray-400">{m["chat.exec_files.none"]()}</div>
 				{:else}
 					{#each grouped(files) as [storeName, group] (storeName)}
 						<div
