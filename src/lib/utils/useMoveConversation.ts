@@ -10,6 +10,7 @@
  */
 
 import { base } from "$app/paths";
+import { m } from "$lib/paraglide/messages";
 import { useConversationsStore } from "$lib/stores/conversations.svelte";
 import { useNotificationsStore } from "$lib/stores/notifications.svelte";
 import { projectsChanged } from "$lib/stores/projectsRevision";
@@ -47,7 +48,7 @@ export function useMoveConversation() {
 				body: JSON.stringify({ projectId: to ? to.id : null }),
 			});
 			if (!response.ok) {
-				let message = "Could not move the chat.";
+				let message = m["projects.move.failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -56,7 +57,10 @@ export function useMoveConversation() {
 				throw new Error(message);
 			}
 		} catch (err) {
-			toasts?.pushMessage(err instanceof Error ? err.message : "Could not move the chat.", "error");
+			toasts?.pushMessage(
+				err instanceof Error ? err.message : m["projects.move.failed"](),
+				"error"
+			);
 			return false;
 		}
 
@@ -74,7 +78,11 @@ export function useMoveConversation() {
 			}
 		}
 		projectsChanged();
-		toasts?.pushMessage(to ? `Moved to ${to.name}` : `Removed from ${fromName ?? "the project"}`);
+		toasts?.pushMessage(
+			to
+				? m["projects.move.moved_to"]({ name: to.name })
+				: m["projects.move.removed_from"]({ name: fromName ?? m["projects.move.the_project"]() })
+		);
 		return true;
 	};
 }

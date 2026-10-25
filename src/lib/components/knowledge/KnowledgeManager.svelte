@@ -14,6 +14,8 @@
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
 	import { base as appBase } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import { formatNumber } from "$lib/i18n/format";
 	import FileDrop from "$lib/components/FileDrop.svelte";
 	import { KNOWLEDGE_ACCEPT } from "$lib/constants/mime";
 	import {
@@ -74,8 +76,7 @@
 			stores = listed.data;
 			status = state;
 		} catch (err) {
-			failure =
-				err instanceof GatewayError ? err.message : "Could not reach the service. Try again.";
+			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.unreachable"]();
 		} finally {
 			loading = false;
 		}
@@ -94,12 +95,21 @@
 
 	function tone(store: VectorStore): { tone: s.PillTone; label: string } {
 		if (store.file_counts.failed > 0)
-			return { tone: "bad", label: `${store.file_counts.failed} failed` };
+			return {
+				tone: "bad",
+				label: m["knowledge.manager.tone.failed"]({ count: store.file_counts.failed }),
+			};
 		if (store.file_counts.in_progress > 0)
-			return { tone: "busy", label: `${store.file_counts.in_progress} indexing` };
+			return {
+				tone: "busy",
+				label: m["knowledge.manager.tone.indexing"]({ count: store.file_counts.in_progress }),
+			};
 		if (store.file_counts.completed > 0)
-			return { tone: "good", label: `${store.file_counts.completed} ready` };
-		return { tone: "neutral", label: "empty" };
+			return {
+				tone: "good",
+				label: m["knowledge.manager.tone.ready"]({ count: store.file_counts.completed }),
+			};
+		return { tone: "neutral", label: m["knowledge.manager.tone.empty"]() };
 	}
 
 	// ---- create -------------------------------------------------------------
@@ -135,13 +145,13 @@
 
 		let store: VectorStore;
 		try {
-			progress = "Creating…";
+			progress = m["knowledge.manager.progress.creating"]();
 			store = await gwPost<VectorStore>("vector_stores", {
 				name: name.trim(),
 				description: description.trim(),
 			});
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not create it. Try again.";
+			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.create_failed"]();
 			busy = false;
 			progress = null;
 			return;
@@ -149,7 +159,11 @@
 
 		let done = 0;
 		for (const file of pending) {
-			progress = `Uploading ${++done} of ${pending.length}: ${file.name}`;
+			progress = m["knowledge.manager.progress.uploading"]({
+				index: ++done,
+				total: pending.length,
+				name: file.name,
+			});
 			try {
 				const stored = await gwUpload<{ id: string }>("files", file);
 				// No title: the gateway falls back to the filename, which is the
@@ -158,13 +172,19 @@
 			} catch (err) {
 				rejected = [
 					...rejected,
-					`${file.name} — ${err instanceof GatewayError ? err.message : "upload failed"}`,
+					m["knowledge.manager.rejected.file"]({
+						name: file.name,
+						reason:
+							err instanceof GatewayError
+								? err.message
+								: m["knowledge.manager.rejected.upload_failed"](),
+					}),
 				];
 			}
 		}
 
 		if (note.trim()) {
-			progress = "Adding the note…";
+			progress = m["knowledge.manager.progress.adding_note"]();
 			try {
 				await gwPost(`vector_stores/${store.id}/text`, {
 					text: note.trim(),
@@ -176,7 +196,12 @@
 			} catch (err) {
 				rejected = [
 					...rejected,
-					`the note — ${err instanceof GatewayError ? err.message : "could not be added"}`,
+					m["knowledge.manager.rejected.note"]({
+						reason:
+							err instanceof GatewayError
+								? err.message
+								: m["knowledge.manager.rejected.note_failed"](),
+					}),
 				];
 			}
 		}
@@ -190,7 +215,7 @@
 		} else {
 			// Held on the form: it is the only place the list of what failed is
 			// shown, and closing would take it away.
-			failure = "The knowledge base was created, but some files could not be added.";
+			failure = m["knowledge.manager.created_partial"]();
 		}
 	}
 
@@ -305,10 +330,7 @@
 				}
 			}
 		} catch (err) {
-			failure =
-				err instanceof GatewayError
-					? err.message
-					: "Could not open that knowledge base. Try again.";
+			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.open_failed"]();
 		}
 	}
 
@@ -331,13 +353,23 @@
 		const failed: string[] = [];
 		let done = 0;
 		for (const file of pending) {
-			progress = `Uploading ${++done} of ${pending.length}: ${file.name}`;
+			progress = m["knowledge.manager.progress.uploading"]({
+				index: ++done,
+				total: pending.length,
+				name: file.name,
+			});
 			try {
 				const stored = await gwUpload<{ id: string }>("files", file);
 				await gwPost(`vector_stores/${current.id}/files`, { file_id: stored.id });
 			} catch (err) {
 				failed.push(
-					`${file.name} — ${err instanceof GatewayError ? err.message : "upload failed"}`
+					m["knowledge.manager.rejected.file"]({
+						name: file.name,
+						reason:
+							err instanceof GatewayError
+								? err.message
+								: m["knowledge.manager.rejected.upload_failed"](),
+					})
 				);
 			}
 		}
@@ -345,7 +377,7 @@
 		pending = [];
 		busy = false;
 		rejected = failed;
-		failure = failed.length > 0 ? "Some files could not be added." : null;
+		failure = failed.length > 0 ? m["knowledge.manager.some_failed"]() : null;
 		await openDetail(current.id);
 	}
 
@@ -361,7 +393,7 @@
 			note = "";
 			await openDetail(current.id);
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not add that. Try again.";
+			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.add_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -374,7 +406,7 @@
 			await gwDelete(`vector_stores/${current.id}/files/${id}`);
 			await openDetail(current.id);
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not remove it. Try again.";
+			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.remove_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -413,7 +445,7 @@
 		try {
 			preview = await gwGet<DocumentPreview>(`vector_stores/${current.id}/files/${id}/preview`);
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not open it. Try again.";
+			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.preview_failed"]();
 		} finally {
 			previewBusy = false;
 		}
@@ -427,7 +459,7 @@
 		if (!current) return;
 		const link = window.document.createElement("a");
 		link.href = `${appBase}/api/v2/gateway/vector_stores/${current.id}/files/${document.id}/download`;
-		link.download = document.filename || document.title || "document";
+		link.download = document.filename || document.title || m["knowledge.manager.document"]();
 		link.rel = "noopener";
 		window.document.body.appendChild(link);
 		link.click();
@@ -439,10 +471,10 @@
 		busy = true;
 		try {
 			await gwPost(`vector_stores/${current.id}/reindex`);
-			notice = "Updating. This happens in the background, and the list keeps up.";
+			notice = m["knowledge.manager.updating_notice"]();
 			await openDetail(current.id);
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not update it. Try again.";
+			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.update_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -463,9 +495,9 @@
 				role: "viewer",
 			});
 			shareWith = "";
-			notice = "Shared. They can read it; only you can change it.";
+			notice = m["knowledge.manager.shared_notice"]();
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not share it. Try again.";
+			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.share_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -473,16 +505,22 @@
 
 	async function destroy() {
 		if (!current) return;
-		if (!confirm(`Delete “${current.name}” and everything in it?`)) return;
+		if (!confirm(m["knowledge.manager.delete_confirm"]({ name: current.name }))) return;
 		busy = true;
 		try {
 			await gwDelete(`vector_stores/${current.id}`);
 			backToList();
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not delete it. Try again.";
+			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.delete_failed"]();
 			busy = false;
 		}
 	}
+
+	const DOC_STATES = {
+		pending: m["knowledge.manager.doc.pending"],
+		extracting: m["knowledge.manager.doc.extracting"],
+		embedding: m["knowledge.manager.doc.embedding"],
+	} as const;
 
 	function docTone(document: KnowledgeDocument): { tone: s.PillTone; label: string } {
 		// Both finished spellings, for the same reason `indexing` lists both:
@@ -491,18 +529,25 @@
 		switch (document.status) {
 			case "ready":
 			case "completed":
-				return { tone: "good", label: `${document.chunk_count} passages` };
+				return {
+					tone: "good",
+					label: m["knowledge.manager.doc.passages"]({ count: document.chunk_count }),
+				};
 			case "failed":
-				return { tone: "bad", label: "failed" };
+				return { tone: "bad", label: m["knowledge.manager.doc.failed"]() };
 			case "pending":
 			case "extracting":
 			case "embedding":
-				return { tone: "busy", label: document.status };
+				return { tone: "busy", label: DOC_STATES[document.status]() };
 			default:
+				// A status the pipeline added that this screen does not know yet:
+				// shown as it came. i18n: server text
 				return { tone: "neutral", label: document.status };
 		}
 	}
 </script>
+
+{#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
 
 <!-- The workspace tab's card, where the overlay shell used to be. -->
 <div class={s.EMBEDDED}>
@@ -510,20 +555,20 @@
 		<div class={s.HEADER}>
 			<h2 id="knowledge-panel-title" class={s.TITLE}>
 				{#if view === "list"}
-					Knowledge bases
+					{m["knowledge.manager.title"]()}
 				{:else if view === "create"}
-					New knowledge base
+					{m["knowledge.manager.new_title"]()}
 				{:else}
-					{current?.name ?? "Knowledge base"}
+					{current?.name ?? m["knowledge.manager.fallback_title"]()}
 				{/if}
 			</h2>
 			<p class={s.SUBTITLE}>
 				{#if view === "list"}
-					Documents the assistant can search. They are yours, and you can share them.
+					{m["knowledge.manager.subtitle"]()}
 				{:else if view === "create"}
-					Name it and drop the files in.
+					{m["knowledge.manager.create_subtitle"]()}
 				{:else}
-					{current?.description || "What is in it, and who can read it."}
+					{current?.description || m["knowledge.manager.detail_subtitle"]()}
 				{/if}
 			</p>
 		</div>
@@ -547,13 +592,12 @@
 					</div>
 					<div>
 						<p class={s.STRIP_HEADLINE}>
-							{stores.length}
-							{stores.length === 1 ? "base" : "bases"}
+							{m["knowledge.manager.count"]({ count: stores.length })}
 						</p>
 						<p class={s.STRIP_DETAIL}>
-							{indexed} document{indexed === 1 ? "" : "s"} ready{working > 0
-								? `, ${working} in progress`
-								: ""}
+							{working > 0
+								? m["knowledge.manager.ready_working"]({ count: indexed, working })
+								: m["knowledge.manager.ready"]({ count: indexed })}
 						</p>
 					</div>
 				</div>
@@ -566,7 +610,7 @@
 						class={s.PRIMARY}
 					>
 						<IconAddLarge class="size-4" />
-						New knowledge base
+						{m["knowledge.manager.new"]()}
 					</button>
 				</div>
 			</div>
@@ -574,19 +618,19 @@
 			<div class={s.STACK}>
 				{#if status && !status.ready}
 					<p class={s.NOTICE}>
-						{status.detail ?? "Documents cannot be made searchable yet: no search model is set up."} You
-						can still create a knowledge base and add files. They become searchable once an administrator
-						sets one up.
+						{m["knowledge.manager.not_ready"]({
+							detail: status.detail ?? m["knowledge.manager.not_ready_default"](),
+						})}
 					</p>
 				{/if}
 
 				{#if loading}
-					<p class={s.SUBTITLE}>Loading…</p>
+					<p class={s.SUBTITLE}>{m["knowledge.manager.loading"]()}</p>
 				{:else if stores.length === 0}
 					<div class={s.EMPTY}>
 						<LucideLibrary class={s.EMPTY_ICON} />
-						<p class={s.EMPTY_TITLE}>No knowledge bases yet</p>
-						<p class={s.EMPTY_DETAIL}>Drop some documents in and the assistant can search them</p>
+						<p class={s.EMPTY_TITLE}>{m["knowledge.manager.empty.title"]()}</p>
+						<p class={s.EMPTY_DETAIL}>{m["knowledge.manager.empty.detail"]()}</p>
 						<button
 							onclick={() => {
 								resetForm();
@@ -595,12 +639,14 @@
 							class={s.PRIMARY}
 						>
 							<IconAddLarge class="size-4" />
-							Create your first knowledge base
+							{m["knowledge.manager.empty.create"]()}
 						</button>
 					</div>
 				{:else}
 					<div>
-						<h3 class={s.SECTION_TITLE}>Yours and shared with you ({stores.length})</h3>
+						<h3 class={s.SECTION_TITLE}>
+							{m["knowledge.manager.list_heading"]({ count: stores.length })}
+						</h3>
 						<div class={s.GRID}>
 							{#each stores as store (store.id)}
 								{@const state = tone(store)}
@@ -616,7 +662,8 @@
 												<h3 class={s.CARD_TITLE}>{store.name}</h3>
 											</div>
 											<p class={s.CARD_SUBTITLE}>
-												{store.description || `${store.file_counts.total} documents`}
+												{store.description ||
+													m["knowledge.manager.card.documents"]({ count: store.file_counts.total })}
 											</p>
 										</div>
 										<div class="flex flex-wrap items-center gap-2">
@@ -634,7 +681,7 @@
 											</span>
 											{#if !store.owned}
 												<span class="{s.PILL} {s.PILL_TONES.neutral}">
-													shared · {store.role}
+													{m["knowledge.manager.card.shared"]({ role: store.role })}
 												</span>
 											{/if}
 											{#if store.embedding_model}
@@ -651,27 +698,24 @@
 				{/if}
 
 				<div class={s.TIPS}>
-					<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
+					<h4 class={s.TIPS_TITLE}>{m["knowledge.manager.tips.title"]()}</h4>
 					<ul class={s.TIPS_LIST}>
-						<li>• Attach a knowledge base to a project and it is searched in every chat there.</li>
-						<li>• Sharing lets someone read a knowledge base. Only you can change it.</li>
-						<li>• Open a document to see the text the search reads.</li>
-						<li>
-							• A scan with no real text in it cannot be read here unless an administrator sets up a
-							scan reader.
-						</li>
-						<li>• Choose Update after an administrator changes the search model.</li>
+						<li>{m["knowledge.manager.tips.project"]()}</li>
+						<li>{m["knowledge.manager.tips.sharing"]()}</li>
+						<li>{m["knowledge.manager.tips.open"]()}</li>
+						<li>{m["knowledge.manager.tips.scan"]()}</li>
+						<li>{m["knowledge.manager.tips.update"]()}</li>
 					</ul>
 				</div>
 			</div>
 		{:else if view === "create"}
 			<form class="flex flex-col gap-4" onsubmit={create}>
 				<div>
-					<label for="kb-name" class={s.LABEL}>Name</label>
+					<label for="kb-name" class={s.LABEL}>{m["knowledge.manager.form.name"]()}</label>
 					<input
 						id="kb-name"
 						class={s.INPUT}
-						placeholder="Team handbook"
+						placeholder={m["knowledge.manager.form.name_placeholder"]()}
 						maxlength="128"
 						bind:value={name}
 						required
@@ -680,7 +724,8 @@
 				</div>
 				<div>
 					<label for="kb-description" class={s.LABEL}>
-						What is in it <span class="font-normal text-gray-500">(optional)</span>
+						{m["knowledge.manager.form.description"]()}
+						<span class="font-normal text-gray-500">{m["knowledge.manager.form.optional"]()}</span>
 					</label>
 					<input
 						id="kb-description"
@@ -692,7 +737,7 @@
 				</div>
 
 				<div>
-					<span class={s.LABEL}>Documents</span>
+					<span class={s.LABEL}>{m["knowledge.manager.form.documents"]()}</span>
 					<FileDrop
 						bind:files={pending}
 						maxBytes={status?.max_upload_bytes}
@@ -700,19 +745,19 @@
 						accept={KNOWLEDGE_ACCEPT}
 					/>
 					<p class={s.HINT}>
-						No titles needed: each file is named after its file name. Word, Excel, PowerPoint, or a
-						PDF with real text in it.
+						{m["knowledge.manager.form.documents_hint"]()}
 					</p>
 				</div>
 
 				<div>
 					<label for="kb-note" class={s.LABEL}>
-						Or paste a note <span class="font-normal text-gray-500">(optional)</span>
+						{m["knowledge.manager.form.note"]()}
+						<span class="font-normal text-gray-500">{m["knowledge.manager.form.optional"]()}</span>
 					</label>
 					<textarea
 						id="kb-note"
 						class="{s.INPUT} min-h-24"
-						placeholder="Its first line becomes the title."
+						placeholder={m["knowledge.manager.form.note_placeholder"]()}
 						bind:value={note}
 						disabled={busy}
 					></textarea>
@@ -724,11 +769,11 @@
 
 				<div class="flex justify-end gap-2">
 					<button type="button" onclick={backToList} disabled={busy} class={s.SECONDARY}>
-						Cancel
+						{m["knowledge.manager.form.cancel"]()}
 					</button>
 					<button type="submit" disabled={busy || !name.trim()} class={s.PRIMARY}>
 						<IconAddLarge class="size-4" />
-						{busy ? "Working…" : "Create"}
+						{busy ? m["knowledge.manager.form.working"]() : m["knowledge.manager.form.create"]()}
 					</button>
 				</div>
 			</form>
@@ -741,26 +786,30 @@
 						</div>
 						<div>
 							<p class={s.STRIP_HEADLINE}>
-								{current.file_counts.total} document{current.file_counts.total === 1 ? "" : "s"}
+								{m["knowledge.manager.detail.count"]({ count: current.file_counts.total })}
 							</p>
 							<p class={s.STRIP_DETAIL}>
-								{current.file_counts.completed} ready
+								{m["knowledge.manager.detail.ready"]({ count: current.file_counts.completed })}
 								{#if current.file_counts.in_progress > 0}
-									· {current.file_counts.in_progress} in progress
+									{m["knowledge.manager.detail.in_progress"]({
+										count: current.file_counts.in_progress,
+									})}
 								{/if}
-								{#if !current.owned}· shared with you as {current.role}{/if}
+								{#if !current.owned}{m["knowledge.manager.detail.shared_as"]({
+										role: current.role,
+									})}{/if}
 							</p>
 						</div>
 					</div>
 					<div class="flex gap-2">
 						<button onclick={backToList} class={s.SECONDARY}>
 							<IconArrowLeft class="size-4" />
-							All knowledge bases
+							{m["knowledge.manager.detail.all"]()}
 						</button>
 						{#if canEdit}
 							<button onclick={reindex} disabled={busy} class={s.SECONDARY}>
 								<IconRefresh class="size-4" />
-								Update
+								{m["knowledge.manager.detail.update"]()}
 							</button>
 							<!-- Beside Update, where the person looking for it is:
 							     the bottom-of-page placement hid it under Share, and
@@ -769,7 +818,7 @@
 							     in it" means, wherever the button sits. -->
 							<button onclick={destroy} disabled={busy} class={s.CARD_DESTRUCTIVE}>
 								<IconTrash class="size-3" />
-								Delete
+								{m["knowledge.manager.detail.delete"]()}
 							</button>
 						{/if}
 					</div>
@@ -781,7 +830,7 @@
 
 				{#if canEdit}
 					<div>
-						<h3 class={s.SECTION_TITLE}>Add to it</h3>
+						<h3 class={s.SECTION_TITLE}>{m["knowledge.manager.add.title"]()}</h3>
 						<FileDrop
 							bind:files={pending}
 							maxBytes={status?.max_upload_bytes}
@@ -795,20 +844,20 @@
 							<div class="mt-2 flex justify-end">
 								<button onclick={addFiles} disabled={busy} class={s.PRIMARY}>
 									<IconAddLarge class="size-4" />
-									Add {pending.length} file{pending.length === 1 ? "" : "s"}
+									{m["knowledge.manager.add.files"]({ count: pending.length })}
 								</button>
 							</div>
 						{/if}
 						<form class="mt-3 flex flex-col gap-2" onsubmit={addNote}>
 							<textarea
 								class="{s.INPUT} min-h-20"
-								placeholder="Or paste a note — its first line becomes the title"
+								placeholder={m["knowledge.manager.add.note_placeholder"]()}
 								bind:value={note}
 								disabled={busy}
 							></textarea>
 							<div class="flex justify-end">
 								<button type="submit" disabled={busy || !note.trim()} class={s.SECONDARY}>
-									Add note
+									{m["knowledge.manager.add.note"]()}
 								</button>
 							</div>
 						</form>
@@ -816,13 +865,15 @@
 				{/if}
 
 				<div>
-					<h3 class={s.SECTION_TITLE}>Documents ({documents.length})</h3>
+					<h3 class={s.SECTION_TITLE}>
+						{m["knowledge.manager.docs.title"]({ count: documents.length })}
+					</h3>
 					{#if documents.length === 0}
 						<div class={s.EMPTY}>
 							<IconDocument class={s.EMPTY_ICON} />
-							<p class={s.EMPTY_TITLE}>Nothing in it yet</p>
+							<p class={s.EMPTY_TITLE}>{m["knowledge.manager.docs.empty.title"]()}</p>
 							<p class={s.EMPTY_DETAIL}>
-								Drop some files above. They become searchable in the background.
+								{m["knowledge.manager.docs.empty.detail"]()}
 							</p>
 						</div>
 					{:else}
@@ -833,7 +884,9 @@
 									<div class="flex items-center justify-between gap-3 px-4 py-2.5">
 										<div class="min-w-0 flex-1">
 											<p class={s.CARD_TITLE}>
-												{document.title || document.filename || "untitled"}
+												{document.title ||
+													document.filename ||
+													m["knowledge.manager.docs.untitled"]()}
 											</p>
 											<div class="mt-1 flex flex-wrap items-center gap-2">
 												<span class="{s.PILL} {s.PILL_TONES[state.tone]}">
@@ -858,19 +911,29 @@
 												onclick={() => openPreview(document.id)}
 												disabled={previewBusy}
 												class={s.CARD_ACTION}
-												aria-label={`Open ${document.title || document.filename || "document"}`}
+												aria-label={m["knowledge.manager.docs.open_label"]({
+													name:
+														document.title ||
+														document.filename ||
+														m["knowledge.manager.document"](),
+												})}
 											>
 												<IconView class="size-3" />
-												Open
+												{m["knowledge.manager.docs.open"]()}
 											</button>
 											{#if document.file_id}
 												<button
 													onclick={() => downloadDocument(document)}
 													class={s.CARD_ACTION}
-													aria-label={`Download ${document.title || document.filename || "document"}`}
+													aria-label={m["knowledge.manager.docs.download_label"]({
+														name:
+															document.title ||
+															document.filename ||
+															m["knowledge.manager.document"](),
+													})}
 												>
 													<IconDownload class="size-3" />
-													Download
+													{m["knowledge.manager.docs.download"]()}
 												</button>
 											{/if}
 											{#if canEdit}
@@ -880,7 +943,7 @@
 													class={s.CARD_DESTRUCTIVE}
 												>
 													<IconTrash class="size-3" />
-													Remove
+													{m["knowledge.manager.docs.remove"]()}
 												</button>
 											{/if}
 										</div>
@@ -897,12 +960,16 @@
 							<div class="min-w-0">
 								<p class={s.CARD_TITLE}>{preview.title}</p>
 								<p class={s.CARD_SUBTITLE}>
-									{preview.filename ?? "pasted note"} · {preview.chars.toLocaleString()} characters, as
-									the search reads them
+									{m["knowledge.manager.preview.subtitle"]({
+										name: preview.filename ?? m["knowledge.manager.preview.pasted"](),
+										count: formatNumber(preview.chars),
+									})}
 								</p>
 							</div>
 							<div class="flex shrink-0 items-center gap-1.5">
-								<button onclick={closePreview} class={s.CARD_ACTION}>Close</button>
+								<button onclick={closePreview} class={s.CARD_ACTION}>
+									{m["knowledge.manager.preview.close"]()}
+								</button>
 							</div>
 						</div>
 						<pre
@@ -910,29 +977,36 @@
 								0,
 								PREVIEW_CHARS
 							)}{preview.text.length > PREVIEW_CHARS
-								? `\n\n… showing the first ${PREVIEW_CHARS.toLocaleString()} of ${preview.chars.toLocaleString()} characters`
+								? `\n\n${m["knowledge.manager.preview.cut"]({
+										shown: formatNumber(PREVIEW_CHARS),
+										total: formatNumber(preview.chars),
+									})}`
 								: ""}</pre>
 					</div>
 				{/if}
 
 				{#if current.owned}
 					<div>
-						<h3 class={s.SECTION_TITLE}>Share it</h3>
+						<h3 class={s.SECTION_TITLE}>{m["knowledge.manager.share.title"]()}</h3>
 						<form class="flex flex-wrap items-end gap-2" onsubmit={share}>
 							<div>
-								<label for="kb-share-kind" class={s.LABEL}>With</label>
+								<label for="kb-share-kind" class={s.LABEL}
+									>{m["knowledge.manager.share.with"]()}</label
+								>
 								<select id="kb-share-kind" class={s.INPUT} bind:value={shareKind}>
-									<option value="user">A person</option>
-									<option value="group">A group</option>
+									<option value="user">{m["knowledge.manager.share.person"]()}</option>
+									<option value="group">{m["knowledge.manager.share.group"]()}</option>
 								</select>
 							</div>
 							<div class="min-w-48 flex-1">
 								<label for="kb-share-who" class={s.LABEL}>
-									{shareKind === "user" ? "Their email address" : "Group name"}
+									{shareKind === "user"
+										? m["knowledge.manager.share.email"]()
+										: m["knowledge.manager.share.group_name"]()}
 								</label>
 								{#if shareKind === "group" && groups.length > 0}
 									<select id="kb-share-who" class={s.INPUT} bind:value={shareWith}>
-										<option value="">— choose —</option>
+										<option value="">{m["knowledge.manager.share.choose"]()}</option>
 										{#each groups as group (group.id)}
 											<option value={group.name}>{group.name}</option>
 										{/each}
@@ -941,14 +1015,16 @@
 									<input
 										id="kb-share-who"
 										class={s.INPUT}
-										placeholder={shareKind === "user" ? "colleague@example.org" : "research"}
+										placeholder={shareKind === "user"
+											? m["knowledge.manager.share.email_placeholder"]()
+											: m["knowledge.manager.share.group_placeholder"]()}
 										bind:value={shareWith}
 									/>
 								{/if}
 							</div>
 							<button type="submit" disabled={busy || !shareWith.trim()} class={s.PRIMARY}>
 								<IconShare class="size-4" />
-								Share
+								{m["knowledge.manager.share.button"]()}
 							</button>
 						</form>
 					</div>

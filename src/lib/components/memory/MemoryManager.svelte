@@ -19,6 +19,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
 	import * as s from "$lib/components/overlay/styles";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import Switch from "$lib/components/Switch.svelte";
@@ -66,7 +67,9 @@
 		const response = await fetch(`${base}/api/v2/memory${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+			throw new Error(
+				parsed?.message ?? m["memory.manager.error_status"]({ status: response.status })
+			);
 		}
 		return response.status === 204 ? (undefined as T) : await response.json();
 	}
@@ -78,7 +81,7 @@
 			const body = await api<{ data: { memories: MemoryView[] } }>("");
 			memories = body.data.memories;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load your memory. Try again.";
+			failure = err instanceof Error ? err.message : m["memory.manager.load_failed"]();
 		} finally {
 			loading = false;
 		}
@@ -106,7 +109,7 @@
 			draft = "";
 			adding = false;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save that. Try again.";
+			failure = err instanceof Error ? err.message : m["memory.manager.add_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -126,7 +129,7 @@
 			memories = memories.map((memory) => (memory.id === id ? body.data : memory));
 			editingId = null;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save that change. Try again.";
+			failure = err instanceof Error ? err.message : m["memory.manager.edit_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -143,7 +146,7 @@
 			await api<void>(`/${memory.id}`, { method: "DELETE" });
 			memories = memories.filter((row) => row.id !== memory.id);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not delete that. Try again.";
+			failure = err instanceof Error ? err.message : m["memory.manager.delete_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -158,10 +161,9 @@
 <div class={s.EMBEDDED}>
 	<div class={s.PANEL}>
 		<div class={s.HEADER}>
-			<h2 class={s.TITLE}>Memory</h2>
+			<h2 class={s.TITLE}>{m["memory.manager.title"]()}</h2>
 			<p class={s.SUBTITLE}>
-				Things the assistant remembers in every chat. You can edit or delete any of them, and it can
-				add to them while you talk.
+				{m["memory.manager.subtitle"]()}
 			</p>
 		</div>
 
@@ -176,18 +178,20 @@
 				</div>
 				<div>
 					<p class={s.STRIP_HEADLINE}>
-						{memories.length}
-						{memories.length === 1 ? "memory" : "memories"}
+						{m["memory.manager.count"]({ count: memories.length })}
 					</p>
 					<p class={s.STRIP_DETAIL}>
 						{#if !getEnabled()}
-							Off — nothing is being remembered or used
+							{m["memory.manager.status.off"]()}
 						{:else if budget.omitted > 0}
-							{budget.included.length} in use, {budget.omitted} too old to fit
+							{m["memory.manager.status.partial"]({
+								used: budget.included.length,
+								omitted: budget.omitted,
+							})}
 						{:else if memories.length === 0}
-							On — nothing remembered yet
+							{m["memory.manager.status.empty"]()}
 						{:else}
-							All of them are in use
+							{m["memory.manager.status.all"]()}
 						{/if}
 					</p>
 				</div>
@@ -203,7 +207,8 @@
 						draft = "";
 					}}
 				>
-					<CarbonAdd class="size-4" /> Add memory
+					<CarbonAdd class="size-4" />
+					{m["memory.manager.add"]()}
 				</button>
 			</div>
 		</div>
@@ -215,48 +220,48 @@
 				would make "let me try this off for a week" irreversible.
 			-->
 			<div class="{s.NOTICE} mb-4">
-				Memory is off. The assistant does not see these and will not remember anything new. What is
-				already saved stays in the list below.
+				{m["memory.manager.off_notice"]()}
 			</div>
 		{/if}
 
 		{#if adding}
 			<div class="{s.EMBEDDED} mb-4 p-4">
-				<label class={s.LABEL} for="memory-draft">New memory</label>
+				<label class={s.LABEL} for="memory-draft">{m["memory.manager.new.label"]()}</label>
 				<input
 					id="memory-draft"
 					class={s.INPUT}
 					bind:value={draft}
 					maxlength={MEMORY_TEXT_MAX_CHARS}
-					placeholder="Prefers concise answers with no preamble"
+					placeholder={m["memory.manager.new.placeholder"]()}
 					onkeydown={(event) => {
 						if (event.key === "Enter") add();
 						if (event.key === "Escape") adding = false;
 					}}
 				/>
-				<p class={s.HINT}>One sentence that makes sense on its own, even months from now.</p>
+				<p class={s.HINT}>{m["memory.manager.new.hint"]()}</p>
 				<div class="mt-3 flex gap-2">
 					<button type="button" class={s.PRIMARY} disabled={!draft.trim() || busy} onclick={add}>
-						Save
+						{m["memory.manager.save"]()}
 					</button>
 					<button type="button" class={s.SECONDARY} onclick={() => (adding = false)}>
-						Cancel
+						{m["memory.manager.cancel"]()}
 					</button>
 				</div>
 			</div>
 		{/if}
 
 		{#if loading}
-			<p class={s.SUBTITLE}>Loading…</p>
+			<p class={s.SUBTITLE}>{m["memory.manager.loading"]()}</p>
 		{:else if memories.length === 0}
 			<div class={s.EMPTY}>
 				<LucideBrain class={s.EMPTY_ICON} />
-				<p class={s.EMPTY_TITLE}>Nothing remembered yet</p>
+				<p class={s.EMPTY_TITLE}>{m["memory.manager.empty.title"]()}</p>
 				<p class={s.EMPTY_DETAIL}>
-					Add something here, or just tell the assistant to remember it while you talk.
+					{m["memory.manager.empty.detail"]()}
 				</p>
 				<button type="button" class={s.PRIMARY} onclick={() => (adding = true)}>
-					<CarbonAdd class="size-4" /> Add memory
+					<CarbonAdd class="size-4" />
+					{m["memory.manager.add"]()}
 				</button>
 			</div>
 		{:else}
@@ -281,10 +286,10 @@
 										disabled={!editDraft.trim() || busy}
 										onclick={() => saveEdit(memory.id)}
 									>
-										Save
+										{m["memory.manager.save"]()}
 									</button>
 									<button type="button" class={s.SECONDARY} onclick={() => (editingId = null)}>
-										Cancel
+										{m["memory.manager.cancel"]()}
 									</button>
 								</div>
 							{:else}
@@ -299,7 +304,9 @@
 													? s.PILL_TONES.neutral
 													: s.PILL_TONES.busy}"
 											>
-												{memory.source === "user" ? "You added this" : "Remembered for you"}
+												{memory.source === "user"
+													? m["memory.manager.source.user"]()
+													: m["memory.manager.source.assistant"]()}
 											</span>
 											{#if omitted.has(index)}
 												<!--
@@ -307,13 +314,16 @@
 													can tell you: stored, but past the prompt budget
 													and therefore no longer reaching the model.
 												-->
-												<span class="{s.PILL} {s.PILL_TONES.bad}">Not used any more</span>
+												<span class="{s.PILL} {s.PILL_TONES.bad}"
+													>{m["memory.manager.unused"]()}</span
+												>
 											{/if}
 										</div>
 									</div>
 									<div class="flex shrink-0 gap-2">
 										<button type="button" class={s.CARD_ACTION} onclick={() => beginEdit(memory)}>
-											<CarbonEdit class="size-3.5" /> Edit
+											<CarbonEdit class="size-3.5" />
+											{m["memory.manager.edit"]()}
 										</button>
 										<button
 											type="button"
@@ -321,7 +331,8 @@
 											disabled={busy}
 											onclick={() => remove(memory)}
 										>
-											<CarbonTrashCan class="size-3.5" /> Delete
+											<CarbonTrashCan class="size-3.5" />
+											{m["memory.manager.delete"]()}
 										</button>
 									</div>
 								</div>
@@ -333,21 +344,18 @@
 		{/if}
 
 		<div class="{s.TIPS} mt-6">
-			<p class={s.TIPS_TITLE}>Quick tips</p>
+			<p class={s.TIPS_TITLE}>{m["memory.manager.tips.title"]()}</p>
 			<ul class={s.TIPS_LIST}>
 				<li>
-					The assistant sees all of these in every chat. They are not searched, so a fact does not
-					need to match your question to be used.
+					{m["memory.manager.tips.all_seen"]()}
 				</li>
 				<li>
-					Say "remember that…" or "forget that…" in a chat and the assistant will edit this list
-					itself. You will see the change as it happens, with an undo.
+					{m["memory.manager.tips.edit_by_chat"]()}
 				</li>
 				<li>
-					Past {MEMORY_MAX_FACTS} facts nothing more is stored, and past the prompt's budget the oldest
-					stop being sent — they are marked here when that happens.
+					{m["memory.manager.tips.limit"]({ max: MEMORY_MAX_FACTS })}
 				</li>
-				<li>Never keep a password or key here: every chat would see it.</li>
+				<li>{m["memory.manager.tips.no_secrets"]()}</li>
 			</ul>
 		</div>
 	</div>

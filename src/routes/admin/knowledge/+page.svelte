@@ -22,6 +22,9 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import { formatDateTime } from "$lib/i18n/format";
+	import Rich from "$lib/i18n/Rich.svelte";
 
 	interface BaseSummary {
 		id: string;
@@ -118,7 +121,7 @@
 			// administrator of this deployment", which is a different and more
 			// useful statement than "forbidden".
 			const body = await response.text();
-			loadError = body || `The gateway answered ${response.status}.`;
+			loadError = body || m["admin.knowledge.gateway_answered"]({ status: response.status });
 			return;
 		}
 		seed((await response.json()) as Status);
@@ -155,7 +158,7 @@
 		}
 
 		if (Object.keys(body).length === 0) {
-			notice = "Nothing to change.";
+			notice = m["admin.knowledge.nothing_to_change"]();
 			return;
 		}
 
@@ -167,7 +170,9 @@
 				body: JSON.stringify(body),
 			});
 			if (!response.ok) {
-				saveError = (await response.text()) || `The gateway answered ${response.status}.`;
+				saveError =
+					(await response.text()) ||
+					m["admin.knowledge.gateway_answered"]({ status: response.status });
 				return;
 			}
 			const next = (await response.json()) as Status;
@@ -177,9 +182,8 @@
 			// model nothing new will use.
 			notice =
 				next.stale_base_count > 0
-					? `Saved. ${next.stale_base_count} base${next.stale_base_count === 1 ? "" : "s"} ` +
-						"now on an older embedding model — they still answer searches, from their own vectors."
-					: "Saved.";
+					? m["admin.knowledge.saved_stale"]({ count: next.stale_base_count })
+					: m["admin.knowledge.saved"]();
 		} finally {
 			saving = false;
 		}
@@ -196,25 +200,28 @@
 				body: JSON.stringify({ base_id: target.id }),
 			});
 			if (!response.ok) {
-				saveError = (await response.text()) || `The gateway answered ${response.status}.`;
+				saveError =
+					(await response.text()) ||
+					m["admin.knowledge.gateway_answered"]({ status: response.status });
 				return;
 			}
 			seed((await response.json()) as Status);
-			notice = `Reindexing ${target.name}. Its documents show as in progress until every passage is re-embedded.`;
+			notice = m["admin.knowledge.reindexing_notice"]({ name: target.name });
 		} finally {
 			reindexing = null;
 		}
 	}
 </script>
 
-<svelte:head><title>Knowledge · administration</title></svelte:head>
+<svelte:head><title>{m["admin.knowledge.page_title"]()}</title></svelte:head>
+
+{#snippet code(text: string)}<code class="text-xs">{text}</code>{/snippet}
 
 <div class="mx-auto flex max-w-4xl flex-col gap-6 p-6">
 	<header class="flex flex-col gap-1">
-		<h1 class="text-xl font-semibold">Knowledge</h1>
+		<h1 class="text-xl font-semibold">{m["admin.knowledge.title"]()}</h1>
 		<p class="text-sm text-gray-500 dark:text-gray-400">
-			How documents become searchable: what reads them, what embeds them, and where the vectors
-			live. A change here affects the next base built, never one that already exists.
+			{m["admin.knowledge.description"]()}
 		</p>
 	</header>
 
@@ -225,7 +232,7 @@
 			{loadError}
 		</div>
 	{:else if !status}
-		<p class="text-sm text-gray-500">Loading…</p>
+		<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
 	{:else}
 		{#if status.detail}
 			<div
@@ -240,15 +247,20 @@
 			onsubmit={save}
 		>
 			<div class="flex flex-col gap-1">
-				<h2 class="font-medium">Pipeline</h2>
+				<h2 class="font-medium">{m["admin.knowledge.pipeline.title"]()}</h2>
 				<p class="text-xs text-gray-500 dark:text-gray-400">
-					Decided in {status.source === "console" ? "this screen" : "the environment"}. A change
-					reaches every worker within {Math.round(status.propagation_seconds)}s.
+					{status.source === "console"
+						? m["admin.knowledge.pipeline.decided_here"]({
+								seconds: Math.round(status.propagation_seconds),
+							})
+						: m["admin.knowledge.pipeline.decided_env"]({
+								seconds: Math.round(status.propagation_seconds),
+							})}
 				</p>
 			</div>
 
 			<label class="flex flex-col gap-1">
-				<span class="text-sm font-medium">Embedding model</span>
+				<span class="text-sm font-medium">{m["admin.knowledge.embedding.label"]()}</span>
 				<select
 					class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
 					bind:value={embedding}
@@ -260,24 +272,21 @@
 				</select>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					{#if status.available_embedding_models.length === 0}
-						This service has no embedding model at all. One has to be created in the gateway's own
-						console first, then chosen here.
+						{m["admin.knowledge.embedding.none"]()}
 					{:else}
-						Existing bases keep the model they were indexed with. Vectors from two models are not
-						comparable, so a base only moves when it is reindexed.
+						{m["admin.knowledge.embedding.hint"]()}
 					{/if}
 				</span>
 			</label>
 
 			<label class="flex flex-col gap-1">
-				<span class="text-sm font-medium"
-					>Document extraction (chat uploads and knowledge bases)</span
-				>
+				<span class="text-sm font-medium">{m["admin.knowledge.extractor.label"]()}</span>
 				{#if status.extractor_source === "env"}
 					<div
 						class="rounded-lg border border-gray-300 bg-gray-50 p-2 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
 					>
-						{status.extractor_model} — <span class="text-xs">set in the environment</span>
+						{status.extractor_model} —
+						<span class="text-xs">{m["admin.knowledge.extractor.from_env"]()}</span>
 					</div>
 				{:else}
 					<select
@@ -288,7 +297,7 @@
 						{#each status.available_extractor_models as candidate (candidate.id)}
 							<option value={candidate.id}>
 								{candidate.local
-									? `Local extractor (${candidate.id}): on this server, text-layer PDFs and Office files`
+									? m["admin.knowledge.extractor.local_option"]({ id: candidate.id })
 									: candidate.id}
 							</option>
 						{/each}
@@ -296,22 +305,21 @@
 				{/if}
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					{#if status.available_extractor_models.length === 0}
-						This service has no document reader in its catalogue. One has to be created — or this
-						deployment's own local extractor registered — in the gateway's own console first.
+						{m["admin.knowledge.extractor.none"]()}
 					{:else if status.extractor_source === "env"}
-						Set with <code class="text-xs">CHAT_OCR_MODEL</code> in the environment; this service's operator
-						decided, not this screen.
+						<Rich
+							parts={m["admin.knowledge.extractor.env_hint"].parts({ name: "CHAT_OCR_MODEL" })}
+							tags={{ code }}
+						/>
 					{:else}
-						Reads PDFs and images attached in chats and added to knowledge bases. Word, Excel and
-						PowerPoint files always use this service's own extractor. A scan needs an OCR model,
-						which sends the document to that provider.
+						{m["admin.knowledge.extractor.hint"]()}
 					{/if}
 				</span>
 			</label>
 
 			<div class="flex flex-wrap gap-4">
 				<label class="flex flex-1 flex-col gap-1">
-					<span class="text-sm font-medium">Characters per passage</span>
+					<span class="text-sm font-medium">{m["admin.knowledge.chunk.chars"]()}</span>
 					<input
 						type="number"
 						min="80"
@@ -321,7 +329,7 @@
 					/>
 				</label>
 				<label class="flex flex-1 flex-col gap-1">
-					<span class="text-sm font-medium">Overlap</span>
+					<span class="text-sm font-medium">{m["admin.knowledge.chunk.overlap"]()}</span>
 					<input
 						type="number"
 						min="0"
@@ -332,8 +340,7 @@
 				</label>
 			</div>
 			<p class="-mt-3 text-xs text-gray-500 dark:text-gray-400">
-				Each base snapshots these when it is created, so a change applies to new bases only. Overlap
-				is capped at a third of the passage size.
+				{m["admin.knowledge.chunk.hint"]()}
 			</p>
 
 			{#if saveError}
@@ -349,38 +356,40 @@
 					disabled={saving}
 					class="rounded-full bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
 				>
-					{saving ? "Saving…" : "Save"}
+					{saving ? m["admin.common.saving"]() : m["admin.common.save"]()}
 				</button>
 			</div>
 		</form>
 
 		<section class="flex flex-col gap-3 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
 			<div class="flex flex-col gap-1">
-				<h2 class="font-medium">Knowledge bases</h2>
+				<h2 class="font-medium">{m["admin.knowledge.bases.title"]()}</h2>
 				<p class="text-xs text-gray-500 dark:text-gray-400">
 					{#if status.stale_base_count > 0}
-						{status.stale_base_count} of {status.bases.length} were indexed with a different embedding
-						model. They still answer searches, from their own vectors.
+						{m["admin.knowledge.bases.stale"]({
+							stale: status.stale_base_count,
+							total: status.bases.length,
+						})}
 					{:else}
-						Every base is on the embedding model configured above.
+						{m["admin.knowledge.bases.current"]()}
 					{/if}
 				</p>
 			</div>
 
 			{#if status.bases.length === 0}
 				<p class="text-sm text-gray-500">
-					No knowledge bases yet. They are created by users, not here.
+					{m["admin.knowledge.bases.none"]()}
 				</p>
 			{:else}
 				<div class="overflow-x-auto">
 					<table class="w-full text-sm">
 						<thead class="text-left text-xs text-gray-500 uppercase dark:text-gray-400">
 							<tr>
-								<th class="py-2 pr-3">Base</th>
-								<th class="py-2 pr-3">Owner</th>
-								<th class="py-2 pr-3">Embedded with</th>
-								<th class="py-2 pr-3 text-right">Documents</th>
-								<th class="py-2 pr-3 text-right">Passages</th>
+								<th class="py-2 pr-3">{m["admin.knowledge.bases.col.base"]()}</th>
+								<th class="py-2 pr-3">{m["admin.knowledge.bases.col.owner"]()}</th>
+								<th class="py-2 pr-3">{m["admin.knowledge.bases.col.embedded_with"]()}</th>
+								<th class="py-2 pr-3 text-right">{m["admin.knowledge.bases.col.documents"]()}</th>
+								<th class="py-2 pr-3 text-right">{m["admin.knowledge.bases.col.passages"]()}</th>
 								<th class="py-2"></th>
 							</tr>
 						</thead>
@@ -394,17 +403,17 @@
 										{/if}
 									</td>
 									<td class="py-2 pr-3">
-										<div>{row.owner_email ?? "erased"}</div>
+										<div>{row.owner_email ?? m["admin.knowledge.erased"]()}</div>
 										{#if row.group_name}
 											<div class="text-xs text-gray-500">{row.group_name}</div>
 										{/if}
 									</td>
 									<td class="py-2 pr-3 whitespace-nowrap">
-										{row.embedding_model ?? "not indexed"}
+										{row.embedding_model ?? m["admin.knowledge.bases.not_indexed"]()}
 										{#if row.stale}
 											<span
 												class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-900 dark:text-amber-100"
-												>older model</span
+												>{m["admin.knowledge.bases.older_model"]()}</span
 											>
 										{/if}
 									</td>
@@ -413,7 +422,7 @@
 										{#if row.failed_count > 0}
 											<span
 												class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-900 dark:bg-red-900 dark:text-red-100"
-												>{row.failed_count} failed</span
+												>{m["admin.knowledge.bases.failed"]({ count: row.failed_count })}</span
 											>
 										{/if}
 									</td>
@@ -425,7 +434,9 @@
 											disabled={reindexing !== null || !status.ready}
 											class="rounded-full border border-gray-300 px-3 py-1 text-xs disabled:opacity-50 dark:border-gray-600"
 										>
-											{reindexing === row.id ? "Reindexing…" : "Reindex"}
+											{reindexing === row.id
+												? m["admin.knowledge.bases.reindexing"]()
+												: m["admin.knowledge.bases.reindex"]()}
 										</button>
 									</td>
 								</tr>
@@ -441,21 +452,21 @@
 				class="flex flex-col gap-3 rounded-lg border border-gray-200 p-5 dark:border-gray-700"
 			>
 				<div class="flex flex-col gap-1">
-					<h2 class="font-medium">Changes</h2>
+					<h2 class="font-medium">{m["admin.knowledge.history.title"]()}</h2>
 					<p class="text-xs text-gray-500 dark:text-gray-400">
-						Append-only: every decision is kept, because "which model was this base built with, and
-						who moved the default" gets asked long after the change.
+						{m["admin.knowledge.history.description"]()}
 					</p>
 				</div>
 				<ul class="flex flex-col gap-2 text-sm">
 					{#each status.history as entry (entry.id)}
 						<li class="border-t border-gray-100 pt-2 dark:border-gray-800">
 							<div class="text-xs text-gray-500">
-								{new Date(entry.created_at).toLocaleString()} · {entry.changed_by ?? "erased"}
+								{formatDateTime(entry.created_at)} · {entry.changed_by ??
+									m["admin.knowledge.erased"]()}
 							</div>
 							<div>
-								{entry.embedding_model ?? "no embedding model"} · {entry.extractor_model ??
-									"no reader chosen"}
+								{entry.embedding_model ?? m["admin.knowledge.history.no_embedding"]()} · {entry.extractor_model ??
+									m["admin.knowledge.history.no_reader"]()}
 							</div>
 							{#if entry.reason}
 								<div class="text-xs text-gray-500">{entry.reason}</div>

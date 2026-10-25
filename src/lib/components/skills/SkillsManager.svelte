@@ -21,6 +21,8 @@
 <script lang="ts">
 	import { onMount, untrack } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import IconAddLarge from "~icons/carbon/add-large";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconView from "~icons/carbon/view";
@@ -106,7 +108,7 @@
 	const enabledCount = $derived(userSkills.filter((skill) => skill.enabled).length);
 	const deploymentEnabledCount = $derived(adminSkills.filter((skill) => skill.enabled).length);
 
-	const PLACEHOLDER = `---\nname: my-skill\ndescription: What this skill does, in one line the model matches against.\n---\n\n# My skill\n\nWhen to use it, then the procedure as numbered steps.\n`;
+	const PLACEHOLDER = m["skills.manager.form.placeholder"]();
 
 	async function api<T>(
 		path: string,
@@ -115,7 +117,9 @@
 		const response = await fetch(`${base}/api/v2/skills${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+			throw new Error(
+				parsed?.message ?? m["skills.manager.error_status"]({ status: response.status })
+			);
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
@@ -131,7 +135,7 @@
 			userSkills = listed.data.user;
 			adminSkills = listed.data.admin;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load skills. Try again.";
+			failure = err instanceof Error ? err.message : m["skills.manager.load_failed"]();
 		} finally {
 			loading = false;
 		}
@@ -170,7 +174,7 @@
 			}
 			view = "list";
 		} catch (err) {
-			formError = err instanceof Error ? err.message : "Could not create the skill. Try again.";
+			formError = err instanceof Error ? err.message : m["skills.manager.create_failed"]();
 		} finally {
 			formBusy = false;
 		}
@@ -186,7 +190,7 @@
 			formContent = loaded.data.content;
 			view = "edit";
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load the skill. Try again.";
+			failure = err instanceof Error ? err.message : m["skills.manager.skill_load_failed"]();
 		}
 	}
 
@@ -208,7 +212,7 @@
 			editingDeployment = false;
 			view = "list";
 		} catch (err) {
-			formError = err instanceof Error ? err.message : "Could not save the skill. Try again.";
+			formError = err instanceof Error ? err.message : m["skills.manager.save_failed"]();
 		} finally {
 			formBusy = false;
 		}
@@ -226,7 +230,7 @@
 				userSkills = userSkills.map((entry) => (entry.id === skill.id ? updated.data : entry));
 			}
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not change the skill. Try again.";
+			failure = err instanceof Error ? err.message : m["skills.manager.change_failed"]();
 		}
 	}
 
@@ -234,7 +238,7 @@
 		if (deployment && admin) {
 			// The admin panel's idiom: a `confirm()` naming the blast radius,
 			// matching the connectors section.
-			if (!confirm(`Remove “${skill.name}” for everyone? Nobody will be able to use it.`)) {
+			if (!confirm(m["skills.manager.remove_confirm"]({ name: skill.name }))) {
 				return;
 			}
 			try {
@@ -246,7 +250,7 @@
 					view = "list";
 				}
 			} catch (err) {
-				failure = err instanceof Error ? err.message : "Could not delete the skill. Try again.";
+				failure = err instanceof Error ? err.message : m["skills.manager.delete_failed"]();
 			}
 			return;
 		}
@@ -263,7 +267,7 @@
 				view = "list";
 			}
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not delete the skill. Try again.";
+			failure = err instanceof Error ? err.message : m["skills.manager.delete_failed"]();
 		}
 	}
 
@@ -303,7 +307,7 @@
 			detailId = loaded.data.id;
 			view = "admin";
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load the skill. Try again.";
+			failure = err instanceof Error ? err.message : m["skills.manager.skill_load_failed"]();
 		} finally {
 			detailLoading = false;
 		}
@@ -328,7 +332,7 @@
 			);
 			openFileContent = loaded.data.content;
 		} catch (err) {
-			fileError = err instanceof Error ? err.message : "Could not load that file. Try again.";
+			fileError = err instanceof Error ? err.message : m["skills.manager.file_load_failed"]();
 			openFilePath = null;
 		} finally {
 			openFileLoading = false;
@@ -348,7 +352,7 @@
 			if (detailReadOnly) adminSkills = patched;
 			else userSkills = patched;
 		} catch (err) {
-			fileError = err instanceof Error ? err.message : "Could not remove that file. Try again.";
+			fileError = err instanceof Error ? err.message : m["skills.manager.file_remove_failed"]();
 		}
 	}
 
@@ -375,7 +379,7 @@
 			}
 			view = "list";
 		} catch (err) {
-			importError = err instanceof Error ? err.message : "Could not import that zip.";
+			importError = err instanceof Error ? err.message : m["skills.manager.import_failed"]();
 		} finally {
 			importBusy = false;
 		}
@@ -391,19 +395,20 @@
 	}
 </script>
 
+{#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
+{#snippet code(text: string)}<code>{text}</code>{/snippet}
+
 <div class={s.EMBEDDED}>
 	<div class="p-6">
 		<div class="mb-6">
 			<h2 class="mb-1 text-xl font-semibold text-gray-900 dark:text-gray-200">
-				{admin ? "Skills for everyone" : "Skills"}
+				{admin ? m["skills.manager.title_admin"]() : m["skills.manager.title"]()}
 			</h2>
 			<p class="text-sm text-gray-600 dark:text-gray-400">
 				{#if admin}
-					Built-in skills that everyone's assistant can use. Turning one off stops it for everybody.
-					Deleting one removes it for good.
+					{m["skills.manager.subtitle_admin"]()}
 				{:else}
-					Saved ways of doing things that the assistant can follow: your own skills, plus the
-					built-in ones.
+					{m["skills.manager.subtitle"]()}
 				{/if}
 			</p>
 		</div>
@@ -428,36 +433,38 @@
 						</div>
 						<div>
 							<p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-								{adminSkills.length}
-								{adminSkills.length === 1 ? "built-in skill" : "built-in skills"}
+								{m["skills.manager.admin.count"]({ count: adminSkills.length })}
 							</p>
 							<p class="text-xs text-gray-600 dark:text-gray-400">
-								{deploymentEnabledCount} enabled · changes here apply to everyone
+								{m["skills.manager.admin.enabled"]({ count: deploymentEnabledCount })}
 							</p>
 						</div>
 					</div>
 					<div class="flex gap-2">
 						<button onclick={openImport} class={s.SECONDARY}>
-							<IconUpload class="size-4" /> Import a zip
+							<IconUpload class="size-4" />
+							{m["skills.manager.import_zip"]()}
 						</button>
 						<button onclick={openCreate} class={s.PRIMARY}>
-							<IconAddLarge class="size-4" /> New built-in skill
+							<IconAddLarge class="size-4" />
+							{m["skills.manager.new_builtin"]()}
 						</button>
 					</div>
 				</div>
 
 				<div class="space-y-5">
 					{#if loading}
-						<p class="text-sm text-gray-500 dark:text-gray-400">Loading skills…</p>
+						<p class="text-sm text-gray-500 dark:text-gray-400">{m["skills.manager.loading"]()}</p>
 					{:else if adminSkills.length === 0}
 						<div class={s.EMPTY}>
 							<IconDocument class={s.EMPTY_ICON} />
-							<p class={s.EMPTY_TITLE}>No built-in skills</p>
+							<p class={s.EMPTY_TITLE}>{m["skills.manager.admin.empty_title"]()}</p>
 							<p class={s.EMPTY_DETAIL}>
-								Write one as a SKILL.md file: a short header, then the steps.
+								{m["skills.manager.empty.detail"]()}
 							</p>
 							<button onclick={openCreate} class={s.PRIMARY}>
-								<IconAddLarge class="size-4" /> New built-in skill
+								<IconAddLarge class="size-4" />
+								{m["skills.manager.new_builtin"]()}
 							</button>
 						</div>
 					{:else}
@@ -474,30 +481,33 @@
 														class="mt-0.5 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
 													>
 														<IconFolder class="size-3.5" />
-														{skill.files.length}
-														{skill.files.length === 1 ? "bundled file" : "bundled files"}
+														{m["skills.manager.bundled_files"]({ count: skill.files.length })}
 													</p>
 												{/if}
 											</div>
 											<span class="{s.PILL} {s.PILL_TONES[skill.enabled ? 'good' : 'neutral']}">
-												{skill.enabled ? "On" : "Off"}
+												{skill.enabled ? m["skills.manager.on"]() : m["skills.manager.off"]()}
 											</span>
 										</div>
 										<div class="mt-3 flex flex-wrap gap-1.5">
 											<button onclick={() => void openDetail(skill.id)} class={s.CARD_ACTION}>
-												<IconView class="size-3.5" /> View
+												<IconView class="size-3.5" />
+												{m["skills.manager.view"]()}
 											</button>
 											<button onclick={() => void toggle(skill, true)} class={s.CARD_ACTION}>
-												{skill.enabled ? "Disable" : "Enable"}
+												{skill.enabled
+													? m["skills.manager.disable"]()
+													: m["skills.manager.enable"]()}
 											</button>
-											<button onclick={() => void openEdit(skill, true)} class={s.CARD_ACTION}>
-												Edit
-											</button>
+											<button onclick={() => void openEdit(skill, true)} class={s.CARD_ACTION}
+												>{m["skills.manager.edit"]()}</button
+											>
 											<button
 												onclick={() => void confirmDelete(skill, true)}
 												class={s.CARD_DESTRUCTIVE}
 											>
-												<IconTrash class="size-3.5" /> Delete
+												<IconTrash class="size-3.5" />
+												{m["skills.manager.delete"]()}
 											</button>
 										</div>
 									</div>
@@ -507,19 +517,12 @@
 					{/if}
 
 					<div class={s.TIPS}>
-						<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
+						<h4 class={s.TIPS_TITLE}>{m["skills.manager.tips.title"]()}</h4>
 						<ul class={s.TIPS_LIST}>
-							<li>
-								• Turning a skill off stops it for everybody. Deleting it removes it for good.
-							</li>
-							<li>• A person's own skill of the same name wins over the built-in one for them</li>
-							<li>
-								• Skills can run simple Python in your browser. They can't run shell commands or
-								install packages.
-							</li>
-							<li>
-								• Import a zip of a skill folder to bring along its scripts, notes and other files
-							</li>
+							<li>{m["skills.manager.tips.admin.off"]()}</li>
+							<li>{m["skills.manager.tips.admin.override"]()}</li>
+							<li>{m["skills.manager.tips.python"]()}</li>
+							<li>{m["skills.manager.tips.import"]()}</li>
 						</ul>
 					</div>
 				</div>
@@ -539,42 +542,49 @@
 						</div>
 						<div>
 							<p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-								{userSkills.length}
-								{userSkills.length === 1 ? "skill" : "skills"} of yours
+								{m["skills.manager.user.count"]({ count: userSkills.length })}
 							</p>
 							<p class="text-xs text-gray-600 dark:text-gray-400">
-								{enabledCount} enabled · {adminSkills.length} built-in skills
+								{m["skills.manager.user.enabled"]({
+									enabled: enabledCount,
+									builtin: adminSkills.length,
+								})}
 							</p>
 						</div>
 					</div>
 					<div class="flex gap-2">
 						<button onclick={openImport} class={s.SECONDARY}>
-							<IconUpload class="size-4" /> Import a zip
+							<IconUpload class="size-4" />
+							{m["skills.manager.import_zip"]()}
 						</button>
 						<button onclick={openCreate} class={s.PRIMARY}>
-							<IconAddLarge class="size-4" /> New skill
+							<IconAddLarge class="size-4" />
+							{m["skills.manager.new_skill"]()}
 						</button>
 					</div>
 				</div>
 
 				<div class="space-y-5">
 					{#if loading}
-						<p class="text-sm text-gray-500 dark:text-gray-400">Loading skills…</p>
+						<p class="text-sm text-gray-500 dark:text-gray-400">{m["skills.manager.loading"]()}</p>
 					{:else}
 						{#if userSkills.length === 0}
 							<div class={s.EMPTY}>
 								<IconDocument class={s.EMPTY_ICON} />
-								<p class={s.EMPTY_TITLE}>No skills yet</p>
+								<p class={s.EMPTY_TITLE}>{m["skills.manager.empty.title"]()}</p>
 								<p class={s.EMPTY_DETAIL}>
-									Write one as a SKILL.md file: a short header, then the steps.
+									{m["skills.manager.empty.detail"]()}
 								</p>
 								<button onclick={openCreate} class={s.PRIMARY}>
-									<IconAddLarge class="size-4" /> New skill
+									<IconAddLarge class="size-4" />
+									{m["skills.manager.new_skill"]()}
 								</button>
 							</div>
 						{:else}
 							<div>
-								<h3 class={s.SECTION_TITLE}>Your skills ({userSkills.length})</h3>
+								<h3 class={s.SECTION_TITLE}>
+									{m["skills.manager.user.heading"]({ count: userSkills.length })}
+								</h3>
 								<div class={s.GRID}>
 									{#each userSkills as skill (skill.id)}
 										<div class={s.card(skill.enabled)}>
@@ -588,31 +598,35 @@
 																class="mt-0.5 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
 															>
 																<IconFolder class="size-3.5" />
-																{skill.files.length}
-																{skill.files.length === 1 ? "bundled file" : "bundled files"}
+																{m["skills.manager.bundled_files"]({ count: skill.files.length })}
 															</p>
 														{/if}
 													</div>
 													<span class="{s.PILL} {s.PILL_TONES[skill.enabled ? 'good' : 'neutral']}">
-														{skill.enabled ? "On" : "Off"}
+														{skill.enabled ? m["skills.manager.on"]() : m["skills.manager.off"]()}
 													</span>
 												</div>
 												<div class="mt-3 flex flex-wrap gap-1.5">
 													<button onclick={() => void openDetail(skill.id)} class={s.CARD_ACTION}>
-														<IconView class="size-3.5" /> View
+														<IconView class="size-3.5" />
+														{m["skills.manager.view"]()}
 													</button>
 													<button onclick={() => void toggle(skill)} class={s.CARD_ACTION}>
-														{skill.enabled ? "Disable" : "Enable"}
+														{skill.enabled
+															? m["skills.manager.disable"]()
+															: m["skills.manager.enable"]()}
 													</button>
-													<button onclick={() => void openEdit(skill)} class={s.CARD_ACTION}>
-														Edit
-													</button>
+													<button onclick={() => void openEdit(skill)} class={s.CARD_ACTION}
+														>{m["skills.manager.edit"]()}</button
+													>
 													<button
 														onclick={() => void confirmDelete(skill)}
 														class={s.CARD_DESTRUCTIVE}
 													>
 														<IconTrash class="size-3.5" />
-														{deleteArmed === skill.id ? "Confirm delete" : "Delete"}
+														{deleteArmed === skill.id
+															? m["skills.manager.confirm_delete"]()
+															: m["skills.manager.delete"]()}
 													</button>
 												</div>
 											</div>
@@ -625,7 +639,7 @@
 						{#if adminSkills.length > 0}
 							<div>
 								<h3 class={s.SECTION_TITLE}>
-									Built-in skills ({adminSkills.length}) — read-only
+									{m["skills.manager.builtin.heading"]({ count: adminSkills.length })}
 								</h3>
 								<div class={s.GRID}>
 									{#each adminSkills as skill (skill.id)}
@@ -636,11 +650,14 @@
 														<p class={s.CARD_TITLE}>{skill.name}</p>
 														<p class={s.CARD_SUBTITLE}>{skill.description}</p>
 													</div>
-													<span class="{s.PILL} {s.PILL_TONES.neutral}">Built-in</span>
+													<span class="{s.PILL} {s.PILL_TONES.neutral}"
+														>{m["skills.manager.builtin.pill"]()}</span
+													>
 												</div>
 												<div class="mt-3 flex flex-wrap gap-1.5">
 													<button onclick={() => void openAdmin(skill.id)} class={s.CARD_ACTION}>
-														<IconView class="size-3.5" /> View
+														<IconView class="size-3.5" />
+														{m["skills.manager.view"]()}
 													</button>
 												</div>
 											</div>
@@ -652,20 +669,13 @@
 					{/if}
 
 					<div class={s.TIPS}>
-						<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
+						<h4 class={s.TIPS_TITLE}>{m["skills.manager.tips.title"]()}</h4>
 						<ul class={s.TIPS_LIST}>
-							<li>• Type @name in a chat to make the assistant use that skill</li>
-							<li>• Otherwise the assistant picks a skill itself when it fits the task</li>
-							<li>
-								• Skills can run simple Python in your browser. They can't run shell commands or
-								install packages.
-							</li>
-							<li>
-								• Everyone can use the built-in skills. Only an administrator can change them.
-							</li>
-							<li>
-								• Import a zip of a skill folder to bring along its scripts, notes and other files
-							</li>
+							<li>{m["skills.manager.tips.mention"]()}</li>
+							<li>{m["skills.manager.tips.auto"]()}</li>
+							<li>{m["skills.manager.tips.python"]()}</li>
+							<li>{m["skills.manager.tips.builtin"]()}</li>
+							<li>{m["skills.manager.tips.import"]()}</li>
 						</ul>
 					</div>
 				</div>
@@ -673,25 +683,33 @@
 		{:else if view === "create" || view === "edit"}
 			<div class="mb-4">
 				<button onclick={back} class={s.CARD_ACTION}>
-					<IconArrowLeft class="size-3.5" /> Back to skills
+					<IconArrowLeft class="size-3.5" />
+					{m["skills.manager.back"]()}
 				</button>
 			</div>
 			<h3 class="mb-1 text-base font-semibold text-gray-900 dark:text-gray-100">
 				{view === "create"
 					? admin
-						? "New built-in skill"
-						: "New skill"
-					: `Edit ${editing?.name ?? "skill"}`}
+						? m["skills.manager.new_builtin"]()
+						: m["skills.manager.new_skill"]()
+					: m["skills.manager.edit_title"]({
+							name: editing?.name ?? m["skills.manager.edit_fallback"](),
+						})}
 			</h3>
 			<p class="mb-4 text-sm text-gray-600 dark:text-gray-400">
-				A SKILL.md file starts with a header with <code>name</code> and
-				<code>description</code>, then the steps in plain text.
-				{#if admin}Everyone can use it once it is saved.{/if}
+				<Rich
+					parts={m["skills.manager.form.description"].parts({
+						name: "name",
+						description: "description",
+					})}
+					tags={{ code }}
+				/>
+				{#if admin}{m["skills.manager.form.admin_saved"]()}{/if}
 			</p>
 			{#if formError}
 				<div class="{s.ERROR} mb-4" role="alert">{formError}</div>
 			{/if}
-			<label class={s.LABEL} for="skill-content">SKILL.md</label>
+			<label class={s.LABEL} for="skill-content">{m["skills.manager.form.file_label"]()}</label>
 			<textarea
 				id="skill-content"
 				bind:value={formContent}
@@ -708,7 +726,11 @@
 						class={s.PRIMARY}
 					>
 						<IconAddLarge class="size-4" />
-						{formBusy ? "Creating…" : admin ? "Create built-in skill" : "Create skill"}
+						{formBusy
+							? m["skills.manager.form.creating"]()
+							: admin
+								? m["skills.manager.form.create_builtin"]()
+								: m["skills.manager.form.create"]()}
 					</button>
 				{:else}
 					<button
@@ -716,29 +738,37 @@
 						disabled={formBusy || !formContent.trim()}
 						class={s.PRIMARY}
 					>
-						{formBusy ? "Saving…" : "Save changes"}
+						{formBusy ? m["skills.manager.form.saving"]() : m["skills.manager.form.save_changes"]()}
 					</button>
 				{/if}
-				<button onclick={back} class={s.SECONDARY}>Cancel</button>
+				<button onclick={back} class={s.SECONDARY}>{m["skills.manager.cancel"]()}</button>
 			</div>
 		{:else if view === "import"}
 			<div class="mb-4">
 				<button onclick={back} class={s.CARD_ACTION}>
-					<IconArrowLeft class="size-3.5" /> Back to skills
+					<IconArrowLeft class="size-3.5" />
+					{m["skills.manager.back"]()}
 				</button>
 			</div>
 			<h3 class="mb-1 text-base font-semibold text-gray-900 dark:text-gray-100">
-				{admin ? "Import a built-in skill" : "Import a skill"}
+				{admin ? m["skills.manager.import.title_admin"]() : m["skills.manager.import.title"]()}
 			</h3>
 			<p class="mb-4 text-sm text-gray-600 dark:text-gray-400">
-				A zip of a skill folder: <code>SKILL.md</code> at the root, plus any
-				<code>scripts/</code>, <code>references/</code> or <code>assets/</code> files beside it.
-				{#if admin}Everyone can use it once it is imported.{/if}
+				<Rich
+					parts={m["skills.manager.import.description"].parts({
+						skill: "SKILL.md",
+						scripts: "scripts/",
+						references: "references/",
+						assets: "assets/",
+					})}
+					tags={{ code }}
+				/>
+				{#if admin}{m["skills.manager.import.admin_imported"]()}{/if}
 			</p>
 			{#if importError}
 				<div class="{s.ERROR} mb-4" role="alert">{importError}</div>
 			{/if}
-			<label class={s.LABEL} for="skill-zip">Skill zip</label>
+			<label class={s.LABEL} for="skill-zip">{m["skills.manager.import.zip_label"]()}</label>
 			<input
 				id="skill-zip"
 				type="file"
@@ -755,23 +785,32 @@
 					class={s.PRIMARY}
 				>
 					<IconUpload class="size-4" />
-					{importBusy ? "Importing…" : admin ? "Import built-in skill" : "Import skill"}
+					{importBusy
+						? m["skills.manager.import.importing"]()
+						: admin
+							? m["skills.manager.import.button_admin"]()
+							: m["skills.manager.import.button"]()}
 				</button>
-				<button onclick={back} class={s.SECONDARY}>Cancel</button>
+				<button onclick={back} class={s.SECONDARY}>{m["skills.manager.cancel"]()}</button>
 			</div>
 		{:else}
 			<div class="mb-4">
 				<button onclick={back} class={s.CARD_ACTION}>
-					<IconArrowLeft class="size-3.5" /> Back to skills
+					<IconArrowLeft class="size-3.5" />
+					{m["skills.manager.back"]()}
 				</button>
 			</div>
 			{#if detailLoading}
-				<p class="text-sm text-gray-500 dark:text-gray-400">Loading skill…</p>
+				<p class="text-sm text-gray-500 dark:text-gray-400">
+					{m["skills.manager.detail.loading"]()}
+				</p>
 			{:else}
 				<div class="mb-2 flex items-center gap-2">
 					<h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{detailName}</h3>
 					{#if detailReadOnly}
-						<span class="{s.PILL} {s.PILL_TONES.neutral}">Read-only built-in skill</span>
+						<span class="{s.PILL} {s.PILL_TONES.neutral}"
+							>{m["skills.manager.detail.read_only"]()}</span
+						>
 					{/if}
 				</div>
 				<p class="mb-4 text-sm text-gray-600 dark:text-gray-400">{detailDescription}</p>
@@ -781,7 +820,7 @@
 				{#if detailFiles.length > 0}
 					<div class="mt-4">
 						<h4 class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-							Bundled files ({detailFiles.length})
+							{m["skills.manager.detail.files"]({ count: detailFiles.length })}
 						</h4>
 						{#if fileError}
 							<div class="{s.ERROR} mb-2" role="alert">{fileError}</div>
@@ -796,11 +835,14 @@
 										<div class="flex shrink-0 gap-1.5">
 											<button onclick={() => void viewFile(path)} class={s.CARD_ACTION}>
 												<IconView class="size-3.5" />
-												{openFilePath === path ? "Hide" : "View"}
+												{openFilePath === path
+													? m["skills.manager.detail.hide"]()
+													: m["skills.manager.view"]()}
 											</button>
 											{#if !detailReadOnly}
 												<button onclick={() => void removeFile(path)} class={s.CARD_DESTRUCTIVE}>
-													<IconTrash class="size-3.5" /> Remove
+													<IconTrash class="size-3.5" />
+													{m["skills.manager.detail.remove"]()}
 												</button>
 											{/if}
 										</div>
@@ -808,7 +850,9 @@
 									{#if openFilePath === path}
 										<div class="border-t border-gray-200 px-3 py-2 dark:border-gray-700">
 											{#if openFileLoading}
-												<p class="text-xs text-gray-500 dark:text-gray-400">Loading…</p>
+												<p class="text-xs text-gray-500 dark:text-gray-400">
+													{m["skills.manager.detail.file_loading"]()}
+												</p>
 											{:else}
 												<pre
 													class="scrollbar-custom max-h-64 overflow-auto text-xs whitespace-pre-wrap text-gray-800 dark:text-gray-200">{openFileContent}</pre>
