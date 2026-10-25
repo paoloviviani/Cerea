@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	interface Props {
 		isCollapsed: boolean;
 		onClick: () => void;
@@ -10,12 +11,12 @@
 
 <button
 	onclick={onClick}
-	title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+	title={isCollapsed ? m["app.expand_navigation.expand"]() : m["app.expand_navigation.collapse"]()}
 	class="{classNames} group flex h-16 w-6 flex-col items-center justify-center -space-y-1 outline-hidden *:h-3 *:w-1 *:rounded-full hover:*:bg-gray-400 max-md:hidden dark:hover:*:bg-gray-400 {!isCollapsed
 		? '*:bg-gray-300/70 dark:*:bg-gray-600'
 		: '*:bg-gray-300/70 dark:*:bg-gray-600'}"
 	name="sidebar-toggle"
-	aria-label="Show or hide the sidebar"
+	aria-label={m["app.expand_navigation.toggle_label"]()}
 >
 	<div class={!isCollapsed ? "group-hover:rotate-20" : "group-hover:rotate-[-20deg]"}></div>
 	<div class={!isCollapsed ? "group-hover:rotate-[-20deg]" : "group-hover:rotate-20"}></div>

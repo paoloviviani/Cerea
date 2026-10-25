@@ -17,12 +17,15 @@
 	server, where a relative fetch has no origin.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount, tick } from "svelte";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
 	import { handleResponse, useAPIClient } from "$lib/APIClient";
 	import { MAX_TITLE_QUERY_LENGTH } from "$lib/constants/pagination";
 	import { formatRelativeTime } from "$lib/utils/relativeTime";
+	import { formatDateTime } from "$lib/i18n/format";
+	import { FULL_DATE_TIME } from "$lib/i18n/dateOptions";
 	import type { ProjectView } from "$lib/types/Project";
 	import InfiniteScroll from "$lib/components/InfiniteScroll.svelte";
 	import * as s from "$lib/components/overlay/styles";
@@ -100,7 +103,7 @@
 			failure = null;
 		} catch (err) {
 			if (mine !== generation) return;
-			failure = err instanceof Error ? err.message : "Could not load your chats. Try again.";
+			failure = err instanceof Error ? err.message : m["chat.list.load_failed"]();
 			hasMore = false;
 		} finally {
 			if (mine === generation) loading = false;
@@ -166,8 +169,8 @@
 
 <div class="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
 	<header>
-		<h1 class="text-xl font-semibold text-ink">Chats</h1>
-		<p class={s.SUBTITLE}>All your chats, newest first, including chats in projects.</p>
+		<h1 class="text-xl font-semibold text-ink">{m["chat.list.title"]()}</h1>
+		<p class={s.SUBTITLE}>{m["chat.list.subtitle"]()}</p>
 	</header>
 
 	<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto">
@@ -178,21 +181,22 @@
 				</div>
 				<div>
 					<p class={s.STRIP_HEADLINE}>
-						{#if searching}Matching “{query.trim()}”{:else}All chats{/if}
+						{#if searching}{m["chat.list.matching"]({ query: query.trim() })}{:else}{m["chat.list.all"]()}{/if}
 					</p>
 					<p class={s.STRIP_DETAIL} role="status" aria-live="polite">
 						{#if loading && rows.length === 0}
-							Loading…
+							{m["chat.list.loading"]()}
+						{:else if searching}
+							{m["chat.list.count_found"]({ count: rows.length, more: hasMore ? "+" : "" })}
 						{:else}
-							{rows.length}{hasMore ? "+" : ""}
-							{rows.length === 1 ? "chat" : "chats"}{searching ? " found" : ""}
+							{m["chat.list.count"]({ count: rows.length, more: hasMore ? "+" : "" })}
 						{/if}
 					</p>
 				</div>
 			</div>
 			<a href="{base}/" class={s.PRIMARY}>
 				<IconAddLarge class="size-4" />
-				New chat
+				{m["chat.list.new_chat"]()}
 			</a>
 		</div>
 
@@ -213,8 +217,8 @@
 				type="search"
 				name="chat-search"
 				data-testid="chats-search"
-				aria-label="Search chats by title"
-				placeholder="Search chats by title"
+				aria-label={m["chat.list.search"]()}
+				placeholder={m["chat.list.search"]()}
 				maxlength={MAX_TITLE_QUERY_LENGTH}
 				autocomplete="off"
 				spellcheck="false"
@@ -224,7 +228,7 @@
 				<button
 					type="button"
 					onclick={clear}
-					aria-label="Clear search"
+					aria-label={m["chat.list.clear_search"]()}
 					class="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-ink-faint hover:bg-sunken hover:text-ink"
 				>
 					<IconClose class="size-4" />
@@ -252,7 +256,7 @@
 								>
 									<time
 										datetime={new Date(row.updatedAt).toISOString()}
-										title={new Date(row.updatedAt).toLocaleString()}
+										title={formatDateTime(row.updatedAt, FULL_DATE_TIME)}
 									>
 										{formatRelativeTime(row.updatedAt)}
 									</time>
@@ -262,7 +266,7 @@
 									{#if row.projectId}
 										<span class="{s.PILL} {s.PILL_TONES.busy} max-w-full min-w-0">
 											<LucideFolderOpen class="size-3 shrink-0" />
-											<span class="truncate">{projectNames[row.projectId] ?? "Project"}</span>
+											<span class="truncate">{projectNames[row.projectId] ?? m["chat.list.project_fallback"]()}</span>
 										</span>
 									{/if}
 								</div>
@@ -294,22 +298,22 @@
 				<InfiniteScroll onvisible={more} />
 			{/if}
 		{:else if loading}
-			<p class={s.SUBTITLE}>Loading…</p>
+			<p class={s.SUBTITLE}>{m["chat.list.loading"]()}</p>
 		{:else if !failure}
 			<div class={s.EMPTY} data-testid={searching ? "chats-no-results" : "chats-empty"}>
 				<IconChat class={s.EMPTY_ICON} />
 				{#if searching}
-					<p class={s.EMPTY_TITLE}>No chats match “{query.trim()}”</p>
+					<p class={s.EMPTY_TITLE}>{m["chat.list.no_match"]({ query: query.trim() })}</p>
 					<p class={s.EMPTY_DETAIL}>
-						Only titles are searched. Capital letters and accents are ignored.
+						{m["chat.list.no_match_detail"]()}
 					</p>
-					<button type="button" onclick={clear} class={s.SECONDARY}>Show all chats</button>
+					<button type="button" onclick={clear} class={s.SECONDARY}>{m["chat.list.show_all"]()}</button>
 				{:else}
-					<p class={s.EMPTY_TITLE}>No chats yet</p>
-					<p class={s.EMPTY_DETAIL}>Your chats will appear here, newest first</p>
+					<p class={s.EMPTY_TITLE}>{m["chat.list.empty"]()}</p>
+					<p class={s.EMPTY_DETAIL}>{m["chat.list.empty_detail"]()}</p>
 					<a href="{base}/" class={s.PRIMARY}>
 						<IconAddLarge class="size-4" />
-						Start a chat
+						{m["chat.list.start"]()}
 					</a>
 				{/if}
 			</div>

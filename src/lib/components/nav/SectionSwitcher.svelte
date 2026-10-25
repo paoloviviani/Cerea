@@ -14,6 +14,7 @@
 	focus starts on the current section and goes back to the button afterwards.
 -->
 <script lang="ts" module>
+	import { m } from "$lib/paraglide/messages";
 	import type { Component, ComponentType, SvelteComponent } from "svelte";
 
 	export interface Section {
@@ -56,7 +57,7 @@
 		type="button"
 		aria-haspopup="dialog"
 		aria-expanded={open}
-		aria-label="{label}: {active.label}"
+		aria-label={m["nav.section_switcher.label"]({ label, section: active.label })}
 		onclick={() => (open = true)}
 		data-testid="section-switcher"
 		class="flex w-fit max-w-full items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 md:hidden dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"

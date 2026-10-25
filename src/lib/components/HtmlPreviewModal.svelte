@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import Modal from "./Modal.svelte";
 	import ExternalLinkModal from "./ExternalLinkModal.svelte";
 	import { onMount, onDestroy } from "svelte";
@@ -86,7 +87,7 @@
 	<div class="relative h-dvh w-dvw">
 		<iframe
 			bind:this={iframeEl}
-			title="Preview"
+			title={m["app.html_preview.title"]()}
 			class="h-full w-full"
 			sandbox={PREVIEW_SANDBOX}
 			allow={PREVIEW_ALLOW}
@@ -98,24 +99,24 @@
 		<!-- Close button with visible container -->
 		<button
 			class="fixed top-4 right-6 z-50 btn flex h-7 items-center gap-1 rounded-lg border border-gray-500/60 bg-gray-800 px-2 text-xs text-white shadow-xs backdrop-blur-sm transition-none hover:border-gray-500 hover:bg-gray-700 active:shadow-inner"
-			title="Close preview (Esc)"
+			title={m["app.html_preview.close_title"]()}
 			onclick={() => onclose?.()}
 		>
 			<CarbonClose class="size-3.5" />
-			Close preview
+			{m["app.html_preview.close"]()}
 		</button>
 
 		{#if errors.length > 0 && onsend}
 			<button
 				class="fixed right-4 bottom-4 z-50 btn flex items-center gap-2 rounded-full border-2 border-red-500/60 bg-red-800/90 px-4 py-1.5 text-sm text-white shadow-lg"
-				title="Send the problems and ask for a fix"
+				title={m["app.html_preview.fix_title"]()}
 				onclick={() => {
 					// Close only once the message is actually on its way, so the
 					// preview (and the errors backing the request) stays up otherwise
 					if (onsend?.(composeFixRequest(errors))) onclose?.();
 				}}
 			>
-				<span>Problem found ({errors.length}): ask for a fix</span>
+				<span>{m["app.html_preview.fix"]({ count: errors.length })}</span>
 			</button>
 		{/if}
 	</div>

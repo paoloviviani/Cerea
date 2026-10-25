@@ -8,6 +8,7 @@
 	closes; the toast and the sidebar update come from `useMoveConversation`.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import Modal from "$lib/components/Modal.svelte";
@@ -78,7 +79,7 @@
 					id="move-to-project-title"
 					class="text-lg font-semibold text-gray-800 dark:text-gray-200"
 				>
-					Move to project
+					{m["app.move_to_project.title"]()}
 				</h2>
 				<p class="truncate text-sm text-gray-500 dark:text-gray-400">{chat.title}</p>
 			</div>
@@ -86,7 +87,7 @@
 				type="button"
 				class="flex size-6 shrink-0 items-center justify-center text-gray-700 hover:text-gray-500 dark:text-gray-300 dark:hover:text-gray-400"
 				onclick={onclose}
-				aria-label="Close"
+				aria-label={m["app.close"]()}
 			>
 				<CarbonClose class="size-5" />
 			</button>
@@ -100,8 +101,8 @@
 				<input
 					type="search"
 					bind:value={query}
-					placeholder="Search projects"
-					aria-label="Search projects"
+					placeholder={m["app.move_to_project.search"]()}
+					aria-label={m["app.move_to_project.search"]()}
 					autocomplete="off"
 					class="h-10 w-full rounded-lg border border-gray-200 bg-white pr-3 pl-9 text-sm text-gray-800 focus:border-gray-400 focus:outline-hidden dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
 				/>
@@ -111,19 +112,19 @@
 		<div
 			class="scrollbar-custom flex max-h-72 flex-col gap-0.5 overflow-y-auto"
 			role="group"
-			aria-label="Projects"
+			aria-label={m["app.move_to_project.projects"]()}
 		>
 			{#if failed}
 				<p class="px-2 py-3 text-sm text-red-600 dark:text-red-400">
-					Could not load your projects. Try again.
+					{m["app.move_to_project.load_failed"]()}
 				</p>
 			{:else if projects === null}
-				<p class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+				<p class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">{m["app.move_to_project.loading"]()}</p>
 			{:else}
 				{#if chat.projectId}
 					<button type="button" class={ROW} disabled={busy} onclick={() => choose(null)}>
 						<LucideFolderMinus class="size-4 shrink-0 opacity-80" />
-						<span class="min-w-0 flex-1 truncate">None (remove from project)</span>
+						<span class="min-w-0 flex-1 truncate">{m["app.move_to_project.none"]()}</span>
 					</button>
 				{/if}
 				{#each shown as project (project.id)}
@@ -140,13 +141,13 @@
 						{#if here}
 							<span class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
 								<CarbonCheckmark class="size-3.5" />
-								Current
+								{m["app.move_to_project.current"]()}
 							</span>
 						{/if}
 					</button>
 				{:else}
 					<p class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
-						{projects.length === 0 ? "You have no projects yet." : "No project matches."}
+						{projects.length === 0 ? m["app.move_to_project.no_projects"]() : m["app.move_to_project.no_match"]()}
 					</p>
 				{/each}
 			{/if}

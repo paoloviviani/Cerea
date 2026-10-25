@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * Talking to the gateway from a page, through this app's own forwarder.
  *
@@ -28,7 +29,7 @@ export class GatewayError extends Error {
 async function unwrap<T>(response: Response): Promise<T> {
 	const text = await response.text();
 	if (!response.ok) {
-		let message = text || `The gateway answered ${response.status}.`;
+		let message = text || m["app.gateway.answered"]({ status: response.status });
 		try {
 			const parsed = JSON.parse(text) as {
 				error?: { message?: string };

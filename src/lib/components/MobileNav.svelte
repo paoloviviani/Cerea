@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	import { m } from "$lib/paraglide/messages";
 	let isOpen = $state(false);
 
 	export function closeMobileNav() {
@@ -51,7 +52,7 @@
 	const drawerWidthPercentage = 85;
 
 	$effect(() => {
-		title ??= "New Chat";
+		title ??= m["app.default_chat_title"]();
 	});
 
 	beforeNavigate(() => {
@@ -242,7 +243,7 @@
 		type="button"
 		class="-ml-3 flex size-12 shrink-0 items-center justify-center text-lg"
 		onclick={() => (isOpen = true)}
-		aria-label="Open menu"
+		aria-label={m["app.mobile_nav.open_menu"]()}
 		bind:this={openEl}><IconBurger /></button
 	>
 	<div class="flex h-full items-center justify-center overflow-hidden">
@@ -266,8 +267,8 @@
 				type="button"
 				class="flex h-12 w-6 shrink-0 items-center justify-center text-lg"
 				onclick={() => sidePane.toggleLibrary()}
-				aria-label="Open files panel"
-				title="Files and chat export"
+				aria-label={m["app.mobile_nav.open_files"]()}
+				title={m["app.mobile_nav.files_title"]()}
 			>
 				<CarbonSidePanelOpen />
 			</button>
@@ -293,7 +294,7 @@
 		class="fixed inset-0 z-20 cursor-default bg-black/30 md:hidden"
 		style="opacity: {Math.max(0, Math.min(1, (100 + tween.current) / 100))}; will-change: opacity;"
 		onclick={closeDrawer}
-		aria-label="Close menu"
+		aria-label={m["app.mobile_nav.close_menu"]()}
 	></button>
 {/if}
 

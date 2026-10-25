@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { tap } from "$lib/utils/haptics";
 
 	interface Props {
@@ -56,8 +57,8 @@
 <div
 	aria-checked={checked}
 	aria-disabled={disabled}
-	aria-roledescription="switch"
-	aria-label="switch"
+	aria-roledescription={m["app.switch.role_description"]()}
+	aria-label={m["app.switch.label"]()}
 	role="switch"
 	tabindex={disabled ? -1 : 0}
 	onclick={onToggleClick}

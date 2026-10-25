@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onDestroy } from "svelte";
 	import { confirm as hapticConfirm } from "$lib/utils/haptics";
 
@@ -76,7 +77,7 @@
 
 <button
 	class={classNames}
-	title={"Copy to clipboard"}
+	title={m["app.copy.title"]()}
 	type="button"
 	onclick={() => {
 		onClick?.();

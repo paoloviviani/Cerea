@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
 	import { fade } from "svelte/transition";
 	import Portal from "./Portal.svelte";
@@ -8,9 +9,9 @@
 	const notifications = useNotificationsStore();
 
 	function label(status: GenerationStatus): string {
-		if (status === "completed") return "Response ready";
-		if (status === "interrupted") return "Generation stopped";
-		return "Generation failed";
+		if (status === "completed") return m["app.notification.completed"]();
+		if (status === "interrupted") return m["app.notification.interrupted"]();
+		return m["app.notification.failed"]();
 	}
 
 	function dotClass(status: GenerationStatus): string {

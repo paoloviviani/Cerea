@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
 	import { tick } from "svelte";
@@ -82,8 +83,8 @@
 	{#if activeGenerations.has(conv.id)}
 		<span
 			class="size-1.5 flex-none animate-pulse rounded-full bg-blue-500 dark:bg-blue-400"
-			title="Generating…"
-			aria-label="Generating"
+			title={m["app.nav_item.generating"]()}
+			aria-label={m["app.nav_item.generating_label"]()}
 		></span>
 	{/if}
 	{#if inlineEditing}
@@ -133,8 +134,8 @@
 			>
 				<DropdownMenu.Trigger
 					class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-200 hover:text-gray-600 data-[state=open]:bg-gray-200 data-[state=open]:text-gray-600 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-600 dark:hover:text-gray-200 dark:data-[state=open]:bg-gray-600 dark:data-[state=open]:text-gray-200"
-					aria-label="Chat actions"
-					title="More options"
+					aria-label={m["app.nav_item.actions"]()}
+					title={m["app.nav_item.more_options"]()}
 				>
 					<LucideEllipsis class="text-sm" />
 				</DropdownMenu.Trigger>
@@ -153,21 +154,21 @@
 							onSelect={() => (renameOpen = true)}
 						>
 							<CarbonEdit class="size-4 opacity-90 dark:opacity-80" />
-							Rename
+							{m["app.nav_item.rename"]()}
 						</DropdownMenu.Item>
 						<DropdownMenu.Item
 							class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
 							onSelect={() => (moveOpen = true)}
 						>
 							<LucideFolderInput class="size-4 opacity-90 dark:opacity-80" />
-							Move to project…
+							{m["app.nav_item.move"]()}
 						</DropdownMenu.Item>
 						<DropdownMenu.Item
 							class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-red-500 select-none focus-visible:outline-hidden data-highlighted:bg-red-50 data-highlighted:text-red-600 sm:h-8 dark:text-red-400 dark:data-highlighted:bg-red-500/10 dark:data-highlighted:text-red-400"
 							onSelect={() => (deleteOpen = true)}
 						>
 							<CarbonTrashCan class="size-4 opacity-90 dark:opacity-80" />
-							Delete
+							{m["app.nav_item.delete"]()}
 						</DropdownMenu.Item>
 					</DropdownMenu.Content>
 				</DropdownMenu.Portal>
