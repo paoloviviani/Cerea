@@ -62,14 +62,14 @@ spread is thinner. Outside Europe, use `best_match,ecmwf_ifs025,gfs_seamless`.
 
 Open-Meteo returns numbers. Translate them:
 
-| Code | Meaning | Code | Meaning |
-|---|---|---|---|
-| 0 | Clear | 61 / 63 / 65 | Rain: light / moderate / heavy |
-| 1 / 2 / 3 | Mainly clear / partly cloudy / overcast | 66 / 67 | Freezing rain |
-| 45 / 48 | Fog / rime fog | 71 / 73 / 75 | Snow: light / moderate / heavy |
-| 51 / 53 / 55 | Drizzle: light / moderate / dense | 77 | Snow grains |
-| 56 / 57 | Freezing drizzle | 80 / 81 / 82 | Showers: light / moderate / violent |
-| 85 / 86 | Snow showers | 95 / 96 / 99 | Thunderstorm (96 and 99 with hail) |
+| Code         | Meaning                                 | Code         | Meaning                             |
+| ------------ | --------------------------------------- | ------------ | ----------------------------------- |
+| 0            | Clear                                   | 61 / 63 / 65 | Rain: light / moderate / heavy      |
+| 1 / 2 / 3    | Mainly clear / partly cloudy / overcast | 66 / 67      | Freezing rain                       |
+| 45 / 48      | Fog / rime fog                          | 71 / 73 / 75 | Snow: light / moderate / heavy      |
+| 51 / 53 / 55 | Drizzle: light / moderate / dense       | 77           | Snow grains                         |
+| 56 / 57      | Freezing drizzle                        | 80 / 81 / 82 | Showers: light / moderate / violent |
+| 85 / 86      | Snow showers                            | 95 / 96 / 99 | Thunderstorm (96 and 99 with hail)  |
 
 ## 5. Quick check: wttr.in
 
