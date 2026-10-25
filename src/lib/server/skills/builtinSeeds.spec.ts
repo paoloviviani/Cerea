@@ -40,6 +40,7 @@ const DIRECTORY_SKILLS = [
 	"pdf-tools",
 	"powerpoint",
 	"themes",
+	"weather",
 	"word",
 ];
 
@@ -148,7 +149,9 @@ describe("seed bootstrap", () => {
 	it("is idempotent: a second pass inserts nothing", async () => {
 		await ensureDeploymentSeeds();
 		await ensureDeploymentSeeds();
-		expect(await collections.skills.countDocuments({ scope: "deployment" })).toBe(12);
+		expect(await collections.skills.countDocuments({ scope: "deployment" })).toBe(
+			INLINE_SEEDS.length + DIRECTORY_SKILLS.length
+		);
 	});
 });
 
