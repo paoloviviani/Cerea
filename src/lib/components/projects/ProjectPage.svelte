@@ -53,6 +53,7 @@
 		connectorsLoaded as mcpConnectorsLoaded,
 		refreshConnectors as refreshMcpConnectors,
 	} from "$lib/stores/mcpConnectors";
+	import { allMcpServers } from "$lib/stores/mcpServers";
 	import { GatewayError, gwGet, type BillableGroup, type VectorStore } from "$lib/gateway";
 	import ProjectMemorySection from "./ProjectMemorySection.svelte";
 	import ProjectDocumentsSection from "./ProjectDocumentsSection.svelte";
@@ -291,6 +292,35 @@
 			busy = false;
 		}
 	}
+
+	// What the project can switch on for new chats. The deployment's own servers
+	// (the `.env` base servers and administrators' connectors, as Workspace →
+	// Connectors groups them) first, then the person's own
+	// (including their machines', as before). A base server's id is `base-…`; both kinds
+	// are stored in the same list.
+	const builtInDefaults = $derived(
+		[
+			...$allMcpServers
+				.filter((server) => server.type === "base")
+				.map((server) => ({ id: server.id, name: server.name, connected: true })),
+			...$mcpConnectors
+				.filter((connector) => connector.scope === "deployment")
+				.map((connector) => ({
+					id: connector.id,
+					name: connector.name,
+					connected: connector.connected,
+				})),
+		].sort((x, y) => x.name.localeCompare(y.name))
+	);
+	const ownDefaults = $derived(
+		$mcpConnectors
+			.filter((connector) => connector.scope !== "deployment")
+			.map((connector) => ({
+				id: connector.id,
+				name: connector.name,
+				connected: connector.connected,
+			}))
+	);
 
 	function toggleDefaultConnector(connectorId: string) {
 		defaultConnectors = defaultConnectors.includes(connectorId)
@@ -786,27 +816,34 @@
 							<span class="text-sm text-ink">MCPs on by default:</span>
 							{#if !$mcpConnectorsLoaded}
 								<p class={s.HINT}>Loading connectors…</p>
-							{:else if $mcpConnectors.length === 0}
+							{:else if builtInDefaults.length + ownDefaults.length === 0}
 								<p class={s.HINT}>No connectors yet. Add one under Workspace → MCP Servers.</p>
 							{:else}
 								<div class="mt-1 max-h-40 space-y-1 overflow-y-auto">
-									{#each $mcpConnectors as connector (connector.id)}
-										<div class="flex items-center gap-2 text-sm">
-											<Switch
-												name={`project-default-connector-${connector.id}`}
-												disabled={busy || !owned || !connector.connected}
-												bind:checked={
-													() => defaultConnectors.includes(connector.id),
-													() => toggleDefaultConnector(connector.id)
-												}
-											/>
-											<span>
-												{connector.name}
-												{#if !connector.connected}
-													<span class="text-xs text-ink-faint">· not signed in</span>
-												{/if}
-											</span>
-										</div>
+									{#each [{ key: "built-in", heading: "Built-in", rows: builtInDefaults }, { key: "own", heading: "Your connectors", rows: ownDefaults }] as group (group.key)}
+										{#if group.rows.length > 0}
+											{#if builtInDefaults.length > 0 && ownDefaults.length > 0}
+												<p class="pt-1 text-xs font-medium text-ink-muted">{group.heading}</p>
+											{/if}
+											{#each group.rows as row (row.id)}
+												<div class="flex items-center gap-2 text-sm">
+													<Switch
+														name={`project-default-connector-${row.id}`}
+														disabled={busy || !owned || !row.connected}
+														bind:checked={
+															() => defaultConnectors.includes(row.id),
+															() => toggleDefaultConnector(row.id)
+														}
+													/>
+													<span>
+														{row.name}
+														{#if !row.connected}
+															<span class="text-xs text-ink-faint">· not signed in</span>
+														{/if}
+													</span>
+												</div>
+											{/each}
+										{/if}
 									{/each}
 								</div>
 							{/if}
