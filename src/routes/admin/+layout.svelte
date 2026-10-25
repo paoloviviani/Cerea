@@ -15,6 +15,7 @@
 -->
 <script lang="ts">
 	import { page } from "$app/state";
+	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
 	import IconBook from "~icons/carbon/book";
 	import IconDataBase from "~icons/carbon/data-base";
@@ -36,15 +37,15 @@
 	// section that exists, so nothing lands on the missing one.
 	const sections = $derived([
 		...((page.data as { knowledgeEnabled?: boolean }).knowledgeEnabled !== false
-			? [{ href: "/admin/knowledge", label: "Knowledge", icon: IconBook }]
+			? [{ href: "/admin/knowledge", label: m["admin.layout.section.knowledge"](), icon: IconBook }]
 			: []),
-		{ href: "/admin/web-search", label: "Web search", icon: IconSearch },
-		{ href: "/admin/fetch", label: "Fetching", icon: IconDocument },
-		{ href: "/admin/connectors", label: "Connectors", icon: IconPlug },
-		{ href: "/admin/skills", label: "Skills", icon: IconDocument },
-		{ href: "/admin/voice", label: "Voice", icon: IconMicrophone },
-		{ href: "/admin/delegation", label: "Sub-agents", icon: IconBot },
-		{ href: "/admin/storage", label: "Storage", icon: IconDataBase },
+		{ href: "/admin/web-search", label: m["admin.layout.section.web_search"](), icon: IconSearch },
+		{ href: "/admin/fetch", label: m["admin.layout.section.fetching"](), icon: IconDocument },
+		{ href: "/admin/connectors", label: m["admin.layout.section.connectors"](), icon: IconPlug },
+		{ href: "/admin/skills", label: m["admin.layout.section.skills"](), icon: IconDocument },
+		{ href: "/admin/voice", label: m["admin.layout.section.voice"](), icon: IconMicrophone },
+		{ href: "/admin/delegation", label: m["admin.layout.section.sub_agents"](), icon: IconBot },
+		{ href: "/admin/storage", label: m["admin.layout.section.storage"](), icon: IconDataBase },
 	]);
 
 	const current = $derived(page.url.pathname);
@@ -64,20 +65,20 @@
 -->
 {#if !data.identity?.isAdmin}
 	<div class="mx-auto flex max-w-2xl flex-col gap-4 p-6">
-		<h1 class="text-xl font-semibold">Administration</h1>
+		<h1 class="text-xl font-semibold">{m["admin.layout.title"]()}</h1>
 		{#if !data.signedIn}
-			<p class="text-sm text-gray-600 dark:text-gray-400">You are not signed in.</p>
+			<p class="text-sm text-gray-600 dark:text-gray-400">{m["admin.layout.not_signed_in"]()}</p>
 		{:else if data.identity}
 			<!-- The gateway answered and said no. Said plainly, because this is
 			     the common case and it is not an error. -->
 			<div
 				class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm dark:border-gray-700 dark:bg-gray-800"
 			>
-				<p class="font-medium">This area is for administrators.</p>
+				<p class="font-medium">{m["admin.layout.denied.title"]()}</p>
 				<p class="mt-1 text-gray-600 dark:text-gray-400">
-					You are signed in as {data.identity.email ?? "yourself"}, and this service's gateway does
-					not list you as an administrator. Nothing here is hidden from you out of caution — these
-					are settings that change the chat for everybody.
+					{m["admin.layout.denied.body"]({
+						who: data.identity.email ?? m["admin.layout.denied.yourself"](),
+					})}
 				</p>
 			</div>
 		{:else}
@@ -86,12 +87,9 @@
 			<div
 				class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 			>
-				<p class="font-medium">This area needs an administrator.</p>
+				<p class="font-medium">{m["admin.layout.needs_admin.title"]()}</p>
 				<p class="mt-1">
-					Either this service's gateway does not list you as one, or you signed in with a local
-					password rather than through the identity provider — an administration decision needs
-					evidence that a person just signed in, so a local session cannot reach here. Signing out
-					and back in through the provider is the first thing to try.
+					{m["admin.layout.needs_admin.body"]()}
 				</p>
 			</div>
 		{/if}
@@ -109,9 +107,9 @@
 	-->
 	<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 p-6">
 		<header class="flex flex-col gap-1">
-			<h1 class="text-xl font-semibold">Administration</h1>
+			<h1 class="text-xl font-semibold">{m["admin.layout.title"]()}</h1>
 			<SectionSwitcher
-				label="Administration sections"
+				label={m["admin.layout.sections_label"]()}
 				sections={switcherSections}
 				current={currentSection}
 			/>
@@ -131,13 +129,13 @@
 					class="inline-flex w-fit items-center gap-1.5 text-sm text-blue-600 hover:underline dark:text-blue-400"
 				>
 					<IconLaunch class="size-4" />
-					Manage providers, models, limits and users in the console
+					{m["admin.layout.console_link"]()}
 				</a>
 			{/if}
 		</header>
 
 		<nav
-			aria-label="Administration sections"
+			aria-label={m["admin.layout.sections_label"]()}
 			class="hidden flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 md:flex dark:border-gray-700"
 		>
 			{#each sections as section (section.href)}

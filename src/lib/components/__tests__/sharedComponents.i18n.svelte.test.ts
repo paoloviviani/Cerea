@@ -16,7 +16,7 @@ import RetryBtn from "../RetryBtn.svelte";
 import StopGeneratingBtn from "../StopGeneratingBtn.svelte";
 import UpdateBanner from "../UpdateBanner.svelte";
 import { renderWithApp } from "./renderWithApp";
-import { unbracketed, useEnglish, usePseudoLocale } from "./pseudoLocale";
+import { unbracketedWords, useEnglish, usePseudoLocale } from "./enXaManage";
 
 vi.mock("$env/dynamic/public", () => ({
 	env: { PUBLIC_APP_ASSETS: "chatui", PUBLIC_APP_NAME: "chat-ui" },
@@ -25,9 +25,9 @@ vi.mock("$env/dynamic/public", () => ({
 beforeEach(usePseudoLocale);
 afterEach(useEnglish);
 
-const DATA = (line: string) =>
-	["Holiday plans", "https://example.com/x", "Model A", "alice", "notes.txt"].includes(line);
-const hasStray = () => expect(unbracketed(DATA)).toEqual([]);
+// What a person typed or the API sent: not words of ours.
+const DATA = [/^(Holiday plans|Model A|alice|notes\.txt)$/, /^https:\/\/example\.com/];
+const hasStray = () => expect(unbracketedWords(DATA)).toEqual([]);
 
 describe("shared components, in the pseudo-locale", () => {
 	it("the chat dialogs", async () => {
@@ -62,12 +62,7 @@ describe("shared components, in the pseudo-locale", () => {
 			onchoose: () => {},
 			onclose: () => {},
 		} as never);
-		expect(
-			unbracketed(
-				(line) =>
-					DATA(line) || ["Switch", "Pick one", "Model B", "Base", "Mine", "· Base"].includes(line)
-			)
-		).toEqual([]);
+		expect(unbracketedWords([...DATA, /^(Switch|Pick one|Model B|Base|Mine|· Base)$/])).toEqual([]);
 	});
 
 	it("the sidebar footer", async () => {

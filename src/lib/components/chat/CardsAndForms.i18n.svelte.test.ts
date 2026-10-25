@@ -10,7 +10,7 @@ import AskQuestion from "./AskQuestion.svelte";
 import ElicitationForm from "./ElicitationForm.svelte";
 import ToolApprovalCard from "./ToolApprovalCard.svelte";
 import type { ElicitationField, ElicitationRequestPayload } from "$lib/types/McpElicitation";
-import { unbracketed, useEnglish, usePseudoLocale } from "../__tests__/pseudoLocale";
+import { unbracketedWords, useEnglish, usePseudoLocale } from "../__tests__/enXaManage";
 
 vi.mock("$lib/utils/sendElicitationAnswer", () => ({
 	sendElicitationAnswer: async () => ({ ok: true }),
@@ -31,7 +31,8 @@ const DATA = new Set([
 	"Name *",
 ]);
 // The card's raw arguments are JSON the agent wrote, not words of ours.
-const stray = () => unbracketed((line) => DATA.has(line) || /^["{}[\]]/.test(line));
+const stray = () =>
+	unbracketedWords([...[...DATA].map((word) => new RegExp(`^${word}$`)), /^["{}[\]]/]);
 
 const select = (name: string): ElicitationField =>
 	({
@@ -80,7 +81,12 @@ describe("chat cards, in the pseudo-locale", () => {
 		const screen = render(ElicitationForm, {
 			conversationId: "abc",
 			request: request([
-				{ kind: "text", name: "Name", title: "Name", required: true } as ElicitationField,
+				{
+					kind: "text",
+					name: "Name",
+					title: "Name",
+					required: true,
+				} as unknown as ElicitationField,
 				select("db"),
 			]),
 		});

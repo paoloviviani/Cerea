@@ -10,7 +10,7 @@ import { connectors } from "$lib/stores/mcpConnectors";
 import { allMcpServers } from "$lib/stores/mcpServers";
 import { m } from "$lib/paraglide/messages";
 import { renderWithApp } from "../__tests__/renderWithApp";
-import { unbracketed, useEnglish, usePseudoLocale } from "../__tests__/pseudoLocale";
+import { unbracketedWords, useEnglish, usePseudoLocale } from "../__tests__/enXaManage";
 
 vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_APP_NAME: "chat-ui" } }));
 
@@ -54,8 +54,6 @@ describe("Connectors, in the pseudo-locale", () => {
 		await expect.element(screen.getByText(heading)).toBeVisible();
 
 		// Names and addresses are data, not words of ours.
-		expect(
-			unbracketed((line) => ["Mine", "Shared", "Linked"].includes(line) || /^https?:/.test(line))
-		).toEqual([]);
+		expect(unbracketedWords([/^(Mine|Shared|Linked)$/, /^https?:/])).toEqual([]);
 	});
 });

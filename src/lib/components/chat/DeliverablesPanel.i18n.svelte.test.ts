@@ -5,7 +5,7 @@ import DeliverablesPanel from "./DeliverablesPanel.svelte";
 import { sidePane } from "$lib/stores/sidePane.svelte";
 import { m } from "$lib/paraglide/messages";
 import { renderWithApp } from "../__tests__/renderWithApp";
-import { unbracketed, useEnglish, usePseudoLocale } from "../__tests__/pseudoLocale";
+import { unbracketedWords, useEnglish, usePseudoLocale } from "../__tests__/enXaManage";
 
 const FILE = {
 	name: "report.pdf",
@@ -40,14 +40,6 @@ describe("Files panel, in the pseudo-locale", () => {
 
 		// The file's name is data; its size and date are formatted by Intl, and the
 		// size keeps its unit symbol.
-		expect(
-			unbracketed(
-				(line) =>
-					line === FILE.name ||
-					/^\d/.test(line) ||
-					/\b(KB|MB|B)\b/.test(line) ||
-					/Oct|2026/.test(line)
-			)
-		).toEqual([]);
+		expect(unbracketedWords([FILE.name, /^\d/, /\b(KB|MB|B)\b/, /Oct|2026/])).toEqual([]);
 	});
 });

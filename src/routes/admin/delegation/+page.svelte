@@ -5,6 +5,8 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 
 	let enabled = $state(true);
 	let saved = $state(true);
@@ -21,14 +23,16 @@
 			const response = await fetch(`${base}/api/v2/admin/delegation`);
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+				throw new Error(
+					parsed?.message ?? m["admin.common.error_status"]({ status: response.status })
+				);
 			}
 			const data = await response.json();
 			enabled = data.enabled;
 			saved = data.enabled;
 			configurable = data.configurable;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not read the setting.";
+			failure = err instanceof Error ? err.message : m["admin.common.read_failed"]();
 		} finally {
 			loading = false;
 		}
@@ -48,27 +52,30 @@
 			});
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+				throw new Error(
+					parsed?.message ?? m["admin.common.error_status"]({ status: response.status })
+				);
 			}
 			saved = enabled;
-			note = "Saved. It applies to the next message anyone sends.";
+			note = m["admin.delegation.saved"]();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save it.";
+			failure = err instanceof Error ? err.message : m["admin.common.save_failed"]();
 		} finally {
 			busy = false;
 		}
 	}
 </script>
 
+{#snippet code(text: string)}<code>{text}</code>{/snippet}
+
 <section class="flex flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
 	<div class="flex flex-col gap-1">
-		<h2 class="font-medium">Sub-agents</h2>
+		<h2 class="font-medium">{m["admin.delegation.title"]()}</h2>
 		<p class="text-xs text-gray-500 dark:text-gray-400">
-			Lets the assistant hand a sub-task to a sub-agent that works on its own and returns only its
-			answer, up to three at a time. The <code>research</code> preset is a sub-agent that searches the
-			web and reads sources. Each sub-agent makes its own model calls, billed to the person like any message,
-			and can use the chat's server-side tools, including connector tools the conversation already allows.
-			It never raises an approval card: a tool that needs approval is refused.
+			<Rich
+				parts={m["admin.delegation.description"].parts({ preset: "research" })}
+				tags={{ code }}
+			/>
 		</p>
 	</div>
 
@@ -81,14 +88,16 @@
 	{/if}
 
 	{#if loading}
-		<p class="text-sm text-gray-500">Loading…</p>
+		<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
 	{:else}
 		{#if !configurable}
 			<p
 				class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 			>
-				This service reads configuration from the environment only, so this cannot be changed here.
-				Set <code>CHAT_DELEGATION</code> where the other variables live.
+				<Rich
+					parts={m["admin.common.env_only"].parts({ name: "CHAT_DELEGATION" })}
+					tags={{ code }}
+				/>
 			</p>
 		{/if}
 
@@ -103,10 +112,15 @@
 				data-testid="delegation-toggle"
 			/>
 			<span class="flex flex-col gap-0.5">
-				<span class="font-medium">Allow sub-agents</span>
+				<span class="font-medium">{m["admin.delegation.allow.title"]()}</span>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
-					Offered to models that can call tools. Turn it off to remove <code>delegate</code> and
-					<code>research</code> from every chat.
+					<Rich
+						parts={m["admin.delegation.allow.description"].parts({
+							delegate: "delegate",
+							research: "research",
+						})}
+						tags={{ code }}
+					/>
 				</span>
 			</span>
 		</label>
@@ -118,7 +132,7 @@
 				disabled={!configurable || busy || !dirty}
 				class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 			>
-				{busy ? "Saving…" : "Save"}
+				{busy ? m["admin.common.saving"]() : m["admin.common.save"]()}
 			</button>
 		</div>
 	{/if}

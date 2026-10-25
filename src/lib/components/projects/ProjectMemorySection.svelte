@@ -18,6 +18,8 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import { formatDate, formatNumber } from "$lib/i18n/format";
 	import * as s from "$lib/components/overlay/styles";
 	import {
 		PROJECT_MEMORY_BLOCK_MAX_CHARS,
@@ -63,7 +65,9 @@
 		const response = await fetch(`${base}/api/v2/projects/${projectId}/memory${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+			throw new Error(
+				parsed?.message ?? m["projects.notes.error_status"]({ status: response.status })
+			);
 		}
 		return response.status === 204 ? (undefined as T) : await response.json();
 	}
@@ -76,7 +80,7 @@
 		try {
 			notes = (await api<{ data: { notes: ProjectMemoryView[] } }>("")).data.notes;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load the project notes. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.notes.load_failed"]();
 		} finally {
 			loading = false;
 		}
@@ -97,7 +101,7 @@
 			draft = "";
 			adding = false;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save that note. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.notes.add_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -115,7 +119,7 @@
 			notes = notes.map((note) => (note.id === id ? updated : note));
 			editingId = null;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save that change. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.notes.edit_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -129,24 +133,20 @@
 			await api<void>(`/${note.id}`, { method: "DELETE" });
 			notes = notes.filter((row) => row.id !== note.id);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not delete that note. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.notes.delete_failed"]();
 		} finally {
 			busy = false;
 		}
 	}
 
 	function date(iso: string): string {
-		return new Date(iso).toLocaleDateString(undefined, {
-			year: "numeric",
-			month: "short",
-			day: "numeric",
-		});
+		return formatDate(iso, { year: "numeric", month: "short", day: "numeric" });
 	}
 </script>
 
 <div data-testid="project-memory">
 	<div class="mb-3 flex items-center justify-between gap-3">
-		<h3 class="{s.SECTION_TITLE} mb-0">Project notes ({notes.length})</h3>
+		<h3 class="{s.SECTION_TITLE} mb-0">{m["projects.notes.title"]({ count: notes.length })}</h3>
 		<button
 			type="button"
 			class={s.SECONDARY}
@@ -156,7 +156,8 @@
 				draft = "";
 			}}
 		>
-			<CarbonAdd class="size-4" /> Add note
+			<CarbonAdd class="size-4" />
+			{m["projects.notes.add"]()}
 		</button>
 	</div>
 
@@ -166,43 +167,46 @@
 
 	{#if adding}
 		<div class="{s.EMBEDDED} mb-3 p-4">
-			<label class={s.LABEL} for="project-memory-draft">New note</label>
+			<label class={s.LABEL} for="project-memory-draft">{m["projects.notes.new.label"]()}</label>
 			<textarea
 				id="project-memory-draft"
 				class={s.INPUT}
 				rows="3"
 				bind:value={draft}
 				maxlength={PROJECT_MEMORY_TEXT_MAX_CHARS}
-				placeholder="Deploys go through the release branch; staging is reset every Monday"
+				placeholder={m["projects.notes.new.placeholder"]()}
 			></textarea>
 			<p class={s.HINT}>
-				Everyone in this project can read it, and every chat here uses it. Write it so a colleague
-				would understand it.
+				{m["projects.notes.new.hint"]()}
 			</p>
 			<div class="mt-3 flex gap-2">
 				<button type="button" class={s.PRIMARY} disabled={!draft.trim() || busy} onclick={add}>
-					Save
+					{m["projects.notes.save"]()}
 				</button>
-				<button type="button" class={s.SECONDARY} onclick={() => (adding = false)}>Cancel</button>
+				<button type="button" class={s.SECONDARY} onclick={() => (adding = false)}>
+					{m["projects.notes.cancel"]()}
+				</button>
 			</div>
 		</div>
 	{/if}
 
 	{#if loading}
-		<p class={s.SUBTITLE}>Loading…</p>
+		<p class={s.SUBTITLE}>{m["projects.notes.loading"]()}</p>
 	{:else if notes.length === 0}
 		<div class={s.EMPTY}>
 			<LucideBrain class={s.EMPTY_ICON} />
-			<p class={s.EMPTY_TITLE}>No project notes yet</p>
+			<p class={s.EMPTY_TITLE}>{m["projects.notes.empty.title"]()}</p>
 			<p class={s.EMPTY_DETAIL}>
-				Add one here, or ask the assistant in a chat to remember something for the project.
+				{m["projects.notes.empty.detail"]()}
 			</p>
 		</div>
 	{:else}
 		{#if budget.omitted > 0}
 			<p class="{s.NOTICE} mb-3">
-				{budget.included.length} notes are in use. The {budget.omitted} oldest no longer fit, so the assistant
-				does not see them.
+				{m["projects.notes.budget"]({
+					used: budget.included.length,
+					omitted: budget.omitted,
+				})}
 			</p>
 		{/if}
 		<ul class="space-y-2">
@@ -213,7 +217,7 @@
 							<textarea
 								class={s.INPUT}
 								rows="3"
-								aria-label="Edit note"
+								aria-label={m["projects.notes.edit_label"]()}
 								bind:value={editDraft}
 								maxlength={PROJECT_MEMORY_TEXT_MAX_CHARS}
 							></textarea>
@@ -224,10 +228,10 @@
 									disabled={!editDraft.trim() || busy}
 									onclick={() => saveEdit(note.id)}
 								>
-									Save
+									{m["projects.notes.save"]()}
 								</button>
 								<button type="button" class={s.SECONDARY} onclick={() => (editingId = null)}>
-									Cancel
+									{m["projects.notes.cancel"]()}
 								</button>
 							</div>
 						{:else}
@@ -246,17 +250,23 @@
 												? s.PILL_TONES.neutral
 												: s.PILL_TONES.busy}"
 										>
-											{note.source === "user" ? "Added by" : "Remembered in a chat of"}
-											{note.mine ? "you" : note.author}
+											{note.source === "user"
+												? m["projects.notes.added_by"]({
+														who: note.mine ? m["projects.notes.you"]() : note.author,
+													})
+												: m["projects.notes.remembered_by"]({
+														who: note.mine ? m["projects.notes.you"]() : note.author,
+													})}
 										</span>
 										<span>{date(note.createdAt)}</span>
 										{#if note.conversationId}
 											<a class="underline" href="{base}/conversation/{note.conversationId}">
-												Source chat
+												{m["projects.notes.source_chat"]()}
 											</a>
 										{/if}
 										{#if omitted.has(index)}
-											<span class="{s.PILL} {s.PILL_TONES.bad}">Not used any more</span>
+											<span class="{s.PILL} {s.PILL_TONES.bad}">{m["projects.notes.unused"]()}</span
+											>
 										{/if}
 									</div>
 								</div>
@@ -269,7 +279,8 @@
 											editDraft = note.text;
 										}}
 									>
-										<CarbonEdit class="size-3.5" /> Edit
+										<CarbonEdit class="size-3.5" />
+										{m["projects.notes.edit"]()}
 									</button>
 									<button
 										type="button"
@@ -277,7 +288,8 @@
 										disabled={busy}
 										onclick={() => remove(note)}
 									>
-										<CarbonTrashCan class="size-3.5" /> Delete
+										<CarbonTrashCan class="size-3.5" />
+										{m["projects.notes.delete"]()}
 									</button>
 								</div>
 							</div>
@@ -288,8 +300,6 @@
 		</ul>
 	{/if}
 	<p class={s.HINT}>
-		Anyone who can see this project can add, edit or delete notes. Never keep a password or key
-		here: every chat would see it. Up to {PROJECT_MEMORY_MAX_NOTES} notes. When there are too many to
-		fit, the oldest are left out.
+		{m["projects.notes.footer"]({ max: formatNumber(PROJECT_MEMORY_MAX_NOTES) })}
 	</p>
 </div>

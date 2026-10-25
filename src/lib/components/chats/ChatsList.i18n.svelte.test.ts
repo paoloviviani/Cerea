@@ -5,7 +5,7 @@ import superjson from "superjson";
 import ChatsList from "./ChatsList.svelte";
 import { m } from "$lib/paraglide/messages";
 import { renderWithApp } from "../__tests__/renderWithApp";
-import { unbracketed, useEnglish, usePseudoLocale } from "../__tests__/pseudoLocale";
+import { unbracketedWords, useEnglish, usePseudoLocale } from "../__tests__/enXaManage";
 
 vi.mock("$env/dynamic/public", () => ({
 	env: { PUBLIC_APP_ASSETS: "chatui", PUBLIC_APP_NAME: "chat-ui" },
@@ -42,10 +42,7 @@ describe("Chats list, in the pseudo-locale", () => {
 
 		// Chat titles are the person's own words; the model name and the
 		// relative time are data formatted by Intl.
-		const stray = unbracketed(
-			(line) =>
-				["Budget talk", "Trip plan", "m"].includes(line) || /ago|now|minute|second/i.test(line)
-		);
+		const stray = unbracketedWords([/^(Budget talk|Trip plan|m)$/, /ago|now|minute|second/i]);
 		expect(stray).toEqual([]);
 	});
 });

@@ -860,6 +860,821 @@
 	"chat.window.switch_failed": "[Ćóúľď ńóť śŵíťćȟ ḿóďéľ. Ťŕý áǧáíń.]",
 	"chat.window.using_tool": "[Úśíńǧ á ťóóľ]",
 	"chat.window.voice_failed": "[Ćóúľď ńóť ťúŕń ýóúŕ ǚóíćé íńťó ťéẋť. Ťŕý áǧáíń.]",
+	"admin.common.env_only": "[Ťȟíś śéŕǚíćé ŕéáďś ćóńƒíǧúŕáťíóń ƒŕóḿ ťȟé éńǚíŕóńḿéńť óńľý, śó ťȟíś ćáńńóť ƀé ćȟáńǧéď ȟéŕé. Śéť {#code}{name}{/code} ŵȟéŕé ťȟé óťȟéŕ ǚáŕíáƀľéś ľíǚé.]",
+	"admin.common.error_status": "[Śóḿéťȟíńǧ ŵéńť ŵŕóńǧ ({status}). Ťŕý áǧáíń.]",
+	"admin.common.loading": "[Ĺóáďíńǧ…]",
+	"admin.common.read_failed": "[Ćóúľď ńóť ŕéáď ťȟé śéťťíńǧ.]",
+	"admin.common.save": "[Śáǚé]",
+	"admin.common.save_failed": "[Ćóúľď ńóť śáǚé íť.]",
+	"admin.common.saving": "[Śáǚíńǧ…]",
+	"admin.connectors.add": "[Áďď]",
+	"admin.connectors.add_failed": "[Ćóúľď ńóť áďď íť. Ťŕý áǧáíń.]",
+	"admin.connectors.auth.none": "[ńó śíǧń-íń]",
+	"admin.connectors.auth.oauth": "[Éáćȟ þéŕśóń śíǧńś íń]",
+	"admin.connectors.auth.token": "[śȟáŕéď áććéśś ķéý]",
+	"admin.connectors.description": "[Ćóńńéćťóŕś (ḾĆÞ śéŕǚéŕś) óƒƒéŕéď ťó éǚéŕý áććóúńť. Éáćȟ þéŕśóń śíǧńś íń ťó á ćóńńéćťóŕ ťȟáť ńééďś íť ťȟéḿśéľǚéś, śó íť ŕéáćȟéś ťȟéíŕ óŵń ďáťá. Ýóú áŕé śȟáŕíńǧ ťȟé ćóńńéćťóŕ, ńóť áń íďéńťíťý.]",
+	"admin.connectors.env.badge": "[Śéť íń ťȟé .éńǚ ƒíľé]",
+	"admin.connectors.env.check": "[Ćȟéćķ]",
+	"admin.connectors.env.description": "[Ďéƒíńéď íń {#code}{file}{/code} ({#code}{variable}{/code}): éďíť ťȟéḿ ťȟéŕé, ńóť ȟéŕé. Ťȟéý áŕé óƒƒéŕéď ťó éǚéŕýƀóďý áľóńǧśíďé ťȟé ćóńńéćťóŕś ƀéľóŵ.]",
+	"admin.connectors.env.status.checking": "[ćȟéćķíńǧ…]",
+	"admin.connectors.env.status.not_checked": "[ńóť ćȟéćķéď]",
+	"admin.connectors.env.status.reachable": "[ŕéáćȟáƀľé]",
+	"admin.connectors.env.status.reachable_tools": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[ŕéáćȟáƀľé · {count} ťóóľ]",
+				"countPlural=other": "[ŕéáćȟáƀľé · {count} ťóóľś]"
+			}
+		}
+	],
+	"admin.connectors.env.status.unreachable": "[úńŕéáćȟáƀľé]",
+	"admin.connectors.form.adding": "[Áďďíńǧ…]",
+	"admin.connectors.form.auth": "[Áúťȟéńťíćáťíóń]",
+	"admin.connectors.form.auth_auto": "[Áúťóḿáťíć (ŕéćóḿḿéńďéď)]",
+	"admin.connectors.form.auth_none": "[Ńóńé]",
+	"admin.connectors.form.auth_token": "[Śȟáŕéď áććéśś ķéý]",
+	"admin.connectors.form.cancel": "[Ćáńćéľ]",
+	"admin.connectors.form.header": "[Ȟéáďéŕ]",
+	"admin.connectors.form.individual": "[Éáćȟ þéŕśóń śíǧńś íń íńďíǚíďúáľľý áńď ťȟéíŕ ťóķéń íś śťóŕéď áǧáíńśť ťȟéíŕ óŵń áććóúńť. Ńóƀóďý íńȟéŕíťś áńýƀóďý éľśé'ś áććéśś, íńćľúďíńǧ ýóúŕś.]",
+	"admin.connectors.form.name": "[Ńáḿé]",
+	"admin.connectors.form.name_placeholder": "[Ńóťíóń]",
+	"admin.connectors.form.optional": "[(óþťíóńáľ)]",
+	"admin.connectors.form.shared_warning": "[{#strong}Ťȟíś ķéý íś śȟáŕéď.{/strong} Úńľíķé áń ÓÁúťȟ ćóńńéćťóŕ, ŵȟéŕé éáćȟ þéŕśóń śíǧńś íń áś ťȟéḿśéľǚéś, á śťáťíć ťóķéń ƀéľóńǧś ťó ťȟé ćóńńéćťóŕ — éǚéŕý áććóúńť ȟéŕé ŵíľľ úśé ťȟíś óńé ćŕéďéńťíáľ áńď ťȟé śéŕǚéŕ ćáńńóť ťéľľ ťȟéḿ áþáŕť. Úśé íť ƒóŕ áń ÁÞÍ ķéý ťȟé óŕǧáńíśáťíóń ȟóľďś, ńóť ƒóŕ áńýťȟíńǧ þéŕśóńáľ.]",
+	"admin.connectors.form.submit": "[Áďď ƒóŕ éǚéŕýóńé]",
+	"admin.connectors.form.token": "[Ťóķéń]",
+	"admin.connectors.form.url": "[ÚŔĹ]",
+	"admin.connectors.load_failed": "[Ćóúľď ńóť ľóáď ćóńńéćťóŕś. Ťŕý áǧáíń.]",
+	"admin.connectors.none": "[Ńóńé ýéť. Áńýťȟíńǧ áďďéď ȟéŕé áþþéáŕś úńďéŕ Ɓúíľť-íń ćóńńéćťóŕś ƒóŕ éǚéŕýƀóďý, śŵíťćȟéď óƒƒ úńťíľ ťȟéý ťúŕń íť óń.]",
+	"admin.connectors.remove": "[Ŕéḿóǚé]",
+	"admin.connectors.remove_confirm": "[Ŕéḿóǚé “{name}” ƒóŕ éǚéŕýóńé? Áńýóńé ŵȟó śíǧńéď íń ťó íť ŵíľľ ľóśé ťȟáť ćóńńéćťíóń.]",
+	"admin.connectors.remove_failed": "[Ćóúľď ńóť ŕéḿóǚé íť. Ťŕý áǧáíń.]",
+	"admin.connectors.title": "[Ćóńńéćťóŕś ƒóŕ éǚéŕýóńé]",
+	"admin.delegation.allow.description": "[Óƒƒéŕéď ťó ḿóďéľś ťȟáť ćáń ćáľľ ťóóľś. Ťúŕń íť óƒƒ ťó ŕéḿóǚé {#code}{delegate}{/code} áńď {#code}{research}{/code} ƒŕóḿ éǚéŕý ćȟáť.]",
+	"admin.delegation.allow.title": "[Áľľóŵ śúƀ-áǧéńťś]",
+	"admin.delegation.description": "[Ĺéťś ťȟé áśśíśťáńť ȟáńď á śúƀ-ťáśķ ťó á śúƀ-áǧéńť ťȟáť ŵóŕķś óń íťś óŵń áńď ŕéťúŕńś óńľý íťś áńśŵéŕ, úþ ťó ťȟŕéé áť á ťíḿé. Ťȟé {#code}{preset}{/code} þŕéśéť íś á śúƀ-áǧéńť ťȟáť śéáŕćȟéś ťȟé ŵéƀ áńď ŕéáďś śóúŕćéś. Éáćȟ śúƀ-áǧéńť ḿáķéś íťś óŵń ḿóďéľ ćáľľś, ƀíľľéď ťó ťȟé þéŕśóń ľíķé áńý ḿéśśáǧé, áńď ćáń úśé ťȟé ćȟáť'ś śéŕǚéŕ-śíďé ťóóľś, íńćľúďíńǧ ćóńńéćťóŕ ťóóľś ťȟé ćóńǚéŕśáťíóń áľŕéáďý áľľóŵś. Íť ńéǚéŕ ŕáíśéś áń áþþŕóǚáľ ćáŕď: á ťóóľ ťȟáť ńééďś áþþŕóǚáľ íś ŕéƒúśéď.]",
+	"admin.delegation.saved": "[Śáǚéď. Íť áþþľíéś ťó ťȟé ńéẋť ḿéśśáǧé áńýóńé śéńďś.]",
+	"admin.delegation.title": "[Śúƀ-áǧéńťś]",
+	"admin.fetch.description": "[Ŵȟáť ȟáþþéńś ŵȟéń śóḿéƀóďý þáśťéś á ľíńķ íńťó ťȟé ćóḿþóśéŕ. Ťȟíś íś ńóť ŵéƀ śéáŕćȟ — ǧíǚéń á ÚŔĹ, ťȟé óńľý ǫúéśťíóń íś ŵȟáť ŕéáďś íť.]",
+	"admin.fetch.health.can_still_select": "[Ýóú ćáń śťíľľ śéľéćť áńď śáǚé ťȟíś — íť ḿáý ĵúśť ńóť ƀé ďéþľóýéď ýéť, óŕ ƀé śťáŕťíńǧ úþ.]",
+	"admin.fetch.health.not_configured": "[Ńóť ćóńƒíǧúŕéď]",
+	"admin.fetch.health.not_configured_hint": "[{name} íś éḿþťý: ťȟé śťáćķ'ś ƒéťćȟ þŕóƒíľé íś óƒƒ]",
+	"admin.fetch.health.reachable": "[Ŕéáćȟáƀľé]",
+	"admin.fetch.health.unreachable": "[Úńŕéáćȟáƀľé]",
+	"admin.fetch.health.unreachable_reason": "[Úńŕéáćȟáƀľé: {reason}]",
+	"admin.fetch.option.direct.detail": "[Á þľáíń ȞŤŤÞŚ ŕéǫúéśť — ńó ƀŕóŵśéŕ, ńó ĴáǚáŚćŕíþť. Ńééďś ńóťȟíńǧ éľśé ďéþľóýéď, áńď íś ŵȟáť ťȟíś áþþ ȟáś áľŵáýś ďóńé. Á þáǧé ƀúíľť ƀý ĴáǚáŚćŕíþť áŕŕíǚéś áś áń éḿþťý śȟéľľ ŵíťȟ á 200 áńď ńóťȟíńǧ ťó śáý ťȟé ćóńťéńť ŵáś ńéǚéŕ ťȟéŕé.]",
+	"admin.fetch.option.direct.title": "[Ďíŕéćť]",
+	"admin.fetch.option.playwright.detail": "[Á ȟéáďľéśś ƀŕóŵśéŕ íń ťȟíś śéŕǚíćé, ďŕíǚéń óǚéŕ ťȟé Þľáýŵŕíǧȟť þŕóťóćóľ. Ŕúńś ťȟé þáǧé'ś ĴáǚáŚćŕíþť, śó ŵȟáť íś ƒéťćȟéď íś ŵȟáť á þéŕśóń ŵóúľď śéé. Ńééďś ťȟé þľáýŵŕíǧȟť ćóḿþóśé óǚéŕľáý, ŵȟíćȟ íś óþť-íń áńď þúƀľíśȟéś ńó þóŕť.]",
+	"admin.fetch.option.playwright.title": "[Ĺóćáľ ŕéńďéŕéŕ (Þľáýŵŕíǧȟť)]",
+	"admin.fetch.saved": "[Śáǚéď. Íť áþþľíéś ťó ťȟé ńéẋť ƒéťćȟ.]",
+	"admin.fetch.title": "[Ƒéťćȟíńǧ á ÚŔĹ]",
+	"admin.fetch.unknown_backend": "[Ťȟé śáǚéď ǚáľúé (“{backend}”) íś ńóť á ƒéťćȟ ƀáćķéńď ťȟíś áþþ óƒƒéŕś — þíćķ óńé ƀéľóŵ áńď śáǚé.]",
+	"admin.knowledge.bases.col.base": "[Ɓáśé]",
+	"admin.knowledge.bases.col.documents": "[Ďóćúḿéńťś]",
+	"admin.knowledge.bases.col.embedded_with": "[Éḿƀéďďéď ŵíťȟ]",
+	"admin.knowledge.bases.col.owner": "[Óŵńéŕ]",
+	"admin.knowledge.bases.col.passages": "[Þáśśáǧéś]",
+	"admin.knowledge.bases.current": "[Éǚéŕý ƀáśé íś óń ťȟé éḿƀéďďíńǧ ḿóďéľ ćóńƒíǧúŕéď áƀóǚé.]",
+	"admin.knowledge.bases.failed": "[{count} ƒáíľéď]",
+	"admin.knowledge.bases.none": "[Ńó ķńóŵľéďǧé ƀáśéś ýéť. Ťȟéý áŕé ćŕéáťéď ƀý úśéŕś, ńóť ȟéŕé.]",
+	"admin.knowledge.bases.not_indexed": "[ńóť íńďéẋéď]",
+	"admin.knowledge.bases.older_model": "[óľďéŕ ḿóďéľ]",
+	"admin.knowledge.bases.reindex": "[Ŕéíńďéẋ]",
+	"admin.knowledge.bases.reindexing": "[Ŕéíńďéẋíńǧ…]",
+	"admin.knowledge.bases.stale": "[{stale} óƒ {total} ŵéŕé íńďéẋéď ŵíťȟ á ďíƒƒéŕéńť éḿƀéďďíńǧ ḿóďéľ. Ťȟéý śťíľľ áńśŵéŕ śéáŕćȟéś, ƒŕóḿ ťȟéíŕ óŵń ǚéćťóŕś.]",
+	"admin.knowledge.bases.title": "[Ķńóŵľéďǧé ƀáśéś]",
+	"admin.knowledge.chunk.chars": "[Ćȟáŕáćťéŕś þéŕ þáśśáǧé]",
+	"admin.knowledge.chunk.hint": "[Éáćȟ ƀáśé śńáþśȟóťś ťȟéśé ŵȟéń íť íś ćŕéáťéď, śó á ćȟáńǧé áþþľíéś ťó ńéŵ ƀáśéś óńľý. Óǚéŕľáþ íś ćáþþéď áť á ťȟíŕď óƒ ťȟé þáśśáǧé śíźé.]",
+	"admin.knowledge.chunk.overlap": "[Óǚéŕľáþ]",
+	"admin.knowledge.description": "[Ȟóŵ ďóćúḿéńťś ƀéćóḿé śéáŕćȟáƀľé: ŵȟáť ŕéáďś ťȟéḿ, ŵȟáť éḿƀéďś ťȟéḿ, áńď ŵȟéŕé ťȟé ǚéćťóŕś ľíǚé. Á ćȟáńǧé ȟéŕé áƒƒéćťś ťȟé ńéẋť ƀáśé ƀúíľť, ńéǚéŕ óńé ťȟáť áľŕéáďý éẋíśťś.]",
+	"admin.knowledge.embedding.hint": "[Éẋíśťíńǧ ƀáśéś ķééþ ťȟé ḿóďéľ ťȟéý ŵéŕé íńďéẋéď ŵíťȟ. Ǚéćťóŕś ƒŕóḿ ťŵó ḿóďéľś áŕé ńóť ćóḿþáŕáƀľé, śó á ƀáśé óńľý ḿóǚéś ŵȟéń íť íś ŕéíńďéẋéď.]",
+	"admin.knowledge.embedding.label": "[Éḿƀéďďíńǧ ḿóďéľ]",
+	"admin.knowledge.embedding.none": "[Ťȟíś śéŕǚíćé ȟáś ńó éḿƀéďďíńǧ ḿóďéľ áť áľľ. Óńé ȟáś ťó ƀé ćŕéáťéď íń ťȟé ǧáťéŵáý'ś óŵń ćóńśóľé ƒíŕśť, ťȟéń ćȟóśéń ȟéŕé.]",
+	"admin.knowledge.erased": "[éŕáśéď]",
+	"admin.knowledge.extractor.env_hint": "[Śéť ŵíťȟ {#code}{name}{/code} íń ťȟé éńǚíŕóńḿéńť; ťȟíś śéŕǚíćé'ś óþéŕáťóŕ ďéćíďéď, ńóť ťȟíś śćŕééń.]",
+	"admin.knowledge.extractor.from_env": "[śéť íń ťȟé éńǚíŕóńḿéńť]",
+	"admin.knowledge.extractor.hint": "[Ŕéáďś ÞĎƑś áńď íḿáǧéś áťťáćȟéď íń ćȟáťś áńď áďďéď ťó ķńóŵľéďǧé ƀáśéś. Ŵóŕď, Éẋćéľ áńď ÞóŵéŕÞóíńť ƒíľéś áľŵáýś úśé ťȟíś śéŕǚíćé'ś óŵń éẋťŕáćťóŕ. Á śćáń ńééďś áń ÓĆŔ ḿóďéľ, ŵȟíćȟ śéńďś ťȟé ďóćúḿéńť ťó ťȟáť þŕóǚíďéŕ.]",
+	"admin.knowledge.extractor.label": "[Ďóćúḿéńť éẋťŕáćťíóń (ćȟáť úþľóáďś áńď ķńóŵľéďǧé ƀáśéś)]",
+	"admin.knowledge.extractor.local_option": "[Ĺóćáľ éẋťŕáćťóŕ ({id}): óń ťȟíś śéŕǚéŕ, ťéẋť-ľáýéŕ ÞĎƑś áńď Óƒƒíćé ƒíľéś]",
+	"admin.knowledge.extractor.none": "[Ťȟíś śéŕǚíćé ȟáś ńó ďóćúḿéńť ŕéáďéŕ íń íťś ćáťáľóǧúé. Óńé ȟáś ťó ƀé ćŕéáťéď — óŕ ťȟíś ďéþľóýḿéńť'ś óŵń ľóćáľ éẋťŕáćťóŕ ŕéǧíśťéŕéď — íń ťȟé ǧáťéŵáý'ś óŵń ćóńśóľé ƒíŕśť.]",
+	"admin.knowledge.gateway_answered": "[Ťȟé ǧáťéŵáý áńśŵéŕéď {status}.]",
+	"admin.knowledge.history.description": "[Áþþéńď-óńľý: éǚéŕý ďéćíśíóń íś ķéþť, ƀéćáúśé \"ŵȟíćȟ ḿóďéľ ŵáś ťȟíś ƀáśé ƀúíľť ŵíťȟ, áńď ŵȟó ḿóǚéď ťȟé ďéƒáúľť\" ǧéťś áśķéď ľóńǧ áƒťéŕ ťȟé ćȟáńǧé.]",
+	"admin.knowledge.history.no_embedding": "[ńó éḿƀéďďíńǧ ḿóďéľ]",
+	"admin.knowledge.history.no_reader": "[ńó ŕéáďéŕ ćȟóśéń]",
+	"admin.knowledge.history.title": "[Ćȟáńǧéś]",
+	"admin.knowledge.nothing_to_change": "[Ńóťȟíńǧ ťó ćȟáńǧé.]",
+	"admin.knowledge.page_title": "[Ķńóŵľéďǧé · áďḿíńíśťŕáťíóń]",
+	"admin.knowledge.pipeline.decided_env": "[Ďéćíďéď íń ťȟé éńǚíŕóńḿéńť. Á ćȟáńǧé ŕéáćȟéś éǚéŕý ŵóŕķéŕ ŵíťȟíń {seconds}ś.]",
+	"admin.knowledge.pipeline.decided_here": "[Ďéćíďéď íń ťȟíś śćŕééń. Á ćȟáńǧé ŕéáćȟéś éǚéŕý ŵóŕķéŕ ŵíťȟíń {seconds}ś.]",
+	"admin.knowledge.pipeline.title": "[Þíþéľíńé]",
+	"admin.knowledge.reindexing_notice": "[Ŕéíńďéẋíńǧ {name}. Íťś ďóćúḿéńťś śȟóŵ áś íń þŕóǧŕéśś úńťíľ éǚéŕý þáśśáǧé íś ŕé-éḿƀéďďéď.]",
+	"admin.knowledge.saved": "[Śáǚéď.]",
+	"admin.knowledge.saved_stale": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[Śáǚéď. {count} ƀáśé ńóŵ óń áń óľďéŕ éḿƀéďďíńǧ ḿóďéľ — ťȟéý śťíľľ áńśŵéŕ śéáŕćȟéś, ƒŕóḿ ťȟéíŕ óŵń ǚéćťóŕś.]",
+				"countPlural=other": "[Śáǚéď. {count} ƀáśéś ńóŵ óń áń óľďéŕ éḿƀéďďíńǧ ḿóďéľ — ťȟéý śťíľľ áńśŵéŕ śéáŕćȟéś, ƒŕóḿ ťȟéíŕ óŵń ǚéćťóŕś.]"
+			}
+		}
+	],
+	"admin.knowledge.title": "[Ķńóŵľéďǧé]",
+	"admin.layout.console_link": "[Ḿáńáǧé þŕóǚíďéŕś, ḿóďéľś, ľíḿíťś áńď úśéŕś íń ťȟé ćóńśóľé]",
+	"admin.layout.denied.body": "[Ýóú áŕé śíǧńéď íń áś {who}, áńď ťȟíś śéŕǚíćé'ś ǧáťéŵáý ďóéś ńóť ľíśť ýóú áś áń áďḿíńíśťŕáťóŕ. Ńóťȟíńǧ ȟéŕé íś ȟíďďéń ƒŕóḿ ýóú óúť óƒ ćáúťíóń — ťȟéśé áŕé śéťťíńǧś ťȟáť ćȟáńǧé ťȟé ćȟáť ƒóŕ éǚéŕýƀóďý.]",
+	"admin.layout.denied.title": "[Ťȟíś áŕéá íś ƒóŕ áďḿíńíśťŕáťóŕś.]",
+	"admin.layout.denied.yourself": "[ýóúŕśéľƒ]",
+	"admin.layout.needs_admin.body": "[Éíťȟéŕ ťȟíś śéŕǚíćé'ś ǧáťéŵáý ďóéś ńóť ľíśť ýóú áś óńé, óŕ ýóú śíǧńéď íń ŵíťȟ á ľóćáľ þáśśŵóŕď ŕáťȟéŕ ťȟáń ťȟŕóúǧȟ ťȟé íďéńťíťý þŕóǚíďéŕ — áń áďḿíńíśťŕáťíóń ďéćíśíóń ńééďś éǚíďéńćé ťȟáť á þéŕśóń ĵúśť śíǧńéď íń, śó á ľóćáľ śéśśíóń ćáńńóť ŕéáćȟ ȟéŕé. Śíǧńíńǧ óúť áńď ƀáćķ íń ťȟŕóúǧȟ ťȟé þŕóǚíďéŕ íś ťȟé ƒíŕśť ťȟíńǧ ťó ťŕý.]",
+	"admin.layout.needs_admin.title": "[Ťȟíś áŕéá ńééďś áń áďḿíńíśťŕáťóŕ.]",
+	"admin.layout.not_signed_in": "[Ýóú áŕé ńóť śíǧńéď íń.]",
+	"admin.layout.section.connectors": "[Ćóńńéćťóŕś]",
+	"admin.layout.section.fetching": "[Ƒéťćȟíńǧ]",
+	"admin.layout.section.knowledge": "[Ķńóŵľéďǧé]",
+	"admin.layout.section.skills": "[Śķíľľś]",
+	"admin.layout.section.storage": "[Śťóŕáǧé]",
+	"admin.layout.section.sub_agents": "[Śúƀ-áǧéńťś]",
+	"admin.layout.section.voice": "[Ǚóíćé]",
+	"admin.layout.section.web_search": "[Ŵéƀ śéáŕćȟ]",
+	"admin.layout.sections_label": "[Áďḿíńíśťŕáťíóń śéćťíóńś]",
+	"admin.layout.title": "[Áďḿíńíśťŕáťíóń]",
+	"admin.skills.page_title": "[Śķíľľś · áďḿíńíśťŕáťíóń]",
+	"admin.storage.days_label": "[Ďáýś ťó ķééþ þŕóďúćéď ƒíľéś]",
+	"admin.storage.days_unit": "[ďáýś]",
+	"admin.storage.default_days": "[Ďéƒáúľť: {days} ďáýś.]",
+	"admin.storage.description": "[Ďóćúḿéńťś, śþŕéáďśȟééťś, ÞĎƑś áńď ćȟáŕťś ťȟé áśśíśťáńť'ś ćóďé ŵŕíťéś íń ťȟé Þýťȟóń śáńďƀóẋ. Ťéẋť áŕťíƒáćťś áńď ťȟé ƒíľéś þéóþľé úþľóáď áŕé ķéþť ŵíťȟ ťȟéíŕ ćóńǚéŕśáťíóń áńď ńéǚéŕ éẋþíŕé; ďéľéťíńǧ á ćóńǚéŕśáťíóń ďéľéťéś éǚéŕýťȟíńǧ íń íť.]",
+	"admin.storage.invalid": "[Á ŵȟóľé ńúḿƀéŕ óƒ ďáýś ƒŕóḿ 1 ťó {max}.]",
+	"admin.storage.keep_for": "[Ķééþ þŕóďúćéď ƒíľéś ƒóŕ]",
+	"admin.storage.never_expire": "[Ńéǚéŕ éẋþíŕé (ķéþť úńťíľ ťȟé ćóńǚéŕśáťíóń íś ďéľéťéď)]",
+	"admin.storage.preview.none": "[Ńó śťóŕéď ƒíľé íś óľďéŕ ťȟáń ťȟáť: ńóťȟíńǧ íś ŕéḿóǚéď.]",
+	"admin.storage.preview.some": [
+		{
+			"declarations": [
+				"input count",
+				"input size",
+				"input days",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ƒíľé ({size}) óľďéŕ ťȟáń {days} ďáýś ŵíľľ ƀé ďéľéťéď áť ťȟé ńéẋť śŵééþ. Ťȟéý ćáńńóť ƀé ŕéćóǚéŕéď.]",
+				"countPlural=other": "[{count} ƒíľéś ({size}) óľďéŕ ťȟáń {days} ďáýś ŵíľľ ƀé ďéľéťéď áť ťȟé ńéẋť śŵééþ. Ťȟéý ćáńńóť ƀé ŕéćóǚéŕéď.]"
+			}
+		}
+	],
+	"admin.storage.saved.forever": "[Śáǚéď. Þŕóďúćéď ƒíľéś áŕé ńóŵ ķéþť úńťíľ ťȟéíŕ ćóńǚéŕśáťíóń íś ďéľéťéď.]",
+	"admin.storage.saved.sweep": "[Śáǚéď. Íť áþþľíéś ƒŕóḿ ťȟé ńéẋť śŵééþ, ŵíťȟíń ťȟé ȟóúŕ.]",
+	"admin.storage.size.gb": "[{value} ǦƁ]",
+	"admin.storage.size.kb": "[{value} ĶƁ]",
+	"admin.storage.size.mb": "[{value} ḾƁ]",
+	"admin.storage.title": "[Ƒíľéś þŕóďúćéď ƀý ćóďé]",
+	"admin.storage.usage.none": "[Ńó þŕóďúćéď ƒíľéś áŕé śťóŕéď.]",
+	"admin.storage.usage.some": [
+		{
+			"declarations": [
+				"input count",
+				"input size",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ƒíľé śťóŕéď, {size}.]",
+				"countPlural=other": "[{count} ƒíľéś śťóŕéď, {size}.]"
+			}
+		}
+	],
+	"admin.voice.description": "[Á ḿíćŕóþȟóńé ƀúťťóń íń ťȟé ćóḿþóśéŕ ťȟáť ťýþéś ŵȟáť á þéŕśóń śáýś, úśíńǧ ťȟé śþééćȟ ŕéćóǧńíťíóń ƀúíľť íńťó ťȟéíŕ ƀŕóŵśéŕ. Ńóťȟíńǧ íś íńśťáľľéď ȟéŕé áńď ťȟíś śéŕǚíćé ńéǚéŕ ŕéćéíǚéś ťȟé áúďíó, ƀúť Ćȟŕóḿé, Éďǧé áńď Śáƒáŕí ḿáý śéńď íť ťó ťȟé ƀŕóŵśéŕ ǚéńďóŕ'ś ćľóúď ƒóŕ ŕéćóǧńíťíóń, áńď Ƒíŕéƒóẋ ȟáś ńóńé (ťȟé ƀúťťóń íś ȟíďďéń ťȟéŕé).]",
+	"admin.voice.model_state.with_model": "[Ťȟíś śéŕǚíćé ȟáś á ǚóíćé ḿóďéľ (śéŕǚéŕ-śíďé ťŕáńśćŕíþťíóń): ťȟé ŕéćóŕďéŕ ƀúťťóń íś śȟóŵń íń ťȟé ćȟáť.]",
+	"admin.voice.model_state.without_model": "[Ťȟíś śéŕǚíćé ȟáś ńó ǚóíćé ḿóďéľ: ťȟéŕé íś ńó ŕéćóŕďéŕ ƀúťťóń.]",
+	"admin.voice.option.fallback.detail": "[Óƒƒéŕ íť óńľý ŵȟéń ťȟíś śéŕǚíćé ȟáś ńó śéŕǚéŕ-śíďé ťŕáńśćŕíþťíóń ḿóďéľ, śó ťȟé ŕéćóŕďéŕ ƀúťťóń áńď ťȟé ďíćťáťíóń ƀúťťóń áŕé ńéǚéŕ śȟóŵń ťóǧéťȟéŕ. Ťȟíś íś ťȟé ďéƒáúľť.]",
+	"admin.voice.option.fallback.title": "[Óńľý ŵȟéń ńó ǚóíćé ḿóďéľ íś áǚáíľáƀľé]",
+	"admin.voice.option.no.detail": "[Ńéǚéŕ óƒƒéŕ íť.]",
+	"admin.voice.option.no.title": "[Ńó]",
+	"admin.voice.option.yes.detail": "[Áľŵáýś óƒƒéŕ íť, íń ƀŕóŵśéŕś ťȟáť śúþþóŕť íť.]",
+	"admin.voice.option.yes.title": "[Ýéś]",
+	"admin.voice.saved": "[Śáǚéď. Þéóþľé śéé íť ťȟé ńéẋť ťíḿé ťȟé þáǧé ľóáďś.]",
+	"admin.voice.title": "[Éńáƀľé ƀŕóŵśéŕ ďíćťáťíóń]",
+	"admin.web_search.backend.from_env": "[śéť íń ťȟé éńǚíŕóńḿéńť]",
+	"admin.web_search.backend.label": "[Śéáŕćȟ ƀáćķéńď]",
+	"admin.web_search.backend.not_offered": "[(ńóť óƒƒéŕéď ťó ýóú)]",
+	"admin.web_search.backend.policy_option": "[Ɓíľľíńǧ ǧŕóúþ'ś śéáŕćȟ þóľíćý (ǧáťéŵáý ďéƒáúľť)]",
+	"admin.web_search.description": "[Ŵȟíćȟ śéáŕćȟ ƀáćķéńď ťȟé “Ŵéƀ śéáŕćȟ” śŵíťćȟ íń ćȟáťś úśéś. Ɓáćķéńďś áŕé áďďéď íń ťȟé ǧáťéŵáý'ś ćóńśóľé (Þŕóǚíďéŕś); éáćȟ śéáŕćȟ íś ḿéťéŕéď ťó ťȟé þéŕśóń ŵȟó áśķéď.]",
+	"admin.web_search.hint.env": "[Śéť ŵíťȟ {#code}{name}{/code} íń ťȟé éńǚíŕóńḿéńť; ťȟíś śéŕǚíćé'ś óþéŕáťóŕ ďéćíďéď, ńóť ťȟíś śćŕééń.]",
+	"admin.web_search.hint.none": "[Ńó śéáŕćȟ ƀáćķéńď íń ťȟé ǧáťéŵáý. Áďď óńé íń ťȟé ǧáťéŵáý ćóńśóľé (Þŕóǚíďéŕś), ťȟéń ćȟóóśé íť ȟéŕé.]",
+	"admin.web_search.hint.shared": "[Úśéď ƀý éǚéŕýóńé ŵȟó íś ǧŕáńťéď íť; áńýóńé ŵȟó íś ńóť ƒáľľś ƀáćķ ťó ťȟéíŕ ƀíľľíńǧ ǧŕóúþ'ś þóľíćý.]",
+	"admin.web_search.hint.stale": "[Ťȟé śáǚéď ƀáćķéńď “{backend}” íś ńóť óƒƒéŕéď ťó ýóú, śó śéáŕćȟéś ƒáľľ ƀáćķ ťó ťȟé ƀíľľíńǧ ǧŕóúþ'ś þóľíćý. Ćȟóóśé áńóťȟéŕ.]",
+	"admin.web_search.hint.unchosen": "[Ńóńé ćȟóśéń: ťȟé ǧáťéŵáý'ś ƀíľľíńǧ-ǧŕóúþ śéáŕćȟ þóľíćý ďéćíďéś, áńď á ǧŕóúþ ŵíťȟóúť óńé ćáńńóť śéáŕćȟ. Ćȟóóśé á ƀáćķéńď ťó ƀé śúŕé ŵéƀ śéáŕćȟ ŵóŕķś.]",
+	"admin.web_search.saved": "[Śáǚéď. Íť áþþľíéś ťó ťȟé ńéẋť śéáŕćȟ.]",
+	"admin.web_search.title": "[Ŵéƀ śéáŕćȟ]",
+	"knowledge.manager.add.files": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[Áďď {count} ƒíľé]",
+				"countPlural=other": "[Áďď {count} ƒíľéś]"
+			}
+		}
+	],
+	"knowledge.manager.add.note": "[Áďď ńóťé]",
+	"knowledge.manager.add.note_placeholder": "[Óŕ þáśťé á ńóťé — íťś ƒíŕśť ľíńé ƀéćóḿéś ťȟé ťíťľé]",
+	"knowledge.manager.add.title": "[Áďď ťó íť]",
+	"knowledge.manager.add_failed": "[Ćóúľď ńóť áďď ťȟáť. Ťŕý áǧáíń.]",
+	"knowledge.manager.card.documents": "[{count} ďóćúḿéńťś]",
+	"knowledge.manager.card.shared": "[śȟáŕéď · {role}]",
+	"knowledge.manager.count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ƀáśé]",
+				"countPlural=other": "[{count} ƀáśéś]"
+			}
+		}
+	],
+	"knowledge.manager.create_failed": "[Ćóúľď ńóť ćŕéáťé íť. Ťŕý áǧáíń.]",
+	"knowledge.manager.create_subtitle": "[Ńáḿé íť áńď ďŕóþ ťȟé ƒíľéś íń.]",
+	"knowledge.manager.created_partial": "[Ťȟé ķńóŵľéďǧé ƀáśé ŵáś ćŕéáťéď, ƀúť śóḿé ƒíľéś ćóúľď ńóť ƀé áďďéď.]",
+	"knowledge.manager.delete_confirm": "[Ďéľéťé “{name}” áńď éǚéŕýťȟíńǧ íń íť?]",
+	"knowledge.manager.delete_failed": "[Ćóúľď ńóť ďéľéťé íť. Ťŕý áǧáíń.]",
+	"knowledge.manager.detail.all": "[Áľľ ķńóŵľéďǧé ƀáśéś]",
+	"knowledge.manager.detail.count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ďóćúḿéńť]",
+				"countPlural=other": "[{count} ďóćúḿéńťś]"
+			}
+		}
+	],
+	"knowledge.manager.detail.delete": "[Ďéľéťé]",
+	"knowledge.manager.detail.in_progress": "[· {count} íń þŕóǧŕéśś]",
+	"knowledge.manager.detail.ready": "[{count} ŕéáďý]",
+	"knowledge.manager.detail.shared_as": "[· śȟáŕéď ŵíťȟ ýóú áś {role}]",
+	"knowledge.manager.detail.update": "[Úþďáťé]",
+	"knowledge.manager.detail_subtitle": "[Ŵȟáť íś íń íť, áńď ŵȟó ćáń ŕéáď íť.]",
+	"knowledge.manager.doc.embedding": "[éḿƀéďďíńǧ]",
+	"knowledge.manager.doc.extracting": "[éẋťŕáćťíńǧ]",
+	"knowledge.manager.doc.failed": "[ƒáíľéď]",
+	"knowledge.manager.doc.passages": "[{count} þáśśáǧéś]",
+	"knowledge.manager.doc.pending": "[þéńďíńǧ]",
+	"knowledge.manager.docs.download": "[Ďóŵńľóáď]",
+	"knowledge.manager.docs.download_label": "[Ďóŵńľóáď {name}]",
+	"knowledge.manager.docs.empty.detail": "[Ďŕóþ śóḿé ƒíľéś áƀóǚé. Ťȟéý ƀéćóḿé śéáŕćȟáƀľé íń ťȟé ƀáćķǧŕóúńď.]",
+	"knowledge.manager.docs.empty.title": "[Ńóťȟíńǧ íń íť ýéť]",
+	"knowledge.manager.docs.open": "[Óþéń]",
+	"knowledge.manager.docs.open_label": "[Óþéń {name}]",
+	"knowledge.manager.docs.remove": "[Ŕéḿóǚé]",
+	"knowledge.manager.docs.title": "[Ďóćúḿéńťś ({count})]",
+	"knowledge.manager.docs.untitled": "[úńťíťľéď]",
+	"knowledge.manager.document": "[ďóćúḿéńť]",
+	"knowledge.manager.empty.create": "[Ćŕéáťé ýóúŕ ƒíŕśť ķńóŵľéďǧé ƀáśé]",
+	"knowledge.manager.empty.detail": "[Ďŕóþ śóḿé ďóćúḿéńťś íń áńď ťȟé áśśíśťáńť ćáń śéáŕćȟ ťȟéḿ]",
+	"knowledge.manager.empty.title": "[Ńó ķńóŵľéďǧé ƀáśéś ýéť]",
+	"knowledge.manager.fallback_title": "[Ķńóŵľéďǧé ƀáśé]",
+	"knowledge.manager.form.cancel": "[Ćáńćéľ]",
+	"knowledge.manager.form.create": "[Ćŕéáťé]",
+	"knowledge.manager.form.description": "[Ŵȟáť íś íń íť]",
+	"knowledge.manager.form.documents": "[Ďóćúḿéńťś]",
+	"knowledge.manager.form.documents_hint": "[Ńó ťíťľéś ńééďéď: éáćȟ ƒíľé íś ńáḿéď áƒťéŕ íťś ƒíľé ńáḿé. Ŵóŕď, Éẋćéľ, ÞóŵéŕÞóíńť, óŕ á ÞĎƑ ŵíťȟ ŕéáľ ťéẋť íń íť.]",
+	"knowledge.manager.form.name": "[Ńáḿé]",
+	"knowledge.manager.form.name_placeholder": "[Ťéáḿ ȟáńďƀóóķ]",
+	"knowledge.manager.form.note": "[Óŕ þáśťé á ńóťé]",
+	"knowledge.manager.form.note_placeholder": "[Íťś ƒíŕśť ľíńé ƀéćóḿéś ťȟé ťíťľé.]",
+	"knowledge.manager.form.optional": "[(óþťíóńáľ)]",
+	"knowledge.manager.form.working": "[Ŵóŕķíńǧ…]",
+	"knowledge.manager.list_heading": "[Ýóúŕś áńď śȟáŕéď ŵíťȟ ýóú ({count})]",
+	"knowledge.manager.loading": "[Ĺóáďíńǧ…]",
+	"knowledge.manager.new": "[Ńéŵ ķńóŵľéďǧé ƀáśé]",
+	"knowledge.manager.new_title": "[Ńéŵ ķńóŵľéďǧé ƀáśé]",
+	"knowledge.manager.not_ready": "[{detail} Ýóú ćáń śťíľľ ćŕéáťé á ķńóŵľéďǧé ƀáśé áńď áďď ƒíľéś. Ťȟéý ƀéćóḿé śéáŕćȟáƀľé óńćé áń áďḿíńíśťŕáťóŕ śéťś óńé úþ.]",
+	"knowledge.manager.not_ready_default": "[Ďóćúḿéńťś ćáńńóť ƀé ḿáďé śéáŕćȟáƀľé ýéť: ńó śéáŕćȟ ḿóďéľ íś śéť úþ.]",
+	"knowledge.manager.open_failed": "[Ćóúľď ńóť óþéń ťȟáť ķńóŵľéďǧé ƀáśé. Ťŕý áǧáíń.]",
+	"knowledge.manager.preview.close": "[Ćľóśé]",
+	"knowledge.manager.preview.cut": "[… śȟóŵíńǧ ťȟé ƒíŕśť {shown} óƒ {total} ćȟáŕáćťéŕś]",
+	"knowledge.manager.preview.pasted": "[þáśťéď ńóťé]",
+	"knowledge.manager.preview.subtitle": "[{name} · {count} ćȟáŕáćťéŕś, áś ťȟé śéáŕćȟ ŕéáďś ťȟéḿ]",
+	"knowledge.manager.preview_failed": "[Ćóúľď ńóť óþéń íť. Ťŕý áǧáíń.]",
+	"knowledge.manager.progress.adding_note": "[Áďďíńǧ ťȟé ńóťé…]",
+	"knowledge.manager.progress.creating": "[Ćŕéáťíńǧ…]",
+	"knowledge.manager.progress.uploading": "[Úþľóáďíńǧ {index} óƒ {total}: {name}]",
+	"knowledge.manager.ready": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ďóćúḿéńť ŕéáďý]",
+				"countPlural=other": "[{count} ďóćúḿéńťś ŕéáďý]"
+			}
+		}
+	],
+	"knowledge.manager.ready_working": [
+		{
+			"declarations": [
+				"input count",
+				"input working",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ďóćúḿéńť ŕéáďý, {working} íń þŕóǧŕéśś]",
+				"countPlural=other": "[{count} ďóćúḿéńťś ŕéáďý, {working} íń þŕóǧŕéśś]"
+			}
+		}
+	],
+	"knowledge.manager.rejected.file": "[{name} — {reason}]",
+	"knowledge.manager.rejected.note": "[ťȟé ńóťé — {reason}]",
+	"knowledge.manager.rejected.note_failed": "[ćóúľď ńóť ƀé áďďéď]",
+	"knowledge.manager.rejected.upload_failed": "[úþľóáď ƒáíľéď]",
+	"knowledge.manager.remove_failed": "[Ćóúľď ńóť ŕéḿóǚé íť. Ťŕý áǧáíń.]",
+	"knowledge.manager.share.button": "[Śȟáŕé]",
+	"knowledge.manager.share.choose": "[— ćȟóóśé —]",
+	"knowledge.manager.share.email": "[Ťȟéíŕ éḿáíľ áďďŕéśś]",
+	"knowledge.manager.share.email_placeholder": "[ćóľľéáǧúé@éẋáḿþľé.óŕǧ]",
+	"knowledge.manager.share.group": "[Á ǧŕóúþ]",
+	"knowledge.manager.share.group_name": "[Ǧŕóúþ ńáḿé]",
+	"knowledge.manager.share.group_placeholder": "[ŕéśéáŕćȟ]",
+	"knowledge.manager.share.person": "[Á þéŕśóń]",
+	"knowledge.manager.share.title": "[Śȟáŕé íť]",
+	"knowledge.manager.share.with": "[Ŵíťȟ]",
+	"knowledge.manager.share_failed": "[Ćóúľď ńóť śȟáŕé íť. Ťŕý áǧáíń.]",
+	"knowledge.manager.shared_notice": "[Śȟáŕéď. Ťȟéý ćáń ŕéáď íť; óńľý ýóú ćáń ćȟáńǧé íť.]",
+	"knowledge.manager.some_failed": "[Śóḿé ƒíľéś ćóúľď ńóť ƀé áďďéď.]",
+	"knowledge.manager.subtitle": "[Ďóćúḿéńťś ťȟé áśśíśťáńť ćáń śéáŕćȟ. Ťȟéý áŕé ýóúŕś, áńď ýóú ćáń śȟáŕé ťȟéḿ.]",
+	"knowledge.manager.tips.open": "[• Óþéń á ďóćúḿéńť ťó śéé ťȟé ťéẋť ťȟé śéáŕćȟ ŕéáďś.]",
+	"knowledge.manager.tips.project": "[• Áťťáćȟ á ķńóŵľéďǧé ƀáśé ťó á þŕóĵéćť áńď íť íś śéáŕćȟéď íń éǚéŕý ćȟáť ťȟéŕé.]",
+	"knowledge.manager.tips.scan": "[• Á śćáń ŵíťȟ ńó ŕéáľ ťéẋť íń íť ćáńńóť ƀé ŕéáď ȟéŕé úńľéśś áń áďḿíńíśťŕáťóŕ śéťś úþ á śćáń ŕéáďéŕ.]",
+	"knowledge.manager.tips.sharing": "[• Śȟáŕíńǧ ľéťś śóḿéóńé ŕéáď á ķńóŵľéďǧé ƀáśé. Óńľý ýóú ćáń ćȟáńǧé íť.]",
+	"knowledge.manager.tips.title": "[💡 Ǫúíćķ ťíþś]",
+	"knowledge.manager.tips.update": "[• Ćȟóóśé Úþďáťé áƒťéŕ áń áďḿíńíśťŕáťóŕ ćȟáńǧéś ťȟé śéáŕćȟ ḿóďéľ.]",
+	"knowledge.manager.title": "[Ķńóŵľéďǧé ƀáśéś]",
+	"knowledge.manager.tone.empty": "[éḿþťý]",
+	"knowledge.manager.tone.failed": "[{count} ƒáíľéď]",
+	"knowledge.manager.tone.indexing": "[{count} íńďéẋíńǧ]",
+	"knowledge.manager.tone.ready": "[{count} ŕéáďý]",
+	"knowledge.manager.unreachable": "[Ćóúľď ńóť ŕéáćȟ ťȟé śéŕǚíćé. Ťŕý áǧáíń.]",
+	"knowledge.manager.update_failed": "[Ćóúľď ńóť úþďáťé íť. Ťŕý áǧáíń.]",
+	"knowledge.manager.updating_notice": "[Úþďáťíńǧ. Ťȟíś ȟáþþéńś íń ťȟé ƀáćķǧŕóúńď, áńď ťȟé ľíśť ķééþś úþ.]",
+	"memory.manager.add": "[Áďď ḿéḿóŕý]",
+	"memory.manager.add_failed": "[Ćóúľď ńóť śáǚé ťȟáť. Ťŕý áǧáíń.]",
+	"memory.manager.cancel": "[Ćáńćéľ]",
+	"memory.manager.count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ḿéḿóŕý]",
+				"countPlural=other": "[{count} ḿéḿóŕíéś]"
+			}
+		}
+	],
+	"memory.manager.delete": "[Ďéľéťé]",
+	"memory.manager.delete_failed": "[Ćóúľď ńóť ďéľéťé ťȟáť. Ťŕý áǧáíń.]",
+	"memory.manager.edit": "[Éďíť]",
+	"memory.manager.edit_failed": "[Ćóúľď ńóť śáǚé ťȟáť ćȟáńǧé. Ťŕý áǧáíń.]",
+	"memory.manager.empty.detail": "[Áďď śóḿéťȟíńǧ ȟéŕé, óŕ ĵúśť ťéľľ ťȟé áśśíśťáńť ťó ŕéḿéḿƀéŕ íť ŵȟíľé ýóú ťáľķ.]",
+	"memory.manager.empty.title": "[Ńóťȟíńǧ ŕéḿéḿƀéŕéď ýéť]",
+	"memory.manager.error_status": "[Śóḿéťȟíńǧ ŵéńť ŵŕóńǧ ({status}). Ťŕý áǧáíń.]",
+	"memory.manager.load_failed": "[Ćóúľď ńóť ľóáď ýóúŕ ḿéḿóŕý. Ťŕý áǧáíń.]",
+	"memory.manager.loading": "[Ĺóáďíńǧ…]",
+	"memory.manager.new.hint": "[Óńé śéńťéńćé ťȟáť ḿáķéś śéńśé óń íťś óŵń, éǚéń ḿóńťȟś ƒŕóḿ ńóŵ.]",
+	"memory.manager.new.label": "[Ńéŵ ḿéḿóŕý]",
+	"memory.manager.new.placeholder": "[Þŕéƒéŕś ćóńćíśé áńśŵéŕś ŵíťȟ ńó þŕéáḿƀľé]",
+	"memory.manager.off_notice": "[Ḿéḿóŕý íś óƒƒ. Ťȟé áśśíśťáńť ďóéś ńóť śéé ťȟéśé áńď ŵíľľ ńóť ŕéḿéḿƀéŕ áńýťȟíńǧ ńéŵ. Ŵȟáť íś áľŕéáďý śáǚéď śťáýś íń ťȟé ľíśť ƀéľóŵ.]",
+	"memory.manager.save": "[Śáǚé]",
+	"memory.manager.source.assistant": "[Ŕéḿéḿƀéŕéď ƒóŕ ýóú]",
+	"memory.manager.source.user": "[Ýóú áďďéď ťȟíś]",
+	"memory.manager.status.all": "[Áľľ óƒ ťȟéḿ áŕé íń úśé]",
+	"memory.manager.status.empty": "[Óń — ńóťȟíńǧ ŕéḿéḿƀéŕéď ýéť]",
+	"memory.manager.status.off": "[Óƒƒ — ńóťȟíńǧ íś ƀéíńǧ ŕéḿéḿƀéŕéď óŕ úśéď]",
+	"memory.manager.status.partial": "[{used} íń úśé, {omitted} ťóó óľď ťó ƒíť]",
+	"memory.manager.subtitle": "[Ťȟíńǧś ťȟé áśśíśťáńť ŕéḿéḿƀéŕś íń éǚéŕý ćȟáť. Ýóú ćáń éďíť óŕ ďéľéťé áńý óƒ ťȟéḿ, áńď íť ćáń áďď ťó ťȟéḿ ŵȟíľé ýóú ťáľķ.]",
+	"memory.manager.tips.all_seen": "[Ťȟé áśśíśťáńť śééś áľľ óƒ ťȟéśé íń éǚéŕý ćȟáť. Ťȟéý áŕé ńóť śéáŕćȟéď, śó á ƒáćť ďóéś ńóť ńééď ťó ḿáťćȟ ýóúŕ ǫúéśťíóń ťó ƀé úśéď.]",
+	"memory.manager.tips.edit_by_chat": "[Śáý \"ŕéḿéḿƀéŕ ťȟáť…\" óŕ \"ƒóŕǧéť ťȟáť…\" íń á ćȟáť áńď ťȟé áśśíśťáńť ŵíľľ éďíť ťȟíś ľíśť íťśéľƒ. Ýóú ŵíľľ śéé ťȟé ćȟáńǧé áś íť ȟáþþéńś, ŵíťȟ áń úńďó.]",
+	"memory.manager.tips.limit": "[Þáśť {max} ƒáćťś ńóťȟíńǧ ḿóŕé íś śťóŕéď, áńď þáśť ťȟé þŕóḿþť'ś ƀúďǧéť ťȟé óľďéśť śťóþ ƀéíńǧ śéńť — ťȟéý áŕé ḿáŕķéď ȟéŕé ŵȟéń ťȟáť ȟáþþéńś.]",
+	"memory.manager.tips.no_secrets": "[Ńéǚéŕ ķééþ á þáśśŵóŕď óŕ ķéý ȟéŕé: éǚéŕý ćȟáť ŵóúľď śéé íť.]",
+	"memory.manager.tips.title": "[Ǫúíćķ ťíþś]",
+	"memory.manager.title": "[Ḿéḿóŕý]",
+	"memory.manager.unused": "[Ńóť úśéď áńý ḿóŕé]",
+	"models.chat.attachments_failed": "[Ƒáíľéď ťó ľóáď {count} áťťáćȟḿéńť(ś). Ćȟéćķ ćóńśóľé ƒóŕ ďéťáíľś.]",
+	"models.chat.og_description": "[Úśé {model} ŵíťȟ {app}]",
+	"models.chat.start_failed": "[Ćóúľď ńóť śťáŕť ťȟé ćȟáť. Ťŕý áǧáíń.]",
+	"models.custom.card.based_on": "[ƀáśéď óń {name}]",
+	"models.custom.card.cancel": "[Ćáńćéľ]",
+	"models.custom.card.default": "[Ďéƒáúľť]",
+	"models.custom.card.delete": "[Ďéľéťé]",
+	"models.custom.card.delete_confirm": "[Ďéľéťé “{name}”? Ćȟáťś óń íť ḿóǚé ťó ťȟé óŕíǧíńáľ ḿóďéľ.]",
+	"models.custom.card.edit": "[Éďíť]",
+	"models.custom.card.is_default": "[Íś ťȟé ďéƒáúľť]",
+	"models.custom.card.set_default": "[Śéť áś ďéƒáúľť]",
+	"models.custom.card.unavailable": "[{id} íś úńáǚáíľáƀľé]",
+	"models.custom.count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ćúśťóḿ ḿóďéľ]",
+				"countPlural=other": "[{count} ćúśťóḿ ḿóďéľś]"
+			}
+		}
+	],
+	"models.custom.delete_failed": "[Ćóúľď ńóť ďéľéťé ťȟáť ćúśťóḿ ḿóďéľ. Ťŕý áǧáíń.]",
+	"models.custom.edit_title": "[Éďíť {name}]",
+	"models.custom.empty.detail": "[Þíćķ á ḿóďéľ, ŵŕíťé íťś íńśťŕúćťíóńś, áńď íť śȟóŵś úþ ŵȟéń ýóú ćȟóóśé á ḿóďéľ.]",
+	"models.custom.empty.title": "[Ńó ćúśťóḿ ḿóďéľś ýéť]",
+	"models.custom.error_status": "[Śóḿéťȟíńǧ ŵéńť ŵŕóńǧ ({status}). Ťŕý áǧáíń.]",
+	"models.custom.form.all": "[Áľľ ćúśťóḿ ḿóďéľś]",
+	"models.custom.form.base": "[Óŕíǧíńáľ ḿóďéľ]",
+	"models.custom.form.base_gone": "[{id} (ńó ľóńǧéŕ áǚáíľáƀľé)]",
+	"models.custom.form.base_hint": "[Ťȟé ḿóďéľ ťȟáť ďóéś ťȟé ŵóŕķ. Íťś áƀíľíťíéś ćáŕŕý óǚéŕ.]",
+	"models.custom.form.cancel": "[Ćáńćéľ]",
+	"models.custom.form.create": "[Ćŕéáťé ćúśťóḿ ḿóďéľ]",
+	"models.custom.form.description": "[Ďéśćŕíþťíóń]",
+	"models.custom.form.description_placeholder": "[Þľáńś ťȟé ŵééķ'ś ľúńćȟéś]",
+	"models.custom.form.instructions": "[Íńśťŕúćťíóńś]",
+	"models.custom.form.instructions_hint": "[Úśéď íń éǚéŕý ćȟáť óń ťȟíś ḿóďéľ, áƒťéŕ ýóúŕ íńśťŕúćťíóńś ƒóŕ éǚéŕý ćȟáť.]",
+	"models.custom.form.instructions_placeholder": "[Ýóú áŕé á ḿéńú þľáńńéŕ. Áľŵáýś áńśŵéŕ ŵíťȟ á ťáƀľé.]",
+	"models.custom.form.name": "[Ńáḿé]",
+	"models.custom.form.name_hint": "[Śȟóŵń ŵȟéń ýóú ćȟóóśé á ḿóďéľ. Éáćȟ óńé ńééďś íťś óŵń ńáḿé.]",
+	"models.custom.form.name_placeholder": "[Ḿéńú ȟéľþéŕ]",
+	"models.custom.form.optional": "[(óþťíóńáľ)]",
+	"models.custom.form.save_changes": "[Śáǚé ćȟáńǧéś]",
+	"models.custom.form_subtitle": "[Áń éẋíśťíńǧ ḿóďéľ þľúś íńśťŕúćťíóńś óƒ ýóúŕ óŵń. Óńľý ýóú ćáń śéé íť.]",
+	"models.custom.global.hint": "[Úśéď íń éǚéŕý ćȟáť, ƀéƒóŕé á ćúśťóḿ ḿóďéľ'ś óŵń íńśťŕúćťíóńś áńď á þŕóĵéćť'ś. Ńóť úśéď ƀý Áǧéńťś, óŕ ťó ńáḿé á ćȟáť.]",
+	"models.custom.global.placeholder": "[Íńśťŕúćťíóńś éǚéŕý ćȟáť śťáŕťś ŵíťȟ, ŵȟáťéǚéŕ ťȟé ḿóďéľ.]",
+	"models.custom.global.save": "[Śáǚé]",
+	"models.custom.global.saved": "[Śáǚéď]",
+	"models.custom.global.title": "[Íńśťŕúćťíóńś ƒóŕ éǚéŕý ćȟáť]",
+	"models.custom.global_set": "[Íńśťŕúćťíóńś ƒóŕ éǚéŕý ćȟáť áŕé śéť]",
+	"models.custom.global_unset": "[Ńó íńśťŕúćťíóńś ƒóŕ éǚéŕý ćȟáť]",
+	"models.custom.list_heading": "[Ćúśťóḿ ḿóďéľś ({count})]",
+	"models.custom.new": "[Ńéŵ ćúśťóḿ ḿóďéľ]",
+	"models.custom.new_title": "[Ńéŵ ćúśťóḿ ḿóďéľ]",
+	"models.custom.save_failed": "[Ćóúľď ńóť śáǚé ťȟáť ćúśťóḿ ḿóďéľ. Ťŕý áǧáíń.]",
+	"models.custom.subtitle": "[Ťéľľ ťȟé áśśíśťáńť ȟóŵ ťó ƀéȟáǚé: óńćé ƒóŕ éǚéŕý ćȟáť, óŕ áś á ḿóďéľ óƒ ýóúŕ óŵń.]",
+	"models.custom.tips.delete": "[• Ďéľéťé óńé áńď íťś ćȟáťś ćáŕŕý óń, óń ťȟé ƀáśé ḿóďéľ.]",
+	"models.custom.tips.inherits": "[• Á ćúśťóḿ ḿóďéľ {#strong}íńȟéŕíťś éǚéŕýťȟíńǧ{/strong} ƒŕóḿ ťȟé óŕíǧíńáľ ḿóďéľ: íḿáǧéś, ťóóľś, ŕéáśóńíńǧ áńď éƒƒóŕť. Óńľý ťȟé íńśťŕúćťíóńś áŕé ýóúŕś.]",
+	"models.custom.tips.order": "[• Íńśťŕúćťíóńś áŕé úśéď íń ťȟíś óŕďéŕ: {#strong}ǧľóƀáľ{/strong}, ťȟéń ťȟé {#strong}ćúśťóḿ ḿóďéľ'ś{/strong}, ťȟéń á þŕóĵéćť'ś íńśťŕúćťíóńś.]",
+	"models.custom.tips.private": "[• Óńľý ýóú ćáń úśé ýóúŕ ćúśťóḿ ḿóďéľś. Ťȟé ćóḿþáńý ƀéȟíńď ťȟé ḿóďéľ óńľý éǚéŕ śééś ťȟé óŕíǧíńáľ ḿóďéľ.]",
+	"models.custom.tips.title": "[💡 Ǫúíćķ ťíþś]",
+	"models.custom.title": "[Ćúśťóḿ ḿóďéľś]",
+	"models.list.active": "[Áćťíǚé]",
+	"models.list.can_see_images": "[Ťȟíś ḿóďéľ ćáń ľóóķ áť íḿáǧéś.]",
+	"models.list.can_use_tools": "[Ťȟíś ḿóďéľ ćáń úśé ťóóľś áńď ćóńńéćťóŕś.]",
+	"models.list.card_label": "[Ḿóďéľ ćáŕď ƒóŕ {name}]",
+	"models.list.custom": "[ćúśťóḿ]",
+	"models.list.search_label": "[Śéáŕćȟ ḿóďéľś ƀý ńáḿé]",
+	"models.list.search_placeholder": "[Śéáŕćȟ ƀý ńáḿé]",
+	"models.list.settings": "[Ḿóďéľ śéťťíńǧś]",
+	"models.list.settings_label": "[Ḿóďéľ śéťťíńǧś ƒóŕ {name}]",
+	"models.list.subtitle": "[Áľľ ḿóďéľś áǚáíľáƀľé]",
+	"models.list.title": "[Ḿóďéľś]",
+	"models.manager.available_count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ḿóďéľ áǚáíľáƀľé]",
+				"countPlural=other": "[{count} ḿóďéľś áǚáíľáƀľé]"
+			}
+		}
+	],
+	"models.manager.available_heading": "[Áǚáíľáƀľé ({count})]",
+	"models.manager.cap.artifacts.detail": "[Śȟóŵ ľóńǧéŕ ŕéśúľťś íń á śíďé þáńéľ íńśťéáď óƒ íń ťȟé ćȟáť.]",
+	"models.manager.cap.artifacts.label": "[Ƒíľéś íń á śíďé þáńéľ]",
+	"models.manager.cap.multimodal.detail": "[Ĺéť þéóþľé áťťáćȟ íḿáǧéś ƒóŕ ťȟé ḿóďéľ ťó ľóóķ áť.]",
+	"models.manager.cap.multimodal.label": "[Íḿáǧé íńþúť]",
+	"models.manager.cap.reasoning.detail": "[Ĺéť íť ťȟíńķ ƀéƒóŕé áńśŵéŕíńǧ, áńď óƒƒéŕ ťȟé éƒƒóŕť ćȟóíćé.]",
+	"models.manager.cap.reasoning.label": "[Ŕéáśóńíńǧ]",
+	"models.manager.cap.tools.detail": "[Ĺéť íť úśé ťóóľś: ýóúŕ ćóńńéćťóŕś áńď ťȟé ƀúíľť-íń óńéś.]",
+	"models.manager.cap.tools.label": "[Úśé ťóóľś]",
+	"models.manager.card.edit": "[Éďíť]",
+	"models.manager.card.is_default": "[Íś ťȟé ďéƒáúľť]",
+	"models.manager.card.set_default": "[Śéť áś ďéƒáúľť]",
+	"models.manager.detail.all": "[Áľľ ḿóďéľś]",
+	"models.manager.detail.hint": "[Ɓý ďéƒáúľť ťȟéśé ƒóľľóŵ ŵȟáť ťȟé ḿóďéľ śáýś íť ćáń ďó. Úśé ťȟé śŵíťćȟéś ťó ćȟáńǧé ťȟáť, éíťȟéŕ ŵáý, íƒ ťȟé íńƒóŕḿáťíóń íś ŵŕóńǧ óŕ ḿíśśíńǧ.]",
+	"models.manager.detail.is_default": "[Ťȟé ďéƒáúľť ƒóŕ ńéŵ ćȟáťś]",
+	"models.manager.detail.may_do": "[Ŵȟáť íť ḿáý ďó]",
+	"models.manager.detail.not_default": "[Ńóť ťȟé ďéƒáúľť]",
+	"models.manager.detail.not_known": "[Ťȟíś ḿóďéľ íś ńóť ķńóŵń ťó śúþþóŕť íť.]",
+	"models.manager.detail.supports": "[Ťȟíś ḿóďéľ śúþþóŕťś íť.]",
+	"models.manager.empty.clear": "[Ćľéáŕ ťȟé śéáŕćȟ]",
+	"models.manager.empty.detail": "[Ťŕý á śȟóŕťéŕ śéáŕćȟ, óŕ ćľéáŕ íť ťó śéé éǚéŕýťȟíńǧ.]",
+	"models.manager.empty.title": "[Ńóťȟíńǧ ḿáťćȟéś “{filter}”]",
+	"models.manager.is_default": "[{name} íś ťȟé ďéƒáúľť]",
+	"models.manager.no_default": "[ńó ďéƒáúľť ćȟóśéń ýéť]",
+	"models.manager.pill.custom": "[ćúśťóḿ]",
+	"models.manager.pill.default": "[Ďéƒáúľť]",
+	"models.manager.search_label": "[Śéáŕćȟ ḿóďéľś ƀý ńáḿé]",
+	"models.manager.search_placeholder": "[Śéáŕćȟ ƀý ńáḿé]",
+	"models.manager.subtitle": "[Éǚéŕý ḿóďéľ áǚáíľáƀľé ťó ýóú. Ťȟé ďéƒáúľť íś ŵȟáť á ńéŵ ćȟáť śťáŕťś óń.]",
+	"models.manager.tips.custom": "[• {#strong}Ćúśťóḿ{/strong} ḿóďéľś áŕé ýóúŕś: á ƀáśé ḿóďéľ ŵíťȟ íťś óŵń śýśťéḿ þŕóḿþť, ḿáďé óń ťȟé {#strong}Ćúśťóḿ ḿóďéľś{/strong} ťáƀ.]",
+	"models.manager.tips.default": "[• Ťȟé ďéƒáúľť íś ŵȟáť á {#strong}ńéŵ{/strong} ćȟáť śťáŕťś óń; áń óþéń ćȟáť ķééþś íťś óŵń.]",
+	"models.manager.tips.next_message": "[• Ťȟéý áþþľý ťó ýóúŕ ńéẋť ḿéśśáǧé, íńćľúďíńǧ íń ćȟáťś ťȟáť áŕé áľŕéáďý óþéń.]",
+	"models.manager.tips.router": "[• Á ŕóúťéŕ þíćķś á ḿóďéľ ƒóŕ éáćȟ ḿéśśáǧé íńśťéáď óƒ áľŵáýś úśíńǧ ťȟé śáḿé óńé.]",
+	"models.manager.tips.title": "[💡 Ǫúíćķ ťíþś]",
+	"models.manager.tips.yours": "[• Ťȟéśé áŕé {#strong}ýóúŕ{/strong} śéťťíńǧś ƒóŕ ťȟíś ḿóďéľ, ńóť éǚéŕýóńé'ś.]",
+	"models.manager.title": "[Ḿóďéľś]",
+	"models.manager.trait.images": "[íḿáǧéś]",
+	"models.manager.trait.reasoning": "[ŕéáśóńíńǧ]",
+	"models.manager.trait.tools": "[ťóóľś]",
+	"projects.documents.add": "[Áďď ƒíľéś]",
+	"projects.documents.added_by": "[áďďéď ƀý {who}]",
+	"projects.documents.adding": "[Áďďíńǧ…]",
+	"projects.documents.chars": "[{count} ćȟáŕáćťéŕś]",
+	"projects.documents.description": "[Éǚéŕý ćȟáť íń ťȟíś þŕóĵéćť ŕéáďś ťȟéśé ƒíľéś {#strong}íń ƒúľľ{/strong}, éǚéŕý ťíḿé, ľíķé áń áťťáćȟḿéńť. (Á ķńóŵľéďǧé ƀáśé íś ďíƒƒéŕéńť: óńľý ťȟé þáŕťś ťȟáť ḿáťćȟ ťȟé ǫúéśťíóń áŕé úśéď.) Áďď ƒíľéś óńé ƀý óńé, ńóť ƒóľďéŕś. Ťéẋť ƒíľéś áńď ďóćúḿéńťś (ÞĎƑ, Ŵóŕď, Éẋćéľ, ÞóŵéŕÞóíńť, ÓþéńĎóćúḿéńť, ÉÞÚƁ), úþ ťó {mb} ḾƁ éáćȟ.]",
+	"projects.documents.empty.detail": "[Ďŕóþ ƒíľéś ȟéŕé, óŕ áďď ťȟéḿ. Éǚéŕý ćȟáť íń ťȟíś þŕóĵéćť ŵíľľ ŕéáď ťȟéḿ.]",
+	"projects.documents.empty.title": "[Ńó ƒíľéś ýéť]",
+	"projects.documents.error_status": "[Śóḿéťȟíńǧ ŵéńť ŵŕóńǧ ({status}). Ťŕý áǧáíń.]",
+	"projects.documents.failure_note": "[{reason} Íť śťáýś íń ťȟé ľíśť, ƀúť ťȟé ćȟáťś ďó ńóť ŕéáď íť.]",
+	"projects.documents.folder_refusal": "[Ƒóľďéŕś ćáń'ť ƀé áďďéď. Áďď ťȟé ƒíľéś ýóú ŵáńť óńé ƀý óńé.]",
+	"projects.documents.load_failed": "[Ćóúľď ńóť ľóáď ťȟé ƒíľéś. Ťŕý áǧáíń.]",
+	"projects.documents.loading": "[Ĺóáďíńǧ…]",
+	"projects.documents.remove": "[Ŕéḿóǚé]",
+	"projects.documents.remove_confirm": "[Ŕéḿóǚé “{name}” ƒŕóḿ ťȟíś þŕóĵéćť? Ťȟé ćȟáťś ȟéŕé ŵíľľ śťóþ ŕéáďíńǧ íť.]",
+	"projects.documents.remove_failed": "[Ćóúľď ńóť ŕéḿóǚé ťȟáť ƒíľé. Ťŕý áǧáíń.]",
+	"projects.documents.remove_label": "[Ŕéḿóǚé {name}]",
+	"projects.documents.title": "[Þŕóĵéćť ƒíľéś ({count})]",
+	"projects.documents.too_large": "[{name}: ľáŕǧéŕ ťȟáń {mb} ḾƁ.]",
+	"projects.documents.unreadable": "[ćóúľď ńóť ƀé ŕéáď]",
+	"projects.documents.upload_failed": "[{name} ƒáíľéď.]",
+	"projects.documents.usage": "[{used} óƒ {max} ćȟáŕáćťéŕś]",
+	"projects.documents.usage_label": "[Ȟóŵ ḿúćȟ óƒ ťȟé ľíḿíť ťȟíś þŕóĵéćť'ś ƒíľéś úśé]",
+	"projects.documents.warn": "[Ťȟáť íś á ľóť ťó ŕéáď éáćȟ ťíḿé. Ŕéþľíéś íń ťȟíś þŕóĵéćť ŵíľľ ƀé śľóŵéŕ áńď ćóśť ḿóŕé.]",
+	"projects.documents.you": "[ýóú]",
+	"projects.manager.bases": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ƀáśé]",
+				"countPlural=other": "[{count} ƀáśéś]"
+			}
+		}
+	],
+	"projects.manager.chats_in_them": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ćóńǚéŕśáťíóń íń ťȟéḿ]",
+				"countPlural=other": "[{count} ćóńǚéŕśáťíóńś íń ťȟéḿ]"
+			}
+		}
+	],
+	"projects.manager.count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} þŕóĵéćť]",
+				"countPlural=other": "[{count} þŕóĵéćťś]"
+			}
+		}
+	],
+	"projects.manager.empty.create": "[Ćŕéáťé ýóúŕ ƒíŕśť þŕóĵéćť]",
+	"projects.manager.empty.detail": "[Ǧíǚé á ǧŕóúþ óƒ ćȟáťś ťȟé śáḿé íńśťŕúćťíóńś áńď ƒíľéś]",
+	"projects.manager.empty.title": "[Ńó þŕóĵéćťś ýéť]",
+	"projects.manager.error_status": "[Śóḿéťȟíńǧ ŵéńť ŵŕóńǧ ({status}). Ťŕý áǧáíń.]",
+	"projects.manager.list_heading": "[Ýóúŕś áńď śȟáŕéď ŵíťȟ ýóú ({count})]",
+	"projects.manager.load_failed": "[Ćóúľď ńóť ľóáď þŕóĵéćťś. Ťŕý áǧáíń.]",
+	"projects.manager.loading": "[Ĺóáďíńǧ…]",
+	"projects.manager.new": "[Ńéŵ þŕóĵéćť]",
+	"projects.manager.no_description": "[Ńó ďéśćŕíþťíóń]",
+	"projects.manager.past_chats": "[þáśť ćȟáťś]",
+	"projects.manager.shared_with_you": "[śȟáŕéď ŵíťȟ ýóú]",
+	"projects.manager.subtitle": "[Ćȟáťś ťȟáť śȟáŕé ťȟé śáḿé íńśťŕúćťíóńś, ƒíľéś áńď ķńóŵľéďǧé.]",
+	"projects.manager.tips.delete": "[• Ďéľéťíńǧ á þŕóĵéćť ķééþś íťś ćȟáťś: ťȟéý ǧó ƀáćķ ťó ýóúŕ ńóŕḿáľ ľíśť.]",
+	"projects.manager.tips.instructions": "[• Éǚéŕý ćȟáť íń á þŕóĵéćť úśéś íťś íńśťŕúćťíóńś, ƒíľéś áńď ńóťéś.]",
+	"projects.manager.tips.knowledge": "[• Śȟáŕíńǧ á þŕóĵéćť ďóéś {#strong}ńóť{/strong} śȟáŕé íťś ķńóŵľéďǧé ƀáśéś.]",
+	"projects.manager.tips.shared": "[• Íń á śȟáŕéď þŕóĵéćť, éǚéŕýóńé śééś éǚéŕý ćȟáť.]",
+	"projects.manager.tips.title": "[💡 Ǫúíćķ ťíþś]",
+	"projects.manager.title": "[Þŕóĵéćťś]",
+	"projects.move.failed": "[Ćóúľď ńóť ḿóǚé ťȟé ćȟáť.]",
+	"projects.move.moved_to": "[Ḿóǚéď ťó {name}]",
+	"projects.move.removed_from": "[Ŕéḿóǚéď ƒŕóḿ {name}]",
+	"projects.move.the_project": "[ťȟé þŕóĵéćť]",
+	"projects.notes.add": "[Áďď ńóťé]",
+	"projects.notes.add_failed": "[Ćóúľď ńóť śáǚé ťȟáť ńóťé. Ťŕý áǧáíń.]",
+	"projects.notes.added_by": "[Áďďéď ƀý {who}]",
+	"projects.notes.budget": "[{used} ńóťéś áŕé íń úśé. Ťȟé {omitted} óľďéśť ńó ľóńǧéŕ ƒíť, śó ťȟé áśśíśťáńť ďóéś ńóť śéé ťȟéḿ.]",
+	"projects.notes.cancel": "[Ćáńćéľ]",
+	"projects.notes.delete": "[Ďéľéťé]",
+	"projects.notes.delete_failed": "[Ćóúľď ńóť ďéľéťé ťȟáť ńóťé. Ťŕý áǧáíń.]",
+	"projects.notes.edit": "[Éďíť]",
+	"projects.notes.edit_failed": "[Ćóúľď ńóť śáǚé ťȟáť ćȟáńǧé. Ťŕý áǧáíń.]",
+	"projects.notes.edit_label": "[Éďíť ńóťé]",
+	"projects.notes.empty.detail": "[Áďď óńé ȟéŕé, óŕ áśķ ťȟé áśśíśťáńť íń á ćȟáť ťó ŕéḿéḿƀéŕ śóḿéťȟíńǧ ƒóŕ ťȟé þŕóĵéćť.]",
+	"projects.notes.empty.title": "[Ńó þŕóĵéćť ńóťéś ýéť]",
+	"projects.notes.error_status": "[Śóḿéťȟíńǧ ŵéńť ŵŕóńǧ ({status}). Ťŕý áǧáíń.]",
+	"projects.notes.footer": "[Áńýóńé ŵȟó ćáń śéé ťȟíś þŕóĵéćť ćáń áďď, éďíť óŕ ďéľéťé ńóťéś. Ńéǚéŕ ķééþ á þáśśŵóŕď óŕ ķéý ȟéŕé: éǚéŕý ćȟáť ŵóúľď śéé íť. Úþ ťó {max} ńóťéś. Ŵȟéń ťȟéŕé áŕé ťóó ḿáńý ťó ƒíť, ťȟé óľďéśť áŕé ľéƒť óúť.]",
+	"projects.notes.load_failed": "[Ćóúľď ńóť ľóáď ťȟé þŕóĵéćť ńóťéś. Ťŕý áǧáíń.]",
+	"projects.notes.loading": "[Ĺóáďíńǧ…]",
+	"projects.notes.new.hint": "[Éǚéŕýóńé íń ťȟíś þŕóĵéćť ćáń ŕéáď íť, áńď éǚéŕý ćȟáť ȟéŕé úśéś íť. Ŵŕíťé íť śó á ćóľľéáǧúé ŵóúľď úńďéŕśťáńď íť.]",
+	"projects.notes.new.label": "[Ńéŵ ńóťé]",
+	"projects.notes.new.placeholder": "[Ďéþľóýś ǧó ťȟŕóúǧȟ ťȟé ŕéľéáśé ƀŕáńćȟ; śťáǧíńǧ íś ŕéśéť éǚéŕý Ḿóńďáý]",
+	"projects.notes.remembered_by": "[Ŕéḿéḿƀéŕéď íń á ćȟáť óƒ {who}]",
+	"projects.notes.save": "[Śáǚé]",
+	"projects.notes.source_chat": "[Śóúŕćé ćȟáť]",
+	"projects.notes.title": "[Þŕóĵéćť ńóťéś ({count})]",
+	"projects.notes.unused": "[Ńóť úśéď áńý ḿóŕé]",
+	"projects.notes.you": "[ýóú]",
+	"projects.page.all": "[Áľľ þŕóĵéćťś]",
+	"projects.page.chat_start_failed": "[Ćóúľď ńóť śťáŕť á ćȟáť. Ťŕý áǧáíń.]",
+	"projects.page.chat_start_status": "[Ćóúľď ńóť śťáŕť á ćȟáť ({status}). Ťŕý áǧáíń.]",
+	"projects.page.chats.bases": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ķńóŵľéďǧé ƀáśé]",
+				"countPlural=other": "[{count} ķńóŵľéďǧé ƀáśéś]"
+			}
+		}
+	],
+	"projects.page.chats.count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ćóńǚéŕśáťíóń]",
+				"countPlural=other": "[{count} ćóńǚéŕśáťíóńś]"
+			}
+		}
+	],
+	"projects.page.chats.empty.detail": "[Śťáŕť óńé áńď íť ŵíľľ úśé ťȟíś þŕóĵéćť'ś íńśťŕúćťíóńś, ƒíľéś áńď ńóťéś]",
+	"projects.page.chats.empty.start": "[Śťáŕť ťȟé ƒíŕśť ćȟáť]",
+	"projects.page.chats.empty.title": "[Ńóťȟíńǧ ȟéŕé ýéť]",
+	"projects.page.chats.new": "[Ńéŵ ćȟáť]",
+	"projects.page.chats.others": "[· śóḿéƀóďý éľśé'ś]",
+	"projects.page.chats.past_searchable": "[· þáśť ćȟáťś śéáŕćȟáƀľé]",
+	"projects.page.chats.shared": "[· śȟáŕéď ŵíťȟ ýóú]",
+	"projects.page.chats.title": "[Ćȟáťś ({count})]",
+	"projects.page.create": "[Ćŕéáťé þŕóĵéćť]",
+	"projects.page.defaults.built_in": "[Ɓúíľť-íń]",
+	"projects.page.defaults.connectors": "[Ćóńńéćťóŕś óń ƀý ďéƒáúľť:]",
+	"projects.page.defaults.loading": "[Ĺóáďíńǧ ćóńńéćťóŕś…]",
+	"projects.page.defaults.none": "[Ńó ćóńńéćťóŕś ýéť. Áďď óńé úńďéŕ Ŵóŕķśþáćé → Ćóńńéćťóŕś.]",
+	"projects.page.defaults.not_signed_in": "[· ńóť śíǧńéď íń]",
+	"projects.page.defaults.own": "[Ýóúŕ ćóńńéćťóŕś]",
+	"projects.page.defaults.title": "[Śéťťíńǧś ƒóŕ ńéŵ ćȟáťś ȟéŕé]",
+	"projects.page.defaults.web_search": "[Ŵéƀ śéáŕćȟ óń ƀý ďéƒáúľť]",
+	"projects.page.delete.button": "[Ďéľéťé ťȟíś þŕóĵéćť]",
+	"projects.page.delete.confirm": "[Ďéľéťé ťȟé þŕóĵéćť “{name}”?\n\nÍťś ćȟáťś áńď ķńóŵľéďǧé ƀáśéś áŕé ķéþť: ťȟé ćȟáťś ǧó ƀáćķ ťó ýóúŕ ńóŕḿáľ ľíśť. Íťś ńóťéś áńď ƒíľéś áŕé ďéľéťéď ŵíťȟ íť.]",
+	"projects.page.delete.confirm_memory": "[Áľśó ďéľéťé ťȟé śáǚéď þáśť ćȟáťś óƒ “{name}”?\n\nŤȟéśé áŕé ŵȟáť ťȟé áśśíśťáńť śéáŕćȟéś ťó ŕéḿéḿƀéŕ ťȟé þŕóĵéćť'ś ćȟáťś. ÓĶ = ďéľéťé ťȟéḿ ťóó. Ćáńćéľ = ķééþ ťȟéḿ (ťȟé þŕóĵéćť íś śťíľľ ďéľéťéď).]",
+	"projects.page.delete.failed": "[Ćóúľď ńóť ďéľéťé íť. Ťŕý áǧáíń.]",
+	"projects.page.description.label": "[Ŵȟáť íť íś ƒóŕ]",
+	"projects.page.error_status": "[Śóḿéťȟíńǧ ŵéńť ŵŕóńǧ ({status}). Ťŕý áǧáíń.]",
+	"projects.page.fallback_title": "[Þŕóĵéćť]",
+	"projects.page.instructions.hint": "[Éǚéŕý ćȟáť íń ťȟíś þŕóĵéćť ƒóľľóŵś ťȟéśé.]",
+	"projects.page.instructions.placeholder": "[Ŵé áŕé ŵŕíťíńǧ á ƒúńďíńǧ þŕóþóśáľ. Áńśŵéŕ íń Ɓŕíťíśȟ Éńǧľíśȟ áńď ǫúóťé ťȟé ćáľľ ťéẋť ŵȟéŕé íť áþþľíéś.]",
+	"projects.page.kb.all_attached": "[Éǚéŕý ƀáśé ýóú ćáń ŕéáćȟ íś áťťáćȟéď.]",
+	"projects.page.kb.attach": "[Áťťáćȟ]",
+	"projects.page.kb.attach_label": "[Áťťáćȟ á ķńóŵľéďǧé ƀáśé]",
+	"projects.page.kb.attach_name_label": "[Áťťáćȟ {name}]",
+	"projects.page.kb.change_failed": "[Ćóúľď ńóť ćȟáńǧé ťȟé ķńóŵľéďǧé ƀáśéś. Ťŕý áǧáíń.]",
+	"projects.page.kb.create": "[Ćŕéáťé á ķńóŵľéďǧé ƀáśé íń ťȟé Ŵóŕķśþáćé]",
+	"projects.page.kb.detach": "[Ďéťáćȟ]",
+	"projects.page.kb.detach_label": "[Ďéťáćȟ {name}]",
+	"projects.page.kb.no_match": "[Ńó úńáťťáćȟéď ƀáśé ḿáťćȟéś.]",
+	"projects.page.kb.none.detail": "[Áťťáćȟ óńé ƀéľóŵ áńď ćȟáťś ȟéŕé ćáń śéáŕćȟ íť, ńóŵ óŕ áńý ťíḿé ľáťéŕ]",
+	"projects.page.kb.none.title": "[Ńó ķńóŵľéďǧé ƀáśéś áťťáćȟéď]",
+	"projects.page.kb.ready": "[· {count} ŕéáďý]",
+	"projects.page.kb.ready_shared": "[· {count} ŕéáďý, śȟáŕéď ŵíťȟ ýóú]",
+	"projects.page.kb.search": "[Śéáŕćȟ ýóúŕ ķńóŵľéďǧé ƀáśéś]",
+	"projects.page.kb.sharing_note": "[Śȟáŕíńǧ ťȟíś þŕóĵéćť ďóéś {#strong}ńóť{/strong} śȟáŕé ťȟéśé ƀáśéś: éáćȟ ŕéáďéŕ śéáŕćȟéś óńľý ťȟé óńéś ťȟéý ćáń áľŕéáďý ŕéáď.]",
+	"projects.page.kb.title": "[Ķńóŵľéďǧé ƀáśéś ({count})]",
+	"projects.page.kb.unreadable": "[á ƀáśé ýóú ćáń ńó ľóńǧéŕ ŕéáď]",
+	"projects.page.kb.you_have_none": "[Ýóú ȟáǚé ńóńé ýéť. Ćŕéáťé óńé íń ťȟé Ŵóŕķśþáćé.]",
+	"projects.page.level.files": "[Þŕóĵéćť ƒíľéś]",
+	"projects.page.level.instructions": "[Íńśťŕúćťíóńś]",
+	"projects.page.level.knowledge": "[Ķńóŵľéďǧé ƀáśéś]",
+	"projects.page.level.notes": "[Þŕóĵéćť ńóťéś]",
+	"projects.page.level.past_chats": "[Þáśť ćȟáťś]",
+	"projects.page.levels.line_full": "[{n}. {#strong}{title}{/strong} — íń ƒúľľ, óń éǚéŕý ḿéśśáǧé]",
+	"projects.page.levels.line_searched": "[{n}. {#strong}{title}{/strong} — śéáŕćȟéď, óńľý ŵȟáť ḿáťćȟéś ťȟé ǫúéśťíóń]",
+	"projects.page.levels.note": "[Ťȟé ƒíŕśť ťȟŕéé áŕé ŕéáď íń ƒúľľ éǚéŕý ťíḿé, śó ťȟéý áďď ťó ťȟé ćóśť óƒ éáćȟ ŕéþľý. Ťȟé ľáśť ťŵó áŕé śéáŕćȟéď, śó óńľý ťȟé þáŕťś ťȟáť ḿáťćȟ ýóúŕ ǫúéśťíóń áŕé úśéď.]",
+	"projects.page.levels.title": "[Ŵȟáť éǚéŕý ćȟáť ȟéŕé śťáŕťś ŵíťȟ]",
+	"projects.page.limit.hint": "[Śȟáŕéď ƀý ķńóŵľéďǧé ƀáśéś áńď þáśť ćȟáťś.]",
+	"projects.page.limit.label": "[Þáśśáǧéś þéŕ ŕéþľý]",
+	"projects.page.loading": "[Ĺóáďíńǧ…]",
+	"projects.page.missing.detail": "[Íť ḿáý ȟáǚé ƀééń ďéľéťéď, óŕ ńóť śȟáŕéď ŵíťȟ ýóú.]",
+	"projects.page.missing.title": "[Ťȟáť þŕóĵéćť íś ńóť áǚáíľáƀľé]",
+	"projects.page.name.label": "[Ńáḿé]",
+	"projects.page.name.placeholder": "[Ǧŕáńť áþþľíćáťíóń]",
+	"projects.page.new_subtitle": "[Ǧíǚé á ǧŕóúþ óƒ ćȟáťś ťȟé śáḿé íńśťŕúćťíóńś, ƒíľéś áńď ķńóŵľéďǧé.]",
+	"projects.page.new_title": "[Ńéŵ þŕóĵéćť]",
+	"projects.page.no_models": "[Ńó ḿóďéľś áŕé áǚáíľáƀľé ťó ýóú ýéť. Áśķ ýóúŕ áďḿíńíśťŕáťóŕ.]",
+	"projects.page.open_failed": "[Ćóúľď ńóť óþéń ťȟáť þŕóĵéćť. Ťŕý áǧáíń.]",
+	"projects.page.optional": "[(óþťíóńáľ)]",
+	"projects.page.past.detail": "[Ƒíńíśȟéď ćȟáťś áŕé śáǚéď íńťó á ķńóŵľéďǧé ƀáśé óƒ ťȟéíŕ óŵń. Íť áþþéáŕś úńďéŕ Ķńóŵľéďǧé, áńď ýóú ćáń éḿþťý óŕ ďéľéťé íť ľíķé áńý óťȟéŕ. Óƒƒ ƀý ďéƒáúľť, ƀéćáúśé íť ķééþś á ćóþý óƒ ŵȟáť ŵáś śáíď.]",
+	"projects.page.past.label": "[Śéáŕćȟ ťȟíś þŕóĵéćť'ś þáśť ćȟáťś]",
+	"projects.page.pill.full": "[{n} · íń ƒúľľ]",
+	"projects.page.pill.searched": "[{n} · śéáŕćȟéď]",
+	"projects.page.save_changes": "[Śáǚé ćȟáńǧéś]",
+	"projects.page.save_failed": "[Ćóúľď ńóť śáǚé. Ťŕý áǧáíń.]",
+	"projects.page.saved": "[Śáǚéď]",
+	"projects.page.saving": "[Śáǚíńǧ…]",
+	"projects.page.sections_label": "[Þŕóĵéćť śéćťíóńś]",
+	"projects.page.share.added": "[Áďďéď. Ťȟéý ŵíľľ śéé ťȟíś þŕóĵéćť, áńď éǚéŕý ćȟáť íń íť, ńéẋť ťíḿé ťȟéý óþéń Þŕóĵéćťś.]",
+	"projects.page.share.button": "[Śȟáŕé]",
+	"projects.page.share.choose": "[— ćȟóóśé —]",
+	"projects.page.share.email": "[Ťȟéíŕ éḿáíľ áďďŕéśś]",
+	"projects.page.share.email_placeholder": "[ćóľľéáǧúé@éẋáḿþľé.óŕǧ]",
+	"projects.page.share.failed": "[Ćóúľď ńóť śȟáŕé íť. Ťŕý áǧáíń.]",
+	"projects.page.share.group": "[Á ǧŕóúþ]",
+	"projects.page.share.group_name": "[Ǧŕóúþ ńáḿé]",
+	"projects.page.share.group_placeholder": "[ŕéśéáŕćȟ]",
+	"projects.page.share.kind_group": "[· ǧŕóúþ]",
+	"projects.page.share.kind_user": "[· úśéŕ]",
+	"projects.page.share.note": "[Éǚéŕýóńé ȟéŕé śééś {#strong}éǚéŕý ćóńǚéŕśáťíóń{/strong} íń ťȟé þŕóĵéćť, íńćľúďíńǧ óńéś ýóú ďíď ńóť śťáŕť, áńď ćáń áďď óŕ ŕéḿóǚé íťś ďóćúḿéńťś áńď ńóťéś. Ťȟé áďďŕéśś íś ńóť ćȟéćķéď, śó á ťýþó áńď á ćóľľéáǧúé ŵȟó ȟáś ńóť śíǧńéď íń ýéť ľóóķ ťȟé śáḿé.]",
+	"projects.page.share.person": "[Á þéŕśóń]",
+	"projects.page.share.remove": "[Ŕéḿóǚé]",
+	"projects.page.share.remove_failed": "[Ćóúľď ńóť ŕéḿóǚé ťȟáť. Ťŕý áǧáíń.]",
+	"projects.page.share.title": "[Śȟáŕé íť]",
+	"projects.page.share.with": "[Ŵíťȟ]",
+	"projects.page.shared_note": "[Ťȟíś þŕóĵéćť íś śȟáŕéď ŵíťȟ ýóú. Íťś śéťťíńǧś áŕé ťȟé óŵńéŕ'ś; ýóú ćáń śťáŕť ćȟáťś, áďď ďóćúḿéńťś áńď ńóťéś, áńď ŕéḿóǚé ýóúŕ óŵń ćȟáťś.]",
+	"projects.page.subtitle": "[Ŵȟáť íť ķńóŵś, ŵȟáť ȟáś ƀééń śáíď, áńď ŵȟó éľśé ćáń śéé íť.]",
+	"projects.page.tab.conversations": "[Ćóńǚéŕśáťíóńś]",
+	"projects.page.tab.settings": "[Śéťťíńǧś]",
+	"projects.page.unsaved": "[Úńśáǚéď ćȟáńǧéś]",
 	"settings.title": "[Śéťťíńǧś]",
 	"settings.sections_label": "[Śéťťíńǧś śéćťíóńś]",
 	"settings.tabs.application": "[Áþþľíćáťíóń śéťťíńǧś]",
@@ -1203,5 +2018,120 @@
 			}
 		}
 	],
-	"settings.notifications.notice.not_taken": "[Ťȟé ńóťíƒíćáťíóń ďíď ńóť ǧó ťȟŕóúǧȟ. Ťŕý áǧáíń íń á ḿóḿéńť.]"
+	"settings.notifications.notice.not_taken": "[Ťȟé ńóťíƒíćáťíóń ďíď ńóť ǧó ťȟŕóúǧȟ. Ťŕý áǧáíń íń á ḿóḿéńť.]",
+	"skills.manager.admin.count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ƀúíľť-íń śķíľľ]",
+				"countPlural=other": "[{count} ƀúíľť-íń śķíľľś]"
+			}
+		}
+	],
+	"skills.manager.admin.empty_title": "[Ńó ƀúíľť-íń śķíľľś]",
+	"skills.manager.admin.enabled": "[{count} éńáƀľéď · ćȟáńǧéś ȟéŕé áþþľý ťó éǚéŕýóńé]",
+	"skills.manager.back": "[Ɓáćķ ťó śķíľľś]",
+	"skills.manager.builtin.heading": "[Ɓúíľť-íń śķíľľś ({count}) — ŕéáď-óńľý]",
+	"skills.manager.builtin.pill": "[Ɓúíľť-íń]",
+	"skills.manager.bundled_files": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ƀúńďľéď ƒíľé]",
+				"countPlural=other": "[{count} ƀúńďľéď ƒíľéś]"
+			}
+		}
+	],
+	"skills.manager.cancel": "[Ćáńćéľ]",
+	"skills.manager.change_failed": "[Ćóúľď ńóť ćȟáńǧé ťȟé śķíľľ. Ťŕý áǧáíń.]",
+	"skills.manager.confirm_delete": "[Ćóńƒíŕḿ ďéľéťé]",
+	"skills.manager.create_failed": "[Ćóúľď ńóť ćŕéáťé ťȟé śķíľľ. Ťŕý áǧáíń.]",
+	"skills.manager.delete": "[Ďéľéťé]",
+	"skills.manager.delete_failed": "[Ćóúľď ńóť ďéľéťé ťȟé śķíľľ. Ťŕý áǧáíń.]",
+	"skills.manager.detail.file_loading": "[Ĺóáďíńǧ…]",
+	"skills.manager.detail.files": "[Ɓúńďľéď ƒíľéś ({count})]",
+	"skills.manager.detail.hide": "[Ȟíďé]",
+	"skills.manager.detail.loading": "[Ĺóáďíńǧ śķíľľ…]",
+	"skills.manager.detail.read_only": "[Ŕéáď-óńľý ƀúíľť-íń śķíľľ]",
+	"skills.manager.detail.remove": "[Ŕéḿóǚé]",
+	"skills.manager.disable": "[Ďíśáƀľé]",
+	"skills.manager.edit": "[Éďíť]",
+	"skills.manager.edit_fallback": "[śķíľľ]",
+	"skills.manager.edit_title": "[Éďíť {name}]",
+	"skills.manager.empty.detail": "[Ŵŕíťé óńé áś á ŚĶÍĹĹ.ḿď ƒíľé: á śȟóŕť ȟéáďéŕ, ťȟéń ťȟé śťéþś.]",
+	"skills.manager.empty.title": "[Ńó śķíľľś ýéť]",
+	"skills.manager.enable": "[Éńáƀľé]",
+	"skills.manager.error_status": "[Śóḿéťȟíńǧ ŵéńť ŵŕóńǧ ({status}). Ťŕý áǧáíń.]",
+	"skills.manager.file_load_failed": "[Ćóúľď ńóť ľóáď ťȟáť ƒíľé. Ťŕý áǧáíń.]",
+	"skills.manager.file_remove_failed": "[Ćóúľď ńóť ŕéḿóǚé ťȟáť ƒíľé. Ťŕý áǧáíń.]",
+	"skills.manager.form.admin_saved": "[Éǚéŕýóńé ćáń úśé íť óńćé íť íś śáǚéď.]",
+	"skills.manager.form.create": "[Ćŕéáťé śķíľľ]",
+	"skills.manager.form.create_builtin": "[Ćŕéáťé ƀúíľť-íń śķíľľ]",
+	"skills.manager.form.creating": "[Ćŕéáťíńǧ…]",
+	"skills.manager.form.description": "[Á ŚĶÍĹĹ.ḿď ƒíľé śťáŕťś ŵíťȟ á ȟéáďéŕ ŵíťȟ {#code}{name}{/code} áńď {#code}{description}{/code}, ťȟéń ťȟé śťéþś íń þľáíń ťéẋť.]",
+	"skills.manager.form.file_label": "[ŚĶÍĹĹ.ḿď]",
+	"skills.manager.form.placeholder": "[---\nńáḿé: ḿý-śķíľľ\nďéśćŕíþťíóń: Ŵȟáť ťȟíś śķíľľ ďóéś, íń óńé ľíńé ťȟé ḿóďéľ ḿáťćȟéś áǧáíńśť.\n---\n\n# Ḿý śķíľľ\n\nŴȟéń ťó úśé íť, ťȟéń ťȟé þŕóćéďúŕé áś ńúḿƀéŕéď śťéþś.\n]",
+	"skills.manager.form.save_changes": "[Śáǚé ćȟáńǧéś]",
+	"skills.manager.form.saving": "[Śáǚíńǧ…]",
+	"skills.manager.import.admin_imported": "[Éǚéŕýóńé ćáń úśé íť óńćé íť íś íḿþóŕťéď.]",
+	"skills.manager.import.button": "[Íḿþóŕť śķíľľ]",
+	"skills.manager.import.button_admin": "[Íḿþóŕť ƀúíľť-íń śķíľľ]",
+	"skills.manager.import.description": "[Á źíþ óƒ á śķíľľ ƒóľďéŕ: {#code}{skill}{/code} áť ťȟé ŕóóť, þľúś áńý {#code}{scripts}{/code}, {#code}{references}{/code} óŕ {#code}{assets}{/code} ƒíľéś ƀéśíďé íť.]",
+	"skills.manager.import.importing": "[Íḿþóŕťíńǧ…]",
+	"skills.manager.import.title": "[Íḿþóŕť á śķíľľ]",
+	"skills.manager.import.title_admin": "[Íḿþóŕť á ƀúíľť-íń śķíľľ]",
+	"skills.manager.import.zip_label": "[Śķíľľ źíþ]",
+	"skills.manager.import_failed": "[Ćóúľď ńóť íḿþóŕť ťȟáť źíþ.]",
+	"skills.manager.import_zip": "[Íḿþóŕť á źíþ]",
+	"skills.manager.load_failed": "[Ćóúľď ńóť ľóáď śķíľľś. Ťŕý áǧáíń.]",
+	"skills.manager.loading": "[Ĺóáďíńǧ śķíľľś…]",
+	"skills.manager.new_builtin": "[Ńéŵ ƀúíľť-íń śķíľľ]",
+	"skills.manager.new_skill": "[Ńéŵ śķíľľ]",
+	"skills.manager.off": "[Óƒƒ]",
+	"skills.manager.on": "[Óń]",
+	"skills.manager.remove_confirm": "[Ŕéḿóǚé “{name}” ƒóŕ éǚéŕýóńé? Ńóƀóďý ŵíľľ ƀé áƀľé ťó úśé íť.]",
+	"skills.manager.save_failed": "[Ćóúľď ńóť śáǚé ťȟé śķíľľ. Ťŕý áǧáíń.]",
+	"skills.manager.skill_load_failed": "[Ćóúľď ńóť ľóáď ťȟé śķíľľ. Ťŕý áǧáíń.]",
+	"skills.manager.subtitle": "[Śáǚéď ŵáýś óƒ ďóíńǧ ťȟíńǧś ťȟáť ťȟé áśśíśťáńť ćáń ƒóľľóŵ: ýóúŕ óŵń śķíľľś, þľúś ťȟé ƀúíľť-íń óńéś.]",
+	"skills.manager.subtitle_admin": "[Ɓúíľť-íń śķíľľś ťȟáť éǚéŕýóńé'ś áśśíśťáńť ćáń úśé. Ťúŕńíńǧ óńé óƒƒ śťóþś íť ƒóŕ éǚéŕýƀóďý. Ďéľéťíńǧ óńé ŕéḿóǚéś íť ƒóŕ ǧóóď.]",
+	"skills.manager.tips.admin.off": "[• Ťúŕńíńǧ á śķíľľ óƒƒ śťóþś íť ƒóŕ éǚéŕýƀóďý. Ďéľéťíńǧ íť ŕéḿóǚéś íť ƒóŕ ǧóóď.]",
+	"skills.manager.tips.admin.override": "[• Á þéŕśóń'ś óŵń śķíľľ óƒ ťȟé śáḿé ńáḿé ŵíńś óǚéŕ ťȟé ƀúíľť-íń óńé ƒóŕ ťȟéḿ]",
+	"skills.manager.tips.auto": "[• Óťȟéŕŵíśé ťȟé áśśíśťáńť þíćķś á śķíľľ íťśéľƒ ŵȟéń íť ƒíťś ťȟé ťáśķ]",
+	"skills.manager.tips.builtin": "[• Éǚéŕýóńé ćáń úśé ťȟé ƀúíľť-íń śķíľľś. Óńľý áń áďḿíńíśťŕáťóŕ ćáń ćȟáńǧé ťȟéḿ.]",
+	"skills.manager.tips.import": "[• Íḿþóŕť á źíþ óƒ á śķíľľ ƒóľďéŕ ťó ƀŕíńǧ áľóńǧ íťś śćŕíþťś, ńóťéś áńď óťȟéŕ ƒíľéś]",
+	"skills.manager.tips.mention": "[• Ťýþé @ńáḿé íń á ćȟáť ťó ḿáķé ťȟé áśśíśťáńť úśé ťȟáť śķíľľ]",
+	"skills.manager.tips.python": "[• Śķíľľś ćáń ŕúń śíḿþľé Þýťȟóń íń ýóúŕ ƀŕóŵśéŕ. Ťȟéý ćáń'ť ŕúń śȟéľľ ćóḿḿáńďś óŕ íńśťáľľ þáćķáǧéś.]",
+	"skills.manager.tips.title": "[💡 Ǫúíćķ ťíþś]",
+	"skills.manager.title": "[Śķíľľś]",
+	"skills.manager.title_admin": "[Śķíľľś ƒóŕ éǚéŕýóńé]",
+	"skills.manager.user.count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} śķíľľ óƒ ýóúŕś]",
+				"countPlural=other": "[{count} śķíľľś óƒ ýóúŕś]"
+			}
+		}
+	],
+	"skills.manager.user.enabled": "[{enabled} éńáƀľéď · {builtin} ƀúíľť-íń śķíľľś]",
+	"skills.manager.user.heading": "[Ýóúŕ śķíľľś ({count})]",
+	"skills.manager.view": "[Ǚíéŵ]"
 }

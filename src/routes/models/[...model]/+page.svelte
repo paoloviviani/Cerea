@@ -3,6 +3,7 @@
 	import { base } from "$app/paths";
 	import { goto, replaceState } from "$app/navigation";
 	import { onMount, tick } from "svelte";
+	import { m } from "$lib/paraglide/messages";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 
 	import ChatWindow from "$lib/components/chat/ChatWindow.svelte";
@@ -46,7 +47,7 @@
 			});
 
 			if (!res.ok) {
-				error.set("Could not start the chat. Try again.");
+				error.set(m["models.chat.start_failed"]());
 				console.error("Error while creating conversation: " + (await res.text()));
 				return;
 			}
@@ -65,6 +66,7 @@
 			// update once the LLM generates one.
 			convsStore.prepend({
 				id: conversationId,
+				// The server-side default title, not a word to translate. i18n: literal
 				title: "New Chat",
 				model: modelId,
 				updatedAt: new Date(),
@@ -99,9 +101,7 @@
 				// Show errors if any
 				if (result.errors.length > 0) {
 					console.error("Failed to load some attachments:", result.errors);
-					error.set(
-						`Failed to load ${result.errors.length} attachment(s). Check console for details.`
-					);
+					error.set(m["models.chat.attachments_failed"]({ count: result.errors.length }));
 				}
 
 				// Clean up URL
@@ -142,7 +142,13 @@
 	<title>{modelId} - {publicConfig.PUBLIC_APP_NAME}</title>
 	<meta property="og:title" content="{modelId} - {publicConfig.PUBLIC_APP_NAME}" />
 	<meta property="og:type" content="website" />
-	<meta property="og:description" content="Use {modelId} with {publicConfig.PUBLIC_APP_NAME}" />
+	<meta
+		property="og:description"
+		content={m["models.chat.og_description"]({
+			model: modelId,
+			app: publicConfig.PUBLIC_APP_NAME,
+		})}
+	/>
 	<meta
 		property="og:image"
 		content="{publicConfig.PUBLIC_ORIGIN || page.url.origin}{base}/models/{modelPath}/thumbnail.png"
@@ -154,7 +160,13 @@
 	<meta property="og:site_name" content={publicConfig.PUBLIC_APP_NAME} />
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content="{modelId} - {publicConfig.PUBLIC_APP_NAME}" />
-	<meta name="twitter:description" content="Use {modelId} with {publicConfig.PUBLIC_APP_NAME}" />
+	<meta
+		name="twitter:description"
+		content={m["models.chat.og_description"]({
+			model: modelId,
+			app: publicConfig.PUBLIC_APP_NAME,
+		})}
+	/>
 	<meta
 		name="twitter:image"
 		content="{publicConfig.PUBLIC_ORIGIN || page.url.origin}{base}/models/{modelPath}/thumbnail.png"

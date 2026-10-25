@@ -7,7 +7,7 @@ import { writable } from "svelte/store";
 
 import ChatInput from "./ChatInput.svelte";
 import { renderWithApp } from "../__tests__/renderWithApp";
-import { unbracketed, useEnglish, usePseudoLocale } from "../__tests__/pseudoLocale";
+import { unbracketedWords, useEnglish, usePseudoLocale } from "../__tests__/enXaManage";
 import {
 	connectors,
 	connectorsFailed,
@@ -81,6 +81,6 @@ describe("Composer, in the pseudo-locale", () => {
 			timeout: 5000,
 		});
 
-		expect(unbracketed()).toEqual([]);
+		expect(unbracketedWords()).toEqual([]);
 	});
 });
