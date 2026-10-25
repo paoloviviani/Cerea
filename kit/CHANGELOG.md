@@ -5,6 +5,43 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.26.1 — 2026-10-25
+
+Pins: Cerea `0.26.1`, Pystino `0.17.2` (unchanged), Authelia 4.39.22 (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. (From 0.23.x, read the MongoDB note
+under v0.24.0 first. No galopin update on machines: none of this touches the
+agent.)
+
+This is the release to use: v0.26.0 was tagged but never published — its image
+build failed before anything was pushed, so it shipped no image, no GitHub
+release, and `stable` never moved to it. Everything below was written for
+v0.26.0 and ships in this one.
+
+- **The image build has more room.** The builder heap defaults to 6144 MB
+  instead of 3072: building the client bundle outgrew 3 GB, and the v0.26.0
+  image build stopped with an out-of-memory abort. The running server keeps
+  Node's default.
+- **The connectors pill explains itself.** When the model you are talking to
+  can't use connectors, the pill above the composer is dimmed, and tapping,
+  hovering or focusing it (or opening the connectors menu) says why — instead of
+  the old crossed-out pill that said nothing.
+- **The whole interface takes its words from one message file.** Every screen —
+  chat, connectors, projects, models, skills, knowledge, memory, admin, settings
+  and the /code agents panel — now reads its labels, buttons, toasts and errors
+  from the chat's message catalogue, all 2,384 of them in English. Nothing
+  changes on the surface; this is what makes adding another language a matter of
+  filling in one file. Long numbers, like a token count, now show with thousands
+  separators.
+- **Message actions stay through a turn, and a slash command reads like a
+  sentence.** Copy and Fork remain on every finished message while a reply
+  streams (only the streaming message hides its actions), a `/command`'s own
+  text is no longer drawn in the code font, and a question whose options
+  already include "Something else" shows one free-text entry instead of two.
+  Edit and Retry still wait for the turn to end.
+- Test-side only: a long-session end-to-end test scrolls with the wheel the
+  way a reader does, and a couple of test helpers were tightened.
+
 ## v0.26.0 — 2026-10-25
 
 Pins: Cerea `0.26.0`, Pystino `0.17.2` (unchanged), Authelia 4.39.22 (unchanged).

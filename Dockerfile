@@ -52,10 +52,11 @@ RUN --mount=type=cache,target=/app/.npm \
 
 COPY --link --chown=1000 . .
 
-# Node's default heap is sized from the machine and is too small for this build
-# on a small host (an out-of-memory abort, exit 134, on a 5 GB box building with
-# the kit's dev/build.sh). Builder stage only: the running server keeps the default.
-ARG BUILD_HEAP_MB=3072
+# The builder needs more than 3 GB now: the images build on the v0.26.0 tag
+# aborted at 3072 with "Ineffective mark-compacts near heap limit" (exit 134),
+# so the default leaves headroom at 6144. Builder stage only: the running
+# server keeps Node's default.
+ARG BUILD_HEAP_MB=6144
 RUN git config --global --add safe.directory /app && \
     NODE_OPTIONS=--max-old-space-size=${BUILD_HEAP_MB} npm run build && \
     node scripts/check-bundle.mjs
