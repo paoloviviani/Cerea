@@ -197,9 +197,7 @@ test("the workspace, session and chat kebabs all draw the same horizontal glyph"
 	// sidebar, not a fresh navigation, so the same page is reused.
 	await page.getByRole("button", { name: "Chats", exact: true }).click();
 	await expect(page.getByText("a chat row")).toBeVisible();
-	expectHorizontalDots(
-		await dotCenters(page.getByRole("button", { name: "Conversation actions" }))
-	);
+	expectHorizontalDots(await dotCenters(page.getByRole("button", { name: "Chat actions" })));
 });
 
 test("the + next to Pair opens the workspace dialog, even when the device already has a workspace", async ({
