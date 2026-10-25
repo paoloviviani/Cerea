@@ -19,6 +19,7 @@ import {
 	selectedServerIds,
 	enabledServers,
 	initWithServers,
+	applyProjectServerDefaults,
 } from "./mcpServers";
 
 // --- helpers ---
@@ -120,5 +121,31 @@ describe("initWithServers", () => {
 		const selected = get(selectedServerIds);
 		expect(selected.has("base-old-gone")).toBe(false);
 		expect(selected.has("base-search")).toBe(true);
+	});
+});
+
+describe("applyProjectServerDefaults", () => {
+	it("a new chat in a project with a base-server default starts with exactly that one selected", () => {
+		initWithServers([makeServer("search"), makeServer("files")]);
+		expect([...get(selectedServerIds)].sort()).toEqual(["base-files", "base-search"]);
+
+		applyProjectServerDefaults(["base-files", "conn-x"]);
+		expect([...get(selectedServerIds)]).toEqual(["base-files"]);
+		expect(get(enabledServers).map((s) => s.name)).toEqual(["files"]);
+
+		// A background refresh keeps the chat's starting point.
+		initWithServers([makeServer("search"), makeServer("files")]);
+		expect([...get(selectedServerIds)]).toEqual(["base-files"]);
+
+		// A chat in a project that names no base server follows the person's own selection.
+		applyProjectServerDefaults(["conn-x"]);
+		expect([...get(selectedServerIds)].sort()).toEqual(["base-files", "base-search"]);
+	});
+
+	it("leaves the selection alone when the project names no base server", () => {
+		initWithServers([makeServer("search")]);
+		applyProjectServerDefaults(["conn-x"]);
+		applyProjectServerDefaults(undefined);
+		expect([...get(selectedServerIds)]).toEqual(["base-search"]);
 	});
 });
