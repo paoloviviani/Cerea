@@ -5,6 +5,24 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.27.0 — 2026-10-25
+
+Pins: Cerea `0.27.0`, Pystino `0.17.2` (unchanged), Authelia 4.39.22 (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`.
+
+- **A reply always comes.** When the assistant uses many tools, a turn no longer
+  ends with no answer: if it runs out of steps, or finishes with nothing written,
+  it is asked once more, without tools, to answer with what it found and say what
+  it couldn't do. The step limit per turn is now 20 (was 10).
+- **A broken connector can't eat the turn.** After a tool fails the same way twice,
+  it is set aside for the rest of that turn and the assistant carries on without it.
+- **New built-in skill: Weather.** Forecasts, rain, wind and air quality for any
+  place from Open-Meteo (no API key; free for non-commercial use), with several
+  forecast models compared for rain.
+- Fix: the assistant's thinking no longer risks leaking into the code that shows
+  replies; the think tag now lives in one place in the source.
+
 ## v0.26.1 — 2026-10-25
 
 Pins: Cerea `0.26.1`, Pystino `0.17.2` (unchanged), Authelia 4.39.22 (unchanged).
