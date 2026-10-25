@@ -35,8 +35,8 @@ describe("Settings > Application, in the pseudo-locale", () => {
 	it("renders in English by default", async () => {
 		const screen = renderWithApp(ApplicationPage, {}, { context: stores() });
 		await expect.element(screen.getByText("Appearance")).toBeVisible();
-		await expect.element(screen.getByText("Streaming mode")).toBeVisible();
-		await expect.element(screen.getByText("Delete all conversations")).toBeVisible();
+		await expect.element(screen.getByText("How replies appear")).toBeVisible();
+		await expect.element(screen.getByText("Delete all chats")).toBeVisible();
 	});
 
 	it("renders every word from the catalogue in en-XA, so none is hard-coded", async () => {

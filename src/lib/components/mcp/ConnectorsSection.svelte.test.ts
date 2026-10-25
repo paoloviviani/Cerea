@@ -101,7 +101,7 @@ describe("ConnectorsSection", () => {
 			.element(screen.getByText("Your connectors (1)", { exact: true }))
 			.toBeInTheDocument();
 		await expect
-			.element(screen.getByText("Provided by this deployment (1)", { exact: true }))
+			.element(screen.getByText("Built-in connectors (1)", { exact: true }))
 			.toBeInTheDocument();
 		await expect.element(screen.getByText("Mine", { exact: true })).toBeInTheDocument();
 		await expect.element(screen.getByText("Shared", { exact: true })).toBeInTheDocument();
@@ -151,9 +151,9 @@ describe("ConnectorsSection", () => {
 		const screen = mount();
 
 		await expect
-			.element(screen.getByText("Provided by this deployment (1)", { exact: true }))
+			.element(screen.getByText("Built-in connectors (1)", { exact: true }))
 			.toBeInTheDocument();
-		const names = sectionButtons(screen.baseElement, "Provided by this deployment (1)");
+		const names = sectionButtons(screen.baseElement, "Built-in connectors (1)");
 		// Manageable stays: editing and re-checking somebody else's deployment
 		// connector is still an administrator's job. Removal left for the
 		// admin screen, which is the only place that confirms "for everyone".
@@ -167,9 +167,9 @@ describe("ConnectorsSection", () => {
 		const screen = mount();
 
 		await expect
-			.element(screen.getByText("Provided by this deployment (1)", { exact: true }))
+			.element(screen.getByText("Built-in connectors (1)", { exact: true }))
 			.toBeInTheDocument();
-		const names = sectionButtons(screen.baseElement, "Provided by this deployment (1)");
+		const names = sectionButtons(screen.baseElement, "Built-in connectors (1)");
 		// These were buttons whose requests the server was already refusing;
 		// `manageable` is the server saying so, and the row finally listens.
 		expect(names).not.toContain("Edit");
@@ -188,7 +188,7 @@ describe("ConnectorsSection: adding a token to a connector the probe could not w
 
 	it("offers a token field on a no-auth connector and sends what is typed", async () => {
 		// What auto mode leaves behind for a server that answered a bare 401:
-		// no auth, and a row error telling the person to add a token.
+		// no sign-in, and a row error telling the person to add a token.
 		const jmcp = connector({
 			id: "c-jmcp",
 			name: "jmcp",
@@ -221,7 +221,7 @@ describe("ConnectorsSection: adding a token to a connector the probe could not w
 			return field as HTMLInputElement;
 		});
 		// Nothing stored yet, so there is nothing to remove.
-		expect(screen.baseElement.textContent).not.toContain("Remove the stored token");
+		expect(screen.baseElement.textContent).not.toContain("Remove the saved access key");
 
 		token.value = "secret-token";
 		token.dispatchEvent(new Event("input", { bubbles: true }));
@@ -527,7 +527,7 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		await screen.getByRole("button", { name: "notes" }).click();
 		await expect
 			.element(page.getByTestId("connector-detail"))
-			.toHaveTextContent("Couldn't list tools: laptop is offline");
+			.toHaveTextContent("Couldn't load the tools: laptop is offline");
 	});
 
 	it("does not ask for tools of a server that is not on, and says so", async () => {
@@ -567,7 +567,7 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		const screen = mount();
 
 		await expect
-			.element(screen.getByText("Provided by this deployment (3)", { exact: true }))
+			.element(screen.getByText("Built-in connectors (3)", { exact: true }))
 			.toBeInTheDocument();
 		// No separate "Base Servers" group any more.
 		expect(screen.baseElement.textContent).not.toContain("Base Servers");
@@ -580,6 +580,10 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		const cards = [...(section?.querySelectorAll('[data-testid="card-name"]') ?? [])].map(
 			(el) => el.closest("div.rounded-lg") as HTMLElement
 		);
+		// One look: a connected connector and a built-in base server are not tinted differently.
+		expect(
+			new Set(cards.map((card) => card.className.replace("cursor-pointer", "").trim())).size
+		).toBe(1);
 		for (const card of cards) {
 			expect(card.querySelector("h4 img"), card.textContent ?? "").not.toBeNull();
 			expect(

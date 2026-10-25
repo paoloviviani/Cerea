@@ -266,8 +266,8 @@
 				type="button"
 				class="flex h-12 w-6 shrink-0 items-center justify-center text-lg"
 				onclick={() => sidePane.toggleLibrary()}
-				aria-label="Open artifacts panel"
-				title="Artifacts and chat export"
+				aria-label="Open files panel"
+				title="Files and chat export"
 			>
 				<CarbonSidePanelOpen />
 			</button>
@@ -293,7 +293,7 @@
 		class="fixed inset-0 z-20 cursor-default bg-black/30 md:hidden"
 		style="opacity: {Math.max(0, Math.min(1, (100 + tween.current) / 100))}; will-change: opacity;"
 		onclick={closeDrawer}
-		aria-label="Close mobile navigation"
+		aria-label="Close menu"
 	></button>
 {/if}
 

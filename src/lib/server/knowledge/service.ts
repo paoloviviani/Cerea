@@ -964,7 +964,7 @@ export async function attachFile(
 	if (!configReady(config)) {
 		throw new KnowledgeError(
 			400,
-			"No embedding model has been configured for this deployment, so documents cannot be indexed yet."
+			"No search model is set up yet, so documents cannot be made searchable. Ask your administrator."
 		);
 	}
 	// The same gate, for the reading half: a file that cannot be read cannot

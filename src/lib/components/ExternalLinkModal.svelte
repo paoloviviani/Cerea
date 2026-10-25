@@ -38,8 +38,7 @@
 		</div>
 
 		<p class="text-sm text-gray-600 dark:text-gray-400">
-			This link leads outside of the preview and will open in a new tab. Only continue if you trust
-			the destination.
+			This link goes to another website and opens in a new tab. Only continue if you trust it.
 		</p>
 
 		<!-- Built from URL components (host has no userinfo ambiguity) so the

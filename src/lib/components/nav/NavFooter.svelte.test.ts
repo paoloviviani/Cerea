@@ -63,10 +63,10 @@ describe("NavFooter", () => {
 		expect(document.documentElement.classList.contains("dark")).toBe(false);
 	});
 
-	it("has a Reload app control that reloads the page (a PWA has no other way)", async () => {
+	it("has a Reload the app control that reloads the page (a PWA has no other way)", async () => {
 		const spy = vi.spyOn(appReload, "reload").mockImplementation(() => {});
 		const screen = mount({ username: "ada" });
-		await screen.getByRole("button", { name: "Reload app" }).click();
+		await screen.getByRole("button", { name: "Reload the app" }).click();
 		expect(spy).toHaveBeenCalledTimes(1);
 		spy.mockRestore();
 	});

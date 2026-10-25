@@ -439,7 +439,7 @@ export async function resolveExtractorModel(token: string): Promise<string | nul
 
 /** Nothing anywhere to read with — not the document's fault, the deployment's. */
 export const NO_READER_MESSAGE =
-	"This deployment has no document reader configured, so PDFs and Office files cannot be read yet. An administrator picks one on the Knowledge screen.";
+	"No document reader is set up yet, so PDFs and Office files cannot be read. An administrator can pick one on the Knowledge screen.";
 
 const NO_READER: ExtractionFailure = {
 	ok: false,
@@ -503,7 +503,7 @@ export async function extractDocument(options: {
 			kind: "no-credential",
 			status: 401,
 			reason:
-				"This session has no gateway credential, so the document cannot be read. Sign out and back in.",
+				"The document cannot be read because your sign-in is incomplete. Sign out and back in.",
 		};
 	}
 

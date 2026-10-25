@@ -440,7 +440,7 @@
 						const next = encodeURIComponent(`${base}/conversation/${convId}`);
 						window.location.assign(`${base}/login?next=${next}`);
 					} else {
-						$error = update.message ?? "An error has occurred";
+						$error = update.message ?? "Something went wrong. Try again.";
 					}
 				},
 			});
@@ -448,7 +448,7 @@
 			if ($isAborted || (err instanceof DOMException && err.name === "AbortError")) {
 				// User-initiated abort, not an error
 			} else if (err instanceof Error && err.message.includes("overloaded")) {
-				$error = "Too much traffic, please try again.";
+				$error = "Too many people are using this right now. Try again in a moment.";
 			} else if (err instanceof Error && err.message.includes("429")) {
 				$error = ERROR_MESSAGES.rateLimited;
 			} else if (err instanceof Error) {
@@ -540,7 +540,7 @@
 						noteServerNow(update.serverNow);
 					},
 					onError: (update) => {
-						$error = update.message ?? "An error has occurred";
+						$error = update.message ?? "Something went wrong. Try again.";
 					},
 				}
 			);
@@ -630,7 +630,7 @@
 				} catch (err) {
 					if (attempt === delays.length - 1) {
 						console.error("Failed to stop generation", err);
-						$error = "Failed to stop generation. Please try again.";
+						$error = "Could not stop the reply. Try again.";
 					}
 				}
 			}

@@ -20,7 +20,7 @@
 		mimeTypes = [],
 		onDrag = $bindable(false),
 		onDragInner = $bindable(false),
-		label = "Drop File to add to chat",
+		label = "Drop a file to add it to the chat",
 	}: Props = $props();
 
 	async function dropHandle(event: DragEvent) {
@@ -49,7 +49,7 @@
 
 						// if file is bigger than 10MB abort
 						if (file.size > MAX_ATTACHMENT_BYTES) {
-							setErrorMsg("Some file is too big. (10MB max)");
+							setErrorMsg("A file is too big (10 MB at most).");
 							files = [];
 							return;
 						}

@@ -90,7 +90,13 @@
 
 	<!-- An installed PWA has no address bar and no pull-to-refresh: this is its
 	     only way to start over from the server when the page has drifted. -->
-	<button type="button" onclick={reloadApp} aria-label="Reload app" title="Reload" class={GHOST}>
+	<button
+		type="button"
+		onclick={reloadApp}
+		aria-label="Reload the app"
+		title="Reload"
+		class={GHOST}
+	>
 		<CarbonRenew class="size-4" />
 	</button>
 

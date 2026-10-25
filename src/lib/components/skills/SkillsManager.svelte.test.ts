@@ -136,7 +136,7 @@ describe("SkillsManager", () => {
 		expect(page.getByText("Does a useful thing.").elements()).not.toHaveLength(0);
 		expect(page.getByText("csv-shaping").elements()).not.toHaveLength(0);
 		// The deployment row carries its marker; the user row does not.
-		expect(page.getByText("Deployment", { exact: true }).elements()).toHaveLength(1);
+		expect(page.getByText("Built-in", { exact: true }).elements()).toHaveLength(1);
 	});
 
 	it("disables a skill through the API and flips its pill", async () => {
@@ -157,7 +157,7 @@ describe("SkillsManager", () => {
 
 	it("imports a skill from a zip, posting multipart form data", async () => {
 		await vi.waitFor(() => expect(page.getByText("my-skill").elements()).not.toHaveLength(0));
-		await page.getByRole("button", { name: "Import zip" }).click();
+		await page.getByRole("button", { name: "Import a zip" }).click();
 		await vi.waitFor(() => expect(document.querySelector("#skill-zip")).not.toBeNull());
 		const input = document.querySelector("#skill-zip") as HTMLInputElement;
 		const file = new File(["zip bytes"], "skill.zip", { type: "application/zip" });

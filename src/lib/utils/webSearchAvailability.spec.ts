@@ -9,7 +9,7 @@ describe("webSearchUnavailableReason", () => {
 
 	it("says it is not set up, and tells only admins where to fix it", () => {
 		expect(webSearchUnavailableReason({ webSearchAvailable: false })).toBe(
-			"Web search isn't set up on this deployment."
+			"Web search isn't set up here yet."
 		);
 		expect(
 			webSearchUnavailableReason({ webSearchAvailable: false, gatewayIsAdmin: true })

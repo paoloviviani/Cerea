@@ -260,8 +260,8 @@
 				</select>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					{#if status.available_embedding_models.length === 0}
-						This deployment has no embedding model at all. One has to be created in the gateway's
-						own console first, then chosen here.
+						This service has no embedding model at all. One has to be created in the gateway's own
+						console first, then chosen here.
 					{:else}
 						Existing bases keep the model they were indexed with. Vectors from two models are not
 						comparable, so a base only moves when it is reindexed.
@@ -296,14 +296,14 @@
 				{/if}
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					{#if status.available_extractor_models.length === 0}
-						This deployment has no document reader in its catalogue. One has to be created — or this
+						This service has no document reader in its catalogue. One has to be created — or this
 						deployment's own local extractor registered — in the gateway's own console first.
 					{:else if status.extractor_source === "env"}
-						Set with <code class="text-xs">CHAT_OCR_MODEL</code> in the environment; this deployment's
-						operator decided, not this screen.
+						Set with <code class="text-xs">CHAT_OCR_MODEL</code> in the environment; this service's operator
+						decided, not this screen.
 					{:else}
 						Reads PDFs and images attached in chats and added to knowledge bases. Word, Excel and
-						PowerPoint files always use this deployment's own extractor. A scan needs an OCR model,
+						PowerPoint files always use this service's own extractor. A scan needs an OCR model,
 						which sends the document to that provider.
 					{/if}
 				</span>

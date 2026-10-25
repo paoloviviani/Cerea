@@ -37,7 +37,7 @@ function noteId(params: { noteId?: string }): ObjectId {
 }
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
-	if (!memoryEnabled()) error(404, "Memory is not enabled in this deployment.");
+	if (!memoryEnabled()) error(404, "Memory is not turned on here.");
 	const { project, user } = await memberProject(locals, params.id);
 	const parsed = patch.safeParse(await request.json());
 	if (!parsed.success) {

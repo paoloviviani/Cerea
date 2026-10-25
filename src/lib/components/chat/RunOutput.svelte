@@ -125,7 +125,7 @@
 				</span>
 			{:else if runState.status === "error"}
 				<CarbonWarningAlt class="text-amber-500 dark:text-amber-400" />
-				<span>{runState.outcome ? "Finished with errors" : "Execution failed"}</span>
+				<span>{runState.outcome ? "Finished with errors" : "The code failed"}</span>
 			{:else}
 				<CarbonCheckmark class="text-green-600 dark:text-green-500" />
 				<span>Finished{duration ? ` · ${duration}` : ""}</span>

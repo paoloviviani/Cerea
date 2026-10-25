@@ -32,7 +32,7 @@
 		const response = await fetch(`${base}/api/v2/admin/web-search`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 		}
 		return (await response.json()) as Status;
 	}
@@ -116,8 +116,8 @@
 					No search backend in the gateway. Add one in the gateway console (Providers), then choose
 					it here.
 				{:else if status.source === "env"}
-					Set with <code class="text-xs">WEB_SEARCH_MODEL</code> in the environment; this deployment's
-					operator decided, not this screen.
+					Set with <code class="text-xs">WEB_SEARCH_MODEL</code> in the environment; this service's operator
+					decided, not this screen.
 				{:else if status.stale}
 					The saved backend “{status.stored_backend}” is not offered to you, so searches fall back
 					to the billing group's policy. Choose another.

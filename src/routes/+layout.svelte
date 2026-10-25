@@ -232,7 +232,7 @@
 				? $projectTitle || "Project"
 				: page.route.id === "/code"
 					? // The agent screen names itself once the daemon answers.
-						codeNav.agentTitle || "Code Agents"
+						codeNav.agentTitle || "Agents"
 					: convsStore.list.find((conv) => conv.id === page.params.id)?.title
 	);
 </script>

@@ -1,6 +1,6 @@
 /**
  * The admin MCP page lists the servers `.env` defines (`MCP_SERVERS`) beside the connectors an
- * administrator adds here: read-only, marked "from .env", with no Remove.
+ * administrator adds here: read-only, marked "Set in the .env file", with no Remove.
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -56,7 +56,7 @@ describe("admin MCP page", () => {
 		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
 		const rows = [...screen.baseElement.querySelectorAll('[data-testid="env-server"]')];
 		expect(rows.map((r) => r.querySelector("p")?.textContent)).toEqual(["osm", "search"]);
-		expect(rows[1].textContent).toContain("from .env");
+		expect(rows[1].textContent).toContain("Set in the .env file");
 		expect(rows[1].textContent).toContain("reachable · 2 tools");
 		expect(rows[0].textContent).toContain("not checked");
 		// Read-only: the only Remove on the page is the GUI connector's.

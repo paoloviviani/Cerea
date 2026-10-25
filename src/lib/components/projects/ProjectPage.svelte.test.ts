@@ -235,7 +235,7 @@ describe("ProjectPage tabs", () => {
 		expect(text()).toContain("Chats (2)");
 		expect(byLabel("Actions for Budget questions")).not.toBeNull();
 		expect(document.body.querySelector("#project-name")).toBeNull();
-		expect(document.body.querySelector('[aria-label="Standing instructions"]')).toBeNull();
+		expect(document.body.querySelector('[aria-label="Instructions"]')).toBeNull();
 		expect(document.body.querySelector('[data-testid="project-knowledge"]')).toBeNull();
 
 		// The tab bar is the workspace's: two links, the active one marked.
@@ -258,28 +258,24 @@ describe("ProjectPage sections", () => {
 	it("draws the five context levels and every section of an existing project", async () => {
 		stubApi({ project: projectView({ name: "Grant application" }), chats: CHATS });
 		mountExisting(false, "settings");
-		await waitForText("Context documents (0)");
+		await waitForText("Project files (0)");
 
 		// The explainer lists the five levels, in prompt order.
 		const explainer = document.body.querySelector("[aria-labelledby='project-levels']");
 		const levels = [...(explainer?.querySelectorAll("li") ?? [])].map((li) => li.textContent);
 		expect(levels).toHaveLength(5);
-		[
-			"Standing instructions",
-			"Context documents",
-			"Project memory",
-			"Knowledge bases",
-			"Past chats",
-		].forEach((title, index) => expect(levels[index]).toContain(title));
+		["Instructions", "Project files", "Project notes", "Knowledge bases", "Past chats"].forEach(
+			(title, index) => expect(levels[index]).toContain(title)
+		);
 
 		expect(document.body.querySelector("h1")?.textContent).toContain("Grant application");
 		expect(document.body.querySelector("#project-name")).not.toBeNull();
-		expect(document.body.querySelector('[aria-label="Standing instructions"]')).not.toBeNull();
+		expect(document.body.querySelector('[aria-label="Instructions"]')).not.toBeNull();
 		expect(document.body.querySelector('[data-testid="project-documents"]')).not.toBeNull();
 		expect(document.body.querySelector('[data-testid="project-knowledge"]')).not.toBeNull();
 		expect(text()).toContain("Share it");
-		expect(text()).toContain("Defaults for new chats here");
-		expect(text()).toContain("Passages per answer");
+		expect(text()).toContain("Settings for new chats here");
+		expect(text()).toContain("Passages per reply");
 		expect(text()).toContain("Web search on by default");
 		// The settings tab does not carry the conversations: they are the other
 		// tab's content, reached without remounting the page.
@@ -289,7 +285,7 @@ describe("ProjectPage sections", () => {
 	it("a shared project is read-only for its settings", async () => {
 		stubApi({ project: projectView({ owned: false }), chats: CHATS });
 		mountExisting(false, "settings");
-		await waitForText("Context documents (0)");
+		await waitForText("Project files (0)");
 		expect((document.body.querySelector("#project-name") as HTMLInputElement).disabled).toBe(true);
 		expect(text()).not.toContain("Share it");
 		expect(button("Save changes")).toBeUndefined();
@@ -340,7 +336,7 @@ describe("ProjectPage knowledge bases, after creation", () => {
 		await vi.waitFor(() => expect(byLabel("Attach Call texts")).toBeNull());
 		expect(byLabel("Attach Past proposals")).not.toBeNull();
 		const link = [...document.body.querySelectorAll("a")].find((a) =>
-			a.textContent?.includes("Create a base in the workspace")
+			a.textContent?.includes("Create a knowledge base in the Workspace")
 		);
 		expect(link?.getAttribute("href")).toContain("/workspace?tab=kb");
 	});
@@ -432,18 +428,18 @@ describe("ProjectPage context documents", () => {
 	it("refuses a dropped folder with the reason, and uploads nothing", async () => {
 		const seen = stubApi({ project: projectView() });
 		mountExisting(false, "settings");
-		await waitForText("No documents yet");
+		await waitForText("No files yet");
 
 		drop([fakeItem("papers", true)]);
 		await waitForText("Folders can't be added");
-		expect(text()).toContain("Whole documents go into every prompt");
+		expect(text()).toContain("Add the files you want one by one");
 		expect(seen).toHaveLength(0);
 	});
 
 	it("offers a file picker for files only: multiple, and no directory selection", async () => {
 		stubApi({ project: projectView() });
 		mountExisting(false, "settings");
-		await waitForText("No documents yet");
+		await waitForText("No files yet");
 		const input = document.body.querySelector(
 			'[data-testid="project-documents-input"]'
 		) as HTMLInputElement;
@@ -462,7 +458,7 @@ describe("ProjectPage defaults for new chats", () => {
 				document.body.querySelector('input[name="project-default-connector-conn-a"]')
 			).not.toBeNull()
 		);
-		expect(text()).toContain("MCPs on by default:");
+		expect(text()).toContain("Connectors on by default:");
 		expect(text()).toContain("· not signed in");
 		for (const banned of [
 			"Use the app default",
@@ -536,7 +532,7 @@ describe("ProjectPage defaults for new chats", () => {
 			project: projectView({ defaultWebSearch: false, defaultMcpConnectorIds: ["conn-a"] }),
 		});
 		mountExisting(true, "settings");
-		await waitForText("MCPs on by default:");
+		await waitForText("Connectors on by default:");
 		await vi.waitFor(() =>
 			expect(
 				document.body.querySelector('input[name="project-default-connector-conn-a"]')
@@ -570,7 +566,7 @@ describe("ProjectPage defaults for new chats", () => {
 			).not.toBeNull()
 		);
 		await typeInto("#project-name", "Grant");
-		await typeInto("#project-instructions, [aria-label='Standing instructions']", "Be brief.");
+		await typeInto("#project-instructions, [aria-label='Instructions']", "Be brief.");
 		await flipSwitch("project-default-websearch");
 		await flipSwitch("project-default-connector-conn-a");
 		await vi.waitFor(() =>
@@ -600,7 +596,7 @@ describe("ProjectPage defaults for new chats", () => {
 	it("Save appears only when something changed, and sends the changed settings", async () => {
 		const seen = stubApi({ project: projectView() });
 		mountExisting(false, "settings");
-		await waitForText("Passages per answer");
+		await waitForText("Passages per reply");
 		expect(button("Save changes")?.disabled).toBe(true);
 
 		await typeInto("#project-name", "Renamed");

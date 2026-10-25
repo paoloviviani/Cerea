@@ -62,7 +62,7 @@
 		{ key: "memory", label: "Memory", icon: LucideBrain },
 		{ key: "kb", label: "Knowledge", icon: LucideLibrary },
 		{ key: "skills", label: "Skills", icon: IconDocument },
-		{ key: "mcp", label: "MCP Servers", icon: IconMCP },
+		{ key: "mcp", label: "Connectors", icon: IconMCP },
 		{ key: "local", label: "Local connectors", icon: LucideLaptop },
 	] as const;
 	// Memory hides on the same terms as Knowledge, for the same reason: with

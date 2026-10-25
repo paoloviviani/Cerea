@@ -60,8 +60,8 @@ describe("DeliverablesPanel", () => {
 	it("shows a legible empty state when the chat generated nothing", async () => {
 		vi.stubGlobal("fetch", listResponse([]));
 		const screen = await mountOpen();
-		await expect.element(screen.getByRole("heading", { name: "Artifacts" })).toBeVisible();
-		await expect.element(screen.getByText("No artifacts yet")).toBeVisible();
+		await expect.element(screen.getByRole("heading", { name: "Files" })).toBeVisible();
+		await expect.element(screen.getByText("No files yet")).toBeVisible();
 		screen.unmount();
 	});
 
@@ -104,7 +104,7 @@ describe("DeliverablesPanel", () => {
 		const run = vi.fn();
 		exportConversation.set({ canExport: true, loading: false, run });
 		const screen = await mountOpen();
-		const button = screen.getByRole("button", { name: "Export conversation as Markdown" });
+		const button = screen.getByRole("button", { name: "Save this chat as Markdown" });
 		await expect.element(button).toBeVisible();
 		// A direct click: the scroll controller's re-measuring never lets
 		// Playwright's actionability checks settle on chat surfaces.

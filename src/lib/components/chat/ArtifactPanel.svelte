@@ -476,7 +476,7 @@
 			pendingScreenshot = { dataUrl, fileName, subject };
 		} catch (err) {
 			errorStore.set(
-				`Screenshot failed: ${err instanceof Error ? err.message : "unexpected error"}`
+				`Could not take the picture: ${err instanceof Error ? err.message : "unexpected error"}`
 			);
 		} finally {
 			capturing = false;
@@ -810,7 +810,7 @@
 				{#if writingDraft}
 					Writing…
 				{:else}
-					No artifact selected
+					No file selected
 				{/if}
 			</div>
 		{:else if effectiveTab === "preview"}
@@ -831,7 +831,7 @@
 				     white in dark mode while the document paints its own background -->
 				<iframe
 					bind:this={iframeEl}
-					title="Artifact preview"
+					title="File preview"
 					class="h-full w-full bg-white dark:bg-gray-900 {resizing ? 'pointer-events-none' : ''}"
 					sandbox={PREVIEW_SANDBOX}
 					allow={PREVIEW_ALLOW}
@@ -870,7 +870,7 @@
 							<button
 								type="button"
 								class="{codeFloatBtn} text-gray-600 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-200"
-								title="Run this code in the browser sandbox"
+								title="Run this code here in your browser"
 								aria-label="Run code"
 								disabled={isStreamingVersion || cellSpinner}
 								onclick={runCell}
@@ -996,15 +996,15 @@
 					class="btn flex items-center gap-1.5 rounded-full border border-red-300/60 bg-red-50 px-2.5 py-0.5 text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"
 					title={loading
 						? "Wait for the current response to finish"
-						: "Send the errors and ask for a fix"}
+						: "Send the problems and ask for a fix"}
 					disabled={loading}
 					onclick={askToFixErrors}
 				>
-					{errors.length} error{errors.length > 1 ? "s" : ""} — ask to fix
+					{errors.length} problem{errors.length > 1 ? "s" : ""}: ask for a fix
 				</button>
 			{:else if version?.failedPairs}
 				<span class="truncate text-amber-600 dark:text-amber-500">
-					{version.failedPairs} edit{version.failedPairs > 1 ? "s" : ""} didn't apply
+					{version.failedPairs} change{version.failedPairs > 1 ? "s" : ""} didn't apply
 				</span>
 			{:else if stats && effectiveTab === "code" && stats.added + stats.removed > 0}
 				<button
@@ -1024,7 +1024,7 @@
 				<button
 					type="button"
 					class="btn flex-none gap-1.5 rounded-md border border-gray-200/80 bg-white/90 px-2 py-0.5 font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700/80 dark:bg-gray-900/90 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-					title="Screenshot the preview, annotate it, and attach it to the chat"
+					title="Take a picture of the preview, mark it up and add it to the chat"
 					disabled={capturing}
 					onclick={screenshotPreview}
 				>
@@ -1043,7 +1043,7 @@
 <!-- A tool-mode draft of a new artifact has no registry entry until its call
      runs; it still mounts the pane, so the preview streams in while it is written. -->
 {#if sidePane.open && sidePane.view === "artifact" && (artifact || fileArtifact || pendingDraft || writingDraft)}
-	<SidePane label="Artifact panel" escapeDisabled={fullscreenOpen || loading}>
+	<SidePane label="File panel" escapeDisabled={fullscreenOpen || loading}>
 		{#snippet children(resizing)}
 			{@render panelContent(resizing)}
 		{/snippet}

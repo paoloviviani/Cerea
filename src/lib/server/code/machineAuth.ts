@@ -521,7 +521,7 @@ export async function resolveMachineUser(
 				resolution = {
 					ok: false,
 					status: 401,
-					message: "The gateway is unavailable, try again in a minute.",
+					message: "The service is not available right now. Try again in a minute.",
 					refused: false,
 				};
 			}

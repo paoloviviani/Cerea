@@ -115,11 +115,11 @@
 		}
 		const out: string[] = [];
 		if (/(^|\.)xn--/i.test(parsed.hostname)) {
-			out.push("This address uses punycode, which can be made to imitate another domain.");
+			out.push("This address uses special characters that can make it look like another website.");
 		}
-		if (parsed.protocol !== "https:") out.push("This link is not encrypted.");
+		if (parsed.protocol !== "https:") out.push("This link is not secure (it does not use https).");
 		if (isPrivateHost(parsed.hostname))
-			out.push("This link points into a private or local network.");
+			out.push("This link goes to a private network, not the public web.");
 		return out;
 	});
 
@@ -222,7 +222,7 @@
 	async function send(action: ElicitationAction) {
 		if (submitting || !open) return;
 		if (action === "accept" && missingOtherText()) {
-			error = "Tell us what you meant by “Other”, or pick one of the choices.";
+			error = "Tell us what you meant by “Something else”, or pick one of the choices.";
 			return;
 		}
 		submitting = true;
@@ -254,7 +254,7 @@
 	let settledLabel = $derived.by(() => {
 		if (outcome === "accept") return request.mode === "url" ? "Opened link" : "Answered";
 		if (outcome === "decline") return "Declined";
-		if (resolved?.resolution === "aborted") return "Cancelled with the response";
+		if (resolved?.resolution === "aborted") return "Cancelled with the reply";
 		if (resolved?.resolution === "withdrawn")
 			return request.source === "assistant"
 				? "No longer asked"
@@ -347,7 +347,7 @@
 		>
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
 				<span class="text-sm font-medium text-gray-700 dark:text-gray-200">
-					{request.mode === "url" ? "Action needed" : "Input requested"}
+					{request.mode === "url" ? "Your reply is needed" : "Question"}
 				</span>
 				{#if request.source !== "assistant"}
 					<span class="text-xs text-gray-500 dark:text-gray-400">

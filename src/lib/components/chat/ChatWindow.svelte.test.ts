@@ -115,11 +115,9 @@ const mountConversation = async () => {
 describe("conversation Markdown export", () => {
 	it("shows a menu button opening the artifacts pane, not an export button", async () => {
 		const screen = await mountConversation();
-		await expect
-			.element(screen.getByRole("button", { name: "Open artifacts panel" }))
-			.toBeVisible();
+		await expect.element(screen.getByRole("button", { name: "Open files panel" })).toBeVisible();
 		const buttons = await screen
-			.getByRole("button", { name: "Export conversation as Markdown" })
+			.getByRole("button", { name: "Save this chat as Markdown" })
 			.elements();
 		expect(buttons).toHaveLength(0);
 		screen.unmount();
@@ -137,7 +135,7 @@ describe("conversation Markdown export", () => {
 				]),
 			}
 		);
-		const buttons = await screen.getByRole("button", { name: "Open artifacts panel" }).elements();
+		const buttons = await screen.getByRole("button", { name: "Open files panel" }).elements();
 		expect(buttons).toHaveLength(0);
 		screen.unmount();
 	});
@@ -162,10 +160,10 @@ describe("conversation Markdown export", () => {
 		// actionability retry loop never settles on this page because the scroll
 		// controller continuously re-measures layout.
 		(
-			screen.getByRole("button", { name: "Open artifacts panel" }).element() as HTMLButtonElement
+			screen.getByRole("button", { name: "Open files panel" }).element() as HTMLButtonElement
 		).click();
 		const exportButtonLocator = screen.getByRole("button", {
-			name: "Export conversation as Markdown",
+			name: "Save this chat as Markdown",
 		});
 		await expect.element(exportButtonLocator).toBeVisible();
 		const exportButton = exportButtonLocator.element() as HTMLButtonElement;

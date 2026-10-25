@@ -93,7 +93,7 @@ describe("ProjectMemorySection", () => {
 		expect(shown("deleted user")).toBe(true);
 		const link = document.querySelector('a[href$="/conversation/691111111111111111119999"]');
 		expect(link).not.toBeNull();
-		expect(shown("Project memory (2)")).toBe(true);
+		expect(shown("Project notes (2)")).toBe(true);
 	});
 
 	it("adds a note through the project's route and appends it as the viewer's own", async () => {
@@ -151,8 +151,8 @@ describe("ProjectMemorySection", () => {
 		document.body.innerHTML = "";
 		renderWithApp(ProjectMemorySection, { projectId: PROJECT });
 		await vi.waitFor(() =>
-			expect(page.getByText("No longer sent", { exact: true }).elements().length).toBe(2)
+			expect(page.getByText("Not used any more", { exact: true }).elements().length).toBe(2)
 		);
-		expect(shown("are no longer sent to the model")).toBe(true);
+		expect(shown("so the assistant does not see them")).toBe(true);
 	});
 });

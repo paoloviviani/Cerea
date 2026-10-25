@@ -34,7 +34,7 @@ function memoryId(params: { id?: string }): ObjectId {
 }
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
-	if (!memoryEnabled()) error(404, "Memory is not enabled in this deployment.");
+	if (!memoryEnabled()) error(404, "Memory is not turned on here.");
 	const user = requireUser(locals);
 	const parsed = patch.safeParse(await request.json());
 	if (!parsed.success) {

@@ -66,7 +66,7 @@
 		const response = await fetch(`${base}/api/v2/memory${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 		}
 		return response.status === 204 ? (undefined as T) : await response.json();
 	}
@@ -78,7 +78,7 @@
 			const body = await api<{ data: { memories: MemoryView[] } }>("");
 			memories = body.data.memories;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Memory could not be loaded.";
+			failure = err instanceof Error ? err.message : "Could not load your memory. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -106,7 +106,7 @@
 			draft = "";
 			adding = false;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That memory could not be saved.";
+			failure = err instanceof Error ? err.message : "Could not save that. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -126,7 +126,7 @@
 			memories = memories.map((memory) => (memory.id === id ? body.data : memory));
 			editingId = null;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That change could not be saved.";
+			failure = err instanceof Error ? err.message : "Could not save that change. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -143,7 +143,7 @@
 			await api<void>(`/${memory.id}`, { method: "DELETE" });
 			memories = memories.filter((row) => row.id !== memory.id);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That memory could not be deleted.";
+			failure = err instanceof Error ? err.message : "Could not delete that. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -160,8 +160,8 @@
 		<div class={s.HEADER}>
 			<h2 class={s.TITLE}>Memory</h2>
 			<p class={s.SUBTITLE}>
-				Standing facts the assistant carries into every conversation. You can edit or delete any of
-				them, and it can add to them while you talk.
+				Things the assistant remembers in every chat. You can edit or delete any of them, and it can
+				add to them while you talk.
 			</p>
 		</div>
 
@@ -215,8 +215,8 @@
 				would make "let me try this off for a week" irreversible.
 			-->
 			<div class="{s.NOTICE} mb-4">
-				Memory is off. Nothing here is sent to the model and nothing new will be remembered.
-				Anything already stored is kept, and is listed below.
+				Memory is off. The assistant does not see these and will not remember anything new. What is
+				already saved stays in the list below.
 			</div>
 		{/if}
 
@@ -234,10 +234,7 @@
 						if (event.key === "Escape") adding = false;
 					}}
 				/>
-				<p class={s.HINT}>
-					One self-contained sentence. It will be readable with no surrounding context, months from
-					now.
-				</p>
+				<p class={s.HINT}>One sentence that makes sense on its own, even months from now.</p>
 				<div class="mt-3 flex gap-2">
 					<button type="button" class={s.PRIMARY} disabled={!draft.trim() || busy} onclick={add}>
 						Save
@@ -310,7 +307,7 @@
 													can tell you: stored, but past the prompt budget
 													and therefore no longer reaching the model.
 												-->
-												<span class="{s.PILL} {s.PILL_TONES.bad}">No longer sent</span>
+												<span class="{s.PILL} {s.PILL_TONES.bad}">Not used any more</span>
 											{/if}
 										</div>
 									</div>
@@ -339,8 +336,8 @@
 			<p class={s.TIPS_TITLE}>Quick tips</p>
 			<ul class={s.TIPS_LIST}>
 				<li>
-					All of these go into every conversation at once — they are not searched, so a fact does
-					not have to resemble your question to be used.
+					The assistant sees all of these in every chat. They are not searched, so a fact does not
+					need to match your question to be used.
 				</li>
 				<li>
 					Say "remember that…" or "forget that…" in a chat and the assistant will edit this list
@@ -350,7 +347,7 @@
 					Past {MEMORY_MAX_FACTS} facts nothing more is stored, and past the prompt's budget the oldest
 					stop being sent — they are marked here when that happens.
 				</li>
-				<li>Never keep a password, key or token here: it would ride along in every prompt.</li>
+				<li>Never keep a password or key here: every chat would see it.</li>
 			</ul>
 		</div>
 	</div>

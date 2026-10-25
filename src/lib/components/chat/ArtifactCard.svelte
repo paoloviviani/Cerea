@@ -44,8 +44,8 @@
 
 	const KIND_LABELS: Record<ArtifactKind, string> = {
 		html: "Web app",
-		react: "React component",
-		svg: "SVG image",
+		react: "Interactive page",
+		svg: "Image",
 		markdown: "Document",
 		mermaid: "Diagram",
 		table: "Table",
@@ -55,7 +55,7 @@
 	let title = $derived(version?.title ?? op.title ?? op.identifier);
 
 	let subtitle = $derived.by(() => {
-		if (missing) return "This edit couldn't be linked to an artifact";
+		if (missing) return "This change couldn't be matched to a file";
 		if (!version) return "";
 		if (streaming) return version.op === "update" ? "Applying edit…" : "Generating…";
 		const kindLabel =
@@ -70,7 +70,7 @@
 		}
 		if (version.op === "update") {
 			return version.failedPairs
-				? `Edited, ${version.failedPairs} change${version.failedPairs > 1 ? "s" : ""} didn't apply${versionLabel}`
+				? `Edited, but ${version.failedPairs} change${version.failedPairs > 1 ? "s" : ""} didn't apply${versionLabel}`
 				: `Edited${versionLabel}`;
 		}
 		return `${kindLabel}${versionLabel}`;
@@ -104,7 +104,7 @@
 		openInPanel();
 	}}
 	disabled={missing}
-	aria-label="Open artifact: {title}"
+	aria-label="Open file: {title}"
 >
 	<div
 		class="flex size-9 flex-none items-center justify-center rounded-lg bg-gray-100 text-gray-500 dark:bg-gray-700/70 dark:text-gray-300"

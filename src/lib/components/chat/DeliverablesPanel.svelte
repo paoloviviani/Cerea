@@ -100,7 +100,7 @@
 			files = dedupeDeliverablesByName(Array.isArray(data.files) ? data.files : []);
 			loadState = "ready";
 		} catch (err) {
-			loadError = err instanceof Error ? err.message : "the list failed to load";
+			loadError = err instanceof Error ? err.message : "Could not load the list. Try again.";
 			loadState = "failed";
 		}
 	}
@@ -140,8 +140,8 @@
 
 	const ARTIFACT_KIND_LABELS: Record<ArtifactKind, string> = {
 		html: "Web app",
-		react: "React component",
-		svg: "SVG image",
+		react: "Interactive page",
+		svg: "Image",
 		markdown: "Document",
 		mermaid: "Diagram",
 		table: "Table",
@@ -201,7 +201,7 @@
 </script>
 
 {#if sidePane.open && sidePane.view === "library"}
-	<SidePane label="Artifacts panel" title="Artifacts">
+	<SidePane label="Files panel" title="Files">
 		{#snippet actions()}
 			{#if showCount}
 				<span class="flex-none rounded-sm bg-sunken px-1 py-px font-mono text-xxs text-ink-muted">
@@ -212,7 +212,7 @@
 				type="button"
 				class="btn rounded-md p-1.5 text-xs text-ink-muted hover:bg-sunken hover:text-ink"
 				title="Reload the list"
-				aria-label="Reload artifacts"
+				aria-label="Reload files"
 				disabled={loadState === "loading"}
 				onclick={refresh}
 			>
@@ -275,11 +275,11 @@
 				{#if unified}
 					{@const list = paneList}
 					{#if list.length === 0 && loadState === "loading"}
-						<p class="py-8 text-center text-sm text-ink-muted">Loading artifacts…</p>
+						<p class="py-8 text-center text-sm text-ink-muted">Loading files…</p>
 					{:else if list.length === 0 && loadState === "failed"}
 						<div class={styles.EMPTY}>
 							<CarbonDocument class={styles.EMPTY_ICON} />
-							<p class={styles.EMPTY_TITLE}>Couldn't load artifacts</p>
+							<p class={styles.EMPTY_TITLE}>Couldn't load the files</p>
 							<p class={styles.EMPTY_DETAIL}>{loadError}</p>
 							<button type="button" class={styles.PRIMARY} onclick={refresh}>
 								<CarbonRenew /> Try again
@@ -288,7 +288,7 @@
 					{:else if list.length === 0 && files.length > 0}
 						<!-- No pane entries but stored files exist: keep the files visible. -->
 						<p class="{styles.SECTION_TITLE} flex items-center gap-1.5">
-							Files this chat generated
+							Files from this chat
 							<span class="font-normal">· kept 30 days</span>
 						</p>
 						<ul class="space-y-2">
@@ -299,16 +299,16 @@
 					{:else if list.length === 0}
 						<div class={styles.EMPTY}>
 							<CarbonDocument class={styles.EMPTY_ICON} />
-							<p class={styles.EMPTY_TITLE}>No artifacts yet</p>
+							<p class={styles.EMPTY_TITLE}>No files yet</p>
 							<p class={styles.EMPTY_DETAIL}>
-								Things the model makes for this chat — documents, diagrams, tables, reports, images
-								— land here. Generated files stay available for 30 days, across reloads and devices.
+								Documents, diagrams, tables, reports and images the assistant makes in this chat
+								show up here. They stay available for 30 days.
 							</p>
 						</div>
 					{:else}
-						<p class={styles.SECTION_TITLE}>In this conversation</p>
+						<p class={styles.SECTION_TITLE}>In this chat</p>
 						{#if hasFileRows}
-							<p class="mb-3 text-xs text-ink-muted">Generated files are kept 30 days.</p>
+							<p class="mb-3 text-xs text-ink-muted">Files are kept for 30 days.</p>
 						{/if}
 						<ul class="space-y-2">
 							{#each list as item (paneKey(item))}
@@ -399,11 +399,11 @@
 						</ul>
 					{/if}
 				{:else if loadState === "loading" && files.length === 0}
-					<p class="py-8 text-center text-sm text-ink-muted">Loading artifacts…</p>
+					<p class="py-8 text-center text-sm text-ink-muted">Loading files…</p>
 				{:else if loadState === "failed" && files.length === 0}
 					<div class={styles.EMPTY}>
 						<CarbonDocument class={styles.EMPTY_ICON} />
-						<p class={styles.EMPTY_TITLE}>Couldn't load artifacts</p>
+						<p class={styles.EMPTY_TITLE}>Couldn't load the files</p>
 						<p class={styles.EMPTY_DETAIL}>{loadError}</p>
 						<button type="button" class={styles.PRIMARY} onclick={refresh}>
 							<CarbonRenew /> Try again
@@ -412,15 +412,15 @@
 				{:else if files.length === 0}
 					<div class={styles.EMPTY}>
 						<CarbonDocument class={styles.EMPTY_ICON} />
-						<p class={styles.EMPTY_TITLE}>No artifacts yet</p>
+						<p class={styles.EMPTY_TITLE}>No files yet</p>
 						<p class={styles.EMPTY_DETAIL}>
-							Files the model generates for this chat — reports, tables, images — land here and stay
-							available for 30 days, across reloads and devices.
+							Reports, tables and images the assistant makes in this chat show up here. They stay
+							available for 30 days.
 						</p>
 					</div>
 				{:else}
 					<p class="{styles.SECTION_TITLE} flex items-center gap-1.5">
-						Files this chat generated
+						Files from this chat
 						<span class="font-normal">· kept 30 days</span>
 					</p>
 					<ul class="space-y-2">
@@ -431,19 +431,19 @@
 				{/if}
 
 				<div class="mt-6 border-t border-line pt-4">
-					<p class={styles.SECTION_TITLE}>Export this chat</p>
+					<p class={styles.SECTION_TITLE}>Save this chat</p>
 					<p class="mb-3 text-xs text-ink-muted">
-						Download the visible conversation as Markdown, with reasoning included.
+						Save this chat as a text file (Markdown), including the assistant's thinking.
 					</p>
 					<button
 						type="button"
 						class={styles.SECONDARY}
 						disabled={!$exportConversation.canExport || $exportConversation.loading}
-						aria-label="Export conversation as Markdown"
-						title="Export conversation as Markdown"
+						aria-label="Save this chat as Markdown"
+						title="Save this chat as Markdown"
 						onclick={() => $exportConversation.run()}
 					>
-						<CarbonDownload /> Export conversation
+						<CarbonDownload /> Save this chat
 					</button>
 				</div>
 			</div>

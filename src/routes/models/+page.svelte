@@ -45,7 +45,7 @@
 			type="search"
 			bind:value={modelFilter}
 			placeholder="Search by name"
-			aria-label="Search models by name or id"
+			aria-label="Search models by name"
 			class="mt-4 w-full rounded-3xl border border-gray-300 bg-white px-5 py-2 text-[15px]
 				placeholder:text-ink-faint focus:ring-2 focus:ring-gray-300 focus:outline-hidden
 				dark:border-gray-700 dark:bg-gray-900 dark:focus:ring-gray-700"
@@ -104,7 +104,7 @@
 						<div class="flex flex-shrink-0 items-center gap-1.5">
 							{#if $settings.toolsOverrides?.[settingsModelId(model)] ?? (model as { supportsTools?: boolean }).supportsTools}
 								<div
-									title="This model supports tool calling (functions)."
+									title="This model can use tools and connectors."
 									class="rounded-md bg-gray-100 p-1.5 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 								>
 									<LucideHammer class="size-3 sm:size-3.5" />
@@ -112,7 +112,7 @@
 							{/if}
 							{#if $settings.multimodalOverrides?.[settingsModelId(model)] ?? model.multimodal}
 								<div
-									title="This model is multimodal and supports image inputs natively."
+									title="This model can look at images."
 									class="rounded-md bg-gray-100 p-1.5 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 								>
 									<LucideImage class="size-3 sm:size-3.5" />

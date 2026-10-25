@@ -84,7 +84,7 @@
 				body: JSON.stringify({ model: id }),
 			});
 			if (!response.ok) {
-				let message = "Could not switch model";
+				let message = "Could not switch model. Try again.";
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {

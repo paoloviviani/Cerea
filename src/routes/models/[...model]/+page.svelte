@@ -46,7 +46,7 @@
 			});
 
 			if (!res.ok) {
-				error.set("Error while creating conversation, try again.");
+				error.set("Could not start the chat. Try again.");
 				console.error("Error while creating conversation: " + (await res.text()));
 				return;
 			}

@@ -638,7 +638,7 @@
 	<div class="flex flex-col gap-2.5 p-2.5 sm:gap-3 sm:p-4">
 		<div class="flex flex-wrap items-center gap-x-1.5 gap-y-2 sm:gap-2">
 			<h2 class="mr-auto text-sm font-semibold text-gray-800 dark:text-gray-200">
-				Annotate screenshot
+				Mark up the picture
 			</h2>
 
 			<div class="flex items-center rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
@@ -669,7 +669,7 @@
 							? 'ring-2 ring-gray-500 ring-offset-2 dark:ring-gray-300 dark:ring-offset-gray-800'
 							: ''}"
 						style="background-color: {colorOption}"
-						title="Draw in this color"
+						title="Draw in this colour"
 						aria-pressed={color === colorOption}
 						onclick={() => (color = colorOption)}
 					></button>
@@ -689,7 +689,7 @@
 				<button
 					type="button"
 					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-					title="Clear all annotations"
+					title="Clear all marks"
 					disabled={annotations.length === 0 && comments.length === 0}
 					onclick={clearAll}
 				>
@@ -705,7 +705,7 @@
 			class="relative flex min-h-40 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 max-sm:-mx-2.5 max-sm:rounded-none max-sm:border-x-0 dark:border-gray-700 dark:bg-gray-950"
 		>
 			{#if loadFailed}
-				<p class="p-8 text-sm text-gray-500">Could not load the screenshot.</p>
+				<p class="p-8 text-sm text-gray-500">Could not load the picture.</p>
 			{:else if !image}
 				<EosIconsLoading class="text-2xl text-gray-400" />
 			{:else}
@@ -740,7 +740,7 @@
 						<textarea
 							rows="1"
 							class={noteInput}
-							placeholder="What about this area?"
+							placeholder="What about this part?"
 							bind:value={comments[editingIndex].note}
 							onkeydown={onNoteKeydown}
 							oncompositionstart={() => (composingNote = true)}
@@ -776,7 +776,7 @@
 						<textarea
 							rows="1"
 							class={noteInput}
-							placeholder="What about this area?"
+							placeholder="What about this part?"
 							bind:value={comment.note}
 							onkeydown={onNoteKeydown}
 							oncompositionstart={() => (composingNote = true)}

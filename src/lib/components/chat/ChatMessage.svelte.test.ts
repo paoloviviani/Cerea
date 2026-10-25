@@ -238,7 +238,7 @@ describe("a row arriving inside a streaming text part", () => {
 			elicitationId: "perm1",
 			server: "bash",
 			mode: "form",
-			message: "Subagent Dummy sleep test wants to call bash",
+			message: "Subagent Dummy sleep test wants to use bash",
 			toolApproval: { tool: "bash", args: { command: "sleep 60" } },
 			childSessionId: "ses_child",
 			childTitle: "Dummy sleep test",

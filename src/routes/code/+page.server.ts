@@ -11,7 +11,7 @@ import type { PageServerLoad } from "./$types";
  */
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!codeAgentsEnabled()) {
-		error(404, "Coding agents are not enabled in this deployment.");
+		error(404, "Coding agents are not turned on here.");
 	}
 	if (!(await codeAgentsAllowedFor(locals))) {
 		error(404, "Coding agents are not available for your account.");

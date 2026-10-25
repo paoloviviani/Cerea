@@ -15,7 +15,7 @@
 {#if mounts?.files.length || mounts?.skipped.length}
 	<div class="flex flex-wrap items-center gap-1.5 px-5 pb-1.5 text-xs">
 		<span class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
-			Mounted
+			Shared with the code
 		</span>
 		{#each mounts.files as file (file.path)}
 			<span
@@ -25,7 +25,7 @@
 				<button
 					type="button"
 					class="btn rounded-full p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-					title="Remove {file.path} from the runtime"
+					title="Stop sharing {file.path} with the code"
 					onclick={() => void mounts?.remove(file.path)}
 				>
 					<CarbonClose class="text-[10px]" />

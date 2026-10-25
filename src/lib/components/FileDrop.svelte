@@ -121,7 +121,7 @@
 
 	{#if refused.length > 0}
 		<p class="text-xs text-red-700 dark:text-red-300">
-			Too large, not added: {refused.join(", ")}
+			Too big to add: {refused.join(", ")}
 		</p>
 	{/if}
 

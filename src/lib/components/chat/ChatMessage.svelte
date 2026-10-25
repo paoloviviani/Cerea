@@ -1423,7 +1423,7 @@
 									isUserMsgCopied = false;
 								}, 1000);
 							} catch (err) {
-								console.error("Failed to copy:", err);
+								console.error("Could not copy:", err);
 							}
 						}}
 					>

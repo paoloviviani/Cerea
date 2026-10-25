@@ -77,7 +77,9 @@ describe("the workspace panel", () => {
 		expect(screen.getByRole("heading", { name: "Models" })).toBeInTheDocument();
 		expect(screen.baseElement.textContent).toContain("Every model available to you.");
 		// The other two managers are not mounted beside it.
-		expect(screen.baseElement.textContent).not.toContain("Manage MCP servers to extend");
+		expect(screen.baseElement.textContent).not.toContain(
+			"Connect Cerea to other apps and services"
+		);
 		expect(screen.baseElement.textContent).not.toContain("Documents an assistant can search");
 	});
 
@@ -87,7 +89,7 @@ describe("the workspace panel", () => {
 			vi.fn(async () => Response.json({ data: [] }))
 		);
 		const mcp = mountWorkspace("?tab=mcp");
-		expect(mcp.getByRole("heading", { name: "MCP Servers" })).toBeInTheDocument();
+		expect(mcp.getByRole("heading", { name: "Connectors", exact: true })).toBeInTheDocument();
 		mcp.unmount();
 		document.getElementById("app")?.remove();
 
@@ -135,7 +137,7 @@ describe("the workspace panel", () => {
 		await expect
 			.element(screen.getByRole("heading", { name: "What it may do" }))
 			.toBeInTheDocument();
-		expect(screen.baseElement.textContent).not.toContain("System prompt");
+		expect(screen.baseElement.textContent).not.toContain("Instructions");
 	});
 
 	it("renders Custom models on ?tab=custom, and links it from the tab bar", async () => {
@@ -148,7 +150,7 @@ describe("the workspace panel", () => {
 		await expect
 			.element(screen.getByRole("heading", { name: "Custom models", level: 2 }))
 			.toBeInTheDocument();
-		expect(screen.baseElement.textContent).toContain("Global system prompt");
+		expect(screen.baseElement.textContent).toContain("Instructions for every chat");
 		expect(screen.baseElement.querySelector('a[href="/workspace?tab=custom"]')).not.toBeNull();
 		expect(
 			screen.baseElement.querySelector('a[href="/workspace?tab=custom"][aria-current="page"]')

@@ -132,7 +132,7 @@
 		const response = await fetch(`${base}/api/v2/mcp${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
@@ -209,7 +209,10 @@
 			adding = false;
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not add it.";
+			failure =
+				err instanceof Error
+					? err.message
+					: "Could not add the connector. Check the address and try again.";
 		} finally {
 			busy = false;
 		}
@@ -227,7 +230,7 @@
 			// another origin and it has to be the browser that goes there.
 			window.location.href = authorizeUrl;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not start the sign-in.";
+			failure = err instanceof Error ? err.message : "Could not start signing in. Try again.";
 			busy = false;
 		}
 	}
@@ -247,7 +250,7 @@
 			for (const key of ["mcp", "mcpDetail", "mcpConnector"]) back.searchParams.delete(key);
 			window.location.href = await startLocalSignIn(connector.id, `${back.pathname}${back.search}`);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not start the sign-in.";
+			failure = err instanceof Error ? err.message : "Could not start signing in. Try again.";
 			busy = false;
 			busyConnector = null;
 		}
@@ -257,15 +260,15 @@
 	function outcomeMessage(detail: string | null): string {
 		switch (detail) {
 			case "declined":
-				return "The sign-in was declined.";
+				return "You did not allow the sign-in.";
 			case "expired":
-				return "That sign-in expired, was already used, or was started somewhere else. Try again.";
+				return "That sign-in link expired or was already used. Start signing in again.";
 			case "offline":
-				return "The machine went offline before the sign-in finished. Start galopin there and try again.";
+				return "The machine went offline before the sign-in finished. Start Cerea on that machine (galopin) and try again.";
 			case "machine":
-				return "The machine could not finish the sign-in. Its log says why.";
+				return "That machine could not finish the sign-in. Its log has the details.";
 			case "refused":
-				return "That server does not need a sign-in, or cannot be signed in to from here.";
+				return "This connector does not need a sign-in, or you cannot sign in to it from here.";
 			default:
 				return `The sign-in did not complete${detail ? ` (${detail})` : ""}.`;
 		}
@@ -316,7 +319,7 @@
 			cancelEdit();
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save the connector.";
+			failure = err instanceof Error ? err.message : "Could not save the connector. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -341,7 +344,7 @@
 			credentialsFor = null;
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save those credentials.";
+			failure = err instanceof Error ? err.message : "Could not save those details. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -355,7 +358,7 @@
 			await api(`/connectors/${connector.id}`, json({ action }));
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That did not work.";
+			failure = err instanceof Error ? err.message : "That did not work. Try again.";
 		} finally {
 			busy = false;
 			busyConnector = null;
@@ -363,13 +366,13 @@
 	}
 
 	async function remove(connector: McpConnectorView) {
-		if (!confirm(`Remove “${connector.name}”? Its sign-in goes with it.`)) return;
+		if (!confirm(`Remove “${connector.name}”? You will be signed out of it too.`)) return;
 		busy = true;
 		try {
 			await api(`/connectors/${connector.id}`, { method: "DELETE" });
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not remove it.";
+			failure = err instanceof Error ? err.message : "Could not remove it. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -405,28 +408,28 @@
 				</label>
 			</div>
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Authentication</span>
+				<span class="text-xs font-medium text-gray-700 dark:text-gray-300">How to sign in</span>
 				<select
 					class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
 					bind:value={authMode}
 					disabled={busy}
 				>
-					<option value="auto">Detect automatically</option>
-					<option value="none">None</option>
-					<option value="token">Token</option>
-					<option value="oauth_static">OAuth — credentials I already have</option>
+					<option value="auto">Automatic (recommended)</option>
+					<option value="none">No sign-in needed</option>
+					<option value="token">Access key</option>
+					<option value="oauth_static">Sign in with my own app details (advanced)</option>
 				</select>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					{#if authMode === "auto"}
-						The server is asked how it authenticates. If it wants OAuth and can register a client
-						itself, a Sign in button appears.
+						We ask the connector how it wants you to sign in. If it can, a Sign in button appears.
 					{:else if authMode === "oauth_static"}
-						For a provider that will not register a client automatically. Create one in its
-						developer settings with this redirect URI, then paste its credentials here.
+						For providers that need you to set up an app first. Create one in the provider's
+						developer settings with the address below, then paste its details here.
 					{:else if authMode === "token"}
-						A static key or token. It is sealed on the server — it never returns to this browser.
+						An access key from the service. It is stored safely on the server and never sent back to
+						this browser.
 					{:else}
-						No credential is sent.
+						Nothing is sent to sign in.
 					{/if}
 				</span>
 			</label>
@@ -434,7 +437,7 @@
 			{#if authMode === "token"}
 				<div class="flex flex-wrap gap-2">
 					<label class="flex flex-2 flex-col gap-1" style="flex-grow:2">
-						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Token</span>
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">Access key</span>
 						<input
 							type="password"
 							autocomplete="off"
@@ -482,7 +485,7 @@
 					</label>
 				</div>
 				<p class="text-xs text-gray-500 dark:text-gray-400">
-					Redirect URI to register with the provider:
+					Address to give the provider (redirect URI):
 					<code class="rounded-sm bg-gray-100 px-1 py-0.5 dark:bg-gray-800">{redirectUri}</code>
 				</p>
 			{/if}
@@ -507,7 +510,6 @@
 
 	{#snippet connectorCard(connector: McpConnectorView)}
 		<ServerCardFrame
-			active={connector.connected}
 			name={connector.name}
 			iconSrc={getMcpServerFaviconUrl(connector.url)}
 			description={connector.url}
@@ -522,7 +524,7 @@
 						class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
 					>
 						<IconCheckmark class="size-3" />
-						{connector.auth === "none" ? "Open" : "Connected"}
+						{connector.auth === "none" ? "Ready" : "Connected"}
 					</span>
 				{:else}
 					<span
@@ -533,7 +535,11 @@
 					</span>
 				{/if}
 				<span class="text-xs text-gray-600 dark:text-gray-400">
-					{connector.auth === "oauth" ? "OAuth" : connector.auth === "token" ? "token" : "no auth"}
+					{connector.auth === "oauth"
+						? "sign-in"
+						: connector.auth === "token"
+							? "access key"
+							: "no sign-in"}
 				</span>
 				{#if connector.registrationSource === "static"}
 					<!-- Worth saying: it explains why Sign in works on a server
@@ -543,7 +549,7 @@
 						class="text-xs text-gray-500 dark:text-gray-500"
 						title={`Client ID ${connector.clientId}`}
 					>
-						own client
+						own app details
 					</span>
 				{/if}
 			{/snippet}
@@ -588,7 +594,7 @@
 						disabled={busy || !connector.canAuthorize}
 						title={connector.canAuthorize
 							? "Sign in to this connector"
-							: "This server will not register a client automatically — add credentials instead"}
+							: "This connector needs your own app details first. Use Add app details."}
 						class="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-[.29rem] text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 					>
 						<IconLogin class="size-3" />
@@ -604,7 +610,7 @@
 							disabled={busy}
 							class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 						>
-							Add credentials
+							Add app details
 						</button>
 					{/if}
 				{:else if connector.auth === "oauth"}
@@ -621,8 +627,8 @@
 						onclick={() => act(connector, "reprobe")}
 						disabled={busy}
 						title={connector.auth === "token"
-							? "Try the token and list the server's tools"
-							: "Ask the server again how it authenticates"}
+							? "Try the access key and list the connector's tools"
+							: "Ask the connector again how to sign in"}
 						class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 					>
 						<IconRefresh class="size-3 {busyConnector === connector.id ? 'animate-spin' : ''}" />
@@ -668,7 +674,7 @@
 						disabled={busy}
 					/>
 					<p class="text-xs text-gray-500 dark:text-gray-400">
-						Register this redirect URI with the provider:
+						Give the provider this address (redirect URI):
 						<code class="rounded-sm bg-gray-100 px-1 py-0.5 dark:bg-gray-800">{redirectUri}</code>
 					</p>
 					<div class="flex justify-end">
@@ -713,11 +719,11 @@
 					{#if connector.auth === "token" || connector.auth === "none"}
 						<label class="flex flex-col gap-1">
 							<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
-								>{connector.auth === "token" ? "Replacement token" : "Token"}
+								>{connector.auth === "token" ? "New access key" : "Token"}
 								<span class="font-normal text-gray-500"
 									>{connector.auth === "token"
 										? "(leave blank to keep)"
-										: "(if the server takes an API key or token)"}</span
+										: "(if the connector uses an access key)"}</span
 								></span
 							>
 							<input
@@ -744,13 +750,13 @@
 									bind:checked={clearEditToken}
 									disabled={busy || !!editToken.trim()}
 								/>
-								Remove the stored token
+								Remove the saved access key
 							</label>
 						{/if}
 					{/if}
 					<p class="text-xs text-gray-500 dark:text-gray-400">
-						Changing the URL clears cached server details; re-check it, then sign in again if
-						needed.
+						Changing the address clears what we know about this connector. Check it again, then sign
+						in if needed.
 					</p>
 					<div class="flex justify-end gap-2">
 						<button
@@ -776,7 +782,6 @@
 
 	{#snippet localCard(connector: McpConnectorView, local: McpLocalView)}
 		<ServerCardFrame
-			active={connector.connected}
 			name={local.server}
 			machine={local.machineName}
 			description={local.description ?? `${local.transport} server`}
@@ -814,7 +819,7 @@
 				{#if local.allowedTools}
 					<span
 						class="text-xs text-gray-500 dark:text-gray-500"
-						title={`The machine allows only: ${local.allowedTools.join(", ")}`}
+						title={`That machine allows only: ${local.allowedTools.join(", ")}`}
 					>
 						{local.allowedTools.length} tool{local.allowedTools.length === 1 ? "" : "s"} allowed
 					</span>
@@ -834,9 +839,9 @@
 				<p
 					class="mb-2 rounded-sm bg-gray-50 px-2 py-1 text-xs wrap-break-word text-gray-700 dark:bg-gray-900/40 dark:text-gray-300"
 				>
-					Needs a sign-in; the tokens stay on {local.machineName}.
+					Needs a sign-in. Your sign-in stays on {local.machineName}.
 					<span class="text-gray-500 dark:text-gray-400">
-						If the provider refuses the redirect, run
+						If the provider does not accept the sign-in, run
 						<code class="font-mono">galopin connectors login {local.server}</code> on the machine.
 					</span>
 				</p>
@@ -853,7 +858,7 @@
 					<button
 						onclick={() => signInLocal(connector)}
 						disabled={busy}
-						title="Sign in to this server; the tokens stay on {local.machineName}"
+						title="Sign in to this connector. Your sign-in stays on {local.machineName}"
 						class="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-[.29rem] text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 					>
 						<IconLogin class="size-3" />
@@ -878,8 +883,8 @@
 						Your connectors ({own.length})
 					</h3>
 					<p class="text-xs text-gray-600 dark:text-gray-400">
-						Remote MCP servers you added. The credential is kept on the server, never in this
-						browser.
+						Connectors you added from the web. Your sign-in details are kept on the server, never in
+						this browser.
 					</p>
 				</div>
 				<button
@@ -921,7 +926,7 @@
 					<LucidePlug class="mb-3 size-10 text-gray-400" />
 					<p class="mb-1 text-sm font-medium text-gray-900 dark:text-gray-100">No connectors yet</p>
 					<p class="mb-3 text-xs text-gray-600 dark:text-gray-400">
-						Add a remote MCP server and sign in to it
+						Add a connector from the web and sign in to it
 					</p>
 					<button
 						type="button"
@@ -929,7 +934,7 @@
 						class="btn flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600"
 					>
 						<IconAddLarge class="size-4" />
-						Add Your First Connector
+						Add your first connector
 					</button>
 				</div>
 			{:else}
@@ -950,11 +955,11 @@
 			     `.env` server is edited in `.env`. -->
 			<div data-testid="provided-section">
 				<h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">
-					Provided by this deployment ({provided.length})
+					Built-in connectors ({provided.length})
 				</h3>
 				<p class="text-xs text-gray-600 dark:text-gray-400">
-					Offered to every account. Turn one on and, where it asks, sign in to it as yourself; they
-					are managed by whoever runs this deployment, not from here.
+					Ready to use for everyone here. Turn one on to use it in your chats; some ask you to sign
+					in first.
 				</p>
 				<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
 					{#each provided as item (item.id)}
@@ -975,7 +980,7 @@
 		{#if page.data.localConnectorsDenied}
 			<p class="text-xs text-gray-600 dark:text-gray-400" data-testid="local-denied-note">
 				{page.data.localConnectorsDenied === "not_configured"
-					? "This gateway is not configured for the chat, so local connectors are unavailable."
+					? "Local connectors are not available here yet. Ask your administrator."
 					: "Your administrator has not enabled local connectors for your groups."}
 			</p>
 		{/if}
@@ -990,8 +995,8 @@
 					On your machines ({onMachines.length})
 				</h3>
 				<p class="text-xs text-gray-600 dark:text-gray-400">
-					MCP servers running on machines you connected. Used while the machine is connected;
-					managed in the machine's <code class="font-mono">mcp.json</code> and under Local connectors.
+					Connectors running on machines you connected. They work while that machine is connected.
+					Set up in that machine's <code class="font-mono">mcp.json</code> and under Local connectors.
 				</p>
 				<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
 					{#each onMachines as connector (connector.id)}

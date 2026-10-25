@@ -172,7 +172,7 @@
 		const response = await fetch(`${base}/api/v2${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
@@ -217,7 +217,7 @@
 				seed(detail);
 			}
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not open that project.";
+			failure = err instanceof Error ? err.message : "Could not open that project. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -287,7 +287,7 @@
 				projectsChanged();
 			}
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save it.";
+			failure = err instanceof Error ? err.message : "Could not save. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -358,7 +358,8 @@
 			projectsChanged();
 		} catch (err) {
 			attached = before;
-			failure = err instanceof Error ? err.message : "Could not change the knowledge bases.";
+			failure =
+				err instanceof Error ? err.message : "Could not change the knowledge bases. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -371,7 +372,8 @@
 		busy = true;
 		failure = null;
 		try {
-			if (!startModel) throw new Error("This deployment has no models available to you.");
+			if (!startModel)
+				throw new Error("No models are available to you yet. Ask your administrator.");
 			const response = await fetch(`${base}/conversation`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
@@ -379,13 +381,15 @@
 			});
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `Could not start a chat (${response.status}).`);
+				throw new Error(
+					parsed?.message ?? `Could not start a chat (${response.status}). Try again.`
+				);
 			}
 			const { conversationId } = (await response.json()) as { conversationId: string };
 			projectsChanged();
 			await goto(`${base}/conversation/${conversationId}`);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not start a chat.";
+			failure = err instanceof Error ? err.message : "Could not start a chat. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -436,9 +440,9 @@
 			);
 			shareWith = "";
 			notice =
-				"Added. They see this project — and every conversation in it — next time they open Projects.";
+				"Added. They will see this project, and every chat in it, next time they open Projects.";
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not share it.";
+			failure = err instanceof Error ? err.message : "Could not share it. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -453,7 +457,7 @@
 				{ method: "DELETE" }
 			);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not remove that.";
+			failure = err instanceof Error ? err.message : "Could not remove that. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -463,15 +467,14 @@
 		if (!project) return;
 		if (
 			!confirm(
-				`Delete the project “${project.name}”?\n\nIts conversations and knowledge bases are kept — the chats go back to your ordinary list. Its notes and context documents are deleted with it.`
+				`Delete the project “${project.name}”?\n\nIts chats and knowledge bases are kept: the chats go back to your normal list. Its notes and files are deleted with it.`
 			)
 		)
 			return;
 		const withMemory =
 			project.hasMemory &&
 			confirm(
-				`Also delete “${project.name}” — past chats?\n\nThat is the searchable memory of this ` +
-					"project's conversations. OK = delete the memory too. Cancel = keep the memory (the project is still deleted)."
+				`Also delete the saved past chats of “${project.name}”?\n\nThese are what the assistant searches to remember the project's chats. OK = delete them too. Cancel = keep them (the project is still deleted).`
 			);
 		busy = true;
 		try {
@@ -481,15 +484,15 @@
 			projectsChanged();
 			await goto(`${base}/projects`);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not delete it.";
+			failure = err instanceof Error ? err.message : "Could not delete it. Try again.";
 			busy = false;
 		}
 	}
 
 	const LEVELS = [
-		{ title: "Standing instructions", how: "in full" },
-		{ title: "Context documents", how: "in full" },
-		{ title: "Project memory", how: "in full" },
+		{ title: "Instructions", how: "in full" },
+		{ title: "Project files", how: "in full" },
+		{ title: "Project notes", how: "in full" },
 		{ title: "Knowledge bases", how: "searched" },
 		{ title: "Past chats", how: "searched" },
 	] as const;
@@ -517,7 +520,7 @@
 		</h1>
 		<p class={s.SUBTITLE}>
 			{creating
-				? "Give a group of chats the same instructions, documents and knowledge."
+				? "Give a group of chats the same instructions, files and knowledge."
 				: project?.description || "What it knows, what has been said, and who else can see it."}
 		</p>
 	</header>
@@ -580,7 +583,7 @@
 				onsubmit={save}
 			>
 				<section class="{s.TIPS} lg:col-span-2" aria-labelledby="project-levels">
-					<h2 id="project-levels" class={s.TIPS_TITLE}>What every chat here is given</h2>
+					<h2 id="project-levels" class={s.TIPS_TITLE}>What every chat here starts with</h2>
 					<ol class="space-y-1 text-xs text-ink-muted">
 						{#each LEVELS as level, index (level.title)}
 							<li>
@@ -590,8 +593,8 @@
 						{/each}
 					</ol>
 					<p class="mt-2 text-xs text-ink-muted">
-						In that order. The first three are sent whole, so they cost on every message; the last
-						two are searched, so only the passages that match what you ask arrive.
+						The first three are read in full every time, so they add to the cost of each reply. The
+						last two are searched, so only the parts that match your question are used.
 					</p>
 				</section>
 
@@ -628,17 +631,17 @@
 					<div class="p-4">
 						<h2 class="{s.SECTION_TITLE} mb-1">
 							<span class="{s.PILL} {s.PILL_TONES.busy}">1 · in full</span>
-							Standing instructions
+							Instructions
 						</h2>
 						<textarea
 							id="project-instructions"
-							aria-label="Standing instructions"
+							aria-label="Instructions"
 							class="{s.INPUT} min-h-28"
-							placeholder="We are writing a Horizon Europe proposal. Answer in British English and cite the call text where it applies."
+							placeholder="We are writing a funding proposal. Answer in British English and quote the call text where it applies."
 							bind:value={instructions}
 							disabled={busy || !owned}
 						></textarea>
-						<p class={s.HINT}>Added to the system prompt of every conversation here.</p>
+						<p class={s.HINT}>Every chat in this project follows these.</p>
 					</div>
 				</section>
 
@@ -673,7 +676,7 @@
 									Knowledge bases ({attached.length})
 								</h2>
 								<a href="{base}/workspace?tab=kb" class="text-xs text-accent">
-									Create a base in the workspace
+									Create a knowledge base in the Workspace
 								</a>
 							</div>
 
@@ -712,7 +715,7 @@
 							{#if owned}
 								<label for="project-kb-search" class={s.LABEL}>Attach a knowledge base</label>
 								{#if stores.length === 0}
-									<p class={s.HINT}>You have none yet. Create one in the workspace.</p>
+									<p class={s.HINT}>You have none yet. Create one in the Workspace.</p>
 								{:else}
 									<input
 										id="project-kb-search"
@@ -727,8 +730,7 @@
 												<span class="min-w-0 truncate">
 													{store.name}
 													<span class="text-xs text-ink-faint">
-														· {store.file_counts.completed} indexed{#if !store.owned}, shared with
-															you{/if}
+														· {store.file_counts.completed} ready{#if !store.owned}, shared with you{/if}
 													</span>
 												</span>
 												<button
@@ -773,16 +775,16 @@
 									class="mt-0.5 accent-blue-600"
 								/>
 								<span>
-									Search this project's own past conversations
+									Search this project's past chats
 									<span class="block text-xs text-ink-muted">
-										Finished exchanges go into a knowledge base of their own — it appears under
+										Finished chats are saved into a knowledge base of their own. It appears under
 										Knowledge, and you can empty or delete it like any other. Off by default,
-										because it copies what was said into a searchable store.
+										because it keeps a copy of what was said.
 									</span>
 								</span>
 							</label>
 							<div>
-								<label for="project-limit" class={s.LABEL}>Passages per answer</label>
+								<label for="project-limit" class={s.LABEL}>Passages per reply</label>
 								<input
 									id="project-limit"
 									type="number"
@@ -800,7 +802,7 @@
 
 				<section class={s.card(false)}>
 					<div class="p-4">
-						<h2 class={s.SECTION_TITLE}>Defaults for new chats here</h2>
+						<h2 class={s.SECTION_TITLE}>Settings for new chats here</h2>
 						<div class="flex items-center gap-2">
 							<Switch
 								name="project-default-websearch"
@@ -813,11 +815,11 @@
 							<p class="mt-1 text-xs text-amber-700 dark:text-amber-400">{webSearchUnavailable}</p>
 						{/if}
 						<div class="mt-3">
-							<span class="text-sm text-ink">MCPs on by default:</span>
+							<span class="text-sm text-ink">Connectors on by default:</span>
 							{#if !$mcpConnectorsLoaded}
 								<p class={s.HINT}>Loading connectors…</p>
 							{:else if builtInDefaults.length + ownDefaults.length === 0}
-								<p class={s.HINT}>No connectors yet. Add one under Workspace → MCP Servers.</p>
+								<p class={s.HINT}>No connectors yet. Add one under Workspace → Connectors.</p>
 							{:else}
 								<div class="mt-1 max-h-40 space-y-1 overflow-y-auto">
 									{#each [{ key: "built-in", heading: "Built-in", rows: builtInDefaults }, { key: "own", heading: "Your connectors", rows: ownDefaults }] as group (group.key)}
@@ -936,8 +938,8 @@
 						{/if}
 						<p class={s.HINT}>
 							Everyone here sees <strong>every conversation</strong> in the project, including ones you
-							did not start, and can add or remove its documents and notes. An address is not checked:
-							a typo and a colleague who has not signed in yet look the same until they open it.
+							did not start, and can add or remove its documents and notes. The address is not checked,
+							so a typo and a colleague who has not signed in yet look the same.
 						</p>
 						<div class="mt-4 flex justify-end">
 							<button type="button" onclick={destroy} disabled={busy} class={s.CARD_DESTRUCTIVE}>
@@ -994,10 +996,12 @@
 								<div class={s.EMPTY}>
 									<IconChat class={s.EMPTY_ICON} />
 									<p class={s.EMPTY_TITLE}>Nothing here yet</p>
-									<p class={s.EMPTY_DETAIL}>Start one and it will carry this project's context</p>
+									<p class={s.EMPTY_DETAIL}>
+										Start one and it will use this project's instructions, files and notes
+									</p>
 									<button type="button" onclick={newChat} disabled={busy} class={s.PRIMARY}>
 										<IconAddLarge class="size-4" />
-										Start the First Chat
+										Start the first chat
 									</button>
 								</div>
 							{:else}

@@ -27,7 +27,7 @@ const create = z.object({
 });
 
 async function memberProject(locals: App.Locals, id: string | undefined) {
-	if (!memoryEnabled()) error(404, "Memory is not enabled in this deployment.");
+	if (!memoryEnabled()) error(404, "Memory is not turned on here.");
 	if (!locals.user) error(401, "Login required");
 	const principals = await viewerPrincipals(locals.user, locals.token);
 	const access = await projectAccess(id as string, locals.user._id, principals);

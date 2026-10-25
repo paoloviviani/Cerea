@@ -20,7 +20,7 @@
 		playwright: {
 			title: "Local renderer (Playwright)",
 			detail:
-				"A headless browser in this deployment, driven over the Playwright protocol. Runs the page's JavaScript, so what is fetched is what a person would see. Needs the playwright compose overlay, which is opt-in and publishes no port.",
+				"A headless browser in this service, driven over the Playwright protocol. Runs the page's JavaScript, so what is fetched is what a person would see. Needs the playwright compose overlay, which is opt-in and publishes no port.",
 		},
 	};
 
@@ -44,7 +44,7 @@
 			const response = await fetch(`${base}/api/v2/admin/fetching`);
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 			}
 			const data = await response.json();
 			backend = data.backend;
@@ -72,7 +72,7 @@
 			});
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 			}
 			saved = backend;
 			note = "Saved. It applies to the next fetch.";
@@ -108,8 +108,8 @@
 			<p
 				class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 			>
-				This deployment reads configuration from the environment only, so this cannot be changed
-				here. Set <code>FETCH_BACKEND</code> where the other variables live.
+				This service reads configuration from the environment only, so this cannot be changed here.
+				Set <code>FETCH_BACKEND</code> where the other variables live.
 			</p>
 		{/if}
 

@@ -34,7 +34,7 @@
 	<Modal onclose={close} width="w-[90dvh] md:w-[480px]">
 		<div class="flex w-full flex-col gap-5 p-6">
 			<div class="flex items-start justify-between">
-				<h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">Delete conversation</h2>
+				<h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">Delete chat</h2>
 				<button type="button" class="group outline-hidden" onclick={close} aria-label="Close">
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
@@ -49,8 +49,7 @@
 			</div>
 
 			<p class="text-sm text-gray-600 dark:text-gray-400">
-				Are you sure you want to delete "<span class="font-semibold">{title}</span>"? This action
-				cannot be undone.
+				Delete "<span class="font-semibold">{title}</span>"? This cannot be undone.
 			</p>
 
 			<div class="flex items-center justify-end gap-2">

@@ -28,7 +28,7 @@ export class GatewayCallFailed extends Error {
 
 function base(): string {
 	if (!config.OPENAI_BASE_URL) {
-		throw new GatewayCallFailed(503, "This deployment has no gateway configured.");
+		throw new GatewayCallFailed(503, "The service behind this is not set up.");
 	}
 	return config.OPENAI_BASE_URL.replace(/\/$/, "");
 }

@@ -60,11 +60,11 @@
 						});
 			if (!response.ok) {
 				const parsed = await response.json().catch(() => null);
-				throw new Error(parsed?.message ?? `That did not work (${response.status}).`);
+				throw new Error(parsed?.message ?? `That did not work (${response.status}). Try again.`);
 			}
 			undone = true;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That did not work.";
+			failure = err instanceof Error ? err.message : "That did not work. Try again.";
 		} finally {
 			working = false;
 		}

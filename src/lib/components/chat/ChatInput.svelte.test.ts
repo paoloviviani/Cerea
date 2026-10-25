@@ -306,7 +306,7 @@ describe("ChatInput: MCP connector toggles", () => {
 	}
 
 	const openMcpSubmenu = async () => {
-		const trigger = submenuTrigger("MCP Servers");
+		const trigger = submenuTrigger("Connectors");
 		if (!trigger) throw new Error("no MCP submenu trigger");
 		trigger.click();
 	};
@@ -461,13 +461,7 @@ describe("ChatInput: MCP connector toggles", () => {
 					'[data-testid="mcp-provided-heading"], [role^="menuitem"]'
 				),
 			].map((el) => el.textContent?.replace(/\s+/g, " ").trim());
-			expect(labels.slice(0, 5)).toEqual([
-				"Provided by this deployment",
-				"Notion",
-				"osm",
-				"search",
-				"Zed (mine)",
-			]);
+			expect(labels.slice(0, 5)).toEqual(["Built-in", "Notion", "osm", "search", "Zed (mine)"]);
 			// Selection semantics are unchanged: the base row toggles its `base-` id.
 			findConnectorItem("search").click();
 			await waitSlow(() => expect(get(selectedServerIds).has("base-search")).toBe(false));
@@ -485,10 +479,10 @@ describe("ChatInput: MCP connector toggles", () => {
 
 		await waitSlow(() =>
 			expect(document.body.textContent).toContain(
-				"No connectors yet. Add one from Manage MCP Servers."
+				"No connectors yet. Add one under Manage connectors."
 			)
 		);
-		expect(document.body.textContent).toContain("Manage MCP Servers");
+		expect(document.body.textContent).toContain("Manage connectors");
 	});
 
 	it("a failed load says so instead of pretending there is nothing", async () => {
@@ -499,7 +493,7 @@ describe("ChatInput: MCP connector toggles", () => {
 		await openMcpSubmenu();
 
 		await waitSlow(() => expect(document.body.textContent).toContain("Could not load connectors"));
-		expect(document.body.textContent).toContain("Manage MCP Servers");
+		expect(document.body.textContent).toContain("Manage connectors");
 	});
 });
 
@@ -599,13 +593,13 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			await settlePanels();
 			expectPanelsInViewport();
 
-			await openSubmenu("MCP Servers", "Not signed in");
+			await openSubmenu("Connectors", "Not signed in");
 			expectPanelsInViewport();
 
 			await openSubmenu("Knowledge bases", "Specs");
 			expectPanelsInViewport();
 
-			await openSubmenu("Add text file", "Upload from device");
+			await openSubmenu("Add text file", "Upload from this device");
 			expectPanelsInViewport();
 		} finally {
 			await page.viewport(restoreWidth, restoreHeight);
@@ -630,7 +624,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			const pill = findWebSearchPill(container) as HTMLButtonElement;
 			expect(pill.disabled).toBe(true);
 			expect(pill.getAttribute("aria-pressed")).toBe("false");
-			expect(pill.title).toBe("Web search isn't set up on this deployment.");
+			expect(pill.title).toBe("Web search isn't set up here yet.");
 			pill.click();
 			expect(calls.some((call) => call.method === "PATCH")).toBe(false);
 		});
@@ -724,7 +718,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			allMcpServers.set([baseServer]);
 			const { container } = await renderComposer({ id: CONV_ID });
 			await openMenu(container);
-			await openSubmenu("MCP Servers", "Not signed in");
+			await openSubmenu("Connectors", "Not signed in");
 
 			const panels = [...document.body.querySelectorAll<HTMLElement>('[role="menu"]')];
 			const submenu = panels[panels.length - 1];
@@ -748,7 +742,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
  */
 describe("ChatInput: the / menu", () => {
 	const COMMANDS = [
-		{ name: "compact", description: "Compact now", group: "panel" as const },
+		{ name: "compact", description: "Shorten now", group: "panel" as const },
 		{ name: "model", description: "Switch the model", hint: "[model]", group: "panel" as const },
 	];
 
@@ -814,7 +808,7 @@ describe("ChatInput: the / menu", () => {
 		box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 		await waitSlow(() =>
 			expect(onslashcommand).toHaveBeenCalledWith(
-				{ name: "compact", description: "Compact now", group: "panel" },
+				{ name: "compact", description: "Shorten now", group: "panel" },
 				""
 			)
 		);

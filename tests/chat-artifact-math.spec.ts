@@ -7,7 +7,7 @@ import type { Db } from "mongodb";
 import type { Page } from "playwright/test";
 
 const TOOL_MODEL = "test-org/artifact-tool";
-const PANEL_LABEL = "Artifact panel";
+const PANEL_LABEL = "File panel";
 
 async function useModel(db: Db, session: { sessionId: string }, model: string) {
 	await db
@@ -68,7 +68,7 @@ test("a markdown artifact renders inline and display math", async ({
 	// The rendering survives a reload: reopen from the chat card, since the
 	// panel does not auto-open off-stream.
 	await page.reload();
-	await page.locator('[aria-label="Open artifact: Math Notes"]').click({ timeout: 30_000 });
+	await page.locator('[aria-label="Open file: Math Notes"]').click({ timeout: 30_000 });
 	const panelAfter = page.getByLabel(PANEL_LABEL, { exact: true });
 	await expect(panelAfter.locator(".katex-display")).toBeVisible({ timeout: 30_000 });
 });

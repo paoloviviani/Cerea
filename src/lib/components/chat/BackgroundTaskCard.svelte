@@ -62,7 +62,7 @@
 		{#if update.followUp}
 			<span
 				class="shrink-0 rounded-full bg-gray-100 px-1.5 py-px text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-				title="This call resumed the running child (task_id) rather than spawning a new one."
+				title="This carried on the helper that was already running instead of starting a new one."
 			>
 				follow-up
 			</span>
@@ -70,7 +70,7 @@
 		{#if update.automatic}
 			<span
 				class="shrink-0 rounded-full bg-gray-100 px-1.5 py-px text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-				title="Reported automatically when the child finished — not written by the model."
+				title="Reported automatically when the helper finished. The assistant did not write it."
 			>
 				automatic
 			</span>

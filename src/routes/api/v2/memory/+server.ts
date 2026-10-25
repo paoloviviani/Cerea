@@ -43,7 +43,7 @@ function requireUser(locals: App.Locals) {
 }
 
 function requireFeature() {
-	if (!memoryEnabled()) error(404, "Memory is not enabled in this deployment.");
+	if (!memoryEnabled()) error(404, "Memory is not turned on here.");
 }
 
 /**

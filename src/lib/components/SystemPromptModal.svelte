@@ -18,7 +18,7 @@
 	onclick={() => (isOpen = !isOpen)}
 	onkeydown={(e) => e.key === "Enter" && (isOpen = !isOpen)}
 >
-	<CarbonBlockchain class="text-xxs" /> Using Custom System Prompt
+	<CarbonBlockchain class="text-xxs" /> Using custom instructions
 </button>
 
 {#if isOpen}
@@ -27,7 +27,7 @@
 			<div
 				class="flex items-start justify-between text-xl font-semibold text-gray-800 dark:text-gray-200"
 			>
-				<h2>System Prompt</h2>
+				<h2>Instructions</h2>
 				<button type="button" class="group" onclick={() => (isOpen = false)}>
 					<CarbonClose
 						class="mt-auto text-gray-900 group-hover:text-gray-500 dark:text-gray-200 dark:group-hover:text-gray-400"

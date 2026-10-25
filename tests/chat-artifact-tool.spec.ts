@@ -9,7 +9,7 @@ import type { Page } from "playwright/test";
 
 const TOOL_MODEL = "test-org/artifact-tool";
 const TAGS_MODEL = "test-org/artifact-tags";
-const PANEL_LABEL = "Artifact panel";
+const PANEL_LABEL = "File panel";
 
 async function useModel(db: Db, session: { sessionId: string }, model: string) {
 	await db
@@ -194,7 +194,7 @@ test("a tags-mode model's inline artifact still renders", async ({
 	const panel = page.getByLabel(PANEL_LABEL, { exact: true });
 	await expect(panel).toBeVisible({ timeout: 30_000 });
 	await expect(panel.getByRole("heading", { name: "Notes" })).toBeVisible({ timeout: 30_000 });
-	await expect(page.locator('[aria-label="Open artifact: Notes"]')).toHaveCount(1, {
+	await expect(page.locator('[aria-label="Open file: Notes"]')).toHaveCount(1, {
 		timeout: 30_000,
 	});
 });
@@ -220,9 +220,9 @@ test("tags inside thinking are ignored", async ({ page, mockOpenAI, db, session 
 		{ timeout: 30_000 }
 	);
 	// No card, no panel entry: the rehearsal inside reasoning never parsed.
-	// (The header's "Open artifacts panel" button always exists, so match card
+	// (The header's "Open files panel" button always exists, so match card
 	// labels only.)
-	await expect(page.locator('[aria-label^="Open artifact: "]')).toHaveCount(0, {
+	await expect(page.locator('[aria-label^="Open file: "]')).toHaveCount(0, {
 		timeout: 30_000,
 	});
 });

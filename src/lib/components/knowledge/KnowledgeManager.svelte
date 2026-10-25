@@ -74,7 +74,8 @@
 			stores = listed.data;
 			status = state;
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not reach the gateway.";
+			failure =
+				err instanceof GatewayError ? err.message : "Could not reach the service. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -97,7 +98,7 @@
 		if (store.file_counts.in_progress > 0)
 			return { tone: "busy", label: `${store.file_counts.in_progress} indexing` };
 		if (store.file_counts.completed > 0)
-			return { tone: "good", label: `${store.file_counts.completed} indexed` };
+			return { tone: "good", label: `${store.file_counts.completed} ready` };
 		return { tone: "neutral", label: "empty" };
 	}
 
@@ -140,7 +141,7 @@
 				description: description.trim(),
 			});
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not create it.";
+			failure = err instanceof GatewayError ? err.message : "Could not create it. Try again.";
 			busy = false;
 			progress = null;
 			return;
@@ -189,7 +190,7 @@
 		} else {
 			// Held on the form: it is the only place the list of what failed is
 			// shown, and closing would take it away.
-			failure = "The base was created, but some things did not make it in.";
+			failure = "The knowledge base was created, but some files could not be added.";
 		}
 	}
 
@@ -218,7 +219,7 @@
 	 *
 	 * Deliberately not `openDetail`, which the Refresh button used to call: that
 	 * sets the view and clears `notice` and `failure`, which is right for a
-	 * click and wrong on a timer — it would wipe the "Reindexing…" line the
+	 * click and wrong on a timer — it would wipe the "Updateing…" line the
 	 * reader is in the middle of reading, every few seconds.
 	 */
 	async function pollOnce() {
@@ -304,7 +305,10 @@
 				}
 			}
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not open that base.";
+			failure =
+				err instanceof GatewayError
+					? err.message
+					: "Could not open that knowledge base. Try again.";
 		}
 	}
 
@@ -341,7 +345,7 @@
 		pending = [];
 		busy = false;
 		rejected = failed;
-		failure = failed.length > 0 ? "Some files did not make it in." : null;
+		failure = failed.length > 0 ? "Some files could not be added." : null;
 		await openDetail(current.id);
 	}
 
@@ -357,7 +361,7 @@
 			note = "";
 			await openDetail(current.id);
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not add that.";
+			failure = err instanceof GatewayError ? err.message : "Could not add that. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -370,7 +374,7 @@
 			await gwDelete(`vector_stores/${current.id}/files/${id}`);
 			await openDetail(current.id);
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not remove it.";
+			failure = err instanceof GatewayError ? err.message : "Could not remove it. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -409,7 +413,7 @@
 		try {
 			preview = await gwGet<DocumentPreview>(`vector_stores/${current.id}/files/${id}/preview`);
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not open it.";
+			failure = err instanceof GatewayError ? err.message : "Could not open it. Try again.";
 		} finally {
 			previewBusy = false;
 		}
@@ -435,10 +439,10 @@
 		busy = true;
 		try {
 			await gwPost(`vector_stores/${current.id}/reindex`);
-			notice = "Reindexing. It runs in the background; this list follows along.";
+			notice = "Updating. This happens in the background, and the list keeps up.";
 			await openDetail(current.id);
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not reindex it.";
+			failure = err instanceof GatewayError ? err.message : "Could not update it. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -461,7 +465,7 @@
 			shareWith = "";
 			notice = "Shared. They can read it; only you can change it.";
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not share it.";
+			failure = err instanceof GatewayError ? err.message : "Could not share it. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -475,7 +479,7 @@
 			await gwDelete(`vector_stores/${current.id}`);
 			backToList();
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : "Could not delete it.";
+			failure = err instanceof GatewayError ? err.message : "Could not delete it. Try again.";
 			busy = false;
 		}
 	}
@@ -515,9 +519,9 @@
 			</h2>
 			<p class={s.SUBTITLE}>
 				{#if view === "list"}
-					Documents an assistant can search. Yours to own and to share.
+					Documents the assistant can search. They are yours, and you can share them.
 				{:else if view === "create"}
-					Name it and drop the files in — both at once.
+					Name it and drop the files in.
 				{:else}
 					{current?.description || "What is in it, and who can read it."}
 				{/if}
@@ -547,7 +551,7 @@
 							{stores.length === 1 ? "base" : "bases"}
 						</p>
 						<p class={s.STRIP_DETAIL}>
-							{indexed} document{indexed === 1 ? "" : "s"} indexed{working > 0
+							{indexed} document{indexed === 1 ? "" : "s"} ready{working > 0
 								? `, ${working} in progress`
 								: ""}
 						</p>
@@ -562,7 +566,7 @@
 						class={s.PRIMARY}
 					>
 						<IconAddLarge class="size-4" />
-						New base
+						New knowledge base
 					</button>
 				</div>
 			</div>
@@ -570,9 +574,9 @@
 			<div class={s.STACK}>
 				{#if status && !status.ready}
 					<p class={s.NOTICE}>
-						{status.detail ??
-							"No embedding model is configured, so documents cannot be indexed yet."} You can still create
-						a base and add files; they index once an administrator chooses one.
+						{status.detail ?? "Documents cannot be made searchable yet: no search model is set up."} You
+						can still create a knowledge base and add files. They become searchable once an administrator
+						sets one up.
 					</p>
 				{/if}
 
@@ -582,9 +586,7 @@
 					<div class={s.EMPTY}>
 						<LucideLibrary class={s.EMPTY_ICON} />
 						<p class={s.EMPTY_TITLE}>No knowledge bases yet</p>
-						<p class={s.EMPTY_DETAIL}>
-							Drop a pile of documents in one and an assistant can search them
-						</p>
+						<p class={s.EMPTY_DETAIL}>Drop some documents in and the assistant can search them</p>
 						<button
 							onclick={() => {
 								resetForm();
@@ -593,7 +595,7 @@
 							class={s.PRIMARY}
 						>
 							<IconAddLarge class="size-4" />
-							Create Your First Base
+							Create your first knowledge base
 						</button>
 					</div>
 				{:else}
@@ -649,16 +651,16 @@
 				{/if}
 
 				<div class={s.TIPS}>
-					<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
+					<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
 					<ul class={s.TIPS_LIST}>
-						<li>• Attach a base to a project and it is searched every turn.</li>
-						<li>• Sharing a base lets somebody read it; only you can change it.</li>
-						<li>• Open a document to read the text search actually sees.</li>
+						<li>• Attach a knowledge base to a project and it is searched in every chat there.</li>
+						<li>• Sharing lets someone read a knowledge base. Only you can change it.</li>
+						<li>• Open a document to see the text the search reads.</li>
 						<li>
-							• A scan with no text layer needs an OCR model; this deployment's own reader reads
-							text layers only.
+							• A scan with no real text in it cannot be read here unless an administrator sets up a
+							scan reader.
 						</li>
-						<li>• Reindex after an administrator changes the embedding model.</li>
+						<li>• Choose Update after an administrator changes the search model.</li>
 					</ul>
 				</div>
 			</div>
@@ -698,8 +700,8 @@
 						accept={KNOWLEDGE_ACCEPT}
 					/>
 					<p class={s.HINT}>
-						No titles needed — each file is titled by its filename. Word, Excel, PowerPoint, or a
-						PDF with a text layer.
+						No titles needed: each file is named after its file name. Word, Excel, PowerPoint, or a
+						PDF with real text in it.
 					</p>
 				</div>
 
@@ -742,7 +744,7 @@
 								{current.file_counts.total} document{current.file_counts.total === 1 ? "" : "s"}
 							</p>
 							<p class={s.STRIP_DETAIL}>
-								{current.file_counts.completed} indexed
+								{current.file_counts.completed} ready
 								{#if current.file_counts.in_progress > 0}
 									· {current.file_counts.in_progress} in progress
 								{/if}
@@ -753,14 +755,14 @@
 					<div class="flex gap-2">
 						<button onclick={backToList} class={s.SECONDARY}>
 							<IconArrowLeft class="size-4" />
-							All bases
+							All knowledge bases
 						</button>
 						{#if canEdit}
 							<button onclick={reindex} disabled={busy} class={s.SECONDARY}>
 								<IconRefresh class="size-4" />
-								Reindex
+								Update
 							</button>
-							<!-- Beside Reindex, where the person looking for it is:
+							<!-- Beside Update, where the person looking for it is:
 							     the bottom-of-page placement hid it under Share, and
 							     a base's owner deletes it once but looks for it more
 							     often than that. The confirm says what "everything
@@ -820,7 +822,7 @@
 							<IconDocument class={s.EMPTY_ICON} />
 							<p class={s.EMPTY_TITLE}>Nothing in it yet</p>
 							<p class={s.EMPTY_DETAIL}>
-								Drop some files above and they will index in the background
+								Drop some files above. They become searchable in the background.
 							</p>
 						</div>
 					{:else}
@@ -895,8 +897,8 @@
 							<div class="min-w-0">
 								<p class={s.CARD_TITLE}>{preview.title}</p>
 								<p class={s.CARD_SUBTITLE}>
-									{preview.filename ?? "pasted note"} · {preview.chars.toLocaleString()} characters —
-									what search sees
+									{preview.filename ?? "pasted note"} · {preview.chars.toLocaleString()} characters, as
+									the search reads them
 								</p>
 							</div>
 							<div class="flex shrink-0 items-center gap-1.5">

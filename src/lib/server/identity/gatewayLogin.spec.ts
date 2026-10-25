@@ -172,7 +172,7 @@ describe("resolveGatewayLogin (ADR 0093 §4.3)", () => {
 			resolveGatewayLogin("tok-6", { baseUrl: BASE_URL, fetchImpl: gateway.fetch })
 		).rejects.toMatchObject({
 			status: 503,
-			message: "The gateway is unavailable, try again in a minute.",
+			message: "The service is not available right now. Try again in a minute.",
 		});
 	});
 

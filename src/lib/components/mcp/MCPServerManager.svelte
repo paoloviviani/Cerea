@@ -36,9 +36,9 @@
 	<div class="p-6">
 		<!-- Header -->
 		<div class="mb-6">
-			<h2 class="mb-1 text-xl font-semibold text-gray-900 dark:text-gray-200">MCP Servers</h2>
+			<h2 class="mb-1 text-xl font-semibold text-gray-900 dark:text-gray-200">Connectors</h2>
 			<p class="text-sm text-gray-600 dark:text-gray-400">
-				Manage MCP servers to extend {publicConfig.PUBLIC_APP_NAME} with external tools.
+				Connect {publicConfig.PUBLIC_APP_NAME} to other apps and services so the assistant can use them.
 			</p>
 		</div>
 
@@ -58,7 +58,7 @@
 				<div>
 					<p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
 						{serverCount}
-						{serverCount === 1 ? "server" : "servers"} configured
+						{serverCount === 1 ? "connector" : "connectors"} set up
 					</p>
 					<p class="text-xs text-gray-600 dark:text-gray-400">
 						{enabledCount} enabled{onMachines.length
@@ -90,11 +90,11 @@
 
 			<!-- Help Text -->
 			<div class="rounded-lg bg-gray-50 p-4 dark:bg-gray-700">
-				<h4 class="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">💡 Quick Tips</h4>
+				<h4 class="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">💡 Quick tips</h4>
 				<ul class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
-					<li>• Only connect to servers you trust</li>
-					<li>• Enable servers to make their tools available in chat</li>
-					<li>• Use the Check button to verify server connectivity</li>
+					<li>• Only connect to services you trust</li>
+					<li>• Turn a connector on to let the assistant use it in your chats</li>
+					<li>• Use Check to see whether a connector is working</li>
 				</ul>
 			</div>
 		</div>

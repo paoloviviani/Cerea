@@ -197,7 +197,7 @@ describe('an "Other" answer', () => {
 		);
 		send?.click();
 
-		await vi.waitFor(() => expect(baseElement.textContent).toMatch(/Other/));
+		await vi.waitFor(() => expect(baseElement.textContent).toMatch(/Something else/));
 		expect(sent).toHaveLength(0);
 	});
 });

@@ -115,7 +115,7 @@
 		const response = await fetch(`${base}/api/v2/skills${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
@@ -131,7 +131,7 @@
 			userSkills = listed.data.user;
 			adminSkills = listed.data.admin;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load skills.";
+			failure = err instanceof Error ? err.message : "Could not load skills. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -170,7 +170,7 @@
 			}
 			view = "list";
 		} catch (err) {
-			formError = err instanceof Error ? err.message : "Could not create the skill.";
+			formError = err instanceof Error ? err.message : "Could not create the skill. Try again.";
 		} finally {
 			formBusy = false;
 		}
@@ -186,7 +186,7 @@
 			formContent = loaded.data.content;
 			view = "edit";
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load the skill.";
+			failure = err instanceof Error ? err.message : "Could not load the skill. Try again.";
 		}
 	}
 
@@ -208,7 +208,7 @@
 			editingDeployment = false;
 			view = "list";
 		} catch (err) {
-			formError = err instanceof Error ? err.message : "Could not save the skill.";
+			formError = err instanceof Error ? err.message : "Could not save the skill. Try again.";
 		} finally {
 			formBusy = false;
 		}
@@ -226,7 +226,7 @@
 				userSkills = userSkills.map((entry) => (entry.id === skill.id ? updated.data : entry));
 			}
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not change the skill.";
+			failure = err instanceof Error ? err.message : "Could not change the skill. Try again.";
 		}
 	}
 
@@ -234,9 +234,7 @@
 		if (deployment && admin) {
 			// The admin panel's idiom: a `confirm()` naming the blast radius,
 			// matching the connectors section.
-			if (
-				!confirm(`Remove “${skill.name}” for everyone? Turns for every account stop seeing it.`)
-			) {
+			if (!confirm(`Remove “${skill.name}” for everyone? Nobody will be able to use it.`)) {
 				return;
 			}
 			try {
@@ -248,7 +246,7 @@
 					view = "list";
 				}
 			} catch (err) {
-				failure = err instanceof Error ? err.message : "Could not delete the skill.";
+				failure = err instanceof Error ? err.message : "Could not delete the skill. Try again.";
 			}
 			return;
 		}
@@ -265,7 +263,7 @@
 				view = "list";
 			}
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not delete the skill.";
+			failure = err instanceof Error ? err.message : "Could not delete the skill. Try again.";
 		}
 	}
 
@@ -305,7 +303,7 @@
 			detailId = loaded.data.id;
 			view = "admin";
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load the skill.";
+			failure = err instanceof Error ? err.message : "Could not load the skill. Try again.";
 		} finally {
 			detailLoading = false;
 		}
@@ -330,7 +328,7 @@
 			);
 			openFileContent = loaded.data.content;
 		} catch (err) {
-			fileError = err instanceof Error ? err.message : "Could not load that file.";
+			fileError = err instanceof Error ? err.message : "Could not load that file. Try again.";
 			openFilePath = null;
 		} finally {
 			openFileLoading = false;
@@ -350,7 +348,7 @@
 			if (detailReadOnly) adminSkills = patched;
 			else userSkills = patched;
 		} catch (err) {
-			fileError = err instanceof Error ? err.message : "Could not remove that file.";
+			fileError = err instanceof Error ? err.message : "Could not remove that file. Try again.";
 		}
 	}
 
@@ -401,11 +399,11 @@
 			</h2>
 			<p class="text-sm text-gray-600 dark:text-gray-400">
 				{#if admin}
-					Built-in procedures every account's model follows — disabling one removes it from
-					everybody's turns, deleting one removes it for good.
+					Built-in skills that everyone's assistant can use. Turning one off stops it for everybody.
+					Deleting one removes it for good.
 				{:else}
-					Reusable procedures the model follows — your own SKILL.md documents, plus the built-in
-					skills beside them.
+					Saved ways of doing things that the assistant can follow: your own skills, plus the
+					built-in ones.
 				{/if}
 			</p>
 		</div>
@@ -434,13 +432,13 @@
 								{adminSkills.length === 1 ? "built-in skill" : "built-in skills"}
 							</p>
 							<p class="text-xs text-gray-600 dark:text-gray-400">
-								{deploymentEnabledCount} enabled · a change here reaches every account
+								{deploymentEnabledCount} enabled · changes here apply to everyone
 							</p>
 						</div>
 					</div>
 					<div class="flex gap-2">
 						<button onclick={openImport} class={s.SECONDARY}>
-							<IconUpload class="size-4" /> Import zip
+							<IconUpload class="size-4" /> Import a zip
 						</button>
 						<button onclick={openCreate} class={s.PRIMARY}>
 							<IconAddLarge class="size-4" /> New built-in skill
@@ -455,7 +453,9 @@
 						<div class={s.EMPTY}>
 							<IconDocument class={s.EMPTY_ICON} />
 							<p class={s.EMPTY_TITLE}>No built-in skills</p>
-							<p class={s.EMPTY_DETAIL}>Write one as SKILL.md — frontmatter plus procedure.</p>
+							<p class={s.EMPTY_DETAIL}>
+								Write one as a SKILL.md file: a short header, then the steps.
+							</p>
 							<button onclick={openCreate} class={s.PRIMARY}>
 								<IconAddLarge class="size-4" /> New built-in skill
 							</button>
@@ -507,14 +507,19 @@
 					{/if}
 
 					<div class={s.TIPS}>
-						<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
+						<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
 						<ul class={s.TIPS_LIST}>
 							<li>
-								• Disabling removes a skill from everybody's turns; deleting removes it for good
+								• Turning a skill off stops it for everybody. Deleting it removes it for good.
 							</li>
 							<li>• A person's own skill of the same name wins over the built-in one for them</li>
-							<li>• Skills run standard-library Python in the browser — never shell or packages</li>
-							<li>• Import a zip of a skill folder to bring its scripts/references/assets along</li>
+							<li>
+								• Skills can run simple Python in your browser. They can't run shell commands or
+								install packages.
+							</li>
+							<li>
+								• Import a zip of a skill folder to bring along its scripts, notes and other files
+							</li>
 						</ul>
 					</div>
 				</div>
@@ -544,7 +549,7 @@
 					</div>
 					<div class="flex gap-2">
 						<button onclick={openImport} class={s.SECONDARY}>
-							<IconUpload class="size-4" /> Import zip
+							<IconUpload class="size-4" /> Import a zip
 						</button>
 						<button onclick={openCreate} class={s.PRIMARY}>
 							<IconAddLarge class="size-4" /> New skill
@@ -560,7 +565,9 @@
 							<div class={s.EMPTY}>
 								<IconDocument class={s.EMPTY_ICON} />
 								<p class={s.EMPTY_TITLE}>No skills yet</p>
-								<p class={s.EMPTY_DETAIL}>Write one as SKILL.md — frontmatter plus procedure.</p>
+								<p class={s.EMPTY_DETAIL}>
+									Write one as a SKILL.md file: a short header, then the steps.
+								</p>
 								<button onclick={openCreate} class={s.PRIMARY}>
 									<IconAddLarge class="size-4" /> New skill
 								</button>
@@ -629,7 +636,7 @@
 														<p class={s.CARD_TITLE}>{skill.name}</p>
 														<p class={s.CARD_SUBTITLE}>{skill.description}</p>
 													</div>
-													<span class="{s.PILL} {s.PILL_TONES.neutral}">Deployment</span>
+													<span class="{s.PILL} {s.PILL_TONES.neutral}">Built-in</span>
 												</div>
 												<div class="mt-3 flex flex-wrap gap-1.5">
 													<button onclick={() => void openAdmin(skill.id)} class={s.CARD_ACTION}>
@@ -645,20 +652,19 @@
 					{/if}
 
 					<div class={s.TIPS}>
-						<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
+						<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
 						<ul class={s.TIPS_LIST}>
-							<li>• Name a skill with @name in chat to load its full instructions that turn</li>
-							<li>• Otherwise the model loads a skill itself when its description matches</li>
+							<li>• Type @name in a chat to make the assistant use that skill</li>
+							<li>• Otherwise the assistant picks a skill itself when it fits the task</li>
 							<li>
-								• Skills run standard-library Python in your browser — never shell or packages
+								• Skills can run simple Python in your browser. They can't run shell commands or
+								install packages.
 							</li>
 							<li>
-								• Built-in skills are everybody's to use and nobody's to change but an
-								administrator's
+								• Everyone can use the built-in skills. Only an administrator can change them.
 							</li>
 							<li>
-								• Import a zip of a skill folder to bring its scripts/references/assets along; the
-								model reads one with load_skill_file when it needs it
+								• Import a zip of a skill folder to bring along its scripts, notes and other files
 							</li>
 						</ul>
 					</div>
@@ -678,9 +684,9 @@
 					: `Edit ${editing?.name ?? "skill"}`}
 			</h3>
 			<p class="mb-4 text-sm text-gray-600 dark:text-gray-400">
-				Valid SKILL.md: YAML frontmatter with <code>name</code> and
-				<code>description</code>, then the procedure as markdown.
-				{#if admin}It reaches every account's turns once saved.{/if}
+				A SKILL.md file starts with a header with <code>name</code> and
+				<code>description</code>, then the steps in plain text.
+				{#if admin}Everyone can use it once it is saved.{/if}
 			</p>
 			{#if formError}
 				<div class="{s.ERROR} mb-4" role="alert">{formError}</div>
@@ -727,7 +733,7 @@
 			<p class="mb-4 text-sm text-gray-600 dark:text-gray-400">
 				A zip of a skill folder: <code>SKILL.md</code> at the root, plus any
 				<code>scripts/</code>, <code>references/</code> or <code>assets/</code> files beside it.
-				{#if admin}It reaches every account's turns once imported.{/if}
+				{#if admin}Everyone can use it once it is imported.{/if}
 			</p>
 			{#if importError}
 				<div class="{s.ERROR} mb-4" role="alert">{importError}</div>

@@ -69,7 +69,7 @@
 {#if !table}
 	<div class="px-6 py-5">
 		<p class="mb-2 text-xs text-amber-600 dark:text-amber-400">
-			Couldn't parse this as a table — showing the raw text.
+			Couldn't show this as a table, so here is the plain text.
 		</p>
 		<!-- eslint-disable svelte/no-at-html-tags -->
 		<pre

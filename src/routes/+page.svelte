@@ -97,7 +97,7 @@
 				} catch {
 					// Response wasn't JSON (e.g., HTML error page)
 					if (res.status === 401) {
-						errorMessage = "Authentication required";
+						errorMessage = "Please sign in first.";
 					}
 				}
 				error.set(errorMessage);
@@ -256,8 +256,7 @@
 	<div class="mx-auto my-20 max-w-xl rounded-xl border p-6 text-center dark:border-gray-700">
 		<h2 class="mb-2 text-xl font-semibold">No models available</h2>
 		<p class="text-gray-600 dark:text-gray-300">
-			No chat models are configured. Set `OPENAI_BASE_URL` and ensure the server can reach the
-			endpoint, then reload. If unset, the app defaults to the Hugging Face router.
+			No models are available yet. Ask your administrator to set one up, then reload this page.
 		</p>
 	</div>
 {/if}

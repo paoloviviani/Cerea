@@ -60,7 +60,7 @@
 			// The timer is untouched by a failed request, so the turn still wakes
 			// on its own — say so rather than implying the wait is lost.
 			waking = false;
-			wakeError = "Couldn't check early; still waiting on the timer.";
+			wakeError = "Couldn't check early. Still waiting.";
 		}
 	}
 
@@ -80,7 +80,7 @@
 	<div class="flex items-center gap-1.5 px-2.5 py-1.5">
 		<CarbonTime class="text-[0.8rem] {overdue ? '' : 'animate-pulse'}" />
 		{#if overdue}
-			<span>Waiting{reason ? ` for ${reason}` : ""} — overdue, waking…</span>
+			<span>Waiting{reason ? ` for ${reason}` : ""} — running late, checking…</span>
 		{:else if waking}
 			<span>Waiting{reason ? ` for ${reason}` : ""} — checking now…</span>
 		{:else}
@@ -98,7 +98,7 @@
 			type="button"
 			onclick={wakeNow}
 			aria-label="Check now"
-			title="Check on this now instead of waiting out the timer"
+			title="Check now instead of waiting"
 			class="flex cursor-pointer items-center justify-center border-l border-gray-200 px-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:border-gray-700 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-300"
 		>
 			<CarbonContinue class="text-[0.7rem]" />

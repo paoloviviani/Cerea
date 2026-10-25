@@ -146,8 +146,7 @@
 				</div>
 				{#if file.mime === "application/vnd.chatui.clipboard"}
 					<p class="text-sm text-gray-500">
-						If you prefer to inject clipboard content directly in the chat, you can disable this
-						feature in the
+						If you would rather paste long text straight into the chat, you can turn this off in the
 						<a href={`${base}/settings`} class="underline">settings page</a>.
 					</p>
 				{/if}
@@ -242,7 +241,7 @@
 						{truncateMiddle(file.name, 28)}
 					</dd>
 					{#if file.mime === "application/vnd.chatui.clipboard"}
-						<dt class="text-xs text-gray-400">Clipboard source</dt>
+						<dt class="text-xs text-gray-400">Pasted text</dt>
 					{:else}
 						<dt class="text-xs text-gray-400">{file.mime}</dt>
 					{/if}
@@ -262,7 +261,7 @@
 					<dd class="text-sm">
 						{truncateMiddle(file.name, 28)}
 					</dd>
-					<dt class="text-xs text-gray-400">File type could not be determined</dt>
+					<dt class="text-xs text-gray-400">Could not tell what kind of file this is</dt>
 				</dl>
 				<a
 					href={file.type === "base64"

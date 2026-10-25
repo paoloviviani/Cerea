@@ -36,10 +36,10 @@
 	onMount(async () => {
 		try {
 			const response = await fetch(`${base}/api/v2/projects`);
-			if (!response.ok) throw new Error(`The request failed (${response.status}).`);
+			if (!response.ok) throw new Error(`Something went wrong (${response.status}). Try again.`);
 			projects = ((await response.json()) as { data: ProjectView[] }).data;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load projects.";
+			failure = err instanceof Error ? err.message : "Could not load projects. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -49,9 +49,7 @@
 <div class="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
 	<header>
 		<h1 class="text-xl font-semibold text-ink">Projects</h1>
-		<p class={s.SUBTITLE}>
-			Conversations that share standing instructions, documents and knowledge.
-		</p>
+		<p class={s.SUBTITLE}>Chats that share the same instructions, files and knowledge.</p>
 	</header>
 
 	<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto">
@@ -87,12 +85,10 @@
 				<div class={s.EMPTY}>
 					<LucideFolderOpen class={s.EMPTY_ICON} />
 					<p class={s.EMPTY_TITLE}>No projects yet</p>
-					<p class={s.EMPTY_DETAIL}>
-						Give a group of chats the same instructions and the same documents
-					</p>
+					<p class={s.EMPTY_DETAIL}>Give a group of chats the same instructions and files</p>
 					<a href="{base}/projects/new" class={s.PRIMARY}>
 						<IconAddLarge class="size-4" />
-						Create Your First Project
+						Create your first project
 					</a>
 				</div>
 			{:else}
@@ -139,12 +135,12 @@
 			{/if}
 
 			<div class={s.TIPS}>
-				<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
+				<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
 				<ul class={s.TIPS_LIST}>
-					<li>• Every chat started in a project carries its instructions, documents and memory.</li>
-					<li>• A shared project is a shared workspace — everyone sees every conversation.</li>
+					<li>• Every chat in a project uses its instructions, files and notes.</li>
+					<li>• In a shared project, everyone sees every chat.</li>
 					<li>• Sharing a project does <strong>not</strong> share its knowledge bases.</li>
-					<li>• Deleting a project keeps its chats; they return to your ordinary list.</li>
+					<li>• Deleting a project keeps its chats: they go back to your normal list.</li>
 				</ul>
 			</div>
 		</div>

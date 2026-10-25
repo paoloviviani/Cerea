@@ -218,7 +218,7 @@
 			title="Ctrl/Cmd + Shift + O"
 		>
 			<CarbonEdit class="size-3.5" />
-			New Chat
+			New chat
 		</a>
 	</div>
 </div>

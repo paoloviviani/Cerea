@@ -17,7 +17,7 @@ import type { LocalMachineView, LocalServerView } from "$lib/types/LocalConnecto
 export function requireLocalConnectors(locals: App.Locals): { userId: ObjectId } {
 	requireAuth(locals);
 	if (!locals.user) error(401, "Login required");
-	if (!localConnectorsEnabled()) error(404, "Local connectors are not enabled in this deployment.");
+	if (!localConnectorsEnabled()) error(404, "Local connectors are not turned on here.");
 	return { userId: locals.user._id };
 }
 

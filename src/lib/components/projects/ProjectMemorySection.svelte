@@ -63,7 +63,7 @@
 		const response = await fetch(`${base}/api/v2/projects/${projectId}/memory${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 		}
 		return response.status === 204 ? (undefined as T) : await response.json();
 	}
@@ -76,7 +76,7 @@
 		try {
 			notes = (await api<{ data: { notes: ProjectMemoryView[] } }>("")).data.notes;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Project memory could not be loaded.";
+			failure = err instanceof Error ? err.message : "Could not load the project notes. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -97,7 +97,7 @@
 			draft = "";
 			adding = false;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That note could not be saved.";
+			failure = err instanceof Error ? err.message : "Could not save that note. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -115,7 +115,7 @@
 			notes = notes.map((note) => (note.id === id ? updated : note));
 			editingId = null;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That change could not be saved.";
+			failure = err instanceof Error ? err.message : "Could not save that change. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -129,7 +129,7 @@
 			await api<void>(`/${note.id}`, { method: "DELETE" });
 			notes = notes.filter((row) => row.id !== note.id);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That note could not be deleted.";
+			failure = err instanceof Error ? err.message : "Could not delete that note. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -146,7 +146,7 @@
 
 <div data-testid="project-memory">
 	<div class="mb-3 flex items-center justify-between gap-3">
-		<h3 class="{s.SECTION_TITLE} mb-0">Project memory ({notes.length})</h3>
+		<h3 class="{s.SECTION_TITLE} mb-0">Project notes ({notes.length})</h3>
 		<button
 			type="button"
 			class={s.SECONDARY}
@@ -176,8 +176,8 @@
 				placeholder="Deploys go through the release branch; staging is reset every Monday"
 			></textarea>
 			<p class={s.HINT}>
-				Everyone in this project can read it, and it goes into every chat here. It should make sense
-				to a colleague with no context.
+				Everyone in this project can read it, and every chat here uses it. Write it so a colleague
+				would understand it.
 			</p>
 			<div class="mt-3 flex gap-2">
 				<button type="button" class={s.PRIMARY} disabled={!draft.trim() || busy} onclick={add}>
@@ -201,8 +201,8 @@
 	{:else}
 		{#if budget.omitted > 0}
 			<p class="{s.NOTICE} mb-3">
-				{budget.included.length} notes are in use; the {budget.omitted} oldest are too long to fit and
-				are no longer sent to the model.
+				{budget.included.length} notes are in use. The {budget.omitted} oldest no longer fit, so the assistant
+				does not see them.
 			</p>
 		{/if}
 		<ul class="space-y-2">
@@ -256,7 +256,7 @@
 											</a>
 										{/if}
 										{#if omitted.has(index)}
-											<span class="{s.PILL} {s.PILL_TONES.bad}">No longer sent</span>
+											<span class="{s.PILL} {s.PILL_TONES.bad}">Not used any more</span>
 										{/if}
 									</div>
 								</div>
@@ -288,8 +288,8 @@
 		</ul>
 	{/if}
 	<p class={s.HINT}>
-		Anyone who can see this project can add, edit or delete notes. Never keep a password, key or
-		token here: it would ride along in every prompt. Up to {PROJECT_MEMORY_MAX_NOTES} notes; past the
-		prompt's budget the oldest stop being sent.
+		Anyone who can see this project can add, edit or delete notes. Never keep a password or key
+		here: every chat would see it. Up to {PROJECT_MEMORY_MAX_NOTES} notes. When there are too many to
+		fit, the oldest are left out.
 	</p>
 </div>

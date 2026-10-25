@@ -92,7 +92,9 @@ describe("Customize models", () => {
 		stubApi(() => Response.json({}));
 		const { instantSet } = mount([]);
 
-		await page.getByRole("textbox", { name: "Global system prompt" }).fill("  Always be brief.  ");
+		await page
+			.getByRole("textbox", { name: "Instructions for every chat" })
+			.fill("  Always be brief.  ");
 		await page.getByRole("button", { name: "Save", exact: true }).click();
 
 		await vi.waitFor(() =>
@@ -129,9 +131,9 @@ describe("Customize models", () => {
 
 		await page.getByRole("button", { name: "New custom model" }).first().click();
 		await page.getByLabelText("Name").fill("Reviewer");
-		await page.getByLabelText("Base model").selectOptions("test/kimi");
+		await page.getByLabelText("Original model").selectOptions("test/kimi");
 		await page.getByLabelText("Description").fill("Strict");
-		await page.getByLabelText("System prompt").fill("You review code.");
+		await page.getByLabelText("Instructions").fill("You review code.");
 		await page.getByRole("button", { name: "Create custom model" }).click();
 
 		await vi.waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
@@ -172,7 +174,7 @@ describe("Customize models", () => {
 		const create = page.getByRole("button", { name: "Create custom model" });
 		await expect.element(create).toBeDisabled();
 		await page.getByLabelText("Name").fill("Dupe");
-		await page.getByLabelText("System prompt").fill("p");
+		await page.getByLabelText("Instructions").fill("p");
 		await expect.element(create).toBeEnabled();
 		await create.click();
 
@@ -193,8 +195,8 @@ describe("Customize models", () => {
 
 		await page.getByRole("button", { name: "Edit" }).click();
 		await expect.element(page.getByLabelText("Name")).toHaveValue("Menu helper");
-		await expect.element(page.getByLabelText("System prompt")).toHaveValue("You plan menus.");
-		await page.getByLabelText("System prompt").fill("You plan dinners.");
+		await expect.element(page.getByLabelText("Instructions")).toHaveValue("You plan menus.");
+		await page.getByLabelText("Instructions").fill("You plan dinners.");
 		await page.getByRole("button", { name: "Save changes" }).click();
 
 		await vi.waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
@@ -211,7 +213,9 @@ describe("Customize models", () => {
 		await page.getByRole("button", { name: "Delete" }).click();
 		// Nothing is sent by the first click.
 		expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
-		await expect.element(page.getByText(/Chats on it move to its base model/)).toBeInTheDocument();
+		await expect
+			.element(page.getByText(/Chats on it move to the original model/))
+			.toBeInTheDocument();
 		await page.getByRole("button", { name: "Delete" }).click();
 
 		await vi.waitFor(() =>

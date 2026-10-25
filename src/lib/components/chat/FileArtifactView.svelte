@@ -243,7 +243,7 @@
 			<p class="max-w-sm text-center text-sm text-gray-400">
 				{stored
 					? "This file is no longer available."
-					: "This file was not saved and is no longer available. Run the code again to recreate it."}
+					: "This file was not saved and is no longer available. Run the code again to make it again."}
 			</p>
 		</div>
 	{:else if kind === "none"}
