@@ -203,9 +203,13 @@
 									</span>
 									<span class="min-w-0 break-words">{step.label}</span>
 									{#if step.outcome === "refused"}
-										<span class="shrink-0 text-gray-400 dark:text-gray-500">{m["chat.subagent.refused"]()}</span>
+										<span class="shrink-0 text-gray-400 dark:text-gray-500"
+											>{m["chat.subagent.refused"]()}</span
+										>
 									{:else if step.outcome === "error"}
-										<span class="shrink-0 text-gray-400 dark:text-gray-500">{m["chat.subagent.step_failed"]()}</span>
+										<span class="shrink-0 text-gray-400 dark:text-gray-500"
+											>{m["chat.subagent.step_failed"]()}</span
+										>
 									{/if}
 								</li>
 							{/each}

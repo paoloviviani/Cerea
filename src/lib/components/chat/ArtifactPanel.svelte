@@ -709,7 +709,7 @@
 				<span
 					class="flex-none rounded-sm bg-gray-100 px-1 py-px text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 				>
-					{m["chat.panel.editing"]({ title: editingDraft.title ?? sidePane.identifier })}
+					{m["chat.panel.editing"]({ title: editingDraft.title ?? sidePane.identifier ?? "" })}
 				</span>
 			{:else if pendingDraft}
 				<span
@@ -907,7 +907,9 @@
 								class="{codeFloatBtn} {sidePane.diffView
 									? 'text-gray-600 dark:text-gray-300'
 									: 'text-gray-400'}"
-								title={sidePane.diffView ? m["chat.panel.diff_full"]() : m["chat.panel.diff_changes"]()}
+								title={sidePane.diffView
+									? m["chat.panel.diff_full"]()
+									: m["chat.panel.diff_changes"]()}
 								aria-pressed={sidePane.diffView}
 								onclick={() => sidePane.toggleDiffView()}
 							>
@@ -919,7 +921,9 @@
 							class="{codeFloatBtn} {sidePane.codeWrap
 								? 'text-gray-600 dark:text-gray-300'
 								: 'text-gray-400'}"
-							title={sidePane.codeWrap ? m["chat.panel.wrap_disable"]() : m["chat.panel.wrap_enable"]()}
+							title={sidePane.codeWrap
+								? m["chat.panel.wrap_disable"]()
+								: m["chat.panel.wrap_enable"]()}
 							aria-pressed={sidePane.codeWrap}
 							onclick={() => sidePane.toggleCodeWrap()}
 						>
@@ -982,7 +986,10 @@
 					<CarbonChevronLeft />
 				</button>
 				<span class="whitespace-nowrap tabular-nums">
-					{m["chat.panel.version_of"]({ number: fileDisplayVersionNumber, total: fileTotalVersions })}
+					{m["chat.panel.version_of"]({
+						number: fileDisplayVersionNumber,
+						total: fileTotalVersions,
+					})}
 				</span>
 				<button
 					type="button"
@@ -1015,9 +1022,7 @@
 				<button
 					type="button"
 					class="btn flex items-center gap-1.5 rounded-full border border-red-300/60 bg-red-50 px-2.5 py-0.5 text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"
-					title={loading
-						? m["chat.panel.wait"]()
-						: m["chat.panel.fix"]()}
+					title={loading ? m["chat.panel.wait"]() : m["chat.panel.fix"]()}
 					disabled={loading}
 					onclick={askToFixErrors}
 				>

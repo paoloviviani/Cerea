@@ -98,9 +98,7 @@
 	function advance() {
 		if (!field) return;
 		if (!answered) {
-			error = showOther[field.name]
-				? m["chat.ask.type_or_pick"]()
-				: m["chat.ask.pick"]();
+			error = showOther[field.name] ? m["chat.ask.type_or_pick"]() : m["chat.ask.pick"]();
 			return;
 		}
 		error = null;
@@ -256,7 +254,8 @@
 						error = null;
 					}}
 				>
-					<CarbonArrowLeft class="size-3" /> {m["chat.ask.back"]()}
+					<CarbonArrowLeft class="size-3" />
+					{m["chat.ask.back"]()}
 				</button>
 			{/if}
 			{#if isLast}

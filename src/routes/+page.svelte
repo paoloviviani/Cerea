@@ -176,9 +176,7 @@
 				// Show errors if any
 				if (result.errors.length > 0) {
 					console.error("Failed to load some attachments:", result.errors);
-					error.set(
-						m["app.home.attachments_failed"]({ count: result.errors.length })
-					);
+					error.set(m["app.home.attachments_failed"]({ count: result.errors.length }));
 				}
 
 				// Clean up URL

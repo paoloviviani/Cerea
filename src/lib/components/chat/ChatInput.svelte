@@ -190,7 +190,7 @@
 				body: JSON.stringify({ webSearch: next }),
 			});
 			if (!response.ok) {
-				let message = m["chat.input.web_search_failed"]();
+				let message: string = m["chat.input.web_search_failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -202,9 +202,7 @@
 			// Roll back the optimistic toggle so the pill never claims a state
 			// the server refused.
 			webSearch = previous;
-			errorToast.set(
-				err instanceof Error ? err.message : m["chat.input.web_search_failed"]()
-			);
+			errorToast.set(err instanceof Error ? err.message : m["chat.input.web_search_failed"]());
 		}
 	}
 
@@ -225,7 +223,7 @@
 				body: JSON.stringify({ toolApprovalOverride: next ? "always-allow" : "manual" }),
 			});
 			if (!response.ok) {
-				let message = m["chat.input.setting_failed"]();
+				let message: string = m["chat.input.setting_failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -237,9 +235,7 @@
 			// Home page has no PATCH to fail (returned above); this rollback
 			// is for the conversation-page PATCH only.
 			autoApproveTools = previous;
-			errorToast.set(
-				err instanceof Error ? err.message : m["chat.input.setting_failed"]()
-			);
+			errorToast.set(err instanceof Error ? err.message : m["chat.input.setting_failed"]());
 		}
 	}
 
@@ -403,7 +399,7 @@
 				body: JSON.stringify({ knowledgeBaseIds: next.map((base) => base.id) }),
 			});
 			if (!response.ok) {
-				let message = m["chat.input.knowledge_failed"]();
+				let message: string = m["chat.input.knowledge_failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -416,9 +412,7 @@
 			// attachment the server refused; the turn's retrieval would silently
 			// miss the base otherwise.
 			knowledgeBases = previous;
-			errorToast.set(
-				err instanceof Error ? err.message : m["chat.input.knowledge_failed"]()
-			);
+			errorToast.set(err instanceof Error ? err.message : m["chat.input.knowledge_failed"]());
 		}
 	}
 
@@ -432,7 +426,7 @@
 
 	function openFilePickerText() {
 		const textAccept =
-			mimeTypes.filter((m) => !(m === "image/*" || m.startsWith("image/"))).join(",") ||
+			mimeTypes.filter((mime) => !(mime === "image/*" || mime.startsWith("image/"))).join(",") ||
 			TEXT_MIME_ALLOWLIST.join(",");
 		openPickerWithAccept(textAccept);
 	}
@@ -443,7 +437,7 @@
 
 	function openFilePickerImage() {
 		const imageAccept =
-			mimeTypes.filter((m) => m === "image/*" || m.startsWith("image/")).join(",") ||
+			mimeTypes.filter((mime) => mime === "image/*" || mime.startsWith("image/")).join(",") ||
 			IMAGE_MIME_ALLOWLIST_DEFAULT.join(",");
 		openPickerWithAccept(imageAccept);
 	}
@@ -1025,7 +1019,9 @@
 						: "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white",
 				]}
 				aria-pressed={listening}
-				aria-label={listening ? m["chat.input.dictation_stop"]() : m["chat.input.dictation_start"]()}
+				aria-label={listening
+					? m["chat.input.dictation_stop"]()
+					: m["chat.input.dictation_start"]()}
 				title={listening ? m["chat.input.dictation_stop"]() : m["chat.input.dictation_hint"]()}
 				onmousedown={(event) => event.preventDefault()}
 				onclick={toggleDictation}
@@ -1504,9 +1500,7 @@
 							compact
 							pressed={autoApproveTools}
 							label={autoApproveTools ? m["chat.input.runs"]() : m["chat.input.asks"]()}
-							title={autoApproveTools
-								? m["chat.input.runs_hint"]()
-								: m["chat.input.asks_hint"]()}
+							title={autoApproveTools ? m["chat.input.runs_hint"]() : m["chat.input.asks_hint"]()}
 							onclick={toggleAutoApproveTools}
 						>
 							{#snippet icon()}

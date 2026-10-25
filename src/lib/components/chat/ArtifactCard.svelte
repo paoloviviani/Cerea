@@ -58,15 +58,15 @@
 	let subtitle = $derived.by(() => {
 		if (missing) return m["chat.artifact.card.unmatched"]();
 		if (!version) return "";
-		if (streaming) return version.op === "update"
+		if (streaming)
+			return version.op === "update"
 				? m["chat.artifact.card.applying"]()
 				: m["chat.artifact.card.generating"]();
 		const kindLabel =
 			version.type === "code" && version.language
 				? m["chat.artifact.card.code_lang"]({ language: version.language })
 				: KIND_LABELS[version.type]();
-		const versionLabel =
-			(artifact?.versions.length ?? 0) > 1 ? ` · v${version.version}` : "";
+		const versionLabel = (artifact?.versions.length ?? 0) > 1 ? ` · v${version.version}` : "";
 		if (version.interrupted) {
 			return version.op === "update"
 				? m["chat.artifact.card.edit_interrupted"]({ version: versionLabel })

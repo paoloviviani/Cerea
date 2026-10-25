@@ -5,7 +5,6 @@
 	its spec.
 -->
 <script lang="ts">
-	import { m } from "$lib/paraglide/messages";
 	import ChatMessageColumn from "./ChatMessageColumn.svelte";
 	import type { Message } from "$lib/types/Message";
 

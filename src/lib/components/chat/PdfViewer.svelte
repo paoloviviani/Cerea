@@ -60,7 +60,10 @@
 			canvas.style.height = `${Math.floor(viewport.height / dpr)}px`;
 			canvas.className = "mx-auto mb-3 max-w-full bg-white shadow-sm";
 			canvas.setAttribute("role", "img");
-			canvas.setAttribute("aria-label", m["chat.pdf.page_label"]({ title, page: n, total: doc.numPages }));
+			canvas.setAttribute(
+				"aria-label",
+				m["chat.pdf.page_label"]({ title, page: n, total: doc.numPages })
+			);
 			canvas.dataset.testid = "pdf-page";
 			host.appendChild(canvas);
 			await page.render({ canvas, viewport }).promise;
@@ -147,7 +150,8 @@
 		class="flex flex-none items-center gap-2 border-b border-gray-200/70 px-3 py-1.5 text-xs text-gray-500 dark:border-gray-700/70 dark:text-gray-400"
 	>
 		<span class="min-w-0 flex-1 truncate">
-			{#if status === "loading"}{m["chat.pdf.loading"]()}{:else if status === "ready"}{pageCount > shown
+			{#if status === "loading"}{m["chat.pdf.loading"]()}{:else if status === "ready"}{pageCount >
+				shown
 					? m["chat.pdf.pages_partial"]({ count: pageCount, shown })
 					: m["chat.pdf.pages"]({ count: pageCount })}{/if}
 		</span>

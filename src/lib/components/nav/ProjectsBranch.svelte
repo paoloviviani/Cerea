@@ -186,7 +186,7 @@
 				body: JSON.stringify({ model, projectId: project.id }),
 			});
 			if (!response.ok) {
-				let message = m["nav.projects.start_failed"]();
+				let message: string = m["nav.projects.start_failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -289,20 +289,13 @@
 	 * a month of chats.
 	 */
 	async function destroy(project: ProjectView) {
-		if (
-			!confirm(
-				m["nav.projects.confirm_delete"]({ name: project.name })
-			)
-		)
-			return;
+		if (!confirm(m["nav.projects.confirm_delete"]({ name: project.name }))) return;
 		// The memory is the one thing that would otherwise stay behind holding
 		// what was said: a second question, so "no" still deletes the project.
 		const withMemory =
 			project.owned &&
 			project.hasMemory &&
-			confirm(
-				m["nav.projects.confirm_delete_memory"]({ name: project.name })
-			);
+			confirm(m["nav.projects.confirm_delete_memory"]({ name: project.name }));
 		busy = true;
 		try {
 			const response = await fetch(

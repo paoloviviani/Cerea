@@ -119,7 +119,9 @@
 					{m["app.move_to_project.load_failed"]()}
 				</p>
 			{:else if projects === null}
-				<p class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">{m["app.move_to_project.loading"]()}</p>
+				<p class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
+					{m["app.move_to_project.loading"]()}
+				</p>
 			{:else}
 				{#if chat.projectId}
 					<button type="button" class={ROW} disabled={busy} onclick={() => choose(null)}>
@@ -147,7 +149,9 @@
 					</button>
 				{:else}
 					<p class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
-						{projects.length === 0 ? m["app.move_to_project.no_projects"]() : m["app.move_to_project.no_match"]()}
+						{projects.length === 0
+							? m["app.move_to_project.no_projects"]()
+							: m["app.move_to_project.no_match"]()}
 					</p>
 				{/each}
 			{/if}

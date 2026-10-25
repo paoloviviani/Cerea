@@ -18,7 +18,9 @@
 	let isOpen = $state(false);
 
 	let label = $derived(
-		toolCount > 0 ? m["chat.tool_calls.called"]({ count: toolCount }) : m["chat.tool_calls.thought"]()
+		toolCount > 0
+			? m["chat.tool_calls.called"]({ count: toolCount })
+			: m["chat.tool_calls.thought"]()
 	);
 </script>
 

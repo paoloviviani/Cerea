@@ -127,7 +127,9 @@
 											})}
 									onclick={() => toggleSort(col)}
 								>
-									<span class="min-w-0 flex-1 truncate">{head || m["chat.table.column"]({ number: col + 1 })}</span>
+									<span class="min-w-0 flex-1 truncate"
+										>{head || m["chat.table.column"]({ number: col + 1 })}</span
+									>
 									{#if sortCol === col}
 										{#if sortDir === 1}
 											<CarbonArrowUp class="flex-none text-xxs" />

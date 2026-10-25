@@ -85,7 +85,7 @@
 				body: JSON.stringify({ model: id }),
 			});
 			if (!response.ok) {
-				let message = m["chat.model_picker.failed"]();
+				let message: string = m["chat.model_picker.failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {

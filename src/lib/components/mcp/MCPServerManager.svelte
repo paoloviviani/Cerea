@@ -37,7 +37,9 @@
 	<div class="p-6">
 		<!-- Header -->
 		<div class="mb-6">
-			<h2 class="mb-1 text-xl font-semibold text-gray-900 dark:text-gray-200">{m["mcp.manager.title"]()}</h2>
+			<h2 class="mb-1 text-xl font-semibold text-gray-900 dark:text-gray-200">
+				{m["mcp.manager.title"]()}
+			</h2>
 			<p class="text-sm text-gray-600 dark:text-gray-400">
 				{m["mcp.manager.intro"]({ name: publicConfig.PUBLIC_APP_NAME })}
 			</p>
@@ -94,7 +96,9 @@
 
 			<!-- Help Text -->
 			<div class="rounded-lg bg-gray-50 p-4 dark:bg-gray-700">
-				<h4 class="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">{m["mcp.manager.tips_heading"]()}</h4>
+				<h4 class="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+					{m["mcp.manager.tips_heading"]()}
+				</h4>
 				<ul class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
 					<li>{m["mcp.manager.tip_trust"]()}</li>
 					<li>{m["mcp.manager.tip_enable"]()}</li>

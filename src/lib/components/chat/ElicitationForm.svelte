@@ -87,8 +87,10 @@
 	let timeLeft = $derived.by(() => {
 		if (expiresAt === undefined) return "";
 		const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
-		if (seconds >= 3_600) return m["chat.elicitation.hours_left"]({ count: Math.floor(seconds / 3_600) });
-		if (seconds >= 120) return m["chat.elicitation.minutes_left"]({ count: Math.floor(seconds / 60) });
+		if (seconds >= 3_600)
+			return m["chat.elicitation.hours_left"]({ count: Math.floor(seconds / 3_600) });
+		if (seconds >= 120)
+			return m["chat.elicitation.minutes_left"]({ count: Math.floor(seconds / 60) });
 		return m["chat.elicitation.seconds_left"]({ count: seconds });
 	});
 
@@ -120,8 +122,7 @@
 			out.push(m["chat.elicitation.url_lookalike"]());
 		}
 		if (parsed.protocol !== "https:") out.push(m["chat.elicitation.url_insecure"]());
-		if (isPrivateHost(parsed.hostname))
-			out.push(m["chat.elicitation.url_private"]());
+		if (isPrivateHost(parsed.hostname)) out.push(m["chat.elicitation.url_private"]());
 		return out;
 	});
 
@@ -254,7 +255,10 @@
 	let summary = $derived(questionSummary(request, answered));
 
 	let settledLabel = $derived.by(() => {
-		if (outcome === "accept") return request.mode === "url" ? m["chat.elicitation.opened_link"]() : m["chat.elicitation.answered"]();
+		if (outcome === "accept")
+			return request.mode === "url"
+				? m["chat.elicitation.opened_link"]()
+				: m["chat.elicitation.answered"]();
 		if (outcome === "decline") return m["chat.elicitation.declined"]();
 		if (resolved?.resolution === "aborted") return m["chat.elicitation.cancelled_reply"]();
 		if (resolved?.resolution === "withdrawn")
@@ -356,7 +360,9 @@
 		>
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
 				<span class="text-sm font-medium text-gray-700 dark:text-gray-200">
-					{request.mode === "url" ? m["chat.elicitation.reply_needed"]() : m["chat.elicitation.question"]()}
+					{request.mode === "url"
+						? m["chat.elicitation.reply_needed"]()
+						: m["chat.elicitation.question"]()}
 				</span>
 				{#if request.source !== "assistant"}
 					<span class="text-xs text-gray-500 dark:text-gray-400">
@@ -478,7 +484,9 @@
 									disabled={!open}
 									class={inputClass}
 								>
-									<option value="" disabled={field.required}>{m["chat.elicitation.choose"]()}</option>
+									<option value="" disabled={field.required}
+										>{m["chat.elicitation.choose"]()}</option
+									>
 									{#each field.options as option (option.value)}
 										<option value={option.value}>{option.label}</option>
 									{/each}
@@ -520,7 +528,10 @@
 									{#if field.maxItems !== undefined}
 										<p class="text-xs text-gray-500 dark:text-gray-400">
 											{field.minItems
-												? m["chat.elicitation.up_to_min"]({ max: field.maxItems, min: field.minItems })
+												? m["chat.elicitation.up_to_min"]({
+														max: field.maxItems,
+														min: field.minItems,
+													})
 												: m["chat.elicitation.up_to"]({ max: field.maxItems })}
 										</p>
 									{/if}

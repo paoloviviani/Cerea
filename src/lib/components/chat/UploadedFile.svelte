@@ -133,7 +133,11 @@
 	<Modal width="xl:max-w-[75dvw]" onclose={() => (showModal = false)}>
 		{#if isImage(file.mime)}
 			{#if file.type === "hash"}
-				<img src={outputBase + "/" + file.value} alt={m["chat.uploaded.input_alt"]()} class="aspect-auto" />
+				<img
+					src={outputBase + "/" + file.value}
+					alt={m["chat.uploaded.input_alt"]()}
+					class="aspect-auto"
+				/>
 			{:else}
 				<!-- handle the case where this is a base64 encoded image -->
 				<img

@@ -83,7 +83,11 @@
 </script>
 
 <DropdownMenu.Root bind:open>
-	<DropdownMenu.Trigger class={triggerClass} aria-label={m["chat.effort_picker.label"]()} {disabled}>
+	<DropdownMenu.Trigger
+		class={triggerClass}
+		aria-label={m["chat.effort_picker.label"]()}
+		{disabled}
+	>
 		{@render children()}
 		{#if efforts}
 			<span class="shrink-0 text-ink-faint">· {effortLabel(effort)}</span>

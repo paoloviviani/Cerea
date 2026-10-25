@@ -207,10 +207,7 @@
 				if (cancelled) return;
 				status = "error";
 				payload = null;
-				error =
-					err instanceof Error
-						? err.message
-						: m["chat.file_view.unavailable"]();
+				error = err instanceof Error ? err.message : m["chat.file_view.unavailable"]();
 			}
 		})();
 		return () => {
@@ -243,9 +240,7 @@
 	{#if !available}
 		<div class="flex flex-1 items-center justify-center px-6 py-8">
 			<p class="max-w-sm text-center text-sm text-gray-400">
-				{stored
-					? m["chat.file_view.gone"]()
-					: m["chat.file_view.gone_unsaved"]()}
+				{stored ? m["chat.file_view.gone"]() : m["chat.file_view.gone_unsaved"]()}
 			</p>
 		</div>
 	{:else if kind === "none"}
@@ -269,7 +264,8 @@
 					class="flex flex-none items-center gap-1 rounded-md px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10"
 					aria-label={m["chat.file_view.download_label"]({ name: baseName })}
 				>
-					<CarbonDownload class="size-3.5" /> {m["chat.file_view.download"]()}
+					<CarbonDownload class="size-3.5" />
+					{m["chat.file_view.download"]()}
 				</button>
 			</div>
 		</div>

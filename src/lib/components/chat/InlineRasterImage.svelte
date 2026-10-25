@@ -31,10 +31,7 @@
 					new Blob([data], { type: filePreviewMimeType(fileExtensionOf(name)) })
 				);
 			} catch (err) {
-				failure =
-					err instanceof Error
-						? err.message
-						: m["chat.inline_image.unavailable"]();
+				failure = err instanceof Error ? err.message : m["chat.inline_image.unavailable"]();
 			} finally {
 				busy = false;
 			}

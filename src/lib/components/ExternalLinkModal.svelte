@@ -30,8 +30,15 @@
 <Modal onclose={close} width="w-[90dvh] md:w-[480px]">
 	<div class="flex w-full flex-col gap-5 p-6">
 		<div class="flex items-start justify-between">
-			<h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">{m["app.external_link.title"]()}</h2>
-			<button type="button" class="group outline-hidden" onclick={close} aria-label={m["app.close"]()}>
+			<h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">
+				{m["app.external_link.title"]()}
+			</h2>
+			<button
+				type="button"
+				class="group outline-hidden"
+				onclick={close}
+				aria-label={m["app.close"]()}
+			>
 				<CarbonClose
 					class="size-5 text-gray-700 group-hover:text-gray-500 dark:text-gray-300 dark:group-hover:text-gray-400"
 				/>

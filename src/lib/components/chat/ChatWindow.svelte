@@ -793,10 +793,7 @@
 								class:paste-glow={pastedLongContent}
 							>
 								{#if lastIsError}
-									<ChatInput
-										value={m["chat.window.error_reply"]()}
-										disabled={true}
-									/>
+									<ChatInput value={m["chat.window.error_reply"]()} disabled={true} />
 								{:else}
 									<ChatInput
 										placeholder={isReadOnly ? m["chat.window.read_only"]() : m["chat.window.ask"]()}
@@ -942,8 +939,7 @@
 					{/if}
 					{#if !messages.length && !loading}
 						<span class="max-sm:hidden"
-							>{publicConfig.PUBLIC_CAVEAT ||
-								m["chat.window.caveat"]()}</span
+							>{publicConfig.PUBLIC_CAVEAT || m["chat.window.caveat"]()}</span
 						>
 					{/if}
 				</div>

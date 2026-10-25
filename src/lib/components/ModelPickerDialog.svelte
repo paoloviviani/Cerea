@@ -116,11 +116,15 @@
 								>{/if}
 						</span>
 						<span class="block truncate text-xs text-gray-500 dark:text-gray-400"
-							>{model.baseName ? (model.description ?? m["app.model_picker.custom_model"]()) : model.id}</span
+							>{model.baseName
+								? (model.description ?? m["app.model_picker.custom_model"]())
+								: model.id}</span
 						>
 					</span>
 					{#if busy === model.id}
-						<span class="loading-dots shrink-0 text-xs text-gray-500">{m["app.model_picker.switching"]()}</span>
+						<span class="loading-dots shrink-0 text-xs text-gray-500"
+							>{m["app.model_picker.switching"]()}</span
+						>
 					{:else if active}
 						<CarbonCheckmark class="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
 					{/if}

@@ -39,7 +39,9 @@
 	let working = $state(false);
 	let failure = $state<string | null>(null);
 
-	const label = $derived(update.action === "remembered" ? m["chat.memory.remembered"]() : m["chat.memory.forgot"]());
+	const label = $derived(
+		update.action === "remembered" ? m["chat.memory.remembered"]() : m["chat.memory.forgot"]()
+	);
 
 	async function undo() {
 		working = true;
@@ -61,7 +63,9 @@
 						});
 			if (!response.ok) {
 				const parsed = await response.json().catch(() => null);
-				throw new Error(parsed?.message ?? m["chat.memory.failed_status"]({ status: response.status }));
+				throw new Error(
+					parsed?.message ?? m["chat.memory.failed_status"]({ status: response.status })
+				);
 			}
 			undone = true;
 		} catch (err) {
@@ -90,7 +94,9 @@
 			{update.text}
 		</span>
 		{#if undone}
-			<span class="shrink-0 text-xs text-gray-400 dark:text-gray-500">{m["chat.memory.undone"]()}</span>
+			<span class="shrink-0 text-xs text-gray-400 dark:text-gray-500"
+				>{m["chat.memory.undone"]()}</span
+			>
 		{:else if canUndo}
 			<button
 				type="button"

@@ -64,9 +64,7 @@
 	 * button, so one click is not read as "this edit, here".
 	 */
 	let alwaysLabel = $derived(
-		toolApproval?.tool === "edit"
-			? m["chat.approval.always_edits"]()
-			: m["chat.approval.always"]()
+		toolApproval?.tool === "edit" ? m["chat.approval.always_edits"]() : m["chat.approval.always"]()
 	);
 
 	let submitting = $state<"once" | "conversation" | "always" | "deny" | null>(null);
@@ -89,7 +87,8 @@
 	let timeLeft = $derived.by(() => {
 		if (expiresAt === undefined) return "";
 		const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
-		if (seconds >= 3_600) return m["chat.approval.hours_left"]({ count: Math.floor(seconds / 3_600) });
+		if (seconds >= 3_600)
+			return m["chat.approval.hours_left"]({ count: Math.floor(seconds / 3_600) });
 		if (seconds >= 120) return m["chat.approval.minutes_left"]({ count: Math.floor(seconds / 60) });
 		return m["chat.approval.seconds_left"]({ count: seconds });
 	});
@@ -201,12 +200,16 @@
 		if (toolApproval?.tool === "session_spawn") {
 			facts.push({ label: m["chat.approval.fact.title"](), value: text(args.title) });
 			facts.push({ label: m["chat.approval.fact.mode"](), value: text(args.modeId) });
-			facts.push({ label: m["chat.approval.fact.model"](),
-				value: text(args.modelId) || m["chat.approval.fact.session_model"](), });
+			facts.push({
+				label: m["chat.approval.fact.model"](),
+				value: text(args.modelId) || m["chat.approval.fact.session_model"](),
+			});
 			// A profile is a name and a model: the card names it, and the Model
 			// line above shows the model it chose.
-			if (text(args.profile)) facts.push({ label: m["chat.approval.fact.profile"](), value: text(args.profile) });
-			if (text(args.committee)) facts.push({
+			if (text(args.profile))
+				facts.push({ label: m["chat.approval.fact.profile"](), value: text(args.profile) });
+			if (text(args.committee))
+				facts.push({
 					label: m["chat.approval.fact.part_of"](),
 					value: m["chat.approval.fact.committee"](),
 				});
@@ -318,7 +321,9 @@
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
 				<span class="text-sm font-medium text-gray-700 dark:text-gray-200"
 					>{#if subagentLabel}{subagentLabel} ·
-					{/if}{galopin ? m["chat.approval.agent_action"]() : m["chat.approval.tool_approval"]()}</span
+					{/if}{galopin
+						? m["chat.approval.agent_action"]()
+						: m["chat.approval.tool_approval"]()}</span
 				>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					<Rich

@@ -19,7 +19,8 @@
 	onclick={() => (isOpen = !isOpen)}
 	onkeydown={(e) => e.key === "Enter" && (isOpen = !isOpen)}
 >
-	<CarbonBlockchain class="text-xxs" /> {m["app.system_prompt.using"]()}
+	<CarbonBlockchain class="text-xxs" />
+	{m["app.system_prompt.using"]()}
 </button>
 
 {#if isOpen}

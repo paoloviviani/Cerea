@@ -145,10 +145,7 @@
 		try {
 			triggerBrowserDownload(baseName, await load());
 		} catch (err) {
-			downloadError =
-				err instanceof Error
-					? err.message
-					: m["chat.file_card.gone_error"]();
+			downloadError = err instanceof Error ? err.message : m["chat.file_card.gone_error"]();
 		} finally {
 			downloading = false;
 		}

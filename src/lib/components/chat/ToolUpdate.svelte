@@ -211,7 +211,10 @@
 	const imageKey = (image: McpImageContent): string => ("url" in image ? image.url : image.data);
 	const formatMegabytes = (bytes: number): string =>
 		m["chat.tool.size_mb"]({
-			value: formatNumber(bytes / (1024 * 1024), { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+			value: formatNumber(bytes / (1024 * 1024), {
+				minimumFractionDigits: 1,
+				maximumFractionDigits: 1,
+			}),
 		});
 
 	// One entry per distinct image across the whole card: a browser tool
@@ -357,7 +360,10 @@
 			<div class="mt-1.5 flex flex-wrap items-center gap-1.5" data-testid="tool-image-strip">
 				{#each stripVisible as image, index (imageKey(image))}
 					{@const key = imageKey(image)}
-					{@const label = m["chat.tool.image_label"]({ index: index + 1, total: stripImages.length })}
+					{@const label = m["chat.tool.image_label"]({
+						index: index + 1,
+						total: stripImages.length,
+					})}
 					{#if typeof image.size === "number" && image.size > STRIP_LOAD_GATE_BYTES && !stripLoaded.has(key)}
 						<button
 							type="button"
@@ -376,7 +382,10 @@
 						<button
 							type="button"
 							class="size-12 shrink-0 overflow-hidden rounded-md border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800"
-							aria-label={m["chat.tool.image_view"]({ index: index + 1, total: stripImages.length })}
+							aria-label={m["chat.tool.image_view"]({
+								index: index + 1,
+								total: stripImages.length,
+							})}
 							onclick={() => (lightboxSrc = imageSrc(image))}
 						>
 							<img

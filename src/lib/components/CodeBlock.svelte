@@ -353,8 +353,12 @@
 					class={CODE_PILL_BUTTON}
 					disabled={loading}
 					onclick={openPreview}
-					title={isMermaid ? m["app.code_block.preview_diagram"]() : m["app.code_block.preview_html"]()}
-					aria-label={isMermaid ? m["app.code_block.preview_diagram"]() : m["app.code_block.preview_html"]()}
+					title={isMermaid
+						? m["app.code_block.preview_diagram"]()
+						: m["app.code_block.preview_html"]()}
+					aria-label={isMermaid
+						? m["app.code_block.preview_diagram"]()
+						: m["app.code_block.preview_html"]()}
 				>
 					{#if loading}
 						<EosIconsLoading class="size-3.5" />

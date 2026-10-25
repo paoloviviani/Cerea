@@ -104,7 +104,9 @@
 					{title}
 				</h2>
 				{#if local}
-					<p class="text-sm text-gray-500 dark:text-gray-400">{m["mcp.detail.on_machine"]({ machine: local.machineName })}</p>
+					<p class="text-sm text-gray-500 dark:text-gray-400">
+						{m["mcp.detail.on_machine"]({ machine: local.machineName })}
+					</p>
 				{/if}
 			</div>
 			<button
@@ -150,7 +152,9 @@
 			{/if}
 		</dl>
 
-		<h3 class="mt-5 mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{m["mcp.detail.tools"]()}</h3>
+		<h3 class="mt-5 mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+			{m["mcp.detail.tools"]()}
+		</h3>
 		{#if listing.kind === "loading"}
 			<p class="text-sm text-gray-600 dark:text-gray-400">{m["mcp.detail.loading_tools"]()}</p>
 		{:else if listing.kind === "error"}
@@ -178,9 +182,7 @@
 			{/if}
 		{:else}
 			<p class="text-sm text-gray-600 dark:text-gray-400">
-				{local
-					? m["mcp.detail.tools_when_on"]()
-					: m["mcp.detail.not_checked"]()}
+				{local ? m["mcp.detail.tools_when_on"]() : m["mcp.detail.not_checked"]()}
 			</p>
 		{/if}
 	</div>

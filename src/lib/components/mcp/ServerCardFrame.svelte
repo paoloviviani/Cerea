@@ -98,7 +98,9 @@
 					{/if}
 				</h4>
 				{#if machine}
-					<p class="text-xs text-gray-500 dark:text-gray-400">{m["mcp.card.on_machine"]({ machine })}</p>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						{m["mcp.card.on_machine"]({ machine })}
+					</p>
 				{/if}
 				{#if description}
 					<p

@@ -169,7 +169,8 @@
 	function artifactBadge(identifier: string): string {
 		const latest = latestArtifactVersion(identifier);
 		if (!latest) return m["chat.deliverables.artifact"]();
-		if (latest.type === "code" && latest.language) return m["chat.artifact.card.code_lang"]({ language: latest.language });
+		if (latest.type === "code" && latest.language)
+			return m["chat.artifact.card.code_lang"]({ language: latest.language });
 		return ARTIFACT_KIND_LABELS[latest.type]();
 	}
 
@@ -251,7 +252,8 @@
 								title={m["chat.deliverables.open_in_panel"]({ name: file.name })}
 								onclick={() => sidePane.openArtifact(target.name, target.version)}
 							>
-								<CarbonLaunch class="size-3.5" /> {m["chat.deliverables.open"]()}
+								<CarbonLaunch class="size-3.5" />
+								{m["chat.deliverables.open"]()}
 							</button>
 						{:else}
 							<a
@@ -262,7 +264,8 @@
 								aria-label={m["chat.deliverables.open_named"]({ name: file.name })}
 								title={m["chat.deliverables.open_named"]({ name: file.name })}
 							>
-								<CarbonLaunch class="size-3.5" /> {m["chat.deliverables.open"]()}
+								<CarbonLaunch class="size-3.5" />
+								{m["chat.deliverables.open"]()}
 							</a>
 						{/if}
 						<a
@@ -272,7 +275,8 @@
 							aria-label={m["chat.deliverables.download_named"]({ name: file.name })}
 							title={m["chat.deliverables.download_named"]({ name: file.name })}
 						>
-							<CarbonDownload class="size-3.5" /> {m["chat.deliverables.download"]()}
+							<CarbonDownload class="size-3.5" />
+							{m["chat.deliverables.download"]()}
 						</a>
 					</li>
 				{/snippet}
@@ -280,14 +284,17 @@
 				{#if unified}
 					{@const list = paneList}
 					{#if list.length === 0 && loadState === "loading"}
-						<p class="py-8 text-center text-sm text-ink-muted">{m["chat.deliverables.loading"]()}</p>
+						<p class="py-8 text-center text-sm text-ink-muted">
+							{m["chat.deliverables.loading"]()}
+						</p>
 					{:else if list.length === 0 && loadState === "failed"}
 						<div class={styles.EMPTY}>
 							<CarbonDocument class={styles.EMPTY_ICON} />
 							<p class={styles.EMPTY_TITLE}>{m["chat.deliverables.couldnt_load"]()}</p>
 							<p class={styles.EMPTY_DETAIL}>{loadError}</p>
 							<button type="button" class={styles.PRIMARY} onclick={refresh}>
-								<CarbonRenew /> {m["chat.deliverables.try_again"]()}
+								<CarbonRenew />
+								{m["chat.deliverables.try_again"]()}
 							</button>
 						</div>
 					{:else if list.length === 0 && files.length > 0}
@@ -340,7 +347,8 @@
 											title={m["chat.deliverables.open_in_panel"]({ name: item.label })}
 											onclick={() => sidePane.openArtifact(item.identifier, null)}
 										>
-											<CarbonLaunch class="size-3.5" /> {m["chat.deliverables.open"]()}
+											<CarbonLaunch class="size-3.5" />
+											{m["chat.deliverables.open"]()}
 										</button>
 									</li>
 								{:else if item.kind === "trackio"}
@@ -365,7 +373,8 @@
 											title={m["chat.deliverables.open_in_panel"]({ name: item.label })}
 											onclick={() => sidePane.openTrackio(item.url, item.label)}
 										>
-											<CarbonLaunch class="size-3.5" /> {m["chat.deliverables.open"]()}
+											<CarbonLaunch class="size-3.5" />
+											{m["chat.deliverables.open"]()}
 										</button>
 									</li>
 								{:else}
@@ -394,7 +403,8 @@
 												title={m["chat.deliverables.open_in_panel"]({ name: item.name })}
 												onclick={() => sidePane.openArtifact(item.name, null)}
 											>
-												<CarbonLaunch class="size-3.5" /> {m["chat.deliverables.open"]()}
+												<CarbonLaunch class="size-3.5" />
+												{m["chat.deliverables.open"]()}
 											</button>
 										</li>
 									{/if}
@@ -410,7 +420,8 @@
 						<p class={styles.EMPTY_TITLE}>{m["chat.deliverables.couldnt_load"]()}</p>
 						<p class={styles.EMPTY_DETAIL}>{loadError}</p>
 						<button type="button" class={styles.PRIMARY} onclick={refresh}>
-							<CarbonRenew /> {m["chat.deliverables.try_again"]()}
+							<CarbonRenew />
+							{m["chat.deliverables.try_again"]()}
 						</button>
 					</div>
 				{:else if files.length === 0}
@@ -446,7 +457,8 @@
 						title={m["chat.deliverables.save_label"]()}
 						onclick={() => $exportConversation.run()}
 					>
-						<CarbonDownload /> {m["chat.deliverables.save_heading"]()}
+						<CarbonDownload />
+						{m["chat.deliverables.save_heading"]()}
 					</button>
 				</div>
 			</div>

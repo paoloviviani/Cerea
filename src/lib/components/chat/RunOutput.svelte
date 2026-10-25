@@ -77,7 +77,8 @@
 		const blocks: OutputBlock[] = [];
 		const outcome = runState?.outcome;
 		if (!outcome) return blocks;
-		if (outcome.stdout) blocks.push({ label: m["chat.run.output"](), tone: "plain", text: outcome.stdout });
+		if (outcome.stdout)
+			blocks.push({ label: m["chat.run.output"](), tone: "plain", text: outcome.stdout });
 		if (outcome.stderr)
 			blocks.push({
 				label: m["chat.run.stderr"](),

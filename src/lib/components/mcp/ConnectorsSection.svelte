@@ -134,7 +134,9 @@
 		const response = await fetch(`${base}/api/v2/mcp${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? m["mcp.connectors.error.generic"]({ status: response.status }));
+			throw new Error(
+				parsed?.message ?? m["mcp.connectors.error.generic"]({ status: response.status })
+			);
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
@@ -211,10 +213,7 @@
 			adding = false;
 			await load();
 		} catch (err) {
-			failure =
-				err instanceof Error
-					? err.message
-					: m["mcp.connectors.error.add"]();
+			failure = err instanceof Error ? err.message : m["mcp.connectors.error.add"]();
 		} finally {
 			busy = false;
 		}
@@ -394,7 +393,9 @@
 		>
 			<div class="flex flex-wrap gap-2">
 				<label class="flex flex-1 flex-col gap-1">
-					<span class="text-xs font-medium text-gray-700 dark:text-gray-300">{m["mcp.connectors.name"]()}</span>
+					<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+						>{m["mcp.connectors.name"]()}</span
+					>
 					<input
 						class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
 						placeholder={m["mcp.connectors.name_placeholder"]()}
@@ -404,7 +405,9 @@
 					/>
 				</label>
 				<label class="flex flex-2 flex-col gap-1" style="flex-grow:2">
-					<span class="text-xs font-medium text-gray-700 dark:text-gray-300">{m["mcp.connectors.url"]()}</span>
+					<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+						>{m["mcp.connectors.url"]()}</span
+					>
 					<input
 						class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
 						placeholder={"https://mcp.notion.com/mcp"}
@@ -415,7 +418,9 @@
 				</label>
 			</div>
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-gray-700 dark:text-gray-300">{m["mcp.connectors.how_to_sign_in"]()}</span>
+				<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+					>{m["mcp.connectors.how_to_sign_in"]()}</span
+				>
 				<select
 					class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
 					bind:value={authMode}
@@ -442,7 +447,9 @@
 			{#if authMode === "token"}
 				<div class="flex flex-wrap gap-2">
 					<label class="flex flex-2 flex-col gap-1" style="flex-grow:2">
-						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">{m["mcp.connectors.access_key"]()}</span>
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+							>{m["mcp.connectors.access_key"]()}</span
+						>
 						<input
 							type="password"
 							autocomplete="off"
@@ -467,7 +474,9 @@
 			{:else if authMode === "oauth_static"}
 				<div class="flex flex-wrap gap-2">
 					<label class="flex flex-1 flex-col gap-1">
-						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">{m["mcp.connectors.client_id"]()}</span>
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+							>{m["mcp.connectors.client_id"]()}</span
+						>
 						<input
 							autocomplete="off"
 							class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
@@ -518,9 +527,15 @@
 			name={connector.name}
 			iconSrc={getMcpServerFaviconUrl(connector.url)}
 			description={connector.url}
-			toggleLabel={connector.connected ? m["mcp.card.toggle_label"]() : m["mcp.connectors.sign_in_first"]()}
-			toggleLabelShort={connector.connected ? m["mcp.card.toggle_label_short"]() : m["mcp.connectors.sign_in_first"]()}
-			toggleTitle={connector.connected ? m["mcp.connectors.on_for_new"]() : m["mcp.connectors.sign_in_first"]()}
+			toggleLabel={connector.connected
+				? m["mcp.card.toggle_label"]()
+				: m["mcp.connectors.sign_in_first"]()}
+			toggleLabelShort={connector.connected
+				? m["mcp.card.toggle_label_short"]()
+				: m["mcp.connectors.sign_in_first"]()}
+			toggleTitle={connector.connected
+				? m["mcp.connectors.on_for_new"]()
+				: m["mcp.connectors.sign_in_first"]()}
 			onopen={() => (detail = connector)}
 		>
 			{#snippet pills()}
@@ -529,7 +544,9 @@
 						class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
 					>
 						<IconCheckmark class="size-3" />
-						{connector.auth === "none" ? m["mcp.connectors.ready"]() : m["mcp.connectors.connected"]()}
+						{connector.auth === "none"
+							? m["mcp.connectors.ready"]()
+							: m["mcp.connectors.connected"]()}
 					</span>
 				{:else}
 					<span
@@ -637,7 +654,9 @@
 						class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
 					>
 						<IconRefresh class="size-3 {busyConnector === connector.id ? 'animate-spin' : ''}" />
-						{busyConnector === connector.id ? m["mcp.connectors.checking"]() : m["mcp.connectors.check"]()}
+						{busyConnector === connector.id
+							? m["mcp.connectors.checking"]()
+							: m["mcp.connectors.check"]()}
 					</button>
 				{/if}
 				{#if connector.scope === "user" && !connector.local}
@@ -700,7 +719,9 @@
 					onsubmit={saveEdit}
 				>
 					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">{m["mcp.connectors.name"]()}</span>
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+							>{m["mcp.connectors.name"]()}</span
+						>
 						<input
 							class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
 							bind:value={editName}
@@ -709,7 +730,9 @@
 						/>
 					</label>
 					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-gray-700 dark:text-gray-300">{m["mcp.connectors.url"]()}</span>
+						<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+							>{m["mcp.connectors.url"]()}</span
+						>
 						<input
 							type="url"
 							class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
@@ -724,7 +747,9 @@
 					{#if connector.auth === "token" || connector.auth === "none"}
 						<label class="flex flex-col gap-1">
 							<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
-								>{connector.auth === "token" ? m["mcp.connectors.new_access_key"]() : m["mcp.connectors.token"]()}
+								>{connector.auth === "token"
+									? m["mcp.connectors.new_access_key"]()
+									: m["mcp.connectors.token"]()}
 								<span class="font-normal text-gray-500"
 									>{connector.auth === "token"
 										? m["mcp.connectors.leave_blank"]()
@@ -740,7 +765,9 @@
 							/>
 						</label>
 						<label class="flex flex-col gap-1">
-							<span class="text-xs font-medium text-gray-700 dark:text-gray-300">{m["mcp.connectors.header"]()}</span>
+							<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
+								>{m["mcp.connectors.header"]()}</span
+							>
 							<input
 								placeholder={"Authorization"}
 								class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
@@ -788,10 +815,17 @@
 		<ServerCardFrame
 			name={local.server}
 			machine={local.machineName}
-			description={local.description ?? m["mcp.connectors.server_description"]({ transport: local.transport })}
-			toggleLabel={connector.connected ? m["mcp.card.toggle_label"]() : m["mcp.connectors.unavailable"]()}
-			toggleLabelShort={connector.connected ? m["mcp.card.toggle_label_short"]() : m["mcp.connectors.unavailable"]()}
-			toggleTitle={connector.connected ? m["mcp.connectors.on_for_new"]() : m["mcp.connectors.unavailable_title"]()}
+			description={local.description ??
+				m["mcp.connectors.server_description"]({ transport: local.transport })}
+			toggleLabel={connector.connected
+				? m["mcp.card.toggle_label"]()
+				: m["mcp.connectors.unavailable"]()}
+			toggleLabelShort={connector.connected
+				? m["mcp.card.toggle_label_short"]()
+				: m["mcp.connectors.unavailable"]()}
+			toggleTitle={connector.connected
+				? m["mcp.connectors.on_for_new"]()
+				: m["mcp.connectors.unavailable_title"]()}
 			testid="local-connector"
 			onopen={() => (detail = connector)}
 		>

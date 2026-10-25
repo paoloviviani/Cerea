@@ -64,3 +64,24 @@ export function formatFileSize(bytes: number): string {
 	// i18n: literal (unit symbols)
 	return `${formatNumber(bytes / (1024 * 1024), tenth)} MB`;
 }
+
+/**
+ * Hand a directly-emitted block's text to the browser as a download under its
+ * annotated filename. Same blob-anchor dance as FileCard's sandbox download,
+ * but the bytes are already here — no worker filesystem to read from, which
+ * is also why this download (unlike a sandbox file's) cannot go stale.
+ */
+export function downloadTextAsFile(filename: string, content: string): void {
+	const url = URL.createObjectURL(new Blob([new TextEncoder().encode(content)]));
+	try {
+		const link = window.document.createElement("a");
+		link.href = url;
+		link.download = filename;
+		link.rel = "noopener";
+		window.document.body.appendChild(link);
+		link.click();
+		link.remove();
+	} finally {
+		URL.revokeObjectURL(url);
+	}
+}

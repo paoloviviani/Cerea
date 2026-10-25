@@ -181,7 +181,9 @@
 				</div>
 				<div>
 					<p class={s.STRIP_HEADLINE}>
-						{#if searching}{m["chat.list.matching"]({ query: query.trim() })}{:else}{m["chat.list.all"]()}{/if}
+						{#if searching}{m["chat.list.matching"]({ query: query.trim() })}{:else}{m[
+								"chat.list.all"
+							]()}{/if}
 					</p>
 					<p class={s.STRIP_DETAIL} role="status" aria-live="polite">
 						{#if loading && rows.length === 0}
@@ -266,7 +268,9 @@
 									{#if row.projectId}
 										<span class="{s.PILL} {s.PILL_TONES.busy} max-w-full min-w-0">
 											<LucideFolderOpen class="size-3 shrink-0" />
-											<span class="truncate">{projectNames[row.projectId] ?? m["chat.list.project_fallback"]()}</span>
+											<span class="truncate"
+												>{projectNames[row.projectId] ?? m["chat.list.project_fallback"]()}</span
+											>
 										</span>
 									{/if}
 								</div>
@@ -307,7 +311,9 @@
 					<p class={s.EMPTY_DETAIL}>
 						{m["chat.list.no_match_detail"]()}
 					</p>
-					<button type="button" onclick={clear} class={s.SECONDARY}>{m["chat.list.show_all"]()}</button>
+					<button type="button" onclick={clear} class={s.SECONDARY}
+						>{m["chat.list.show_all"]()}</button
+					>
 				{:else}
 					<p class={s.EMPTY_TITLE}>{m["chat.list.empty"]()}</p>
 					<p class={s.EMPTY_DETAIL}>{m["chat.list.empty_detail"]()}</p>

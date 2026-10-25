@@ -246,15 +246,24 @@
 	<!-- feel free to refacto if there's a better way -->
 	{#if !page.url.pathname.includes("/models/")}
 		<meta name="twitter:card" content="summary_large_image" />
-		<meta name="twitter:title" content={m["app.layout.title"]({ name: publicConfig.PUBLIC_APP_NAME })} />
+		<meta
+			name="twitter:title"
+			content={m["app.layout.title"]({ name: publicConfig.PUBLIC_APP_NAME })}
+		/>
 		<meta name="twitter:description" content={publicConfig.PUBLIC_APP_DESCRIPTION} />
 		<meta
 			name="twitter:image"
 			content="{publicConfig.PUBLIC_ORIGIN ||
 				page.url.origin}{publicConfig.assetPath}/thumbnail.png"
 		/>
-		<meta name="twitter:image:alt" content={m["app.layout.preview"]({ name: publicConfig.PUBLIC_APP_NAME })} />
-		<meta property="og:title" content={m["app.layout.title"]({ name: publicConfig.PUBLIC_APP_NAME })} />
+		<meta
+			name="twitter:image:alt"
+			content={m["app.layout.preview"]({ name: publicConfig.PUBLIC_APP_NAME })}
+		/>
+		<meta
+			property="og:title"
+			content={m["app.layout.title"]({ name: publicConfig.PUBLIC_APP_NAME })}
+		/>
 		<meta property="og:type" content="website" />
 		<meta property="og:url" content="{publicConfig.PUBLIC_ORIGIN || page.url.origin}{base}" />
 		<meta property="og:image" content="{publicConfig.assetPath}/thumbnail.png" />
