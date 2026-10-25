@@ -1,6 +1,9 @@
 <!--
 	The frame every MCP server card shares (configured, connectors, "On your machines").
 
+	One look for every card: the card itself is never tinted, so a built-in connector
+	and one you added read the same. Colour belongs to the status pills only.
+
 	One layout for the three, so a name is never lost to the switch beside it. Below
 	`sm` the card stacks: the name (full width, wrapping to two lines, never
 	truncated), the machine as a small second line for a local server, the
@@ -16,8 +19,6 @@
 	import type { Snippet } from "svelte";
 
 	interface Props {
-		/** Tints the card blue (on / connected). */
-		active: boolean;
 		name: string;
 		/** A small favicon in front of the name. */
 		iconSrc?: string;
@@ -39,7 +40,6 @@
 	}
 
 	let {
-		active,
 		name,
 		iconSrc,
 		machine,
@@ -69,9 +69,7 @@
 	role="presentation"
 	class="rounded-lg border bg-linear-to-br transition-colors {onopen
 		? 'cursor-pointer'
-		: ''} {active
-		? 'border-blue-600/20 bg-blue-50 from-blue-500/5 to-transparent dark:border-blue-700/60 dark:bg-blue-900/10 dark:from-blue-900/20'
-		: 'border-gray-200 bg-white from-black/5 dark:border-gray-700 dark:bg-gray-800 dark:from-white/5'}"
+		: ''} border-gray-200 bg-white from-black/5 dark:border-gray-700 dark:bg-gray-800 dark:from-white/5"
 	data-testid={testid}
 	onclick={onCardClick}
 >

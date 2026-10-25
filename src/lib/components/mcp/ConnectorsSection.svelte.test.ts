@@ -101,7 +101,7 @@ describe("ConnectorsSection", () => {
 			.element(screen.getByText("Your connectors (1)", { exact: true }))
 			.toBeInTheDocument();
 		await expect
-			.element(screen.getByText("Provided by this deployment (1)", { exact: true }))
+			.element(screen.getByText("Built-in connectors (1)", { exact: true }))
 			.toBeInTheDocument();
 		await expect.element(screen.getByText("Mine", { exact: true })).toBeInTheDocument();
 		await expect.element(screen.getByText("Shared", { exact: true })).toBeInTheDocument();
@@ -151,9 +151,9 @@ describe("ConnectorsSection", () => {
 		const screen = mount();
 
 		await expect
-			.element(screen.getByText("Provided by this deployment (1)", { exact: true }))
+			.element(screen.getByText("Built-in connectors (1)", { exact: true }))
 			.toBeInTheDocument();
-		const names = sectionButtons(screen.baseElement, "Provided by this deployment (1)");
+		const names = sectionButtons(screen.baseElement, "Built-in connectors (1)");
 		// Manageable stays: editing and re-checking somebody else's deployment
 		// connector is still an administrator's job. Removal left for the
 		// admin screen, which is the only place that confirms "for everyone".
@@ -167,9 +167,9 @@ describe("ConnectorsSection", () => {
 		const screen = mount();
 
 		await expect
-			.element(screen.getByText("Provided by this deployment (1)", { exact: true }))
+			.element(screen.getByText("Built-in connectors (1)", { exact: true }))
 			.toBeInTheDocument();
-		const names = sectionButtons(screen.baseElement, "Provided by this deployment (1)");
+		const names = sectionButtons(screen.baseElement, "Built-in connectors (1)");
 		// These were buttons whose requests the server was already refusing;
 		// `manageable` is the server saying so, and the row finally listens.
 		expect(names).not.toContain("Edit");
@@ -567,7 +567,7 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		const screen = mount();
 
 		await expect
-			.element(screen.getByText("Provided by this deployment (3)", { exact: true }))
+			.element(screen.getByText("Built-in connectors (3)", { exact: true }))
 			.toBeInTheDocument();
 		// No separate "Base Servers" group any more.
 		expect(screen.baseElement.textContent).not.toContain("Base Servers");

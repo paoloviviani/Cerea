@@ -81,10 +81,10 @@
 	{#if fromEnv}
 		<span
 			data-testid="from-env"
-			title="Defined in the deployment's .env (MCP_SERVERS); edited there, not here"
+			title="Set up by the administrator in the deployment's .env file (MCP_SERVERS); changed there, not here"
 			class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300"
 		>
-			from .env
+			Set up by the administrator
 		</span>
 	{/if}
 	{#if server.status}
@@ -115,7 +115,6 @@
 
 <ServerCardFrame
 	pills={server.status || fromEnv ? statusPills : undefined}
-	active={isSelected}
 	name={server.name}
 	iconSrc={getMcpServerFaviconUrl(server.url)}
 	description={server.url}

@@ -1214,7 +1214,7 @@
 														data-testid="mcp-provided-heading"
 														class="px-2 pt-1 pb-0.5 text-xs font-medium text-gray-500 select-none dark:text-gray-400"
 													>
-														Provided by this deployment
+														Built-in
 													</div>
 													{#each provided as item (item.id)}
 														{#if item.kind === "base"}

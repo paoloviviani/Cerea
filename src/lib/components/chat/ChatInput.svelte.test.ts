@@ -461,13 +461,7 @@ describe("ChatInput: MCP connector toggles", () => {
 					'[data-testid="mcp-provided-heading"], [role^="menuitem"]'
 				),
 			].map((el) => el.textContent?.replace(/\s+/g, " ").trim());
-			expect(labels.slice(0, 5)).toEqual([
-				"Provided by this deployment",
-				"Notion",
-				"osm",
-				"search",
-				"Zed (mine)",
-			]);
+			expect(labels.slice(0, 5)).toEqual(["Built-in", "Notion", "osm", "search", "Zed (mine)"]);
 			// Selection semantics are unchanged: the base row toggles its `base-` id.
 			findConnectorItem("search").click();
 			await waitSlow(() => expect(get(selectedServerIds).has("base-search")).toBe(false));

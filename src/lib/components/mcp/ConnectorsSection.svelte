@@ -507,7 +507,6 @@
 
 	{#snippet connectorCard(connector: McpConnectorView)}
 		<ServerCardFrame
-			active={connector.connected}
 			name={connector.name}
 			iconSrc={getMcpServerFaviconUrl(connector.url)}
 			description={connector.url}
@@ -776,7 +775,6 @@
 
 	{#snippet localCard(connector: McpConnectorView, local: McpLocalView)}
 		<ServerCardFrame
-			active={connector.connected}
 			name={local.server}
 			machine={local.machineName}
 			description={local.description ?? `${local.transport} server`}
@@ -950,11 +948,11 @@
 			     `.env` server is edited in `.env`. -->
 			<div data-testid="provided-section">
 				<h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">
-					Provided by this deployment ({provided.length})
+					Built-in connectors ({provided.length})
 				</h3>
 				<p class="text-xs text-gray-600 dark:text-gray-400">
-					Offered to every account. Turn one on and, where it asks, sign in to it as yourself; they
-					are managed by whoever runs this deployment, not from here.
+					Ready to use for everyone here. Turn one on to use it in your chats; some ask you to sign
+					in first.
 				</p>
 				<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
 					{#each provided as item (item.id)}
