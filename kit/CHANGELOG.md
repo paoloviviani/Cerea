@@ -24,9 +24,14 @@ agent.)
   changes on the surface; this is what makes adding another language a matter of
   filling in one file. Long numbers, like a token count, now show with thousands
   separators.
-- Fixes: test-side only — a long-session end-to-end test scrolls with the wheel
-  the way a reader does, and a couple of test helpers were tightened. Nothing
-  here changes a deployment.
+- **Message actions stay through a turn, and a slash command reads like a
+  sentence.** Copy and Fork remain on every finished message while a reply
+  streams (only the streaming message hides its actions), a `/command`'s own
+  text is no longer drawn in the code font, and a question whose options
+  already include "Something else" shows one free-text entry instead of two.
+  Edit and Retry still wait for the turn to end.
+- Test-side only: a long-session end-to-end test scrolls with the wheel the
+  way a reader does, and a couple of test helpers were tightened.
 
 ## v0.25.0 — 2026-10-25
 
