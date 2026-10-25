@@ -32,7 +32,10 @@ const DATA = new Set([
 ]);
 // The card's raw arguments are JSON the agent wrote, not words of ours.
 const stray = () =>
-	unbracketedWords([...[...DATA].map((word) => new RegExp(`^${word}$`)), /^["{}[\]]/]);
+	unbracketedWords([
+		...[...DATA].map((word) => new RegExp(`^${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)),
+		/^["{}[\]]/,
+	]);
 
 const select = (name: string): ElicitationField =>
 	({
