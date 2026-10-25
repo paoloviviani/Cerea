@@ -10,6 +10,7 @@
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
 	import { useSettingsStore } from "$lib/stores/settings";
+	import { m } from "$lib/paraglide/messages";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
 	import CarbonSettings from "~icons/carbon/settings";
 	import CarbonMeter from "~icons/carbon/meter";
@@ -28,16 +29,26 @@
 	// not there — Usage & billing only appears once the deployment flag says
 	// there is a provider behind it.
 	const sections = $derived([
-		{ href: "/settings/application", label: "Application settings", icon: CarbonSettings },
+		{
+			href: "/settings/application",
+			label: m["settings.tabs.application"](),
+			icon: CarbonSettings,
+		},
 		// Push needs a person to notify: no tab for an anonymous session.
 		...(page.data.user
-			? [{ href: "/settings/notifications", label: "Notifications", icon: CarbonNotification }]
+			? [
+					{
+						href: "/settings/notifications",
+						label: m["settings.tabs.notifications"](),
+						icon: CarbonNotification,
+					},
+				]
 			: []),
 		// Gated on the deployment flag (FeatureFlags.usageEnabled, computed
 		// server-side from CHAT_USAGE_ENABLED and OPENAI_BASE_URL): a
 		// deployment without Pystino has no usage provider to show here.
 		...(page.data.usageEnabled
-			? [{ href: "/settings/usage", label: "Usage & billing", icon: CarbonMeter }]
+			? [{ href: "/settings/usage", label: m["settings.tabs.usage"](), icon: CarbonMeter }]
 			: []),
 	]);
 
@@ -60,16 +71,16 @@
 -->
 <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 p-6">
 	<header class="flex flex-col gap-1">
-		<h1 class="text-xl font-semibold">Settings</h1>
+		<h1 class="text-xl font-semibold">{m["settings.title"]()}</h1>
 		<SectionSwitcher
-			label="Settings sections"
+			label={m["settings.sections_label"]()}
 			sections={switcherSections}
 			current={currentSection}
 		/>
 	</header>
 
 	<nav
-		aria-label="Settings sections"
+		aria-label={m["settings.sections_label"]()}
 		class="hidden flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 md:flex dark:border-gray-700"
 	>
 		{#each sections as section (section.href)}
@@ -104,6 +115,6 @@
 		class="fixed right-4 bottom-4 m-2 flex items-center gap-1.5 rounded-full border bg-black px-3 py-1 text-white dark:border-white/10 dark:bg-gray-700 dark:text-gray-100"
 	>
 		<CarbonCheckmark class="text-white" />
-		Saved
+		{m["settings.saved"]()}
 	</div>
 {/if}

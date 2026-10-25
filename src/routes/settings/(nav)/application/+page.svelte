@@ -3,6 +3,10 @@
 	import CarbonTrashCan from "~icons/carbon/trash-can";
 
 	import { useSettingsStore } from "$lib/stores/settings";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
+	import { activeLocale, localeLabel, rememberLocaleCookie } from "$lib/i18n/locale";
+	import { parseLocale, selectableLocales } from "$lib/i18n/resolve";
 	import type { StreamingMode } from "$lib/types/Settings";
 	import LocationSettings from "$lib/components/settings/LocationSettings.svelte";
 	import { parseLocationMode } from "$lib/utils/location";
@@ -10,15 +14,15 @@
 	import SwatchGroup from "$lib/components/settings/SwatchGroup.svelte";
 	import {
 		ACCENTS,
-		ACCENT_LABELS,
 		ACCENT_SWATCHES,
 		DEFAULT_ACCENT,
 		DEFAULT_NEUTRAL,
 		NEUTRALS,
-		NEUTRAL_LABELS,
 		NEUTRAL_SWATCHES,
 		parseAccent,
 		parseNeutral,
+		type Accent,
+		type Neutral,
 	} from "$lib/utils/palettes";
 
 	import { goto } from "$app/navigation";
@@ -36,6 +40,23 @@
 
 	const publicConfig = usePublicConfig();
 
+	// Accent and tone names, as messages (the palette module only knows ids).
+	const ACCENT_LABELS: Record<Accent, () => string> = {
+		blue: m["settings.application.accent.option.blue"],
+		violet: m["settings.application.accent.option.violet"],
+		teal: m["settings.application.accent.option.teal"],
+		green: m["settings.application.accent.option.green"],
+		rose: m["settings.application.accent.option.rose"],
+		orange: m["settings.application.accent.option.orange"],
+	};
+	const NEUTRAL_LABELS: Record<Neutral, () => string> = {
+		neutral: m["settings.application.neutral.option.neutral"],
+		cool: m["settings.application.neutral.option.cool"],
+		warm: m["settings.application.neutral.option.warm"],
+	};
+
+	// The product's own name is not a word to translate. i18n: literal
+	const PRODUCT_NAME = "Cerea";
 	const CEREA_REPO = "https://github.com/paoloviviani/Cerea";
 	// The image sets the full commit; a dev build may have "unknown" or nothing.
 	const commitSha = $derived(
@@ -112,6 +133,28 @@
 
 	const taskModelId = $derived((page.data as { taskModelId?: string | null }).taskModelId ?? null);
 
+	// The language selector. Only real locales are listed; the pseudo-locale
+	// (en-XA) appears only where the server says it may (dev, or CHAT_PSEUDO_LOCALE).
+	const pseudoAllowed = $derived(page.data.pseudoLocaleEnabled === true);
+	const languages = $derived(selectableLocales(pseudoAllowed));
+	const language = activeLocale();
+
+	function languageName(tag: string): string {
+		return parseLocale(tag, false)
+			? localeLabel(tag)
+			: m["settings.application.language.pseudo_option"]({ tag });
+	}
+
+	async function chooseLanguage(value: string) {
+		const next = parseLocale(value, pseudoAllowed);
+		if (!next || next === language) return;
+		rememberLocaleCookie(next);
+		// Saved before the reload: the server reads the saved choice first, so a
+		// reload that outran the save would come back in the old language.
+		await settings.instantSet({ locale: next });
+		window.location.reload();
+	}
+
 	let deleteAllOpen = $state(false);
 
 	async function deleteAllConversations() {
@@ -125,12 +168,19 @@
 	}
 </script>
 
+{#snippet code(text: string)}<code class="font-mono">{text}</code>{/snippet}
+
 {#snippet taskModelRow()}
 	<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between">
 		<div>
-			<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">Task model</div>
+			<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+				{m["settings.application.task_model.title"]()}
+			</div>
 			<p class="text-[12px] text-gray-500 dark:text-gray-400">
-				Generates conversation titles. Set via <code class="font-mono">TASK_MODEL</code>.
+				<Rich
+					parts={m["settings.application.task_model.description"].parts({ name: "TASK_MODEL" })}
+					tags={{ code }}
+				/>
 			</p>
 		</div>
 		<select
@@ -147,7 +197,7 @@
 		<div
 			class="mt-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] text-gray-700 dark:border-gray-700 dark:bg-gray-700/80 dark:text-gray-300"
 		>
-			<span class="font-medium">API Base URL:</span>
+			<span class="font-medium">{m["settings.application.api_base_url"]()}</span>
 			<code class="ml-1 font-mono text-[12px] break-all text-gray-800 dark:text-gray-100"
 				>{OPENAI_BASE_URL}</code
 			>
@@ -158,7 +208,7 @@
 			href={`${CEREA_REPO}/releases/tag/v${APP_VERSION}`}
 			target="_blank"
 			rel="noreferrer"
-			class="hover:underline">Cerea {APP_VERSION}</a
+			class="hover:underline">{PRODUCT_NAME} {APP_VERSION}</a
 		>{#if commitSha}
 			·
 			<a
@@ -173,7 +223,7 @@
 			<p
 				class="rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700 dark:bg-red-500/10 dark:text-red-300"
 			>
-				Admin mode
+				{m["settings.application.admin_mode"]()}
 			</p>
 		</div>
 	{/if}
@@ -186,14 +236,16 @@
 				id="appearance-heading"
 				class="pt-3 text-[13px] font-semibold text-gray-800 dark:text-gray-200"
 			>
-				Appearance
+				{m["settings.application.appearance.heading"]()}
 			</h2>
 			<div class="divide-y divide-gray-200 dark:divide-gray-700">
 				<div class="flex items-start justify-between py-3">
 					<div>
-						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">Theme</div>
+						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+							{m["settings.application.theme.title"]()}
+						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Choose light, dark, or follow system.
+							{m["settings.application.theme.description"]()}
 						</p>
 					</div>
 					<select
@@ -205,27 +257,27 @@
 							themePref = v;
 						}}
 					>
-						<option value="system">System</option>
-						<option value="light">Light</option>
-						<option value="dark">Dark</option>
+						<option value="system">{m["settings.application.theme.option.system"]()}</option>
+						<option value="light">{m["settings.application.theme.option.light"]()}</option>
+						<option value="dark">{m["settings.application.theme.option.dark"]()}</option>
 					</select>
 				</div>
 
 				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Accent colour
+							{m["settings.application.accent.title"]()}
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Buttons, links and the selected chat.
+							{m["settings.application.accent.description"]()}
 						</p>
 					</div>
 					<SwatchGroup
-						label="Accent colour"
+						label={m["settings.application.accent.title"]()}
 						value={$settings.accent ?? DEFAULT_ACCENT}
 						options={ACCENTS.map((a) => ({
 							value: a,
-							label: ACCENT_LABELS[a],
+							label: ACCENT_LABELS[a](),
 							colour: ACCENT_SWATCHES[a],
 						}))}
 						onchange={(v) => settings.instantSet({ accent: parseAccent(v) })}
@@ -235,22 +287,47 @@
 				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Background tone
+							{m["settings.application.neutral.title"]()}
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Neutral, cool or warm greys behind the text.
+							{m["settings.application.neutral.description"]()}
 						</p>
 					</div>
 					<SwatchGroup
-						label="Background tone"
+						label={m["settings.application.neutral.title"]()}
 						value={parseNeutral($settings.neutral) ?? DEFAULT_NEUTRAL}
 						options={NEUTRALS.map((n) => ({
 							value: n,
-							label: NEUTRAL_LABELS[n],
+							label: NEUTRAL_LABELS[n](),
 							colour: NEUTRAL_SWATCHES[n],
 						}))}
 						onchange={(v) => settings.instantSet({ neutral: parseNeutral(v) })}
 					/>
+				</div>
+
+				<div class="flex items-start justify-between gap-3 py-3">
+					<div>
+						<label
+							for="language-select"
+							class="text-[13px] font-medium text-gray-800 dark:text-gray-200"
+						>
+							{m["settings.application.language.title"]()}
+						</label>
+						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+							{m["settings.application.language.description"]()}
+						</p>
+					</div>
+					<select
+						id="language-select"
+						name="locale"
+						class="rounded-md border border-gray-300 bg-white px-1 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+						value={language}
+						onchange={(e) => chooseLanguage(e.currentTarget.value)}
+					>
+						{#each languages as tag (tag)}
+							<option value={tag}>{languageName(tag)}</option>
+						{/each}
+					</select>
 				</div>
 			</div>
 		</section>
@@ -273,10 +350,10 @@
 				<div class="flex items-start justify-between py-3">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Streaming mode
+							{m["settings.application.streaming.title"]()}
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Choose how assistant text appears while generating.
+							{m["settings.application.streaming.description"]()}
 						</p>
 					</div>
 					<select
@@ -284,18 +361,18 @@
 						value={getStreamingMode()}
 						onchange={(e) => setStreamingMode(e.currentTarget.value as StreamingMode)}
 					>
-						<option value="smooth">Smooth stream</option>
-						<option value="raw">Raw stream</option>
+						<option value="smooth">{m["settings.application.streaming.option.smooth"]()}</option>
+						<option value="raw">{m["settings.application.streaming.option.raw"]()}</option>
 					</select>
 				</div>
 
 				<div class="flex items-start justify-between py-3">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Paste text directly
+							{m["settings.application.paste.title"]()}
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Paste long text directly into chat instead of a file.
+							{m["settings.application.paste.description"]()}
 						</p>
 					</div>
 					<Switch name="directPaste" bind:checked={getDirectPaste, setDirectPaste} />
@@ -305,10 +382,10 @@
 					<div class="flex items-start justify-between py-3">
 						<div>
 							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-								Haptic feedback
+								{m["settings.application.haptics.title"]()}
 							</div>
 							<p class="text-[12px] text-gray-500 dark:text-gray-400">
-								Vibrate on taps and actions on supported devices.
+								{m["settings.application.haptics.description"]()}
 							</p>
 						</div>
 						<Switch name="hapticsEnabled" bind:checked={getHapticsEnabled, setHapticsEnabled} />
@@ -318,10 +395,10 @@
 				<div class="flex items-start justify-between py-3">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Web search on by default
+							{m["settings.application.web_search.title"]()}
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							New chats start with web search on. Toggling it in a chat changes only that chat.
+							{m["settings.application.web_search.description"]()}
 						</p>
 						{#if webSearchUnavailable}
 							<p class="text-[12px] text-amber-700 dark:text-amber-400">{webSearchUnavailable}</p>
@@ -337,12 +414,10 @@
 				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Tool approvals
+							{m["settings.application.tool_approvals.title"]()}
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Whether the assistant may call web_fetch and MCP tools on its own, or asks you first —
-							once per call, with the option to allow a tool for the rest of the conversation.
-							Overridable per chat at the composer.
+							{m["settings.application.tool_approvals.description"]()}
 						</p>
 					</div>
 					<select
@@ -350,23 +425,25 @@
 						value={getToolApprovalPolicy()}
 						onchange={(e) => setToolApprovalPolicy(e.currentTarget.value)}
 					>
-						<option value="manual">Ask per call (default)</option>
-						<option value="always-allow">Always allow</option>
+						<option value="manual"
+							>{m["settings.application.tool_approvals.option.manual"]()}</option
+						>
+						<option value="always-allow"
+							>{m["settings.application.tool_approvals.option.always_allow"]()}</option
+						>
 					</select>
 				</div>
 
 				<div class="flex items-start justify-between py-3">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Install packages from PyPI in code execution
+							{m["settings.application.pypi.title"]()}
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
 							{#if page.data.pyodidePyPiInstallAllowed}
-								Lets code you run install any pure-Python package from the public PyPI index, not
-								just the ones this deployment vendors. Off by default: code execution runs in your
-								browser, so this is your own call to make.
+								{m["settings.application.pypi.description_allowed"]()}
 							{:else}
-								Disabled by this deployment's administrator.
+								{m["settings.application.pypi.description_disabled"]()}
 							{/if}
 						</p>
 					</div>
@@ -391,7 +468,9 @@
 				}}
 				type="button"
 				class="flex items-center underline decoration-red-200 underline-offset-2 hover:decoration-red-500 dark:decoration-red-900 dark:hover:decoration-red-700"
-				><CarbonTrashCan class="mr-2 inline text-sm text-red-500" />Delete all conversations</button
+				><CarbonTrashCan class="mr-2 inline text-sm text-red-500" />{m[
+					"settings.application.delete_all.button"
+				]()}</button
 			>
 		</div>
 	</div>
