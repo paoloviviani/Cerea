@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { ArtifactOperation, ArtifactKind } from "$lib/utils/artifacts";
 	import { artifactOpKey } from "$lib/utils/artifacts";
 	import { getArtifactsContext } from "$lib/utils/artifactsContext";
@@ -42,38 +43,44 @@
 		return displayed === version.version;
 	});
 
-	const KIND_LABELS: Record<ArtifactKind, string> = {
-		html: "Web app",
-		react: "Interactive page",
-		svg: "Image",
-		markdown: "Document",
-		mermaid: "Diagram",
-		table: "Table",
-		code: "Code",
+	const KIND_LABELS: Record<ArtifactKind, () => string> = {
+		html: m["chat.artifact.kind.html"],
+		react: m["chat.artifact.kind.react"],
+		svg: m["chat.artifact.kind.svg"],
+		markdown: m["chat.artifact.kind.markdown"],
+		mermaid: m["chat.artifact.kind.mermaid"],
+		table: m["chat.artifact.kind.table"],
+		code: m["chat.artifact.kind.code"],
 	};
 
 	let title = $derived(version?.title ?? op.title ?? op.identifier);
 
 	let subtitle = $derived.by(() => {
-		if (missing) return "This change couldn't be matched to a file";
+		if (missing) return m["chat.artifact.card.unmatched"]();
 		if (!version) return "";
-		if (streaming) return version.op === "update" ? "Applying edit…" : "Generating…";
+		if (streaming) return version.op === "update"
+				? m["chat.artifact.card.applying"]()
+				: m["chat.artifact.card.generating"]();
 		const kindLabel =
 			version.type === "code" && version.language
-				? `Code · ${version.language}`
-				: KIND_LABELS[version.type];
-		const versionLabel = (artifact?.versions.length ?? 0) > 1 ? ` · v${version.version}` : "";
+				? m["chat.artifact.card.code_lang"]({ language: version.language })
+				: KIND_LABELS[version.type]();
+		const versionLabel =
+			(artifact?.versions.length ?? 0) > 1 ? ` · v${version.version}` : "";
 		if (version.interrupted) {
 			return version.op === "update"
-				? `Edit interrupted${versionLabel}`
-				: `Interrupted · ${kindLabel}${versionLabel}`;
+				? m["chat.artifact.card.edit_interrupted"]({ version: versionLabel })
+				: m["chat.artifact.card.interrupted"]({ kind: kindLabel, version: versionLabel });
 		}
 		if (version.op === "update") {
 			return version.failedPairs
-				? `Edited, but ${version.failedPairs} change${version.failedPairs > 1 ? "s" : ""} didn't apply${versionLabel}`
-				: `Edited${versionLabel}`;
+				? m["chat.artifact.card.edited_failed"]({
+						count: version.failedPairs,
+						version: versionLabel,
+					})
+				: m["chat.artifact.card.edited"]({ version: versionLabel });
 		}
-		return `${kindLabel}${versionLabel}`;
+		return m["chat.artifact.card.kind_version"]({ kind: kindLabel, version: versionLabel });
 	});
 
 	function openInPanel() {
@@ -104,7 +111,7 @@
 		openInPanel();
 	}}
 	disabled={missing}
-	aria-label="Open file: {title}"
+	aria-label={m["chat.artifact.card.open"]({ title })}
 >
 	<div
 		class="flex size-9 flex-none items-center justify-center rounded-lg bg-gray-100 text-gray-500 dark:bg-gray-700/70 dark:text-gray-300"

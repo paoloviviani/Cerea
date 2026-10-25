@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	/**
 	 * Switch the model this conversation runs on.
 	 *
@@ -84,7 +85,7 @@
 				body: JSON.stringify({ model: id }),
 			});
 			if (!response.ok) {
-				let message = "Could not switch model. Try again.";
+				let message = m["chat.model_picker.failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -109,10 +110,10 @@
 <ModelPickerDialog
 	models={pickerModels}
 	currentId={currentModel.id}
-	title="Switch model"
+	title={m["chat.model_picker.title"]()}
 	subtitle={conversationId
-		? "Changes this conversation only. Your default is untouched."
-		: "Sets what this new chat starts on."}
+		? m["chat.model_picker.subtitle_chat"]()
+		: m["chat.model_picker.subtitle_new"]()}
 	{busy}
 	onchoose={choose}
 	{onclose}

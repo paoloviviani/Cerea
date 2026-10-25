@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onDestroy, onMount } from "svelte";
 	import { filePreviewMimeType, fileExtensionOf } from "$lib/utils/filePreview";
 
@@ -33,7 +34,7 @@
 				failure =
 					err instanceof Error
 						? err.message
-						: "the preview is unavailable; the download still works";
+						: m["chat.inline_image.unavailable"]();
 			} finally {
 				busy = false;
 			}
@@ -47,13 +48,13 @@
 </script>
 
 {#if busy}
-	<p class="text-xs text-gray-400">Loading preview…</p>
+	<p class="text-xs text-gray-400">{m["chat.inline_image.loading"]()}</p>
 {:else if failure}
 	<p class="text-xs text-amber-600 dark:text-amber-400">{failure}</p>
 {:else if url}
 	<img
 		src={url}
-		alt={`Preview of ${name}`}
+		alt={m["chat.inline_image.alt"]({ name })}
 		class="scrollbar-custom max-h-80 w-full overflow-auto rounded-lg object-contain"
 	/>
 {/if}

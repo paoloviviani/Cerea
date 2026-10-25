@@ -19,6 +19,7 @@
 	not a panel.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
 	import type { MessageMemoryUpdate } from "$lib/types/MessageUpdate";
 	import LucideBrain from "~icons/lucide/brain";
@@ -38,7 +39,7 @@
 	let working = $state(false);
 	let failure = $state<string | null>(null);
 
-	const label = $derived(update.action === "remembered" ? "Remembered" : "Forgot");
+	const label = $derived(update.action === "remembered" ? m["chat.memory.remembered"]() : m["chat.memory.forgot"]());
 
 	async function undo() {
 		working = true;
@@ -60,11 +61,11 @@
 						});
 			if (!response.ok) {
 				const parsed = await response.json().catch(() => null);
-				throw new Error(parsed?.message ?? `That did not work (${response.status}). Try again.`);
+				throw new Error(parsed?.message ?? m["chat.memory.failed_status"]({ status: response.status }));
 			}
 			undone = true;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That did not work. Try again.";
+			failure = err instanceof Error ? err.message : m["chat.memory.failed"]();
 		} finally {
 			working = false;
 		}
@@ -89,7 +90,7 @@
 			{update.text}
 		</span>
 		{#if undone}
-			<span class="shrink-0 text-xs text-gray-400 dark:text-gray-500">· undone</span>
+			<span class="shrink-0 text-xs text-gray-400 dark:text-gray-500">{m["chat.memory.undone"]()}</span>
 		{:else if canUndo}
 			<button
 				type="button"
@@ -98,7 +99,7 @@
 				disabled={working}
 			>
 				<CarbonUndo class="size-3" />
-				Undo
+				{m["chat.memory.undo"]()}
 			</button>
 		{/if}
 	</div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { UrlDependency } from "$lib/types/UrlDependency";
 	import { safeInvalidate } from "$lib/utils/safeInvalidate";
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
@@ -36,7 +37,7 @@
 			});
 
 			if (!response.ok) {
-				let message = "Could not change the model. Try again.";
+				let message = m["chat.model_switch.failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -56,7 +57,7 @@
 <div
 	class="mx-auto mt-0 flex w-fit flex-col items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-500/20 p-4 dark:border-gray-800"
 >
-	<span> This model is no longer available. Pick another one to carry on with this chat: </span>
+	<span> {m["chat.model_switch.unavailable"]()} </span>
 	<div class="flex items-center space-x-2">
 		<select
 			bind:value={selectedModelId}
@@ -71,7 +72,7 @@
 			disabled={selectedModelId === currentModel.id}
 			class="rounded-md bg-gray-100 px-2 py-1 dark:bg-gray-900"
 		>
-			Use it
+			{m["chat.model_switch.use"]()}
 		</button>
 	</div>
 </div>

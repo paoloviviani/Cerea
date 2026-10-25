@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { MessageToolUpdate } from "$lib/types/MessageUpdate";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import OpenReasoningResults from "./OpenReasoningResults.svelte";
@@ -17,7 +18,7 @@
 	let isOpen = $state(false);
 
 	let label = $derived(
-		toolCount > 0 ? `Called ${toolCount} tool${toolCount === 1 ? "" : "s"}` : "Thought"
+		toolCount > 0 ? m["chat.tool_calls.called"]({ count: toolCount }) : m["chat.tool_calls.thought"]()
 	);
 </script>
 
@@ -27,7 +28,7 @@
 		type="button"
 		class="group/header flex max-w-full cursor-pointer items-center gap-1 text-left whitespace-nowrap focus:outline-hidden"
 		onclick={() => (isOpen = !isOpen)}
-		aria-label={isOpen ? "Collapse" : "Expand"}
+		aria-label={isOpen ? m["chat.tool_calls.collapse"]() : m["chat.tool_calls.expand"]()}
 	>
 		<span
 			class="shrink-0 text-sm font-medium transition-colors group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {isOpen

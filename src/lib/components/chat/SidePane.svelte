@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { Snippet } from "svelte";
 	import { fade, fly } from "svelte/transition";
 	import { cubicOut } from "svelte/easing";
@@ -81,8 +82,8 @@
 		<button
 			type="button"
 			class="flex size-7 flex-none items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
-			aria-label="Close {label}"
-			title="Close (Esc)"
+			aria-label={m["chat.side_pane.close"]({ label })}
+			title={m["chat.side_pane.close_title"]()}
 			onclick={() => sidePane.close()}
 		>
 			<CarbonClose class="size-4" />
@@ -149,7 +150,7 @@
 		class="pointer-events-auto fixed inset-0 z-20 cursor-default bg-black/30"
 		transition:fade|local={{ easing: cubicOut, duration: 300 }}
 		onclick={() => sidePane.close()}
-		aria-label="Close {label}"
+		aria-label={m["chat.side_pane.close"]({ label })}
 	></button>
 	<div
 		class="pointer-events-auto fixed top-0 right-0 bottom-0 z-30 flex max-h-dvh w-[85%] flex-col

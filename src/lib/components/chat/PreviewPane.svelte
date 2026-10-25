@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { browser } from "$app/environment";
 	import { onMount, onDestroy } from "svelte";
 	import SidePane from "./SidePane.svelte";
@@ -110,7 +111,7 @@
 </script>
 
 {#if sidePane.open && sidePane.view === "preview" && payload}
-	<SidePane label="Preview" title={payload.title}>
+	<SidePane label={m["chat.preview.label"]()} title={payload.title}>
 		{#snippet children(resizing)}
 			<div class="flex h-full flex-col">
 				<div class="relative min-h-0 flex-1">
@@ -129,7 +130,7 @@
 					{:else}
 						<iframe
 							bind:this={iframeEl}
-							title={`Preview of ${payload.title}`}
+							title={m["chat.preview.title"]({ title: payload.title })}
 							class="h-full w-full bg-white dark:bg-gray-900 {resizing
 								? 'pointer-events-none'
 								: ''}"
@@ -143,14 +144,14 @@
 					{#if errors.length > 0 && onsend}
 						<button
 							class="absolute right-4 bottom-4 z-10 btn flex items-center gap-2 rounded-full border-2 border-red-500/60 bg-red-800/90 px-4 py-1.5 text-sm text-white shadow-lg"
-							title="Send the problems and ask for a fix"
+							title={m["chat.preview.fix_title"]()}
 							onclick={() => {
 								// Close only once the message is actually on its way, so the
 								// preview (and the errors backing the request) stays up otherwise
 								if (onsend?.(composeFixRequest(errors))) sidePane.close();
 							}}
 						>
-							<span>Problem found ({errors.length}): ask for a fix</span>
+							<span>{m["chat.preview.fix"]({ count: errors.length })}</span>
 						</button>
 					{/if}
 				</div>

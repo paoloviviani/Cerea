@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
@@ -30,7 +31,7 @@
 		type="button"
 		class="group/header flex w-fit cursor-pointer items-center gap-1 text-left select-none focus:outline-hidden"
 		onclick={() => (open = !isOpen)}
-		aria-label={isOpen ? "Collapse" : "Expand"}
+		aria-label={isOpen ? m["chat.reasoning.collapse"]() : m["chat.reasoning.expand"]()}
 	>
 		<span
 			class="text-sm font-medium transition-colors group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {isOpen
@@ -38,7 +39,7 @@
 				: 'text-gray-500 dark:text-gray-400'}"
 			class:thinking-shimmer={loading}
 		>
-			Thinking
+			{m["chat.reasoning.thinking"]()}
 		</span>
 		<CarbonChevronRight
 			class="size-3.5 transition-all duration-200 group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {isOpen

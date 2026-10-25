@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { subscribeToTheme } from "$lib/switchTheme";
 	import SidePane from "./SidePane.svelte";
@@ -95,7 +96,7 @@
 </script>
 
 {#if sidePane.open && sidePane.view === "trackio" && dashboard}
-	<SidePane label="Training dashboard" title="Training dashboard">
+	<SidePane label={m["chat.trackio.title"]()} title={m["chat.trackio.title"]()}>
 		{#snippet actions()}
 			<PaneItemNav {items} />
 			<span class="min-w-0 truncate font-mono text-xs text-gray-400 dark:text-gray-500">
@@ -105,7 +106,7 @@
 				<button
 					type="button"
 					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-					title="Reload the dashboard"
+					title={m["chat.trackio.reload"]()}
 					onclick={() => (reloadNonce += 1)}
 				>
 					<CarbonRenew />
@@ -118,7 +119,7 @@
 					target="_blank"
 					rel="noopener noreferrer"
 					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-					title="Open dashboard in a new tab"
+					title={m["chat.trackio.open"]()}
 				>
 					<CarbonLaunch />
 				</a>
@@ -148,18 +149,17 @@
 					</span>
 					<div class="flex flex-col gap-1">
 						<p class="text-sm font-medium text-gray-600 dark:text-gray-300">
-							Starting the dashboard
+							{m["chat.trackio.starting"]()}
 						</p>
 						<p class="max-w-xs text-xs text-gray-400 dark:text-gray-500">
-							The first time, this can take a minute to start. The numbers appear as soon as it is
-							ready.
+							{m["chat.trackio.starting_hint"]()}
 						</p>
 					</div>
 					<span class="font-mono text-xxs text-gray-300 dark:text-gray-600">{dashboard.label}</span>
 				</div>
 				{#key `${frameUrl}:${reloadNonce}`}
 					<iframe
-						title="Trackio dashboard"
+						title={m["chat.trackio.frame_title"]()}
 						class="relative h-full w-full {resizing ? 'pointer-events-none' : ''}"
 						src={frameUrl}
 						sandbox={TRACKIO_FRAME_SANDBOX}

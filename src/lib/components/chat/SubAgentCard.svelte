@@ -11,6 +11,7 @@
 	after a reload and on the server.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { MessageSubAgentUpdate, MessageToolUpdate } from "$lib/types/MessageUpdate";
 	import { isMessageToolErrorUpdate, isMessageToolResultUpdate } from "$lib/utils/messageUpdates";
 	import { ToolResultStatus } from "$lib/types/Tool";
@@ -58,7 +59,12 @@
 	});
 
 	const label = $derived(
-		{ working: "Working", done: "Done", failed: "Failed", stopped: "Stopped" }[phase]
+		{
+			working: m["chat.subagent.phase.working"](),
+			done: m["chat.subagent.phase.done"](),
+			failed: m["chat.subagent.phase.failed"](),
+			stopped: m["chat.subagent.phase.stopped"](),
+		}[phase]
 	);
 	// The closed card's one-line taste of the answer: markdown marks off, so it
 	// reads as prose. The open card renders the real thing.
@@ -84,7 +90,9 @@
 		class="group/header flex w-full min-w-0 cursor-pointer items-center gap-2 px-2.5 py-2 text-left select-none focus:outline-hidden"
 		onclick={() => (isOpen = !isOpen)}
 		aria-expanded={isOpen}
-		aria-label={isOpen ? `Collapse ${update.title}` : `Expand ${update.title}`}
+		aria-label={isOpen
+			? m["chat.subagent.collapse"]({ title: update.title })
+			: m["chat.subagent.expand"]({ title: update.title })}
 	>
 		{#if update.preset === "research"}
 			<LucideSearch class="size-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
@@ -158,7 +166,7 @@
 					class="rounded-lg bg-amber-50 p-2 font-mono text-xs break-words whitespace-pre-wrap text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
 					data-testid="subagent-failure">{failure}</pre>
 			{:else if phase === "working"}
-				<p class="text-xs text-gray-500 dark:text-gray-400">No answer yet.</p>
+				<p class="text-xs text-gray-500 dark:text-gray-400">{m["chat.subagent.no_answer"]()}</p>
 			{/if}
 
 			{#if stepCount > 0}
@@ -173,8 +181,7 @@
 						<CarbonChevronRight
 							class="size-3 transition-transform duration-200 {stepsOpen ? 'rotate-90' : ''}"
 						/>
-						{stepCount}
-						{stepCount === 1 ? "step" : "steps"}
+						{m["chat.subagent.steps"]({ count: stepCount })}
 					</button>
 					{#if stepsOpen}
 						<ol class="flex list-none flex-col gap-0.5" data-testid="subagent-steps">
@@ -196,9 +203,9 @@
 									</span>
 									<span class="min-w-0 break-words">{step.label}</span>
 									{#if step.outcome === "refused"}
-										<span class="shrink-0 text-gray-400 dark:text-gray-500">refused</span>
+										<span class="shrink-0 text-gray-400 dark:text-gray-500">{m["chat.subagent.refused"]()}</span>
 									{:else if step.outcome === "error"}
-										<span class="shrink-0 text-gray-400 dark:text-gray-500">failed</span>
+										<span class="shrink-0 text-gray-400 dark:text-gray-500">{m["chat.subagent.step_failed"]()}</span>
 									{/if}
 								</li>
 							{/each}

@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * The pure parts of the model/effort pill (`ModelEffortPicker.svelte`): the
  * short list, search, effort labels, and the remembered recent picks.
@@ -72,7 +73,7 @@ export function shortList(
 
 /** "Default" for no explicit effort, else the level, capitalised. */
 export function effortLabel(effort: string | undefined | null): string {
-	if (!effort) return "Default";
+	if (!effort) return m["chat.effort.default"]();
 	return effort.charAt(0).toUpperCase() + effort.slice(1);
 }
 
