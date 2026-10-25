@@ -660,8 +660,10 @@ console does it, with the same key style, the same `en-XA` pseudo-locale and the
 same `i18n:check`. English is the only language that ships; the machinery is
 here so that adding a language is a file, not a change to every screen.
 
-**Converted so far:** `src/routes/settings`, `src/lib/components/settings` and
-`DeleteAllConversationsModal.svelte`. The list is `CONVERTED` in
+**Converted so far:** `src/routes/settings`, `src/lib/components/settings`,
+`DeleteAllConversationsModal.svelte`, the Code area (`src/routes/code`,
+`src/lib/components/code`) and the Workspace area (`src/routes/workspace`,
+`src/lib/components/workspace`). The list is `CONVERTED` in
 `scripts/i18n-check.mjs`. Everything else still spells its words in the
 template, which is correct until its area is converted.
 
