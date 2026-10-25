@@ -105,6 +105,48 @@ export const enabledServersCount = derived(enabledServers, ($enabled) => $enable
 // is applied server-side when enabled via MCP_FORWARD_HF_USER_TOKEN.
 
 /**
+ * The base servers a project's defaults put on for the open chat, or null when
+ * the chat follows the person's own preferences. Kept so a background refresh
+ * (which recomputes the selection) does not undo it.
+ */
+let projectBaseOverride: Set<string> | null = null;
+
+/**
+ * Start a chat's base-server selection from its project's defaults.
+ *
+ * A project's `defaultMcpConnectorIds` can name base servers (`base-…`) as well
+ * as connectors. When it names at least one, exactly those base servers are on
+ * for this chat; when it names none (every project saved before base servers
+ * could be chosen), the chat keeps the person's own selection. The person's
+ * stored preferences are not rewritten: this is the chat's starting point.
+ * Call with no ids to hand the selection back to the preferences.
+ */
+export function applyProjectServerDefaults(ids?: Iterable<string>): void {
+	const baseIds = new Set([...(ids ?? [])].filter((id) => id.startsWith("base-")));
+	const wasOverridden = projectBaseOverride !== null;
+	projectBaseOverride = baseIds.size > 0 ? baseIds : null;
+	if (projectBaseOverride) {
+		const wanted = projectBaseOverride;
+		selectedServerIds.set(
+			new Set(
+				get(allMcpServers)
+					.filter((s) => s.type === "base" && wanted.has(s.id))
+					.map((s) => s.id)
+			)
+		);
+	} else if (wasOverridden) {
+		const disabled = loadDisabledBaseIds();
+		selectedServerIds.set(
+			new Set(
+				get(allMcpServers)
+					.filter((s) => s.type === "base" && !disabled.has(s.id))
+					.map((s) => s.id)
+			)
+		);
+	}
+}
+
+/**
  * Populate the MCP store from a known base-server list without making a network
  * request. Applies the user's disabled-server preferences and sets
  * mcpServersLoaded synchronously.
@@ -119,12 +161,15 @@ export function initWithServers(baseServers: MCPServer[]): void {
 	// Load disabled base servers
 	const disabledBaseIds = loadDisabledBaseIds();
 
-	// Auto-enable all base servers that aren't explicitly disabled.
+	// Auto-enable all base servers that aren't explicitly disabled, unless the
+	// open chat started from a project's defaults (see applyProjectServerDefaults).
 	selectedServerIds.update(() => {
 		const newSelection = new Set<string>();
 
 		for (const server of baseServers) {
-			if (!disabledBaseIds.has(server.id)) {
+			if (
+				projectBaseOverride ? projectBaseOverride.has(server.id) : !disabledBaseIds.has(server.id)
+			) {
 				newSelection.add(server.id);
 			}
 		}
@@ -158,6 +203,11 @@ export async function refreshMcpServers() {
  * Toggle a server on/off
  */
 export function toggleServer(id: string) {
+	if (projectBaseOverride && id.startsWith("base-")) {
+		// The chat's own choice: follow it, so a refresh keeps what was toggled.
+		if (projectBaseOverride.has(id)) projectBaseOverride.delete(id);
+		else projectBaseOverride.add(id);
+	}
 	selectedServerIds.update(($ids) => {
 		const newSet = new Set($ids);
 		if (newSet.has(id)) {

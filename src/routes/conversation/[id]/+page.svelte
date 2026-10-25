@@ -29,7 +29,11 @@
 	import { consumeMessageUpdates } from "$lib/utils/consumeMessageUpdates";
 	import { v4 } from "uuid";
 	import { useSettingsStore } from "$lib/stores/settings.js";
-	import { enabledServers, mcpServersLoaded } from "$lib/stores/mcpServers";
+	import {
+		applyProjectServerDefaults,
+		enabledServers,
+		mcpServersLoaded,
+	} from "$lib/stores/mcpServers";
 	import {
 		enabledConnectors,
 		defaultConnectorIds,
@@ -131,10 +135,17 @@
 	// defaults when the project names any, else the workspace defaults, then
 	// fully independent. Switching conversations preserves each chat's own
 	// set; the defaults are never rewritten from here.
+	let baseDefaultsFor: string | null = null;
 	$effect(() => {
 		const id = page.params.id ?? null;
 		const seed = data.projectDefaults?.defaultMcpConnectorIds ?? get(defaultConnectorIds);
 		untrack(() => openConversationSelection(id, seed));
+		// Once per opened chat: a data refresh must not undo what was toggled since.
+		if (id !== baseDefaultsFor) {
+			baseDefaultsFor = id;
+			const projectIds = data.projectDefaults?.defaultMcpConnectorIds;
+			untrack(() => applyProjectServerDefaults(projectIds));
+		}
 	});
 
 	function createMessagesPath<T>(messages: TreeNode<T>[], msgId?: TreeId): TreeNode<T>[] {

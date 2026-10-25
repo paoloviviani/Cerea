@@ -16,6 +16,7 @@ import {
 	connectorsLoaded,
 	resetConversationSelections,
 } from "$lib/stores/mcpConnectors";
+import { allMcpServers } from "$lib/stores/mcpServers";
 import type { McpConnectorView } from "$lib/types/McpConnector";
 import type { ProjectView } from "$lib/types/Project";
 
@@ -473,6 +474,42 @@ describe("ProjectPage defaults for new chats", () => {
 		}
 		// Nothing exists to attach documents or memory to yet.
 		expect(document.body.querySelector('[data-testid="project-documents"]')).toBeNull();
+	});
+
+	it("lists built-in servers before the person's own, under headings, and toggles them", async () => {
+		allMcpServers.set([
+			{ id: "base-search", name: "search", url: "https://m/s", type: "base" } as never,
+		]);
+		stubApi({
+			connectors: [
+				connector({ id: "dep-1", name: "company wiki", scope: "deployment", connected: true }),
+				CONN_ON(),
+			],
+			project: projectView({ defaultMcpConnectorIds: [] }),
+		});
+		mountExisting(true, "settings");
+		await vi.waitFor(() =>
+			expect(
+				document.body.querySelector('input[name="project-default-connector-base-search"]')
+			).not.toBeNull()
+		);
+		const names = [
+			...document.body.querySelectorAll('input[name^="project-default-connector-"]'),
+		].map((el) => el.getAttribute("name"));
+		expect(names).toEqual([
+			"project-default-connector-dep-1",
+			"project-default-connector-base-search",
+			"project-default-connector-conn-a",
+		]);
+		expect(text()).toContain("Built-in");
+		expect(text()).toContain("Your connectors");
+		await flipSwitch("project-default-connector-base-search");
+		await vi.waitFor(() =>
+			expect(
+				switchControl("project-default-connector-base-search").getAttribute("aria-checked")
+			).toBe("true")
+		);
+		allMcpServers.set([]);
 	});
 
 	it("seeds the web-search toggle from the app default, on and off", async () => {
