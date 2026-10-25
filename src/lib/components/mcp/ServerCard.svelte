@@ -37,14 +37,14 @@
 				};
 			case "connecting":
 				return {
-					label: "Connecting...",
+					label: "Connecting…",
 					color: "text-blue-600 dark:text-blue-400",
 					bgColor: "bg-blue-100 dark:bg-blue-900/20",
 					icon: IconPending,
 				};
 			case "error":
 				return {
-					label: "Error",
+					label: "Problem",
 					color: "text-red-600 dark:text-red-400",
 					bgColor: "bg-red-100 dark:bg-red-900/20",
 					icon: IconWarning,
@@ -52,7 +52,7 @@
 			case "disconnected":
 			default:
 				return {
-					label: "Unknown",
+					label: "Not checked",
 					color: "text-gray-600 dark:text-gray-400",
 					bgColor: "bg-gray-100 dark:bg-gray-700",
 					icon: IconPending,
@@ -154,7 +154,7 @@
 				target="_blank"
 				rel="noopener noreferrer"
 				class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-				aria-label="Open Hugging Face MCP settings"
+				aria-label="Open Hugging Face connector settings"
 			>
 				<IconSettings class="size-3" />
 				Settings
@@ -166,7 +166,7 @@
 	{#if server.tools && server.tools.length > 0}
 		<details class="mt-3">
 			<summary class="cursor-pointer text-xs font-medium text-gray-700 dark:text-gray-300">
-				Available Tools ({server.tools.length})
+				Available tools ({server.tools.length})
 			</summary>
 			<ul class="mt-2 space-y-1 text-xs wrap-break-word">
 				{#each server.tools as tool}

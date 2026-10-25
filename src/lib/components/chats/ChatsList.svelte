@@ -100,7 +100,7 @@
 			failure = null;
 		} catch (err) {
 			if (mine !== generation) return;
-			failure = err instanceof Error ? err.message : "Could not load chats.";
+			failure = err instanceof Error ? err.message : "Could not load your chats. Try again.";
 			hasMore = false;
 		} finally {
 			if (mine === generation) loading = false;
@@ -167,7 +167,7 @@
 <div class="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
 	<header>
 		<h1 class="text-xl font-semibold text-ink">Chats</h1>
-		<p class={s.SUBTITLE}>Every conversation you have had, newest first, project chats included.</p>
+		<p class={s.SUBTITLE}>All your chats, newest first, including chats in projects.</p>
 	</header>
 
 	<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto">
@@ -301,12 +301,12 @@
 				{#if searching}
 					<p class={s.EMPTY_TITLE}>No chats match “{query.trim()}”</p>
 					<p class={s.EMPTY_DETAIL}>
-						Only titles are searched, and capitals and accents do not matter.
+						Only titles are searched. Capital letters and accents are ignored.
 					</p>
 					<button type="button" onclick={clear} class={s.SECONDARY}>Show all chats</button>
 				{:else}
 					<p class={s.EMPTY_TITLE}>No chats yet</p>
-					<p class={s.EMPTY_DETAIL}>Your conversations will be listed here, newest first</p>
+					<p class={s.EMPTY_DETAIL}>Your chats will appear here, newest first</p>
 					<a href="{base}/" class={s.PRIMARY}>
 						<IconAddLarge class="size-4" />
 						Start a chat

@@ -18,11 +18,7 @@
 	import { base } from "$app/paths";
 	import * as s from "$lib/components/overlay/styles";
 	import { KNOWLEDGE_ACCEPT, MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
-	import {
-		PROJECT_DOCUMENTS_MAX_CHARS,
-		PROJECT_DOCUMENTS_WARN_CHARS,
-		PROJECT_DOCUMENT_CHARS_PER_TOKEN,
-	} from "$lib/types/Memory";
+	import { PROJECT_DOCUMENTS_MAX_CHARS, PROJECT_DOCUMENTS_WARN_CHARS } from "$lib/types/Memory";
 	import type { ProjectDocumentView } from "$lib/types/ProjectDocument";
 	import { readDrop } from "$lib/utils/droppedFiles";
 	import LucideFileText from "~icons/lucide/file-text";
@@ -46,10 +42,8 @@
 	let refused = $state<string[]>([]);
 	let input: HTMLInputElement | undefined = $state();
 
-	const FOLDER_REFUSAL =
-		"Folders can't be added. Whole documents go into every prompt in this project, so add the individual files you want.";
+	const FOLDER_REFUSAL = "Folders can't be added. Add the files you want one by one.";
 
-	const tokens = (chars: number) => Math.round(chars / PROJECT_DOCUMENT_CHARS_PER_TOKEN);
 	const number = (n: number) => n.toLocaleString("en-US");
 	const percent = $derived(Math.min(100, (used / PROJECT_DOCUMENTS_MAX_CHARS) * 100));
 	const warn = $derived(used > PROJECT_DOCUMENTS_WARN_CHARS);
@@ -58,7 +52,7 @@
 		const response = await fetch(`${base}/api/v2/projects/${projectId}/documents${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
@@ -71,7 +65,7 @@
 			documents = loaded.documents;
 			used = loaded.usedChars;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Documents could not be loaded.";
+			failure = err instanceof Error ? err.message : "Could not load the files. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -127,7 +121,8 @@
 	}
 
 	async function remove(doc: ProjectDocumentView) {
-		if (!confirm(`Remove “${doc.name}” from this project?`)) return;
+		if (!confirm(`Remove “${doc.name}” from this project? The chats here will stop reading it.`))
+			return;
 		failure = null;
 		try {
 			await api(`/${doc.id}`, { method: "DELETE" });
@@ -137,14 +132,14 @@
 				0
 			);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That document could not be removed.";
+			failure = err instanceof Error ? err.message : "Could not remove that file. Try again.";
 		}
 	}
 </script>
 
 <div data-testid="project-documents">
 	<div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-		<h3 class="{s.SECTION_TITLE} mb-0">Context documents ({documents.length})</h3>
+		<h3 class="{s.SECTION_TITLE} mb-0">Project files ({documents.length})</h3>
 		<button type="button" class={s.SECONDARY} disabled={busy} onclick={() => input?.click()}>
 			<CarbonAdd class="size-4" />
 			{busy ? "Adding…" : "Add files"}
@@ -162,22 +157,20 @@
 	</div>
 
 	<p class="mb-3 text-xs text-ink-muted">
-		The full text of each file goes into <strong>every</strong> message in this project, like a chat
-		attachment — unlike a knowledge base, which is searched. Add individual files, not folders. Text
-		files and documents (PDF, Word, Excel, PowerPoint, OpenDocument, EPUB), up to {MAX_ATTACHMENT_BYTES /
-			1024 /
-			1024} MB each.
+		Every chat in this project reads these files <strong>in full</strong>, every time, like an
+		attachment. (A knowledge base is different: only the parts that match the question are used.)
+		Add files one by one, not folders. Text files and documents (PDF, Word, Excel, PowerPoint,
+		OpenDocument, EPUB), up to {MAX_ATTACHMENT_BYTES / 1024 / 1024} MB each.
 	</p>
 
 	<div class="mb-3">
 		<div class="mb-1 flex justify-between text-xs text-ink-muted">
 			<span>{number(used)} of {number(PROJECT_DOCUMENTS_MAX_CHARS)} characters</span>
-			<span>≈ {number(tokens(used))} tokens</span>
 		</div>
 		<div
 			class="h-2 overflow-hidden rounded-full bg-sunken"
 			role="progressbar"
-			aria-label="Characters used by this project's documents"
+			aria-label="How much of the limit this project's files use"
 			aria-valuemin={0}
 			aria-valuemax={PROJECT_DOCUMENTS_MAX_CHARS}
 			aria-valuenow={used}
@@ -190,7 +183,7 @@
 		{#if warn}
 			<p class="mt-1.5 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
 				<CarbonWarning class="mt-0.5 size-3.5 shrink-0" />
-				Large context makes every message in this project slower and more expensive.
+				That is a lot to read each time. Replies in this project will be slower and cost more.
 			</p>
 		{/if}
 	</div>
@@ -218,11 +211,13 @@
 		{:else if documents.length === 0}
 			<div class={s.EMPTY}>
 				<LucideFileText class={s.EMPTY_ICON} />
-				<p class={s.EMPTY_TITLE}>No documents yet</p>
-				<p class={s.EMPTY_DETAIL}>Drop files here, or add them — every chat here will read them</p>
+				<p class={s.EMPTY_TITLE}>No files yet</p>
+				<p class={s.EMPTY_DETAIL}>
+					Drop files here, or add them. Every chat in this project will read them.
+				</p>
 				<button type="button" class={s.PRIMARY} disabled={busy} onclick={() => input?.click()}>
 					<CarbonAdd class="size-4" />
-					Add Files
+					Add files
 				</button>
 			</div>
 		{:else}
@@ -234,15 +229,15 @@
 								<p class="truncate text-sm font-medium" title={doc.name}>{doc.name}</p>
 								<p class="text-xs text-ink-muted">
 									{#if doc.status === "ready"}
-										{number(doc.chars)} characters · ≈ {number(tokens(doc.chars))} tokens
+										{number(doc.chars)} characters
 									{:else}
-										<span class="{s.PILL} {s.PILL_TONES.bad}">not readable</span>
+										<span class="{s.PILL} {s.PILL_TONES.bad}">could not be read</span>
 									{/if}
 									· added by {doc.mine ? "you" : doc.addedBy}
 								</p>
 								{#if doc.failure}
 									<p class="mt-1 text-xs text-danger">
-										{doc.failure.reason} It is kept here but adds nothing to the prompt.
+										{doc.failure.reason} It stays in the list, but the chats do not read it.
 									</p>
 								{/if}
 							</div>

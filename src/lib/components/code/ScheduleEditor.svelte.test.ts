@@ -95,21 +95,21 @@ describe("ScheduleEditor permission mode", () => {
 		const { screen } = mount();
 		const warning = screen.getByTestId("ask-warning");
 		await expect.element(warning).toBeVisible();
-		await expect.element(warning).toHaveTextContent("Needs-you inbox");
+		await expect.element(warning).toHaveTextContent("Needs you inbox");
 		await expect
 			.element(screen.getByRole("radio", { name: "Ask" }))
 			.toHaveAttribute("aria-checked", "true");
 
 		await screen.getByRole("radio", { name: "Allow" }).click();
 		expect(screen.getByTestId("ask-warning").elements()).toHaveLength(0);
-		await expect.element(screen.getByText(/never past the machine's own ceiling/)).toBeVisible();
+		await expect.element(screen.getByText(/never past the computer's own limit/)).toBeVisible();
 	});
 });
 
 describe("ScheduleEditor target picker", () => {
 	it("lists the machines with online/offline, then that machine's workspaces and sessions", async () => {
 		const { screen } = mount();
-		const machine = screen.getByLabelText("1. Machine");
+		const machine = screen.getByLabelText("1. Computer");
 		await expect
 			.element(machine.getByRole("option", { name: "Build box · online" }))
 			.toBeInTheDocument();
@@ -118,10 +118,10 @@ describe("ScheduleEditor target picker", () => {
 			.toBeInTheDocument();
 
 		await machine.selectOptions("d1");
-		const workspace = screen.getByLabelText("2. Workspace");
+		const workspace = screen.getByLabelText("2. Folder");
 		await expect.element(workspace.getByRole("option", { name: "repo" })).toBeInTheDocument();
 		await expect
-			.element(workspace.getByRole("option", { name: "New workspace…" }))
+			.element(workspace.getByRole("option", { name: "New folder…" }))
 			.toBeInTheDocument();
 
 		await workspace.selectOptions("w1");
@@ -137,15 +137,12 @@ describe("ScheduleEditor target picker", () => {
 
 	it("lets an offline machine be chosen, says what will happen, and offers no new workspace", async () => {
 		const { screen } = mount();
-		await screen.getByLabelText("1. Machine").selectOptions("d2");
+		await screen.getByLabelText("1. Computer").selectOptions("d2");
 		await expect.element(screen.getByTestId("machine-offline-note")).toHaveTextContent("offline");
 		await expect.element(screen.getByTestId("machine-offline-note")).toHaveTextContent("missed");
 		expect(api.listWorkspaces).not.toHaveBeenCalled();
 		expect(
-			screen
-				.getByLabelText("2. Workspace")
-				.getByRole("option", { name: "New workspace…" })
-				.elements()
+			screen.getByLabelText("2. Folder").getByRole("option", { name: "New folder…" }).elements()
 		).toHaveLength(0);
 	});
 
@@ -153,7 +150,7 @@ describe("ScheduleEditor target picker", () => {
 		const { screen, onsaved } = mount({
 			prefill: { deviceId: "d1", workspaceId: "w1", sessionId: "s2" },
 		});
-		await expect.element(screen.getByLabelText("2. Workspace")).toHaveValue("w1");
+		await expect.element(screen.getByLabelText("2. Folder")).toHaveValue("w1");
 		await expect.element(screen.getByLabelText("3. Session")).toHaveValue("s2");
 
 		await screen.getByLabelText("Name").fill("Docs nightly");
@@ -190,14 +187,14 @@ describe("ScheduleEditor target picker", () => {
 
 describe("ScheduleEditor new workspace", () => {
 	async function fillNewWorkspace(screen: ReturnType<typeof mount>["screen"]) {
-		await screen.getByLabelText("1. Machine").selectOptions("d1");
+		await screen.getByLabelText("1. Computer").selectOptions("d1");
 		await expect
-			.element(screen.getByLabelText("2. Workspace").getByRole("option", { name: "repo" }))
+			.element(screen.getByLabelText("2. Folder").getByRole("option", { name: "repo" }))
 			.toBeInTheDocument();
-		await screen.getByLabelText("2. Workspace").selectOptions("__new__");
+		await screen.getByLabelText("2. Folder").selectOptions("__new__");
 		await screen.getByLabelText("Name").fill("Fresh");
 		await screen.getByLabelText("Prompt").fill("build it");
-		await screen.getByLabelText("Directory on the machine").fill("/work/fresh");
+		await screen.getByLabelText("Folder on the computer").fill("/work/fresh");
 		await screen.getByLabelText("Title (optional)").fill("fresh");
 	}
 
@@ -270,7 +267,7 @@ describe("ScheduleEditor timetable", () => {
 				: accepted
 		);
 		await screen.getByLabelText("Repeats").selectOptions("cron");
-		await screen.getByLabelText("Cron expression").fill("*/5 * * * *");
+		await screen.getByLabelText("Cron schedule").fill("*/5 * * * *");
 		await expect.element(screen.getByTestId("preview-error")).toHaveTextContent("15 minutes");
 		expect(api.previewRecurrence).toHaveBeenLastCalledWith(
 			{ type: "cron", expr: "*/5 * * * *" },
@@ -280,7 +277,7 @@ describe("ScheduleEditor timetable", () => {
 
 	it("sends the preset the person picked, in the zone they typed", async () => {
 		const { screen, onsaved } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
-		await expect.element(screen.getByLabelText("2. Workspace")).toHaveValue("w1");
+		await expect.element(screen.getByLabelText("2. Folder")).toHaveValue("w1");
 		await screen.getByLabelText("Name").fill("Weekly");
 		await screen.getByLabelText("Prompt").fill("go");
 		await screen.getByLabelText("Repeats").selectOptions("weekly");
@@ -416,9 +413,7 @@ describe("ScheduleEditor coordination options", () => {
 		const { screen } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
 		const warning = screen.getByTestId("coordination-unsupported");
 		await expect.element(warning).toBeVisible();
-		await expect
-			.element(warning)
-			.toHaveTextContent("galopin is too old to grant coordination; update it");
+		await expect.element(warning).toHaveTextContent("is too old for these options. Update it");
 	});
 
 	it("says agent tools are off, instead of too old, for a machine enrolled without them", async () => {
@@ -428,7 +423,7 @@ describe("ScheduleEditor coordination options", () => {
 		const { screen } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
 		await expect
 			.element(screen.getByTestId("coordination-unsupported"))
-			.toHaveTextContent("enrolled without agent tools");
+			.toHaveTextContent("connected without agent tools");
 	});
 
 	it("is quiet for a machine that can grant them and caps nothing", async () => {
@@ -452,13 +447,13 @@ describe("ScheduleEditor coordination options", () => {
 		expect(screen.getByTestId("coordination-ceiling").elements()).toHaveLength(0);
 		await screen.getByLabelText(message).click();
 		const note = screen.getByTestId("coordination-ceiling");
-		await expect.element(note).toHaveTextContent("messaging sessions at Ask");
-		await expect.element(note).toHaveTextContent("Needs-you inbox");
+		await expect.element(note).toHaveTextContent("messaging sessions to Ask");
+		await expect.element(note).toHaveTextContent("Needs you inbox");
 		await expect.element(note).not.toHaveTextContent("starting sessions");
 		await screen.getByLabelText(spawn).click();
 		await expect
 			.element(screen.getByTestId("coordination-ceiling"))
-			.toHaveTextContent("messaging and starting sessions at Ask");
+			.toHaveTextContent("messaging and starting sessions to Ask");
 	});
 
 	it("says an agent made the schedule, linking its session; a person's says nothing", async () => {

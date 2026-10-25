@@ -151,8 +151,8 @@
 							Starting the dashboard
 						</p>
 						<p class="max-w-xs text-xs text-gray-400 dark:text-gray-500">
-							Trackio Spaces can take a minute to build on the first run. Metrics appear as soon as
-							it is up.
+							The first time, this can take a minute to start. The numbers appear as soon as it is
+							ready.
 						</p>
 					</div>
 					<span class="font-mono text-xxs text-gray-300 dark:text-gray-600">{dashboard.label}</span>

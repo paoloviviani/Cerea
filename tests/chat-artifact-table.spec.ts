@@ -8,7 +8,7 @@ import type { Db } from "mongodb";
 import type { Page } from "playwright/test";
 
 const TOOL_MODEL = "test-org/artifact-tool";
-const PANEL_LABEL = "Artifact panel";
+const PANEL_LABEL = "File panel";
 
 async function useModel(db: Db, session: { sessionId: string }, model: string) {
 	await db
@@ -94,7 +94,7 @@ test("a table artifact grids, sorts, filters and downloads as CSV", async ({
 	// The table survives a reload (it is derived from the messages): reopen
 	// it from its chat card, since the panel does not auto-open off-stream.
 	await page.reload();
-	await page.locator('[aria-label="Open artifact: Sales"]').click({ timeout: 30_000 });
+	await page.locator('[aria-label="Open file: Sales"]').click({ timeout: 30_000 });
 	const panelAfter = page.getByLabel(PANEL_LABEL, { exact: true });
 	await expect(panelAfter.getByTestId("table-grid")).toBeVisible({ timeout: 30_000 });
 	await expect(

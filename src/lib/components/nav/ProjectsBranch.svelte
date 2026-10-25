@@ -185,7 +185,7 @@
 				body: JSON.stringify({ model, projectId: project.id }),
 			});
 			if (!response.ok) {
-				let message = "Could not start the chat.";
+				let message = "Could not start the chat. Try again.";
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -221,7 +221,7 @@
 			}
 			await goto(`${base}/conversation/${conversationId}`);
 		} catch (err) {
-			alert(err instanceof Error ? err.message : "Could not start the chat.");
+			alert(err instanceof Error ? err.message : "Could not start the chat. Try again.");
 		} finally {
 			starting = null;
 		}
@@ -246,7 +246,7 @@
 			await client.conversations({ id: conversationId }).patch({ title }).then(handleResponse);
 		} catch (err) {
 			console.error(err);
-			alert("Could not rename the chat.");
+			alert("Could not rename the chat. Try again.");
 		}
 	}
 
@@ -275,7 +275,7 @@
 			await client.conversations({ id: conversationId }).delete().then(handleResponse);
 		} catch (err) {
 			console.error(err);
-			alert("Could not delete the chat.");
+			alert("Could not delete the chat. Try again.");
 		}
 	}
 
@@ -290,8 +290,8 @@
 	async function destroy(project: ProjectView) {
 		if (
 			!confirm(
-				`Delete the project “${project.name}”?\n\nIts conversations and knowledge bases are ` +
-					"kept — the chats go back to your ordinary list."
+				`Delete the project “${project.name}”?\n\nIts chats and knowledge bases are kept: ` +
+					"the chats go back to your normal list."
 			)
 		)
 			return;
@@ -301,8 +301,7 @@
 			project.owned &&
 			project.hasMemory &&
 			confirm(
-				`Also delete “${project.name}” — past chats?\n\nThat is the searchable memory of this ` +
-					"project's conversations. OK = delete the memory too. Cancel = keep the memory (the project is still deleted)."
+				`Also delete the saved past chats of “${project.name}”?\n\nThese are what the assistant searches to remember the project's chats. OK = delete them too. Cancel = keep them (the project is still deleted).`
 			);
 		busy = true;
 		try {

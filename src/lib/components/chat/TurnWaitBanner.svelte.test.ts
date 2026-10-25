@@ -75,7 +75,7 @@ describe("the wait pill", () => {
 
 	it("offers no wake once the deadline is long past and a sweep owns the turn", () => {
 		const { baseElement } = mount({ until: Date.now() - 60_000 });
-		expect(baseElement.textContent).toContain("overdue");
+		expect(baseElement.textContent).toContain("running late");
 		expect(wakeButton(baseElement)).toBeUndefined();
 	});
 });

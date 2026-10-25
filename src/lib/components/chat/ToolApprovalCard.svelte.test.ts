@@ -126,7 +126,7 @@ describe("ToolApprovalCard, galopin approvals", () => {
 			onanswer: async () => ({ ok: true }),
 		});
 		const facts = screen.getByTestId("galopin-approval");
-		await expect.element(facts).toHaveTextContent('a task subagent of "Fix the flaky test"');
+		await expect.element(facts).toHaveTextContent('a helper agent of "Fix the flaky test"');
 	});
 
 	it("still names a subagent sender when the parent's title is unknown", async () => {
@@ -142,7 +142,7 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		});
 		await expect
 			.element(screen.getByTestId("galopin-approval"))
-			.toHaveTextContent("a task subagent of its parent session");
+			.toHaveTextContent("a helper agent of the main session");
 	});
 
 	it("a plain send card does not name a subagent sender", async () => {
@@ -255,9 +255,7 @@ describe("ToolApprovalCard, galopin approvals", () => {
 	it("does not trust a galopin flag in chat, where the arguments are a model's own", async () => {
 		const screen = render(ToolApprovalCard, { conversationId: "c1", request: spawn });
 		expect(screen.getByTestId("galopin-approval").elements()).toHaveLength(0);
-		await expect
-			.element(screen.getByRole("button", { name: "Allow for this conversation" }))
-			.toBeVisible();
+		await expect.element(screen.getByRole("button", { name: "Allow for this chat" })).toBeVisible();
 	});
 
 	describe("a new subagent's first turn", () => {

@@ -20,7 +20,7 @@
 		data-testid="update-banner"
 		class="fixed bottom-3 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
 	>
-		<span>A new version is available.</span>
+		<span>A new version is ready.</span>
 		<button
 			type="button"
 			onclick={reloadApp}

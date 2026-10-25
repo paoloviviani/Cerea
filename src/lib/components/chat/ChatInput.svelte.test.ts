@@ -306,7 +306,7 @@ describe("ChatInput: MCP connector toggles", () => {
 	}
 
 	const openMcpSubmenu = async () => {
-		const trigger = submenuTrigger("MCP Servers");
+		const trigger = submenuTrigger("Connectors");
 		if (!trigger) throw new Error("no MCP submenu trigger");
 		trigger.click();
 	};
@@ -479,10 +479,10 @@ describe("ChatInput: MCP connector toggles", () => {
 
 		await waitSlow(() =>
 			expect(document.body.textContent).toContain(
-				"No connectors yet. Add one from Manage MCP Servers."
+				"No connectors yet. Add one under Manage connectors."
 			)
 		);
-		expect(document.body.textContent).toContain("Manage MCP Servers");
+		expect(document.body.textContent).toContain("Manage connectors");
 	});
 
 	it("a failed load says so instead of pretending there is nothing", async () => {
@@ -493,7 +493,7 @@ describe("ChatInput: MCP connector toggles", () => {
 		await openMcpSubmenu();
 
 		await waitSlow(() => expect(document.body.textContent).toContain("Could not load connectors"));
-		expect(document.body.textContent).toContain("Manage MCP Servers");
+		expect(document.body.textContent).toContain("Manage connectors");
 	});
 });
 
@@ -593,13 +593,13 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			await settlePanels();
 			expectPanelsInViewport();
 
-			await openSubmenu("MCP Servers", "Not signed in");
+			await openSubmenu("Connectors", "Not signed in");
 			expectPanelsInViewport();
 
 			await openSubmenu("Knowledge bases", "Specs");
 			expectPanelsInViewport();
 
-			await openSubmenu("Add text file", "Upload from device");
+			await openSubmenu("Add text file", "Upload from this device");
 			expectPanelsInViewport();
 		} finally {
 			await page.viewport(restoreWidth, restoreHeight);
@@ -718,7 +718,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			allMcpServers.set([baseServer]);
 			const { container } = await renderComposer({ id: CONV_ID });
 			await openMenu(container);
-			await openSubmenu("MCP Servers", "Not signed in");
+			await openSubmenu("Connectors", "Not signed in");
 
 			const panels = [...document.body.querySelectorAll<HTMLElement>('[role="menu"]')];
 			const submenu = panels[panels.length - 1];
@@ -742,7 +742,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
  */
 describe("ChatInput: the / menu", () => {
 	const COMMANDS = [
-		{ name: "compact", description: "Compact now", group: "panel" as const },
+		{ name: "compact", description: "Shorten now", group: "panel" as const },
 		{ name: "model", description: "Switch the model", hint: "[model]", group: "panel" as const },
 	];
 
@@ -808,7 +808,7 @@ describe("ChatInput: the / menu", () => {
 		box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 		await waitSlow(() =>
 			expect(onslashcommand).toHaveBeenCalledWith(
-				{ name: "compact", description: "Compact now", group: "panel" },
+				{ name: "compact", description: "Shorten now", group: "panel" },
 				""
 			)
 		);
@@ -876,7 +876,7 @@ describe("ChatInput: taking a photo", () => {
 	it("leaves it out with a mouse, where browsers ignore the camera hint", async () => {
 		const { container } = await renderMultimodal(false);
 		fireTap(find(container, 'button[aria-label="Add attachment"]'));
-		await waitSlow(() => expect(document.body.textContent).toContain("Add image(s)"));
+		await waitSlow(() => expect(document.body.textContent).toContain("Add images"));
 		expect(document.body.textContent).not.toContain("Take photo");
 	});
 });

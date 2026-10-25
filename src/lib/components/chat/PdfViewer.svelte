@@ -144,7 +144,7 @@
 		class="flex flex-none items-center gap-2 border-b border-gray-200/70 px-3 py-1.5 text-xs text-gray-500 dark:border-gray-700/70 dark:text-gray-400"
 	>
 		<span class="min-w-0 flex-1 truncate">
-			{#if status === "loading"}Loading PDF…{:else if status === "ready"}{pageCount} page{pageCount ===
+			{#if status === "loading"}Loading the PDF…{:else if status === "ready"}{pageCount} page{pageCount ===
 				1
 					? ""
 					: "s"}{pageCount > shown ? ` (first ${shown} shown)` : ""}{/if}

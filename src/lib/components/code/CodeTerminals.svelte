@@ -62,7 +62,7 @@
 				activeId = list[0]?.id ?? null;
 			}
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not list terminals.";
+			failure = err instanceof Error ? err.message : "Could not load terminals. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -77,7 +77,7 @@
 			activeId = terminal.id;
 			exited.delete(terminal.id);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not open a terminal.";
+			failure = err instanceof Error ? err.message : "Could not open a terminal. Try again.";
 		} finally {
 			pendingOpen = false;
 		}
@@ -107,7 +107,7 @@
 			const { terminal } = await renameTerminal(deviceId, id, title);
 			terminals = terminals.map((t) => (t.id === id ? terminal : t));
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not rename.";
+			failure = err instanceof Error ? err.message : "Could not rename. Try again.";
 		}
 	}
 
@@ -141,7 +141,7 @@
 			terminals = [...terminals, terminal];
 			activeId = terminal.id;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not restart.";
+			failure = err instanceof Error ? err.message : "Could not restart. Try again.";
 		}
 	}
 
@@ -266,7 +266,7 @@
 			{/if}
 		{:else if !loading}
 			<div class="flex h-full items-center justify-center text-sm text-gray-400">
-				No terminals open in this workspace.
+				No terminals open in this folder.
 			</div>
 		{/if}
 	</div>

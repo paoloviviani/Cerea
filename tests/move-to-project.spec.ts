@@ -100,7 +100,7 @@ for (const scheme of ["light", "dark"] as const) {
 		// The row menu and the picker.
 		const row = page.locator("div.group", { hasText: "Quarterly figures" }).first();
 		await row.hover();
-		await row.getByRole("button", { name: "Conversation actions" }).click();
+		await row.getByRole("button", { name: "Chat actions" }).click();
 		await shot(page, `${scheme}-1440-menu`);
 		await page.getByRole("menuitem", { name: "Move to project…" }).click();
 		await expect(page.getByRole("heading", { name: "Move to project" })).toBeVisible();
@@ -121,7 +121,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.mouse.move(box.x + 40, box.y + box.height / 2, { steps: 8 });
 		await page.mouse.move(box.x + 44, box.y + box.height / 2 + 1);
 		await expect(page.locator(".ring-accent")).toBeVisible();
-		await expect(page.getByText("Drop File to add to chat")).toHaveCount(0);
+		await expect(page.getByText("Drop a file to add it to the chat")).toHaveCount(0);
 		await shot(page, `${scheme}-1440-drag`);
 		await page.mouse.up();
 		await expect.poll(() => projectOf(db, second)).toBe(budget.toString());
@@ -161,7 +161,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.goto(`${E2E_APP_BASE}/projects/${project}`);
 		await expect(page.getByText("Chats (2)")).toBeVisible();
 		await expect(page.locator("nav").first()).toContainText("Budget 2027");
-		await expect(page.locator("nav").first()).not.toContainText("New Chat");
+		await expect(page.locator("nav").first()).not.toContainText("New chat");
 		// A title shows more than a few letters.
 		const title = page.getByText("Travel costs for the Brussels meeting");
 		expect((await boxOf(title)).width).toBeGreaterThan(150);

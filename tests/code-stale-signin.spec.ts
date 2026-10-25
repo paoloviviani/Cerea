@@ -47,7 +47,7 @@ test.describe("a stale /code sign-in", () => {
 			await page.goto(`${E2E_APP_BASE}/code`);
 			await expect(page.getByTestId("code-reauth-card")).toBeVisible();
 			await expect(
-				page.getByText("Your sign-in is older than 7 days. Sign in again to see your machines.")
+				page.getByText("Your sign-in is more than 7 days old. Sign in again to see your computers.")
 			).toBeVisible();
 			const signIn = page.getByRole("link", { name: "Sign in" });
 			await expect(signIn).toHaveAttribute(
@@ -90,7 +90,7 @@ test.describe("a fresh /code sign-in", () => {
 		await signInWith(db, session.sessionId, new Date(Date.now() - 1 * DAY));
 		await page.unroute(CODE_STATUS_GLOB);
 		await page.goto(`${E2E_APP_BASE}/code`);
-		await expect(page.getByText("No paired devices").first()).toBeVisible();
+		await expect(page.getByText("No computers connected").first()).toBeVisible();
 		await expect(page.getByTestId("code-reauth-card")).toHaveCount(0);
 	});
 });
@@ -108,7 +108,7 @@ test.describe("a session that died mid-page", () => {
 		await signInWith(db, session.sessionId, new Date(Date.now() - 1 * DAY));
 		await page.unroute(CODE_STATUS_GLOB);
 		await page.goto(`${E2E_APP_BASE}/code`);
-		await expect(page.getByText("No paired devices").first()).toBeVisible();
+		await expect(page.getByText("No computers connected").first()).toBeVisible();
 
 		await db.collection("sessions").deleteOne({ sessionId: session.sessionId });
 		// Returning to the tab re-asks /status; a reload folds the same way.
@@ -138,7 +138,7 @@ test.describe("a session that died mid-page", () => {
 			}
 		});
 		await page.goto(`${E2E_APP_BASE}/code`);
-		await expect(page.getByText("No paired devices").first()).toBeVisible();
+		await expect(page.getByText("No computers connected").first()).toBeVisible();
 
 		await db.collection("sessions").deleteOne({ sessionId: session.sessionId });
 		await page.reload();
@@ -147,7 +147,7 @@ test.describe("a session that died mid-page", () => {
 		await expect(card).toBeVisible();
 		await expect(card).toHaveAttribute("data-variant", "signed-out");
 		await expect(
-			page.getByText("You were signed out. Sign in again to see your machines.")
+			page.getByText("You were signed out. Sign in again to see your computers.")
 		).toBeVisible();
 		const signIn = page.getByRole("link", { name: "Sign in" });
 		await expect(signIn).toHaveAttribute("href", `${E2E_APP_BASE}/login?next=${E2E_APP_BASE}/code`);

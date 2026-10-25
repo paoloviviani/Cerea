@@ -22,7 +22,7 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
  * The sidebar's foot, after the managers moved into the workspace and the
  * profile menu became a static footer: Workspace, Settings and (for
  * administrators) Admin are rows; the footer names the person and carries the
- * theme switch and the sign-out form inline. Models, Knowledge and MCP Servers
+ * theme switch and the sign-out form inline. Models, Knowledge and Connectors
  * are no longer rows here at all.
  */
 describe("NavMenu's foot", () => {
@@ -244,7 +244,7 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		expect(listDevices).not.toHaveBeenCalled();
 		// No tree: the tree's own markers and its pairing control are absent.
 		expect(host.querySelector('[data-testid="device-rail"]')).toBeNull();
-		expect((host.textContent ?? "").replace(/\s+/g, " ")).not.toContain("Pair a machine");
+		expect((host.textContent ?? "").replace(/\s+/g, " ")).not.toContain("Connect a computer");
 	});
 
 	it("draws the tree once the sign-in is known to be fresh, and drops it when a call finds it stale", async () => {
@@ -256,10 +256,10 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		});
 		mount();
 		await vi.waitFor(() => expect(listDevices).toHaveBeenCalled());
-		await vi.waitFor(() => expect(host.textContent).toContain("Pair a device"));
+		await vi.waitFor(() => expect(host.textContent).toContain("Connect a computer"));
 		const calls = listDevices.mock.calls.length;
 		flagCodeReauth();
-		await vi.waitFor(() => expect(host.textContent).not.toContain("Pair a device"));
+		await vi.waitFor(() => expect(host.textContent).not.toContain("Connect a computer"));
 		expect(host.querySelector('[data-testid="sidebar-view-agents"]')).not.toBeNull();
 		expect(listDevices.mock.calls.length).toBe(calls);
 	});

@@ -105,7 +105,10 @@
 			fetchedFor = { id: current.id, updatedAt: current.updatedAt };
 			await tick();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load the subagent's transcript.";
+			failure =
+				err instanceof Error
+					? err.message
+					: "Could not load the helper agent's conversation. Try again.";
 		} finally {
 			working = false;
 		}
@@ -177,7 +180,7 @@
 	{#if open}
 		<div class="mt-1.5 ml-4 min-w-0 border-l border-gray-200 pl-3 dark:border-gray-700">
 			{#if working && !transcript}
-				<p class="py-1 text-xs text-gray-400 dark:text-gray-500">Loading the transcript…</p>
+				<p class="py-1 text-xs text-gray-400 dark:text-gray-500">Loading the conversation…</p>
 			{:else if failure}
 				<p class="py-1 text-xs text-red-600 dark:text-red-400">{failure}</p>
 			{:else if transcript && transcript.length > 0}
@@ -194,7 +197,7 @@
 					{/each}
 				</div>
 			{:else}
-				<p class="py-1 text-xs text-gray-400 dark:text-gray-500">No transcript recorded yet.</p>
+				<p class="py-1 text-xs text-gray-400 dark:text-gray-500">Nothing recorded yet.</p>
 			{/if}
 		</div>
 	{/if}

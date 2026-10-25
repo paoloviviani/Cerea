@@ -171,14 +171,14 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 	await page.goto(`${E2E_APP_BASE}/conversation/${conversationId.toString()}`);
 
 	// The library lists both persisted files.
-	await page.getByRole("button", { name: "Open artifacts panel" }).click();
+	await page.getByRole("button", { name: "Open files panel" }).click();
 	const library = page.getByLabel("Artifacts panel", { exact: true });
 	await expect(library.getByText("hello.pdf")).toBeVisible({ timeout: 30_000 });
 	await expect(library.getByText("hello.docx")).toBeVisible();
 
 	// The PDF opens as a file artifact at v2 drawn by pdf.js in the panel itself.
 	await library.getByRole("button", { name: "Open hello.pdf in panel" }).click();
-	const panel = page.getByLabel("Artifact panel", { exact: true });
+	const panel = page.getByLabel("File panel", { exact: true });
 	await expect(panel.getByRole("heading", { name: "hello.pdf" })).toBeVisible({
 		timeout: 30_000,
 	});
@@ -199,7 +199,7 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 	await expect(panel.getByText("v2 / 2")).toBeVisible();
 
 	// The DOCX renders its paragraph through the sanitised preview.
-	await page.getByRole("button", { name: "Open artifacts panel" }).click();
+	await page.getByRole("button", { name: "Open files panel" }).click();
 	await library.getByRole("button", { name: "Open hello.docx in panel" }).click();
 	await expect(panel.getByRole("heading", { name: "hello.docx" })).toBeVisible({
 		timeout: 30_000,
@@ -243,9 +243,9 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 	await page.setViewportSize({ width: 1280, height: 720 });
 
 	// The export lists both generated files.
-	await page.getByRole("button", { name: "Open artifacts panel" }).click();
+	await page.getByRole("button", { name: "Open files panel" }).click();
 	const exportPromise = page.waitForEvent("download");
-	await library.getByRole("button", { name: "Export conversation as Markdown" }).click();
+	await library.getByRole("button", { name: "Save this chat as Markdown" }).click();
 	const exportDownload = await exportPromise;
 	const exportPath = await exportDownload.path();
 	const markdown = await readFile(exportPath as string, "utf-8");
@@ -255,7 +255,7 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 	// Everything survives a reload: rows, registry entries and bytes.
 	await page.reload();
 	await waitForHydration(page);
-	await page.getByRole("button", { name: "Open artifacts panel" }).click();
+	await page.getByRole("button", { name: "Open files panel" }).click();
 	await expect(library.getByText("hello.pdf")).toBeVisible({ timeout: 30_000 });
 	await library.getByRole("button", { name: "Open hello.pdf in panel" }).click();
 	await expect(panel.getByRole("heading", { name: "hello.pdf" })).toBeVisible({
@@ -339,7 +339,7 @@ test("a code block's file is a file artifact too, and comes back after a reload"
 	for (const pass of ["first load", "after a reload"]) {
 		if (pass === "after a reload") await page.reload();
 		else await page.goto(`${E2E_APP_BASE}/conversation/${conversationId.toString()}`);
-		// Server-rendered: an "Open artifacts panel" click before hydration
+		// Server-rendered: an "Open files panel" click before hydration
 		// reaches no handler, the library never opens, and the button below
 		// is never found.
 		await waitForHydration(page);
@@ -350,10 +350,10 @@ test("a code block's file is a file artifact too, and comes back after a reload"
 		});
 
 		// And it is a file artifact like any other: listed, and opens in the panel.
-		await page.getByRole("button", { name: "Open artifacts panel" }).click();
+		await page.getByRole("button", { name: "Open files panel" }).click();
 		const library = page.getByLabel("Artifacts panel", { exact: true });
 		await library.getByRole("button", { name: "Open hello_world.docx in panel" }).click();
-		const panel = page.getByLabel("Artifact panel", { exact: true });
+		const panel = page.getByLabel("File panel", { exact: true });
 		await expect(panel.getByRole("heading", { name: "hello_world.docx" }), pass).toBeVisible({
 			timeout: 30_000,
 		});
@@ -399,10 +399,10 @@ test("the inline file card keeps its filename visible when the chat column is na
 	await page.goto(`${E2E_APP_BASE}/conversation/${conversationId.toString()}`);
 	await waitForHydration(page);
 
-	await page.getByRole("button", { name: "Open artifacts panel" }).click();
+	await page.getByRole("button", { name: "Open files panel" }).click();
 	const library = page.getByLabel("Artifacts panel", { exact: true });
 	await library.getByRole("button", { name: "Open hello_world.docx in panel" }).click();
-	await expect(page.getByLabel("Artifact panel", { exact: true })).toBeVisible();
+	await expect(page.getByLabel("File panel", { exact: true })).toBeVisible();
 
 	await expectFileCardNameVisible(page, "hello_world.docx");
 });

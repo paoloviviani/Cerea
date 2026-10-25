@@ -83,7 +83,7 @@
 			oncreated(created.workspace);
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not create the workspace.";
+			failure = err instanceof Error ? err.message : "Could not add the folder. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -97,8 +97,8 @@
 				<IconFolder class="size-5 text-blue-600" />
 			</div>
 			<div>
-				<h2 id="workspace-title" class={s.TITLE}>Add a workspace</h2>
-				<p class={s.SUBTITLE}>A directory on this machine the daemon serves agents from.</p>
+				<h2 id="workspace-title" class={s.TITLE}>Add a folder</h2>
+				<p class={s.SUBTITLE}>A folder on this computer that agents will work in.</p>
 			</div>
 		</div>
 
@@ -106,7 +106,7 @@
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Workspace failed
+					Could not add the folder
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -118,7 +118,7 @@
 				void handleCreate();
 			}}
 		>
-			<label class={s.LABEL} for="workspace-path">Directory on the machine</label>
+			<label class={s.LABEL} for="workspace-path">Folder on the computer</label>
 			<div class="relative">
 				<input
 					id="workspace-path"
@@ -168,7 +168,7 @@
 					</div>
 				{/if}
 			</div>
-			<p class={s.HINT}>Absolute path, as the daemon sees it — not this browser.</p>
+			<p class={s.HINT}>The full path on that computer, not on this browser.</p>
 			<label class="{s.LABEL} mt-4" for="workspace-name">Title (optional)</label>
 			<input
 				id="workspace-name"
@@ -183,7 +183,7 @@
 					Cancel
 				</button>
 				<button type="submit" class={s.PRIMARY} disabled={busy || !path.trim()}>
-					{busy ? "Adding…" : "Add workspace"}
+					{busy ? "Adding…" : "Add folder"}
 				</button>
 			</div>
 		</form>

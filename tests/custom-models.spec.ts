@@ -22,15 +22,15 @@ test("a custom model is created, picked in a new chat, and runs on its base with
 	await expect(page.getByRole("heading", { name: "Custom models", level: 2 })).toBeVisible();
 
 	// The global prompt.
-	await page.getByRole("textbox", { name: "Global system prompt" }).fill(GLOBAL_PROMPT);
+	await page.getByRole("textbox", { name: "Instructions for every chat" }).fill(GLOBAL_PROMPT);
 	await page.getByRole("button", { name: "Save", exact: true }).click();
 	await expect(page.getByText("Saved")).toBeVisible();
 
 	// A custom model on the thinking model.
 	await page.getByRole("button", { name: "New custom model" }).first().click();
 	await page.getByLabel("Name").fill("Menu helper");
-	await page.getByLabel("Base model").selectOption(BASE);
-	await page.getByLabel("System prompt").fill(CUSTOM_PROMPT);
+	await page.getByLabel("Original model").selectOption(BASE);
+	await page.getByLabel("Instructions").fill(CUSTOM_PROMPT);
 	await page.getByRole("button", { name: "Create custom model" }).click();
 	await expect(page.getByTestId("custom-model-card")).toContainText("Menu helper");
 

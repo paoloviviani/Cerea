@@ -237,9 +237,9 @@
 			data-testid="file-not-saved"
 		>
 			{#if gone}
-				<span>Not saved, and no longer available. Run the code again to recreate it.</span>
+				<span>Not saved, and no longer available. Run the code again to make it again.</span>
 			{:else}
-				<span>Not saved: download it while this tab is open.</span>
+				<span>Not saved. Download it while this tab is open.</span>
 				{#if canRetry}
 					<button
 						type="button"
@@ -251,7 +251,7 @@
 						{retrying ? "Saving…" : "Retry saving"}
 					</button>
 				{/if}
-				{#if retryFailed}<span>The save failed again.</span>{/if}
+				{#if retryFailed}<span>Saving failed again.</span>{/if}
 			{/if}
 		</p>
 	{/if}

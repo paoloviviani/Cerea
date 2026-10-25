@@ -15,7 +15,7 @@ describe("UpdateBanner", () => {
 	it("offers a reload when a new version is out, and reloads on click", async () => {
 		const spy = vi.spyOn(appReload, "reload").mockImplementation(() => {});
 		render(UpdateBanner, { show: true });
-		await expect.element(page.getByText("A new version is available.")).toBeInTheDocument();
+		await expect.element(page.getByText("A new version is ready.")).toBeInTheDocument();
 		await page.getByRole("button", { name: "Reload" }).click();
 		expect(spy).toHaveBeenCalledTimes(1);
 	});

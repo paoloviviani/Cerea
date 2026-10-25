@@ -76,7 +76,10 @@
 			providers = result.providers.filter((p) => p.available);
 			provider = providers[0]?.id ?? "opencode";
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not read the daemon's providers.";
+			failure =
+				err instanceof Error
+					? err.message
+					: "Could not load the available model providers. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -96,7 +99,7 @@
 			oncreated(created.agent);
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not create the agent.";
+			failure = err instanceof Error ? err.message : "Could not create the agent. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -123,7 +126,7 @@
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Agent failed
+					Could not create the agent
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -144,7 +147,7 @@
 			{:else}
 				<label class={s.LABEL} for="agent-provider">Provider</label>
 				{#if busy && providers.length === 0}
-					<p class="text-sm text-ink-muted">Reading the daemon's providers…</p>
+					<p class="text-sm text-ink-muted">Loading model providers…</p>
 				{:else}
 					<select
 						id="agent-provider"
@@ -162,8 +165,8 @@
 					</select>
 					<p class={s.HINT}>
 						{providers.length > 0
-							? "As configured on your daemon."
-							: "No providers reported available; opencode is the default."}
+							? "As set up on your computer."
+							: "No providers found. opencode is used by default."}
 					</p>
 				{/if}
 			{/if}
@@ -179,7 +182,7 @@
 				disabled={busy}
 			/>
 
-			<span class="{s.LABEL} mt-4">Posture</span>
+			<span class="{s.LABEL} mt-4">Mode</span>
 			<div class="flex flex-wrap gap-2">
 				<button
 					type="button"
@@ -200,8 +203,8 @@
 			</div>
 			<p class={s.HINT}>
 				{posture === "plan"
-					? "Proposes; asks before it writes anything."
-					: "Writes; still asks before anything destructive."}
+					? "Suggests changes and asks before it writes anything."
+					: "Makes changes, and still asks before anything destructive."}
 			</p>
 
 			<!-- flex-wrap, not fixed widths: side-by-side whenever both buttons

@@ -62,8 +62,8 @@
 		{ key: "memory", label: "Memory", icon: LucideBrain },
 		{ key: "kb", label: "Knowledge", icon: LucideLibrary },
 		{ key: "skills", label: "Skills", icon: IconDocument },
-		{ key: "mcp", label: "MCP Servers", icon: IconMCP },
-		{ key: "local", label: "Local connectors", icon: LucideLaptop },
+		{ key: "mcp", label: "Connectors", icon: IconMCP },
+		{ key: "local", label: "On your computers", icon: LucideLaptop },
 	] as const;
 	// Memory hides on the same terms as Knowledge, for the same reason: with
 	// `CHAT_MEMORY_ENABLED=false` its routes answer 404, so the tab would only

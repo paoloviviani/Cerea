@@ -28,13 +28,13 @@
 		{#if codeReauth.signedOut}
 			<p class="mb-1 text-xs font-medium text-ink">Sign in again</p>
 			<p class="mb-4 text-xs text-ink-muted">
-				You were signed out. Sign in again to see your machines.
+				You were signed out. Sign in again to see your computers.
 			</p>
 			<a href={codeReauth.signInPath} class={s.PRIMARY} data-sveltekit-reload>Sign in</a>
 		{:else}
 			<p class="mb-1 text-xs font-medium text-ink">Sign in again</p>
 			<p class="mb-4 text-xs text-ink-muted">
-				Your sign-in is older than 7 days. Sign in again to see your machines.
+				Your sign-in is more than 7 days old. Sign in again to see your computers.
 			</p>
 			<a href={codeReauth.reauthPath} class={s.PRIMARY} data-sveltekit-reload>Sign in</a>
 		{/if}

@@ -67,7 +67,7 @@
 	<button
 		type="button"
 		class="btn rounded-md border border-gray-200/80 bg-white/90 p-1.5 text-xs text-gray-500 backdrop-blur-xs hover:bg-gray-100 hover:text-gray-600 dark:border-gray-700/80 dark:bg-gray-900/90 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-		title="Mount knowledge files into /mnt/data"
+		title="Make knowledge files available to the code"
 		aria-expanded={open}
 		onclick={toggle}
 	>
@@ -85,7 +85,7 @@
 			<div
 				class="flex items-center justify-between border-b border-gray-100 px-3 py-2 text-xs font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300"
 			>
-				<span>Knowledge files → /mnt/data</span>
+				<span>Knowledge files for the code</span>
 				<button
 					type="button"
 					class="btn rounded p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
@@ -107,7 +107,7 @@
 						<span>{error}</span>
 					</div>
 				{:else if grouped(files).length === 0}
-					<div class="p-3 text-xs text-gray-400">No indexed knowledge files yet.</div>
+					<div class="p-3 text-xs text-gray-400">No knowledge files are ready yet.</div>
 				{:else}
 					{#each grouped(files) as [storeName, group] (storeName)}
 						<div

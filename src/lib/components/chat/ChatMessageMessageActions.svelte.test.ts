@@ -20,7 +20,7 @@ const message = (state?: "running" | "done") => ({
 });
 
 const forkSnippet = createRawSnippet(() => ({
-	render: () => '<button aria-label="Fork from here" type="button">Fork</button>',
+	render: () => '<button aria-label="Branch off from here" type="button">Fork</button>',
 	setup: () => {},
 }));
 
@@ -33,7 +33,7 @@ const mount = (props: Record<string, unknown>) =>
 	} as never);
 
 const forkButton = (view: { baseElement: HTMLElement }) =>
-	view.baseElement.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]');
+	view.baseElement.querySelector<HTMLButtonElement>('button[aria-label="Branch off from here"]');
 
 describe("ChatMessage's per-message actions", () => {
 	it("chat passes no actions, and no action renders", async () => {
@@ -43,7 +43,7 @@ describe("ChatMessage's per-message actions", () => {
 
 	it("without a visibility rule, the footer falls back to the message's own turn state", async () => {
 		const done = mount({ messageActions: forkSnippet, message: message("done") });
-		await expect.element(done.getByRole("button", { name: "Fork from here" })).toBeVisible();
+		await expect.element(done.getByRole("button", { name: "Branch off from here" })).toBeVisible();
 		done.unmount();
 
 		const running = mount({ messageActions: forkSnippet, message: message("running") });
@@ -64,6 +64,8 @@ describe("ChatMessage's per-message actions", () => {
 			messageActionsWhen: () => true,
 			message: message(),
 		});
-		await expect.element(offered.getByRole("button", { name: "Fork from here" })).toBeVisible();
+		await expect
+			.element(offered.getByRole("button", { name: "Branch off from here" }))
+			.toBeVisible();
 	});
 });

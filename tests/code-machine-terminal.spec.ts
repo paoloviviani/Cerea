@@ -28,13 +28,13 @@ test.describe("the terminal on a real machine", () => {
 		await page.goto(`${E2E_APP_BASE}/code`);
 		await page.getByRole("button", { name: "Agents", exact: true }).click();
 		await expect(page.getByText(m.name)).toBeVisible({ timeout: 60_000 });
-		await page.getByRole("button", { name: "Confirm this machine" }).click();
-		await page.getByRole("button", { name: "Add a workspace to this device" }).click();
-		await page.getByLabel("Directory on the machine").fill(m.workspace);
+		await page.getByRole("button", { name: "Confirm this computer" }).click();
+		await page.getByRole("button", { name: "Add a folder on this computer" }).click();
+		await page.getByLabel("Folder on the computer").fill(m.workspace);
 		await page.getByLabel("Title (optional)").fill("repo");
-		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
+		await page.getByRole("dialog").getByRole("button", { name: "Add folder" }).click();
 		await expect(page.getByText("repo", { exact: true })).toBeVisible();
-		await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
+		await page.getByRole("button", { name: "Start a coding session in this folder" }).click();
 		await page.getByRole("button", { name: "Create agent" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 	}
@@ -279,12 +279,12 @@ test.describe("the terminal on a real machine", () => {
 		await expect(page.getByText(/Exited/)).toBeVisible({ timeout: 15_000 });
 
 		await page.getByRole("button", { name: "Close terminal", exact: true }).click();
-		await expect(page.getByText("No terminals open in this workspace.")).toBeVisible();
+		await expect(page.getByText("No terminals open in this folder.")).toBeVisible();
 
 		// Not just gone from this mount's in-memory list — gone from the
 		// machine's own roster, so a fresh pane open doesn't bring it back.
 		await closeAndReopenPane(page);
-		await expect(page.getByText("No terminals open in this workspace.")).toBeVisible();
+		await expect(page.getByText("No terminals open in this folder.")).toBeVisible();
 	});
 
 	test("exiting doesn't use up a maxTerminals slot", async ({ page, db, session }) => {
@@ -319,7 +319,7 @@ test.describe("the terminal on a real machine", () => {
 		await page.getByRole("button", { name: "New", exact: true }).click();
 		term = page.getByTestId("code-terminal");
 		await expect(term).toBeVisible({ timeout: 15_000 });
-		await expect(page.getByText("Could not open a terminal.")).not.toBeVisible();
+		await expect(page.getByText("Could not open a terminal. Try again.")).not.toBeVisible();
 		await freshShell(page);
 		await term.click();
 		await page.keyboard.type("echo maxslot-ok");

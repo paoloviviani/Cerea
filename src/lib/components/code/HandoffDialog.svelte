@@ -1,7 +1,7 @@
 <!--
 	A fork handoff (parity plan §4.2(a)): a new session, on this machine or
 	another of the caller's own paired ones, seeded with a prompt and the
-	source transcript up to the message the person hit "Fork from here" on.
+	source transcript up to the message the person hit "Branch off from here" on.
 	In the style of `AgentDialog.svelte`; see it for the
 	phone-sized-first and sticky-footer notes, which apply here unchanged.
 
@@ -39,7 +39,7 @@
 		provider: string;
 		modeId: string | null;
 		modelId: string | null;
-		/** The machine's own id for the message "Fork from here" was clicked on
+		/** The machine's own id for the message "Branch off from here" was clicked on
 		 * (`Message.machineMessageId`) — the "carry up to here" boundary.
 		 * Undefined carries the whole transcript instead (still curated,
 		 * never truncated at the click point). */
@@ -114,7 +114,9 @@
 		} catch (err) {
 			if (token === listsToken) {
 				listsFailure =
-					err instanceof Error ? err.message : "Could not read that machine's workspaces.";
+					err instanceof Error
+						? err.message
+						: "Could not load the folders on that computer. Try again.";
 			}
 		} finally {
 			if (token === listsToken) listsBusy = false;
@@ -134,7 +136,7 @@
 				prompt: prompt.trim(),
 				// The fork always carries the conversation: without it this is not
 				// a fork but a brand-new session with no memory of the work so
-				// far, which is not what "Fork from here" promises. The route
+				// far, which is not what "Branch off from here" promises. The route
 				// keeps the flag for other callers.
 				carry: true,
 				...(targetDevice !== deviceId ? { targetDevice } : {}),
@@ -146,7 +148,8 @@
 			onhandoff(result);
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not fork this session.";
+			failure =
+				err instanceof Error ? err.message : "Could not branch off from this session. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -160,7 +163,7 @@
 				<IconFork class="size-5 text-blue-600" />
 			</div>
 			<div class="min-w-0 pr-8">
-				<h2 id="handoff-title" class={s.TITLE}>Fork from here</h2>
+				<h2 id="handoff-title" class={s.TITLE}>Branch off from here</h2>
 				<p class="{s.SUBTITLE} break-words">From {agentTitle}</p>
 			</div>
 		</div>
@@ -169,7 +172,7 @@
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Fork failed
+					Could not branch off
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -188,7 +191,7 @@
 				void handleSubmit();
 			}}
 		>
-			<label class={s.LABEL} for="handoff-device">Device</label>
+			<label class={s.LABEL} for="handoff-device">Computer</label>
 			<select
 				id="handoff-device"
 				class={s.INPUT}
@@ -199,14 +202,14 @@
 			>
 				{#each targetDevices as device (device.id)}
 					<option value={device.id}
-						>{device.name}{device.id === deviceId ? " (this machine)" : ""}</option
+						>{device.name}{device.id === deviceId ? " (this computer)" : ""}</option
 					>
 				{/each}
 			</select>
 
-			<label class="{s.LABEL} mt-4" for="handoff-workspace">Workspace</label>
+			<label class="{s.LABEL} mt-4" for="handoff-workspace">Folder</label>
 			{#if listsBusy && workspaces.length === 0}
-				<p class="text-sm text-ink-muted">Reading that machine's workspaces…</p>
+				<p class="text-sm text-ink-muted">Loading folders on that computer…</p>
 			{:else}
 				<select
 					id="handoff-workspace"
@@ -230,7 +233,7 @@
 				disabled={busy || modes.length === 0}
 			>
 				{#if modes.length === 0}
-					<option value="">Daemon default</option>
+					<option value="">Default</option>
 				{/if}
 				{#each modes as mode (mode.id)}
 					<option value={mode.id}>{mode.label}</option>
@@ -245,15 +248,13 @@
 				bind:value={targetModelId}
 				disabled={busy}
 			>
-				<option value="">Daemon default</option>
+				<option value="">Default</option>
 				{#each models as model (model.id)}
 					<option value={model.id}>{model.label}</option>
 				{/each}
 			</select>
 
-			<p class={s.HINT}>
-				The new agent's first message carries a summary of this conversation as an attachment.
-			</p>
+			<p class={s.HINT}>The new agent's first message includes a summary of this conversation.</p>
 
 			<label class="{s.LABEL} mt-4" for="handoff-prompt">Prompt</label>
 			<textarea

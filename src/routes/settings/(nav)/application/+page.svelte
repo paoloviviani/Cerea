@@ -273,10 +273,10 @@
 				<div class="flex items-start justify-between py-3">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Streaming mode
+							How replies appear
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Choose how assistant text appears while generating.
+							Choose how the assistant's text appears as it writes.
 						</p>
 					</div>
 					<select
@@ -284,8 +284,8 @@
 						value={getStreamingMode()}
 						onchange={(e) => setStreamingMode(e.currentTarget.value as StreamingMode)}
 					>
-						<option value="smooth">Smooth stream</option>
-						<option value="raw">Raw stream</option>
+						<option value="smooth">Smooth</option>
+						<option value="raw">As it arrives</option>
 					</select>
 				</div>
 
@@ -295,7 +295,7 @@
 							Paste text directly
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Paste long text directly into chat instead of a file.
+							Paste long text straight into the chat instead of attaching it as a file.
 						</p>
 					</div>
 					<Switch name="directPaste" bind:checked={getDirectPaste, setDirectPaste} />
@@ -304,11 +304,9 @@
 				{#if supportsHaptics()}
 					<div class="flex items-start justify-between py-3">
 						<div>
-							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-								Haptic feedback
-							</div>
+							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">Vibration</div>
 							<p class="text-[12px] text-gray-500 dark:text-gray-400">
-								Vibrate on taps and actions on supported devices.
+								Vibrate when you tap, on devices that support it.
 							</p>
 						</div>
 						<Switch name="hapticsEnabled" bind:checked={getHapticsEnabled, setHapticsEnabled} />
@@ -337,12 +335,12 @@
 				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Tool approvals
+							Asking before acting
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Whether the assistant may call web_fetch and MCP tools on its own, or asks you first —
-							once per call, with the option to allow a tool for the rest of the conversation.
-							Overridable per chat at the composer.
+							Whether the assistant may open web pages and use connectors on its own, or asks you
+							first each time (you can allow one for the rest of a chat). You can change this for a
+							single chat in the chat box.
 						</p>
 					</div>
 					<select
@@ -350,7 +348,7 @@
 						value={getToolApprovalPolicy()}
 						onchange={(e) => setToolApprovalPolicy(e.currentTarget.value)}
 					>
-						<option value="manual">Ask per call (default)</option>
+						<option value="manual">Ask each time (default)</option>
 						<option value="always-allow">Always allow</option>
 					</select>
 				</div>
@@ -358,15 +356,15 @@
 				<div class="flex items-start justify-between py-3">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Install packages from PyPI in code execution
+							Let code install extra Python packages
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
 							{#if page.data.pyodidePyPiInstallAllowed}
-								Lets code you run install any pure-Python package from the public PyPI index, not
-								just the ones this deployment vendors. Off by default: code execution runs in your
-								browser, so this is your own call to make.
+								Lets code that runs in a chat install extra Python packages from the public PyPI
+								website, not just the ones included here. Off by default: the code runs in your
+								browser, so this is your call.
 							{:else}
-								Disabled by this deployment's administrator.
+								Turned off by your administrator.
 							{/if}
 						</p>
 					</div>
@@ -391,7 +389,7 @@
 				}}
 				type="button"
 				class="flex items-center underline decoration-red-200 underline-offset-2 hover:decoration-red-500 dark:decoration-red-900 dark:hover:decoration-red-700"
-				><CarbonTrashCan class="mr-2 inline text-sm text-red-500" />Delete all conversations</button
+				><CarbonTrashCan class="mr-2 inline text-sm text-red-500" />Delete all chats</button
 			>
 		</div>
 	</div>

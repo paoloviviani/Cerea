@@ -75,9 +75,9 @@
 			>
 				<p class="font-medium">This area is for administrators.</p>
 				<p class="mt-1 text-gray-600 dark:text-gray-400">
-					You are signed in as {data.identity.email ?? "yourself"}, and this deployment's gateway
-					does not list you as an administrator. Nothing here is hidden from you out of caution —
-					these are settings that change the chat for everybody.
+					You are signed in as {data.identity.email ?? "yourself"}, and this service's gateway does
+					not list you as an administrator. Nothing here is hidden from you out of caution — these
+					are settings that change the chat for everybody.
 				</p>
 			</div>
 		{:else}
@@ -88,7 +88,7 @@
 			>
 				<p class="font-medium">This area needs an administrator.</p>
 				<p class="mt-1">
-					Either this deployment's gateway does not list you as one, or you signed in with a local
+					Either this service's gateway does not list you as one, or you signed in with a local
 					password rather than through the identity provider — an administration decision needs
 					evidence that a person just signed in, so a local session cannot reach here. Signing out
 					and back in through the provider is the first thing to try.
@@ -131,7 +131,7 @@
 					class="inline-flex w-fit items-center gap-1.5 text-sm text-blue-600 hover:underline dark:text-blue-400"
 				>
 					<IconLaunch class="size-4" />
-					Manage providers, models, quotas and users in the Pystino console
+					Manage providers, models, limits and users in the console
 				</a>
 			{/if}
 		</header>

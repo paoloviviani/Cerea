@@ -143,14 +143,14 @@
 					{#if errors.length > 0 && onsend}
 						<button
 							class="absolute right-4 bottom-4 z-10 btn flex items-center gap-2 rounded-full border-2 border-red-500/60 bg-red-800/90 px-4 py-1.5 text-sm text-white shadow-lg"
-							title="Send the errors and ask for a fix"
+							title="Send the problems and ask for a fix"
 							onclick={() => {
 								// Close only once the message is actually on its way, so the
 								// preview (and the errors backing the request) stays up otherwise
 								if (onsend?.(composeFixRequest(errors))) sidePane.close();
 							}}
 						>
-							<span>Error caught ({errors.length}) — ask to fix</span>
+							<span>Problem found ({errors.length}): ask for a fix</span>
 						</button>
 					{/if}
 				</div>

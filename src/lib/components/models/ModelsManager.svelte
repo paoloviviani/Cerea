@@ -157,8 +157,8 @@
 		return [
 			{
 				key: "tools",
-				label: "Tool calling",
-				detail: "Let it call tools — MCP servers, and the built-in ones.",
+				label: "Use tools",
+				detail: "Let it use tools: your connectors and the built-in ones.",
 				advertised: Boolean(model.supportsTools),
 				current: $settings.toolsOverrides?.[settingsModelId(model)] ?? Boolean(model.supportsTools),
 				set: (value) => setTools(settingsModelId(model), value),
@@ -166,7 +166,7 @@
 			{
 				key: "multimodal",
 				label: "Image input",
-				detail: "Accept image attachments and send them to the model.",
+				detail: "Let people attach images for the model to look at.",
 				advertised: Boolean(model.multimodal),
 				current:
 					$settings.multimodalOverrides?.[settingsModelId(model)] ?? Boolean(model.multimodal),
@@ -175,7 +175,7 @@
 			{
 				key: "reasoning",
 				label: "Reasoning",
-				detail: "Let it think before answering, and offer the effort selector.",
+				detail: "Let it think before answering, and offer the effort choice.",
 				advertised: Boolean(model.supportsReasoning),
 				current:
 					$settings.reasoningOverrides?.[settingsModelId(model)] ??
@@ -184,8 +184,8 @@
 			},
 			{
 				key: "artifacts",
-				label: "Artifacts",
-				detail: "Show substantial output in a side panel rather than inline.",
+				label: "Files in a side panel",
+				detail: "Show longer results in a side panel instead of in the chat.",
 				// The effective default (`artifactsEnabledForTurn`, server-side):
 				// an explicit flag on the model entry always wins; absent one, any
 				// tool-capable model has artifacts on. `Boolean(undefined)` would
@@ -246,7 +246,7 @@
 						type="search"
 						bind:value={filter}
 						placeholder="Search by name"
-						aria-label="Search models by name or id"
+						aria-label="Search models by name"
 						class="{s.SEARCH} pl-9"
 					/>
 				</div>
@@ -348,7 +348,7 @@
 				{/if}
 
 				<div class={s.TIPS}>
-					<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
+					<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
 					<ul class={s.TIPS_LIST}>
 						<li>
 							• The default is what a <strong>new</strong> chat starts on; an open chat keeps its own.
@@ -357,7 +357,7 @@
 							• <strong>Custom</strong> models are yours: a base model with its own system prompt,
 							made on the <strong>Custom models</strong> tab.
 						</li>
-						<li>• A router picks a model per message rather than pinning one.</li>
+						<li>• A router picks a model for each message instead of always using the same one.</li>
 					</ul>
 				</div>
 			</div>
@@ -407,8 +407,8 @@
 										     of the two they are looking at. -->
 										<span class="mt-0.5 block text-xs text-amber-700 dark:text-amber-500">
 											{capability.advertised
-												? "The gateway says this model supports it."
-												: "The gateway does not report this model as supporting it."}
+												? "This model supports it."
+												: "This model is not known to support it."}
 										</span>
 									{/if}
 								</span>
@@ -420,19 +420,18 @@
 						{/each}
 					</div>
 					<p class={s.HINT}>
-						What the gateway advertises for this model is the default. These switches override it in
-						either direction — turning one off disables the capability even where advertised — for a
-						model whose catalogue entry is wrong or incomplete.
+						By default these follow what the model says it can do. Use the switches to change that,
+						either way, if the information is wrong or missing.
 					</p>
 				</div>
 
 				<div class={s.TIPS}>
-					<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
+					<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
 					<ul class={s.TIPS_LIST}>
 						<li>
-							• These are <strong>your</strong> settings for this model, not the deployment's.
+							• These are <strong>your</strong> settings for this model, not everyone's.
 						</li>
-						<li>• They take effect on new turns, including in conversations already open.</li>
+						<li>• They apply to your next message, including in chats that are already open.</li>
 					</ul>
 				</div>
 			</div>

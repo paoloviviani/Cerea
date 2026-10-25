@@ -103,7 +103,7 @@ test.describe("the /code tree appears without a manual reload", () => {
 		// The tree mounts and starts polling before the machine exists at all.
 		await page.goto(`${E2E_APP_BASE}/code`);
 		await page.getByRole("button", { name: "Agents", exact: true }).click();
-		await expect(page.getByRole("navigation").getByText("No paired devices")).toBeVisible();
+		await expect(page.getByRole("navigation").getByText("No computers connected")).toBeVisible();
 
 		machine = await startMachine({ sub });
 		const deviceId = await waitForDeviceStatus(page, machine.name, "pending");

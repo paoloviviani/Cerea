@@ -10,7 +10,7 @@
  * drive the modal's fit-content width past the screen and clip everything
  * past the first line); the pair dialog shows the machine's setup commands
  * with this deployment's own origin filled in and closes by itself when the
- * machine checks in as paired; and New Chat keeps its address while carrying
+ * machine checks in as paired; and New chat keeps its address while carrying
  * the switcher's small/icon idiom.
  */
 import { test, expect, E2E_APP_URL, E2E_APP_ORIGIN, E2E_APP_BASE } from "./fixtures";
@@ -66,7 +66,7 @@ async function openAgentsPanel(page: Page) {
 
 async function openAgentDialog(page: Page) {
 	await openAgentsPanel(page);
-	await visibleTreeButton(page, "Start a coding session in this workspace").click();
+	await visibleTreeButton(page, "Start a coding session in this folder").click();
 	const dialog = page.getByRole("dialog");
 	await expect(dialog).toBeVisible();
 	// The provider list has landed (a machine's one backend is named, not
@@ -170,7 +170,7 @@ test.describe("the new-agent dialog after a failed create", () => {
 
 		const dialog = page.getByRole("dialog");
 		await dialog.getByRole("button", { name: "Create agent" }).click();
-		await expect(dialog.getByText("Agent failed")).toBeVisible();
+		await expect(dialog.getByText("Could not create the agent")).toBeVisible();
 
 		expectInsideViewportBox(await boxOf(dialog.getByRole("button", { name: "Cancel" })), 264, 568);
 		expectInsideViewportBox(
@@ -184,7 +184,7 @@ test.describe("the new-agent dialog after a failed create", () => {
 
 test.describe("the pair dialog's setup commands", () => {
 	test.beforeEach(async ({ page }) => {
-		// No devices yet: the tree's empty state offers "Pair a device" itself.
+		// No devices yet: the tree's empty state offers "Connect a computer" itself.
 		deviceRows = [];
 		await stubCodePanel(page);
 		await page.setViewportSize({ width: 360, height: 740 });
@@ -194,7 +194,7 @@ test.describe("the pair dialog's setup commands", () => {
 		page,
 	}) => {
 		await openAgentsPanel(page);
-		await visibleTreeButton(page, "Pair a new device").click();
+		await visibleTreeButton(page, "Connect a new computer").click();
 		const dialog = page.getByRole("dialog");
 		await expect(dialog).toBeVisible();
 
@@ -210,7 +210,7 @@ test.describe("the pair dialog's setup commands", () => {
 			`galopin enroll \\\n  --issuer 'http://127.0.0.1:9/authelia' \\\n  --gateway '${E2E_APP_ORIGIN}' \\\n  --cerea '${E2E_APP_URL}'`
 		);
 		await expect(commandBlock).toContainText("galopin run");
-		await expect(dialog.getByText("No machine has checked in yet.")).toBeVisible();
+		await expect(dialog.getByText("No computer has checked in yet.")).toBeVisible();
 
 		// The commands never clip on a phone.
 		const overflow = await dialog.evaluate((el) => el.scrollWidth - el.clientWidth);
@@ -251,7 +251,7 @@ test.describe("the pair dialog's setup commands", () => {
 		page,
 	}) => {
 		await openAgentsPanel(page);
-		await visibleTreeButton(page, "Pair a new device").click();
+		await visibleTreeButton(page, "Connect a new computer").click();
 		const dialog = page.getByRole("dialog");
 		await expect(dialog).toBeVisible();
 
@@ -273,13 +273,13 @@ test.describe("the pair dialog's setup commands", () => {
 	});
 });
 
-test("New Chat keeps its address and carries the switcher's small icon idiom", async ({ page }) => {
+test("New chat keeps its address and carries the switcher's small icon idiom", async ({ page }) => {
 	deviceRows = [{ id: DEVICE, name: "e2e box", status: "paired" }];
 	await stubCodePanel(page);
 	await page.setViewportSize({ width: 1280, height: 800 });
 	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}`);
 
-	const newChat = page.getByRole("link", { name: "New Chat" });
+	const newChat = page.getByRole("link", { name: "New chat" });
 	await expect(newChat).toBeVisible();
 	// Same address and shortcut tooltip as before; the icon is the
 	// switcher's own affordance (an svg inside the link). The href carries

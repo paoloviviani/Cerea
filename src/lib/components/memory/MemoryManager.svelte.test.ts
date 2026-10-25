@@ -188,7 +188,9 @@ describe("MemoryManager", () => {
 		);
 		document.body.innerHTML = "";
 		renderWithApp(MemoryManager, {}, settingsContext(true));
-		await vi.waitFor(() => expect(page.getByText("No longer sent").elements()).not.toHaveLength(0));
+		await vi.waitFor(() =>
+			expect(page.getByText("Not used any more").elements()).not.toHaveLength(0)
+		);
 		expect(page.getByText("too old to fit", { exact: false }).elements()).not.toHaveLength(0);
 	});
 });

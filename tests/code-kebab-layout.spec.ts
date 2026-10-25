@@ -132,8 +132,8 @@ test("hovering the workspace row moves neither its + nor its kebab, which stays 
 	const wsRow = rowOf(page, WS1_NAME);
 	await expect(wsRow).toBeVisible();
 
-	const startSession = wsRow.locator('button[title="Start a coding session in this workspace"]');
-	const kebab = wsRow.getByRole("button", { name: "Workspace actions" });
+	const startSession = wsRow.locator('button[title="Start a coding session in this folder"]');
+	const kebab = wsRow.getByRole("button", { name: "Folder actions" });
 
 	const startBefore = await boxOf(startSession);
 	const kebabBefore = await boxOf(kebab);
@@ -187,7 +187,7 @@ test("the workspace, session and chat kebabs all draw the same horizontal glyph"
 
 	await openAgentsPanel(page);
 	expectHorizontalDots(
-		await dotCenters(rowOf(page, WS1_NAME).getByRole("button", { name: "Workspace actions" }))
+		await dotCenters(rowOf(page, WS1_NAME).getByRole("button", { name: "Folder actions" }))
 	);
 	expectHorizontalDots(
 		await dotCenters(rowOf(page, AGENT_TITLE).getByRole("button", { name: "Session actions" }))
@@ -197,9 +197,7 @@ test("the workspace, session and chat kebabs all draw the same horizontal glyph"
 	// sidebar, not a fresh navigation, so the same page is reused.
 	await page.getByRole("button", { name: "Chats", exact: true }).click();
 	await expect(page.getByText("a chat row")).toBeVisible();
-	expectHorizontalDots(
-		await dotCenters(page.getByRole("button", { name: "Conversation actions" }))
-	);
+	expectHorizontalDots(await dotCenters(page.getByRole("button", { name: "Chat actions" })));
 });
 
 test("the + next to Pair opens the workspace dialog, even when the device already has a workspace", async ({
@@ -209,10 +207,10 @@ test("the + next to Pair opens the workspace dialog, even when the device alread
 	await expect(page.getByText(WS1_NAME, { exact: true })).toBeVisible();
 	await expect(page.getByText(WS2_NAME, { exact: true })).toBeVisible();
 
-	await page.locator('button[title="Add a workspace to this device"]').click();
+	await page.locator('button[title="Add a folder on this computer"]').click();
 
 	const dialog = page.getByRole("dialog");
 	await expect(dialog).toBeVisible();
-	await expect(dialog.getByText("Add a workspace")).toBeVisible();
-	await expect(dialog.getByLabel("Directory on the machine")).toBeVisible();
+	await expect(dialog.getByText("Add a folder")).toBeVisible();
+	await expect(dialog.getByLabel("Folder on the computer")).toBeVisible();
 });

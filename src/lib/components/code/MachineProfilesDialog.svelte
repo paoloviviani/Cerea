@@ -1,6 +1,6 @@
 <!--
 	A machine's delegate profiles: a name and a model each, one of them the
-	default (PROTOCOL.md §6 "Delegate profiles"). When the agent on that
+	default (PROTOCOL.md §6 "Helper profiles"). When the agent on that
 	machine delegates work (a spawned session, a committee member) and names no
 	profile, the default's model is used; with no profiles, the agent's own.
 
@@ -77,7 +77,8 @@
 			models = listed.models;
 			load(set);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not read this machine's profiles.";
+			failure =
+				err instanceof Error ? err.message : "Could not load this computer's profiles. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -141,7 +142,7 @@
 			load(stored);
 			saved = true;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save the profiles.";
+			failure = err instanceof Error ? err.message : "Could not save the profiles. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -155,15 +156,15 @@
 				<IconUsers class="size-5 text-blue-600" />
 			</div>
 			<div class="min-w-0">
-				<h2 id="machine-profiles-title" class={s.TITLE}>Delegate profiles</h2>
+				<h2 id="machine-profiles-title" class={s.TITLE}>Helper profiles</h2>
 				<p class="{s.SUBTITLE} truncate">{device.name}</p>
 			</div>
 		</div>
 
 		<p class="mb-4 text-sm text-ink-muted">
-			A profile is a name and a model. When the agent on this machine hands work to another session
-			and names no profile, the default's model is used; with no profiles it uses its own. A model
-			never changes what a delegate may do.
+			A profile is a name and a model. When the agent on this computer hands work to a helper
+			without naming a profile, the default profile's model is used. With no profiles it uses its
+			own model. A model never changes what a helper is allowed to do.
 		</p>
 
 		{#if !support.ok}
@@ -187,10 +188,10 @@
 			}}
 		>
 			{#if loading}
-				<p class="text-sm text-ink-muted">Reading this machine's profiles…</p>
+				<p class="text-sm text-ink-muted">Loading this computer's profiles…</p>
 			{:else if support.ok && rows.length === 0}
 				<p class="rounded-lg border border-dashed border-line px-3 py-4 text-sm text-ink-muted">
-					No profiles. Delegates run on the agent's own model.
+					No profiles. Helpers use the agent's own model.
 				</p>
 			{:else if rows.length > 0}
 				<div

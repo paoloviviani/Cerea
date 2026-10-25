@@ -13,7 +13,7 @@
  * own note), so every tree control here is addressed by its visible
  * instance; the drawer itself closes on every `goto()` the tree flow makes
  * (WorkspaceDialog/AgentDialog's "Navigation also closes the drawer"), so
- * the flow below reopens it between "Add workspace" and "Start a coding
+ * the flow below reopens it between "Add folder" and "Start a coding
  * session".
  */
 import { randomUUID } from "node:crypto";
@@ -81,15 +81,15 @@ async function pairAndOpenWorkspace(page: Page, name: string) {
 	await page.goto(`${E2E_APP_BASE}/code`);
 	await openAgentsPanel(page);
 	await expect(visibleText(page, name)).toBeVisible({ timeout: 15_000 });
-	await visibleTreeButton(page, "Confirm this machine").click();
-	await visibleTreeButton(page, "Add a workspace to this device").click();
-	await page.getByLabel("Directory on the machine").fill("/repo");
+	await visibleTreeButton(page, "Confirm this computer").click();
+	await visibleTreeButton(page, "Add a folder on this computer").click();
+	await page.getByLabel("Folder on the computer").fill("/repo");
 	await page.getByLabel("Title (optional)").fill("repo");
-	await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
+	await page.getByRole("dialog").getByRole("button", { name: "Add folder" }).click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 
 	await openAgentsPanel(page);
-	await visibleTreeButton(page, "Start a coding session in this workspace").click();
+	await visibleTreeButton(page, "Start a coding session in this folder").click();
 	await page.getByRole("dialog").getByRole("button", { name: "Create agent" }).click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 }
@@ -356,13 +356,13 @@ test.describe("the terminal on desktop", () => {
 		await page.goto(`${E2E_APP_BASE}/code`);
 		await page.getByRole("button", { name: "Agents", exact: true }).click();
 		await expect(page.getByText(name)).toBeVisible({ timeout: 15_000 });
-		await page.getByRole("button", { name: "Confirm this machine" }).click();
-		await page.getByRole("button", { name: "Add a workspace to this device" }).click();
-		await page.getByLabel("Directory on the machine").fill("/repo");
+		await page.getByRole("button", { name: "Confirm this computer" }).click();
+		await page.getByRole("button", { name: "Add a folder on this computer" }).click();
+		await page.getByLabel("Folder on the computer").fill("/repo");
 		await page.getByLabel("Title (optional)").fill("repo");
-		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
+		await page.getByRole("dialog").getByRole("button", { name: "Add folder" }).click();
 		await expect(page.getByText("repo", { exact: true })).toBeVisible();
-		await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
+		await page.getByRole("button", { name: "Start a coding session in this folder" }).click();
 		await page.getByRole("button", { name: "Create agent" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 

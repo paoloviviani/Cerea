@@ -15,7 +15,7 @@
 		? '*:bg-gray-300/70 dark:*:bg-gray-600'
 		: '*:bg-gray-300/70 dark:*:bg-gray-600'}"
 	name="sidebar-toggle"
-	aria-label="Toggle sidebar navigation"
+	aria-label="Show or hide the sidebar"
 >
 	<div class={!isCollapsed ? "group-hover:rotate-20" : "group-hover:rotate-[-20deg]"}></div>
 	<div class={!isCollapsed ? "group-hover:rotate-[-20deg]" : "group-hover:rotate-20"}></div>

@@ -77,7 +77,7 @@ const mount = (props: Record<string, unknown>) => {
 	});
 	return {
 		screen,
-		runButton: () => screen.getByTitle("Run this code in the browser sandbox"),
+		runButton: () => screen.getByTitle("Run this code here in your browser"),
 	};
 };
 
@@ -215,7 +215,7 @@ describe("CodeBlock execution", () => {
 		sessionMock.failNext(new Error("the code did not finish within 20 s"));
 		await tick();
 		const text = screen.baseElement.textContent ?? "";
-		expect(text).toContain("Execution failed");
+		expect(text).toContain("The code failed");
 		expect(text).toContain("did not finish within 20 s");
 	});
 

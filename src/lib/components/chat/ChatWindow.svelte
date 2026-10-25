@@ -534,7 +534,7 @@
 			body: JSON.stringify({ model: id }),
 		});
 		if (!response.ok) {
-			error.set("Could not switch model");
+			error.set("Could not switch model. Try again.");
 			return;
 		}
 		await Promise.all([safeInvalidate(UrlDependency.Conversation), convsStore.refresh()]);
@@ -559,7 +559,7 @@
 			body: JSON.stringify({ reasoningEffort: value }),
 		});
 		if (!response.ok) {
-			error.set("Could not change the effort");
+			error.set("Could not change the effort. Try again.");
 			return;
 		}
 		pickedEffort = { value };
@@ -611,8 +611,8 @@
 				draft = draft.trim() ? `${draft.trim()} ${trimmedText}` : trimmedText;
 			}
 		} catch (err) {
-			console.error("Transcription error:", err);
-			$error = "Transcription failed. Please try again.";
+			console.error("Could not turn your voice into text:", err);
+			$error = "Could not turn your voice into text. Try again.";
 		} finally {
 			isTranscribing = false;
 		}
@@ -641,15 +641,15 @@
 				handleSubmit();
 			}
 		} catch (err) {
-			console.error("Transcription error:", err);
-			$error = "Transcription failed. Please try again.";
+			console.error("Could not turn your voice into text:", err);
+			$error = "Could not turn your voice into text. Try again.";
 		} finally {
 			isTranscribing = false;
 		}
 	}
 
 	function handleRecordingError(message: string) {
-		console.error("Recording error:", message);
+		console.error("Recording problem:", message);
 		isRecording = false;
 		$error = message;
 	}
@@ -696,8 +696,8 @@
 							type="button"
 							class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700"
 							onclick={() => sidePane.toggleLibrary()}
-							aria-label="Open artifacts panel"
-							title="Artifacts and chat export"
+							aria-label="Open files panel"
+							title="Files and chat export"
 						>
 							<CarbonSidePanelOpen />
 						</button>
@@ -897,7 +897,7 @@
 						{#if loading && streamingToolCallName}
 							<span class="inline-flex items-center gap-1 text-xs whitespace-nowrap">
 								<LucideHammer class="size-3" />
-								Calling tool
+								Using a tool
 								<span class="loading-dots font-medium">
 									{availableTools.find((t) => t.name === streamingToolCallName)?.displayName ??
 										streamingToolCallName}
@@ -941,7 +941,8 @@
 					{/if}
 					{#if !messages.length && !loading}
 						<span class="max-sm:hidden"
-							>{publicConfig.PUBLIC_CAVEAT || "Generated content may be inaccurate or false."}</span
+							>{publicConfig.PUBLIC_CAVEAT ||
+								"The assistant can make mistakes. Check important information."}</span
 						>
 					{/if}
 				</div>

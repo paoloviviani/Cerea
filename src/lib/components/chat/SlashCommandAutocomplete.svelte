@@ -69,7 +69,7 @@
 		bind:this={listboxElement}
 		id="slash-command-listbox"
 		role="listbox"
-		aria-label="Slash commands"
+		aria-label="Commands"
 		class="pointer-events-auto scrollbar-custom max-h-64 w-72 max-w-[min(20rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 text-[13px] shadow-lg dark:border-gray-700 dark:bg-gray-900"
 	>
 		{#if results.length === 0}
@@ -116,14 +116,14 @@
 									class="size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
 									aria-hidden="true"
 								/>
-								<span class="sr-only">runs shell on the machine</span>
+								<span class="sr-only">runs on your computer</span>
 							{/if}
 							<span class="font-mono text-gray-800 dark:text-gray-200">
 								/{option.result.name}
 							</span>
 							{#if option.result.shadowed}
 								<span class="min-w-0 flex-1 truncate text-right text-gray-400 dark:text-gray-500">
-									shadowed by a panel command
+									hidden by another command
 								</span>
 							{:else}
 								<span class="min-w-0 flex-1 truncate text-right text-gray-500 dark:text-gray-400">

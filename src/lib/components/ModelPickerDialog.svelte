@@ -128,7 +128,7 @@
 				<div class={s.EMPTY}>
 					<CarbonSearch class={s.EMPTY_ICON} />
 					<p class={s.EMPTY_TITLE}>No model matches that search.</p>
-					<p class={s.EMPTY_DETAIL}>Try a shorter search, or clear it to see everything.</p>
+					<p class={s.EMPTY_DETAIL}>Try fewer letters, or clear the search to see everything.</p>
 					<button type="button" class={s.SECONDARY} onclick={() => (query = "")}>
 						Clear the search
 					</button>

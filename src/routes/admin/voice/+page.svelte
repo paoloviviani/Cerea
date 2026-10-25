@@ -16,7 +16,7 @@
 			value: "fallback",
 			title: "Only when no voice model is available",
 			detail:
-				"Offer it only when the deployment has no server-side transcription model, so the recorder button and the dictation button are never shown together. This is the default.",
+				"Offer it only when this service has no server-side transcription model, so the recorder button and the dictation button are never shown together. This is the default.",
 		},
 	];
 
@@ -36,7 +36,7 @@
 			const response = await fetch(`${base}/api/v2/admin/dictation`);
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 			}
 			const data = await response.json();
 			mode = data.mode;
@@ -64,7 +64,7 @@
 			});
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 			}
 			saved = mode;
 			note = "Saved. People see it the next time the page loads.";
@@ -81,7 +81,7 @@
 		<h2 class="font-medium">Enable browser dictation</h2>
 		<p class="text-xs text-gray-500 dark:text-gray-400">
 			A microphone button in the composer that types what a person says, using the speech
-			recognition built into their browser. Nothing is installed here and this deployment never
+			recognition built into their browser. Nothing is installed here and this service never
 			receives the audio, but Chrome, Edge and Safari may send it to the browser vendor's cloud for
 			recognition, and Firefox has none (the button is hidden there).
 		</p>
@@ -102,8 +102,8 @@
 			<p
 				class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 			>
-				This deployment reads configuration from the environment only, so this cannot be changed
-				here. Set <code>CHAT_DICTATION</code> where the other variables live.
+				This service reads configuration from the environment only, so this cannot be changed here.
+				Set <code>CHAT_DICTATION</code> where the other variables live.
 			</p>
 		{/if}
 
@@ -133,8 +133,8 @@
 
 		<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="voice-model-state">
 			{transcriptionEnabled
-				? "This deployment has a voice model (server-side transcription): the recorder button is shown in the chat."
-				: "This deployment has no voice model: there is no recorder button."}
+				? "This service has a voice model (server-side transcription): the recorder button is shown in the chat."
+				: "This service has no voice model: there is no recorder button."}
 		</p>
 
 		<div class="flex items-center justify-between gap-3">

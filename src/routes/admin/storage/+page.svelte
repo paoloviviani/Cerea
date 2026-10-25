@@ -48,7 +48,7 @@
 		const response = await fetch(`${base}/api/v2/admin/storage${query}`);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 		}
 		return response.json();
 	}
@@ -100,7 +100,7 @@
 			});
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 			}
 			saved = wanted;
 			note =
@@ -141,8 +141,8 @@
 			<p
 				class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 			>
-				This deployment reads configuration from the environment only, so this cannot be changed
-				here. Set <code>CHAT_FILE_RETENTION_DAYS</code> where the other variables live.
+				This service reads configuration from the environment only, so this cannot be changed here.
+				Set <code>CHAT_FILE_RETENTION_DAYS</code> where the other variables live.
 			</p>
 		{/if}
 

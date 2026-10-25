@@ -21,7 +21,7 @@
 			const response = await fetch(`${base}/api/v2/admin/delegation`);
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 			}
 			const data = await response.json();
 			enabled = data.enabled;
@@ -48,7 +48,7 @@
 			});
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 			}
 			saved = enabled;
 			note = "Saved. It applies to the next message anyone sends.";
@@ -64,11 +64,11 @@
 	<div class="flex flex-col gap-1">
 		<h2 class="font-medium">Sub-agents</h2>
 		<p class="text-xs text-gray-500 dark:text-gray-400">
-			Lets the assistant hand a sub-task to a sub-agent that works on its own, in a fresh context,
-			and returns only its answer, up to three at a time. The <code>research</code> preset is a sub-agent
-			that searches the web and reads sources. Each sub-agent makes its own model calls, billed to the
-			person like any message, and can use the chat's server-side tools, including connector tools the
-			conversation already allows. It never raises an approval card: a tool that needs approval is refused.
+			Lets the assistant hand a sub-task to a sub-agent that works on its own and returns only its
+			answer, up to three at a time. The <code>research</code> preset is a sub-agent that searches the
+			web and reads sources. Each sub-agent makes its own model calls, billed to the person like any message,
+			and can use the chat's server-side tools, including connector tools the conversation already allows.
+			It never raises an approval card: a tool that needs approval is refused.
 		</p>
 	</div>
 
@@ -87,8 +87,8 @@
 			<p
 				class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 			>
-				This deployment reads configuration from the environment only, so this cannot be changed
-				here. Set <code>CHAT_DELEGATION</code> where the other variables live.
+				This service reads configuration from the environment only, so this cannot be changed here.
+				Set <code>CHAT_DELEGATION</code> where the other variables live.
 			</p>
 		{/if}
 

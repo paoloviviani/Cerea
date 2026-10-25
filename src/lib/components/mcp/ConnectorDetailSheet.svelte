@@ -112,7 +112,7 @@
 
 		<dl class="flex flex-col gap-2">
 			<div class={row}>
-				<dt class={term}>State</dt>
+				<dt class={term}>Status</dt>
 				<dd class="break-words text-gray-900 dark:text-gray-100">
 					{stateLabel}{#if stateDetail}<span class="block text-gray-600 dark:text-gray-400"
 							>{stateDetail}</span
@@ -120,7 +120,7 @@
 				</dd>
 			</div>
 			<div class={row}>
-				<dt class={term}>Transport</dt>
+				<dt class={term}>Connection type</dt>
 				<dd class="text-gray-900 dark:text-gray-100">{transport}</dd>
 			</div>
 			{#if !local}
@@ -141,12 +141,12 @@
 
 		<h3 class="mt-5 mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Tools</h3>
 		{#if listing.kind === "loading"}
-			<p class="text-sm text-gray-600 dark:text-gray-400">Listing tools…</p>
+			<p class="text-sm text-gray-600 dark:text-gray-400">Loading tools…</p>
 		{:else if listing.kind === "error"}
 			<p
 				class="rounded-sm bg-red-50 px-2 py-1 text-sm break-words text-red-800 dark:bg-red-900/20 dark:text-red-200"
 			>
-				Couldn't list tools: {listing.reason}
+				Couldn't load the tools: {listing.reason}
 			</p>
 		{:else if listing.kind === "tools"}
 			{#if listing.tools.length === 0}
@@ -168,8 +168,8 @@
 		{:else}
 			<p class="text-sm text-gray-600 dark:text-gray-400">
 				{local
-					? "Tools are listed while the server is on."
-					: "Not checked yet. Use Check on the card to list them."}
+					? "Tools are listed while the connector is on."
+					: "Not checked yet. Use Check on the card to see its tools."}
 			</p>
 		{/if}
 	</div>

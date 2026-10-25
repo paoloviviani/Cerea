@@ -111,10 +111,10 @@ async function stubCodePanel(page: Page, opts: { createBehavior: "success" | "fa
 async function openAgentDialog(page: Page) {
 	await page.goto(`${APP_BASE_URL}/code?device=${DEVICE}&ws=${WS}`);
 	await page.getByRole("button", { name: "Open Agents panel" }).click();
-	await page.locator("button[title='Start a coding session in this workspace']:visible").click();
+	await page.locator("button[title='Start a coding session in this folder']:visible").click();
 	const dialog = page.getByRole("dialog");
 	await dialog.waitFor({ state: "visible" });
-	await dialog.getByText("As configured on your daemon.").waitFor({ state: "visible" });
+	await dialog.getByText("As set up on your computer.").waitFor({ state: "visible" });
 	return dialog;
 }
 
@@ -206,7 +206,7 @@ async function runViewport(context: BrowserContext, name: string, width: number,
 	await stubCodePanel(page2, { createBehavior: "fail" });
 	const dialogFail = await openAgentDialog(page2);
 	await dialogFail.getByRole("button", { name: "Create agent" }).click();
-	await dialogFail.getByText("Agent failed").waitFor({ state: "visible" });
+	await dialogFail.getByText("Could not create the agent").waitFor({ state: "visible" });
 	await page2.screenshot({ path: `test-results/webkit-safari-${width}-after-fail.png` });
 
 	await check(`${name}: dialog stays inside the viewport after a failed create`, async () => {

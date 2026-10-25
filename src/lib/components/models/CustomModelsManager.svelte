@@ -102,7 +102,7 @@
 		const response = await fetch(`${base}/api/v2/custom-models${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 		}
 		return response.status === 204 ? (undefined as T) : await response.json();
 	}
@@ -155,7 +155,7 @@
 			// The pickers read the layout's model list: reload it.
 			await invalidateAll();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That custom model could not be saved.";
+			failure = err instanceof Error ? err.message : "Could not save that custom model. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -171,7 +171,8 @@
 			confirmingId = null;
 			await invalidateAll();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "That custom model could not be deleted.";
+			failure =
+				err instanceof Error ? err.message : "Could not delete that custom model. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -192,7 +193,7 @@
 				{#if view === "list"}
 					Tell the assistant how to behave: once for every chat, or as a model of your own.
 				{:else}
-					A base model with a system prompt of its own. It is private to you.
+					An existing model plus instructions of your own. Only you can see it.
 				{/if}
 			</p>
 		</div>
@@ -214,8 +215,8 @@
 						</p>
 						<p class={s.STRIP_DETAIL}>
 							{($settings.globalSystemPrompt ?? "").trim()
-								? "A global system prompt is set"
-								: "No global system prompt"}
+								? "Instructions for every chat are set"
+								: "No instructions for every chat"}
 						</p>
 					</div>
 				</div>
@@ -226,19 +227,19 @@
 
 			<div class={s.STACK}>
 				<div>
-					<h3 class={s.SECTION_TITLE}>Global system prompt</h3>
+					<h3 class={s.SECTION_TITLE}>Instructions for every chat</h3>
 					<textarea
 						id="global-system-prompt"
-						aria-label="Global system prompt"
+						aria-label="Instructions for every chat"
 						class="{s.INPUT} min-h-32 font-mono text-xs"
-						placeholder="Instructions every chat starts from, whatever the model."
+						placeholder="Instructions every chat starts with, whatever the model."
 						maxlength={GLOBAL_SYSTEM_PROMPT_MAX}
 						bind:value={globalDraft}
 					></textarea>
 					<div class="mt-1 flex items-center justify-between gap-3">
 						<p class={s.HINT}>
-							Sent with every chat message, ahead of a custom model's own prompt and a project's
-							context. Not used by the Agents panel, or to title a chat.
+							Used in every chat, before a custom model's own instructions and a project's. Not used
+							by Agents, or to name a chat.
 						</p>
 						<div class="flex shrink-0 items-center gap-2">
 							{#if globalSaved && !globalDirty}
@@ -260,7 +261,7 @@
 							<LucideSparkles class={s.EMPTY_ICON} />
 							<p class={s.EMPTY_TITLE}>No custom models yet</p>
 							<p class={s.EMPTY_DETAIL}>
-								Pick a base model, write a system prompt, and it shows up in the model picker.
+								Pick a model, write its instructions, and it shows up when you choose a model.
 							</p>
 							<button type="button" class={s.PRIMARY} onclick={() => begin(null)}>
 								<CarbonAdd class="size-4" /> New custom model
@@ -297,7 +298,7 @@
 										{#if confirmingId === model.id}
 											<div class="flex flex-wrap items-center gap-2">
 												<p class="text-xs text-ink-muted">
-													Delete “{model.name}”? Chats on it move to its base model.
+													Delete “{model.name}”? Chats on it move to the original model.
 												</p>
 												<button
 													type="button"
@@ -351,19 +352,19 @@
 				</div>
 
 				<div class={s.TIPS}>
-					<h4 class={s.TIPS_TITLE}>💡 Quick Tips</h4>
+					<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
 					<ul class={s.TIPS_LIST}>
 						<li>
-							• A custom model <strong>inherits everything</strong> from its base: vision, tools, reasoning
-							and the effort options. Only the prompt is yours.
+							• A custom model <strong>inherits everything</strong> from the original model: images, tools,
+							reasoning and effort. Only the instructions are yours.
 						</li>
 						<li>
-							• Prompts stack in order: <strong>global</strong>, then the
+							• Instructions are used in this order: <strong>global</strong>, then the
 							<strong>custom model's</strong>, then a project's instructions.
 						</li>
 						<li>
-							• Only your own chats see a custom model; the provider is only ever sent the base
-							model.
+							• Only you can use your custom models. The company behind the model only ever sees the
+							original model.
 						</li>
 						<li>• Delete one and its chats carry on, on the base model.</li>
 					</ul>
@@ -386,11 +387,11 @@
 						maxlength={CUSTOM_MODEL_NAME_MAX}
 						placeholder="Menu helper"
 					/>
-					<p class={s.HINT}>Shown in the model picker. Each of your custom models needs its own.</p>
+					<p class={s.HINT}>Shown when you choose a model. Each one needs its own name.</p>
 				</div>
 
 				<div>
-					<label class={s.LABEL} for="custom-model-base">Base model</label>
+					<label class={s.LABEL} for="custom-model-base">Original model</label>
 					<select id="custom-model-base" class={s.INPUT} bind:value={baseModelId}>
 						{#if baseModelId && baseName(baseModelId) === null}
 							<option value={baseModelId}>{baseModelId} (no longer available)</option>
@@ -399,9 +400,7 @@
 							<option value={option.id}>{option.displayName ?? option.name ?? option.id}</option>
 						{/each}
 					</select>
-					<p class={s.HINT}>
-						The model that does the work. Its capabilities and settings carry over.
-					</p>
+					<p class={s.HINT}>The model that does the work. Its abilities carry over.</p>
 				</div>
 
 				<div>
@@ -418,7 +417,7 @@
 				</div>
 
 				<div>
-					<label class={s.LABEL} for="custom-model-prompt">System prompt</label>
+					<label class={s.LABEL} for="custom-model-prompt">Instructions</label>
 					<textarea
 						id="custom-model-prompt"
 						class="{s.INPUT} min-h-40 font-mono text-xs"
@@ -427,7 +426,7 @@
 						placeholder="You are a menu planner. Always answer with a table."
 					></textarea>
 					<p class={s.HINT}>
-						Applied to every message of a chat on this model, after your global prompt.
+						Used in every chat on this model, after your instructions for every chat.
 					</p>
 				</div>
 

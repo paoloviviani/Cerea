@@ -1,9 +1,9 @@
 import { writable } from "svelte/store";
 
 export const ERROR_MESSAGES = {
-	default: "Oops, something went wrong.",
-	authOnly: "You have to be logged in.",
-	rateLimited: "You are sending too many messages. Try again later.",
+	default: "Something went wrong. Try again.",
+	authOnly: "Please sign in first.",
+	rateLimited: "You are sending messages too fast. Try again in a moment.",
 };
 
 export const error = writable<string | undefined>(undefined);

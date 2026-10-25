@@ -43,7 +43,7 @@ function drop(screen: Screen) {
 	screen.unmount();
 }
 
-const box = (screen: Screen) => screen.getByPlaceholder("Follow up with the agent…");
+const box = (screen: Screen) => screen.getByPlaceholder("Reply to the agent…");
 
 async function fill(screen: Screen, text: string) {
 	await box(screen).fill(text);

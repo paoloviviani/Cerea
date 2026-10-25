@@ -104,18 +104,18 @@ describe("the switcher on the pages", () => {
 		);
 		await expect.element(trigger()).toHaveTextContent("MCP Servers");
 		await trigger().click();
-		// No Knowledge, Memory or Local connectors: the same gating as the tabs.
+		// No Knowledge, Memory or On your computers: the same gating as the tabs.
 		expect(sheetLabels()).toEqual(["Models", "Custom models", "Skills", "MCP Servers"]);
 		await page.getByRole("link", { name: "Skills" }).click();
 		expect(followed).toEqual(["/workspace?tab=skills"]);
 	});
 
-	it("Workspace offers Local connectors once the deployment has them", async () => {
+	it("Workspace offers On your computers once the deployment has them", async () => {
 		renderWithApp(WorkspacePanel, { data: { models: [], localConnectorsEnabled: true } } as never, {
 			page: { url: "http://localhost:3000/workspace" },
 		});
 		await trigger().click();
-		expect(sheetLabels()).toContain("Local connectors");
+		expect(sheetLabels()).toContain("On your computers");
 		expect(sheetLabels()).toContain("Knowledge");
 	});
 

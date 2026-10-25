@@ -115,7 +115,7 @@
 		>
 			{#if failed}
 				<p class="px-2 py-3 text-sm text-red-600 dark:text-red-400">
-					Could not load your projects.
+					Could not load your projects. Try again.
 				</p>
 			{:else if projects === null}
 				<p class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">Loading…</p>

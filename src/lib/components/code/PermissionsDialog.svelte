@@ -181,7 +181,9 @@
 			await load();
 			onchanged?.();
 		} catch (err) {
-			errorToast.set(err instanceof Error ? err.message : "Could not remove that exception.");
+			errorToast.set(
+				err instanceof Error ? err.message : "Could not remove that exception. Try again."
+			);
 		} finally {
 			removing = null;
 		}
@@ -204,7 +206,7 @@
 			await load();
 			onchanged?.();
 		} catch (err) {
-			errorToast.set(err instanceof Error ? err.message : "Could not change the grant.");
+			errorToast.set(err instanceof Error ? err.message : "Could not change that. Try again.");
 		} finally {
 			coordinating = false;
 		}
@@ -222,7 +224,7 @@
 					Permissions — {sessionTitle}
 				</h2>
 				<p class="{s.SUBTITLE} break-words">
-					What this session will do about its tool calls, and the exceptions you have allowed.
+					What this session does when the agent wants to act, and the exceptions you have allowed.
 				</p>
 			</div>
 		</div>
@@ -235,15 +237,15 @@
 						data-testid="legacy-machine-flag"
 					>
 						<span class="min-w-0 flex-1">
-							<span class="font-medium">Re-enroll this machine to set limits.</span> Its policy predates
-							ceilings, so nothing caps Allow: on Allow, edits, commands and fetches run without asking,
-							subagents too.
+							<span class="font-medium">Connect this computer again to set limits.</span> Its rules are
+							from before limits existed, so nothing caps Allow. On Allow, edits, commands and fetches
+							go ahead without asking, helper agents too.
 						</span>
 						{#if onreenroll}
 							<button
 								type="button"
 								class="shrink-0 rounded-lg border border-amber-300 bg-white px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-transparent dark:text-amber-200"
-								onclick={onreenroll}>Re-enroll this machine</button
+								onclick={onreenroll}>Connect this computer again</button
 							>
 						{/if}
 					</div>
@@ -271,7 +273,7 @@
 							{/if}
 							{#if row.capped}
 								<span class="text-ink-faint" data-testid="permission-capped"
-									>limited by this machine</span
+									>limited by this computer</span
 								>
 							{/if}
 						</li>
@@ -279,15 +281,15 @@
 				</ul>
 
 				<p class="text-ink-muted">
-					Set by this session's Deny / Ask / Allow switch, within the limits this machine was
-					enrolled with.
+					Set by this session's Deny / Ask / Allow switch, within the limits this computer was
+					connected with.
 				</p>
 
 				<div>
 					<p class="mb-1 font-medium text-ink">Exceptions</p>
 					{#if exceptions.length === 0}
 						<p class="text-ink-muted">
-							None. "Always allow (this session)" on a card would add one here.
+							None. Choosing “Always allow (this session)” on a card would add one here.
 						</p>
 					{:else}
 						<ul class="flex flex-col gap-1" data-testid="permission-exceptions">
@@ -307,13 +309,13 @@
 									{/if}
 									<span class="min-w-0 flex-1"></span>
 									{#if exception.removable === false}
-										<span class="text-ink-faint">held by the machine</span>
+										<span class="text-ink-faint">held by the computer</span>
 									{:else}
 										<button
 											type="button"
 											class="rounded-lg border border-line px-2 py-0.5 text-xs font-medium text-ink-muted hover:bg-sunken disabled:opacity-60"
 											disabled={removing !== null}
-											title="Remove this exception: the next matching call asks again."
+											title="Remove this exception. The next time, it asks again."
 											aria-label="Remove exception for {exception.permission}"
 											onclick={() => void remove(exception.id)}
 										>
@@ -324,17 +326,17 @@
 							{/each}
 						</ul>
 						<p class="mt-1 text-ink-faint">
-							Exceptions last for this session only. Deny blocks them without deleting them;
-							switching back to Ask restores them.
+							Exceptions last for this session only. Deny blocks them without deleting them, and
+							switching back to Ask brings them back.
 						</p>
 					{/if}
 				</div>
 
 				<div>
-					<p class="mb-1 font-medium text-ink">Coordination</p>
+					<p class="mb-1 font-medium text-ink">Working with other sessions</p>
 					{#if subagent}
 						<p class="text-ink-muted">
-							A subagent follows its root's setting and holds no grant of its own. Open this dialog
+							A helper agent follows the main session's setting and has none of its own. Open this
 							on the main session to change it.
 						</p>
 					{:else if grantable && !grantable.ok}
@@ -345,7 +347,7 @@
 						<div
 							class="space-y-2"
 							role="group"
-							aria-label="Coordination with other sessions"
+							aria-label="Working with other sessions"
 							data-testid="coordination-options"
 						>
 							<label class="flex items-start gap-2 text-sm text-ink">
@@ -372,9 +374,9 @@
 							</label>
 						</div>
 						<p class="mt-1 text-ink-faint">
-							Takes effect on the session's next turn. Still asks: a session in another workspace, a
-							send past three hops, anything this machine caps at Ask — and the rate limits still
-							apply. A session it spawns starts with the same grant.
+							Takes effect on the session's next reply. It still asks about a session in another
+							folder, a message passed along more than three times, and anything this computer
+							limits to Ask. Rate limits still apply. A session it starts gets the same setting.
 						</p>
 						{#if ceilingWarning}
 							<p class="mt-1 text-ink-faint">{ceilingWarning}</p>
@@ -387,11 +389,11 @@
 						Show the raw rules (for troubleshooting)
 					</summary>
 					<p class="my-1 text-ink-muted">
-						opencode's rules in evaluation order: the last one that matches wins, so an earlier rule
-						for the same permission can be replaced by a later one.
+						opencode's rules in order: the last one that matches wins, so a later rule can replace
+						an earlier one.
 					</p>
 					{#if rules.length === 0}
-						<p class="text-ink-muted">No rules: opencode asks for everything it checks.</p>
+						<p class="text-ink-muted">No rules: opencode asks about everything it checks.</p>
 					{:else}
 						<ul class="flex flex-col gap-1" data-testid="permission-rules">
 							{#each rules as rule, index (index)}
@@ -425,15 +427,16 @@
 		{:else if !codeReauth.required}
 			{#if loading}
 				<p class="text-sm text-ink-muted" data-testid="permissions-loading">
-					Reading the session's rules…
+					Loading the session's rules…
 				</p>
 			{:else if missing}
 				<p class="text-sm text-ink-muted" data-testid="permissions-unavailable">
-					This machine's galopin is too old to report permissions; update it to see them.
+					The Cerea program (galopin) on this computer is too old to show permissions. Update it to
+					see them.
 				</p>
 			{:else}
 				<p class="text-sm text-ink-muted" data-testid="permissions-unavailable">
-					The machine has not answered yet. Close and open this again in a moment.
+					The computer has not answered yet. Close this and open it again in a moment.
 				</p>
 			{/if}
 		{/if}

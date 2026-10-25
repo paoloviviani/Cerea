@@ -96,7 +96,9 @@ describe("CodePanel with a stale sign-in", () => {
 		await expect.element(screen.getByTestId("code-reauth-card")).toBeVisible();
 		await expect
 			.element(
-				screen.getByText("Your sign-in is older than 7 days. Sign in again to see your machines.")
+				screen.getByText(
+					"Your sign-in is more than 7 days old. Sign in again to see your computers."
+				)
 			)
 			.toBeVisible();
 		const link = screen.getByRole("link", { name: "Sign in" });
@@ -141,7 +143,7 @@ describe("CodePanel signed out (no session at all)", () => {
 		await expect.element(card).toBeVisible();
 		await expect.element(card).toHaveAttribute("data-variant", "signed-out");
 		await expect
-			.element(screen.getByText("You were signed out. Sign in again to see your machines."))
+			.element(screen.getByText("You were signed out. Sign in again to see your computers."))
 			.toBeVisible();
 		const link = screen.getByRole("link", { name: "Sign in" });
 		await expect.element(link).toHaveAttribute("href", "/login?next=/code");

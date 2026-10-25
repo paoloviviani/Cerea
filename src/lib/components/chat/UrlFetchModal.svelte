@@ -68,7 +68,7 @@
 		errorMsg = "";
 		const trimmed = urlValue.trim();
 		if (!isHttpsUrl(trimmed)) {
-			errorMsg = "Enter a valid HTTPS URL.";
+			errorMsg = "Enter a web address that starts with https://.";
 			return;
 		}
 		loading = true;
@@ -80,14 +80,14 @@
 			const res = await fetch(proxyUrl);
 			if (!res.ok) {
 				const txt = await res.text();
-				throw new Error(txt || `Failed to fetch (${res.status})`);
+				throw new Error(txt || `Could not get that web address (${res.status}).`);
 			}
 			const forwardedType = res.headers.get("x-forwarded-content-type");
 			const blob = await res.blob();
 			const mimeType = pickSafeMime(forwardedType, blob.type, trimmed);
 			// Optional client-side mime filter (same wildcard semantics as dropzone)
 			if (acceptMimeTypes.length > 0 && mimeType && !matchesAllowed(mimeType, acceptMimeTypes)) {
-				throw new Error("File type not allowed.");
+				throw new Error("This type of file is not allowed.");
 			}
 			const disp = res.headers.get("content-disposition");
 			const filename = (() => {
@@ -114,7 +114,7 @@
 			onfiles?.([file]);
 			close();
 		} catch (e) {
-			errorMsg = e instanceof Error ? e.message : "Failed to fetch URL";
+			errorMsg = e instanceof Error ? e.message : "Could not get that web address. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -132,7 +132,9 @@
 				}}
 			>
 				<div class="flex items-start justify-between">
-					<h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">Add from URL</h2>
+					<h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">
+						Add from a web address
+					</h2>
 					<button type="button" class="group" onclick={close} aria-label="Close">
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
@@ -149,7 +151,7 @@
 
 				<div class="flex flex-col gap-2">
 					<label class="text-sm text-gray-600 dark:text-gray-400" for="fetch-url-input"
-						>Enter URL</label
+						>Web address</label
 					>
 					<input
 						id="fetch-url-input"
@@ -171,7 +173,9 @@
 				{#if errorMsg}
 					<p class="-mt-1 text-sm text-red-600 dark:text-red-400">{errorMsg}</p>
 				{/if}
-				<p class="-mt-2 text-xs text-gray-500 dark:text-gray-400">Only HTTPS. Max 10MB.</p>
+				<p class="-mt-2 text-xs text-gray-500 dark:text-gray-400">
+					Must start with https://. Up to 10 MB.
+				</p>
 
 				<div class="flex items-center justify-end gap-2">
 					<button

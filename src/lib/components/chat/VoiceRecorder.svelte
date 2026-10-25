@@ -88,14 +88,14 @@
 		} catch (err) {
 			if (err instanceof DOMException) {
 				if (err.name === "NotAllowedError") {
-					onerror("Microphone access denied. Please allow in browser settings.");
+					onerror("Microphone blocked. Allow it in your browser settings.");
 				} else if (err.name === "NotFoundError") {
 					onerror("No microphone found.");
 				} else {
-					onerror(`Microphone error: ${err.message}`);
+					onerror(`Microphone problem: ${err.message}`);
 				}
 			} else {
-				onerror("Could not access microphone.");
+				onerror("Could not use the microphone.");
 			}
 		}
 	}
@@ -153,7 +153,7 @@
 				onconfirm(audioBlob);
 			}
 		} else {
-			onerror("No audio recorded. Please try again.");
+			onerror("Nothing was recorded. Try again.");
 		}
 	}
 

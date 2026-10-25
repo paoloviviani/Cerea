@@ -43,7 +43,7 @@ test.beforeEach(() => {
 	workspaceRows = [{ id: WS, name: "repo", path: REPO_PATH, isGitRepo: true }];
 });
 
-test.describe("path suggestions in the Add workspace dialog", () => {
+test.describe("path suggestions in the Add folder dialog", () => {
 	test("suggests directories while typing, and selecting one fills the field", async ({ page }) => {
 		await stubCodePanel(page);
 
@@ -63,7 +63,7 @@ test.describe("path suggestions in the Add workspace dialog", () => {
 		});
 
 		await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}`);
-		await page.locator("button[title='Add a workspace to this device']").click();
+		await page.locator("button[title='Add a folder on this computer']").click();
 
 		const dialog = page.getByRole("dialog");
 		await expect(dialog).toBeVisible();
@@ -109,7 +109,7 @@ test.describe("creating a worktree workspace", () => {
 
 		await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}`);
 
-		await page.getByRole("button", { name: "Workspace actions" }).click();
+		await page.getByRole("button", { name: "Folder actions" }).click();
 		await expect(page.getByRole("menuitem", { name: "New worktree…" })).toBeVisible();
 		await page.getByRole("menuitem", { name: "New worktree…" }).click();
 

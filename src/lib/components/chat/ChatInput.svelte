@@ -188,7 +188,7 @@
 				body: JSON.stringify({ webSearch: next }),
 			});
 			if (!response.ok) {
-				let message = "Failed to update web search";
+				let message = "Could not change web search. Try again.";
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -200,7 +200,9 @@
 			// Roll back the optimistic toggle so the pill never claims a state
 			// the server refused.
 			webSearch = previous;
-			errorToast.set(err instanceof Error ? err.message : "Failed to update web search");
+			errorToast.set(
+				err instanceof Error ? err.message : "Could not change web search. Try again."
+			);
 		}
 	}
 
@@ -221,7 +223,7 @@
 				body: JSON.stringify({ toolApprovalOverride: next ? "always-allow" : "manual" }),
 			});
 			if (!response.ok) {
-				let message = "Failed to update tool approval";
+				let message = "Could not change this setting. Try again.";
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -233,7 +235,9 @@
 			// Home page has no PATCH to fail (returned above); this rollback
 			// is for the conversation-page PATCH only.
 			autoApproveTools = previous;
-			errorToast.set(err instanceof Error ? err.message : "Failed to update tool approval");
+			errorToast.set(
+				err instanceof Error ? err.message : "Could not change this setting. Try again."
+			);
 		}
 	}
 
@@ -393,7 +397,7 @@
 				body: JSON.stringify({ knowledgeBaseIds: next.map((base) => base.id) }),
 			});
 			if (!response.ok) {
-				let message = "Failed to update knowledge bases";
+				let message = "Could not change the knowledge bases. Try again.";
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -406,7 +410,9 @@
 			// attachment the server refused; the turn's retrieval would silently
 			// miss the base otherwise.
 			knowledgeBases = previous;
-			errorToast.set(err instanceof Error ? err.message : "Failed to update knowledge bases");
+			errorToast.set(
+				err instanceof Error ? err.message : "Could not change the knowledge bases. Try again."
+			);
 		}
 	}
 
@@ -1122,7 +1128,7 @@
 											onSelect={() => openFilePickerImage()}
 										>
 											<CarbonImage class="size-4 opacity-90 dark:opacity-80" />
-											Add image(s)
+											Add images
 										</DropdownMenu.Item>
 										{#if canTakePhoto}
 											<DropdownMenu.Item
@@ -1163,14 +1169,14 @@
 												onSelect={() => openFilePickerText()}
 											>
 												<CarbonUpload class="size-4 opacity-90 dark:opacity-80" />
-												Upload from device
+												Upload from this device
 											</DropdownMenu.Item>
 											<DropdownMenu.Item
 												class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
 												onSelect={() => (isUrlModalOpen = true)}
 											>
 												<CarbonLink class="size-4 opacity-90 dark:opacity-80" />
-												Fetch from URL
+												Add from a web address
 											</DropdownMenu.Item>
 										</DropdownMenu.SubContent>
 									</DropdownMenu.Sub>
@@ -1191,7 +1197,7 @@
 											>
 												<div class="flex items-center gap-1">
 													<IconMCP classNames="size-4 opacity-90 dark:opacity-80" />
-													MCP Servers
+													Connectors
 												</div>
 												<div class="ml-auto flex items-center">
 													<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
@@ -1253,7 +1259,7 @@
 																class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
 																disabled
 															>
-																No connectors yet. Add one from Manage MCP Servers.
+																No connectors yet. Add one under Manage connectors.
 															</DropdownMenu.Item>
 														{/if}
 													{:else}
@@ -1272,7 +1278,7 @@
 													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
 													onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
 												>
-													Manage MCP Servers
+													Manage connectors
 												</DropdownMenu.Item>
 											</DropdownMenu.SubContent>
 										</DropdownMenu.Sub>
@@ -1384,24 +1390,22 @@
 								class:grayscale={!modelSupportsTools}
 								class:opacity-60={!modelSupportsTools}
 								class:cursor-help={!modelSupportsTools}
-								title={modelSupportsTools
-									? "MCP servers enabled"
-									: "Current model doesn’t support tools"}
+								title={modelSupportsTools ? "Connectors on" : "This model can't use connectors"}
 							>
 								<!-- The manager is a workspace tab now, not an overlay
 							     mounted here — every opener navigates to it. -->
 								<button
 									class="inline-flex cursor-pointer items-center gap-1 bg-transparent p-0 leading-none whitespace-nowrap text-current select-none focus:outline-hidden"
 									type="button"
-									title="Manage MCP Servers"
+									title="Manage connectors"
 									onclick={() => void goto(`${base}/workspace?tab=mcp`)}
 									class:line-through={!modelSupportsTools}
 								>
-									MCP ({$totalEnabledMcpCount})
+									Connectors ({$totalEnabledMcpCount})
 								</button>
 								<button
 									class="grid size-5 place-items-center rounded-full bg-blue-600/15 text-blue-700 transition-colors hover:bg-blue-600/25 dark:bg-blue-600/25 dark:text-blue-300 dark:hover:bg-blue-600/35"
-									aria-label="Disable all MCP servers"
+									aria-label="Turn off all connectors"
 									onclick={() => {
 										disableAllServers();
 										disableAllConnectors();
@@ -1434,8 +1438,7 @@
 								pressed={webSearch && !webSearchUnavailable}
 								disabled={!!webSearchUnavailable}
 								label="Web search"
-								title={webSearchUnavailable ??
-									"Search the web through this deployment's search backends (this chat only)"}
+								title={webSearchUnavailable ?? "Let the assistant search the web (this chat only)"}
 								onclick={toggleWebSearch}
 							>
 								{#snippet icon()}
@@ -1451,10 +1454,10 @@
 						<TogglePill
 							compact
 							pressed={autoApproveTools}
-							label={autoApproveTools ? "Tools auto-approved" : "Tools ask first"}
+							label={autoApproveTools ? "Runs without asking" : "Asks first"}
 							title={autoApproveTools
-								? "web_fetch and MCP tools run without asking in this chat. Click to ask again."
-								: "web_fetch and MCP tools ask before running. Click to allow them without asking, in this chat only."}
+								? "The assistant can open web pages and use connectors in this chat without asking. Select to be asked first again."
+								: "The assistant asks before opening web pages or using connectors. Select to let it go ahead without asking, in this chat only."}
 							onclick={toggleAutoApproveTools}
 						>
 							{#snippet icon()}
@@ -1583,7 +1586,7 @@
 													     sign-in lives, instead of selecting a no-op. -->
 		<DropdownMenu.Item
 			class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-			title="Sign in from Manage MCP Servers"
+			title="Sign in from Manage connectors"
 			onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
 		>
 			<img

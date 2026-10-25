@@ -25,7 +25,7 @@
 	in:fly={{ y: -8, duration: 400, delay: 300, easing: cubicOut }}
 	out:fade={{ duration: 150 }}
 	class="pointer-events-auto absolute top-4 right-4 z-10 w-[calc(100%-2rem)] max-w-sm sm:top-5 sm:right-5"
-	aria-label="Feature announcement"
+	aria-label="What's new"
 >
 	<div
 		class="rounded-2xl border border-gray-200/80 bg-white/85 p-4 shadow-md shadow-black/5 backdrop-blur-md dark:border-gray-700/60 dark:bg-gray-800/85 dark:shadow-black/20"

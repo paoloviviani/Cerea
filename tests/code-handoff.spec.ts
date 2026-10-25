@@ -155,12 +155,12 @@ test("hands off a completed reply to a new session, carrying the history up to i
 
 	await expect(page.getByText("Sure thing.")).toBeVisible();
 
-	const handoffAction = page.getByRole("button", { name: "Fork from here" });
+	const handoffAction = page.getByRole("button", { name: "Branch off from here" });
 	await expect(handoffAction).toBeVisible();
 	await handoffAction.click();
 
 	// The dialog opened, prefilled from the source.
-	const dialogTitle = page.getByRole("heading", { name: "Fork from here" });
+	const dialogTitle = page.getByRole("heading", { name: "Branch off from here" });
 	await expect(dialogTitle).toBeVisible();
 	await expect(page.getByText("From e2e agent")).toBeVisible();
 	// The conversation is always carried: there is no toggle to turn it off.
@@ -183,7 +183,7 @@ test("hands off a completed reply to a new session, carrying the history up to i
 
 	// Navigated to the new session, whose header names its source by title.
 	await page.waitForURL(`**/code?device=${DEVICE}&ws=${WS}&agent=${NEW_AGENT}`);
-	await expect(page.getByText("Forked from e2e agent")).toBeVisible();
+	await expect(page.getByText("Branched off from e2e agent")).toBeVisible();
 });
 
 test("the prompt is required, and the conversation is carried without a toggle", async ({
@@ -192,7 +192,7 @@ test("the prompt is required, and the conversation is carried without a toggle",
 	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 	await expect(page.getByText("Sure thing.")).toBeVisible();
 
-	await page.getByRole("button", { name: "Fork from here" }).click();
+	await page.getByRole("button", { name: "Branch off from here" }).click();
 	const submit = page.getByRole("button", { name: "Fork", exact: true });
 
 	// Nothing typed yet: the dialog refuses to submit.

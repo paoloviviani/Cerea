@@ -319,7 +319,7 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 	});
 
 	it("a project chat's title arrives live, without a reload", async () => {
-		stubFetch(undefined, [{ ...existingChat, title: "New Chat" }]);
+		stubFetch(undefined, [{ ...existingChat, title: "New chat" }]);
 		const { container } = await renderBranch("model-a");
 		await openBranch(container);
 		const folder = [...container.querySelectorAll("button")].find((b) =>
@@ -332,7 +332,7 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 			if (!el) throw new Error("no project chat guide rail yet");
 			return el;
 		});
-		expect(rail.textContent).toContain("New Chat");
+		expect(rail.textContent).toContain("New chat");
 
 		// What the chat page does when the first generation names the chat.
 		convsStore.update("conv-1", { title: "Mortgage rates compared" });

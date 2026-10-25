@@ -188,7 +188,7 @@ describe("ConnectorsSection: adding a token to a connector the probe could not w
 
 	it("offers a token field on a no-auth connector and sends what is typed", async () => {
 		// What auto mode leaves behind for a server that answered a bare 401:
-		// no auth, and a row error telling the person to add a token.
+		// no sign-in, and a row error telling the person to add a token.
 		const jmcp = connector({
 			id: "c-jmcp",
 			name: "jmcp",
@@ -221,7 +221,7 @@ describe("ConnectorsSection: adding a token to a connector the probe could not w
 			return field as HTMLInputElement;
 		});
 		// Nothing stored yet, so there is nothing to remove.
-		expect(screen.baseElement.textContent).not.toContain("Remove the stored token");
+		expect(screen.baseElement.textContent).not.toContain("Remove the saved access key");
 
 		token.value = "secret-token";
 		token.dispatchEvent(new Event("input", { bubbles: true }));
@@ -275,7 +275,7 @@ describe("ConnectorsSection: servers on the person's own machines (ADR 0102)", (
 		const screen = mount();
 
 		await expect
-			.element(screen.getByText("On your machines (1)", { exact: false }))
+			.element(screen.getByText("On your computers (1)", { exact: false }))
 			.toBeInTheDocument();
 		// Not among the person's own, which still counts one.
 		await expect
@@ -300,7 +300,7 @@ describe("ConnectorsSection: servers on the person's own machines (ADR 0102)", (
 		]);
 		const screen = mount();
 		await expect
-			.element(screen.getByText("On your machines (4)", { exact: false }))
+			.element(screen.getByText("On your computers (4)", { exact: false }))
 			.toBeInTheDocument();
 		expect(pills(screen)).toEqual(["Offline", "Needs sign-in", "Disabled", "Invalid"]);
 		const body = screen.baseElement.textContent ?? "";
@@ -438,7 +438,7 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		stub([...LONG.map((name) => localOf(name)), localOf("calendar")]);
 		const screen = mount();
 		await expect
-			.element(screen.getByText("On your machines (3)", { exact: false }))
+			.element(screen.getByText("On your computers (3)", { exact: false }))
 			.toBeInTheDocument();
 
 		const names = [
@@ -527,7 +527,7 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		await screen.getByRole("button", { name: "notes" }).click();
 		await expect
 			.element(page.getByTestId("connector-detail"))
-			.toHaveTextContent("Couldn't list tools: laptop is offline");
+			.toHaveTextContent("Couldn't load the tools: laptop is offline");
 	});
 
 	it("does not ask for tools of a server that is not on, and says so", async () => {
@@ -580,6 +580,10 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		const cards = [...(section?.querySelectorAll('[data-testid="card-name"]') ?? [])].map(
 			(el) => el.closest("div.rounded-lg") as HTMLElement
 		);
+		// One look: a connected connector and a built-in base server are not tinted differently.
+		expect(
+			new Set(cards.map((card) => card.className.replace("cursor-pointer", "").trim())).size
+		).toBe(1);
 		for (const card of cards) {
 			expect(card.querySelector("h4 img"), card.textContent ?? "").not.toBeNull();
 			expect(

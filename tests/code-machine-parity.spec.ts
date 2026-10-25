@@ -66,12 +66,12 @@ test.describe("owned machine agent: parity", () => {
 		await page.goto(`${E2E_APP_BASE}/code`);
 		await page.getByRole("button", { name: "Agents", exact: true }).click();
 		await expect(page.getByText(started.name)).toBeVisible({ timeout: 60_000 });
-		await page.getByRole("button", { name: "Confirm this machine" }).click();
-		await page.getByRole("button", { name: "Add a workspace to this device" }).click();
-		await page.getByLabel("Directory on the machine").fill(started.workspace);
+		await page.getByRole("button", { name: "Confirm this computer" }).click();
+		await page.getByRole("button", { name: "Add a folder on this computer" }).click();
+		await page.getByLabel("Folder on the computer").fill(started.workspace);
 		await page.getByLabel("Title (optional)").fill("repo");
-		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
-		await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
+		await page.getByRole("dialog").getByRole("button", { name: "Add folder" }).click();
+		await page.getByRole("button", { name: "Start a coding session in this folder" }).click();
 		await page.getByRole("button", { name: "Build" }).click();
 		await page.getByRole("button", { name: "Create agent" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -177,7 +177,7 @@ test.describe("owned machine agent: parity", () => {
 		await openSession(page, db, session.sessionId);
 		await mockOpenAI.setDefaultScenario(bashWriteScenario("call_a", "a", ["First", " done", "."]));
 		await send(page, "write a");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByText("wants to use")).toBeVisible({ timeout: 60_000 });
 		// The ceiling holds bash at ask: an "always" would store nothing, so the
 		// card does not offer one. Scoped to the transcript: the Needs-you
 		// inbox mirrors the same ask, so a page-global lookup goes ambiguous
@@ -192,7 +192,7 @@ test.describe("owned machine agent: parity", () => {
 
 		await mockOpenAI.setDefaultScenario(bashWriteScenario("call_b", "b", ["Second", " done", "."]));
 		await send(page, "write b");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByText("wants to use")).toBeVisible({ timeout: 60_000 });
 		await transcript.getByRole("button", { name: "Allow once" }).click();
 		await expect(transcriptCard(page).getByText("Second done.")).toBeVisible({ timeout: 60_000 });
 	});
@@ -222,7 +222,7 @@ test.describe("owned machine agent: parity", () => {
 		});
 		await mockOpenAI.setDefaultScenario(bashScenario("call_a", "a", ["First", " done", "."]));
 		await send(page, "run it");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByText("wants to use")).toBeVisible({ timeout: 60_000 });
 		await transcriptCard(page).getByRole("button", { name: "Always allow (this session)" }).click();
 		await expect(transcriptCard(page).getByText("First done.")).toBeVisible({ timeout: 60_000 });
 
@@ -230,7 +230,7 @@ test.describe("owned machine agent: parity", () => {
 		await mockOpenAI.setDefaultScenario(bashScenario("call_b", "b", ["Second", " done", "."]));
 		await send(page, "run it again");
 		await expect(transcriptCard(page).getByText("Second done.")).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByText("wants to call")).toHaveCount(0);
+		await expect(page.getByText("wants to use")).toHaveCount(0);
 
 		// The Permissions dialog lists it, from the details button beside the
 		// selector, and Remove takes it away.
@@ -254,7 +254,7 @@ test.describe("owned machine agent: parity", () => {
 		// Removed: that command asks again.
 		await mockOpenAI.setDefaultScenario(bashScenario("call_c", "c", ["Third", " done", "."]));
 		await send(page, "and once more");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByText("wants to use")).toBeVisible({ timeout: 60_000 });
 		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
 		await expect(transcriptCard(page).getByText("Third done.")).toBeVisible({ timeout: 60_000 });
 	});
@@ -269,7 +269,7 @@ test.describe("owned machine agent: parity", () => {
 		await choose(page, "Allow");
 		await mockOpenAI.setDefaultScenario(bashWriteScenario("call_c", "c", ["Wrote", " c", "."]));
 		await send(page, "write c");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByText("wants to use")).toBeVisible({ timeout: 60_000 });
 		expect(existsSync(join(m.workspace, "c.txt"))).toBe(false);
 		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
 		await expect(transcriptCard(page).getByText("Wrote c.")).toBeVisible({ timeout: 60_000 });
@@ -287,7 +287,7 @@ test.describe("owned machine agent: parity", () => {
 		await mockOpenAI.setDefaultScenario(writeFileScenario);
 		await send(page, "write the file");
 		await expect(page.getByText("Wrote it.")).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByText("wants to call")).toHaveCount(0);
+		await expect(page.getByText("wants to use")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "out.txt"))).toBe(true);
 
 		await page.getByRole("button", { name: "Changes" }).click();
@@ -303,7 +303,7 @@ test.describe("owned machine agent: parity", () => {
 		const m = await openSession(page, db, session.sessionId);
 		await mockOpenAI.setDefaultScenario(writeFileScenario);
 		await send(page, "write the file");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByText("wants to use")).toBeVisible({ timeout: 60_000 });
 		expect(existsSync(join(m.workspace, "out.txt"))).toBe(false);
 		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
 		await expect(page.getByText("Wrote it.")).toBeVisible({ timeout: 60_000 });
@@ -321,7 +321,7 @@ test.describe("owned machine agent: parity", () => {
 		await mockOpenAI.setDefaultScenario(writeFileScenario);
 		await send(page, "write the file");
 		await expect(page.getByText("Wrote it.")).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByText("wants to call")).toHaveCount(0);
+		await expect(page.getByText("wants to use")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "out.txt"))).toBe(false);
 	});
 
@@ -466,12 +466,12 @@ test.describe("owned machine agent: parity", () => {
 		symlinkSync("/etc/hostname", join(m.workspace, "escape"));
 
 		await page.getByRole("button", { name: "Files" }).click();
-		const tree = page.getByRole("tree", { name: "Workspace files" });
+		const tree = page.getByRole("tree", { name: "Folder files" });
 		await expect(tree).toBeVisible({ timeout: 30_000 });
 		const row = (name: string) => tree.getByRole("button", { name: new RegExp(`^${name}`) });
 		await expect(row("app.ts")).toContainText("M");
 		await expect(row(".env")).toBeVisible();
-		await expect(row(".env").getByLabel("Hidden by this machine's policy")).toBeVisible();
+		await expect(row(".env").getByLabel("Hidden by this computer's rules")).toBeVisible();
 
 		// Opening a file shows its content; the secret shows why it does not.
 		await row("app.ts").click();
@@ -480,7 +480,7 @@ test.describe("owned machine agent: parity", () => {
 		});
 		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
 		await row(".env").click();
-		await expect(page.getByTestId("code-files")).toContainText("Hidden by this machine's policy");
+		await expect(page.getByTestId("code-files")).toContainText("Hidden by this computer's rules");
 		await expect(page.getByTestId("code-files")).not.toContainText("hunter2");
 		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
 		// The link out of the workspace is listed but never read through.
@@ -508,7 +508,7 @@ test.describe("owned machine agent: parity", () => {
 			finishReason: "stop",
 		});
 		await send(page, "write a file");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByText("wants to use")).toBeVisible({ timeout: 60_000 });
 		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
 		await expect(
 			page.locator('[data-message-role="assistant"]').getByText("Wrote it.")
@@ -581,7 +581,7 @@ test.describe("owned machine agent: parity", () => {
 		await page.getByRole("button", { name: "Retry" }).last().click();
 		await expect(page.getByRole("dialog")).toContainText("second question");
 		const dialog = page.getByRole("dialog");
-		await expect(dialog).toContainText("Retry from here?");
+		await expect(dialog).toContainText("Try again from here?");
 		await expect(dialog).toContainText("restored too");
 		await dialog.getByRole("button", { name: "Roll back and send" }).click();
 
@@ -598,7 +598,7 @@ test.describe("owned machine agent: parity", () => {
 		await expect(transcript.getByText("Answer two.", { exact: true })).toHaveCount(0);
 		// The fork action is named Fork now.
 		await page.locator('[data-message-role="assistant"]').last().hover();
-		await expect(page.getByRole("button", { name: "Fork from here" }).last()).toBeVisible();
+		await expect(page.getByRole("button", { name: "Branch off from here" }).last()).toBeVisible();
 	});
 
 	test("subagent approvals: a child's bash permission surfaces as a labelled card mid-turn, and approving lets the child finish", async ({
@@ -658,23 +658,23 @@ test.describe("owned machine agent: parity", () => {
 		await page.getByTestId("subagent-count").click();
 		await page.getByRole("menuitem").first().click();
 		await expect(page).toHaveURL(/agent=/);
-		await expect(page.getByTestId("subagent-of")).toContainText("Subagent of");
+		await expect(page.getByTestId("subagent-of")).toContainText("Helper agent of");
 
 		// "from" goes back to the parent, which is not a subagent.
 		await from.click();
 		await expect(page.getByTestId("subagent-of")).toHaveCount(0);
 
 		// The filter hides subagent rows, and says so on reload.
-		await page.getByRole("button", { name: "Show subagents" }).click();
+		await page.getByRole("button", { name: "Show helper agents" }).click();
 		await expect(badge).toHaveCount(0);
 		await page.reload();
-		await expect(page.getByRole("button", { name: "Show subagents" })).toHaveAttribute(
+		await expect(page.getByRole("button", { name: "Show helper agents" })).toHaveAttribute(
 			"aria-pressed",
 			"false",
 			{ timeout: 30_000 }
 		);
 		await expect(badge).toHaveCount(0);
-		await page.getByRole("button", { name: "Show subagents" }).click();
+		await page.getByRole("button", { name: "Show helper agents" }).click();
 		await expect(badge).toHaveCount(1);
 
 		// Unblock the child so the turn ends cleanly.
@@ -717,7 +717,7 @@ test.describe("owned machine agent: parity", () => {
 			page.locator('[data-message-role="assistant"]').getByText("Child done.").first()
 		).toBeVisible({ timeout: 60_000 });
 		// Nothing else asked: the one approval above was the whole of it.
-		await expect(page.getByText("wants to call")).toHaveCount(0);
+		await expect(page.getByText("wants to use")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
 	});
 
@@ -741,7 +741,7 @@ test.describe("owned machine agent: parity", () => {
 		await expect(
 			page.locator('[data-message-role="assistant"]').getByText("Child done.").first()
 		).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByText("wants to call")).toHaveCount(0);
+		await expect(page.getByText("wants to use")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
 	});
 
@@ -826,7 +826,7 @@ test.describe("owned machine agent: parity", () => {
 
 		await expect(page.getByText("Thanks for answering.")).toBeVisible({ timeout: 60_000 });
 		// The tool call itself settles rather than hanging pending forever.
-		await expect(page.getByText("wants to call")).toHaveCount(0);
+		await expect(page.getByText("wants to use")).toHaveCount(0);
 		// It collapses to what was asked and chosen, not the "server" (it read
 		// "Answered pystino" for every question).
 		await expect(page.getByText("Approach → A").first()).toBeVisible();

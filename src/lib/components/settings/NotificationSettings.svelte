@@ -46,7 +46,7 @@
 	async function refresh() {
 		const response = await fetch(`${base}/api/v2/push`);
 		if (!response.ok) {
-			loadError = await errorMessage(response, "Could not load notification settings.");
+			loadError = await errorMessage(response, "Could not load notification settings. Try again.");
 			return;
 		}
 		const body = (await response.json()) as { data: State & { publicKey: string | null } };
@@ -68,7 +68,7 @@
 			await refresh();
 			await readThisBrowser();
 		} catch {
-			loadError = "Could not load notification settings.";
+			loadError = "Could not load notification settings. Try again.";
 		}
 	});
 
@@ -90,7 +90,7 @@
 
 	const enable = () =>
 		run(async () => {
-			if (!publicKey) throw new PushClientError("Notifications are not set up here.");
+			if (!publicKey) throw new PushClientError("Notifications are not set up here yet.");
 			await enableThisDevice(publicKey);
 			await refresh();
 			await readThisBrowser();
@@ -102,7 +102,9 @@
 			const own = device.fingerprint === thisFingerprint;
 			const response = await fetch(`${base}/api/v2/push/${device.id}`, { method: "DELETE" });
 			if (!response.ok && response.status !== 404) {
-				throw new PushClientError(await errorMessage(response, "Could not remove that device."));
+				throw new PushClientError(
+					await errorMessage(response, "Could not remove that device. Try again.")
+				);
 			}
 			if (own) (await currentSubscription())?.unsubscribe().catch(() => undefined);
 			await refresh();
@@ -130,12 +132,14 @@
 		run(async () => {
 			const response = await fetch(`${base}/api/v2/push/test`, { method: "POST" });
 			if (!response.ok) {
-				throw new PushClientError(await errorMessage(response, "Could not send a test."));
+				throw new PushClientError(
+					await errorMessage(response, "Could not send a test. Try again.")
+				);
 			}
 			const { data } = (await response.json()) as { data: { accepted: number } };
 			return data.accepted > 0
 				? `Sent to ${data.accepted} ${data.accepted === 1 ? "device" : "devices"}.`
-				: "The push service did not take it. Try again in a moment.";
+				: "The notification did not go through. Try again in a moment.";
 		});
 
 	function when(iso: string | null): string {
@@ -158,12 +162,13 @@
 			data-testid="push-not-configured"
 		>
 			<h2 class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-				Notifications are not set up on this deployment
+				Notifications are not set up here yet
 			</h2>
 			<p class="mt-1 text-[12px] text-gray-500 dark:text-gray-400">
-				Push needs a key pair that the operator creates once. On the kit, running
-				<code>./configure</code> mints it and
-				<code>docker compose up -d</code> applies it. Until then there is nothing to turn on here.
+				Notifications need a one-time set-up by whoever runs this service. With the Cerea kit,
+				running
+				<code>./configure</code> creates it and
+				<code>docker compose up -d</code> switches it on. Until then there is nothing to turn on here.
 			</p>
 		</div>
 	{:else}

@@ -49,9 +49,7 @@ describe("LocationSettings", () => {
 		expect(
 			[...select.element().querySelectorAll("option")].map((o) => o.textContent?.trim())
 		).toEqual(["Off", "A place I type", "From this device"]);
-		await expect
-			.element(screen.getByText(/sent to the model provider with every message/))
-			.toBeVisible();
+		await expect.element(screen.getByText(/sent along with every message/)).toBeVisible();
 		expect(getCurrentPosition).not.toHaveBeenCalled();
 	});
 
@@ -91,7 +89,7 @@ describe("LocationSettings", () => {
 			screen.getByRole("combobox", { name: "Share my location" }).element(),
 			"device"
 		);
-		await expect.element(screen.getByRole("alert")).toHaveTextContent(/permission was denied/);
+		await expect.element(screen.getByRole("alert")).toHaveTextContent(/blocked location access/);
 		expect(onchange).toHaveBeenCalledWith({ mode: "device" });
 		expect(onchange).not.toHaveBeenCalledWith({ mode: "off" });
 	});
@@ -103,6 +101,8 @@ describe("LocationSettings", () => {
 			screen.getByRole("combobox", { name: "Share my location" }).element(),
 			"device"
 		);
-		await expect.element(screen.getByRole("alert")).toHaveTextContent(/unavailable/);
+		await expect
+			.element(screen.getByRole("alert"))
+			.toHaveTextContent(/could not find its location/);
 	});
 });

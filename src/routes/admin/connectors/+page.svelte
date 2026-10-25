@@ -53,7 +53,7 @@
 		const response = await fetch(`${base}/api/v2/mcp${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `The request failed (${response.status}).`);
+			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
@@ -63,7 +63,7 @@
 		try {
 			connectors = (await api<{ data: McpConnectorView[] }>("/connectors")).data;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load connectors.";
+			failure = err instanceof Error ? err.message : "Could not load connectors. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -105,7 +105,7 @@
 			adding = false;
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not add it.";
+			failure = err instanceof Error ? err.message : "Could not add it. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -114,7 +114,7 @@
 	async function remove(connector: McpConnectorView) {
 		if (
 			!confirm(
-				`Remove “${connector.name}” for everyone? Anybody who signed in to it loses that connection.`
+				`Remove “${connector.name}” for everyone? Anyone who signed in to it will lose that connection.`
 			)
 		) {
 			return;
@@ -127,7 +127,7 @@
 			await api(`/connectors/${connector.id}?scope=deployment`, { method: "DELETE" });
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not remove it.";
+			failure = err instanceof Error ? err.message : "Could not remove it. Try again.";
 		} finally {
 			busy = false;
 		}
@@ -139,8 +139,8 @@
 		<div class="flex flex-col gap-1">
 			<h2 class="font-medium">Connectors for everyone</h2>
 			<p class="text-xs text-gray-500 dark:text-gray-400">
-				Remote MCP servers offered to every account. Each person signs in to an OAuth connector
-				themselves, so their tools reach their own data — you are sharing the server, not an
+				Connectors (MCP servers) offered to every account. Each person signs in to a connector that
+				needs it themselves, so it reaches their own data. You are sharing the connector, not an
 				identity.
 			</p>
 		</div>
@@ -197,9 +197,9 @@
 					bind:value={authMode}
 					disabled={busy}
 				>
-					<option value="auto">Detect automatically</option>
+					<option value="auto">Automatic (recommended)</option>
 					<option value="none">None</option>
-					<option value="token">Shared token</option>
+					<option value="token">Shared access key</option>
 				</select>
 			</label>
 
@@ -317,8 +317,8 @@
 		<p class="text-sm text-gray-500">Loading…</p>
 	{:else if shared.length === 0 && envServers.length === 0}
 		<p class="text-sm text-gray-600 dark:text-gray-400">
-			None yet. Anything added here appears in everybody's MCP dialog, switched off until they turn
-			it on.
+			None yet. Anything added here appears under Built-in connectors for everybody, switched off
+			until they turn it on.
 		</p>
 	{:else if shared.length > 0}
 		<ul class="flex flex-col gap-2">
@@ -338,10 +338,10 @@
 					<div class="flex shrink-0 flex-wrap items-center gap-2">
 						<span class="text-xs text-gray-500">
 							{connector.auth === "oauth"
-								? "OAuth — each person signs in"
+								? "Each person signs in"
 								: connector.auth === "token"
-									? "shared token"
-									: "no auth"}
+									? "shared access key"
+									: "no sign-in"}
 						</span>
 						<button
 							onclick={() => remove(connector)}

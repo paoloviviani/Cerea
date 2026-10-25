@@ -7,11 +7,11 @@ describe("DeleteAllConversationsModal", () => {
 		const { baseElement } = renderWithApp(DeleteAllConversationsModal, { open: true });
 
 		const heading = baseElement.querySelector("h2");
-		expect(heading?.textContent?.trim()).toBe("Delete all conversations");
+		expect(heading?.textContent?.trim()).toBe("Delete all chats");
 
 		const normalizedText = (baseElement.textContent ?? "").replace(/\s+/g, " ");
-		expect(normalizedText).toContain("Chats inside projects are deleted too");
-		expect(normalizedText).toContain("This action cannot be undone");
+		expect(normalizedText).toContain("including the ones inside projects");
+		expect(normalizedText).toContain("This cannot be undone");
 	});
 
 	it("does not render when open is false", () => {

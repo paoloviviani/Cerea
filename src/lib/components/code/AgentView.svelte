@@ -481,7 +481,7 @@
 			modesFailure = null;
 		} catch (err) {
 			modes = [];
-			modesFailure = err instanceof Error ? err.message : "Could not load the modes.";
+			modesFailure = err instanceof Error ? err.message : "Could not load the modes. Try again.";
 		}
 		try {
 			const result = await listProviderModels(deviceId, provider);
@@ -491,7 +491,7 @@
 		} catch (err) {
 			models = [];
 			modelsHidden = 0;
-			modelsFailure = err instanceof Error ? err.message : "Could not load the models.";
+			modelsFailure = err instanceof Error ? err.message : "Could not load the models. Try again.";
 		}
 	}
 
@@ -690,7 +690,8 @@
 					});
 				} catch (err) {
 					if (!abort.signal.aborted) {
-						failure = err instanceof Error ? err.message : "The agent stream failed.";
+						failure =
+							err instanceof Error ? err.message : "Lost contact with the agent. Try again.";
 					}
 				} finally {
 					// A stream that ended on its own (the machine went away, the
@@ -800,7 +801,8 @@
 			if (page.before) historyBefore = page.before;
 		} catch (err) {
 			if (epoch !== pagingEpoch) return;
-			historyError = err instanceof Error ? err.message : "Could not load earlier messages.";
+			historyError =
+				err instanceof Error ? err.message : "Could not load earlier messages. Try again.";
 		} finally {
 			if (epoch === pagingEpoch) historyFetching = false;
 		}
@@ -826,15 +828,15 @@
 			if (messages[i].from !== "user") continue;
 			const user = messages[i];
 			if (!user.machineMessageId) {
-				errorToast.set("The last prompt has no id on the machine's transcript yet.");
+				errorToast.set("The computer does not have that message recorded yet.");
 				return;
 			}
 			undoTarget = {
 				userMessageId: user.machineMessageId,
 				text: user.content,
 				files: revertRestoresFiles
-					? "Files the agent changed from that point on are restored too."
-					: "Files on disk are NOT restored: only the conversation is rolled back.",
+					? "Files the agent changed after that point are restored too."
+					: "Files on the computer are NOT restored. Only the conversation goes back.",
 			};
 			return;
 		}
@@ -858,7 +860,7 @@
 
 	function openNewAgentDialog() {
 		if (!workspace) {
-			errorToast.set("The agent's workspace is not loaded yet.");
+			errorToast.set("The agent's folder has not loaded yet.");
 			return;
 		}
 		newAgentDialogOpen = true;
@@ -876,8 +878,8 @@
 			userMessageId: user.machineMessageId,
 			text: payload.content ?? user.content,
 			files: revertRestoresFiles
-				? "Files the agent changed from that point on are restored too."
-				: "Files on disk are NOT restored: only the conversation is rolled back.",
+				? "Files the agent changed after that point are restored too."
+				: "Files on the computer are NOT restored. Only the conversation goes back.",
 		};
 	}
 
@@ -964,14 +966,14 @@
 	let tasksProgress = $derived(planProgress(latestTasks));
 	let sessionBusy = $derived(shownState === "running" || shownState === "waiting-permission");
 
-	// ── Fork from here ────────────────────────────────────────────────────
+	// ── Branch off from here ────────────────────────────────────────────────────
 	//
 	// Offered on every assistant message the machine can name
 	// (`machineMessageId` is the boundary the handoff route cuts at) that is
 	// not part of the turn still running — see `forkableMessageIds` for why
 	// the message's own TurnState is the wrong fact to decide with.
 	let forkableIds = $derived(forkableMessageIds(messages, sessionBusy));
-	/** ChatMessage's per-message gate for the "Fork from here" action. */
+	/** ChatMessage's per-message gate for the "Branch off from here" action. */
 	function messageActionsWhen(message: Message): boolean {
 		return !cachedView && forkableIds.has(message.id);
 	}
@@ -1113,7 +1115,7 @@
 		// enrollment; this is the backstop for a send that raced ahead of
 		// the probe's answer (Enter fired before `enrollmentExpired` landed).
 		if (enrollmentExpired) {
-			failure = "This machine's enrollment expired or was revoked — re-enroll to send.";
+			failure = "This computer's connection expired or was removed. Connect it again to send.";
 			return;
 		}
 		// A steer joins a turn that already shows its own indicator.
@@ -1136,7 +1138,7 @@
 			if (err instanceof CodeApiError && err.status === 401) {
 				codeEnrollment[deviceId] = "expired";
 			}
-			failure = err instanceof Error ? err.message : "Could not send the follow-up.";
+			failure = err instanceof Error ? err.message : "Could not send your message. Try again.";
 			// Tell the composer it did not land, so it keeps the draft.
 			throw err;
 		}
@@ -1155,7 +1157,7 @@
 			await cancelAgent(deviceId, agentId);
 			return true;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not stop the agent.";
+			failure = err instanceof Error ? err.message : "Could not stop the agent. Try again.";
 			return false;
 		}
 	}
@@ -1175,7 +1177,7 @@
 		// A card in the cached copy may have been answered since: refuse until
 		// the fresh replay (which carries the truth) has replaced it.
 		if (cachedView) {
-			return { ok: false, error: "Still refreshing this conversation. Try again in a moment." };
+			return { ok: false, error: "Still updating this conversation. Try again in a moment." };
 		}
 		try {
 			const reply = await respondPermission(
@@ -1189,7 +1191,7 @@
 			if (reply?.alreadyResolved) return { ok: true, note: ALREADY_ANSWERED_NOTE };
 			return { ok: true };
 		} catch (err) {
-			return replyOutcome(err, "Could not answer the request.");
+			return replyOutcome(err, "Could not send your answer. Try again.");
 		}
 	}
 
@@ -1209,7 +1211,7 @@
 		action: ElicitationAction,
 		content?: Record<string, ElicitationValue>
 	): Promise<{ ok: boolean; error?: string }> {
-		if (!askQuestion) return { ok: false, error: "No question is open." };
+		if (!askQuestion) return { ok: false, error: "No question is waiting." };
 		const requestId = askQuestion.request.elicitationId;
 		try {
 			const answers = content
@@ -1232,7 +1234,7 @@
 		} catch (err) {
 			return {
 				ok: false,
-				error: err instanceof Error ? err.message : "Could not answer the question.",
+				error: err instanceof Error ? err.message : "Could not send your answer. Try again.",
 			};
 		}
 	}
@@ -1249,7 +1251,7 @@
 	// calls that an acceptable "keep it simple" tradeoff.
 	let handedOffFromTitle = $derived(forkedFromTitle(agent?.title));
 
-	/** The message "Fork from here" was clicked on — open state for the dialog. */
+	/** The message "Branch off from here" was clicked on — open state for the dialog. */
 	let handoffFor = $state<Message | null>(null);
 </script>
 
@@ -1261,14 +1263,14 @@
 	<SubagentCard {anchor} activity={childActivity[anchor.subagent?.id ?? ""] ?? 0} />
 {/snippet}
 
-<!-- The "Fork from here" action ChatMessage opens per forkable assistant
+<!-- The "Branch off from here" action ChatMessage opens per forkable assistant
      message (an optional prop/snippet pair, so chat itself stays
      unchanged) — opens this view's own HandoffDialog below. -->
 {#snippet messageActions(message: Message)}
 	<button
 		class="btn rounded-xs p-1 text-xs text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
-		title="Fork from here"
-		aria-label="Fork from here"
+		title="Branch off from here"
+		aria-label="Branch off from here"
 		type="button"
 		onclick={() => (handoffFor = message)}
 	>
@@ -1296,7 +1298,7 @@
 					class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium uppercase dark:bg-gray-700"
 					>sub</span
 				>
-				<span class="truncate">Subagent of {parentAgent?.title ?? "its parent session"}</span>
+				<span class="truncate">Helper agent of {parentAgent?.title ?? "the main session"}</span>
 			</a>
 		{/if}
 		{#if agent?.spawnedBy && !agent.parentId}
@@ -1306,7 +1308,7 @@
 				data-testid="spawned-by"
 			>
 				<span class="truncate"
-					>spawned by {sessionLinks.title(agent.spawnedBy.sessionId) ?? agent.spawnedBy.title}</span
+					>started by {sessionLinks.title(agent.spawnedBy.sessionId) ?? agent.spawnedBy.title}</span
 				>
 			</a>
 		{/if}
@@ -1350,8 +1352,8 @@
 					label="Files"
 					disabled={filesVetoed}
 					title={filesVetoed
-						? "This machine was enrolled with --no-files: re-enroll without it to browse files here."
-						: "Browse this workspace's files (read-only)"}
+						? "This computer was connected with --no-files. Connect it again without that to browse files here."
+						: "Browse this folder's files (read only)"}
 					onclick={() => sidePane.toggleFiles()}
 				>
 					{#snippet icon()}<IconFolder class="size-3.5" />{/snippet}
@@ -1364,8 +1366,8 @@
 					label="Terminal"
 					disabled={terminalVetoed}
 					title={terminalVetoed
-						? "This machine was enrolled with terminals off. Re-enroll it (terminals are on by default) to use them here."
-						: "Open a shell on this workspace"}
+						? "This computer was connected with terminals off. Connect it again (terminals are on by default) to use them here."
+						: "Open a terminal in this folder"}
 					onclick={() => sidePane.toggleTerminal()}
 				>
 					{#snippet icon()}<IconTerminal class="size-3.5" />{/snippet}
@@ -1377,7 +1379,7 @@
 			     see the `handedOffFromTitle` derivation above. -->
 			<span class="flex items-center gap-1 truncate pl-6 text-xs text-ink-muted">
 				<IconFork class="size-3 shrink-0" />
-				Forked from {handedOffFromTitle}
+				Branched off from {handedOffFromTitle}
 			</span>
 		{/if}
 		{#if backgroundRunning}
@@ -1393,10 +1395,10 @@
 				></span>
 				<span class="truncate">
 					{backgroundRunningCount === 1
-						? "A subagent is"
-						: `${backgroundRunningCount} subagents are`} still running in the background.
+						? "A helper agent is"
+						: `${backgroundRunningCount} helper agents are`} still running in the background.
 					{#if backgroundWaitingCount > 0}
-						{backgroundWaitingCount === 1 ? "One is" : `${backgroundWaitingCount} are`} waiting on your
+						{backgroundWaitingCount === 1 ? "One is" : `${backgroundWaitingCount} are`} waiting for your
 						approval below.
 					{/if}
 				</span>
@@ -1421,7 +1423,7 @@
 		<div
 			class="pointer-events-auto mx-4 mb-2 flex items-center gap-1.5 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 		>
-			This machine is offline. It will pick back up here once it reconnects.
+			This computer is offline. It will carry on here once it reconnects.
 		</div>
 	{:else if failure}
 		<div class="pointer-events-auto {s.ERROR} mx-4 mb-2">{failure}</div>
@@ -1434,8 +1436,8 @@
 			class="pointer-events-auto mx-4 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
 			data-testid="stale-deny"
 		>
-			An earlier Deny is stuck in this session's history (opencode keeps it). Subagents started from
-			here will have their first turn refused. Start a new session to use subagents.
+			An earlier Deny is still in this session's history (opencode keeps it), so helper agents
+			started from here will be refused at first. Start a new session to use helper agents.
 		</div>
 	{/if}
 	{#if agent?.stalePolicy}
@@ -1445,8 +1447,8 @@
 			class="pointer-events-auto mx-4 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
 			data-testid="stale-policy"
 		>
-			An earlier machine policy is stuck in this session's history (opencode keeps it). Tools it
-			denied may still be refused here. Start a new session for the current policy.
+			An earlier rule from this computer is still in this session's history (opencode keeps it), so
+			things it blocked may still be refused. Start a new session to use the current rules.
 		</div>
 	{/if}
 
@@ -1539,7 +1541,7 @@
 					<IconCode class="size-10 text-ink-faint" />
 					<p class="text-sm font-medium text-ink">Ready when you are</p>
 					<p class="max-w-xs text-xs text-ink-muted">
-						Describe the task below. The mode pill sets how much the agent may do on its own, and it
+						Describe the task below. The mode button sets how much the agent may do on its own. It
 						asks before anything destructive.
 					</p>
 				</div>
@@ -1604,7 +1606,7 @@
 						onclick={() => (diffRefreshKey += 1)}
 						disabled={diffLoading}
 						aria-label="Refresh changes"
-						title="Refresh from the daemon"
+						title="Refresh"
 					>
 						<IconRenew class="size-4 {diffLoading ? 'animate-spin' : ''}" />
 					</button>
@@ -1612,7 +1614,7 @@
 				<AgentDiff {deviceId} {agentId} refreshKey={diffRefreshKey} bind:loading={diffLoading} />
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "files" && filesOffered && (workspace?.id ?? workspaceId)}
-			<SidePane label="Workspace files" title="Files">
+			<SidePane label="Folder files" title="Files">
 				<CodeFiles
 					{deviceId}
 					workspaceId={(workspace?.id ?? workspaceId) as string}
@@ -1641,9 +1643,9 @@
 
 {#if rollback}
 	<CodeConfirmDialog
-		title="Retry from here?"
+		title="Try again from here?"
 		target={rollback.text.length > 80 ? `${rollback.text.slice(0, 80)}…` : rollback.text}
-		message="The conversation is rolled back to before this prompt, which is then sent again. {rollback.files}"
+		message="The conversation goes back to before this message, which is then sent again. {rollback.files}"
 		confirmLabel="Roll back and send"
 		busyLabel="Rolling back…"
 		onconfirm={confirmRollback}
@@ -1657,7 +1659,7 @@
 	<CodeConfirmDialog
 		title="Roll back?"
 		target={undoTarget.text.length > 80 ? `${undoTarget.text.slice(0, 80)}…` : undoTarget.text}
-		message="The conversation is rolled back to before this prompt. {undoTarget.files}"
+		message="The conversation goes back to before this message. {undoTarget.files}"
 		confirmLabel="Roll back"
 		busyLabel="Rolling back…"
 		onconfirm={confirmUndo}

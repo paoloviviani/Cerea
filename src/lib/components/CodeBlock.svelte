@@ -368,7 +368,7 @@
 					class={CODE_PILL_BUTTON}
 					disabled={loading || runSpinner}
 					onclick={manualRun}
-					title="Run this code in the browser sandbox"
+					title="Run this code here in your browser"
 					aria-label="Run code"
 				>
 					{#if runSpinner}

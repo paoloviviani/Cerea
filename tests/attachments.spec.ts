@@ -76,7 +76,7 @@ test("a long paste becomes a clipboard chip", async ({ page, browserName }) => {
 		el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true }));
 	});
 	await expect(page.getByText("Pasted Content")).toBeVisible();
-	await expect(page.getByText("Clipboard source")).toBeVisible();
+	await expect(page.getByText("Pasted text")).toBeVisible();
 	await expect(composer).toHaveValue("");
 });
 

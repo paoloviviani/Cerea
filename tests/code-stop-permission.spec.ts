@@ -315,7 +315,7 @@ test.describe("the stop control", () => {
 
 		// The prompt is up and the turn is live behind it — the stop control
 		// is exactly for this state.
-		await expect(page.getByText("wants to call")).toBeVisible();
+		await expect(page.getByText("wants to use")).toBeVisible();
 		const stop = page.getByRole("button", { name: "Stop generating" });
 		await expect(stop).toBeVisible();
 

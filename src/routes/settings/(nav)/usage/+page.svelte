@@ -60,7 +60,7 @@
 			const report = (await client.usage.get().then(handleResponse)) as UsageReport | null;
 			sections = report?.sections ?? [];
 		} catch {
-			loadError = "Could not load usage.";
+			loadError = "Could not load usage. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -81,7 +81,7 @@
 					setBillingOrganization(data.currentBillingOrg ?? "");
 				}
 			} catch {
-				billingOrgsError = "Failed to load billing options";
+				billingOrgsError = "Could not load billing options. Try again.";
 			} finally {
 				billingOrgsLoading = false;
 			}
@@ -97,7 +97,7 @@
 	<div
 		class="rounded-xl border border-gray-200 bg-white px-3 py-6 text-center text-sm text-gray-500 shadow-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
 	>
-		Usage & billing is not available on this deployment.
+		Usage and billing are not available here.
 	</div>
 {:else}
 	<div class="flex w-full flex-col gap-4">

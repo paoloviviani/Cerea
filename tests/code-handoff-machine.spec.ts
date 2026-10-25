@@ -1,7 +1,7 @@
 /**
  * The fork handoff against a real machine (the parity chain: the real
  * `galopin` supervising a real `opencode serve`, only the LLM and the IdP
- * mocked): a finished multi-turn session offers "Fork from here" on every
+ * mocked): a finished multi-turn session offers "Branch off from here" on every
  * finished assistant message — not only the one a turn's ending happened to
  * land on — and forking from an EARLIER one opens the prefilled dialog,
  * creates the "Fork: …" session, and its first prompt carries the chat
@@ -40,12 +40,12 @@ test.describe("owned machine agent: fork handoff", () => {
 		await page.goto(`${E2E_APP_BASE}/code`);
 		await page.getByRole("button", { name: "Agents", exact: true }).click();
 		await expect(page.getByText(started.name)).toBeVisible({ timeout: 60_000 });
-		await page.getByRole("button", { name: "Confirm this machine" }).click();
-		await page.getByRole("button", { name: "Add a workspace to this device" }).click();
-		await page.getByLabel("Directory on the machine").fill(started.workspace);
+		await page.getByRole("button", { name: "Confirm this computer" }).click();
+		await page.getByRole("button", { name: "Add a folder on this computer" }).click();
+		await page.getByLabel("Folder on the computer").fill(started.workspace);
 		await page.getByLabel("Title (optional)").fill("repo");
-		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
-		await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
+		await page.getByRole("dialog").getByRole("button", { name: "Add folder" }).click();
+		await page.getByRole("button", { name: "Start a coding session in this folder" }).click();
 		await page.getByRole("button", { name: "Build" }).click();
 		await page.getByRole("button", { name: "Create agent" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -82,10 +82,10 @@ test.describe("owned machine agent: fork handoff", () => {
 		// The fork is offered on BOTH answers, not only the last one.
 		const firstAnswer = transcript.first();
 		await firstAnswer.hover();
-		await firstAnswer.getByRole("button", { name: "Fork from here" }).click();
+		await firstAnswer.getByRole("button", { name: "Branch off from here" }).click();
 
 		// The dialog opened, prefilled from the source.
-		await expect(page.getByRole("heading", { name: "Fork from here" })).toBeVisible();
+		await expect(page.getByRole("heading", { name: "Branch off from here" })).toBeVisible();
 		await expect(page.getByText(/^From /)).toBeVisible();
 		await expect(page.getByLabel("Carry the conversation up to here")).toHaveCount(0);
 
@@ -94,7 +94,7 @@ test.describe("owned machine agent: fork handoff", () => {
 
 		// Landed in the new "Fork: …" session, which names its source.
 		await page.waitForURL(/agent=/);
-		await expect(page.getByText("Forked from")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByText("Branched off from")).toBeVisible({ timeout: 60_000 });
 
 		// The new session's first prompt carried the chat history cut at the
 		// forked message: turn one's exchange is in there, turn two's is not.

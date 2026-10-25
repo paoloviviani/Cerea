@@ -36,7 +36,7 @@
 			runs = answer.runs;
 			failure = null;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load the history.";
+			failure = err instanceof Error ? err.message : "Could not load the history. Try again.";
 		} finally {
 			loading = false;
 		}
@@ -83,7 +83,7 @@
 					<IconTime class={s.EMPTY_ICON} />
 					<p class={s.EMPTY_TITLE}>No runs yet</p>
 					<p class={s.EMPTY_DETAIL}>
-						Every occurrence is listed here, including the ones that did not fire and why.
+						Every scheduled time is listed here, including the ones that did not run, and why.
 					</p>
 				</div>
 			{:else}
