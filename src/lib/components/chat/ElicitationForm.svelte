@@ -14,6 +14,7 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import { sendElicitationAnswer } from "$lib/utils/sendElicitationAnswer";
+	import { isCatchAllLabel } from "$lib/utils/questionOptions";
 	import { registerQuestion, unregisterQuestion } from "$lib/stores/pendingQuestion";
 	import { forDateInput } from "$lib/utils/elicitationDate";
 
@@ -154,6 +155,19 @@
 
 	/** A control character, so it can never collide with a label the model or a server sent. */
 	const OTHER = "\u0000other";
+	/**
+	 * The option the ask itself offered as its catch-all, if any: the built-in
+	 * free-text entry takes its place (and label) instead of standing beside it.
+	 */
+	const catchAllOption = (field: ElicitationField) =>
+		field.kind === "select" ? field.options.find((o) => isCatchAllLabel(o.label)) : undefined;
+	const fieldOptions = (field: ElicitationField) => {
+		if (field.kind !== "select") return [];
+		const catchAll = catchAllOption(field);
+		return catchAll ? field.options.filter((o) => o !== catchAll) : field.options;
+	};
+	const otherLabel = (field: ElicitationField) =>
+		catchAllOption(field)?.label ?? m["chat.ask.other"]();
 	let otherText = $state<Record<string, string>>({});
 	const otherPicked = (field: ElicitationField) =>
 		field.kind === "select" &&
@@ -487,18 +501,18 @@
 									<option value="" disabled={field.required}
 										>{m["chat.elicitation.choose"]()}</option
 									>
-									{#each field.options as option (option.value)}
+									{#each fieldOptions(field) as option (option.value)}
 										<option value={option.value}>{option.label}</option>
 									{/each}
 									{#if field.allowOther}
-										<option value={OTHER}>{m["chat.ask.other"]()}</option>
+										<option value={OTHER}>{otherLabel(field)}</option>
 									{/if}
 								</select>
 							{:else if field.kind === "select"}
 								{@const atLimit =
 									field.maxItems !== undefined && pickedCount(field.name) >= field.maxItems}
 								<div class="space-y-1" role="group" aria-labelledby={`${id}-label`}>
-									{#each field.options as option (option.value)}
+									{#each fieldOptions(field) as option (option.value)}
 										{@const picked = isPicked(field.name, option.value)}
 										<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
 											<input
@@ -522,7 +536,7 @@
 													toggleOption(field.name, OTHER, event.currentTarget.checked)}
 												disabled={!open || (atLimit && !picked)}
 											/>
-											{m["chat.ask.other"]()}
+											{otherLabel(field)}
 										</label>
 									{/if}
 									{#if field.maxItems !== undefined}

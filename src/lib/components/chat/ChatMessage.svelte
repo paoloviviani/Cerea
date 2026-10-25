@@ -1167,7 +1167,7 @@
 			{/if}
 		</div>
 
-		{#if message.routerMetadata || (!loading && message.content)}
+		{#if message.routerMetadata || message.content}
 			<div
 				class="absolute -bottom-3.5 {message.routerMetadata && messageInfoWidth > messageWidth
 					? 'left-1 pl-1 @2xl:pl-7'
@@ -1201,7 +1201,7 @@
 						{/if}
 					</div>
 				{/if}
-				{#if !isLast || !loading}
+				{#if !(isLast && loading)}
 					<CopyToClipBoardBtn
 						onClick={() => {
 							isCopied = true;
@@ -1210,7 +1210,7 @@
 						value={contentWithoutThink}
 						iconClassNames="text-xs"
 					/>
-					{#if onretry}
+					{#if onretry && !loading}
 						<button
 							class="btn rounded-xs p-1 text-xs text-ink-faint hover:text-ink-muted focus:ring-0"
 							title={m["chat.message.retry"]()}
@@ -1300,13 +1300,20 @@
 						     disclosure beneath it, so the transcript reads the
 						     command while keeping every word it produced. -->
 						<div class="w-full px-5 py-3.5">
-							<p
-								class="w-fit rounded-lg bg-gray-100 px-2 py-1 font-mono text-sm wrap-break-word text-gray-600 dark:bg-gray-800 dark:text-gray-300"
-							>
-								/{message.command.name}{message.command.arguments
-									? ` ${message.command.arguments}`
-									: ""}
-							</p>
+							<div class="flex max-w-full flex-wrap items-baseline gap-x-2 gap-y-1">
+								<code
+									class="w-fit rounded-md bg-gray-100 px-1.5 py-0.5 font-mono text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+								>
+									/{message.command.name}
+								</code>
+								{#if message.command.arguments}
+									<span
+										class="min-w-0 text-sm text-wrap wrap-break-word whitespace-break-spaces text-gray-800 dark:text-gray-100"
+									>
+										{message.command.arguments}
+									</span>
+								{/if}
+							</div>
 							<details class="mt-1">
 								<summary class="cursor-pointer text-xs text-ink-faint select-none">
 									{m["chat.message.expanded_command"]()}
@@ -1377,8 +1384,8 @@
 						onshowAlternateMsg={(payload) => onshowAlternateMsg?.(payload)}
 					/>
 				{/if}
-				{#if (alternatives.length > 1 && editMsdgId === null) || (!loading && !editMode)}
-					{#if onretry}
+				{#if (alternatives.length > 1 && editMsdgId === null) || !editMode}
+					{#if onretry && !loading}
 						<button
 							class="hidden h-5 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-gray-400 group-hover:flex hover:flex hover:bg-gray-100 hover:text-gray-500 lg:-right-2 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-300 {isTapped
 								? '[@media(hover:none)]:flex'

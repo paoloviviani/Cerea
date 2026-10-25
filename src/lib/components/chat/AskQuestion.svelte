@@ -15,6 +15,7 @@
 		saveQuestionDraft,
 		clearQuestionDraft,
 	} from "$lib/stores/pendingQuestion";
+	import { isCatchAllLabel } from "$lib/utils/questionOptions";
 
 	interface Props {
 		conversationId: string;
@@ -57,6 +58,14 @@
 	let field = $derived<ElicitationField | undefined>(fields[step]);
 	/** Every question normalizes to a select; anything else is not one of ours to draw. */
 	let select = $derived(field?.kind === "select" ? field : undefined);
+	/**
+	 * The option the ask itself offered as its catch-all, if any. The form's
+	 * built-in free-text row takes that option's place (and label), so there is
+	 * one way to type an answer rather than two rows saying the same thing.
+	 */
+	let catchAll = $derived(select?.options.find((option) => isCatchAllLabel(option.label)));
+	let options = $derived(select?.options.filter((option) => option !== catchAll) ?? []);
+	let otherLabel = $derived(catchAll?.label ?? m["chat.ask.other"]());
 	let isLast = $derived(step === fields.length - 1);
 	/** Only for questions a click cannot finish: several answers, or one being typed. */
 	let needsNext = $derived(
@@ -162,7 +171,7 @@
 		</div>
 
 		<div class="flex flex-col gap-1.5 border-y border-gray-200 py-2 dark:border-gray-700">
-			{#each select.options as option (option.value)}
+			{#each options as option (option.value)}
 				{@const picked = chosen(select.name).includes(option.value)}
 				<button
 					type="button"
@@ -217,11 +226,18 @@
 							<span class="block size-1.5 rounded-full bg-white"></span>
 						{/if}
 					</span>
-					<span
-						class="text-sm {on
-							? 'font-medium text-blue-700 dark:text-blue-300'
-							: 'text-gray-900 dark:text-gray-100'}">{m["chat.ask.other"]()}</span
-					>
+					<span class="min-w-0">
+						<span
+							class="block text-sm {on
+								? 'font-medium text-blue-700 dark:text-blue-300'
+								: 'text-gray-900 dark:text-gray-100'}">{otherLabel}</span
+						>
+						{#if catchAll?.description}
+							<span class="block text-xs text-gray-500 dark:text-gray-400"
+								>{catchAll.description}</span
+							>
+						{/if}
+					</span>
 				</button>
 				{#if on}
 					<input

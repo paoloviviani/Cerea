@@ -188,6 +188,28 @@ describe('an "Other" answer', () => {
 		expect(await submit(baseElement)).toMatchObject({ pick: "Neither, use SQLite" });
 	});
 
+	it("adds no second free-text choice when an option already is one", async () => {
+		const { baseElement } = mount([
+			pick({
+				options: [
+					{ value: "A", label: "A" },
+					{ value: "Something else", label: "Something else" },
+				],
+			}),
+		]);
+		const select = baseElement.querySelector<HTMLSelectElement>("select");
+		const catchAlls = [...(select?.options ?? [])].filter((o) =>
+			/something else/i.test(o.textContent ?? "")
+		);
+		expect(catchAlls).toHaveLength(1);
+		if (!select || !catchAlls[0]) throw new Error("the catch-all option should render");
+		select.value = catchAlls[0].value;
+		select.dispatchEvent(new Event("change", { bubbles: true }));
+		await vi.waitFor(() => expect(otherInput(baseElement)).not.toBeNull());
+		type(baseElement, "SQLite");
+		expect(await submit(baseElement)).toMatchObject({ pick: "SQLite" });
+	});
+
 	it("refuses to submit while the box is empty, rather than dropping the answer", async () => {
 		const { baseElement } = mount([pick()]);
 		await chooseOther(baseElement);

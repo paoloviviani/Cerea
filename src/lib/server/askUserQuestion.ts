@@ -6,6 +6,12 @@ import type { ElicitationField, ElicitationRequestPayload } from "$lib/types/Mcp
 import type { ElicitationSink } from "$lib/server/mcp/elicitation";
 import { MessageElicitationUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 
+import { isCatchAllLabel } from "$lib/utils/questionOptions";
+
+// The cards read the same rule, so an option the model offered as its own
+// "Something else" replaces the form's built-in one instead of doubling it.
+export { isCatchAllLabel };
+
 const MAX_QUESTIONS = 4;
 const MAX_OPTIONS = 4;
 const MIN_OPTIONS = 2;
@@ -81,14 +87,6 @@ export const askUserQuestionTool = {
 		},
 	},
 };
-
-/** "Other", "Something else", "Type my own…": the catch-all the form already provides. */
-export function isCatchAllLabel(label: string): boolean {
-	// Whole label only (plus a trailing aside), so "Other people's code" stays.
-	return /^\s*(other|others|something else|anything else|none of (the|these)( above)?|(let me )?(type|write) (my|your|a) own( answer)?|custom( answer)?)\s*([(:\-\u2013\u2014\u2026.,].*)?$/i.test(
-		label
-	);
-}
 
 const asText = (value: unknown, max: number): string | undefined => {
 	if (typeof value !== "string") return undefined;

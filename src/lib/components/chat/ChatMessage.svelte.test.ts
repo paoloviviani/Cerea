@@ -1,7 +1,7 @@
 import ChatMessage from "./ChatMessage.svelte";
 import { render } from "vitest-browser-svelte";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { tick } from "svelte";
+import { tick, createRawSnippet } from "svelte";
 
 beforeEach(() => vi.stubGlobal("fetch", async () => new Response("{}", { status: 200 })));
 afterEach(() => vi.unstubAllGlobals());
@@ -427,5 +427,101 @@ describe("a file a tool produced", () => {
 			{ type: "stream", token: "Here it is." },
 		]);
 		expect(baseElement.querySelector('[data-testid="produced-files"]')).toBeNull();
+	});
+});
+
+describe("the message actions while a turn runs", () => {
+	const forkSnippet = createRawSnippet(() => ({
+		render: () => '<button aria-label="Branch off from here" type="button">Fork</button>',
+		setup: () => {},
+	}));
+	const copy = (el: HTMLElement) =>
+		el.querySelector<HTMLButtonElement>('button[title="Copy to clipboard"]');
+	const retry = (el: HTMLElement) => el.querySelector<HTMLButtonElement>('button[title="Retry"]');
+	const edit = (el: HTMLElement) => el.querySelector<HTMLButtonElement>('button[title="Edit"]');
+	const fork = (el: HTMLElement) =>
+		el.querySelector<HTMLButtonElement>('button[aria-label="Branch off from here"]');
+
+	it("stays on a finished answer while a later turn runs", () => {
+		const { baseElement } = render(ChatMessage, {
+			message: { id: "old", from: "assistant", content: "an earlier answer", children: [] },
+			loading: true,
+			isLast: false,
+			readOnly: false,
+			onretry: () => {},
+			messageActions: forkSnippet,
+			messageActionsWhen: () => true,
+		} as never);
+		expect(copy(baseElement)).not.toBeNull();
+		expect(fork(baseElement)).not.toBeNull();
+		// Retry would disturb the running turn.
+		expect(retry(baseElement)).toBeNull();
+	});
+
+	it("hides every action on the answer being streamed", () => {
+		const { baseElement } = render(ChatMessage, {
+			message: { id: "live", from: "assistant", content: "half an ans", children: [] },
+			loading: true,
+			isLast: true,
+			readOnly: false,
+			onretry: () => {},
+			messageActions: forkSnippet,
+			messageActionsWhen: () => true,
+		} as never);
+		expect(copy(baseElement)).toBeNull();
+		expect(fork(baseElement)).toBeNull();
+		expect(retry(baseElement)).toBeNull();
+	});
+
+	it("offers retry again once the turn is over", () => {
+		const { baseElement } = render(ChatMessage, {
+			message: { id: "done", from: "assistant", content: "finished", children: [] },
+			loading: false,
+			isLast: true,
+			readOnly: false,
+			onretry: () => {},
+		} as never);
+		expect(retry(baseElement)).not.toBeNull();
+	});
+
+	it("keeps copy on the person's own message and withholds edit while a turn runs", () => {
+		const { baseElement } = render(ChatMessage, {
+			message: { id: "mine", from: "user", content: "my question", children: [] },
+			loading: true,
+			isLast: true,
+			readOnly: false,
+			onretry: () => {},
+		} as never);
+		expect(copy(baseElement)).not.toBeNull();
+		expect(edit(baseElement)).toBeNull();
+	});
+});
+
+describe("a slash command's echo", () => {
+	it("sets the command name as code and leaves the arguments as ordinary text", () => {
+		const { baseElement } = render(ChatMessage, {
+			message: {
+				id: "cmd",
+				from: "user",
+				content: "expanded template",
+				children: [],
+				command: { name: "delegation", arguments: "delegate the release job" },
+			},
+			loading: false,
+			readOnly: false,
+		} as never);
+
+		const code = [...baseElement.querySelectorAll("code")];
+		expect(code.map((el) => el.textContent?.trim())).toEqual(["/delegation"]);
+
+		const argumentsEl = [...baseElement.querySelectorAll<HTMLElement>("span")].find(
+			(el) => el.textContent?.trim() === "delegate the release job"
+		);
+		expect(argumentsEl).toBeDefined();
+		if (!argumentsEl) throw new Error("arguments should render");
+		expect(argumentsEl.closest("code")).toBeNull();
+		expect(argumentsEl.closest(".font-mono")).toBeNull();
+
+		expect(baseElement.textContent).toContain("Expanded command");
 	});
 });
