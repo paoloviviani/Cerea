@@ -1,18 +1,19 @@
+import { thinkBlockCapturePattern, thinkBlockPattern } from "$lib/utils/thinkTags";
 /**
- * Remove `<think>` blocks and their contents from model output.
+ * Remove think blocks and their contents from model output.
  *
  * The unterminated case matters: when a generation budget runs out mid-trace
  * the closing tag never arrives, so an anchored `$` alternative is what stops
  * raw reasoning from leaking out as if it were the answer.
  */
 export function stripThink(content: string): string {
-	return content.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").trim();
+	return content.replace(thinkBlockPattern("g"), "").trim();
 }
 
-const THINK_CAPTURE_REGEX = /<think>([\s\S]*?)(?:<\/think>|$)/g;
+const THINK_CAPTURE_REGEX = thinkBlockCapturePattern("g");
 
 /**
- * Collect the inner contents of every `<think>` block in model output.
+ * Collect the inner contents of every think block in model output.
  *
  * Uses the exact same pattern as {@link stripThink} so the two always
  * partition the content identically: `extractThink(c)` holds what

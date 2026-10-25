@@ -1,3 +1,4 @@
+import type { ToolBlocker } from "./toolBlocker";
 import { randomUUID } from "crypto";
 import { logger } from "../../logger";
 import type { MessageUpdate } from "$lib/types/MessageUpdate";
@@ -83,6 +84,16 @@ export interface ExecuteToolCallsParams {
 		 */
 		webFetchAllowedUrls: Set<string>;
 	};
+	/**
+	 * The turn's blocker. Told about every failure that came from the tool
+	 * itself — an error result, a transport failure, a builtin that threw —
+	 * and consulted once per round before anything else happens to a call: a
+	 * blocked call is refused with the blocker's message, with no approval
+	 * prompt and no dispatch. Refusals this function makes on its own (an
+	 * unapproved call, undecodable arguments, a second parking call) say
+	 * nothing about the tool and are not reported.
+	 */
+	toolBlocker?: ToolBlocker;
 }
 
 /** Where a gated call dispatches: an MCP server, or the `web_fetch` builtin. */
@@ -150,6 +161,7 @@ export async function* executeToolCalls({
 	guard,
 	clientKind,
 	toolApproval,
+	toolBlocker,
 }: ExecuteToolCallsParams): AsyncGenerator<ToolExecutionEvent, void, undefined> {
 	const effectiveTimeoutMs = toolTimeoutMs ?? getMcpToolTimeoutMs();
 	const toolMessages: ChatCompletionMessageParam[] = [];
@@ -281,6 +293,15 @@ export async function* executeToolCalls({
 	// on a race between concurrent tasks.
 	const parkingCalls = prepared.filter((p) => builtinByName.get(p.call.name)?.mayPark);
 
+	// Decided once, before the round's calls start failing under each other, so
+	// a call is refused or run the same way whatever the tasks' timing.
+	const refusedByBlocker = new Map<(typeof prepared)[number], string>();
+	for (const p of prepared) {
+		if (toolBlocker?.blocked(p.call.name)) {
+			refusedByBlocker.set(p, toolBlocker.message(p.call.name));
+		}
+	}
+
 	/**
 	 * What a call would dispatch as, for gating purposes — an MCP tool (always
 	 * gated), the `web_fetch` builtin (gated only for a URL neither the user
@@ -293,7 +314,7 @@ export async function* executeToolCalls({
 	 * unrelated refusal above.
 	 */
 	function approvalTargetFor(p: (typeof prepared)[number]): ApprovalTarget | null {
-		if (p.argsObj === null) return null;
+		if (p.argsObj === null || refusedByBlocker.has(p)) return null;
 		const mappingEntry = mapping[p.call.name];
 		if (mappingEntry) {
 			return {
@@ -349,6 +370,21 @@ export async function* executeToolCalls({
 				subtype: MessageToolUpdateType.Error,
 				uuid: p.uuid,
 				message,
+			});
+			return;
+		}
+
+		// Refused before the approval prompt and the dispatch: the person is
+		// never asked about a call that will not run.
+		const blockedMessage = refusedByBlocker.get(p);
+		if (blockedMessage !== undefined) {
+			logger.warn({ tool: p.call.name }, "[mcp] call refused: the tool is blocked for this turn");
+			results.push({ index, error: blockedMessage, uuid: p.uuid, paramsClean: p.paramsClean });
+			updatesQueue.push({
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Error,
+				uuid: p.uuid,
+				message: blockedMessage,
 			});
 			return;
 		}
@@ -506,6 +542,7 @@ export async function* executeToolCalls({
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				logger.warn({ tool: p.call.name, err: message }, "[builtin] tool call failed");
+				if (!abortSignal?.aborted) toolBlocker?.recordFailure(p.call.name, message);
 				results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
 				updatesQueue.push({
 					type: MessageUpdateType.Tool,
@@ -701,6 +738,7 @@ export async function* executeToolCalls({
 					{ server: mappingEntry.server, tool: mappingEntry.tool, err: message },
 					"[mcp] tool returned an error result"
 				);
+				toolBlocker?.recordFailure(p.call.name, message);
 				results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
 				updatesQueue.push({
 					type: MessageUpdateType.Tool,
@@ -767,6 +805,7 @@ export async function* executeToolCalls({
 					{ server: mappingEntry.server, tool: mappingEntry.tool, err: message },
 					"[mcp] tool call failed"
 				);
+				toolBlocker?.recordFailure(p.call.name, message);
 			}
 			results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
 			updatesQueue.push({

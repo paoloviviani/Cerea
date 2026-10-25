@@ -1159,6 +1159,7 @@ See `.env` for full list of variables including router config, MCP servers, auth
 - ESLint: no `any`, no non-null assertions
 - Prettier: tabs, 100 char width, Tailwind class sorting
 - Server vs client separation via SvelteKit conventions (`+page.server.ts` vs `+page.ts`)
+- The think tag never appears literally in source: import `THINK_OPEN`, `THINK_CLOSE` and the block patterns from `src/lib/utils/thinkTags.ts`. Some reasoning models emit those tags as special tokens and cannot type them, so an agent built on one corrupts a literal tag (a dropped `>`) without noticing; the literal lives only in that module, assembled from pieces, and `thinkTags.spec.ts` fails if it shows up elsewhere in non-test code under `src/`. Say "the think tag" in comments.
 
 ## Feature Development Checklist
 

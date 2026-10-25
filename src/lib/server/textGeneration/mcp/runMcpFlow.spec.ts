@@ -661,14 +661,16 @@ describe("runMcpFlow termination", () => {
 		const toolRound: Round = {
 			toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }],
 		};
-		scriptRounds(Array.from({ length: 10 }, () => toolRound));
+		// The 21st request is the no-tools answer; it fails here, so the turn
+		// ends on the canned message.
+		scriptRounds([...Array.from({ length: 20 }, () => toolRound), { error: new Error("down") }]);
 
 		const { updates, result } = await runFlow();
 
 		// "not_applicable" would make the caller re-run the turn with no tools and
-		// discard all ten rounds of work.
+		// discard all twenty rounds of work.
 		expect(result).toBe("exhausted");
-		expect(mocks.create).toHaveBeenCalledTimes(10);
+		expect(mocks.create).toHaveBeenCalledTimes(21);
 		expect(finalAnswer(updates)).toBeDefined();
 	});
 
@@ -942,12 +944,77 @@ describe("runMcpFlow and the generic tool preprompt", () => {
 		expect(mocks.create.mock.calls[0][0].max_tokens).toBeUndefined();
 	});
 
-	it("stops at the ordinary round budget", async () => {
+	it("answers through a no-tools call when the round budget runs out", async () => {
 		const toolRound: Round = { toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }] };
-		scriptRounds(Array.from({ length: 11 }, () => toolRound));
-		const { result } = await runFlow();
+		scriptRounds([
+			...Array.from({ length: 20 }, () => toolRound),
+			{ content: "Here is what I found, and what I could not." },
+		]);
+		const { updates, result } = await runFlow();
+		expect(result).toBe("completed");
+		expect(mocks.create).toHaveBeenCalledTimes(21);
+		expect(finalAnswer(updates)).toBe("Here is what I found, and what I could not.");
+		expect(streamedText(updates)).toContain("Here is what I found");
+		// The extra call has no tools, says to answer now, and keeps every tool result.
+		const extra = mocks.create.mock.calls[20][0];
+		expect(extra.tools).toBeUndefined();
+		expect(extra.tool_choice).toBeUndefined();
+		expect(String(extra.messages.at(-1)?.content)).toContain("Answer the person now");
+		expect(extra.messages.filter((m: { role: string }) => m.role === "tool")).toHaveLength(20);
+	});
+
+	it("answers through a no-tools call when the final round after tools is only reasoning", async () => {
+		scriptRounds([
+			{ toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }] },
+			{ reasoning: "The answer is 42 but I never say it." },
+			{ content: "The answer is 42." },
+		]);
+		const { updates, result } = await runFlow();
+		expect(result).toBe("completed");
+		expect(mocks.create).toHaveBeenCalledTimes(3);
+		expect(finalAnswer(updates)).toBe("The answer is 42.");
+		expect(mocks.create.mock.calls[2][0].tools).toBeUndefined();
+	});
+
+	it("falls back to the canned message when the no-tools call is empty too", async () => {
+		const toolRound: Round = { toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }] };
+		scriptRounds([...Array.from({ length: 20 }, () => toolRound), { content: "" }]);
+		const { updates, result } = await runFlow();
 		expect(result).toBe("exhausted");
-		expect(mocks.create).toHaveBeenCalledTimes(10);
+		expect(finalAnswer(updates)).toContain("couldn't reach an answer");
+		expect(streamedText(updates)).toContain("couldn't reach an answer");
+	});
+
+	it("falls back to the canned message when the no-tools call fails", async () => {
+		scriptRounds([
+			{ toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }] },
+			{ reasoning: "Only thinking." },
+			{ error: new Error("bad request") },
+		]);
+		const { updates, result } = await runFlow();
+		expect(result).toBe("completed");
+		expect(finalAnswer(updates)).toContain("couldn't reach an answer");
+	});
+
+	it("does not make the extra call when no tool ran and the answer is empty", async () => {
+		scriptRounds([{ reasoning: "Only thinking." }, { content: "Cut-answer retry answers." }]);
+		const { updates } = await runFlow();
+		// The ordinary cut-answer retry handles this; tools stay on offer.
+		expect(finalAnswer(updates)).toBe("Cut-answer retry answers.");
+		expect(mocks.create.mock.calls[1][0].tools).toBeDefined();
+	});
+
+	it("gives every round of the turn the same tool blocker", async () => {
+		scriptRounds([
+			{ toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }] },
+			{ toolCalls: [{ id: "call_2", name: "do_thing", arguments: "{}" }] },
+			{ content: "Done." },
+		]);
+		await runFlow();
+		const blockers = mocks.executeToolCalls.mock.calls.map((c) => c[0].toolBlocker);
+		expect(blockers).toHaveLength(2);
+		expect(blockers[0]).toBeDefined();
+		expect(blockers[0]).toBe(blockers[1]);
 	});
 });
 

@@ -1,3 +1,4 @@
+import { THINK_CLOSE, THINK_OPEN } from "$lib/utils/thinkTags";
 import type { TextGenerationStreamOutput } from "../endpoints";
 import type OpenAI from "openai";
 import type { Stream } from "openai/streaming";
@@ -16,7 +17,7 @@ export async function* openAIChatToTextGenerationStream(
 	let thinkOpen = false;
 	// Leading whitespace-only reasoning deltas that arrived before the block
 	// opened. Held here and flushed once a non-blank delta opens the block, so a
-	// blank chunk can't create an empty <think> on its own while the trace still
+	// blank chunk can't create an empty think block on its own while the trace still
 	// stays byte-exact. Mirrors runMcpFlow, which does the same for the tool path.
 	let pendingReasoningWhitespace = "";
 
@@ -114,7 +115,7 @@ export async function* openAIChatToTextGenerationStream(
 			if (thinkOpen) {
 				combined += reasoning;
 			} else if (reasoning.trim().length > 0) {
-				combined += "<think>" + pendingReasoningWhitespace + reasoning;
+				combined += THINK_OPEN + pendingReasoningWhitespace + reasoning;
 				pendingReasoningWhitespace = "";
 				thinkOpen = true;
 			} else {
@@ -124,13 +125,13 @@ export async function* openAIChatToTextGenerationStream(
 
 		if (content && content.length > 0) {
 			const trimmed = content.trim();
-			// Allow <think> tags in content to pass through (for models like DeepSeek R1)
-			if (thinkOpen && trimmed === "</think>") {
+			// Allow think tags in content to pass through (for models like DeepSeek R1)
+			if (thinkOpen && trimmed === THINK_CLOSE) {
 				// close once without duplicating the tag
-				combined += "</think>";
+				combined += THINK_CLOSE;
 				thinkOpen = false;
 			} else if (thinkOpen) {
-				combined += "</think>" + content;
+				combined += THINK_CLOSE + content;
 				thinkOpen = false;
 			} else {
 				combined += content;
@@ -202,11 +203,11 @@ export async function* openAIChatToTextGenerationSingle(
 					? (message.reasoning_text as string)
 					: "";
 	// Trim only to TEST for emptiness — whitespace-only reasoning is not a trace
-	// and must not become an empty <think> block, but anything real is echoed
+	// and must not become an empty think block, but anything real is echoed
 	// byte-exact, since vendors documenting preserved thinking can require the
 	// payload back unmodified.
 	if (r.trim().length > 0) {
-		content = `<think>${r}</think>` + content;
+		content = `${THINK_OPEN}${r}${THINK_CLOSE}` + content;
 	}
 	const tokenId = 0;
 

@@ -94,7 +94,7 @@ Return only the title text.`,
 		.then((summary) => {
 			const firstFive = prompt.split(/\s+/g).slice(0, 5).join(" ");
 			// Reasoning models can spend the whole `max_tokens` budget thinking, which
-			// leaves an unterminated `<think>` block and no title after it. Strip the
+			// leaves an unterminated think block and no title after it. Strip the
 			// trace so that truncated reasoning falls back to the first five words
 			// instead of being shown to the user as their chat title.
 			const trimmed = stripThink(String(summary ?? ""));

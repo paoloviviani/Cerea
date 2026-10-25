@@ -1,3 +1,4 @@
+import { thinkBlockCapturePattern } from "$lib/utils/thinkTags";
 import { gapMarker } from "./clock";
 import { attachmentMountNotice } from "$lib/utils/execution/attachmentNames";
 import type { MessageFile } from "$lib/types/Message";
@@ -164,7 +165,7 @@ function reasoningProducerMatches(
 }
 
 /**
- * Split `<think>` blocks out of assistant text, merging them with the
+ * Split think blocks out of assistant text, merging them with the
  * separately persisted `message.reasoning` when present. Parts are returned
  * individually so replay can pair round reasoning back to its tool round.
  * Parts are filtered by whether they're non-blank but kept byte-exact
@@ -177,7 +178,7 @@ function splitReasoning(
 	storedReasoning?: string
 ): { visible: string; parts: string[] } {
 	const thinkParts: string[] = [];
-	const visible = content.replace(/<think>([\s\S]*?)(?:<\/think>|$)/g, (_match, inner: string) => {
+	const visible = content.replace(thinkBlockCapturePattern("g"), (_match, inner: string) => {
 		thinkParts.push(inner);
 		return "";
 	});
@@ -376,12 +377,12 @@ function replayAssistantTurn(
  * - Processes images via the provided imageProcessor (resize/convert) when multimodal is enabled.
  * - Injects text-file content into the user message text.
  * - Leaves messages untouched when no files or multimodal disabled.
- * - Historical assistant `<think>` blocks are always stripped from outgoing
+ * - Historical assistant think blocks are always stripped from outgoing
  *   content, whether or not any reasoning option below is set: raw think
  *   markup must never be replayed as visible text to any model.
  * - With `replayToolHistory`, expands past assistant turns into their
  *   assistant/tool message pairs (from persisted updates) and re-attaches
- *   reasoning as `reasoning_content` instead of inline `<think>` text.
+ *   reasoning as `reasoning_content` instead of inline think-tag text.
  * - With `attachReasoning`, only the reasoning half: assistant turns stay
  *   flat but carry `reasoning_content`, for tool-less requests where replayed
  *   tool messages would be undefined behavior (no `tools` in the request).
@@ -467,7 +468,7 @@ export async function prepareMessagesWithFiles(
 					reasoningProducerMatches(message, options?.currentProducerModel);
 
 				if (options?.replayToolHistory) {
-					// The budget-fallback `flat` must still strip <think>, not just
+					// The budget-fallback `flat` must still strip think blocks, not just
 					// drop the reasoning_content/tool-replay enrichments: the raw
 					// string leaks reasoning as visible content to every model that
 					// falls back to it, including ones (e.g. Gemma) whose vendor

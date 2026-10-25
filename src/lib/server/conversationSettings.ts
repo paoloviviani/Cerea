@@ -1,3 +1,4 @@
+import { thinkTagPattern } from "$lib/utils/thinkTags";
 import type { Filter, UpdateResult } from "mongodb";
 import { collections } from "$lib/server/database";
 import type { Conversation } from "$lib/types/Conversation";
@@ -65,7 +66,7 @@ export async function applyConversationSettings(
 	const updateValues = {
 		// Titles are model-generated, so they can carry think markup.
 		...(values.title !== undefined && {
-			title: values.title.replace(/<\/?think>/gi, "").trim(),
+			title: values.title.replace(thinkTagPattern("gi"), "").trim(),
 		}),
 		...(values.model !== undefined && { model: values.model }),
 		...(values.knowledgeBaseIds !== undefined && {
