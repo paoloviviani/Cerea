@@ -64,7 +64,7 @@ docker compose run --rm --publish 127.0.0.1:3000:3000 playwright
 
 The server and the chat's Playwright client must agree on the **minor**
 version: a mismatch is refused outright (`428 Precondition Required …
-Playwright version mismatch`), not degraded. Both are pinned to **1.61.1**:
+Playwright version mismatch`), not degraded. Both are pinned to **1.64.1**:
 `PLAYWRIGHT_VERSION` feeds the image tag and the `npx` argument in the
 compose file, and the chat's `package.json` pins `playwright` exactly. Change
 them together.

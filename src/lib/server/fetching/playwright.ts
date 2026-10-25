@@ -343,7 +343,7 @@ export interface PlaywrightAccessibilitySnapshot {
 /**
  * `page.accessibility` (the old `AccessibilitySnapshot` API) is gone from
  * this Playwright version's types entirely — checked in
- * `node_modules/playwright-core/types/types.d.ts` for 1.61.1 rather than
+ * `node_modules/playwright-core/types/types.d.ts` for 1.64.1 rather than
  * assumed from memory. `page.ariaSnapshot()` is its replacement, and
  * `mode: "ai"` is Playwright's own purpose-built shape for handing a page's
  * structure to a model: element roles, names and a stable `[ref=eN]` per

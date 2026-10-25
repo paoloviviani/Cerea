@@ -57,13 +57,13 @@ Two things about running the suites in a container:
   not run. It needs a real
   Chromium through Playwright, and the image's browsers must match the
   _installed_ Playwright rather than the caret range in `package.json`
-  (`node_modules/playwright` was 1.61.1 while the range said `^1.55.1`, and the
+  (`node_modules/playwright` was 1.64.1 while the range said `^1.55.1`, and the
   mismatched image reports `no tests` plus a `Serialized Error: { log: [] }`,
   which says nothing about the cause):
 
   ```bash
   docker run --rm -v $PWD:/chat -w /chat --entrypoint /bin/sh \
-    mcr.microsoft.com/playwright:v1.61.1-noble \
+    mcr.microsoft.com/playwright:v1.64.1-noble \
     -c 'export HOME=/root CI=true; corepack enable; npx vitest run --project=client'
   ```
 
