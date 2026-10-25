@@ -11,6 +11,7 @@
 	that is not reachable: the sheet says why instead.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
 	import { listLocalServerTools } from "$lib/localConnectorsApi";
@@ -29,21 +30,31 @@
 	const titleId = `connector-detail-${Math.random().toString(36).slice(2, 8)}`;
 
 	const STATES = {
-		ready: "On",
-		offline: "Offline",
-		"needs-login": "Needs sign-in",
-		disabled: "Disabled",
-		invalid: "Invalid",
-	} as const;
+		get ready() {
+			return m["mcp.detail.state.ready"]();
+		},
+		get offline() {
+			return m["mcp.detail.state.offline"]();
+		},
+		get "needs-login"() {
+			return m["mcp.detail.state.needs_login"]();
+		},
+		get disabled() {
+			return m["mcp.detail.state.disabled"]();
+		},
+		get invalid() {
+			return m["mcp.detail.state.invalid"]();
+		},
+	};
 
 	const stateLabel = $derived(
 		local
 			? STATES[local.state]
 			: connector.connected
 				? connector.auth === "none"
-					? "Ready"
-					: "Connected"
-				: "Not signed in"
+					? m["mcp.detail.state.ready_no_auth"]()
+					: m["mcp.detail.state.connected"]()
+				: m["mcp.detail.state.not_signed_in"]()
 	);
 	const stateDetail = $derived(local ? local.detail : connector.lastError);
 	const transport = $derived(local ? local.transport : "http");
@@ -93,12 +104,14 @@
 					{title}
 				</h2>
 				{#if local}
-					<p class="text-sm text-gray-500 dark:text-gray-400">on {local.machineName}</p>
+					<p class="text-sm text-gray-500 dark:text-gray-400">
+						{m["mcp.detail.on_machine"]({ machine: local.machineName })}
+					</p>
 				{/if}
 			</div>
 			<button
 				type="button"
-				aria-label="Close"
+				aria-label={m["app.close"]()}
 				onclick={onclose}
 				class="-m-1 shrink-0 rounded-lg p-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
 			>
@@ -112,7 +125,7 @@
 
 		<dl class="flex flex-col gap-2">
 			<div class={row}>
-				<dt class={term}>Status</dt>
+				<dt class={term}>{m["mcp.detail.status"]()}</dt>
 				<dd class="break-words text-gray-900 dark:text-gray-100">
 					{stateLabel}{#if stateDetail}<span class="block text-gray-600 dark:text-gray-400"
 							>{stateDetail}</span
@@ -120,18 +133,18 @@
 				</dd>
 			</div>
 			<div class={row}>
-				<dt class={term}>Connection type</dt>
+				<dt class={term}>{m["mcp.detail.connection_type"]()}</dt>
 				<dd class="text-gray-900 dark:text-gray-100">{transport}</dd>
 			</div>
 			{#if !local}
 				<div class={row}>
-					<dt class={term}>Address</dt>
+					<dt class={term}>{m["mcp.detail.address"]()}</dt>
 					<dd class="break-all text-gray-900 dark:text-gray-100">{connector.url}</dd>
 				</div>
 			{/if}
 			{#if local?.allowedTools}
 				<div class={row}>
-					<dt class={term}>Allowed tools</dt>
+					<dt class={term}>{m["mcp.detail.allowed_tools"]()}</dt>
 					<dd class="break-words text-gray-900 dark:text-gray-100">
 						{local.allowedTools.join(", ")}
 					</dd>
@@ -139,20 +152,22 @@
 			{/if}
 		</dl>
 
-		<h3 class="mt-5 mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Tools</h3>
+		<h3 class="mt-5 mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+			{m["mcp.detail.tools"]()}
+		</h3>
 		{#if listing.kind === "loading"}
-			<p class="text-sm text-gray-600 dark:text-gray-400">Loading tools…</p>
+			<p class="text-sm text-gray-600 dark:text-gray-400">{m["mcp.detail.loading_tools"]()}</p>
 		{:else if listing.kind === "error"}
 			<p
 				class="rounded-sm bg-red-50 px-2 py-1 text-sm break-words text-red-800 dark:bg-red-900/20 dark:text-red-200"
 			>
-				Couldn't load the tools: {listing.reason}
+				{m["mcp.detail.tools_error"]({ reason: listing.reason })}
 			</p>
 		{:else if listing.kind === "tools"}
 			{#if listing.tools.length === 0}
-				<p class="text-sm text-gray-600 dark:text-gray-400">No tools.</p>
+				<p class="text-sm text-gray-600 dark:text-gray-400">{m["mcp.detail.no_tools"]()}</p>
 			{:else}
-				<ul class="flex flex-col gap-1.5" aria-label="Tools">
+				<ul class="flex flex-col gap-1.5" aria-label={m["mcp.detail.tools"]()}>
 					{#each listing.tools as tool (tool.name)}
 						<li class="text-sm break-words">
 							<span class="font-mono text-gray-900 dark:text-gray-100">{tool.name}</span>
@@ -167,9 +182,7 @@
 			{/if}
 		{:else}
 			<p class="text-sm text-gray-600 dark:text-gray-400">
-				{local
-					? "Tools are listed while the connector is on."
-					: "Not checked yet. Use Check on the card to see its tools."}
+				{local ? m["mcp.detail.tools_when_on"]() : m["mcp.detail.not_checked"]()}
 			</p>
 		{/if}
 	</div>

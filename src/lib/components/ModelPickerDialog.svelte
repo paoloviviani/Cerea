@@ -7,6 +7,7 @@
 	this component only searches, lists and reports the pick.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import Modal from "$lib/components/Modal.svelte";
 	import * as s from "$lib/components/overlay/styles";
 	import type { PickerModel } from "$lib/utils/modelEffortPicker";
@@ -80,8 +81,8 @@
 				bind:value={query}
 				type="search"
 				class={s.SEARCH}
-				placeholder="Search by name"
-				aria-label="Search models"
+				placeholder={m["app.model_picker.search_placeholder"]()}
+				aria-label={m["app.model_picker.search_label"]()}
 			/>
 		</div>
 
@@ -111,15 +112,19 @@
 								>
 								<span
 									class="ml-1 rounded-full bg-blue-500/10 px-1.5 py-px align-middle text-[10px] font-medium text-blue-700 dark:text-blue-400"
-									>custom</span
+									>{m["app.model_picker.custom_badge"]()}</span
 								>{/if}
 						</span>
 						<span class="block truncate text-xs text-gray-500 dark:text-gray-400"
-							>{model.baseName ? (model.description ?? "Custom model") : model.id}</span
+							>{model.baseName
+								? (model.description ?? m["app.model_picker.custom_model"]())
+								: model.id}</span
 						>
 					</span>
 					{#if busy === model.id}
-						<span class="loading-dots shrink-0 text-xs text-gray-500">Switching</span>
+						<span class="loading-dots shrink-0 text-xs text-gray-500"
+							>{m["app.model_picker.switching"]()}</span
+						>
 					{:else if active}
 						<CarbonCheckmark class="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
 					{/if}
@@ -127,10 +132,10 @@
 			{:else}
 				<div class={s.EMPTY}>
 					<CarbonSearch class={s.EMPTY_ICON} />
-					<p class={s.EMPTY_TITLE}>No model matches that search.</p>
-					<p class={s.EMPTY_DETAIL}>Try fewer letters, or clear the search to see everything.</p>
+					<p class={s.EMPTY_TITLE}>{m["app.model_picker.no_match"]()}</p>
+					<p class={s.EMPTY_DETAIL}>{m["app.model_picker.no_match_detail"]()}</p>
 					<button type="button" class={s.SECONDARY} onclick={() => (query = "")}>
-						Clear the search
+						{m["app.model_picker.clear_search"]()}
 					</button>
 				</div>
 			{/each}

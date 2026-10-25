@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import "../styles/main.css";
 
 	import { onDestroy, onMount } from "svelte";
@@ -229,31 +230,40 @@
 		["/models", "/privacy"].includes(page.route.id ?? "")
 			? ""
 			: page.route.id === "/projects/[id]"
-				? $projectTitle || "Project"
+				? $projectTitle || m["app.layout.project"]()
 				: page.route.id === "/code"
 					? // The agent screen names itself once the daemon answers.
-						codeNav.agentTitle || "Agents"
+						codeNav.agentTitle || m["app.layout.agents"]()
 					: convsStore.list.find((conv) => conv.id === page.params.id)?.title
 	);
 </script>
 
 <svelte:head>
-	<title>{publicConfig.PUBLIC_APP_NAME} - Chat with AI models</title>
+	<title>{m["app.layout.title"]({ name: publicConfig.PUBLIC_APP_NAME })}</title>
 	<meta name="description" content={publicConfig.PUBLIC_APP_DESCRIPTION} />
 
 	<!-- use those meta tags everywhere except on special listing pages -->
 	<!-- feel free to refacto if there's a better way -->
 	{#if !page.url.pathname.includes("/models/")}
 		<meta name="twitter:card" content="summary_large_image" />
-		<meta name="twitter:title" content="{publicConfig.PUBLIC_APP_NAME} - Chat with AI models" />
+		<meta
+			name="twitter:title"
+			content={m["app.layout.title"]({ name: publicConfig.PUBLIC_APP_NAME })}
+		/>
 		<meta name="twitter:description" content={publicConfig.PUBLIC_APP_DESCRIPTION} />
 		<meta
 			name="twitter:image"
 			content="{publicConfig.PUBLIC_ORIGIN ||
 				page.url.origin}{publicConfig.assetPath}/thumbnail.png"
 		/>
-		<meta name="twitter:image:alt" content="{publicConfig.PUBLIC_APP_NAME} preview" />
-		<meta property="og:title" content="{publicConfig.PUBLIC_APP_NAME} - Chat with AI models" />
+		<meta
+			name="twitter:image:alt"
+			content={m["app.layout.preview"]({ name: publicConfig.PUBLIC_APP_NAME })}
+		/>
+		<meta
+			property="og:title"
+			content={m["app.layout.title"]({ name: publicConfig.PUBLIC_APP_NAME })}
+		/>
 		<meta property="og:type" content="website" />
 		<meta property="og:url" content="{publicConfig.PUBLIC_ORIGIN || page.url.origin}{base}" />
 		<meta property="og:image" content="{publicConfig.assetPath}/thumbnail.png" />

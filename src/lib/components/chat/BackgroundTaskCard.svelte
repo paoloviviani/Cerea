@@ -16,6 +16,7 @@
 	not a panel.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { MessageBackgroundTaskUpdate } from "$lib/types/MessageUpdate";
 	import LucideUsers from "~icons/lucide/users";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
@@ -28,10 +29,10 @@
 
 	let open = $state(false);
 
-	const STATE_LABEL: Record<MessageBackgroundTaskUpdate["state"], string> = {
-		running: "Running in the background",
-		completed: "Background task finished",
-		error: "Background task failed",
+	const STATE_LABEL: Record<MessageBackgroundTaskUpdate["state"], () => string> = {
+		running: m["chat.background.running"],
+		completed: m["chat.background.completed"],
+		error: m["chat.background.error"],
 	};
 
 	const DOT_TONES: Record<MessageBackgroundTaskUpdate["state"], string> = {
@@ -40,7 +41,7 @@
 		completed: "bg-green-500",
 	};
 
-	let label = $derived(STATE_LABEL[update.state]);
+	let label = $derived(STATE_LABEL[update.state]());
 	let canExpand = $derived(Boolean(update.text?.trim()));
 </script>
 
@@ -62,17 +63,17 @@
 		{#if update.followUp}
 			<span
 				class="shrink-0 rounded-full bg-gray-100 px-1.5 py-px text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-				title="This carried on the helper that was already running instead of starting a new one."
+				title={m["chat.background.follow_up_title"]()}
 			>
-				follow-up
+				{m["chat.background.follow_up"]()}
 			</span>
 		{/if}
 		{#if update.automatic}
 			<span
 				class="shrink-0 rounded-full bg-gray-100 px-1.5 py-px text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-				title="Reported automatically when the helper finished. The assistant did not write it."
+				title={m["chat.background.automatic_title"]()}
 			>
-				automatic
+				{m["chat.background.automatic"]()}
 			</span>
 		{/if}
 		{#if canExpand}
@@ -81,12 +82,12 @@
 				class="flex shrink-0 cursor-pointer items-center gap-0.5 rounded-sm px-1 py-px text-xs text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200"
 				onclick={() => (open = !open)}
 				aria-expanded={open}
-				aria-label={open ? "Hide the reported result" : "Show the reported result"}
+				aria-label={open ? m["chat.background.hide_label"]() : m["chat.background.show_label"]()}
 			>
 				<CarbonChevronRight
 					class="size-3.5 shrink-0 transition-transform duration-200 {open ? 'rotate-90' : ''}"
 				/>
-				{open ? "Hide result" : "Show result"}
+				{open ? m["chat.background.hide"]() : m["chat.background.show"]()}
 			</button>
 		{/if}
 	</div>

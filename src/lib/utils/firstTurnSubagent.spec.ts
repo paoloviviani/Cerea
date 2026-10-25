@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
-import { FIRST_TURN_HINT, FIRST_TURN_LABEL, isFirstTurn, userTurns } from "./firstTurnSubagent";
+import { firstTurnHint, firstTurnLabel, isFirstTurn, userTurns } from "./firstTurnSubagent";
 
 const user = (text: string): AgentStreamUpdate => ({ type: "user", text });
 const stream = { type: "stream", token: "x" } as unknown as AgentStreamUpdate;
@@ -20,7 +20,7 @@ describe("a subagent's first turn", () => {
 	});
 
 	it("words it the way the brief says, and never as a promise about later turns", () => {
-		expect(FIRST_TURN_LABEL).toBe("New subagent · first turn asks");
-		expect(FIRST_TURN_HINT).not.toMatch(/turn two|second turn|from turn|later turns/i);
+		expect(firstTurnLabel()).toBe("New subagent · first turn asks");
+		expect(firstTurnHint()).not.toMatch(/turn two|second turn|from turn|later turns/i);
 	});
 });

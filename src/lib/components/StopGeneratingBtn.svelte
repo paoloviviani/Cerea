@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import CarbonStopFilledAlt from "~icons/carbon/stop-filled-alt";
 
 	interface Props {
@@ -14,9 +15,9 @@
 	type="button"
 	onclick={onClick}
 	class={`stop-generating-btn btn ${showBorder ? "stop-generating-btn--spinning" : ""} ${classNames}`}
-	aria-label="Stop generating"
+	aria-label={m["app.stop_generating"]()}
 >
-	<span class="sr-only">Stop generating</span>
+	<span class="sr-only">{m["app.stop_generating"]()}</span>
 	<CarbonStopFilledAlt class="size-3.5 text-gray-500" />
 </button>
 

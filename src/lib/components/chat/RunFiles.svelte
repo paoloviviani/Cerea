@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import FileArtifactCard from "./FileArtifactCard.svelte";
 	import type { RunState } from "$lib/utils/execution/runs.svelte";
 
@@ -22,7 +23,7 @@
 {#if live.length > 0}
 	<ul
 		class="border-t border-gray-300/50 px-4 py-2 dark:border-gray-600/40"
-		aria-label="Files"
+		aria-label={m["chat.run_files.label"]()}
 		data-testid="run-files"
 	>
 		{#each live as file (file.path)}
@@ -32,7 +33,7 @@
 {:else if persisted.length > 0}
 	<ul
 		class="border-t border-gray-300/50 px-4 py-2 dark:border-gray-600/40"
-		aria-label="Files"
+		aria-label={m["chat.run_files.label"]()}
 		data-testid="run-files"
 	>
 		{#each persisted as file (file.downloadUrl + file.name)}

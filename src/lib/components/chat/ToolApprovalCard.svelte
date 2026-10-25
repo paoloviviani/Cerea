@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import { getContext } from "svelte";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import type { MessageElicitationResolvedUpdate } from "$lib/types/MessageUpdate";
@@ -10,8 +12,8 @@
 	import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
 	import {
 		ALWAYS_ASKS_KEYS,
-		FIRST_TURN_HINT,
-		FIRST_TURN_LABEL,
+		firstTurnHint,
+		firstTurnLabel,
 		FIRST_TURN_SUBAGENT,
 		type FirstTurnSubagent,
 	} from "$lib/utils/firstTurnSubagent";
@@ -51,7 +53,7 @@
 		expiresAt,
 		resolved,
 		onanswer,
-		approveLabel = "Allow once",
+		approveLabel = m["chat.approval.allow_once"](),
 	}: Props = $props();
 
 	const toolApproval = $derived(request.toolApproval);
@@ -62,9 +64,7 @@
 	 * button, so one click is not read as "this edit, here".
 	 */
 	let alwaysLabel = $derived(
-		toolApproval?.tool === "edit"
-			? "Always allow edits (this session)"
-			: "Always allow (this session)"
+		toolApproval?.tool === "edit" ? m["chat.approval.always_edits"]() : m["chat.approval.always"]()
 	);
 
 	let submitting = $state<"once" | "conversation" | "always" | "deny" | null>(null);
@@ -87,9 +87,10 @@
 	let timeLeft = $derived.by(() => {
 		if (expiresAt === undefined) return "";
 		const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
-		if (seconds >= 3_600) return `${Math.floor(seconds / 3_600)}h left`;
-		if (seconds >= 120) return `${Math.floor(seconds / 60)}m left`;
-		return `${seconds}s left`;
+		if (seconds >= 3_600)
+			return m["chat.approval.hours_left"]({ count: Math.floor(seconds / 3_600) });
+		if (seconds >= 120) return m["chat.approval.minutes_left"]({ count: Math.floor(seconds / 60) });
+		return m["chat.approval.seconds_left"]({ count: seconds });
 	});
 
 	let showArgs = $state(false);
@@ -103,7 +104,7 @@
 	let subagentLabel = $derived.by(() => {
 		if (!request.childSessionId) return null;
 		const title = request.childTitle?.trim();
-		return title ? `Subagent ${title}` : "Subagent";
+		return title ? m["chat.approval.subagent_named"]({ title }) : m["chat.approval.subagent"]();
 	});
 
 	/** Set when the machine said the ask was already answered (by itself, for a
@@ -113,12 +114,12 @@
 
 	let settledLabel = $derived.by(() => {
 		if (alreadyAnswered && !resolved) return alreadyAnswered;
-		if (outcome === "accept") return "Allowed";
-		if (outcome === "decline") return "Denied";
-		if (resolved?.resolution === "expired" || expired) return "Timed out — denied";
-		if (resolved?.resolution === "aborted") return "Cancelled with the response";
-		if (resolved?.resolution === "withdrawn") return "Stopped waiting";
-		return "Denied";
+		if (outcome === "accept") return m["chat.approval.allowed"]();
+		if (outcome === "decline") return m["chat.approval.denied"]();
+		if (resolved?.resolution === "expired" || expired) return m["chat.approval.timed_out"]();
+		if (resolved?.resolution === "aborted") return m["chat.approval.cancelled"]();
+		if (resolved?.resolution === "withdrawn") return m["chat.approval.withdrawn"]();
+		return m["chat.approval.denied"]();
 	});
 
 	async function send(action: ElicitationAction, scope?: "once" | "conversation" | "always") {
@@ -129,7 +130,7 @@
 			const result = await onanswer(action, scope === "always" ? "always" : undefined);
 			submitting = null;
 			if (!result.ok) {
-				error = result.error ?? "The answer did not go through.";
+				error = result.error ?? m["chat.approval.no_answer"]();
 				return;
 			}
 			if (result.note) alreadyAnswered = result.note;
@@ -197,21 +198,29 @@
 		const text = (value: unknown) => (typeof value === "string" ? value : "");
 		const facts: Fact[] = [];
 		if (toolApproval?.tool === "session_spawn") {
-			facts.push({ label: "Title", value: text(args.title) });
-			facts.push({ label: "Mode", value: text(args.modeId) });
-			facts.push({ label: "Model", value: text(args.modelId) || "this session's model" });
+			facts.push({ label: m["chat.approval.fact.title"](), value: text(args.title) });
+			facts.push({ label: m["chat.approval.fact.mode"](), value: text(args.modeId) });
+			facts.push({
+				label: m["chat.approval.fact.model"](),
+				value: text(args.modelId) || m["chat.approval.fact.session_model"](),
+			});
 			// A profile is a name and a model: the card names it, and the Model
 			// line above shows the model it chose.
-			if (text(args.profile)) facts.push({ label: "Profile", value: text(args.profile) });
-			if (text(args.committee)) facts.push({ label: "Part of", value: "a committee" });
-			facts.push({ label: "Prompt", value: text(args.prompt), long: true });
+			if (text(args.profile))
+				facts.push({ label: m["chat.approval.fact.profile"](), value: text(args.profile) });
+			if (text(args.committee))
+				facts.push({
+					label: m["chat.approval.fact.part_of"](),
+					value: m["chat.approval.fact.committee"](),
+				});
+			facts.push({ label: m["chat.approval.fact.prompt"](), value: text(args.prompt), long: true });
 		} else if (toolApproval?.tool === "session_read") {
 			const target = args.target as { title?: unknown } | undefined;
-			facts.push({ label: "Session", value: text(target?.title) });
+			facts.push({ label: m["chat.approval.fact.session"](), value: text(target?.title) });
 			if (typeof args.last === "number")
 				facts.push({
-					label: "Reads",
-					value: `its last ${args.last} text messages (not tool calls or output)`,
+					label: m["chat.approval.fact.reads"](),
+					value: m["chat.approval.fact.reads_value"]({ count: args.last }),
 				});
 		} else if (toolApproval?.tool === "session_send") {
 			const target = args.target as { title?: unknown } | undefined;
@@ -220,21 +229,21 @@
 				// makes, because its final message is its report to its parent.
 				const parent = text(args.parentTitle);
 				facts.push({
-					label: "From",
+					label: m["chat.approval.fact.from"](),
 					value: parent
-						? `a task subagent of "${parent}"`
-						: "a task subagent of its parent session",
+						? m["chat.approval.fact.from_parent"]({ parent })
+						: m["chat.approval.fact.from_unnamed"](),
 				});
 			}
-			facts.push({ label: "To", value: text(target?.title) });
-			facts.push({ label: "Message", value: text(args.text), long: true });
+			facts.push({ label: m["chat.approval.fact.to"](), value: text(target?.title) });
+			facts.push({ label: m["chat.approval.fact.message"](), value: text(args.text), long: true });
 			if (typeof args.hop === "number")
 				facts.push({
-					label: "Hop",
+					label: m["chat.approval.fact.hop"](),
 					value:
 						args.hop > 3
-							? `${args.hop}. This chain has passed 3 hops, so each further message needs you`
-							: `${args.hop} of 3`,
+							? m["chat.approval.fact.hop_passed"]({ hop: args.hop })
+							: m["chat.approval.fact.hop_of"]({ hop: args.hop }),
 				});
 		}
 		return facts.filter((fact) => fact.value !== "");
@@ -250,6 +259,13 @@
 	});
 </script>
 
+{#snippet code(text: string)}
+	<code
+		class="rounded-sm bg-blue-50 px-1 py-px font-mono text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+		>{text}</code
+	>
+{/snippet}
+
 {#if !toolApproval}
 	<!-- Malformed payload; nothing safe to render. -->
 {:else if !open}
@@ -259,7 +275,7 @@
 				type="button"
 				class="group/header flex max-w-full cursor-pointer items-center gap-1 text-left whitespace-nowrap focus:outline-hidden"
 				onclick={() => (showArgs = !showArgs)}
-				aria-label={showArgs ? "Collapse" : "Expand"}
+				aria-label={showArgs ? m["chat.approval.collapse"]() : m["chat.approval.expand"]()}
 			>
 				{#if subagentLabel}
 					<!-- The title is what gives way on a narrow screen; the outcome
@@ -290,7 +306,7 @@
 		{#if showArgs}
 			<div class="mt-2 mb-4 space-y-1 text-gray-500 dark:text-gray-400">
 				<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
-					Arguments
+					{m["chat.approval.arguments"]()}
 				</div>
 				<pre
 					class="overflow-x-auto rounded-lg bg-gray-100 p-2 font-mono text-xs whitespace-pre-wrap text-gray-700 dark:bg-gray-800/70 dark:text-gray-300">{argsJson}</pre>
@@ -305,19 +321,21 @@
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
 				<span class="text-sm font-medium text-gray-700 dark:text-gray-200"
 					>{#if subagentLabel}{subagentLabel} ·
-					{/if}{galopin ? "Agent action" : "Tool approval"}</span
+					{/if}{galopin
+						? m["chat.approval.agent_action"]()
+						: m["chat.approval.tool_approval"]()}</span
 				>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
-					wants to call <code
-						class="rounded-sm bg-blue-50 px-1 py-px font-mono text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-						>{toolApproval.tool}</code
-					>
+					<Rich
+						parts={m["chat.approval.wants_to_call"].parts({ tool: toolApproval.tool })}
+						tags={{ code }}
+					/>
 				</span>
 				{#if firstTurnChip}
 					<span
 						class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
 						data-testid="first-turn-chip"
-						title={FIRST_TURN_HINT}>{FIRST_TURN_LABEL}</span
+						title={firstTurnHint()}>{firstTurnLabel()}</span
 					>
 				{/if}
 				{#if expiresAt !== undefined}
@@ -369,7 +387,7 @@
 						disabled={submitting !== null}
 						class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
 					>
-						{onanswer ? alwaysLabel : "Allow for this conversation"}
+						{onanswer ? alwaysLabel : m["chat.approval.allow_conversation"]()}
 					</button>
 				{/if}
 				<button
@@ -379,7 +397,7 @@
 					class="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-700"
 				>
 					<CarbonClose class="mr-1 inline size-3.5 align-text-bottom" />
-					Deny
+					{m["chat.approval.deny"]()}
 				</button>
 			</div>
 		</div>

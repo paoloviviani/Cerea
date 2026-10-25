@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import Modal from "../Modal.svelte";
 
 	import LucideMessageSquareText from "~icons/lucide/message-square-text";
@@ -51,11 +52,11 @@
 	// as "referenced note" rather than a drawing; the palette only affects the
 	// drawing tools
 	const COMMENT_COLOR = "#3b82f6";
-	const TOOLS: { id: Tool; label: string; icon: typeof LucidePencil }[] = [
-		{ id: "comment", label: "Comment", icon: LucideMessageSquareText },
-		{ id: "arrow", label: "Arrow", icon: LucideMoveUpRight },
-		{ id: "pen", label: "Pen", icon: LucidePencil },
-		{ id: "rect", label: "Rectangle", icon: LucideSquare },
+	const TOOLS: { id: Tool; label: () => string; icon: typeof LucidePencil }[] = [
+		{ id: "comment", label: m["chat.annotate.tool.comment"], icon: LucideMessageSquareText },
+		{ id: "arrow", label: m["chat.annotate.tool.arrow"], icon: LucideMoveUpRight },
+		{ id: "pen", label: m["chat.annotate.tool.pen"], icon: LucidePencil },
+		{ id: "rect", label: m["chat.annotate.tool.rect"], icon: LucideSquare },
 	];
 
 	let tool = $state<Tool>("comment");
@@ -638,7 +639,7 @@
 	<div class="flex flex-col gap-2.5 p-2.5 sm:gap-3 sm:p-4">
 		<div class="flex flex-wrap items-center gap-x-1.5 gap-y-2 sm:gap-2">
 			<h2 class="mr-auto text-sm font-semibold text-gray-800 dark:text-gray-200">
-				Mark up the picture
+				{m["chat.annotate.title"]()}
 			</h2>
 
 			<div class="flex items-center rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
@@ -646,7 +647,7 @@
 					<button
 						type="button"
 						class="{toolBtnBase} {tool === toolOption.id ? toolBtnActive : toolBtnInactive}"
-						title={toolOption.label}
+						title={toolOption.label()}
 						aria-pressed={tool === toolOption.id}
 						onclick={() => (tool = toolOption.id)}
 					>
@@ -669,7 +670,7 @@
 							? 'ring-2 ring-gray-500 ring-offset-2 dark:ring-gray-300 dark:ring-offset-gray-800'
 							: ''}"
 						style="background-color: {colorOption}"
-						title="Draw in this colour"
+						title={m["chat.annotate.colour"]()}
 						aria-pressed={color === colorOption}
 						onclick={() => (color = colorOption)}
 					></button>
@@ -680,7 +681,7 @@
 				<button
 					type="button"
 					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-					title="Undo drawing (Ctrl+Z)"
+					title={m["chat.annotate.undo"]()}
 					disabled={annotations.length === 0}
 					onclick={undo}
 				>
@@ -689,7 +690,7 @@
 				<button
 					type="button"
 					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-					title="Clear all marks"
+					title={m["chat.annotate.clear"]()}
 					disabled={annotations.length === 0 && comments.length === 0}
 					onclick={clearAll}
 				>
@@ -705,7 +706,7 @@
 			class="relative flex min-h-40 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 max-sm:-mx-2.5 max-sm:rounded-none max-sm:border-x-0 dark:border-gray-700 dark:bg-gray-950"
 		>
 			{#if loadFailed}
-				<p class="p-8 text-sm text-gray-500">Could not load the picture.</p>
+				<p class="p-8 text-sm text-gray-500">{m["chat.annotate.load_failed"]()}</p>
 			{:else if !image}
 				<EosIconsLoading class="text-2xl text-gray-400" />
 			{:else}
@@ -740,7 +741,7 @@
 						<textarea
 							rows="1"
 							class={noteInput}
-							placeholder="What about this part?"
+							placeholder={m["chat.annotate.note_placeholder"]()}
 							bind:value={comments[editingIndex].note}
 							onkeydown={onNoteKeydown}
 							oncompositionstart={() => (composingNote = true)}
@@ -752,7 +753,7 @@
 					<button
 						type="button"
 						class="btn flex-none rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
-						title="Delete note"
+						title={m["chat.annotate.delete_note"]()}
 						onpointerdown={(e) => e.preventDefault()}
 						onclick={() => {
 							if (editingIndex !== null) deleteComment(editingIndex);
@@ -776,7 +777,7 @@
 						<textarea
 							rows="1"
 							class={noteInput}
-							placeholder="What about this part?"
+							placeholder={m["chat.annotate.note_placeholder"]()}
 							bind:value={comment.note}
 							onkeydown={onNoteKeydown}
 							oncompositionstart={() => (composingNote = true)}
@@ -788,7 +789,7 @@
 						<button
 							type="button"
 							class="btn flex-none rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-							title="Delete note"
+							title={m["chat.annotate.delete_note"]()}
 							onpointerdown={(e) => e.preventDefault()}
 							onclick={() => deleteComment(i)}
 						>
@@ -805,7 +806,7 @@
 				class="btn rounded-xl px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
 				onclick={() => onclose()}
 			>
-				Cancel
+				{m["app.cancel"]()}
 			</button>
 			<button
 				type="button"
@@ -813,7 +814,7 @@
 				disabled={!image}
 				onclick={confirm}
 			>
-				Add to chat
+				{m["chat.annotate.add"]()}
 			</button>
 		</div>
 	</div>

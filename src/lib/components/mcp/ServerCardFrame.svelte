@@ -16,6 +16,7 @@
 	a link, a field or the switch, which keep doing their own job.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { Snippet } from "svelte";
 
 	interface Props {
@@ -97,7 +98,9 @@
 					{/if}
 				</h4>
 				{#if machine}
-					<p class="text-xs text-gray-500 dark:text-gray-400">on {machine}</p>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						{m["mcp.card.on_machine"]({ machine })}
+					</p>
 				{/if}
 				{#if description}
 					<p

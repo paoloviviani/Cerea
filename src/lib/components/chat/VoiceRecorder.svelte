@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount, onDestroy } from "svelte";
 	import CarbonClose from "~icons/carbon/close";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
@@ -88,14 +89,14 @@
 		} catch (err) {
 			if (err instanceof DOMException) {
 				if (err.name === "NotAllowedError") {
-					onerror("Microphone blocked. Allow it in your browser settings.");
+					onerror(m["chat.voice.blocked"]());
 				} else if (err.name === "NotFoundError") {
-					onerror("No microphone found.");
+					onerror(m["chat.voice.not_found"]());
 				} else {
-					onerror(`Microphone problem: ${err.message}`);
+					onerror(m["chat.voice.problem"]({ detail: err.message }));
 				}
 			} else {
-				onerror("Could not use the microphone.");
+				onerror(m["chat.voice.unusable"]());
 			}
 		}
 	}
@@ -153,7 +154,7 @@
 				onconfirm(audioBlob);
 			}
 		} else {
-			onerror("Nothing was recorded. Try again.");
+			onerror(m["chat.voice.nothing"]());
 		}
 	}
 
@@ -173,7 +174,7 @@
 		type="button"
 		class="btn grid size-8 place-items-center rounded-full border bg-white text-black shadow-sm transition-none hover:bg-gray-100 sm:size-7 dark:border-transparent dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500"
 		onclick={handleCancel}
-		aria-label="Cancel recording"
+		aria-label={m["chat.voice.cancel"]()}
 	>
 		<CarbonClose class="size-4" />
 	</button>
@@ -198,10 +199,10 @@
 		onclick={handleConfirm}
 		disabled={isTranscribing}
 		aria-label={isTranscribing
-			? "Transcribing..."
+			? m["chat.voice.transcribing"]()
 			: isTouchDevice
-				? "Send message"
-				: "Confirm and transcribe"}
+				? m["chat.voice.send"]()
+				: m["chat.voice.confirm"]()}
 	>
 		{#if isTranscribing}
 			<EosIconsLoading class="size-4" />

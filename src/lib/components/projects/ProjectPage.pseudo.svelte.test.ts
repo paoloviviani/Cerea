@@ -121,8 +121,6 @@ const ALLOWED: (string | RegExp)[] = [
 	"ana@example.org",
 	// A date, formatted by `Intl` in the page's language rather than spelled by a message.
 	/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/,
-	// The row menu's own label: `MoveMenu` is shared with the sidebar, not part of this screen.
-	"More options",
 ];
 
 beforeEach(() => {

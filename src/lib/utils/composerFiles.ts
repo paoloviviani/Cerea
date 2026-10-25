@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * The composer's attachment machinery, shared by chat and any agent surface
  * (plan milestone M2a): what a paste turns into, and — for a surface that
@@ -85,7 +86,7 @@ export async function uploadComposerFiles(
 	const res = await fetchImpl(endpoint, { method: "POST", body: form });
 	if (!res.ok) {
 		const body = await res.json().catch(() => null);
-		throw new Error(body?.message ?? `Upload failed (${res.status})`);
+		throw new Error(body?.message ?? m["chat.errors.upload_failed"]({ status: res.status }));
 	}
 	return superjson.parse<{ files: MessageFile[] }>(await res.text()).files;
 }

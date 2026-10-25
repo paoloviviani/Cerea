@@ -15,17 +15,9 @@ export const useEnglish = () => overwriteGetLocale(() => "en");
 
 const HAS_WORD = /[A-Za-z]{3,}/;
 
-/**
- * Not this slice's words: the shared `Switch` names itself `aria-label="switch"`
- * (a role description, outside the screens converted here).
- */
-const SHARED = [/^switch$/];
-
 export function unbracketedWords(allow: ReadonlyArray<string | RegExp> = []): string[] {
 	const allowed = (line: string) =>
-		[...SHARED, ...allow].some((entry) =>
-			typeof entry === "string" ? line.includes(entry) : entry.test(line)
-		);
+		allow.some((entry) => (typeof entry === "string" ? line.includes(entry) : entry.test(line)));
 	const lines = document.body.innerText.split("\n").map((line) => line.trim());
 	const attributes = [
 		...document.body.querySelectorAll<HTMLElement>("[aria-label],[placeholder],[title]"),

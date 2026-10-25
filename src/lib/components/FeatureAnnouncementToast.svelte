@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { fade, fly } from "svelte/transition";
 	import { cubicOut } from "svelte/easing";
 	import { base } from "$app/paths";
@@ -25,7 +26,7 @@
 	in:fly={{ y: -8, duration: 400, delay: 300, easing: cubicOut }}
 	out:fade={{ duration: 150 }}
 	class="pointer-events-auto absolute top-4 right-4 z-10 w-[calc(100%-2rem)] max-w-sm sm:top-5 sm:right-5"
-	aria-label="What's new"
+	aria-label={m["app.announcement.label"]()}
 >
 	<div
 		class="rounded-2xl border border-gray-200/80 bg-white/85 p-4 shadow-md shadow-black/5 backdrop-blur-md dark:border-gray-700/60 dark:bg-gray-800/85 dark:shadow-black/20"
@@ -34,7 +35,7 @@
 			class="flex items-center gap-1.5 text-xs font-semibold text-blue-600 uppercase dark:text-blue-400"
 		>
 			<IconSparkles class="size-3.5" />
-			New
+			{m["app.announcement.badge"]()}
 		</div>
 		<h2 class="mt-1.5 text-sm font-semibold text-gray-800 dark:text-gray-100">
 			{announcement.title}
@@ -49,7 +50,7 @@
 				rel={isExternal ? "noopener noreferrer" : undefined}
 				class="mt-2.5 inline-flex items-center gap-0.5 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
 			>
-				{announcement.cta ?? "Learn more"}
+				{announcement.cta ?? m["app.announcement.learn_more"]()}
 				{#if isExternal}
 					<IconArrowUpRight class="size-3.5" />
 				{:else}

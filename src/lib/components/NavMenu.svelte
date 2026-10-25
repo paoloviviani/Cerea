@@ -1,10 +1,19 @@
 <script lang="ts" module>
+	import { m } from "$lib/paraglide/messages";
 	export const titles: { [key: string]: string } = {
-		today: "Today",
-		week: "This week",
-		month: "This month",
-		older: "Older",
-	} as const;
+		get today() {
+			return m["app.nav.group_today"]();
+		},
+		get week() {
+			return m["app.nav.group_week"]();
+		},
+		get month() {
+			return m["app.nav.group_month"]();
+		},
+		get older() {
+			return m["app.nav.group_older"]();
+		},
+	};
 </script>
 
 <!--
@@ -215,10 +224,10 @@
 			href={`${base}/`}
 			onclick={handleNewChatClick}
 			class="flex items-center justify-center gap-1.5 rounded-md bg-white px-2 py-1 text-xs font-medium whitespace-nowrap text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white"
-			title="Ctrl/Cmd + Shift + O"
+			title={m["app.nav.new_chat_shortcut"]()}
 		>
 			<CarbonEdit class="size-3.5" />
-			New chat
+			{m["app.nav.new_chat"]()}
 		</a>
 	</div>
 </div>
@@ -238,7 +247,7 @@
 		{/if}
 
 		<TreeBranch
-			label="Chats"
+			label={m["app.nav.chats"]()}
 			href="{base}/chats"
 			badge={loose.length || undefined}
 			bind:open={chatsOpen}
@@ -261,7 +270,7 @@
 				{/if}
 			{/each}
 			{#if loose.length === 0}
-				<TreeLeaf label="No chats yet" depth={1} href="{base}/" />
+				<TreeLeaf label={m["app.nav.no_chats"]()} depth={1} href="{base}/" />
 			{/if}
 			{#if hasMore}
 				<InfiniteScroll onvisible={handleVisible} />
@@ -291,7 +300,7 @@
 				onclick={() => (codeNav.view = "chats")}
 			>
 				<CarbonChat class="size-3.5" />
-				Chats
+				{m["app.nav.chats"]()}
 			</button>
 			<button
 				data-testid="sidebar-view-agents"
@@ -302,7 +311,7 @@
 				onclick={() => (codeNav.view = "agents")}
 			>
 				<CarbonCode class="size-3.5" />
-				Agents
+				{m["app.nav.agents"]()}
 			</button>
 		</div>
 	</div>
@@ -315,15 +324,15 @@
 	     Workspace is the tabbed page that hosts the managers (models, MCP
 	     servers, knowledge bases), which are no longer dialogs opened from
 	     here. -->
-	<a href="{base}/workspace" class="{ROW} no-underline"> Workspace </a>
-	<a href="{base}/settings/application" class="{ROW} no-underline"> Settings </a>
+	<a href="{base}/workspace" class="{ROW} no-underline"> {m["app.nav.workspace"]()} </a>
+	<a href="{base}/settings/application" class="{ROW} no-underline"> {m["app.nav.settings"]()} </a>
 
 	{#if gatewayIsAdmin}
 		<!-- The chat's administration area (product decisions: which model reads
 		     a document, what fetches a URL, which connectors everybody gets). The
 		     panel's own gate re-asks the gateway; the row merely spares an
 		     administrator the URL. -->
-		<a href="{base}/admin" class="{ROW} no-underline"> Admin </a>
+		<a href="{base}/admin" class="{ROW} no-underline"> {m["app.nav.admin"]()} </a>
 	{/if}
 
 	{#if signedIn}

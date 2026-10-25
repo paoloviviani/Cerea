@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { navigating } from "$app/state";
 
 	// Conversation switches block on the conversation fetch before the page
@@ -24,7 +25,7 @@
 	<div
 		class="fixed inset-x-0 top-0 z-50 h-[3px] overflow-hidden"
 		role="progressbar"
-		aria-label="Loading conversation"
+		aria-label={m["app.loading_bar.label"]()}
 	>
 		<div class="loading-bar h-full w-2/5 rounded-r-full bg-black/70 dark:bg-white/60"></div>
 	</div>

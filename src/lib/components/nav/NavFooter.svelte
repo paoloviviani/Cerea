@@ -21,6 +21,7 @@
 	re-authenticates silently and signing out looks like it did nothing.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
 	import { onDestroy } from "svelte";
 	import { browser } from "$app/environment";
@@ -40,7 +41,7 @@
 
 	let { user }: Props = $props();
 
-	const label = $derived(user?.username || user?.email || "Account");
+	const label = $derived(user?.username || user?.email || m["nav.footer.account"]());
 	// Two letters, because an avatar is not always there and a coloured disc
 	// with initials is what the rest of this deployment's consoles show.
 	const initials = $derived(
@@ -77,8 +78,8 @@
 	<button
 		type="button"
 		onclick={switchTheme}
-		aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
-		title={isDark ? "Light theme" : "Dark theme"}
+		aria-label={isDark ? m["nav.footer.to_light"]() : m["nav.footer.to_dark"]()}
+		title={isDark ? m["nav.footer.light"]() : m["nav.footer.dark"]()}
 		class={GHOST}
 	>
 		{#if browser && isDark}
@@ -93,8 +94,8 @@
 	<button
 		type="button"
 		onclick={reloadApp}
-		aria-label="Reload the app"
-		title="Reload"
+		aria-label={m["nav.footer.reload_label"]()}
+		title={m["nav.footer.reload"]()}
 		class={GHOST}
 	>
 		<CarbonRenew class="size-4" />
@@ -115,8 +116,8 @@
 	>
 		<button
 			type="submit"
-			aria-label="Sign out"
-			title="Sign out"
+			aria-label={m["nav.footer.sign_out"]()}
+			title={m["nav.footer.sign_out"]()}
 			class="{GHOST} hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
 		>
 			<CarbonLogout class="size-4" />

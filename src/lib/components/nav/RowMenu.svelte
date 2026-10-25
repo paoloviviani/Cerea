@@ -12,6 +12,7 @@
 	and it stays lit while its menu is open.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { Snippet } from "svelte";
 	import CarbonOverflowMenuHorizontal from "~icons/carbon/overflow-menu-horizontal";
 
@@ -51,8 +52,8 @@
 		}}
 		aria-haspopup="menu"
 		aria-expanded={open}
-		aria-label="Manage {label}"
-		title="Manage {label}"
+		aria-label={m["nav.row_menu.manage"]({ label })}
+		title={m["nav.row_menu.manage"]({ label })}
 		class="flex size-5 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-gray-600 dark:hover:text-gray-200 {open
 			? 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-200'
 			: ''}"

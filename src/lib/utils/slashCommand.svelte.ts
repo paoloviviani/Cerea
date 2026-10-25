@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * The `/` autocomplete's state machine, kept out of `ChatInput` so it can be
  * tested directly. No debounce and no network: it filters the list it is
@@ -9,8 +10,6 @@
  * the shape batch C's backend command groups (project/machine/skill/mcp)
  * slot into without reshaping this file.
  */
-
-import { m } from "$lib/paraglide/messages";
 
 /** The groups the menu renders, in this order, one heading per present group. */
 export type SlashCommandGroup = "panel" | "project" | "machine" | "skill" | "mcp";
@@ -64,27 +63,27 @@ export interface PanelCommandFlags {
 export function panelCommands(flags: PanelCommandFlags): SlashCommand[] {
 	return [
 		...(flags.compact
-			? [{ name: "compact", description: m["code.slash.compact"](), group: "panel" as const }]
+			? [{ name: "compact", description: m["chat.slash.cmd.compact"](), group: "panel" as const }]
 			: []),
 		...(flags.revert
 			? [
 					{
 						name: "undo",
-						description: m["code.slash.undo"](),
+						description: m["chat.slash.cmd.undo"](),
 						group: "panel" as const,
 					},
-					{ name: "redo", description: m["code.slash.redo"](), group: "panel" as const },
+					{ name: "redo", description: m["chat.slash.cmd.redo"](), group: "panel" as const },
 				]
 			: []),
 		{
 			name: "model",
-			description: m["code.slash.model"](),
+			description: m["chat.slash.cmd.model"](),
 			hint: "[model]",
 			group: "panel" as const,
 		},
 		{
 			name: "mode",
-			description: m["code.slash.mode"](),
+			description: m["chat.slash.cmd.mode"](),
 			hint: "[mode]",
 			group: "panel" as const,
 		},
@@ -92,13 +91,13 @@ export function panelCommands(flags: PanelCommandFlags): SlashCommand[] {
 			? [
 					{
 						name: "effort",
-						description: m["code.slash.effort"](),
+						description: m["chat.slash.cmd.effort"](),
 						hint: "[level]",
 						group: "panel" as const,
 					},
 				]
 			: []),
-		{ name: "new", description: m["code.slash.new"](), group: "panel" as const },
+		{ name: "new", description: m["chat.slash.cmd.new"](), group: "panel" as const },
 	];
 }
 

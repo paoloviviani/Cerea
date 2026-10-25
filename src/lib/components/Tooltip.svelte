@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	interface Props {
 		classNames?: string;
 		label?: string;
@@ -7,7 +8,7 @@
 
 	let {
 		classNames = "",
-		label = "Copied",
+		label = m["app.tooltip.copied"](),
 		position = "left-1/2 top-full transform -translate-x-1/2 translate-y-2",
 	}: Props = $props();
 </script>

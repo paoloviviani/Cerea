@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import Modal from "../Modal.svelte";
 	import { base } from "$app/paths";
 	import { tick } from "svelte";
@@ -68,7 +69,7 @@
 		errorMsg = "";
 		const trimmed = urlValue.trim();
 		if (!isHttpsUrl(trimmed)) {
-			errorMsg = "Enter a web address that starts with https://.";
+			errorMsg = m["chat.url_fetch.invalid"]();
 			return;
 		}
 		loading = true;
@@ -80,14 +81,14 @@
 			const res = await fetch(proxyUrl);
 			if (!res.ok) {
 				const txt = await res.text();
-				throw new Error(txt || `Could not get that web address (${res.status}).`);
+				throw new Error(txt || m["chat.url_fetch.failed_status"]({ status: res.status }));
 			}
 			const forwardedType = res.headers.get("x-forwarded-content-type");
 			const blob = await res.blob();
 			const mimeType = pickSafeMime(forwardedType, blob.type, trimmed);
 			// Optional client-side mime filter (same wildcard semantics as dropzone)
 			if (acceptMimeTypes.length > 0 && mimeType && !matchesAllowed(mimeType, acceptMimeTypes)) {
-				throw new Error("This type of file is not allowed.");
+				throw new Error(m["chat.url_fetch.type_not_allowed"]());
 			}
 			const disp = res.headers.get("content-disposition");
 			const filename = (() => {
@@ -114,7 +115,7 @@
 			onfiles?.([file]);
 			close();
 		} catch (e) {
-			errorMsg = e instanceof Error ? e.message : "Could not get that web address. Try again.";
+			errorMsg = e instanceof Error ? e.message : m["chat.url_fetch.failed"]();
 		} finally {
 			loading = false;
 		}
@@ -133,9 +134,9 @@
 			>
 				<div class="flex items-start justify-between">
 					<h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">
-						Add from a web address
+						{m["chat.url_fetch.title"]()}
 					</h2>
-					<button type="button" class="group" onclick={close} aria-label="Close">
+					<button type="button" class="group" onclick={close} aria-label={m["app.close"]()}>
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
 							viewBox="0 0 32 32"
@@ -151,14 +152,14 @@
 
 				<div class="flex flex-col gap-2">
 					<label class="text-sm text-gray-600 dark:text-gray-400" for="fetch-url-input"
-						>Web address</label
+						>{m["chat.url_fetch.field"]()}</label
 					>
 					<input
 						id="fetch-url-input"
 						bind:this={inputEl}
 						bind:value={urlValue}
 						type="url"
-						placeholder="https://example.com/file.txt"
+						placeholder={"https://example.com/file.txt"}
 						class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-[15px] text-gray-800 outline-hidden placeholder:text-ink-faint focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-gray-700"
 						aria-invalid={errorMsg ? "true" : "false"}
 						onkeydown={(e) => {
@@ -174,7 +175,7 @@
 					<p class="-mt-1 text-sm text-red-600 dark:text-red-400">{errorMsg}</p>
 				{/if}
 				<p class="-mt-2 text-xs text-gray-500 dark:text-gray-400">
-					Must start with https://. Up to 10 MB.
+					{m["chat.url_fetch.hint"]()}
 				</p>
 
 				<div class="flex items-center justify-end gap-2">
@@ -183,14 +184,14 @@
 						class="inline-flex items-center rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-900 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
 						onclick={close}
 					>
-						Cancel
+						{m["app.cancel"]()}
 					</button>
 					<button
 						type="submit"
 						class="inline-flex items-center rounded-xl border border-gray-900 bg-gray-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
 						disabled={loading || urlValue.trim() === ""}
 					>
-						{#if loading}Fetching…{:else}Add{/if}
+						{#if loading}{m["chat.url_fetch.fetching"]()}{:else}{m["chat.url_fetch.add"]()}{/if}
 					</button>
 				</div>
 			</form>

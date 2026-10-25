@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * "New subagent · first turn asks": opencode starts a subagent before Cerea
  * can hand it the session's setting, so a subagent's FIRST turn asks whatever
@@ -31,9 +32,9 @@ export interface FirstTurnSubagent {
 	isFirst(childId: string, askId: string): boolean;
 }
 
-export const FIRST_TURN_LABEL = "New subagent · first turn asks";
-export const FIRST_TURN_HINT =
-	"opencode starts a subagent before Cerea can hand it your permission setting, so a new subagent's first turn asks you whatever the setting is.";
+/** The chip's words, looked up when drawn so they follow the language in use. */
+export const firstTurnLabel = (): string => m["chat.approval.first_turn_label"]();
+export const firstTurnHint = (): string => m["chat.approval.first_turn_hint"]();
 
 /** How many user messages a transcript holds: a child starts with one. */
 export function userTurns(updates: AgentStreamUpdate[]): number {

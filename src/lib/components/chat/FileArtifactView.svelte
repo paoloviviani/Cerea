@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import { formatNumber } from "$lib/i18n/format";
 	import { onDestroy } from "svelte";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
@@ -92,7 +94,7 @@
 
 	onDestroy(revokeObjectUrl);
 
-	const TOO_BIG = "too large to preview — download it to read the whole document";
+	const TOO_BIG = m["chat.file_view.too_big_document"]();
 
 	// Refetch whenever the version (or its conversation) changes; a slow
 	// earlier fetch that resolves after a version switch is dropped.
@@ -124,7 +126,7 @@
 		if (selected === "text" && size > FILE_PREVIEW_TEXT_MAX_BYTES) {
 			status = "error";
 			payload = null;
-			error = "too large to preview — download it to read the whole file";
+			error = m["chat.file_view.too_big_file"]();
 			revokeObjectUrl();
 			return;
 		}
@@ -163,7 +165,7 @@
 			if (kindToRender === "text") {
 				// The recorded size is metadata, not the bytes themselves.
 				if (bytes.byteLength > FILE_PREVIEW_TEXT_MAX_BYTES) {
-					throw new Error("too large to preview — download it to read the whole file");
+					throw new Error(m["chat.file_view.too_big_file"]());
 				}
 				const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 				return text.length > FILE_PREVIEW_TEXT_CHARS
@@ -205,10 +207,7 @@
 				if (cancelled) return;
 				status = "error";
 				payload = null;
-				error =
-					err instanceof Error
-						? err.message
-						: "the preview is unavailable; the download still works";
+				error = err instanceof Error ? err.message : m["chat.file_view.unavailable"]();
 			}
 		})();
 		return () => {
@@ -241,9 +240,7 @@
 	{#if !available}
 		<div class="flex flex-1 items-center justify-center px-6 py-8">
 			<p class="max-w-sm text-center text-sm text-gray-400">
-				{stored
-					? "This file is no longer available."
-					: "This file was not saved and is no longer available. Run the code again to make it again."}
+				{stored ? m["chat.file_view.gone"]() : m["chat.file_view.gone_unsaved"]()}
 			</p>
 		</div>
 	{:else if kind === "none"}
@@ -265,15 +262,16 @@
 					type="button"
 					onclick={downloadNone}
 					class="flex flex-none items-center gap-1 rounded-md px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10"
-					aria-label={`Download ${baseName}`}
+					aria-label={m["chat.file_view.download_label"]({ name: baseName })}
 				>
-					<CarbonDownload class="size-3.5" /> Download
+					<CarbonDownload class="size-3.5" />
+					{m["chat.file_view.download"]()}
 				</button>
 			</div>
 		</div>
 	{:else if status === "loading" || status === "idle"}
 		<div class="flex flex-1 items-center justify-center px-6 py-8">
-			<p class="text-sm text-gray-400">Loading preview…</p>
+			<p class="text-sm text-gray-400">{m["chat.file_view.loading"]()}</p>
 		</div>
 	{:else if status === "error"}
 		<div class="flex flex-1 items-center justify-center px-6 py-8">
@@ -288,9 +286,10 @@
 				)}</pre>
 			{#if payload.truncated}
 				<p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-					Showing the first {(FILE_PREVIEW_TEXT_CHARS / 1000).toFixed(0)}k of {formatFileSize(
-						version.size
-					)} — download for the rest.
+					{m["chat.file_view.truncated"]({
+						chars: formatNumber(FILE_PREVIEW_TEXT_CHARS / 1000, { maximumFractionDigits: 0 }),
+						size: formatFileSize(version.size),
+					})}
 				</p>
 			{/if}
 		</div>
@@ -300,7 +299,7 @@
 		>
 			<img
 				src={payload.url}
-				alt={`Preview of ${version.name}`}
+				alt={m["chat.file_view.preview_alt"]({ name: version.name })}
 				class="max-h-full rounded-lg border border-gray-200/70 dark:border-gray-700"
 			/>
 		</div>
@@ -320,7 +319,7 @@
 	{:else if payload?.kind === "docx"}
 		<div class="min-h-0 flex-1">
 			<iframe
-				title={`Preview of ${version.name}`}
+				title={m["chat.file_view.preview_alt"]({ name: version.name })}
 				class="h-full w-full bg-white dark:bg-gray-900"
 				sandbox={PREVIEW_SANDBOX}
 				allow={PREVIEW_ALLOW}

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import { formatNumber } from "$lib/i18n/format";
 	import {
 		compareTableCells,
 		MAX_TABLE_RENDER_ROWS,
@@ -60,16 +62,25 @@
 		if (!table) return "";
 		const q = query.trim();
 		if (capped)
-			return `Showing first ${MAX_TABLE_RENDER_ROWS.toLocaleString()} of ${filtered.length.toLocaleString()} matching rows (${totalRows.toLocaleString()} total) — download for the rest.`;
-		if (q) return `${filtered.length.toLocaleString()} of ${totalRows.toLocaleString()} rows`;
-		return `${totalRows.toLocaleString()} row${totalRows === 1 ? "" : "s"}`;
+			return m["chat.table.count_capped"]({
+				max: formatNumber(MAX_TABLE_RENDER_ROWS),
+				shown: formatNumber(filtered.length),
+				total: formatNumber(totalRows),
+			});
+		if (q) {
+			return m["chat.table.count_filtered"]({
+				shown: formatNumber(filtered.length),
+				total: formatNumber(totalRows),
+			});
+		}
+		return m["chat.table.count"]({ count: totalRows, formatted: formatNumber(totalRows) });
 	});
 </script>
 
 {#if !table}
 	<div class="px-6 py-5">
 		<p class="mb-2 text-xs text-amber-600 dark:text-amber-400">
-			Couldn't show this as a table, so here is the plain text.
+			{m["chat.table.plain_text"]()}
 		</p>
 		<!-- eslint-disable svelte/no-at-html-tags -->
 		<pre
@@ -81,12 +92,12 @@
 	<div class="flex h-full flex-col" data-testid="table-grid">
 		<div class="flex flex-none flex-wrap items-center gap-2 px-6 pt-4 pb-2">
 			<label class="min-w-40 flex-1">
-				<span class="sr-only">Filter rows</span>
+				<span class="sr-only">{m["chat.table.filter"]()}</span>
 				<input
 					type="search"
 					bind:value={query}
-					placeholder="Filter rows…"
-					aria-label="Filter rows"
+					placeholder={m["chat.table.filter_placeholder"]()}
+					aria-label={m["chat.table.filter"]()}
 					class="w-full rounded-md border border-gray-200/80 bg-white px-2.5 py-1.5 text-xs text-gray-800 placeholder:text-ink-faint focus:border-blue-400 focus:outline-none dark:border-gray-700/80 dark:bg-gray-900 dark:text-gray-200"
 				/>
 			</label>
@@ -109,12 +120,16 @@
 									class="btn flex w-full cursor-pointer items-center gap-1 px-2 py-1.5 text-left hover:bg-gray-200/70 dark:hover:bg-gray-700/70"
 									title={sortCol === col
 										? sortDir === 1
-											? `Sorted ascending — activate for descending`
-											: `Sorted descending — activate to clear sorting`
-										: `Sort by ${head || `column ${col + 1}`}`}
+											? m["chat.table.sorted_asc"]()
+											: m["chat.table.sorted_desc"]()
+										: m["chat.table.sort_by"]({
+												column: head || m["chat.table.column_lower"]({ number: col + 1 }),
+											})}
 									onclick={() => toggleSort(col)}
 								>
-									<span class="min-w-0 flex-1 truncate">{head || `Column ${col + 1}`}</span>
+									<span class="min-w-0 flex-1 truncate"
+										>{head || m["chat.table.column"]({ number: col + 1 })}</span
+									>
 									{#if sortCol === col}
 										{#if sortDir === 1}
 											<CarbonArrowUp class="flex-none text-xxs" />
@@ -147,7 +162,7 @@
 								colspan={table.header.length}
 								class="border border-gray-200 px-2 py-6 text-center text-gray-400 dark:border-gray-700/70"
 							>
-								{query.trim() ? "No rows match this filter." : "No rows."}
+								{query.trim() ? m["chat.table.no_match"]() : m["chat.table.no_rows"]()}
 							</td>
 						</tr>
 					{/each}

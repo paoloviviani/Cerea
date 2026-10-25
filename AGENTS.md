@@ -660,10 +660,11 @@ console does it, with the same key style, the same `en-XA` pseudo-locale and the
 same `i18n:check`. English is the only language that ships; the machinery is
 here so that adding a language is a file, not a change to every screen.
 
-**Converted so far:** Settings, the Code area (`src/routes/code`,
-`src/lib/components/code`), the Workspace area (`src/routes/workspace`,
-`src/lib/components/workspace`), projects, models, skills, knowledge, memory and
-admin, and `DeleteAllConversationsModal.svelte`. The list is `CONVERTED` in
+**Converted so far:** every screen: Settings, chat (conversation, composer,
+messages), sidebar and navigation, connectors, the app shell and its shared
+components, projects, models, skills, knowledge, memory, admin, the Code area
+(`src/routes/code`, `src/lib/components/code`) and the Workspace area
+(`src/routes/workspace`, `src/lib/components/workspace`). The list is `CONVERTED` in
 `scripts/i18n-check.mjs`. Everything else still spells its words in the
 template, which is correct until its area is converted.
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import CarbonWarning from "~icons/carbon/warning-alt";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 
@@ -40,7 +41,7 @@
 		type="button"
 		onclick={() => (toggled = !open)}
 		aria-expanded={open}
-		aria-label={open ? "Hide the details" : "Show the details"}
+		aria-label={open ? m["chat.turn_failed.hide"]() : m["chat.turn_failed.show"]()}
 		data-testid="turn-failed-toggle"
 		class="mt-px shrink-0 cursor-pointer rounded-sm p-0.5 text-danger/70 transition-colors hover:text-danger focus:outline-hidden"
 	>

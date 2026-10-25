@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 import {
 	LOAD_TIMEOUT_MS,
 	MAX_FILE_BYTES,
@@ -146,7 +147,7 @@ export class ExecutionSession {
 			this.worker.terminate();
 			this.worker = null;
 		}
-		this.rejectAllPending(new ExecutionError("terminated", "the execution sandbox was reset"));
+		this.rejectAllPending(new ExecutionError("terminated", m["chat.errors.sandbox_reset"]()));
 		this.setStatus("unloaded");
 	}
 
@@ -199,7 +200,7 @@ export class ExecutionSession {
 			)
 		);
 		if (message.error || !message.data) {
-			throw new ExecutionError("worker", message.error ?? `could not read ${path}`);
+			throw new ExecutionError("worker", message.error ?? m["chat.errors.read_failed"]({ path }));
 		}
 		return message.data;
 	}
@@ -242,7 +243,7 @@ export class ExecutionSession {
 				reject(
 					new ExecutionError(
 						"timeout",
-						`the code did not finish within ${Math.round(budget / 1000)} s and was stopped`
+						m["chat.errors.timeout"]({ seconds: Math.round(budget / 1000) })
 					)
 				);
 				this.terminate();
@@ -251,7 +252,7 @@ export class ExecutionSession {
 				resolve: (value) => {
 					clearTimeout(timer);
 					if (matches(value)) resolve(value);
-					else reject(new ExecutionError("worker", "unexpected message from the runtime"));
+					else reject(new ExecutionError("worker", m["chat.errors.unexpected_message"]()));
 				},
 				reject: (error) => {
 					clearTimeout(timer);
@@ -281,7 +282,7 @@ export class ExecutionSession {
 				this.setStatus("broken");
 				// The worker stays up but can never load; fail everything queued.
 				this.rejectAllPending(
-					new ExecutionError("load", `the Python runtime failed to load: ${data.message}`)
+					new ExecutionError("load", m["chat.errors.runtime_load"]({ message: data.message }))
 				);
 				return;
 			}

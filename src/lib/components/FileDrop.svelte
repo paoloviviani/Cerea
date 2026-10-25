@@ -17,9 +17,10 @@
 	and a rejection after a long upload is the worse place to learn it.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import CarbonDocumentAdd from "~icons/carbon/document-add";
 	import CarbonClose from "~icons/carbon/close";
-	import { KNOWLEDGE_ACCEPT_HINT } from "$lib/constants/mime";
+	import { formatNumber } from "$lib/i18n/format";
 
 	interface Props {
 		files: File[];
@@ -43,9 +44,11 @@
 	let input: HTMLInputElement | null = null;
 
 	function humanise(bytes: number): string {
-		if (bytes >= 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MB`;
-		if (bytes >= 1024) return `${Math.round(bytes / 1024)} kB`;
-		return `${bytes} B`;
+		if (bytes >= 1024 * 1024) {
+			return m["app.size.mb"]({ value: formatNumber(Math.round(bytes / (1024 * 1024))) });
+		}
+		if (bytes >= 1024) return m["app.size.kb"]({ value: formatNumber(Math.round(bytes / 1024)) });
+		return m["app.size.b"]({ value: formatNumber(bytes) });
 	}
 
 	function take(incoming: FileList | null) {
@@ -99,10 +102,10 @@
 			: 'border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-900'}"
 	>
 		<CarbonDocumentAdd class="text-gray-400" />
-		<span>Drop files here, or click to choose</span>
+		<span>{m["app.file_drop.prompt"]()}</span>
 		<span class="text-xs text-gray-500 dark:text-gray-400">
-			{hint ?? KNOWLEDGE_ACCEPT_HINT}
-			{#if maxBytes}· up to {humanise(maxBytes)} each{/if}
+			{hint ?? m["app.file_drop.accept_hint"]()}
+			{#if maxBytes}· {m["app.file_drop.max_each"]({ size: humanise(maxBytes) })}{/if}
 		</span>
 	</button>
 
@@ -121,7 +124,7 @@
 
 	{#if refused.length > 0}
 		<p class="text-xs text-red-700 dark:text-red-300">
-			Too big to add: {refused.join(", ")}
+			{m["app.file_drop.too_big"]({ files: refused.join(", ") })}
 		</p>
 	{/if}
 
@@ -137,7 +140,7 @@
 						<button
 							type="button"
 							onclick={() => remove(index)}
-							aria-label="Remove {file.name}"
+							aria-label={m["app.file_drop.remove"]({ name: file.name })}
 							class="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100"
 						>
 							<CarbonClose />

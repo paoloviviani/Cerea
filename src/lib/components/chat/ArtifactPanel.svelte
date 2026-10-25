@@ -1,10 +1,15 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onDestroy } from "svelte";
 	import DOMPurify from "isomorphic-dompurify";
 
-	import type { ArtifactRegistry, ArtifactVersion } from "$lib/utils/artifacts";
+	import type { ArtifactKind, ArtifactRegistry, ArtifactVersion } from "$lib/utils/artifacts";
 	import type { FileArtifactRegistry, FileArtifactVersion } from "$lib/utils/fileArtifacts";
-	import { filePreviewKindFor, fileKindLabel as extensionKindLabel } from "$lib/utils/filePreview";
+	import {
+		filePreviewKindFor,
+		fileKindLabel as extensionKindLabel,
+		fileKindOf,
+	} from "$lib/utils/filePreview";
 	import type { MessageArtifactDraftUpdate } from "$lib/types/MessageUpdate";
 	import type { PaneItem } from "$lib/utils/paneItems";
 	import { artifactFileName, isPreviewableKind } from "$lib/utils/artifacts";
@@ -471,12 +476,14 @@
 			// document; a shot of a different document must not be attached
 			// under the frozen file name
 			if (srcdoc !== requestedSrcdoc) {
-				throw new Error("the preview changed during capture");
+				throw new Error(m["chat.panel.changed"]());
 			}
 			pendingScreenshot = { dataUrl, fileName, subject };
 		} catch (err) {
 			errorStore.set(
-				`Could not take the picture: ${err instanceof Error ? err.message : "unexpected error"}`
+				m["chat.panel.capture_failed"]({
+					detail: err instanceof Error ? err.message : m["chat.panel.unexpected"](),
+				})
 			);
 		} finally {
 			capturing = false;
@@ -636,20 +643,32 @@
 	function fileKindLabel(name: string): string {
 		switch (filePreviewKindFor(name)) {
 			case "pdf":
-				return "PDF";
+				return m["chat.file_kind.pdf"]();
 			case "docx":
-				return "Word";
+				return m["chat.file_kind.word"]();
 			case "image":
-				return "Image";
+				return m["chat.file_kind.image"]();
 			case "text":
-				return "Text";
+				return m["chat.file_kind.text"]();
 			default: {
 				// Office files (Word, spreadsheets, slides) by extension; "File" otherwise.
-				const label = extensionKindLabel(name);
-				return ["Word", "Spreadsheet", "Slides"].includes(label) ? label : "File";
+				const kind = fileKindOf(name);
+				return kind === "word" || kind === "spreadsheet" || kind === "slides"
+					? extensionKindLabel(name)
+					: m["chat.file_kind.file"]();
 			}
 		}
 	}
+
+	const TYPE_LABELS: Record<ArtifactKind, () => string> = {
+		html: m["chat.panel.type.html"],
+		react: m["chat.panel.type.react"],
+		svg: m["chat.panel.type.svg"],
+		markdown: m["chat.panel.type.markdown"],
+		mermaid: m["chat.panel.type.mermaid"],
+		table: m["chat.panel.type.table"],
+		code: m["chat.panel.type.code"],
+	};
 
 	let conversationId = $derived(page.params?.id);
 	let fileDownloadUrl = $derived(
@@ -690,25 +709,25 @@
 				<span
 					class="flex-none rounded-sm bg-gray-100 px-1 py-px text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 				>
-					Editing {editingDraft.title ?? sidePane.identifier}…
+					{m["chat.panel.editing"]({ title: editingDraft.title ?? sidePane.identifier ?? "" })}
 				</span>
 			{:else if pendingDraft}
 				<span
 					class="flex-none rounded-sm bg-gray-100 px-1 py-px text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 				>
-					Streaming…
+					{m["chat.panel.streaming"]()}
 				</span>
 			{:else if fileVersion && fileTotalVersions > 1}
 				<span
 					class="flex-none rounded-sm bg-gray-100 px-1 py-px font-mono text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 				>
-					v{fileDisplayVersionNumber}
+					{m["chat.panel.version"]({ number: fileDisplayVersionNumber })}
 				</span>
 			{:else if totalVersions > 1}
 				<span
 					class="flex-none rounded-sm bg-gray-100 px-1 py-px font-mono text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 				>
-					v{displayVersionNumber}
+					{m["chat.panel.version"]({ number: displayVersionNumber })}
 				</span>
 			{/if}
 		</div>
@@ -721,14 +740,14 @@
 					disabled={!previewable || isStreamingVersion}
 					onclick={() => sidePane.selectTab("preview")}
 				>
-					Preview
+					{m["chat.panel.tab_preview"]()}
 				</button>
 				<button
 					type="button"
 					class="{tabBase} {effectiveTab === 'code' ? tabActive : tabInactive}"
 					onclick={() => sidePane.selectTab("code")}
 				>
-					Code
+					{m["chat.panel.tab_code"]()}
 				</button>
 			</div>
 		{/if}
@@ -743,7 +762,7 @@
 				<button
 					type="button"
 					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-					title="Download {artifactFileName(version)}"
+					title={m["chat.panel.download_named"]({ name: artifactFileName(version) })}
 					onclick={download}
 				>
 					<CarbonDownload />
@@ -752,7 +771,7 @@
 					<button
 						type="button"
 						class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-						title="Open fullscreen"
+						title={m["chat.panel.fullscreen"]()}
 						onclick={() => (fullscreenOpen = true)}
 					>
 						<CarbonMaximize />
@@ -763,8 +782,8 @@
 					href={fileDownloadUrl}
 					download={fileVersion.name}
 					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-					title="Download {fileVersion.name}"
-					aria-label="Download {fileVersion.name}"
+					title={m["chat.panel.download_named"]({ name: fileVersion.name })}
+					aria-label={m["chat.panel.download_named"]({ name: fileVersion.name })}
 				>
 					<CarbonDownload />
 				</a>
@@ -775,7 +794,7 @@
 			<button
 				type="button"
 				class="ml-0.5 btn rounded-md p-1 text-base hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-				title="Close panel (Esc)"
+				title={m["chat.panel.close"]()}
 				onclick={() => sidePane.close()}
 			>
 				<CarbonCloseLarge />
@@ -808,9 +827,9 @@
 		{:else if !version}
 			<div class="flex h-full items-center justify-center text-sm text-gray-400">
 				{#if writingDraft}
-					Writing…
+					{m["chat.panel.writing"]()}
 				{:else}
-					No file selected
+					{m["chat.panel.no_file"]()}
 				{/if}
 			</div>
 		{:else if effectiveTab === "preview"}
@@ -831,7 +850,7 @@
 				     white in dark mode while the document paints its own background -->
 				<iframe
 					bind:this={iframeEl}
-					title="File preview"
+					title={m["chat.panel.file_preview"]()}
 					class="h-full w-full bg-white dark:bg-gray-900 {resizing ? 'pointer-events-none' : ''}"
 					sandbox={PREVIEW_SANDBOX}
 					allow={PREVIEW_ALLOW}
@@ -870,8 +889,8 @@
 							<button
 								type="button"
 								class="{codeFloatBtn} text-gray-600 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-200"
-								title="Run this code here in your browser"
-								aria-label="Run code"
+								title={m["chat.panel.run_title"]()}
+								aria-label={m["chat.panel.run_label"]()}
 								disabled={isStreamingVersion || cellSpinner}
 								onclick={runCell}
 							>
@@ -888,7 +907,9 @@
 								class="{codeFloatBtn} {sidePane.diffView
 									? 'text-gray-600 dark:text-gray-300'
 									: 'text-gray-400'}"
-								title={sidePane.diffView ? "Show full code" : "Show what changed"}
+								title={sidePane.diffView
+									? m["chat.panel.diff_full"]()
+									: m["chat.panel.diff_changes"]()}
 								aria-pressed={sidePane.diffView}
 								onclick={() => sidePane.toggleDiffView()}
 							>
@@ -900,7 +921,9 @@
 							class="{codeFloatBtn} {sidePane.codeWrap
 								? 'text-gray-600 dark:text-gray-300'
 								: 'text-gray-400'}"
-							title="{sidePane.codeWrap ? 'Disable' : 'Enable'} word wrap"
+							title={sidePane.codeWrap
+								? m["chat.panel.wrap_disable"]()
+								: m["chat.panel.wrap_enable"]()}
 							aria-pressed={sidePane.codeWrap}
 							onclick={() => sidePane.toggleCodeWrap()}
 						>
@@ -935,19 +958,19 @@
 					type="button"
 					class="btn rounded-sm p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800"
 					disabled={displayVersionNumber <= 1}
-					title="Previous version"
+					title={m["chat.panel.previous_version"]()}
 					onclick={() => gotoVersion(displayVersionNumber - 1)}
 				>
 					<CarbonChevronLeft />
 				</button>
 				<span class="whitespace-nowrap tabular-nums">
-					{`v${displayVersionNumber} / ${totalVersions}`}
+					{m["chat.panel.version_of"]({ number: displayVersionNumber, total: totalVersions })}
 				</span>
 				<button
 					type="button"
 					class="btn rounded-sm p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800"
 					disabled={displayVersionNumber >= totalVersions}
-					title="Next version"
+					title={m["chat.panel.next_version"]()}
 					onclick={() => gotoVersion(displayVersionNumber + 1)}
 				>
 					<CarbonChevronRight />
@@ -957,26 +980,31 @@
 					type="button"
 					class="btn rounded-sm p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800"
 					disabled={fileDisplayVersionNumber <= 1}
-					title="Previous version"
+					title={m["chat.panel.previous_version"]()}
 					onclick={() => gotoFileVersion(fileDisplayVersionNumber - 1)}
 				>
 					<CarbonChevronLeft />
 				</button>
 				<span class="whitespace-nowrap tabular-nums">
-					{`v${fileDisplayVersionNumber} / ${fileTotalVersions}`}
+					{m["chat.panel.version_of"]({
+						number: fileDisplayVersionNumber,
+						total: fileTotalVersions,
+					})}
 				</span>
 				<button
 					type="button"
 					class="btn rounded-sm p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800"
 					disabled={fileDisplayVersionNumber >= fileTotalVersions}
-					title="Next version"
+					title={m["chat.panel.next_version"]()}
 					onclick={() => gotoFileVersion(fileDisplayVersionNumber + 1)}
 				>
 					<CarbonChevronRight />
 				</button>
 			{:else if version}
 				<span class="capitalize">
-					{version.type === "code" ? (version.language ?? "code") : version.type}
+					{version.type === "code"
+						? (version.language ?? m["chat.panel.type.code"]())
+						: TYPE_LABELS[version.type]()}
 				</span>
 			{:else if fileVersion}
 				<span class="capitalize">
@@ -988,29 +1016,27 @@
 		<div class="flex min-w-0 items-center gap-2">
 			{#if isStreamingVersion}
 				<span class="router-shimmer whitespace-nowrap">
-					{version?.op === "update" ? "Applying edit" : "Generating"}
+					{version?.op === "update" ? m["chat.panel.applying"]() : m["chat.panel.generating"]()}
 				</span>
 			{:else if errors.length > 0 && onsend}
 				<button
 					type="button"
 					class="btn flex items-center gap-1.5 rounded-full border border-red-300/60 bg-red-50 px-2.5 py-0.5 text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"
-					title={loading
-						? "Wait for the current response to finish"
-						: "Send the problems and ask for a fix"}
+					title={loading ? m["chat.panel.wait"]() : m["chat.panel.fix"]()}
 					disabled={loading}
 					onclick={askToFixErrors}
 				>
-					{errors.length} problem{errors.length > 1 ? "s" : ""}: ask for a fix
+					{m["chat.panel.problems"]({ count: errors.length })}
 				</button>
 			{:else if version?.failedPairs}
 				<span class="truncate text-amber-600 dark:text-amber-500">
-					{version.failedPairs} change{version.failedPairs > 1 ? "s" : ""} didn't apply
+					{m["chat.panel.failed_pairs"]({ count: version.failedPairs })}
 				</span>
 			{:else if stats && effectiveTab === "code" && stats.added + stats.removed > 0}
 				<button
 					type="button"
 					class="btn rounded-sm px-1.5 py-0.5 whitespace-nowrap tabular-nums hover:bg-gray-100 dark:hover:bg-gray-800"
-					title="Jump to first change"
+					title={m["chat.panel.first_change"]()}
 					onclick={() => codeScrollEl && scrollToFirstChange(codeScrollEl)}
 				>
 					<span class="text-green-600 dark:text-green-500">+{stats.added}</span>
@@ -1024,7 +1050,7 @@
 				<button
 					type="button"
 					class="btn flex-none gap-1.5 rounded-md border border-gray-200/80 bg-white/90 px-2 py-0.5 font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700/80 dark:bg-gray-900/90 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-					title="Take a picture of the preview, mark it up and add it to the chat"
+					title={m["chat.panel.annotate_title"]()}
 					disabled={capturing}
 					onclick={screenshotPreview}
 				>
@@ -1033,7 +1059,7 @@
 					{:else}
 						<CarbonCamera class="text-xs" />
 					{/if}
-					Annotate
+					{m["chat.panel.annotate"]()}
 				</button>
 			{/if}
 		</div>
@@ -1043,7 +1069,7 @@
 <!-- A tool-mode draft of a new artifact has no registry entry until its call
      runs; it still mounts the pane, so the preview streams in while it is written. -->
 {#if sidePane.open && sidePane.view === "artifact" && (artifact || fileArtifact || pendingDraft || writingDraft)}
-	<SidePane label="File panel" escapeDisabled={fullscreenOpen || loading}>
+	<SidePane label={m["chat.panel.label"]()} escapeDisabled={fullscreenOpen || loading}>
 		{#snippet children(resizing)}
 			{@render panelContent(resizing)}
 		{/snippet}

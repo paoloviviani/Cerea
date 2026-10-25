@@ -27,6 +27,7 @@
 	hover and focus.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { Snippet } from "svelte";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import CarbonAdd from "~icons/carbon/add";
@@ -120,8 +121,8 @@
 				type="button"
 				onclick={toggle}
 				aria-expanded={open}
-				aria-label="{open ? 'Collapse' : 'Expand'} {label}"
-				title="{open ? 'Collapse' : 'Expand'} {label}"
+				aria-label={open ? m["nav.tree.collapse"]({ label }) : m["nav.tree.expand"]({ label })}
+				title={open ? m["nav.tree.collapse"]({ label }) : m["nav.tree.expand"]({ label })}
 				class="-mx-1 flex size-5 shrink-0 items-center justify-center rounded-md hover:bg-gray-200 dark:hover:bg-gray-600"
 			>
 				<CarbonChevronRight class="size-3 transition-transform {open ? 'rotate-90' : ''}" />
@@ -163,8 +164,8 @@
 			<button
 				type="button"
 				onclick={onadd}
-				title={addTitle ?? `New ${label.toLowerCase()}`}
-				aria-label={addTitle ?? `New ${label.toLowerCase()}`}
+				title={addTitle ?? m["nav.tree.new"]({ label: label.toLowerCase() })}
+				aria-label={addTitle ?? m["nav.tree.new"]({ label: label.toLowerCase() })}
 				class="flex size-5 shrink-0 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-gray-600 dark:hover:text-gray-200"
 			>
 				<CarbonAdd class="size-3.5" />

@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 import { untrack } from "svelte";
 import { withAttachmentMounts } from "./attachmentMounts.svelte";
 import { getExecutionSession } from "./runtime";
@@ -134,10 +135,7 @@ class ArtifactRunsStore {
 				this.settle(key, {
 					...state,
 					status: "error",
-					sandboxError:
-						error instanceof Error
-							? error.message
-							: "the execution sandbox could not run this code",
+					sandboxError: error instanceof Error ? error.message : m["chat.errors.sandbox_failed"](),
 					finishedAt: Date.now(),
 					// No files to wait for on a sandbox-level failure.
 					outputsCollected: true,

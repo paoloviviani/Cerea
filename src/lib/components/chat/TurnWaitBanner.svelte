@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import CarbonTime from "~icons/carbon/time";
 	import CarbonContinue from "~icons/carbon/continue";
 	import { base } from "$app/paths";
@@ -60,7 +62,7 @@
 			// The timer is untouched by a failed request, so the turn still wakes
 			// on its own — say so rather than implying the wait is lost.
 			waking = false;
-			wakeError = "Couldn't check early. Still waiting.";
+			wakeError = m["chat.wait.wake_failed"]();
 		}
 	}
 
@@ -72,6 +74,8 @@
 	}
 </script>
 
+{#snippet time(text: string)}<span class="font-mono tabular-nums">{text}</span>{/snippet}
+
 <div
 	role="status"
 	data-exclude-from-copy
@@ -80,13 +84,18 @@
 	<div class="flex items-center gap-1.5 px-2.5 py-1.5">
 		<CarbonTime class="text-[0.8rem] {overdue ? '' : 'animate-pulse'}" />
 		{#if overdue}
-			<span>Waiting{reason ? ` for ${reason}` : ""} — running late, checking…</span>
+			<span>{reason ? m["chat.wait.late_for"]({ reason }) : m["chat.wait.late"]()}</span>
 		{:else if waking}
-			<span>Waiting{reason ? ` for ${reason}` : ""} — checking now…</span>
+			<span>{reason ? m["chat.wait.checking_for"]({ reason }) : m["chat.wait.checking"]()}</span>
 		{:else}
 			<span>
-				Waiting{reason ? ` for ${reason}` : ""} — resumes in
-				<span class="font-mono tabular-nums">{formatRemaining(remainingMs)}</span>
+				<Rich
+					parts={(reason ? m["chat.wait.resumes_for"] : m["chat.wait.resumes"]).parts({
+						reason: reason ?? "",
+						remaining: formatRemaining(remainingMs),
+					})}
+					tags={{ time }}
+				/>
 			</span>
 		{/if}
 		{#if wakeError}
@@ -97,8 +106,8 @@
 		<button
 			type="button"
 			onclick={wakeNow}
-			aria-label="Check now"
-			title="Check now instead of waiting"
+			aria-label={m["chat.wait.check_now"]()}
+			title={m["chat.wait.check_now_title"]()}
 			class="flex cursor-pointer items-center justify-center border-l border-gray-200 px-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:border-gray-700 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-300"
 		>
 			<CarbonContinue class="text-[0.7rem]" />

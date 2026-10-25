@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 import type {
 	ElicitationField,
 	ElicitationRequestPayload,
@@ -25,7 +26,8 @@ export function questionSummary(
 	const fields = request.fields ?? [];
 	const first = fields[0];
 	const head = clip(
-		(first?.title || first?.description || request.message || "").trim() || "Question",
+		(first?.title || first?.description || request.message || "").trim() ||
+			m["chat.question.fallback"](),
 		HEAD_MAX
 	);
 	if (!answered) return head;
@@ -41,7 +43,7 @@ function answerText(field: ElicitationField, value: ElicitationValue | undefined
 	if (field.kind !== "select") return values.map(String).join(", ");
 	const labels = values.map((v) => {
 		const option = field.options.find((o) => o.value === String(v));
-		return option ? option.label : `Other: ${String(v)}`;
+		return option ? option.label : m["chat.question.other"]({ value: String(v) });
 	});
 	return labels.join(", ");
 }

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import { questionSummary } from "$lib/utils/questionSummary";
 	import { MAX_OTHER_CHARS } from "$lib/types/McpElicitation";
 	import type {
@@ -85,9 +87,11 @@
 	let timeLeft = $derived.by(() => {
 		if (expiresAt === undefined) return "";
 		const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
-		if (seconds >= 3_600) return `${Math.floor(seconds / 3_600)}h left`;
-		if (seconds >= 120) return `${Math.floor(seconds / 60)}m left`;
-		return `${seconds}s left`;
+		if (seconds >= 3_600)
+			return m["chat.elicitation.hours_left"]({ count: Math.floor(seconds / 3_600) });
+		if (seconds >= 120)
+			return m["chat.elicitation.minutes_left"]({ count: Math.floor(seconds / 60) });
+		return m["chat.elicitation.seconds_left"]({ count: seconds });
 	});
 
 	/** Hosts that only exist inside a network the user did not choose to expose. */
@@ -111,15 +115,14 @@
 		try {
 			parsed = new URL(request.url);
 		} catch {
-			return ["This link could not be read."];
+			return [m["chat.elicitation.url_unreadable"]()];
 		}
 		const out: string[] = [];
 		if (/(^|\.)xn--/i.test(parsed.hostname)) {
-			out.push("This address uses special characters that can make it look like another website.");
+			out.push(m["chat.elicitation.url_lookalike"]());
 		}
-		if (parsed.protocol !== "https:") out.push("This link is not secure (it does not use https).");
-		if (isPrivateHost(parsed.hostname))
-			out.push("This link goes to a private network, not the public web.");
+		if (parsed.protocol !== "https:") out.push(m["chat.elicitation.url_insecure"]());
+		if (isPrivateHost(parsed.hostname)) out.push(m["chat.elicitation.url_private"]());
 		return out;
 	});
 
@@ -222,7 +225,7 @@
 	async function send(action: ElicitationAction) {
 		if (submitting || !open) return;
 		if (action === "accept" && missingOtherText()) {
-			error = "Tell us what you meant by “Something else”, or pick one of the choices.";
+			error = m["chat.elicitation.other_needed"]();
 			return;
 		}
 		submitting = true;
@@ -252,15 +255,18 @@
 	let summary = $derived(questionSummary(request, answered));
 
 	let settledLabel = $derived.by(() => {
-		if (outcome === "accept") return request.mode === "url" ? "Opened link" : "Answered";
-		if (outcome === "decline") return "Declined";
-		if (resolved?.resolution === "aborted") return "Cancelled with the reply";
+		if (outcome === "accept")
+			return request.mode === "url"
+				? m["chat.elicitation.opened_link"]()
+				: m["chat.elicitation.answered"]();
+		if (outcome === "decline") return m["chat.elicitation.declined"]();
+		if (resolved?.resolution === "aborted") return m["chat.elicitation.cancelled_reply"]();
 		if (resolved?.resolution === "withdrawn")
 			return request.source === "assistant"
-				? "No longer asked"
-				: `${request.server} stopped waiting`;
-		if (expired || resolved?.resolution === "expired") return "Expired unanswered";
-		return "Cancelled";
+				? m["chat.elicitation.no_longer_asked"]()
+				: m["chat.elicitation.stopped_waiting"]({ server: request.server });
+		if (expired || resolved?.resolution === "expired") return m["chat.elicitation.expired"]();
+		return m["chat.elicitation.cancelled"]();
 	});
 
 	const labelFor = (name: string) => fields.find((f) => f.name === name)?.title ?? name;
@@ -273,6 +279,13 @@
 		"focus:ring-2 focus:ring-gray-300 focus:outline-hidden dark:focus:ring-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-white";
 </script>
 
+{#snippet code(text: string)}
+	<code
+		class="rounded-sm bg-blue-50 px-1 py-px font-mono text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+		>{text}</code
+	>
+{/snippet}
+
 {#if liftedToComposer}
 	<!-- shown over the composer -->
 {:else if !open}
@@ -282,7 +295,7 @@
 				type="button"
 				class="group/header flex max-w-full cursor-pointer items-center gap-1 text-left whitespace-nowrap focus:outline-hidden"
 				onclick={() => (showAnswers = !showAnswers)}
-				aria-label={showAnswers ? "Collapse" : "Expand"}
+				aria-label={showAnswers ? m["chat.elicitation.collapse"]() : m["chat.elicitation.expand"]()}
 			>
 				<span
 					class="shrink-0 text-sm font-medium text-gray-500 transition-colors group-hover/header:text-gray-600 dark:text-gray-400 dark:group-hover/header:text-gray-300"
@@ -311,7 +324,7 @@
 			<div class="mt-2 mb-4 space-y-3 text-gray-500 dark:text-gray-400">
 				<div class="space-y-1">
 					<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
-						Asked
+						{m["chat.elicitation.asked"]()}
 					</div>
 					<p class="text-xs whitespace-pre-wrap">{request.message}</p>
 					{#if request.url}
@@ -321,7 +334,7 @@
 				{#if answered && Object.keys(answered).length > 0}
 					<div class="space-y-1">
 						<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
-							Answered
+							{m["chat.elicitation.answered"]()}
 						</div>
 						<dl class="rounded-lg bg-gray-100 p-2 text-xs dark:bg-gray-800/70">
 							{#each Object.entries(answered) as [name, value] (name)}
@@ -347,14 +360,16 @@
 		>
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
 				<span class="text-sm font-medium text-gray-700 dark:text-gray-200">
-					{request.mode === "url" ? "Your reply is needed" : "Question"}
+					{request.mode === "url"
+						? m["chat.elicitation.reply_needed"]()
+						: m["chat.elicitation.question"]()}
 				</span>
 				{#if request.source !== "assistant"}
 					<span class="text-xs text-gray-500 dark:text-gray-400">
-						from <code
-							class="rounded-sm bg-blue-50 px-1 py-px font-mono text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-							>{request.server}</code
-						>
+						<Rich
+							parts={m["chat.elicitation.from"].parts({ server: request.server })}
+							tags={{ code }}
+						/>
 					</span>
 				{/if}
 				{#if open}
@@ -377,7 +392,7 @@
 						class="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-2 text-sm text-white hover:bg-gray-700 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
 					>
 						<CarbonLaunch class="size-3.5" />
-						Open {linkHost}
+						{m["chat.elicitation.open_host"]({ host: linkHost })}
 					</a>
 					<p class="mt-1.5 font-mono text-xs break-all text-gray-400 dark:text-gray-500">
 						{request.url}
@@ -469,12 +484,14 @@
 									disabled={!open}
 									class={inputClass}
 								>
-									<option value="" disabled={field.required}>Choose…</option>
+									<option value="" disabled={field.required}
+										>{m["chat.elicitation.choose"]()}</option
+									>
 									{#each field.options as option (option.value)}
 										<option value={option.value}>{option.label}</option>
 									{/each}
 									{#if field.allowOther}
-										<option value={OTHER}>Something else…</option>
+										<option value={OTHER}>{m["chat.ask.other"]()}</option>
 									{/if}
 								</select>
 							{:else if field.kind === "select"}
@@ -505,14 +522,17 @@
 													toggleOption(field.name, OTHER, event.currentTarget.checked)}
 												disabled={!open || (atLimit && !picked)}
 											/>
-											Something else…
+											{m["chat.ask.other"]()}
 										</label>
 									{/if}
 									{#if field.maxItems !== undefined}
 										<p class="text-xs text-gray-500 dark:text-gray-400">
-											Choose up to {field.maxItems}{field.minItems
-												? `, at least ${field.minItems}`
-												: ""}.
+											{field.minItems
+												? m["chat.elicitation.up_to_min"]({
+														max: field.maxItems,
+														min: field.minItems,
+													})
+												: m["chat.elicitation.up_to"]({ max: field.maxItems })}
 										</p>
 									{/if}
 								</div>
@@ -524,8 +544,8 @@
 									oninput={(event) => setOtherText(field.name, event.currentTarget.value)}
 									maxlength={MAX_OTHER_CHARS}
 									disabled={!open}
-									placeholder="Tell us what you had in mind"
-									aria-label={`Your own answer for ${field.title ?? field.name}`}
+									placeholder={m["chat.ask.other_placeholder"]()}
+									aria-label={m["chat.elicitation.own_answer"]({ name: field.title ?? field.name })}
 									class={`mt-2 ${inputClass}`}
 								/>
 							{/if}
@@ -547,7 +567,7 @@
 							disabled={submitting}
 							class="rounded-lg bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
 						>
-							Send
+							{m["chat.elicitation.send"]()}
 						</button>
 					{:else}
 						<button
@@ -556,7 +576,7 @@
 							disabled={submitting}
 							class="rounded-lg bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
 						>
-							I've done this
+							{m["chat.elicitation.done"]()}
 						</button>
 					{/if}
 					<button
@@ -565,7 +585,7 @@
 						disabled={submitting}
 						class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
 					>
-						Decline
+						{m["chat.elicitation.decline"]()}
 					</button>
 					<!-- Distinct from Decline: the spec requires a way to dismiss without choosing. -->
 					<button
@@ -574,7 +594,7 @@
 						disabled={submitting}
 						class="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-700"
 					>
-						Dismiss
+						{m["chat.elicitation.dismiss"]()}
 					</button>
 				</div>
 			{/if}

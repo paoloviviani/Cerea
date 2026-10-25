@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import { formatNumber } from "$lib/i18n/format";
 	import EosIconsLoading from "~icons/eos-icons/loading";
 	import CarbonWarningAlt from "~icons/carbon/warning-alt";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
@@ -63,8 +65,10 @@
 		return ms < 100
 			? ""
 			: ms < 10_000
-				? `${(ms / 1000).toFixed(1)} s`
-				: `${Math.round(ms / 1000)} s`;
+				? m["chat.run.seconds"]({
+						value: formatNumber(ms / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+					})
+				: m["chat.run.seconds"]({ value: formatNumber(Math.round(ms / 1000)) });
 	});
 
 	type OutputBlock = { label: string; tone: "plain" | "error"; text: string };
@@ -73,17 +77,18 @@
 		const blocks: OutputBlock[] = [];
 		const outcome = runState?.outcome;
 		if (!outcome) return blocks;
-		if (outcome.stdout) blocks.push({ label: "Output", tone: "plain", text: outcome.stdout });
+		if (outcome.stdout)
+			blocks.push({ label: m["chat.run.output"](), tone: "plain", text: outcome.stdout });
 		if (outcome.stderr)
 			blocks.push({
-				label: "Stderr",
+				label: m["chat.run.stderr"](),
 				tone: outcome.ok ? "plain" : "error",
 				text: outcome.stderr,
 			});
 		if (!outcome.ok && outcome.error)
-			blocks.push({ label: "Error", tone: "error", text: outcome.error });
+			blocks.push({ label: m["chat.run.error"](), tone: "error", text: outcome.error });
 		else if (outcome.ok && outcome.result)
-			blocks.push({ label: "Result", tone: "plain", text: outcome.result });
+			blocks.push({ label: m["chat.run.result"](), tone: "plain", text: outcome.result });
 		return blocks;
 	});
 </script>
@@ -121,14 +126,14 @@
 			{#if spinner}
 				<EosIconsLoading class="text-gray-400" />
 				<span class={runState.status === "loading" ? "router-shimmer" : ""}>
-					{runState.status === "loading" ? "Starting Python" : "Running"}
+					{runState.status === "loading" ? m["chat.run.starting"]() : m["chat.run.running"]()}
 				</span>
 			{:else if runState.status === "error"}
 				<CarbonWarningAlt class="text-amber-500 dark:text-amber-400" />
-				<span>{runState.outcome ? "Finished with errors" : "The code failed"}</span>
+				<span>{runState.outcome ? m["chat.run.finished_errors"]() : m["chat.run.failed"]()}</span>
 			{:else}
 				<CarbonCheckmark class="text-green-600 dark:text-green-500" />
-				<span>Finished{duration ? ` · ${duration}` : ""}</span>
+				<span>{duration ? m["chat.run.finished_in"]({ duration }) : m["chat.run.finished"]()}</span>
 			{/if}
 		</div>
 		{@render before?.()}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	/**
 	 * The composer's pending attachments as removable chips, above the input —
 	 * chat's strip, for any composer that keeps a bindable `File[]` (see
@@ -64,7 +65,7 @@
 						/>
 						<button
 							type="button"
-							aria-label="Remove {src.name}"
+							aria-label={m["chat.composer_chips.remove"]({ name: src.name })}
 							class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-sm hover:text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:text-white"
 							onclick={() => drop(index)}
 						>

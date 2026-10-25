@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { MCPServer } from "$lib/types/Tool";
 	import { toggleServer, healthCheckServer } from "$lib/stores/mcpServers";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
@@ -30,21 +31,21 @@
 		switch (server.status) {
 			case "connected":
 				return {
-					label: "Connected",
+					label: m["mcp.card.status.connected"](),
 					color: "text-green-600 dark:text-green-400",
 					bgColor: "bg-green-100 dark:bg-green-900/20",
 					icon: IconCheckmark,
 				};
 			case "connecting":
 				return {
-					label: "Connecting…",
+					label: m["mcp.card.status.connecting"](),
 					color: "text-blue-600 dark:text-blue-400",
 					bgColor: "bg-blue-100 dark:bg-blue-900/20",
 					icon: IconPending,
 				};
 			case "error":
 				return {
-					label: "Problem",
+					label: m["mcp.card.status.problem"](),
 					color: "text-red-600 dark:text-red-400",
 					bgColor: "bg-red-100 dark:bg-red-900/20",
 					icon: IconWarning,
@@ -52,7 +53,7 @@
 			case "disconnected":
 			default:
 				return {
-					label: "Not checked",
+					label: m["mcp.card.status.not_checked"](),
 					color: "text-gray-600 dark:text-gray-400",
 					bgColor: "bg-gray-100 dark:bg-gray-700",
 					icon: IconPending,
@@ -81,10 +82,10 @@
 	{#if fromEnv}
 		<span
 			data-testid="from-env"
-			title="Set up by the administrator in the deployment's .env file (MCP_SERVERS); changed there, not here"
+			title={m["mcp.card.from_env_title"]()}
 			class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300"
 		>
-			Set up by the administrator
+			{m["mcp.card.from_env"]()}
 		</span>
 	{/if}
 	{#if server.status}
@@ -107,8 +108,7 @@
 	{#if server.tools && server.tools.length > 0}
 		<span class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
 			<LucideHammer class="size-3" />
-			{server.tools.length}
-			{server.tools.length === 1 ? "tool" : "tools"}
+			{m["mcp.card.tools_count"]({ count: server.tools.length })}
 		</span>
 	{/if}
 {/snippet}
@@ -118,8 +118,8 @@
 	name={server.name}
 	iconSrc={getMcpServerFaviconUrl(server.url)}
 	description={server.url}
-	toggleLabel="On by default in new chats"
-	toggleLabelShort="Default in new chats"
+	toggleLabel={m["mcp.card.toggle_label"]()}
+	toggleLabelShort={m["mcp.card.toggle_label_short"]()}
 >
 	{#snippet toggle()}
 		<!-- Enable Switch (function binding per Svelte 5 docs) -->
@@ -145,7 +145,7 @@
 			class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
 		>
 			<IconRefresh class="size-3 {isLoadingHealth ? 'animate-spin' : ''}" />
-			Check
+			{m["mcp.card.check"]()}
 		</button>
 
 		{#if isHfMcp}
@@ -154,10 +154,10 @@
 				target="_blank"
 				rel="noopener noreferrer"
 				class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-				aria-label="Open Hugging Face connector settings"
+				aria-label={m["mcp.card.hf_settings_label"]()}
 			>
 				<IconSettings class="size-3" />
-				Settings
+				{m["mcp.card.settings"]()}
 			</a>
 		{/if}
 	</div>
@@ -166,7 +166,7 @@
 	{#if server.tools && server.tools.length > 0}
 		<details class="mt-3">
 			<summary class="cursor-pointer text-xs font-medium text-gray-700 dark:text-gray-300">
-				Available tools ({server.tools.length})
+				{m["mcp.card.available_tools"]({ count: server.tools.length })}
 			</summary>
 			<ul class="mt-2 space-y-1 text-xs wrap-break-word">
 				{#each server.tools as tool}

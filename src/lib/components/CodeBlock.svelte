@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import CopyToClipBoardBtn from "./CopyToClipBoardBtn.svelte";
 	import DOMPurify from "isomorphic-dompurify";
 	import PlayFilledAlt from "~icons/carbon/play-filled-alt";
@@ -122,7 +123,7 @@
 		if (loading || !showPreview) return;
 		sidePane.openPreview({
 			kind: isMermaid ? "mermaid" : "html",
-			title: fileBlock?.filename ?? "Preview",
+			title: fileBlock?.filename ?? m["app.code_block.preview_title"](),
 			content: rawCode,
 		});
 	}
@@ -330,10 +331,10 @@
 			<button
 				onclick={downloadFile}
 				class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-blue-600 hover:bg-blue-500/10 dark:text-blue-400"
-				aria-label={`Download ${fileBlock.filename}`}
+				aria-label={m["app.code_block.download_named"]({ name: fileBlock.filename })}
 			>
 				<CarbonDownload class="size-3.5" />
-				Download
+				{m["app.code_block.download"]()}
 			</button>
 		</div>
 	{/if}
@@ -352,15 +353,19 @@
 					class={CODE_PILL_BUTTON}
 					disabled={loading}
 					onclick={openPreview}
-					title={isMermaid ? "Preview diagram" : "Preview HTML"}
-					aria-label={isMermaid ? "Preview diagram" : "Preview HTML"}
+					title={isMermaid
+						? m["app.code_block.preview_diagram"]()
+						: m["app.code_block.preview_html"]()}
+					aria-label={isMermaid
+						? m["app.code_block.preview_diagram"]()
+						: m["app.code_block.preview_html"]()}
 				>
 					{#if loading}
 						<EosIconsLoading class="size-3.5" />
 					{:else}
 						<PlayFilledAlt class="size-3.5" />
 					{/if}
-					Preview
+					{m["app.code_block.preview"]()}
 				</button>
 			{/if}
 			{#if runnable}
@@ -368,15 +373,15 @@
 					class={CODE_PILL_BUTTON}
 					disabled={loading || runSpinner}
 					onclick={manualRun}
-					title="Run this code here in your browser"
-					aria-label="Run code"
+					title={m["app.code_block.run_title"]()}
+					aria-label={m["app.code_block.run_label"]()}
 				>
 					{#if runSpinner}
 						<EosIconsLoading class="size-3.5" />
 					{:else}
 						<PlayFilledAlt class="size-3.5" />
 					{/if}
-					Run
+					{m["app.code_block.run"]()}
 				</button>
 			{/if}
 			<CopyToClipBoardBtn iconClassNames="size-3" classNames={CODE_ICON_BUTTON} value={rawCode} />
@@ -394,7 +399,7 @@
 		     height that follows the text size moves it off-centre. -->
 		<details class="px-4 pb-2 text-xs text-gray-500 dark:text-gray-400">
 			<summary class="cursor-pointer leading-4">
-				View code · {generatedFileCount} file{generatedFileCount === 1 ? "" : "s"}
+				{m["app.code_block.view_code"]({ count: generatedFileCount })}
 			</summary>
 			<div class="-mx-4 pt-1">{@render codeFence()}</div>
 		</details>

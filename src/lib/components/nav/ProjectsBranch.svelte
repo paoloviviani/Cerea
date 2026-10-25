@@ -32,6 +32,7 @@
 	every toggle.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
@@ -185,7 +186,7 @@
 				body: JSON.stringify({ model, projectId: project.id }),
 			});
 			if (!response.ok) {
-				let message = "Could not start the chat. Try again.";
+				let message: string = m["nav.projects.start_failed"]();
 				try {
 					message = ((await response.json()) as { message?: string }).message ?? message;
 				} catch {
@@ -211,7 +212,7 @@
 							id: conversationId,
 							// Matches the server's own default title (and the flat
 							// Chats list's); the real one arrives once a turn names it.
-							title: "New Chat",
+							title: m["app.default_chat_title"](),
 							model,
 							updatedAt: new Date().toISOString(),
 						},
@@ -221,7 +222,7 @@
 			}
 			await goto(`${base}/conversation/${conversationId}`);
 		} catch (err) {
-			alert(err instanceof Error ? err.message : "Could not start the chat. Try again.");
+			alert(err instanceof Error ? err.message : m["nav.projects.start_failed"]());
 		} finally {
 			starting = null;
 		}
@@ -246,7 +247,7 @@
 			await client.conversations({ id: conversationId }).patch({ title }).then(handleResponse);
 		} catch (err) {
 			console.error(err);
-			alert("Could not rename the chat. Try again.");
+			alert(m["nav.projects.rename_failed"]());
 		}
 	}
 
@@ -275,7 +276,7 @@
 			await client.conversations({ id: conversationId }).delete().then(handleResponse);
 		} catch (err) {
 			console.error(err);
-			alert("Could not delete the chat. Try again.");
+			alert(m["nav.projects.delete_chat_failed"]());
 		}
 	}
 
@@ -288,21 +289,13 @@
 	 * a month of chats.
 	 */
 	async function destroy(project: ProjectView) {
-		if (
-			!confirm(
-				`Delete the project “${project.name}”?\n\nIts chats and knowledge bases are kept: ` +
-					"the chats go back to your normal list."
-			)
-		)
-			return;
+		if (!confirm(m["nav.projects.confirm_delete"]({ name: project.name }))) return;
 		// The memory is the one thing that would otherwise stay behind holding
 		// what was said: a second question, so "no" still deletes the project.
 		const withMemory =
 			project.owned &&
 			project.hasMemory &&
-			confirm(
-				`Also delete the saved past chats of “${project.name}”?\n\nThese are what the assistant searches to remember the project's chats. OK = delete them too. Cancel = keep them (the project is still deleted).`
-			);
+			confirm(m["nav.projects.confirm_delete_memory"]({ name: project.name }));
 		busy = true;
 		try {
 			const response = await fetch(
@@ -346,24 +339,28 @@
 </script>
 
 <TreeBranch
-	label="Projects"
+	label={m["nav.projects.title"]()}
 	href="{base}/projects"
 	badge={loaded && !failed ? projects.length : undefined}
 	{open}
 	onactivate={toggleBranch}
 	onadd={() => openProject()}
-	addTitle="New project"
+	addTitle={m["nav.projects.new_project"]()}
 >
 	{#snippet icon()}
 		<CarbonFolder class="size-3.5 shrink-0" />
 	{/snippet}
 
 	{#if !loaded}
-		<TreeLeaf label="Loading…" depth={1} />
+		<TreeLeaf label={m["nav.projects.loading"]()} depth={1} />
 	{:else if failed}
-		<TreeLeaf label="Unavailable" depth={1} title="Could not load projects" />
+		<TreeLeaf
+			label={m["nav.projects.unavailable"]()}
+			depth={1}
+			title={m["nav.projects.load_failed"]()}
+		/>
 	{:else if projects.length === 0}
-		<TreeLeaf label="No projects yet" depth={1} onclick={() => openProject()} />
+		<TreeLeaf label={m["nav.projects.none"]()} depth={1} onclick={() => openProject()} />
 	{:else}
 		{#each projects as project (project.id)}
 			<TreeBranch
@@ -373,7 +370,7 @@
 				open={expanded[project.id] ?? false}
 				onactivate={() => toggleFolder(project)}
 				onadd={() => startChat(project)}
-				addTitle="New chat"
+				addTitle={m["nav.projects.new_chat"]()}
 				acceptsChat={() => chatDrag.current !== null && chatDrag.current.projectId !== project.id}
 				ondropchat={() => dropOn(project)}
 			>
@@ -394,7 +391,7 @@
 								class="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
 							>
 								<CarbonSettings class="size-3.5" />
-								Settings
+								{m["nav.projects.settings"]()}
 							</button>
 							{#if project.owned}
 								<button
@@ -408,7 +405,7 @@
 									class="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-900/20"
 								>
 									<CarbonTrash class="size-3.5" />
-									Delete
+									{m["nav.projects.delete"]()}
 								</button>
 							{/if}
 						{/snippet}
@@ -417,19 +414,19 @@
 
 				{#if chatsFailed[project.id]}
 					<TreeLeaf
-						label="Could not load chats"
+						label={m["nav.projects.chats_failed"]()}
 						depth={2}
 						onclick={() => loadChats(project.id)}
-						title="Try again"
+						title={m["nav.projects.try_again"]()}
 					/>
 				{:else if chats[project.id] === undefined}
-					<TreeLeaf label="Loading…" depth={2} />
+					<TreeLeaf label={m["nav.projects.loading"]()} depth={2} />
 				{:else if chats[project.id].length === 0}
 					<TreeLeaf
-						label="No chats yet"
+						label={m["nav.projects.no_chats"]()}
 						depth={2}
 						onclick={() => startChat(project)}
-						title="Start a chat"
+						title={m["nav.projects.start_chat"]()}
 					/>
 				{:else}
 					<!-- The guide begins at the folder's disclosure-arrow centre. Its

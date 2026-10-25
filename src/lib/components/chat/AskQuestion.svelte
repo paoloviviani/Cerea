@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import CarbonArrowLeft from "~icons/carbon/arrow-left";
 	import { MAX_OTHER_CHARS } from "$lib/types/McpElicitation";
 	import type {
@@ -97,9 +98,7 @@
 	function advance() {
 		if (!field) return;
 		if (!answered) {
-			error = showOther[field.name]
-				? "Type your answer, or pick one of the options."
-				: "Pick an option to continue.";
+			error = showOther[field.name] ? m["chat.ask.type_or_pick"]() : m["chat.ask.pick"]();
 			return;
 		}
 		error = null;
@@ -148,7 +147,7 @@
 <div
 	class="mb-2 w-full max-w-4xl rounded-xl border border-gray-300 bg-white p-4 shadow-lg dark:border-gray-600 dark:bg-gray-800"
 	role="group"
-	aria-label="Question from the assistant"
+	aria-label={m["chat.ask.label"]()}
 >
 	{#if select}
 		<div class="mb-3 flex items-baseline justify-between gap-3">
@@ -157,7 +156,7 @@
 			</p>
 			{#if fields.length > 1}
 				<span class="shrink-0 text-xs text-gray-500 dark:text-gray-400">
-					{step + 1} of {fields.length}
+					{m["chat.ask.step"]({ step: step + 1, total: fields.length })}
 				</span>
 			{/if}
 		</div>
@@ -221,7 +220,7 @@
 					<span
 						class="text-sm {on
 							? 'font-medium text-blue-700 dark:text-blue-300'
-							: 'text-gray-900 dark:text-gray-100'}">Something else…</span
+							: 'text-gray-900 dark:text-gray-100'}">{m["chat.ask.other"]()}</span
 					>
 				</button>
 				{#if on}
@@ -232,8 +231,8 @@
 							(otherText = { ...otherText, [select.name]: event.currentTarget.value })}
 						maxlength={MAX_OTHER_CHARS}
 						disabled={submitting}
-						placeholder="Tell us what you had in mind"
-						aria-label="Your own answer"
+						placeholder={m["chat.ask.other_placeholder"]()}
+						aria-label={m["chat.ask.other_label"]()}
 						class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 focus:outline-hidden dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-700"
 					/>
 				{/if}
@@ -255,7 +254,8 @@
 						error = null;
 					}}
 				>
-					<CarbonArrowLeft class="size-3" /> Back
+					<CarbonArrowLeft class="size-3" />
+					{m["chat.ask.back"]()}
 				</button>
 			{/if}
 			{#if isLast}
@@ -265,7 +265,7 @@
 					disabled={submitting}
 					onclick={() => finish("accept")}
 				>
-					Send
+					{m["chat.ask.send"]()}
 				</button>
 			{:else if needsNext}
 				<button
@@ -274,7 +274,7 @@
 					disabled={submitting}
 					onclick={() => advance()}
 				>
-					Next
+					{m["chat.ask.next"]()}
 				</button>
 			{/if}
 			<button
@@ -283,7 +283,7 @@
 				disabled={submitting}
 				onclick={() => finish("decline")}
 			>
-				Skip
+				{m["chat.ask.skip"]()}
 			</button>
 		</div>
 	{/if}

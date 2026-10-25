@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 import type { MessageFile } from "$lib/types/Message";
 import {
 	type MessageUpdate,
@@ -115,11 +116,13 @@ export async function fetchMessageUpdates(
 		const errorMessage = await response
 			.json()
 			.then((obj) => obj.message)
-			.catch(() => `Request failed with status code ${response.status}: ${response.statusText}`);
+			.catch(() =>
+				m["chat.errors.status_code"]({ status: response.status, text: response.statusText })
+			);
 		throw Error(errorMessage);
 	}
 	if (!response.body) {
-		throw Error("Body not defined");
+		throw Error(m["chat.errors.no_body"]());
 	}
 
 	return applyStreamingMode(
@@ -149,7 +152,7 @@ async function* endpointStreamToIterator(
 	abortController: AbortController
 ): AsyncGenerator<MessageUpdate> {
 	const reader = response.body?.pipeThrough(new TextDecoderStream()).getReader();
-	if (!reader) throw Error("Response for endpoint had no body");
+	if (!reader) throw Error(m["chat.errors.endpoint_no_body"]());
 
 	// Handle any cases where we must abort
 	reader.closed.then(() => abortController.abort());

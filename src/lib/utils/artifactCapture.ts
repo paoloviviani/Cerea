@@ -1,3 +1,4 @@
+import { m } from "$lib/paraglide/messages";
 /**
  * Screenshot capture for artifact preview iframes.
  *
@@ -31,7 +32,7 @@ function loadCaptureLibrarySource(): Promise<string> {
 	snapdomSourcePromise ??= import("../../../node_modules/@zumer/snapdom/dist/snapdom.js?url")
 		.then((mod) => fetch(mod.default))
 		.then((res) => {
-			if (!res.ok) throw new Error("could not load the capture library");
+			if (!res.ok) throw new Error(m["chat.errors.capture_library"]());
 			return res.text();
 		})
 		.catch((err) => {
@@ -68,7 +69,7 @@ export function captureArtifactScreenshot(
 	backgroundColor: string,
 	{ timeoutMs = CAPTURE_TIMEOUT_MS }: { timeoutMs?: number } = {}
 ): Promise<string> {
-	if (!iframe.contentWindow) return Promise.reject(new Error("preview is not ready"));
+	if (!iframe.contentWindow) return Promise.reject(new Error(m["chat.errors.preview_not_ready"]()));
 
 	return new Promise<string>((resolve, reject) => {
 		const id = `capture_${Math.random().toString(36).slice(2)}`;
@@ -76,7 +77,7 @@ export function captureArtifactScreenshot(
 
 		const timer = setTimeout(() => {
 			cleanup();
-			reject(new Error("timed out waiting for the preview"));
+			reject(new Error(m["chat.errors.preview_timeout"]()));
 		}, timeoutMs);
 		function cleanup() {
 			settled = true;
@@ -101,15 +102,17 @@ export function captureArtifactScreenshot(
 			const dataUrl = data.detail.dataUrl;
 			if (typeof dataUrl !== "string") {
 				const error = data.detail.error;
-				reject(new Error(typeof error === "string" && error ? error : "capture failed"));
+				reject(
+					new Error(typeof error === "string" && error ? error : m["chat.errors.capture_failed"]())
+				);
 				return;
 			}
 			if (dataUrl.length > MAX_DATA_URL_LENGTH) {
-				reject(new Error("screenshot is too large to attach"));
+				reject(new Error(m["chat.errors.shot_too_big"]()));
 				return;
 			}
 			if (!isPngDataUrl(dataUrl)) {
-				reject(new Error("capture returned an invalid image"));
+				reject(new Error(m["chat.errors.capture_invalid"]()));
 				return;
 			}
 			resolve(dataUrl);
@@ -137,7 +140,7 @@ export function captureArtifactScreenshot(
 			(err) => {
 				if (settled) return;
 				cleanup();
-				reject(err instanceof Error ? err : new Error("could not load the capture library"));
+				reject(err instanceof Error ? err : new Error(m["chat.errors.capture_library"]()));
 			}
 		);
 	});
