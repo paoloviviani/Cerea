@@ -9,12 +9,18 @@ import { describe, expect, it } from "vitest";
  * comment that merely quoted one removed ChatWindow's setArtifactsContext
  * call from the v0.18.2 build, and every file card and artifact lost its
  * context. Our own sources never need one, so none may appear.
+ *
+ * Paraglide's compiled messages (`src/lib/paraglide`, generated and
+ * gitignored) are not ours: it marks rich messages pure on purpose, so an
+ * unused message is dropped from the bundle.
  */
 const ANNOTATION = new RegExp("[@#]__" + "(PURE|NO_SIDE_EFFECTS)" + "__");
+const GENERATED = join("src", "lib", "paraglide");
 
 function sources(dir: string): string[] {
 	return readdirSync(dir).flatMap((name) => {
 		const path = join(dir, name);
+		if (path === GENERATED) return [];
 		if (statSync(path).isDirectory()) return sources(path);
 		return /\.(ts|js|svelte)$/.test(name) ? [path] : [];
 	});
