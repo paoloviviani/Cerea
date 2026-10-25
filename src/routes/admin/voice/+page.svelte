@@ -6,17 +6,26 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 
 	type Mode = "yes" | "no" | "fallback";
 
-	const OPTIONS: { value: Mode; title: string; detail: string }[] = [
-		{ value: "yes", title: "Yes", detail: "Always offer it, in browsers that support it." },
-		{ value: "no", title: "No", detail: "Never offer it." },
+	const OPTIONS: { value: Mode; title: () => string; detail: () => string }[] = [
+		{
+			value: "yes",
+			title: m["admin.voice.option.yes.title"],
+			detail: m["admin.voice.option.yes.detail"],
+		},
+		{
+			value: "no",
+			title: m["admin.voice.option.no.title"],
+			detail: m["admin.voice.option.no.detail"],
+		},
 		{
 			value: "fallback",
-			title: "Only when no voice model is available",
-			detail:
-				"Offer it only when this service has no server-side transcription model, so the recorder button and the dictation button are never shown together. This is the default.",
+			title: m["admin.voice.option.fallback.title"],
+			detail: m["admin.voice.option.fallback.detail"],
 		},
 	];
 
@@ -36,7 +45,9 @@
 			const response = await fetch(`${base}/api/v2/admin/dictation`);
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+				throw new Error(
+					parsed?.message ?? m["admin.common.error_status"]({ status: response.status })
+				);
 			}
 			const data = await response.json();
 			mode = data.mode;
@@ -44,7 +55,7 @@
 			transcriptionEnabled = data.transcriptionEnabled;
 			configurable = data.configurable;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not read the setting.";
+			failure = err instanceof Error ? err.message : m["admin.common.read_failed"]();
 		} finally {
 			loading = false;
 		}
@@ -64,26 +75,27 @@
 			});
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+				throw new Error(
+					parsed?.message ?? m["admin.common.error_status"]({ status: response.status })
+				);
 			}
 			saved = mode;
-			note = "Saved. People see it the next time the page loads.";
+			note = m["admin.voice.saved"]();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save it.";
+			failure = err instanceof Error ? err.message : m["admin.common.save_failed"]();
 		} finally {
 			busy = false;
 		}
 	}
 </script>
 
+{#snippet code(text: string)}<code>{text}</code>{/snippet}
+
 <section class="flex flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
 	<div class="flex flex-col gap-1">
-		<h2 class="font-medium">Enable browser dictation</h2>
+		<h2 class="font-medium">{m["admin.voice.title"]()}</h2>
 		<p class="text-xs text-gray-500 dark:text-gray-400">
-			A microphone button in the composer that types what a person says, using the speech
-			recognition built into their browser. Nothing is installed here and this service never
-			receives the audio, but Chrome, Edge and Safari may send it to the browser vendor's cloud for
-			recognition, and Firefox has none (the button is hidden there).
+			{m["admin.voice.description"]()}
 		</p>
 	</div>
 
@@ -96,19 +108,21 @@
 	{/if}
 
 	{#if loading}
-		<p class="text-sm text-gray-500">Loading…</p>
+		<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
 	{:else}
 		{#if !configurable}
 			<p
 				class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 			>
-				This service reads configuration from the environment only, so this cannot be changed here.
-				Set <code>CHAT_DICTATION</code> where the other variables live.
+				<Rich
+					parts={m["admin.common.env_only"].parts({ name: "CHAT_DICTATION" })}
+					tags={{ code }}
+				/>
 			</p>
 		{/if}
 
 		<fieldset class="flex flex-col gap-2" disabled={!configurable || busy}>
-			<legend class="sr-only">Enable browser dictation</legend>
+			<legend class="sr-only">{m["admin.voice.title"]()}</legend>
 			{#each OPTIONS as option (option.value)}
 				<label
 					class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm {mode ===
@@ -124,8 +138,8 @@
 						class="mt-1"
 					/>
 					<span class="flex flex-col gap-0.5">
-						<span class="font-medium">{option.title}</span>
-						<span class="text-xs text-gray-500 dark:text-gray-400">{option.detail}</span>
+						<span class="font-medium">{option.title()}</span>
+						<span class="text-xs text-gray-500 dark:text-gray-400">{option.detail()}</span>
 					</span>
 				</label>
 			{/each}
@@ -133,8 +147,8 @@
 
 		<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="voice-model-state">
 			{transcriptionEnabled
-				? "This service has a voice model (server-side transcription): the recorder button is shown in the chat."
-				: "This service has no voice model: there is no recorder button."}
+				? m["admin.voice.model_state.with_model"]()
+				: m["admin.voice.model_state.without_model"]()}
 		</p>
 
 		<div class="flex items-center justify-between gap-3">
@@ -144,7 +158,7 @@
 				disabled={!configurable || busy || !dirty}
 				class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 			>
-				{busy ? "Saving…" : "Save"}
+				{busy ? m["admin.common.saving"]() : m["admin.common.save"]()}
 			</button>
 		</div>
 	{/if}

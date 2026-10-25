@@ -9,6 +9,9 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import { formatNumber } from "$lib/i18n/format";
+	import Rich from "$lib/i18n/Rich.svelte";
 
 	interface Summary {
 		retentionDays: number;
@@ -39,16 +42,32 @@
 	const shortening = $derived(dirty && wanted !== 0 && (saved === 0 || wanted < saved));
 
 	function size(bytes: number): string {
-		if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-		if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-		return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+		if (bytes < 1024 * 1024)
+			return m["admin.storage.size.kb"]({
+				value: formatNumber(Math.max(1, Math.round(bytes / 1024))),
+			});
+		if (bytes < 1024 * 1024 * 1024)
+			return m["admin.storage.size.mb"]({
+				value: formatNumber(bytes / (1024 * 1024), {
+					minimumFractionDigits: 1,
+					maximumFractionDigits: 1,
+				}),
+			});
+		return m["admin.storage.size.gb"]({
+			value: formatNumber(bytes / (1024 * 1024 * 1024), {
+				minimumFractionDigits: 2,
+				maximumFractionDigits: 2,
+			}),
+		});
 	}
 
 	async function read(query = ""): Promise<Summary> {
 		const response = await fetch(`${base}/api/v2/admin/storage${query}`);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+			throw new Error(
+				parsed?.message ?? m["admin.common.error_status"]({ status: response.status })
+			);
 		}
 		return response.json();
 	}
@@ -60,7 +79,7 @@
 			forever = saved === 0;
 			days = saved === 0 ? summary.defaultDays : saved;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not read the setting.";
+			failure = err instanceof Error ? err.message : m["admin.common.read_failed"]();
 		} finally {
 			loading = false;
 		}
@@ -100,29 +119,28 @@
 			});
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+				throw new Error(
+					parsed?.message ?? m["admin.common.error_status"]({ status: response.status })
+				);
 			}
 			saved = wanted;
-			note =
-				wanted === 0
-					? "Saved. Produced files are now kept until their conversation is deleted."
-					: "Saved. It applies from the next sweep, within the hour.";
+			note = wanted === 0 ? m["admin.storage.saved.forever"]() : m["admin.storage.saved.sweep"]();
 			summary = await read();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save it.";
+			failure = err instanceof Error ? err.message : m["admin.common.save_failed"]();
 		} finally {
 			busy = false;
 		}
 	}
 </script>
 
+{#snippet code(text: string)}<code>{text}</code>{/snippet}
+
 <section class="flex flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
 	<div class="flex flex-col gap-1">
-		<h2 class="font-medium">Files produced by code</h2>
+		<h2 class="font-medium">{m["admin.storage.title"]()}</h2>
 		<p class="text-xs text-gray-500 dark:text-gray-400">
-			Documents, spreadsheets, PDFs and charts the assistant's code writes in the Python sandbox.
-			Text artifacts and the files people upload are kept with their conversation and never expire;
-			deleting a conversation deletes everything in it.
+			{m["admin.storage.description"]()}
 		</p>
 	</div>
 
@@ -135,26 +153,28 @@
 	{/if}
 
 	{#if loading}
-		<p class="text-sm text-gray-500">Loading…</p>
+		<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
 	{:else if summary}
 		{#if !summary.configurable}
 			<p
 				class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 			>
-				This service reads configuration from the environment only, so this cannot be changed here.
-				Set <code>CHAT_FILE_RETENTION_DAYS</code> where the other variables live.
+				<Rich
+					parts={m["admin.common.env_only"].parts({ name: "CHAT_FILE_RETENTION_DAYS" })}
+					tags={{ code }}
+				/>
 			</p>
 		{/if}
 
 		<p class="text-sm" data-testid="storage-usage">
 			{summary.files === 0
-				? "No produced files are stored."
-				: `${summary.files} ${summary.files === 1 ? "file" : "files"} stored, ${size(summary.bytes)}.`}
+				? m["admin.storage.usage.none"]()
+				: m["admin.storage.usage.some"]({ count: summary.files, size: size(summary.bytes) })}
 		</p>
 
 		<div class="flex flex-col gap-3">
 			<label class="flex items-center gap-2 text-sm">
-				<span>Keep produced files for</span>
+				<span>{m["admin.storage.keep_for"]()}</span>
 				<input
 					type="number"
 					min="1"
@@ -163,17 +183,17 @@
 					bind:value={days}
 					disabled={forever || !summary.configurable || busy}
 					class="w-24 rounded-md border border-gray-300 bg-white px-2 py-1 text-sm disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800"
-					aria-label="Days to keep produced files"
+					aria-label={m["admin.storage.days_label"]()}
 				/>
-				<span>days</span>
+				<span>{m["admin.storage.days_unit"]()}</span>
 			</label>
 			<label class="flex items-center gap-2 text-sm">
 				<input type="checkbox" bind:checked={forever} disabled={!summary.configurable || busy} />
-				<span>Never expire (kept until the conversation is deleted)</span>
+				<span>{m["admin.storage.never_expire"]()}</span>
 			</label>
 			{#if !valid}
 				<p class="text-xs text-red-700 dark:text-red-400">
-					A whole number of days from 1 to {summary.maxDays}.
+					{m["admin.storage.invalid"]({ max: summary.maxDays })}
 				</p>
 			{/if}
 			{#if shortening && preview}
@@ -182,22 +202,26 @@
 					data-testid="storage-expiring"
 				>
 					{preview.files === 0
-						? "No stored file is older than that: nothing is removed."
-						: `${preview.files} ${preview.files === 1 ? "file" : "files"} (${size(preview.bytes)}) older than ${wanted} days will be deleted at the next sweep. They cannot be recovered.`}
+						? m["admin.storage.preview.none"]()
+						: m["admin.storage.preview.some"]({
+								count: preview.files,
+								size: size(preview.bytes),
+								days: wanted,
+							})}
 				</p>
 			{/if}
 		</div>
 
 		<div class="flex items-center justify-between gap-3">
 			<p class="text-xs text-gray-500 dark:text-gray-400">
-				{#if note}{note}{:else}Default: {summary.defaultDays} days.{/if}
+				{#if note}{note}{:else}{m["admin.storage.default_days"]({ days: summary.defaultDays })}{/if}
 			</p>
 			<button
 				onclick={save}
 				disabled={!summary.configurable || busy || !dirty}
 				class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 			>
-				{busy ? "Saving…" : "Save"}
+				{busy ? m["admin.common.saving"]() : m["admin.common.save"]()}
 			</button>
 		</div>
 	{/if}

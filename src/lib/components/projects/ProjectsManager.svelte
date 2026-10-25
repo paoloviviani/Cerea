@@ -14,6 +14,8 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import { page } from "$app/state";
 	import type { ProjectView } from "$lib/types/Project";
 	import * as s from "$lib/components/overlay/styles";
@@ -36,20 +38,23 @@
 	onMount(async () => {
 		try {
 			const response = await fetch(`${base}/api/v2/projects`);
-			if (!response.ok) throw new Error(`Something went wrong (${response.status}). Try again.`);
+			if (!response.ok)
+				throw new Error(m["projects.manager.error_status"]({ status: response.status }));
 			projects = ((await response.json()) as { data: ProjectView[] }).data;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load projects. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.manager.load_failed"]();
 		} finally {
 			loading = false;
 		}
 	});
 </script>
 
+{#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
+
 <div class="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
 	<header>
-		<h1 class="text-xl font-semibold text-ink">Projects</h1>
-		<p class={s.SUBTITLE}>Chats that share the same instructions, files and knowledge.</p>
+		<h1 class="text-xl font-semibold text-ink">{m["projects.manager.title"]()}</h1>
+		<p class={s.SUBTITLE}>{m["projects.manager.subtitle"]()}</p>
 	</header>
 
 	<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto">
@@ -64,36 +69,37 @@
 				</div>
 				<div>
 					<p class={s.STRIP_HEADLINE}>
-						{projects.length}
-						{projects.length === 1 ? "project" : "projects"}
+						{m["projects.manager.count"]({ count: projects.length })}
 					</p>
 					<p class={s.STRIP_DETAIL}>
-						{conversationTotal} conversation{conversationTotal === 1 ? "" : "s"} in them
+						{m["projects.manager.chats_in_them"]({ count: conversationTotal })}
 					</p>
 				</div>
 			</div>
 			<a href="{base}/projects/new" class={s.PRIMARY}>
 				<IconAddLarge class="size-4" />
-				New project
+				{m["projects.manager.new"]()}
 			</a>
 		</div>
 
 		<div class={s.STACK}>
 			{#if loading}
-				<p class={s.SUBTITLE}>Loading…</p>
+				<p class={s.SUBTITLE}>{m["projects.manager.loading"]()}</p>
 			{:else if projects.length === 0}
 				<div class={s.EMPTY}>
 					<LucideFolderOpen class={s.EMPTY_ICON} />
-					<p class={s.EMPTY_TITLE}>No projects yet</p>
-					<p class={s.EMPTY_DETAIL}>Give a group of chats the same instructions and files</p>
+					<p class={s.EMPTY_TITLE}>{m["projects.manager.empty.title"]()}</p>
+					<p class={s.EMPTY_DETAIL}>{m["projects.manager.empty.detail"]()}</p>
 					<a href="{base}/projects/new" class={s.PRIMARY}>
 						<IconAddLarge class="size-4" />
-						Create your first project
+						{m["projects.manager.empty.create"]()}
 					</a>
 				</div>
 			{:else}
 				<div>
-					<h2 class={s.SECTION_TITLE}>Yours and shared with you ({projects.length})</h2>
+					<h2 class={s.SECTION_TITLE}>
+						{m["projects.manager.list_heading"]({ count: projects.length })}
+					</h2>
 					<div class={s.GRID}>
 						{#each projects as project (project.id)}
 							<a
@@ -106,7 +112,9 @@
 											<LucideFolderOpen class="size-4 flex-shrink-0 text-ink-faint" />
 											<h3 class={s.CARD_TITLE}>{project.name}</h3>
 										</div>
-										<p class={s.CARD_SUBTITLE}>{project.description || "No description"}</p>
+										<p class={s.CARD_SUBTITLE}>
+											{project.description || m["projects.manager.no_description"]()}
+										</p>
 									</div>
 									<div class="flex flex-wrap items-center gap-2">
 										<span class="{s.PILL} {s.PILL_TONES.busy}">
@@ -115,16 +123,18 @@
 										</span>
 										{#if knowledgeOn && project.knowledgeBaseIds.length > 0}
 											<span class="text-xs text-ink-muted">
-												{project.knowledgeBaseIds.length} base{project.knowledgeBaseIds.length === 1
-													? ""
-													: "s"}
+												{m["projects.manager.bases"]({ count: project.knowledgeBaseIds.length })}
 											</span>
 										{/if}
 										{#if knowledgeOn && project.indexPastChats}
-											<span class="{s.PILL} {s.PILL_TONES.good}">past chats</span>
+											<span class="{s.PILL} {s.PILL_TONES.good}"
+												>{m["projects.manager.past_chats"]()}</span
+											>
 										{/if}
 										{#if !project.owned}
-											<span class="{s.PILL} {s.PILL_TONES.neutral}">shared with you</span>
+											<span class="{s.PILL} {s.PILL_TONES.neutral}"
+												>{m["projects.manager.shared_with_you"]()}</span
+											>
 										{/if}
 									</div>
 								</div>
@@ -135,12 +145,14 @@
 			{/if}
 
 			<div class={s.TIPS}>
-				<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
+				<h4 class={s.TIPS_TITLE}>{m["projects.manager.tips.title"]()}</h4>
 				<ul class={s.TIPS_LIST}>
-					<li>• Every chat in a project uses its instructions, files and notes.</li>
-					<li>• In a shared project, everyone sees every chat.</li>
-					<li>• Sharing a project does <strong>not</strong> share its knowledge bases.</li>
-					<li>• Deleting a project keeps its chats: they go back to your normal list.</li>
+					<li>{m["projects.manager.tips.instructions"]()}</li>
+					<li>{m["projects.manager.tips.shared"]()}</li>
+					<li>
+						<Rich parts={m["projects.manager.tips.knowledge"].parts({})} tags={{ strong }} />
+					</li>
+					<li>{m["projects.manager.tips.delete"]()}</li>
 				</ul>
 			</div>
 		</div>

@@ -10,10 +10,11 @@
 	permission.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import SkillsManager from "$lib/components/skills/SkillsManager.svelte";
 </script>
 
-<svelte:head><title>Skills · administration</title></svelte:head>
+<svelte:head><title>{m["admin.skills.page_title"]()}</title></svelte:head>
 
 <div class="rounded-lg border border-gray-200 dark:border-gray-700">
 	<SkillsManager admin />

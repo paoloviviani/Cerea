@@ -3,6 +3,7 @@
 
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
+	import { m } from "$lib/paraglide/messages";
 
 	import LucideHammer from "~icons/lucide/hammer";
 	import LucideImage from "~icons/lucide/image";
@@ -36,16 +37,16 @@
 <div class="scrollbar-custom h-full overflow-y-auto py-12 max-sm:pt-8 md:py-24">
 	<div class="mx-auto flex flex-col px-5 xl:w-240 2xl:w-5xl">
 		<div class="flex items-center">
-			<h1 class="text-xl font-bold sm:text-2xl">Models</h1>
+			<h1 class="text-xl font-bold sm:text-2xl">{m["models.list.title"]()}</h1>
 		</div>
-		<h2 class="text-gray-500">All models available</h2>
+		<h2 class="text-gray-500">{m["models.list.subtitle"]()}</h2>
 
 		<!-- Filter input -->
 		<input
 			type="search"
 			bind:value={modelFilter}
-			placeholder="Search by name"
-			aria-label="Search models by name"
+			placeholder={m["models.list.search_placeholder"]()}
+			aria-label={m["models.list.search_label"]()}
 			class="mt-4 w-full rounded-3xl border border-gray-300 bg-white px-5 py-2 text-[15px]
 				placeholder:text-ink-faint focus:ring-2 focus:ring-gray-300 focus:outline-hidden
 				dark:border-gray-700 dark:bg-gray-900 dark:focus:ring-gray-700"
@@ -57,7 +58,7 @@
 					{@const isActive = model.id === $settings.activeModel}
 					<a
 						href="{base}/models/{model.id}"
-						aria-label="Model card for {model.displayName}"
+						aria-label={m["models.list.card_label"]({ name: model.displayName })}
 						class="group flex cursor-pointer items-center gap-2 rounded-xl p-3 sm:gap-4 sm:p-4
 							{isActive ? 'bg-gray-50 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}"
 					>
@@ -91,7 +92,7 @@
 									<span
 										class="rounded-full bg-blue-500/10 px-1.5 py-px text-[10px] font-medium text-blue-700 dark:text-blue-400"
 									>
-										custom
+										{m["models.list.custom"]()}
 									</span>
 								{/if}
 							</div>
@@ -104,7 +105,7 @@
 						<div class="flex flex-shrink-0 items-center gap-1.5">
 							{#if $settings.toolsOverrides?.[settingsModelId(model)] ?? (model as { supportsTools?: boolean }).supportsTools}
 								<div
-									title="This model can use tools and connectors."
+									title={m["models.list.can_use_tools"]()}
 									class="rounded-md bg-gray-100 p-1.5 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 								>
 									<LucideHammer class="size-3 sm:size-3.5" />
@@ -112,7 +113,7 @@
 							{/if}
 							{#if $settings.multimodalOverrides?.[settingsModelId(model)] ?? model.multimodal}
 								<div
-									title="This model can look at images."
+									title={m["models.list.can_see_images"]()}
 									class="rounded-md bg-gray-100 p-1.5 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 								>
 									<LucideImage class="size-3 sm:size-3.5" />
@@ -120,8 +121,8 @@
 							{/if}
 							<button
 								type="button"
-								title="Model settings"
-								aria-label="Model settings for {model.displayName}"
+								title={m["models.list.settings"]()}
+								aria-label={m["models.list.settings_label"]({ name: model.displayName })}
 								class="rounded-md border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700"
 								onclick={(e) => {
 									e.preventDefault();
@@ -144,7 +145,7 @@
 								<span
 									class="rounded-full bg-black px-2.5 py-1 text-xs font-bold text-white shadow-md dark:bg-white dark:text-black"
 								>
-									Active
+									{m["models.list.active"]()}
 								</span>
 							{/if}
 						</div>

@@ -16,6 +16,8 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import { formatNumber } from "$lib/i18n/format";
 	import * as s from "$lib/components/overlay/styles";
 	import { KNOWLEDGE_ACCEPT, MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
@@ -43,8 +45,6 @@
 	let refused = $state<string[]>([]);
 	let input: HTMLInputElement | undefined = $state();
 
-	const FOLDER_REFUSAL = "Folders can't be added. Add the files you want one by one.";
-
 	const number = (n: number) => formatNumber(n);
 	const percent = $derived(Math.min(100, (used / PROJECT_DOCUMENTS_MAX_CHARS) * 100));
 	const warn = $derived(used > PROJECT_DOCUMENTS_WARN_CHARS);
@@ -53,7 +53,9 @@
 		const response = await fetch(`${base}/api/v2/projects/${projectId}/documents${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+			throw new Error(
+				parsed?.message ?? m["projects.documents.error_status"]({ status: response.status })
+			);
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
@@ -66,7 +68,7 @@
 			documents = loaded.documents;
 			used = loaded.usedChars;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load the files. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.documents.load_failed"]();
 		} finally {
 			loading = false;
 		}
@@ -81,7 +83,10 @@
 			if (file.size > MAX_ATTACHMENT_BYTES) {
 				refused = [
 					...refused,
-					`${file.name}: larger than ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB.`,
+					m["projects.documents.too_large"]({
+						name: file.name,
+						mb: formatNumber(MAX_ATTACHMENT_BYTES / 1024 / 1024),
+					}),
 				];
 				continue;
 			}
@@ -97,7 +102,12 @@
 				documents = [...documents, added.document];
 				used = added.usedChars;
 			} catch (err) {
-				refused = [...refused, err instanceof Error ? err.message : `${file.name} failed.`];
+				refused = [
+					...refused,
+					err instanceof Error
+						? err.message
+						: m["projects.documents.upload_failed"]({ name: file.name }),
+				];
 			}
 		}
 		busy = false;
@@ -115,15 +125,14 @@
 		if (!event.dataTransfer) return;
 		const { files, folders } = readDrop(event.dataTransfer);
 		if (folders > 0) {
-			failure = FOLDER_REFUSAL;
+			failure = m["projects.documents.folder_refusal"]();
 			refused = [];
 		}
 		void upload(files);
 	}
 
 	async function remove(doc: ProjectDocumentView) {
-		if (!confirm(`Remove “${doc.name}” from this project? The chats here will stop reading it.`))
-			return;
+		if (!confirm(m["projects.documents.remove_confirm"]({ name: doc.name }))) return;
 		failure = null;
 		try {
 			await api(`/${doc.id}`, { method: "DELETE" });
@@ -133,17 +142,21 @@
 				0
 			);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not remove that file. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.documents.remove_failed"]();
 		}
 	}
 </script>
 
+{#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
+
 <div data-testid="project-documents">
 	<div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-		<h3 class="{s.SECTION_TITLE} mb-0">Project files ({documents.length})</h3>
+		<h3 class="{s.SECTION_TITLE} mb-0">
+			{m["projects.documents.title"]({ count: documents.length })}
+		</h3>
 		<button type="button" class={s.SECONDARY} disabled={busy} onclick={() => input?.click()}>
 			<CarbonAdd class="size-4" />
-			{busy ? "Adding…" : "Add files"}
+			{busy ? m["projects.documents.adding"]() : m["projects.documents.add"]()}
 		</button>
 		<!-- Files only, any number: no `webkitdirectory`, on purpose. -->
 		<input
@@ -158,20 +171,27 @@
 	</div>
 
 	<p class="mb-3 text-xs text-ink-muted">
-		Every chat in this project reads these files <strong>in full</strong>, every time, like an
-		attachment. (A knowledge base is different: only the parts that match the question are used.)
-		Add files one by one, not folders. Text files and documents (PDF, Word, Excel, PowerPoint,
-		OpenDocument, EPUB), up to {MAX_ATTACHMENT_BYTES / 1024 / 1024} MB each.
+		<Rich
+			parts={m["projects.documents.description"].parts({
+				mb: formatNumber(MAX_ATTACHMENT_BYTES / 1024 / 1024),
+			})}
+			tags={{ strong }}
+		/>
 	</p>
 
 	<div class="mb-3">
 		<div class="mb-1 flex justify-between text-xs text-ink-muted">
-			<span>{number(used)} of {number(PROJECT_DOCUMENTS_MAX_CHARS)} characters</span>
+			<span>
+				{m["projects.documents.usage"]({
+					used: number(used),
+					max: number(PROJECT_DOCUMENTS_MAX_CHARS),
+				})}
+			</span>
 		</div>
 		<div
 			class="h-2 overflow-hidden rounded-full bg-sunken"
 			role="progressbar"
-			aria-label="How much of the limit this project's files use"
+			aria-label={m["projects.documents.usage_label"]()}
 			aria-valuemin={0}
 			aria-valuemax={PROJECT_DOCUMENTS_MAX_CHARS}
 			aria-valuenow={used}
@@ -184,7 +204,7 @@
 		{#if warn}
 			<p class="mt-1.5 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
 				<CarbonWarning class="mt-0.5 size-3.5 shrink-0" />
-				That is a lot to read each time. Replies in this project will be slower and cost more.
+				{m["projects.documents.warn"]()}
 			</p>
 		{/if}
 	</div>
@@ -208,17 +228,17 @@
 		data-testid="project-documents-drop"
 	>
 		{#if loading}
-			<p class={s.SUBTITLE}>Loading…</p>
+			<p class={s.SUBTITLE}>{m["projects.documents.loading"]()}</p>
 		{:else if documents.length === 0}
 			<div class={s.EMPTY}>
 				<LucideFileText class={s.EMPTY_ICON} />
-				<p class={s.EMPTY_TITLE}>No files yet</p>
+				<p class={s.EMPTY_TITLE}>{m["projects.documents.empty.title"]()}</p>
 				<p class={s.EMPTY_DETAIL}>
-					Drop files here, or add them. Every chat in this project will read them.
+					{m["projects.documents.empty.detail"]()}
 				</p>
 				<button type="button" class={s.PRIMARY} disabled={busy} onclick={() => input?.click()}>
 					<CarbonAdd class="size-4" />
-					Add files
+					{m["projects.documents.add"]()}
 				</button>
 			</div>
 		{:else}
@@ -230,26 +250,30 @@
 								<p class="truncate text-sm font-medium" title={doc.name}>{doc.name}</p>
 								<p class="text-xs text-ink-muted">
 									{#if doc.status === "ready"}
-										{number(doc.chars)} characters
+										{m["projects.documents.chars"]({ count: number(doc.chars) })}
 									{:else}
-										<span class="{s.PILL} {s.PILL_TONES.bad}">could not be read</span>
+										<span class="{s.PILL} {s.PILL_TONES.bad}"
+											>{m["projects.documents.unreadable"]()}</span
+										>
 									{/if}
-									· added by {doc.mine ? "you" : doc.addedBy}
+									· {m["projects.documents.added_by"]({
+										who: doc.mine ? m["projects.documents.you"]() : doc.addedBy,
+									})}
 								</p>
 								{#if doc.failure}
 									<p class="mt-1 text-xs text-danger">
-										{doc.failure.reason} It stays in the list, but the chats do not read it.
+										{m["projects.documents.failure_note"]({ reason: doc.failure.reason })}
 									</p>
 								{/if}
 							</div>
 							<button
 								type="button"
 								class={s.CARD_DESTRUCTIVE}
-								aria-label="Remove {doc.name}"
+								aria-label={m["projects.documents.remove_label"]({ name: doc.name })}
 								onclick={() => remove(doc)}
 							>
 								<CarbonTrashCan class="size-3" />
-								Remove
+								{m["projects.documents.remove"]()}
 							</button>
 						</div>
 					</li>

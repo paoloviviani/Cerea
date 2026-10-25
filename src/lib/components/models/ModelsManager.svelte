@@ -19,6 +19,8 @@
 	import { untrack } from "svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import { goto } from "$app/navigation";
 	import { modelLabel, settingsModelId } from "$lib/utils/customModelEntries";
 	import Switch from "$lib/components/Switch.svelte";
@@ -157,16 +159,16 @@
 		return [
 			{
 				key: "tools",
-				label: "Use tools",
-				detail: "Let it use tools: your connectors and the built-in ones.",
+				label: m["models.manager.cap.tools.label"](),
+				detail: m["models.manager.cap.tools.detail"](),
 				advertised: Boolean(model.supportsTools),
 				current: $settings.toolsOverrides?.[settingsModelId(model)] ?? Boolean(model.supportsTools),
 				set: (value) => setTools(settingsModelId(model), value),
 			},
 			{
 				key: "multimodal",
-				label: "Image input",
-				detail: "Let people attach images for the model to look at.",
+				label: m["models.manager.cap.multimodal.label"](),
+				detail: m["models.manager.cap.multimodal.detail"](),
 				advertised: Boolean(model.multimodal),
 				current:
 					$settings.multimodalOverrides?.[settingsModelId(model)] ?? Boolean(model.multimodal),
@@ -174,8 +176,8 @@
 			},
 			{
 				key: "reasoning",
-				label: "Reasoning",
-				detail: "Let it think before answering, and offer the effort choice.",
+				label: m["models.manager.cap.reasoning.label"](),
+				detail: m["models.manager.cap.reasoning.detail"](),
 				advertised: Boolean(model.supportsReasoning),
 				current:
 					$settings.reasoningOverrides?.[settingsModelId(model)] ??
@@ -184,8 +186,8 @@
 			},
 			{
 				key: "artifacts",
-				label: "Files in a side panel",
-				detail: "Show longer results in a side panel instead of in the chat.",
+				label: m["models.manager.cap.artifacts.label"](),
+				detail: m["models.manager.cap.artifacts.detail"](),
 				// The effective default (`artifactsEnabledForTurn`, server-side):
 				// an explicit flag on the model entry always wins; absent one, any
 				// tool-capable model has artifacts on. `Boolean(undefined)` would
@@ -201,16 +203,18 @@
 	}
 </script>
 
+{#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
+
 <!-- The workspace tab's card, where the overlay shell used to be. -->
 <div class={s.EMBEDDED}>
 	<div class={s.PANEL}>
 		<div class={s.HEADER}>
 			<h2 id="models-panel-title" class={s.TITLE}>
-				{view === "list" ? "Models" : current ? modelLabel(current) : ""}
+				{view === "list" ? m["models.manager.title"]() : current ? modelLabel(current) : ""}
 			</h2>
 			<p class={s.SUBTITLE}>
 				{#if view === "list"}
-					Every model available to you. The default is what a new chat starts on.
+					{m["models.manager.subtitle"]()}
 				{:else}
 					{current?.description || current?.id}
 				{/if}
@@ -225,13 +229,12 @@
 					</div>
 					<div>
 						<p class={s.STRIP_HEADLINE}>
-							{browsable.length}
-							{browsable.length === 1 ? "model" : "models"} available
+							{m["models.manager.available_count"]({ count: browsable.length })}
 						</p>
 						<p class={s.STRIP_DETAIL}>
 							{defaultModel
-								? `${modelLabel(defaultModel)} is the default`
-								: "no default chosen yet"}
+								? m["models.manager.is_default"]({ name: modelLabel(defaultModel) })
+								: m["models.manager.no_default"]()}
 						</p>
 					</div>
 				</div>
@@ -245,8 +248,8 @@
 					<input
 						type="search"
 						bind:value={filter}
-						placeholder="Search by name"
-						aria-label="Search models by name"
+						placeholder={m["models.manager.search_placeholder"]()}
+						aria-label={m["models.manager.search_label"]()}
 						class="{s.SEARCH} pl-9"
 					/>
 				</div>
@@ -254,14 +257,16 @@
 				{#if shown.length === 0}
 					<div class={s.EMPTY}>
 						<LucideBoxes class={s.EMPTY_ICON} />
-						<p class={s.EMPTY_TITLE}>Nothing matches “{filter}”</p>
-						<p class={s.EMPTY_DETAIL}>Try a shorter search, or clear it to see everything.</p>
-						<button onclick={() => (filter = "")} class={s.PRIMARY}>Clear the search</button>
+						<p class={s.EMPTY_TITLE}>{m["models.manager.empty.title"]({ filter })}</p>
+						<p class={s.EMPTY_DETAIL}>{m["models.manager.empty.detail"]()}</p>
+						<button onclick={() => (filter = "")} class={s.PRIMARY}
+							>{m["models.manager.empty.clear"]()}</button
+						>
 					</div>
 				{:else}
 					<div>
 						<h3 class={s.SECTION_TITLE}>
-							Available ({shown.length})
+							{m["models.manager.available_heading"]({ count: shown.length })}
 						</h3>
 						<div class={s.GRID}>
 							{#each shown as model (model.id)}
@@ -291,18 +296,20 @@
 											{#if isDefault}
 												<span class="{s.PILL} {s.PILL_TONES.busy}">
 													<IconCheckmark class="size-3" />
-													Default
+													{m["models.manager.pill.default"]()}
 												</span>
 											{/if}
 											{#if model.customBase}
-												<span class="{s.PILL} {s.PILL_TONES.good}">custom</span>
+												<span class="{s.PILL} {s.PILL_TONES.good}"
+													>{m["models.manager.pill.custom"]()}</span
+												>
 											{/if}
 											{#if model.supportsTools}
 												<span
 													class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400"
 												>
 													<LucideHammer class="size-3" />
-													tools
+													{m["models.manager.trait.tools"]()}
 												</span>
 											{/if}
 											{#if model.multimodal}
@@ -310,7 +317,7 @@
 													class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400"
 												>
 													<LucideImage class="size-3" />
-													images
+													{m["models.manager.trait.images"]()}
 												</span>
 											{/if}
 											{#if model.supportsReasoning}
@@ -318,7 +325,7 @@
 													class="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400"
 												>
 													<LucideBrain class="size-3" />
-													reasoning
+													{m["models.manager.trait.reasoning"]()}
 												</span>
 											{/if}
 										</div>
@@ -327,17 +334,17 @@
 											{#if isDefault}
 												<span class="{s.CARD_ACTION} cursor-default opacity-60">
 													<IconCheckmark class="size-3" />
-													Is the default
+													{m["models.manager.card.is_default"]()}
 												</span>
 											{:else}
 												<button onclick={() => setDefault(model)} class={s.CARD_ACTION}>
 													<IconCheckmark class="size-3" />
-													Set as default
+													{m["models.manager.card.set_default"]()}
 												</button>
 											{/if}
 											<button onclick={() => open(model)} class={s.CARD_ACTION}>
 												<IconSettings class="size-3" />
-												Edit
+												{m["models.manager.card.edit"]()}
 											</button>
 										</div>
 									</div>
@@ -348,16 +355,15 @@
 				{/if}
 
 				<div class={s.TIPS}>
-					<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
+					<h4 class={s.TIPS_TITLE}>{m["models.manager.tips.title"]()}</h4>
 					<ul class={s.TIPS_LIST}>
 						<li>
-							• The default is what a <strong>new</strong> chat starts on; an open chat keeps its own.
+							<Rich parts={m["models.manager.tips.default"].parts({})} tags={{ strong }} />
 						</li>
 						<li>
-							• <strong>Custom</strong> models are yours: a base model with its own system prompt,
-							made on the <strong>Custom models</strong> tab.
+							<Rich parts={m["models.manager.tips.custom"].parts({})} tags={{ strong }} />
 						</li>
-						<li>• A router picks a model for each message instead of always using the same one.</li>
+						<li>{m["models.manager.tips.router"]()}</li>
 					</ul>
 				</div>
 			</div>
@@ -372,7 +378,9 @@
 						</div>
 						<div>
 							<p class={s.STRIP_HEADLINE}>
-								{isDefault ? "The default for new chats" : "Not the default"}
+								{isDefault
+									? m["models.manager.detail.is_default"]()
+									: m["models.manager.detail.not_default"]()}
 							</p>
 							<p class={s.STRIP_DETAIL}><code>{model.id}</code></p>
 						</div>
@@ -380,19 +388,19 @@
 					<div class="flex gap-2">
 						<button onclick={backToList} class={s.SECONDARY}>
 							<IconArrowLeft class="size-4" />
-							All models
+							{m["models.manager.detail.all"]()}
 						</button>
 						{#if !isDefault}
 							<button onclick={() => setDefault(model)} class={s.PRIMARY}>
 								<IconCheckmark class="size-4" />
-								Set as default
+								{m["models.manager.card.set_default"]()}
 							</button>
 						{/if}
 					</div>
 				</div>
 
 				<div>
-					<h3 class={s.SECTION_TITLE}>What it may do</h3>
+					<h3 class={s.SECTION_TITLE}>{m["models.manager.detail.may_do"]()}</h3>
 					<div class="flex flex-col divide-y divide-gray-200/60 dark:divide-gray-700/60">
 						{#each capabilitiesFor(model) as capability (capability.key)}
 							<label class="flex items-start justify-between gap-3 py-2.5 text-sm">
@@ -407,8 +415,8 @@
 										     of the two they are looking at. -->
 										<span class="mt-0.5 block text-xs text-amber-700 dark:text-amber-500">
 											{capability.advertised
-												? "This model supports it."
-												: "This model is not known to support it."}
+												? m["models.manager.detail.supports"]()
+												: m["models.manager.detail.not_known"]()}
 										</span>
 									{/if}
 								</span>
@@ -420,18 +428,17 @@
 						{/each}
 					</div>
 					<p class={s.HINT}>
-						By default these follow what the model says it can do. Use the switches to change that,
-						either way, if the information is wrong or missing.
+						{m["models.manager.detail.hint"]()}
 					</p>
 				</div>
 
 				<div class={s.TIPS}>
-					<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
+					<h4 class={s.TIPS_TITLE}>{m["models.manager.tips.title"]()}</h4>
 					<ul class={s.TIPS_LIST}>
 						<li>
-							• These are <strong>your</strong> settings for this model, not everyone's.
+							<Rich parts={m["models.manager.tips.yours"].parts({})} tags={{ strong }} />
 						</li>
-						<li>• They apply to your next message, including in chats that are already open.</li>
+						<li>{m["models.manager.tips.next_message"]()}</li>
 					</ul>
 				</div>
 			</div>
