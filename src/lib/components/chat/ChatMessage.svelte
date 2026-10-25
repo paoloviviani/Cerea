@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { Message } from "$lib/types/Message";
 	import { ToolResultStatus } from "$lib/types/Tool";
 	import { tick } from "svelte";
@@ -1183,7 +1184,7 @@
 							>
 								{message.routerMetadata.route}
 							</span>
-							<span class="text-gray-500">with</span>
+							<span class="text-gray-500">{m["chat.message.with"]()}</span>
 							<span
 								class="truncate rounded-sm bg-gray-100 px-1.5 font-mono @xl:py-px dark:bg-gray-800"
 							>
@@ -1191,7 +1192,7 @@
 							</span>
 						{/if}
 						{#if message.routerMetadata.provider}
-							<span class="text-gray-500 @max-xl:hidden">via</span>
+							<span class="text-gray-500 @max-xl:hidden">{m["chat.message.via"]()}</span>
 							<span
 								class="truncate rounded-sm bg-gray-100 px-1 font-mono @max-xl:hidden @xl:py-px dark:bg-gray-800"
 							>
@@ -1212,7 +1213,7 @@
 					{#if onretry}
 						<button
 							class="btn rounded-xs p-1 text-xs text-ink-faint hover:text-ink-muted focus:ring-0"
-							title="Retry"
+							title={m["chat.message.retry"]()}
 							type="button"
 							onclick={() => {
 								onretry?.({ id: message.id });
@@ -1274,7 +1275,7 @@
 									class="mb-1 flex min-w-0 items-center gap-1 text-xs font-medium text-violet-700 dark:text-violet-300"
 								>
 									<LucideBot class="size-3.5 shrink-0" />
-									<span class="shrink-0">From agent</span>
+									<span class="shrink-0">{m["chat.message.from_agent"]()}</span>
 									{#if sessionLinks}
 										<a
 											href={sessionLinks.href(message.sentBy.sessionId)}
@@ -1308,7 +1309,7 @@
 							</p>
 							<details class="mt-1">
 								<summary class="cursor-pointer text-xs text-ink-faint select-none">
-									Expanded command
+									{m["chat.message.expanded_command"]()}
 								</summary>
 								<p
 									class="mt-1 text-sm text-wrap wrap-break-word whitespace-break-spaces text-gray-500 dark:text-gray-400"
@@ -1351,7 +1352,7 @@
 								"
 								disabled={loading}
 							>
-								Send
+								{m["chat.message.send"]()}
 							</button>
 							<button
 								type="button"
@@ -1360,7 +1361,7 @@
 									editMsdgId = null;
 								}}
 							>
-								Cancel
+								{m["app.cancel"]()}
 							</button>
 						</div>
 					</form>
@@ -1382,7 +1383,7 @@
 							class="hidden h-5 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-gray-400 group-hover:flex hover:flex hover:bg-gray-100 hover:text-gray-500 lg:-right-2 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-300 {isTapped
 								? '[@media(hover:none)]:flex'
 								: ''}"
-							title="Edit"
+							title={m["chat.message.edit"]()}
 							type="button"
 							onclick={() => {
 								if (requireAuthUser()) return;
@@ -1390,7 +1391,7 @@
 							}}
 						>
 							<CarbonPen />
-							Edit
+							{m["chat.message.edit"]()}
 						</button>
 					{/if}
 					<button
@@ -1399,7 +1400,7 @@
 							: ''} {isUserMsgCopied
 							? 'text-green-500 dark:text-green-400'
 							: 'text-ink-faint hover:text-ink-muted'}"
-						title="Copy to clipboard"
+						title={m["app.copy.title"]()}
 						type="button"
 						onclick={async () => {
 							try {
@@ -1429,10 +1430,10 @@
 					>
 						{#if isUserMsgCopied}
 							<CarbonCheckmark class="scale-[0.85]" />
-							Copied
+							{m["chat.message.copied"]()}
 						{:else}
 							<CarbonCopy class="scale-[0.85]" />
-							Copy
+							{m["chat.message.copy"]()}
 						{/if}
 					</button>
 				{/if}
