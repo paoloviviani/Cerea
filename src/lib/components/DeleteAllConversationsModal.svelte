@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import Modal from "$lib/components/Modal.svelte";
 	import { onMount } from "svelte";
 
@@ -33,8 +34,15 @@
 	<Modal onclose={close} width="w-[90dvh] md:w-[480px]">
 		<div class="flex w-full flex-col gap-5 p-6">
 			<div class="flex items-start justify-between">
-				<h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">Delete all chats</h2>
-				<button type="button" class="group outline-hidden" onclick={close} aria-label="Close">
+				<h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200">
+					{m["delete_all_conversations.title"]()}
+				</h2>
+				<button
+					type="button"
+					class="group outline-hidden"
+					onclick={close}
+					aria-label={m["delete_all_conversations.close"]()}
+				>
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
 						viewBox="0 0 32 32"
@@ -48,7 +56,7 @@
 			</div>
 
 			<p class="text-sm text-gray-600 dark:text-gray-400">
-				Delete all your chats, including the ones inside projects? This cannot be undone.
+				{m["delete_all_conversations.body"]()}
 			</p>
 
 			<div class="flex items-center justify-end gap-2">
@@ -57,7 +65,7 @@
 					class="inline-flex items-center rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-900 shadow-sm outline-hidden hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
 					onclick={close}
 				>
-					Cancel
+					{m["delete_all_conversations.cancel"]()}
 				</button>
 				<button
 					bind:this={deleteButtonEl}
@@ -65,7 +73,7 @@
 					class="inline-flex items-center rounded-xl border border-red-600 bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:outline-hidden dark:border-red-500 dark:bg-red-500 dark:hover:bg-red-600 dark:focus:ring-red-400 dark:focus:ring-offset-gray-800"
 					onclick={confirmDelete}
 				>
-					Delete all
+					{m["delete_all_conversations.confirm"]()}
 				</button>
 			</div>
 		</div>

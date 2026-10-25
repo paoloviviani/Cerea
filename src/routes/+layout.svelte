@@ -34,8 +34,13 @@
 	import { projectTitle } from "$lib/stores/projectTitle";
 	import { createNotificationsStore } from "$lib/stores/notifications.svelte";
 	import { initAppViewport } from "$lib/utils/appViewport";
+	import { adoptServerLocale } from "$lib/i18n/locale";
 
 	let { data = $bindable(), children } = $props();
+
+	// Before anything below reads a message: the browser answers with the language
+	// the server rendered in, so hydration produces the HTML it was sent.
+	adoptServerLocale(data.locale);
 
 	setContext("publicConfig", data.publicConfig);
 

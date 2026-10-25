@@ -153,6 +153,11 @@ export interface Settings extends Timestamps {
 	 * the browser, so they follow the person across devices.
 	 */
 	accent?: Accent;
+	/**
+	 * The person's chosen language (a Paraglide locale tag, e.g. "en"). Absent means
+	 * "no choice": the cookie, then Accept-Language, then English (`$lib/i18n/resolve`).
+	 */
+	locale?: string;
 	neutral?: Neutral;
 
 	/**

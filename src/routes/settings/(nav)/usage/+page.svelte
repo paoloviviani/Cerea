@@ -15,6 +15,7 @@
 	import { invalidateAll } from "$app/navigation";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { useSettingsStore } from "$lib/stores/settings";
+	import { m } from "$lib/paraglide/messages";
 	import UsageBar from "$lib/components/settings/UsageBar.svelte";
 	import type { UsageReport, UsageSection } from "$lib/types/UsageReport";
 	import CarbonArrowUpRight from "~icons/carbon/arrow-up-right";
@@ -60,7 +61,7 @@
 			const report = (await client.usage.get().then(handleResponse)) as UsageReport | null;
 			sections = report?.sections ?? [];
 		} catch {
-			loadError = "Could not load usage. Try again.";
+			loadError = m["settings.usage.load_failed"]();
 		} finally {
 			loading = false;
 		}
@@ -81,7 +82,7 @@
 					setBillingOrganization(data.currentBillingOrg ?? "");
 				}
 			} catch {
-				billingOrgsError = "Could not load billing options. Try again.";
+				billingOrgsError = m["settings.usage.billing_load_failed"]();
 			} finally {
 				billingOrgsLoading = false;
 			}
@@ -97,12 +98,12 @@
 	<div
 		class="rounded-xl border border-gray-200 bg-white px-3 py-6 text-center text-sm text-gray-500 shadow-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
 	>
-		Usage and billing are not available here.
+		{m["settings.usage.unavailable"]()}
 	</div>
 {:else}
 	<div class="flex w-full flex-col gap-4">
 		{#if loading}
-			<p class="text-sm text-gray-500 dark:text-gray-400">Loading usage…</p>
+			<p class="text-sm text-gray-500 dark:text-gray-400">{m["settings.usage.loading"]()}</p>
 		{:else if loadError}
 			<div
 				class="rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-500 shadow-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
@@ -110,7 +111,7 @@
 				{loadError}
 			</div>
 		{:else if sections.length === 0}
-			<p class="text-sm text-gray-500 dark:text-gray-400">No usage information to show.</p>
+			<p class="text-sm text-gray-500 dark:text-gray-400">{m["settings.usage.none"]()}</p>
 		{:else}
 			{#each sections as section (section.title)}
 				<div
@@ -135,7 +136,9 @@
 					{#if section.error}
 						<p class="pb-3 text-[12px] text-amber-600 dark:text-amber-400">{section.error}</p>
 					{:else if section.entries.length === 0}
-						<p class="pb-3 text-[12px] text-gray-500 dark:text-gray-400">Nothing to show.</p>
+						<p class="pb-3 text-[12px] text-gray-500 dark:text-gray-400">
+							{m["settings.usage.nothing"]()}
+						</p>
 					{:else}
 						<div class="divide-y divide-gray-200 dark:divide-gray-700">
 							{#each section.entries as entry (entry.label)}
@@ -157,15 +160,17 @@
 				<div class="flex items-start justify-between py-3">
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							Billing group
+							{m["settings.usage.billing_group.title"]()}
 						</div>
 						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							Which group your usage is charged to. You can only choose groups you belong to.
+							{m["settings.usage.billing_group.description"]()}
 						</p>
 					</div>
 					<div class="flex items-center">
 						{#if billingOrgsLoading}
-							<span class="text-xs text-gray-500 dark:text-gray-400">Loading...</span>
+							<span class="text-xs text-gray-500 dark:text-gray-400"
+								>{m["settings.usage.loading_short"]()}</span
+							>
 						{:else if billingOrgsError}
 							<span class="text-xs text-red-500">{billingOrgsError}</span>
 						{:else}

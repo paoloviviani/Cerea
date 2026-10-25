@@ -10,7 +10,10 @@
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import Switch from "$lib/components/Switch.svelte";
-	import { PUSH_EVENTS, PUSH_EVENT_INFO, type PushEvent } from "$lib/utils/pushEvents";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
+	import { formatDateTime } from "$lib/i18n/format";
+	import { PUSH_EVENTS, type PushEvent } from "$lib/utils/pushEvents";
 	import {
 		PushClientError,
 		currentSubscription,
@@ -34,6 +37,31 @@
 		devices: Device[];
 	}
 
+	// One label and description per event, as messages: the event list itself
+	// (`PUSH_EVENTS`) is shared with the server, which has no use for words.
+	const EVENT_LABELS: Record<PushEvent, { label: () => string; description: () => string }> = {
+		permission: {
+			label: m["settings.notifications.event.permission.label"],
+			description: m["settings.notifications.event.permission.description"],
+		},
+		agentTurn: {
+			label: m["settings.notifications.event.agentTurn.label"],
+			description: m["settings.notifications.event.agentTurn.description"],
+		},
+		scheduleRun: {
+			label: m["settings.notifications.event.scheduleRun.label"],
+			description: m["settings.notifications.event.scheduleRun.description"],
+		},
+		backgroundTask: {
+			label: m["settings.notifications.event.backgroundTask.label"],
+			description: m["settings.notifications.event.backgroundTask.description"],
+		},
+		chatTurn: {
+			label: m["settings.notifications.event.chatTurn.label"],
+			description: m["settings.notifications.event.chatTurn.description"],
+		},
+	};
+
 	let view = $state<State | null>(null);
 	let loadError = $state<string | null>(null);
 	let support = $state<PushSupport>({ ok: true });
@@ -46,7 +74,7 @@
 	async function refresh() {
 		const response = await fetch(`${base}/api/v2/push`);
 		if (!response.ok) {
-			loadError = await errorMessage(response, "Could not load notification settings. Try again.");
+			loadError = await errorMessage(response, m["settings.notifications.load_failed"]());
 			return;
 		}
 		const body = (await response.json()) as { data: State & { publicKey: string | null } };
@@ -68,7 +96,7 @@
 			await refresh();
 			await readThisBrowser();
 		} catch {
-			loadError = "Could not load notification settings. Try again.";
+			loadError = m["settings.notifications.load_failed"]();
 		}
 	});
 
@@ -81,7 +109,10 @@
 		} catch (err) {
 			notice = {
 				kind: "error",
-				text: err instanceof PushClientError ? err.message : "That did not work. Try again.",
+				text:
+					err instanceof PushClientError
+						? err.message
+						: m["settings.notifications.notice.generic_failure"](),
 			};
 		} finally {
 			busy = false;
@@ -90,11 +121,12 @@
 
 	const enable = () =>
 		run(async () => {
-			if (!publicKey) throw new PushClientError("Notifications are not set up here yet.");
+			if (!publicKey)
+				throw new PushClientError(m["settings.notifications.notice.not_set_up_here"]());
 			await enableThisDevice(publicKey);
 			await refresh();
 			await readThisBrowser();
-			return "Notifications are on for this device.";
+			return m["settings.notifications.notice.enabled"]();
 		});
 
 	async function removeDevice(device: Device) {
@@ -103,13 +135,15 @@
 			const response = await fetch(`${base}/api/v2/push/${device.id}`, { method: "DELETE" });
 			if (!response.ok && response.status !== 404) {
 				throw new PushClientError(
-					await errorMessage(response, "Could not remove that device. Try again.")
+					await errorMessage(response, m["settings.notifications.notice.remove_failed"]())
 				);
 			}
 			if (own) (await currentSubscription())?.unsubscribe().catch(() => undefined);
 			await refresh();
 			await readThisBrowser();
-			return own ? "Notifications are off for this device." : `Removed ${device.label}.`;
+			return own
+				? m["settings.notifications.notice.disabled"]()
+				: m["settings.notifications.notice.removed"]({ label: device.label });
 		});
 	}
 
@@ -124,7 +158,7 @@
 		});
 		if (!response.ok) {
 			view.events[event] = before;
-			notice = { kind: "error", text: "Could not save that." };
+			notice = { kind: "error", text: m["settings.notifications.notice.save_failed"]() };
 		}
 	}
 
@@ -133,19 +167,21 @@
 			const response = await fetch(`${base}/api/v2/push/test`, { method: "POST" });
 			if (!response.ok) {
 				throw new PushClientError(
-					await errorMessage(response, "Could not send a test. Try again.")
+					await errorMessage(response, m["settings.notifications.notice.test_failed"]())
 				);
 			}
 			const { data } = (await response.json()) as { data: { accepted: number } };
 			return data.accepted > 0
-				? `Sent to ${data.accepted} ${data.accepted === 1 ? "device" : "devices"}.`
-				: "The notification did not go through. Try again in a moment.";
+				? m["settings.notifications.notice.sent"]({ count: data.accepted })
+				: m["settings.notifications.notice.not_taken"]();
 		});
 
 	function when(iso: string | null): string {
-		return iso ? new Date(iso).toLocaleString() : "never";
+		return iso ? formatDateTime(iso) : m["settings.notifications.devices.never"]();
 	}
 </script>
+
+{#snippet code(text: string)}<code>{text}</code>{/snippet}
 
 <div class="flex w-full flex-col gap-4" data-testid="notification-settings">
 	{#if loadError}
@@ -155,20 +191,20 @@
 			{loadError}
 		</p>
 	{:else if !view}
-		<p class="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+		<p class="text-sm text-gray-500 dark:text-gray-400">{m["settings.notifications.loading"]()}</p>
 	{:else if !view.configured}
 		<div
 			class="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
 			data-testid="push-not-configured"
 		>
 			<h2 class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-				Notifications are not set up here yet
+				{m["settings.notifications.not_set_up.title"]()}
 			</h2>
 			<p class="mt-1 text-[12px] text-gray-500 dark:text-gray-400">
-				Notifications need a one-time set-up by whoever runs this service. With the Cerea kit,
-				running
-				<code>./configure</code> creates it and
-				<code>docker compose up -d</code> switches it on. Until then there is nothing to turn on here.
+				<Rich
+					parts={m["settings.notifications.not_set_up.description"].parts({})}
+					tags={{ configure: code, compose: code }}
+				/>
 			</p>
 		</div>
 	{:else}
@@ -177,14 +213,16 @@
 		>
 			<div class="flex items-start justify-between gap-3 py-3">
 				<div>
-					<h2 class="text-[13px] font-medium text-gray-800 dark:text-gray-200">This device</h2>
+					<h2 class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+						{m["settings.notifications.this_device.title"]()}
+					</h2>
 					<p class="text-[12px] text-gray-500 dark:text-gray-400" data-testid="device-status">
 						{#if !support.ok}
 							{support.message}
 						{:else if thisDevice}
-							Notifications are on.
+							{m["settings.notifications.this_device.on"]()}
 						{:else}
-							Get a notification here when something needs you, even with the app closed.
+							{m["settings.notifications.this_device.off"]()}
 						{/if}
 					</p>
 				</div>
@@ -193,14 +231,15 @@
 						type="button"
 						class="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"
 						disabled={busy}
-						onclick={enable}>Turn on</button
+						onclick={enable}>{m["settings.notifications.turn_on"]()}</button
 					>
 				{:else if thisDevice}
 					<button
 						type="button"
 						class="shrink-0 rounded-lg border border-gray-300 px-3 py-1.5 text-[13px] hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:hover:bg-gray-700"
 						disabled={busy}
-						onclick={() => thisDevice && removeDevice(thisDevice)}>Turn off</button
+						onclick={() => thisDevice && removeDevice(thisDevice)}
+						>{m["settings.notifications.turn_off"]()}</button
 					>
 				{/if}
 			</div>
@@ -209,19 +248,21 @@
 		<div
 			class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
 		>
-			<h2 class="pt-3 text-[13px] font-medium text-gray-800 dark:text-gray-200">Tell me when</h2>
+			<h2 class="pt-3 text-[13px] font-medium text-gray-800 dark:text-gray-200">
+				{m["settings.notifications.tell_me_when.title"]()}
+			</h2>
 			<p class="text-[12px] text-gray-500 dark:text-gray-400">
-				For all your devices. A notification is skipped while you are looking at the app.
+				{m["settings.notifications.tell_me_when.description"]()}
 			</p>
 			<div class="divide-y divide-gray-200 dark:divide-gray-700">
 				{#each PUSH_EVENTS as event (event)}
 					<div class="flex items-start justify-between gap-3 py-3">
 						<div>
 							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-								{PUSH_EVENT_INFO[event].label}
+								{EVENT_LABELS[event].label()}
 							</div>
 							<p class="text-[12px] text-gray-500 dark:text-gray-400">
-								{PUSH_EVENT_INFO[event].description}
+								{EVENT_LABELS[event].description()}
 							</p>
 						</div>
 						<Switch
@@ -237,17 +278,19 @@
 			class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
 		>
 			<div class="flex items-center justify-between gap-3 py-3">
-				<h2 class="text-[13px] font-medium text-gray-800 dark:text-gray-200">Your devices</h2>
+				<h2 class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+					{m["settings.notifications.devices.title"]()}
+				</h2>
 				<button
 					type="button"
 					class="shrink-0 rounded-lg border border-gray-300 px-3 py-1.5 text-[13px] hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:hover:bg-gray-700"
 					disabled={busy || view.devices.length === 0}
-					onclick={sendTest}>Send a test notification</button
+					onclick={sendTest}>{m["settings.notifications.devices.send_test"]()}</button
 				>
 			</div>
 			{#if view.devices.length === 0}
 				<p class="pb-3 text-[12px] text-gray-500 dark:text-gray-400">
-					No devices yet. Turn notifications on from a browser or the installed app.
+					{m["settings.notifications.devices.none"]()}
 				</p>
 			{:else}
 				<ul class="divide-y divide-gray-200 dark:divide-gray-700">
@@ -259,19 +302,23 @@
 									{#if device.fingerprint === thisFingerprint}
 										<span
 											class="ml-1 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-normal text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-											>This device</span
+											>{m["settings.notifications.devices.badge"]()}</span
 										>
 									{/if}
 								</div>
 								<p class="text-[12px] text-gray-500 dark:text-gray-400">
-									Added {when(device.createdAt)} · last notified {when(device.lastPushAt)}
+									{m["settings.notifications.devices.added"]({
+										added: when(device.createdAt),
+										notified: when(device.lastPushAt),
+									})}
 								</p>
 							</div>
 							<button
 								type="button"
 								class="shrink-0 text-[13px] text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
 								disabled={busy}
-								onclick={() => removeDevice(device)}>Remove</button
+								onclick={() => removeDevice(device)}
+								>{m["settings.notifications.devices.remove"]()}</button
 							>
 						</li>
 					{/each}

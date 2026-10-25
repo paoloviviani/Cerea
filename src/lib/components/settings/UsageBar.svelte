@@ -8,6 +8,8 @@
 	a statement of the rule and its period, with no amount and no bar.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import { formatCurrency, formatNumber } from "$lib/i18n/format";
 	import type { UsageEntry } from "$lib/types/UsageReport";
 
 	interface Props {
@@ -20,18 +22,25 @@
 	// number-and-unit pair; a metric name like "tokens" or "requests" does not.
 	const isCurrency = $derived(/^[A-Z]{3}$/.test(entry.unit));
 
+	// In the page's language, not the browser's. An unrecognised currency code
+	// from the gateway falls back to the plain number (formatCurrency).
 	function format(value: number): string {
-		if (isCurrency) {
-			try {
-				return new Intl.NumberFormat(undefined, { style: "currency", currency: entry.unit }).format(
-					value
-				);
-			} catch {
-				// An unrecognised currency code from the gateway: fall through to
-				// the plain number rather than throwing on render.
-			}
-		}
-		return new Intl.NumberFormat().format(value);
+		return isCurrency ? formatCurrency(value, entry.unit) : formatNumber(value);
+	}
+
+	/** "12 / 50 tokens", or "$12.00 / $50.00" where the unit is a currency. */
+	function ratio(used: number, limit: number): string {
+		const inputs = { used: format(used), limit: format(limit), unit: entry.unit };
+		return isCurrency
+			? m["settings.usage_bar.used_of_limit"](inputs)
+			: m["settings.usage_bar.used_of_limit_unit"](inputs);
+	}
+
+	/** "12 tokens", or "$12.00". */
+	function amount(value: number): string {
+		return isCurrency
+			? format(value)
+			: m["settings.usage_bar.with_unit"]({ amount: format(value), unit: entry.unit });
 	}
 
 	const percent = $derived(
@@ -56,14 +65,16 @@
 		<span class="shrink-0 text-[12px] text-gray-500 dark:text-gray-400">
 			{#if entry.limit !== undefined}
 				{#if entry.unknown}
-					unknown
+					{m["settings.usage_bar.unknown"]()}
 				{:else}
-					{format(entry.used ?? 0)} / {format(entry.limit)}{isCurrency ? "" : ` ${entry.unit}`}
+					{ratio(entry.used ?? 0, entry.limit)}
 				{/if}
 			{:else if entry.noFigures}
-				<span class="text-gray-400 dark:text-gray-500">figures not shown</span>
+				<span class="text-gray-400 dark:text-gray-500"
+					>{m["settings.usage_bar.figures_hidden"]()}</span
+				>
 			{:else}
-				{format(entry.used ?? 0)}{isCurrency ? "" : ` ${entry.unit}`}
+				{amount(entry.used ?? 0)}
 			{/if}
 			{#if entry.period}
 				<span class="text-gray-400 dark:text-gray-500">· {entry.period}</span>
@@ -78,8 +89,12 @@
 			aria-valuemax={entry.unknown ? undefined : entry.limit}
 			aria-valuenow={entry.unknown ? undefined : entry.used}
 			aria-valuetext={entry.unknown
-				? "unknown"
-				: `${format(entry.used ?? 0)} of ${format(entry.limit)} ${entry.unit}`}
+				? m["settings.usage_bar.unknown"]()
+				: m["settings.usage_bar.used_of"]({
+						used: format(entry.used ?? 0),
+						limit: format(entry.limit),
+						unit: entry.unit,
+					})}
 			class="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700"
 		>
 			{#if !entry.unknown}

@@ -16,6 +16,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { formatNumber } from "$lib/i18n/format";
 	import * as s from "$lib/components/overlay/styles";
 	import { KNOWLEDGE_ACCEPT, MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 	import { PROJECT_DOCUMENTS_MAX_CHARS, PROJECT_DOCUMENTS_WARN_CHARS } from "$lib/types/Memory";
@@ -44,7 +45,7 @@
 
 	const FOLDER_REFUSAL = "Folders can't be added. Add the files you want one by one.";
 
-	const number = (n: number) => n.toLocaleString("en-US");
+	const number = (n: number) => formatNumber(n);
 	const percent = $derived(Math.min(100, (used / PROJECT_DOCUMENTS_MAX_CHARS) * 100));
 	const warn = $derived(used > PROJECT_DOCUMENTS_WARN_CHARS);
 

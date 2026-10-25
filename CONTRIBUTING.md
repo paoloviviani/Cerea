@@ -90,10 +90,15 @@ by the hook**, and neither is the type check. CI covers them (below), so run
 - **TypeScript** is strict. `npm run check` is `svelte-kit sync && svelte-check`.
 - **Svelte 5** with runes (`$state`, `$effect`, `$bindable`); no `any`.
 - **Go:** `gofmt` and `go vet`, as below.
+- **Translations:** user-facing words in a converted area live in
+  `messages/en.json` (Paraglide), not in the template. `npm run i18n:check` (part
+  of `npm run lint`) fails on a missing or unused key, a stale `en-XA` pseudo-locale
+  and hard-coded text in a converted directory. Adding a string, a language, or
+  converting an area: see "Translations" in `AGENTS.md`.
 
 ```sh
 npm run check                    # svelte-kit sync + svelte-check
-npm run lint                     # prettier --check . && eslint .   (the whole repository, Markdown included)
+npm run lint                     # prettier --check . && eslint . && i18n:check   (the whole repository, Markdown included)
 npm run format                   # prettier --write .
 cd agent && test -z "$(gofmt -l .)" && go vet ./...
 ```

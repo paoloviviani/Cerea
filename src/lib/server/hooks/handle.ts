@@ -17,6 +17,10 @@ import { runWithRequestContext, updateRequestContext } from "$lib/server/request
 import { config, ready } from "$lib/server/config";
 import { authTimeFresh } from "$lib/server/code/stepUp";
 import { paletteAttributesFor } from "$lib/server/paletteSettings";
+import { pseudoLocaleEnabled, savedLocaleFor } from "$lib/server/localeSettings";
+import { LOCALE_COOKIE } from "$lib/i18n/locale";
+import { resolveLocale } from "$lib/i18n/resolve";
+import { runWithLocale } from "$lib/server/requestLocale";
 import { safeRequestFields } from "./safeLogFields";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 
@@ -414,31 +418,64 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				return errorResponse(401, ERROR_MESSAGES.authOnly);
 			}
 
+			// The language of this request (`$lib/i18n/resolve`): the saved choice,
+			// the cookie, Accept-Language, English. Decided once, here, and then
+			// everything below (the render, the <html lang>, the layout data that
+			// hands it to the browser) reads this one answer. The API is not
+			// rendered text, so it does not pay for the settings lookup.
+			const isApi = event.url.pathname.startsWith(`${base}/api/`);
+			const locale = isApi
+				? undefined
+				: resolveLocale({
+						saved: await savedLocaleFor(event.locals),
+						cookie: event.cookies.get(LOCALE_COOKIE),
+						acceptLanguage: event.request.headers.get("accept-language"),
+						pseudo: pseudoLocaleEnabled(),
+					});
+			event.locals.locale = locale;
+
 			let replaced = false;
 
-			const response = await resolve(event, {
-				transformPageChunk: async (chunk) => {
-					let html = chunk.html;
+			// Paraglide's own request context: `getLocale()` (and so every message)
+			// answers with this request's locale for the whole render, however many
+			// requests are in flight (`runWithLocale`).
+			const renderPage = () =>
+				resolve(event, {
+					transformPageChunk: async (chunk) => {
+						let html = chunk.html;
 
-					// The person's palette goes on <html> in the first chunk, so the
-					// first paint is already right. Looked up here, not earlier, so that
-					// only requests that render a page pay for it.
-					if (html.includes("%paletteAttrs%")) {
-						html = html.replace("%paletteAttrs%", await paletteAttributesFor(event.locals));
-					}
+						// <html lang>: in the first chunk, so a screen reader and the
+						// browser's hyphenation know the language before the first paint.
+						if (html.includes("%lang%")) {
+							html = html.replace("%lang%", locale ?? "en");
+						}
 
-					// For some reason, Sveltekit doesn't let us load env variables from .env in the app.html template
-					if (replaced || !html.includes("%gaId%")) {
-						return html;
-					}
-					replaced = true;
+						// The person's palette goes on <html> in the first chunk, so the
+						// first paint is already right. Looked up here, not earlier, so that
+						// only requests that render a page pay for it.
+						if (html.includes("%paletteAttrs%")) {
+							html = html.replace("%paletteAttrs%", await paletteAttributesFor(event.locals));
+						}
 
-					return html.replace("%gaId%", config.PUBLIC_GOOGLE_ANALYTICS_ID);
-				},
-				filterSerializedResponseHeaders: (header) => {
-					return header.includes("content-type");
-				},
-			});
+						// For some reason, Sveltekit doesn't let us load env variables from .env in the app.html template
+						if (replaced || !html.includes("%gaId%")) {
+							return html;
+						}
+						replaced = true;
+
+						return html.replace("%gaId%", config.PUBLIC_GOOGLE_ANALYTICS_ID);
+					},
+					filterSerializedResponseHeaders: (header) => {
+						return header.includes("content-type");
+					},
+				});
+
+			const response = locale
+				? await runWithLocale(locale, event.url.origin, renderPage)
+				: await renderPage();
+
+			// The page depends on the language the request asked for.
+			if (locale) response.headers.append("Vary", "Accept-Language");
 
 			// Update request context with status code
 			updateRequestContext({ statusCode: response.status });
