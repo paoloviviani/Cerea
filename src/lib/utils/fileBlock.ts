@@ -1,3 +1,4 @@
+import { formatNumber } from "$lib/i18n/format";
 /**
  * Direct-emission file blocks: a fenced code block whose info string names a
  * file (```markdown title=report.md) is the model handing over a finished
@@ -55,28 +56,11 @@ export function fileBlockByteSize(content: string): number {
 
 /** Human size for the file row; mirrors FileCard so the two cards agree. */
 export function formatFileSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/**
- * Hand a directly-emitted block's text to the browser as a download under its
- * annotated filename. Same blob-anchor dance as FileCard's sandbox download,
- * but the bytes are already here — no worker filesystem to read from, which
- * is also why this download (unlike a sandbox file's) cannot go stale.
- */
-export function downloadTextAsFile(filename: string, content: string): void {
-	const url = URL.createObjectURL(new Blob([new TextEncoder().encode(content)]));
-	try {
-		const link = window.document.createElement("a");
-		link.href = url;
-		link.download = filename;
-		link.rel = "noopener";
-		window.document.body.appendChild(link);
-		link.click();
-		link.remove();
-	} finally {
-		URL.revokeObjectURL(url);
-	}
+	const tenth = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
+	// i18n: literal (unit symbols)
+	if (bytes < 1024) return `${formatNumber(bytes)} B`;
+	// i18n: literal (unit symbols)
+	if (bytes < 1024 * 1024) return `${formatNumber(bytes / 1024, tenth)} KB`;
+	// i18n: literal (unit symbols)
+	return `${formatNumber(bytes / (1024 * 1024), tenth)} MB`;
 }
