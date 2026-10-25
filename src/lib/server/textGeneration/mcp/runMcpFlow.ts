@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars, prefer-const -- recovered wiring, finished in the next commit */
 import {
 	THINK_CLOSE,
 	THINK_OPEN,
@@ -7,7 +6,7 @@ import {
 } from "$lib/utils/thinkTags";
 import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
-import { randomUUID } from "crypto";
+import { m } from "$lib/paraglide/messages";
 import { MessageUpdateType, type MessageUpdate } from "$lib/types/MessageUpdate";
 import { getMcpServers } from "$lib/server/mcp/registry";
 import { isValidUrl } from "$lib/server/urlSafety";
@@ -22,7 +21,7 @@ import type {
 import type { Stream } from "openai/streaming";
 import { buildToolPreprompt, unavailableConnectorsNotice } from "../utils/toolPrompt";
 import type { EndpointMessage } from "../../endpoints/endpoints";
-import { executeToolCalls, isValidJsonObject, type NormalizedToolCall } from "./toolInvocation";
+import { executeToolCalls, type NormalizedToolCall } from "./toolInvocation";
 import { hasTruncatedToolCall, parseToolArguments, withParseableArguments } from "./toolArgs";
 import { createToolBlocker } from "./toolBlocker";
 import type { TextGenerationContext } from "../types";
@@ -127,18 +126,8 @@ const LEAKED_CALL_MARKUP =
 const ANSWER_NOW_INSTRUCTION =
 	"[SYSTEM: The tool phase of this turn is over. Answer the person now with what you have; say plainly what you couldn't find or do.]";
 
-// The last-resort answer when even that no-tools call fails or comes back
-// empty. Person-visible server text, worded per docs/writing.md (what
-// happened, then what to do); the message catalogue does not reach server text.
-// i18n: server text
-const NO_ANSWER_FALLBACK =
-	"I couldn't reach an answer this time. Try narrowing the request or breaking it into smaller steps.";
-
 /** The part of a completion's reply a person reads, with reasoning blocks removed. */
 const visibleOf = (text: string) => text.replace(thinkBlockPattern("g"), "").trim();
-
-/** A model answered in reasoning only when the trace holds something and this holds nothing. */
-const answeredVisibly = (text: string) => visibleOf(text).length > 0;
 
 /** The text deltas of one streaming chunk, however the provider shapes them. */
 function deltaText(delta: { content?: string | Array<{ text?: string }> | null }): string {
@@ -160,20 +149,66 @@ function deltaText(delta: { content?: string | Array<{ text?: string }> | null }
 }
 
 /** The reasoning deltas of one streaming chunk, under any provider's field name. */
-function deltaReasoning(
-	delta: {
+function deltaReasoning(delta: object): string {
+	// Not in the OpenAI delta type; each field is set by some gateway or other.
+	const fields = delta as {
 		reasoning?: unknown;
 		reasoning_content?: unknown;
 		reasoning_text?: unknown;
-	} & Record<string, unknown>
-): string {
-	return typeof delta.reasoning === "string"
-		? delta.reasoning
-		: typeof delta.reasoning_content === "string"
-			? delta.reasoning_content
-			: typeof delta.reasoning_text === "string"
-				? delta.reasoning_text
-				: "";
+	};
+	for (const value of [fields.reasoning, fields.reasoning_content, fields.reasoning_text]) {
+		if (typeof value === "string") return value;
+	}
+	return "";
+}
+
+/**
+ * Folds one stream's provider reasoning deltas and content deltas into the
+ * single token stream the client reads, reasoning wrapped in the think tag.
+ * A blank reasoning delta cannot open a block on its own, but is not thrown
+ * away either: whitespace-only deltas are held until a non-blank one opens the
+ * block, so the persisted trace stays byte-exact. Once a block is open every
+ * reasoning delta counts, blank or not, and the first content delta closes it.
+ */
+function createReasoningMerger() {
+	let open = false;
+	let pendingWhitespace = "";
+	return {
+		/** Whether the stream is inside a reasoning block right now. */
+		get open() {
+			return open;
+		},
+		/** The tokens one chunk's deltas add to the stream ("" when it adds none). */
+		push(content: string, reasoning: string): string {
+			let combined = "";
+			if (reasoning.length > 0) {
+				if (open) {
+					combined += reasoning;
+				} else if (reasoning.trim().length > 0) {
+					combined += THINK_OPEN + pendingWhitespace + reasoning;
+					pendingWhitespace = "";
+					open = true;
+				} else {
+					pendingWhitespace += reasoning;
+				}
+			}
+			if (content.length > 0) {
+				if (open) {
+					combined += THINK_CLOSE + content;
+					open = false;
+				} else {
+					combined += content;
+				}
+			}
+			return combined;
+		},
+		/** The closing tag when a block is still open (and the block is then closed), else "". */
+		close(): string {
+			if (!open) return "";
+			open = false;
+			return THINK_CLOSE;
+		},
+	};
 }
 
 export async function* runMcpFlow({
@@ -799,26 +834,18 @@ export async function* runMcpFlow({
 
 		let lastAssistantContent = "";
 		let streamedContent = false;
-		// Track whether we're inside a think block when the upstream streams
-		// provider-specific reasoning tokens (e.g. `reasoning` or `reasoning_content`).
-		let thinkOpen = false;
 		// Whether the CLIENT currently has an unbalanced think opener. Diverges
-		// from thinkOpen once tool-call deltas stop the content stream: the close
+		// from the round's merger once tool-call deltas stop the content stream: the close
 		// may then land only in lastAssistantContent, and a client left with an
 		// unclosed block renders that reasoning as still streaming for the rest
 		// of the turn.
 		let clientThinkOpen = false;
-		// Leading whitespace-only reasoning deltas that arrived before the block
-		// opened (thinkOpen still false, so a blank chunk wouldn't otherwise open
-		// one). Held here and flushed once a non-blank delta opens the block, so
-		// the persisted trace stays byte-exact instead of silently dropping them.
-		let pendingReasoningWhitespace = "";
 		let truncatedToolCallRetries = 0;
 		let cutAnswerRetries = 0;
 		let leakedToolCallRetries = 0;
-		// Rounds that actually dispatched at least one tool call. Gates the
-		// no-tools rescue below: without tools in the turn there is nothing to
-		// answer "with what you have", and the cut-answer retry already covers it.
+		// Rounds that ran tool calls. Gates the empty-final-round rescue: without
+		// tools in the turn there is nothing to answer "with what you have", and
+		// the cut-answer retry below already covers it.
 		let roundsWithTools = 0;
 		// Recovered execute_code calls this run has already dispatched — bounded by
 		// MAX_RECOVERED_EXECUTE_CODE_CALLS, which is why the counter exists at all.
@@ -830,16 +857,13 @@ export async function* runMcpFlow({
 		/**
 		 * The turn's last resort, run when it would otherwise end without an
 		 * answer: one completion with the tools taken away and a short
-		 * instruction to answer with what it has. Streams like a tool round
-		 * does; returns null when the request itself failed. A stream that dies
-		 * mid-way returns what arrived, so a partial answer still beats the
-		 * canned fallback.
+		 * instruction to answer with what it has, streamed like a tool round.
+		 * Every tool result already produced stays in the conversation. Returns
+		 * what the model wrote, or null when the request itself failed; a stream
+		 * that dies mid-way returns what arrived, so a partial answer still
+		 * beats the canned fallback.
 		 */
-		const finalAnswerWithoutTools = async function* (): AsyncGenerator<
-			MessageUpdate,
-			{ text: string; finishReason: string | null | undefined } | null,
-			undefined
-		> {
+		const answerWithoutTools = async function* (): AsyncGenerator<MessageUpdate, string | null> {
 			const request: ChatCompletionCreateParamsStreaming = {
 				...completionBase,
 				tools: undefined,
@@ -864,38 +888,21 @@ export async function* runMcpFlow({
 						onBackoff: (attempt, delayMs, err) =>
 							logger.warn(
 								{ attempt, delayMs, err: String(err) },
-								"[mcp] upstream failure on the final no-tools answer; backing off"
+								"[mcp] upstream failure on the no-tools answer; backing off"
 							),
 					}
 				);
 			} catch (err) {
-				logger.warn({ err: String(err) }, "[mcp] the final no-tools answer failed");
+				logger.warn({ err: String(err) }, "[mcp] the no-tools answer request failed");
 				return null;
 			}
+			const merger = createReasoningMerger();
 			let text = "";
-			let thinkOpen = false;
-			let finishReason: string | null | undefined;
 			try {
 				for await (const chunk of stream) {
-					const choice = chunk.choices?.[0];
-					if (choice?.finish_reason) finishReason = choice.finish_reason;
-					const delta = choice?.delta;
+					const delta = chunk.choices?.[0]?.delta;
 					if (!delta) continue;
-					const deltaContent = deltaText(delta);
-					const reasoning = deltaReasoning(delta);
-					let combined = "";
-					if (reasoning.length > 0) {
-						if (thinkOpen) {
-							combined += reasoning;
-						} else if (reasoning.trim().length > 0) {
-							combined += THINK_OPEN + reasoning;
-							thinkOpen = true;
-						}
-					}
-					if (deltaContent && deltaContent.length > 0) {
-						combined += thinkOpen ? THINK_CLOSE + deltaContent : deltaContent;
-						thinkOpen = false;
-					}
+					const combined = merger.push(deltaText(delta), deltaReasoning(delta));
 					if (combined.length > 0) {
 						text += combined;
 						producedOutput = true;
@@ -904,10 +911,41 @@ export async function* runMcpFlow({
 					if (checkAborted()) return null;
 				}
 			} catch (err) {
-				logger.warn({ err: String(err) }, "[mcp] the final no-tools answer was cut mid-stream");
+				logger.warn({ err: String(err) }, "[mcp] the no-tools answer was cut mid-stream");
 			}
-			if (thinkOpen) text += THINK_CLOSE;
-			return { text, finishReason };
+			text += merger.close();
+			return text;
+		};
+
+		/**
+		 * Ends the turn through the no-tools call: its text is the answer when a
+		 * person could read any of it, else `fallbackText` (what the last round
+		 * wrote, if that was readable) or the canned message.
+		 */
+		const endWithAnswerWithoutTools = async function* (
+			reason: "budget_exhausted" | "empty_final_round",
+			rounds: number,
+			lastRoundText: string
+		): AsyncGenerator<MessageUpdate, McpFlowResult> {
+			logger.warn({ reason, rounds }, "[mcp] answering without tools");
+			const text = yield* answerWithoutTools();
+			if (checkAborted()) return "aborted";
+			if (text !== null && visibleOf(text).length > 0) {
+				yield { type: MessageUpdateType.FinalAnswer, text, interrupted: false };
+				logger.info(
+					{ reason, rounds, length: text.length },
+					"[mcp] final answer emitted (no tools)"
+				);
+				return "completed";
+			}
+			const lastRoundReadable = visibleOf(lastRoundText).length > 0;
+			const fallback = lastRoundReadable ? lastRoundText : m["chat.no_answer"]();
+			if (!lastRoundReadable || !streamedContent) {
+				yield { type: MessageUpdateType.Stream, token: fallback };
+			}
+			yield { type: MessageUpdateType.FinalAnswer, text: fallback, interrupted: false };
+			logger.warn({ reason, rounds }, "[mcp] final answer is the fallback (no-tools call empty)");
+			return reason === "budget_exhausted" ? "exhausted" : "completed";
 		};
 
 		for (let loop = 0; loop < maxToolRounds; loop += 1) {
@@ -919,9 +957,9 @@ export async function* runMcpFlow({
 
 			lastAssistantContent = "";
 			streamedContent = false;
-			// Discard any whitespace-only reasoning buffered but never flushed by a
-			// non-blank delta last round — it never became part of a real trace.
-			pendingReasoningWhitespace = "";
+			// Per round: whitespace-only reasoning buffered but never flushed by a
+			// non-blank delta never became part of a real trace.
+			const reasoningMerger = createReasoningMerger();
 
 			const completionRequest: ChatCompletionCreateParamsStreaming = {
 				...completionBase,
@@ -1064,70 +1102,9 @@ export async function* runMcpFlow({
 					}
 				}
 
-				const deltaContent = (() => {
-					if (typeof delta.content === "string") return delta.content;
-					const maybeParts = delta.content as unknown;
-					if (Array.isArray(maybeParts)) {
-						return maybeParts
-							.map((part) =>
-								typeof part === "object" &&
-								part !== null &&
-								"text" in part &&
-								typeof (part as Record<string, unknown>).text === "string"
-									? String((part as Record<string, unknown>).text)
-									: ""
-							)
-							.join("");
-					}
-					return "";
-				})();
-
-				// Provider-dependent reasoning fields (`reasoning`, `reasoning_content`,
-				// or `reasoning_text`).
-				// Not in the OpenAI delta type; each is set by some gateway or other.
-				const deltaFields = delta as typeof delta & {
-					reasoning?: unknown;
-					reasoning_content?: unknown;
-					reasoning_text?: unknown;
-				};
-				const deltaReasoning: string =
-					typeof deltaFields?.reasoning === "string"
-						? deltaFields.reasoning
-						: typeof deltaFields?.reasoning_content === "string"
-							? deltaFields.reasoning_content
-							: typeof deltaFields?.reasoning_text === "string"
-								? deltaFields.reasoning_text
-								: "";
-
 				// Merge reasoning + content into a single combined token stream, mirroring
 				// the OpenAI adapter so the UI can auto-detect think blocks.
-				let combined = "";
-				// Whitespace-only deltas still count once a think block is open
-				// (paragraph breaks are part of the byte-exact trace); non-blank
-				// text is only required to OPEN a block, so stray leading
-				// whitespace can't create empty think blocks on its own — but it
-				// must not be discarded either, so it's buffered until a non-blank
-				// delta arrives and flushed into the opening of the block.
-				if (deltaReasoning.length > 0) {
-					if (thinkOpen) {
-						combined += deltaReasoning;
-					} else if (deltaReasoning.trim().length > 0) {
-						combined += THINK_OPEN + pendingReasoningWhitespace + deltaReasoning;
-						pendingReasoningWhitespace = "";
-						thinkOpen = true;
-					} else {
-						pendingReasoningWhitespace += deltaReasoning;
-					}
-				}
-
-				if (deltaContent && deltaContent.length > 0) {
-					if (thinkOpen) {
-						combined += THINK_CLOSE + deltaContent;
-						thinkOpen = false;
-					} else {
-						combined += deltaContent;
-					}
-				}
+				const combined = reasoningMerger.push(deltaText(delta), deltaReasoning(delta));
 
 				if (combined.length > 0) {
 					lastAssistantContent += combined;
@@ -1136,8 +1113,8 @@ export async function* runMcpFlow({
 						producedOutput = true;
 						yield { type: MessageUpdateType.Stream, token: combined };
 						tokenCount += combined.length;
-						clientThinkOpen = thinkOpen;
-					} else if (clientThinkOpen && !thinkOpen) {
+						clientThinkOpen = reasoningMerger.open;
+					} else if (clientThinkOpen && !reasoningMerger.open) {
 						// The close landed in `combined` after tool-call deltas already
 						// stopped the content stream. The client saw the opener, so it
 						// must see the closer too, or it renders that reasoning block as
@@ -1168,16 +1145,17 @@ export async function* runMcpFlow({
 			// doesn't swallow content from subsequent iterations.  The client-side
 			// regex matches an opening think tag to end-of-string, so an unclosed block would
 			// hide everything that follows.
-			if (thinkOpen) {
+			const closer = reasoningMerger.close();
+			if (closer) {
 				// Gate on what the client saw, not on streamedContent: a round can
 				// stream content early and open the think block only after tool-call
-				// deltas muted the stream — a bare closer then shows up as literal text
+				// deltas muted the stream — a bare closer then shows up as literal
+				// text.
 				if (clientThinkOpen) {
-					yield { type: MessageUpdateType.Stream, token: THINK_CLOSE };
+					yield { type: MessageUpdateType.Stream, token: closer };
 					clientThinkOpen = false;
 				}
-				lastAssistantContent += THINK_CLOSE;
-				thinkOpen = false;
+				lastAssistantContent += closer;
 			}
 
 			let discardedTruncatedToolCalls = false;
@@ -1366,6 +1344,7 @@ export async function* runMcpFlow({
 					},
 					builtinTools,
 					guard,
+					toolBlocker,
 					// The pre-call checkpoint (ADR 0075): every MCP call is gated the
 					// same way `web_fetch` already is, under the policy resolved above.
 					toolApproval: {
@@ -1418,6 +1397,8 @@ export async function* runMcpFlow({
 					if (stopWatch) clearInterval(stopWatch);
 				}
 
+				roundsWithTools += 1;
+
 				// Check abort after all tools complete before continuing loop
 				if (checkAborted()) {
 					logger.info({ loop }, "[mcp] aborting after tool execution");
@@ -1429,10 +1410,7 @@ export async function* runMcpFlow({
 
 			// No tool calls: finalize and return
 			// If a think block is still open, close it for the final output
-			if (thinkOpen) {
-				lastAssistantContent += THINK_CLOSE;
-				thinkOpen = false;
-			}
+			lastAssistantContent += reasoningMerger.close();
 			// A response cut by the output limit is not an answer. With a reasoning
 			// model it usually ends inside the think block, so finalizing it
 			// reports a half-thought as a finished turn. The same failure arrives
@@ -1440,7 +1418,17 @@ export async function* runMcpFlow({
 			// think-only response counts as cut regardless of finish_reason. Retry
 			// once, telling the model to answer with its remaining budget; a second
 			// cut finalizes as interrupted rather than pretending completion.
-			const visibleContent = lastAssistantContent.replace(thinkBlockPattern("g"), "").trim();
+			const visibleContent = visibleOf(lastAssistantContent);
+			// Tools ran and the model then wrote nothing a person can read (its answer,
+			// if any, is in its reasoning): asking the same model again with the same
+			// tools is how this turn got here. One call with the tools taken away.
+			if (roundsWithTools > 0 && visibleContent.length === 0 && !discardedTruncatedToolCalls) {
+				return yield* endWithAnswerWithoutTools(
+					"empty_final_round",
+					loop + 1,
+					lastAssistantContent
+				);
+			}
 			const thinkOnlyAnswer = visibleContent.length === 0 && lastAssistantContent.trim().length > 0;
 			const cutMidAnswer =
 				(finishReason === "length" || thinkOnlyAnswer) && !discardedTruncatedToolCalls;
@@ -1523,18 +1511,14 @@ export async function* runMcpFlow({
 			);
 			return "completed";
 		}
-		// Not "not_applicable": that re-runs the turn with no tools and discards every
-		// tool result this turn produced.
+		// The budget ran out. Not "not_applicable": that re-runs the turn with no
+		// tools and discards every tool result this turn produced.
 		logger.warn({ maxRounds: maxToolRounds }, "[mcp] tool-round budget exhausted");
-		const exhaustedText =
-			lastAssistantContent.trim().length > 0
-				? lastAssistantContent
-				: "I stopped after too many tool steps without reaching an answer. Try narrowing the request or breaking it into smaller ones.";
-		if (!streamedContent) {
-			yield { type: MessageUpdateType.Stream, token: exhaustedText };
-		}
-		yield { type: MessageUpdateType.FinalAnswer, text: exhaustedText, interrupted: false };
-		return "exhausted";
+		return yield* endWithAnswerWithoutTools(
+			"budget_exhausted",
+			maxToolRounds,
+			lastAssistantContent
+		);
 	} catch (err) {
 		const msg = String(err ?? "");
 		const isAbort =

@@ -1278,6 +1278,7 @@
 	"chat.mounted.stop": "Stop sharing {path} with the code",
 	"chat.mounted.unavailable": "{name} not available: {reason}",
 	"chat.mounted.unavailable_title": "{name} is not in /mnt/data: {reason}",
+	"chat.no_answer": "I couldn't reach an answer this time. Try narrowing the request or breaking it into smaller steps.",
 	"chat.page.not_found": "Message not found",
 	"chat.page.overloaded": "Too many people are using this right now. Try again in a moment.",
 	"chat.page.stop_failed": "Could not stop the reply. Try again.",

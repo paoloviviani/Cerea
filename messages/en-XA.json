@@ -1341,6 +1341,7 @@
 	"chat.mounted.stop": "[Śťóþ śȟáŕíńǧ {path} ŵíťȟ ťȟé ćóďé]",
 	"chat.mounted.unavailable": "[{name} ńóť áǚáíľáƀľé: {reason}]",
 	"chat.mounted.unavailable_title": "[{name} íś ńóť íń /ḿńť/ďáťá: {reason}]",
+	"chat.no_answer": "[Í ćóúľďń'ť ŕéáćȟ áń áńśŵéŕ ťȟíś ťíḿé. Ťŕý ńáŕŕóŵíńǧ ťȟé ŕéǫúéśť óŕ ƀŕéáķíńǧ íť íńťó śḿáľľéŕ śťéþś.]",
 	"chat.page.not_found": "[Ḿéśśáǧé ńóť ƒóúńď]",
 	"chat.page.overloaded": "[Ťóó ḿáńý þéóþľé áŕé úśíńǧ ťȟíś ŕíǧȟť ńóŵ. Ťŕý áǧáíń íń á ḿóḿéńť.]",
 	"chat.page.stop_failed": "[Ćóúľď ńóť śťóþ ťȟé ŕéþľý. Ťŕý áǧáíń.]",

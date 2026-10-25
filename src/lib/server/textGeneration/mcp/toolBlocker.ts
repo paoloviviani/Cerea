@@ -48,7 +48,9 @@ export function createToolBlocker(): ToolBlocker {
 			const seen = failures.get(name);
 			failures.set(
 				name,
-				seen && seen.message === message ? { message, count: seen.count + 1 } : { message, count: 1 }
+				seen && seen.message === message
+					? { message, count: seen.count + 1 }
+					: { message, count: 1 }
 			);
 		},
 	};

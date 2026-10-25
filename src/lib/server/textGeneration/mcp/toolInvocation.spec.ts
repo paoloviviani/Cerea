@@ -4,6 +4,7 @@ import { collections, ready } from "$lib/server/database";
 import { MessageToolUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 import { ToolResultStatus } from "$lib/types/Tool";
 import { parseToolArguments } from "./toolArgs";
+import { createToolBlocker } from "./toolBlocker";
 import type { ExecuteToolCallsParams, NormalizedToolCall } from "./toolInvocation";
 import type { BuiltinTool } from "../builtinTools/types";
 import type { McpToolTextResponse } from "$lib/server/mcp/httpClient";
@@ -44,7 +45,8 @@ async function drain(
 	elicitation?: { conversationId: ObjectId; generationId?: string; messageId?: string },
 	builtinTools?: BuiltinTool[],
 	guard?: import("./toolGuard").ToolCallGuard,
-	toolApproval?: ExecuteToolCallsParams["toolApproval"]
+	toolApproval?: ExecuteToolCallsParams["toolApproval"],
+	toolBlocker?: ExecuteToolCallsParams["toolBlocker"]
 ) {
 	const events = [];
 	for await (const event of executeToolCalls({
@@ -58,6 +60,7 @@ async function drain(
 		...(builtinTools ? { builtinTools } : {}),
 		...(guard ? { guard } : {}),
 		...(toolApproval ? { toolApproval } : {}),
+		...(toolBlocker ? { toolBlocker } : {}),
 	})) {
 		events.push(event);
 	}
@@ -709,5 +712,74 @@ describe("executeToolCalls tool-approval gate over web_fetch_structured (ADR 007
 		expect(summaryOf(events).awaitingInput).toBe(true);
 		const request = elicitationRequestOf(events);
 		expect(request?.request.toolApproval).toMatchObject({ tool: "hf:do_thing" });
+	});
+});
+
+describe("executeToolCalls with a tool blocker", () => {
+	const failing = () =>
+		mcpMock.callMcpTool.mockResolvedValue(mcpResult({ text: "connector is down", isError: true }));
+
+	it("refuses the third identical failure before dispatch, and says so to the model", async () => {
+		failing();
+		const toolBlocker = createToolBlocker();
+
+		await drain([CALL], undefined, undefined, undefined, undefined, toolBlocker);
+		await drain([CALL], undefined, undefined, undefined, undefined, toolBlocker);
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(2);
+
+		const events = await drain([CALL], undefined, undefined, undefined, undefined, toolBlocker);
+
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(2);
+		const [message] = toolMessagesOf(events);
+		expect(String(message.content)).toContain("unavailable for the rest of this turn");
+		expect(String(message.content)).toContain("connector is down");
+	});
+
+	it("does not block a tool whose second failure reads differently", async () => {
+		const toolBlocker = createToolBlocker();
+		mcpMock.callMcpTool.mockResolvedValueOnce(mcpResult({ text: "timeout", isError: true }));
+		mcpMock.callMcpTool.mockResolvedValueOnce(mcpResult({ text: "bad request", isError: true }));
+		await drain([CALL], undefined, undefined, undefined, undefined, toolBlocker);
+		await drain([CALL], undefined, undefined, undefined, undefined, toolBlocker);
+		mcpMock.callMcpTool.mockResolvedValueOnce(mcpResult({ text: "fine" }));
+
+		await drain([CALL], undefined, undefined, undefined, undefined, toolBlocker);
+
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(3);
+	});
+
+	it("asks no approval for a call it refuses", async () => {
+		await ready;
+		failing();
+		const toolBlocker = createToolBlocker();
+		const manual = { policy: "manual" as const, approvedTools: new Set(["hf:do_thing"]) };
+		for (let i = 0; i < 2; i += 1) {
+			await drain(
+				[CALL],
+				undefined,
+				undefined,
+				undefined,
+				{ ...manual, webFetchAllowedUrls: new Set() },
+				toolBlocker
+			);
+		}
+		mcpMock.callMcpTool.mockClear();
+
+		const events = await drain(
+			[CALL],
+			{ conversationId: new ObjectId(), generationId: "gen-1", messageId: "m1" },
+			undefined,
+			undefined,
+			{ policy: "manual", approvedTools: new Set(), webFetchAllowedUrls: new Set() },
+			toolBlocker
+		);
+
+		expect(mcpMock.callMcpTool).not.toHaveBeenCalled();
+		expect(summaryOf(events).awaitingInput).toBeUndefined();
+		const prompts = events.filter(
+			(e) => e.type === "update" && e.update.type === MessageUpdateType.Elicitation
+		);
+		expect(prompts).toHaveLength(0);
+		expect(String(toolMessagesOf(events)[0].content)).toContain("unavailable");
 	});
 });
