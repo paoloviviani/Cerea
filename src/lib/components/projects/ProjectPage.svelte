@@ -39,6 +39,8 @@
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import { page } from "$app/state";
 	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
 	import Switch from "$lib/components/Switch.svelte";
@@ -156,8 +158,8 @@
 	 * edits all survive it.
 	 */
 	const TABS = [
-		{ key: "conversations", label: "Conversations" },
-		{ key: "settings", label: "Settings" },
+		{ key: "conversations", label: m["projects.page.tab.conversations"] },
+		{ key: "settings", label: m["projects.page.tab.settings"] },
 	] as const;
 	type TabKey = (typeof TABS)[number]["key"];
 	const tab = $derived(
@@ -172,7 +174,9 @@
 		const response = await fetch(`${base}/api/v2${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+			throw new Error(
+				parsed?.message ?? m["projects.page.error_status"]({ status: response.status })
+			);
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
@@ -217,7 +221,7 @@
 				seed(detail);
 			}
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not open that project. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.page.open_failed"]();
 		} finally {
 			loading = false;
 		}
@@ -287,7 +291,7 @@
 				projectsChanged();
 			}
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.page.save_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -334,7 +338,7 @@
 	const attachedRows = $derived(
 		attached.map((baseId) => ({
 			id: baseId,
-			name: stores.find((store) => store.id === baseId)?.name ?? "a base you can no longer read",
+			name: stores.find((store) => store.id === baseId)?.name ?? m["projects.page.kb.unreadable"](),
 		}))
 	);
 	const candidates = $derived(
@@ -358,8 +362,7 @@
 			projectsChanged();
 		} catch (err) {
 			attached = before;
-			failure =
-				err instanceof Error ? err.message : "Could not change the knowledge bases. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.page.kb.change_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -372,8 +375,7 @@
 		busy = true;
 		failure = null;
 		try {
-			if (!startModel)
-				throw new Error("No models are available to you yet. Ask your administrator.");
+			if (!startModel) throw new Error(m["projects.page.no_models"]());
 			const response = await fetch(`${base}/conversation`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
@@ -382,14 +384,14 @@
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
 				throw new Error(
-					parsed?.message ?? `Could not start a chat (${response.status}). Try again.`
+					parsed?.message ?? m["projects.page.chat_start_status"]({ status: response.status })
 				);
 			}
 			const { conversationId } = (await response.json()) as { conversationId: string };
 			projectsChanged();
 			await goto(`${base}/conversation/${conversationId}`);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not start a chat. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.page.chat_start_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -439,10 +441,9 @@
 				)
 			);
 			shareWith = "";
-			notice =
-				"Added. They will see this project, and every chat in it, next time they open Projects.";
+			notice = m["projects.page.share.added"]();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not share it. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.page.share.failed"]();
 		} finally {
 			busy = false;
 		}
@@ -457,7 +458,7 @@
 				{ method: "DELETE" }
 			);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not remove that. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.page.share.remove_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -465,17 +466,10 @@
 
 	async function destroy() {
 		if (!project) return;
-		if (
-			!confirm(
-				`Delete the project “${project.name}”?\n\nIts chats and knowledge bases are kept: the chats go back to your normal list. Its notes and files are deleted with it.`
-			)
-		)
-			return;
+		if (!confirm(m["projects.page.delete.confirm"]({ name: project.name }))) return;
 		const withMemory =
 			project.hasMemory &&
-			confirm(
-				`Also delete the saved past chats of “${project.name}”?\n\nThese are what the assistant searches to remember the project's chats. OK = delete them too. Cancel = keep them (the project is still deleted).`
-			);
+			confirm(m["projects.page.delete.confirm_memory"]({ name: project.name }));
 		busy = true;
 		try {
 			await api(`/projects/${project.id}${withMemory ? "?memory=delete" : ""}`, {
@@ -484,19 +478,21 @@
 			projectsChanged();
 			await goto(`${base}/projects`);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not delete it. Try again.";
+			failure = err instanceof Error ? err.message : m["projects.page.delete.failed"]();
 			busy = false;
 		}
 	}
 
 	const LEVELS = [
-		{ title: "Instructions", how: "in full" },
-		{ title: "Project files", how: "in full" },
-		{ title: "Project notes", how: "in full" },
-		{ title: "Knowledge bases", how: "searched" },
-		{ title: "Past chats", how: "searched" },
+		{ title: m["projects.page.level.instructions"], how: "full" },
+		{ title: m["projects.page.level.files"], how: "full" },
+		{ title: m["projects.page.level.notes"], how: "full" },
+		{ title: m["projects.page.level.knowledge"], how: "searched" },
+		{ title: m["projects.page.level.past_chats"], how: "searched" },
 	] as const;
 </script>
+
+{#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
 
 {#if moving}
 	<MoveToProjectModal
@@ -513,15 +509,17 @@
 			class="flex w-fit items-center gap-1 text-xs text-ink-muted no-underline hover:text-ink"
 		>
 			<IconArrowLeft class="size-3" />
-			All projects
+			{m["projects.page.all"]()}
 		</a>
 		<h1 class="text-xl font-semibold text-ink">
-			{creating ? "New project" : (project?.name ?? "Project")}
+			{creating
+				? m["projects.page.new_title"]()
+				: (project?.name ?? m["projects.page.fallback_title"]())}
 		</h1>
 		<p class={s.SUBTITLE}>
 			{creating
-				? "Give a group of chats the same instructions, files and knowledge."
-				: project?.description || "What it knows, what has been said, and who else can see it."}
+				? m["projects.page.new_subtitle"]()
+				: project?.description || m["projects.page.subtitle"]()}
 		</p>
 	</header>
 
@@ -533,7 +531,7 @@
 			which has nothing to tab between yet.
 		-->
 		<nav
-			aria-label="Project sections"
+			aria-label={m["projects.page.sections_label"]()}
 			class="flex flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 dark:border-gray-700"
 		>
 			{#each TABS as t (t.key)}
@@ -552,7 +550,7 @@
 					{:else}
 						<IconSettings class="size-3.5 sm:size-4" />
 					{/if}
-					{t.label}
+					{t.label()}
 				</a>
 			{/each}
 		</nav>
@@ -564,13 +562,13 @@
 		{/if}
 
 		{#if loading}
-			<p class={s.SUBTITLE}>Loading…</p>
+			<p class={s.SUBTITLE}>{m["projects.page.loading"]()}</p>
 		{:else if !creating && !project}
 			<div class={s.EMPTY}>
 				<LucideFolderOpen class={s.EMPTY_ICON} />
-				<p class={s.EMPTY_TITLE}>That project is not available</p>
-				<p class={s.EMPTY_DETAIL}>It may have been deleted, or not shared with you.</p>
-				<a href="{base}/projects" class={s.PRIMARY}>All projects</a>
+				<p class={s.EMPTY_TITLE}>{m["projects.page.missing.title"]()}</p>
+				<p class={s.EMPTY_DETAIL}>{m["projects.page.missing.detail"]()}</p>
+				<a href="{base}/projects" class={s.PRIMARY}>{m["projects.page.all"]()}</a>
 			</div>
 		{:else if creating || tab === "settings"}
 			<!--
@@ -583,29 +581,33 @@
 				onsubmit={save}
 			>
 				<section class="{s.TIPS} lg:col-span-2" aria-labelledby="project-levels">
-					<h2 id="project-levels" class={s.TIPS_TITLE}>What every chat here starts with</h2>
+					<h2 id="project-levels" class={s.TIPS_TITLE}>{m["projects.page.levels.title"]()}</h2>
 					<ol class="space-y-1 text-xs text-ink-muted">
 						{#each LEVELS as level, index (level.title)}
 							<li>
-								{index + 1}. <strong class="text-ink">{level.title}</strong> —
-								{level.how}{index < 3 ? ", on every message" : ", only what matches the question"}
+								<Rich
+									parts={(level.how === "full"
+										? m["projects.page.levels.line_full"]
+										: m["projects.page.levels.line_searched"]
+									).parts({ n: index + 1, title: level.title() })}
+									tags={{ strong }}
+								/>
 							</li>
 						{/each}
 					</ol>
 					<p class="mt-2 text-xs text-ink-muted">
-						The first three are read in full every time, so they add to the cost of each reply. The
-						last two are searched, so only the parts that match your question are used.
+						{m["projects.page.levels.note"]()}
 					</p>
 				</section>
 
 				<section class={s.card(false)}>
 					<div class="space-y-4 p-4">
 						<div>
-							<label for="project-name" class={s.LABEL}>Name</label>
+							<label for="project-name" class={s.LABEL}>{m["projects.page.name.label"]()}</label>
 							<input
 								id="project-name"
 								class={s.INPUT}
-								placeholder="Grant application"
+								placeholder={m["projects.page.name.placeholder"]()}
 								maxlength="128"
 								bind:value={name}
 								required
@@ -614,7 +616,8 @@
 						</div>
 						<div>
 							<label for="project-description" class={s.LABEL}>
-								What it is for <span class="font-normal text-ink-faint">(optional)</span>
+								{m["projects.page.description.label"]()}
+								<span class="font-normal text-ink-faint">{m["projects.page.optional"]()}</span>
 							</label>
 							<input
 								id="project-description"
@@ -630,25 +633,29 @@
 				<section class={s.card(false)}>
 					<div class="p-4">
 						<h2 class="{s.SECTION_TITLE} mb-1">
-							<span class="{s.PILL} {s.PILL_TONES.busy}">1 · in full</span>
-							Instructions
+							<span class="{s.PILL} {s.PILL_TONES.busy}"
+								>{m["projects.page.pill.full"]({ n: 1 })}</span
+							>
+							{m["projects.page.level.instructions"]()}
 						</h2>
 						<textarea
 							id="project-instructions"
-							aria-label="Instructions"
+							aria-label={m["projects.page.level.instructions"]()}
 							class="{s.INPUT} min-h-28"
-							placeholder="We are writing a funding proposal. Answer in British English and quote the call text where it applies."
+							placeholder={m["projects.page.instructions.placeholder"]()}
 							bind:value={instructions}
 							disabled={busy || !owned}
 						></textarea>
-						<p class={s.HINT}>Every chat in this project follows these.</p>
+						<p class={s.HINT}>{m["projects.page.instructions.hint"]()}</p>
 					</div>
 				</section>
 
 				{#if !creating && project}
 					<section class={s.card(false)}>
 						<div class="p-4">
-							<span class="{s.PILL} {s.PILL_TONES.busy} mb-2">2 · in full</span>
+							<span class="{s.PILL} {s.PILL_TONES.busy} mb-2">
+								{m["projects.page.pill.full"]({ n: 2 })}
+							</span>
 							{#key project.id}
 								<ProjectDocumentsSection projectId={project.id} />
 							{/key}
@@ -658,7 +665,9 @@
 					{#if memoryOn}
 						<section class={s.card(false)}>
 							<div class="p-4">
-								<span class="{s.PILL} {s.PILL_TONES.busy} mb-2">3 · in full</span>
+								<span class="{s.PILL} {s.PILL_TONES.busy} mb-2">
+									{m["projects.page.pill.full"]({ n: 3 })}
+								</span>
 								{#key project.id}
 									<ProjectMemorySection projectId={project.id} />
 								{/key}
@@ -672,20 +681,22 @@
 						<div class="p-4">
 							<div class="mb-2 flex flex-wrap items-center justify-between gap-2">
 								<h2 class="{s.SECTION_TITLE} mb-0">
-									<span class="{s.PILL} {s.PILL_TONES.busy}">4 · searched</span>
-									Knowledge bases ({attached.length})
+									<span class="{s.PILL} {s.PILL_TONES.busy}">
+										{m["projects.page.pill.searched"]({ n: 4 })}
+									</span>
+									{m["projects.page.kb.title"]({ count: attached.length })}
 								</h2>
 								<a href="{base}/workspace?tab=kb" class="text-xs text-accent">
-									Create a knowledge base in the Workspace
+									{m["projects.page.kb.create"]()}
 								</a>
 							</div>
 
 							{#if attachedRows.length === 0}
 								<div class={s.EMPTY}>
 									<LucideLibrary class={s.EMPTY_ICON} />
-									<p class={s.EMPTY_TITLE}>No knowledge bases attached</p>
+									<p class={s.EMPTY_TITLE}>{m["projects.page.kb.none.title"]()}</p>
 									<p class={s.EMPTY_DETAIL}>
-										Attach one below and chats here can search it, now or any time later
+										{m["projects.page.kb.none.detail"]()}
 									</p>
 								</div>
 							{:else}
@@ -700,11 +711,11 @@
 													type="button"
 													class={s.CARD_ACTION}
 													disabled={busy}
-													aria-label="Detach {row.name}"
+													aria-label={m["projects.page.kb.detach_label"]({ name: row.name })}
 													onclick={() => setAttached(attached.filter((entry) => entry !== row.id))}
 												>
 													<IconClose class="size-3" />
-													Detach
+													{m["projects.page.kb.detach"]()}
 												</button>
 											{/if}
 										</li>
@@ -713,15 +724,17 @@
 							{/if}
 
 							{#if owned}
-								<label for="project-kb-search" class={s.LABEL}>Attach a knowledge base</label>
+								<label for="project-kb-search" class={s.LABEL}
+									>{m["projects.page.kb.attach_label"]()}</label
+								>
 								{#if stores.length === 0}
-									<p class={s.HINT}>You have none yet. Create one in the Workspace.</p>
+									<p class={s.HINT}>{m["projects.page.kb.you_have_none"]()}</p>
 								{:else}
 									<input
 										id="project-kb-search"
 										type="search"
 										class={s.SEARCH}
-										placeholder="Search your knowledge bases"
+										placeholder={m["projects.page.kb.search"]()}
 										bind:value={kbSearch}
 									/>
 									<ul class="mt-2 max-h-52 space-y-1 overflow-y-auto">
@@ -730,33 +743,36 @@
 												<span class="min-w-0 truncate">
 													{store.name}
 													<span class="text-xs text-ink-faint">
-														· {store.file_counts.completed} ready{#if !store.owned}, shared with you{/if}
+														{store.owned
+															? m["projects.page.kb.ready"]({ count: store.file_counts.completed })
+															: m["projects.page.kb.ready_shared"]({
+																	count: store.file_counts.completed,
+																})}
 													</span>
 												</span>
 												<button
 													type="button"
 													class={s.CARD_ACTION}
 													disabled={busy}
-													aria-label="Attach {store.name}"
+													aria-label={m["projects.page.kb.attach_name_label"]({ name: store.name })}
 													onclick={() => setAttached([...attached, store.id])}
 												>
 													<IconAdd class="size-3" />
-													Attach
+													{m["projects.page.kb.attach"]()}
 												</button>
 											</li>
 										{:else}
 											<li class={s.HINT}>
 												{kbSearch.trim()
-													? "No unattached base matches."
-													: "Every base you can reach is attached."}
+													? m["projects.page.kb.no_match"]()
+													: m["projects.page.kb.all_attached"]()}
 											</li>
 										{/each}
 									</ul>
 								{/if}
 							{/if}
 							<p class={s.HINT}>
-								Sharing this project does <strong>not</strong> share these bases: each reader searches
-								only the ones they can already read.
+								<Rich parts={m["projects.page.kb.sharing_note"].parts({})} tags={{ strong }} />
 							</p>
 						</div>
 					</section>
@@ -764,8 +780,10 @@
 					<section class={s.card(indexPastChats)}>
 						<div class="space-y-3 p-4">
 							<h2 class="{s.SECTION_TITLE} mb-0">
-								<span class="{s.PILL} {s.PILL_TONES.busy}">5 · searched</span>
-								Past chats
+								<span class="{s.PILL} {s.PILL_TONES.busy}">
+									{m["projects.page.pill.searched"]({ n: 5 })}
+								</span>
+								{m["projects.page.level.past_chats"]()}
 							</h2>
 							<label class="flex items-start gap-2 text-sm">
 								<input
@@ -775,16 +793,15 @@
 									class="mt-0.5 accent-blue-600"
 								/>
 								<span>
-									Search this project's past chats
+									{m["projects.page.past.label"]()}
 									<span class="block text-xs text-ink-muted">
-										Finished chats are saved into a knowledge base of their own. It appears under
-										Knowledge, and you can empty or delete it like any other. Off by default,
-										because it keeps a copy of what was said.
+										{m["projects.page.past.detail"]()}
 									</span>
 								</span>
 							</label>
 							<div>
-								<label for="project-limit" class={s.LABEL}>Passages per reply</label>
+								<label for="project-limit" class={s.LABEL}>{m["projects.page.limit.label"]()}</label
+								>
 								<input
 									id="project-limit"
 									type="number"
@@ -794,7 +811,7 @@
 									bind:value={retrievalLimit}
 									disabled={busy || !owned}
 								/>
-								<p class={s.HINT}>Shared by knowledge bases and past chats.</p>
+								<p class={s.HINT}>{m["projects.page.limit.hint"]()}</p>
 							</div>
 						</div>
 					</section>
@@ -802,27 +819,27 @@
 
 				<section class={s.card(false)}>
 					<div class="p-4">
-						<h2 class={s.SECTION_TITLE}>Settings for new chats here</h2>
+						<h2 class={s.SECTION_TITLE}>{m["projects.page.defaults.title"]()}</h2>
 						<div class="flex items-center gap-2">
 							<Switch
 								name="project-default-websearch"
 								bind:checked={defaultWebSearch}
 								disabled={busy || !owned || !!webSearchUnavailable}
 							/>
-							<span class="text-sm text-ink">Web search on by default</span>
+							<span class="text-sm text-ink">{m["projects.page.defaults.web_search"]()}</span>
 						</div>
 						{#if webSearchUnavailable}
 							<p class="mt-1 text-xs text-amber-700 dark:text-amber-400">{webSearchUnavailable}</p>
 						{/if}
 						<div class="mt-3">
-							<span class="text-sm text-ink">Connectors on by default:</span>
+							<span class="text-sm text-ink">{m["projects.page.defaults.connectors"]()}</span>
 							{#if !$mcpConnectorsLoaded}
-								<p class={s.HINT}>Loading connectors…</p>
+								<p class={s.HINT}>{m["projects.page.defaults.loading"]()}</p>
 							{:else if builtInDefaults.length + ownDefaults.length === 0}
-								<p class={s.HINT}>No connectors yet. Add one under Workspace → Connectors.</p>
+								<p class={s.HINT}>{m["projects.page.defaults.none"]()}</p>
 							{:else}
 								<div class="mt-1 max-h-40 space-y-1 overflow-y-auto">
-									{#each [{ key: "built-in", heading: "Built-in", rows: builtInDefaults }, { key: "own", heading: "Your connectors", rows: ownDefaults }] as group (group.key)}
+									{#each [{ key: "built-in", heading: m["projects.page.defaults.built_in"](), rows: builtInDefaults }, { key: "own", heading: m["projects.page.defaults.own"](), rows: ownDefaults }] as group (group.key)}
 										{#if group.rows.length > 0}
 											{#if builtInDefaults.length > 0 && ownDefaults.length > 0}
 												<p class="pt-1 text-xs font-medium text-ink-muted">{group.heading}</p>
@@ -840,7 +857,9 @@
 													<span>
 														{row.name}
 														{#if !row.connected}
-															<span class="text-xs text-ink-faint">· not signed in</span>
+															<span class="text-xs text-ink-faint"
+																>{m["projects.page.defaults.not_signed_in"]()}</span
+															>
 														{/if}
 													</span>
 												</div>
@@ -858,16 +877,20 @@
 						class="sticky bottom-0 flex items-center justify-end gap-3 rounded-lg border border-line bg-surface px-3 py-2 lg:col-span-2"
 					>
 						{#if saved && !dirty}
-							<span class="text-xs text-ok" role="status">Saved</span>
+							<span class="text-xs text-ok" role="status">{m["projects.page.saved"]()}</span>
 						{:else if dirty}
-							<span class="text-xs text-ink-muted">Unsaved changes</span>
+							<span class="text-xs text-ink-muted">{m["projects.page.unsaved"]()}</span>
 						{/if}
 						<button
 							type="submit"
 							disabled={busy || !name.trim() || (!creating && !dirty)}
 							class={s.PRIMARY}
 						>
-							{busy ? "Saving…" : creating ? "Create project" : "Save changes"}
+							{busy
+								? m["projects.page.saving"]()
+								: creating
+									? m["projects.page.create"]()
+									: m["projects.page.save_changes"]()}
 						</button>
 					</div>
 				{/if}
@@ -876,22 +899,26 @@
 			{#if project?.owned}
 				<section class="{s.card(false)} mb-6">
 					<div class="p-4">
-						<h2 class={s.SECTION_TITLE}>Share it</h2>
+						<h2 class={s.SECTION_TITLE}>{m["projects.page.share.title"]()}</h2>
 						<form class="flex flex-wrap items-end gap-2" onsubmit={share}>
 							<div>
-								<label for="project-share-kind" class={s.LABEL}>With</label>
+								<label for="project-share-kind" class={s.LABEL}
+									>{m["projects.page.share.with"]()}</label
+								>
 								<select id="project-share-kind" class={s.INPUT} bind:value={shareKind}>
-									<option value="user">A person</option>
-									<option value="group">A group</option>
+									<option value="user">{m["projects.page.share.person"]()}</option>
+									<option value="group">{m["projects.page.share.group"]()}</option>
 								</select>
 							</div>
 							<div class="min-w-48 flex-1">
 								<label for="project-share-who" class={s.LABEL}>
-									{shareKind === "user" ? "Their email address" : "Group name"}
+									{shareKind === "user"
+										? m["projects.page.share.email"]()
+										: m["projects.page.share.group_name"]()}
 								</label>
 								{#if shareKind === "group" && groups.length > 0}
 									<select id="project-share-who" class={s.INPUT} bind:value={shareWith}>
-										<option value="">— choose —</option>
+										<option value="">{m["projects.page.share.choose"]()}</option>
 										{#each groups as group (group.id)}
 											<option value={group.name}>{group.name}</option>
 										{/each}
@@ -900,14 +927,16 @@
 									<input
 										id="project-share-who"
 										class={s.INPUT}
-										placeholder={shareKind === "user" ? "colleague@example.org" : "research"}
+										placeholder={shareKind === "user"
+											? m["projects.page.share.email_placeholder"]()
+											: m["projects.page.share.group_placeholder"]()}
 										bind:value={shareWith}
 									/>
 								{/if}
 							</div>
 							<button type="submit" disabled={busy || !shareWith.trim()} class={s.PRIMARY}>
 								<IconShare class="size-4" />
-								Share
+								{m["projects.page.share.button"]()}
 							</button>
 						</form>
 
@@ -917,7 +946,11 @@
 									<li class="flex items-center justify-between gap-2 text-sm">
 										<span class="min-w-0 truncate">
 											{entry.principal}
-											<span class="text-xs text-ink-faint">· {entry.kind}</span>
+											<span class="text-xs text-ink-faint">
+												{entry.kind === "user"
+													? m["projects.page.share.kind_user"]()
+													: m["projects.page.share.kind_group"]()}
+											</span>
 										</span>
 										<button
 											type="button"
@@ -926,7 +959,7 @@
 											class={s.CARD_DESTRUCTIVE}
 										>
 											<IconTrash class="size-3" />
-											Remove
+											{m["projects.page.share.remove"]()}
 										</button>
 									</li>
 								{/each}
@@ -937,22 +970,19 @@
 							<p class="{s.NOTICE} mt-2">{notice}</p>
 						{/if}
 						<p class={s.HINT}>
-							Everyone here sees <strong>every conversation</strong> in the project, including ones you
-							did not start, and can add or remove its documents and notes. The address is not checked,
-							so a typo and a colleague who has not signed in yet look the same.
+							<Rich parts={m["projects.page.share.note"].parts({})} tags={{ strong }} />
 						</p>
 						<div class="mt-4 flex justify-end">
 							<button type="button" onclick={destroy} disabled={busy} class={s.CARD_DESTRUCTIVE}>
 								<IconTrash class="size-3" />
-								Delete this project
+								{m["projects.page.delete.button"]()}
 							</button>
 						</div>
 					</div>
 				</section>
 			{:else if project}
 				<p class="{s.HINT} mb-6">
-					This project is shared with you. Its settings are the owner's; you can start chats, add
-					documents and notes, and remove your own chats.
+					{m["projects.page.shared_note"]()}
 				</p>
 			{/if}
 		{:else}
@@ -970,38 +1000,38 @@
 							</div>
 							<div>
 								<p class={s.STRIP_HEADLINE}>
-									{project.conversationCount} conversation{project.conversationCount === 1
-										? ""
-										: "s"}
+									{m["projects.page.chats.count"]({ count: project.conversationCount })}
 								</p>
 								<p class={s.STRIP_DETAIL}>
 									{#if knowledgeOn}
-										{attached.length} knowledge base{attached.length === 1 ? "" : "s"}
-										{#if project.indexPastChats}· past chats searchable{/if}
+										{m["projects.page.chats.bases"]({ count: attached.length })}
+										{#if project.indexPastChats}{m["projects.page.chats.past_searchable"]()}{/if}
 									{/if}
-									{#if !project.owned}· shared with you{/if}
+									{#if !project.owned}{m["projects.page.chats.shared"]()}{/if}
 								</p>
 							</div>
 						</div>
 						<button type="button" onclick={newChat} disabled={busy} class={s.PRIMARY}>
 							<IconAddLarge class="size-4" />
-							New chat
+							{m["projects.page.chats.new"]()}
 						</button>
 					</div>
 
 					<section class={s.card(false)}>
 						<div class="p-4">
-							<h2 class={s.SECTION_TITLE}>Chats ({conversations.length})</h2>
+							<h2 class={s.SECTION_TITLE}>
+								{m["projects.page.chats.title"]({ count: conversations.length })}
+							</h2>
 							{#if conversations.length === 0}
 								<div class={s.EMPTY}>
 									<IconChat class={s.EMPTY_ICON} />
-									<p class={s.EMPTY_TITLE}>Nothing here yet</p>
+									<p class={s.EMPTY_TITLE}>{m["projects.page.chats.empty.title"]()}</p>
 									<p class={s.EMPTY_DETAIL}>
-										Start one and it will use this project's instructions, files and notes
+										{m["projects.page.chats.empty.detail"]()}
 									</p>
 									<button type="button" onclick={newChat} disabled={busy} class={s.PRIMARY}>
 										<IconAddLarge class="size-4" />
-										Start the first chat
+										{m["projects.page.chats.empty.start"]()}
 									</button>
 								</div>
 							{:else}
@@ -1019,7 +1049,7 @@
 													>
 													<span class="text-xs text-ink-muted">
 														{modelName(conversation.model)}
-														{#if !conversation.mine}· somebody else's{/if}
+														{#if !conversation.mine}{m["projects.page.chats.others"]()}{/if}
 													</span>
 												</span>
 											</a>

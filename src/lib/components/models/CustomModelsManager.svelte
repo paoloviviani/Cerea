@@ -19,6 +19,8 @@
 <script lang="ts">
 	import { untrack } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import { invalidateAll } from "$app/navigation";
 	import * as s from "$lib/components/overlay/styles";
 	import { useSettingsStore } from "$lib/stores/settings";
@@ -102,7 +104,9 @@
 		const response = await fetch(`${base}/api/v2/custom-models${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+			throw new Error(
+				parsed?.message ?? m["models.custom.error_status"]({ status: response.status })
+			);
 		}
 		return response.status === 204 ? (undefined as T) : await response.json();
 	}
@@ -155,7 +159,7 @@
 			// The pickers read the layout's model list: reload it.
 			await invalidateAll();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save that custom model. Try again.";
+			failure = err instanceof Error ? err.message : m["models.custom.save_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -171,8 +175,7 @@
 			confirmingId = null;
 			await invalidateAll();
 		} catch (err) {
-			failure =
-				err instanceof Error ? err.message : "Could not delete that custom model. Try again.";
+			failure = err instanceof Error ? err.message : m["models.custom.delete_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -183,17 +186,23 @@
 	}
 </script>
 
+{#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
+
 <div class={s.EMBEDDED}>
 	<div class={s.PANEL}>
 		<div class={s.HEADER}>
 			<h2 class={s.TITLE}>
-				{view === "list" ? "Custom models" : editing ? `Edit ${editing.name}` : "New custom model"}
+				{view === "list"
+					? m["models.custom.title"]()
+					: editing
+						? m["models.custom.edit_title"]({ name: editing.name })
+						: m["models.custom.new_title"]()}
 			</h2>
 			<p class={s.SUBTITLE}>
 				{#if view === "list"}
-					Tell the assistant how to behave: once for every chat, or as a model of your own.
+					{m["models.custom.subtitle"]()}
 				{:else}
-					An existing model plus instructions of your own. Only you can see it.
+					{m["models.custom.form_subtitle"]()}
 				{/if}
 			</p>
 		</div>
@@ -210,61 +219,62 @@
 					</div>
 					<div>
 						<p class={s.STRIP_HEADLINE}>
-							{rows.length}
-							{rows.length === 1 ? "custom model" : "custom models"}
+							{m["models.custom.count"]({ count: rows.length })}
 						</p>
 						<p class={s.STRIP_DETAIL}>
 							{($settings.globalSystemPrompt ?? "").trim()
-								? "Instructions for every chat are set"
-								: "No instructions for every chat"}
+								? m["models.custom.global_set"]()
+								: m["models.custom.global_unset"]()}
 						</p>
 					</div>
 				</div>
 				<button type="button" class={s.PRIMARY} onclick={() => begin(null)}>
-					<CarbonAdd class="size-4" /> New custom model
+					<CarbonAdd class="size-4" />
+					{m["models.custom.new"]()}
 				</button>
 			</div>
 
 			<div class={s.STACK}>
 				<div>
-					<h3 class={s.SECTION_TITLE}>Instructions for every chat</h3>
+					<h3 class={s.SECTION_TITLE}>{m["models.custom.global.title"]()}</h3>
 					<textarea
 						id="global-system-prompt"
-						aria-label="Instructions for every chat"
+						aria-label={m["models.custom.global.title"]()}
 						class="{s.INPUT} min-h-32 font-mono text-xs"
-						placeholder="Instructions every chat starts with, whatever the model."
+						placeholder={m["models.custom.global.placeholder"]()}
 						maxlength={GLOBAL_SYSTEM_PROMPT_MAX}
 						bind:value={globalDraft}
 					></textarea>
 					<div class="mt-1 flex items-center justify-between gap-3">
 						<p class={s.HINT}>
-							Used in every chat, before a custom model's own instructions and a project's. Not used
-							by Agents, or to name a chat.
+							{m["models.custom.global.hint"]()}
 						</p>
 						<div class="flex shrink-0 items-center gap-2">
 							{#if globalSaved && !globalDirty}
 								<span class="{s.PILL} {s.PILL_TONES.good}">
-									<IconCheckmark class="size-3" /> Saved
+									<IconCheckmark class="size-3" />
+									{m["models.custom.global.saved"]()}
 								</span>
 							{/if}
 							<button type="button" class={s.PRIMARY} disabled={!globalDirty} onclick={saveGlobal}>
-								Save
+								{m["models.custom.global.save"]()}
 							</button>
 						</div>
 					</div>
 				</div>
 
 				<div>
-					<h3 class={s.SECTION_TITLE}>Custom models ({rows.length})</h3>
+					<h3 class={s.SECTION_TITLE}>{m["models.custom.list_heading"]({ count: rows.length })}</h3>
 					{#if rows.length === 0}
 						<div class={s.EMPTY}>
 							<LucideSparkles class={s.EMPTY_ICON} />
-							<p class={s.EMPTY_TITLE}>No custom models yet</p>
+							<p class={s.EMPTY_TITLE}>{m["models.custom.empty.title"]()}</p>
 							<p class={s.EMPTY_DETAIL}>
-								Pick a model, write its instructions, and it shows up when you choose a model.
+								{m["models.custom.empty.detail"]()}
 							</p>
 							<button type="button" class={s.PRIMARY} onclick={() => begin(null)}>
-								<CarbonAdd class="size-4" /> New custom model
+								<CarbonAdd class="size-4" />
+								{m["models.custom.new"]()}
 							</button>
 						</div>
 					{:else}
@@ -288,17 +298,21 @@
 										<div class="mb-3 flex flex-wrap items-center gap-2">
 											<span class="{s.PILL} {available ? s.PILL_TONES.busy : s.PILL_TONES.bad}">
 												{available
-													? `based on ${baseName(model.baseModelId)}`
-													: `${model.baseModelId} is unavailable`}
+													? m["models.custom.card.based_on"]({
+															name: baseName(model.baseModelId) ?? "",
+														})
+													: m["models.custom.card.unavailable"]({ id: model.baseModelId })}
 											</span>
 											{#if isDefault}
-												<span class="{s.PILL} {s.PILL_TONES.good}">Default</span>
+												<span class="{s.PILL} {s.PILL_TONES.good}"
+													>{m["models.custom.card.default"]()}</span
+												>
 											{/if}
 										</div>
 										{#if confirmingId === model.id}
 											<div class="flex flex-wrap items-center gap-2">
 												<p class="text-xs text-ink-muted">
-													Delete “{model.name}”? Chats on it move to the original model.
+													{m["models.custom.card.delete_confirm"]({ name: model.name })}
 												</p>
 												<button
 													type="button"
@@ -306,21 +320,23 @@
 													disabled={busy}
 													onclick={() => remove(model)}
 												>
-													<CarbonTrashCan class="size-3" /> Delete
+													<CarbonTrashCan class="size-3" />
+													{m["models.custom.card.delete"]()}
 												</button>
 												<button
 													type="button"
 													class={s.CARD_ACTION}
 													onclick={() => (confirmingId = null)}
 												>
-													Cancel
+													{m["models.custom.card.cancel"]()}
 												</button>
 											</div>
 										{:else}
 											<div class="flex flex-wrap gap-1">
 												{#if isDefault}
 													<span class="{s.CARD_ACTION} cursor-default opacity-60">
-														<IconCheckmark class="size-3" /> Is the default
+														<IconCheckmark class="size-3" />
+														{m["models.custom.card.is_default"]()}
 													</span>
 												{:else}
 													<button
@@ -329,18 +345,21 @@
 														disabled={!available}
 														onclick={() => setDefault(model)}
 													>
-														<IconCheckmark class="size-3" /> Set as default
+														<IconCheckmark class="size-3" />
+														{m["models.custom.card.set_default"]()}
 													</button>
 												{/if}
 												<button type="button" class={s.CARD_ACTION} onclick={() => begin(model)}>
-													<CarbonEdit class="size-3" /> Edit
+													<CarbonEdit class="size-3" />
+													{m["models.custom.card.edit"]()}
 												</button>
 												<button
 													type="button"
 													class={s.CARD_DESTRUCTIVE}
 													onclick={() => (confirmingId = model.id)}
 												>
-													<CarbonTrashCan class="size-3" /> Delete
+													<CarbonTrashCan class="size-3" />
+													{m["models.custom.card.delete"]()}
 												</button>
 											</div>
 										{/if}
@@ -352,21 +371,16 @@
 				</div>
 
 				<div class={s.TIPS}>
-					<h4 class={s.TIPS_TITLE}>💡 Quick tips</h4>
+					<h4 class={s.TIPS_TITLE}>{m["models.custom.tips.title"]()}</h4>
 					<ul class={s.TIPS_LIST}>
 						<li>
-							• A custom model <strong>inherits everything</strong> from the original model: images, tools,
-							reasoning and effort. Only the instructions are yours.
+							<Rich parts={m["models.custom.tips.inherits"].parts({})} tags={{ strong }} />
 						</li>
 						<li>
-							• Instructions are used in this order: <strong>global</strong>, then the
-							<strong>custom model's</strong>, then a project's instructions.
+							<Rich parts={m["models.custom.tips.order"].parts({})} tags={{ strong }} />
 						</li>
-						<li>
-							• Only you can use your custom models. The company behind the model only ever sees the
-							original model.
-						</li>
-						<li>• Delete one and its chats carry on, on the base model.</li>
+						<li>{m["models.custom.tips.private"]()}</li>
+						<li>{m["models.custom.tips.delete"]()}</li>
 					</ul>
 				</div>
 			</div>
@@ -374,67 +388,75 @@
 			<div class={s.STACK}>
 				<div class="flex">
 					<button type="button" class={s.SECONDARY} onclick={backToList}>
-						<IconArrowLeft class="size-4" /> All custom models
+						<IconArrowLeft class="size-4" />
+						{m["models.custom.form.all"]()}
 					</button>
 				</div>
 
 				<div>
-					<label class={s.LABEL} for="custom-model-name">Name</label>
+					<label class={s.LABEL} for="custom-model-name">{m["models.custom.form.name"]()}</label>
 					<input
 						id="custom-model-name"
 						class={s.INPUT}
 						bind:value={name}
 						maxlength={CUSTOM_MODEL_NAME_MAX}
-						placeholder="Menu helper"
+						placeholder={m["models.custom.form.name_placeholder"]()}
 					/>
-					<p class={s.HINT}>Shown when you choose a model. Each one needs its own name.</p>
+					<p class={s.HINT}>{m["models.custom.form.name_hint"]()}</p>
 				</div>
 
 				<div>
-					<label class={s.LABEL} for="custom-model-base">Original model</label>
+					<label class={s.LABEL} for="custom-model-base">{m["models.custom.form.base"]()}</label>
 					<select id="custom-model-base" class={s.INPUT} bind:value={baseModelId}>
 						{#if baseModelId && baseName(baseModelId) === null}
-							<option value={baseModelId}>{baseModelId} (no longer available)</option>
+							<option value={baseModelId}
+								>{m["models.custom.form.base_gone"]({ id: baseModelId })}</option
+							>
 						{/if}
 						{#each baseOptions as option (option.id)}
 							<option value={option.id}>{option.displayName ?? option.name ?? option.id}</option>
 						{/each}
 					</select>
-					<p class={s.HINT}>The model that does the work. Its abilities carry over.</p>
+					<p class={s.HINT}>{m["models.custom.form.base_hint"]()}</p>
 				</div>
 
 				<div>
 					<label class={s.LABEL} for="custom-model-description">
-						Description <span class="font-normal text-ink-faint">(optional)</span>
+						{m["models.custom.form.description"]()}
+						<span class="font-normal text-ink-faint">{m["models.custom.form.optional"]()}</span>
 					</label>
 					<input
 						id="custom-model-description"
 						class={s.INPUT}
 						bind:value={description}
 						maxlength={CUSTOM_MODEL_DESCRIPTION_MAX}
-						placeholder="Plans the week's lunches"
+						placeholder={m["models.custom.form.description_placeholder"]()}
 					/>
 				</div>
 
 				<div>
-					<label class={s.LABEL} for="custom-model-prompt">Instructions</label>
+					<label class={s.LABEL} for="custom-model-prompt"
+						>{m["models.custom.form.instructions"]()}</label
+					>
 					<textarea
 						id="custom-model-prompt"
 						class="{s.INPUT} min-h-40 font-mono text-xs"
 						bind:value={systemPrompt}
 						maxlength={CUSTOM_MODEL_PROMPT_MAX}
-						placeholder="You are a menu planner. Always answer with a table."
+						placeholder={m["models.custom.form.instructions_placeholder"]()}
 					></textarea>
 					<p class={s.HINT}>
-						Used in every chat on this model, after your instructions for every chat.
+						{m["models.custom.form.instructions_hint"]()}
 					</p>
 				</div>
 
 				<div class="flex gap-2">
 					<button type="button" class={s.PRIMARY} disabled={!canSave} onclick={save}>
-						{editing ? "Save changes" : "Create custom model"}
+						{editing ? m["models.custom.form.save_changes"]() : m["models.custom.form.create"]()}
 					</button>
-					<button type="button" class={s.SECONDARY} onclick={backToList}>Cancel</button>
+					<button type="button" class={s.SECONDARY} onclick={backToList}
+						>{m["models.custom.form.cancel"]()}</button
+					>
 				</div>
 			</div>
 		{/if}

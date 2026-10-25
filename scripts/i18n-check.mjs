@@ -45,12 +45,20 @@ const GENERATED = join(SRC, "lib", "paraglide");
  * A directory entry covers everything below it.
  */
 export const CONVERTED = [
-	"src/routes/settings",
-	"src/lib/components/settings",
 	"src/lib/components/DeleteAllConversationsModal.svelte",
 	"src/lib/components/code",
+	"src/lib/components/knowledge",
+	"src/lib/components/memory",
+	"src/lib/components/models",
+	"src/lib/components/projects",
+	"src/lib/components/settings",
+	"src/lib/components/skills",
 	"src/lib/components/workspace",
+	"src/routes/admin",
 	"src/routes/code",
+	"src/routes/models",
+	"src/routes/projects",
+	"src/routes/settings",
 	"src/routes/workspace",
 ];
 

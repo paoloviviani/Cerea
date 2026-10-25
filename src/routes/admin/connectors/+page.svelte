@@ -15,10 +15,17 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconAddLarge from "~icons/carbon/add-large";
 	import type { McpConnectorView } from "$lib/types/McpConnector";
 	import { allMcpServers, healthCheckServer } from "$lib/stores/mcpServers";
+
+	// Example values and an HTTP header name, not words. i18n: literal
+	const EXAMPLE_URL = "https://mcp.notion.com/mcp";
+	// i18n: literal
+	const EXAMPLE_HEADER = "Authorization";
 
 	let connectors = $state<McpConnectorView[]>([]);
 	let loading = $state(true);
@@ -53,7 +60,9 @@
 		const response = await fetch(`${base}/api/v2/mcp${path}`, init);
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-			throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+			throw new Error(
+				parsed?.message ?? m["admin.common.error_status"]({ status: response.status })
+			);
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
@@ -63,7 +72,7 @@
 		try {
 			connectors = (await api<{ data: McpConnectorView[] }>("/connectors")).data;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load connectors. Try again.";
+			failure = err instanceof Error ? err.message : m["admin.connectors.load_failed"]();
 		} finally {
 			loading = false;
 		}
@@ -105,18 +114,14 @@
 			adding = false;
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not add it. Try again.";
+			failure = err instanceof Error ? err.message : m["admin.connectors.add_failed"]();
 		} finally {
 			busy = false;
 		}
 	}
 
 	async function remove(connector: McpConnectorView) {
-		if (
-			!confirm(
-				`Remove “${connector.name}” for everyone? Anyone who signed in to it will lose that connection.`
-			)
-		) {
+		if (!confirm(m["admin.connectors.remove_confirm"]({ name: connector.name }))) {
 			return;
 		}
 		busy = true;
@@ -127,21 +132,23 @@
 			await api(`/connectors/${connector.id}?scope=deployment`, { method: "DELETE" });
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not remove it. Try again.";
+			failure = err instanceof Error ? err.message : m["admin.connectors.remove_failed"]();
 		} finally {
 			busy = false;
 		}
 	}
 </script>
 
+{#snippet code(text: string)}<code class="font-mono">{text}</code>{/snippet}
+
+{#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
+
 <section class="flex flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
 	<div class="flex items-start justify-between gap-3">
 		<div class="flex flex-col gap-1">
-			<h2 class="font-medium">Connectors for everyone</h2>
+			<h2 class="font-medium">{m["admin.connectors.title"]()}</h2>
 			<p class="text-xs text-gray-500 dark:text-gray-400">
-				Connectors (MCP servers) offered to every account. Each person signs in to a connector that
-				needs it themselves, so it reaches their own data. You are sharing the connector, not an
-				identity.
+				{m["admin.connectors.description"]()}
 			</p>
 		</div>
 		<button
@@ -150,7 +157,7 @@
 			class="btn flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 py-1.5 pr-3 pl-2 text-sm font-medium text-white hover:bg-blue-600"
 		>
 			<IconAddLarge class="size-4" />
-			Add
+			{m["admin.connectors.add"]()}
 		</button>
 	</div>
 
@@ -169,20 +176,20 @@
 		>
 			<div class="flex flex-wrap gap-2">
 				<label class="flex flex-1 flex-col gap-1">
-					<span class="text-xs font-medium">Name</span>
+					<span class="text-xs font-medium">{m["admin.connectors.form.name"]()}</span>
 					<input
 						class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-						placeholder="Notion"
+						placeholder={m["admin.connectors.form.name_placeholder"]()}
 						bind:value={name}
 						required
 						disabled={busy}
 					/>
 				</label>
 				<label class="flex flex-col gap-1" style="flex:2">
-					<span class="text-xs font-medium">URL</span>
+					<span class="text-xs font-medium">{m["admin.connectors.form.url"]()}</span>
 					<input
 						class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-						placeholder="https://mcp.notion.com/mcp"
+						placeholder={EXAMPLE_URL}
 						bind:value={url}
 						required
 						disabled={busy}
@@ -191,22 +198,22 @@
 			</div>
 
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium">Authentication</span>
+				<span class="text-xs font-medium">{m["admin.connectors.form.auth"]()}</span>
 				<select
 					class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
 					bind:value={authMode}
 					disabled={busy}
 				>
-					<option value="auto">Automatic (recommended)</option>
-					<option value="none">None</option>
-					<option value="token">Shared access key</option>
+					<option value="auto">{m["admin.connectors.form.auth_auto"]()}</option>
+					<option value="none">{m["admin.connectors.form.auth_none"]()}</option>
+					<option value="token">{m["admin.connectors.form.auth_token"]()}</option>
 				</select>
 			</label>
 
 			{#if authMode === "token"}
 				<div class="flex flex-wrap gap-2">
 					<label class="flex flex-col gap-1" style="flex:2">
-						<span class="text-xs font-medium">Token</span>
+						<span class="text-xs font-medium">{m["admin.connectors.form.token"]()}</span>
 						<input
 							type="password"
 							autocomplete="off"
@@ -218,11 +225,13 @@
 					</label>
 					<label class="flex flex-1 flex-col gap-1">
 						<span class="text-xs font-medium"
-							>Header <span class="font-normal text-gray-500">(optional)</span></span
+							>{m["admin.connectors.form.header"]()}
+							<span class="font-normal text-gray-500">{m["admin.connectors.form.optional"]()}</span
+							></span
 						>
 						<input
 							class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-							placeholder="Authorization"
+							placeholder={EXAMPLE_HEADER}
 							bind:value={tokenHeader}
 							disabled={busy}
 						/>
@@ -231,15 +240,11 @@
 				<p
 					class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 				>
-					<strong>This key is shared.</strong> Unlike an OAuth connector, where each person signs in as
-					themselves, a static token belongs to the connector — every account here will use this one credential
-					and the server cannot tell them apart. Use it for an API key the organisation holds, not for
-					anything personal.
+					<Rich parts={m["admin.connectors.form.shared_warning"].parts({})} tags={{ strong }} />
 				</p>
 			{:else}
 				<p class="text-xs text-gray-500 dark:text-gray-400">
-					Each person signs in individually and their token is stored against their own account.
-					Nobody inherits anybody else's access, including yours.
+					{m["admin.connectors.form.individual"]()}
 				</p>
 			{/if}
 
@@ -249,14 +254,14 @@
 					onclick={() => (adding = false)}
 					class="btn rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
 				>
-					Cancel
+					{m["admin.connectors.form.cancel"]()}
 				</button>
 				<button
 					type="submit"
 					disabled={busy || !name.trim() || !url.trim()}
 					class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
 				>
-					{busy ? "Adding…" : "Add for everyone"}
+					{busy ? m["admin.connectors.form.adding"]() : m["admin.connectors.form.submit"]()}
 				</button>
 			</div>
 		</form>
@@ -265,8 +270,13 @@
 	{#if envServers.length > 0}
 		<div class="flex flex-col gap-2" data-testid="env-servers">
 			<p class="text-xs text-gray-500 dark:text-gray-400">
-				Defined in <code class="font-mono">.env</code> (<code class="font-mono">MCP_SERVERS</code>):
-				edit them there, not here. They are offered to everybody alongside the connectors below.
+				<Rich
+					parts={m["admin.connectors.env.description"].parts({
+						file: ".env",
+						variable: "MCP_SERVERS",
+					})}
+					tags={{ code }}
+				/>
 			</p>
 			<ul class="flex flex-col gap-2">
 				{#each envServers as server (server.id)}
@@ -287,16 +297,20 @@
 							<span
 								class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300"
 							>
-								Set in the .env file
+								{m["admin.connectors.env.badge"]()}
 							</span>
 							<span class="text-xs text-gray-500">
 								{server.status === "connected"
-									? `reachable${server.tools ? ` · ${server.tools.length} ${server.tools.length === 1 ? "tool" : "tools"}` : ""}`
+									? server.tools
+										? m["admin.connectors.env.status.reachable_tools"]({
+												count: server.tools.length,
+											})
+										: m["admin.connectors.env.status.reachable"]()
 									: server.status === "error"
-										? "unreachable"
+										? m["admin.connectors.env.status.unreachable"]()
 										: server.status === "connecting"
-											? "checking…"
-											: "not checked"}
+											? m["admin.connectors.env.status.checking"]()
+											: m["admin.connectors.env.status.not_checked"]()}
 							</span>
 							<button
 								type="button"
@@ -304,7 +318,7 @@
 								disabled={server.status === "connecting"}
 								class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
 							>
-								Check
+								{m["admin.connectors.env.check"]()}
 							</button>
 						</div>
 					</li>
@@ -314,11 +328,10 @@
 	{/if}
 
 	{#if loading}
-		<p class="text-sm text-gray-500">Loading…</p>
+		<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
 	{:else if shared.length === 0 && envServers.length === 0}
 		<p class="text-sm text-gray-600 dark:text-gray-400">
-			None yet. Anything added here appears under Built-in connectors for everybody, switched off
-			until they turn it on.
+			{m["admin.connectors.none"]()}
 		</p>
 	{:else if shared.length > 0}
 		<ul class="flex flex-col gap-2">
@@ -338,10 +351,10 @@
 					<div class="flex shrink-0 flex-wrap items-center gap-2">
 						<span class="text-xs text-gray-500">
 							{connector.auth === "oauth"
-								? "Each person signs in"
+								? m["admin.connectors.auth.oauth"]()
 								: connector.auth === "token"
-									? "shared access key"
-									: "no sign-in"}
+									? m["admin.connectors.auth.token"]()
+									: m["admin.connectors.auth.none"]()}
 						</span>
 						<button
 							onclick={() => remove(connector)}
@@ -349,7 +362,7 @@
 							class="flex items-center gap-1.5 rounded-lg border border-red-500/15 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 disabled:opacity-50 dark:border-red-500/25 dark:bg-red-900/30 dark:text-red-400"
 						>
 							<IconTrash class="size-3" />
-							Remove
+							{m["admin.connectors.remove"]()}
 						</button>
 					</div>
 				</li>

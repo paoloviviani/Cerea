@@ -8,19 +8,19 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 
 	type Backend = "direct" | "playwright";
 
-	const DESCRIPTIONS: Record<Backend, { title: string; detail: string }> = {
+	const DESCRIPTIONS: Record<Backend, { title: () => string; detail: () => string }> = {
 		direct: {
-			title: "Direct",
-			detail:
-				"A plain HTTPS request — no browser, no JavaScript. Needs nothing else deployed, and is what this app has always done. A page built by JavaScript arrives as an empty shell with a 200 and nothing to say the content was never there.",
+			title: m["admin.fetch.option.direct.title"],
+			detail: m["admin.fetch.option.direct.detail"],
 		},
 		playwright: {
-			title: "Local renderer (Playwright)",
-			detail:
-				"A headless browser in this service, driven over the Playwright protocol. Runs the page's JavaScript, so what is fetched is what a person would see. Needs the playwright compose overlay, which is opt-in and publishes no port.",
+			title: m["admin.fetch.option.playwright.title"],
+			detail: m["admin.fetch.option.playwright.detail"],
 		},
 	};
 
@@ -44,7 +44,9 @@
 			const response = await fetch(`${base}/api/v2/admin/fetching`);
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+				throw new Error(
+					parsed?.message ?? m["admin.common.error_status"]({ status: response.status })
+				);
 			}
 			const data = await response.json();
 			backend = data.backend;
@@ -52,7 +54,7 @@
 			configurable = data.configurable;
 			playwrightHealth = data.playwright ?? null;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not read the setting.";
+			failure = err instanceof Error ? err.message : m["admin.common.read_failed"]();
 		} finally {
 			loading = false;
 		}
@@ -72,24 +74,27 @@
 			});
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
-				throw new Error(parsed?.message ?? `Something went wrong (${response.status}). Try again.`);
+				throw new Error(
+					parsed?.message ?? m["admin.common.error_status"]({ status: response.status })
+				);
 			}
 			saved = backend;
-			note = "Saved. It applies to the next fetch.";
+			note = m["admin.fetch.saved"]();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save it.";
+			failure = err instanceof Error ? err.message : m["admin.common.save_failed"]();
 		} finally {
 			busy = false;
 		}
 	}
 </script>
 
+{#snippet code(text: string)}<code>{text}</code>{/snippet}
+
 <section class="flex flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
 	<div class="flex flex-col gap-1">
-		<h2 class="font-medium">Fetching a URL</h2>
+		<h2 class="font-medium">{m["admin.fetch.title"]()}</h2>
 		<p class="text-xs text-gray-500 dark:text-gray-400">
-			What happens when somebody pastes a link into the composer. This is not web search — given a
-			URL, the only question is what reads it.
+			{m["admin.fetch.description"]()}
 		</p>
 	</div>
 
@@ -102,14 +107,13 @@
 	{/if}
 
 	{#if loading}
-		<p class="text-sm text-gray-500">Loading…</p>
+		<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
 	{:else}
 		{#if !configurable}
 			<p
 				class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 			>
-				This service reads configuration from the environment only, so this cannot be changed here.
-				Set <code>FETCH_BACKEND</code> where the other variables live.
+				<Rich parts={m["admin.common.env_only"].parts({ name: "FETCH_BACKEND" })} tags={{ code }} />
 			</p>
 		{/if}
 
@@ -118,8 +122,7 @@
 				<p
 					class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
 				>
-					The saved value (“{backend}”) is not a fetch backend this app offers — pick one below and
-					save.
+					{m["admin.fetch.unknown_backend"]({ backend })}
 				</p>
 			{/if}
 			{#each Object.entries(DESCRIPTIONS) as [value, meta] (value)}
@@ -139,36 +142,41 @@
 					/>
 					<span class="flex flex-col gap-0.5">
 						<span class="flex items-center gap-2">
-							<span class="text-sm font-medium">{meta.title}</span>
+							<span class="text-sm font-medium">{meta.title()}</span>
 							{#if value === "playwright" && playwrightHealth}
 								{#if playwrightHealth.reason === "not configured"}
 									<span
 										class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-										title="PLAYWRIGHT_WS_ENDPOINT is empty: the stack's fetch profile is off"
+										title={m["admin.fetch.health.not_configured_hint"]({
+											name: "PLAYWRIGHT_WS_ENDPOINT",
+										})}
 									>
-										Not configured
+										{m["admin.fetch.health.not_configured"]()}
 									</span>
 								{:else if playwrightHealth.reachable}
 									<span
 										class="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800 dark:bg-green-900/30 dark:text-green-300"
 									>
-										Reachable
+										{m["admin.fetch.health.reachable"]()}
 									</span>
 								{:else}
 									<span
 										class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
 										title={playwrightHealth.reason}
 									>
-										Unreachable{playwrightHealth.reason ? `: ${playwrightHealth.reason}` : ""}
+										{playwrightHealth.reason
+											? m["admin.fetch.health.unreachable_reason"]({
+													reason: playwrightHealth.reason,
+												})
+											: m["admin.fetch.health.unreachable"]()}
 									</span>
 								{/if}
 							{/if}
 						</span>
-						<span class="text-xs text-gray-600 dark:text-gray-400">{meta.detail}</span>
+						<span class="text-xs text-gray-600 dark:text-gray-400">{meta.detail()}</span>
 						{#if value === "playwright" && playwrightHealth && !playwrightHealth.reachable}
 							<span class="text-xs text-amber-700 dark:text-amber-400">
-								You can still select and save this — it may just not be deployed yet, or be starting
-								up.
+								{m["admin.fetch.health.can_still_select"]()}
 							</span>
 						{/if}
 					</span>
@@ -185,7 +193,7 @@
 				disabled={!configurable || busy || !dirty}
 				class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 			>
-				{busy ? "Saving…" : "Save"}
+				{busy ? m["admin.common.saving"]() : m["admin.common.save"]()}
 			</button>
 		</div>
 	{/if}
