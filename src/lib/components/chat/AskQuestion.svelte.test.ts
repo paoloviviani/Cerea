@@ -268,3 +268,34 @@ describe("a late re-render of the same question", () => {
 		expect(need(rowFor(second.baseElement, "Mongo")).getAttribute("aria-pressed")).toBe("false");
 	});
 });
+
+describe("a catch-all the agent offered itself", () => {
+	const withCatchAll = () =>
+		ask("q1", "Which database?", {
+			options: [
+				{ value: "Postgres", label: "Postgres", description: "Relational." },
+				{ value: "Mongo", label: "Mongo", description: "Document." },
+				{ value: "Something else", label: "Something else" },
+			],
+		});
+
+	it("shows exactly one free-text choice", () => {
+		const { baseElement } = mount([withCatchAll()]);
+		const catchAlls = rows(baseElement).filter((b) => /something else/i.test(b.textContent ?? ""));
+		expect(catchAlls).toHaveLength(1);
+	});
+
+	it("still sends what the person types through that choice", async () => {
+		const { baseElement } = mount([withCatchAll()]);
+		const catchAll = rows(baseElement).find((b) => /something else/i.test(b.textContent ?? ""));
+		need(catchAll).click();
+		await vi.waitFor(() => expect(baseElement.querySelector("input")).not.toBeNull());
+		need(baseElement.querySelector<HTMLInputElement>("input")).value = "SQLite";
+		need(baseElement.querySelector<HTMLInputElement>("input")).dispatchEvent(
+			new Event("input", { bubbles: true })
+		);
+		button(baseElement, "Send")?.click();
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]).toMatchObject({ content: { q1: "SQLite" } });
+	});
+});
