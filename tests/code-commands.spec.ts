@@ -232,7 +232,7 @@ const goto = async (page: Page) => {
 };
 
 const box = (page: Page) => page.getByRole("combobox");
-const menu = (page: Page) => page.getByRole("listbox", { name: "Commands" });
+const menu = (page: Page) => page.getByRole("listbox", { name: "Slash commands" });
 // `name:` matches substrings ("/mode" also matches "/model …"), so options
 // are pinned by the exact data attribute the listbox renders per row.
 const option = (page: Page, name: string) =>
@@ -519,7 +519,7 @@ test.describe("backend commands", () => {
 				status: 409,
 				contentType: "application/json",
 				body: JSON.stringify({
-					message: "This command changed on the computer. Look at it again.",
+					message: "This command changed on the machine; review it again.",
 				}),
 			})
 		);
@@ -529,7 +529,7 @@ test.describe("backend commands", () => {
 		await page.keyboard.press("Enter");
 
 		await expect(
-			page.getByText("This command changed on the computer. Look at it again.")
+			page.getByText("This command changed on the machine; review it again.")
 		).toBeVisible({
 			timeout: 10_000,
 		});

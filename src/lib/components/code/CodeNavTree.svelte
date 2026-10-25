@@ -380,8 +380,7 @@
 			await confirmDevice(id);
 			await refreshCodeDevices();
 		} catch (err) {
-			actionFailure =
-				err instanceof Error ? err.message : "Could not confirm that computer. Try again.";
+			actionFailure = err instanceof Error ? err.message : "Could not confirm the machine.";
 		}
 	}
 
@@ -496,10 +495,10 @@
 		</a>
 	{/if}
 	<div class="flex items-center justify-between px-2 pt-1">
-		<span class="text-xs font-semibold text-gray-400 dark:text-gray-500">Computers</span>
+		<span class="text-xs font-semibold text-gray-400 dark:text-gray-500">Devices</span>
 		<button
 			class="flex h-6 items-center gap-1 rounded-lg px-1.5 text-xs text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-			title="Connect a new computer"
+			title="Pair a new device"
 			onclick={() => (pairingOpen = true)}
 		>
 			<IconAdd class="size-3.5" />
@@ -520,7 +519,7 @@
 	{#if codeDeviceList.loading}
 		<p class="flex items-center gap-2 px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
 			<IconRenew class="size-4 animate-spin" />
-			Loading your computers…
+			Loading paired devices…
 		</p>
 	{:else if codeDeviceList.devices.length === 0}
 		<div class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
@@ -533,7 +532,7 @@
 				onclick={() => (pairingOpen = true)}
 			>
 				<IconAdd class="size-4" />
-				Connect a computer
+				Pair a device
 			</button>
 		</div>
 	{:else}
@@ -551,7 +550,7 @@
 				>
 					{#if showSubagents}<IconCheck class="size-2.5" />{/if}
 				</span>
-				Show helper agents
+				Show subagents
 			</button>
 		{/if}
 		{#each codeDeviceList.devices as device (device.id)}
@@ -611,7 +610,7 @@
 						<button
 							type="button"
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30"
-							title="Confirm this computer"
+							title="Confirm this machine"
 							onclick={() => void handleConfirm(device.id)}
 						>
 							<IconCheck class="size-3.5" />
@@ -619,7 +618,7 @@
 						<button
 							type="button"
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-							title="Reject this computer"
+							title="Reject this machine"
 							onclick={() => (confirmRequest = { kind: "device", device })}
 						>
 							<IconClose class="size-3.5" />
@@ -627,20 +626,20 @@
 					{:else if isDead}
 						<!-- A revoked-by-the-gateway row is a tombstone (never
 						     reconnects under this machineId): no online pill, no
-						     "Add folder", no "Disconnect this computer" — there is
+						     "Add workspace", no "Remove this pairing" — there is
 						     nothing left to pair or unpair: the re-enroll banner
 						     below, and removal from the list. -->
 						<span
 							class="shrink-0 rounded-full bg-red-100 px-1.5 text-[.65rem] text-red-800 dark:bg-red-900/60 dark:text-red-300"
 						>
-							access removed
+							access revoked
 						</span>
 						<!-- Nothing to pair or unpair, but the row can go: once the
 						     machine is re-enrolled (a new row) or retired, the banner
 						     is only clutter. Removing it keeps the tombstone. -->
 						<button
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-							title="Remove this computer from the list"
+							title="Remove this machine from the list"
 							onclick={() => (confirmRequest = { kind: "device", device })}
 						>
 							<IconTrash class="size-3.5" />
@@ -655,13 +654,13 @@
 									? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300'
 									: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}"
 							title={device.credentialState === "expired"
-								? "This computer's sign-in expired or was removed."
+								? "This machine's gateway credential expired or was revoked."
 								: online
 									? "Connected"
 									: "Not connected"}
 						>
 							{device.credentialState === "expired"
-								? "sign-in expired"
+								? "credential expired"
 								: online
 									? "online"
 									: "offline"}
@@ -687,7 +686,7 @@
 						     empty-state button (below) is gone. -->
 						<button
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
-							title="Add a folder on this computer"
+							title="Add a workspace to this device"
 							disabled={!online}
 							onclick={() => (workspaceDialogFor = device.id)}
 						>
@@ -699,8 +698,8 @@
 						<DropdownMenu.Root>
 							<DropdownMenu.Trigger
 								class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
-								title="Computer settings"
-								aria-label="Computer settings"
+								title="Machine settings"
+								aria-label="Machine settings"
 							>
 								<IconKebab class="size-3.5" />
 							</DropdownMenu.Trigger>
@@ -726,7 +725,7 @@
 						</DropdownMenu.Root>
 						<button
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-							title="Disconnect this computer"
+							title="Remove this pairing"
 							onclick={() => (confirmRequest = { kind: "device", device })}
 						>
 							<IconTrash class="size-3.5" />
@@ -739,9 +738,9 @@
 					>
 						<p class="mb-1.5 flex items-center gap-1.5 font-medium">
 							<IconWarning class="size-3.5 shrink-0" />
-							Connect this computer again: {device.reenroll === "revoked"
-								? "access was removed"
-								: "the sign-in provider changed"}
+							Re-enroll this machine: {device.reenroll === "revoked"
+								? "access was revoked"
+								: "the identity provider changed"}
 						</p>
 						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
 							<pre
@@ -764,7 +763,7 @@
 					>
 						<p class="mb-1.5 flex items-center gap-1.5 font-medium">
 							<IconWarning class="size-3.5 shrink-0" />
-							Connect this computer again: its policy predates ceilings
+							Re-enroll this machine: its policy predates ceilings
 						</p>
 						<p class="mb-1.5">It still allows everything. One re-enroll tightens it.</p>
 						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
@@ -796,7 +795,7 @@
 								onclick={() => (workspaceDialogFor = device.id)}
 							>
 								<IconAdd class="size-3" />
-								Add folder
+								Add workspace
 							</button>
 						{:else}
 							{#each tree?.workspaces ?? [] as ws (ws.id)}
@@ -852,7 +851,7 @@
 										</span>
 										<button
 											class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
-											title="Start a coding session in this folder"
+											title="Start a coding session in this workspace"
 											onclick={() => (agentDialogFor = ws)}
 										>
 											<IconAdd class="size-3.5" />
@@ -875,8 +874,8 @@
 								     Same idiom as NavConversationItem's chat kebab. -->
 											<DropdownMenu.Trigger
 												class="ml-1 flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
-												title="Folder actions"
-												aria-label="Folder actions"
+												title="Workspace actions"
+												aria-label="Workspace actions"
 											>
 												<IconKebab class="size-3.5" />
 											</DropdownMenu.Trigger>
@@ -980,7 +979,7 @@
 															{#if sub && agent.cancelled && agent.state !== "running" && agent.state !== "waiting-permission"}
 																<span
 																	class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-300"
-																	title="Stopped before it finished"
+																	title="Stopped before it finished; its work was not completed"
 																	data-testid="subagent-cancelled">cancelled</span
 																>
 															{:else if agent.state === "waiting-permission" || kids?.waiting}
@@ -992,7 +991,7 @@
 																	data-testid="waiting-approval"
 																	>{agent.state === "waiting-permission"
 																		? "waiting for approval"
-																		: "helper agent waiting"}</span
+																		: "subagent waiting"}</span
 																>
 															{:else}
 																<span
@@ -1011,7 +1010,7 @@
 															<DropdownMenu.Root>
 																<DropdownMenu.Trigger
 																	class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-																	title="Sessions started by this one"
+																	title="Sessions spawned by this one"
 																	data-testid="spawned-count"
 																>
 																	spawned {spawns.count}
@@ -1047,7 +1046,7 @@
 															<DropdownMenu.Root>
 																<DropdownMenu.Trigger
 																	class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-																	title="Helper agents of this session"
+																	title="Subagents of this session"
 																	data-testid="subagent-count"
 																>
 																	{kids.count}
@@ -1077,7 +1076,7 @@
 																			</DropdownMenu.Item>
 																		{:else}
 																			<p class="px-2 py-1 text-xs text-gray-500">
-																				In another folder not listed here.
+																				In another workspace not listed here.
 																			</p>
 																		{/each}
 																	</DropdownMenu.Content>
@@ -1172,7 +1171,7 @@
 															>
 																<IconFork class="size-3 shrink-0" />
 																<span class="truncate"
-																	>started by {spawned.title}{spawned.elsewhere
+																	>spawned by {spawned.title}{spawned.elsewhere
 																		? ` · ${spawned.elsewhere}`
 																		: ""}</span
 																>
@@ -1183,7 +1182,7 @@
 																data-testid="spawned-from"
 															>
 																<IconFork class="size-3 shrink-0" />
-																<span class="truncate">started by {spawned.title} (gone)</span>
+																<span class="truncate">spawned by {spawned.title} (gone)</span>
 															</p>
 														{/if}
 													{/if}
@@ -1322,16 +1321,16 @@
 	{:else if request.kind === "device"}
 		<CodeConfirmDialog
 			title={request.device.status === "pending"
-				? "Reject this computer"
+				? "Reject this machine"
 				: request.device.reenroll === "revoked"
-					? "Remove this computer"
-					: "Disconnect this computer"}
+					? "Remove this machine"
+					: "Remove this pairing"}
 			target={request.device.name}
 			message={request.device.status === "pending"
-				? "A rejected machine never pairs: the row becomes a tombstone and a reconnect under the same machine id is refused. The computer must re-enroll to try again."
+				? "A rejected machine never pairs: the row becomes a tombstone and a reconnect under the same machine id is refused. The machine must re-enroll to try again."
 				: request.device.reenroll === "revoked"
-					? "Its access is already revoked; this only removes it from the list. If the computer is still in use, re-enroll it: that pairs it as a new machine."
-					: "Revoking ends this computer's access: the row becomes a tombstone, a reconnect under the same machine id is refused, and its sessions stop. The computer must re-enroll to pair again."}
+					? "Its access is already revoked; this only removes it from the list. If the machine is still in use, re-enroll it: that pairs it as a new machine."
+					: "Revoking ends this machine's access: the row becomes a tombstone, a reconnect under the same machine id is refused, and its sessions stop. The machine must re-enroll to pair again."}
 			confirmLabel={request.device.status === "pending"
 				? "Reject machine"
 				: request.device.reenroll === "revoked"
@@ -1343,10 +1342,10 @@
 		/>
 	{:else}
 		<CodeConfirmDialog
-			title="Archive folder"
+			title="Archive workspace"
 			target={request.workspace.name}
 			message="The workspace and its sessions disappear from the daemon's active list, their transcripts archived with them. Local files on the device are untouched."
-			confirmLabel="Archive folder"
+			confirmLabel="Archive workspace"
 			busyLabel="Archiving…"
 			checkboxLabel={request.workspace.worktreeOf
 				? "Also remove the git worktree (refused if it has uncommitted changes)"

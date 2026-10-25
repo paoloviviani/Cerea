@@ -293,7 +293,7 @@
 			if (running) {
 				// A prompt steers a running turn; a command must not join it
 				// half-explained, so it waits for the turn or for a stop.
-				errorToast.set("The agent is busy. Stop it, or wait for it to finish.");
+				errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
 				return;
 			}
 			busy = true;
@@ -335,7 +335,7 @@
 		const message = draft.trim();
 		if (!message) return;
 		if (matchSlashCommand(message, allCommands)) {
-			errorToast.set("The agent is busy. Stop it, or wait for it to finish.");
+			errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
 			return;
 		}
 		busy = true;
@@ -358,7 +358,7 @@
 	async function onSlashCommand(command: SlashCommand, args: string) {
 		if (enrollmentExpired || offline || busy) return;
 		if (running) {
-			errorToast.set("The agent is busy. Stop it, or wait for it to finish.");
+			errorToast.set("The agent is mid-turn. Stop it, or wait for it to finish.");
 			return;
 		}
 		busy = true;
@@ -383,7 +383,7 @@
 	async function runBackendCommand(command: SlashCommand, args: string): Promise<boolean> {
 		const full = backendCommands.find((candidate) => candidate.name === command.name);
 		if (!full) {
-			errorToast.set("That command is no longer available on this computer.");
+			errorToast.set("That command is no longer listed on this machine.");
 			return true;
 		}
 		// A project-origin or shell-expanding command asks once per (device,
@@ -412,11 +412,11 @@
 			void refreshBackendCommands();
 		} catch (err) {
 			if (err instanceof CodeApiError && err.status === 409) {
-				errorToast.set("This command changed on the computer. Look at it again.");
+				errorToast.set("This command changed on the machine; review it again.");
 			} else if (err instanceof Error) {
 				errorToast.set(err.message);
 			} else {
-				errorToast.set("The computer did not accept the command.");
+				errorToast.set("The daemon refused the command.");
 			}
 		}
 	}
@@ -454,13 +454,9 @@
 					onchanged();
 				} catch (err) {
 					if (err instanceof CodeApiError && err.status === 404) {
-						errorToast.set("This agent cannot shorten the conversation on request.");
+						errorToast.set("This backend cannot compact on request.");
 					} else {
-						errorToast.set(
-							err instanceof Error
-								? err.message
-								: "The computer could not shorten the conversation."
-						);
+						errorToast.set(err instanceof Error ? err.message : "The daemon refused to compact.");
 					}
 				}
 				return true;
@@ -476,7 +472,7 @@
 					onchanged();
 				} catch (err) {
 					errorToast.set(
-						err instanceof Error ? err.message : "The computer could not undo the roll back."
+						err instanceof Error ? err.message : "The daemon refused to undo the rollback."
 					);
 				}
 				return true;
@@ -655,7 +651,7 @@
 			if (result.notice) applyFailure = result.notice;
 			onchanged();
 		} catch (err) {
-			applyFailure = err instanceof Error ? err.message : "The computer did not accept that mode.";
+			applyFailure = err instanceof Error ? err.message : "The daemon refused the mode.";
 		} finally {
 			applying = null;
 		}
@@ -669,7 +665,7 @@
 			await setAgentModel(deviceId, agentId, modelId);
 			onchanged();
 		} catch (err) {
-			applyFailure = err instanceof Error ? err.message : "The computer did not accept that model.";
+			applyFailure = err instanceof Error ? err.message : "The daemon refused the model.";
 		} finally {
 			applying = null;
 		}
@@ -699,7 +695,7 @@
 			(onpermissionchanged ?? onchanged)();
 		} catch (err) {
 			applyFailure =
-				err instanceof Error ? err.message : "The computer did not accept that permission setting.";
+				err instanceof Error ? err.message : "The machine refused the permission setting.";
 		} finally {
 			applying = null;
 		}
@@ -719,20 +715,20 @@
 			label: "Plan",
 			icon: IconShieldX,
 			title:
-				"Plan: the agent reads and plans. It cannot edit, run commands or fetch pages, and does not ask. Reading still works. Your exceptions are kept but blocked.",
+				"Plan: the agent reads and plans. Edits, commands and fetches are refused without asking. Reading still works. Your exceptions are kept, but blocked.",
 		},
 		{
 			mode: "ask",
 			label: "Ask",
 			icon: IconShieldQuestion,
 			title:
-				"Edits, commands and fetches ask first. Reading is allowed. Your exceptions for this session go ahead without asking.",
+				"Edits, commands and fetches ask first. Reading is allowed. Your exceptions for this session run without asking.",
 		},
 		{
 			mode: "allow",
 			label: "Allow",
 			icon: IconShieldCheck,
-			title: `Edits, commands and fetches go ahead without asking, within this computer's limits. It still asks before writing outside the project folder, or if the agent gets stuck repeating itself. New helper agents follow it too.`,
+			title: `Edits, commands and fetches run without asking, up to this machine's limits. Still asks: writing outside the project folder and an agent that is stuck repeating itself. New subagents follow it too.`,
 		},
 	];
 	let isSubagent = $derived(Boolean(agent?.parentId));
@@ -835,8 +831,7 @@
 			await setAgentEffort(deviceId, agentId, effort);
 			onchanged();
 		} catch (err) {
-			applyFailure =
-				err instanceof Error ? err.message : "The computer did not accept that effort.";
+			applyFailure = err instanceof Error ? err.message : "The daemon refused the effort.";
 		} finally {
 			applying = null;
 		}
@@ -915,16 +910,11 @@
 			     row to the dropzone, exactly as the chat composer does. The
 			     mobile send control goes with it — there is nothing to send
 			     while a drop is pending. -->
-			<FileDropzone
-				bind:files
-				bind:onDrag={drag.active}
-				{mimeTypes}
-				label="Drop a file to attach it"
-			/>
+			<FileDropzone bind:files bind:onDrag={drag.active} {mimeTypes} label="Drop File to attach" />
 		{:else}
 			<div class="flex w-full flex-1 rounded-xl border-none bg-transparent">
 				<ChatInput
-					placeholder="Reply to the agent…"
+					placeholder="Follow up with the agent…"
 					bind:value={draft}
 					{draftKey}
 					{mimeTypes}
@@ -953,7 +943,7 @@
 								<DropdownMenu.Trigger
 									class={pillClass}
 									disabled={applying === "mode"}
-									title="How much the agent may do on its own"
+									title="How much the agent may do on its own — the machine's modes, as the backend defines them"
 								>
 									<span class="max-sm:max-w-20 max-sm:truncate">{modeLabel}</span>
 									<IconChevronDown class={chevronClass} />
@@ -974,11 +964,11 @@
 											>
 										{:else if modesFailure}
 											<DropdownMenu.Item class={menuNoteClass} disabled>
-												Could not load the modes: {modesFailure}
+												Could not load modes: {modesFailure}
 											</DropdownMenu.Item>
 										{:else if !listedModes.length}
 											<DropdownMenu.Item class={menuNoteClass} disabled>
-												No modes are available.
+												The daemon lists no modes.
 											</DropdownMenu.Item>
 										{:else}
 											{#each listedModes as mode (mode.id)}
@@ -1016,8 +1006,8 @@
 								data-testid="permission-mode"
 								data-mode={permissionMode}
 								title={isSubagent
-									? "A helper agent follows the main session's permission setting."
-									: "What this session does when the agent wants to do something it has no rule for."}
+									? "A subagent follows the main session's permission setting."
+									: "What this session does about a tool call it has no rule for."}
 								class="flex h-7 flex-none items-center rounded-full border p-0.5 max-sm:h-8 max-sm:border-0 max-sm:bg-transparent max-sm:p-0 {PILL_REST}"
 							>
 								{#each PERMISSION_SEGMENTS as segment (segment.mode)}
@@ -1051,7 +1041,7 @@
 									type="button"
 									class={composerPillClass({ compact: true })}
 									aria-label="Permission details for this session"
-									title="What this session will do when the agent wants to act"
+									title="What this session will do about its tool calls"
 									data-testid="permission-details"
 									onclick={() => (permissionDetailsOpen = true)}
 								>
@@ -1096,20 +1086,20 @@
 								class="flex min-w-0 items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
 							>
 								<IconWarning class="size-3 shrink-0" />
-								<span class="min-w-0 truncate">This computer is offline.</span>
+								<span class="min-w-0 truncate">This machine is offline.</span>
 							</span>
 						{:else if enrollmentExpired}
 							<span class="flex min-w-0 items-center gap-1 text-xs text-red-600 dark:text-red-400">
 								<IconWarning class="size-3 shrink-0" />
 								<span class="min-w-0 truncate">
-									This computer's connection expired or was removed.
+									This machine's enrollment expired or was revoked.
 								</span>
 								<button
 									type="button"
 									class="shrink-0 font-medium underline underline-offset-2"
 									onclick={() => onreenroll?.()}
 								>
-									Connect again
+									Re-enroll
 								</button>
 							</span>
 						{/if}
@@ -1175,7 +1165,7 @@
 		</span>
 	{:else if !models?.length}
 		<span class="text-xs whitespace-nowrap text-gray-400/90 opacity-60">
-			No models are available.
+			The daemon lists no models.
 		</span>
 	{:else}
 		<ModelEffortPicker
@@ -1198,9 +1188,8 @@
 			{#snippet footer()}
 				{#if modelsHidden > 0}
 					<div class={menuNoteClass}>
-						{modelsHidden}
-						{modelsHidden === 1 ? "model is" : "models are"} hidden: this computer was connected without
-						--allow-free-models.
+						{modelsHidden} non-gateway {modelsHidden === 1 ? "model" : "models"} hidden: this machine
+						was enrolled without --allow-free-models.
 					</div>
 				{/if}
 			{/snippet}
@@ -1304,7 +1293,7 @@
 					disabled={!draft.trim() || busy || enrollmentExpired || offline}
 					type="submit"
 					aria-label="Send message"
-					title={running ? "Send now" : undefined}
+					title={running ? "Send to the running turn" : undefined}
 					name="submit"
 				>
 					<IconArrowUp />

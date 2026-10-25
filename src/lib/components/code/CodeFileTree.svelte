@@ -46,7 +46,7 @@
 				truncated = res.truncated;
 			})
 			.catch((err) => {
-				failure = err instanceof Error ? err.message : "Could not open this folder. Try again.";
+				failure = err instanceof Error ? err.message : "Could not list this folder.";
 			});
 	});
 
@@ -71,7 +71,10 @@
 {:else if entries === null}
 	<p class="py-1 text-xs text-gray-400" style="padding-left: {depth * 12 + 8}px">Loading…</p>
 {:else}
-	<ul role={depth === 0 ? "tree" : "group"} aria-label={depth === 0 ? "Folder files" : undefined}>
+	<ul
+		role={depth === 0 ? "tree" : "group"}
+		aria-label={depth === 0 ? "Workspace files" : undefined}
+	>
 		{#each entries as entry (entry.path)}
 			{@const badge = badges.get(entry.path)}
 			{@const isDir = entry.type === "dir"}
@@ -89,7 +92,7 @@
 						: ''} {entry.ignored ? 'opacity-50' : ''}"
 					style="padding-left: {depth * 12 + 8}px"
 					title={entry.redacted
-						? "Hidden by this computer's rules"
+						? "Hidden by this machine's policy"
 						: entry.symlink?.escapes
 							? `Points outside the workspace: ${entry.symlink.target}`
 							: entry.path}
@@ -108,7 +111,7 @@
 					{#if entry.redacted}
 						<IconLocked
 							class="size-3 shrink-0 text-gray-500"
-							aria-label="Hidden by this computer's rules"
+							aria-label="Hidden by this machine's policy"
 						/>
 					{/if}
 					{#if badge}
@@ -138,7 +141,7 @@
 		{/each}
 		{#if truncated}
 			<li class="py-1 text-xs text-gray-400" style="padding-left: {depth * 12 + 8}px">
-				Only the first 5,000 items are shown.
+				Only the first 5 000 entries are shown.
 			</li>
 		{/if}
 	</ul>

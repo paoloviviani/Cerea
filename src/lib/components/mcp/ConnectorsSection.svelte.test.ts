@@ -275,7 +275,7 @@ describe("ConnectorsSection: servers on the person's own machines (ADR 0102)", (
 		const screen = mount();
 
 		await expect
-			.element(screen.getByText("On your computers (1)", { exact: false }))
+			.element(screen.getByText("On your machines (1)", { exact: false }))
 			.toBeInTheDocument();
 		// Not among the person's own, which still counts one.
 		await expect
@@ -300,7 +300,7 @@ describe("ConnectorsSection: servers on the person's own machines (ADR 0102)", (
 		]);
 		const screen = mount();
 		await expect
-			.element(screen.getByText("On your computers (4)", { exact: false }))
+			.element(screen.getByText("On your machines (4)", { exact: false }))
 			.toBeInTheDocument();
 		expect(pills(screen)).toEqual(["Offline", "Needs sign-in", "Disabled", "Invalid"]);
 		const body = screen.baseElement.textContent ?? "";
@@ -438,7 +438,7 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		stub([...LONG.map((name) => localOf(name)), localOf("calendar")]);
 		const screen = mount();
 		await expect
-			.element(screen.getByText("On your computers (3)", { exact: false }))
+			.element(screen.getByText("On your machines (3)", { exact: false }))
 			.toBeInTheDocument();
 
 		const names = [

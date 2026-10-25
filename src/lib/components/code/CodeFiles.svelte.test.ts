@@ -114,7 +114,7 @@ describe("CodeFiles image view", () => {
 		await open(screen, "huge.png");
 		// The machine's byte count never reaches the person; the limit does.
 		await expect
-			.element(screen.getByText("This file is too big to show here.", { exact: false }))
+			.element(screen.getByText("This file is too large to show here.", { exact: false }))
 			.toBeVisible();
 		expect(screen.baseElement.querySelector("img")).toBeNull();
 	});

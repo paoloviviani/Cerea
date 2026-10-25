@@ -90,8 +90,8 @@
 	{#if !enabled}
 		<div class="pointer-events-auto {s.EMPTY}">
 			<IconCode class={s.EMPTY_ICON} />
-			<p class={s.EMPTY_TITLE}>Coding agents are not turned on</p>
-			<p class={s.EMPTY_DETAIL}>Coding agents are not set up here yet. Ask your administrator.</p>
+			<p class={s.EMPTY_TITLE}>Coding agents are not enabled</p>
+			<p class={s.EMPTY_DETAIL}>This deployment has no machine link configured.</p>
 		</div>
 	{:else if !codeReauth.checked}
 		<div class="pointer-events-auto {s.EMPTY}">
@@ -122,7 +122,7 @@
 							<div class={s.HEADER}>
 								<h2 class={s.TITLE}>{selected.name}</h2>
 								<p class={s.SUBTITLE}>
-									A computer has connected and is waiting for you to confirm it in the Agents panel.
+									This machine checked in and is waiting for you to confirm it in the Agents panel.
 								</p>
 							</div>
 						</div>
@@ -142,11 +142,11 @@
 					>
 						<IconLaptop class="mb-3 size-7 text-ink-faint" />
 						<p class="mb-1 text-xs font-medium text-ink">
-							{codeDeviceList.devices.length === 0 ? "No computers connected" : "No agent selected"}
+							{codeDeviceList.devices.length === 0 ? "No paired devices" : "No agent selected"}
 						</p>
 						<p class="mb-4 text-xs text-ink-muted">
 							{codeDeviceList.devices.length === 0
-								? "Connect the computer your coding agents run on to begin."
+								? "Pair the machine your coding agents run on to begin."
 								: "Pick a session from the Agents panel in the sidebar."}
 						</p>
 						<button onclick={openAgentsPanel} class={s.PRIMARY}>

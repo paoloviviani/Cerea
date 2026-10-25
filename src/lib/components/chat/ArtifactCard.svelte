@@ -104,7 +104,7 @@
 		openInPanel();
 	}}
 	disabled={missing}
-	aria-label="Open file:  {title}"
+	aria-label="Open file: {title}"
 >
 	<div
 		class="flex size-9 flex-none items-center justify-center rounded-lg bg-gray-100 text-gray-500 dark:bg-gray-700/70 dark:text-gray-300"

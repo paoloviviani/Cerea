@@ -85,7 +85,7 @@ describe("HandoffDialog", () => {
 		expect(document.body.textContent).not.toContain("Carry the conversation up to here");
 		expect(document.body.textContent).not.toContain("starts cold");
 		// What the fork does is still said, plainly.
-		await expect.element(screen.getByText("includes a summary of this conversation")).toBeVisible();
+		await expect.element(screen.getByText("carries a summary of this conversation")).toBeVisible();
 	});
 
 	it("the handoff sends carry: true with the prompt and the fork point", async () => {

@@ -264,9 +264,9 @@
 			case "expired":
 				return "That sign-in link expired or was already used. Start signing in again.";
 			case "offline":
-				return "The computer went offline before the sign-in finished. Start Cerea on that computer (galopin) and try again.";
+				return "The machine went offline before the sign-in finished. Start Cerea on that machine (galopin) and try again.";
 			case "machine":
-				return "That computer could not finish the sign-in. Its log has the details.";
+				return "That machine could not finish the sign-in. Its log has the details.";
 			case "refused":
 				return "This connector does not need a sign-in, or you cannot sign in to it from here.";
 			default:
@@ -819,7 +819,7 @@
 				{#if local.allowedTools}
 					<span
 						class="text-xs text-gray-500 dark:text-gray-500"
-						title={`That computer allows only: ${local.allowedTools.join(", ")}`}
+						title={`That machine allows only: ${local.allowedTools.join(", ")}`}
 					>
 						{local.allowedTools.length} tool{local.allowedTools.length === 1 ? "" : "s"} allowed
 					</span>
@@ -842,7 +842,7 @@
 					Needs a sign-in. Your sign-in stays on {local.machineName}.
 					<span class="text-gray-500 dark:text-gray-400">
 						If the provider does not accept the sign-in, run
-						<code class="font-mono">galopin connectors login {local.server}</code> on the computer.
+						<code class="font-mono">galopin connectors login {local.server}</code> on the machine.
 					</span>
 				</p>
 			{:else if local.state !== "ready" && local.detail}
@@ -980,8 +980,8 @@
 		{#if page.data.localConnectorsDenied}
 			<p class="text-xs text-gray-600 dark:text-gray-400" data-testid="local-denied-note">
 				{page.data.localConnectorsDenied === "not_configured"
-					? "Connectors on your computers are not available here yet. Ask your administrator."
-					: "Your administrator has not turned on connectors on your computers for your groups."}
+					? "Local connectors are not available here yet. Ask your administrator."
+					: "Your administrator has not enabled local connectors for your groups."}
 			</p>
 		{/if}
 
@@ -992,11 +992,11 @@
 			<div data-testid="local-section">
 				<h3 class="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
 					<LucideLaptop class="size-4" />
-					On your computers ({onMachines.length})
+					On your machines ({onMachines.length})
 				</h3>
 				<p class="text-xs text-gray-600 dark:text-gray-400">
-					Connectors running on computers you connected. They work while that computer is connected.
-					Set up in that computer's <code class="font-mono">mcp.json</code> and under On your computers.
+					Connectors running on machines you connected. They work while that machine is connected.
+					Set up in that machine's <code class="font-mono">mcp.json</code> and under Local connectors.
 				</p>
 				<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
 					{#each onMachines as connector (connector.id)}

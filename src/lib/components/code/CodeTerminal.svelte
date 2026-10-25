@@ -154,7 +154,7 @@
 				onreauth?.();
 				return;
 			}
-			failure = err instanceof Error ? err.message : "Could not connect. Try again.";
+			failure = err instanceof Error ? err.message : "Could not connect.";
 			scheduleReconnect();
 			return;
 		}

@@ -31,7 +31,7 @@
 		/**
 		 * Pluggable answer path: when set, the card answers through it instead
 		 * of `sendElicitationAnswer`, and the second button reads "Always
-		 * allow (this session)" rather than "Allow for this chat" — the
+		 * allow (this session)" rather than "Allow for this conversation" — the
 		 * caller owns the semantics (the coding-agent surface answers a daemon
 		 * permission through its own forwarder; `scope: "always"` there asks the
 		 * machine for an exception for this session, which the Permissions line
@@ -115,9 +115,9 @@
 		if (alreadyAnswered && !resolved) return alreadyAnswered;
 		if (outcome === "accept") return "Allowed";
 		if (outcome === "decline") return "Denied";
-		if (resolved?.resolution === "expired" || expired) return "Timed out, so it was not allowed";
-		if (resolved?.resolution === "aborted") return "Cancelled with the reply";
-		if (resolved?.resolution === "withdrawn") return "No longer waiting";
+		if (resolved?.resolution === "expired" || expired) return "Timed out — denied";
+		if (resolved?.resolution === "aborted") return "Cancelled with the response";
+		if (resolved?.resolution === "withdrawn") return "Stopped waiting";
 		return "Denied";
 	});
 
@@ -129,7 +129,7 @@
 			const result = await onanswer(action, scope === "always" ? "always" : undefined);
 			submitting = null;
 			if (!result.ok) {
-				error = result.error ?? "Your answer did not go through. Try again.";
+				error = result.error ?? "The answer did not go through.";
 				return;
 			}
 			if (result.note) alreadyAnswered = result.note;
@@ -221,7 +221,9 @@
 				const parent = text(args.parentTitle);
 				facts.push({
 					label: "From",
-					value: parent ? `a helper agent of "${parent}"` : "a helper agent of the main session",
+					value: parent
+						? `a task subagent of "${parent}"`
+						: "a task subagent of its parent session",
 				});
 			}
 			facts.push({ label: "To", value: text(target?.title) });
@@ -288,7 +290,7 @@
 		{#if showArgs}
 			<div class="mt-2 mb-4 space-y-1 text-gray-500 dark:text-gray-400">
 				<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
-					Details
+					Arguments
 				</div>
 				<pre
 					class="overflow-x-auto rounded-lg bg-gray-100 p-2 font-mono text-xs whitespace-pre-wrap text-gray-700 dark:bg-gray-800/70 dark:text-gray-300">{argsJson}</pre>
@@ -303,10 +305,10 @@
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
 				<span class="text-sm font-medium text-gray-700 dark:text-gray-200"
 					>{#if subagentLabel}{subagentLabel} ·
-					{/if}{galopin ? "Agent action" : "Approval needed"}</span
+					{/if}{galopin ? "Agent action" : "Tool approval"}</span
 				>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
-					wants to use <code
+					wants to call <code
 						class="rounded-sm bg-blue-50 px-1 py-px font-mono text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
 						>{toolApproval.tool}</code
 					>
@@ -367,7 +369,7 @@
 						disabled={submitting !== null}
 						class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
 					>
-						{onanswer ? alwaysLabel : "Allow for this chat"}
+						{onanswer ? alwaysLabel : "Allow for this conversation"}
 					</button>
 				{/if}
 				<button

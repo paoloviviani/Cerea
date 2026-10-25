@@ -54,7 +54,7 @@
 			await onconfirm(checked);
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "The computer did not accept that.";
+			failure = err instanceof Error ? err.message : "The daemon refused.";
 		} finally {
 			busy = false;
 		}

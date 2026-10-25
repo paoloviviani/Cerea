@@ -265,7 +265,7 @@ describe("AgentView stale-Deny banner", () => {
 		const screen = mount();
 		await expect
 			.element(screen.getByTestId("stale-deny"))
-			.toHaveTextContent("Start a new session to use helper agents");
+			.toHaveTextContent("Start a new session to use subagents");
 	});
 
 	it("shows nothing when the session reports none", async () => {
@@ -282,7 +282,7 @@ describe("AgentView stale-Deny banner", () => {
 		const screen = mount();
 		await expect
 			.element(screen.getByTestId("stale-policy"))
-			.toHaveTextContent("An earlier rule from this computer is still");
+			.toHaveTextContent("An earlier machine policy is stuck");
 		expect(screen.getByTestId("stale-deny").elements()).toHaveLength(0);
 	});
 });
@@ -459,7 +459,7 @@ describe("AgentView background banner", () => {
 		fake.childRunningUntilRead = 1000;
 		const screen = mount();
 		await expect
-			.element(screen.getByText("A helper agent is still running in the background."))
+			.element(screen.getByText("A subagent is still running in the background."))
 			.toBeVisible();
 		// The next read after the first activity frame still says running; the one
 		// after the second (held until the throttle window ends) says it is done.
@@ -469,7 +469,7 @@ describe("AgentView background banner", () => {
 			{ type: "childActivity", childId: "c1" },
 		]);
 		await expect
-			.element(screen.getByText("A helper agent is still running in the background."))
+			.element(screen.getByText("A subagent is still running in the background."))
 			.not.toBeInTheDocument();
 	});
 });
@@ -492,9 +492,7 @@ describe("AgentView fork action", () => {
 		serverNow: 0,
 	});
 	const forkButtons = (screen: { baseElement: HTMLElement }) =>
-		screen.baseElement.querySelectorAll<HTMLButtonElement>(
-			'button[aria-label="Branch off from here"]'
-		);
+		screen.baseElement.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]');
 
 	it("offers the fork on every named assistant message of a finished multi-turn session", async () => {
 		await browserPage.viewport(1200, 800);
@@ -608,9 +606,7 @@ describe("AgentView transcript cache", () => {
 		{ type: MessageUpdateType.TurnState, state: "done", serverNow: 0 },
 	];
 	const forkButtons = (screen: { baseElement: HTMLElement }) =>
-		screen.baseElement.querySelectorAll<HTMLButtonElement>(
-			'button[aria-label="Branch off from here"]'
-		);
+		screen.baseElement.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]');
 
 	/** Open a session, let its replay land, and leave it (the `{#key}` remount). */
 	async function visit(agentId: string, frames: unknown[], expectText: string) {

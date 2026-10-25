@@ -82,7 +82,7 @@ for (const [label, width] of [
 			const send = screen.getByRole("button", { name: "Send message" });
 			await expect.element(send).toBeDisabled();
 
-			await screen.getByPlaceholder("Reply to the agent…").fill("also cover the edge case");
+			await screen.getByPlaceholder("Follow up with the agent…").fill("also cover the edge case");
 			await expect.element(send).toBeEnabled();
 			await send.click();
 
@@ -109,7 +109,7 @@ for (const [label, width] of [
 					})
 			);
 			const screen = mount(false);
-			const box = screen.getByPlaceholder("Reply to the agent…");
+			const box = screen.getByPlaceholder("Follow up with the agent…");
 			await box.fill("first message");
 			await screen.getByRole("button", { name: "Send message" }).click();
 			await vi.waitFor(() => expect(onsend).toHaveBeenCalledTimes(1));
@@ -126,16 +126,16 @@ for (const [label, width] of [
 		it("still refuses a slash command while a turn runs, on Send and on Stop and send", async () => {
 			await browserPage.viewport(width, 800);
 			const screen = mount(true);
-			await screen.getByPlaceholder("Reply to the agent…").fill("/new");
+			await screen.getByPlaceholder("Follow up with the agent…").fill("/new");
 			await screen.getByRole("button", { name: "More ways to send" }).click();
 			await screen.getByRole("menuitem", { name: "Stop and send" }).click();
-			await vi.waitFor(() => expect(get(errorToast)).toMatch(/busy/));
+			await vi.waitFor(() => expect(get(errorToast)).toMatch(/mid-turn/));
 			expect(onstop).not.toHaveBeenCalled();
 			expect(onsend).not.toHaveBeenCalled();
 
 			errorToast.set(undefined);
 			await screen.getByRole("button", { name: "Send message" }).click();
-			await vi.waitFor(() => expect(get(errorToast)).toMatch(/busy/));
+			await vi.waitFor(() => expect(get(errorToast)).toMatch(/mid-turn/));
 			expect(onsend).not.toHaveBeenCalled();
 		});
 
@@ -150,7 +150,7 @@ for (const [label, width] of [
 		it("Stop and send stops first, then sends, in that order", async () => {
 			await browserPage.viewport(width, 800);
 			const screen = mount(true);
-			await screen.getByPlaceholder("Reply to the agent…").fill("new direction");
+			await screen.getByPlaceholder("Follow up with the agent…").fill("new direction");
 			await screen.getByRole("button", { name: "More ways to send" }).click();
 			await screen.getByRole("menuitem", { name: "Stop and send" }).click();
 
@@ -164,13 +164,13 @@ for (const [label, width] of [
 				return false;
 			});
 			const screen = mount(true);
-			await screen.getByPlaceholder("Reply to the agent…").fill("new direction");
+			await screen.getByPlaceholder("Follow up with the agent…").fill("new direction");
 			await screen.getByRole("button", { name: "More ways to send" }).click();
 			await screen.getByRole("menuitem", { name: "Stop and send" }).click();
 
 			await vi.waitFor(() => expect(calls).toEqual(["stop"]));
 			await expect
-				.element(screen.getByPlaceholder("Reply to the agent…"))
+				.element(screen.getByPlaceholder("Follow up with the agent…"))
 				.toHaveValue("new direction");
 			expect(onsend).not.toHaveBeenCalled();
 		});
@@ -178,27 +178,27 @@ for (const [label, width] of [
 }
 
 describe("AgentComposer image attachments", () => {
-	it("offers Add images when the session's model takes images", async () => {
+	it("offers Add image(s) when the session's model takes images", async () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount(true, true, { modelIsMultimodal: true });
 		await screen.getByRole("button", { name: "Add attachment" }).click();
-		await expect.element(screen.getByRole("menuitem", { name: "Add images" })).toBeVisible();
+		await expect.element(screen.getByRole("menuitem", { name: "Add image(s)" })).toBeVisible();
 		await expect.element(screen.getByRole("menuitem", { name: "Add text file" })).toBeVisible();
 	});
 
-	it("hides Add images for a model that says nothing about images", async () => {
+	it("hides Add image(s) for a model that says nothing about images", async () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount(true, true, { modelIsMultimodal: false });
 		await screen.getByRole("button", { name: "Add attachment" }).click();
 		await expect.element(screen.getByRole("menuitem", { name: "Add text file" })).toBeVisible();
-		expect(screen.getByRole("menuitem", { name: "Add images" }).elements()).toHaveLength(0);
+		expect(screen.getByRole("menuitem", { name: "Add image(s)" }).elements()).toHaveLength(0);
 	});
 
 	it("keeps a pasted screenshot as a chip, and drops what the allowlist refuses", async () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount(true, true, { modelIsMultimodal: true });
 
-		const target = screen.getByPlaceholder("Reply to the agent…").element() as HTMLElement;
+		const target = screen.getByPlaceholder("Follow up with the agent…").element() as HTMLElement;
 		const dt = new DataTransfer();
 		dt.items.add(new File(["png"], "shot.png", { type: "image/png" }));
 		dt.items.add(new File(["pdf"], "paper.pdf", { type: "application/pdf" }));
@@ -230,12 +230,12 @@ describe("AgentComposer file drag and drop", () => {
 
 		// The dragenter fires on the textarea and bubbles to the window
 		// handler, exactly as a real drag does.
-		const target = screen.getByPlaceholder("Reply to the agent…").element() as HTMLElement;
+		const target = screen.getByPlaceholder("Follow up with the agent…").element() as HTMLElement;
 		target.dispatchEvent(new DragEvent("dragenter", { bubbles: true }));
 
 		await vi.waitFor(() => expect(document.body.querySelector("#dropzone")).not.toBeNull());
 		// While the drag is on, the input gave its row to the dropzone.
-		expect(screen.getByPlaceholder("Reply to the agent…").elements()).toHaveLength(0);
+		expect(screen.getByPlaceholder("Follow up with the agent…").elements()).toHaveLength(0);
 
 		const zone = document.body.querySelector("#dropzone");
 		const dt = new DataTransfer();
@@ -250,7 +250,7 @@ describe("AgentComposer file drag and drop", () => {
 			expect(document.body.querySelector('[data-testid="composer-image-thumb"]')).not.toBeNull()
 		);
 		await vi.waitFor(() =>
-			expect(screen.getByPlaceholder("Reply to the agent…").elements()).toHaveLength(1)
+			expect(screen.getByPlaceholder("Follow up with the agent…").elements()).toHaveLength(1)
 		);
 		expect(document.body.querySelector("#dropzone")).toBeNull();
 	});
@@ -258,9 +258,9 @@ describe("AgentComposer file drag and drop", () => {
 	it("offers no dropzone when the session accepts no files", async () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount(true);
-		const target = screen.getByPlaceholder("Reply to the agent…").element() as HTMLElement;
+		const target = screen.getByPlaceholder("Follow up with the agent…").element() as HTMLElement;
 		target.dispatchEvent(new DragEvent("dragenter", { bubbles: true }));
 		expect(document.body.querySelector("#dropzone")).toBeNull();
-		expect(screen.getByPlaceholder("Reply to the agent…").elements()).toHaveLength(1);
+		expect(screen.getByPlaceholder("Follow up with the agent…").elements()).toHaveLength(1);
 	});
 });

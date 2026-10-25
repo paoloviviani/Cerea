@@ -281,7 +281,7 @@
 			dismiss(item.key);
 			return { ok: true };
 		} catch (err) {
-			const outcome = replyOutcome(err, "Could not send your answer. Try again.");
+			const outcome = replyOutcome(err, "Could not answer the request.");
 			if (outcome.ok) dismiss(item.key);
 			return outcome;
 		}
@@ -330,7 +330,7 @@
 		} catch (err) {
 			return {
 				ok: false,
-				error: err instanceof Error ? err.message : "Could not send your answer. Try again.",
+				error: err instanceof Error ? err.message : "Could not answer the question.",
 			};
 		}
 	}
@@ -374,7 +374,7 @@
 				</span>
 				<span class="text-sm font-semibold text-ink">Needs you</span>
 				<span class="hidden text-xs text-ink-muted sm:inline">
-					Answer here or on the agent. Answering in one place clears it in both.
+					Answer here or on the agent — answering anywhere clears it everywhere.
 				</span>
 				<IconChevronDown
 					class="ml-auto size-4 shrink-0 text-ink-muted transition-transform {collapsed

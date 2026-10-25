@@ -45,7 +45,7 @@
 			oncreated(created.workspace);
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not create the worktree. Try again.";
+			failure = err instanceof Error ? err.message : "Could not create the worktree.";
 		} finally {
 			busy = false;
 		}
@@ -68,7 +68,7 @@
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Could not create the worktree
+					Worktree failed
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -89,7 +89,7 @@
 				bind:value={branch}
 				disabled={busy}
 			/>
-			<p class={s.HINT}>Also the name of the new folder.</p>
+			<p class={s.HINT}>Also the new checkout's directory name.</p>
 			<label class="{s.LABEL} mt-4" for="worktree-base">Base (optional)</label>
 			<input
 				id="worktree-base"

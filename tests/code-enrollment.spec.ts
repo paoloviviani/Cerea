@@ -8,7 +8,7 @@
  * machine id, so re-enrolling is just pairing again). This suite pins:
  *
  * - a paired device whose row reports `credentialState: "expired"` shows a
- *   "sign-in expired" pill instead of "online"/"paired", and the
+ *   "credential expired" pill instead of "online"/"paired", and the
  *   composer refuses to send before any message is typed;
  * - an offline device (`online: false`) never claims a dead credential —
  *   the two are independent facts — and the tree never even tries to load
@@ -127,19 +127,19 @@ test.describe("a machine reporting an expired credential", () => {
 
 		// The device's own row in the Agents panel: neither "online" nor
 		// "paired" claims a good credential once the machine says otherwise.
-		await expect(page.getByText("sign-in expired", { exact: true })).toBeVisible();
+		await expect(page.getByText("credential expired", { exact: true })).toBeVisible();
 		await expect(page.getByText("online", { exact: true })).toHaveCount(0);
 
 		// The composer refuses the send it knows is doomed — before the
 		// person has typed anything, let alone pressed enter.
 		await expect(page.getByText(/enrollment expired or was revoked/i)).toBeVisible();
-		await page.getByPlaceholder("Reply to the agent…").fill("are you there?");
+		await page.getByPlaceholder("Follow up with the agent…").fill("are you there?");
 		await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
 
 		// Its own re-enroll link opens the pairing dialog — a fresh
 		// enrollment is a new pending machine, not an in-place fix.
-		await page.getByRole("button", { name: "Connect again", exact: true }).click();
-		await expect(page.getByRole("heading", { name: "Connect a computer" })).toBeVisible();
+		await page.getByRole("button", { name: "Re-enroll", exact: true }).click();
+		await expect(page.getByRole("heading", { name: "Pair a machine" })).toBeVisible();
 	});
 });
 
@@ -170,7 +170,7 @@ test("an offline device never reads as a dead credential, and its tree is never 
 	await openAgentsPanel(page);
 
 	await expect(page.getByText("Offline.", { exact: true })).toBeVisible();
-	await expect(page.getByText("sign-in expired", { exact: true })).toHaveCount(0);
+	await expect(page.getByText("credential expired", { exact: true })).toHaveCount(0);
 	await expect(page.getByText(/enrollment expired or was revoked/i)).toHaveCount(0);
 	expect(workspacesRequested).toBe(false);
 });

@@ -46,7 +46,7 @@
 			onrenamed();
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not rename the folder. Try again.";
+			failure = err instanceof Error ? err.message : "Could not rename the workspace.";
 		} finally {
 			busy = false;
 		}
@@ -60,7 +60,7 @@
 				<IconFolder class="size-5 text-blue-600" />
 			</div>
 			<div>
-				<h2 id="workspace-rename-title" class={s.TITLE}>Rename folder</h2>
+				<h2 id="workspace-rename-title" class={s.TITLE}>Rename workspace</h2>
 				<p class={s.SUBTITLE}>{workspace.path}</p>
 			</div>
 		</div>
@@ -90,7 +90,7 @@
 				bind:value={title}
 				disabled={busy}
 			/>
-			<p class={s.HINT}>Shown in the sidebar.</p>
+			<p class={s.HINT}>Shown in the sidebar's workspace tree.</p>
 			<div class="mt-4 flex justify-end gap-2">
 				<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
 					Cancel

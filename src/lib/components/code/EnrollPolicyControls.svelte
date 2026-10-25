@@ -152,36 +152,36 @@
 {/snippet}
 
 <div data-testid="enroll-policy">
-	<p class="mb-1 text-xs font-medium text-ink">What this computer will ever allow</p>
+	<p class="mb-1 text-xs font-medium text-ink">What this machine will ever allow</p>
 	<p class="mb-3 text-xs text-ink-muted" data-testid="enroll-fixed-note">
-		These are set when the computer is connected. To loosen one later, connect it again; <code
+		These are fixed when the machine enrolls. Loosening one later means enrolling again; <code
 			class="font-mono">galopin policy set</code
-		> on the computer can only tighten.
+		> on the machine can only tighten.
 	</p>
 
 	<div class="mb-3 text-xs text-ink-muted" data-testid="enroll-ceiling">
 		<div class="flex flex-wrap items-center justify-between gap-2">
 			<p>
 				<span class="font-medium text-ink">The most any session may do here.</span>
-				A limit that no session's Deny / Ask / Allow setting, and no “always allow”, can go past.
+				A cap no session's Deny / Ask / Allow setting, and no “always allow”, can go past.
 			</p>
 			{@render pills("enroll-ceiling-all", "All tools", allTools, setAllTools)}
 		</div>
 		{#if allTools === null}
 			<p class="mt-1" data-testid="enroll-ceiling-mixed">
 				{#if ceilingChanged(choices.ceiling)}
-					Set for each tool under Advanced.
+					Set per tool under Advanced.
 				{:else}
-					By default, commands (bash) and starting new sessions ask first, and everything else is
-					allowed. Set for each tool under Advanced.
+					Default: commands (bash) and starting new sessions ask; everything else is allowed. Set
+					per tool under Advanced.
 				{/if}
 			</p>
 		{/if}
 		{#if choices.ceiling.bash === "allow"}
 			<p class="mt-1.5 text-amber-700 dark:text-amber-400" data-testid="enroll-bash-allow-warning">
 				<IconWarning class="mr-0.5 inline size-3 align-text-top" />Commands (bash) may run without
-				asking. A command that runs unchecked could read the agent's own password and widen its own
-				rules. Keep bash on Ask unless this computer is disposable.
+				asking: a command that runs unchecked can read the agent's own server password and widen its
+				own rules. Keep bash on Ask unless this machine is disposable.
 			</p>
 		{/if}
 	</div>
@@ -189,7 +189,7 @@
 	{@render flag(
 		"allowProjectConfig",
 		"enroll-allow-project-config",
-		"Trust the repos this computer opens.",
+		"Trust the repos this machine opens.",
 		"A repo you cloned can carry its own assistant setup — extra commands, helpers and connections — which normally stays switched off, because those are someone else's files. Turn this on only where you trust the repos. Your AI provider stays locked to our gateway either way.",
 		true
 	)}
@@ -202,9 +202,9 @@
 			bind:checked={installOpencode}
 		/>
 		<span>
-			<span class="font-medium text-ink">Install opencode.</span> The agent uses opencode as its coding
-			engine. Check this on a new computer that does not have it yet (leave it unchecked if it is already
-			installed).
+			<span class="font-medium text-ink">Install opencode.</span> The agent runs the opencode binary as
+			its coding engine — check this on a fresh machine that does not have it yet (leave it unchecked
+			if it is already installed).
 		</span>
 	</label>
 
@@ -225,7 +225,7 @@
 				"billToDefault",
 				"enroll-bill-to-default",
 				"Bill to my default group.",
-				"Follows the group you pick in your account settings, instead of fixing one group for this computer. On by default: untick to pin the group a plain enroll would pick. Change the mode later with 'galopin auth group' on the computer, without connecting it again."
+				"Follows the group you pick in the Pystino console, instead of fixing one group for this machine. On by default: untick to pin the group a plain enroll would pick. Change the mode later with 'galopin auth group' on the machine, without re-enrolling."
 			)}
 			<div class="mb-3 text-xs text-ink-muted">
 				<label class="flex items-start gap-2">
@@ -239,8 +239,8 @@
 						<span class="font-medium text-amber-700 dark:text-amber-400" data-risky="true">
 							<IconWarning class="mr-0.5 inline size-3 align-text-top" />Terminals.</span
 						>
-						On by default. The panel can open a real terminal on this computer. Anyone who controls your
-						Cerea session can run commands as you, with no model and no permission rule in the way.
+						On by default. The panel can open a real shell on this machine: anyone who controls your Cerea
+						session can run commands as you, with no model and no permission rule in the way.
 					</span>
 				</label>
 				{#if page.data.codeTerminalEnabled !== true}
@@ -249,8 +249,8 @@
 					     stays, so turning the deployment's switch on later needs no
 					     re-enroll. -->
 					<p class="mt-1 ml-6 text-ink-muted" data-testid="enroll-terminal-deployment-off">
-						Terminals are turned off here. They are not offered until an administrator turns them on
-						(<code>./configure --terminal</code>). After that, this computer decides what it allows.
+						Terminal is off for this deployment: none is offered until an administrator turns it on
+						(<code>./configure --terminal</code>). This box decides what this machine allows then.
 					</p>
 				{/if}
 				{#if choices.allowTerminal}
@@ -272,7 +272,7 @@
 							class="mt-1 ml-6 text-red-600 dark:text-red-400"
 							data-testid="enroll-max-terminals-problem"
 						>
-							{terminalProblem} Until fixed, the command keeps the default of 8.
+							{terminalProblem} Until fixed, the printed command leaves the default of 8.
 						</p>
 					{/if}
 				{/if}
@@ -292,7 +292,7 @@
 			)}
 
 			<div class="mb-3 text-xs text-ink-muted" data-testid="enroll-ceiling-rows">
-				<p class="mb-1"><span class="font-medium text-ink">The limit, tool by tool.</span></p>
+				<p class="mb-1"><span class="font-medium text-ink">The cap, tool by tool.</span></p>
 				<table class="w-full">
 					<tbody>
 						{#each CEILING_KEYS as key (key)}
@@ -314,7 +314,7 @@
 				</table>
 				{#if ceilingEdited}
 					<p class="mt-1.5" data-testid="enroll-ceiling-edited">
-						Changed: the command now includes every tool, so a tool left on Allow has no limit.
+						Changed: the command now carries the whole table, so a tool left on Allow is uncapped.
 					</p>
 				{/if}
 			</div>
@@ -328,7 +328,7 @@
 				"allowFreeModels",
 				"enroll-allow-free-models",
 				"Allow free models.",
-				"List and accept models from providers other than the gateway's, so spend can land outside the account this computer enrolled under."
+				"List and accept models from providers other than the gateway's, so spend can land outside the account this machine enrolled under."
 			)}
 			{@render flag(
 				"allowOpencodeProvider",
@@ -349,7 +349,7 @@
 				"noFiles",
 				"enroll-no-files",
 				"No file explorer.",
-				"Keep the /code explorer out of this computer's workspace files."
+				"Keep the /code explorer out of this machine's workspace files."
 			)}
 			{@render listField(
 				"enroll-file-deny",

@@ -154,7 +154,7 @@ describe("Permissions dialog heading", () => {
 		await expect.element(screen.getByTestId("permissions-unavailable")).toBeVisible();
 		await expect
 			.element(screen.getByTestId("permissions-unavailable"))
-			.toHaveTextContent(/too old to show permissions/);
+			.toHaveTextContent(/too old to report permissions/);
 	});
 
 	it("says the machine did not answer on any other failed read", async () => {
@@ -276,7 +276,7 @@ describe("Permissions line detail", () => {
 		});
 		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		expect(rowText(screen, "external")).toBe(
-			"Work outside the project folder Asks first limited by this computer"
+			"Work outside the project folder Asks first limited by this machine"
 		);
 		expect(screen.getByTestId("permission-safe-dirs").elements()).toHaveLength(0);
 	});
@@ -299,7 +299,7 @@ describe("Permissions line detail", () => {
 			ceiling: { bash: "ask" },
 		});
 		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
-		expect(rowText(screen, "bash")).toBe("Run commands Asks first limited by this computer");
+		expect(rowText(screen, "bash")).toBe("Run commands Asks first limited by this machine");
 		expect(rowText(screen, "edit")).toBe("Edit and write files Allowed");
 		expect(screen.getByTestId("permission-capped").elements()).toHaveLength(1);
 	});
@@ -309,7 +309,7 @@ describe("Permissions line detail", () => {
 		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		await expect
 			.element(screen.getByText(/Set by this session's Deny \/ Ask \/ Allow switch/))
-			.toHaveTextContent("within the limits this computer was connected with");
+			.toHaveTextContent("within the limits this machine was enrolled with");
 		await expect.element(screen.getByTestId("permission-rules")).not.toBeVisible();
 	});
 
@@ -416,9 +416,9 @@ describe("the Exceptions list", () => {
 		expect(items.map((el) => el.textContent?.replace(/\s+/g, " ").trim())).toEqual([
 			"Allowed for this session: npm test Remove",
 			"Allowed for this session: ls Remove",
-			"Allowed for this session: src/** (edit) held by the computer",
+			"Allowed for this session: src/** (edit) held by the machine",
 		]);
-		await expect.element(screen.getByText("held by the computer")).toBeVisible();
+		await expect.element(screen.getByText("held by the machine")).toBeVisible();
 	});
 
 	it("says exceptions last for this session, that Deny blocks them and that Ask restores them", async () => {
@@ -427,7 +427,7 @@ describe("the Exceptions list", () => {
 		await expect
 			.element(screen.getByText(/Exceptions last for this session only/))
 			.toHaveTextContent(
-				/Deny blocks them without deleting them, and switching back to Ask brings them back/
+				/Deny blocks them without deleting them; switching back to Ask restores them/
 			);
 	});
 
@@ -497,7 +497,7 @@ describe("while the /code sign-in is stale", () => {
 	});
 });
 
-describe("a machine that from before limits existed", () => {
+describe("a machine that predates ceilings", () => {
 	const LEGACY_POLICY = { workspaceRoots: [], allowFreeModels: false, permission: { max: {} } };
 	const ENROLLED_POLICY = {
 		workspaceRoots: [],
@@ -516,11 +516,11 @@ describe("a machine that from before limits existed", () => {
 		const flag = screen.getByTestId("legacy-machine-flag");
 		// Visible without opening the detail.
 		await expect.element(flag).toBeVisible();
-		await expect.element(flag).toHaveTextContent("Connect this computer again to set limits");
-		await expect.element(flag).toHaveTextContent("from before limits existed");
+		await expect.element(flag).toHaveTextContent("Re-enroll this machine to set limits");
+		await expect.element(flag).toHaveTextContent("predates ceilings");
 		await expect.element(flag).toHaveTextContent("nothing caps Allow");
 		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
-		await screen.getByRole("button", { name: "Connect this computer again" }).click();
+		await screen.getByRole("button", { name: "Re-enroll this machine" }).click();
 		expect(onreenroll).toHaveBeenCalledTimes(1);
 		// Remembered for the machine's row in the tree.
 		await vi.waitFor(() => expect(codeLegacyMachines.d1).toBe(true));
@@ -667,7 +667,7 @@ describe("Permissions dialog coordination", () => {
 
 	it("a subagent gets the note, not the switches", async () => {
 		const screen = mountGrant(MESSAGE, { device: device(), subagent: true });
-		await expect.element(screen.getByText(/follows the main session's setting/)).toBeVisible();
+		await expect.element(screen.getByText(/follows its root's setting/)).toBeVisible();
 		expect(noOptions(screen)).toHaveLength(0);
 	});
 
@@ -680,6 +680,6 @@ describe("Permissions dialog coordination", () => {
 		const screen = mountGrant(MESSAGE, {
 			device: device({ policy: { permission: { max: { session_send: "ask" } } } }),
 		});
-		await expect.element(screen.getByText(/limits messaging sessions to Ask/)).toBeVisible();
+		await expect.element(screen.getByText(/caps messaging sessions at Ask/)).toBeVisible();
 	});
 });

@@ -60,7 +60,7 @@
 	<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto px-4 py-3" bind:this={list}>
 		{#if !plan || progress.total === 0}
 			<p class="text-sm text-ink-muted" data-testid="tasks-empty">
-				No task list yet. The agent makes one when it plans its work.
+				No task list yet — the agent makes one with its todo tool.
 			</p>
 		{:else}
 			{#if open.length > 0}

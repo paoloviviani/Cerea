@@ -2,9 +2,9 @@
 	The Local connectors tab of the workspace (ADR 0102): MCP servers that run on the
 	person's own machines, offered to their chat over the machine link.
 
-	Three jobs, in the order a person meets them. **Connect a computer**: the complete how-to
+	Three jobs, in the order a person meets them. **Connect a machine**: the complete how-to
 	(install galopin from this deployment, enroll it as a connectors machine, run it, write
-	`mcp.json`), shown in full while there is no paired machine and folded behind "Add a computer"
+	`mcp.json`), shown in full while there is no paired machine and folded behind "Add a machine"
 	once there is one. **Approve it**: a machine that checked in waits here, in `pending`; nothing
 	it offers reaches a chat until the person approves (the same fresh human confirmation the
 	Agents panel asks for a coding agent). **See what it offers**: each paired machine with its
@@ -81,7 +81,7 @@
 			for (const key of ["mcp", "mcpDetail", "mcpConnector"]) back.searchParams.delete(key);
 			window.location.href = await startLocalSignIn(server.id, `${back.pathname}${back.search}`);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not start signing in. Try again.";
+			failure = err instanceof Error ? err.message : "Could not start the sign-in.";
 			signingIn = null;
 		}
 	}
@@ -102,8 +102,7 @@
 				failure = null;
 			}
 		} catch (err) {
-			if (mine === epoch)
-				failure = err instanceof Error ? err.message : "Could not load your computers. Try again.";
+			if (mine === epoch) failure = err instanceof Error ? err.message : "Could not load machines.";
 		} finally {
 			loading = false;
 		}
@@ -130,8 +129,7 @@
 			if (err instanceof LocalConnectorsApiError && err.code === "reauth_required") {
 				needsFreshSignIn = true;
 			} else {
-				failure =
-					err instanceof Error ? err.message : "Could not approve that computer. Try again.";
+				failure = err instanceof Error ? err.message : "Could not approve the machine.";
 			}
 		} finally {
 			busy = null;
@@ -141,9 +139,7 @@
 	async function remove(machine: LocalMachineView, verb: "Reject" | "Revoke") {
 		if (
 			verb === "Revoke" &&
-			!confirm(
-				`Remove “${machine.name}”? Its connectors leave your chats, and the computer has to be connected again.`
-			)
+			!confirm(`Revoke “${machine.name}”? Its servers leave your chats; it must be enrolled again.`)
 		) {
 			return;
 		}
@@ -154,10 +150,7 @@
 			machines = machines.filter((m) => m.id !== machine.id);
 			void refresh();
 		} catch (err) {
-			failure =
-				err instanceof Error
-					? err.message
-					: `Could not ${verb === "Revoke" ? "remove" : "reject"} that computer. Try again.`;
+			failure = err instanceof Error ? err.message : `Could not ${verb.toLowerCase()} the machine.`;
 		} finally {
 			busy = null;
 		}
@@ -199,7 +192,7 @@
 }`;
 
 	const SERVICE_UNIT = `[Unit]
-Description=galopin: this computer's local connectors
+Description=galopin: this machine's local connectors
 After=network-online.target
 Wants=network-online.target
 
@@ -208,7 +201,7 @@ ExecStart=%h/.local/bin/galopin run
 # Another connectors file: ExecStart=%h/.local/bin/galopin run --mcp-config /path/to/file.json
 Restart=on-failure
 RestartSec=10
-# 78 means this computer was revoked: restarting cannot fix it.
+# 78 means this machine was revoked: restarting cannot fix it.
 RestartPreventExitStatus=78
 # Add the directories your servers' commands live in (npx, uvx, your own).
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
@@ -252,32 +245,34 @@ loginctl enable-linger "$USER"`;
 				<LucidePlug class="size-5 text-accent" />
 			</div>
 			<div class="min-w-0">
-				<h3 class="{s.CARD_TITLE} leading-10 !whitespace-normal">Connect a computer</h3>
+				<h3 class="{s.CARD_TITLE} leading-10 !whitespace-normal">Connect a machine</h3>
 				<p class="{s.SUBTITLE} mt-1 break-words">
-					Use something on your own computer (a notes folder, a database, a tool on a private
-					network) from your chats. Nothing is opened to the internet: the computer connects out to {deploymentName}.
+					Run an MCP server on your own machine (a notes folder, a database, a tool on a private
+					network) and use it from your chats. Nothing is opened to the internet: the machine dials
+					out to {deploymentName}.
 				</p>
 			</div>
 		</div>
 
-		{@render step(1, "Install galopin on that computer")}
+		{@render step(1, "Install galopin on that machine")}
 		{@render code(commands.install, "local-install-command")}
 		<p class="mt-1 text-xs text-ink-muted">
-			The installer comes from this service and puts <code class="font-mono">galopin</code> in
+			The installer comes from this deployment and puts <code class="font-mono">galopin</code> in
 			<code class="font-mono">~/.local/bin</code>.
 		</p>
 
 		{@render step(2, "Enroll it as a connectors machine")}
 		{@render code(commands.enroll, "local-enroll-command")}
 		<p class="mt-1 text-xs text-ink-muted">
-			Opens your browser so you can sign in (or prints a link and code to use on another device). A
-			computer used only for connectors does not need coding agents or a billing group.
+			Opens your browser to sign in with this deployment's identity provider (or prints a link and
+			code for another device). A connectors machine needs no coding agent, no opencode and no
+			billing group.
 		</p>
 
 		{@render step(3, "Sign in to Cerea in your browser once before running galopin")}
 		<p class="mt-1 text-xs text-ink-muted">
-			Open Cerea and sign in with the same account first. Cerea only accepts a computer for an
-			account it has seen, so <code class="font-mono">galopin run</code> is refused until you have.
+			Open this chat and sign in with the same account. Cerea only accepts a machine for an account
+			it has seen, so <code class="font-mono">galopin run</code> is refused (403) until you have.
 		</p>
 
 		{@render step(4, "Run it")}
@@ -319,12 +314,12 @@ loginctl enable-linger "$USER"`;
 				<code class="font-mono">command</code> starts a <strong>stdio</strong> server;
 				<code class="font-mono">"type": "http"</code> with a <code class="font-mono">url</code>
 				reaches an <strong>http</strong> one (headers and
-				<code class="font-mono">$&#123;VAR&#125;</code> from the computer's environment work as in Claude
+				<code class="font-mono">$&#123;VAR&#125;</code> from the machine's environment work as in Claude
 				Code).
 			</li>
 			<li>
-				<code class="font-mono">allowedTools</code> is the computer's ceiling: only those tools are offered
-				and any other call is refused on the computer, whatever the chat asks. Leave it out to offer every
+				<code class="font-mono">allowedTools</code> is the machine's ceiling: only those tools are offered
+				and any other call is refused on the machine, whatever the chat asks. Leave it out to offer every
 				tool.
 			</li>
 			<li>
@@ -334,19 +329,19 @@ loginctl enable-linger "$USER"`;
 			</li>
 			<li>
 				Edits are picked up without a restart. A server that asks for OAuth is signed in from the
-				MCP panel; its tokens stay on the computer.
+				MCP panel; its tokens stay on the machine.
 			</li>
 		</ul>
 
-		{@render step(6, "Approve the computer below")}
+		{@render step(6, "Approve the machine below")}
 		<p class="text-xs text-ink-muted">
-			It appears under <em>Waiting for approval</em> as soon as it connects. After you approve it,
-			its connectors show in Connectors and in the chat box, labelled with the computer's name.
+			It appears under <em>Waiting for approval</em> as soon as it checks in. After you approve it,
+			its servers show in the MCP panel and the composer, labelled with the machine's name.
 			<a
 				class="text-accent hover:underline"
 				href={DOCS_URL}
 				target="_blank"
-				rel="noopener noreferrer">More about connectors on your computers</a
+				rel="noopener noreferrer">More about local connectors</a
 			>.
 		</p>
 	</div>
@@ -355,9 +350,9 @@ loginctl enable-linger "$USER"`;
 <div class="space-y-5 pb-6" data-testid="local-connectors">
 	<header class="flex flex-wrap items-start justify-between gap-2">
 		<div class="min-w-0">
-			<h2 class={s.TITLE}>On your computers</h2>
+			<h2 class={s.TITLE}>Local connectors</h2>
 			<p class="{s.SUBTITLE} max-w-2xl">
-				Connectors that run on your own computers. They work in your chats while that computer is
+				MCP servers that run on your own machines, offered to your chats while the machine is
 				connected. Only you see them.
 				<a
 					class="text-accent hover:underline"
@@ -379,10 +374,10 @@ loginctl enable-linger "$USER"`;
 	{/if}
 	{#if needsFreshSignIn}
 		<div class={s.ERROR} role="alert" data-testid="local-reauth">
-			<p class="font-medium">Sign in again to approve a computer.</p>
+			<p class="font-medium">Sign in again to approve a machine.</p>
 			<p class="mt-1 text-xs">
-				Approving a computer lets it give the assistant new tools, so you need to have signed in
-				within the last 7 days.
+				Approving a machine lets it put tools in front of the assistant, so it asks for a sign-in
+				from the last 7 days.
 				<a class="underline" href={reauthHref}>Sign in again</a>
 			</p>
 		</div>
@@ -395,9 +390,10 @@ loginctl enable-linger "$USER"`;
 			data-testid="local-denied"
 		>
 			{#if denied === "not_configured"}
-				Connectors on your computers are not available yet. Ask your administrator.
+				This gateway is not configured for the chat, so local connectors are unavailable. Ask your
+				administrator to check the deployment.
 			{:else}
-				Your administrator has not turned on connectors on your computers for your groups.
+				Your administrator has not enabled local connectors for your groups.
 			{/if}
 		</div>
 	{:else if loading}
@@ -413,7 +409,7 @@ loginctl enable-linger "$USER"`;
 			</h3>
 			{#if pending.length === 0}
 				<p class="text-xs text-ink-muted">
-					No computer is waiting. A computer you connect appears here as soon as it checks in.
+					No machine is waiting. A machine you enroll appears here as soon as it checks in.
 				</p>
 			{:else}
 				<ul class="flex flex-col gap-2">
@@ -455,7 +451,7 @@ loginctl enable-linger "$USER"`;
 
 		{#if paired.length > 0}
 			<section aria-labelledby="local-machines-title">
-				<h3 id="local-machines-title" class={s.SECTION_TITLE}>Your computers ({paired.length})</h3>
+				<h3 id="local-machines-title" class={s.SECTION_TITLE}>Your machines ({paired.length})</h3>
 				<div class={s.GRID}>
 					{#each paired as machine (machine.id)}
 						<div class={s.card(machine.online)} data-testid="local-machine">
@@ -465,8 +461,8 @@ loginctl enable-linger "$USER"`;
 										<h4 class={s.CARD_TITLE}>{machine.name}</h4>
 										<p class={s.CARD_SUBTITLE}>
 											{machine.mode === "connectors"
-												? "Connectors only"
-												: "Also runs coding agents"}
+												? "Connectors machine"
+												: "Also a coding-agent machine"}
 										</p>
 									</div>
 									<span
@@ -479,8 +475,8 @@ loginctl enable-linger "$USER"`;
 								{#if machine.servers.length === 0}
 									<p class="text-xs text-ink-muted">
 										{machine.online
-											? "It has no connectors yet. Add some to mcp.json on that computer."
-											: "Start Cerea (galopin) on that computer to see its connectors."}
+											? "It lists no servers yet. Add some to mcp.json on that machine."
+											: "Start galopin on that machine to see its servers."}
 									</p>
 								{:else}
 									<ul class="mb-3 flex flex-col gap-1.5">
@@ -495,7 +491,7 @@ loginctl enable-linger "$USER"`;
 												</div>
 												{#if server.state === "needs-login" && server.transport === "http"}
 													<p class="text-xs wrap-break-word text-ink-muted">
-														Needs a sign-in. Your sign-in stays on {machine.name}.
+														Needs a sign-in; the tokens stay on {machine.name}.
 													</p>
 													<div class="flex flex-wrap items-center gap-2">
 														<button
@@ -507,9 +503,9 @@ loginctl enable-linger "$USER"`;
 															Sign in
 														</button>
 														<span class="text-xs text-ink-muted">
-															If the provider does not accept the sign-in from this page, run
+															If the provider refuses this page's redirect, run
 															<code class="font-mono">galopin connectors login {server.name}</code> on
-															the computer.
+															the machine.
 														</span>
 													</div>
 												{:else if server.state !== "ready" && server.detail}
@@ -528,7 +524,7 @@ loginctl enable-linger "$USER"`;
 										onclick={() => void remove(machine, "Revoke")}
 									>
 										<IconTrash class="size-3" />
-										Remove
+										Revoke
 									</button>
 								{:else}
 									<p class="text-xs text-ink-muted">Managed in the Agents panel.</p>
@@ -548,7 +544,7 @@ loginctl enable-linger "$USER"`;
 					aria-expanded={showAdd}
 					onclick={() => (showAdd = !showAdd)}
 				>
-					{showAdd ? "Hide" : "Add a computer"}
+					{showAdd ? "Hide" : "Add a machine"}
 				</button>
 				{#if showAdd}
 					<div class="mt-3">

@@ -1,5 +1,5 @@
 <!--
-	Connect a computer: run the agent, then confirm it here.
+	Pair a machine: run the agent, then confirm it here.
 
 	`galopin` enrolls itself against this deployment's own OIDC issuer and
 	dials out with that credential (spec §3-4) — there is nothing to paste
@@ -92,7 +92,7 @@
 			await refreshCodeDevices();
 			onpaired(device);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not confirm that computer. Try again.";
+			failure = err instanceof Error ? err.message : "Could not confirm the machine.";
 		} finally {
 			busy = null;
 		}
@@ -106,7 +106,7 @@
 			dropCodeDevice(device.id);
 			void refreshCodeDevices();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not reject that computer. Try again.";
+			failure = err instanceof Error ? err.message : "Could not reject the machine.";
 		} finally {
 			busy = null;
 		}
@@ -120,9 +120,9 @@
 				<IconLaptop class="size-5 text-blue-600" />
 			</div>
 			<div class="min-w-0 pr-8">
-				<h2 id="pair-device-title" class={s.TITLE}>Connect a computer</h2>
+				<h2 id="pair-device-title" class={s.TITLE}>Pair a machine</h2>
 				<p class="{s.SUBTITLE} break-words">
-					Run these on the computer your coding agents will work on, then confirm it below.
+					Run these on the machine your coding agents run on, then confirm it below.
 				</p>
 			</div>
 		</div>
@@ -136,7 +136,7 @@
 			</div>
 		{/if}
 
-		<p class="{s.LABEL} mb-2">Install, sign in and start</p>
+		<p class="{s.LABEL} mb-2">Install, enroll and run</p>
 		<div class="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
 			<pre
 				class="min-w-0 flex-1 overflow-x-auto font-mono text-xs whitespace-pre text-ink"
@@ -147,8 +147,8 @@
 			/>
 		</div>
 		<p class="mb-4 text-xs text-ink-muted">
-			`enroll` signs that computer in to your account; `run` starts the Cerea program (galopin),
-			which connects here and appears below once it checks in.
+			`enroll` signs the machine into your account with this deployment's identity provider; `run`
+			starts the agent, which dials out here and appears below once it checks in.
 		</p>
 		<details class="mb-4 text-xs text-ink-muted">
 			<summary class="cursor-pointer">Download manually</summary>
@@ -172,7 +172,7 @@
 
 		<p class="{s.LABEL} mt-6">Waiting for confirmation</p>
 		{#if pending.length === 0}
-			<p class="mt-1 text-xs text-ink-muted">No computer has checked in yet.</p>
+			<p class="mt-1 text-xs text-ink-muted">No machine has checked in yet.</p>
 		{:else}
 			<ul class="mt-2 flex flex-col gap-2">
 				{#each pending as device (device.id)}

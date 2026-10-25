@@ -77,7 +77,9 @@ describe("the workspace panel", () => {
 		expect(screen.getByRole("heading", { name: "Models" })).toBeInTheDocument();
 		expect(screen.baseElement.textContent).toContain("Every model available to you.");
 		// The other two managers are not mounted beside it.
-		expect(screen.baseElement.textContent).not.toContain("Manage MCP servers to extend");
+		expect(screen.baseElement.textContent).not.toContain(
+			"Connect Cerea to other apps and services"
+		);
 		expect(screen.baseElement.textContent).not.toContain("Documents an assistant can search");
 	});
 
@@ -87,7 +89,7 @@ describe("the workspace panel", () => {
 			vi.fn(async () => Response.json({ data: [] }))
 		);
 		const mcp = mountWorkspace("?tab=mcp");
-		expect(mcp.getByRole("heading", { name: "MCP Servers" })).toBeInTheDocument();
+		expect(mcp.getByRole("heading", { name: "Connectors", exact: true })).toBeInTheDocument();
 		mcp.unmount();
 		document.getElementById("app")?.remove();
 
@@ -95,22 +97,22 @@ describe("the workspace panel", () => {
 		expect(kb.getByRole("heading", { name: "Knowledge bases" })).toBeInTheDocument();
 	});
 
-	it("offers the On your computers tab only when LOCAL_CONNECTORS_ENABLED is on (ADR 0102)", async () => {
+	it("offers the Local connectors tab only when LOCAL_CONNECTORS_ENABLED is on (ADR 0102)", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => Response.json({ machines: [], data: [] }))
 		);
 		const off = mountWorkspace("?tab=local", { localConnectorsEnabled: false });
-		expect(off.baseElement.textContent).not.toContain("On your computers");
+		expect(off.baseElement.textContent).not.toContain("Local connectors");
 		// A hidden tab's address lands on Models, like Knowledge with its pipeline off.
 		expect(off.getByRole("heading", { name: "Models" })).toBeInTheDocument();
 		off.unmount();
 		document.getElementById("app")?.remove();
 
 		const on = mountWorkspace("?tab=local", { localConnectorsEnabled: true });
-		await expect.element(on.getByRole("link", { name: "On your computers" })).toBeInTheDocument();
+		await expect.element(on.getByRole("link", { name: "Local connectors" })).toBeInTheDocument();
 		await expect
-			.element(on.getByRole("heading", { name: "Connect a computer" }))
+			.element(on.getByRole("heading", { name: "Connect a machine" }))
 			.toBeInTheDocument();
 	});
 

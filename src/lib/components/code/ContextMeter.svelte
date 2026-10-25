@@ -5,7 +5,7 @@
 	raw token count — never an invented maximum. Grey below 70%, amber from
 	70%, red from 90%, matching the thresholds the popover's numbers back up.
 	The popover carries the breakdown (input/output/cache), the last
-	compaction, and a manual "Shorten now" — the same `DropdownMenu` idiom the
+	compaction, and a manual "Compact now" — the same `DropdownMenu` idiom the
 	mode/model pills beside it already use.
 
 	Hidden entirely when the backend lacks the `usage` capability (the
@@ -81,7 +81,7 @@
 			const report = (await apiClient.usage.get().then(handleResponse)) as UsageReport | null;
 			quotaSections = report?.sections ?? [];
 		} catch {
-			quotaError = "Could not load your limits. Try again.";
+			quotaError = "Could not load quotas.";
 		}
 	}
 
@@ -107,7 +107,7 @@
 	let compacting = $state(false);
 	let compactFailure = $state<string | null>(null);
 	/** Whether this deployment's `compact` capability is known unavailable —
-	 * learned the first time a "Shorten now" click 404s, not guessed up
+	 * learned the first time a "Compact now" click 404s, not guessed up
 	 * front: `supported` only tells us about `usage`, a separate capability. */
 	let compactUnsupported = $state(false);
 
@@ -145,8 +145,8 @@
 
 	let compactionNote = $derived.by(() => {
 		if (!lastCompaction) return null;
-		if (lastCompaction.auto === false) return "Shortened by you";
-		if (lastCompaction.auto === true) return "Shortened automatically";
+		if (lastCompaction.auto === false) return "Compacted manually";
+		if (lastCompaction.auto === true) return "Compacted automatically";
 		return "Compacted";
 	});
 
@@ -161,8 +161,7 @@
 			if (err instanceof CodeApiError && err.status === 404) {
 				compactUnsupported = true;
 			} else {
-				compactFailure =
-					err instanceof Error ? err.message : "The computer could not shorten the conversation.";
+				compactFailure = err instanceof Error ? err.message : "The daemon refused to compact.";
 			}
 		} finally {
 			compacting = false;
@@ -249,20 +248,20 @@
 							disabled={compacting}
 							onclick={() => void compactNow()}
 						>
-							{compacting ? "Compacting…" : "Shorten now"}
+							{compacting ? "Compacting…" : "Compact now"}
 						</button>
 					{/if}
 
 					{#if quotaDisplay.kind !== "hidden"}
 						<div class="mt-1 border-t border-gray-200 pt-2 dark:border-gray-700">
-							<div class="mb-1 font-medium text-gray-800 dark:text-gray-100">Limits</div>
+							<div class="mb-1 font-medium text-gray-800 dark:text-gray-100">Quotas</div>
 							{#if quotaDisplay.kind === "error"}
 								<div class="flex items-center gap-1 text-amber-600 dark:text-amber-400">
 									<IconWarning class="size-3 shrink-0" />
 									<span>{quotaDisplay.message}</span>
 								</div>
 							{:else if quotaDisplay.kind === "empty"}
-								<p class="text-gray-500 dark:text-gray-400">No limits</p>
+								<p class="text-gray-500 dark:text-gray-400">No quotas</p>
 							{:else}
 								<div class="-mx-3 divide-y divide-gray-200 px-3 dark:divide-gray-700">
 									{#each quotaDisplay.quotas as quota, i (`${i}:${quota.label}`)}

@@ -62,7 +62,7 @@
 					</p>
 					<p class="text-xs text-gray-600 dark:text-gray-400">
 						{enabledCount} enabled{onMachines.length
-							? ` · ${onMachinesReady} of ${onMachines.length} on your computers connected`
+							? ` · ${onMachinesReady} of ${onMachines.length} on your machines connected`
 							: ""}
 					</p>
 				</div>

@@ -70,7 +70,7 @@
 			limit = answer.limit;
 			failure = null;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load your schedules. Try again.";
+			failure = err instanceof Error ? err.message : "Could not load your schedules.";
 		} finally {
 			loading = false;
 		}
@@ -98,7 +98,7 @@
 			await updateSchedule(schedule.id, { enabled: !schedule.enabled });
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not change the schedule. Try again.";
+			failure = err instanceof Error ? err.message : "Could not change the schedule.";
 		} finally {
 			busyId = null;
 		}
@@ -112,7 +112,7 @@
 			notice = { id: schedule.id, run };
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not run the schedule. Try again.";
+			failure = err instanceof Error ? err.message : "Could not run the schedule.";
 		} finally {
 			busyId = null;
 		}
@@ -157,7 +157,7 @@
 			<div class="p-4 sm:p-6">
 				<div class={s.HEADER}>
 					<h2 class={s.TITLE}>Schedules</h2>
-					<p class={s.SUBTITLE}>Messages sent to your coding sessions on a timetable.</p>
+					<p class={s.SUBTITLE}>Prompts sent to your coding sessions on a timetable.</p>
 				</div>
 
 				<div class="{s.STRIP} {schedules.length ? s.STRIP_ACTIVE : s.STRIP_IDLE}">
@@ -285,7 +285,7 @@
 										</p>
 									{:else if !deviceOnline(schedule) && schedule.enabled}
 										<p class="mt-2 text-xs text-ink-muted">
-											That computer is offline. Runs are marked as missed until it is back.
+											That machine is offline; runs are recorded as missed until it is back.
 										</p>
 									{/if}
 
@@ -331,14 +331,14 @@
 					<ul class={s.TIPS_LIST}>
 						<li>Runs are at least 15 minutes apart. Times are read in the schedule's timezone.</li>
 						<li>
-							A run on a computer that is offline is marked as missed, not saved for later. Each
-							computer pays for its own runs with its own sign-in.
+							A run on a machine that is offline is recorded as missed, never queued. Machines pay
+							for their own runs with their own credential.
 						</li>
 						<li>
-							If the previous run is still working, the next one is skipped. If Cerea was down, at
-							most one late run is made up, and only if it is not very late.
+							If the previous run's session is still working, the next one is skipped. If Cerea was
+							down, at most one late run is made up, and only when it is not very late.
 						</li>
-						<li>Three failed runs in a row turn a schedule off.</li>
+						<li>Three failed runs in a row switch a schedule off.</li>
 					</ul>
 				</div>
 			</div>
@@ -351,7 +351,7 @@
 	<CodeConfirmDialog
 		title="Delete schedule"
 		target={target.name}
-		message="The schedule stops and is removed. Sessions it already started stay on the computer, and its past runs stay on record for 90 days."
+		message="The schedule stops and is removed. Sessions it already started stay on the machine, and its past runs stay on record for 90 days."
 		confirmLabel="Delete schedule"
 		busyLabel="Deleting…"
 		onconfirm={() => remove(target)}

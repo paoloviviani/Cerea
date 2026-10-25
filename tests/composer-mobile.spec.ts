@@ -337,7 +337,7 @@ test.describe("chat composer at 390×844", () => {
 
 		const attach = page.getByRole("button", { name: "Add attachment" });
 		const webSearch = page.getByRole("button", { name: "Web search" });
-		const toolApproval = page.getByRole("button", { name: /^Tools (ask first|auto-approved)$/ });
+		const toolApproval = page.getByRole("button", { name: /^(Asks first|Runs without asking)$/ });
 
 		await expect(attach).toBeVisible();
 		await expect(webSearch).toBeVisible();

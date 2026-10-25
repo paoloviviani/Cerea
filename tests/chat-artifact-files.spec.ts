@@ -172,7 +172,7 @@ test("Pyodide outputs appear as file artifacts with previews, versions and expor
 
 	// The library lists both persisted files.
 	await page.getByRole("button", { name: "Open files panel" }).click();
-	const library = page.getByLabel("Artifacts panel", { exact: true });
+	const library = page.getByLabel("Files panel", { exact: true });
 	await expect(library.getByText("hello.pdf")).toBeVisible({ timeout: 30_000 });
 	await expect(library.getByText("hello.docx")).toBeVisible();
 
@@ -351,7 +351,7 @@ test("a code block's file is a file artifact too, and comes back after a reload"
 
 		// And it is a file artifact like any other: listed, and opens in the panel.
 		await page.getByRole("button", { name: "Open files panel" }).click();
-		const library = page.getByLabel("Artifacts panel", { exact: true });
+		const library = page.getByLabel("Files panel", { exact: true });
 		await library.getByRole("button", { name: "Open hello_world.docx in panel" }).click();
 		const panel = page.getByLabel("File panel", { exact: true });
 		await expect(panel.getByRole("heading", { name: "hello_world.docx" }), pass).toBeVisible({
@@ -400,7 +400,7 @@ test("the inline file card keeps its filename visible when the chat column is na
 	await waitForHydration(page);
 
 	await page.getByRole("button", { name: "Open files panel" }).click();
-	const library = page.getByLabel("Artifacts panel", { exact: true });
+	const library = page.getByLabel("Files panel", { exact: true });
 	await library.getByRole("button", { name: "Open hello_world.docx in panel" }).click();
 	await expect(page.getByLabel("File panel", { exact: true })).toBeVisible();
 

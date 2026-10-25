@@ -44,7 +44,7 @@
 			onrenamed();
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not rename the session. Try again.";
+			failure = err instanceof Error ? err.message : "Could not rename the session.";
 		} finally {
 			busy = false;
 		}
@@ -88,7 +88,7 @@
 				bind:value={name}
 				disabled={busy}
 			/>
-			<p class={s.HINT}>Shown in the sidebar.</p>
+			<p class={s.HINT}>Shown in the sidebar's agent list.</p>
 			<div class="mt-4 flex justify-end gap-2">
 				<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
 					Cancel

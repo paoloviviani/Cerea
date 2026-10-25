@@ -59,13 +59,13 @@ async function pairAndStartSession(page: Page, name: string) {
 	await page.goto(`${E2E_APP_BASE}/code`);
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
 	await expect(page.getByText(name)).toBeVisible({ timeout: 15_000 });
-	await page.getByRole("button", { name: "Confirm this computer" }).click();
-	await page.getByRole("button", { name: "Add a folder on this computer" }).click();
-	await page.getByLabel("Folder on the computer").fill("/repo");
+	await page.getByRole("button", { name: "Confirm this machine" }).click();
+	await page.getByRole("button", { name: "Add a workspace to this device" }).click();
+	await page.getByLabel("Directory on the machine").fill("/repo");
 	await page.getByLabel("Title (optional)").fill("repo");
-	await page.getByRole("dialog").getByRole("button", { name: "Add folder" }).click();
+	await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 	await expect(page.getByText("repo", { exact: true })).toBeVisible();
-	await page.getByRole("button", { name: "Start a coding session in this folder" }).click();
+	await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
 	await page.getByRole("button", { name: "Build" }).click();
 	await page.getByRole("button", { name: "Create agent" }).click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);

@@ -49,7 +49,7 @@ test("create a project on its page, attach a base afterwards, add a document, re
 	// Create.
 	await page.goto(`${E2E_APP_BASE}/projects/new`);
 	await page.getByLabel("Name").fill("E2E project");
-	await page.getByLabel("Instructions").fill("Answer briefly.");
+	await page.getByLabel("Instructions", { exact: true }).fill("Answer briefly.");
 	await page.getByRole("button", { name: "Create project" }).click();
 	await page.waitForURL(/\/projects\/[a-f0-9]{24}$/);
 	const projectId = page.url().split("/").pop() ?? "";
@@ -146,7 +146,7 @@ test("@smoke the project page is two columns on a desktop, with nothing scrollin
 	expect(await horizontalOverflow(page)).toEqual([]);
 	// The name card and the instructions card sit side by side.
 	const name = await page.getByLabel("Name").boundingBox();
-	const instructions = await page.getByLabel("Instructions").boundingBox();
+	const instructions = await page.getByLabel("Instructions", { exact: true }).boundingBox();
 	expect(name && instructions).toBeTruthy();
 	expect(Math.abs((name?.y ?? 0) - (instructions?.y ?? 0))).toBeLessThan(200);
 	expect(instructions?.x ?? 0).toBeGreaterThan((name?.x ?? 0) + (name?.width ?? 0));

@@ -13,7 +13,7 @@
 	The workspace and session lists come from the same /code listings the tree
 	uses (`listWorkspaces`, `listWorkspaceAgents`); an offline machine can be
 	chosen, and then there is nothing to list: the run is recorded
-	"missed: machine offline" for as long as it is away. "New folder…" goes
+	"missed: machine offline" for as long as it is away. "New workspace…" goes
 	through the same forwarder route and dialog rules as the tree's "Add a
 	workspace" (the machine's `workspaceRoots` apply, and its refusal is shown
 	here, inline); it is created on Save, before the schedule, and kept if the
@@ -163,7 +163,7 @@
 		if (!id) return;
 		const row = codeDeviceList.devices.find((d) => d.id === id);
 		if (row?.online !== true) {
-			machineNote = `${row?.name ?? "This computer"} is offline, so its workspaces cannot be listed now. The schedule can still be saved; each run is recorded as missed until it is back.`;
+			machineNote = `${row?.name ?? "This machine"} is offline, so its workspaces cannot be listed now. The schedule can still be saved; each run is recorded as missed until it is back.`;
 			return;
 		}
 		loadingMachine = true;
@@ -181,7 +181,7 @@
 			models = mm.models;
 			if (!modeId) modeId = modes.find((x) => x.id === "plan")?.id ?? modes[0]?.id ?? "";
 		} catch (err) {
-			machineNote = err instanceof Error ? err.message : "Could not load this computer. Try again.";
+			machineNote = err instanceof Error ? err.message : "Could not read this machine.";
 		} finally {
 			loadingMachine = false;
 		}
@@ -267,15 +267,15 @@
 		if (busy) return;
 		failure = null;
 		if (!name.trim()) return (failure = "Give the schedule a name.");
-		if (!deviceId) return (failure = "Choose the computer it runs on.");
-		if (!workspaceChoice) return (failure = "Choose a folder.");
+		if (!deviceId) return (failure = "Choose the machine it runs on.");
+		if (!workspaceChoice) return (failure = "Choose a workspace.");
 		if (makingWorkspace && !newPath.trim())
-			return (failure = "Enter the folder for the new workspace.");
-		if (!prompt.trim()) return (failure = "Write the message it sends.");
+			return (failure = "Enter the new workspace's directory.");
+		if (!prompt.trim()) return (failure = "Write the prompt it sends.");
 		// Empty = no stopping criterion; `null` clears one on an edit.
 		const capRaw = stopAfter == null ? "" : String(stopAfter).trim();
 		if (capRaw !== "" && (!/^\d+$/.test(capRaw) || Number(capRaw) < 1 || Number(capRaw) > 100000)) {
-			return (failure = "“Stop after” must be a whole number of runs from 1 to 100000, or empty.");
+			return (failure = "Stop after must be a whole number of runs from 1 to 100000, or empty.");
 		}
 		busy = true;
 		try {
@@ -320,7 +320,7 @@
 			const saved = editing ? await updateSchedule(editing.id, input) : await createSchedule(input);
 			onsaved(saved.schedule);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save the schedule. Try again.";
+			failure = err instanceof Error ? err.message : "Could not save the schedule.";
 		} finally {
 			busy = false;
 		}
@@ -339,7 +339,7 @@
 			<div class={s.HEADER}>
 				<h2 class={s.TITLE}>{editing ? "Edit schedule" : "New schedule"}</h2>
 				<p class={s.SUBTITLE}>
-					Sends a message to a coding session on one of your computers, on a timetable.
+					Sends a prompt to a coding session on one of your machines, on a timetable.
 				</p>
 				<ScheduleCreatedBy createdBy={editing?.createdBy} class="mt-2" />
 			</div>
@@ -368,7 +368,7 @@
 			<h3 class="{s.SECTION_TITLE} mt-6">Where it runs</h3>
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-device">1. Computer</label>
+					<label class={s.LABEL} for="sched-device">1. Machine</label>
 					<select
 						id="sched-device"
 						class={s.INPUT}
@@ -377,14 +377,14 @@
 						onchange={onDeviceChange}
 						disabled={busy}
 					>
-						<option value="" disabled>Choose a computer</option>
+						<option value="" disabled>Choose a machine</option>
 						{#each pairedDevices as d (d.id)}
 							<option value={d.id}>{d.name} · {d.online ? "online" : "offline"}</option>
 						{/each}
 					</select>
 				</div>
 				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-workspace">2. Folder</label>
+					<label class={s.LABEL} for="sched-workspace">2. Workspace</label>
 					<select
 						id="sched-workspace"
 						class={s.INPUT}
@@ -394,7 +394,7 @@
 						disabled={busy || !deviceId}
 					>
 						<option value="" disabled>
-							{loadingMachine ? "Loading…" : "Choose a folder"}
+							{loadingMachine ? "Loading…" : "Choose a workspace"}
 						</option>
 						{#each workspaces as w (w.id)}
 							<option value={w.id}>{w.name}</option>
@@ -403,7 +403,7 @@
 							<option value={workspaceChoice}>{stored.labels?.workspace ?? workspaceChoice}</option>
 						{/if}
 						{#if online}
-							<option value={NEW}>New folder…</option>
+							<option value={NEW}>New workspace…</option>
 						{/if}
 					</select>
 				</div>
@@ -415,7 +415,7 @@
 			{#if makingWorkspace}
 				<div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2" data-testid="new-workspace">
 					<div class="relative min-w-0">
-						<label class={s.LABEL} for="sched-newpath">Folder on the computer</label>
+						<label class={s.LABEL} for="sched-newpath">Directory on the machine</label>
 						<input
 							id="sched-newpath"
 							class={s.INPUT}
@@ -463,7 +463,7 @@
 						/>
 					</div>
 					<p class="{s.HINT} sm:col-span-2">
-						Created when you save. The computer decides which folders it allows.
+						Created when you save. The machine decides which directories it will serve.
 					</p>
 				</div>
 			{/if}
@@ -487,8 +487,8 @@
 				</select>
 				<p class={s.HINT}>
 					{sessionChoice === NEW
-						? "Each run starts a session titled “name · date” in this folder."
-						: "Every run goes to this one session. Its mode, model and permission setting are changed to the ones below."}
+						? "Each run starts a session titled “name · date” in this workspace."
+						: "Every run goes to this one session; its mode, model and permission word are set to the ones below."}
 				</p>
 			</div>
 
@@ -521,7 +521,7 @@
 						bind:value={modelId}
 						disabled={busy || !deviceId}
 					>
-						<option value="">The computer's default</option>
+						<option value="">The machine's default</option>
 						{#each models as m (m.id)}
 							<option value={m.id}>{m.label}</option>
 						{/each}
@@ -550,22 +550,22 @@
 				</div>
 				{#if permissionMode === "ask"}
 					<p class="{s.NOTICE} mt-2" data-testid="ask-warning">
-						Nobody is watching a scheduled run. On Ask it stops at its first question and waits; the
-						question appears in the Needs you inbox at the top of this page. Choose Allow for work
-						that must finish on its own.
+						Nobody is watching a scheduled run. On Ask it stops at its first approval and waits; the
+						approval card appears in the Needs-you inbox at the top of this page. Choose Allow for
+						work that must finish on its own.
 					</p>
 				{:else if permissionMode === "allow"}
 					<p class={s.HINT}>
-						Goes ahead without asking, but never past the computer's own limit: anything that
-						computer limits to Ask still asks.
+						Runs without asking, but never past the machine's own ceiling: what that machine caps at
+						Ask still asks.
 					</p>
 				{:else}
-					<p class={s.HINT}>The agent can read but cannot change or run anything.</p>
+					<p class={s.HINT}>The agent can read but is refused anything that changes or runs.</p>
 				{/if}
 			</div>
 
 			<div class="mt-4" data-testid="coordination-options">
-				<span class={s.LABEL} id="sched-coord-label">Other sessions on this computer</span>
+				<span class={s.LABEL} id="sched-coord-label">Other sessions on this machine</span>
 				<div class="space-y-2" role="group" aria-labelledby="sched-coord-label">
 					<label class="flex items-start gap-2 text-sm text-ink">
 						<input type="checkbox" class="mt-1" bind:checked={canMessage} disabled={busy} />
@@ -577,15 +577,15 @@
 					</label>
 				</div>
 				<p class={s.HINT}>
-					Lets a run manage the computer's other sessions without stopping to ask. Never past the
-					computer's own limits: it still asks about a session in another folder, a long chain of
-					agent messages and anything the computer limits to Ask.
+					Lets a run orchestrate the machine's other sessions without stopping at an approval card.
+					Never past the machine's own limits: a session in another workspace, a long chain of agent
+					messages and anything the machine caps at Ask still ask.
 				</p>
 				{#if coordination && !coordination.ok}
 					<p class="{s.NOTICE} mt-2" data-testid="coordination-unsupported">
 						{coordination.reason === "too-old"
-							? "The Cerea program (galopin) on this computer is too old for these options. Update it. The schedule still runs without them."
-							: "This computer was connected without agent tools, so these options are not available. The schedule still runs without them."}
+							? "This machine's galopin is too old to grant coordination; update it. The schedule still runs, without these options."
+							: "This machine was enrolled without agent tools, so these options cannot be granted. The schedule still runs, without them."}
 					</p>
 				{:else if coordinationCeiling}
 					<p class="{s.NOTICE} mt-2" data-testid="coordination-ceiling">{coordinationCeiling}</p>
@@ -618,7 +618,7 @@
 						<option value="daily">Every day</option>
 						<option value="weekdays">Weekdays</option>
 						<option value="weekly">Every week</option>
-						<option value="cron">Advanced (cron schedule)</option>
+						<option value="cron">Advanced (cron expression)</option>
 					</select>
 				</div>
 				<div class="min-w-0">
@@ -636,7 +636,7 @@
 							disabled={busy}
 						/>
 					{:else if preset === "cron"}
-						<label class={s.LABEL} for="sched-cron">Cron schedule</label>
+						<label class={s.LABEL} for="sched-cron">Cron expression</label>
 						<input
 							id="sched-cron"
 							class="{s.INPUT} font-mono"
@@ -711,13 +711,12 @@
 			</div>
 			{#if preset === "cron"}
 				<p class={s.HINT}>
-					Five parts: minute, hour, day of month, month, day of week. At least 15 minutes between
-					runs.
+					Five fields: minute hour day-of-month month day-of-week. At least 15 minutes between runs.
 				</p>
 			{/if}
 			<p class={s.HINT} data-testid="stopafter-hint">
-				Turns the schedule off after this many runs. Leave empty to run for ever. “Run now” does not
-				count.
+				Switches the schedule off once it has run this many times. Leave empty to run for ever; Run
+				now does not count.
 			</p>
 
 			<div class="mt-3 rounded-lg bg-sunken p-3" data-testid="schedule-preview" aria-live="polite">

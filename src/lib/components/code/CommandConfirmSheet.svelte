@@ -37,7 +37,7 @@
 			await onconfirm();
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "The computer did not accept that.";
+			failure = err instanceof Error ? err.message : "The daemon refused.";
 		} finally {
 			busy = false;
 		}
@@ -63,15 +63,14 @@
 			<div class="min-w-0 flex-1">
 				<h2 id="command-confirm-title" class={s.TITLE}>Run /{command.name}?</h2>
 				<p class={s.SUBTITLE}>
-					{command.origin === "project" ? "From this repository." : "Set up on this computer."}
+					{command.origin === "project" ? "From this repository." : "Defined on this machine."}
 				</p>
 			</div>
 		</div>
 
 		<div class="flex flex-col gap-3">
 			<p class="text-sm text-gray-700 dark:text-gray-300">
-				This command runs on your computer. Running a project command means running code from the
-				repository.
+				This command runs on your machine. Running a project command is running repository code.
 			</p>
 
 			{#if command.shellSnippets?.length}
@@ -80,7 +79,7 @@
 						class="mb-1 flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400"
 					>
 						<LucideTerminal class="size-3.5" />
-						Command it would run
+						Shell it would run
 					</div>
 					<ul class="flex flex-col gap-1">
 						{#each command.shellSnippets as snippet (snippet)}

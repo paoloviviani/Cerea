@@ -39,8 +39,7 @@
 		try {
 			files = (await getAgentDiff(deviceId, agentId)).files;
 		} catch (err) {
-			failure =
-				err instanceof Error ? err.message : "Could not load the agent's changes. Try again.";
+			failure = err instanceof Error ? err.message : "Could not load the agent's changes.";
 		} finally {
 			loading = false;
 		}
@@ -80,7 +79,7 @@
 			<div class={s.EMPTY}>
 				<IconDocument class={s.EMPTY_ICON} />
 				<p class={s.EMPTY_TITLE}>No changes yet</p>
-				<p class={s.EMPTY_DETAIL}>Files this agent changes will appear here, with what changed.</p>
+				<p class={s.EMPTY_DETAIL}>Files this agent edits will appear here as diffs.</p>
 			</div>
 		{:else}
 			{#each files as file (file.path)}

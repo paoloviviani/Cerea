@@ -85,7 +85,7 @@ describe("PairDeviceDialog", () => {
 	it("opens with every default, and prints exactly the defaults: --default-group, nothing else", async () => {
 		await browserPage.viewport(1200, 1000);
 		const screen = mount();
-		await expect.element(screen.getByText("Connect a computer")).toBeVisible();
+		await expect.element(screen.getByText("Pair a machine")).toBeVisible();
 		expect(command(screen)).toBe(PLAIN);
 		expect(policyPart(screen)).toBe("--default-group");
 		await openAdvanced(screen);
@@ -98,7 +98,7 @@ describe("PairDeviceDialog", () => {
 		await expect.element(note).toBeVisible();
 		const text = note.element().textContent?.replace(/\s+/g, " ").trim();
 		expect(text).toBe(
-			"These are set when the computer is connected. To loosen one later, connect it again; galopin policy set on the computer can only tighten."
+			"These are fixed when the machine enrolls. Loosening one later means enrolling again; galopin policy set on the machine can only tighten."
 		);
 		expect(screen.getByTestId("enroll-fixed-note").elements()).toHaveLength(1);
 	});
@@ -114,7 +114,7 @@ describe("PairDeviceDialog", () => {
 	it("keeps the plain-words sentences for the two it had: Trust the repos, Install opencode", async () => {
 		const screen = mount();
 		await expect
-			.element(screen.getByRole("checkbox", { name: /Trust the repos this computer opens/ }))
+			.element(screen.getByRole("checkbox", { name: /Trust the repos this machine opens/ }))
 			.toBeVisible();
 		await expect.element(screen.getByRole("checkbox", { name: /Install opencode/ })).toBeVisible();
 		expect(screen.getByTestId("enroll-allow-project-config").element()).not.toBeChecked();
@@ -145,7 +145,7 @@ describe("every exposed flag has a control", () => {
 describe("each control emits exactly its flag", () => {
 	const checkboxes: Array<[string, string, string, boolean]> = [
 		// testid, flag, label, needs Advanced open. Terminals, the command shell and
-		// background helper agents are on by default: clicking turns them off. The
+		// background subagents are on by default: clicking turns them off. The
 		// billing box is not here: it is ticked by default, so clicking REMOVES
 		// its flag, and it has its own test below.
 		["enroll-allow-terminal", "--no-terminal", "terminals off", true],
@@ -452,7 +452,7 @@ describe("the deployment's terminal switch", () => {
 		await openAdvanced(screen);
 		await expect
 			.element(screen.getByTestId("enroll-terminal-deployment-off"))
-			.toHaveTextContent("Terminals are turned off here");
+			.toHaveTextContent("Terminal is off for this deployment");
 	});
 
 	it("says nothing extra when the deployment offers terminals", async () => {

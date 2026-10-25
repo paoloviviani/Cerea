@@ -236,7 +236,7 @@ describe("CodeNavTree spawned sessions", () => {
 		await expect.element(screen.getByText("Agent a2")).toBeVisible();
 
 		const froms = [...screen.baseElement.querySelectorAll('[data-testid="spawned-from"]')];
-		expect(froms.map(text)).toEqual(["started by Agent a1", "started by Old planner (gone)"]);
+		expect(froms.map(text)).toEqual(["spawned by Agent a1", "spawned by Old planner (gone)"]);
 		// Linked when the spawner is listed; muted plain text when it is gone.
 		expect(froms[0]?.getAttribute("href")).toContain("agent=a1");
 		expect(froms[0]?.getAttribute("href")).toContain("ws=w1");
@@ -307,7 +307,7 @@ describe("CodeNavTree spawned sessions", () => {
 		reset();
 	});
 
-	it("keeps spawned sessions when helper agents are hidden, and when the spawner is gone", async () => {
+	it("keeps spawned sessions when subagents are hidden, and when the spawner is gone", async () => {
 		AGENTS.d1 = [
 			agent("a1", "w1"),
 			{ ...agent("a2", "w1"), parentId: "a1" },
@@ -331,7 +331,7 @@ describe("CodeNavTree spawned sessions", () => {
 		const screen = mount([device("d1")]);
 		await expect.element(screen.getByText("Agent a3")).toBeVisible();
 		expect(text(screen.baseElement.querySelector('[data-testid="spawned-from"]'))).toBe(
-			"started by Agent a1 (then) (gone)"
+			"spawned by Agent a1 (then) (gone)"
 		);
 		expect(screen.baseElement.querySelector('[data-testid="spawned-count"]')).toBeNull();
 		reset();
@@ -485,9 +485,9 @@ describe("CodeNavTree session Permissions menu", () => {
 			}),
 		]);
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		await screen.getByRole("button", { name: "Computer settings" }).click();
+		await screen.getByRole("button", { name: "Machine settings" }).click();
 		await screen.getByRole("menuitem", { name: "Profiles" }).click();
-		await expect.element(screen.getByRole("heading", { name: "Helper profiles" })).toBeVisible();
+		await expect.element(screen.getByRole("heading", { name: "Delegate profiles" })).toBeVisible();
 		await expect.element(screen.getByLabelText("Profile 1 name")).toHaveValue("fast");
 		expect(apiMock.getDelegateProfiles).toHaveBeenCalledWith("d1");
 	});
@@ -503,7 +503,7 @@ describe("CodeNavTree session Permissions menu", () => {
 			}),
 		]);
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		await screen.getByRole("button", { name: "Computer settings" }).click();
+		await screen.getByRole("button", { name: "Machine settings" }).click();
 		await screen.getByRole("menuitem", { name: "Profiles" }).click();
 		await screen.getByRole("button", { name: "Add profile" }).click();
 		const name = screen.getByLabelText("Profile 1 name");
@@ -521,7 +521,7 @@ describe("CodeNavTree session Permissions menu", () => {
 		go("?device=d1&ws=w1");
 		const screen = mount([device("d1")]);
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		await screen.getByRole("button", { name: "Computer settings" }).click();
+		await screen.getByRole("button", { name: "Machine settings" }).click();
 		await screen.getByRole("menuitem", { name: "Profiles" }).click();
 		await expect
 			.element(screen.getByTestId("profiles-unavailable"))
@@ -564,6 +564,6 @@ describe("CodeNavTree session Permissions menu", () => {
 		await expect.element(screen.getByTestId("legacy-machine-flag")).toBeVisible();
 		await expect
 			.element(screen.getByTestId("legacy-machine-flag"))
-			.toHaveTextContent("Connect this computer again to set limits");
+			.toHaveTextContent("Re-enroll this machine to set limits");
 	});
 });

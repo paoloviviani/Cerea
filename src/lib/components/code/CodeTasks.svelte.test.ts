@@ -87,7 +87,7 @@ describe("CodeTasks", () => {
 		const screen = render(CodeTasks, { plan: null });
 		await expect
 			.element(screen.getByTestId("tasks-empty"))
-			.toHaveTextContent("No task list yet. The agent makes one when it plans its work.");
+			.toHaveTextContent("No task list yet — the agent makes one with its todo tool.");
 		expect(screen.baseElement.querySelector('[role="progressbar"]')).toBeNull();
 	});
 });

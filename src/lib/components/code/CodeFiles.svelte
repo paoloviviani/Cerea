@@ -81,9 +81,9 @@
 	 */
 	function failureMessage(err: unknown): string {
 		if (err instanceof CodeApiError && err.status === 413) {
-			return "This file is too big to show here. Images up to 8 MB can be shown.";
+			return "This file is too large to show here. The explorer shows images up to 8 MB.";
 		}
-		return err instanceof Error ? err.message : "Could not open this file. Try again.";
+		return err instanceof Error ? err.message : "Could not read this file.";
 	}
 
 	function select(entry: FileEntry) {
@@ -127,7 +127,7 @@
 			>
 		{:else}
 			<span class="min-w-0 flex-1 truncate text-xs text-gray-500">
-				{branch ? `On ${branch}` : "Folder files"}
+				{branch ? `On ${branch}` : "Workspace files"}
 			</span>
 		{/if}
 		<button
@@ -158,8 +158,8 @@
 			{#if open.redacted}
 				<p class="flex items-center gap-2 p-4 text-sm text-gray-500">
 					<IconLocked class="size-4 shrink-0" />
-					Hidden by this computer's rules. This keeps secrets off screens and out of logs, but it does
-					not stop the agent from reading the file.
+					Hidden by this machine's policy. This keeps secrets off screens and out of logs; it is not a
+					boundary: the agent can still read the file.
 				</p>
 			{:else if failure}
 				<p class="p-4 text-sm text-red-600 dark:text-red-400">{failure}</p>

@@ -54,13 +54,13 @@ async function pairAndOpenWorkspace(page: Page, name: string) {
 	await page.goto(`${E2E_APP_BASE}/code`);
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
 	await expect(page.getByText(name)).toBeVisible({ timeout: 15_000 });
-	await page.getByRole("button", { name: "Confirm this computer" }).click();
-	await page.getByRole("button", { name: "Add a folder on this computer" }).click();
-	await page.getByLabel("Folder on the computer").fill("/repo");
+	await page.getByRole("button", { name: "Confirm this machine" }).click();
+	await page.getByRole("button", { name: "Add a workspace to this device" }).click();
+	await page.getByLabel("Directory on the machine").fill("/repo");
 	await page.getByLabel("Title (optional)").fill("repo");
-	await page.getByRole("dialog").getByRole("button", { name: "Add folder" }).click();
+	await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 	await expect(page.getByText("repo", { exact: true })).toBeVisible();
-	await page.getByRole("button", { name: "Start a coding session in this folder" }).click();
+	await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
 	await page.getByRole("button", { name: "Build" }).click();
 	await page.getByRole("button", { name: "Create agent" }).click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -75,7 +75,7 @@ async function openTerminalTab(page: Page) {
  * real machine's default of the workspace name) — the toggle's `title`
  * attribute is the one thing that never collides with a tab's own label. */
 async function togglePane(page: Page) {
-	await page.getByTitle("Open a terminal in this folder").click();
+	await page.getByTitle("Open a shell on this workspace").click();
 }
 
 /** Opening the Terminal tab only shows the (possibly empty) roster — a
@@ -134,7 +134,7 @@ test.describe("the terminal, hermetic", () => {
 		await expect(button).toBeDisabled();
 		await expect(button).toHaveAttribute(
 			"title",
-			"This computer was connected with terminals off. Connect it again (terminals are on by default) to use them here."
+			"This machine was enrolled with terminals off. Re-enroll it (terminals are on by default) to use them here."
 		);
 	});
 
@@ -330,14 +330,14 @@ test.describe("the terminal, hermetic", () => {
 			.getByTestId("code-terminals")
 			.getByRole("button", { name: "Close terminal", exact: true })
 			.click();
-		await expect(page.getByText("No terminals open in this folder.")).toBeVisible();
+		await expect(page.getByText("No terminals open in this workspace.")).toBeVisible();
 		await expect.poll(() => fake?.model.terminals.has(terminalId)).toBe(false);
 
 		// Gone from the machine's own roster, so a fresh pane open doesn't
 		// bring it back.
 		await togglePane(page);
 		await togglePane(page);
-		await expect(page.getByText("No terminals open in this folder.")).toBeVisible();
+		await expect(page.getByText("No terminals open in this workspace.")).toBeVisible();
 	});
 
 	test("multiple tabs", async ({ page, db, session }) => {

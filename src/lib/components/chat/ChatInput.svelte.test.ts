@@ -876,7 +876,7 @@ describe("ChatInput: taking a photo", () => {
 	it("leaves it out with a mouse, where browsers ignore the camera hint", async () => {
 		const { container } = await renderMultimodal(false);
 		fireTap(find(container, 'button[aria-label="Add attachment"]'));
-		await waitSlow(() => expect(document.body.textContent).toContain("Add images"));
+		await waitSlow(() => expect(document.body.textContent).toContain("Add image(s)"));
 		expect(document.body.textContent).not.toContain("Take photo");
 	});
 });

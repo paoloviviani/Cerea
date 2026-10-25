@@ -5,7 +5,7 @@
  *
  * What is pinned here: the ring shows a percentage once a `usage` frame
  * names a max, and a raw token count when it does not; the popover carries
- * the input/output/cache breakdown and the last compaction; "Shorten now"
+ * the input/output/cache breakdown and the last compaction; "Compact now"
  * calls the forwarder's compact route; and the whole meter is absent when
  * the device's backend does not advertise the `usage` capability.
  */
@@ -126,7 +126,7 @@ test("the meter shows a raw token count when no max is known", async ({ page }) 
 	await expect(page.getByRole("button", { name: "1.2k" })).toBeVisible();
 });
 
-test("Shorten now calls the forwarder's compact route and the popover reflects it", async ({
+test("Compact now calls the forwarder's compact route and the popover reflects it", async ({
 	page,
 }) => {
 	await routeCommon(page, [BACKEND_WITH_USAGE]);
@@ -150,9 +150,9 @@ test("Shorten now calls the forwarder's compact route and the popover reflects i
 	const trigger = page.getByRole("button", { name: "90%" });
 	await trigger.click();
 	const menu = page.getByRole("menu");
-	await expect(menu.getByText("Shortened by you")).toBeVisible();
+	await expect(menu.getByText("Compacted manually")).toBeVisible();
 
-	await menu.getByRole("button", { name: "Shorten now" }).click();
+	await menu.getByRole("button", { name: "Compact now" }).click();
 	await expect.poll(() => compactCalls).toBe(1);
 });
 
@@ -224,7 +224,7 @@ test("the popup's Quotas section lists only entries with a limit, with a Setting
 	await expect(settingsLink).toHaveAttribute("href", `${E2E_APP_BASE}/settings/usage`);
 });
 
-test("the Quotas section shows a muted 'No limits' line when the gateway reports none", async ({
+test("the Quotas section shows a muted 'No quotas' line when the gateway reports none", async ({
 	page,
 }) => {
 	await routeCommon(page, [BACKEND_WITH_USAGE]);
@@ -249,7 +249,7 @@ test("the Quotas section shows a muted 'No limits' line when the gateway reports
 	// a muted line rather than hiding.
 	await expect(menu.getByText("400 / 1000 tokens")).toBeVisible();
 	await expect(menu.getByText("Quotas", { exact: true })).toBeVisible();
-	await expect(menu.getByText("No limits")).toBeVisible();
+	await expect(menu.getByText("No quotas")).toBeVisible();
 });
 
 test("the meter is hidden when the backend has no usage capability", async ({ page }) => {

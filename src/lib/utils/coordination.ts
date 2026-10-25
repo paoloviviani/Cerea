@@ -106,8 +106,8 @@ export function ceilingNote(
 	const parts: string[] = [];
 	if (ask.length)
 		parts.push(
-			`This computer limits ${list(ask)} to Ask, so those calls will still wait in the Needs you inbox.`
+			`This machine caps ${list(ask)} at Ask, so those calls will still wait in the Needs-you inbox.`
 		);
-	if (deny.length) parts.push(`This computer refuses ${list(deny)}, so those calls will not run.`);
+	if (deny.length) parts.push(`This machine refuses ${list(deny)}, so those calls will not run.`);
 	return parts.length ? parts.join(" ") : null;
 }

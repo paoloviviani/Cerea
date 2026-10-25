@@ -1128,7 +1128,7 @@
 											onSelect={() => openFilePickerImage()}
 										>
 											<CarbonImage class="size-4 opacity-90 dark:opacity-80" />
-											Add images
+											Add image(s)
 										</DropdownMenu.Item>
 										{#if canTakePhoto}
 											<DropdownMenu.Item

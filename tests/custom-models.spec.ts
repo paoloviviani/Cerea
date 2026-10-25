@@ -30,7 +30,7 @@ test("a custom model is created, picked in a new chat, and runs on its base with
 	await page.getByRole("button", { name: "New custom model" }).first().click();
 	await page.getByLabel("Name").fill("Menu helper");
 	await page.getByLabel("Original model").selectOption(BASE);
-	await page.getByLabel("Instructions").fill(CUSTOM_PROMPT);
+	await page.getByLabel("Instructions", { exact: true }).fill(CUSTOM_PROMPT);
 	await page.getByRole("button", { name: "Create custom model" }).click();
 	await expect(page.getByTestId("custom-model-card")).toContainText("Menu helper");
 
