@@ -63,7 +63,9 @@ test("removing a paired device sends a real DELETE and the row goes away", async
 	await page.getByRole("dialog").getByRole("button", { name: "Revoke pairing" }).click();
 	await expect(page.getByText("real e2e box")).toHaveCount(0, { timeout: 10_000 });
 
-	expect(deletes, "no DELETE reached the server").toEqual([200]);
+	// The listener records the status after awaiting the response, a beat after
+	// the row goes: wait for it rather than read the list at once.
+	await expect.poll(() => deletes, { message: "no DELETE reached the server" }).toEqual([200]);
 	const row = await db.collection("codeDevices").findOne({ _id: deviceId });
 	expect(row?.status).toBe("revoked");
 });
@@ -95,7 +97,9 @@ test("rejecting a pending device sends a real DELETE and the row goes away", asy
 	await page.getByRole("dialog").getByRole("button", { name: "Reject machine" }).click();
 	await expect(page.getByText("real e2e box")).toHaveCount(0, { timeout: 10_000 });
 
-	expect(deletes, "no DELETE reached the server").toEqual([200]);
+	// The listener records the status after awaiting the response, a beat after
+	// the row goes: wait for it rather than read the list at once.
+	await expect.poll(() => deletes, { message: "no DELETE reached the server" }).toEqual([200]);
 	const row = await db.collection("codeDevices").findOne({ _id: deviceId });
 	expect(row?.status).toBe("revoked");
 });
