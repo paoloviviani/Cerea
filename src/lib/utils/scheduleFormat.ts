@@ -1,3 +1,4 @@
+import { formatDate } from "$lib/i18n/format";
 import type { PillTone } from "$lib/components/overlay/styles";
 import type { Recurrence, ScheduleRunStatus } from "$lib/types/Schedule";
 
@@ -6,21 +7,19 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 /** A moment in the person's own zone: "Mon 12 Oct, 09:00". */
 export function formatWhen(at: Date | string | null | undefined, timeZone?: string): string {
 	if (!at) return "—";
-	const date = typeof at === "string" ? new Date(at) : at;
-	return new Intl.DateTimeFormat(undefined, {
+	return formatDate(at, {
 		weekday: "short",
 		day: "numeric",
 		month: "short",
 		hour: "2-digit",
 		minute: "2-digit",
 		...(timeZone ? { timeZone } : {}),
-	}).format(date);
+	});
 }
 
 /** The same with the year, for a history that goes back months. */
 export function formatWhenLong(at: Date | string, timeZone?: string): string {
-	const date = typeof at === "string" ? new Date(at) : at;
-	return new Intl.DateTimeFormat(undefined, {
+	return formatDate(at, {
 		year: "numeric",
 		day: "numeric",
 		month: "short",
@@ -28,16 +27,8 @@ export function formatWhenLong(at: Date | string, timeZone?: string): string {
 		minute: "2-digit",
 		second: "2-digit",
 		...(timeZone ? { timeZone } : {}),
-	}).format(date);
+	});
 }
-
-export const RUN_STATUS_LABEL: Record<ScheduleRunStatus, string> = {
-	sent: "Sent",
-	"skipped-still-running": "Skipped: still running",
-	"missed-offline": "Missed: machine offline",
-	"missed-downtime": "Missed: Cerea was down",
-	failed: "Failed",
-};
 
 export const RUN_STATUS_TONE: Record<ScheduleRunStatus, PillTone> = {
 	sent: "good",
@@ -47,6 +38,12 @@ export const RUN_STATUS_TONE: Record<ScheduleRunStatus, PillTone> = {
 	failed: "bad",
 };
 
+/**
+ * The recurrence in English, for text the server writes (the run header the
+ * agent reads). The screens use `recurrenceLabel` in
+ * `components/code/scheduleLabels.ts`, through the catalogue.
+ */
+// i18n: server text
 export function recurrenceText(recurrence: Recurrence): string {
 	switch (recurrence.type) {
 		case "hours":

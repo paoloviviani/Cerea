@@ -8,6 +8,7 @@
 	dialogs are the same gesture on different rows.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import Modal from "$lib/components/Modal.svelte";
 	import IconCode from "~icons/carbon/code";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -44,7 +45,7 @@
 			onrenamed();
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not rename the session.";
+			failure = err instanceof Error ? err.message : m["code.agent_rename.could_not"]();
 		} finally {
 			busy = false;
 		}
@@ -58,7 +59,7 @@
 				<IconCode class="size-5 text-blue-600" />
 			</div>
 			<div>
-				<h2 id="agent-rename-title" class={s.TITLE}>Rename session</h2>
+				<h2 id="agent-rename-title" class={s.TITLE}>{m["code.agent_rename.title"]()}</h2>
 				<p class={s.SUBTITLE}>{agent.title}</p>
 			</div>
 		</div>
@@ -67,7 +68,7 @@
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Rename failed
+					{m["code.agent_rename.failed"]()}
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -79,22 +80,22 @@
 				void handleRename();
 			}}
 		>
-			<label class={s.LABEL} for="agent-rename-name">Name</label>
+			<label class={s.LABEL} for="agent-rename-name">{m["code.agent_rename.name"]()}</label>
 			<input
 				id="agent-rename-name"
 				class={s.INPUT}
-				placeholder="debug session"
+				placeholder={m["code.agent_rename.placeholder"]()}
 				maxlength={120}
 				bind:value={name}
 				disabled={busy}
 			/>
-			<p class={s.HINT}>Shown in the sidebar's agent list.</p>
+			<p class={s.HINT}>{m["code.agent_rename.hint"]()}</p>
 			<div class="mt-4 flex justify-end gap-2">
 				<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
-					Cancel
+					{m["code.common.cancel"]()}
 				</button>
 				<button type="submit" class={s.PRIMARY} disabled={busy || !name.trim()}>
-					{busy ? "Renaming…" : "Rename"}
+					{busy ? m["code.agent_rename.renaming"]() : m["code.agent_rename.rename"]()}
 				</button>
 			</div>
 		</form>

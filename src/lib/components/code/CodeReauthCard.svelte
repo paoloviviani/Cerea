@@ -11,6 +11,7 @@
 	password again.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import IconCode from "~icons/carbon/code";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import * as s from "$lib/components/overlay/styles";
@@ -26,17 +27,17 @@
 	>
 		<IconCode class="mb-3 size-7 text-ink-faint" />
 		{#if codeReauth.signedOut}
-			<p class="mb-1 text-xs font-medium text-ink">Sign in again</p>
-			<p class="mb-4 text-xs text-ink-muted">
-				You were signed out. Sign in again to see your machines.
-			</p>
-			<a href={codeReauth.signInPath} class={s.PRIMARY} data-sveltekit-reload>Sign in</a>
+			<p class="mb-1 text-xs font-medium text-ink">{m["code.reauth.title"]()}</p>
+			<p class="mb-4 text-xs text-ink-muted">{m["code.reauth.signed_out"]()}</p>
+			<a href={codeReauth.signInPath} class={s.PRIMARY} data-sveltekit-reload
+				>{m["code.reauth.sign_in"]()}</a
+			>
 		{:else}
-			<p class="mb-1 text-xs font-medium text-ink">Sign in again</p>
-			<p class="mb-4 text-xs text-ink-muted">
-				Your sign-in is older than 7 days. Sign in again to see your machines.
-			</p>
-			<a href={codeReauth.reauthPath} class={s.PRIMARY} data-sveltekit-reload>Sign in</a>
+			<p class="mb-1 text-xs font-medium text-ink">{m["code.reauth.title"]()}</p>
+			<p class="mb-4 text-xs text-ink-muted">{m["code.reauth.stale"]()}</p>
+			<a href={codeReauth.reauthPath} class={s.PRIMARY} data-sveltekit-reload
+				>{m["code.reauth.sign_in"]()}</a
+			>
 		{/if}
 	</div>
 </div>

@@ -22,6 +22,8 @@
 	"All tools" sets every row; the rows themselves sit under Advanced.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import { page } from "$app/state";
 	import IconClose from "~icons/carbon/close";
@@ -58,10 +60,10 @@
 		| "allowSecretReads"
 		| "billToDefault";
 
-	const ACTION_LABEL: Record<CeilingAction, string> = {
-		allow: "Allow",
-		ask: "Ask",
-		deny: "Deny",
+	const ACTION_LABEL: Record<CeilingAction, () => string> = {
+		allow: m["code.enroll.action.allow"],
+		ask: m["code.enroll.action.ask"],
+		deny: m["code.enroll.action.deny"],
 	};
 
 	let advancedCount = $derived(advancedChangedCount(choices));
@@ -85,6 +87,8 @@
 
 <!-- A checkbox with its one sentence. `risky` tints the label amber and adds
      the warning mark: the owner should feel what these open. -->
+{#snippet inlineCode(text: string)}<code class="font-mono">{text}</code>{/snippet}
+{#snippet plainCode(text: string)}<code>{text}</code>{/snippet}
 {#snippet flag(key: BooleanKey, testid: string, label: string, text: string, risky = false)}
 	<label class="mb-3 flex items-start gap-2 text-xs text-ink-muted">
 		<input type="checkbox" class="mt-0.5" data-testid={testid} bind:checked={choices[key]} />
@@ -113,7 +117,7 @@
 				type="button"
 				class="{PILL} {current === action ? '' : PILL_OFF}"
 				aria-pressed={current === action}
-				onclick={() => pick(action)}>{ACTION_LABEL[action]}</button
+				onclick={() => pick(action)}>{ACTION_LABEL[action]()}</button
 			>
 		{/each}
 	</div>
@@ -136,52 +140,50 @@
 				<input
 					class="{FIELD} min-w-0 flex-1 font-mono"
 					{placeholder}
-					aria-label="{label} {index + 1}"
+					aria-label={m["code.enroll.list_item"]({ label, index: index + 1 })}
 					bind:value={values[index]}
 				/>
 				<button
 					type="button"
 					class="flex size-6 items-center justify-center rounded-lg text-ink-muted hover:bg-sunken"
-					aria-label="Remove {label.toLowerCase()} {index + 1}"
+					aria-label={m["code.enroll.list_remove"]({
+						label: label.toLowerCase(),
+						index: index + 1,
+					})}
 					onclick={() => remove(index)}><IconClose class="size-3.5" /></button
 				>
 			</div>
 		{/each}
-		<button type="button" class="{SMALL_BTN} mt-1.5" onclick={add}>Add</button>
+		<button type="button" class="{SMALL_BTN} mt-1.5" onclick={add}>{m["code.enroll.add"]()}</button>
 	</div>
 {/snippet}
 
 <div data-testid="enroll-policy">
-	<p class="mb-1 text-xs font-medium text-ink">What this machine will ever allow</p>
+	<p class="mb-1 text-xs font-medium text-ink">{m["code.enroll.title"]()}</p>
 	<p class="mb-3 text-xs text-ink-muted" data-testid="enroll-fixed-note">
-		These are fixed when the machine enrolls. Loosening one later means enrolling again; <code
-			class="font-mono">galopin policy set</code
-		> on the machine can only tighten.
+		<Rich parts={m["code.enroll.fixed_note"].parts()} tags={{ code: inlineCode }} />
 	</p>
 
 	<div class="mb-3 text-xs text-ink-muted" data-testid="enroll-ceiling">
 		<div class="flex flex-wrap items-center justify-between gap-2">
 			<p>
-				<span class="font-medium text-ink">The most any session may do here.</span>
-				A cap no session's Deny / Ask / Allow setting, and no “always allow”, can go past.
+				<span class="font-medium text-ink">{m["code.enroll.ceiling_title"]()}</span>
+				{m["code.enroll.ceiling_detail"]()}
 			</p>
-			{@render pills("enroll-ceiling-all", "All tools", allTools, setAllTools)}
+			{@render pills("enroll-ceiling-all", m["code.enroll.all_tools"](), allTools, setAllTools)}
 		</div>
 		{#if allTools === null}
 			<p class="mt-1" data-testid="enroll-ceiling-mixed">
 				{#if ceilingChanged(choices.ceiling)}
-					Set per tool under Advanced.
+					{m["code.enroll.ceiling_per_tool"]()}
 				{:else}
-					Default: commands (bash) and starting new sessions ask; everything else is allowed. Set
-					per tool under Advanced.
+					{m["code.enroll.ceiling_default"]()}
 				{/if}
 			</p>
 		{/if}
 		{#if choices.ceiling.bash === "allow"}
 			<p class="mt-1.5 text-amber-700 dark:text-amber-400" data-testid="enroll-bash-allow-warning">
-				<IconWarning class="mr-0.5 inline size-3 align-text-top" />Commands (bash) may run without
-				asking: a command that runs unchecked can read the agent's own server password and widen its
-				own rules. Keep bash on Ask unless this machine is disposable.
+				<IconWarning class="mr-0.5 inline size-3 align-text-top" />{m["code.enroll.bash_warning"]()}
 			</p>
 		{/if}
 	</div>
@@ -189,8 +191,8 @@
 	{@render flag(
 		"allowProjectConfig",
 		"enroll-allow-project-config",
-		"Trust the repos this machine opens.",
-		"A repo you cloned can carry its own assistant setup — extra commands, helpers and connections — which normally stays switched off, because those are someone else's files. Turn this on only where you trust the repos. Your AI provider stays locked to our gateway either way.",
+		m["code.enroll.trust_label"](),
+		m["code.enroll.trust_text"](),
 		true
 	)}
 
@@ -202,21 +204,20 @@
 			bind:checked={installOpencode}
 		/>
 		<span>
-			<span class="font-medium text-ink">Install opencode.</span> The agent runs the opencode binary as
-			its coding engine — check this on a fresh machine that does not have it yet (leave it unchecked
-			if it is already installed).
+			<span class="font-medium text-ink">{m["code.enroll.install_opencode_label"]()}</span>
+			{m["code.enroll.install_opencode_text"]()}
 		</span>
 	</label>
 
 	<details class="mb-3 rounded-lg border border-line p-2" data-testid="enroll-advanced">
 		<summary class="cursor-pointer text-xs font-medium text-ink">
-			Advanced
+			{m["code.enroll.advanced"]()}
 			{#if advancedCount > 0}
 				<span
 					class="ml-1 rounded-full bg-blue-50 px-1.5 py-0.5 font-normal text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
 					data-testid="enroll-advanced-count"
 				>
-					{advancedCount} changed
+					{m["code.enroll.advanced_changed"]({ count: advancedCount })}
 				</span>
 			{/if}
 		</summary>
@@ -224,8 +225,8 @@
 			{@render flag(
 				"billToDefault",
 				"enroll-bill-to-default",
-				"Bill to my default group.",
-				"Follows the group you pick in the Pystino console, instead of fixing one group for this machine. On by default: untick to pin the group a plain enroll would pick. Change the mode later with 'galopin auth group' on the machine, without re-enrolling."
+				m["code.enroll.bill_label"](),
+				m["code.enroll.bill_text"]()
 			)}
 			<div class="mb-3 text-xs text-ink-muted">
 				<label class="flex items-start gap-2">
@@ -237,10 +238,11 @@
 					/>
 					<span>
 						<span class="font-medium text-amber-700 dark:text-amber-400" data-risky="true">
-							<IconWarning class="mr-0.5 inline size-3 align-text-top" />Terminals.</span
+							<IconWarning class="mr-0.5 inline size-3 align-text-top" />{m[
+								"code.enroll.terminals_label"
+							]()}</span
 						>
-						On by default. The panel can open a real shell on this machine: anyone who controls your Cerea
-						session can run commands as you, with no model and no permission rule in the way.
+						{m["code.enroll.terminals_text"]()}
 					</span>
 				</label>
 				{#if page.data.codeTerminalEnabled !== true}
@@ -249,30 +251,29 @@
 					     stays, so turning the deployment's switch on later needs no
 					     re-enroll. -->
 					<p class="mt-1 ml-6 text-ink-muted" data-testid="enroll-terminal-deployment-off">
-						Terminal is off for this deployment: none is offered until an administrator turns it on
-						(<code>./configure --terminal</code>). This box decides what this machine allows then.
+						<Rich parts={m["code.enroll.terminals_off"].parts()} tags={{ code: plainCode }} />
 					</p>
 				{/if}
 				{#if choices.allowTerminal}
 					<label class="mt-1.5 ml-6 flex items-center gap-2">
-						<span>At most</span>
+						<span>{m["code.enroll.max_terminals_before"]()}</span>
 						<input
 							type="number"
 							min="1"
 							step="1"
 							class="{FIELD} w-16"
 							data-testid="enroll-max-terminals"
-							aria-label="Maximum open terminals"
+							aria-label={m["code.enroll.max_terminals_label"]()}
 							bind:value={choices.maxTerminals}
 						/>
-						<span>terminals open at once.</span>
+						<span>{m["code.enroll.max_terminals_after"]()}</span>
 					</label>
 					{#if terminalProblem}
 						<p
 							class="mt-1 ml-6 text-red-600 dark:text-red-400"
 							data-testid="enroll-max-terminals-problem"
 						>
-							{terminalProblem} Until fixed, the printed command leaves the default of 8.
+							{m["code.enroll.max_terminals_problem"]({ problem: terminalProblem })}
 						</p>
 					{/if}
 				{/if}
@@ -280,19 +281,21 @@
 			{@render flag(
 				"allowCommandShell",
 				"enroll-allow-command-shell",
-				"Slash commands that run shell.",
-				"On by default. A slash command whose template runs a shell snippet (!`git diff`, say) may run it, inside opencode and before any permission is asked: the snippet is code from the repo. Plain slash commands work either way.",
+				m["code.enroll.shell_label"](),
+				m["code.enroll.shell_text"](),
 				true
 			)}
 			{@render flag(
 				"allowBackgroundSubagents",
 				"enroll-allow-background-subagents",
-				"Background subagents.",
-				"On by default. A task can keep running after its parent turn ends, with its result handed back later."
+				m["code.enroll.subagents_label"](),
+				m["code.enroll.subagents_text"]()
 			)}
 
 			<div class="mb-3 text-xs text-ink-muted" data-testid="enroll-ceiling-rows">
-				<p class="mb-1"><span class="font-medium text-ink">The cap, tool by tool.</span></p>
+				<p class="mb-1">
+					<span class="font-medium text-ink">{m["code.enroll.cap_by_tool"]()}</span>
+				</p>
 				<table class="w-full">
 					<tbody>
 						{#each CEILING_KEYS as key (key)}
@@ -303,7 +306,7 @@
 								<td class="py-0.5">
 									{@render pills(
 										`enroll-ceiling-${key}`,
-										`Most ${key} may do`,
+										m["code.enroll.most_may_do"]({ key }),
 										choices.ceiling[key],
 										(action) => (choices.ceiling[key] = action)
 									)}
@@ -314,32 +317,32 @@
 				</table>
 				{#if ceilingEdited}
 					<p class="mt-1.5" data-testid="enroll-ceiling-edited">
-						Changed: the command now carries the whole table, so a tool left on Allow is uncapped.
+						{m["code.enroll.ceiling_edited"]()}
 					</p>
 				{/if}
 			</div>
 			{@render flag(
 				"noAgentTools",
 				"enroll-no-agent-tools",
-				"No agent tools.",
-				"Install none of galopin's agent tools (session_list, session_read, session_spawn, session_send and the schedule tools), so sessions cannot find, read, start or message each other, or manage your schedules."
+				m["code.enroll.no_tools_label"](),
+				m["code.enroll.no_tools_text"]()
 			)}
 			{@render flag(
 				"allowFreeModels",
 				"enroll-allow-free-models",
-				"Allow free models.",
-				"List and accept models from providers other than the gateway's, so spend can land outside the account this machine enrolled under."
+				m["code.enroll.free_label"](),
+				m["code.enroll.free_text"]()
 			)}
 			{@render flag(
 				"allowOpencodeProvider",
 				"enroll-allow-opencode-provider",
-				"Keep opencode's own providers.",
-				"Leave opencode's built-in providers enabled beside the gateway's models."
+				m["code.enroll.provider_label"](),
+				m["code.enroll.provider_text"]()
 			)}
 			{@render listField(
 				"enroll-workspace-roots",
-				"Workspace folders.",
-				"Only these folders, and anything below them, can be opened as a workspace; with none listed, anywhere can.",
+				m["code.enroll.roots_label"](),
+				m["code.enroll.roots_text"](),
 				choices.workspaceRoots,
 				"/home/me/projects",
 				() => choices.workspaceRoots.push(""),
@@ -348,13 +351,13 @@
 			{@render flag(
 				"noFiles",
 				"enroll-no-files",
-				"No file explorer.",
-				"Keep the /code explorer out of this machine's workspace files."
+				m["code.enroll.no_files_label"](),
+				m["code.enroll.no_files_text"]()
 			)}
 			{@render listField(
 				"enroll-file-deny",
-				"Hide files.",
-				"The explorer also redacts files matching these globs (a name like *.secret, or a path tail like config/prod.yml), on top of the built-in secret list.",
+				m["code.enroll.deny_label"](),
+				m["code.enroll.deny_text"](),
 				choices.fileDeny,
 				"*.secret",
 				() => choices.fileDeny.push(""),
@@ -363,8 +366,8 @@
 			{@render flag(
 				"noDefaultFileDeny",
 				"enroll-no-default-file-deny",
-				"Drop the built-in secret list.",
-				"Stop redacting .env files and private keys in the explorer, keeping only your own globs; it prevents accidents and is not a boundary against the agent.",
+				m["code.enroll.drop_label"](),
+				m["code.enroll.drop_text"](),
 				true
 			)}
 
@@ -372,14 +375,14 @@
 				{@render flag(
 					"allowOutsideProject",
 					"enroll-allow-outside-project",
-					"Agents may work outside the project folder without asking.",
-					"By default an agent asks before reading or writing files outside the workspace folder; ticked, it doesn't."
+					m["code.enroll.outside_label"](),
+					m["code.enroll.outside_text"]()
 				)}
 				{@render flag(
 					"allowSecretReads",
 					"enroll-allow-secret-reads",
-					"Agents may read secret files without asking.",
-					"By default an agent asks before reading .env and similar files; ticked, it reads them like any other file, so their contents reach the model.",
+					m["code.enroll.secrets_label"](),
+					m["code.enroll.secrets_text"](),
 					true
 				)}
 			</div>

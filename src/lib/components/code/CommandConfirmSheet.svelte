@@ -9,6 +9,7 @@
 	machine's commandShell policy is the real veto.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
 	import IconCode from "~icons/carbon/code";
@@ -37,7 +38,7 @@
 			await onconfirm();
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "The daemon refused.";
+			failure = err instanceof Error ? err.message : m["code.confirm.refused"]();
 		} finally {
 			busy = false;
 		}
@@ -61,16 +62,20 @@
 				{/if}
 			</div>
 			<div class="min-w-0 flex-1">
-				<h2 id="command-confirm-title" class={s.TITLE}>Run /{command.name}?</h2>
+				<h2 id="command-confirm-title" class={s.TITLE}>
+					{m["code.command_confirm.title"]({ name: command.name })}
+				</h2>
 				<p class={s.SUBTITLE}>
-					{command.origin === "project" ? "From this repository." : "Defined on this machine."}
+					{command.origin === "project"
+						? m["code.command_confirm.origin_project"]()
+						: m["code.command_confirm.origin_machine"]()}
 				</p>
 			</div>
 		</div>
 
 		<div class="flex flex-col gap-3">
 			<p class="text-sm text-gray-700 dark:text-gray-300">
-				This command runs on your machine. Running a project command is running repository code.
+				{m["code.command_confirm.warning"]()}
 			</p>
 
 			{#if command.shellSnippets?.length}
@@ -79,7 +84,7 @@
 						class="mb-1 flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400"
 					>
 						<LucideTerminal class="size-3.5" />
-						Shell it would run
+						{m["code.command_confirm.shell"]()}
 					</div>
 					<ul class="flex flex-col gap-1">
 						{#each command.shellSnippets as snippet (snippet)}
@@ -101,7 +106,7 @@
 						class="mb-1 flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400"
 					>
 						<IconWarning class="size-3.5" />
-						Files it reads
+						{m["code.command_confirm.files"]()}
 					</div>
 					<ul class="flex flex-col gap-1">
 						{#each command.fileRefs as ref (ref)}
@@ -124,7 +129,7 @@
 
 		<div class="sticky mt-6 flex justify-end gap-2">
 			<button class="btn rounded-lg px-3 py-1.5 text-sm" type="button" onclick={onclose}>
-				Cancel
+				{m["code.common.cancel"]()}
 			</button>
 			<button
 				bind:this={confirmButtonEl}
@@ -133,7 +138,9 @@
 				disabled={busy}
 				onclick={() => void confirm()}
 			>
-				{busy ? "Running…" : `Run /${command.name}`}
+				{busy
+					? m["code.command_confirm.running"]()
+					: m["code.command_confirm.run"]({ name: command.name })}
 			</button>
 		</div>
 	</div>

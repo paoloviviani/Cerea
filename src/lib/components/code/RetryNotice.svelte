@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 
 	interface Props {
@@ -21,9 +22,13 @@
 		const left = Math.ceil((retry.next - now) / 1000);
 		return left > 3600 ? undefined : Math.max(0, left);
 	});
-	let when = $derived(
-		seconds === undefined ? "" : seconds === 0 ? ", trying again now" : `, next try in ${seconds} s`
-	);
+	let text = $derived.by(() => {
+		const reason = retry.message || m["code.retry_notice.default_reason"]();
+		const attempt = retry.attempt;
+		if (seconds === undefined) return m["code.retry_notice.plain"]({ reason, attempt });
+		if (seconds === 0) return m["code.retry_notice.now"]({ reason, attempt });
+		return m["code.retry_notice.next"]({ reason, attempt, seconds });
+	});
 </script>
 
 <span
@@ -31,7 +36,5 @@
 	data-testid="retry-notice"
 >
 	<span class="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" aria-hidden="true"></span>
-	<span class="truncate">
-		Retrying — {retry.message || "the model's provider did not answer"} (attempt {retry.attempt}{when})
-	</span>
+	<span class="truncate">{text}</span>
 </span>

@@ -14,9 +14,11 @@
 	in the Agents panel.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import * as s from "$lib/components/overlay/styles";
 	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
@@ -81,7 +83,7 @@
 			for (const key of ["mcp", "mcpDetail", "mcpConnector"]) back.searchParams.delete(key);
 			window.location.href = await startLocalSignIn(server.id, `${back.pathname}${back.search}`);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not start the sign-in.";
+			failure = err instanceof Error ? err.message : m["workspace.local.could_not_sign_in"]();
 			signingIn = null;
 		}
 	}
@@ -102,7 +104,8 @@
 				failure = null;
 			}
 		} catch (err) {
-			if (mine === epoch) failure = err instanceof Error ? err.message : "Could not load machines.";
+			if (mine === epoch)
+				failure = err instanceof Error ? err.message : m["workspace.local.could_not_load"]();
 		} finally {
 			loading = false;
 		}
@@ -129,17 +132,17 @@
 			if (err instanceof LocalConnectorsApiError && err.code === "reauth_required") {
 				needsFreshSignIn = true;
 			} else {
-				failure = err instanceof Error ? err.message : "Could not approve the machine.";
+				failure = err instanceof Error ? err.message : m["workspace.local.could_not_approve"]();
 			}
 		} finally {
 			busy = null;
 		}
 	}
 
-	async function remove(machine: LocalMachineView, verb: "Reject" | "Revoke") {
+	async function remove(machine: LocalMachineView, verb: "reject" | "revoke") {
 		if (
-			verb === "Revoke" &&
-			!confirm(`Revoke “${machine.name}”? Its servers leave your chats; it must be enrolled again.`)
+			verb === "revoke" &&
+			!confirm(m["workspace.local.revoke_confirm"]({ name: machine.name }))
 		) {
 			return;
 		}
@@ -150,7 +153,12 @@
 			machines = machines.filter((m) => m.id !== machine.id);
 			void refresh();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : `Could not ${verb.toLowerCase()} the machine.`;
+			failure =
+				err instanceof Error
+					? err.message
+					: verb === "reject"
+						? m["workspace.local.could_not_reject"]()
+						: m["workspace.local.could_not_revoke"]();
 		} finally {
 			busy = null;
 		}
@@ -162,18 +170,19 @@
 	function stateOf(server: LocalServerView): { label: string; tone: s.PillTone } {
 		switch (server.state) {
 			case "ready":
-				return { label: "Ready", tone: "good" };
+				return { label: m["workspace.local.state.ready"](), tone: "good" };
 			case "needs-login":
-				return { label: "Needs sign-in", tone: "busy" };
+				return { label: m["workspace.local.state.needs_login"](), tone: "busy" };
 			case "disabled":
-				return { label: "Disabled", tone: "neutral" };
+				return { label: m["workspace.local.state.disabled"](), tone: "neutral" };
 			case "offline":
-				return { label: "Offline", tone: "neutral" };
+				return { label: m["workspace.local.state.offline"](), tone: "neutral" };
 			default:
-				return { label: "Invalid", tone: "bad" };
+				return { label: m["workspace.local.state.invalid"](), tone: "bad" };
 		}
 	}
 
+	// i18n: literal (sample files and commands the person copies: not words to translate)
 	const MCP_JSON = `{
   "mcpServers": {
     "notes": {
@@ -216,6 +225,16 @@ systemctl --user enable --now galopin
 loginctl enable-linger "$USER"`;
 </script>
 
+{#snippet inlineCode(text: string)}<code class="font-mono">{text}</code>{/snippet}
+{#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
+{#snippet em(text: string)}<em>{text}</em>{/snippet}
+{#snippet docsLink(text: string)}<a
+		class="text-accent hover:underline"
+		href={DOCS_URL}
+		target="_blank"
+		rel="noopener noreferrer">{text}</a
+	>{/snippet}
+{#snippet reauthLink(text: string)}<a class="underline" href={reauthHref}>{text}</a>{/snippet}
 {#snippet code(text: string, testid?: string)}
 	<div class="flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
 		<pre
@@ -245,104 +264,86 @@ loginctl enable-linger "$USER"`;
 				<LucidePlug class="size-5 text-accent" />
 			</div>
 			<div class="min-w-0">
-				<h3 class="{s.CARD_TITLE} leading-10 !whitespace-normal">Connect a machine</h3>
+				<h3 class="{s.CARD_TITLE} leading-10 !whitespace-normal">
+					{m["workspace.local.howto.title"]()}
+				</h3>
 				<p class="{s.SUBTITLE} mt-1 break-words">
-					Run an MCP server on your own machine (a notes folder, a database, a tool on a private
-					network) and use it from your chats. Nothing is opened to the internet: the machine dials
-					out to {deploymentName}.
+					{m["workspace.local.howto.intro"]({ name: deploymentName })}
 				</p>
 			</div>
 		</div>
 
-		{@render step(1, "Install galopin on that machine")}
+		{@render step(1, m["workspace.local.howto.step1"]())}
 		{@render code(commands.install, "local-install-command")}
 		<p class="mt-1 text-xs text-ink-muted">
-			The installer comes from this deployment and puts <code class="font-mono">galopin</code> in
-			<code class="font-mono">~/.local/bin</code>.
+			<Rich parts={m["workspace.local.howto.install_note"].parts()} tags={{ code: inlineCode }} />
 		</p>
 
-		{@render step(2, "Enroll it as a connectors machine")}
+		{@render step(2, m["workspace.local.howto.step2"]())}
 		{@render code(commands.enroll, "local-enroll-command")}
 		<p class="mt-1 text-xs text-ink-muted">
-			Opens your browser to sign in with this deployment's identity provider (or prints a link and
-			code for another device). A connectors machine needs no coding agent, no opencode and no
-			billing group.
+			{m["workspace.local.howto.enroll_note"]()}
 		</p>
 
-		{@render step(3, "Sign in to Cerea in your browser once before running galopin")}
+		{@render step(3, m["workspace.local.howto.step3"]())}
 		<p class="mt-1 text-xs text-ink-muted">
-			Open this chat and sign in with the same account. Cerea only accepts a machine for an account
-			it has seen, so <code class="font-mono">galopin run</code> is refused (403) until you have.
+			<Rich parts={m["workspace.local.howto.signin_note"].parts()} tags={{ code: inlineCode }} />
 		</p>
 
-		{@render step(4, "Run it")}
+		{@render step(4, m["workspace.local.howto.step4"]())}
 		{@render code(commands.run, "local-run-command")}
 		<details class="mt-2 text-xs text-ink-muted">
-			<summary class="cursor-pointer">Keep it running as a service (Linux)</summary>
+			<summary class="cursor-pointer">{m["workspace.local.howto.service"]()}</summary>
 			<div class="mt-2 space-y-2">
 				<p>
-					Stop the copy you started by hand, save this as
-					<code class="font-mono">~/.config/systemd/user/galopin.service</code>, then start it:
+					<Rich
+						parts={m["workspace.local.howto.service_save"].parts()}
+						tags={{ code: inlineCode }}
+					/>
 				</p>
 				{@render code(SERVICE_UNIT)}
 				{@render code(SERVICE_COMMANDS)}
 				<p>
-					A service does not read your shell profile: put the directories your servers' commands
-					need in <code class="font-mono">PATH</code> and any
-					<code class="font-mono">$&#123;VAR&#125;</code>
-					an entry uses in the unit's <code class="font-mono">Environment=</code>. On macOS use the
-					launchd file <code class="font-mono">org.cerea.galopin.plist</code> from the Cerea
-					repository's
-					<code class="font-mono">agent/packaging/</code>.
+					<Rich
+						parts={m["workspace.local.howto.service_note"].parts({ var: "${VAR}" })}
+						tags={{ code: inlineCode }}
+					/>
 				</p>
 			</div>
 		</details>
 
-		{@render step(5, "List the servers it offers in mcp.json")}
+		{@render step(5, m["workspace.local.howto.step5"]())}
 		<p class="mb-2 text-xs text-ink-muted">
-			The file is in galopin's config directory, next to
-			<code class="font-mono">credentials.json</code>:
-			<code class="font-mono">~/.config/galopin/mcp.json</code> on Linux,
-			<code class="font-mono">~/Library/Application Support/galopin/mcp.json</code> on macOS. It is
-			the format Claude Desktop and Claude Code use, so an existing file can be copied as is, or
-			point galopin at another file:
-			<code class="font-mono">galopin run --mcp-config /path/to/claude_desktop_config.json</code>
+			<Rich parts={m["workspace.local.howto.config_note"].parts()} tags={{ code: inlineCode }} />
 		</p>
 		{@render code(MCP_JSON, "local-mcp-json")}
 		<ul class="mt-2 list-disc space-y-1 pl-5 text-xs text-ink-muted">
 			<li>
-				<code class="font-mono">command</code> starts a <strong>stdio</strong> server;
-				<code class="font-mono">"type": "http"</code> with a <code class="font-mono">url</code>
-				reaches an <strong>http</strong> one (headers and
-				<code class="font-mono">$&#123;VAR&#125;</code> from the machine's environment work as in Claude
-				Code).
+				<Rich
+					parts={m["workspace.local.howto.bullet_command"].parts({ var: "${VAR}" })}
+					tags={{ code: inlineCode, strong }}
+				/>
 			</li>
 			<li>
-				<code class="font-mono">allowedTools</code> is the machine's ceiling: only those tools are offered
-				and any other call is refused on the machine, whatever the chat asks. Leave it out to offer every
-				tool.
+				<Rich
+					parts={m["workspace.local.howto.bullet_allowed"].parts()}
+					tags={{ code: inlineCode }}
+				/>
 			</li>
 			<li>
-				<code class="font-mono">description</code> and
-				<code class="font-mono">disabled: true</code> are shown here and in the MCP panel; Claude ignores
-				them.
+				<Rich
+					parts={m["workspace.local.howto.bullet_description"].parts()}
+					tags={{ code: inlineCode }}
+				/>
 			</li>
 			<li>
-				Edits are picked up without a restart. A server that asks for OAuth is signed in from the
-				MCP panel; its tokens stay on the machine.
+				{m["workspace.local.howto.bullet_edits"]()}
 			</li>
 		</ul>
 
-		{@render step(6, "Approve the machine below")}
+		{@render step(6, m["workspace.local.howto.step6"]())}
 		<p class="text-xs text-ink-muted">
-			It appears under <em>Waiting for approval</em> as soon as it checks in. After you approve it,
-			its servers show in the MCP panel and the composer, labelled with the machine's name.
-			<a
-				class="text-accent hover:underline"
-				href={DOCS_URL}
-				target="_blank"
-				rel="noopener noreferrer">More about local connectors</a
-			>.
+			<Rich parts={m["workspace.local.howto.approve_note"].parts()} tags={{ em, link: docsLink }} />
 		</p>
 	</div>
 {/snippet}
@@ -350,16 +351,9 @@ loginctl enable-linger "$USER"`;
 <div class="space-y-5 pb-6" data-testid="local-connectors">
 	<header class="flex flex-wrap items-start justify-between gap-2">
 		<div class="min-w-0">
-			<h2 class={s.TITLE}>Local connectors</h2>
+			<h2 class={s.TITLE}>{m["workspace.local.title"]()}</h2>
 			<p class="{s.SUBTITLE} max-w-2xl">
-				MCP servers that run on your own machines, offered to your chats while the machine is
-				connected. Only you see them.
-				<a
-					class="text-accent hover:underline"
-					href={DOCS_URL}
-					target="_blank"
-					rel="noopener noreferrer">More</a
-				>
+				<Rich parts={m["workspace.local.subtitle"].parts()} tags={{ link: docsLink }} />
 			</p>
 		</div>
 	</header>
@@ -374,11 +368,9 @@ loginctl enable-linger "$USER"`;
 	{/if}
 	{#if needsFreshSignIn}
 		<div class={s.ERROR} role="alert" data-testid="local-reauth">
-			<p class="font-medium">Sign in again to approve a machine.</p>
+			<p class="font-medium">{m["workspace.local.reauth_title"]()}</p>
 			<p class="mt-1 text-xs">
-				Approving a machine lets it put tools in front of the assistant, so it asks for a sign-in
-				from the last 7 days.
-				<a class="underline" href={reauthHref}>Sign in again</a>
+				<Rich parts={m["workspace.local.reauth_detail"].parts()} tags={{ link: reauthLink }} />
 			</p>
 		</div>
 	{/if}
@@ -390,14 +382,13 @@ loginctl enable-linger "$USER"`;
 			data-testid="local-denied"
 		>
 			{#if denied === "not_configured"}
-				This gateway is not configured for the chat, so local connectors are unavailable. Ask your
-				administrator to check the deployment.
+				{m["workspace.local.denied_not_configured"]()}
 			{:else}
-				Your administrator has not enabled local connectors for your groups.
+				{m["workspace.local.denied_not_granted"]()}
 			{/if}
 		</div>
 	{:else if loading}
-		<p class="text-sm text-ink-muted">Loading…</p>
+		<p class="text-sm text-ink-muted">{m["workspace.local.loading"]()}</p>
 	{:else}
 		{#if !hasMachine}
 			{@render instructions()}
@@ -405,11 +396,13 @@ loginctl enable-linger "$USER"`;
 
 		<section aria-labelledby="local-pending-title">
 			<h3 id="local-pending-title" class={s.SECTION_TITLE}>
-				Waiting for approval{pending.length > 0 ? ` (${pending.length})` : ""}
+				{pending.length > 0
+					? m["workspace.local.pending_title_count"]({ count: pending.length })
+					: m["workspace.local.pending_title"]()}
 			</h3>
 			{#if pending.length === 0}
 				<p class="text-xs text-ink-muted">
-					No machine is waiting. A machine you enroll appears here as soon as it checks in.
+					{m["workspace.local.pending_empty"]()}
 				</p>
 			{:else}
 				<ul class="flex flex-col gap-2">
@@ -422,9 +415,7 @@ loginctl enable-linger "$USER"`;
 							<span class="min-w-0 flex-1 truncate text-sm font-medium text-ink"
 								>{machine.name}</span
 							>
-							<span class="text-xs text-ink-muted"
-								>Nothing it offers is used until you approve it.</span
-							>
+							<span class="text-xs text-ink-muted">{m["workspace.local.pending_note"]()}</span>
 							<button
 								type="button"
 								class="flex h-8 items-center gap-1 rounded-lg bg-accent-solid px-3 text-xs font-medium text-white hover:bg-accent-solid-hover disabled:opacity-60"
@@ -432,16 +423,16 @@ loginctl enable-linger "$USER"`;
 								onclick={() => void approve(machine)}
 							>
 								<IconCheck class="size-3.5" />
-								Approve
+								{m["workspace.local.approve"]()}
 							</button>
 							<button
 								type="button"
 								class="flex h-8 items-center gap-1 rounded-lg border border-line px-3 text-xs font-medium text-ink-muted hover:bg-sunken disabled:opacity-60"
 								disabled={busy === machine.id}
-								onclick={() => void remove(machine, "Reject")}
+								onclick={() => void remove(machine, "reject")}
 							>
 								<IconClose class="size-3.5" />
-								Reject
+								{m["workspace.local.reject"]()}
 							</button>
 						</li>
 					{/each}
@@ -451,7 +442,9 @@ loginctl enable-linger "$USER"`;
 
 		{#if paired.length > 0}
 			<section aria-labelledby="local-machines-title">
-				<h3 id="local-machines-title" class={s.SECTION_TITLE}>Your machines ({paired.length})</h3>
+				<h3 id="local-machines-title" class={s.SECTION_TITLE}>
+					{m["workspace.local.machines_title"]({ count: paired.length })}
+				</h3>
 				<div class={s.GRID}>
 					{#each paired as machine (machine.id)}
 						<div class={s.card(machine.online)} data-testid="local-machine">
@@ -461,22 +454,24 @@ loginctl enable-linger "$USER"`;
 										<h4 class={s.CARD_TITLE}>{machine.name}</h4>
 										<p class={s.CARD_SUBTITLE}>
 											{machine.mode === "connectors"
-												? "Connectors machine"
-												: "Also a coding-agent machine"}
+												? m["workspace.local.mode_connectors"]()
+												: m["workspace.local.mode_agent"]()}
 										</p>
 									</div>
 									<span
 										class="{s.PILL} {s.PILL_TONES[machine.online ? 'good' : 'neutral']} shrink-0"
 									>
-										{machine.online ? "Connected" : "Offline"}
+										{machine.online
+											? m["workspace.local.connected"]()
+											: m["workspace.local.offline"]()}
 									</span>
 								</div>
 
 								{#if machine.servers.length === 0}
 									<p class="text-xs text-ink-muted">
 										{machine.online
-											? "It lists no servers yet. Add some to mcp.json on that machine."
-											: "Start galopin on that machine to see its servers."}
+											? m["workspace.local.no_servers_online"]()
+											: m["workspace.local.no_servers_offline"]()}
 									</p>
 								{:else}
 									<ul class="mb-3 flex flex-col gap-1.5">
@@ -491,7 +486,7 @@ loginctl enable-linger "$USER"`;
 												</div>
 												{#if server.state === "needs-login" && server.transport === "http"}
 													<p class="text-xs wrap-break-word text-ink-muted">
-														Needs a sign-in; the tokens stay on {machine.name}.
+														{m["workspace.local.needs_login"]({ name: machine.name })}
 													</p>
 													<div class="flex flex-wrap items-center gap-2">
 														<button
@@ -500,12 +495,13 @@ loginctl enable-linger "$USER"`;
 															disabled={signingIn === server.id}
 															onclick={() => void signIn(server)}
 														>
-															Sign in
+															{m["workspace.local.sign_in"]()}
 														</button>
 														<span class="text-xs text-ink-muted">
-															If the provider refuses this page's redirect, run
-															<code class="font-mono">galopin connectors login {server.name}</code> on
-															the machine.
+															<Rich
+																parts={m["workspace.local.login_help"].parts({ name: server.name })}
+																tags={{ code: inlineCode }}
+															/>
 														</span>
 													</div>
 												{:else if server.state !== "ready" && server.detail}
@@ -521,13 +517,13 @@ loginctl enable-linger "$USER"`;
 										type="button"
 										class={s.CARD_DESTRUCTIVE}
 										disabled={busy === machine.id}
-										onclick={() => void remove(machine, "Revoke")}
+										onclick={() => void remove(machine, "revoke")}
 									>
 										<IconTrash class="size-3" />
-										Revoke
+										{m["workspace.local.revoke"]()}
 									</button>
 								{:else}
-									<p class="text-xs text-ink-muted">Managed in the Agents panel.</p>
+									<p class="text-xs text-ink-muted">{m["workspace.local.managed"]()}</p>
 								{/if}
 							</div>
 						</div>
@@ -544,7 +540,7 @@ loginctl enable-linger "$USER"`;
 					aria-expanded={showAdd}
 					onclick={() => (showAdd = !showAdd)}
 				>
-					{showAdd ? "Hide" : "Add a machine"}
+					{showAdd ? m["workspace.local.hide"]() : m["workspace.local.add_machine"]()}
 				</button>
 				{#if showAdd}
 					<div class="mt-3">

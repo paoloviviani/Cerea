@@ -48,6 +48,10 @@ export const CONVERTED = [
 	"src/routes/settings",
 	"src/lib/components/settings",
 	"src/lib/components/DeleteAllConversationsModal.svelte",
+	"src/lib/components/code",
+	"src/lib/components/workspace",
+	"src/routes/code",
+	"src/routes/workspace",
 ];
 
 /** Props whose string value is read by a person, one way or another. */

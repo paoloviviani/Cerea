@@ -11,6 +11,7 @@
 	mean anything on `renderDiffHtml` output.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount, untrack } from "svelte";
 	import IconDocument from "~icons/carbon/document";
 	import IconRenew from "~icons/carbon/renew";
@@ -39,7 +40,7 @@
 		try {
 			files = (await getAgentDiff(deviceId, agentId)).files;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not load the agent's changes.";
+			failure = err instanceof Error ? err.message : m["code.diff.could_not_load"]();
 		} finally {
 			loading = false;
 		}
@@ -65,21 +66,21 @@
 		{#if loading}
 			<div class={s.EMPTY}>
 				<IconRenew class="{s.EMPTY_ICON} animate-spin" />
-				<p class={s.EMPTY_TITLE}>Loading changes…</p>
+				<p class={s.EMPTY_TITLE}>{m["code.diff.loading"]()}</p>
 			</div>
 		{:else if failure}
 			<div class={s.ERROR}>
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Could not load changes
+					{m["code.diff.failed"]()}
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
 		{:else if files.length === 0}
 			<div class={s.EMPTY}>
 				<IconDocument class={s.EMPTY_ICON} />
-				<p class={s.EMPTY_TITLE}>No changes yet</p>
-				<p class={s.EMPTY_DETAIL}>Files this agent edits will appear here as diffs.</p>
+				<p class={s.EMPTY_TITLE}>{m["code.diff.empty_title"]()}</p>
+				<p class={s.EMPTY_DETAIL}>{m["code.diff.empty_detail"]()}</p>
 			</div>
 		{:else}
 			{#each files as file (file.path)}

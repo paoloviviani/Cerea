@@ -9,6 +9,7 @@
 	may have written.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { untrack } from "svelte";
 	import IconRenew from "~icons/carbon/renew";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
@@ -81,9 +82,9 @@
 	 */
 	function failureMessage(err: unknown): string {
 		if (err instanceof CodeApiError && err.status === 413) {
-			return "This file is too large to show here. The explorer shows images up to 8 MB.";
+			return m["code.files.too_large"]();
 		}
-		return err instanceof Error ? err.message : "Could not read this file.";
+		return err instanceof Error ? err.message : m["code.files.could_not_read"]();
 	}
 
 	function select(entry: FileEntry) {
@@ -115,11 +116,11 @@
 			<button
 				type="button"
 				class="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
-				aria-label="Back to files"
+				aria-label={m["code.files.back_label"]()}
 				onclick={() => (open = null)}
 			>
 				<IconArrowLeft class="size-3.5" />
-				Files
+				{m["code.files.back"]()}
 			</button>
 			<span
 				class="min-w-0 flex-1 truncate font-mono text-xs text-gray-600 dark:text-gray-300"
@@ -127,14 +128,14 @@
 			>
 		{:else}
 			<span class="min-w-0 flex-1 truncate text-xs text-gray-500">
-				{branch ? `On ${branch}` : "Workspace files"}
+				{branch ? m["code.files.on_branch"]({ branch }) : m["code.files.workspace_files"]()}
 			</span>
 		{/if}
 		<button
 			type="button"
 			class="flex size-6 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
-			title="Refresh"
-			aria-label="Refresh files"
+			title={m["code.files.refresh"]()}
+			aria-label={m["code.files.refresh_label"]()}
 			onclick={refresh}
 		>
 			<IconRenew class="size-3.5 {loading ? 'animate-spin' : ''}" />
@@ -158,13 +159,12 @@
 			{#if open.redacted}
 				<p class="flex items-center gap-2 p-4 text-sm text-gray-500">
 					<IconLocked class="size-4 shrink-0" />
-					Hidden by this machine's policy. This keeps secrets off screens and out of logs; it is not a
-					boundary: the agent can still read the file.
+					{m["code.files.redacted"]()}
 				</p>
 			{:else if failure}
 				<p class="p-4 text-sm text-red-600 dark:text-red-400">{failure}</p>
 			{:else if !file}
-				<p class="p-4 text-sm text-gray-400">Loading…</p>
+				<p class="p-4 text-sm text-gray-400">{m["code.files.loading"]()}</p>
 			{:else if file.kind === "image" && isInlineRasterMime(file.mime)}
 				<!-- Raster only: an SVG never takes this branch (it reads as
 				     text), and the raw route 415s anything non-raster — this
@@ -177,7 +177,9 @@
 					/>
 				</div>
 			{:else if file.kind === "binary"}
-				<p class="p-4 text-sm text-gray-500">Binary file · {humanSize(file.size)}</p>
+				<p class="p-4 text-sm text-gray-500">
+					{m["code.files.binary"]({ size: humanSize(file.size) })}
+				</p>
 			{:else}
 				<CodeFileViewer path={open.path} content={text} />
 				{#if !file.eof}
@@ -185,7 +187,10 @@
 						class="flex items-center gap-2 border-t border-gray-200 p-2 text-xs dark:border-gray-700"
 					>
 						<span class="text-gray-500"
-							>Showing {humanSize(file.offset + file.length)} of {humanSize(file.size)}</span
+							>{m["code.files.showing"]({
+								shown: humanSize(file.offset + file.length),
+								total: humanSize(file.size),
+							})}</span
 						>
 						<button
 							type="button"
@@ -193,7 +198,7 @@
 							disabled={loading}
 							onclick={() => open && loadFile(open, true)}
 						>
-							Load more
+							{m["code.files.load_more"]()}
 						</button>
 					</div>
 				{/if}

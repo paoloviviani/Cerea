@@ -15,9 +15,11 @@
 	this dialog via `onpaired`.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import Modal from "$lib/components/Modal.svelte";
 	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
 	import IconLaptop from "~icons/carbon/laptop";
@@ -70,10 +72,11 @@
 		})
 	);
 	const downloads = [
-		{ name: "galopin-linux-amd64", label: "Linux x86-64" },
-		{ name: "galopin-linux-arm64", label: "Linux ARM64" },
-		{ name: "galopin-darwin-arm64", label: "macOS Apple silicon" },
-		{ name: "galopin-darwin-amd64", label: "macOS Intel" },
+		{ name: "galopin-linux-amd64", label: m["code.pair.platform_linux_amd64"]() },
+		{ name: "galopin-linux-arm64", label: m["code.pair.platform_linux_arm64"]() },
+		{ name: "galopin-darwin-arm64", label: m["code.pair.platform_darwin_arm64"]() },
+		{ name: "galopin-darwin-amd64", label: m["code.pair.platform_darwin_amd64"]() },
+		// i18n: literal (a file name)
 		{ name: "SHA256SUMS", label: "SHA256SUMS" },
 	];
 
@@ -92,7 +95,7 @@
 			await refreshCodeDevices();
 			onpaired(device);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not confirm the machine.";
+			failure = err instanceof Error ? err.message : m["code.pair.could_not_confirm"]();
 		} finally {
 			busy = null;
 		}
@@ -106,13 +109,14 @@
 			dropCodeDevice(device.id);
 			void refreshCodeDevices();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not reject the machine.";
+			failure = err instanceof Error ? err.message : m["code.pair.could_not_reject"]();
 		} finally {
 			busy = null;
 		}
 	}
 </script>
 
+{#snippet inlineCode(text: string)}<code class="font-mono">{text}</code>{/snippet}
 <Modal width="max-w-xl" closeButton labelledBy="pair-device-title" {onclose}>
 	<div class="p-4 sm:p-6">
 		<div class="mb-6 flex items-center gap-3">
@@ -120,9 +124,9 @@
 				<IconLaptop class="size-5 text-blue-600" />
 			</div>
 			<div class="min-w-0 pr-8">
-				<h2 id="pair-device-title" class={s.TITLE}>Pair a machine</h2>
+				<h2 id="pair-device-title" class={s.TITLE}>{m["code.pair.title"]()}</h2>
 				<p class="{s.SUBTITLE} break-words">
-					Run these on the machine your coding agents run on, then confirm it below.
+					{m["code.pair.subtitle"]()}
 				</p>
 			</div>
 		</div>
@@ -136,7 +140,7 @@
 			</div>
 		{/if}
 
-		<p class="{s.LABEL} mb-2">Install, enroll and run</p>
+		<p class="{s.LABEL} mb-2">{m["code.pair.install_label"]()}</p>
 		<div class="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
 			<pre
 				class="min-w-0 flex-1 overflow-x-auto font-mono text-xs whitespace-pre text-ink"
@@ -147,11 +151,10 @@
 			/>
 		</div>
 		<p class="mb-4 text-xs text-ink-muted">
-			`enroll` signs the machine into your account with this deployment's identity provider; `run`
-			starts the agent, which dials out here and appears below once it checks in.
+			{m["code.pair.explain"]()}
 		</p>
 		<details class="mb-4 text-xs text-ink-muted">
-			<summary class="cursor-pointer">Download manually</summary>
+			<summary class="cursor-pointer">{m["code.pair.download"]()}</summary>
 			<ul class="mt-2 flex flex-col gap-1 pl-2">
 				{#each downloads as download (download.name)}
 					<li>
@@ -164,15 +167,15 @@
 				{/each}
 			</ul>
 			<p class="mt-2">
-				Or build it from the Cerea repository's <code class="font-mono">agent/</code> (see its README).
+				<Rich parts={m["code.pair.build"].parts()} tags={{ code: inlineCode }} />
 			</p>
 		</details>
 
 		<EnrollPolicyControls bind:choices={policyChoices} bind:installOpencode />
 
-		<p class="{s.LABEL} mt-6">Waiting for confirmation</p>
+		<p class="{s.LABEL} mt-6">{m["code.pair.waiting"]()}</p>
 		{#if pending.length === 0}
-			<p class="mt-1 text-xs text-ink-muted">No machine has checked in yet.</p>
+			<p class="mt-1 text-xs text-ink-muted">{m["code.pair.none_yet"]()}</p>
 		{:else}
 			<ul class="mt-2 flex flex-col gap-2">
 				{#each pending as device (device.id)}
@@ -186,7 +189,7 @@
 							onclick={() => void confirm(device)}
 						>
 							<IconCheck class="size-3.5" />
-							Confirm
+							{m["code.pair.confirm"]()}
 						</button>
 						<button
 							type="button"
@@ -195,7 +198,7 @@
 							onclick={() => void reject(device)}
 						>
 							<IconClose class="size-3.5" />
-							Reject
+							{m["code.pair.reject"]()}
 						</button>
 					</li>
 				{/each}
@@ -203,7 +206,7 @@
 		{/if}
 
 		<div class="mt-4 flex justify-end">
-			<button type="button" onclick={onclose} class={s.SECONDARY}>Close</button>
+			<button type="button" onclick={onclose} class={s.SECONDARY}>{m["code.pair.close"]()}</button>
 		</div>
 	</div>
 </Modal>

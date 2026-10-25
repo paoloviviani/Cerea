@@ -23,6 +23,7 @@
 	inbox.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount, untrack } from "svelte";
 	import { replyOutcome } from "$lib/utils/permissionReply";
 	import { browser } from "$app/environment";
@@ -281,7 +282,7 @@
 			dismiss(item.key);
 			return { ok: true };
 		} catch (err) {
-			const outcome = replyOutcome(err, "Could not answer the request.");
+			const outcome = replyOutcome(err, m["code.inbox.could_not_answer"]());
 			if (outcome.ok) dismiss(item.key);
 			return outcome;
 		}
@@ -330,7 +331,7 @@
 		} catch (err) {
 			return {
 				ok: false,
-				error: err instanceof Error ? err.message : "Could not answer the question.",
+				error: err instanceof Error ? err.message : m["code.inbox.could_not_answer_question"](),
 			};
 		}
 	}
@@ -355,7 +356,7 @@
 	     cards inside are the transcript's own, so both surfaces answer with
 	     the same touch targets they already use on an agent card. -->
 	<section
-		aria-label="Needs you"
+		aria-label={m["code.inbox.label"]()}
 		data-testid="needs-you-inbox"
 		class="pointer-events-auto border-b border-line bg-amber-50/60 dark:bg-amber-950/20"
 	>
@@ -372,9 +373,9 @@
 				>
 					{count}
 				</span>
-				<span class="text-sm font-semibold text-ink">Needs you</span>
+				<span class="text-sm font-semibold text-ink">{m["code.inbox.label"]()}</span>
 				<span class="hidden text-xs text-ink-muted sm:inline">
-					Answer here or on the agent — answering anywhere clears it everywhere.
+					{m["code.inbox.hint"]()}
 				</span>
 				<IconChevronDown
 					class="ml-auto size-4 shrink-0 text-ink-muted transition-transform {collapsed
@@ -398,13 +399,14 @@
 								<span
 									class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
 								>
-									{item.kind === "permission" ? item.request.tool : "Question"}
+									{item.kind === "permission" ? item.request.tool : m["code.inbox.question"]()}
 								</span>
 								<a
 									class="ml-auto inline-flex min-h-11 items-center gap-1 py-2 pl-2 font-medium text-blue-600 hover:underline sm:min-h-0 sm:py-0 dark:text-blue-400"
 									href={inboxAgentHref(item.deviceId, item.workspaceId, item.sessionId)}
 								>
-									Open agent <IconLaunch class="size-3.5" />
+									{m["code.inbox.open_agent"]()}
+									<IconLaunch class="size-3.5" />
 								</a>
 							</div>
 							{#if item.kind === "permission"}

@@ -5,6 +5,8 @@
 	ignored entries dimmed and never auto-expanded, redacted secrets locked.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import { formatNumber } from "$lib/i18n/format";
 	import Self from "./CodeFileTree.svelte";
 	import IconFolder from "~icons/carbon/folder";
 	import IconFolderOpen from "~icons/carbon/folder-open";
@@ -46,7 +48,7 @@
 				truncated = res.truncated;
 			})
 			.catch((err) => {
-				failure = err instanceof Error ? err.message : "Could not list this folder.";
+				failure = err instanceof Error ? err.message : m["code.file_tree.could_not_list"]();
 			});
 	});
 
@@ -69,11 +71,13 @@
 		{failure}
 	</p>
 {:else if entries === null}
-	<p class="py-1 text-xs text-gray-400" style="padding-left: {depth * 12 + 8}px">Loading…</p>
+	<p class="py-1 text-xs text-gray-400" style="padding-left: {depth * 12 + 8}px">
+		{m["code.file_tree.loading"]()}
+	</p>
 {:else}
 	<ul
 		role={depth === 0 ? "tree" : "group"}
-		aria-label={depth === 0 ? "Workspace files" : undefined}
+		aria-label={depth === 0 ? m["code.file_tree.files_label"]() : undefined}
 	>
 		{#each entries as entry (entry.path)}
 			{@const badge = badges.get(entry.path)}
@@ -92,9 +96,9 @@
 						: ''} {entry.ignored ? 'opacity-50' : ''}"
 					style="padding-left: {depth * 12 + 8}px"
 					title={entry.redacted
-						? "Hidden by this machine's policy"
+						? m["code.file_tree.redacted"]()
 						: entry.symlink?.escapes
-							? `Points outside the workspace: ${entry.symlink.target}`
+							? m["code.file_tree.symlink_escapes"]({ target: entry.symlink.target })
 							: entry.path}
 					onclick={() => (isDir ? toggle(entry) : onselect(entry))}
 				>
@@ -111,7 +115,7 @@
 					{#if entry.redacted}
 						<IconLocked
 							class="size-3 shrink-0 text-gray-500"
-							aria-label="Hidden by this machine's policy"
+							aria-label={m["code.file_tree.redacted"]()}
 						/>
 					{/if}
 					{#if badge}
@@ -136,12 +140,12 @@
 			</li>
 		{:else}
 			<li class="py-1 text-xs text-gray-400" style="padding-left: {depth * 12 + 8}px">
-				Empty folder
+				{m["code.file_tree.empty"]()}
 			</li>
 		{/each}
 		{#if truncated}
 			<li class="py-1 text-xs text-gray-400" style="padding-left: {depth * 12 + 8}px">
-				Only the first 5 000 entries are shown.
+				{m["code.file_tree.truncated"]({ limit: formatNumber(5000) })}
 			</li>
 		{/if}
 	</ul>

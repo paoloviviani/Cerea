@@ -18,6 +18,7 @@
  * `FLAG_CONTROLS` names the dialog control behind each exposed flag, which
  * `enrollFlags.spec.ts` checks against the flag table.
  */
+import { m } from "$lib/paraglide/messages";
 import { ENROLL_FLAGS } from "$lib/enrollFlags";
 
 export type CeilingAction = "allow" | "ask" | "deny";
@@ -179,7 +180,7 @@ function fixedAnswers(choices: EnrollPolicyChoices): string[] {
 
 /** `--max-terminals`'s value problem, or null. Whole numbers from 1. */
 export function maxTerminalsProblem(value: number): string | null {
-	return Number.isInteger(value) && value >= 1 ? null : "Use a whole number, 1 or more.";
+	return Number.isInteger(value) && value >= 1 ? null : m["code.enroll.whole_number"]();
 }
 
 /** The enroll flags the choices turn into, already shell-quoted, in a fixed

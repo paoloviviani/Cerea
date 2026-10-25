@@ -4,6 +4,7 @@
 	tool), read from the timeline by the caller and handed in.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { MessagePlanUpdate } from "$lib/types/MessageUpdate";
 	import { TASKS_COMPLETED_FOLD_ABOVE, planProgress } from "$lib/utils/codeTasks";
 	import PlanSteps from "$lib/components/chat/PlanSteps.svelte";
@@ -44,7 +45,7 @@
 			<div
 				class="mt-2 h-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700"
 				role="progressbar"
-				aria-label="Tasks completed"
+				aria-label={m["code.tasks.progress_label"]()}
 				aria-valuemin={0}
 				aria-valuemax={progress.total}
 				aria-valuenow={progress.done}
@@ -60,7 +61,7 @@
 	<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto px-4 py-3" bind:this={list}>
 		{#if !plan || progress.total === 0}
 			<p class="text-sm text-ink-muted" data-testid="tasks-empty">
-				No task list yet — the agent makes one with its todo tool.
+				{m["code.tasks.empty"]()}
 			</p>
 		{:else}
 			{#if open.length > 0}
@@ -77,7 +78,7 @@
 						<IconChevronRight
 							class="size-3 transition-transform {completedOpen ? 'rotate-90' : ''}"
 						/>
-						Completed ({completed.length})
+						{m["code.tasks.completed"]({ count: completed.length })}
 					</button>
 					{#if completedOpen}
 						<div class="mt-1.5"><PlanSteps steps={completed} /></div>

@@ -11,6 +11,7 @@
 	CodeTerminals.svelte, only mounts this once all of that has cleared).
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { flagCodeReauth } from "$lib/stores/codeReauth.svelte";
 	import { MediaQuery } from "svelte/reactivity";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -154,7 +155,7 @@
 				onreauth?.();
 				return;
 			}
-			failure = err instanceof Error ? err.message : "Could not connect.";
+			failure = err instanceof Error ? err.message : m["code.terminal.could_not_connect"]();
 			scheduleReconnect();
 			return;
 		}
@@ -448,7 +449,7 @@
 			class="flex items-center gap-1.5 border-b border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300"
 		>
 			<IconRenew class="size-3.5 animate-spin" />
-			Reconnecting…
+			{m["code.terminal.reconnecting"]()}
 		</div>
 	{/if}
 	{#if failure}
@@ -463,7 +464,7 @@
 	{#if narrowViewport.current}
 		<div
 			role="toolbar"
-			aria-label="Terminal keys"
+			aria-label={m["code.terminal.keys_label"]()}
 			class="grid shrink-0 grid-cols-9 gap-1 border-t border-gray-200 bg-gray-50 p-1.5 dark:border-gray-700 dark:bg-gray-800"
 		>
 			{#snippet key(
@@ -494,37 +495,56 @@
 					{text}
 				</button>
 			{/snippet}
+			<!-- i18n: literal (Esc, Tab, Ctrl, Alt are the keycaps printed on a keyboard) -->
 			<!-- Three full rows of nine. Modifiers and motion first, then the
 			     punctuation a shell actually asks for, then the control actions
 			     with Type (the typing-mode toggle) anchoring the last row. -->
-			{@render key("Escape", "Esc", () => sendKey("\x1b"))}
-			{@render key("Tab", "Tab", () => sendKey("\t"))}
-			{@render key("Control", "Ctrl", toggleCtrl, ctrlSticky)}
-			{@render key("Alt", "Alt", toggleAlt, altSticky)}
-			{@render key("Arrow up", "↑", () => sendArrow("A"))}
-			{@render key("Arrow down", "↓", () => sendArrow("B"))}
-			{@render key("Arrow left", "←", () => sendArrow("D"))}
-			{@render key("Arrow right", "→", () => sendArrow("C"))}
-			{@render key("Pipe", "|", () => sendKey("|"))}
-			{@render key("Tilde", "~", () => sendKey("~"))}
-			{@render key("Slash", "/", () => sendKey("/"))}
-			{@render key("Hyphen", "-", () => sendKey("-"))}
-			{@render key("Dollar", "$", () => sendKey("$"))}
-			{@render key("Redirect", ">", () => sendKey(">"))}
-			{@render key("Double quote", '"', () => sendKey('"'))}
-			{@render key("Single quote", "'", () => sendKey("'"))}
-			{@render key("Glob", "*", () => sendKey("*"))}
-			{@render key("Ampersand", "&", () => sendKey("&"))}
-			{@render key("Send Ctrl+C", "^C", () => sendControlByte(0x03))}
-			{@render key("Send Ctrl+D", "^D", () => sendControlByte(0x04))}
-			{@render key("Kill line", "^U", () => sendControlByte(0x15))}
-			{@render key("Paste", "Paste", () => void pasteFromClipboard())}
-			{@render key("Decrease font size", "A−", () => changeFontSize(-1))}
-			{@render key("Increase font size", "A+", () => changeFontSize(1))}
+			{@render key(m["code.terminal.key.escape"](), "Esc", () => sendKey("\x1b"))}
+			{@render key(m["code.terminal.key.tab"](), "Tab", () => sendKey("\t"))}
+			{@render key(m["code.terminal.key.control"](), "Ctrl", toggleCtrl, ctrlSticky)}
+			{@render key(m["code.terminal.key.alt"](), "Alt", toggleAlt, altSticky)}
+			{@render key(m["code.terminal.key.arrow_up"](), "↑", () => sendArrow("A"))}
+			{@render key(m["code.terminal.key.arrow_down"](), "↓", () => sendArrow("B"))}
+			{@render key(m["code.terminal.key.arrow_left"](), "←", () => sendArrow("D"))}
+			{@render key(m["code.terminal.key.arrow_right"](), "→", () => sendArrow("C"))}
+			{@render key(m["code.terminal.key.pipe"](), "|", () => sendKey("|"))}
+			{@render key(m["code.terminal.key.tilde"](), "~", () => sendKey("~"))}
+			{@render key(m["code.terminal.key.slash"](), "/", () => sendKey("/"))}
+			{@render key(m["code.terminal.key.hyphen"](), "-", () => sendKey("-"))}
+			{@render key(m["code.terminal.key.dollar"](), "$", () => sendKey("$"))}
+			{@render key(m["code.terminal.key.redirect"](), ">", () => sendKey(">"))}
+			{@render key(m["code.terminal.key.double_quote"](), '"', () => sendKey('"'))}
+			{@render key(m["code.terminal.key.single_quote"](), "'", () => sendKey("'"))}
+			{@render key(m["code.terminal.key.glob"](), "*", () => sendKey("*"))}
+			{@render key(m["code.terminal.key.ampersand"](), "&", () => sendKey("&"))}
+			{@render key(m["code.terminal.key.send_ctrl_c"](), "^C", () => sendControlByte(0x03))}
+			{@render key(m["code.terminal.key.send_ctrl_d"](), "^D", () => sendControlByte(0x04))}
+			{@render key(m["code.terminal.key.kill_line"](), "^U", () => sendControlByte(0x15))}
+			{@render key(
+				m["code.terminal.key.paste"](),
+				m["code.terminal.key_text.paste"](),
+				() => void pasteFromClipboard()
+			)}
+			{@render key(m["code.terminal.key.font_smaller"](), "A−", () => changeFontSize(-1))}
+			{@render key(m["code.terminal.key.font_larger"](), "A+", () => changeFontSize(1))}
 			{#if typingMode}
-				{@render key("Done", "Done", exitTypingMode, undefined, true, 3)}
+				{@render key(
+					m["code.terminal.key.done"](),
+					m["code.terminal.key_text.done"](),
+					exitTypingMode,
+					undefined,
+					true,
+					3
+				)}
 			{:else}
-				{@render key("Type", "Type", enterTypingMode, undefined, true, 3)}
+				{@render key(
+					m["code.terminal.key.type"](),
+					m["code.terminal.key_text.type"](),
+					enterTypingMode,
+					undefined,
+					true,
+					3
+				)}
 			{/if}
 		</div>
 	{/if}

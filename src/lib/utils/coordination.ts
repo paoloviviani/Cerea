@@ -11,6 +11,7 @@
  * (ask still asks, deny still refuses), a session in another workspace still
  * asks, and the hop and rate limits stand.
  */
+import { m } from "$lib/paraglide/messages";
 import type { CoordinationKey, Policy } from "$lib/types/machineProtocol";
 import { COORDINATION_KEYS } from "$lib/types/machineProtocol";
 
@@ -71,11 +72,11 @@ export function coordinationSupport(device: DeviceFacts | undefined): Coordinati
 	return capable ? { ok: true } : { ok: false, reason: "too-old", detail: TOO_OLD_DETAIL };
 }
 
-const VERB: Record<CoordinationKey, string> = {
-	session_list: "finding",
-	session_read: "reading",
-	session_send: "messaging",
-	session_spawn: "starting",
+const VERB: Record<CoordinationKey, () => string> = {
+	session_list: m["code.coordination.finding"],
+	session_read: m["code.coordination.reading"],
+	session_send: m["code.coordination.messaging"],
+	session_spawn: m["code.coordination.starting"],
 };
 
 /** The granted keys the machine's ceiling holds below allow. */
@@ -91,10 +92,15 @@ export function cappedCoordination(
 }
 
 const list = (keys: CoordinationKey[]) => {
-	const words = keys.map((k) => VERB[k]);
+	const words = keys.map((k) => VERB[k]());
 	const joined =
-		words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}` : words[0];
-	return `${joined} sessions`;
+		words.length > 1
+			? m["code.coordination.and"]({
+					head: words.slice(0, -1).join(", "),
+					last: words.at(-1) ?? "",
+				})
+			: words[0];
+	return m["code.coordination.sessions"]({ verbs: joined ?? "" });
 };
 
 /** One sentence per cap that bites, or null. */
@@ -104,10 +110,7 @@ export function ceilingNote(
 ): string | null {
 	const { ask, deny } = cappedCoordination(device, keys);
 	const parts: string[] = [];
-	if (ask.length)
-		parts.push(
-			`This machine caps ${list(ask)} at Ask, so those calls will still wait in the Needs-you inbox.`
-		);
-	if (deny.length) parts.push(`This machine refuses ${list(deny)}, so those calls will not run.`);
+	if (ask.length) parts.push(m["code.coordination.ask"]({ what: list(ask) }));
+	if (deny.length) parts.push(m["code.coordination.deny"]({ what: list(deny) }));
 	return parts.length ? parts.join(" ") : null;
 }

@@ -15,6 +15,7 @@
 	offline or whose galopin predates the ops (update galopin on that machine).
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
 	import IconUsers from "~icons/carbon/user-multiple";
@@ -34,6 +35,12 @@
 		type DelegateProfiles,
 	} from "$lib/types/machineProtocol";
 	import { delegateProfilesSupport } from "$lib/utils/delegateProfiles";
+	/** The sentence for each reason a machine cannot be edited. */
+	const PROFILES_DETAIL = {
+		offline: m["code.profiles.offline"],
+		"too-old": m["code.profiles.too_old"],
+		"tools-off": m["code.profiles.tools_off"],
+	} as const;
 	import * as s from "$lib/components/overlay/styles";
 
 	interface Props {
@@ -77,7 +84,7 @@
 			models = listed.models;
 			load(set);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not read this machine's profiles.";
+			failure = err instanceof Error ? err.message : m["code.profiles.could_not_read"]();
 		} finally {
 			loading = false;
 		}
@@ -88,8 +95,11 @@
 	/** A model a saved profile names that the machine no longer lists stays
 	 * selectable, so opening and saving never silently rewrites it. */
 	function optionsFor(row: Row): CodeProviderModel[] {
-		if (!row.model || models.some((m) => m.id === row.model)) return models;
-		return [{ id: row.model, label: `${row.model} (not offered)` }, ...models];
+		if (!row.model || models.some((x) => x.id === row.model)) return models;
+		return [
+			{ id: row.model, label: m["code.profiles.not_offered"]({ model: row.model }) },
+			...models,
+		];
 	}
 
 	/** Lower case, whitespace as "-", and no leading "-" or "_" (a name starts with a-z or 0-9). */
@@ -105,12 +115,12 @@
 		for (const row of rows) {
 			if (!DELEGATE_PROFILE_NAME.test(row.name)) {
 				return row.name
-					? `"${row.name}" is not a valid name: use 1 to 32 characters of a-z, 0-9, - or _.`
-					: "Every profile needs a name.";
+					? m["code.profiles.err_invalid_name"]({ name: row.name })
+					: m["code.profiles.err_no_name"]();
 			}
-			if (seen.has(row.name)) return `The name "${row.name}" is used twice.`;
+			if (seen.has(row.name)) return m["code.profiles.err_twice"]({ name: row.name });
 			seen.add(row.name);
-			if (!row.model) return `Choose a model for "${row.name}".`;
+			if (!row.model) return m["code.profiles.err_model"]({ name: row.name });
 		}
 		return null;
 	}
@@ -141,7 +151,7 @@
 			load(stored);
 			saved = true;
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save the profiles.";
+			failure = err instanceof Error ? err.message : m["code.profiles.could_not_save"]();
 		} finally {
 			busy = false;
 		}
@@ -155,26 +165,26 @@
 				<IconUsers class="size-5 text-blue-600" />
 			</div>
 			<div class="min-w-0">
-				<h2 id="machine-profiles-title" class={s.TITLE}>Delegate profiles</h2>
+				<h2 id="machine-profiles-title" class={s.TITLE}>{m["code.profiles.title"]()}</h2>
 				<p class="{s.SUBTITLE} truncate">{device.name}</p>
 			</div>
 		</div>
 
 		<p class="mb-4 text-sm text-ink-muted">
-			A profile is a name and a model. When the agent on this machine hands work to another session
-			and names no profile, the default's model is used; with no profiles it uses its own. A model
-			never changes what a delegate may do.
+			{m["code.profiles.intro"]()}
 		</p>
 
 		{#if !support.ok}
-			<div class="{s.NOTICE} mb-4" data-testid="profiles-unavailable">{support.detail}</div>
+			<div class="{s.NOTICE} mb-4" data-testid="profiles-unavailable">
+				{PROFILES_DETAIL[support.reason]()}
+			</div>
 		{/if}
 
 		{#if failure}
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					{saved ? "Saved" : "Not saved"}
+					{saved ? m["code.profiles.saved_heading"]() : m["code.profiles.not_saved_heading"]()}
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -187,18 +197,18 @@
 			}}
 		>
 			{#if loading}
-				<p class="text-sm text-ink-muted">Reading this machine's profiles…</p>
+				<p class="text-sm text-ink-muted">{m["code.profiles.reading"]()}</p>
 			{:else if support.ok && rows.length === 0}
 				<p class="rounded-lg border border-dashed border-line px-3 py-4 text-sm text-ink-muted">
-					No profiles. Delegates run on the agent's own model.
+					{m["code.profiles.empty"]()}
 				</p>
 			{:else if rows.length > 0}
 				<div
 					class="mb-1 grid grid-cols-[3.5rem_1fr_1.4fr_2rem] items-center gap-2 text-xs text-ink-faint"
 				>
-					<span class="text-center">Default</span>
-					<span>Name</span>
-					<span>Model</span>
+					<span class="text-center">{m["code.profiles.col_default"]()}</span>
+					<span>{m["code.profiles.col_name"]()}</span>
+					<span>{m["code.profiles.col_model"]()}</span>
 					<span></span>
 				</div>
 				<ul class="space-y-2" data-testid="profile-rows">
@@ -208,7 +218,7 @@
 								type="radio"
 								name="profile-default"
 								class="mx-auto size-4 accent-blue-600"
-								aria-label="Make profile {row.name || i + 1} the default"
+								aria-label={m["code.profiles.make_default"]({ name: row.name || String(i + 1) })}
 								checked={defaultKey === row.key}
 								disabled={!editable}
 								onchange={() => {
@@ -218,9 +228,9 @@
 							/>
 							<input
 								class={s.INPUT}
-								placeholder="name"
+								placeholder={m["code.profiles.name_placeholder"]()}
 								maxlength={32}
-								aria-label="Profile {i + 1} name"
+								aria-label={m["code.profiles.name_label"]({ index: i + 1 })}
 								autocapitalize="none"
 								autocomplete="off"
 								autocorrect="off"
@@ -238,20 +248,20 @@
 							<select
 								class={s.INPUT}
 								style="font-size: 16px;"
-								aria-label="Profile {i + 1} model"
+								aria-label={m["code.profiles.model_label"]({ index: i + 1 })}
 								bind:value={row.model}
 								onchange={() => (saved = false)}
 								disabled={!editable}
 							>
-								{#each optionsFor(row) as m (m.id)}
-									<option value={m.id}>{m.label || m.id}</option>
+								{#each optionsFor(row) as model (model.id)}
+									<option value={model.id}>{model.label || model.id}</option>
 								{/each}
 							</select>
 							<button
 								type="button"
 								class="flex size-8 items-center justify-center rounded-lg text-ink-faint hover:bg-sunken hover:text-danger disabled:opacity-50"
-								title="Remove this profile"
-								aria-label="Remove profile {row.name || i + 1}"
+								title={m["code.profiles.remove_title"]()}
+								aria-label={m["code.profiles.remove_label"]({ name: row.name || String(i + 1) })}
 								disabled={!editable}
 								onclick={() => remove(row.key)}
 							>
@@ -270,7 +280,7 @@
 							saved = false;
 						}}
 					>
-						No default
+						{m["code.profiles.no_default"]()}
 					</button>
 				</div>
 			{/if}
@@ -279,7 +289,7 @@
 				<p class="{s.HINT} text-danger" data-testid="profiles-invalid">{invalid}</p>
 			{/if}
 			{#if saved}
-				<p class={s.HINT} role="status">Saved.</p>
+				<p class={s.HINT} role="status">{m["code.profiles.saved"]()}</p>
 			{/if}
 
 			<div class="mt-4 flex items-center justify-between gap-2">
@@ -290,14 +300,14 @@
 					onclick={add}
 				>
 					<IconAdd class="size-4" />
-					Add profile
+					{m["code.profiles.add"]()}
 				</button>
 				<div class="flex gap-2">
 					<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
-						Close
+						{m["code.profiles.close"]()}
 					</button>
 					<button type="submit" class={s.PRIMARY} disabled={!editable || !!invalid}>
-						{busy ? "Saving…" : "Save"}
+						{busy ? m["code.profiles.saving"]() : m["code.profiles.save"]()}
 					</button>
 				</div>
 			</div>

@@ -20,6 +20,7 @@
 	schedule then fails to save so a retry does not make a second one.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount, untrack } from "svelte";
 	import ScheduleCreatedBy from "./ScheduleCreatedBy.svelte";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -46,12 +47,8 @@
 		CodeProviderModel,
 		CodeWorkspace,
 	} from "$lib/types/CodeAgent";
-	import {
-		allTimezones,
-		browserTimezone,
-		formatWhen,
-		WEEKDAY_NAMES,
-	} from "$lib/utils/scheduleFormat";
+	import { allTimezones, browserTimezone, formatWhen } from "$lib/utils/scheduleFormat";
+	import { weekdayNames } from "./scheduleLabels";
 	import * as s from "$lib/components/overlay/styles";
 	import { ceilingNote, coordinationKeys, coordinationSupport } from "$lib/utils/coordination";
 
@@ -163,7 +160,9 @@
 		if (!id) return;
 		const row = codeDeviceList.devices.find((d) => d.id === id);
 		if (row?.online !== true) {
-			machineNote = `${row?.name ?? "This machine"} is offline, so its workspaces cannot be listed now. The schedule can still be saved; each run is recorded as missed until it is back.`;
+			machineNote = m["code.schedule_editor.offline"]({
+				name: row?.name ?? m["code.schedule_editor.machine_fallback"](),
+			});
 			return;
 		}
 		loadingMachine = true;
@@ -172,16 +171,16 @@
 			if (deviceId !== id) return;
 			workspaces = ws.workspaces;
 			provider = providers.providers.find((p) => p.available)?.id ?? "opencode";
-			const [m, mm] = await Promise.all([
+			const [modeList, modelList] = await Promise.all([
 				listProviderModes(id, provider).catch(() => ({ modes: [] })),
 				listProviderModels(id, provider).catch(() => ({ models: [] })),
 			]);
 			if (deviceId !== id) return;
-			modes = m.modes;
-			models = mm.models;
+			modes = modeList.modes;
+			models = modelList.models;
 			if (!modeId) modeId = modes.find((x) => x.id === "plan")?.id ?? modes[0]?.id ?? "";
 		} catch (err) {
-			machineNote = err instanceof Error ? err.message : "Could not read this machine.";
+			machineNote = err instanceof Error ? err.message : m["code.schedule_editor.could_not_read"]();
 		} finally {
 			loadingMachine = false;
 		}
@@ -266,16 +265,16 @@
 	async function save() {
 		if (busy) return;
 		failure = null;
-		if (!name.trim()) return (failure = "Give the schedule a name.");
-		if (!deviceId) return (failure = "Choose the machine it runs on.");
-		if (!workspaceChoice) return (failure = "Choose a workspace.");
+		if (!name.trim()) return (failure = m["code.schedule_editor.err_name"]());
+		if (!deviceId) return (failure = m["code.schedule_editor.err_machine"]());
+		if (!workspaceChoice) return (failure = m["code.schedule_editor.err_workspace"]());
 		if (makingWorkspace && !newPath.trim())
-			return (failure = "Enter the new workspace's directory.");
-		if (!prompt.trim()) return (failure = "Write the prompt it sends.");
+			return (failure = m["code.schedule_editor.err_new_dir"]());
+		if (!prompt.trim()) return (failure = m["code.schedule_editor.err_prompt"]());
 		// Empty = no stopping criterion; `null` clears one on an edit.
 		const capRaw = stopAfter == null ? "" : String(stopAfter).trim();
 		if (capRaw !== "" && (!/^\d+$/.test(capRaw) || Number(capRaw) < 1 || Number(capRaw) > 100000)) {
-			return (failure = "Stop after must be a whole number of runs from 1 to 100000, or empty.");
+			return (failure = m["code.schedule_editor.err_stop_after"]());
 		}
 		busy = true;
 		try {
@@ -320,7 +319,7 @@
 			const saved = editing ? await updateSchedule(editing.id, input) : await createSchedule(input);
 			onsaved(saved.schedule);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not save the schedule.";
+			failure = err instanceof Error ? err.message : m["code.schedule_editor.could_not_save"]();
 		} finally {
 			busy = false;
 		}
@@ -337,10 +336,10 @@
 			}}
 		>
 			<div class={s.HEADER}>
-				<h2 class={s.TITLE}>{editing ? "Edit schedule" : "New schedule"}</h2>
-				<p class={s.SUBTITLE}>
-					Sends a prompt to a coding session on one of your machines, on a timetable.
-				</p>
+				<h2 class={s.TITLE}>
+					{editing ? m["code.schedule_editor.title_edit"]() : m["code.schedule_editor.title_new"]()}
+				</h2>
+				<p class={s.SUBTITLE}>{m["code.schedule_editor.subtitle"]()}</p>
 				<ScheduleCreatedBy createdBy={editing?.createdBy} class="mt-2" />
 			</div>
 
@@ -348,27 +347,27 @@
 				<div class="{s.ERROR} mb-4" role="alert">
 					<p class="flex items-center gap-1.5 font-medium">
 						<IconWarning class="size-4 shrink-0" />
-						Could not save
+						{m["code.schedule_editor.save_failed"]()}
 					</p>
 					<p class="mt-1 break-words">{failure}</p>
 				</div>
 			{/if}
 
-			<label class={s.LABEL} for="sched-name">Name</label>
+			<label class={s.LABEL} for="sched-name">{m["code.schedule_editor.name"]()}</label>
 			<input
 				id="sched-name"
 				class={s.INPUT}
 				style="font-size: 16px;"
 				maxlength={80}
-				placeholder="Nightly test run"
+				placeholder={m["code.schedule_editor.name_placeholder"]()}
 				bind:value={name}
 				disabled={busy}
 			/>
 
-			<h3 class="{s.SECTION_TITLE} mt-6">Where it runs</h3>
+			<h3 class="{s.SECTION_TITLE} mt-6">{m["code.schedule_editor.where"]()}</h3>
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-device">1. Machine</label>
+					<label class={s.LABEL} for="sched-device">{m["code.schedule_editor.machine"]()}</label>
 					<select
 						id="sched-device"
 						class={s.INPUT}
@@ -377,14 +376,23 @@
 						onchange={onDeviceChange}
 						disabled={busy}
 					>
-						<option value="" disabled>Choose a machine</option>
+						<option value="" disabled>{m["code.schedule_editor.choose_machine"]()}</option>
 						{#each pairedDevices as d (d.id)}
-							<option value={d.id}>{d.name} · {d.online ? "online" : "offline"}</option>
+							<option value={d.id}
+								>{m["code.schedule_editor.machine_option"]({
+									name: d.name,
+									state: d.online
+										? m["code.schedule_editor.online"]()
+										: m["code.schedule_editor.offline_state"](),
+								})}</option
+							>
 						{/each}
 					</select>
 				</div>
 				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-workspace">2. Workspace</label>
+					<label class={s.LABEL} for="sched-workspace"
+						>{m["code.schedule_editor.workspace"]()}</label
+					>
 					<select
 						id="sched-workspace"
 						class={s.INPUT}
@@ -394,7 +402,9 @@
 						disabled={busy || !deviceId}
 					>
 						<option value="" disabled>
-							{loadingMachine ? "Loading…" : "Choose a workspace"}
+							{loadingMachine
+								? m["code.schedule_editor.loading"]()
+								: m["code.schedule_editor.choose_workspace"]()}
 						</option>
 						{#each workspaces as w (w.id)}
 							<option value={w.id}>{w.name}</option>
@@ -403,7 +413,7 @@
 							<option value={workspaceChoice}>{stored.labels?.workspace ?? workspaceChoice}</option>
 						{/if}
 						{#if online}
-							<option value={NEW}>New workspace…</option>
+							<option value={NEW}>{m["code.schedule_editor.new_workspace"]()}</option>
 						{/if}
 					</select>
 				</div>
@@ -415,12 +425,12 @@
 			{#if makingWorkspace}
 				<div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2" data-testid="new-workspace">
 					<div class="relative min-w-0">
-						<label class={s.LABEL} for="sched-newpath">Directory on the machine</label>
+						<label class={s.LABEL} for="sched-newpath">{m["code.schedule_editor.new_dir"]()}</label>
 						<input
 							id="sched-newpath"
 							class={s.INPUT}
 							style="font-size: 16px;"
-							placeholder="/home/you/checkouts/myrepo"
+							placeholder={m["code.schedule_editor.new_dir_placeholder"]()}
 							maxlength={1024}
 							autocomplete="off"
 							bind:value={newPath}
@@ -430,7 +440,7 @@
 						{#if suggestions.length > 0}
 							<div
 								role="listbox"
-								aria-label="Matching directories"
+								aria-label={m["code.schedule_editor.matching_dirs"]()}
 								class="absolute z-20 mt-1 scrollbar-custom max-h-48 w-full overflow-y-auto rounded-lg border border-line bg-surface py-1 text-sm shadow-lg"
 							>
 								{#each suggestions as dir (dir.path)}
@@ -452,7 +462,9 @@
 						{/if}
 					</div>
 					<div class="min-w-0">
-						<label class={s.LABEL} for="sched-newtitle">Title (optional)</label>
+						<label class={s.LABEL} for="sched-newtitle"
+							>{m["code.schedule_editor.new_title"]()}</label
+						>
 						<input
 							id="sched-newtitle"
 							class={s.INPUT}
@@ -463,13 +475,13 @@
 						/>
 					</div>
 					<p class="{s.HINT} sm:col-span-2">
-						Created when you save. The machine decides which directories it will serve.
+						{m["code.schedule_editor.new_hint"]()}
 					</p>
 				</div>
 			{/if}
 
 			<div class="mt-4 min-w-0">
-				<label class={s.LABEL} for="sched-session">3. Session</label>
+				<label class={s.LABEL} for="sched-session">{m["code.schedule_editor.session"]()}</label>
 				<select
 					id="sched-session"
 					class={s.INPUT}
@@ -477,7 +489,7 @@
 					bind:value={sessionChoice}
 					disabled={busy || makingWorkspace || !workspaceChoice}
 				>
-					<option value={NEW}>A new session each run</option>
+					<option value={NEW}>{m["code.schedule_editor.session_new"]()}</option>
 					{#each sessions as session (session.id)}
 						<option value={session.id}>{session.title}</option>
 					{/each}
@@ -487,15 +499,15 @@
 				</select>
 				<p class={s.HINT}>
 					{sessionChoice === NEW
-						? "Each run starts a session titled “name · date” in this workspace."
-						: "Every run goes to this one session; its mode, model and permission word are set to the ones below."}
+						? m["code.schedule_editor.session_new_hint"]()
+						: m["code.schedule_editor.session_existing_hint"]()}
 				</p>
 			</div>
 
-			<h3 class="{s.SECTION_TITLE} mt-6">How the agent runs</h3>
+			<h3 class="{s.SECTION_TITLE} mt-6">{m["code.schedule_editor.how"]()}</h3>
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-mode">Agent mode</label>
+					<label class={s.LABEL} for="sched-mode">{m["code.schedule_editor.mode"]()}</label>
 					<select
 						id="sched-mode"
 						class={s.INPUT}
@@ -503,17 +515,17 @@
 						bind:value={modeId}
 						disabled={busy || !deviceId}
 					>
-						<option value="">Default (plan)</option>
-						{#each modes as m (m.id)}
-							<option value={m.id}>{m.label}</option>
+						<option value="">{m["code.schedule_editor.mode_default"]()}</option>
+						{#each modes as mode (mode.id)}
+							<option value={mode.id}>{mode.label}</option>
 						{/each}
-						{#if modeId && !modes.some((m) => m.id === modeId)}
+						{#if modeId && !modes.some((x) => x.id === modeId)}
 							<option value={modeId}>{modeId}</option>
 						{/if}
 					</select>
 				</div>
 				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-model">Model</label>
+					<label class={s.LABEL} for="sched-model">{m["code.schedule_editor.model"]()}</label>
 					<select
 						id="sched-model"
 						class={s.INPUT}
@@ -521,11 +533,11 @@
 						bind:value={modelId}
 						disabled={busy || !deviceId}
 					>
-						<option value="">The machine's default</option>
-						{#each models as m (m.id)}
-							<option value={m.id}>{m.label}</option>
+						<option value="">{m["code.schedule_editor.model_default"]()}</option>
+						{#each models as model (model.id)}
+							<option value={model.id}>{model.label}</option>
 						{/each}
-						{#if modelId && !models.some((m) => m.id === modelId)}
+						{#if modelId && !models.some((x) => x.id === modelId)}
 							<option value={modelId}>{modelId}</option>
 						{/if}
 					</select>
@@ -533,9 +545,9 @@
 			</div>
 
 			<div class="mt-4">
-				<span class={s.LABEL} id="sched-perm-label">Permission mode</span>
+				<span class={s.LABEL} id="sched-perm-label">{m["code.schedule_editor.permission"]()}</span>
 				<div class="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="sched-perm-label">
-					{#each [["deny", "Plan"], ["ask", "Ask"], ["allow", "Allow"]] as const as [value, label] (value)}
+					{#each [["deny", m["code.permission_mode.plan"]()], ["ask", m["code.permission_mode.ask"]()], ["allow", m["code.permission_mode.allow"]()]] as const as [value, label] (value)}
 						<button
 							type="button"
 							role="radio"
@@ -550,63 +562,54 @@
 				</div>
 				{#if permissionMode === "ask"}
 					<p class="{s.NOTICE} mt-2" data-testid="ask-warning">
-						Nobody is watching a scheduled run. On Ask it stops at its first approval and waits; the
-						approval card appears in the Needs-you inbox at the top of this page. Choose Allow for
-						work that must finish on its own.
+						{m["code.schedule_editor.ask_warning"]()}
 					</p>
 				{:else if permissionMode === "allow"}
-					<p class={s.HINT}>
-						Runs without asking, but never past the machine's own ceiling: what that machine caps at
-						Ask still asks.
-					</p>
+					<p class={s.HINT}>{m["code.schedule_editor.allow_hint"]()}</p>
 				{:else}
-					<p class={s.HINT}>The agent can read but is refused anything that changes or runs.</p>
+					<p class={s.HINT}>{m["code.schedule_editor.plan_hint"]()}</p>
 				{/if}
 			</div>
 
 			<div class="mt-4" data-testid="coordination-options">
-				<span class={s.LABEL} id="sched-coord-label">Other sessions on this machine</span>
+				<span class={s.LABEL} id="sched-coord-label">{m["code.schedule_editor.others"]()}</span>
 				<div class="space-y-2" role="group" aria-labelledby="sched-coord-label">
 					<label class="flex items-start gap-2 text-sm text-ink">
 						<input type="checkbox" class="mt-1" bind:checked={canMessage} disabled={busy} />
-						<span>Can find, read and message other sessions</span>
+						<span>{m["code.schedule_editor.can_message"]()}</span>
 					</label>
 					<label class="flex items-start gap-2 text-sm text-ink">
 						<input type="checkbox" class="mt-1" bind:checked={canSpawn} disabled={busy} />
-						<span>Can start new sessions</span>
+						<span>{m["code.schedule_editor.can_spawn"]()}</span>
 					</label>
 				</div>
-				<p class={s.HINT}>
-					Lets a run orchestrate the machine's other sessions without stopping at an approval card.
-					Never past the machine's own limits: a session in another workspace, a long chain of agent
-					messages and anything the machine caps at Ask still ask.
-				</p>
+				<p class={s.HINT}>{m["code.schedule_editor.others_hint"]()}</p>
 				{#if coordination && !coordination.ok}
 					<p class="{s.NOTICE} mt-2" data-testid="coordination-unsupported">
 						{coordination.reason === "too-old"
-							? "This machine's galopin is too old to grant coordination; update it. The schedule still runs, without these options."
-							: "This machine was enrolled without agent tools, so these options cannot be granted. The schedule still runs, without them."}
+							? m["code.schedule_editor.too_old"]()
+							: m["code.schedule_editor.tools_off"]()}
 					</p>
 				{:else if coordinationCeiling}
 					<p class="{s.NOTICE} mt-2" data-testid="coordination-ceiling">{coordinationCeiling}</p>
 				{/if}
 			</div>
 
-			<label class="{s.LABEL} mt-6" for="sched-prompt">Prompt</label>
+			<label class="{s.LABEL} mt-6" for="sched-prompt">{m["code.schedule_editor.prompt"]()}</label>
 			<textarea
 				id="sched-prompt"
 				class="{s.INPUT} min-h-28"
 				style="font-size: 16px;"
 				maxlength={8000}
-				placeholder="Run the test suite and summarise any failures."
+				placeholder={m["code.schedule_editor.prompt_placeholder"]()}
 				bind:value={prompt}
 				disabled={busy}
 			></textarea>
 
-			<h3 class="{s.SECTION_TITLE} mt-6">When</h3>
+			<h3 class="{s.SECTION_TITLE} mt-6">{m["code.schedule_editor.when"]()}</h3>
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-preset">Repeats</label>
+					<label class={s.LABEL} for="sched-preset">{m["code.schedule_editor.repeats"]()}</label>
 					<select
 						id="sched-preset"
 						class={s.INPUT}
@@ -614,16 +617,18 @@
 						bind:value={preset}
 						disabled={busy}
 					>
-						<option value="hours">Every N hours</option>
-						<option value="daily">Every day</option>
-						<option value="weekdays">Weekdays</option>
-						<option value="weekly">Every week</option>
-						<option value="cron">Advanced (cron expression)</option>
+						<option value="hours">{m["code.schedule_editor.preset_hours"]()}</option>
+						<option value="daily">{m["code.schedule_editor.preset_daily"]()}</option>
+						<option value="weekdays">{m["code.schedule_editor.preset_weekdays"]()}</option>
+						<option value="weekly">{m["code.schedule_editor.preset_weekly"]()}</option>
+						<option value="cron">{m["code.schedule_editor.preset_cron"]()}</option>
 					</select>
 				</div>
 				<div class="min-w-0">
 					{#if preset === "hours"}
-						<label class={s.LABEL} for="sched-hours">Every how many hours</label>
+						<label class={s.LABEL} for="sched-hours"
+							>{m["code.schedule_editor.every_hours"]()}</label
+						>
 						<input
 							id="sched-hours"
 							class={s.INPUT}
@@ -636,7 +641,7 @@
 							disabled={busy}
 						/>
 					{:else if preset === "cron"}
-						<label class={s.LABEL} for="sched-cron">Cron expression</label>
+						<label class={s.LABEL} for="sched-cron">{m["code.schedule_editor.cron"]()}</label>
 						<input
 							id="sched-cron"
 							class="{s.INPUT} font-mono"
@@ -648,7 +653,7 @@
 							disabled={busy}
 						/>
 					{:else}
-						<label class={s.LABEL} for="sched-at">At</label>
+						<label class={s.LABEL} for="sched-at">{m["code.schedule_editor.at"]()}</label>
 						<input
 							id="sched-at"
 							class={s.INPUT}
@@ -661,7 +666,7 @@
 				</div>
 				{#if preset === "weekly"}
 					<div class="min-w-0">
-						<label class={s.LABEL} for="sched-day">On</label>
+						<label class={s.LABEL} for="sched-day">{m["code.schedule_editor.on"]()}</label>
 						<select
 							id="sched-day"
 							class={s.INPUT}
@@ -669,14 +674,14 @@
 							bind:value={weekday}
 							disabled={busy}
 						>
-							{#each WEEKDAY_NAMES as day, index (day)}
+							{#each weekdayNames() as day, index (day)}
 								<option value={index}>{day}</option>
 							{/each}
 						</select>
 					</div>
 				{/if}
 				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-tz">Timezone</label>
+					<label class={s.LABEL} for="sched-tz">{m["code.schedule_editor.timezone"]()}</label>
 					<input
 						id="sched-tz"
 						class={s.INPUT}
@@ -693,7 +698,9 @@
 					</datalist>
 				</div>
 				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-stopafter">Stop after (runs)</label>
+					<label class={s.LABEL} for="sched-stopafter"
+						>{m["code.schedule_editor.stop_after"]()}</label
+					>
 					<input
 						id="sched-stopafter"
 						class={s.INPUT}
@@ -702,7 +709,7 @@
 						min="1"
 						max="100000"
 						step="1"
-						placeholder="For ever"
+						placeholder={m["code.schedule_editor.for_ever"]()}
 						autocomplete="off"
 						bind:value={stopAfter}
 						disabled={busy}
@@ -710,19 +717,17 @@
 				</div>
 			</div>
 			{#if preset === "cron"}
-				<p class={s.HINT}>
-					Five fields: minute hour day-of-month month day-of-week. At least 15 minutes between runs.
-				</p>
+				<p class={s.HINT}>{m["code.schedule_editor.cron_hint"]()}</p>
 			{/if}
 			<p class={s.HINT} data-testid="stopafter-hint">
-				Switches the schedule off once it has run this many times. Leave empty to run for ever; Run
-				now does not count.
+				{m["code.schedule_editor.stop_after_hint"]()}
 			</p>
 
 			<div class="mt-3 rounded-lg bg-sunken p-3" data-testid="schedule-preview" aria-live="polite">
 				{#if preview?.ok}
 					<p class="mb-1 flex items-center gap-1.5 text-xs font-medium text-ink">
-						<IconTime class="size-3.5" /> Next runs ({timezone})
+						<IconTime class="size-3.5" />
+						{m["code.schedule_editor.next_runs"]({ timezone })}
 					</p>
 					<ul class="space-y-0.5 text-xs text-ink-muted">
 						{#each preview.next as when (when.getTime())}
@@ -735,19 +740,25 @@
 						<span class="min-w-0 break-words">{preview.error}</span>
 					</p>
 				{:else}
-					<p class="text-xs text-ink-faint">Working out the next runs…</p>
+					<p class="text-xs text-ink-faint">{m["code.schedule_editor.working_out"]()}</p>
 				{/if}
 			</div>
 
 			<label class="mt-4 flex items-center gap-2 text-sm text-ink">
 				<input type="checkbox" bind:checked={enabled} disabled={busy} />
-				Enabled
+				{m["code.schedule_editor.enabled"]()}
 			</label>
 
 			<div class="mt-6 flex flex-wrap justify-end gap-2">
-				<button type="button" class={s.SECONDARY} onclick={oncancel} disabled={busy}>Cancel</button>
+				<button type="button" class={s.SECONDARY} onclick={oncancel} disabled={busy}>
+					{m["code.common.cancel"]()}
+				</button>
 				<button type="submit" class={s.PRIMARY} disabled={busy}>
-					{busy ? "Saving…" : editing ? "Save changes" : "Create schedule"}
+					{busy
+						? m["code.schedule_editor.saving"]()
+						: editing
+							? m["code.schedule_editor.save_changes"]()
+							: m["code.schedule_editor.create"]()}
 				</button>
 			</div>
 		</form>

@@ -4,6 +4,7 @@
 	person's schedule has no `createdBy` and renders nothing.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
 	import IconBot from "~icons/carbon/bot";
 	import type { ScheduleView } from "$lib/codeApi";
@@ -33,11 +34,11 @@
 	>
 		<IconBot class="mt-px size-3.5 shrink-0" aria-hidden="true" />
 		<span class="min-w-0 break-words">
-			Created by an agent in
+			{m["code.schedule_created_by.text"]()}
 			<a
 				{href}
 				class="font-medium text-ink underline decoration-line-strong underline-offset-2 hover:decoration-ink"
-				>{createdBy.title || "a session"}</a
+				>{createdBy.title || m["code.schedule_created_by.fallback_title"]()}</a
 			>
 		</span>
 	</p>

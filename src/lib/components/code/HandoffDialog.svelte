@@ -10,6 +10,7 @@
 	navigates to whatever session comes back.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import { onMount, untrack } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
 	import IconFork from "~icons/carbon/fork";
@@ -113,8 +114,7 @@
 			if (targetModelId && !models.some((model) => model.id === targetModelId)) targetModelId = "";
 		} catch (err) {
 			if (token === listsToken) {
-				listsFailure =
-					err instanceof Error ? err.message : "Could not read that machine's workspaces.";
+				listsFailure = err instanceof Error ? err.message : m["code.handoff.could_not_read"]();
 			}
 		} finally {
 			if (token === listsToken) listsBusy = false;
@@ -146,7 +146,7 @@
 			onhandoff(result);
 			onclose();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : "Could not fork this session.";
+			failure = err instanceof Error ? err.message : m["code.handoff.could_not_fork"]();
 		} finally {
 			busy = false;
 		}
@@ -160,8 +160,8 @@
 				<IconFork class="size-5 text-blue-600" />
 			</div>
 			<div class="min-w-0 pr-8">
-				<h2 id="handoff-title" class={s.TITLE}>Fork from here</h2>
-				<p class="{s.SUBTITLE} break-words">From {agentTitle}</p>
+				<h2 id="handoff-title" class={s.TITLE}>{m["code.handoff.title"]()}</h2>
+				<p class="{s.SUBTITLE} break-words">{m["code.handoff.subtitle"]({ title: agentTitle })}</p>
 			</div>
 		</div>
 
@@ -169,7 +169,7 @@
 			<div class="{s.ERROR} mb-4">
 				<p class="flex items-center gap-1.5 font-medium">
 					<IconWarning class="size-4" />
-					Fork failed
+					{m["code.handoff.failed"]()}
 				</p>
 				<p class="mt-1">{failure}</p>
 			</div>
@@ -188,7 +188,7 @@
 				void handleSubmit();
 			}}
 		>
-			<label class={s.LABEL} for="handoff-device">Device</label>
+			<label class={s.LABEL} for="handoff-device">{m["code.handoff.device"]()}</label>
 			<select
 				id="handoff-device"
 				class={s.INPUT}
@@ -199,14 +199,16 @@
 			>
 				{#each targetDevices as device (device.id)}
 					<option value={device.id}
-						>{device.name}{device.id === deviceId ? " (this machine)" : ""}</option
+						>{device.id === deviceId
+							? m["code.handoff.this_machine"]({ name: device.name })
+							: device.name}</option
 					>
 				{/each}
 			</select>
 
-			<label class="{s.LABEL} mt-4" for="handoff-workspace">Workspace</label>
+			<label class="{s.LABEL} mt-4" for="handoff-workspace">{m["code.handoff.workspace"]()}</label>
 			{#if listsBusy && workspaces.length === 0}
-				<p class="text-sm text-ink-muted">Reading that machine's workspaces…</p>
+				<p class="text-sm text-ink-muted">{m["code.handoff.reading_workspaces"]()}</p>
 			{:else}
 				<select
 					id="handoff-workspace"
@@ -221,7 +223,7 @@
 				</select>
 			{/if}
 
-			<label class="{s.LABEL} mt-4" for="handoff-mode">Mode</label>
+			<label class="{s.LABEL} mt-4" for="handoff-mode">{m["code.handoff.mode"]()}</label>
 			<select
 				id="handoff-mode"
 				class={s.INPUT}
@@ -230,14 +232,14 @@
 				disabled={busy || modes.length === 0}
 			>
 				{#if modes.length === 0}
-					<option value="">Daemon default</option>
+					<option value="">{m["code.handoff.daemon_default"]()}</option>
 				{/if}
 				{#each modes as mode (mode.id)}
 					<option value={mode.id}>{mode.label}</option>
 				{/each}
 			</select>
 
-			<label class="{s.LABEL} mt-4" for="handoff-model">Model</label>
+			<label class="{s.LABEL} mt-4" for="handoff-model">{m["code.handoff.model"]()}</label>
 			<select
 				id="handoff-model"
 				class={s.INPUT}
@@ -245,23 +247,21 @@
 				bind:value={targetModelId}
 				disabled={busy}
 			>
-				<option value="">Daemon default</option>
+				<option value="">{m["code.handoff.daemon_default"]()}</option>
 				{#each models as model (model.id)}
 					<option value={model.id}>{model.label}</option>
 				{/each}
 			</select>
 
-			<p class={s.HINT}>
-				The new agent's first message carries a summary of this conversation as an attachment.
-			</p>
+			<p class={s.HINT}>{m["code.handoff.hint"]()}</p>
 
-			<label class="{s.LABEL} mt-4" for="handoff-prompt">Prompt</label>
+			<label class="{s.LABEL} mt-4" for="handoff-prompt">{m["code.handoff.prompt"]()}</label>
 			<textarea
 				id="handoff-prompt"
 				class={s.INPUT}
 				style="font-size: 16px;"
 				rows="4"
-				placeholder="What should the new agent do?"
+				placeholder={m["code.handoff.prompt_placeholder"]()}
 				bind:value={prompt}
 				disabled={busy}
 			></textarea>
@@ -271,10 +271,10 @@
 				class="sticky bottom-0 -mx-4 mt-4 -mb-4 flex flex-wrap justify-end gap-2 border-t border-line bg-white px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6 dark:border-white/10 dark:bg-gray-800"
 			>
 				<button type="button" onclick={onclose} class={s.SECONDARY} disabled={busy}>
-					Cancel
+					{m["code.common.cancel"]()}
 				</button>
 				<button type="submit" class={s.PRIMARY} disabled={busy || !prompt.trim()}>
-					{busy ? "Forking…" : "Fork"}
+					{busy ? m["code.handoff.forking"]() : m["code.handoff.fork"]()}
 				</button>
 			</div>
 		</form>
