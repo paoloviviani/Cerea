@@ -1,5 +1,6 @@
 import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
+import { randomUUID } from "crypto";
 import { MessageUpdateType, type MessageUpdate } from "$lib/types/MessageUpdate";
 import { getMcpServers } from "$lib/server/mcp/registry";
 import { isValidUrl } from "$lib/server/urlSafety";
@@ -14,8 +15,9 @@ import type {
 import type { Stream } from "openai/streaming";
 import { buildToolPreprompt, unavailableConnectorsNotice } from "../utils/toolPrompt";
 import type { EndpointMessage } from "../../endpoints/endpoints";
-import { executeToolCalls, type NormalizedToolCall } from "./toolInvocation";
+import { executeToolCalls, isValidJsonObject, type NormalizedToolCall } from "./toolInvocation";
 import { hasTruncatedToolCall, parseToolArguments, withParseableArguments } from "./toolArgs";
+import { createToolBlocker } from "./toolBlocker";
 import type { TextGenerationContext } from "../types";
 import {
 	hasAuthHeader,
@@ -75,7 +77,11 @@ export type McpFlowResult =
 	/** A 2026-era prompt is open; the run ends here and resumes when it is answered. */
 	| "awaiting_input";
 
-const MAX_TOOL_ROUNDS = 10;
+// Rounds with parallel tool calls are cheap, and a long tool phase that is
+// getting somewhere should not be cut short; when the budget does run out the
+// turn still answers — the no-tools call after the loop asks for the answer
+// itself instead of leaving the person with the last round's preamble.
+const MAX_TOOL_ROUNDS = 20;
 
 // Each retry costs a tool round, so give up quickly and answer without the tool.
 const MAX_TRUNCATED_TOOL_CALL_RETRIES = 2;
@@ -106,6 +112,64 @@ const MAX_LEAKED_TOOL_CALL_RETRIES = 1;
  */
 const LEAKED_CALL_MARKUP =
 	/<\/arg_key>\s*<arg_value>|<\/arg_value>\s*(?:<arg_key>|<\/(?:tool_call|function)>)|<\/function>\s*<\/tool_call>/;
+
+// When a turn would otherwise end without an answer — the tool-round budget
+// ran out, or the model put its answer only in its reasoning after tools ran
+// — one last call goes out with the tools taken away, asking for the answer
+// itself. Every tool result already produced stays in the conversation.
+const ANSWER_NOW_INSTRUCTION =
+	"[SYSTEM: The tool phase of this turn is over. Answer the person now with what you have; say plainly what you couldn't find or do.]";
+
+// The last-resort answer when even that no-tools call fails or comes back
+// empty. Person-visible server text, worded per docs/writing.md (what
+// happened, then what to do); the message catalogue does not reach server text.
+// i18n: server text
+const NO_ANSWER_FALLBACK =
+	"I couldn't reach an answer this time. Try narrowing the request or breaking it into smaller steps.";
+
+/** The part of a completion's reply a person reads, with reasoning blocks removed. */
+const visibleOf = (text: string) => text.replace(/<think[\s\S]*?(?:<\/think>|$)/g, "").trim();
+
+/** A model answered in reasoning only when the trace holds something and this holds nothing. */
+const answeredVisibly = (text: string) => visibleOf(text).length > 0;
+
+/** The text deltas of one streaming chunk, however the provider shapes them. */
+function deltaText(delta: {
+	content?: string | Array<{ text?: string }> | null;
+}): string {
+	if (typeof delta.content === "string") return delta.content;
+	const maybeParts = delta.content as unknown;
+	if (Array.isArray(maybeParts)) {
+		return maybeParts
+			.map((part) =>
+				typeof part === "object" &&
+				part !== null &&
+				"text" in part &&
+				typeof (part as Record<string, unknown>).text === "string"
+					? String((part as Record<string, unknown>).text)
+					: ""
+			)
+			.join("");
+	}
+	return "";
+}
+
+/** The reasoning deltas of one streaming chunk, under any provider's field name. */
+function deltaReasoning(
+	delta: {
+		reasoning?: unknown;
+		reasoning_content?: unknown;
+		reasoning_text?: unknown;
+	} & Record<string, unknown>
+): string {
+	return typeof delta.reasoning === "string"
+		? delta.reasoning
+		: typeof delta.reasoning_content === "string"
+			? delta.reasoning_content
+			: typeof delta.reasoning_text === "string"
+				? delta.reasoning_text
+				: "";
+}
 
 export async function* runMcpFlow({
 	model,
@@ -276,6 +340,9 @@ export async function* runMcpFlow({
 	// Built here so it spans the turn's rounds; chained below, once the tool
 	// mapping the schema check reads exists.
 	const repeatedCallGuard = createRepeatedCallGuard();
+	// Also spans the turn: a tool that failed the same way twice is not called
+	// again this turn, whatever arguments the model writes for it.
+	const toolBlocker = createToolBlocker();
 
 	// Start from env-configured servers
 	let servers = getMcpServers();
@@ -744,12 +811,102 @@ export async function* runMcpFlow({
 		let truncatedToolCallRetries = 0;
 		let cutAnswerRetries = 0;
 		let leakedToolCallRetries = 0;
+		// Rounds that actually dispatched at least one tool call. Gates the
+		// no-tools rescue below: without tools in the turn there is nothing to
+		// answer "with what you have", and the cut-answer retry already covers it.
+		let roundsWithTools = 0;
 		// Recovered execute_code calls this run has already dispatched — bounded by
 		// MAX_RECOVERED_EXECUTE_CODE_CALLS, which is why the counter exists at all.
 		let recoveredExecuteCodeCalls = 0;
 		// For the leaked-markup check: only names that are really callable this
 		// run can make "<name" in a final answer mean a call that never happened.
 		const advertisedToolNames = oaTools.map((tool) => tool.function.name);
+
+		/**
+		 * The turn's last resort, run when it would otherwise end without an
+		 * answer: one completion with the tools taken away and a short
+		 * instruction to answer with what it has. Streams like a tool round
+		 * does; returns null when the request itself failed. A stream that dies
+		 * mid-way returns what arrived, so a partial answer still beats the
+		 * canned fallback.
+		 */
+		const finalAnswerWithoutTools = async function* (): AsyncGenerator<
+			MessageUpdate,
+			{ text: string; finishReason: string | null | undefined } | null,
+			undefined
+		> {
+			const request: ChatCompletionCreateParamsStreaming = {
+				...completionBase,
+				tools: undefined,
+				tool_choice: undefined,
+				messages: [
+					...messagesOpenAI,
+					{ role: "user" as const, content: ANSWER_NOW_INSTRUCTION },
+				],
+			};
+			let stream: Stream<ChatCompletionChunk>;
+			try {
+				stream = await withUpstreamRetry(
+					() =>
+						openai.chat.completions.create(request, {
+							signal: abortSignal,
+							headers: {
+								"ChatUI-Conversation-ID": conv._id.toString(),
+								...(config.USE_USER_TOKEN === "true" && locals?.token
+									? { Authorization: `Bearer ${locals.token}` }
+									: {}),
+							},
+						}),
+					{
+						signal: abortSignal,
+						onBackoff: (attempt, delayMs, err) =>
+							logger.warn(
+								{ attempt, delayMs, err: String(err) },
+								"[mcp] upstream failure on the final no-tools answer; backing off"
+							),
+					}
+				);
+			} catch (err) {
+				logger.warn({ err: String(err) }, "[mcp] the final no-tools answer failed");
+				return null;
+			}
+			let text = "";
+			let thinkOpen = false;
+			let finishReason: string | null | undefined;
+			try {
+				for await (const chunk of stream) {
+					const choice = chunk.choices?.[0];
+					if (choice?.finish_reason) finishReason = choice.finish_reason;
+					const delta = choice?.delta;
+					if (!delta) continue;
+					const deltaContent = deltaText(delta);
+					const reasoning = deltaReasoning(delta);
+					let combined = "";
+					if (reasoning.length > 0) {
+						if (thinkOpen) {
+							combined += reasoning;
+						} else if (reasoning.trim().length > 0) {
+							combined += "<think" + reasoning;
+							thinkOpen = true;
+						}
+					}
+					if (deltaContent && deltaContent.length > 0) {
+						combined += thinkOpen ? "</think" + deltaContent : deltaContent;
+						thinkOpen = false;
+					}
+					if (combined.length > 0) {
+						text += combined;
+						producedOutput = true;
+						yield { type: MessageUpdateType.Stream, token: combined };
+					}
+					if (checkAborted()) return null;
+				}
+			} catch (err) {
+				logger.warn({ err: String(err) }, "[mcp] the final no-tools answer was cut mid-stream");
+			}
+			if (thinkOpen) text += "</think";
+			return { text, finishReason };
+		};
 
 		for (let loop = 0; loop < maxToolRounds; loop += 1) {
 			// Check for abort at the start of each loop iteration

@@ -83,6 +83,14 @@ export interface ExecuteToolCallsParams {
 		 */
 		webFetchAllowedUrls: Set<string>;
 	};
+	/**
+	 * Told about every failure that came from the tool itself — an error
+	 * result, a transport failure, a builtin that threw — so the caller's
+	 * per-turn blocker can refuse the third identical attempt. Refusals this
+	 * function makes on its own (an unapproved call, undecodable arguments, a
+	 * second parking call) say nothing about the tool and are not reported.
+	 */
+	recordToolFailure?: (name: string, error: string) => void;
 }
 
 /** Where a gated call dispatches: an MCP server, or the `web_fetch` builtin. */
@@ -150,6 +158,7 @@ export async function* executeToolCalls({
 	guard,
 	clientKind,
 	toolApproval,
+	recordToolFailure,
 }: ExecuteToolCallsParams): AsyncGenerator<ToolExecutionEvent, void, undefined> {
 	const effectiveTimeoutMs = toolTimeoutMs ?? getMcpToolTimeoutMs();
 	const toolMessages: ChatCompletionMessageParam[] = [];
@@ -506,6 +515,7 @@ export async function* executeToolCalls({
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				logger.warn({ tool: p.call.name, err: message }, "[builtin] tool call failed");
+				if (!abortSignal?.aborted) recordToolFailure?.(p.call.name, message);
 				results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
 				updatesQueue.push({
 					type: MessageUpdateType.Tool,
@@ -701,6 +711,7 @@ export async function* executeToolCalls({
 					{ server: mappingEntry.server, tool: mappingEntry.tool, err: message },
 					"[mcp] tool returned an error result"
 				);
+				recordToolFailure?.(p.call.name, message);
 				results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
 				updatesQueue.push({
 					type: MessageUpdateType.Tool,
@@ -767,6 +778,7 @@ export async function* executeToolCalls({
 					{ server: mappingEntry.server, tool: mappingEntry.tool, err: message },
 					"[mcp] tool call failed"
 				);
+				recordToolFailure?.(p.call.name, message);
 			}
 			results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
 			updatesQueue.push({
