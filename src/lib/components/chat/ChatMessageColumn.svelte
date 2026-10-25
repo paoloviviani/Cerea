@@ -15,6 +15,7 @@
 	pending placeholder.
 -->
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
 	import type { Message } from "$lib/types/Message";
 	import { flushSync, untrack } from "svelte";
 	import type { Snippet } from "svelte";
@@ -401,7 +402,7 @@
 	<div
 		class="scrollbar-custom h-full [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-500/60 dark:focus-visible:outline-blue-400/60"
 		tabindex="0"
-		aria-label="Conversation messages"
+		aria-label={m["chat.column.label"]()}
 		bind:this={scrollContainerEl}
 		onscroll={handleScroll}
 		use:chatScroll.attach={{

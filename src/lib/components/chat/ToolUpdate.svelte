@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import { formatNumber } from "$lib/i18n/format";
 	import { MessageToolUpdateType, type MessageToolUpdate } from "$lib/types/MessageUpdate";
 	import {
 		isMessageToolCallUpdate,
@@ -68,20 +70,20 @@
 		);
 		if (!read || read.state === "refused") return null;
 		const known = read.sessionId ? sessionLinks.title(read.sessionId) : undefined;
-		const title = read.title ?? known ?? "another session";
+		const title = read.title ?? known ?? m["chat.tool.other_session"]();
 		const pending = read.state === "pending";
 		const label =
 			read.kind === "send"
 				? pending
-					? "Sending to"
-					: "Sent to"
+					? m["chat.tool.sending"]()
+					: m["chat.tool.sent"]()
 				: read.kind === "read"
 					? pending
-						? "Reading"
-						: "Read"
+						? m["chat.tool.reading"]()
+						: m["chat.tool.read"]()
 					: pending
-						? "Spawning"
-						: "Spawned";
+						? m["chat.tool.spawning"]()
+						: m["chat.tool.spawned"]();
 		return {
 			label,
 			title,
@@ -207,7 +209,10 @@
 	const STRIP_LOAD_GATE_BYTES = 2 * 1024 * 1024;
 
 	const imageKey = (image: McpImageContent): string => ("url" in image ? image.url : image.data);
-	const formatMegabytes = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	const formatMegabytes = (bytes: number): string =>
+		m["chat.tool.size_mb"]({
+			value: formatNumber(bytes / (1024 * 1024), { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+		});
 
 	// One entry per distinct image across the whole card: a browser tool
 	// repeats the same screenshot, and the machine addresses it by its hash.
@@ -252,7 +257,7 @@
 					type="button"
 					class="group/header flex max-w-full cursor-pointer items-center gap-1 text-left whitespace-nowrap focus:outline-hidden"
 					onclick={() => (isOpen = !isOpen)}
-					aria-label={isOpen ? "Collapse" : "Expand"}
+					aria-label={isOpen ? m["chat.tool.collapse"]() : m["chat.tool.expand"]()}
 				>
 					<!-- Errors here are often recoverable (the model retries or works around
 				     them), so the header stays in the same muted gray as every other
@@ -277,10 +282,10 @@
 						class:router-shimmer={isExecuting}
 					>
 						{#if coordination}{coordination.label}{:else}{toolError
-								? "Error calling"
+								? m["chat.tool.error_calling"]()
 								: toolDone
-									? "Called"
-									: "Calling"} tool{/if}
+									? m["chat.tool.called"]()
+									: m["chat.tool.calling"]()}{/if}
 					</span>
 					{#if !coordination}
 						<code
@@ -318,15 +323,15 @@
 					{#if coordination.autoApproved}
 						<span
 							class="shrink-0 rounded-sm bg-gray-100 px-1 py-px text-xs text-gray-600 dark:bg-gray-700/50 dark:text-gray-300"
-							title="This machine's own permission rules allow this, so no approval was asked"
-							data-testid="auto-approved-badge">allowed by this machine's rules</span
+							title={m["chat.tool.auto_approved_title"]()}
+							data-testid="auto-approved-badge">{m["chat.tool.auto_approved"]()}</span
 						>
 					{/if}
 					<button
 						type="button"
 						class="group/chevron shrink-0 cursor-pointer focus:outline-hidden"
 						onclick={() => (isOpen = !isOpen)}
-						aria-label={isOpen ? "Collapse" : "Expand"}
+						aria-label={isOpen ? m["chat.tool.collapse"]() : m["chat.tool.expand"]()}
 					>
 						<CarbonChevronRight
 							class="size-3.5 transition-all duration-200 group-hover/chevron:text-gray-600 dark:group-hover/chevron:text-gray-300 {isOpen
@@ -352,22 +357,26 @@
 			<div class="mt-1.5 flex flex-wrap items-center gap-1.5" data-testid="tool-image-strip">
 				{#each stripVisible as image, index (imageKey(image))}
 					{@const key = imageKey(image)}
-					{@const label = `Tool result image ${index + 1} of ${stripImages.length}`}
+					{@const label = m["chat.tool.image_label"]({ index: index + 1, total: stripImages.length })}
 					{#if typeof image.size === "number" && image.size > STRIP_LOAD_GATE_BYTES && !stripLoaded.has(key)}
 						<button
 							type="button"
 							class="flex h-12 items-center rounded-md border border-gray-200 bg-gray-50 px-2 text-xs text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
 							data-testid="tool-image-gated"
-							aria-label={`Load image ${index + 1} of ${stripImages.length} (${formatMegabytes(image.size)})`}
+							aria-label={m["chat.tool.image_load"]({
+								index: index + 1,
+								total: stripImages.length,
+								size: formatMegabytes(image.size),
+							})}
 							onclick={() => (stripLoaded = new Set(stripLoaded).add(key))}
 						>
-							image · {formatMegabytes(image.size)} — tap to load
+							{m["chat.tool.image_gated"]({ size: formatMegabytes(image.size) })}
 						</button>
 					{:else}
 						<button
 							type="button"
 							class="size-12 shrink-0 overflow-hidden rounded-md border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800"
-							aria-label={`View ${label.toLowerCase()}`}
+							aria-label={m["chat.tool.image_view"]({ index: index + 1, total: stripImages.length })}
 							onclick={() => (lightboxSrc = imageSrc(image))}
 						>
 							<img
@@ -384,8 +393,8 @@
 					<button
 						type="button"
 						class="flex h-12 min-w-12 items-center justify-center rounded-md bg-gray-100 px-2 text-xs font-medium text-gray-500 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
-						title={`${stripMore} more ${stripMore === 1 ? "image" : "images"}`}
-						aria-label={`${stripMore} more ${stripMore === 1 ? "image" : "images"} — expand`}
+						title={m["chat.tool.more_images"]({ count: stripMore })}
+						aria-label={m["chat.tool.more_images_expand"]({ count: stripMore })}
 						data-testid="tool-image-more"
 						onclick={() => (isOpen = true)}
 					>
@@ -402,7 +411,7 @@
 					{#if update.subtype === MessageToolUpdateType.Call}
 						<div class="space-y-1">
 							<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
-								Input
+								{m["chat.tool.input"]()}
 							</div>
 							<pre
 								class="rounded-lg bg-gray-100 p-2 font-mono text-xs break-all whitespace-pre-wrap dark:bg-gray-800/70">{formatValue(
@@ -412,7 +421,7 @@
 					{:else if update.subtype === MessageToolUpdateType.Error}
 						<div class="space-y-1">
 							<div class="text-[10px] font-semibold text-amber-600 uppercase dark:text-amber-400">
-								Error
+								{m["chat.tool.error"]()}
 							</div>
 							<pre
 								class="rounded-lg bg-amber-50 p-2 font-mono text-xs break-all whitespace-pre-wrap text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">{update.message}</pre>
@@ -420,7 +429,7 @@
 					{:else if isMessageToolResultUpdate(update) && update.result.status === ToolResultStatus.Success && update.result.display}
 						<div class="space-y-1">
 							<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
-								Output
+								{m["chat.tool.output"]()}
 							</div>
 							{#each parseToolOutputs(update.result.outputs) as parsedOutput}
 								<div class="space-y-2">
@@ -433,7 +442,7 @@
 										<div class="flex flex-wrap gap-2">
 											{#each parsedOutput.images as image, imageIndex}
 												<img
-													alt={`Tool result image ${imageIndex + 1}`}
+													alt={m["chat.tool.image_n"]({ index: imageIndex + 1 })}
 													class="max-h-60 cursor-pointer rounded-sm border border-gray-200 dark:border-gray-700"
 													src={imageSrc(image)}
 												/>
@@ -453,7 +462,7 @@
 					{:else if isMessageToolResultUpdate(update) && update.result.status === ToolResultStatus.Error && update.result.display}
 						<div class="space-y-1">
 							<div class="text-[10px] font-semibold text-amber-600 uppercase dark:text-amber-400">
-								Error
+								{m["chat.tool.error"]()}
 							</div>
 							<pre
 								class="rounded-lg bg-amber-50 p-2 font-mono text-xs break-all whitespace-pre-wrap text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">{update

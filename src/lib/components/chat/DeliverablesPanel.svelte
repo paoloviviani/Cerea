@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from "$lib/paraglide/messages";
+	import { formatDateTime, formatNumber } from "$lib/i18n/format";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
@@ -93,14 +95,14 @@
 		loadError = null;
 		try {
 			const res = await fetch(`${base}/conversation/${id}/code-execution/output`);
-			if (!res.ok) throw new Error(`the list request failed (${res.status})`);
+			if (!res.ok) throw new Error(m["chat.deliverables.list_failed"]({ status: res.status }));
 			const data = (await res.json()) as { files?: DeliverableFile[] };
 			// One row per filename (newest wins): older versions live in the
 			// file artifact's own history, not as duplicate rows.
 			files = dedupeDeliverablesByName(Array.isArray(data.files) ? data.files : []);
 			loadState = "ready";
 		} catch (err) {
-			loadError = err instanceof Error ? err.message : "Could not load the list. Try again.";
+			loadError = err instanceof Error ? err.message : m["chat.deliverables.load_failed"]();
 			loadState = "failed";
 		}
 	}
@@ -138,14 +140,14 @@
 		return { name: found.name, version: found.version >= total ? null : found.version };
 	}
 
-	const ARTIFACT_KIND_LABELS: Record<ArtifactKind, string> = {
-		html: "Web app",
-		react: "Interactive page",
-		svg: "Image",
-		markdown: "Document",
-		mermaid: "Diagram",
-		table: "Table",
-		code: "Code",
+	const ARTIFACT_KIND_LABELS: Record<ArtifactKind, () => string> = {
+		html: m["chat.artifact.kind.html"],
+		react: m["chat.artifact.kind.react"],
+		svg: m["chat.artifact.kind.svg"],
+		markdown: m["chat.artifact.kind.markdown"],
+		mermaid: m["chat.artifact.kind.mermaid"],
+		table: m["chat.artifact.kind.table"],
+		code: m["chat.artifact.kind.code"],
 	};
 
 	const ARTIFACT_ICONS = {
@@ -166,9 +168,9 @@
 	/** The kind badge on an artifact row: the latest version's kind. */
 	function artifactBadge(identifier: string): string {
 		const latest = latestArtifactVersion(identifier);
-		if (!latest) return "Artifact";
-		if (latest.type === "code" && latest.language) return `Code · ${latest.language}`;
-		return ARTIFACT_KIND_LABELS[latest.type];
+		if (!latest) return m["chat.deliverables.artifact"]();
+		if (latest.type === "code" && latest.language) return m["chat.artifact.card.code_lang"]({ language: latest.language });
+		return ARTIFACT_KIND_LABELS[latest.type]();
 	}
 
 	function paneKey(item: PaneItem): string {
@@ -183,15 +185,18 @@
 	}
 
 	function formatSize(bytes: number): string {
-		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+		const tenth = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
+		if (bytes < 1024) return m["chat.deliverables.size_b"]({ value: formatNumber(bytes) });
+		if (bytes < 1024 * 1024) {
+			return m["chat.deliverables.size_kb"]({ value: formatNumber(bytes / 1024, tenth) });
+		}
+		return m["chat.deliverables.size_mb"]({ value: formatNumber(bytes / (1024 * 1024), tenth) });
 	}
 
 	function formatWhen(iso: string): string {
 		const date = new Date(iso);
 		if (Number.isNaN(date.getTime())) return iso;
-		return date.toLocaleString(undefined, {
+		return formatDateTime(date, {
 			month: "short",
 			day: "numeric",
 			hour: "2-digit",
@@ -201,7 +206,7 @@
 </script>
 
 {#if sidePane.open && sidePane.view === "library"}
-	<SidePane label="Files panel" title="Files">
+	<SidePane label={m["chat.deliverables.panel_label"]()} title={m["chat.deliverables.title"]()}>
 		{#snippet actions()}
 			{#if showCount}
 				<span class="flex-none rounded-sm bg-sunken px-1 py-px font-mono text-xxs text-ink-muted">
@@ -211,8 +216,8 @@
 			<button
 				type="button"
 				class="btn rounded-md p-1.5 text-xs text-ink-muted hover:bg-sunken hover:text-ink"
-				title="Reload the list"
-				aria-label="Reload files"
+				title={m["chat.deliverables.reload_title"]()}
+				aria-label={m["chat.deliverables.reload_label"]()}
 				disabled={loadState === "loading"}
 				onclick={refresh}
 			>
@@ -242,11 +247,11 @@
 							<button
 								type="button"
 								class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-subtle"
-								aria-label={`Open ${file.name} in panel`}
-								title={`Open ${file.name} in panel`}
+								aria-label={m["chat.deliverables.open_in_panel"]({ name: file.name })}
+								title={m["chat.deliverables.open_in_panel"]({ name: file.name })}
 								onclick={() => sidePane.openArtifact(target.name, target.version)}
 							>
-								<CarbonLaunch class="size-3.5" /> Open
+								<CarbonLaunch class="size-3.5" /> {m["chat.deliverables.open"]()}
 							</button>
 						{:else}
 							<a
@@ -254,20 +259,20 @@
 								target="_blank"
 								rel="noopener"
 								class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-subtle"
-								aria-label={`Open ${file.name}`}
-								title={`Open ${file.name}`}
+								aria-label={m["chat.deliverables.open_named"]({ name: file.name })}
+								title={m["chat.deliverables.open_named"]({ name: file.name })}
 							>
-								<CarbonLaunch class="size-3.5" /> Open
+								<CarbonLaunch class="size-3.5" /> {m["chat.deliverables.open"]()}
 							</a>
 						{/if}
 						<a
 							href={downloadUrl(file.sha256)}
 							download={file.name}
 							class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-subtle"
-							aria-label={`Download ${file.name}`}
-							title={`Download ${file.name}`}
+							aria-label={m["chat.deliverables.download_named"]({ name: file.name })}
+							title={m["chat.deliverables.download_named"]({ name: file.name })}
 						>
-							<CarbonDownload class="size-3.5" /> Download
+							<CarbonDownload class="size-3.5" /> {m["chat.deliverables.download"]()}
 						</a>
 					</li>
 				{/snippet}
@@ -275,21 +280,21 @@
 				{#if unified}
 					{@const list = paneList}
 					{#if list.length === 0 && loadState === "loading"}
-						<p class="py-8 text-center text-sm text-ink-muted">Loading files…</p>
+						<p class="py-8 text-center text-sm text-ink-muted">{m["chat.deliverables.loading"]()}</p>
 					{:else if list.length === 0 && loadState === "failed"}
 						<div class={styles.EMPTY}>
 							<CarbonDocument class={styles.EMPTY_ICON} />
-							<p class={styles.EMPTY_TITLE}>Couldn't load the files</p>
+							<p class={styles.EMPTY_TITLE}>{m["chat.deliverables.couldnt_load"]()}</p>
 							<p class={styles.EMPTY_DETAIL}>{loadError}</p>
 							<button type="button" class={styles.PRIMARY} onclick={refresh}>
-								<CarbonRenew /> Try again
+								<CarbonRenew /> {m["chat.deliverables.try_again"]()}
 							</button>
 						</div>
 					{:else if list.length === 0 && files.length > 0}
 						<!-- No pane entries but stored files exist: keep the files visible. -->
 						<p class="{styles.SECTION_TITLE} flex items-center gap-1.5">
-							Files from this chat
-							<span class="font-normal">· kept 30 days</span>
+							{m["chat.deliverables.from_chat"]()}
+							<span class="font-normal">{m["chat.deliverables.kept"]()}</span>
 						</p>
 						<ul class="space-y-2">
 							{#each files as file (file.sha256)}
@@ -299,16 +304,15 @@
 					{:else if list.length === 0}
 						<div class={styles.EMPTY}>
 							<CarbonDocument class={styles.EMPTY_ICON} />
-							<p class={styles.EMPTY_TITLE}>No files yet</p>
+							<p class={styles.EMPTY_TITLE}>{m["chat.deliverables.empty"]()}</p>
 							<p class={styles.EMPTY_DETAIL}>
-								Documents, diagrams, tables, reports and images the assistant makes in this chat
-								show up here. They stay available for 30 days.
+								{m["chat.deliverables.empty_detail_unified"]()}
 							</p>
 						</div>
 					{:else}
-						<p class={styles.SECTION_TITLE}>In this chat</p>
+						<p class={styles.SECTION_TITLE}>{m["chat.deliverables.in_chat"]()}</p>
 						{#if hasFileRows}
-							<p class="mb-3 text-xs text-ink-muted">Files are kept for 30 days.</p>
+							<p class="mb-3 text-xs text-ink-muted">{m["chat.deliverables.kept_note"]()}</p>
 						{/if}
 						<ul class="space-y-2">
 							{#each list as item (paneKey(item))}
@@ -332,11 +336,11 @@
 										<button
 											type="button"
 											class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-subtle"
-											aria-label={`Open ${item.label} in panel`}
-											title={`Open ${item.label} in panel`}
+											aria-label={m["chat.deliverables.open_in_panel"]({ name: item.label })}
+											title={m["chat.deliverables.open_in_panel"]({ name: item.label })}
 											onclick={() => sidePane.openArtifact(item.identifier, null)}
 										>
-											<CarbonLaunch class="size-3.5" /> Open
+											<CarbonLaunch class="size-3.5" /> {m["chat.deliverables.open"]()}
 										</button>
 									</li>
 								{:else if item.kind === "trackio"}
@@ -350,18 +354,18 @@
 											</span>
 											<span class="mt-0.5 block truncate">
 												<span class="rounded-full bg-sunken px-1.5 py-px text-xxs text-ink-muted">
-													Dashboard
+													{m["chat.deliverables.dashboard"]()}
 												</span>
 											</span>
 										</span>
 										<button
 											type="button"
 											class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-subtle"
-											aria-label={`Open ${item.label} in panel`}
-											title={`Open ${item.label} in panel`}
+											aria-label={m["chat.deliverables.open_in_panel"]({ name: item.label })}
+											title={m["chat.deliverables.open_in_panel"]({ name: item.label })}
 											onclick={() => sidePane.openTrackio(item.url, item.label)}
 										>
-											<CarbonLaunch class="size-3.5" /> Open
+											<CarbonLaunch class="size-3.5" /> {m["chat.deliverables.open"]()}
 										</button>
 									</li>
 								{:else}
@@ -379,18 +383,18 @@
 												</span>
 												<span class="mt-0.5 block truncate">
 													<span class="rounded-full bg-sunken px-1.5 py-px text-xxs text-ink-muted">
-														File
+														{m["chat.deliverables.file"]()}
 													</span>
 												</span>
 											</span>
 											<button
 												type="button"
 												class="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-accent hover:bg-accent-subtle"
-												aria-label={`Open ${item.name} in panel`}
-												title={`Open ${item.name} in panel`}
+												aria-label={m["chat.deliverables.open_in_panel"]({ name: item.name })}
+												title={m["chat.deliverables.open_in_panel"]({ name: item.name })}
 												onclick={() => sidePane.openArtifact(item.name, null)}
 											>
-												<CarbonLaunch class="size-3.5" /> Open
+												<CarbonLaunch class="size-3.5" /> {m["chat.deliverables.open"]()}
 											</button>
 										</li>
 									{/if}
@@ -399,29 +403,28 @@
 						</ul>
 					{/if}
 				{:else if loadState === "loading" && files.length === 0}
-					<p class="py-8 text-center text-sm text-ink-muted">Loading files…</p>
+					<p class="py-8 text-center text-sm text-ink-muted">{m["chat.deliverables.loading"]()}</p>
 				{:else if loadState === "failed" && files.length === 0}
 					<div class={styles.EMPTY}>
 						<CarbonDocument class={styles.EMPTY_ICON} />
-						<p class={styles.EMPTY_TITLE}>Couldn't load the files</p>
+						<p class={styles.EMPTY_TITLE}>{m["chat.deliverables.couldnt_load"]()}</p>
 						<p class={styles.EMPTY_DETAIL}>{loadError}</p>
 						<button type="button" class={styles.PRIMARY} onclick={refresh}>
-							<CarbonRenew /> Try again
+							<CarbonRenew /> {m["chat.deliverables.try_again"]()}
 						</button>
 					</div>
 				{:else if files.length === 0}
 					<div class={styles.EMPTY}>
 						<CarbonDocument class={styles.EMPTY_ICON} />
-						<p class={styles.EMPTY_TITLE}>No files yet</p>
+						<p class={styles.EMPTY_TITLE}>{m["chat.deliverables.empty"]()}</p>
 						<p class={styles.EMPTY_DETAIL}>
-							Reports, tables and images the assistant makes in this chat show up here. They stay
-							available for 30 days.
+							{m["chat.deliverables.empty_detail"]()}
 						</p>
 					</div>
 				{:else}
 					<p class="{styles.SECTION_TITLE} flex items-center gap-1.5">
-						Files from this chat
-						<span class="font-normal">· kept 30 days</span>
+						{m["chat.deliverables.from_chat"]()}
+						<span class="font-normal">{m["chat.deliverables.kept"]()}</span>
 					</p>
 					<ul class="space-y-2">
 						{#each files as file (file.sha256)}
@@ -431,19 +434,19 @@
 				{/if}
 
 				<div class="mt-6 border-t border-line pt-4">
-					<p class={styles.SECTION_TITLE}>Save this chat</p>
+					<p class={styles.SECTION_TITLE}>{m["chat.deliverables.save_heading"]()}</p>
 					<p class="mb-3 text-xs text-ink-muted">
-						Save this chat as a text file (Markdown), including the assistant's thinking.
+						{m["chat.deliverables.save_hint"]()}
 					</p>
 					<button
 						type="button"
 						class={styles.SECONDARY}
 						disabled={!$exportConversation.canExport || $exportConversation.loading}
-						aria-label="Save this chat as Markdown"
-						title="Save this chat as Markdown"
+						aria-label={m["chat.deliverables.save_label"]()}
+						title={m["chat.deliverables.save_label"]()}
 						onclick={() => $exportConversation.run()}
 					>
-						<CarbonDownload /> Save this chat
+						<CarbonDownload /> {m["chat.deliverables.save_heading"]()}
 					</button>
 				</div>
 			</div>
