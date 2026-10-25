@@ -40,6 +40,7 @@ const DIRECTORY_SKILLS = [
 	"pdf-tools",
 	"powerpoint",
 	"themes",
+	"weather",
 	"word",
 ];
 
