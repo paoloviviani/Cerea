@@ -58,7 +58,7 @@
 				<div>
 					<p class="text-sm font-semibold text-gray-900 dark:text-gray-100">
 						{serverCount}
-						{serverCount === 1 ? "server" : "servers"} configured
+						{serverCount === 1 ? "connector" : "connectors"} set up
 					</p>
 					<p class="text-xs text-gray-600 dark:text-gray-400">
 						{enabledCount} enabled{onMachines.length

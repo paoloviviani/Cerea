@@ -106,7 +106,10 @@ export async function resolveGatewayLogin(
 	options?: GatewayIdentityOptions
 ): Promise<GatewayLoginResolution> {
 	if (!accessToken) {
-		throw new GatewayLoginError(503, "The gateway is unavailable, try again in a minute.");
+		throw new GatewayLoginError(
+			503,
+			"The service is not available right now. Try again in a minute."
+		);
 	}
 	const result = await announce(accessToken, gatewayOptions(options));
 	if (!result.ok) {
@@ -117,7 +120,10 @@ export async function resolveGatewayLogin(
 			{ status: result.status },
 			"gateway_login_announce_unreachable: failing the login closed"
 		);
-		throw new GatewayLoginError(503, "The gateway is unavailable, try again in a minute.");
+		throw new GatewayLoginError(
+			503,
+			"The service is not available right now. Try again in a minute."
+		);
 	}
 	const info = result.value;
 

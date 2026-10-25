@@ -15,7 +15,7 @@ import { ScheduleError } from "./store";
 /** Signed in, /code on for this person, schedules not switched off; returns the owner. */
 export async function requireSchedules(locals: App.Locals): Promise<ObjectId> {
 	await requireCodeAgents(locals);
-	if (!codeSchedulesEnabled()) error(404, "Scheduled actions are switched off on this deployment.");
+	if (!codeSchedulesEnabled()) error(404, "Scheduled actions are switched off here.");
 	if (!locals.user) error(401, "Login required");
 	return locals.user._id;
 }

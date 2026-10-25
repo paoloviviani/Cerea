@@ -35,7 +35,7 @@ export interface CallerIdentity {
 
 function gatewayBase(): string {
 	if (!config.OPENAI_BASE_URL) {
-		error(404, "This deployment has no gateway configured.");
+		error(404, "The service behind this is not set up.");
 	}
 	return config.OPENAI_BASE_URL.replace(/\/$/, "");
 }

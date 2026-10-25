@@ -11,6 +11,6 @@ export function webSearchUnavailableReason(data: {
 }): string | null {
 	if (data.webSearchAvailable !== false) return null;
 	return data.gatewayIsAdmin
-		? "Web search isn't set up on this deployment. Set it up in Admin → Web search."
-		: "Web search isn't set up on this deployment.";
+		? "Web search isn't set up here yet. An administrator can set it up in Admin → Web search."
+		: "Web search isn't set up here yet.";
 }

@@ -34,7 +34,7 @@ export async function requireCodeAgents(locals: App.Locals): Promise<void> {
 		error(401, "Login required");
 	}
 	if (!codeAgentsEnabled()) {
-		error(404, "Coding agents are not enabled in this deployment.");
+		error(404, "Coding agents are not turned on here.");
 	}
 	// ADR 0096: the person's own answer, cached with the session's /v1/me —
 	// no gateway call per request. A 404 like the switch-off above, so the

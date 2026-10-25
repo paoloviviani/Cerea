@@ -524,7 +524,7 @@
 						class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
 					>
 						<IconCheckmark class="size-3" />
-						{connector.auth === "none" ? "Open" : "Connected"}
+						{connector.auth === "none" ? "Ready" : "Connected"}
 					</span>
 				{:else}
 					<span

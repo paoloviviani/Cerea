@@ -282,7 +282,7 @@ async function requireTerminalAllowed(
 	scope: { workspaceId?: string; terminalId?: string } = {}
 ): Promise<void> {
 	if (!codeTerminalEnabled()) {
-		error(404, "The terminal is not enabled in this deployment.");
+		error(404, "The terminal is not turned on here.");
 	}
 	if (device.policy?.terminal !== "allowed") {
 		await recordCodeAudit(event, { action: "terminal.refused", deviceId, ...scope });
@@ -388,7 +388,7 @@ export const GET: RequestHandler = async (event) => {
 		`^v1/workspaces/(${ID})/files(?:/(stat|content|raw|status))?$`
 	).exec(path);
 	if (filesMatch) {
-		if (!codeFilesEnabled()) error(404, "The file explorer is not enabled in this deployment.");
+		if (!codeFilesEnabled()) error(404, "The file explorer is not turned on here.");
 		const workspaceId = decodeURIComponent(filesMatch[1]);
 		if (device.policy?.files === "off") {
 			await recordCodeAudit(event, { action: "files.refused", deviceId, workspaceId });

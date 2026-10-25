@@ -41,7 +41,7 @@
 			? STATES[local.state]
 			: connector.connected
 				? connector.auth === "none"
-					? "Open"
+					? "Ready"
 					: "Connected"
 				: "Not signed in"
 	);

@@ -218,7 +218,7 @@ describe("when there is no text", () => {
 		});
 
 		expect(answer).toMatchObject({ ok: false, status: 503 });
-		expect(answer.ok ? "" : answer.reason).toContain("no document reader configured");
+		expect(answer.ok ? "" : answer.reason).toContain("No document reader is set up yet");
 	});
 
 	it("quotes the gateway's refusal for a document it cannot read", async () => {

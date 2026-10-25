@@ -624,7 +624,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			const pill = findWebSearchPill(container) as HTMLButtonElement;
 			expect(pill.disabled).toBe(true);
 			expect(pill.getAttribute("aria-pressed")).toBe("false");
-			expect(pill.title).toBe("Web search isn't set up on this deployment.");
+			expect(pill.title).toBe("Web search isn't set up here yet.");
 			pill.click();
 			expect(calls.some((call) => call.method === "PATCH")).toBe(false);
 		});

@@ -76,7 +76,7 @@ const FORWARDED = [
 
 function target(path: string, search: string): string {
 	if (!config.OPENAI_BASE_URL) {
-		error(404, "This deployment has no gateway configured.");
+		error(404, "The service behind this is not set up.");
 	}
 	if (!INTERNAL.some((pattern) => pattern.test(path)) && !FORWARDED.some((p) => p.test(path))) {
 		// 404 rather than 403: this forwarder does not offer that path at all,
