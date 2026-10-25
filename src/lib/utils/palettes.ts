@@ -17,21 +17,6 @@ export type Neutral = (typeof NEUTRALS)[number];
 export const DEFAULT_ACCENT: Accent = "blue";
 export const DEFAULT_NEUTRAL: Neutral = "neutral";
 
-export const ACCENT_LABELS: Record<Accent, string> = {
-	blue: "Blue",
-	violet: "Violet",
-	teal: "Teal",
-	green: "Green",
-	rose: "Rose",
-	orange: "Orange",
-};
-
-export const NEUTRAL_LABELS: Record<Neutral, string> = {
-	neutral: "Neutral",
-	cool: "Cool",
-	warm: "Warm",
-};
-
 /**
  * Swatch colours for the picker: the accent's solid fill and the tone's
  * 500 step, dark enough to carry a white checkmark. Fixed, not read from the live theme — a swatch must show

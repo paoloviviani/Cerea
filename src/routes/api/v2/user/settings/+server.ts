@@ -13,6 +13,7 @@ import { parseAccent, parseNeutral } from "$lib/utils/palettes";
 import { z } from "zod";
 import { locationSettingsFields } from "$lib/utils/location";
 import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
+import { localeFields, localePatch } from "$lib/server/localeSettings";
 
 const settingsSchema = z.object({
 	// On by default for new accounts (DEFAULT_SETTINGS); absent on older
@@ -47,6 +48,7 @@ const settingsSchema = z.object({
 	billingOrganization: z.string().optional(),
 	...locationSettingsFields,
 	...paletteFields,
+	...localeFields,
 });
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -107,6 +109,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		billingOrganization: settings?.billingOrganization ?? undefined,
 		accent: parseAccent(settings?.accent) ?? DEFAULT_SETTINGS.accent,
 		neutral: parseNeutral(settings?.neutral) ?? DEFAULT_SETTINGS.neutral,
+		locale: settings?.locale ?? undefined,
 	});
 };
 
@@ -127,7 +130,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			{ status: 400 }
 		);
 	}
-	const { accent, neutral, ...parsedSettings } = parsed.data;
+	const { accent, neutral, locale, ...parsedSettings } = parsed.data;
 	const streamingMode = resolveStreamingMode(parsedSettings);
 
 	const settings = {
@@ -141,6 +144,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			$set: {
 				...settings,
 				...palettePatch({ accent, neutral }),
+				...localePatch({ locale }),
 				updatedAt: new Date(),
 			},
 			$setOnInsert: {

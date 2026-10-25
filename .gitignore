@@ -46,3 +46,6 @@ src/**/__screenshots__/
 # Scratch output, never committed
 server.log
 screenshots/
+/src/lib/paraglide
+project.inlang/.meta.json
+project.inlang/README.md

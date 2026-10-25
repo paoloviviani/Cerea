@@ -109,6 +109,8 @@ export const load = async ({ fetch, url, data }) => {
 		customModels,
 		oldModels: [],
 		user,
+		locale: data.locale,
+		pseudoLocaleEnabled: data.pseudoLocaleEnabled,
 		gatewayIsAdmin: data.gatewayIsAdmin,
 		webSearchAvailable: data.webSearchAvailable,
 		codeFilesEnabled: data.codeFilesEnabled,

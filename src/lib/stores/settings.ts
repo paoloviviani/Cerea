@@ -28,6 +28,7 @@ type SettingsStore = {
 	billingOrganization?: string;
 	accent?: Accent;
 	neutral?: Neutral;
+	locale?: string;
 };
 
 type SettingsStoreWritable = Writable<SettingsStore> & {
