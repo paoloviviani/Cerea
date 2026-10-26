@@ -107,6 +107,25 @@ describe("the built-in definitions", () => {
 			(file) => file.path === "scripts/generate.py"
 		);
 		expect(generateScript?.content.length ?? 0).toBeLessThan(20_000);
+		// The office editing helpers ship as small cooperating files (each one under
+		// the same cap) so the model can load every one of them whole.
+		for (const [skill, paths] of [
+			["word", ["scripts/docx_edit.py", "scripts/docx_tables.py", "scripts/docx_verify.py"]],
+			["powerpoint", ["scripts/pptx_edit.py", "scripts/pptx_slides.py", "scripts/pptx_verify.py"]],
+			["excel", ["scripts/xlsx_patch.py"]],
+		] as const) {
+			for (const bundled of paths) {
+				const file = definition(skill).files.find((candidate) => candidate.path === bundled);
+				expect(file, `${skill}/${bundled}`).toBeDefined();
+				expect(file?.content.length ?? 0, `${skill}/${bundled}`).toBeLessThan(20_000);
+			}
+		}
+		for (const builtin of listBuiltinSkills()) {
+			expect(
+				builtin.files.filter((file) => file.path.includes("__pycache__")),
+				builtin.name
+			).toEqual([]);
+		}
 		expect(definition("themes").files.map((file) => file.path)).toContain(
 			"references/themes/modern-minimalist.md"
 		);
@@ -157,11 +176,11 @@ describe("seed bootstrap", () => {
 
 describe("the seedHash upgrade rule", () => {
 	it("replaces an unedited row with the newer definition, keeping enabled", async () => {
-		const builtin = definition("word");
+		const builtin = definition("pdf");
 		const older = `${builtin.content}\n\n<!-- an older shipped revision -->`;
 		await collections.skills.insertOne(
 			row({
-				name: "word",
+				name: "pdf",
 				description: "older description",
 				content: older,
 				enabled: false,
@@ -170,7 +189,7 @@ describe("the seedHash upgrade rule", () => {
 		);
 		await resetSeedEnsured();
 		await ensureDeploymentSeeds();
-		const upgraded = await collections.skills.findOne({ scope: "deployment", name: "word" });
+		const upgraded = await collections.skills.findOne({ scope: "deployment", name: "pdf" });
 		expect(upgraded?.content).toBe(builtin.content);
 		expect(upgraded?.description).toBe(builtin.description);
 		expect(upgraded?.seedHash).toBe(builtin.hash);
@@ -179,18 +198,18 @@ describe("the seedHash upgrade rule", () => {
 	});
 
 	it("never touches a row an administrator has edited", async () => {
-		const builtin = definition("word");
+		const builtin = definition("pdf");
 		await collections.skills.insertOne(
 			row({
-				name: "word",
+				name: "pdf",
 				description: "The admin's own wording.",
-				content: "---\nname: word\ndescription: Edited by an admin.\n---\n\nCustom body.",
+				content: "---\nname: pdf\ndescription: Edited by an admin.\n---\n\nCustom body.",
 				seedHash: builtin.hash,
 			})
 		);
 		await resetSeedEnsured();
 		await ensureDeploymentSeeds();
-		const kept = await collections.skills.findOne({ scope: "deployment", name: "word" });
+		const kept = await collections.skills.findOne({ scope: "deployment", name: "pdf" });
 		expect(kept?.description).toBe("The admin's own wording.");
 		expect(kept?.content).toContain("Custom body.");
 		expect(kept?.seedHash).toBe(builtin.hash);

@@ -35,3 +35,11 @@ showed exactly that. Without a template the engine uses python-pptx's
 built-in template (standard layouts, real placeholders — the doctrine holds),
 and with an attached `.pptx` the person's own; `references/layouts.md`
 (the Inner Chapter catalog) went with it.
+
+## Added by Cerea
+
+- `scripts/pptx_edit.py`, `pptx_slides.py`, `pptx_verify.py`: original work, Apache-2.0,
+  no upstream. Precise editing of supplied .pptx files (run-spanning replace,
+  placeholders, picture swap, duplicate/delete/reorder slides) with a
+  part-by-part verify. Tested in the vendored Pyodide by
+  `scripts/pyodide_pptx_edit_check.py`.
