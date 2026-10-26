@@ -9,6 +9,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import signal
 import sys
 import tempfile
@@ -37,6 +38,10 @@ def _env() -> dict[str, str]:
         "LANG": "C.UTF-8",
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONHASHSEED": "random",
+        # numpy (charts) reserves address space per thread; one thread keeps it inside the worker's memory cap
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
     }
 
 
@@ -129,8 +134,12 @@ async def run_job(
         if rc == EXIT_MEMORY:
             raise ResourceLimit("the document needed more memory than the service allows", reason="memory")
         result_file = job / "result.json"
+        tail = err[-2000:].decode("utf-8", "replace")
+        if rc != 0 and re.search(r"(?i)memory allocation|cannot allocate memory|MemoryError", tail):
+            # a native library (BLAS under numpy) gave up on the address-space cap: the same refusal as MemoryError
+            raise ResourceLimit("the document needed more memory than the service allows", reason="memory")
         if rc != 0 or not result_file.exists():
-            log.error("worker failed: exit=%s stderr=%s", rc, err[-2000:].decode("utf-8", "replace"))
+            log.error("worker failed: exit=%s stderr=%s", rc, tail)
             exc = DocumentError("the document could not be processed")
             exc.status, exc.code = 500, "internal_error"
             raise exc

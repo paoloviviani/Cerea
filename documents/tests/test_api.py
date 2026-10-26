@@ -58,7 +58,7 @@ def test_healthz_is_open_and_capabilities_need_the_secret(client: TestClient) ->
             "set_notes",
         ]
     )
-    assert "add_comment" in caps["formats"]["docx"]["deferred_operations"] and caps["create"] is False
+    assert "add_comment" in caps["formats"]["docx"]["deferred_operations"] and caps["create"] is True
     assert caps["limits"]["max_zip_entries"] == 5000
 
 

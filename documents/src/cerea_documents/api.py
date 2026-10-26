@@ -26,6 +26,7 @@ from .core import capabilities
 from .errors import DocumentError, InvalidRequest, TooLarge, Unauthorized
 from .runner import run_job
 from .schemas import FORMATS, format_from_name, validate_envelope
+from .spec import validate_envelope as validate_create_envelope
 
 log = logging.getLogger("cerea_documents")
 SECRET_HEADER = "x-cerea-documents-secret"  # noqa: S105 - a header name, not a secret
@@ -33,6 +34,7 @@ MEDIA_TYPES = {
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "pdf": "application/pdf",
 }
 MACRO_MEDIA = {
     ".docm": "application/vnd.ms-word.document.macroEnabled.12",
@@ -96,7 +98,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             raise Unauthorized("missing or wrong shared secret")
 
     async def read_request(
-        request: Request, need_body: bool
+        request: Request, need_body: bool, file_part: str = "required"
     ) -> tuple[bytes, str | None, dict[str, Any], dict[str, bytes]]:
         ctype = request.headers.get("content-type", "")
         if not ctype.lower().startswith("multipart/form-data"):
@@ -117,11 +119,13 @@ def create_app(settings: Settings | None = None) -> Starlette:
             raise bad from exc
         try:
             files = form.getlist("file")
-            if len(files) != 1 or not isinstance(files[0], UploadFile):
-                raise InvalidRequest("send exactly one 'file' part holding the document", reason="file")
-            f = files[0]
-            data = await f.read()
-            name = f.filename or ""
+            if file_part == "optional" and not files:
+                data, name = b"", ""
+            else:
+                if len(files) != 1 or not isinstance(files[0], UploadFile):
+                    raise InvalidRequest("send exactly one 'file' part holding the document", reason="file")
+                data = await files[0].read()
+                name = files[0].filename or ""
             raw = form.get("body")
             if raw is None:
                 body: dict[str, Any] = {}
@@ -160,8 +164,17 @@ def create_app(settings: Settings | None = None) -> Starlette:
     async def handle(request: Request, kind: str) -> Response:
         try:
             authenticate(request)
-            data, name, body, images = await read_request(request, kind in ("edit", "read"))
-            fmt = resolve_format(name, body)
+            creating = kind in ("create", "create_from_template")
+            data, name, body, images = await read_request(
+                request,
+                kind != "outline",
+                "optional" if kind == "create" else "required",
+            )
+            if creating:
+                validate_create_envelope(body, limits, template=kind == "create_from_template")
+                fmt = resolve_format(name, body) if kind == "create_from_template" else body["format"]
+            else:
+                fmt = resolve_format(name, body)
             if kind == "edit":
                 validate_envelope(body, limits)
                 if fmt is None:
@@ -173,10 +186,13 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 res = await run_job(
                     kind, data, filename_format=fmt, body=body, images=images, limits=limits, tmpdir=st.tmpdir
                 )
-            if kind != "edit":
+            if kind not in ("edit", "create", "create_from_template"):
                 return JSONResponse(res.result)
             assert res.file is not None
-            return _edit_response(request, res.result, res.file, name or "document")
+            out_name = name or "document"
+            if kind == "create":
+                out_name = _created_name(body.get("file_name"), body["format"])
+            return _edit_response(request, res.result, res.file, out_name)
         except DocumentError as exc:
             if exc.status >= 500:
                 log.error("request failed: %s", exc.message)
@@ -205,6 +221,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
             Route("/v1/outline", endpoint("outline"), methods=["POST"]),
             Route("/v1/read", endpoint("read"), methods=["POST"]),
             Route("/v1/edit", endpoint("edit"), methods=["POST"]),
+            Route("/v1/create", endpoint("create"), methods=["POST"]),
+            Route("/v1/create_from_template", endpoint("create_from_template"), methods=["POST"]),
         ]
     )
     app.add_middleware(BodyLimit, max_bytes=limits.max_request_bytes)
@@ -217,6 +235,8 @@ def _loads(text: str) -> dict[str, Any]:
 
     try:
         value = json.loads(text, parse_constant=refuse)
+    except RecursionError as exc:
+        raise InvalidRequest("the 'body' part is nested too deeply", reason="too_deep") from exc
     except ValueError as exc:
         raise InvalidRequest(f"the 'body' part is not valid JSON: {exc}", reason="body") from exc
     if not isinstance(value, dict):
@@ -246,6 +266,11 @@ def _edit_response(request: Request, result: dict[str, Any], file: bytes, name: 
     return Response(
         head + file + f"\r\n--{boundary}--\r\n".encode(), media_type=f"multipart/form-data; boundary={boundary}"
     )
+
+
+def _created_name(requested: Any, fmt: str) -> str:
+    base = _safe_name(str(requested)) if requested else "document"
+    return base if base.lower().endswith("." + fmt) else f"{base.rsplit('.', 1)[0] if '.' in base else base}.{fmt}"
 
 
 def _safe_name(name: str) -> str:

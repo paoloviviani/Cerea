@@ -1,6 +1,4538 @@
 {
 	"convert": false,
-	"create": false,
+	"create": true,
+	"create_formats": ["docx", "xlsx", "pptx", "pdf"],
+	"create_from_template": true,
+	"create_schemas": {
+		"docx": {
+			"blocks": {
+				"chart": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"enum": ["left", "center", "right"]
+						},
+						"caption": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"categories": {
+							"items": {
+								"type": ["string", "number"]
+							},
+							"maxItems": 5000,
+							"type": "array"
+						},
+						"chart_type": {
+							"description": "stacked = stacked columns; scatter takes points",
+							"enum": ["bar", "column", "stacked", "line", "area", "pie", "doughnut", "scatter"]
+						},
+						"height_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						},
+						"legend": {
+							"type": "boolean"
+						},
+						"render": {
+							"description": "native = editable in Office; image = a PNG",
+							"enum": ["native", "image"]
+						},
+						"series": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"maxLength": 500,
+										"type": "string"
+									},
+									"points": {
+										"description": "scatter only: [x, y] pairs",
+										"items": {
+											"items": {
+												"type": "number"
+											},
+											"maxItems": 2,
+											"minItems": 2,
+											"type": "array"
+										},
+										"maxItems": 5000,
+										"type": "array"
+									},
+									"values": {
+										"items": {
+											"type": "number"
+										},
+										"maxItems": 5000,
+										"type": "array"
+									}
+								},
+								"required": ["name"],
+								"type": "object"
+							},
+							"maxItems": 20,
+							"minItems": 1,
+							"type": "array"
+						},
+						"title": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"type": {
+							"const": "chart"
+						},
+						"width_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						},
+						"x_title": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"y_title": {
+							"maxLength": 500,
+							"type": "string"
+						}
+					},
+					"required": ["type", "chart_type", "series"],
+					"type": "object"
+				},
+				"code": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"language": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"text": {
+							"maxLength": 50000,
+							"type": "string"
+						},
+						"type": {
+							"const": "code"
+						}
+					},
+					"required": ["type", "text"],
+					"type": "object"
+				},
+				"heading": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"level": {
+							"maximum": 6,
+							"minimum": 1,
+							"type": "integer"
+						},
+						"runs": {
+							"description": "formatted text; use instead of text",
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"bold": {
+										"type": "boolean"
+									},
+									"code": {
+										"type": "boolean"
+									},
+									"color": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"italic": {
+										"type": "boolean"
+									},
+									"link": {
+										"maxLength": 2000,
+										"pattern": "^(https?://|mailto:)[^\\s]+$",
+										"type": "string"
+									},
+									"text": {
+										"maxLength": 20000,
+										"type": "string"
+									},
+									"underline": {
+										"type": "boolean"
+									}
+								},
+								"required": ["text"],
+								"type": "object"
+							},
+							"maxItems": 500,
+							"type": "array"
+						},
+						"text": {
+							"maxLength": 20000,
+							"type": "string"
+						},
+						"type": {
+							"const": "heading"
+						}
+					},
+					"required": ["type", "level"],
+					"type": "object"
+				},
+				"image": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"enum": ["left", "center", "right"]
+						},
+						"alt": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"caption": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"height_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						},
+						"image": {
+							"maxLength": 300,
+							"type": "string"
+						},
+						"type": {
+							"const": "image"
+						},
+						"width_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						}
+					},
+					"required": ["type", "image"],
+					"type": "object"
+				},
+				"list": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"items": {
+							"items": {
+								"anyOf": [
+									{
+										"maxLength": 5000,
+										"type": "string"
+									},
+									{
+										"additionalProperties": false,
+										"properties": {
+											"children": {
+												"items": {
+													"$ref": "#/$defs/item"
+												},
+												"type": "array"
+											},
+											"runs": {
+												"description": "formatted text; use instead of text",
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"bold": {
+															"type": "boolean"
+														},
+														"code": {
+															"type": "boolean"
+														},
+														"color": {
+															"description": "hex colour such as 1F3864",
+															"pattern": "^#?[0-9A-Fa-f]{6}$",
+															"type": "string"
+														},
+														"italic": {
+															"type": "boolean"
+														},
+														"link": {
+															"maxLength": 2000,
+															"pattern": "^(https?://|mailto:)[^\\s]+$",
+															"type": "string"
+														},
+														"text": {
+															"maxLength": 20000,
+															"type": "string"
+														},
+														"underline": {
+															"type": "boolean"
+														}
+													},
+													"required": ["text"],
+													"type": "object"
+												},
+												"maxItems": 500,
+												"type": "array"
+											},
+											"text": {
+												"maxLength": 20000,
+												"type": "string"
+											}
+										},
+										"type": "object"
+									}
+								]
+							},
+							"minItems": 1,
+							"type": "array"
+						},
+						"ordered": {
+							"type": "boolean"
+						},
+						"type": {
+							"const": "list"
+						}
+					},
+					"required": ["type", "items"],
+					"type": "object"
+				},
+				"page_break": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"type": {
+							"const": "page_break"
+						}
+					},
+					"required": ["type"],
+					"type": "object"
+				},
+				"paragraph": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"enum": ["left", "center", "right", "justify"]
+						},
+						"runs": {
+							"description": "formatted text; use instead of text",
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"bold": {
+										"type": "boolean"
+									},
+									"code": {
+										"type": "boolean"
+									},
+									"color": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"italic": {
+										"type": "boolean"
+									},
+									"link": {
+										"maxLength": 2000,
+										"pattern": "^(https?://|mailto:)[^\\s]+$",
+										"type": "string"
+									},
+									"text": {
+										"maxLength": 20000,
+										"type": "string"
+									},
+									"underline": {
+										"type": "boolean"
+									}
+								},
+								"required": ["text"],
+								"type": "object"
+							},
+							"maxItems": 500,
+							"type": "array"
+						},
+						"text": {
+							"maxLength": 20000,
+							"type": "string"
+						},
+						"type": {
+							"const": "paragraph"
+						}
+					},
+					"required": ["type"],
+					"type": "object"
+				},
+				"quote": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"attribution": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"runs": {
+							"description": "formatted text; use instead of text",
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"bold": {
+										"type": "boolean"
+									},
+									"code": {
+										"type": "boolean"
+									},
+									"color": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"italic": {
+										"type": "boolean"
+									},
+									"link": {
+										"maxLength": 2000,
+										"pattern": "^(https?://|mailto:)[^\\s]+$",
+										"type": "string"
+									},
+									"text": {
+										"maxLength": 20000,
+										"type": "string"
+									},
+									"underline": {
+										"type": "boolean"
+									}
+								},
+								"required": ["text"],
+								"type": "object"
+							},
+							"maxItems": 500,
+							"type": "array"
+						},
+						"text": {
+							"maxLength": 20000,
+							"type": "string"
+						},
+						"type": {
+							"const": "quote"
+						}
+					},
+					"required": ["type"],
+					"type": "object"
+				},
+				"table": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"items": {
+								"enum": ["left", "center", "right"]
+							},
+							"maxItems": 50,
+							"type": "array"
+						},
+						"caption": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"header": {
+							"items": {
+								"maxLength": 1000,
+								"type": "string"
+							},
+							"maxItems": 50,
+							"type": "array"
+						},
+						"rows": {
+							"items": {
+								"items": {
+									"anyOf": [
+										{
+											"type": ["string", "number", "boolean", "null"]
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"align": {
+													"enum": ["left", "center", "right"]
+												},
+												"bold": {
+													"type": "boolean"
+												},
+												"color": {
+													"description": "hex colour such as 1F3864",
+													"pattern": "^#?[0-9A-Fa-f]{6}$",
+													"type": "string"
+												},
+												"fill": {
+													"description": "hex colour such as 1F3864",
+													"pattern": "^#?[0-9A-Fa-f]{6}$",
+													"type": "string"
+												},
+												"text": {
+													"type": ["string", "number", "boolean", "null"]
+												}
+											},
+											"required": ["text"],
+											"type": "object"
+										}
+									]
+								},
+								"maxItems": 50,
+								"type": "array"
+							},
+							"maxItems": 2000,
+							"type": "array"
+						},
+						"style": {
+							"enum": ["banded", "grid", "minimal", "plain"]
+						},
+						"type": {
+							"const": "table"
+						},
+						"widths": {
+							"items": {
+								"exclusiveMinimum": 0,
+								"type": "number"
+							},
+							"maxItems": 50,
+							"type": "array"
+						}
+					},
+					"required": ["type", "rows"],
+					"type": "object"
+				},
+				"toc": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"levels": {
+							"maximum": 6,
+							"minimum": 1,
+							"type": "integer"
+						},
+						"title": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"type": {
+							"const": "toc"
+						}
+					},
+					"required": ["type"],
+					"type": "object"
+				}
+			},
+			"document": {
+				"additionalProperties": false,
+				"properties": {
+					"blocks": {
+						"items": {
+							"type": "object"
+						},
+						"maxItems": 3000,
+						"type": "array"
+					},
+					"footer": {
+						"additionalProperties": false,
+						"properties": {
+							"align": {
+								"enum": ["left", "center", "right"]
+							},
+							"text": {
+								"description": "{page} and {pages} become the page fields",
+								"maxLength": 500,
+								"type": "string"
+							}
+						},
+						"required": ["text"],
+						"type": "object"
+					},
+					"header": {
+						"additionalProperties": false,
+						"properties": {
+							"align": {
+								"enum": ["left", "center", "right"]
+							},
+							"text": {
+								"description": "{page} and {pages} become the page fields",
+								"maxLength": 500,
+								"type": "string"
+							}
+						},
+						"required": ["text"],
+						"type": "object"
+					},
+					"language": {
+						"pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$",
+						"type": "string"
+					},
+					"markdown": {
+						"description": "alternative to blocks: prose with an optional front-matter",
+						"maxLength": 500000,
+						"type": "string"
+					},
+					"page": {
+						"additionalProperties": false,
+						"properties": {
+							"margins_cm": {
+								"anyOf": [
+									{
+										"maximum": 10,
+										"minimum": 0.5,
+										"type": "number"
+									},
+									{
+										"additionalProperties": false,
+										"properties": {
+											"bottom": {
+												"maximum": 10,
+												"minimum": 0.5,
+												"type": "number"
+											},
+											"left": {
+												"maximum": 10,
+												"minimum": 0.5,
+												"type": "number"
+											},
+											"right": {
+												"maximum": 10,
+												"minimum": 0.5,
+												"type": "number"
+											},
+											"top": {
+												"maximum": 10,
+												"minimum": 0.5,
+												"type": "number"
+											}
+										},
+										"required": [],
+										"type": "object"
+									}
+								],
+								"description": "one number for all sides, or {top, bottom, left, right}"
+							},
+							"orientation": {
+								"enum": ["portrait", "landscape"]
+							},
+							"size": {
+								"enum": ["A4", "A3", "A5", "Letter", "Legal"]
+							}
+						},
+						"required": [],
+						"type": "object"
+					},
+					"theme": {
+						"additionalProperties": false,
+						"description": "Overrides of the built-in neutral style; give only what the person asked for. `template` names a file the person uploaded in the chat to take styles from.",
+						"properties": {
+							"accent": {
+								"description": "hex colour such as 1F3864",
+								"pattern": "^#?[0-9A-Fa-f]{6}$",
+								"type": "string"
+							},
+							"body_font": {
+								"enum": [
+									"Arial",
+									"Book Antiqua",
+									"Calibri",
+									"Calibri Light",
+									"Cambria",
+									"Candara",
+									"Century Gothic",
+									"Consolas",
+									"Constantia",
+									"Corbel",
+									"Courier New",
+									"Garamond",
+									"Georgia",
+									"Palatino Linotype",
+									"Segoe UI",
+									"Tahoma",
+									"Times New Roman",
+									"Trebuchet MS",
+									"Verdana"
+								]
+							},
+							"body_size_pt": {
+								"maximum": 18,
+								"minimum": 8,
+								"type": "number"
+							},
+							"colors": {
+								"additionalProperties": false,
+								"properties": {
+									"accent": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"border": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"heading": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"link": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"muted": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_band": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_header_fill": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_header_text": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"text": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									}
+								},
+								"type": "object"
+							},
+							"heading_font": {
+								"enum": [
+									"Arial",
+									"Book Antiqua",
+									"Calibri",
+									"Calibri Light",
+									"Cambria",
+									"Candara",
+									"Century Gothic",
+									"Consolas",
+									"Constantia",
+									"Corbel",
+									"Courier New",
+									"Garamond",
+									"Georgia",
+									"Palatino Linotype",
+									"Segoe UI",
+									"Tahoma",
+									"Times New Roman",
+									"Trebuchet MS",
+									"Verdana"
+								]
+							},
+							"heading_sizes_pt": {
+								"additionalProperties": false,
+								"properties": {
+									"h1": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h2": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h3": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h4": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h5": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h6": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									}
+								},
+								"type": "object"
+							},
+							"line_spacing": {
+								"maximum": 2.5,
+								"minimum": 1.0,
+								"type": "number"
+							},
+							"paragraph_spacing_pt": {
+								"maximum": 36,
+								"minimum": 0,
+								"type": "number"
+							},
+							"table_style": {
+								"enum": ["banded", "grid", "minimal", "plain"]
+							},
+							"template": {
+								"maxLength": 300,
+								"type": "string"
+							}
+						},
+						"type": "object"
+					},
+					"title": {
+						"maxLength": 500,
+						"type": "string"
+					}
+				},
+				"required": [],
+				"type": "object"
+			}
+		},
+		"pdf": {
+			"blocks": {
+				"chart": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"enum": ["left", "center", "right"]
+						},
+						"caption": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"categories": {
+							"items": {
+								"type": ["string", "number"]
+							},
+							"maxItems": 5000,
+							"type": "array"
+						},
+						"chart_type": {
+							"description": "stacked = stacked columns; scatter takes points",
+							"enum": ["bar", "column", "stacked", "line", "area", "pie", "doughnut", "scatter"]
+						},
+						"height_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						},
+						"legend": {
+							"type": "boolean"
+						},
+						"render": {
+							"description": "native = editable in Office; image = a PNG",
+							"enum": ["native", "image"]
+						},
+						"series": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"maxLength": 500,
+										"type": "string"
+									},
+									"points": {
+										"description": "scatter only: [x, y] pairs",
+										"items": {
+											"items": {
+												"type": "number"
+											},
+											"maxItems": 2,
+											"minItems": 2,
+											"type": "array"
+										},
+										"maxItems": 5000,
+										"type": "array"
+									},
+									"values": {
+										"items": {
+											"type": "number"
+										},
+										"maxItems": 5000,
+										"type": "array"
+									}
+								},
+								"required": ["name"],
+								"type": "object"
+							},
+							"maxItems": 20,
+							"minItems": 1,
+							"type": "array"
+						},
+						"title": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"type": {
+							"const": "chart"
+						},
+						"width_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						},
+						"x_title": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"y_title": {
+							"maxLength": 500,
+							"type": "string"
+						}
+					},
+					"required": ["type", "chart_type", "series"],
+					"type": "object"
+				},
+				"code": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"language": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"text": {
+							"maxLength": 50000,
+							"type": "string"
+						},
+						"type": {
+							"const": "code"
+						}
+					},
+					"required": ["type", "text"],
+					"type": "object"
+				},
+				"heading": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"level": {
+							"maximum": 6,
+							"minimum": 1,
+							"type": "integer"
+						},
+						"runs": {
+							"description": "formatted text; use instead of text",
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"bold": {
+										"type": "boolean"
+									},
+									"code": {
+										"type": "boolean"
+									},
+									"color": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"italic": {
+										"type": "boolean"
+									},
+									"link": {
+										"maxLength": 2000,
+										"pattern": "^(https?://|mailto:)[^\\s]+$",
+										"type": "string"
+									},
+									"text": {
+										"maxLength": 20000,
+										"type": "string"
+									},
+									"underline": {
+										"type": "boolean"
+									}
+								},
+								"required": ["text"],
+								"type": "object"
+							},
+							"maxItems": 500,
+							"type": "array"
+						},
+						"text": {
+							"maxLength": 20000,
+							"type": "string"
+						},
+						"type": {
+							"const": "heading"
+						}
+					},
+					"required": ["type", "level"],
+					"type": "object"
+				},
+				"image": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"enum": ["left", "center", "right"]
+						},
+						"alt": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"caption": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"height_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						},
+						"image": {
+							"maxLength": 300,
+							"type": "string"
+						},
+						"type": {
+							"const": "image"
+						},
+						"width_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						}
+					},
+					"required": ["type", "image"],
+					"type": "object"
+				},
+				"list": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"items": {
+							"items": {
+								"anyOf": [
+									{
+										"maxLength": 5000,
+										"type": "string"
+									},
+									{
+										"additionalProperties": false,
+										"properties": {
+											"children": {
+												"items": {
+													"$ref": "#/$defs/item"
+												},
+												"type": "array"
+											},
+											"runs": {
+												"description": "formatted text; use instead of text",
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"bold": {
+															"type": "boolean"
+														},
+														"code": {
+															"type": "boolean"
+														},
+														"color": {
+															"description": "hex colour such as 1F3864",
+															"pattern": "^#?[0-9A-Fa-f]{6}$",
+															"type": "string"
+														},
+														"italic": {
+															"type": "boolean"
+														},
+														"link": {
+															"maxLength": 2000,
+															"pattern": "^(https?://|mailto:)[^\\s]+$",
+															"type": "string"
+														},
+														"text": {
+															"maxLength": 20000,
+															"type": "string"
+														},
+														"underline": {
+															"type": "boolean"
+														}
+													},
+													"required": ["text"],
+													"type": "object"
+												},
+												"maxItems": 500,
+												"type": "array"
+											},
+											"text": {
+												"maxLength": 20000,
+												"type": "string"
+											}
+										},
+										"type": "object"
+									}
+								]
+							},
+							"minItems": 1,
+							"type": "array"
+						},
+						"ordered": {
+							"type": "boolean"
+						},
+						"type": {
+							"const": "list"
+						}
+					},
+					"required": ["type", "items"],
+					"type": "object"
+				},
+				"page_break": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"type": {
+							"const": "page_break"
+						}
+					},
+					"required": ["type"],
+					"type": "object"
+				},
+				"paragraph": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"enum": ["left", "center", "right", "justify"]
+						},
+						"runs": {
+							"description": "formatted text; use instead of text",
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"bold": {
+										"type": "boolean"
+									},
+									"code": {
+										"type": "boolean"
+									},
+									"color": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"italic": {
+										"type": "boolean"
+									},
+									"link": {
+										"maxLength": 2000,
+										"pattern": "^(https?://|mailto:)[^\\s]+$",
+										"type": "string"
+									},
+									"text": {
+										"maxLength": 20000,
+										"type": "string"
+									},
+									"underline": {
+										"type": "boolean"
+									}
+								},
+								"required": ["text"],
+								"type": "object"
+							},
+							"maxItems": 500,
+							"type": "array"
+						},
+						"text": {
+							"maxLength": 20000,
+							"type": "string"
+						},
+						"type": {
+							"const": "paragraph"
+						}
+					},
+					"required": ["type"],
+					"type": "object"
+				},
+				"quote": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"attribution": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"runs": {
+							"description": "formatted text; use instead of text",
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"bold": {
+										"type": "boolean"
+									},
+									"code": {
+										"type": "boolean"
+									},
+									"color": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"italic": {
+										"type": "boolean"
+									},
+									"link": {
+										"maxLength": 2000,
+										"pattern": "^(https?://|mailto:)[^\\s]+$",
+										"type": "string"
+									},
+									"text": {
+										"maxLength": 20000,
+										"type": "string"
+									},
+									"underline": {
+										"type": "boolean"
+									}
+								},
+								"required": ["text"],
+								"type": "object"
+							},
+							"maxItems": 500,
+							"type": "array"
+						},
+						"text": {
+							"maxLength": 20000,
+							"type": "string"
+						},
+						"type": {
+							"const": "quote"
+						}
+					},
+					"required": ["type"],
+					"type": "object"
+				},
+				"table": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"items": {
+								"enum": ["left", "center", "right"]
+							},
+							"maxItems": 50,
+							"type": "array"
+						},
+						"caption": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"header": {
+							"items": {
+								"maxLength": 1000,
+								"type": "string"
+							},
+							"maxItems": 50,
+							"type": "array"
+						},
+						"rows": {
+							"items": {
+								"items": {
+									"anyOf": [
+										{
+											"type": ["string", "number", "boolean", "null"]
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"align": {
+													"enum": ["left", "center", "right"]
+												},
+												"bold": {
+													"type": "boolean"
+												},
+												"color": {
+													"description": "hex colour such as 1F3864",
+													"pattern": "^#?[0-9A-Fa-f]{6}$",
+													"type": "string"
+												},
+												"fill": {
+													"description": "hex colour such as 1F3864",
+													"pattern": "^#?[0-9A-Fa-f]{6}$",
+													"type": "string"
+												},
+												"text": {
+													"type": ["string", "number", "boolean", "null"]
+												}
+											},
+											"required": ["text"],
+											"type": "object"
+										}
+									]
+								},
+								"maxItems": 50,
+								"type": "array"
+							},
+							"maxItems": 2000,
+							"type": "array"
+						},
+						"style": {
+							"enum": ["banded", "grid", "minimal", "plain"]
+						},
+						"type": {
+							"const": "table"
+						},
+						"widths": {
+							"items": {
+								"exclusiveMinimum": 0,
+								"type": "number"
+							},
+							"maxItems": 50,
+							"type": "array"
+						}
+					},
+					"required": ["type", "rows"],
+					"type": "object"
+				},
+				"toc": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"levels": {
+							"maximum": 6,
+							"minimum": 1,
+							"type": "integer"
+						},
+						"title": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"type": {
+							"const": "toc"
+						}
+					},
+					"required": ["type"],
+					"type": "object"
+				}
+			},
+			"document": {
+				"additionalProperties": false,
+				"properties": {
+					"blocks": {
+						"items": {
+							"type": "object"
+						},
+						"maxItems": 3000,
+						"type": "array"
+					},
+					"footer": {
+						"additionalProperties": false,
+						"properties": {
+							"align": {
+								"enum": ["left", "center", "right"]
+							},
+							"text": {
+								"description": "{page} and {pages} become the page fields",
+								"maxLength": 500,
+								"type": "string"
+							}
+						},
+						"required": ["text"],
+						"type": "object"
+					},
+					"header": {
+						"additionalProperties": false,
+						"properties": {
+							"align": {
+								"enum": ["left", "center", "right"]
+							},
+							"text": {
+								"description": "{page} and {pages} become the page fields",
+								"maxLength": 500,
+								"type": "string"
+							}
+						},
+						"required": ["text"],
+						"type": "object"
+					},
+					"language": {
+						"pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$",
+						"type": "string"
+					},
+					"markdown": {
+						"description": "alternative to blocks: prose with an optional front-matter",
+						"maxLength": 500000,
+						"type": "string"
+					},
+					"page": {
+						"additionalProperties": false,
+						"properties": {
+							"margins_cm": {
+								"anyOf": [
+									{
+										"maximum": 10,
+										"minimum": 0.5,
+										"type": "number"
+									},
+									{
+										"additionalProperties": false,
+										"properties": {
+											"bottom": {
+												"maximum": 10,
+												"minimum": 0.5,
+												"type": "number"
+											},
+											"left": {
+												"maximum": 10,
+												"minimum": 0.5,
+												"type": "number"
+											},
+											"right": {
+												"maximum": 10,
+												"minimum": 0.5,
+												"type": "number"
+											},
+											"top": {
+												"maximum": 10,
+												"minimum": 0.5,
+												"type": "number"
+											}
+										},
+										"required": [],
+										"type": "object"
+									}
+								],
+								"description": "one number for all sides, or {top, bottom, left, right}"
+							},
+							"orientation": {
+								"enum": ["portrait", "landscape"]
+							},
+							"size": {
+								"enum": ["A4", "A3", "A5", "Letter", "Legal"]
+							}
+						},
+						"required": [],
+						"type": "object"
+					},
+					"theme": {
+						"additionalProperties": false,
+						"description": "Overrides of the built-in neutral style; give only what the person asked for. `template` names a file the person uploaded in the chat to take styles from.",
+						"properties": {
+							"accent": {
+								"description": "hex colour such as 1F3864",
+								"pattern": "^#?[0-9A-Fa-f]{6}$",
+								"type": "string"
+							},
+							"body_font": {
+								"enum": [
+									"Arial",
+									"Book Antiqua",
+									"Calibri",
+									"Calibri Light",
+									"Cambria",
+									"Candara",
+									"Century Gothic",
+									"Consolas",
+									"Constantia",
+									"Corbel",
+									"Courier New",
+									"Garamond",
+									"Georgia",
+									"Palatino Linotype",
+									"Segoe UI",
+									"Tahoma",
+									"Times New Roman",
+									"Trebuchet MS",
+									"Verdana"
+								]
+							},
+							"body_size_pt": {
+								"maximum": 18,
+								"minimum": 8,
+								"type": "number"
+							},
+							"colors": {
+								"additionalProperties": false,
+								"properties": {
+									"accent": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"border": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"heading": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"link": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"muted": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_band": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_header_fill": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_header_text": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"text": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									}
+								},
+								"type": "object"
+							},
+							"heading_font": {
+								"enum": [
+									"Arial",
+									"Book Antiqua",
+									"Calibri",
+									"Calibri Light",
+									"Cambria",
+									"Candara",
+									"Century Gothic",
+									"Consolas",
+									"Constantia",
+									"Corbel",
+									"Courier New",
+									"Garamond",
+									"Georgia",
+									"Palatino Linotype",
+									"Segoe UI",
+									"Tahoma",
+									"Times New Roman",
+									"Trebuchet MS",
+									"Verdana"
+								]
+							},
+							"heading_sizes_pt": {
+								"additionalProperties": false,
+								"properties": {
+									"h1": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h2": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h3": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h4": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h5": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h6": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									}
+								},
+								"type": "object"
+							},
+							"line_spacing": {
+								"maximum": 2.5,
+								"minimum": 1.0,
+								"type": "number"
+							},
+							"paragraph_spacing_pt": {
+								"maximum": 36,
+								"minimum": 0,
+								"type": "number"
+							},
+							"table_style": {
+								"enum": ["banded", "grid", "minimal", "plain"]
+							},
+							"template": {
+								"maxLength": 300,
+								"type": "string"
+							}
+						},
+						"type": "object"
+					},
+					"title": {
+						"maxLength": 500,
+						"type": "string"
+					}
+				},
+				"required": [],
+				"type": "object"
+			}
+		},
+		"pptx": {
+			"blocks": {
+				"chart": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"enum": ["left", "center", "right"]
+						},
+						"caption": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"categories": {
+							"items": {
+								"type": ["string", "number"]
+							},
+							"maxItems": 5000,
+							"type": "array"
+						},
+						"chart_type": {
+							"description": "stacked = stacked columns; scatter takes points",
+							"enum": ["bar", "column", "stacked", "line", "area", "pie", "doughnut", "scatter"]
+						},
+						"height_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						},
+						"legend": {
+							"type": "boolean"
+						},
+						"render": {
+							"description": "native = editable in Office; image = a PNG",
+							"enum": ["native", "image"]
+						},
+						"series": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"maxLength": 500,
+										"type": "string"
+									},
+									"points": {
+										"description": "scatter only: [x, y] pairs",
+										"items": {
+											"items": {
+												"type": "number"
+											},
+											"maxItems": 2,
+											"minItems": 2,
+											"type": "array"
+										},
+										"maxItems": 5000,
+										"type": "array"
+									},
+									"values": {
+										"items": {
+											"type": "number"
+										},
+										"maxItems": 5000,
+										"type": "array"
+									}
+								},
+								"required": ["name"],
+								"type": "object"
+							},
+							"maxItems": 20,
+							"minItems": 1,
+							"type": "array"
+						},
+						"title": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"type": {
+							"const": "chart"
+						},
+						"width_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						},
+						"x_title": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"y_title": {
+							"maxLength": 500,
+							"type": "string"
+						}
+					},
+					"required": ["type", "chart_type", "series"],
+					"type": "object"
+				},
+				"code": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"language": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"text": {
+							"maxLength": 50000,
+							"type": "string"
+						},
+						"type": {
+							"const": "code"
+						}
+					},
+					"required": ["type", "text"],
+					"type": "object"
+				},
+				"image": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"enum": ["left", "center", "right"]
+						},
+						"alt": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"caption": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"height_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						},
+						"image": {
+							"maxLength": 300,
+							"type": "string"
+						},
+						"type": {
+							"const": "image"
+						},
+						"width_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 100,
+							"type": "number"
+						}
+					},
+					"required": ["type", "image"],
+					"type": "object"
+				},
+				"list": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"items": {
+							"items": {
+								"anyOf": [
+									{
+										"maxLength": 5000,
+										"type": "string"
+									},
+									{
+										"additionalProperties": false,
+										"properties": {
+											"children": {
+												"items": {
+													"$ref": "#/$defs/item"
+												},
+												"type": "array"
+											},
+											"runs": {
+												"description": "formatted text; use instead of text",
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"bold": {
+															"type": "boolean"
+														},
+														"code": {
+															"type": "boolean"
+														},
+														"color": {
+															"description": "hex colour such as 1F3864",
+															"pattern": "^#?[0-9A-Fa-f]{6}$",
+															"type": "string"
+														},
+														"italic": {
+															"type": "boolean"
+														},
+														"link": {
+															"maxLength": 2000,
+															"pattern": "^(https?://|mailto:)[^\\s]+$",
+															"type": "string"
+														},
+														"text": {
+															"maxLength": 20000,
+															"type": "string"
+														},
+														"underline": {
+															"type": "boolean"
+														}
+													},
+													"required": ["text"],
+													"type": "object"
+												},
+												"maxItems": 500,
+												"type": "array"
+											},
+											"text": {
+												"maxLength": 20000,
+												"type": "string"
+											}
+										},
+										"type": "object"
+									}
+								]
+							},
+							"minItems": 1,
+							"type": "array"
+						},
+						"ordered": {
+							"type": "boolean"
+						},
+						"type": {
+							"const": "list"
+						}
+					},
+					"required": ["type", "items"],
+					"type": "object"
+				},
+				"paragraph": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"enum": ["left", "center", "right", "justify"]
+						},
+						"runs": {
+							"description": "formatted text; use instead of text",
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"bold": {
+										"type": "boolean"
+									},
+									"code": {
+										"type": "boolean"
+									},
+									"color": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"italic": {
+										"type": "boolean"
+									},
+									"link": {
+										"maxLength": 2000,
+										"pattern": "^(https?://|mailto:)[^\\s]+$",
+										"type": "string"
+									},
+									"text": {
+										"maxLength": 20000,
+										"type": "string"
+									},
+									"underline": {
+										"type": "boolean"
+									}
+								},
+								"required": ["text"],
+								"type": "object"
+							},
+							"maxItems": 500,
+							"type": "array"
+						},
+						"text": {
+							"maxLength": 20000,
+							"type": "string"
+						},
+						"type": {
+							"const": "paragraph"
+						}
+					},
+					"required": ["type"],
+					"type": "object"
+				},
+				"quote": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"attribution": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"runs": {
+							"description": "formatted text; use instead of text",
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"bold": {
+										"type": "boolean"
+									},
+									"code": {
+										"type": "boolean"
+									},
+									"color": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"italic": {
+										"type": "boolean"
+									},
+									"link": {
+										"maxLength": 2000,
+										"pattern": "^(https?://|mailto:)[^\\s]+$",
+										"type": "string"
+									},
+									"text": {
+										"maxLength": 20000,
+										"type": "string"
+									},
+									"underline": {
+										"type": "boolean"
+									}
+								},
+								"required": ["text"],
+								"type": "object"
+							},
+							"maxItems": 500,
+							"type": "array"
+						},
+						"text": {
+							"maxLength": 20000,
+							"type": "string"
+						},
+						"type": {
+							"const": "quote"
+						}
+					},
+					"required": ["type"],
+					"type": "object"
+				},
+				"table": {
+					"$defs": {
+						"item": {
+							"anyOf": [
+								{
+									"maxLength": 5000,
+									"type": "string"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"children": {
+											"items": {
+												"$ref": "#/$defs/item"
+											},
+											"type": "array"
+										},
+										"runs": {
+											"description": "formatted text; use instead of text",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"bold": {
+														"type": "boolean"
+													},
+													"code": {
+														"type": "boolean"
+													},
+													"color": {
+														"description": "hex colour such as 1F3864",
+														"pattern": "^#?[0-9A-Fa-f]{6}$",
+														"type": "string"
+													},
+													"italic": {
+														"type": "boolean"
+													},
+													"link": {
+														"maxLength": 2000,
+														"pattern": "^(https?://|mailto:)[^\\s]+$",
+														"type": "string"
+													},
+													"text": {
+														"maxLength": 20000,
+														"type": "string"
+													},
+													"underline": {
+														"type": "boolean"
+													}
+												},
+												"required": ["text"],
+												"type": "object"
+											},
+											"maxItems": 500,
+											"type": "array"
+										},
+										"text": {
+											"maxLength": 20000,
+											"type": "string"
+										}
+									},
+									"type": "object"
+								}
+							]
+						}
+					},
+					"additionalProperties": false,
+					"properties": {
+						"align": {
+							"items": {
+								"enum": ["left", "center", "right"]
+							},
+							"maxItems": 50,
+							"type": "array"
+						},
+						"caption": {
+							"maxLength": 500,
+							"type": "string"
+						},
+						"header": {
+							"items": {
+								"maxLength": 1000,
+								"type": "string"
+							},
+							"maxItems": 50,
+							"type": "array"
+						},
+						"rows": {
+							"items": {
+								"items": {
+									"anyOf": [
+										{
+											"type": ["string", "number", "boolean", "null"]
+										},
+										{
+											"additionalProperties": false,
+											"properties": {
+												"align": {
+													"enum": ["left", "center", "right"]
+												},
+												"bold": {
+													"type": "boolean"
+												},
+												"color": {
+													"description": "hex colour such as 1F3864",
+													"pattern": "^#?[0-9A-Fa-f]{6}$",
+													"type": "string"
+												},
+												"fill": {
+													"description": "hex colour such as 1F3864",
+													"pattern": "^#?[0-9A-Fa-f]{6}$",
+													"type": "string"
+												},
+												"text": {
+													"type": ["string", "number", "boolean", "null"]
+												}
+											},
+											"required": ["text"],
+											"type": "object"
+										}
+									]
+								},
+								"maxItems": 50,
+								"type": "array"
+							},
+							"maxItems": 2000,
+							"type": "array"
+						},
+						"style": {
+							"enum": ["banded", "grid", "minimal", "plain"]
+						},
+						"type": {
+							"const": "table"
+						},
+						"widths": {
+							"items": {
+								"exclusiveMinimum": 0,
+								"type": "number"
+							},
+							"maxItems": 50,
+							"type": "array"
+						}
+					},
+					"required": ["type", "rows"],
+					"type": "object"
+				}
+			},
+			"document": {
+				"additionalProperties": false,
+				"properties": {
+					"language": {
+						"pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$",
+						"type": "string"
+					},
+					"size": {
+						"enum": ["16:9", "4:3"]
+					},
+					"slides": {
+						"items": {
+							"type": "object"
+						},
+						"maxItems": 200,
+						"minItems": 1,
+						"type": "array"
+					},
+					"theme": {
+						"additionalProperties": false,
+						"description": "Overrides of the built-in neutral style; give only what the person asked for. `template` names a file the person uploaded in the chat to take styles from.",
+						"properties": {
+							"accent": {
+								"description": "hex colour such as 1F3864",
+								"pattern": "^#?[0-9A-Fa-f]{6}$",
+								"type": "string"
+							},
+							"body_font": {
+								"enum": [
+									"Arial",
+									"Book Antiqua",
+									"Calibri",
+									"Calibri Light",
+									"Cambria",
+									"Candara",
+									"Century Gothic",
+									"Consolas",
+									"Constantia",
+									"Corbel",
+									"Courier New",
+									"Garamond",
+									"Georgia",
+									"Palatino Linotype",
+									"Segoe UI",
+									"Tahoma",
+									"Times New Roman",
+									"Trebuchet MS",
+									"Verdana"
+								]
+							},
+							"body_size_pt": {
+								"maximum": 18,
+								"minimum": 8,
+								"type": "number"
+							},
+							"colors": {
+								"additionalProperties": false,
+								"properties": {
+									"accent": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"border": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"heading": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"link": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"muted": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_band": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_header_fill": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_header_text": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"text": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									}
+								},
+								"type": "object"
+							},
+							"heading_font": {
+								"enum": [
+									"Arial",
+									"Book Antiqua",
+									"Calibri",
+									"Calibri Light",
+									"Cambria",
+									"Candara",
+									"Century Gothic",
+									"Consolas",
+									"Constantia",
+									"Corbel",
+									"Courier New",
+									"Garamond",
+									"Georgia",
+									"Palatino Linotype",
+									"Segoe UI",
+									"Tahoma",
+									"Times New Roman",
+									"Trebuchet MS",
+									"Verdana"
+								]
+							},
+							"heading_sizes_pt": {
+								"additionalProperties": false,
+								"properties": {
+									"h1": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h2": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h3": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h4": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h5": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h6": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									}
+								},
+								"type": "object"
+							},
+							"line_spacing": {
+								"maximum": 2.5,
+								"minimum": 1.0,
+								"type": "number"
+							},
+							"paragraph_spacing_pt": {
+								"maximum": 36,
+								"minimum": 0,
+								"type": "number"
+							},
+							"table_style": {
+								"enum": ["banded", "grid", "minimal", "plain"]
+							},
+							"template": {
+								"maxLength": 300,
+								"type": "string"
+							}
+						},
+						"type": "object"
+					},
+					"title": {
+						"maxLength": 500,
+						"type": "string"
+					}
+				},
+				"required": ["slides"],
+				"type": "object"
+			},
+			"slide": {
+				"additionalProperties": false,
+				"properties": {
+					"body": {
+						"description": "blocks",
+						"items": {
+							"type": "object"
+						},
+						"maxItems": 50,
+						"type": "array"
+					},
+					"body_right": {
+						"description": "two_content",
+						"items": {
+							"type": "object"
+						},
+						"maxItems": 50,
+						"type": "array"
+					},
+					"charts": {
+						"items": {
+							"additionalProperties": false,
+							"properties": {
+								"categories": {
+									"items": {
+										"type": ["string", "number"]
+									},
+									"maxItems": 5000,
+									"type": "array"
+								},
+								"chart_type": {
+									"description": "stacked = stacked columns; scatter takes points",
+									"enum": ["bar", "column", "stacked", "line", "area", "pie", "doughnut", "scatter"]
+								},
+								"height_cm": {
+									"exclusiveMinimum": 0,
+									"maximum": 100,
+									"type": "number"
+								},
+								"legend": {
+									"type": "boolean"
+								},
+								"render": {
+									"description": "native = editable in Office; image = a PNG",
+									"enum": ["native", "image"]
+								},
+								"series": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"name": {
+												"maxLength": 500,
+												"type": "string"
+											},
+											"points": {
+												"description": "scatter only: [x, y] pairs",
+												"items": {
+													"items": {
+														"type": "number"
+													},
+													"maxItems": 2,
+													"minItems": 2,
+													"type": "array"
+												},
+												"maxItems": 5000,
+												"type": "array"
+											},
+											"values": {
+												"items": {
+													"type": "number"
+												},
+												"maxItems": 5000,
+												"type": "array"
+											}
+										},
+										"required": ["name"],
+										"type": "object"
+									},
+									"maxItems": 20,
+									"minItems": 1,
+									"type": "array"
+								},
+								"title": {
+									"maxLength": 500,
+									"type": "string"
+								},
+								"width_cm": {
+									"exclusiveMinimum": 0,
+									"maximum": 100,
+									"type": "number"
+								},
+								"x_cm": {
+									"maximum": 200,
+									"minimum": 0,
+									"type": "number"
+								},
+								"x_title": {
+									"maxLength": 500,
+									"type": "string"
+								},
+								"y_cm": {
+									"maximum": 200,
+									"minimum": 0,
+									"type": "number"
+								},
+								"y_title": {
+									"maxLength": 500,
+									"type": "string"
+								}
+							},
+							"required": ["chart_type", "series"],
+							"type": "object"
+						},
+						"maxItems": 10,
+						"type": "array"
+					},
+					"images": {
+						"items": {
+							"additionalProperties": false,
+							"properties": {
+								"alt": {
+									"maxLength": 500,
+									"type": "string"
+								},
+								"fit": {
+									"const": "placeholder"
+								},
+								"height_cm": {
+									"exclusiveMinimum": 0,
+									"maximum": 100,
+									"type": "number"
+								},
+								"image": {
+									"maxLength": 300,
+									"type": "string"
+								},
+								"width_cm": {
+									"exclusiveMinimum": 0,
+									"maximum": 100,
+									"type": "number"
+								},
+								"x_cm": {
+									"maximum": 200,
+									"minimum": 0,
+									"type": "number"
+								},
+								"y_cm": {
+									"maximum": 200,
+									"minimum": 0,
+									"type": "number"
+								}
+							},
+							"required": ["image"],
+							"type": "object"
+						},
+						"maxItems": 20,
+						"type": "array"
+					},
+					"layout": {
+						"description": "one of ['title', 'title_content', 'section', 'two_content', 'title_only', 'blank'], or (with theme.template) the name of a layout in the uploaded file",
+						"maxLength": 200,
+						"type": "string"
+					},
+					"notes": {
+						"maxLength": 20000,
+						"type": "string"
+					},
+					"subtitle": {
+						"maxLength": 500,
+						"type": "string"
+					},
+					"title": {
+						"maxLength": 500,
+						"type": "string"
+					}
+				},
+				"required": [],
+				"type": "object"
+			}
+		},
+		"xlsx": {
+			"blocks": {},
+			"document": {
+				"additionalProperties": false,
+				"properties": {
+					"language": {
+						"pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$",
+						"type": "string"
+					},
+					"sheets": {
+						"items": {
+							"type": "object"
+						},
+						"maxItems": 50,
+						"minItems": 1,
+						"type": "array"
+					},
+					"theme": {
+						"additionalProperties": false,
+						"description": "Overrides of the built-in neutral style; give only what the person asked for. `template` names a file the person uploaded in the chat to take styles from.",
+						"properties": {
+							"accent": {
+								"description": "hex colour such as 1F3864",
+								"pattern": "^#?[0-9A-Fa-f]{6}$",
+								"type": "string"
+							},
+							"body_font": {
+								"enum": [
+									"Arial",
+									"Book Antiqua",
+									"Calibri",
+									"Calibri Light",
+									"Cambria",
+									"Candara",
+									"Century Gothic",
+									"Consolas",
+									"Constantia",
+									"Corbel",
+									"Courier New",
+									"Garamond",
+									"Georgia",
+									"Palatino Linotype",
+									"Segoe UI",
+									"Tahoma",
+									"Times New Roman",
+									"Trebuchet MS",
+									"Verdana"
+								]
+							},
+							"body_size_pt": {
+								"maximum": 18,
+								"minimum": 8,
+								"type": "number"
+							},
+							"colors": {
+								"additionalProperties": false,
+								"properties": {
+									"accent": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"border": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"heading": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"link": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"muted": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_band": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_header_fill": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"table_header_text": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									},
+									"text": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									}
+								},
+								"type": "object"
+							},
+							"heading_font": {
+								"enum": [
+									"Arial",
+									"Book Antiqua",
+									"Calibri",
+									"Calibri Light",
+									"Cambria",
+									"Candara",
+									"Century Gothic",
+									"Consolas",
+									"Constantia",
+									"Corbel",
+									"Courier New",
+									"Garamond",
+									"Georgia",
+									"Palatino Linotype",
+									"Segoe UI",
+									"Tahoma",
+									"Times New Roman",
+									"Trebuchet MS",
+									"Verdana"
+								]
+							},
+							"heading_sizes_pt": {
+								"additionalProperties": false,
+								"properties": {
+									"h1": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h2": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h3": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h4": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h5": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									},
+									"h6": {
+										"maximum": 60,
+										"minimum": 8,
+										"type": "number"
+									}
+								},
+								"type": "object"
+							},
+							"line_spacing": {
+								"maximum": 2.5,
+								"minimum": 1.0,
+								"type": "number"
+							},
+							"paragraph_spacing_pt": {
+								"maximum": 36,
+								"minimum": 0,
+								"type": "number"
+							},
+							"table_style": {
+								"enum": ["banded", "grid", "minimal", "plain"]
+							},
+							"template": {
+								"maxLength": 300,
+								"type": "string"
+							}
+						},
+						"type": "object"
+					},
+					"title": {
+						"maxLength": 500,
+						"type": "string"
+					}
+				},
+				"required": ["sheets"],
+				"type": "object"
+			},
+			"sheet": {
+				"additionalProperties": false,
+				"properties": {
+					"autofilter": {
+						"pattern": "^[A-Z]{1,3}[1-9][0-9]{0,6}(:[A-Z]{1,3}[1-9][0-9]{0,6})?$",
+						"type": "string"
+					},
+					"cells": {
+						"items": {
+							"additionalProperties": false,
+							"properties": {
+								"align": {
+									"enum": ["left", "center", "right", "justify"]
+								},
+								"bold": {
+									"type": "boolean"
+								},
+								"color": {
+									"description": "hex colour such as 1F3864",
+									"pattern": "^#?[0-9A-Fa-f]{6}$",
+									"type": "string"
+								},
+								"date": {
+									"maxLength": 40,
+									"type": "string"
+								},
+								"fill": {
+									"description": "hex colour such as 1F3864",
+									"pattern": "^#?[0-9A-Fa-f]{6}$",
+									"type": "string"
+								},
+								"formula": {
+									"maxLength": 8000,
+									"type": "string"
+								},
+								"italic": {
+									"type": "boolean"
+								},
+								"number_format": {
+									"maxLength": 100,
+									"type": "string"
+								},
+								"ref": {
+									"pattern": "^[A-Z]{1,3}[1-9][0-9]{0,6}$",
+									"type": "string"
+								},
+								"style": {
+									"description": "a named style of the uploaded template",
+									"maxLength": 100,
+									"type": "string"
+								},
+								"value": {
+									"description": "a string starting with = is a formula",
+									"type": ["string", "number", "boolean", "null"]
+								},
+								"wrap": {
+									"type": "boolean"
+								}
+							},
+							"required": ["ref"],
+							"type": "object"
+						},
+						"maxItems": 20000,
+						"type": "array"
+					},
+					"charts": {
+						"items": {
+							"additionalProperties": false,
+							"properties": {
+								"anchor": {
+									"pattern": "^[A-Z]{1,3}[1-9][0-9]{0,6}$",
+									"type": "string"
+								},
+								"chart_type": {
+									"description": "stacked = stacked columns; scatter takes points",
+									"enum": ["bar", "column", "stacked", "line", "area", "pie", "doughnut", "scatter"]
+								},
+								"data_range": {
+									"description": "the cells the chart plots: first column categories (x for scatter), first row series names",
+									"pattern": "^[A-Z]{1,3}[1-9][0-9]{0,6}(:[A-Z]{1,3}[1-9][0-9]{0,6})?$",
+									"type": "string"
+								},
+								"height_cm": {
+									"exclusiveMinimum": 0,
+									"maximum": 100,
+									"type": "number"
+								},
+								"legend": {
+									"type": "boolean"
+								},
+								"render": {
+									"description": "native = editable in Office; image = a PNG",
+									"enum": ["native", "image"]
+								},
+								"title": {
+									"maxLength": 500,
+									"type": "string"
+								},
+								"width_cm": {
+									"exclusiveMinimum": 0,
+									"maximum": 100,
+									"type": "number"
+								},
+								"x_title": {
+									"maxLength": 500,
+									"type": "string"
+								},
+								"y_title": {
+									"maxLength": 500,
+									"type": "string"
+								}
+							},
+							"required": ["chart_type", "data_range", "anchor"],
+							"type": "object"
+						},
+						"maxItems": 20,
+						"type": "array"
+					},
+					"column_widths": {
+						"additionalProperties": {
+							"maximum": 255,
+							"minimum": 1,
+							"type": "number"
+						},
+						"propertyNames": {
+							"pattern": "^[A-Z]{1,3}$"
+						},
+						"type": "object"
+					},
+					"freeze": {
+						"pattern": "^[A-Z]{1,3}[1-9][0-9]{0,6}$",
+						"type": "string"
+					},
+					"header": {
+						"description": "style the first row of `rows` as a header (bold, accent fill)",
+						"type": "boolean"
+					},
+					"images": {
+						"items": {
+							"additionalProperties": false,
+							"properties": {
+								"alt": {
+									"maxLength": 500,
+									"type": "string"
+								},
+								"at": {
+									"pattern": "^[A-Z]{1,3}[1-9][0-9]{0,6}$",
+									"type": "string"
+								},
+								"height_px": {
+									"maximum": 4000,
+									"minimum": 1,
+									"type": "integer"
+								},
+								"image": {
+									"maxLength": 300,
+									"type": "string"
+								},
+								"width_px": {
+									"maximum": 4000,
+									"minimum": 1,
+									"type": "integer"
+								}
+							},
+							"required": ["image", "at"],
+							"type": "object"
+						},
+						"maxItems": 20,
+						"type": "array"
+					},
+					"merge": {
+						"items": {
+							"pattern": "^[A-Z]{1,3}[1-9][0-9]{0,6}(:[A-Z]{1,3}[1-9][0-9]{0,6})?$",
+							"type": "string"
+						},
+						"maxItems": 500,
+						"type": "array"
+					},
+					"name": {
+						"maxLength": 31,
+						"minLength": 1,
+						"type": "string"
+					},
+					"rows": {
+						"description": "plain rows of values from `start` (default A1); a string starting with = is a formula",
+						"items": {
+							"items": {
+								"anyOf": [
+									{
+										"type": ["string", "number", "boolean", "null"]
+									},
+									{
+										"additionalProperties": false,
+										"properties": {
+											"align": {
+												"enum": ["left", "center", "right"]
+											},
+											"bold": {
+												"type": "boolean"
+											},
+											"color": {
+												"description": "hex colour such as 1F3864",
+												"pattern": "^#?[0-9A-Fa-f]{6}$",
+												"type": "string"
+											},
+											"fill": {
+												"description": "hex colour such as 1F3864",
+												"pattern": "^#?[0-9A-Fa-f]{6}$",
+												"type": "string"
+											},
+											"text": {
+												"type": ["string", "number", "boolean", "null"]
+											}
+										},
+										"required": ["text"],
+										"type": "object"
+									}
+								]
+							},
+							"maxItems": 200,
+							"type": "array"
+						},
+						"maxItems": 5000,
+						"type": "array"
+					},
+					"start": {
+						"pattern": "^[A-Z]{1,3}[1-9][0-9]{0,6}$",
+						"type": "string"
+					},
+					"tables": {
+						"items": {
+							"additionalProperties": false,
+							"properties": {
+								"name": {
+									"pattern": "^[A-Za-z_][A-Za-z0-9_]{0,60}$",
+									"type": "string"
+								},
+								"range": {
+									"pattern": "^[A-Z]{1,3}[1-9][0-9]{0,6}(:[A-Z]{1,3}[1-9][0-9]{0,6})?$",
+									"type": "string"
+								}
+							},
+							"required": ["name", "range"],
+							"type": "object"
+						},
+						"maxItems": 50,
+						"type": "array"
+					}
+				},
+				"required": ["name"],
+				"type": "object"
+			}
+		}
+	},
 	"engine": "cerea-documents/0.1.0",
 	"formats": {
 		"docx": {
