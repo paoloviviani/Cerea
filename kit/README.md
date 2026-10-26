@@ -212,14 +212,18 @@ image with `GOTENBERG_IMAGE`.
 ### Editing Word, Excel and PowerPoint files (`documents` service)
 
 With the chat, a small service (`cerea-documents`, the same version as the chat)
-gives models three tools: `doc_outline` (a file's structure), `doc_read` (exact
-content) and `doc_edit` (typed operations: replace text, fill placeholders, set
-cells and formulas, edit tables, swap images, reorder slides, tracked changes
-in Word). An edit touches only the parts it names, the result is saved as a new
-version of the file next to the original, and the person gets an ordinary file
-card with the diff and a verification report in the conversation. Without the
-service the tools are not offered and the skills fall back to the in-sandbox
-helpers.
+gives models typed tools instead of code in the browser: `doc_create` (a new Word,
+Excel, PowerPoint or PDF file from a spec, with native or image charts and images)
+and `doc_create_from_template` (fill a template the person uploaded in the chat),
+`doc_outline` (a file's structure), `doc_read` (exact content) and `doc_edit` (typed
+operations: replace text, fill placeholders, set cells and formulas, edit tables,
+swap images, reorder slides, tracked changes in Word). An edit touches only the
+parts it names, the result is saved as a new version of the file next to the
+original, and the person gets an ordinary file card with the diff and a
+verification report in the conversation. There is no administrator template: the
+look is the built-in neutral style plus what the person asks for, or a file they
+upload. Without the service the tools are not offered and the skills fall back to
+the in-sandbox helpers.
 
 `./configure` mints `CHAT_DOCUMENTS_SECRET`, which the chat sends and the
 service requires; an install from before it needs `./configure` run once more

@@ -162,6 +162,11 @@ jobs:
           # a real document through the worker subprocess in the locked-down container
           uv run python -c "import docx; docx.Document().save('/tmp/ci.docx')"
           curl -fsS -H 'X-Cerea-Documents-Secret: ci-secret' -F file=@/tmp/ci.docx http://127.0.0.1:8090/v1/outline | grep -q '"format":"docx"'
+          # creation in the locked-down container: a native chart (python-pptx part) and an image chart (matplotlib)
+          cat > /tmp/create.json <<'JSON'
+          {"format":"docx","spec":{"blocks":[{"type":"heading","level":1,"text":"CI"},{"type":"chart","chart_type":"column","categories":["a","b"],"series":[{"name":"s","values":[1,2]}]},{"type":"chart","chart_type":"pie","render":"image","categories":["a","b"],"series":[{"name":"s","values":[1,2]}]}]}}
+          JSON
+          curl -fsS -H 'X-Cerea-Documents-Secret: ci-secret' -H 'Accept: application/json' -F 'body=</tmp/create.json' http://127.0.0.1:8090/v1/create | grep -q '"reopened_with":"python-docx"'
       - name: Container logs on failure
         if: failure()
         run: docker logs docs || true

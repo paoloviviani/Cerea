@@ -563,7 +563,8 @@ services:
         required: false
 
   # The document service (ADR 0103): precise edits of Word, Excel and
-  # PowerPoint files for the chat's doc_outline, doc_read and doc_edit tools.
+  # PowerPoint files, and creation of Word, Excel, PowerPoint and PDF files, for the
+  # chat's doc_create, doc_outline, doc_read and doc_edit tools.
   # It parses uploaded documents, so it is boxed in like Gotenberg:
   #   - only the `docs` network, which is `internal: true` (no route out, no
   #     published port): the chat reaches it and it reaches nothing;

@@ -1170,7 +1170,7 @@ When building new features, consider:
 3. **Scrollbars**: Use `scrollbar-custom` class for styled scrollbars
 4. **Icons**: Custom icons in `$lib/components/icons/`, use Carbon (`~icons/carbon/*`) or Lucide (`~icons/lucide/*`) for standard icons
 
-## Document tools (`doc_outline`, `doc_read`, `doc_edit`)
+## Document tools (`doc_outline`, `doc_read`, `doc_edit`, `doc_create`, `doc_create_from_template`)
 
 ADR 0103. The `documents/` service (Python, own CI job, own image
 `cerea-documents`, versioned with the chat) edits Word, Excel and PowerPoint
@@ -1197,6 +1197,21 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   name), with `derivedFromSha256/Name` on the store row, and listed through an
   `Outputs` update (`runKey` `doc_edit:<uuid>`, so it renders as a file card).
   The original is never touched.
+- Creation (step 3): `doc_create` and `doc_create_from_template` are offered
+  when the service reports `create` / `create_from_template`, and their text is
+  **generated from `create_schemas`** the same way (`describeSchema`; the theme,
+  a text run and a table cell are printed once as shared aliases; a format whose
+  schema equals an earlier one, PDF and Word, is printed as "the same"). The
+  created file is stored under the requested or title-derived name (creating again
+  under a name is the next version; `derivedFrom` records an uploaded template),
+  and listed through an `Outputs` update like an edit. `theme.template` is a file
+  name in the conversation: the tool sends its bytes as the `file` part and
+  rewrites the name to the bare file name. The skills (`word`, `excel`,
+  `powerpoint`, `pdf`) carry one rule, "the `doc_*` tools are the ONLY way", with
+  the sandbox method in a labelled last "Fallback" section; `officeSkills.spec.ts`
+  pins that wording, so a change to a skill must keep the two apart. The execution
+  prompt's generic "write binary files with python-docx..." sentences name the
+  same exception.
 
 ## Office previews and `convert_document`
 

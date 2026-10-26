@@ -21,17 +21,22 @@ description matching decides.
 
 ## The office skills
 
-All of these run on **Python in your browser** (see
-[Python in the browser](pyodide.md)): the needed packages are already
-vendored by the deployment, and the files the code writes come back as
-downloadable artifacts. The honest limits are listed with each skill — they
-come from the browser sandbox, not from missing effort.
+With the document service (the default in the kit, see
+[Office previews and document conversion](office.md)) the `word`, `excel`,
+`powerpoint` and `pdf` skills create and edit files **only** through the
+`doc_*` tools: one rule, stated first in each skill, and no Python for
+documents. Where the service is not deployed they fall back to **Python in your
+browser** (see [Python in the browser](pyodide.md)): the needed packages are
+already vendored by the deployment, and the files the code writes come back as
+downloadable artifacts. The fallback instructions sit in a clearly labelled last
+section of each skill and say they apply only when the tools are absent. The
+honest limits are listed with each skill.
 
 | Skill              | What it is for                                                 |
 | ------------------ | -------------------------------------------------------------- |
-| `word`             | Creating and editing Word documents with python-docx           |
+| `word`             | Creating and editing Word documents (document tools)           |
 | `excel`            | Workbooks with formulas, formatting and native charts          |
-| `pdf`              | Creating PDF documents with reportlab                          |
+| `pdf`              | Creating PDF documents (document tools)                        |
 | `pdf-tools`        | Working with existing PDFs: merge, split, forms, encryption    |
 | `powerpoint`       | Decks from a markdown outline, on a template's real layouts    |
 | `charts`           | Publication-minded figures with matplotlib and seaborn         |
@@ -53,19 +58,21 @@ look from you when layout matters.
 ### excel
 
 Workbooks, analysis, charts. Formulas are written as **real formulas** — but
-they are not recalculated here: `openpyxl` stores the formula, and its value
+they are not recalculated here: the file stores the formula, and its value
 appears when the file is opened in a spreadsheet application. Anything the
 assistant reports as a number in the chat was computed in Python from your
-data, not read from a formula cell. Native charts (bar, line, pie, scatter)
-live inside the workbook.
+data, not read from a formula cell. Native charts (bar, column, stacked, line, area, pie,
+doughnut, scatter) live inside the workbook.
 
 ### pdf
 
-Reports and documents created with reportlab — flowing layouts for prose,
-exact placement for forms and tables. Verified by re-reading the pages with
-pypdf (page count, extracted text). The standard PDF fonts cover ASCII; text
-in other alphabets needs a font file supplied with the document, which the
-sandbox does not ship.
+Reports and documents built from the same spec as a Word file — flowing
+layouts for prose, tables with repeating headers, images, charts (always
+images in a PDF), a table of contents with page numbers. Verified by reopening
+the file and counting its pages. Latin, Greek and Cyrillic text render with
+embedded fonts; other scripts do not, and the assistant says so. Where the
+document service is absent the skill falls back to reportlab in the browser,
+whose standard fonts cover ASCII only.
 
 ### pdf-tools
 
@@ -76,15 +83,16 @@ PDF work — the assistant will say so if you ask for it to encrypt.
 
 ### powerpoint
 
-Decks generated from a markdown outline by filling a template's **real
-layouts and placeholders** — never text boxes overlaid on slides — so the
-template's branding carries through. It ships a demonstration template
-inside the skill, and works with your own `.pptx` when you attach one.
-Editing an existing deck is for small text fixes and reordering; layout
-changes regenerate the deck. Validation is structural (empty placeholders,
-estimated overflow, off-slide shapes); the visual verdict is yours to make
-when you open the deck. Picture placeholders stay empty for images you
-attach.
+Decks built by filling real **layouts and placeholders** — never text boxes
+overlaid on slides — so the master's branding carries through. With the document
+service the assistant writes a slide spec (layouts, titles, body blocks, notes,
+native charts, tables, images) and works with your own `.pptx` when you attach
+one and ask for its look; editing an existing deck changes only the slides and
+text it names. Without the service the skill falls back to the bundled outline
+generator: it ships a demonstration template, picks visual types from a markdown
+outline and validates structurally (empty placeholders, estimated overflow,
+off-slide shapes). Either way the visual verdict is yours to make when you
+open the deck.
 
 ### charts
 

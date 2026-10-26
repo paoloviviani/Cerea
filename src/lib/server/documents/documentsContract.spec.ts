@@ -55,3 +55,53 @@ describe("the service's contract reaches the edit tool", () => {
 		}
 	});
 });
+
+describe("the service's contract reaches the create tool", () => {
+	const caps = fixture as unknown as Parameters<typeof createDocumentBuiltins>[0];
+	const create = createDocumentBuiltins(caps).find((t) => t.name === "doc_create");
+	const text = create?.definition.function.description ?? "";
+	const schemas = fixture.create_schemas as unknown as Record<
+		string,
+		{
+			document: { properties: Record<string, unknown> };
+			blocks: Record<string, { properties: Record<string, unknown> }>;
+			sheet?: { properties: Record<string, unknown> };
+			slide?: { properties: Record<string, unknown> };
+		}
+	>;
+
+	it("is offered, with every format the service can create", () => {
+		expect(create).toBeTruthy();
+		for (const format of fixture.create_formats) {
+			expect(text.toLowerCase(), format).toContain(`.${format})`);
+		}
+	});
+
+	it("names every block, sheet and slide property of every format", () => {
+		for (const [format, entry] of Object.entries(schemas)) {
+			const parts = [
+				...Object.entries(entry.blocks).map(([name, b]) => [`${format}.${name}`, name, b] as const),
+				["sheet", "A sheet", entry.sheet] as const,
+				["slide", "A slide", entry.slide] as const,
+			];
+			for (const [label, name, schema] of parts) {
+				if (!schema) continue;
+				if (name !== "A sheet" && name !== "A slide") expect(text, label).toContain(`${name}{`);
+				for (const key of Object.keys(schema.properties).filter((k) => k !== "type")) {
+					expect(text, `${label}.${key}`).toContain(key);
+				}
+			}
+			for (const key of Object.keys(entry.document.properties)) {
+				expect(text, `${format} spec.${key}`).toContain(key);
+			}
+		}
+	});
+
+	it("marks the properties a block cannot do without", () => {
+		expect(text).toMatch(/heading\{level: integer/);
+		expect(text).toMatch(/image\{[^}]*image: string/);
+		expect(text).toMatch(/chart\{[^}]*chart_type: "bar"/);
+		expect(text).toMatch(/chart\{[^}]*series: /);
+		expect(text).toMatch(/sheet: \{[^]*name: string/);
+	});
+});

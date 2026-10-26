@@ -255,7 +255,7 @@ _SHEET_CHART = _obj(
         "data_range": {
             "type": "string",
             "pattern": _RANGE,
-            "description": "the cells the chart plots: first column categories (x for scatter), first row series names",
+            "description": "cells plotted: first column = categories (x for scatter), first row = series names",
         },
         "anchor": {"type": "string", "pattern": _CELLREF},
         "width_cm": _CM,
@@ -277,6 +277,7 @@ SHEET = _obj(
         "cells": {"type": "array", "maxItems": 20_000, "items": _CELL_ENTRY},
         "column_widths": {
             "type": "object",
+            "description": 'column letter to width in characters, e.g. {"A": 24}',
             "propertyNames": {"pattern": r"^[A-Z]{1,3}$"},
             "additionalProperties": {"type": "number", "minimum": 1, "maximum": 255},
         },

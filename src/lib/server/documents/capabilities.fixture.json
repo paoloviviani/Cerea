@@ -4357,7 +4357,7 @@
 									"enum": ["bar", "column", "stacked", "line", "area", "pie", "doughnut", "scatter"]
 								},
 								"data_range": {
-									"description": "the cells the chart plots: first column categories (x for scatter), first row series names",
+									"description": "cells plotted: first column = categories (x for scatter), first row = series names",
 									"pattern": "^[A-Z]{1,3}[1-9][0-9]{0,6}(:[A-Z]{1,3}[1-9][0-9]{0,6})?$",
 									"type": "string"
 								},
@@ -4403,6 +4403,7 @@
 							"minimum": 1,
 							"type": "number"
 						},
+						"description": "column letter to width in characters, e.g. {\"A\": 24}",
 						"propertyNames": {
 							"pattern": "^[A-Z]{1,3}$"
 						},

@@ -28,7 +28,13 @@ export {
 export { isNestedAgentTool } from "./nestedAgent";
 export { DELEGATE_TOOL_NAME, RESEARCH_TOOL_NAME } from "./delegateTool";
 export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
-export { DOC_OUTLINE_TOOL_NAME, DOC_READ_TOOL_NAME, DOC_EDIT_TOOL_NAME } from "./documentTools";
+export {
+	DOC_OUTLINE_TOOL_NAME,
+	DOC_READ_TOOL_NAME,
+	DOC_EDIT_TOOL_NAME,
+	DOC_CREATE_TOOL_NAME,
+	DOC_CREATE_FROM_TEMPLATE_TOOL_NAME,
+} from "./documentTools";
 
 /**
  * Enablement policy lives here, per tool — never in the dispatch or gate

@@ -1,15 +1,53 @@
 ---
 name: pdf
-description: Create and check PDF documents with reportlab and pypdf — reports, letters, forms, and structured pages with reliable layout, verified by reading the file back. Use when the task involves generating or reviewing PDF files.
+description: Create PDF documents with the doc_create tool (format pdf) - reports, letters, structured pages, tables, images and charts with reliable layout. Use when the task is to produce a new PDF; for merging, splitting, forms or reading an existing PDF use pdf-tools.
 ---
 
 # PDF documents
 
-Use this skill when the person wants a PDF created or checked. For editing
-and manipulating existing PDFs (merge, split, fill forms, encrypt), use the
-`pdf-tools` skill instead.
+Use this skill when the person wants a **new** PDF. For an existing PDF (merge, split, rotate, fill forms, encrypt,
+extract text), use the `pdf-tools` skill: the document tools do not edit PDFs.
 
-## Setup
+## One rule
+
+**When `doc_create` is in your tool list, `doc_create` with `format: "pdf"` is the ONLY way to create a PDF.** Do not
+write Python to make one (no reportlab, no hand-written PDF syntax), and do not make a Word file only to convert
+it. If the tool is not in your tool list, jump to the last section, "Fallback".
+
+## Creating a PDF
+
+Call `doc_create` with `format: "pdf"`. The spec is the same as for a Word document (see the tool's description):
+`blocks` or `markdown`, `title`, `page`, `header`, `footer`, `theme`. The service checks it first and answers with
+what is allowed if something is off.
+
+- **Blocks:** heading, paragraph (runs: bold, italic, underline, code, colour, link), list (nested), table (header
+  row repeated across pages, widths, alignment), image, chart, quote, code, toc (with page numbers), page_break.
+- **Pages:** `page` sets size (A4, Letter, ...), orientation and margins; `header` and `footer` take `{page}` and
+  `{pages}` for page numbers.
+- **Look:** a neutral built-in style; `theme` only for what the person asked: body and heading fonts are mapped to the
+  nearest of three embedded families (sans, serif, monospace), plus sizes, colours, spacing and table style.
+  `theme.template` is not available for PDF. Latin, Greek and Cyrillic text render; scripts such as Chinese,
+  Japanese, Korean or Arabic do not, so say so rather than deliver boxes.
+- **Charts:** always images (render `native` and `image` give the same PDF). Images: files in the conversation (an
+  attachment, or a picture saved under `/mnt/output/` in the sandbox), listed in `images` and named the same way
+  in image blocks. For a chart the tool cannot draw, make the picture in the sandbox and pass it as an image
+  reference.
+- Use ASCII hyphens only. Citations and references must be readable text, never tool tokens or placeholders.
+
+## Reporting
+
+The result gives the page count, an outline of the headings and a verification report: the PDF reopens and has
+pages. There is no renderer, so say in one line what you checked and that the person should open the file to judge
+spacing and alignment. A request to change the PDF afterwards is a new `doc_create` with the corrected spec.
+Describe only files the tools actually saved.
+
+## Fallback: only when the doc_* tools are not available
+
+**Read this section only if `doc_create` is NOT in your tool list.** If it is, stop reading here: everything below
+is the older in-sandbox method for deployments without the document service, and it must not be mixed with the
+tools. These instructions write Python inside the browser sandbox; the helper scripts are bundled with this skill.
+
+### Setup
 
 Install before importing (both ship with this runtime's package set):
 
@@ -20,7 +58,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4, letter
 ```
 
-## Creating a document
+### Creating a document
 
 - **Simple pages and precise placement**: `reportlab.pdfgen.canvas` — draw
   text, lines, tables (manual or `platypus.Table`), and images at exact
@@ -40,7 +78,7 @@ from reportlab.lib.pagesizes import A4, letter
   (`repeatRows=1`) on long tables. Long text cells wrap only inside a
   `Paragraph`.
 
-## Checking before delivery
+### Checking before delivery
 
 There is no renderer in this environment, so a PDF is verified by reading it
 back with pypdf, not by looking at a picture:
@@ -60,7 +98,7 @@ print(reader.pages[0].extract_text()[:500])
 3. Say in one line what you checked and what you could not (exact visual
    layout — the person should open the file to judge spacing and alignment).
 
-## Quality expectations
+### Quality expectations
 
 - Maintain consistent typography, spacing, margins, and section hierarchy.
 - Avoid defects: clipped text, overlapping elements, broken tables, or
@@ -71,7 +109,7 @@ print(reader.pages[0].extract_text()[:500])
 - Citations and references must be human-readable; never leave tool tokens or
   placeholder strings.
 
-## Rules
+### Rules
 
 - The PDF is the deliverable: the file must exist when you finish — run
   the code yourself or write one complete runnable block; a script the
