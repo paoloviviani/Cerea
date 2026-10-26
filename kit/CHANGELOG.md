@@ -5,6 +5,18 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **The OpenStreetMap example server works.** `tools/mcp/` now runs `osm-mcp`
+  0.3.2 (MIT) instead of `osm-mcp-server` 0.1.1. The old one failed in
+  practice: Overpass and Nominatim answered 406 because it sent no identifying
+  User-Agent, and its walking routes were car routes because the public OSRM
+  demo ignores the profile. The new one sends `OSM_USER_AGENT`, which you must
+  set to a contact you answer at, and uses the `routed-foot` / `routed-bike`
+  servers. The mcp-proxy image now includes Node 22 and npm. The service name
+  (`mcp-osm`) and the `.env` settings are unchanged: edit `OSM_USER_AGENT` in
+  your override, then `docker compose up -d --build mcp-osm`.
+
 ## v0.29.0 — 2026-10-26
 
 Pins: Cerea `0.29.0`, **Pystino `0.18.1`**, Authelia 4.39.22 (unchanged).

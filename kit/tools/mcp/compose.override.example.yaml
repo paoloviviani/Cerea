@@ -10,15 +10,14 @@
 # no VPN, no proxy route: only containers of this stack can reach it, and the
 # chat does so at http://<service>:8096/mcp.
 #
-# Package versions are pinned so a restart never pulls a new release (osm-mcp-server
-# does not pin `mcp`, and breaks on mcp 2.x: hence `--with mcp<2`). Bump them
-# on purpose.
+# Package versions are pinned so a restart never pulls a new release. Bump
+# them on purpose.
 #
 # To add a server: copy a service, give it a new name, and change the command
 # after `--` (`uvx <pypi package>==<version>`). Add its name to MCP_INTERNAL_HOSTS and its
 # URL to MCP_SERVERS in .env (see the README), then `docker compose up -d`.
-# Npm servers (`npx -y <package>`) need Node in the image: see the comment in
-# the Dockerfile.
+# Npm servers (`npx -y <package>@<version>`) work too: the image has Node, and
+# npm's cache must point at /cache (see mcp-osm).
 #
 # Only servers that need no personal credential belong here. A server in this
 # file is shared by everyone who can sign in to the deployment, and so is any
@@ -60,12 +59,19 @@ services:
     image: cerea-mcp:1
     pull_policy: never
     restart: unless-stopped
-    command: [--port=8096, --host=0.0.0.0, --stateless, --pass-environment, --, uvx, --with, mcp<2, osm-mcp-server==0.1.1]
+    command: [--port=8096, --host=0.0.0.0, --stateless, --pass-environment, --, npx, -y, osm-mcp@0.3.2]
     environment:
-      # Everything uv writes goes to the cache volume: the root is read-only.
-      UV_CACHE_DIR: /cache/uv
-      UV_TOOL_DIR: /cache/tools
-      UV_TOOL_BIN_DIR: /cache/bin
+      # REQUIRED: set a contact you answer at. The public Nominatim and Overpass
+      # servers refuse requests without an identifying User-Agent (HTTP 406),
+      # and the Nominatim usage policy asks for one that lets them reach you.
+      # Keep the product name, replace SET-YOUR-CONTACT-EMAIL with your address
+      # (not an example.org one: Nominatim answers 403 to placeholder domains).
+      OSM_USER_AGENT: "cerea-kit (+SET-YOUR-CONTACT-EMAIL)"
+      # Everything npm writes goes to the cache volume: the root is read-only.
+      NPM_CONFIG_CACHE: /cache/npm
+      # Optional, see the osm-mcp README: OSRM_BASE_URL, VALHALLA_BASE_URL,
+      # OVERPASS_BASE_URL (comma-separated mirrors), ORS_API_KEY (a shared
+      # credential: see the note on credentials above), OSM_ALLOW_TOOLS=essential.
     volumes:
       - mcp-cache:/cache
     tmpfs:
@@ -78,7 +84,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 90s
+      start_period: 120s             # the first start downloads the package
 
 volumes:
   mcp-cache:

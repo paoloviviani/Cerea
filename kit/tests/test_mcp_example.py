@@ -9,6 +9,8 @@ Standard library only: `python3 -m unittest`.
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -35,6 +37,27 @@ class McpExample(unittest.TestCase):
         self.assertEqual(services, ["mcp-search", "mcp-osm"])
         for needle in ("read_only: true", "cap_drop: [ALL]", "no-new-privileges:true", "pull_policy: never"):
             self.assertEqual(OVERRIDE.count(needle), len(services), needle)
+
+    def test_osm_server_is_pinned_and_identifies_itself(self):
+        self.assertIn("osm-mcp@0.3.2", OVERRIDE)
+        self.assertNotIn("osm-mcp-server", OVERRIDE)
+        self.assertRegex(OVERRIDE, r'OSM_USER_AGENT: "cerea-kit \(\+[^)\s]+\)"')
+        self.assertNotRegex(OVERRIDE, r"OSM_USER_AGENT:.*example\.org")  # Nominatim refuses placeholder domains
+        self.assertIn("NPM_CONFIG_CACHE: /cache/npm", OVERRIDE)
+        self.assertRegex(DOCKERFILE, r"(?m)^FROM node:\d+-slim@sha256:[0-9a-f]{64} AS node$")
+        self.assertIn("USER 10001", DOCKERFILE)
+
+    def test_override_is_valid_compose(self):
+        docker = shutil.which("docker")
+        if not docker:
+            self.skipTest("docker not installed")
+        r = subprocess.run(
+            [docker, "compose", "-f", str(MCP / "compose.override.example.yaml"), "config", "--quiet"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0 and "compose" in r.stderr and "not a docker command" in r.stderr:
+            self.skipTest("docker compose not available")
+        self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_the_chat_receives_the_settings_the_readme_names(self):
         for var in ("MCP_SERVERS", "MCP_INTERNAL_HOSTS"):
