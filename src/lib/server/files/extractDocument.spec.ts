@@ -30,6 +30,7 @@ vi.mock("$lib/server/config", () => ({
 		CHAT_OCR_BASE_URL: undefined,
 		CHAT_OCR_API_KEY: undefined,
 		CHAT_PDF_IMAGE_PAGES: undefined,
+		CHAT_OCR_TIMEOUT_MS: undefined,
 	},
 }));
 
@@ -45,13 +46,24 @@ vi.mock("$lib/server/gatewayServer", () => {
 			this.name = "GatewayCallFailed";
 		}
 	}
+	class GatewayTimeout extends GatewayCallFailed {
+		constructor(
+			readonly elapsedMs: number,
+			readonly timeoutMs: number
+		) {
+			super(504, "timeout");
+			this.name = "GatewayTimeout";
+		}
+	}
 	return {
 		GatewayCallFailed,
+		GatewayTimeout,
 		gateway: { get: gatewayGetMock, post: gatewayPostMock, del: vi.fn() },
 	};
 });
 
 import { config } from "$lib/server/config";
+import { logger } from "$lib/server/logger";
 import {
 	assertOcrConfigValid,
 	documentMime,
@@ -1042,5 +1054,75 @@ describe("a PDF's scanned pages as page images", () => {
 		setLimit("0");
 		await ask();
 		expect(gatewayPostMock.mock.calls[1][2]).not.toHaveProperty("page_images");
+	});
+});
+
+describe("the document reader's deadline", () => {
+	const SLOW_PDF = {
+		bytes: BYTES,
+		mime: "application/pdf",
+		filename: "fifty-pages.pdf",
+		token: "t",
+	};
+
+	beforeEach(() => {
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "markitdown", kind: "ocr" }] });
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+	});
+
+	it("gives the gateway call three minutes by default, not the runtime's short default", async () => {
+		await extractDocument(SLOW_PDF);
+		expect(gatewayPostMock.mock.calls[0][3]).toEqual({ timeoutMs: 180_000 });
+	});
+
+	it("takes the deadline from CHAT_OCR_TIMEOUT_MS", async () => {
+		(config as unknown as Record<string, string>).CHAT_OCR_TIMEOUT_MS = "300000";
+		try {
+			await extractDocument(SLOW_PDF);
+			expect(gatewayPostMock.mock.calls[0][3]).toEqual({ timeoutMs: 300_000 });
+		} finally {
+			(config as unknown as Record<string, string | undefined>).CHAT_OCR_TIMEOUT_MS = undefined;
+		}
+	});
+
+	it("says which setting to raise, and logs the elapsed time, when the reader outlasts it", async () => {
+		const { GatewayTimeout } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockRejectedValue(new GatewayTimeout(180_020, 180_000));
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+
+		const answer = await extractDocument(SLOW_PDF);
+
+		expect(answer).toMatchObject({ ok: false, kind: "unreachable", status: 504 });
+		const reason = answer.ok ? "" : answer.reason;
+		expect(reason).toContain("CHAT_OCR_TIMEOUT_MS");
+		expect(reason).toContain("180s");
+		const logged = warn.mock.calls.find((c) =>
+			String(c[1]).startsWith("document_extraction_timeout")
+		);
+		expect(logged?.[0]).toMatchObject({ elapsedMs: 180_020, timeoutMs: 180_000 });
+		expect(String(logged?.[1])).toContain("raise CHAT_OCR_TIMEOUT_MS");
+		warn.mockRestore();
+	});
+
+	it("applies the deadline to the direct OCR endpoint too", async () => {
+		setEnvBaseUrl("https://ocr.example");
+		setEnvModel("mistral-ocr-latest");
+		fetchMock.mockImplementation((_url: string, init: RequestInit) =>
+			Promise.reject(init.signal?.reason ?? new Error("no signal was set"))
+		);
+		const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => {
+			const controller = new AbortController();
+			controller.abort(new DOMException("timed out", "TimeoutError"));
+			return controller.signal;
+		});
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+
+		const answer = await extractDocument(SLOW_PDF);
+
+		expect(spy).toHaveBeenCalledWith(180_000);
+		expect(answer).toMatchObject({ ok: false, status: 504 });
+		expect(answer.ok ? "" : answer.reason).toContain("CHAT_OCR_TIMEOUT_MS");
+		spy.mockRestore();
+		warn.mockRestore();
 	});
 });
