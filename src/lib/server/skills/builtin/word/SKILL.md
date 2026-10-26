@@ -29,9 +29,8 @@ import docx  # python-docx
   confirm you are working on the right file.
 - Extract text as the ground truth for every edit: iterate paragraphs and
   tables explicitly, never assume a document's structure from its length.
-- Preserve what you did not touch: styles, headers and footers, section
-  properties, and numbering survive best when you edit runs and cells rather
-  than deleting and recreating content.
+- Preserve what you did not touch: edit runs and cells rather than deleting
+  and recreating content (the helpers below do this for you).
 
 ## Creating a document
 
@@ -70,31 +69,71 @@ reading it back, not by looking at a picture:
 - Citations and references must be human-readable; never leave tool tokens or
   placeholder strings.
 
-## Verify after editing
+## Editing an existing document
 
-After saving an edited file, confirm you changed only what you meant to:
-compare it with the original part by part (nothing else may differ), then
-reopen it.
+**Decision rule.** A new document: python-docx. A document the person
+supplied that you must change: use the bundled helpers. **Never**
+`docx.Document(path)` + `save()` on a supplied file for edits: python-docx
+re-serialises every part it parsed, and its run API loses character
+formatting whenever text spans several runs (a word half bold, half not).
+
+1. Load `scripts/docx_edit.py`, `scripts/docx_tables.py` and
+   `scripts/docx_verify.py` with `load_skill_file`, write them into the
+   working directory, and import them (same flow as `pdf-tools`).
+2. `outline` first and report briefly what you found: ids `p1..` for
+   paragraphs and `t1..` for tables (0-based rows and columns), styles,
+   headers and footers, `{{placeholders}}`, comments, tracked changes.
+3. Edit into a NEW file in the working directory (the folder the sandbox
+   tells you to save deliverables in); never overwrite the original. Chain
+   edits by passing each output as the next source.
+4. `verify` against the ORIGINAL, then tell the person what changed using
+   its `text_diff`.
 
 ```python
-import zipfile
-a, b = zipfile.ZipFile("original.docx"), zipfile.ZipFile("edited.docx")
-changed = [n for n in a.namelist() if n in b.namelist() and a.read(n) != b.read(n)]
-print("parts changed:", changed)
-print("parts lost:", sorted(set(a.namelist()) - set(b.namelist())))
+import docx_edit as de, docx_tables as dt, docx_verify as dv   # written out first
+
+src = "/mnt/data/contract.docx"
+print(dv.outline_text(de.outline(src)))
+de.replace_text(src, "step1.docx", "Acme Ltd", "Beta plc")           # keeps run formatting
+de.fill_placeholders("step1.docx", "step2.docx", {"client": "Beta plc", "date": "26 Oct 2026"})
+dt.set_table_cell("step2.docx", "step3.docx", "t1", 2, 1, "42")        # table t1, row 2, col 1
+dt.add_table_row("step3.docx", "step4.docx", "t1", ["Total", "99"])    # copies the last row's formatting
+de.insert_paragraph_after("step4.docx", "contract-updated.docx", "p4", "New clause", "Heading 2")
+rep = dv.verify(src, "contract-updated.docx")
+print(rep["changed"], "\n".join(rep["text_diff"]))
 ```
 
-Expect only the parts you edited (and, for python-docx, regenerated package
-plumbing such as `[Content_Types].xml`). Anything else changed or lost means
-stop and say so.
+- `replace_text(find, replace, scope="all")` covers body, tables, headers and
+  footers (scope `"body"`, `"headers"`, `"footers"` or a block id such as
+  `"p3"`). A match may span runs; the replacement takes the first matched
+  run's formatting. It cannot cross a tab, line break, field or image.
+- `fill_placeholders` fills `{{name}}` (also split across runs, also in
+  headers and footers); `rep["unfilled"]` lists placeholders with no value and
+  `rep["missing"]` keys that matched nothing. Mention both.
+- `track_changes=True, author="..."` on any edit writes real `w:ins` /
+  `w:del` revisions the reviewer accepts or rejects in Word. Use it when the
+  person says "suggest", "redline" or "track" and for contracts under review.
+- Comments, styles, numbering, settings and every part you did not edit stay
+  byte-identical; comment text is not searched.
+
+Errors are all `PatchError` with a message saying what to do: text not found,
+unknown block id or style (the message lists the real ones), a row or column
+out of range, a placeholder set that matched nothing. A refused edit writes
+no file. If `verify` raises, do not deliver that file; never fall back to
+python-docx `save()` on the supplied file or hand-edit the zip.
+
+Not covered: editing comments or footnote text, content controls, fields,
+section or style changes. Say so rather than improvising. After delivery
+tell the person what changed (the diff), and that the check was structural,
+not a rendered view.
 
 ## Rules
 
 - The document is the deliverable: the file must exist when you finish —
   run the code yourself or write one complete runnable block; a script the
   person still has to run is not the file.
-- Edit the file the person attached in place (read it, modify, save under a
-  new name unless asked to overwrite) — never rebuild an edited document from
+- Edit the file the person attached with the helpers above (read it, modify,
+  save under a new name unless asked to overwrite) — never rebuild an edited document from
   scratch unless they asked for a redesign.
 - Files are written to the working directory by a code block under a clear
   filename; the app lists them as downloads. Only describe files you actually

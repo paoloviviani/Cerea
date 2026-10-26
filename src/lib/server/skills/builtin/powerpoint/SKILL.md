@@ -23,7 +23,9 @@ await micropip.install("python-pptx")
 
 ## The bundled scripts
 
-Three scripts ship with this skill. Load each with `load_skill_file` (skill
+Three scripts ship with this skill for building and checking decks (three more,
+`pptx_edit.py`, `pptx_slides.py` and `pptx_verify.py`, edit supplied ones: see
+Editing an existing deck). Load each with `load_skill_file` (skill
 `powerpoint`), write it into the working directory, and import it — no
 command line, every function takes paths:
 
@@ -118,19 +120,66 @@ sensible slide; `**Layout: name**` forces an exact layout when you know it.
 
 ## Editing an existing deck
 
-```python
-import edit, validate, json
+**Decision rule.** A new deck: `generate.py`. A deck the person supplied that
+you must change: use the bundled editing helpers. **Never**
+`Presentation(path)` + `save()` on a supplied file for edits: python-pptx
+re-serialises every slide, layout and master, and its run API loses
+formatting when text spans runs. (`edit.py` below is the older
+paragraph-retype helper; prefer the helpers here for supplied decks.)
 
-inv = edit.inventory("project.pptx")
-# change only the "text" fields you care about in inv, then:
-changes = {"slide-2": {"shape-3": {"paragraphs": [{"id": "p-0", "text": "Q2 2026"}]}}}
-edit.replace("project.pptx", changes, "updated.pptx")
-edit.reorder("project.pptx", [3, 1, 2], "reordered.pptx")
+1. Load `scripts/pptx_edit.py`, `scripts/pptx_slides.py` and
+   `scripts/pptx_verify.py` with `load_skill_file`, write them into the
+   working directory, and import them.
+2. `outline` first and report briefly what you found: slides (1-based),
+   layouts, shapes with their ids, placeholders (type and idx), pictures,
+   speaker notes.
+3. Edit into a NEW file in the working directory; never overwrite the
+   original. Chain edits by passing each output as the next source.
+4. `verify` against the ORIGINAL, then tell the person what changed using
+   its `text_diff`.
+
+```python
+import pptx_edit as pe, pptx_slides as ps, pptx_verify as pv   # written out first
+
+src = "/mnt/data/board.pptx"
+print(pv.outline_text(pe.outline(src)))
+pe.replace_text(src, "s1.pptx", "2025", "2026")                       # keeps run formatting
+pe.set_placeholder_text("s1.pptx", "s2.pptx", 1, "title", "Q3 review")
+pe.replace_image("s2.pptx", "s3.pptx", 2, 7, "/mnt/data/logo.png")    # slide 2, shape id 7
+ps.duplicate_slide("s3.pptx", "s4.pptx", 3)                           # the copy follows slide 3
+ps.reorder("s4.pptx", "s5.pptx", [1, 3, 2, 4])                        # new order, as old numbers
+ps.delete_slide("s5.pptx", "board-updated.pptx", 5)
+rep = pv.verify(src, "board-updated.pptx")
+print(rep["slides"], rep["added"], rep["removed"], "\n".join(rep["text_diff"]))
 ```
 
-Small fixes only: typos and values on few slides, or a reorder. Layout
-changes, added/removed slides, or changes across more than ~30% of slides
-belong to regeneration — **never** edit those by hand.
+- `replace_text(find, replace, slides=None, notes=False)` covers text boxes,
+  placeholders, tables and groups; a match may span runs and the replacement
+  takes the first matched run's formatting.
+- `set_placeholder_text(slide, "title" | "body" | idx, text)`: one paragraph
+  per line (or a list), formatting of the first paragraph and run kept.
+- `replace_image(slide, shape_id, image, fit="cover")`: PNG, JPEG or GIF;
+  keeps size, position and effects; `cover` crops to the frame, `stretch`
+  squeezes. Alt text is unchanged: update it if the picture's meaning changed.
+- `duplicate_slide` copies layout, pictures and formatting (not speaker notes)
+  and refuses slides with charts, SmartArt or embedded objects; `delete_slide`
+  refuses when another slide links to it; `reorder` keeps section membership
+  and refuses moves between sections.
+- Layouts, masters, theme and every part you did not edit stay byte-identical.
+
+Errors are all `PatchError` with a message saying what to do (unknown slide,
+shape or placeholder: the message lists the real ones). A refused edit writes
+no file. If `verify` raises, do not deliver that file; never fall back to
+python-pptx `save()` on the supplied file or hand-edit the zip.
+
+Not covered: charts and SmartArt content, animations, new layouts, notes
+text edits other than `replace_text(notes=True)`. Say so rather than
+improvising. After delivery tell the person what changed (the diff), and that
+the check was structural, not a rendered view. Layout redesigns or changes
+across more than ~30% of slides belong to regeneration.
+
+Small paragraph retypes can still use `edit.py` (`edit.inventory`,
+`edit.replace`, `edit.reorder`).
 
 ## Templates
 
@@ -155,24 +204,6 @@ belong to regeneration — **never** edit those by hand.
   comparisons (use `comparison-N`).
 - Edit mode for layout changes, added/removed slides, or >30% churn — regenerate.
 - Claiming success without a clean validation pass.
-
-## Verify after editing
-
-After saving an edited file, confirm you changed only what you meant to:
-compare it with the original part by part (nothing else may differ), then
-reopen it.
-
-```python
-import zipfile
-a, b = zipfile.ZipFile("original.pptx"), zipfile.ZipFile("edited.pptx")
-changed = [n for n in a.namelist() if n in b.namelist() and a.read(n) != b.read(n)]
-print("parts changed:", changed)
-print("parts lost:", sorted(set(a.namelist()) - set(b.namelist())))
-```
-
-Expect only the parts you edited (and, for python-pptx, regenerated package
-plumbing such as `[Content_Types].xml`). Anything else changed or lost means
-stop and say so.
 
 ## Rules
 

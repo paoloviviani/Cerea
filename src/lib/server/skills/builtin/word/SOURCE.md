@@ -20,3 +20,10 @@
   micropip-with-vendored-wheels setup, and the temp/output conventions
   (`tmp/docs/`, `output/doc/`) by Cerea's working-directory deliverable rule.
 - The quality expectations and the ASCII-hyphen rule are kept as written.
+
+## Added by Cerea
+
+- `scripts/docx_edit.py`, `docx_tables.py`, `docx_verify.py`: original work, Apache-2.0,
+  no upstream. Precise editing of supplied .docx files (run-spanning replace,
+  placeholders, tables, tracked changes) with a part-by-part verify. Tested in
+  the vendored Pyodide by `scripts/pyodide_docx_edit_check.py`.

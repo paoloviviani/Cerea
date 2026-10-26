@@ -214,6 +214,36 @@ t.run_checks(xlsx_patch, "/tmp")
 `);
 });
 
+await check("word-edit", async () => {
+	await install("python-docx");
+	for (const name of ["docx_edit", "docx_tables", "docx_verify"]) {
+		await importScript(`${builtinDir}/word/scripts/${name}.py`, `${name}.py`, name);
+	}
+	py.FS.writeFile(
+		"/skills/pyodide_docx_edit_check.py",
+		readFileSync(path.join(repoRoot, "scripts/pyodide_docx_edit_check.py"), "utf8")
+	);
+	return run(`
+import docx_edit, docx_tables, docx_verify, pyodide_docx_edit_check as t
+t.run_checks((docx_edit, docx_tables, docx_verify), "/tmp")
+`);
+});
+
+await check("powerpoint-edit", async () => {
+	await install("python-pptx");
+	for (const name of ["pptx_edit", "pptx_slides", "pptx_verify"]) {
+		await importScript(`${builtinDir}/powerpoint/scripts/${name}.py`, `${name}.py`, name);
+	}
+	py.FS.writeFile(
+		"/skills/pyodide_pptx_edit_check.py",
+		readFileSync(path.join(repoRoot, "scripts/pyodide_pptx_edit_check.py"), "utf8")
+	);
+	return run(`
+import pptx_edit, pptx_slides, pptx_verify, pyodide_pptx_edit_check as t
+t.run_checks((pptx_edit, pptx_slides, pptx_verify), "/tmp")
+`);
+});
+
 await check("pdf", async () => {
 	await install("reportlab", "pypdf");
 	const out = await run(`
