@@ -619,6 +619,10 @@ class DocxBuilder:
             h = w / aspect
         if w > self.text_width:  # never wider than the text
             h, w = h * self.text_width / w, int(self.text_width)
+        page = self.sec  # nor taller than the text area, or the picture is cut off at the page edge
+        room = int(page.page_height - page.top_margin - page.bottom_margin) - int(EMU_CM * 0.5)  # type: ignore[operator]
+        if h > room:
+            w, h = w * room / h, room
         return int(w), max(1, int(h))
 
     def _picture(self, data: bytes, w: int, h: int, alt: str, align: str, caption: str | None) -> None:
