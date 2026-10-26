@@ -100,7 +100,12 @@ test.describe("owned machine agent (P0)", () => {
 		await expect(page.getByLabel("Conversation messages").getByText("wants to call")).toBeVisible({
 			timeout: 60_000,
 		});
-		await page.getByRole("button", { name: "Allow once" }).click();
+		// The Needs-you banner shows the same approval card with its own "Allow once"
+		// while the request is pending; answer the one in the transcript.
+		await page
+			.getByLabel("Conversation messages")
+			.getByRole("button", { name: "Allow once" })
+			.click();
 		await expect(page.getByText("Wrote the file.")).toBeVisible({ timeout: 60_000 });
 		const out = join(machine.workspace, "out.txt");
 		expect(existsSync(out)).toBe(true);
