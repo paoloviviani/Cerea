@@ -1,13 +1,12 @@
 import { THINK_CLOSE, THINK_OPEN } from "$lib/utils/thinkTags";
 import type { TextGenerationStreamOutput } from "../endpoints";
 import type OpenAI from "openai";
-import type { Stream } from "openai/streaming";
 
 /**
  * Transform a stream of OpenAI.Chat.ChatCompletion into a stream of TextGenerationStreamOutput
  */
 export async function* openAIChatToTextGenerationStream(
-	completionStream: Stream<OpenAI.Chat.Completions.ChatCompletionChunk>,
+	completionStream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
 	getRouterMetadata?: () => { route?: string; model?: string; provider?: string }
 ) {
 	let generatedText = "";

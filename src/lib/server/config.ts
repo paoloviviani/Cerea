@@ -158,6 +158,10 @@ type ExtraConfigKeys =
 	| "MCP_SERVERS"
 	| "MCP_FORWARD_HF_USER_TOKEN"
 	| "MCP_TOOL_TIMEOUT_MS"
+	/** Longest silence (ms) tolerated inside a model stream; default 300000, at least 30000. */
+	| "CHAT_STREAM_IDLE_TIMEOUT_MS"
+	/** Hard cap (minutes) on one chat turn; default 30, at least 1. */
+	| "CHAT_TURN_MAX_MINUTES"
 	| "EXA_API_KEY"
 	/** Where the chat reaches Gotenberg (the kit's `office` profile); empty is off. */
 	| "CHAT_GOTENBERG_URL"

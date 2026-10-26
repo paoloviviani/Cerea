@@ -17,6 +17,11 @@ import type OpenAI from "openai";
 import { createImageProcessorOptionsValidator, makeImageProcessor } from "../images";
 import { prepareMessagesWithFiles } from "$lib/server/textGeneration/utils/prepareFiles";
 import { withoutContentLength } from "$lib/server/undiciCompat";
+import {
+	linkedRequestSignal,
+	streamIdleTimeoutMs,
+	withIdleTimeout,
+} from "$lib/server/textGeneration/utils/idleTimeout";
 // uuid import removed (no tool call ids)
 
 export const endpointOAIParametersSchema = z.object({
@@ -109,6 +114,8 @@ export async function endpointOai(
 			...defaultHeaders,
 		},
 		defaultQuery,
+		// The wait for response headers; the idle watchdog covers the stream after.
+		timeout: streamIdleTimeoutMs(),
 		fetch: customFetch,
 	});
 
@@ -144,6 +151,7 @@ export async function endpointOai(
 				presence_penalty: parameters?.presence_penalty,
 			};
 
+			const req = linkedRequestSignal(abortSignal);
 			const openAICompletion = await openai.completions.create(body, {
 				body: { ...body, ...extraBody },
 				headers: {
@@ -154,10 +162,12 @@ export async function endpointOai(
 					// Which group pays, when the person chose one (ADR 0061).
 					...billToHeader(locals?.billingOrganization),
 				},
-				signal: abortSignal,
+				signal: req.signal,
 			});
 
-			return openAICompletionToTextGenerationStream(openAICompletion);
+			return openAICompletionToTextGenerationStream(
+				withIdleTimeout(openAICompletion, { onIdle: req.abort })
+			);
 		};
 	} else if (completion === "chat_completions") {
 		return async ({
@@ -237,6 +247,7 @@ export async function endpointOai(
 
 			// Handle both streaming and non-streaming responses with appropriate processors
 			if (streamingSupported) {
+				const req = linkedRequestSignal(abortSignal);
 				const openChatAICompletion = await openai.chat.completions.create(
 					body as ChatCompletionCreateParamsStreaming,
 					{
@@ -249,10 +260,13 @@ export async function endpointOai(
 							// Which group pays, when the person chose one (ADR 0061).
 							...billToHeader(locals?.billingOrganization),
 						},
-						signal: abortSignal,
+						signal: req.signal,
 					}
 				);
-				return openAIChatToTextGenerationStream(openChatAICompletion, () => routerMetadata);
+				return openAIChatToTextGenerationStream(
+					withIdleTimeout(openChatAICompletion, { onIdle: req.abort }),
+					() => routerMetadata
+				);
 			} else {
 				const openChatAICompletion = await openai.chat.completions.create(
 					body as ChatCompletionCreateParamsNonStreaming,

@@ -41,6 +41,7 @@ import { applyUpdateToMessage } from "$lib/server/generation/applyUpdate";
 import { AbortRegistry } from "$lib/server/abortRegistry";
 import { createGenerationWriter, type GenerationWriter } from "$lib/server/generation/writer";
 import { turnEnded, turnRunning } from "$lib/server/generation/turnState";
+import { armTurnCap, classifyTurnAbort, untilCapped } from "$lib/server/generation/turnCap";
 import { clampStoppedContent } from "$lib/server/stopTruncation";
 import { MetricsServer } from "$lib/server/metrics";
 import { randomUUID } from "$lib/utils/randomUuid";
@@ -481,6 +482,13 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			const ctrl = new AbortController();
 			abortRegistry.register(conversationKey, ctrl);
 
+			// A turn can never run forever: past the cap the turn is aborted with a
+			// TurnTimeoutError, which the catch below reports as an error, not a Stop.
+			// A parked turn (an approval or a question) ends this stream: runMcpFlow
+			// returns when it parks, and the resume is a new request with its own
+			// controller and its own cap.
+			const turnCapTimer = armTurnCap(ctrl);
+
 			// Cross-pod and pre-first-token abort path. The in-process registry
 			// only works when the stop request lands on this pod, and the cached
 			// AbortedGenerations map is only consulted between tokens — useless
@@ -741,10 +749,22 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				// run the text generation and send updates to the client. Skipped when the
 				// resumed call asked something else: the model has no round to answer yet.
 				if (!parkedAgain) {
-					for await (const event of textGeneration(ctx)) await update(event);
+					for await (const event of untilCapped(textGeneration(ctx), ctrl.signal))
+						await update(event);
 				}
 				if (ctrl.signal.aborted) {
-					abortedByUser = true;
+					const abort = classifyTurnAbort(ctrl.signal);
+					if (abort.kind === "timeout") {
+						hasError = true;
+						logger.warn({ conversationId: conversationKey }, "Turn stopped by the turn cap");
+						await update({
+							type: MessageUpdateType.Status,
+							status: MessageUpdateStatus.Error,
+							message: abort.message,
+						});
+					} else {
+						abortedByUser = true;
+					}
 				}
 				if (abortedByUser && !finalAnswerReceived) {
 					await emitInterruptedFinalAnswer();
@@ -758,7 +778,17 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					// match the class name too
 					err?.constructor?.name === "APIUserAbortError" ||
 					err?.message === "Request was aborted.";
-				if (isAbortError || ctrl.signal.aborted) {
+				const capAbort = ctrl.signal.aborted ? classifyTurnAbort(ctrl.signal) : null;
+				if (capAbort?.kind === "timeout") {
+					// The cap, not the person's Stop: an error, with what streamed so far kept.
+					hasError = true;
+					logger.warn({ conversationId: conversationKey }, "Turn stopped by the turn cap");
+					await update({
+						type: MessageUpdateType.Status,
+						status: MessageUpdateStatus.Error,
+						message: capAbort.message,
+					});
+				} else if (isAbortError || ctrl.signal.aborted) {
 					abortedByUser = true;
 					logger.info({ conversationId: conversationKey }, "Generation aborted by user");
 					if (!finalAnswerReceived) {
@@ -852,6 +882,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				status: hasError ? "error" : abortedByUser ? "interrupted" : "completed",
 			});
 			clearInterval(abortMarkerWatcher);
+			clearTimeout(turnCapTimer);
 			abortRegistry.unregister(conversationKey, ctrl);
 
 			// Consume the stop marker once the stop has been honored and the

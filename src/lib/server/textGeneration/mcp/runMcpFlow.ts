@@ -42,6 +42,12 @@ import { withRepairedToolSchemas } from "$lib/server/mcp/schemaRepair";
 import { createSchemaPreflightGuard } from "$lib/server/mcp/preflightGuard";
 import { composeGuards } from "./toolGuard";
 import { withUpstreamRetry } from "../utils/upstreamRetry";
+import {
+	linkedRequestSignal,
+	StreamIdleError,
+	streamIdleTimeoutMs,
+	withIdleTimeout,
+} from "../utils/idleTimeout";
 import { stripThink } from "$lib/utils/stripThink";
 import { getEnabledBuiltinTools, isNestedAgentTool, shouldSkipMcpFlow } from "../builtinTools";
 import { ARTIFACT_TOOL_NAME } from "../builtinTools/artifactTool";
@@ -639,6 +645,8 @@ export async function* runMcpFlow({
 		const openai = new OpenAI({
 			apiKey: config.OPENAI_API_KEY || "sk-",
 			baseURL: config.OPENAI_BASE_URL,
+			// The wait for response headers; the idle watchdog covers the stream after.
+			timeout: streamIdleTimeoutMs(),
 			fetch: captureProviderFetch,
 			defaultHeaders: {
 				// Which group pays, when the person chose one (ADR 0061). The
@@ -875,12 +883,13 @@ export async function* runMcpFlow({
 				tool_choice: undefined,
 				messages: [...messagesOpenAI, { role: "user" as const, content: ANSWER_NOW_INSTRUCTION }],
 			};
+			const rescueReq = linkedRequestSignal(abortSignal);
 			let stream: Stream<ChatCompletionChunk>;
 			try {
 				stream = await withUpstreamRetry(
 					() =>
 						openai.chat.completions.create(request, {
-							signal: abortSignal,
+							signal: rescueReq.signal,
 							headers: {
 								"ChatUI-Conversation-ID": conv._id.toString(),
 								...(config.USE_USER_TOKEN === "true" && locals?.token
@@ -904,7 +913,7 @@ export async function* runMcpFlow({
 			const merger = createReasoningMerger();
 			let text = "";
 			try {
-				for await (const chunk of stream) {
+				for await (const chunk of withIdleTimeout(stream, { onIdle: rescueReq.abort })) {
 					const delta = chunk.choices?.[0]?.delta;
 					if (!delta) continue;
 					const combined = merger.push(deltaText(delta), deltaReasoning(delta));
@@ -916,6 +925,8 @@ export async function* runMcpFlow({
 					if (checkAborted()) return null;
 				}
 			} catch (err) {
+				// A silent model is not "cut mid-stream": say so instead of serving half an answer.
+				if (err instanceof StreamIdleError) throw err;
 				logger.warn({ err: String(err) }, "[mcp] the no-tools answer was cut mid-stream");
 			}
 			text += merger.close();
@@ -974,10 +985,11 @@ export async function* runMcpFlow({
 			// A turn several productive rounds deep must not die on one throttled
 			// request, or on a gateway that has no backend ready for a moment;
 			// absorb what outlasts the SDK's quick retries.
+			const roundReq = linkedRequestSignal(abortSignal);
 			const completionStream: Stream<ChatCompletionChunk> = await withUpstreamRetry(
 				() =>
 					openai.chat.completions.create(completionRequest, {
-						signal: abortSignal,
+						signal: roundReq.signal,
 						headers: {
 							"ChatUI-Conversation-ID": conv._id.toString(),
 							...(config.USE_USER_TOKEN === "true" && locals?.token
@@ -1019,7 +1031,7 @@ export async function* runMcpFlow({
 			const emptyDraftSent: Record<number, boolean> = {};
 			// Throttle for ArtifactDraft emissions while arguments stream.
 			const ARTIFACT_DRAFT_THROTTLE_MS = 250;
-			for await (const chunk of completionStream) {
+			for await (const chunk of withIdleTimeout(completionStream, { onIdle: roundReq.abort })) {
 				const choice = chunk.choices?.[0];
 				// Before the delta guard: the terminal chunk can carry only a finish_reason.
 				if (choice?.finish_reason) finishReason = choice.finish_reason;

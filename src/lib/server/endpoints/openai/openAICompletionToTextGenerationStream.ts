@@ -1,12 +1,11 @@
 import type { TextGenerationStreamOutput } from "../endpoints";
 import type OpenAI from "openai";
-import type { Stream } from "openai/streaming";
 
 /**
  * Transform a stream of OpenAI.Completions.Completion into a stream of TextGenerationStreamOutput
  */
 export async function* openAICompletionToTextGenerationStream(
-	completionStream: Stream<OpenAI.Completions.Completion>
+	completionStream: AsyncIterable<OpenAI.Completions.Completion>
 ) {
 	let generatedText = "";
 	let tokenId = 0;
