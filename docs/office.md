@@ -35,15 +35,18 @@ Gotenberg parses untrusted files, so the kit runs it on an internal-only
 network with no internet access, no published port and no shared volumes, with
 CPU and memory limits and timeouts; see the [kit README](deploy-kit.md).
 
-## Editing Word, Excel and PowerPoint files
+## Creating and editing Word, Excel, PowerPoint and PDF files
 
 !!! info "For operators"
 
     The `documents` service runs with the chat profile in the kit; no switch to turn on.
 
 With the document service (`cerea-documents`, ADR 0103) the model works on
-Office files through three tools instead of writing code in the browser:
+Office and PDF files through typed tools instead of writing code in the browser:
 
+- **`doc_create`** makes a new Word, Excel, PowerPoint or PDF file from a
+  **document spec** (below). **`doc_create_from_template`** fills a template the
+  person uploaded in the chat.
 - **`doc_outline`** gives a file's structure with stable ids; **`doc_read`**
   gives the exact content of ids or ranges.
 - **`doc_edit`** applies typed operations (replace text, fill placeholders, set
@@ -52,23 +55,80 @@ Office files through three tools instead of writing code in the browser:
   they name are touched: every other part of the file stays byte for byte.
 
 A file is named the way the model already sees it: an attachment, or a file a
-tool or a run produced. The edit is saved as a **new version** of the file under
-the same name: the person sees an ordinary file card (preview, download, the
-version list), the original attachment is never changed, and the result tells
-the model the diff and a verification report (which parts changed, that the rest
-is identical, that the file reopens). Tracked changes carry the person's display
-name unless the model gives another author.
+tool or a run produced. A created file, or an edit, is saved as a file the person
+sees as an ordinary file card (preview, download, the version list). An edit is a
+**new version** of its file under the same name and the original attachment is
+never changed; a created file starts a new file, and creating again under the
+same name saves the next version. The result tells the model what was written (an
+outline for a created file, the diff for an edit) and a verification report
+(that the package is valid and reopens). Tracked changes carry the person's
+display name unless the model gives another author.
 
 The tools are offered only while `CHAT_DOCUMENTS_URL` and `CHAT_DOCUMENTS_SECRET`
-are set and the service answers, and `doc_edit` offers exactly the operations the
-service reports at `/v1/capabilities` (the tool text is built from the service's
-own schemas). Without them the Excel, Word and PowerPoint skills use their
-in-sandbox helpers.
+are set and the service answers. `doc_create` and `doc_create_from_template` are
+offered when the service reports `create` and `create_from_template` at
+`/v1/capabilities`, and `doc_edit` offers exactly the operations the service
+reports (the tool text is built from the service's own schemas, so a new block or
+operation reaches the model without a chat release). Without the service the
+Excel, Word, PowerPoint and PDF skills use their in-sandbox helpers; with it,
+those skills say the tools are the **only** way and keep the helpers in a labelled
+fallback section.
 
-The service parses untrusted files, so the kit runs it on an internal-only network
-with no internet access, a read-only filesystem, no capabilities and resource
-limits, and every request in a fresh subprocess with its own limits; see the
-[kit README](deploy-kit.md).
+### The document spec
+
+One JSON schema family for all formats (the full property lists are in the
+service's `documents/README.md`, and the model reads them from the service itself):
+
+| Format     | The spec holds                                                                                                                                            |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Word, PDF  | `title`, `language`, `page` (size, orientation, margins), `header` and `footer` (with `{page}` and `{pages}`), `theme`, and `blocks` or Markdown          |
+| Excel      | `sheets` with `rows` or `cells` (values, formulas, number formats, bold, fill), column widths, freeze panes, autofilter, tables, charts, images at a cell |
+| PowerPoint | `slides` with a layout, title, body blocks, speaker notes, images (a box or fitted to the body) and charts                                                |
+
+Blocks: heading, paragraph (bold, italic, underline, link, code, colour), nested
+lists, tables (header row, widths, alignment), images with captions, charts, quotes,
+code, a table of contents and page breaks. Markdown with a small front-matter is
+accepted for prose and converted to the same blocks; raw HTML is refused.
+
+**Styling.** There is one neutral built-in style set, and the spec's `theme`
+carries what the person asked for in the prompt: body and heading fonts from a
+list of fonts commonly installed with Office, colours, heading sizes, spacing,
+table style and an accent colour. There is no administrator template. When a
+person uploads a Word, PowerPoint or Excel file in the chat and asks for that
+look, `theme.template` takes the styles (Word styles, headers and page setup;
+PowerPoint master and layouts, named in each slide's `layout`; Excel named
+styles) from it, and `doc_create_from_template` fills its `{{placeholders}}`
+(Word body, tables, headers and footers; PowerPoint text boxes, placeholders and
+notes; Excel cells and named ranges). A paragraph, shape or cell that holds only
+a placeholder can become a picture. Macro-enabled templates are refused, and a
+created file never carries active content.
+
+**Charts.** A chart block (bar, column, stacked, line, area, pie, doughnut,
+scatter) says `render`: `native` or `image`.
+
+| `render` | Word                                    | Excel                                           | PowerPoint     | PDF   |
+| -------- | --------------------------------------- | ----------------------------------------------- | -------------- | ----- |
+| `native` | a native chart, editable in Word        | a native chart, drawn from the cells            | a native chart | image |
+| `image`  | a PNG (matplotlib, a fixed clean style) | a PNG anchored at a cell (needs literal values) | a PNG          | image |
+
+If a native chart cannot be written the file still contains the chart as an image
+and the result says so. The chart's data stays in the file, so the person can edit
+a native chart in Office. A picture the model made in the browser sandbox is
+passed to the tool by name, like any image.
+
+**Images** are files the conversation already has (an attachment, a generated
+chart, a sandbox output); the service never fetches anything itself. PNG, JPEG and
+GIF only, checked against their content.
+
+**PDF** is built directly from the spec (reportlab, with embedded DejaVu fonts, so
+Latin, Greek and Cyrillic render), deterministically, with no converter. Output is
+reproducible: the same spec gives the same bytes. Editing an existing PDF stays in
+the `pdf-tools` skill.
+
+The service parses untrusted files and specs, so the kit runs it on an internal-only
+network with no internet access, a read-only filesystem, no capabilities and
+resource limits, and every request in a fresh subprocess with its own limits; see
+the [kit README](deploy-kit.md).
 
 ## Without it
 

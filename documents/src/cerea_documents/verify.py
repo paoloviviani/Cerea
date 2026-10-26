@@ -62,6 +62,29 @@ def _reopen(fmt: str, data: bytes) -> str:
         ) from exc
 
 
+def _check_structure(out: Pkg) -> None:
+    """Relationship targets exist and every part has a content type: what Office needs to open the file without repair."""
+    for n in out.names:
+        if n.endswith(".rels"):
+            for _i, _t, tgt, mode in out.rels(owner(n)):
+                if mode != "External" and not out.has(tgt):
+                    raise PatchError(f"{n} points at a missing part {tgt}")
+    ct = out.tree("[Content_Types].xml")
+    defaults = {(d.get("Extension") or "").lower() for d in ct if isinstance(d.tag, str) and d.tag.endswith("}Default")}
+    overrides = {o.get("PartName") for o in ct if isinstance(o.tag, str) and o.tag.endswith("}Override")}
+    for n in out.names:
+        if (
+            n != "[Content_Types].xml"
+            and not n.endswith("/")
+            and "/" + n not in overrides
+            and n.rsplit(".", 1)[-1].lower() not in defaults
+        ):
+            raise PatchError(f"{n} has no content type; the file would need repair in Office")
+    for o in overrides:
+        if o and o.lstrip("/") not in out.names:
+            raise PatchError(f"[Content_Types].xml lists {o} but the part is gone")
+
+
 def verify(
     src: Pkg, out_bytes: bytes, limits: Limits, engine: ModuleType, expected: set[str], fmt: str
 ) -> tuple[dict[str, Any], Pkg]:
@@ -96,25 +119,7 @@ def verify(
     for n in [*diff, *added]:
         if n.endswith(_XML):
             parse(out.read(n), n)
-    for n in out.names:
-        if n.endswith(".rels"):
-            for _i, _t, tgt, mode in out.rels(owner(n)):
-                if mode != "External" and not out.has(tgt):
-                    raise PatchError(f"{n} points at a missing part {tgt}")
-    ct = out.tree("[Content_Types].xml")
-    defaults = {(d.get("Extension") or "").lower() for d in ct if isinstance(d.tag, str) and d.tag.endswith("}Default")}
-    overrides = {o.get("PartName") for o in ct if isinstance(o.tag, str) and o.tag.endswith("}Override")}
-    for n in out.names:
-        if (
-            n != "[Content_Types].xml"
-            and not n.endswith("/")
-            and "/" + n not in overrides
-            and n.rsplit(".", 1)[-1].lower() not in defaults
-        ):
-            raise PatchError(f"{n} has no content type; the file would need repair in Office")
-    for o in overrides:
-        if o and o.lstrip("/") not in out.names:
-            raise PatchError(f"[Content_Types].xml lists {o} but the part is gone")
+    _check_structure(out)
     reopened = _reopen(fmt, out_bytes)
     report: dict[str, Any] = {
         "ok": True,
@@ -127,3 +132,39 @@ def verify(
         **engine.summary(out),
     }
     return report, out
+
+
+def verify_created(data: bytes, limits: Limits, fmt: str) -> dict[str, Any]:
+    """Check a file this service created: a sound package whose every XML part parses, whose relationships
+    and content types are complete, and which reopens in an independent library. PDFs reopen in pypdf."""
+    if fmt == "pdf":
+        return _verify_pdf(data)
+    try:
+        out = Pkg(data, limits)
+    except InvalidDocument as exc:
+        raise PatchError(f"the created package is not valid: {exc.message}") from exc
+    try:
+        for n in out.names:
+            data_n = out.read(n)
+            if n.endswith(_XML):
+                parse(data_n, n)
+    except (zipfile.BadZipFile, zlib.error) as exc:
+        raise PatchError(f"the created package is damaged: {exc}") from exc
+    _check_structure(out)
+    return {"ok": True, "parts": len(out.names), "reopened_with": _reopen(fmt, data)}
+
+
+def _verify_pdf(data: bytes) -> dict[str, Any]:
+    import pypdf
+
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(data), strict=True)
+        pages = len(reader.pages)
+        if pages < 1:
+            raise ValueError("no pages")
+        reader.pages[0].extract_text()
+    except Exception as exc:
+        raise PatchError(
+            f"the created PDF does not reopen cleanly ({type(exc).__name__}: {exc}); it was not delivered"
+        ) from exc
+    return {"ok": True, "pages": pages, "reopened_with": "pypdf"}

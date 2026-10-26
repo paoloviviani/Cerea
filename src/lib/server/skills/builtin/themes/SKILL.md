@@ -46,10 +46,18 @@ Each is defined in a bundled file loaded with `load_skill_file`
 
 1. Load the theme file with `load_skill_file` and read its palette and font
    pairing.
-2. Apply it with the format's proper package — python-docx for `.docx`
-   (paragraph shading, font colours, heading styles), python-pptx for `.pptx`
-   (shape fills, text colours, fonts), matplotlib for charts (rcParams or
-   explicit colours), inline CSS for HTML. Never hand-edit raw OOXML.
+2. Apply it. For Word, Excel, PowerPoint and PDF files, when `doc_create`
+   is in your tool list, the theme goes into the call's `spec.theme` and you
+   write no document code: the theme's colours become `colors` and `accent`
+   (hex), its fonts become `heading_font` and `body_font` from the tool's own
+   list (DejaVu Sans is nearest to Verdana, DejaVu Serif to Georgia; use the
+   closest listed face and say so), and its roles become heading, text and
+   table colours. A theme's page or slide background colour has no field in
+   the spec: carry the palette through headings, accent and table colours
+   instead, and tell the person. For charts made in the sandbox use matplotlib
+   (rcParams or explicit colours); for HTML use inline CSS. Only when the
+   document tools are NOT in your tool list apply the theme to a file with
+   its package (python-docx, python-pptx), never by hand-editing raw OOXML.
 3. Font names in a theme are suggestions the document carries; the viewer's
    system substitutes what it lacks. Prefer the theme's fonts for headings and
    body as written, but do not bundle or embed font files.
@@ -68,4 +76,4 @@ review before applying it, exactly as you would a bundled theme.
 - One theme per artifact unless the person asks for a blend; say what you
   blended.
 - Never claim to have applied a theme you didn't apply — every styled element
-  traces to a code block you ran or a file you wrote.
+  traces to a tool call you made, a code block you ran or a file you wrote.

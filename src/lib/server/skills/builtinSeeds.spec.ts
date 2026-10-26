@@ -120,12 +120,12 @@ describe("the built-in definitions", () => {
 				expect(file?.content.length ?? 0, `${skill}/${bundled}`).toBeLessThan(20_000);
 			}
 		}
-		// The document tools are the first choice for editing supplied files (ADR 0103);
-		// the in-sandbox helpers stay as the fallback when the tools are absent.
-		for (const skill of ["word", "excel", "powerpoint"]) {
+		// The document tools are the one way when they are offered (ADR 0103); the in-sandbox
+		// helpers stay bundled as the labelled fallback (see officeSkills.spec.ts for the wording).
+		for (const skill of ["word", "excel", "powerpoint", "pdf"]) {
 			const body = definition(skill).content;
-			expect(body, skill).toContain("`doc_outline`, `doc_read` and `doc_edit`");
-			expect(body, skill).toMatch(/not in\s+your list/);
+			expect(body, skill).toContain("ONLY way");
+			expect(body, skill).toContain("## Fallback: only when the doc_* tools are not available");
 		}
 		for (const builtin of listBuiltinSkills()) {
 			expect(

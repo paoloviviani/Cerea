@@ -1,13 +1,71 @@
 ---
 name: word
-description: Create, edit, and check .docx documents with python-docx — reports, letters, meeting notes, and any Word file, with consistent styles, clean tables, and verified structure. Use when the task involves reading, creating, or editing Word documents.
+description: Create and edit Word (.docx) documents with the doc_* tools - reports, letters, memos, contracts and any Word file - with real styles, tables, images and charts. Use when the task involves creating, reading or editing a Word document.
 ---
 
 # Word documents
 
-Use this skill when the person wants a `.docx` created, edited, or checked.
+## One rule
 
-## Setup
+**When `doc_create` is in your tool list, the `doc_*` tools are the ONLY way to create or edit a Word document.**
+Do not write Python to make or change one (no python-docx, no bundled helper scripts, no zip editing), and do not
+mix the two ways. If the tools are not in your tool list, jump to the last section, "Fallback".
+
+## Creating a document
+
+Call `doc_create` with `format: "docx"` and a `spec`. The tool's description lists every block and property; the
+service checks the spec before it builds anything and, if something is wrong, answers with what is allowed.
+
+- **Blocks:** heading (levels 1-6), paragraph (runs: bold, italic, underline, code, colour, link), list (ordered or
+  bulleted, nested through `children`), table (header row, widths, per-column alignment, caption), image, chart,
+  quote, code, toc, page_break. Prose can also be given as `markdown` (headings, lists, tables, links, code; no
+  HTML) instead of `blocks`.
+- **Structure first:** a visible title is a heading block (`title` is only the file's property), then headed
+  sections and short paragraphs; a table of contents and page breaks for long reports; `header` and `footer` with
+  `{page}` and `{pages}` for page numbers; `page` for size, orientation and margins; `language` for the text's
+  language.
+- **Look:** the built-in style is neutral and complete. Set `theme` only for what the person asked: fonts from the
+  tool's list, `colors` and `accent` as hex, heading and body sizes, spacing, `table_style`. Never promise a font or
+  a look the theme cannot express.
+- **Their template:** when the person uploaded a Word file whose look they want, give it as `theme.template`; the
+  styles, headers, footers and page setup come from it. To fill a template that has `{{placeholders}}`, use
+  `doc_create_from_template` (it fills the body, tables, headers and footers; a paragraph holding only a placeholder
+  can become an image).
+- **Images:** name files that are in the conversation (an attachment, or a picture you saved under
+  `/mnt/output/` in the sandbox) in the call's `images` list, and use the same names in image blocks.
+- **Charts:** a chart block (bar, column, stacked, line, area, pie, doughnut, scatter) with `render: "native"`
+  (editable in Word) or `"image"` (a PNG). If a native chart could not be written the result says it fell back to
+  an image. For a chart the tool cannot draw, make the picture in the sandbox, save it under `/mnt/output/` and pass
+  it as an image reference.
+- Use ASCII hyphens only; avoid U+2011 and other Unicode dashes. Citations and references must be readable text,
+  never tool tokens or placeholders.
+
+## Reading and editing a document
+
+- `doc_outline` shows the structure with stable ids (paragraphs `p1...`, tables `t1...`, images, headers,
+  placeholders); `doc_read` gives exact content with run formatting. Look before you edit.
+- `doc_edit` applies typed operations, all or none: replace text (across runs, keeping formatting), fill
+  `{{placeholders}}`, set or insert or delete paragraphs, set table cells, add table rows, insert or replace images.
+  `track_changes` with an `author` records the edit as revisions the person can accept or reject: use it when they
+  say "suggest", "redline" or "track", and for contracts under review.
+- An edit is saved as a new version under the same name; the original stays. Edit again by that name to build on it.
+- If an operation fails, the message names what exists (ids, styles); fix the call, do not work around it. Anything
+  an operation cannot do (comments, footnote text, content controls, fields) is said plainly to the person.
+- Never rebuild a whole document to change a part of it unless they asked for a redesign.
+
+## Reporting
+
+The result carries an outline of what was written (or the diff of an edit) and a verification report: the package is
+valid and reopens. There is no renderer, so say in one line what you checked and that the person should open the
+file to judge the exact layout. Describe only files the tools actually saved.
+
+## Fallback: only when the doc_* tools are not available
+
+**Read this section only if `doc_create` is NOT in your tool list.** If it is, stop reading here: everything below
+is the older in-sandbox method for deployments without the document service, and it must not be mixed with the
+tools. These instructions write Python inside the browser sandbox; the helper scripts are bundled with this skill.
+
+### Setup
 
 Install before importing — the package name differs from the import name:
 
@@ -17,7 +75,7 @@ await micropip.install("python-docx")
 import docx  # python-docx
 ```
 
-## Reading a document
+### Reading a document
 
 - A document the person attached is at `/mnt/data/<its filename>` in the
   sandbox; one produced earlier in the conversation is in the working
@@ -32,7 +90,7 @@ import docx  # python-docx
 - Preserve what you did not touch: edit runs and cells rather than deleting
   and recreating content (the helpers below do this for you).
 
-## Creating a document
+### Creating a document
 
 - Build structure with real styles, not manual formatting: headings via
   `add_heading`, body text with the Normal style, emphasis with bold/italic
@@ -45,7 +103,7 @@ import docx  # python-docx
 - Prefer the package over hand-built OOXML in every case — constructing
   document XML by string surgery breaks on the first non-trivial document.
 
-## Checking before delivery
+### Checking before delivery
 
 There is no renderer in this environment, so a document is verified by
 reading it back, not by looking at a picture:
@@ -58,7 +116,7 @@ reading it back, not by looking at a picture:
 3. Say in one line what you checked and what you could not check (exact
    visual layout — the person should open the file to judge spacing).
 
-## Quality expectations
+### Quality expectations
 
 - Deliver a client-ready document: consistent typography, spacing, margins,
   and clear hierarchy.
@@ -69,15 +127,7 @@ reading it back, not by looking at a picture:
 - Citations and references must be human-readable; never leave tool tokens or
   placeholder strings.
 
-## Editing an existing document
-
-**First choice: the document tools.** If `doc_outline`, `doc_read` and `doc_edit` are in your tool list, edit a
-supplied Word file with them and write no code: `doc_outline` for the structure and ids, `doc_read` for exact
-content, then `doc_edit` with typed operations (replace text, fill `{{placeholders}}`, set or insert paragraphs, table cells and rows, images; `track_changes` for edits the person can review). The edit is saved as a new version of the file
-under the same name, the original is kept, and the result gives you the diff and a verification report to
-summarise for the person. Edit again by the same name to build on your last version. If the tools are not in
-your list, the service is not set up on this deployment: use the helpers below, which do the same work inside
-the sandbox. (New files are still made as described elsewhere in this skill.)
+### Editing an existing document
 
 **Decision rule.** A new document: python-docx. A document the person
 supplied that you must change: use the bundled helpers. **Never**
@@ -135,12 +185,12 @@ section or style changes. Say so rather than improvising. After delivery
 tell the person what changed (the diff), and that the check was structural,
 not a rendered view.
 
-## Rules
+### Rules
 
 - The document is the deliverable: the file must exist when you finish —
   run the code yourself or write one complete runnable block; a script the
   person still has to run is not the file.
-- Edit the file the person attached with the document tools, or the helpers above (read it, modify,
+- Edit the file the person attached with the helpers above (read it, modify,
   save under a new name unless asked to overwrite) — never rebuild an edited document from
   scratch unless they asked for a redesign.
 - Deliverables are saved by a code block to `/mnt/output/<clear filename>`;

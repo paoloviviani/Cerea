@@ -1,27 +1,88 @@
 ---
 name: powerpoint
 description: >
-  Generate and edit consultant-grade PowerPoint decks from markdown outlines,
-  filling a template's real slide-master layouts and placeholders — never
-  text overlays. Use when the person wants slides or a deck from an outline
-  or brief, wants their own .pptx used as a template, or asks to fix or check
-  a deck.
+  Create and edit PowerPoint (.pptx) decks with the doc_* tools - slides built in real layouts and placeholders,
+  native charts, tables and images, or in the person's own uploaded template. Use when the person wants slides or
+  a deck, wants their own .pptx used as a template, or asks to change or check a deck.
 ---
 
 # PowerPoint from layouts
 
-**Core principle: fill the template's actual layouts and placeholders — never
-overlay text boxes on slides.** Text laid over a slide ignores the template's
-branding; text placed in the template's own placeholders inherits it.
+**Core principle: fill real layouts and placeholders; never overlay text boxes on slides.** Text placed in a
+layout's own placeholders inherits the master's branding; text laid over a slide ignores it. The tools work this way.
 
-## Setup
+## One rule
+
+**When `doc_create` is in your tool list, the `doc_*` tools are the ONLY way to create or edit a PowerPoint deck.**
+Do not write Python to make or change one (no python-pptx, no bundled scripts such as `generate.py`, no zip
+editing), and do not mix the two ways. If the tools are not in your tool list, jump to the last section,
+"Fallback".
+
+## Creating a deck
+
+Call `doc_create` with `format: "pptx"` and a `spec` of `slides`. The tool's description lists every property; the
+service checks the spec first and answers with what is allowed if something is off.
+
+- **Slides:** each has a `layout` (`title`, `title_content`, `section`, `two_content`, `title_only`, `blank`), a
+  `title`, a `subtitle` (title and section slides), `body` blocks (paragraph, list, table, image, chart, quote,
+  code), `body_right` for `two_content`, `notes` (speaker notes), and `images` and `charts` that are placed
+  explicitly (a box in cm) or fitted to the body area (`fit: "placeholder"`). Without a `layout` the first slide
+  without body is a title slide and the others use `title_content`.
+- **Placement:** text blocks fill the layout's body placeholder; tables, images and charts share the body area (on
+  the right when there is text too). A text-only slide stays in the placeholder, so it keeps the template's look.
+- **Look:** neutral 16:9 built-in master; `theme` only for what the person asked (fonts from the tool's list,
+  colours, accent, table style). **Their template:** give the uploaded `.pptx` as `theme.template`; `layout` then
+  names one of its layouts (an unknown name answers with the list), its size, master and fonts are kept, and its
+  own sample slides are not. To fill a template that has `{{placeholders}}`, use `doc_create_from_template` (text
+  boxes, placeholders and notes; a shape holding only a placeholder can become a picture).
+- **Charts:** a chart block (bar, column, stacked, line, area, pie, doughnut, scatter) with `render: "native"`
+  (editable in PowerPoint, the data stays in the chart) or `"image"` (a PNG). For a chart the tool cannot draw,
+  make the picture in the sandbox, save it under `/mnt/output/` and pass it as an image reference.
+- **Images:** files in the conversation (an attachment, or a picture saved under `/mnt/output/`), listed in the
+  call's `images` and named the same way in the slide.
+
+### Designing the deck
+
+- One idea per slide, and a title that states it (an assertion, not a topic label). About six short lines at most;
+  split rather than shrink.
+- Choose the form before the words: a sequence is an ordered list or a table of steps; a comparison is
+  `two_content`; parallel items are a table or two columns; a number or trend is a chart; a quote is a quote block;
+  a single statement is a title or section slide. Bullets are the last resort, not the default.
+- Tables for genuinely tabular data only; no tables for process flows and no bullet lists for comparisons.
+- Put the detail in speaker `notes`, not on the slide.
+
+## Reading and editing a deck
+
+- `doc_outline` shows slides (1-based), layouts, shapes with ids, placeholders, pictures and notes; `doc_read` gives
+  a slide's paragraphs with runs and notes. Look before you edit.
+- `doc_edit` applies typed operations, all or none: replace text (across runs, keeping formatting), set a
+  placeholder's text, replace or insert images, duplicate, delete or reorder slides, set speaker notes. To add a
+  slide to an existing deck, duplicate a similar one and change its text. Adding native charts to an existing
+  deck, editing chart data and layout redesigns are not available: say so, or recreate the deck with `doc_create`
+  when the person wants a redesign or many changes.
+- An edit is saved as a new version under the same name; the original stays. Layouts, masters and every part you did
+  not edit stay as they were.
+
+## Reporting
+
+The result carries an outline of the slides written (or the diff of an edit) and a verification report: the file is
+valid and reopens. There is no renderer, so say in one line what you checked and that the person should open the
+deck for the visual verdict. Describe only files the tools actually saved.
+
+## Fallback: only when the doc_* tools are not available
+
+**Read this section only if `doc_create` is NOT in your tool list.** If it is, stop reading here: everything below
+is the older in-sandbox method for deployments without the document service, and it must not be mixed with the
+tools. These instructions write Python inside the browser sandbox; the helper scripts are bundled with this skill.
+
+### Setup
 
 ```python
 import micropip
 await micropip.install("python-pptx")
 ```
 
-## The bundled scripts
+### The bundled scripts
 
 Three scripts ship with this skill for building and checking decks (three more,
 `pptx_edit.py`, `pptx_slides.py` and `pptx_verify.py`, edit supplied ones: see
@@ -47,7 +108,7 @@ report = validate.validate("/mnt/output/deck.pptx")
 print(report["score"], report["errors"], report["warnings"])
 ```
 
-## Mandatory workflow
+### Mandatory workflow
 
 1. **Produce an outline** with a `**Visual: type**` declaration on every
    content slide — see the format below and `references/rules/outline-format.md`.
@@ -57,7 +118,7 @@ print(report["score"], report["errors"], report["warnings"])
    deterministic, so a fix is a regeneration, not a hand-edit.
 3. **Report the score and the file path** — not just "done".
 
-## Outline format
+### Outline format
 
 Slides are separated by `---`. Each slide:
 
@@ -100,7 +161,7 @@ Markers the parser knows:
 | Image note      | `[Image: description]` / `[Background: description]`                               |
 | Typography      | `{bold}…{/bold}`, `{italic}`, `{blue}`, `{question}`, `{signpost}LABEL{/signpost}` |
 
-## Visual types — decide, don't default to bullets
+### Visual types — decide, don't default to bullets
 
 | Type              | Use when                          |
 | ----------------- | --------------------------------- |
@@ -119,15 +180,7 @@ quote → table → hero → bullets. Full reference with length limits:
 body placeholders match the block count, so an odd template still gets a
 sensible slide; `**Layout: name**` forces an exact layout when you know it.
 
-## Editing an existing deck
-
-**First choice: the document tools.** If `doc_outline`, `doc_read` and `doc_edit` are in your tool list, edit a
-supplied deck with them and write no code: `doc_outline` for the structure and ids, `doc_read` for exact
-content, then `doc_edit` with typed operations (replace text, set placeholder text, replace or insert images, duplicate, delete or reorder slides, set notes). The edit is saved as a new version of the file
-under the same name, the original is kept, and the result gives you the diff and a verification report to
-summarise for the person. Edit again by the same name to build on your last version. If the tools are not in
-your list, the service is not set up on this deployment: use the helpers below, which do the same work inside
-the sandbox. (New files are still made as described elsewhere in this skill.)
+### Editing an existing deck
 
 **Decision rule.** A new deck: `generate.py`. A deck the person supplied that
 you must change: use the bundled editing helpers. **Never**
@@ -191,7 +244,7 @@ across more than ~30% of slides belong to regeneration.
 Small paragraph retypes can still use `edit.py` (`edit.inventory`,
 `edit.replace`, `edit.reorder`).
 
-## Templates
+### Templates
 
 - **Bundled**: `generate.py` carries the Inner Chapter template inside itself
   (`references/layouts.md` catalogs its layouts; the engine maps visual types
@@ -205,7 +258,7 @@ Small paragraph retypes can still use `edit.py` (`edit.inventory`,
   one-time onboarding flow; in this sandbox, profiling means running
   `edit.inventory` on the template and reading the layout names.
 
-## Anti-patterns (forbidden)
+### Anti-patterns (forbidden)
 
 - Skipping the `**Visual:**` declaration — the parser's fallback may not match.
 - Defaulting to bullets when a richer type fits — bullets are the last resort.
@@ -215,7 +268,7 @@ Small paragraph retypes can still use `edit.py` (`edit.inventory`,
 - Edit mode for layout changes, added/removed slides, or >30% churn — regenerate.
 - Claiming success without a clean validation pass.
 
-## Rules
+### Rules
 
 - The deck is the deliverable: the file must exist when you finish —
   run generate() yourself rather than leaving a script for the person to

@@ -9,6 +9,7 @@ Exit codes: 0 result written (success or a clean refusal), 3 out of memory, anyt
 from __future__ import annotations
 
 import json
+import os
 import resource
 import sys
 import traceback
@@ -52,6 +53,7 @@ def _write(job: Path, result: dict[str, Any], out: bytes | None = None) -> None:
 
 def run(job: Path) -> int:
     spec = json.loads((job / "job.json").read_text(encoding="utf-8"))
+    os.environ["MPLCONFIGDIR"] = str(job)  # matplotlib's cache lives and dies with the job directory
     apply_limits(spec["limits"])
     # imports come after the limits so the memory cap covers everything the request can cause
     from . import core
@@ -70,6 +72,15 @@ def run(job: Path) -> int:
         elif spec["kind"] == "edit":
             images = {name: (job / "images" / str(i)).read_bytes() for i, name in enumerate(spec["images"])}
             report, out = core.edit(data, fmt, body, images, limits)
+            _write(job, {"result": report}, out)
+        elif spec["kind"] in ("create", "create_from_template"):
+            from . import create as creation
+
+            images = {name: (job / "images" / str(i)).read_bytes() for i, name in enumerate(spec["images"])}
+            if spec["kind"] == "create":
+                report, out = creation.create(body, data or None, images, limits)
+            else:
+                report, out = creation.create_from_template(body, data, fmt, images, limits)
             _write(job, {"result": report}, out)
         elif spec["kind"] == "selftest_spin":  # used by tests: a runaway operation
             while True:

@@ -1,14 +1,94 @@
 ---
 name: excel
-description: Create, edit, and analyze spreadsheets (.xlsx, .csv, .tsv) with openpyxl and pandas — structured workbooks with formulas, formatting, native charts, and data analysis. Use when a task involves creating, editing, analyzing, or visualizing spreadsheet data.
+description: Create and edit Excel (.xlsx) workbooks with the doc_* tools - sheets, formulas, formats, tables, native charts and images - and analyse spreadsheet data in the sandbox. Use when a task involves creating, editing, analysing or visualising spreadsheet data.
 ---
 
 # Spreadsheets
 
-Use this skill when the person wants a spreadsheet created, edited, analyzed,
-or visualized.
+## One rule
 
-## Setup
+**When `doc_create` is in your tool list, the `doc_*` tools are the ONLY way to create or edit an Excel workbook.**
+Do not write Python to make or change one (no openpyxl, no bundled helper scripts, no `DataFrame.to_excel`, no zip
+editing), and do not mix the two ways. If the tools are not in your tool list, jump to the last section,
+"Fallback". Analysing data in the sandbox (pandas, plots for the chat) is a different job and stays there: see
+"Analysing the data".
+
+## Creating a workbook
+
+Call `doc_create` with `format: "xlsx"` and a `spec` of `sheets`. The tool's description lists every property; the
+service checks the spec first and answers with what is allowed if something is off.
+
+- **Cells:** `rows` is the quick way to write a table of values from `start` (default A1); `cells` writes single
+  cells with `value`, `formula`, `date`, `number_format`, `bold`, `italic`, `fill`, `color`, `align`, `wrap`.
+  `header: true` styles the first row of `rows` as a header. A string starting with `=` is a formula.
+- **Layout:** `column_widths`, `freeze` (a cell such as `A2`), `autofilter`, `merge`, `tables` (a named Excel table
+  over a range whose first row is unique header text), `images` at a cell. Images are files in the conversation (an
+  attachment, or a picture saved under `/mnt/output/` in the sandbox), listed in the call's `images` and named the
+  same way in the sheet; this is also how a chart the tool cannot draw gets in: make the picture in the sandbox and
+  pass it as an image reference.
+- **Charts:** `charts` with `chart_type`, `data_range` (first column categories, first row series names), an
+  `anchor` cell, titles, and `render`: `"native"` (a real Excel chart that follows the data) or `"image"` (a PNG
+  drawn from the values; it needs literal values, not formulas).
+- **Look:** neutral built-in style; `theme` only for what the person asked (fonts from the tool's list, colours,
+  accent, table style). A workbook the person uploaded for its named styles is given as `theme.template`, and
+  cells then take `style: "<named style>"`. A template with `{{placeholders}}` or named ranges is filled with
+  `doc_create_from_template`.
+
+### Formulas: honest about recalculation
+
+The service writes formulas but never evaluates them; Excel computes them when the file opens.
+
+- Use formulas for derived values instead of hardcoding results, so the file stays correct.
+- Do NOT present a formula's result as if you computed it. If you need the number now, compute it from the data
+  in the sandbox (pandas) and either write the value or report it in the chat, saying which is which. Never claim
+  a cell "shows" a number you did not verify.
+- Avoid dynamic array functions (`FILTER`, `XLOOKUP`, `SORT`, `SEQUENCE`) and volatile ones (`INDIRECT`,
+  `OFFSET`) unless required; prefer cell references over magic numbers (`=H6*(1+$B$3)`); keep formulas simple, with
+  helper cells for complex logic; guard against `#REF!`, `#DIV/0!`, `#VALUE!`, `#N/A` and `#NAME?`.
+- Formulas that point outside the workbook are refused.
+
+### Formatting
+
+- Number and date formats that fit the data (dates as dates; percentages to one decimal; currencies with their
+  format). Distinct header rows; fills and merges sparingly. Column widths so nothing spills.
+- Group related calculations; make totals simple sums of the cells above them; leave whitespace between sections.
+- If no style guidance is given: blue for inputs, black for formulas, green for links or imports, grey for
+  constants, orange for review, light red for errors.
+
+## Reading and editing a workbook
+
+- `doc_outline` shows sheets, used ranges, tables, charts and images; `doc_read` reads a range with values and
+  formulas. Look before you edit.
+- `doc_edit` applies typed operations, all or none: `set_cells` (values, formulas, dates, style copied from a cell),
+  `clear_cells`, `add_sheet`, `insert_image`. Other sheets, charts and extensions stay untouched. Inserting or
+  deleting rows and adding charts to an existing workbook are not available: say so rather than improvising.
+- An edit is saved as a new version under the same name; the original stays. Preserve existing formatting; give
+  new cells a matching style (`style_from`). New formulas have no computed value until the file is opened in Excel.
+
+## Analysing the data
+
+- Read the data first and print its shape: header, row count, one sample row.
+  Never invent rows — work with exactly what was given.
+- One focused code block per step, verifying each step's output before the
+  next. Report intermediate shapes so the person can follow.
+- Cite sources inside the workbook using plain-text URLs, and add a source
+  column when each row of tabular data is a separate item.
+- If the answer should be a spreadsheet, put the values you computed into `doc_create` as cell values (or
+  formulas); do not write the file from Python.
+
+## Reporting
+
+The result carries an outline of what was written (or the diff of an edit) and a verification report. Say in one
+line what you checked and what you could not: the computed formula values and the exact visual layout. Describe
+only files the tools actually saved.
+
+## Fallback: only when the doc_* tools are not available
+
+**Read this section only if `doc_create` is NOT in your tool list.** If it is, stop reading here: everything below
+is the older in-sandbox method for deployments without the document service, and it must not be mixed with the
+tools. These instructions write Python inside the browser sandbox; the helper scripts are bundled with this skill.
+
+### Setup
 
 Install before importing (openpyxl and pandas both ship with this runtime's
 package set):
@@ -20,7 +100,7 @@ import openpyxl
 import pandas as pd
 ```
 
-## Choosing the tool
+### Choosing the tool
 
 - **openpyxl** for `.xlsx` structure: creating and editing workbooks, cell
   formatting, formulas, and native charts (`openpyxl.chart`).
@@ -29,7 +109,7 @@ import pandas as pd
   `to_csv` when the deliverable is the data, and with openpyxl when the
   deliverable is a formatted workbook.
 
-## Formulas: honest about recalculation
+### Formulas: honest about recalculation
 
 **openpyxl does not evaluate formulas.** A cell written as `=SUM(B2:B10)` is
 stored as that formula string; its cached value is absent until the file is
@@ -57,15 +137,7 @@ Formula requirements:
   quote.
 - Guard against `#REF!`, `#DIV/0!`, `#VALUE!`, `#N/A`, and `#NAME?` errors.
 
-## Editing an existing workbook
-
-**First choice: the document tools.** If `doc_outline`, `doc_read` and `doc_edit` are in your tool list, edit a
-supplied workbook with them and write no code: `doc_outline` for the structure and ids, `doc_read` for exact
-content, then `doc_edit` with typed operations (set cells and formulas, clear cells, add a sheet, insert an image; other sheets, charts and extensions are left untouched). The edit is saved as a new version of the file
-under the same name, the original is kept, and the result gives you the diff and a verification report to
-summarise for the person. Edit again by the same name to build on your last version. If the tools are not in
-your list, the service is not set up on this deployment: use the helpers below, which do the same work inside
-the sandbox. (New files are still made as described elsewhere in this skill.)
+### Editing an existing workbook
 
 A workbook the person attached is at `/mnt/data/<its filename>` in the
 sandbox; one produced earlier in the conversation is in the working
@@ -129,7 +201,7 @@ Preserve existing formatting and style exactly; match styles for newly filled
 cells that were previously blank. Never overwrite established formatting
 unless the person explicitly asks for a redesign.
 
-## Formatting a new workbook
+### Formatting a new workbook
 
 - Use appropriate number and date formats; dates render as dates, not plain
   numbers.
@@ -142,7 +214,7 @@ unless the person explicitly asks for a redesign.
 - Group related calculations and make totals simple sums of the cells above
   them. Add whitespace to separate sections.
 
-## Colour conventions (if no style guidance is given)
+### Colour conventions (if no style guidance is given)
 
 - Blue: user input
 - Black: formulas and derived values
@@ -153,7 +225,7 @@ unless the person explicitly asks for a redesign.
 - Purple: control or logic
 - Teal: visualization anchors and KPI highlights
 
-## Charts
+### Charts
 
 Use openpyxl's native charts so the chart lives in the workbook:
 `openpyxl.chart.BarChart`, `LineChart`, `PieChart`, `ScatterChart` — add data
@@ -162,16 +234,7 @@ sheet with `ws.add_chart(chart, "H2")`. For exploratory plots of the data
 itself (not embedded in the workbook), a matplotlib figure shown in the chat
 is often the faster answer.
 
-## Analysis
-
-- Read the data first and print its shape: header, row count, one sample row.
-  Never invent rows — work with exactly what was given.
-- One focused code block per step, verifying each step's output before the
-  next. Report intermediate shapes so the person can follow.
-- Cite sources inside the workbook using plain-text URLs, and add a source
-  column when each row of tabular data is a separate item.
-
-## Checking before delivery
+### Checking before delivery
 
 For a new workbook, re-open the saved file with openpyxl and verify: sheet names, the dimensions
 you intended, a sample of cell values and formulas as written, number formats
@@ -179,7 +242,7 @@ on key cells, and that charts exist where you added them. Say in one line
 what you checked and what you could not (the computed formula values, and the
 exact visual layout).
 
-## Rules
+### Rules
 
 - The workbook is the deliverable: the file must exist when you finish —
   run the code yourself or write one complete runnable block; a script the

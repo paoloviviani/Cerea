@@ -15,6 +15,7 @@ from .images import inspect_image
 from .images_ref import ImageSet, Img
 from .pkg import Pkg
 from .schemas import validate_edit, validate_read
+from .spec import CREATE_FORMATS, create_schemas
 from .verify import verify
 
 ENGINES: dict[str, ModuleType] = {"docx": word, "xlsx": excel, "pptx": powerpoint}
@@ -171,6 +172,9 @@ def capabilities() -> dict[str, Any]:
         "engine": ENGINE,
         "formats": formats,
         "image_types": ["png", "jpeg", "gif"],
-        "create": False,
+        "create": True,
+        "create_from_template": True,
+        "create_formats": list(CREATE_FORMATS),
+        "create_schemas": create_schemas(),
         "convert": False,
     }

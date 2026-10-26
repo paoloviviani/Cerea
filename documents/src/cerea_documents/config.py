@@ -43,6 +43,12 @@ class Limits:
     worker_cpu_seconds: int = 20  # RLIMIT_CPU of the worker
     worker_wall_seconds: int = 30  # wall clock, then killed
     max_concurrency: int = 4  # simultaneous worker processes
+    max_spec_depth: int = 24  # nesting of the JSON spec (lists inside lists, ...)
+    max_blocks: int = 3000  # blocks, slides or sheet entries in one spec, nested items included
+    max_slides: int = 200
+    max_table_cells: int = 20_000  # all tables of one spec
+    max_sheet_cells: int = 100_000  # all cells of one workbook spec
+    max_chart_points: int = 5000  # values of one chart
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Limits:
@@ -65,6 +71,12 @@ class Limits:
             worker_cpu_seconds=_int(e, p + "WORKER_CPU_SECONDS", d.worker_cpu_seconds),
             worker_wall_seconds=_int(e, p + "WORKER_WALL_SECONDS", d.worker_wall_seconds),
             max_concurrency=_int(e, p + "MAX_CONCURRENCY", d.max_concurrency),
+            max_spec_depth=_int(e, p + "MAX_SPEC_DEPTH", d.max_spec_depth),
+            max_blocks=_int(e, p + "MAX_BLOCKS", d.max_blocks),
+            max_slides=_int(e, p + "MAX_SLIDES", d.max_slides),
+            max_table_cells=_int(e, p + "MAX_TABLE_CELLS", d.max_table_cells),
+            max_sheet_cells=_int(e, p + "MAX_SHEET_CELLS", d.max_sheet_cells),
+            max_chart_points=_int(e, p + "MAX_CHART_POINTS", d.max_chart_points),
         )
 
     def to_dict(self) -> dict[str, int]:

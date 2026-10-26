@@ -15,6 +15,9 @@ dependencies = [
     "python-docx>=1.1",
     "python-pptx>=1.0",
     "openpyxl>=3.1",
+    "matplotlib>=3.9",
+    "reportlab>=4.2",
+    "pypdf>=5",
 ]
 
 [dependency-groups]
@@ -56,8 +59,15 @@ python_version = "3.13"
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["pptx", "pptx.*"]
+module = ["pptx", "pptx.*", "reportlab", "reportlab.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# the builders drive python-docx, python-pptx and reportlab, whose own types are missing or partial
+module = ["cerea_documents.make_docx", "cerea_documents.make_pptx", "cerea_documents.make_pdf", "cerea_documents.charts"]
+disallow_untyped_calls = false
+disallow_subclassing_any = false
+disable_error_code = ["attr-defined", "arg-type", "union-attr", "unused-ignore", "no-any-return"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -66,6 +76,7 @@ addopts = "-q -W ignore::UserWarning"
 [[tool.mypy.overrides]]
 # test code drives untyped third-party builders (python-docx, python-pptx); keep strictness elsewhere
 module = ["tests.*"]
+disable_error_code = ["union-attr", "index", "attr-defined", "dict-item", "arg-type"]
 disallow_untyped_calls = false
 warn_return_any = false
 warn_unused_ignores = false

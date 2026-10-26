@@ -22,6 +22,9 @@ export const MAX_RESULT_BYTES = 64 * 1024 * 1024;
 
 export const DOCUMENT_FORMATS = ["docx", "xlsx", "pptx"] as const;
 export type DocumentFormat = (typeof DOCUMENT_FORMATS)[number];
+/** What `doc_create` makes: the editable formats and PDF (which has no edit operations). */
+export const CREATE_FORMATS = ["docx", "xlsx", "pptx", "pdf"] as const;
+export type CreateFormat = (typeof CREATE_FORMATS)[number];
 
 export interface FormatCapabilities {
 	outline: boolean;
@@ -46,9 +49,24 @@ export type JsonSchema = {
 	[key: string]: unknown;
 };
 
+/** The creation schemas of one format, as the service publishes them (the single source of the tool text). */
+export interface CreateFormatSchemas {
+	/** The document spec's top level: properties such as title, theme, blocks, sheets or slides. */
+	document: JsonSchema;
+	/** Block types by name (Word, PDF and the bodies of slides). */
+	blocks: Record<string, JsonSchema>;
+	sheet?: JsonSchema;
+	slide?: JsonSchema;
+}
+
 export interface DocumentCapabilities {
 	engine?: string;
 	formats: Partial<Record<DocumentFormat, FormatCapabilities>>;
+	/** The service can create files from a spec (`/v1/create`). */
+	create?: boolean;
+	create_from_template?: boolean;
+	create_formats?: CreateFormat[];
+	create_schemas?: Partial<Record<CreateFormat, CreateFormatSchemas>>;
 }
 
 export type DocumentsFailure =
@@ -121,6 +139,17 @@ function parseCapabilities(raw: unknown): DocumentCapabilities | null {
 	}
 	const engine = (raw as { engine?: unknown }).engine;
 	if (typeof engine === "string") out.engine = engine;
+	const r = raw as Record<string, unknown>;
+	out.create = r.create === true;
+	out.create_from_template = r.create_from_template === true;
+	if (Array.isArray(r.create_formats)) {
+		out.create_formats = r.create_formats.filter((f): f is CreateFormat =>
+			(CREATE_FORMATS as readonly unknown[]).includes(f)
+		);
+	}
+	if (r.create_schemas && typeof r.create_schemas === "object") {
+		out.create_schemas = r.create_schemas as DocumentCapabilities["create_schemas"];
+	}
 	return out;
 }
 
@@ -166,7 +195,8 @@ interface ServiceError {
 	details?: Record<string, unknown>;
 }
 
-async function failure(response: Response): Promise<DocumentsError> {
+async function failure(response: Response, creating = false): Promise<DocumentsError> {
+	const untouched = creating ? "No file was made." : "Nothing was changed.";
 	let error: ServiceError = {};
 	const text = await response.text().catch(() => "");
 	try {
@@ -201,13 +231,15 @@ async function failure(response: Response): Promise<DocumentsError> {
 		case 422:
 			return new DocumentsError(
 				"rejected",
-				`${said || "The document service refused the request."}${hint} Nothing was changed.`
+				`${said || "The document service refused the request."}${hint} ${untouched}`
 			);
 		case 504:
 			return new DocumentsError(
 				"timeout",
-				"The document service took too long and stopped the work, so nothing was changed. " +
-					"Try fewer operations at once, or a smaller file."
+				`The document service took too long and stopped the work. ${untouched} ` +
+					(creating
+						? "Try a smaller document, fewer charts or smaller images."
+						: "Try fewer operations at once, or a smaller file.")
 			);
 		default:
 			logger.warn({ status: response.status, code: error.code }, "documents_call_failed");
@@ -223,6 +255,7 @@ async function call(
 	form: FormData,
 	options: { signal?: AbortSignal; accept?: string }
 ): Promise<Response> {
+	const creating = route.startsWith("/v1/create");
 	if (!isDocumentsConfigured()) {
 		throw new DocumentsError("unavailable", "Document tools are not available on this deployment.");
 	}
@@ -239,15 +272,18 @@ async function call(
 		if (deadline.aborted || (err instanceof Error && err.name === "TimeoutError")) {
 			throw new DocumentsError(
 				"timeout",
-				"The document service did not answer in time, so nothing was changed. " +
-					"Try fewer operations at once, or a smaller file."
+				creating
+					? "The document service did not answer in time, so no file was made. " +
+							"Try a smaller document, fewer charts or smaller images."
+					: "The document service did not answer in time, so nothing was changed. " +
+							"Try fewer operations at once, or a smaller file."
 			);
 		}
 		if (options.signal?.aborted) throw new DocumentsError("timeout", "The call was cancelled.");
 		logger.warn({ err, route }, "documents_unreachable");
 		throw new DocumentsError("unavailable", "The document service is not reachable right now.");
 	}
-	if (!response.ok) throw await failure(response);
+	if (!response.ok) throw await failure(response, creating);
 	return response;
 }
 
@@ -275,6 +311,28 @@ export async function readDocument(
 	return response.json();
 }
 
+/** The file part of a JSON answer, with the size caps applied. */
+async function readFile(
+	response: Response,
+	what: string
+): Promise<{ json: Record<string, unknown>; bytes: Buffer }> {
+	const declared = Number(response.headers.get("content-length") ?? "0");
+	if (declared > MAX_RESULT_BYTES * 1.4) {
+		await response.body?.cancel().catch(() => undefined);
+		throw new DocumentsError("too_large", `The ${what} is too large to keep.`);
+	}
+	const json = (await response.json()) as Record<string, unknown>;
+	const base64 = json.file_base64;
+	if (typeof base64 !== "string") {
+		throw new DocumentsError("failed", "The document service returned no file.");
+	}
+	const bytes = Buffer.from(base64, "base64");
+	if (bytes.byteLength > MAX_RESULT_BYTES) {
+		throw new DocumentsError("too_large", `The ${what} is too large to keep.`);
+	}
+	return { json, bytes };
+}
+
 export interface EditResult {
 	format: string;
 	engine?: string;
@@ -298,20 +356,7 @@ export async function editDocument(
 		form.append("image", new Blob([new Uint8Array(image.bytes)]), image.name);
 	}
 	const response = await call("/v1/edit", form, { ...options, accept: "application/json" });
-	const declared = Number(response.headers.get("content-length") ?? "0");
-	if (declared > MAX_RESULT_BYTES * 1.4) {
-		await response.body?.cancel().catch(() => undefined);
-		throw new DocumentsError("too_large", "The edited document is too large to keep.");
-	}
-	const json = (await response.json()) as Record<string, unknown>;
-	const base64 = json.file_base64;
-	if (typeof base64 !== "string") {
-		throw new DocumentsError("failed", "The document service returned no file.");
-	}
-	const bytes = Buffer.from(base64, "base64");
-	if (bytes.byteLength > MAX_RESULT_BYTES) {
-		throw new DocumentsError("too_large", "The edited document is too large to keep.");
-	}
+	const { json, bytes } = await readFile(response, "edited document");
 	return {
 		format: String(json.format ?? ""),
 		engine: typeof json.engine === "string" ? json.engine : undefined,
@@ -323,4 +368,95 @@ export async function editDocument(
 		content_type: String(json.content_type ?? "application/octet-stream"),
 		bytes,
 	};
+}
+
+/** What a creation call returns about the file it made (the bytes are separate). */
+export interface CreateResult {
+	format: string;
+	engine?: string;
+	file_name: string;
+	content_type: string;
+	/** A short outline of what was written, with ids the edit tools take. */
+	outline: unknown;
+	verify: Record<string, unknown> & { ok?: boolean };
+	/** One entry per chart: the type, what was asked and what was written (native or image). */
+	charts: Array<Record<string, unknown>>;
+	notes: string[];
+	styled_from?: string;
+	/** `create_from_template` only. */
+	diff?: string[];
+	filled?: string[];
+	unfilled?: string[];
+	passed_through?: unknown[];
+	bytes: Buffer;
+}
+
+function createResult(
+	json: Record<string, unknown>,
+	bytes: Buffer,
+	fallbackName: string
+): CreateResult {
+	const strings = (value: unknown): string[] | undefined =>
+		Array.isArray(value) ? value.map(String) : undefined;
+	return {
+		format: String(json.format ?? ""),
+		engine: typeof json.engine === "string" ? json.engine : undefined,
+		file_name: String(json.file_name ?? fallbackName),
+		content_type: String(json.content_type ?? "application/octet-stream"),
+		outline: json.outline,
+		verify: (json.verify as CreateResult["verify"]) ?? {},
+		charts: Array.isArray(json.charts) ? (json.charts as Array<Record<string, unknown>>) : [],
+		notes: strings(json.notes) ?? [],
+		styled_from: typeof json.styled_from === "string" ? json.styled_from : undefined,
+		diff: strings(json.diff),
+		filled: strings(json.filled),
+		unfilled: strings(json.unfilled),
+		passed_through: Array.isArray(json.passed_through) ? json.passed_through : undefined,
+		bytes,
+	};
+}
+
+function withImages(form: FormData, images: Array<{ name: string; bytes: Buffer }>): FormData {
+	for (const image of images) {
+		form.append("image", new Blob([new Uint8Array(image.bytes)]), image.name);
+	}
+	return form;
+}
+
+/**
+ * `POST /v1/create`: a new file from a document spec. `template` is the file
+ * `spec.theme.template` names (styles are taken from it), sent as the `file`
+ * part; it is optional.
+ */
+export async function createDocument(
+	request: { format: CreateFormat; spec: unknown; file_name?: string },
+	images: Array<{ name: string; bytes: Buffer }> = [],
+	template?: { name: string; bytes: Buffer },
+	options: { signal?: AbortSignal } = {}
+): Promise<CreateResult> {
+	const form = new FormData();
+	if (template) form.append("file", new Blob([new Uint8Array(template.bytes)]), template.name);
+	form.append("body", JSON.stringify(request));
+	const response = await call("/v1/create", withImages(form, images), {
+		...options,
+		accept: "application/json",
+	});
+	const { json, bytes } = await readFile(response, "document");
+	return createResult(json, bytes, request.file_name ?? `document.${request.format}`);
+}
+
+/** `POST /v1/create_from_template`: fill the placeholders of a template the person uploaded. */
+export async function createFromTemplate(
+	template: { name: string; bytes: Buffer },
+	request: { values: Record<string, unknown>; file_name?: string },
+	images: Array<{ name: string; bytes: Buffer }> = [],
+	options: { signal?: AbortSignal } = {}
+): Promise<CreateResult> {
+	const response = await call(
+		"/v1/create_from_template",
+		withImages(documentForm(template, request), images),
+		{ ...options, accept: "application/json" }
+	);
+	const { json, bytes } = await readFile(response, "filled document");
+	return createResult(json, bytes, template.name);
 }
