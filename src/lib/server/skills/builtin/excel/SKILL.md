@@ -59,15 +59,67 @@ Formula requirements:
 
 ## Editing an existing workbook
 
-- A workbook the person attached is at `/mnt/data/<its filename>` in the
-  sandbox; one produced earlier in the conversation is in the working
-  directory.
+A workbook the person attached is at `/mnt/data/<its filename>` in the
+sandbox; one produced earlier in the conversation is in the working
+directory.
 
-- Inspect first: sheet names, used range, existing formulas, number formats.
-  Report briefly what you found.
-- Preserve existing formatting and style exactly; match styles for any newly
-  filled cells that were previously blank. Never overwrite established
-  formatting unless the person explicitly asks for a redesign.
+**Decision rule.** A new workbook: openpyxl. A workbook the person supplied
+that you must change: use the bundled `xlsx_patch` helper. **Never**
+`openpyxl.load_workbook(...).save(...)` on a supplied file: openpyxl rebuilds
+the package and silently drops what it does not model (conditional-formatting
+and data-validation extensions, slicers, custom XML) from every sheet,
+including sheets you never touched.
+
+1. Inspect first (read-only): sheet names, used range, existing formulas,
+   number formats. Report briefly what you found.
+2. Load `scripts/xlsx_patch.py` with `load_skill_file`, write it into the
+   working directory, and import it (same flow as the `pdf-tools` skill).
+3. `patch_cells` into a NEW file in the working directory (the output folder
+   the sandbox tells you to save deliverables in); never overwrite the
+   original. One call per sheet.
+4. `verify`, then reopen read-only and print the cells you set.
+
+```python
+import datetime, xlsx_patch as xp   # xlsx_patch.py written out first
+
+rep = xp.patch_cells("/mnt/data/budget.xlsx", "budget-updated.xlsx", "Q3", {
+    "B3": "Approved",                          # text
+    "C3": 12.5,                                # number (bool works too)
+    "D3": datetime.date(2026, 1, 31),          # date; the cell needs a date format
+    "E3": xp.Formula("=C3*2"),                 # formula, no cached value
+    "F3": None,                                # clear the value, keep the style
+    "A40": xp.Cell("Total", style_from="A39"), # new cell styled like another
+})
+print(rep["cells_set"], rep["changed_parts"])
+print(xp.verify("/mnt/data/budget.xlsx", "budget-updated.xlsx", "Q3"))
+```
+
+`xp.sheet_names(path)` lists `(name, part, state)`. Cells keep their existing
+style unless you pass `Cell(..., style_from="A1")` or `style=<int>`. Strings
+are stored inline (Excel converts them on its next save).
+
+Errors, all `xlsx_patch.PatchError` with a message saying what to do:
+
+- a cell inside a merged range other than its top-left: write to the top-left;
+- the master cell of a shared or array formula: it would orphan the cells that
+  depend on it, so write elsewhere or tell the person;
+- unknown sheet (the message lists the real names), a chart sheet, a strict
+  OOXML workbook, a sheet over 50 MB of XML, or an unsupported value type;
+- `verify` failing: a part other than the target sheet changed, the zip is
+  corrupt, or openpyxl cannot reopen the result. Do not deliver that file.
+
+If a refusal blocks the edit, say so and ask; never hand-edit the zip (and
+never build one by reusing `ZipInfo` objects from another archive).
+
+Not covered: inserting or deleting rows or columns, adding sheets or styles,
+extending a table or validation range, comments, rich text. Say so rather than
+reaching for openpyxl load+save. After delivery, tell the person what changed,
+that new formulas have no computed value until the file is opened in Excel,
+and that the check was structural (not a rendered view).
+
+Preserve existing formatting and style exactly; match styles for newly filled
+cells that were previously blank. Never overwrite established formatting
+unless the person explicitly asks for a redesign.
 
 ## Formatting a new workbook
 
@@ -113,7 +165,7 @@ is often the faster answer.
 
 ## Checking before delivery
 
-Re-open the saved file with openpyxl and verify: sheet names, the dimensions
+For a new workbook, re-open the saved file with openpyxl and verify: sheet names, the dimensions
 you intended, a sample of cell values and formulas as written, number formats
 on key cells, and that charts exist where you added them. Say in one line
 what you checked and what you could not (the computed formula values, and the

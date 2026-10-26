@@ -70,6 +70,24 @@ reading it back, not by looking at a picture:
 - Citations and references must be human-readable; never leave tool tokens or
   placeholder strings.
 
+## Verify after editing
+
+After saving an edited file, confirm you changed only what you meant to:
+compare it with the original part by part (nothing else may differ), then
+reopen it.
+
+```python
+import zipfile
+a, b = zipfile.ZipFile("original.docx"), zipfile.ZipFile("edited.docx")
+changed = [n for n in a.namelist() if n in b.namelist() and a.read(n) != b.read(n)]
+print("parts changed:", changed)
+print("parts lost:", sorted(set(a.namelist()) - set(b.namelist())))
+```
+
+Expect only the parts you edited (and, for python-docx, regenerated package
+plumbing such as `[Content_Types].xml`). Anything else changed or lost means
+stop and say so.
+
 ## Rules
 
 - The document is the deliverable: the file must exist when you finish —

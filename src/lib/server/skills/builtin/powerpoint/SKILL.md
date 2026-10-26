@@ -156,6 +156,24 @@ belong to regeneration — **never** edit those by hand.
 - Edit mode for layout changes, added/removed slides, or >30% churn — regenerate.
 - Claiming success without a clean validation pass.
 
+## Verify after editing
+
+After saving an edited file, confirm you changed only what you meant to:
+compare it with the original part by part (nothing else may differ), then
+reopen it.
+
+```python
+import zipfile
+a, b = zipfile.ZipFile("original.pptx"), zipfile.ZipFile("edited.pptx")
+changed = [n for n in a.namelist() if n in b.namelist() and a.read(n) != b.read(n)]
+print("parts changed:", changed)
+print("parts lost:", sorted(set(a.namelist()) - set(b.namelist())))
+```
+
+Expect only the parts you edited (and, for python-pptx, regenerated package
+plumbing such as `[Content_Types].xml`). Anything else changed or lost means
+stop and say so.
+
 ## Rules
 
 - The deck is the deliverable: the file must exist when you finish —

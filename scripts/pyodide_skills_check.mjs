@@ -199,6 +199,21 @@ assert len(sheet._charts) == 1
 	return out;
 });
 
+await check("excel-patch", async () => {
+	await install("openpyxl");
+	await importScript(`${builtinDir}/excel/scripts/xlsx_patch.py`, "xlsx_patch.py", "xlsx_patch");
+	// The fixture generator and assertions live in a plain Python file so they
+	// also run under CPython (see its __main__).
+	py.FS.writeFile(
+		"/skills/pyodide_xlsx_patch_check.py",
+		readFileSync(path.join(repoRoot, "scripts/pyodide_xlsx_patch_check.py"), "utf8")
+	);
+	return run(`
+import xlsx_patch, pyodide_xlsx_patch_check as t
+t.run_checks(xlsx_patch, "/tmp")
+`);
+});
+
 await check("pdf", async () => {
 	await install("reportlab", "pypdf");
 	const out = await run(`
