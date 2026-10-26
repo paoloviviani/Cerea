@@ -469,6 +469,7 @@ services:
       CHAT_OCR_BASE_URL: ${CHAT_OCR_BASE_URL:-}
       CHAT_OCR_API_KEY: ${CHAT_OCR_API_KEY:-}
       CHAT_PDF_IMAGE_PAGES: ${CHAT_PDF_IMAGE_PAGES:-20}
+      CHAT_OCR_TIMEOUT_MS: ${CHAT_OCR_TIMEOUT_MS:-180000}
       WEB_SEARCH_MODEL: ${WEB_SEARCH_MODEL:-}
       # The agent-machine component: galopin, the machine agent, dials
       # wss://<origin>/chat/api/v2/code/machine — the /chat route the proxy

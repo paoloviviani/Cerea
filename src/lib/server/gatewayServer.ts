@@ -26,6 +26,25 @@ export class GatewayCallFailed extends Error {
 	}
 }
 
+/** The gateway did not answer within the deadline the caller set. A 504 so that
+ * everything keyed on `GatewayCallFailed.status` already treats it as the
+ * server-side failure it is; `elapsedMs` is for the log. */
+export class GatewayTimeout extends GatewayCallFailed {
+	constructor(
+		readonly elapsedMs: number,
+		readonly timeoutMs: number
+	) {
+		super(504, `The gateway did not answer within ${Math.round(timeoutMs / 1000)}s.`);
+		this.name = "GatewayTimeout";
+	}
+}
+
+export interface CallOptions {
+	/** Give up after this long (the whole exchange, body included). Unset keeps
+	 * the runtime's own default, which is what short control calls want. */
+	timeoutMs?: number;
+}
+
 function base(): string {
 	if (!config.OPENAI_BASE_URL) {
 		throw new GatewayCallFailed(503, "The service behind this is not set up.");
@@ -36,16 +55,27 @@ function base(): string {
 async function call<T>(
 	token: string,
 	path: string,
-	init: { method: "GET" | "POST" | "DELETE"; body?: unknown }
+	init: { method: "GET" | "POST" | "DELETE"; body?: unknown },
+	options: CallOptions = {}
 ): Promise<T> {
-	const response = await fetch(`${base()}/${path}`, {
-		method: init.method,
-		headers: {
-			Authorization: `Bearer ${token}`,
-			...(init.body === undefined ? {} : { "content-type": "application/json" }),
-		},
-		...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-	});
+	const started = Date.now();
+	let response: Response;
+	try {
+		response = await fetch(`${base()}/${path}`, {
+			method: init.method,
+			headers: {
+				Authorization: `Bearer ${token}`,
+				...(init.body === undefined ? {} : { "content-type": "application/json" }),
+			},
+			...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+			...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
+		});
+	} catch (err) {
+		if (options.timeoutMs && err instanceof Error && err.name === "TimeoutError") {
+			throw new GatewayTimeout(Date.now() - started, options.timeoutMs);
+		}
+		throw err;
+	}
 	if (!response.ok) {
 		// The gateway's own message, which is written for whoever caused it.
 		let detail = `The gateway answered ${response.status}.`;
@@ -57,13 +87,22 @@ async function call<T>(
 		}
 		throw new GatewayCallFailed(response.status, detail);
 	}
-	return (await response.json()) as T;
+	try {
+		return (await response.json()) as T;
+	} catch (err) {
+		// The deadline covers the body too: headers can arrive early and the
+		// document's text still be streaming when it passes.
+		if (options.timeoutMs && err instanceof Error && err.name === "TimeoutError") {
+			throw new GatewayTimeout(Date.now() - started, options.timeoutMs);
+		}
+		throw err;
+	}
 }
 
 export const gateway = {
 	get: <T>(token: string, path: string) => call<T>(token, path, { method: "GET" }),
-	post: <T>(token: string, path: string, body?: unknown) =>
-		call<T>(token, path, { method: "POST", body: body ?? {} }),
+	post: <T>(token: string, path: string, body?: unknown, options?: CallOptions) =>
+		call<T>(token, path, { method: "POST", body: body ?? {} }, options),
 	del: <T>(token: string, path: string) => call<T>(token, path, { method: "DELETE" }),
 };
 
