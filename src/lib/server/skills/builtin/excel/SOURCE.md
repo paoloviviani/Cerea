@@ -18,3 +18,7 @@
   as written. The four openpyxl example scripts under
   `references/examples/openpyxl/` are upstream's, moved one level (Cerea
   bundled files must live under `scripts/`, `references/` or `assets/`).
+- Added `scripts/xlsx_patch.py`: original Cerea work (Apache-2.0, not from
+  upstream). It edits cells of an existing workbook at the XML level so parts
+  openpyxl would drop (x14 extensions and the like) survive. The excel
+  `SKILL.md` "Editing an existing workbook" section is rewritten around it.
