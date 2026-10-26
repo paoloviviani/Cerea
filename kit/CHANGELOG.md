@@ -5,6 +5,30 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.28.0 — 2026-10-26
+
+Pins: Cerea `0.28.0`, **Pystino `0.18.0`**, Authelia 4.39.22 (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. The gateway runs one database
+migration on start (0072, additive).
+
+- **Web searches can be priced per request.** On the console's Web search page,
+  set a price per search backend (in your billing currency or another); 0 means
+  "billed out of band". Searches show their cost in the usage tables and reports,
+  and count towards cost limits. Every backend starts **unpriced** after the
+  update, so nothing is billed until you set a price; reports note unpriced
+  searches. Past searches are not repriced.
+- **A clearer redaction rule page.** Name first, then who it applies to, what to
+  hide (only the kinds of data the rule changes, in a compact table), your own
+  patterns and the never-hide list; a live summary of what the rule does and a
+  test box that shows what a provider would receive, before you save.
+- **A project's chat memory is no longer offered as a knowledge base.** It can't
+  be attached to a project or a chat (which allowed a project to include its own
+  memory); the Knowledge page lists it apart, under "Project chat memory", and
+  admins can still reindex it.
+- The console's Providers page drops the read-only catalogue list; the provider
+  catalogue itself is unchanged.
+
 ## v0.27.0 — 2026-10-25
 
 Pins: Cerea `0.27.0`, Pystino `0.17.2` (unchanged), Authelia 4.39.22 (unchanged).
