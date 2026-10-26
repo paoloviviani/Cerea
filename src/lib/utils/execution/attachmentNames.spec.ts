@@ -53,6 +53,22 @@ describe("attachment mount names", () => {
 		]);
 	});
 
+	it("keeps a re-attached identical file under its name and suffixes a different one", () => {
+		const names = planAttachments([
+			{ type: "hash", value: "h1", name: "sales.xlsx" },
+			{ type: "hash", value: "h1", name: "sales.xlsx" },
+			{ type: "hash", value: "h2", name: "sales.xlsx" },
+		]).map((p) => p.name);
+		expect(names).toEqual(["sales.xlsx", "sales (2).xlsx"]);
+		// Stable: the same conversation plans the same names every time (a restart re-mounts by them).
+		const again = planAttachments([
+			{ type: "hash", value: "h1", name: "sales.xlsx" },
+			{ type: "hash", value: "h1", name: "sales.xlsx" },
+			{ type: "hash", value: "h2", name: "sales.xlsx" },
+		]).map((p) => p.name);
+		expect(again).toEqual(names);
+	});
+
 	it("mounts the same stored file once", () => {
 		const plan = planAttachments([hash("h1", "a.csv"), hash("h1", "a.csv")]);
 		expect(plan).toHaveLength(1);

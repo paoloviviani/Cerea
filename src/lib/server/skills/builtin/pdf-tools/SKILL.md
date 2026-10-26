@@ -67,6 +67,7 @@ a fill request doesn't match them exactly — do not guess field names.
   the above.
 - Never alter content the person didn't ask to change; work page-structurally
   (merge, split, rotate, reorder) or on the named fields only.
-- Files are written to the working directory under clear names; only describe
-  files you actually produced. Verify by re-opening the output with pypdf and
+- Deliverables are saved to `/mnt/output/<clear name>`; only files under
+  `/mnt/output/` are offered as downloads, scratch files elsewhere are never
+  shown. Only describe files you actually produced. Verify by re-opening the output with pypdf and
   reporting page counts or extracted values.

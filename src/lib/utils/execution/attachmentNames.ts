@@ -75,7 +75,8 @@ function allocate(used: Set<string>, wanted: string): string {
  * already taken gets a ` (2)` before its extension. The extracted text sits
  * beside its file as `<name>.md`.
  *
- * The same stored file attached twice (same hash) is one mount. Pasted text
+ * The same file attached twice (same stored hash, or the same inline bytes)
+ * is one mount; a different file with a name already taken is suffixed. Pasted text
  * and page images of scanned PDFs (never top-level files) are not planned.
  */
 export function planAttachments(files: readonly AttachmentSource[]): PlannedAttachment[] {
@@ -84,10 +85,11 @@ export function planAttachments(files: readonly AttachmentSource[]): PlannedAtta
 	const plan: PlannedAttachment[] = [];
 	for (const file of files) {
 		if (file.mime === CLIPBOARD_MIME) continue;
-		if (file.type === "hash") {
-			if (seen.has(file.value)) continue;
-			seen.add(file.value);
-		}
+		// The same content attached again is one mount under its first name; a
+		// different file with the same name gets the next free " (n)" name below.
+		const identity = `${file.type}:${file.value}`;
+		if (seen.has(identity)) continue;
+		seen.add(identity);
 		const name = allocate(used, safeMountName(file.name) ?? "attachment");
 		let textName: string | undefined;
 		if (file.extracted) {

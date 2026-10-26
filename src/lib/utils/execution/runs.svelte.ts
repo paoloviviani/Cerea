@@ -25,6 +25,8 @@ export interface RunState {
 	outcome?: RunOutcome;
 	/** Sandbox-level failure (load failure, timeout, terminated) */
 	sandboxError?: string;
+	/** Set when the time limit stopped the run: the sandbox restarted, these /mnt/data files were put back. */
+	timeout?: { seconds: number; mountedFiles: string[] };
 	/**
 	 * Files the runtime held when this run settled — the run's outputs, for
 	 * download. Memory-only, never persisted here: the worker filesystem dies
@@ -60,6 +62,11 @@ export interface RunState {
 	}>;
 	startedAt: number;
 	finishedAt?: number;
+}
+
+/** The time-limit details an ExecutionError carries, when that is what `error` is. */
+function timeoutOf(error: unknown): RunState["timeout"] {
+	return error instanceof Error ? (error as { timeout?: RunState["timeout"] }).timeout : undefined;
 }
 
 class RunsStore {
@@ -152,6 +159,7 @@ class RunsStore {
 					...state,
 					status: "error",
 					sandboxError: error instanceof Error ? error.message : m["chat.errors.sandbox_failed"](),
+					...(timeoutOf(error) ? { timeout: timeoutOf(error) } : {}),
 					finishedAt: Date.now(),
 					// No files to wait for on a sandbox-level failure.
 					outputsCollected: true,

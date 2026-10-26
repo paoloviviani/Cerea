@@ -13,6 +13,11 @@ import { AttachmentMounter } from "./attachmentMounter";
  * moves to another conversation. Knowledge and artifact mounts are never
  * touched. Nothing is mounted until a run asks (`withAttachmentMounts`).
  *
+ * A sandbox restart (a run stopped by the time limit, a crash) needs nothing
+ * from here: the session keeps every mounted file and writes them all back
+ * into the new worker before its first request, under the same names, so the
+ * mounter's record of what is mounted stays true and the chips stay.
+ *
  * Only the owner's chat page registers a source. A shared view, a read-only
  * view and the /code panel never do, so they never mount anything, and files
  * are only ever fetched through the open conversation's own id.
@@ -29,7 +34,6 @@ class ConversationAttachments {
 	#queue: Promise<unknown> = Promise.resolve();
 	/** Mounts queued or running; a run started meanwhile waits for them. */
 	#pending = 0;
-	#watching = false;
 
 	/** The open chat conversation and its messages; `null` when there is none. */
 	setSource(source: { conversationId: string; messages: Array<{ files?: MessageFile[] }> } | null) {
@@ -72,16 +76,6 @@ class ConversationAttachments {
 		conversationId: string,
 		session: NonNullable<ReturnType<typeof getExecutionSession>>
 	): AttachmentMounter {
-		if (!this.#watching) {
-			this.#watching = true;
-			// A reset sandbox (a timed-out run terminates the worker) comes back
-			// empty: forget what was mounted so the next run mounts it again.
-			session.onStatus((status) => {
-				if (status !== "unloaded" || !this.#mounter) return;
-				this.#mounter = undefined;
-				getMountsStore()?.dropConversationFiles();
-			});
-		}
 		this.#mounter ??= new AttachmentMounter(conversationId, session, {
 			mounted: (file) => getMountsStore()?.recordConversationFile(file),
 			skipped: (note) => getMountsStore()?.recordSkipped(note),

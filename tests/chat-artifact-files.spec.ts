@@ -281,7 +281,7 @@ async function seedHelloWorldDocxConversation(
 	await db.collection("codeOutputs.chunks").deleteMany({});
 
 	const code =
-		'from docx import Document\nd = Document()\nd.add_paragraph("Hello world")\nd.save("hello_world.docx")';
+		'from docx import Document\nd = Document()\nd.add_paragraph("Hello world")\nd.save("/mnt/output/hello_world.docx")';
 	const answer = `Here's a small script that creates the file:\n\n\`\`\`python\n${code}\n\`\`\`\n`;
 	const conversationId = await seedConversation({
 		title: "Hello world docx",

@@ -20,7 +20,9 @@ test("a freshly produced file is an artifact card without a reload", async ({
 		content: [
 			"Here you go:\n\n```python\n" +
 				"from docx import Document\n" +
-				'd = Document()\nd.add_paragraph("Hello world")\nd.save("hello_world.docx")\n' +
+				'd = Document()\nd.add_paragraph("Hello world")\nd.save("_rt.docx")\n' +
+				'import os\nd.save("/tmp/_rt2.docx")\n' +
+				'd.save("/mnt/output/hello_world.docx")\n' +
 				"```\n",
 		],
 		chunkDelayMs: 10,
@@ -45,7 +47,10 @@ test("a freshly produced file is an artifact card without a reload", async ({
 	});
 	await expect(openButton).toBeVisible({ timeout: 30_000 });
 	await expect(assistantMessage.getByTestId("run-output")).toBeVisible();
+	// Scratch files (_rt.docx in the working directory, one in /tmp) are not
+	// offered: only the file saved to /mnt/output is a card.
 	await expect(assistantMessage.getByTestId("file-artifact-card")).toHaveCount(1);
+	await expect(assistantMessage.getByText("_rt.docx")).toHaveCount(0);
 	const live = await assistantMessage.getByTestId("file-artifact-card").innerText();
 	await page.screenshot({
 		path: process.env.FILECARD_SHOT ?? "/var/tmp/artifacts-tmp/live-card.png",

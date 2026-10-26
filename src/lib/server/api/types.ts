@@ -58,6 +58,12 @@ export interface FeatureFlags {
 	 */
 	pyodidePyPiInstallAllowed: boolean;
 	/**
+	 * Seconds one sandbox code run may take before the browser stops it and
+	 * restarts the sandbox (`CHAT_CODE_RUN_TIMEOUT_SECONDS`; default 60, hard
+	 * ceiling 300).
+	 */
+	codeRunTimeoutSeconds: number;
+	/**
 	 * Whether the deployment exposes the Usage & billing settings tab
 	 * (`CHAT_USAGE_ENABLED`). Off by default: a deployment without Pystino has
 	 * no gateway to read quotas or spend from, and this flag is what keeps it

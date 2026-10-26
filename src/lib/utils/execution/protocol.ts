@@ -62,12 +62,21 @@ export const MOUNT_ROOT = "/mnt/data";
 
 /**
  * The runtime's working directory: where executed code lands when it writes a
- * relative path, so where generated files (a .docx, a .png, a .csv) appear.
- * Files only flow host → worker today through `loadFiles`; this is the
- * directory the new `listFiles`/`readFile` pair reads back, which is what
- * makes a generated file downloadable instead of stranded in the sandbox.
+ * relative path. It is scratch space: nothing written here is offered to the
+ * person. Deliverables go to OUTPUT_ROOT.
  */
 export const EXECUTION_CWD = "/home/pyodide";
+
+/**
+ * The one folder whose files become download cards. Code that wants the
+ * person to receive a file writes it here (`/mnt/output/report.xlsx`); a
+ * scratch file anywhere else (the working directory, /tmp) is never offered.
+ * `listFiles` walks only this directory and `readFile` reads it back, which
+ * is what makes a generated file downloadable instead of stranded in the
+ * sandbox. The model is told this rule in the execute_code description, the
+ * execution prompt and the skills.
+ */
+export const OUTPUT_ROOT = "/mnt/output";
 
 /** How many files one listing returns at most; a runaway generator that emits
  * thousands of shards is a UI problem, not 200 honest outputs. */
@@ -81,8 +90,28 @@ export const MAX_LISTED_FILES = 200;
  */
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
-/** Hard wall-clock limit for one code run; the worker is terminated past it. */
-export const RUN_TIMEOUT_MS = 20_000;
+/** Default wall-clock limit for one code run; the worker is terminated past it. */
+export const RUN_TIMEOUT_MS = 60_000;
+
+/**
+ * Hard ceiling on the configurable run limit (`CHAT_CODE_RUN_TIMEOUT_SECONDS`):
+ * a runaway loop must still end, whatever an operator sets.
+ */
+export const MAX_RUN_TIMEOUT_MS = 300_000;
+
+/** Floor of the configurable run limit: below this nothing useful finishes. */
+export const MIN_RUN_TIMEOUT_MS = 5_000;
+
+/**
+ * The run limit in milliseconds for a configured number of seconds: the
+ * default when the value is absent or not a positive number, otherwise
+ * clamped between the floor and the hard ceiling.
+ */
+export function runTimeoutMsFromSeconds(seconds: unknown): number {
+	const n = typeof seconds === "string" ? Number(seconds.trim()) : seconds;
+	if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return RUN_TIMEOUT_MS;
+	return Math.min(MAX_RUN_TIMEOUT_MS, Math.max(MIN_RUN_TIMEOUT_MS, Math.round(n * 1000)));
+}
 
 /** Cold-start budget: wasm compile + stdlib zip + package bootstrap. */
 export const LOAD_TIMEOUT_MS = 90_000;
@@ -123,6 +152,13 @@ export interface RunOutcome {
 	stderr: string;
 	result?: string;
 	error?: string;
+	/**
+	 * Set when the run was stopped by the time limit: the sandbox was restarted
+	 * and its in-memory state is gone. `mountedFiles` are the /mnt/data paths
+	 * put back before the next run, so the model is never left to think its
+	 * attachments vanished.
+	 */
+	timeout?: { seconds: number; mountedFiles: string[] };
 }
 
 export type HostToWorker =

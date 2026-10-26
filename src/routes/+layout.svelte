@@ -14,6 +14,7 @@
 	import { setHapticsEnabled } from "$lib/utils/haptics";
 	import { initWithServers } from "$lib/stores/mcpServers";
 	import { getExecutionSession } from "$lib/utils/execution/runtime";
+	import { runTimeoutMsFromSeconds } from "$lib/utils/execution/protocol";
 
 	import Toast from "$lib/components/Toast.svelte";
 	import NotificationToasts from "$lib/components/NotificationToasts.svelte";
@@ -172,7 +173,8 @@
 	// effect immediately, without a page reload or a fresh sandbox session.
 	$effect(() => {
 		getExecutionSession()?.configure(
-			!!(data.pyodidePyPiInstallAllowed && $settings.pyodidePyPiInstallEnabled)
+			!!(data.pyodidePyPiInstallAllowed && $settings.pyodidePyPiInstallEnabled),
+			runTimeoutMsFromSeconds(data.codeRunTimeoutSeconds)
 		);
 	});
 
