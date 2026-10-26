@@ -5,17 +5,51 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.30.0 — 2026-10-26
 
-- **The OpenStreetMap example server works.** `tools/mcp/` now runs `osm-mcp`
-  0.3.2 (MIT) instead of `osm-mcp-server` 0.1.1. The old one failed in
-  practice: Overpass and Nominatim answered 406 because it sent no identifying
-  User-Agent, and its walking routes were car routes because the public OSRM
-  demo ignores the profile. The new one sends `OSM_USER_AGENT`, which you must
-  set to a contact you answer at, and uses the `routed-foot` / `routed-bike`
-  servers. The mcp-proxy image now includes Node 22 and npm. The service name
-  (`mcp-osm`) and the `.env` settings are unchanged: edit `OSM_USER_AGENT` in
-  your override, then `docker compose up -d --build mcp-osm`.
+Pins: Cerea `0.30.0` (chat and the new `cerea-documents` service), Pystino `0.18.1` (unchanged), Authelia 4.39.22 (unchanged).
+
+**To update, once:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+**`./configure`** (it keeps your answers and adds the document service's secret,
+`CHAT_DOCUMENTS_SECRET`), then `docker compose pull && docker compose up -d`.
+Without the `./configure` step the new `documents` container does not start and
+the document tools stay off; the chat itself is unaffected. No database migration.
+
+- **The assistant creates and edits Word, Excel, PowerPoint and PDF files on the
+  server, with dedicated tools instead of writing code.** A new service,
+  `cerea-documents` (released with Cerea, on by default with the chat, on an
+  internal network with no internet access, read-only and resource-limited),
+  does the work:
+  - **Creating:** reports, letters, workbooks, decks and PDFs from a structured
+    description: headings, lists, tables, images, page setup, headers and
+    footers, formulas, slides with layouts and notes. Styling follows what you
+    ask for (fonts, colours, accent); to use your own look, upload a template
+    in the chat and ask for it.
+  - **Charts:** native (editable in Word, Excel and PowerPoint) or as a picture;
+    PDFs get a picture.
+  - **Templates:** upload a Word, PowerPoint or Excel template with
+    `{{placeholders}}` and the assistant fills it.
+  - **Editing a file you supply** changes only what was asked (text, cells,
+    tables, slides, images); everything else stays exactly as it was, and Word
+    edits can be tracked changes. Each edit is saved as a new version, and the
+    assistant tells you what changed.
+  - Settings: `CHAT_DOCUMENTS_URL` (empty turns the tools off),
+    `DOCUMENTS_MEM_LIMIT`, `DOCUMENTS_CPUS`.
+- **The OpenStreetMap example server works.** If you run it from
+  `tools/mcp/`, edit your `compose.override.yaml` by hand: the `mcp-osm`
+  service now runs `osm-mcp` 0.3.2 instead of `osm-mcp-server` 0.1.1, which
+  failed (Overpass and Nominatim answered 406 because it sent no identifying
+  User-Agent, and its walking routes were car routes). In your override:
+  - `command:` → `[--port=8096, --host=0.0.0.0, --stateless, --pass-environment, --, npx, -y, osm-mcp@0.3.2]`
+  - `environment:` → add `NPM_CONFIG_CACHE: /cache/npm` and
+    `OSM_USER_AGENT: "cerea (+your contact address)"` (required by Nominatim's
+    usage policy; a value containing `example.org` is refused); the `UV_*`
+    entries can go.
+  - `healthcheck:` → `start_period: 120s`.
+
+  Then `docker compose up -d --build mcp-osm` (the proxy image now includes
+  Node 22). The service name, port, `MCP_SERVERS` and `MCP_INTERNAL_HOSTS` are
+  unchanged; other servers in the override keep working.
 
 ## v0.29.0 — 2026-10-26
 
