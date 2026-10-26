@@ -12,6 +12,7 @@ import importlib.machinery
 import importlib.util
 import re
 import shutil
+import sys
 import subprocess
 import tempfile
 import unittest
@@ -108,8 +109,14 @@ class ChatSide(unittest.TestCase):
 class Configure(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from .test_configure import cfg  # the suite's one loaded copy of ./configure
-
+        # The suite's one loaded copy of ./configure (test_configure registers it), or our own.
+        cfg = sys.modules.get("configure")
+        if cfg is None:
+            loader = importlib.machinery.SourceFileLoader("configure", str(ROOT / "configure"))
+            spec = importlib.util.spec_from_loader("configure", loader)
+            cfg = importlib.util.module_from_spec(spec)
+            sys.modules["configure"] = cfg
+            loader.exec_module(cfg)
         cls.cfg = cfg
 
     def test_the_secret_is_minted_and_required_with_the_chat(self):

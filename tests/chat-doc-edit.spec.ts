@@ -58,15 +58,15 @@ test("the model edits an attached Word file and a new file card appears", async 
 	expect(edit?.body).toContain("the original contract, Dear Acme");
 	expect(edit?.body).toContain('"replace_text"');
 
-	// The stored file is the edited one (the original attachment is untouched).
-	const stored = await request.get(
+	// The stored file is the edited one (read with the page's own session) (the original attachment is untouched).
+	const stored = await page.request.get(
 		`${E2E_APP_URL}/conversation/${conversationId}/code-execution/output`
 	);
 	expect(stored.ok()).toBe(true);
 	const rows = (await stored.json()) as { files?: Array<{ name: string; sha256: string }> };
 	const row = (rows.files ?? []).find((file) => file.name === "contract.docx");
 	expect(row).toBeTruthy();
-	const bytes = await request.get(
+	const bytes = await page.request.get(
 		`${E2E_APP_URL}/conversation/${conversationId}/code-execution/output/${row?.sha256}`
 	);
 	expect(Buffer.from(await bytes.body()).equals(MOCK_EDITED_DOCX)).toBe(true);
