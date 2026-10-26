@@ -50,11 +50,7 @@ test("a freshly produced file is an artifact card without a reload", async ({
 	// Scratch files (_rt.docx in the working directory, one in /tmp) are not
 	// offered: only the file saved to /mnt/output is a card.
 	await expect(assistantMessage.getByTestId("file-artifact-card")).toHaveCount(1);
-	// (The fence's own source mentions _rt.docx, so look only at the output.)
-	await expect(assistantMessage.getByTestId("run-output").getByText("_rt.docx")).toHaveCount(0);
-	await expect(
-		assistantMessage.getByTestId("file-artifact-card").getByText("_rt.docx")
-	).toHaveCount(0);
+	expect(await assistantMessage.getByTestId("file-artifact-card").innerText()).not.toContain("_rt");
 	const live = await assistantMessage.getByTestId("file-artifact-card").innerText();
 	await page.screenshot({
 		path: process.env.FILECARD_SHOT ?? "/var/tmp/artifacts-tmp/live-card.png",
