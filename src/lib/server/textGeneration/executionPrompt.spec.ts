@@ -9,6 +9,15 @@ import { EXECUTION_SYSTEM_PROMPT, injectExecutionPrompt } from "./executionPromp
  * presentation is unchanged.
  */
 describe("execution prompt", () => {
+	it("teaches the output folder rule: only /mnt/output files are deliverables, scratch is not", () => {
+		expect(EXECUTION_SYSTEM_PROMPT).toContain(
+			"Only files saved under `/mnt/output/` are offered to the person as downloads"
+		);
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("scratch and never shown");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("they stay available when the sandbox restarts");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("/mnt/output/name.png");
+	});
+
 	it("keeps execute_code from standing in for a missing tool or connector", () => {
 		// Without this, a request for a service with no tool on offer was answered
 		// by Python faking the service — the sandbox has no network to reach it.
@@ -36,7 +45,7 @@ describe("execution prompt", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("downloadable file card");
 		// The sandbox path keeps its contract, scoped to binary/computed files.
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("binary or computed file");
-		expect(EXECUTION_SYSTEM_PROMPT).toContain("write it to the working directory");
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("save it under `/mnt/output/`");
 		// The superseded single-path wording is gone: a file request must not
 		// read as "always write Python that writes the file".
 		expect(EXECUTION_SYSTEM_PROMPT).not.toContain(
@@ -44,7 +53,7 @@ describe("execution prompt", () => {
 		);
 		expect(EXECUTION_SYSTEM_PROMPT).not.toContain("anything they will download or open");
 		// Figures are captured automatically; reuse needs an explicit savefig.
-		expect(EXECUTION_SYSTEM_PROMPT).toContain('plt.savefig("name.png")');
+		expect(EXECUTION_SYSTEM_PROMPT).toContain('plt.savefig("/mnt/output/name.png")');
 		// The no-phantom-files rule survives the rewording, path-independent.
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("only ever describe files you actually produced");
 		expect(EXECUTION_SYSTEM_PROMPT).not.toContain(

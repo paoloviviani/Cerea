@@ -1,8 +1,8 @@
-import { EXECUTION_CWD } from "./protocol";
+import { OUTPUT_ROOT } from "./protocol";
 
 /**
  * Chat figure capture: a matplotlib figure a run draws becomes a PNG file in
- * the working directory, so the existing output-files path (listing, upload to
+ * the output folder (`/mnt/output`), so the existing output-files path (listing, upload to
  * the deliverable store, the persisted references) carries it with no new
  * persistence of its own.
  *
@@ -11,7 +11,7 @@ import { EXECUTION_CWD } from "./protocol";
  * way. `<n>` counts from 1 within each run, so the name is stable: a later
  * run's figure-1.png is a new version of the same file artifact. A figure the
  * code saved itself (`savefig`) is left out of the sweep: its own file is its
- * card. Earlier runs' figures stay in the working directory, for code that
+ * card. Earlier runs' figures stay in the output folder, for code that
  * wants them again; the run's listing only reports files changed since it
  * started.
  *
@@ -35,7 +35,7 @@ import importlib.util
 import os
 import sys
 
-_CWD = ${JSON.stringify(EXECUTION_CWD)}
+_CWD = ${JSON.stringify(OUTPUT_ROOT)}
 _MAX = ${MAX_FIGURES_PER_RUN}
 _state = {"n": 0, "capped": False, "patched": False}
 

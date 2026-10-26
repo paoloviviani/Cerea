@@ -35,12 +35,13 @@ command line, every function takes paths:
   text overflow, off-slide shapes, unfilled picture slots.
 
 ```python
-# after writing the scripts into the working directory:
+# after writing the scripts into the working directory (scratch; only
+# files saved under /mnt/output/ are offered to the person):
 import generate, validate
 
-result = generate.generate("outline.md", "deck.pptx")   # uses the bundled template
+result = generate.generate("outline.md", "/mnt/output/deck.pptx")   # uses the bundled template
 print(result["warnings"], result["picture_slots"])
-report = validate.validate("deck.pptx")
+report = validate.validate("/mnt/output/deck.pptx")
 print(report["score"], report["errors"], report["warnings"])
 ```
 
@@ -124,8 +125,8 @@ import edit, validate, json
 inv = edit.inventory("project.pptx")
 # change only the "text" fields you care about in inv, then:
 changes = {"slide-2": {"shape-3": {"paragraphs": [{"id": "p-0", "text": "Q2 2026"}]}}}
-edit.replace("project.pptx", changes, "updated.pptx")
-edit.reorder("project.pptx", [3, 1, 2], "reordered.pptx")
+edit.replace("project.pptx", changes, "/mnt/output/updated.pptx")
+edit.reorder("project.pptx", [3, 1, 2], "/mnt/output/reordered.pptx")
 ```
 
 Small fixes only: typos and values on few slides, or a reorder. Layout
@@ -139,7 +140,7 @@ belong to regeneration — **never** edit those by hand.
   onto it automatically).
 - **The person's own template**: they attach the `.pptx`; write it to the
   working directory and pass `template_path=generate("outline.md",
-"deck.pptx", template_path="their-template.pptx")`. Layout selection falls
+"/mnt/output/deck.pptx", template_path="their-template.pptx")`. Layout selection falls
   back to matching body-placeholder counts; `**Layout: name**` picks an exact
   layout — `edit.inventory` on the template shows what layouts exist.
   `references/rules/bring-your-own-template.md` describes the upstream

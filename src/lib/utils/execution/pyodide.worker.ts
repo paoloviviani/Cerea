@@ -6,6 +6,7 @@ import {
 	MAX_FILE_BYTES,
 	MAX_LISTED_FILES,
 	MOUNT_ROOT,
+	OUTPUT_ROOT,
 	pyodideBasePath,
 	pyodideWheelsIndexTemplate,
 	PYPI_SIMPLE_INDEX_URL,
@@ -154,6 +155,7 @@ export function bootstrapWorker(
 						stdLibURL: `${indexURL}python_stdlib.zip`,
 					});
 					py.FS.mkdirTree(MOUNT_ROOT);
+					py.FS.mkdirTree(OUTPUT_ROOT);
 					// Output capture is per-run: runs are serialized, so module buffers
 					// are unambiguous. Batched handlers coalesce per newline, which keeps
 					// line-oriented output ordered without a callback per byte.
@@ -410,15 +412,20 @@ export function bootstrapWorker(
 	}
 
 	/**
-	 * Whether the UI may read this path back out of the runtime. Generated
-	 * files land in the working directory; mounted inputs live under the
-	 * mount root. Everything else is interpreter state, not user output, and
+	 * Whether the UI may read this path back out of the runtime. Deliverables
+	 * live under the output root, mounted inputs under the mount root, and
+	 * the working directory is readable for older stored references.
+	 * Everything else is interpreter state, not user output, and
 	 * `..` never resolves anywhere — the check is on the raw string, before
 	 * the FS normalizes anything.
 	 */
 	function readablePath(path: string): boolean {
 		if (!path.startsWith("/") || path.includes("..")) return false;
-		return path.startsWith(`${EXECUTION_CWD}/`) || path.startsWith(`${MOUNT_ROOT}/`);
+		return (
+			path.startsWith(`${OUTPUT_ROOT}/`) ||
+			path.startsWith(`${EXECUTION_CWD}/`) ||
+			path.startsWith(`${MOUNT_ROOT}/`)
+		);
 	}
 
 	async function listFiles(id: number): Promise<void> {
@@ -452,7 +459,9 @@ export function bootstrapWorker(
 					else if (changed) found.push({ path: full, size });
 				}
 			};
-			walk(EXECUTION_CWD);
+			// Only the output folder: scratch files elsewhere (the working
+			// directory, /tmp) are never offered to the person.
+			walk(OUTPUT_ROOT);
 			post({ type: "filesListed", id, files: found });
 		} catch (err) {
 			post({
@@ -472,7 +481,7 @@ export function bootstrapWorker(
 				type: "fileData",
 				id,
 				path,
-				error: `only ${EXECUTION_CWD} and ${MOUNT_ROOT} files can be downloaded`,
+				error: `only ${OUTPUT_ROOT}, ${EXECUTION_CWD} and ${MOUNT_ROOT} files can be downloaded`,
 			});
 			return;
 		}

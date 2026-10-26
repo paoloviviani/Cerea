@@ -96,6 +96,14 @@ describe("the execute_code tool", () => {
 		expect(description).toContain("never by writing the call into your reply as text markup");
 	});
 
+	it("tells the model where deliverables go and what a time-limit stop does", () => {
+		const description = createExecuteCodeBuiltin()[0]?.definition.function.description ?? "";
+		expect(description).toContain("only files written under /mnt/output/");
+		expect(description).toContain("scratch");
+		expect(description).toContain("restored automatically if the sandbox restarts");
+		expect(description).toContain("stopped after a time limit (60 seconds by default)");
+	});
+
 	it("parks the turn on the browser and emits the code execution request", async () => {
 		const c = ctx();
 		const before = Date.now();
@@ -209,6 +217,57 @@ describe("the tool result a resumed code turn reads", () => {
 		expect(text).toContain("Result: 'done'");
 		expect(text).toContain("out.csv");
 		expect(text).toContain("30 days");
+	});
+
+	it("offers only the output folder's files as cards, and says so", () => {
+		const text = codeResumeResultText(
+			park({ outcome: { ...outcome, files: [{ path: "/mnt/output/report.xlsx", size: 9 }] } }),
+			false
+		);
+		expect(text).toContain("saved to /mnt/output");
+		expect(text).toContain("/mnt/output/report.xlsx");
+	});
+
+	it("tells the model plainly that a time-limit stop restarted the sandbox and the files are back", () => {
+		const text = codeResumeResultText(
+			park({
+				outcome: {
+					ok: false,
+					stdout: "",
+					stderr: "",
+					error: "the code did not finish within 60 s and was stopped",
+					files: [],
+					timeout: {
+						seconds: 60,
+						mountedFiles: ["/mnt/data/sales.xlsx", "/mnt/data/notes.docx"],
+					},
+				},
+			}),
+			false
+		);
+		expect(text).toContain("stopped after 60 s");
+		expect(text).toContain("sandbox was restarted");
+		expect(text).toContain("variables, imports");
+		expect(text).toContain(
+			"available again in /mnt/data: /mnt/data/sales.xlsx, /mnt/data/notes.docx"
+		);
+		expect(text).toContain("did not vanish");
+	});
+
+	it("says no attachments were mounted when none were", () => {
+		const text = codeResumeResultText(
+			park({
+				outcome: {
+					ok: false,
+					stdout: "",
+					stderr: "",
+					files: [],
+					timeout: { seconds: 60, mountedFiles: [] },
+				},
+			}),
+			false
+		);
+		expect(text).toContain("No files were mounted in /mnt/data");
 	});
 
 	it("reports a failed run as an error the model can act on", () => {

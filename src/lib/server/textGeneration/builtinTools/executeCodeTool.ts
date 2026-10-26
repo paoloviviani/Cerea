@@ -3,7 +3,8 @@ import { ObjectId } from "mongodb";
 import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
-import { LOAD_TIMEOUT_MS, RUN_TIMEOUT_MS } from "$lib/utils/execution/protocol";
+import { LOAD_TIMEOUT_MS, OUTPUT_ROOT, RUN_TIMEOUT_MS } from "$lib/utils/execution/protocol";
+import { codeRunTimeoutMs } from "$lib/server/codeRunLimit";
 import { turnAwaitingInput } from "$lib/server/generation/turnState";
 import {
 	MessageCodeExecutionUpdateType,
@@ -70,11 +71,17 @@ const EXECUTE_REFUSAL_MESSAGE =
 
 /**
  * How long the parked row waits for the browser's answer before the sweeper
- * gives up. One run costs RUN_TIMEOUT_MS; a cold worker adds its whole load
+ * gives up. One run costs the run limit; a cold worker adds its whole load
  * budget (wasm + stdlib + bootstrap); the remainder is sweep-interval grace.
  * A closed tab or a gone user is the sweeper's backstop, not the timer.
+ * The constant is the deadline at the default run limit; the tool uses
+ * `codeExecutionDeadlineMs()`, which follows the configured limit.
  */
 export const CODE_EXECUTION_DEADLINE_MS = LOAD_TIMEOUT_MS + RUN_TIMEOUT_MS + 10_000;
+
+export function codeExecutionDeadlineMs(): number {
+	return LOAD_TIMEOUT_MS + codeRunTimeoutMs() + 10_000;
+}
 
 // Same shape as the sandbox's truncation, for the same reason: a run's output
 // ends with the traceback and the result, which is the part worth keeping.
@@ -124,9 +131,19 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 						"settings; if it fails as not-found, say the setting controls it rather " +
 						"than telling them to install it themselves.\n\n" +
 						"You see the truncated stdout, stderr and the last expression's result " +
-						"yourself, plus the names of files the run created (shown to the person " +
-						"as download cards, kept for 30 days so they still work after a " +
-						"reload or from another device).\n\n" +
+						"yourself, plus the names of files the run saved to the output folder.\n\n" +
+						`Where files go: only files written under ${OUTPUT_ROOT}/ (for example ` +
+						`${OUTPUT_ROOT}/report.xlsx) are offered to the person as download cards ` +
+						"(kept for 30 days). Anything else you write, in the working directory " +
+						"or /tmp, is scratch: it stays in the sandbox and is never shown, so " +
+						"save a deliverable only once, in its final form, to the output folder " +
+						"and keep test or round-trip copies elsewhere. Files the person " +
+						"attached are read-only inputs at /mnt/data/<name>, and they are " +
+						"restored automatically if the sandbox restarts.\n\n" +
+						"Each run is stopped after a time limit (60 seconds by default). A " +
+						"stopped run restarts the sandbox: variables, imports and files " +
+						"outside /mnt/data are lost, so work in steps that each finish in " +
+						"time and write results to the output folder as you go.\n\n" +
 						"If the answer says the execution environment is unavailable (the " +
 						"person's browser did not answer in time), do NOT claim any execution " +
 						"result or file: fall back to a plain fenced ```python code block with " +
@@ -192,7 +209,8 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 
 				const parkedCallId = randomUUID();
 				const now = new Date();
-				const resumeAt = new Date(now.getTime() + CODE_EXECUTION_DEADLINE_MS);
+				const deadlineMs = codeExecutionDeadlineMs();
+				const resumeAt = new Date(now.getTime() + deadlineMs);
 				await collections.parkedCalls.insertOne({
 					_id: new ObjectId(),
 					parkedCallId,
@@ -217,7 +235,7 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 					{
 						parkedCallId,
 						conversationId: ctx.conversationId.toString(),
-						deadlineMs: CODE_EXECUTION_DEADLINE_MS,
+						deadlineMs,
 						codeLength: code.length,
 					},
 					"[execute_code] turn parked on the browser sandbox"
@@ -306,9 +324,22 @@ export function codeResumeResultText(park: ParkedCall, tokenExpired: boolean): s
 	if (!outcome.ok && outcome.error) {
 		parts.push(`Error: ${truncateExecuteCodeOutput(outcome.error)}`);
 	}
+	if (outcome.timeout) {
+		const { seconds, mountedFiles } = outcome.timeout;
+		parts.push(
+			`The run was stopped after ${seconds} s because it hit the time limit. The sandbox was ` +
+				"restarted: variables, imports and any files written outside /mnt/data are lost. " +
+				(mountedFiles.length
+					? "The person's attached files were put back and are available again in /mnt/data: " +
+						`${mountedFiles.join(", ")}. They did not vanish; do not ask the person to ` +
+						"attach them again. "
+					: "No files were mounted in /mnt/data. ") +
+				"Make the work smaller (a sample, fewer steps per call, no long loops) and run again."
+		);
+	}
 	if (outcome.files?.length) {
 		parts.push(
-			"Files the run created (shown to the person as download cards, kept for " +
+			`Files the run saved to ${OUTPUT_ROOT} (shown to the person as download cards, kept for ` +
 				"30 days so they still work after a reload or from another device): " +
 				outcome.files.map((file) => file.path).join(", ")
 		);

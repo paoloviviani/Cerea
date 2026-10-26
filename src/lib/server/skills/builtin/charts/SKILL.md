@@ -114,7 +114,7 @@ sns.lineplot(
 
 ### 5. Deliver
 
-- `plt.savefig("figure-name.png", dpi=300)` for a named file (or `.svg` for
+- `plt.savefig("/mnt/output/figure-name.png", dpi=300)` for a named file (or `.svg` for
   vector). A figure drawn without an explicit save is shown to the person
   automatically as `figure-1.png`, `figure-2.png`, … — but do not count on
   those names; save explicitly when the file matters.
@@ -125,7 +125,8 @@ sns.lineplot(
 ## Rules
 
 - Data the person attached (CSV, JSON) is readable at `/mnt/data/<its
-filename>`; figures you save go to the working directory.
+filename>`; figures you save go to `/mnt/output/` (only files there are
+  offered to the person).
 
 - The sandbox has matplotlib, seaborn, numpy and pandas; no Plotly, no
   interactive backends, no LaTeX/PGF, no network for fonts or data.

@@ -4,6 +4,9 @@ import {
 	MAX_FILE_BYTES,
 	MAX_OUTPUT_CHARS,
 	isCleanSystemExit,
+	runTimeoutMsFromSeconds,
+	RUN_TIMEOUT_MS,
+	MAX_RUN_TIMEOUT_MS,
 	safeMountName,
 	clampOutput,
 	type HostToWorker,
@@ -153,6 +156,97 @@ describe("ExecutionSession", () => {
 			stderr: "",
 		});
 		await expect(queued).resolves.toMatchObject({ ok: true });
+	});
+
+	describe("files after a restart", () => {
+		const mount = async (session: ExecutionSession, name: string, data: string) => {
+			const promise = session.loadFiles([{ name, data }]);
+			await flush();
+			const sent = [...worker.received].reverse().find((m) => m.type === "loadFiles");
+			worker.emit({ type: "filesLoaded", id: sent?.id ?? -1, written: [`/mnt/data/${name}`] });
+			await promise;
+		};
+
+		it("writes every mounted file back, under the same names, before the next run", async () => {
+			const session = new ExecutionSession({ spawn, runTimeoutMs: 5_000, loadTimeoutMs: 5_000 });
+			await mount(session, "sales.xlsx", "bytes-1");
+			await mount(session, "notes.md", "bytes-2");
+
+			const runaway = session.run("while True: pass");
+			await flush();
+			await vi.advanceTimersByTimeAsync(5_001);
+			await expect(runaway).rejects.toMatchObject({ kind: "timeout" });
+
+			worker.received = [];
+			const next = session.run("print(1)");
+			await flush();
+			const order = worker.received.map((m) =>
+				m.type === "loadFiles" ? `load:${m.files.map((f) => f.name).join(",")}` : m.type
+			);
+			// The restored files are posted after the configure and before the run:
+			// the worker handles messages in order, so the run never sees an empty /mnt/data.
+			expect(order).toEqual(["configure", "load:sales.xlsx", "load:notes.md", "run"]);
+			const run = worker.received.find((m) => m.type === "run");
+			worker.emit({ type: "result", id: run?.id ?? -1, ok: true, stdout: "", stderr: "" });
+			await expect(next).resolves.toMatchObject({ ok: true });
+		});
+
+		it("restores them after a crash too, and not a file that was removed", async () => {
+			const session = new ExecutionSession({ spawn });
+			await mount(session, "a.csv", "1");
+			await mount(session, "b.csv", "2");
+			const removal = session.removeFile("/mnt/data/b.csv");
+			await flush();
+			const sent = worker.received.find((m) => m.type === "removeFile");
+			worker.emit({ type: "fileRemoved", id: sent?.id ?? -1, path: "/mnt/data/b.csv" });
+			await removal;
+
+			const pending = session.run("x");
+			await flush();
+			worker.fail();
+			await expect(pending).rejects.toMatchObject({ kind: "terminated" });
+
+			worker.received = [];
+			void session.run("y");
+			await flush();
+			const loaded = worker.received.flatMap((m) =>
+				m.type === "loadFiles" ? m.files.map((f) => f.name) : []
+			);
+			expect(loaded).toEqual(["a.csv"]);
+		});
+
+		it("forgets a file removed while no worker is alive, without booting one", async () => {
+			const session = new ExecutionSession({ spawn });
+			await mount(session, "a.csv", "1");
+			session.terminate();
+			worker.received = [];
+			await expect(session.removeFile("/mnt/data/a.csv")).resolves.toBe("/mnt/data/a.csv");
+			expect(worker.received).toEqual([]);
+			expect(session.mountedPaths()).toEqual([]);
+		});
+
+		it("says what the time limit did, and which files are available again", async () => {
+			const session = new ExecutionSession({ spawn, runTimeoutMs: 5_000, loadTimeoutMs: 5_000 });
+			await mount(session, "sales.xlsx", "bytes-1");
+			const runaway = session.run("while True: pass");
+			await flush();
+			await vi.advanceTimersByTimeAsync(5_001);
+			const error = await runaway.catch((e: unknown) => e as ExecutionError);
+			expect(error.timeout).toEqual({ seconds: 5, mountedFiles: ["/mnt/data/sales.xlsx"] });
+		});
+	});
+
+	it("takes the run limit from configure()", async () => {
+		const session = new ExecutionSession({ spawn, runTimeoutMs: 5_000, loadTimeoutMs: 5_000 });
+		session.configure(false, 30_000);
+		const promise = session.run("while True: pass");
+		const outcome = promise.catch((e: unknown) => e as ExecutionError);
+		await flush();
+		worker.emit({ type: "ready" });
+		await vi.advanceTimersByTimeAsync(29_000);
+		expect(worker.terminated).toBe(0);
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect((await outcome).timeout?.seconds).toBe(30);
 	});
 
 	it("fails waiters when the worker errors and marks itself unloaded", async () => {
@@ -344,5 +438,18 @@ describe("ExecutionError", () => {
 		const error = new ExecutionError("timeout", "took too long");
 		expect(error.kind).toBe("timeout");
 		expect(error.name).toBe("ExecutionError");
+	});
+});
+
+describe("run time limit setting", () => {
+	it("defaults to 60 s, accepts a configured value, and holds a hard cap", () => {
+		expect(RUN_TIMEOUT_MS).toBe(60_000);
+		expect(runTimeoutMsFromSeconds(undefined)).toBe(60_000);
+		expect(runTimeoutMsFromSeconds("")).toBe(60_000);
+		expect(runTimeoutMsFromSeconds("nonsense")).toBe(60_000);
+		expect(runTimeoutMsFromSeconds("120")).toBe(120_000);
+		expect(runTimeoutMsFromSeconds(90)).toBe(90_000);
+		expect(runTimeoutMsFromSeconds(1)).toBe(5_000);
+		expect(runTimeoutMsFromSeconds("100000")).toBe(MAX_RUN_TIMEOUT_MS);
 	});
 });

@@ -1136,7 +1136,7 @@
 	"chat.errors.slides_cut": "only the first {count} slides are shown",
 	"chat.errors.slides_left_out": "{count} slide(s) left out",
 	"chat.errors.status_code": "Request failed with status code {status}: {text}",
-	"chat.errors.timeout": "the code did not finish within {seconds} s and was stopped",
+	"chat.errors.timeout": "the code did not finish within {seconds} s and was stopped. The sandbox restarted, so values held in memory are gone; your attached files are available again",
 	"chat.errors.unexpected_message": "unexpected message from the runtime",
 	"chat.errors.unknown": "Unknown error",
 	"chat.errors.upload_failed": "Upload failed ({status})",

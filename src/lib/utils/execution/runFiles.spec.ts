@@ -21,7 +21,7 @@ vi.mock("$lib/utils/execution/runtime", () => ({
 vi.mock("$app/paths", () => ({ base: "" }));
 
 import { uploadRunFiles, recordRunFiles, uploadAndDescribe, retryFileUpload } from "./runFiles";
-import { cacheFileBytes, clearFileByteCache } from "./fileIdentity";
+import { cacheFileBytes, clearFileByteCache, runFileName } from "./fileIdentity";
 
 function jsonResponse(body: unknown): Response {
 	return new Response(JSON.stringify(body), {
@@ -240,5 +240,14 @@ describe("retryFileUpload", () => {
 			runKey: "chat:abc",
 			files: [{ name: "x.csv", size: 3, sha256: SHA }],
 		});
+	});
+});
+
+describe("artifact names of output-folder files", () => {
+	it("names a file by its path under /mnt/output, keeping sub-directories", () => {
+		expect(runFileName("/mnt/output/report.xlsx")).toBe("report.xlsx");
+		expect(runFileName("/mnt/output/out/x.pdf")).toBe("out/x.pdf");
+		// References stored before the output folder existed still resolve.
+		expect(runFileName("/home/pyodide/old.docx")).toBe("old.docx");
 	});
 });

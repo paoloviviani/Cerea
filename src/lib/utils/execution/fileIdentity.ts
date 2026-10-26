@@ -1,8 +1,8 @@
-import { EXECUTION_CWD } from "./protocol";
+import { EXECUTION_CWD, OUTPUT_ROOT } from "./protocol";
 
 /**
  * Identity of a file a run produced: its name (the path under the sandbox
- * working directory, so `a/x.pdf` and `b/x.pdf` stay two files), its size and
+ * output folder, so `a/x.pdf` and `b/x.pdf` stay two files), its size and
  * the sha256 of its bytes, computed in the browser the moment the sandbox
  * lists it. Every card, registry entry and stored record is keyed by this,
  * never by whether an upload has answered yet.
@@ -17,13 +17,16 @@ export interface RunOutputFile {
 }
 
 /**
- * The artifact name of a sandbox path: relative to the working directory, so
- * a file in a sub-directory keeps its directory. A path outside the working
- * directory (never listed today) falls back to its bare filename.
+ * The artifact name of a sandbox path: relative to the output folder, so
+ * a file in a sub-directory keeps its directory. A path outside it falls back
+ * to its bare filename; the old working-directory prefix is still understood,
+ * for references stored before the output folder existed.
  */
 export function runFileName(path: string): string {
-	const prefix = `${EXECUTION_CWD}/`;
-	if (path.startsWith(prefix)) return path.slice(prefix.length) || "download";
+	for (const root of [OUTPUT_ROOT, EXECUTION_CWD]) {
+		const prefix = `${root}/`;
+		if (path.startsWith(prefix)) return path.slice(prefix.length) || "download";
+	}
 	// Already a name relative to the working directory (a stored reference).
 	if (!path.startsWith("/")) return path || "download";
 	const trimmed = path.replace(/^\/+/, "");

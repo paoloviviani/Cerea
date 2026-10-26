@@ -96,8 +96,9 @@ stop and say so.
 - Edit the file the person attached in place (read it, modify, save under a
   new name unless asked to overwrite) — never rebuild an edited document from
   scratch unless they asked for a redesign.
-- Files are written to the working directory by a code block under a clear
-  filename; the app lists them as downloads. Only describe files you actually
-  produced.
+- Deliverables are saved by a code block to `/mnt/output/<clear filename>`;
+  the app lists only files under `/mnt/output/` as downloads. Scratch files
+  elsewhere (the working directory, `/tmp`) are never shown, so keep
+  round-trip or test copies there. Only describe files you actually produced.
 - Iterate with the `execute_code` tool when you need to see a result
   (structure, extracted text, a table's contents) — run, read, fix, run again.

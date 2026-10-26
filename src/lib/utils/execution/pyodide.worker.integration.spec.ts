@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootstrapWorker } from "./pyodide.worker";
 import { AttachmentMounter } from "./attachmentMounter";
-import { MOUNT_ROOT, type HostToWorker, type WorkerToHost } from "./protocol";
+import { MOUNT_ROOT, OUTPUT_ROOT, type HostToWorker, type WorkerToHost } from "./protocol";
 
 /**
  * The whole worker pipeline against the real vendored dist: the network gate,
@@ -334,7 +334,13 @@ describe.skipIf(!DIST_PRESENT)("pyodide worker pipeline (real dist)", () => {
 			send(scope, {
 				type: "run",
 				id: 2,
-				code: "from pathlib import Path\nPath('hello.txt').write_text('hello download')",
+				code: [
+					"from pathlib import Path",
+					"Path('/mnt/output/hello.txt').write_text('hello download')",
+					// Scratch files: the working directory and /tmp are never offered.
+					"Path('_rt.xlsx').write_text('scratch in cwd')",
+					"Path('/tmp/tmp-scratch.txt').write_text('scratch in tmp')",
+				].join("\n"),
 			});
 			const written = (await until(scope, (m) => m.type === "result" && m.id === 2)) as Extract<
 				WorkerToHost,
@@ -347,6 +353,7 @@ describe.skipIf(!DIST_PRESENT)("pyodide worker pipeline (real dist)", () => {
 				WorkerToHost,
 				{ type: "filesListed" }
 			>;
+			expect(listed.files.map((f) => f.path)).toEqual([`${OUTPUT_ROOT}/hello.txt`]);
 			const entry = listed.files.find((f) => f.path.endsWith("/hello.txt"));
 			expect(entry).toBeDefined();
 			expect(entry?.size).toBeGreaterThan(0);
@@ -458,7 +465,7 @@ describe.skipIf(!DIST_PRESENT)("pyodide worker pipeline (real dist)", () => {
 			expect(first.stdout).toContain("open after show 0");
 			expect(await list(2)).toEqual(["figure-1.png", "figure-2.png", "figure-3.png"]);
 
-			send(scope, { type: "readFile", id: 3, path: "/home/pyodide/figure-1.png" });
+			send(scope, { type: "readFile", id: 3, path: "/mnt/output/figure-1.png" });
 			const png = (await until(scope, (m) => m.type === "fileData" && m.id === 3)) as Extract<
 				WorkerToHost,
 				{ type: "fileData" }
@@ -476,7 +483,7 @@ describe.skipIf(!DIST_PRESENT)("pyodide worker pipeline (real dist)", () => {
 			send(scope, {
 				type: "run",
 				id: 6,
-				code: "import os\nprint('kept', os.path.exists('figure-1.png'))",
+				code: "import os\nprint('kept', os.path.exists('/mnt/output/figure-1.png'))",
 			});
 			const quiet = await runCode(6);
 			expect(quiet.stdout).toContain("kept True");
@@ -489,8 +496,8 @@ describe.skipIf(!DIST_PRESENT)("pyodide worker pipeline (real dist)", () => {
 				id: 12,
 				code: [
 					"import matplotlib.pyplot as plt",
-					"plt.plot([1]); plt.savefig('chart.png')",
-					"plt.figure(); plt.plot([2]); plt.savefig('other.png'); plt.show()",
+					"plt.plot([1]); plt.savefig('/mnt/output/chart.png')",
+					"plt.figure(); plt.plot([2]); plt.savefig('/mnt/output/other.png'); plt.show()",
 				].join("\n"),
 			});
 			expect((await runCode(12)).ok).toBe(true);

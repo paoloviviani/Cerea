@@ -113,4 +113,21 @@ describe("runs store output collection", () => {
 		expect(store?.get(chatRunKey(code))?.sandboxError).toContain("did not finish");
 		expect(store?.get(chatRunKey(code))?.outputsCollected).toBe(true);
 	});
+
+	it("keeps the time-limit details of a stopped run for the model's result", async () => {
+		const code = `while True: pass # timeout-details-${Date.now()}`;
+		const store = getRunsStore();
+		store?.run(chatRunKey(code), code);
+		await vi.waitFor(() => expect(sessionMock.run).toHaveBeenCalledTimes(1));
+		const stopped = Object.assign(new Error("stopped"), {
+			timeout: { seconds: 60, mountedFiles: ["/mnt/data/a.xlsx"] },
+		});
+		sessionMock.failNext(stopped);
+
+		await vi.waitFor(() => expect(store?.get(chatRunKey(code))?.status).toBe("error"));
+		expect(store?.get(chatRunKey(code))?.timeout).toEqual({
+			seconds: 60,
+			mountedFiles: ["/mnt/data/a.xlsx"],
+		});
+	});
 });

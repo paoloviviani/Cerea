@@ -178,7 +178,10 @@ exact visual layout).
   person still has to run is not the file.
 - The app's Python cannot recalculate formulas and there is no spreadsheet
   renderer — say so once if it matters, then deliver the workbook.
-- Files are written to the working directory by a code block under a clear
-  filename; only describe files you actually produced.
+- Deliverables are saved by a code block to `/mnt/output/<clear filename>`
+  (e.g. `/mnt/output/report.xlsx`); only files under `/mnt/output/` are offered
+  to the person as downloads. Scratch files elsewhere (the working directory,
+  `/tmp`) are never shown, so keep round-trip or test copies there. Only
+  describe files you actually produced.
 - Iterate with the `execute_code` tool when you need to see a result — run,
   read, fix, run again.

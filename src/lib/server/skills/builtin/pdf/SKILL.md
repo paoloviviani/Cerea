@@ -79,7 +79,9 @@ print(reader.pages[0].extract_text()[:500])
 - `pdfplumber`, `pdftoppm`/Poppler, LibreOffice, and image-based rendering do
   not exist here and no install makes them appear — use pypdf for reads and
   reportlab for writes.
-- Files are written to the working directory by a code block under a clear
-  filename; only describe files you actually produced.
+- Deliverables are saved by a code block to `/mnt/output/<clear filename>`;
+  only files under `/mnt/output/` are offered to the person as downloads.
+  Scratch files elsewhere (the working directory, `/tmp`) are never shown.
+  Only describe files you actually produced.
 - Iterate with the `execute_code` tool when you need to see a result (page
   count, extracted text) — run, read, fix, run again.
