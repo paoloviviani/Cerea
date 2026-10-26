@@ -5,6 +5,33 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.29.0 — 2026-10-26
+
+Pins: Cerea `0.29.0`, **Pystino `0.18.1`**, Authelia 4.39.22 (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No database migration.
+
+- **Large documents are read again.** A long PDF (tens of pages) could fail with
+  "the document reader failed": the gateway gave the local extractor only 10
+  seconds. Document extraction now has its own limit, 180 s by default
+  (`GATEWAY_EXTRACTOR__TIMEOUT_SECONDS` on the gateway, `CHAT_OCR_TIMEOUT_MS` in
+  the chat), and says which setting to raise if it is ever reached.
+- **Attached files survive a stopped code run.** When a run in the browser
+  sandbox hit its time limit, the attachments disappeared for the rest of the
+  chat. They are now restored whenever the sandbox restarts, and the assistant is
+  told so. The time limit is 60 s (was 20), adjustable with
+  `CHAT_CODE_RUN_TIMEOUT_SECONDS` (5 to 300).
+- **Only real deliverables are offered as downloads.** Files the code saves in
+  `/mnt/output` become download cards; scratch files no longer do.
+- **Editing your own Office files keeps everything else intact.** The Excel,
+  Word and PowerPoint skills now edit a workbook, document or deck you supply
+  precisely: only the cells, text, tables, placeholders or slides asked for
+  change, formatting and other sheets stay as they were, and Word edits can be
+  tracked changes you accept or reject. The assistant checks the result and tells
+  you what changed.
+- **Pystino 0.18.1:** the console's sidebar stays put on every page (form pages
+  narrow only their content); usage and summary pages use the full width.
+
 ## v0.28.0 — 2026-10-26
 
 Pins: Cerea `0.28.0`, **Pystino `0.18.0`**, Authelia 4.39.22 (unchanged).
