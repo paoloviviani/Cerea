@@ -3,8 +3,8 @@ directory). Cells are addressed by table id from outline() plus 0-based row and
 column; every function takes src, dst and track_changes=True, author="...".
 
     import docx_tables as dt
-    dt.set_table_cell("in.docx", "out.docx", "t1", 2, 1, "42")
-    dt.add_table_row("in.docx", "out.docx", "t1", ["Total", "99"])
+    dt.set_table_cell("/mnt/data/in.docx", "/mnt/output/out.docx", "t1", 2, 1, "42")
+    dt.add_table_row("/mnt/data/in.docx", "/mnt/output/out.docx", "t1", ["Total", "99"])
 
 Licence: Apache-2.0, as the rest of this repository. Original work.
 """

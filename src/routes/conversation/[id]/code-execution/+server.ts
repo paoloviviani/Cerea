@@ -21,6 +21,14 @@ const bodySchema = z.object({
 			.array(z.object({ path: z.string(), size: z.number() }))
 			.max(200)
 			.default([]),
+		// Set when the browser stopped the run at the time limit and restarted
+		// the sandbox; the model's result says so, and lists the restored files.
+		timeout: z
+			.object({
+				seconds: z.number().int().positive().max(3600),
+				mountedFiles: z.array(z.string().max(512)).max(500),
+			})
+			.optional(),
 		// Every file the run produced, named by the sha256 the browser computed,
 		// whether or not its upload (see `code-execution/output/+server.ts`)
 		// succeeded: the server marks which ones are really stored, so a failed

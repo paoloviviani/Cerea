@@ -101,7 +101,13 @@
 		const outcome: RunOutcome | undefined =
 			state.outcome ??
 			(state.sandboxError
-				? { ok: false, stdout: "", stderr: "", error: state.sandboxError }
+				? {
+						ok: false,
+						stdout: "",
+						stderr: "",
+						error: state.sandboxError,
+						...(state.timeout ? { timeout: state.timeout } : {}),
+					}
 				: undefined);
 		if (!outcome) return;
 		posted = true;
@@ -121,6 +127,7 @@
 						stderr: outcome.stderr,
 						...(outcome.result ? { result: outcome.result } : {}),
 						...(outcome.error ? { error: outcome.error } : {}),
+						...(outcome.timeout ? { timeout: outcome.timeout } : {}),
 						files: (state.outputFiles ?? []).map((f) => ({ path: f.path, size: f.size })),
 						...(fileRefs.length ? { fileRefs } : {}),
 					},

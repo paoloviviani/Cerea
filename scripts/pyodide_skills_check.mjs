@@ -215,6 +215,7 @@ t.run_checks(xlsx_patch, "/tmp")
 });
 
 await check("word-edit", async () => {
+	py.FS.mkdirTree("/mnt/output");
 	await install("python-docx");
 	for (const name of ["docx_edit", "docx_tables", "docx_verify"]) {
 		await importScript(`${builtinDir}/word/scripts/${name}.py`, `${name}.py`, name);
@@ -225,11 +226,12 @@ await check("word-edit", async () => {
 	);
 	return run(`
 import docx_edit, docx_tables, docx_verify, pyodide_docx_edit_check as t
-t.run_checks((docx_edit, docx_tables, docx_verify), "/tmp")
+t.run_checks((docx_edit, docx_tables, docx_verify), "/mnt/output")
 `);
 });
 
 await check("powerpoint-edit", async () => {
+	py.FS.mkdirTree("/mnt/output");
 	await install("python-pptx");
 	for (const name of ["pptx_edit", "pptx_slides", "pptx_verify"]) {
 		await importScript(`${builtinDir}/powerpoint/scripts/${name}.py`, `${name}.py`, name);
@@ -240,7 +242,7 @@ await check("powerpoint-edit", async () => {
 	);
 	return run(`
 import pptx_edit, pptx_slides, pptx_verify, pyodide_pptx_edit_check as t
-t.run_checks((pptx_edit, pptx_slides, pptx_verify), "/tmp")
+t.run_checks((pptx_edit, pptx_slides, pptx_verify), "/mnt/output")
 `);
 });
 

@@ -37,12 +37,13 @@ command line, every function takes paths:
   text overflow, off-slide shapes, unfilled picture slots.
 
 ```python
-# after writing the scripts into the working directory:
+# after writing the scripts into the working directory (scratch; only
+# files saved under /mnt/output/ are offered to the person):
 import generate, validate
 
-result = generate.generate("outline.md", "deck.pptx")   # uses the bundled template
+result = generate.generate("outline.md", "/mnt/output/deck.pptx")   # uses the bundled template
 print(result["warnings"], result["picture_slots"])
-report = validate.validate("deck.pptx")
+report = validate.validate("/mnt/output/deck.pptx")
 print(report["score"], report["errors"], report["warnings"])
 ```
 
@@ -133,8 +134,9 @@ paragraph-retype helper; prefer the helpers here for supplied decks.)
 2. `outline` first and report briefly what you found: slides (1-based),
    layouts, shapes with their ids, placeholders (type and idx), pictures,
    speaker notes.
-3. Edit into a NEW file in the working directory; never overwrite the
-   original. Chain edits by passing each output as the next source.
+3. Chain edits through scratch files in the working directory and save the
+   final result under `/mnt/output/` (the only folder offered as downloads);
+   never overwrite the original.
 4. `verify` against the ORIGINAL, then tell the person what changed using
    its `text_diff`.
 
@@ -148,8 +150,8 @@ pe.set_placeholder_text("s1.pptx", "s2.pptx", 1, "title", "Q3 review")
 pe.replace_image("s2.pptx", "s3.pptx", 2, 7, "/mnt/data/logo.png")    # slide 2, shape id 7
 ps.duplicate_slide("s3.pptx", "s4.pptx", 3)                           # the copy follows slide 3
 ps.reorder("s4.pptx", "s5.pptx", [1, 3, 2, 4])                        # new order, as old numbers
-ps.delete_slide("s5.pptx", "board-updated.pptx", 5)
-rep = pv.verify(src, "board-updated.pptx")
+ps.delete_slide("s5.pptx", "/mnt/output/board-updated.pptx", 5)
+rep = pv.verify(src, "/mnt/output/board-updated.pptx")
 print(rep["slides"], rep["added"], rep["removed"], "\n".join(rep["text_diff"]))
 ```
 
@@ -188,7 +190,7 @@ Small paragraph retypes can still use `edit.py` (`edit.inventory`,
   onto it automatically).
 - **The person's own template**: they attach the `.pptx`; write it to the
   working directory and pass `template_path=generate("outline.md",
-"deck.pptx", template_path="their-template.pptx")`. Layout selection falls
+"/mnt/output/deck.pptx", template_path="their-template.pptx")`. Layout selection falls
   back to matching body-placeholder counts; `**Layout: name**` picks an exact
   layout — `edit.inventory` on the template shows what layouts exist.
   `references/rules/bring-your-own-template.md` describes the upstream

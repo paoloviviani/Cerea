@@ -1187,7 +1187,7 @@
 	"chat.errors.slides_cut": "[óńľý ťȟé ƒíŕśť {count} śľíďéś áŕé śȟóŵń]",
 	"chat.errors.slides_left_out": "[{count} śľíďé(ś) ľéƒť óúť]",
 	"chat.errors.status_code": "[Ŕéǫúéśť ƒáíľéď ŵíťȟ śťáťúś ćóďé {status}: {text}]",
-	"chat.errors.timeout": "[ťȟé ćóďé ďíď ńóť ƒíńíśȟ ŵíťȟíń {seconds} ś áńď ŵáś śťóþþéď]",
+	"chat.errors.timeout": "[ťȟé ćóďé ďíď ńóť ƒíńíśȟ ŵíťȟíń {seconds} ś áńď ŵáś śťóþþéď. Ťȟé śáńďƀóẋ ŕéśťáŕťéď, śó ǚáľúéś ȟéľď íń ḿéḿóŕý áŕé ǧóńé; ýóúŕ áťťáćȟéď ƒíľéś áŕé áǚáíľáƀľé áǧáíń]",
 	"chat.errors.unexpected_message": "[úńéẋþéćťéď ḿéśśáǧé ƒŕóḿ ťȟé ŕúńťíḿé]",
 	"chat.errors.unknown": "[Úńķńóŵń éŕŕóŕ]",
 	"chat.errors.upload_failed": "[Úþľóáď ƒáíľéď ({status})]",

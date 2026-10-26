@@ -10,10 +10,10 @@ after inserting). Rows and columns are 0-based. Table edits are in docx_tables.p
 verify and diff_text in docx_verify.py.
 
     import docx_edit as de
-    de.outline("in.docx")
-    de.replace_text("in.docx", "out.docx", "Acme Ltd", "Beta plc")
-    de.fill_placeholders("in.docx", "out.docx", {"client": "Beta plc"})
-    de.insert_paragraph_after("in.docx", "out.docx", "p4", "New text", "Heading 2")
+    de.outline("/mnt/data/in.docx")
+    de.replace_text("/mnt/data/in.docx", "/mnt/output/out.docx", "Acme Ltd", "Beta plc")
+    de.fill_placeholders("/mnt/data/in.docx", "/mnt/output/out.docx", {"client": "Beta plc"})
+    de.insert_paragraph_after("/mnt/data/in.docx", "/mnt/output/out.docx", "p4", "New text", "Heading 2")
 
 Every edit takes track_changes=True, author="..." to write w:ins / w:del that a
 reviewer can accept or reject in Word. Chain edits by passing the previous output
@@ -75,6 +75,7 @@ class _Pkg:
         for n in self.dirty:
             m = re.match(rb"\s*<\?xml[^>]*\?>\s*", self.data[n])
             self.data[n] = (m.group(0) if m else b"") + etree.tostring(self.trees[n], encoding="UTF-8")
+        os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
         fd, tmp = tempfile.mkstemp(suffix=".docx", dir=os.path.dirname(os.path.abspath(dst)))
         os.close(fd)
         try:

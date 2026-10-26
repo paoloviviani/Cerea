@@ -17,6 +17,11 @@ import {
  * outright — wasm has no cooperative cancellation, so the only safe stop is
  * the hard one — and the session is rebuilt lazily on the next request. The
  * timed-out run rejects; anything still queued runs on the fresh worker.
+ *
+ * Files mounted at /mnt/data are the session's own record (`mounted`): every
+ * worker it spawns, the first or a restart after a timeout or crash, is
+ * handed all of them before it sees any other request, so a run never starts
+ * on a sandbox that is missing the person's attachments.
  */
 
 export interface ExecutionWorkerLike {
@@ -30,6 +35,8 @@ export type ExecutionStatus = "unloaded" | "loading" | "ready" | "broken";
 
 export class ExecutionError extends Error {
 	kind: "timeout" | "terminated" | "worker" | "invalid" | "load";
+	/** For `timeout`: the limit that was hit, and the /mnt/data paths restored after the restart. */
+	timeout?: { seconds: number; mountedFiles: string[] };
 	constructor(kind: ExecutionError["kind"], message: string) {
 		super(message);
 		this.kind = kind;
@@ -65,6 +72,12 @@ export class ExecutionSession {
 	 * a setting toggled mid-conversation must not require a page reload.
 	 */
 	private pypiEnabled = false;
+	/**
+	 * Every file currently mounted at /mnt/data, by path, with its bytes. The
+	 * worker's filesystem dies with the worker; this is what is written back
+	 * into the next one.
+	 */
+	private mounted = new Map<string, { name: string; data: ArrayBuffer | string }>();
 
 	status: ExecutionStatus = "unloaded";
 
@@ -91,7 +104,8 @@ export class ExecutionSession {
 	 * is notified immediately, and a not-yet-spawned one picks the value up
 	 * from `ensureWorker` when it starts.
 	 */
-	configure(pypiEnabled: boolean): void {
+	configure(pypiEnabled: boolean, runTimeoutMs?: number): void {
+		if (runTimeoutMs !== undefined) this.runTimeoutMs = runTimeoutMs;
 		this.pypiEnabled = pypiEnabled;
 		this.worker?.postMessage({ type: "configure", pypiEnabled });
 	}
@@ -138,7 +152,16 @@ export class ExecutionSession {
 				(m): m is Extract<WorkerToHost, { type: "filesLoaded" }> => m.type === "filesLoaded"
 			)
 		);
+		files.forEach((file, i) => {
+			const path = message.written[i];
+			if (path) this.mounted.set(path, { name: file.name, data: file.data });
+		});
 		return message.written;
+	}
+
+	/** The /mnt/data paths that will be present on every (re)started worker. */
+	mountedPaths(): string[] {
+		return [...this.mounted.keys()];
 	}
 
 	/** Kill whatever is running and drop the worker; the next request respawns. */
@@ -159,6 +182,11 @@ export class ExecutionSession {
 
 	/** Remove one mounted file from /mnt/data. */
 	async removeFile(path: string): Promise<string> {
+		// Forgotten first: a worker that is down (or dies next) must not get the
+		// file back. With no worker alive there is nothing to take it out of, and
+		// booting the interpreter just to delete a file would cost a cold start.
+		this.mounted.delete(path);
+		if (!this.worker) return path;
 		const message = await this.enqueue(() =>
 			this.dispatch(
 				{ type: "removeFile", id: this.nextId++, path },
@@ -240,12 +268,10 @@ export class ExecutionSession {
 				// Reject with the timeout kind first, then kill the worker: the
 				// terminate sweep rejects everything still pending, and the request
 				// that caused the kill must report "timeout", not "terminated".
-				reject(
-					new ExecutionError(
-						"timeout",
-						m["chat.errors.timeout"]({ seconds: Math.round(budget / 1000) })
-					)
-				);
+				const seconds = Math.round(budget / 1000);
+				const error = new ExecutionError("timeout", m["chat.errors.timeout"]({ seconds }));
+				error.timeout = { seconds, mountedFiles: this.mountedPaths() };
+				reject(error);
 				this.terminate();
 			}, budget);
 			this.pending.set(id, {
@@ -303,6 +329,13 @@ export class ExecutionSession {
 		// it in the same call stack: the worker processes messages in the order
 		// received, so this always lands before the first "run"/"loadFiles"/etc.
 		worker.postMessage({ type: "configure", pypiEnabled: this.pypiEnabled });
+		// A restarted worker comes up empty. Every mounted file is written back
+		// before the request that caused this spawn is posted, and the worker
+		// handles messages in order, so no run ever sees a half-restored
+		// /mnt/data. Nothing waits on the reply (no pending entry; it is ignored).
+		for (const file of this.mounted.values()) {
+			worker.postMessage({ type: "loadFiles", id: this.nextId++, files: [file] });
+		}
 		return worker;
 	}
 

@@ -83,9 +83,9 @@ formatting whenever text spans several runs (a word half bold, half not).
 2. `outline` first and report briefly what you found: ids `p1..` for
    paragraphs and `t1..` for tables (0-based rows and columns), styles,
    headers and footers, `{{placeholders}}`, comments, tracked changes.
-3. Edit into a NEW file in the working directory (the folder the sandbox
-   tells you to save deliverables in); never overwrite the original. Chain
-   edits by passing each output as the next source.
+3. Chain edits through scratch files in the working directory and save the
+   final result under `/mnt/output/` (the only folder offered as downloads);
+   never overwrite the original.
 4. `verify` against the ORIGINAL, then tell the person what changed using
    its `text_diff`.
 
@@ -98,8 +98,8 @@ de.replace_text(src, "step1.docx", "Acme Ltd", "Beta plc")           # keeps run
 de.fill_placeholders("step1.docx", "step2.docx", {"client": "Beta plc", "date": "26 Oct 2026"})
 dt.set_table_cell("step2.docx", "step3.docx", "t1", 2, 1, "42")        # table t1, row 2, col 1
 dt.add_table_row("step3.docx", "step4.docx", "t1", ["Total", "99"])    # copies the last row's formatting
-de.insert_paragraph_after("step4.docx", "contract-updated.docx", "p4", "New clause", "Heading 2")
-rep = dv.verify(src, "contract-updated.docx")
+de.insert_paragraph_after("step4.docx", "/mnt/output/contract-updated.docx", "p4", "New clause", "Heading 2")
+rep = dv.verify(src, "/mnt/output/contract-updated.docx")
 print(rep["changed"], "\n".join(rep["text_diff"]))
 ```
 
@@ -135,8 +135,9 @@ not a rendered view.
 - Edit the file the person attached with the helpers above (read it, modify,
   save under a new name unless asked to overwrite) — never rebuild an edited document from
   scratch unless they asked for a redesign.
-- Files are written to the working directory by a code block under a clear
-  filename; the app lists them as downloads. Only describe files you actually
-  produced.
+- Deliverables are saved by a code block to `/mnt/output/<clear filename>`;
+  the app lists only files under `/mnt/output/` as downloads. Scratch files
+  elsewhere (the working directory, `/tmp`) are never shown, so keep
+  round-trip or test copies there. Only describe files you actually produced.
 - Iterate with the `execute_code` tool when you need to see a result
   (structure, extracted text, a table's contents) — run, read, fix, run again.

@@ -23,7 +23,7 @@ test("a code fence that imports a vendored package with no install still works",
 		content: [
 			"Here you go:\n\n```python\n" +
 				"from docx import Document\n" +
-				'd = Document()\nd.add_paragraph("Hello world")\nd.save("hello_world.docx")\n' +
+				'd = Document()\nd.add_paragraph("Hello world")\nd.save("/mnt/output/hello_world.docx")\n' +
 				"```\n",
 		],
 		chunkDelayMs: 10,

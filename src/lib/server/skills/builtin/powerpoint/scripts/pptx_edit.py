@@ -1,22 +1,19 @@
 """pptx_edit - precise edits to a .pptx someone supplied, touching nothing else.
 
-python-pptx load+save re-serialises every part it parsed (slides, layouts,
-masters, presentation.xml) and loses run formatting when text spans runs. This
-helper rewrites only the parts it edits with lxml and copies every other part
-through byte for byte. Use python-pptx (or generate.py) for NEW decks. Needs the
-stdlib and lxml. Slide numbers are 1-based; shape ids are the ids outline()
-prints (they are PowerPoint's own and stay stable). Slide-level edits
-(duplicate, delete, reorder) are in pptx_slides.py; verify and diff_text in
-pptx_verify.py.
+python-pptx load+save re-serialises every part and loses run formatting when
+text spans runs. This helper rewrites only the parts it edits (lxml) and copies
+the rest through byte for byte. Use generate.py for NEW decks. Slide numbers are
+1-based; shape ids are those outline() prints. Duplicate/delete/reorder are in
+pptx_slides.py; verify and diff_text in pptx_verify.py.
 
     import pptx_edit as pe
-    pe.outline("in.pptx")
-    pe.replace_text("in.pptx", "out.pptx", "2025", "2026")
-    pe.set_placeholder_text("in.pptx", "out.pptx", 1, "title", "Q3 review")
-    pe.replace_image("in.pptx", "out.pptx", 2, 7, "logo.png")
+    pe.outline("/mnt/data/in.pptx")
+    pe.replace_text("/mnt/data/in.pptx", "/mnt/output/out.pptx", "2025", "2026")
+    pe.set_placeholder_text("/mnt/data/in.pptx", "/mnt/output/out.pptx", 1, "title", "Q3 review")
+    pe.replace_image("/mnt/data/in.pptx", "/mnt/output/out.pptx", 2, 7, "/mnt/data/logo.png")
 
-Chain edits by passing the previous output as the next source. Licence:
-Apache-2.0, as the rest of this repository. Original work.
+Chain edits by passing the previous output as the next source.
+Licence: Apache-2.0. Original work.
 """
 
 import copy
@@ -86,6 +83,7 @@ class _Pkg:
         for n in self.dirty:
             m = re.match(rb"\s*<\?xml[^>]*\?>\s*", self.data[n])
             self.data[n] = (m.group(0) if m else b"") + etree.tostring(self.trees[n], encoding="UTF-8")
+        os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
         fd, tmp = tempfile.mkstemp(suffix=".pptx", dir=os.path.dirname(os.path.abspath(dst)))
         os.close(fd)
         try:

@@ -4,9 +4,9 @@ takes src and dst and rewrites only the slide parts, presentation.xml, its
 relationships and [Content_Types].xml.
 
     import pptx_slides as ps
-    ps.duplicate_slide("in.pptx", "out.pptx", 3)      # the copy follows slide 3
-    ps.delete_slide("in.pptx", "out.pptx", 5)
-    ps.reorder("in.pptx", "out.pptx", [3, 1, 2])      # new order, as old slide numbers
+    ps.duplicate_slide("/mnt/data/in.pptx", "/mnt/output/out.pptx", 3)      # the copy follows slide 3
+    ps.delete_slide("/mnt/data/in.pptx", "/mnt/output/out.pptx", 5)
+    ps.reorder("/mnt/data/in.pptx", "/mnt/output/out.pptx", [3, 1, 2])      # new order, as old slide numbers
 
 Licence: Apache-2.0, as the rest of this repository. Original work.
 """
