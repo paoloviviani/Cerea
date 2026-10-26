@@ -335,8 +335,13 @@ export async function* runMcpFlow({
 		artifactToolsEnabled && delegationEnabled()
 			? { models: await delegationModelsFor(locals) }
 			: undefined;
+	// The document service's capabilities (cached a minute); null when it is
+	// not configured or not answering. Resolved here like the probe above.
+	const { getCapabilities } = await import("$lib/server/documents/client");
+	const documentCapabilities = await getCapabilities();
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
+		documentCapabilities,
 		memoryEnabled: memoryAllowed,
 		...(memoryProject ? { projectMemoryProjectId: memoryProject._id } : {}),
 		askUserQuestionEnabled: (

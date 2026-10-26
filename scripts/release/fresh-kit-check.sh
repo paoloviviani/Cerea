@@ -2,7 +2,8 @@
 # fresh-kit-check.sh vX.Y.Z: install the deploy kit at a tag exactly as an
 # operator would (get-kit.sh from GitHub), configure it non-interactively, pull
 # the images with NO registry login, start it, check the running images carry
-# the tag's pins, sign a throwaway (non-admin) user in through Authelia, the
+# the tag's pins (the chat, the gateway and the document service, which must
+# be healthy and answer the chat), sign a throwaway (non-admin) user in through Authelia, the
 # console and the chat, and print E2E_OK. The stack and the scratch directory
 # are removed afterwards, pass or fail.
 #
@@ -48,6 +49,27 @@ docker compose up -d --wait
 docker compose ps --format '{{.Service}} {{.Image}} {{.Status}}'
 docker compose ps --format '{{.Image}}' | grep -q "cerea:${cerea_pin}$"
 docker compose ps --format '{{.Image}}' | grep -q "pystino-gateway:${pystino_pin}$"
+
+# The document service (ADR 0103): the pinned image, healthy, and the chat can
+# reach it with the secret it was given (and the service refuses a call without).
+# Plain statements, so a failure stops the script under `set -e`.
+images=$(docker compose ps --format '{{.Image}}')
+grep -q "cerea-documents:${cerea_pin}$" <<<"$images"
+documents_health=$(docker compose ps documents --format '{{.Health}}')
+test "$documents_health" = healthy
+docker compose exec -T chat node -e "
+const base = process.env.CHAT_DOCUMENTS_URL, secret = process.env.CHAT_DOCUMENTS_SECRET;
+(async () => {
+  if (!base || !secret) throw new Error('the chat has no document service settings');
+  const ok = await fetch(base + '/v1/capabilities', { headers: { 'X-Cerea-Documents-Secret': secret } });
+  const refused = await fetch(base + '/v1/capabilities');
+  const caps = await ok.json();
+  const ops = (caps.formats && caps.formats.docx && caps.formats.docx.operations) || [];
+  if (ok.status !== 200 || refused.status !== 401 || !ops.includes('replace_text')) {
+    throw new Error('document service check failed: ' + ok.status + ' / ' + refused.status);
+  }
+  console.log('documents reachable from the chat with the shared secret; refuses a call without it; formats ' + Object.keys(caps.formats).join(','));
+})().catch((e) => { console.error(e.message); process.exit(1); });"
 
 # A chat model with no display name, then the chat restarted so it builds its
 # catalogue at boot from that card. A fresh kit holds no chat model at all, so

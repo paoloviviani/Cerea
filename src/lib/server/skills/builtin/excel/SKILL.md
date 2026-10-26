@@ -59,6 +59,14 @@ Formula requirements:
 
 ## Editing an existing workbook
 
+**First choice: the document tools.** If `doc_outline`, `doc_read` and `doc_edit` are in your tool list, edit a
+supplied workbook with them and write no code: `doc_outline` for the structure and ids, `doc_read` for exact
+content, then `doc_edit` with typed operations (set cells and formulas, clear cells, add a sheet, insert an image; other sheets, charts and extensions are left untouched). The edit is saved as a new version of the file
+under the same name, the original is kept, and the result gives you the diff and a verification report to
+summarise for the person. Edit again by the same name to build on your last version. If the tools are not in
+your list, the service is not set up on this deployment: use the helpers below, which do the same work inside
+the sandbox. (New files are still made as described elsewhere in this skill.)
+
 A workbook the person attached is at `/mnt/data/<its filename>` in the
 sandbox; one produced earlier in the conversation is in the working
 directory.

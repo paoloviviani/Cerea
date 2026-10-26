@@ -27,5 +27,12 @@ export interface CodeExecutionOutput {
 	size: number;
 	/** Id of the GridFS file in the `codeOutputs` bucket carrying the bytes. */
 	gridFsId: ObjectId;
+	/**
+	 * Set when a tool made this file from another one of the conversation (a
+	 * `doc_edit` result): the source's content hash and name. The source is
+	 * never changed; this is the link between the two versions.
+	 */
+	derivedFromSha256?: string;
+	derivedFromName?: string;
 	createdAt: Date;
 }

@@ -120,6 +120,13 @@ describe("the built-in definitions", () => {
 				expect(file?.content.length ?? 0, `${skill}/${bundled}`).toBeLessThan(20_000);
 			}
 		}
+		// The document tools are the first choice for editing supplied files (ADR 0103);
+		// the in-sandbox helpers stay as the fallback when the tools are absent.
+		for (const skill of ["word", "excel", "powerpoint"]) {
+			const body = definition(skill).content;
+			expect(body, skill).toContain("`doc_outline`, `doc_read` and `doc_edit`");
+			expect(body, skill).toMatch(/not in\s+your list/);
+		}
 		for (const builtin of listBuiltinSkills()) {
 			expect(
 				builtin.files.filter((file) => file.path.includes("__pycache__")),

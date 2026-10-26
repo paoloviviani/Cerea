@@ -446,8 +446,8 @@ pins the Pystino version it was tested with. Then, in this order:
    uses the message `vX.Y.Z`; when five pushes fail with a GitHub 5xx it creates the tag through
    the API instead, which makes a lightweight tag.)
 4. **The `images` workflow** on the tag: `gh workflow run images.yml --ref vX.Y.Z`, then wait for
-   green. It publishes `ghcr.io/paoloviviani/cerea:X.Y.Z` (and `:X.Y`); the package is public.
-5. **Anonymous pull:** `docker pull` of the Cerea image and of the Pystino images the kit pins,
+   green. It publishes `ghcr.io/paoloviviani/cerea:X.Y.Z` and `ghcr.io/paoloviviani/cerea-documents:X.Y.Z` (and `:X.Y`); both packages are public (a new package is private after its first push: the owner makes it public once, and step 5 fails until then).
+5. **Anonymous pull:** `docker pull` of the Cerea and cerea-documents images and of the Pystino images the kit pins,
    with `DOCKER_CONFIG` pointing at an empty directory.
 6. **Fresh-kit end-to-end test**, from the tag, the way an operator gets it:
    `get-kit.sh --repo <this repository> --version vX.Y.Z --dir <scratch>`, then in `<scratch>/kit`

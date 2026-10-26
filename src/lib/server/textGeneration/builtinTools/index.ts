@@ -9,6 +9,8 @@ import { createDelegateTools, type DelegateModel } from "./delegateTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
 import { createExecuteCodeBuiltin } from "./executeCodeTool";
 import { createConvertDocumentBuiltin } from "./convertDocumentTool";
+import { createDocumentBuiltins } from "./documentTools";
+import type { DocumentCapabilities } from "$lib/server/documents/client";
 import { createWebFetchStructuredBuiltin } from "./webFetchStructuredTool";
 import { createMemoryBuiltins } from "./memoryTool";
 import { configuredBackend } from "$lib/server/fetching";
@@ -26,6 +28,7 @@ export {
 export { isNestedAgentTool } from "./nestedAgent";
 export { DELEGATE_TOOL_NAME, RESEARCH_TOOL_NAME } from "./delegateTool";
 export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
+export { DOC_OUTLINE_TOOL_NAME, DOC_READ_TOOL_NAME, DOC_EDIT_TOOL_NAME } from "./documentTools";
 
 /**
  * Enablement policy lives here, per tool — never in the dispatch or gate
@@ -128,6 +131,14 @@ export function getEnabledBuiltinTools(params: {
 	 * means neither tool is offered. Needs `toolsEnabled` as well.
 	 */
 	delegation?: { models: DelegateModel[] };
+	/**
+	 * What the document service says it can do (`getCapabilities`, cached a
+	 * minute), resolved by the caller: a network read has no place in this
+	 * synchronous function, the same reason `playwrightReachable` arrives
+	 * decided. Null or absent (not configured, or not answering) offers no
+	 * `doc_*` tool; otherwise only the operations it lists are offered.
+	 */
+	documentCapabilities?: DocumentCapabilities | null;
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
@@ -164,6 +175,10 @@ export function getEnabledBuiltinTools(params: {
 	// PDF conversion through the deployment's Gotenberg (the kit's `office`
 	// profile). Gated on `CHAT_GOTENBERG_URL` alone: unset, nothing registers.
 	tools.push(...createConvertDocumentBuiltin());
+
+	// Typed Word, Excel and PowerPoint tools through the document service (ADR 0103).
+	// Gated on the service being configured and answering, and on its capabilities.
+	tools.push(...createDocumentBuiltins(params.documentCapabilities));
 
 	// Memory joins every conversation: a standing fact about somebody is as
 	// relevant to one chat as another, and the whole point is that it survives

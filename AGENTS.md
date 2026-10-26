@@ -1170,6 +1170,34 @@ When building new features, consider:
 3. **Scrollbars**: Use `scrollbar-custom` class for styled scrollbars
 4. **Icons**: Custom icons in `$lib/components/icons/`, use Carbon (`~icons/carbon/*`) or Lucide (`~icons/lucide/*`) for standard icons
 
+## Document tools (`doc_outline`, `doc_read`, `doc_edit`)
+
+ADR 0103. The `documents/` service (Python, own CI job, own image
+`cerea-documents`, versioned with the chat) edits Word, Excel and PowerPoint
+files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
+
+- `src/lib/server/documents/client.ts` is the client: deadline, error mapping
+  (401/413/415/422/504 to plain messages), `getCapabilities()` cached a minute
+  (shorter after a failure). `runMcpFlow` resolves it per turn and hands it to
+  `getEnabledBuiltinTools({ documentCapabilities })`; null means no `doc_*` tool.
+- `builtinTools/documentTools.ts`: `doc_edit`'s text is **generated from the
+  service's `operation_schemas`** in `/v1/capabilities` (one source of truth),
+  and only operations the service lists are offered. A new service operation
+  needs no change here. `documentsContract.spec.ts` checks every operation in
+  `capabilities.fixture.json`, which `documents/tests/test_api.py` keeps equal to
+  the live service: regenerate the fixture (command in the spec) when the service's
+  schemas change.
+- Files are named as `convert_document` names them (`conversationFiles.ts`:
+  attachments by their `/mnt/data` name, produced files by name, this
+  conversation only, access re-checked on every read). The document tools prefer
+  the newest **produced** file of a name over an attachment of the same name, so
+  edits chain.
+- An edit is stored with `storeDeliverable` under the **source's name** (the
+  next version of the same file artifact, which `collectFileArtifacts` folds by
+  name), with `derivedFromSha256/Name` on the store row, and listed through an
+  `Outputs` update (`runKey` `doc_edit:<uuid>`, so it renders as a file card).
+  The original is never touched.
+
 ## Office previews and `convert_document`
 
 Optional, per deployment: the kit's `office` profile runs Gotenberg (LibreOffice

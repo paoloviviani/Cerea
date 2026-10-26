@@ -197,6 +197,10 @@ MINTED = {
     # own "32 random bytes, url-safe" asks for, and every other minted
     # secret here already uses it -- one encoding, not two.
     "CHAT_ERASURE_TOKEN": 32,
+    # The shared secret between the chat and the document service (ADR 0103):
+    # the chat sends it, the service refuses any call without it. Minted for
+    # an existing install too, on its next ./configure.
+    "CHAT_DOCUMENTS_SECRET": 32,
 }
 MINTED_AUTHELIA = {
     "AUTHELIA_SESSION_SECRET": 32,
@@ -236,6 +240,7 @@ REQUIRED_BY_PROFILE = {
         "CHAT_SECRET_KEY",
         "OIDC_CHAT_CLIENT_SECRET",
         "CHAT_ERASURE_TOKEN",
+        "CHAT_DOCUMENTS_SECRET",
     ),
     # The gateway refuses to start with engine=http and no placeholder key.
     "redaction": ("REDACTION_PLACEHOLDER_KEY",),

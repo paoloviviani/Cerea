@@ -161,6 +161,9 @@ def capabilities() -> dict[str, Any]:
             "outline": True,
             "read": True,
             "operations": sorted(eng.OPS),
+            # The JSON schema of every operation: what the chat builds its tool descriptions from,
+            # so the contract has one source.
+            "operation_schemas": {op: eng.OPS[op][0] for op in sorted(eng.OPS)},
             "deferred_operations": list(eng.DEFERRED),
             "track_changes": name == "docx",
         }

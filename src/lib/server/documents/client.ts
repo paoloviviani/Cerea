@@ -1,0 +1,326 @@
+/**
+ * The client of the document service (`documents/`, ADR 0103): outline, read
+ * and edit of Word, Excel and PowerPoint files over a small internal HTTP API.
+ *
+ * `CHAT_DOCUMENTS_URL` and `CHAT_DOCUMENTS_SECRET` say where it is and what it
+ * expects; either empty means the feature is off, which every caller treats as
+ * "not offered", never as an error. The service is on an internal network, so
+ * this client adds only what a client can: a deadline on every call, a cap on
+ * what comes back and a plain message for every way a call can fail.
+ */
+import { config } from "$lib/server/config";
+import { logger } from "$lib/server/logger";
+
+/** A call gives up after this; the service's own wall-clock limit is shorter (30 s). */
+export const DOCUMENTS_TIMEOUT_MS = 60_000;
+/** The capabilities answer is reused this long. */
+export const CAPABILITIES_TTL_MS = 60_000;
+/** A failed capabilities call is not retried for this long (a dead service must not slow every turn). */
+export const CAPABILITIES_FAILURE_TTL_MS = 15_000;
+/** The largest edited file read back (the service's own cap is larger). */
+export const MAX_RESULT_BYTES = 64 * 1024 * 1024;
+
+export const DOCUMENT_FORMATS = ["docx", "xlsx", "pptx"] as const;
+export type DocumentFormat = (typeof DOCUMENT_FORMATS)[number];
+
+export interface FormatCapabilities {
+	outline: boolean;
+	read: boolean;
+	operations: string[];
+	/** JSON schema of each operation, by name (the single source of the tool text). */
+	operation_schemas?: Record<string, JsonSchema>;
+	track_changes?: boolean;
+}
+
+export type JsonSchema = {
+	type?: string | string[];
+	enum?: unknown[];
+	properties?: Record<string, JsonSchema>;
+	required?: string[];
+	items?: JsonSchema;
+	default?: unknown;
+	pattern?: string;
+	minimum?: number;
+	maximum?: number;
+	exclusiveMinimum?: number;
+	[key: string]: unknown;
+};
+
+export interface DocumentCapabilities {
+	engine?: string;
+	formats: Partial<Record<DocumentFormat, FormatCapabilities>>;
+}
+
+export type DocumentsFailure =
+	"unauthorized" | "too_large" | "unsupported" | "rejected" | "timeout" | "unavailable" | "failed";
+
+/** A call that did not produce a result; `message` is safe to show a model. */
+export class DocumentsError extends Error {
+	constructor(
+		readonly kind: DocumentsFailure,
+		message: string
+	) {
+		super(message);
+		this.name = "DocumentsError";
+	}
+}
+
+/** The service's base URL without a trailing slash, or "" when it is not configured. */
+export function documentsUrl(): string {
+	const raw = String(config.CHAT_DOCUMENTS_URL ?? "").trim();
+	if (!raw) return "";
+	try {
+		const url = new URL(raw);
+		if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+		return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+	} catch {
+		return "";
+	}
+}
+
+function documentsSecret(): string {
+	return String(config.CHAT_DOCUMENTS_SECRET ?? "").trim();
+}
+
+/** Both settings present: the tools are offered (when the service also answers). */
+export function isDocumentsConfigured(): boolean {
+	return documentsUrl() !== "" && documentsSecret() !== "";
+}
+
+function headers(extra: Record<string, string> = {}): Record<string, string> {
+	return { "X-Cerea-Documents-Secret": documentsSecret(), ...extra };
+}
+
+let cached: { key: string; at: number; value: DocumentCapabilities | null } | undefined;
+
+/** Forget the cached capabilities (tests, and a settings change). */
+export function resetCapabilitiesCache(): void {
+	cached = undefined;
+}
+
+function parseCapabilities(raw: unknown): DocumentCapabilities | null {
+	if (!raw || typeof raw !== "object") return null;
+	const formats = (raw as { formats?: unknown }).formats;
+	if (!formats || typeof formats !== "object") return null;
+	const out: DocumentCapabilities = { formats: {} };
+	for (const name of DOCUMENT_FORMATS) {
+		const entry = (formats as Record<string, unknown>)[name];
+		if (!entry || typeof entry !== "object") continue;
+		const e = entry as Record<string, unknown>;
+		out.formats[name] = {
+			outline: e.outline === true,
+			read: e.read === true,
+			operations: Array.isArray(e.operations)
+				? e.operations.filter((op): op is string => typeof op === "string")
+				: [],
+			...(e.operation_schemas && typeof e.operation_schemas === "object"
+				? { operation_schemas: e.operation_schemas as Record<string, JsonSchema> }
+				: {}),
+			track_changes: e.track_changes === true,
+		};
+	}
+	const engine = (raw as { engine?: unknown }).engine;
+	if (typeof engine === "string") out.engine = engine;
+	return out;
+}
+
+/**
+ * What the service can do, or null when it is not configured or does not
+ * answer. Cached for a minute (a quarter of that after a failure), so a turn
+ * costs no call in the usual case and a dead service costs one short one.
+ */
+export async function getCapabilities(
+	options: { signal?: AbortSignal } = {}
+): Promise<DocumentCapabilities | null> {
+	if (!isDocumentsConfigured()) return null;
+	const key = `${documentsUrl()}|${documentsSecret()}`;
+	const now = Date.now();
+	if (cached && cached.key === key) {
+		const ttl = cached.value ? CAPABILITIES_TTL_MS : CAPABILITIES_FAILURE_TTL_MS;
+		if (now - cached.at < ttl) return cached.value;
+	}
+	let value: DocumentCapabilities | null = null;
+	try {
+		const signal = AbortSignal.timeout(5_000);
+		const response = await fetch(`${documentsUrl()}/v1/capabilities`, {
+			headers: headers(),
+			signal: options.signal ? AbortSignal.any([signal, options.signal]) : signal,
+		});
+		if (response.ok) {
+			value = parseCapabilities(await response.json());
+		} else {
+			logger.warn({ status: response.status }, "documents_capabilities_refused");
+		}
+	} catch (err) {
+		logger.warn({ err }, "documents_capabilities_unreachable");
+	}
+	cached = { key, at: now, value };
+	return value;
+}
+
+/** What a failed call looked like on the wire. */
+interface ServiceError {
+	code?: string;
+	message?: string;
+	operation_index?: number;
+	details?: Record<string, unknown>;
+}
+
+async function failure(response: Response): Promise<DocumentsError> {
+	let error: ServiceError = {};
+	const text = await response.text().catch(() => "");
+	try {
+		const parsed = JSON.parse(text) as { error?: ServiceError };
+		if (parsed.error && typeof parsed.error === "object") error = parsed.error;
+	} catch {
+		// Not JSON: the status alone is what there is.
+	}
+	const said = (error.message ?? "").slice(0, 2000);
+	const hint =
+		error.details && Object.keys(error.details).length > 0
+			? ` Details: ${JSON.stringify(error.details).slice(0, 1500)}`
+			: "";
+	switch (response.status) {
+		case 401:
+			logger.error({ status: 401 }, "documents_secret_rejected");
+			return new DocumentsError(
+				"unauthorized",
+				"The document service refused the chat's credentials (the shared secret does not match). " +
+					"This is a configuration problem for the administrator; nothing can be done in this conversation."
+			);
+		case 413:
+			return new DocumentsError(
+				"too_large",
+				`The document or the request is too large for the document service. ${said}`.trim()
+			);
+		case 415:
+			return new DocumentsError(
+				"unsupported",
+				`The document service cannot work on this file: ${said || "it is not a Word, Excel or PowerPoint file"}.`
+			);
+		case 422:
+			return new DocumentsError(
+				"rejected",
+				`${said || "The document service refused the request."}${hint} Nothing was changed.`
+			);
+		case 504:
+			return new DocumentsError(
+				"timeout",
+				"The document service took too long and stopped the work, so nothing was changed. " +
+					"Try fewer operations at once, or a smaller file."
+			);
+		default:
+			logger.warn({ status: response.status, code: error.code }, "documents_call_failed");
+			return new DocumentsError(
+				"failed",
+				`The document service failed (HTTP ${response.status}). ${said}`.trim()
+			);
+	}
+}
+
+async function call(
+	route: string,
+	form: FormData,
+	options: { signal?: AbortSignal; accept?: string }
+): Promise<Response> {
+	if (!isDocumentsConfigured()) {
+		throw new DocumentsError("unavailable", "Document tools are not available on this deployment.");
+	}
+	const deadline = AbortSignal.timeout(DOCUMENTS_TIMEOUT_MS);
+	let response: Response;
+	try {
+		response = await fetch(`${documentsUrl()}${route}`, {
+			method: "POST",
+			body: form,
+			headers: headers(options.accept ? { Accept: options.accept } : {}),
+			signal: options.signal ? AbortSignal.any([deadline, options.signal]) : deadline,
+		});
+	} catch (err) {
+		if (deadline.aborted || (err instanceof Error && err.name === "TimeoutError")) {
+			throw new DocumentsError(
+				"timeout",
+				"The document service did not answer in time, so nothing was changed. " +
+					"Try fewer operations at once, or a smaller file."
+			);
+		}
+		if (options.signal?.aborted) throw new DocumentsError("timeout", "The call was cancelled.");
+		logger.warn({ err, route }, "documents_unreachable");
+		throw new DocumentsError("unavailable", "The document service is not reachable right now.");
+	}
+	if (!response.ok) throw await failure(response);
+	return response;
+}
+
+function documentForm(file: { name: string; bytes: Buffer }, body?: unknown): FormData {
+	const form = new FormData();
+	form.append("file", new Blob([new Uint8Array(file.bytes)]), file.name);
+	if (body !== undefined) form.append("body", JSON.stringify(body));
+	return form;
+}
+
+export async function outlineDocument(
+	file: { name: string; bytes: Buffer },
+	options: { signal?: AbortSignal } = {}
+): Promise<unknown> {
+	const response = await call("/v1/outline", documentForm(file), options);
+	return response.json();
+}
+
+export async function readDocument(
+	file: { name: string; bytes: Buffer },
+	targets: unknown[],
+	options: { signal?: AbortSignal } = {}
+): Promise<unknown> {
+	const response = await call("/v1/read", documentForm(file, { targets }), options);
+	return response.json();
+}
+
+export interface EditResult {
+	format: string;
+	engine?: string;
+	operations: unknown[];
+	diff: string[];
+	verify: Record<string, unknown> & { ok?: boolean };
+	passed_through?: unknown[];
+	file_name: string;
+	content_type: string;
+	bytes: Buffer;
+}
+
+export async function editDocument(
+	file: { name: string; bytes: Buffer },
+	request: { operations: unknown[]; track_changes?: boolean; author?: string },
+	images: Array<{ name: string; bytes: Buffer }> = [],
+	options: { signal?: AbortSignal } = {}
+): Promise<EditResult> {
+	const form = documentForm(file, request);
+	for (const image of images) {
+		form.append("image", new Blob([new Uint8Array(image.bytes)]), image.name);
+	}
+	const response = await call("/v1/edit", form, { ...options, accept: "application/json" });
+	const declared = Number(response.headers.get("content-length") ?? "0");
+	if (declared > MAX_RESULT_BYTES * 1.4) {
+		await response.body?.cancel().catch(() => undefined);
+		throw new DocumentsError("too_large", "The edited document is too large to keep.");
+	}
+	const json = (await response.json()) as Record<string, unknown>;
+	const base64 = json.file_base64;
+	if (typeof base64 !== "string") {
+		throw new DocumentsError("failed", "The document service returned no file.");
+	}
+	const bytes = Buffer.from(base64, "base64");
+	if (bytes.byteLength > MAX_RESULT_BYTES) {
+		throw new DocumentsError("too_large", "The edited document is too large to keep.");
+	}
+	return {
+		format: String(json.format ?? ""),
+		engine: typeof json.engine === "string" ? json.engine : undefined,
+		operations: Array.isArray(json.operations) ? json.operations : [],
+		diff: Array.isArray(json.diff) ? json.diff.map(String) : [],
+		verify: (json.verify as EditResult["verify"]) ?? {},
+		passed_through: Array.isArray(json.passed_through) ? json.passed_through : [],
+		file_name: String(json.file_name ?? file.name),
+		content_type: String(json.content_type ?? "application/octet-stream"),
+		bytes,
+	};
+}

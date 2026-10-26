@@ -28,6 +28,7 @@ name: ${COMPOSE_PROJECT_NAME:-cerea}
 x-gateway-image: &gateway-image ${GATEWAY_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-gateway:${PYSTINO_VERSION:-0.18.1}}
 x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.18.1}-pattern}
 x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.29.0}}
+x-documents-image: &documents-image ${DOCUMENTS_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-documents:${CEREA_VERSION:-0.29.0}}
 
 x-database-url: &database-url postgresql+asyncpg://${POSTGRES_USER:-gateway}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-gateway}
 
@@ -453,6 +454,14 @@ services:
       # two in step). Empty: no Office previews through LibreOffice and no
       # convert_document tool; PowerPoint previews fall back to the browser.
       CHAT_GOTENBERG_URL: ${CHAT_GOTENBERG_URL:-}
+      # The document service (the `documents` service below, on the chat
+      # profile): typed tools that read and edit the person's Word, Excel and
+      # PowerPoint files. The URL defaults to the bundled service; set it
+      # empty to switch the tools off. The secret is minted by ./configure; an
+      # .env from before it has none, and the tools stay off until ./configure
+      # is run again.
+      CHAT_DOCUMENTS_URL: ${CHAT_DOCUMENTS_URL-http://documents:8090}
+      CHAT_DOCUMENTS_SECRET: ${CHAT_DOCUMENTS_SECRET:-}
       CHAT_CODE_TOOL_ENABLED: ${CHAT_CODE_TOOL_ENABLED-true}
       CHAT_CODE_RUN_TIMEOUT_SECONDS: ${CHAT_CODE_RUN_TIMEOUT_SECONDS:-}
       CHAT_USAGE_ENABLED: ${CHAT_USAGE_ENABLED-true}
@@ -536,10 +545,11 @@ services:
       PROTOCOL_HEADER: X-Forwarded-Proto
       HOST_HEADER: X-Forwarded-Host
       NODE_OPTIONS: --dns-result-order=ipv4first
-    # `default` is the stack's network; `office` is the internal-only one the
-    # document converter lives on (see the office profile below). Listing a
-    # network replaces the implicit default, so both are named.
-    networks: [default, office]
+    # `default` is the stack's network; `office` and `docs` are the
+    # internal-only ones the document converter and the document service live
+    # on (see below). Listing a network replaces the implicit default, so all
+    # are named.
+    networks: [default, office, docs]
     depends_on:
       chat-mongo:
         condition: service_healthy
@@ -551,6 +561,40 @@ services:
       authelia:
         condition: service_healthy
         required: false
+
+  # The document service (ADR 0103): precise edits of Word, Excel and
+  # PowerPoint files for the chat's doc_outline, doc_read and doc_edit tools.
+  # It parses uploaded documents, so it is boxed in like Gotenberg:
+  #   - only the `docs` network, which is `internal: true` (no route out, no
+  #     published port): the chat reaches it and it reaches nothing;
+  #   - no volumes, a read-only root filesystem, tmpfs for the per-request job
+  #     directories, no capabilities, no privilege escalation;
+  #   - memory, CPU and process limits; every request runs in a fresh
+  #     subprocess with its own resource limits and a wall-clock kill;
+  #   - every call needs the shared secret, which ./configure mints.
+  # The chat does not depend on it: without it the document tools are simply
+  # not offered, and the skills' in-sandbox helpers are the fallback.
+  documents:
+    profiles: [chat]
+    image: *documents-image
+    restart: unless-stopped
+    environment:
+      CEREA_DOCUMENTS_SECRET: ${CHAT_DOCUMENTS_SECRET:-}
+    networks: [docs]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${DOCUMENTS_MEM_LIMIT:-2g}
+    cpus: ${DOCUMENTS_CPUS:-2}
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=2).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # --- profile: redaction ------------------------------------------------------
 
@@ -672,4 +716,8 @@ networks:
   # No route out: Docker gives an internal network no gateway and publishes no
   # port onto it. Created on every `up` (empty without the office profile).
   office:
+    internal: true
+  # The document service's own, the same shape: the chat and the service are
+  # the only members.
+  docs:
     internal: true

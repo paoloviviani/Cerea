@@ -75,6 +75,7 @@ ENV_ALLOWLIST = frozenset(
         "REDACTION_LANGUAGE",
         "FETCH_BACKEND",
         "CHAT_GOTENBERG_URL",
+        "CHAT_DOCUMENTS_URL",
         "CODE_AGENTS_ENABLED",
         "CODE_TERMINAL_ENABLED",
         "OIDC_KIND",

@@ -121,6 +121,14 @@ sensible slide; `**Layout: name**` forces an exact layout when you know it.
 
 ## Editing an existing deck
 
+**First choice: the document tools.** If `doc_outline`, `doc_read` and `doc_edit` are in your tool list, edit a
+supplied deck with them and write no code: `doc_outline` for the structure and ids, `doc_read` for exact
+content, then `doc_edit` with typed operations (replace text, set placeholder text, replace or insert images, duplicate, delete or reorder slides, set notes). The edit is saved as a new version of the file
+under the same name, the original is kept, and the result gives you the diff and a verification report to
+summarise for the person. Edit again by the same name to build on your last version. If the tools are not in
+your list, the service is not set up on this deployment: use the helpers below, which do the same work inside
+the sandbox. (New files are still made as described elsewhere in this skill.)
+
 **Decision rule.** A new deck: `generate.py`. A deck the person supplied that
 you must change: use the bundled editing helpers. **Never**
 `Presentation(path)` + `save()` on a supplied file for edits: python-pptx
