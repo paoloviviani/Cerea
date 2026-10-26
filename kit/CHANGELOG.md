@@ -5,6 +5,31 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.30.1 — 2026-10-26
+
+Pins: Cerea `0.30.1` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. (From 0.29.x, run `./configure`
+once first, as for 0.30.0.)
+
+- **Decks the assistant creates are laid out properly.** In 0.30.0 most content
+  slides had their title cut off at the top, text and tables overlapping it, and
+  two-column slides squeezed into the left half; dense slides shrank to 12 pt.
+  The built-in 16:9 layouts are now built for that size, tables, pictures and
+  charts sit below the title, text uses 20–24 pt and shrinks no further than
+  14 pt (the assistant is told to split the slide instead). Decks made from your
+  own template were not affected.
+- **Pictures taller than the page** no longer break a PDF or run off a Word page.
+- **A chat answer can no longer run forever.** Under load, a model could stop
+  sending halfway through an answer without closing the connection; the chat
+  then waited indefinitely and the conversation kept its "answering" dot. Now an
+  answer is stopped when the model sends nothing for 5 minutes ("The model
+  stopped responding, so this answer was stopped. Try again."), and any one
+  answer is stopped after 30 minutes. What was already written is kept. Waiting
+  for your approval or your answer to a question doesn't count. Operators can
+  change both with `CHAT_STREAM_IDLE_TIMEOUT_MS` (at least 30000) and
+  `CHAT_TURN_MAX_MINUTES` (at least 1).
+
 ## v0.30.0 — 2026-10-26
 
 Pins: Cerea `0.30.0` (chat and the new `cerea-documents` service), Pystino `0.18.1` (unchanged), Authelia 4.39.22 (unchanged).
