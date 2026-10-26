@@ -53,7 +53,7 @@
 import type { ExtractionFailureKind } from "$lib/types/Message";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
-import { gateway, GatewayCallFailed } from "$lib/server/gatewayServer";
+import { gateway, GatewayCallFailed, GatewayTimeout } from "$lib/server/gatewayServer";
 import { readConfig } from "$lib/server/knowledge/service";
 import {
 	resolveExtractor,
@@ -181,6 +181,36 @@ interface OcrResponse {
 	page_count?: number;
 	/** More pages needed an image than the request allowed. */
 	truncated?: boolean;
+}
+
+/**
+ * How long one document may take to read, in milliseconds: `CHAT_OCR_TIMEOUT_MS`,
+ * 180 s when unset or unreadable. Its own setting, apart from the short deadlines
+ * on the other gateway calls: a 50-page PDF takes the local reader 20-30 s, and a
+ * deadline sized for a lookup turned that success into "the document reader failed".
+ */
+export const OCR_TIMEOUT_MS_DEFAULT = 180_000;
+export function ocrTimeoutMs(): number {
+	const raw = config.CHAT_OCR_TIMEOUT_MS?.toString().trim();
+	if (!raw) return OCR_TIMEOUT_MS_DEFAULT;
+	const n = Number(raw);
+	return Number.isFinite(n) && n > 0 ? Math.floor(n) : OCR_TIMEOUT_MS_DEFAULT;
+}
+
+/** The sentence a person sees when the reader outlasts `ocrTimeoutMs()`. */
+function readerTimeoutReason(model: string, timeoutMs: number): string {
+	return `The document reader ${model} took longer than ${Math.round(timeoutMs / 1000)}s, so the file was stored without text. An administrator can raise CHAT_OCR_TIMEOUT_MS for large documents.`;
+}
+
+function warnReaderTimeout(
+	context: Record<string, unknown>,
+	elapsedMs: number,
+	timeoutMs: number
+): void {
+	logger.warn(
+		{ ...context, elapsedMs, timeoutMs },
+		`document_extraction_timeout: the reader did not answer within ${Math.round(timeoutMs / 1000)}s (elapsed ${Math.round(elapsedMs / 100) / 10}s); raise CHAT_OCR_TIMEOUT_MS to allow larger documents`
+	);
 }
 
 /** Page images asked for per PDF when `CHAT_PDF_IMAGE_PAGES` is unset. */
@@ -630,17 +660,23 @@ async function extractViaGateway(options: {
 	// deployment entirely.
 	const uri = `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
 
+	const timeoutMs = ocrTimeoutMs();
 	try {
-		const answer = await gateway.post<OcrResponse>(token, "ocr", {
-			model,
-			// `type` is required and is the provider's own discriminator, passed
-			// through rather than reinterpreted — the gateway refuses the request
-			// without it (`document.type: Field required`).
-			document: { type: "document_url", document_url: uri },
-			...(imagePages > 0
-				? { page_images: { max_pages: imagePages, long_side: PAGE_IMAGE_LONG_SIDE } }
-				: {}),
-		});
+		const answer = await gateway.post<OcrResponse>(
+			token,
+			"ocr",
+			{
+				model,
+				// `type` is required and is the provider's own discriminator, passed
+				// through rather than reinterpreted — the gateway refuses the request
+				// without it (`document.type: Field required`).
+				document: { type: "document_url", document_url: uri },
+				...(imagePages > 0
+					? { page_images: { max_pages: imagePages, long_side: PAGE_IMAGE_LONG_SIDE } }
+					: {}),
+			},
+			{ timeoutMs }
+		);
 		// Pages that are pictures come back beside the pages that are text; put
 		// them back in order. Without any, it is an ordinary answer.
 		const composed = imagePages > 0 ? composePages(answer, imagePages) : null;
@@ -697,6 +733,15 @@ async function extractViaGateway(options: {
 		}
 		return { ok: true, ...extracted };
 	} catch (err) {
+		if (err instanceof GatewayTimeout) {
+			warnReaderTimeout({ filename, model }, err.elapsedMs, timeoutMs);
+			return {
+				ok: false,
+				kind: "unreachable",
+				status: 504,
+				reason: readerTimeoutReason(model, timeoutMs),
+			};
+		}
 		const status = err instanceof GatewayCallFailed ? err.status : 502;
 		// The gateway's own refusals are written to be acted on ("this document
 		// has no text layer — use an OCR model for this document"); quoting them
@@ -784,8 +829,11 @@ async function extractDocumentDirect(options: {
 	const apiKey = config.CHAT_OCR_API_KEY?.trim();
 
 	let response: Response;
+	const timeoutMs = ocrTimeoutMs();
+	const started = Date.now();
 	try {
 		response = await fetch(`${baseUrl.replace(/\/$/, "")}/ocr`, {
+			signal: AbortSignal.timeout(timeoutMs),
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
@@ -797,6 +845,15 @@ async function extractDocumentDirect(options: {
 			}),
 		});
 	} catch (err) {
+		if (err instanceof Error && err.name === "TimeoutError") {
+			warnReaderTimeout({ filename, model, baseUrl }, Date.now() - started, timeoutMs);
+			return {
+				ok: false,
+				kind: "unreachable",
+				status: 504,
+				reason: readerTimeoutReason(model, timeoutMs),
+			};
+		}
 		logger.warn(
 			{ filename, model, baseUrl, err },
 			"document_extraction_failed: the direct OCR endpoint could not be reached"
