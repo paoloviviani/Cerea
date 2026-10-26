@@ -543,13 +543,21 @@ Simple stdio MCP servers (the kind a README tells you to start with `uvx
 <package>`) can run as containers beside the kit and appear in everyone's chat
 as Base Servers, with no host port and no VPN. `tools/mcp/` has an example
 override with two of them, a web search (`duckduckgo-mcp-server`) and
-OpenStreetMap (`osm-mcp-server`). Each service is one
+OpenStreetMap (`osm-mcp`, an npm package). Each service is one
 [`mcp-proxy`](https://github.com/sparfenyuk/mcp-proxy) wrapping one server:
 stdio in, Streamable HTTP out on the stack's own network, at
 `http://mcp-search:8096/mcp`. The image (`tools/mcp/Dockerfile`) is
-`python:3.13-slim` with `mcp-proxy` and `uv` pinned: the upstream mcp-proxy
-image has no `uv`, so `uvx` servers need this one. For npm servers, add Node to
-that image (the Dockerfile says how) and start them with `npx -y <package>`.
+`python:3.13-slim` with `mcp-proxy`, `uv` and Node 22 with npm, all pinned: the
+upstream mcp-proxy image has neither, so `uvx` and `npx` servers need this one.
+Start npm servers with `npx -y <package>@<version>` and set
+`NPM_CONFIG_CACHE=/cache/npm`, as the example does.
+
+The OpenStreetMap server calls free public services (Nominatim, Overpass, OSRM).
+Before you start it, set `OSM_USER_AGENT` in the override to a name with a
+contact address you answer at: those services answer 406 to anonymous clients,
+and Nominatim's usage policy asks for it. Walking and cycling routes use the
+FOSSGIS `routed-foot` / `routed-bike` servers; point `OSRM_BASE_URL` at your own
+if you need more than light use.
 
 1. Add the example's services and its `mcp-cache` volume to
    `compose.override.yaml`: copy `tools/mcp/compose.override.example.yaml` if you
@@ -568,7 +576,7 @@ that image (the Dockerfile says how) and start them with `npx -y <package>`.
    ```
 
 3. `docker compose up -d --build`. The first start of each server downloads its
-   package into the `mcp-cache` volume; the healthcheck allows 90 s for that.
+   package into the `mcp-cache` volume; the healthcheck allows 90 to 120 s for that.
 
 `MCP_INTERNAL_HOSTS` is the only opening the chat needs. An MCP URL has to be
 https, and `MCP_ALLOW_INSECURE_URLS` only covers IP addresses; a Compose service
