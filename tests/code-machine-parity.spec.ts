@@ -932,7 +932,7 @@ test.describe("owned machine agent: parity", () => {
 		await page.getByRole("textbox", { name: "Your own answer" }).fill("Neither, do C");
 		await page.getByRole("button", { name: "Send", exact: true }).click();
 
-		await expect(page.getByText("Doing C.")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByText("Doing C.")).toBeVisible({ timeout: 60_000 });
 		await expect(page.getByText("Approach → Other: Neither, do C").first()).toBeVisible();
 		// The typed text reaches the model through opencode's own tool result, on
 		// the follow-up request opencode makes after the answer (the scripted reply

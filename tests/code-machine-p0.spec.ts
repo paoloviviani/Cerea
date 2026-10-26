@@ -97,7 +97,9 @@ test.describe("owned machine agent (P0)", () => {
 		});
 		await box.fill("write the file");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByLabel("Conversation messages").getByText("wants to call")).toBeVisible({
+			timeout: 60_000,
+		});
 		await page.getByRole("button", { name: "Allow once" }).click();
 		await expect(page.getByText("Wrote the file.")).toBeVisible({ timeout: 60_000 });
 		const out = join(machine.workspace, "out.txt");
