@@ -58,7 +58,7 @@ test("the model creates a Word report with a table, an image and a native chart"
 	await waitForHydration(page);
 	await page.getByLabel("Upload file").setInputFiles({
 		name: "logo.png",
-		mimeType: "image/png",
+		mimeType: "application/octet-stream", // shown as a file chip, like the docx of the edit spec
 		buffer: LOGO,
 	});
 	await expect(page.getByText("logo.png")).toBeVisible();
