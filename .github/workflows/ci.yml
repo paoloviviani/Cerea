@@ -117,6 +117,55 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
+  # The document service (ADR 0103), documents/: lint, strict types, tests (including the
+  # hostile-fixture suite and the time-limit kill), then the image is built (no push), held to
+  # its size budget and smoke-run with the hardened container settings the kit will use.
+  documents:
+    needs: changes
+    if: github.event_name != 'schedule' && needs.changes.outputs.documents == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: documents
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: documents/uv.lock
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest
+      - name: Build the image (no push)
+        run: docker build -t cerea-documents:ci .
+      - name: Image stays under 300 MB
+        run: |
+          size="$(docker image inspect cerea-documents:ci --format '{{.Size}}')"
+          echo "image size: $size bytes"
+          test "$size" -lt 314572800
+      - name: Smoke-run the hardened image
+        run: |
+          docker run -d --name docs --read-only --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+            --cap-drop ALL --security-opt no-new-privileges --memory 1g --cpus 1 \
+            -e CEREA_DOCUMENTS_SECRET=ci-secret -p 8090:8090 cerea-documents:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8090/healthz && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8090/healthz
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/v1/capabilities)" = 401
+          curl -fsS -H 'X-Cerea-Documents-Secret: ci-secret' http://127.0.0.1:8090/v1/capabilities | grep -q '"docx"'
+          # a real document through the worker subprocess in the locked-down container
+          uv run python -c "import docx; docx.Document().save('/tmp/ci.docx')"
+          curl -fsS -H 'X-Cerea-Documents-Secret: ci-secret' -F file=@/tmp/ci.docx http://127.0.0.1:8090/v1/outline | grep -q '"format":"docx"'
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs docs || true
+
   # Whether the client project should run: always, except on a PR that leaves
   # src/lib/components alone (a component change is what the project tests).
   changes:
@@ -125,6 +174,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       client: ${{ steps.diff.outputs.client }}
+      documents: ${{ steps.diff.outputs.documents }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -135,10 +185,20 @@ jobs:
         run: |
           if [ "$EVENT" != pull_request ]; then
             echo "client=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "$BASE" "$GITHUB_SHA" | grep -q '^src/lib/components/'; then
+            echo "documents=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$BASE" "$GITHUB_SHA")"
+          if grep -q '^src/lib/components/' <<<"$changed"; then
             echo "client=true" >> "$GITHUB_OUTPUT"
           else
             echo "client=false" >> "$GITHUB_OUTPUT"
+          fi
+          # the document service: only when it (or this workflow) changed
+          if grep -qE '^(documents/|\.github/workflows/ci\.yml$)' <<<"$changed"; then
+            echo "documents=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "documents=false" >> "$GITHUB_OUTPUT"
           fi
 
   client:
