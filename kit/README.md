@@ -171,6 +171,7 @@ again. Keep the old directory until the new stack works.
 | `bootstrap` | always | a one-shot on every `up`: creates the chat's database role and extensions, and the bundled Authelia's signing key and first user if absent; it never overwrites anything |
 | `gateway`, `migrate`, `valkey` | `gateway` | Pystino: the OpenAI-compatible API at `/v1` and the admin console |
 | `chat`, `chat-mongo` | `chat` | Cerea at `/chat` |
+| `documents` | `chat` | the document service: typed, precise edits of Word, Excel and PowerPoint files for the chat's `doc_outline`, `doc_read` and `doc_edit` tools. On with the chat; internal network only (see below) |
 | `authelia` | `authelia` | the bundled identity provider at `/authelia` (stock image, `authelia/configuration.yml`) |
 | `redaction` | `redaction` | PII redaction for the gateway |
 | `extractor` | `documents`, `redaction` | the local document reader (Word, Excel, PowerPoint and old `.doc` files, scanned-PDF pages as images); `homelab` runs it through `documents`, without redaction |
@@ -207,6 +208,29 @@ the root filesystem read-only), no capabilities, CPU and memory limits
 timeout (`GOTENBERG_API_TIMEOUT`, 60s), short queues, no JavaScript in
 Chromium, and refuses non-public addresses and `downloadFrom`. Pin another
 image with `GOTENBERG_IMAGE`.
+
+### Editing Word, Excel and PowerPoint files (`documents` service)
+
+With the chat, a small service (`cerea-documents`, the same version as the chat)
+gives models three tools: `doc_outline` (a file's structure), `doc_read` (exact
+content) and `doc_edit` (typed operations: replace text, fill placeholders, set
+cells and formulas, edit tables, swap images, reorder slides, tracked changes
+in Word). An edit touches only the parts it names, the result is saved as a new
+version of the file next to the original, and the person gets an ordinary file
+card with the diff and a verification report in the conversation. Without the
+service the tools are not offered and the skills fall back to the in-sandbox
+helpers.
+
+`./configure` mints `CHAT_DOCUMENTS_SECRET`, which the chat sends and the
+service requires; an install from before it needs `./configure` run once more
+(then `docker compose up -d`). The chat finds the service at
+`CHAT_DOCUMENTS_URL` (default `http://documents:8090`; set it empty to turn the
+tools off). The service parses uploaded files, so it sits alone with the chat
+on an `internal` Docker network (no route to the internet, no published port),
+has no volumes, a read-only root filesystem with a small tmpfs, no
+capabilities, and CPU, memory and process limits (`DOCUMENTS_CPUS`,
+`DOCUMENTS_MEM_LIMIT`, defaults 2 and 2g); every request runs in a fresh,
+resource-limited subprocess. Pin another image with `DOCUMENTS_IMAGE`.
 
 ## MongoDB: 8 by default, 4.4 where the host cannot run it
 

@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { collections } from "$lib/server/database";
-import { storeDeliverable, downloadDeliverable } from "$lib/server/execution/deliverables";
-import { downloadFile } from "$lib/server/files/downloadFile";
+import { storeDeliverable } from "$lib/server/execution/deliverables";
 import { logger } from "$lib/server/logger";
 import {
 	ConversionError,
@@ -15,9 +13,7 @@ import {
 	markdownToHtml,
 } from "$lib/server/office/gotenberg";
 import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
-import type { MessageFile } from "$lib/types/Message";
-import { planAttachments } from "$lib/utils/execution/attachmentNames";
-import { MOUNT_ROOT } from "$lib/utils/execution/protocol";
+import { findConversationFile } from "./conversationFiles";
 import type { BuiltinTool } from "./types";
 
 export const CONVERT_DOCUMENT_TOOL_NAME = "convert_document";
@@ -43,12 +39,6 @@ type Source =
 
 type Found = { ok: true; source: Source } | { ok: false; error: string };
 
-/** The name as the model sees it for a file in the sandbox: `/mnt/data/<name>` or the bare name. */
-function bareName(reference: string): string {
-	const trimmed = reference.trim();
-	return trimmed.startsWith(`${MOUNT_ROOT}/`) ? trimmed.slice(MOUNT_ROOT.length + 1) : trimmed;
-}
-
 /** The pdf's name: the source's, with `.pdf`, or the given name made safe. */
 export function outputNameFor(requested: unknown, fallbackStem: string): string {
 	const wanted = typeof requested === "string" && requested.trim() ? requested : fallbackStem;
@@ -64,52 +54,14 @@ export function outputNameFor(requested: unknown, fallbackStem: string): string 
 	return `${stem}.pdf`;
 }
 
-/**
- * A file the conversation already has, by the name the model knows it under:
- * an attachment (the name in "available to code at /mnt/data/<name>") or a file
- * a run or an earlier conversion produced.
- */
-async function findConversationFile(
+/** The file as a conversion source: size and kind checked. */
+async function findSource(
 	conversationId: NonNullable<Parameters<BuiltinTool["execute"]>[1]["conversationId"]>,
 	reference: string
 ): Promise<Found> {
-	const wanted = bareName(reference);
-	const conversation = await collections.conversations.findOne(
-		{ _id: conversationId },
-		{ projection: { messages: 1 } }
-	);
-	const files: MessageFile[] = (conversation?.messages ?? []).flatMap(
-		(message) => message.files ?? []
-	);
-	const planned = planAttachments(files).find(
-		(entry) => entry.file.type === "hash" && (entry.name === wanted || entry.file.name === wanted)
-	);
-
-	let name: string | undefined;
-	let bytes: Buffer | undefined;
-	if (planned) {
-		name = planned.file.name;
-		const stored = await downloadFile(planned.file.value, conversationId.toString()).catch(
-			() => undefined
-		);
-		if (stored) bytes = Buffer.from(stored.value, "base64");
-	} else {
-		const row = await collections.codeExecutionOutputs
-			.find({ conversationId, name: wanted })
-			.sort({ createdAt: -1 })
-			.limit(1)
-			.next();
-		if (row) {
-			name = row.name;
-			bytes = (await downloadDeliverable(conversationId, row.sha256))?.buffer;
-		}
-	}
-	if (!name || !bytes) {
-		return {
-			ok: false,
-			error: `No file named "${wanted}" in this conversation. Use the name of an attachment or of a file you produced.`,
-		};
-	}
+	const file = await findConversationFile(conversationId, reference);
+	if (!file.ok) return file;
+	const { name, bytes } = file;
 	if (bytes.byteLength > MAX_SOURCE_BYTES) {
 		return {
 			ok: false,
@@ -213,7 +165,7 @@ export function createConvertDocumentBuiltin(): BuiltinTool[] {
 					let pdf: Buffer;
 					let fallbackStem = "document";
 					if (given[0] === "file") {
-						const found = await findConversationFile(ctx.conversationId, String(args.file));
+						const found = await findSource(ctx.conversationId, String(args.file));
 						if (!found.ok) return { error: found.error };
 						const source = found.source;
 						fallbackStem = source.name.replace(/\.[^.]*$/, "") || "document";

@@ -1,4 +1,5 @@
-# Publish the Cerea image — from main and release tags only (GitHub free plan:
+# Publish the Cerea images (the chat and the document service, same tags) —
+# from main and release tags only (GitHub free plan:
 # PRs never build it; this is the most expensive build either repository has,
 # about 15 minutes with the pyodide sync, so it runs only when the chat's
 # inputs changed).
@@ -76,6 +77,61 @@ jobs:
         with:
           {
             package-name: cerea,
+            package-type: container,
+            delete-only-untagged-versions: "true",
+            min-versions-to-keep: 5,
+          }
+
+  # The document service (ADR 0103, documents/): versioned with the chat, so a
+  # release tag gives both `cerea:X.Y.Z` and `cerea-documents:X.Y.Z`, and the
+  # kit's single CEREA_VERSION pin names both. A small build (a minute or two).
+  cerea-documents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Refuse to overwrite a released version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          if docker buildx imagetools inspect "ghcr.io/${{ github.repository_owner }}/cerea-documents:${GITHUB_REF_NAME#v}" >/dev/null 2>&1; then
+            echo "::error::cerea-documents:${GITHUB_REF_NAME#v} already exists; a release tag is immutable"; exit 1
+          fi
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/cerea-documents
+          flavor: latest=false
+          tags: |
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=cerea-documents
+            org.opencontainers.image.licenses=Apache-2.0
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: documents
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          push: true
+          cache-from: type=gha,scope=cerea-documents
+          cache-to: type=gha,mode=max,scope=cerea-documents
+          provenance: false
+          sbom: false
+      - name: Record the digest
+        run: echo "CEREA_DOCUMENTS_IMAGE=ghcr.io/${{ github.repository_owner }}/cerea-documents@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/delete-package-versions@v5
+        with:
+          {
+            package-name: cerea-documents,
             package-type: container,
             delete-only-untagged-versions: "true",
             min-versions-to-keep: 5,

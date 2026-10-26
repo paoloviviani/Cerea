@@ -16,6 +16,7 @@
  */
 import { existsSync } from "node:fs";
 import { defineConfig, devices } from "playwright/test";
+import { MOCK_DOCUMENTS_PORT, MOCK_DOCUMENTS_SECRET } from "./tests/mock-documents.ts";
 import {
 	E2E_APP_BASE,
 	E2E_APP_ORIGIN,
@@ -117,6 +118,15 @@ export default defineConfig({
 			stderr: "pipe",
 		},
 		{
+			// The document service (ADR 0103), mocked: the doc_edit spec drives the chat's tool through it.
+			command: `${NODE_TS} tests/mock-documents.ts`,
+			url: `http://127.0.0.1:${MOCK_DOCUMENTS_PORT}/__control/health`,
+			reuseExistingServer: !isCI,
+			timeout: 30_000,
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+		{
 			// The app last, through `server.js` — the same entry point production uses, rather than
 			// `vite preview`. Two reasons: it exercises the polka compression config that keeps
 			// `application/jsonl` unbuffered, and it loads no vite/svelte config, so the
@@ -180,6 +190,9 @@ export default defineConfig({
 				]),
 				// Without this the SSRF guard drops every loopback MCP URL a spec passes.
 				MCP_ALLOW_INSECURE_URLS: "true",
+				// The document tools (doc_outline, doc_read, doc_edit) reach the mock service.
+				CHAT_DOCUMENTS_URL: `http://127.0.0.1:${MOCK_DOCUMENTS_PORT}`,
+				CHAT_DOCUMENTS_SECRET: MOCK_DOCUMENTS_SECRET,
 				// Scaled down together (production is 60000 / 90000 / 10000) so a reaper
 				// test sees a dead run finalized within its lifetime, while a live run
 				// heartbeating every second stays comfortably under the 5s stale threshold.

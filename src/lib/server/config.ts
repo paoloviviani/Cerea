@@ -161,6 +161,10 @@ type ExtraConfigKeys =
 	| "EXA_API_KEY"
 	/** Where the chat reaches Gotenberg (the kit's `office` profile); empty is off. */
 	| "CHAT_GOTENBERG_URL"
+	/** Where the chat reaches the document service (ADR 0103); with the secret, turns `doc_*` on. */
+	| "CHAT_DOCUMENTS_URL"
+	/** The shared secret the document service expects in `X-Cerea-Documents-Secret`. */
+	| "CHAT_DOCUMENTS_SECRET"
 	/** The issuer a machine link's bearer must carry (`iss`, exact match after
 	 * trailing-slash normalization). Defaults to `OPENID_PROVIDER_URL` so a
 	 * normal deployment needs nothing extra; set separately so a test harness

@@ -35,6 +35,41 @@ Gotenberg parses untrusted files, so the kit runs it on an internal-only
 network with no internet access, no published port and no shared volumes, with
 CPU and memory limits and timeouts; see the [kit README](deploy-kit.md).
 
+## Editing Word, Excel and PowerPoint files
+
+!!! info "For operators"
+
+    The `documents` service runs with the chat profile in the kit; no switch to turn on.
+
+With the document service (`cerea-documents`, ADR 0103) the model works on
+Office files through three tools instead of writing code in the browser:
+
+- **`doc_outline`** gives a file's structure with stable ids; **`doc_read`**
+  gives the exact content of ids or ranges.
+- **`doc_edit`** applies typed operations (replace text, fill placeholders, set
+  cells and formulas, edit tables, replace or insert images, reorder slides,
+  tracked changes in Word). All operations apply or none do, and only the parts
+  they name are touched: every other part of the file stays byte for byte.
+
+A file is named the way the model already sees it: an attachment, or a file a
+tool or a run produced. The edit is saved as a **new version** of the file under
+the same name: the person sees an ordinary file card (preview, download, the
+version list), the original attachment is never changed, and the result tells
+the model the diff and a verification report (which parts changed, that the rest
+is identical, that the file reopens). Tracked changes carry the person's display
+name unless the model gives another author.
+
+The tools are offered only while `CHAT_DOCUMENTS_URL` and `CHAT_DOCUMENTS_SECRET`
+are set and the service answers, and `doc_edit` offers exactly the operations the
+service reports at `/v1/capabilities` (the tool text is built from the service's
+own schemas). Without them the Excel, Word and PowerPoint skills use their
+in-sandbox helpers.
+
+The service parses untrusted files, so the kit runs it on an internal-only network
+with no internet access, a read-only filesystem, no capabilities and resource
+limits, and every request in a fresh subprocess with its own limits; see the
+[kit README](deploy-kit.md).
+
 ## Without it
 
 A `.pptx` deck is drawn in the browser by pptx-glimpse, as one image per slide

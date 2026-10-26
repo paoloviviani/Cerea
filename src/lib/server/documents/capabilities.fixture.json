@@ -1,0 +1,639 @@
+{
+	"convert": false,
+	"create": false,
+	"engine": "cerea-documents/0.1.0",
+	"formats": {
+		"docx": {
+			"deferred_operations": ["add_comment", "insert_chart"],
+			"operation_schemas": {
+				"add_table_row": {
+					"additionalProperties": false,
+					"properties": {
+						"after": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"op": {
+							"type": "string"
+						},
+						"table": {
+							"pattern": "^t[0-9]+$",
+							"type": "string"
+						},
+						"values": {
+							"items": {
+								"type": ["string", "number", "null"]
+							},
+							"type": "array"
+						}
+					},
+					"required": ["op", "table", "values"],
+					"type": "object"
+				},
+				"delete_paragraph": {
+					"additionalProperties": false,
+					"properties": {
+						"op": {
+							"type": "string"
+						},
+						"paragraph": {
+							"pattern": "^p[0-9]+$",
+							"type": "string"
+						}
+					},
+					"required": ["op", "paragraph"],
+					"type": "object"
+				},
+				"fill_placeholders": {
+					"additionalProperties": false,
+					"properties": {
+						"op": {
+							"type": "string"
+						},
+						"scope": {
+							"default": "all",
+							"pattern": "^(all|body|headers|footers|[pt][0-9]+)$",
+							"type": "string"
+						},
+						"strict": {
+							"type": "boolean"
+						},
+						"values": {
+							"additionalProperties": {
+								"type": ["string", "number", "boolean", "null"]
+							},
+							"minProperties": 1,
+							"type": "object"
+						}
+					},
+					"required": ["op", "values"],
+					"type": "object"
+				},
+				"insert_image_after": {
+					"additionalProperties": false,
+					"properties": {
+						"alt": {
+							"type": "string"
+						},
+						"anchor": {
+							"pattern": "^[pt][0-9]+$",
+							"type": "string"
+						},
+						"caption": {
+							"type": "string"
+						},
+						"height_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 60,
+							"type": "number"
+						},
+						"image": {
+							"type": "string"
+						},
+						"op": {
+							"type": "string"
+						},
+						"width_cm": {
+							"exclusiveMinimum": 0,
+							"maximum": 60,
+							"type": "number"
+						}
+					},
+					"required": ["op", "anchor", "image"],
+					"type": "object"
+				},
+				"insert_paragraph_after": {
+					"additionalProperties": false,
+					"properties": {
+						"anchor": {
+							"pattern": "^[pt][0-9]+$",
+							"type": "string"
+						},
+						"op": {
+							"type": "string"
+						},
+						"style": {
+							"type": "string"
+						},
+						"text": {
+							"type": "string"
+						}
+					},
+					"required": ["op", "anchor", "text"],
+					"type": "object"
+				},
+				"replace_image": {
+					"additionalProperties": false,
+					"properties": {
+						"fit": {
+							"enum": ["cover", "stretch"]
+						},
+						"image": {
+							"type": "string"
+						},
+						"image_id": {
+							"pattern": "^i[0-9]+$",
+							"type": "string"
+						},
+						"op": {
+							"type": "string"
+						}
+					},
+					"required": ["op", "image_id", "image"],
+					"type": "object"
+				},
+				"replace_text": {
+					"additionalProperties": false,
+					"properties": {
+						"find": {
+							"minLength": 1,
+							"type": "string"
+						},
+						"match_case": {
+							"type": "boolean"
+						},
+						"op": {
+							"type": "string"
+						},
+						"replace": {
+							"type": "string"
+						},
+						"scope": {
+							"default": "all",
+							"pattern": "^(all|body|headers|footers|[pt][0-9]+)$",
+							"type": "string"
+						}
+					},
+					"required": ["op", "find", "replace"],
+					"type": "object"
+				},
+				"set_paragraph_text": {
+					"additionalProperties": false,
+					"properties": {
+						"op": {
+							"type": "string"
+						},
+						"paragraph": {
+							"pattern": "^p[0-9]+$",
+							"type": "string"
+						},
+						"text": {
+							"type": "string"
+						}
+					},
+					"required": ["op", "paragraph", "text"],
+					"type": "object"
+				},
+				"set_table_cell": {
+					"additionalProperties": false,
+					"properties": {
+						"col": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"op": {
+							"type": "string"
+						},
+						"row": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"table": {
+							"pattern": "^t[0-9]+$",
+							"type": "string"
+						},
+						"text": {
+							"type": "string"
+						}
+					},
+					"required": ["op", "table", "row", "col", "text"],
+					"type": "object"
+				}
+			},
+			"operations": [
+				"add_table_row",
+				"delete_paragraph",
+				"fill_placeholders",
+				"insert_image_after",
+				"insert_paragraph_after",
+				"replace_image",
+				"replace_text",
+				"set_paragraph_text",
+				"set_table_cell"
+			],
+			"outline": true,
+			"read": true,
+			"track_changes": true
+		},
+		"pptx": {
+			"deferred_operations": [
+				"add_slide",
+				"insert_chart",
+				"insert_image into a picture placeholder"
+			],
+			"operation_schemas": {
+				"delete_slide": {
+					"additionalProperties": false,
+					"properties": {
+						"op": {
+							"type": "string"
+						},
+						"slide": {
+							"minimum": 1,
+							"type": "integer"
+						}
+					},
+					"required": ["op", "slide"],
+					"type": "object"
+				},
+				"duplicate_slide": {
+					"additionalProperties": false,
+					"properties": {
+						"op": {
+							"type": "string"
+						},
+						"slide": {
+							"minimum": 1,
+							"type": "integer"
+						}
+					},
+					"required": ["op", "slide"],
+					"type": "object"
+				},
+				"insert_image": {
+					"additionalProperties": false,
+					"properties": {
+						"alt": {
+							"type": "string"
+						},
+						"box": {
+							"additionalProperties": false,
+							"properties": {
+								"height": {
+									"exclusiveMinimum": 0,
+									"maximum": 1000,
+									"minimum": 0,
+									"type": "number"
+								},
+								"width": {
+									"exclusiveMinimum": 0,
+									"maximum": 1000,
+									"minimum": 0,
+									"type": "number"
+								},
+								"x": {
+									"maximum": 1000,
+									"minimum": 0,
+									"type": "number"
+								},
+								"y": {
+									"maximum": 1000,
+									"minimum": 0,
+									"type": "number"
+								}
+							},
+							"type": "object"
+						},
+						"image": {
+							"type": "string"
+						},
+						"op": {
+							"type": "string"
+						},
+						"slide": {
+							"minimum": 1,
+							"type": "integer"
+						}
+					},
+					"required": ["op", "slide", "image"],
+					"type": "object"
+				},
+				"reorder_slides": {
+					"additionalProperties": false,
+					"properties": {
+						"op": {
+							"type": "string"
+						},
+						"order": {
+							"items": {
+								"minimum": 1,
+								"type": "integer"
+							},
+							"minItems": 1,
+							"type": "array"
+						}
+					},
+					"required": ["op", "order"],
+					"type": "object"
+				},
+				"replace_image": {
+					"additionalProperties": false,
+					"properties": {
+						"fit": {
+							"enum": ["cover", "stretch"]
+						},
+						"image": {
+							"type": "string"
+						},
+						"op": {
+							"type": "string"
+						},
+						"shape": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"slide": {
+							"minimum": 1,
+							"type": "integer"
+						}
+					},
+					"required": ["op", "slide", "shape", "image"],
+					"type": "object"
+				},
+				"replace_text": {
+					"additionalProperties": false,
+					"properties": {
+						"find": {
+							"minLength": 1,
+							"type": "string"
+						},
+						"match_case": {
+							"type": "boolean"
+						},
+						"notes": {
+							"type": "boolean"
+						},
+						"op": {
+							"type": "string"
+						},
+						"replace": {
+							"type": "string"
+						},
+						"slides": {
+							"items": {
+								"minimum": 1,
+								"type": "integer"
+							},
+							"minItems": 1,
+							"type": "array"
+						}
+					},
+					"required": ["op", "find", "replace"],
+					"type": "object"
+				},
+				"set_notes": {
+					"additionalProperties": false,
+					"properties": {
+						"op": {
+							"type": "string"
+						},
+						"slide": {
+							"minimum": 1,
+							"type": "integer"
+						},
+						"text": {
+							"anyOf": [
+								{
+									"type": "string"
+								},
+								{
+									"items": {
+										"type": "string"
+									},
+									"type": "array"
+								}
+							]
+						}
+					},
+					"required": ["op", "slide", "text"],
+					"type": "object"
+				},
+				"set_placeholder_text": {
+					"additionalProperties": false,
+					"properties": {
+						"op": {
+							"type": "string"
+						},
+						"placeholder": {
+							"anyOf": [
+								{
+									"minimum": 0,
+									"type": "integer"
+								},
+								{
+									"minLength": 1,
+									"type": "string"
+								}
+							]
+						},
+						"slide": {
+							"minimum": 1,
+							"type": "integer"
+						},
+						"text": {
+							"anyOf": [
+								{
+									"type": "string"
+								},
+								{
+									"items": {
+										"type": "string"
+									},
+									"type": "array"
+								}
+							]
+						}
+					},
+					"required": ["op", "slide", "placeholder", "text"],
+					"type": "object"
+				}
+			},
+			"operations": [
+				"delete_slide",
+				"duplicate_slide",
+				"insert_image",
+				"reorder_slides",
+				"replace_image",
+				"replace_text",
+				"set_notes",
+				"set_placeholder_text"
+			],
+			"outline": true,
+			"read": true,
+			"track_changes": false
+		},
+		"xlsx": {
+			"deferred_operations": ["insert_rows", "delete_rows", "insert_chart"],
+			"operation_schemas": {
+				"add_sheet": {
+					"additionalProperties": false,
+					"properties": {
+						"cells": {
+							"additionalProperties": {
+								"anyOf": [
+									{
+										"type": ["string", "number", "boolean", "null"]
+									},
+									{
+										"additionalProperties": false,
+										"minProperties": 1,
+										"properties": {
+											"date": {
+												"type": "string"
+											},
+											"datetime": {
+												"type": "string"
+											},
+											"formula": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"style_from": {
+												"pattern": "^[A-Za-z]{1,3}[0-9]+$",
+												"type": "string"
+											},
+											"value": {
+												"type": ["string", "number", "boolean", "null"]
+											}
+										},
+										"type": "object"
+									}
+								]
+							},
+							"maxProperties": 50000,
+							"minProperties": 1,
+							"propertyNames": {
+								"pattern": "^[A-Za-z]{1,3}[0-9]+$"
+							},
+							"type": "object"
+						},
+						"name": {
+							"minLength": 1,
+							"type": "string"
+						},
+						"op": {
+							"type": "string"
+						}
+					},
+					"required": ["op", "name"],
+					"type": "object"
+				},
+				"clear_cells": {
+					"additionalProperties": false,
+					"properties": {
+						"op": {
+							"type": "string"
+						},
+						"ranges": {
+							"items": {
+								"pattern": "^[A-Za-z]{1,3}[0-9]+(:[A-Za-z]{1,3}[0-9]+)?$",
+								"type": "string"
+							},
+							"minItems": 1,
+							"type": "array"
+						},
+						"sheet": {
+							"minLength": 1,
+							"type": "string"
+						}
+					},
+					"required": ["op", "sheet", "ranges"],
+					"type": "object"
+				},
+				"insert_image": {
+					"additionalProperties": false,
+					"properties": {
+						"alt": {
+							"type": "string"
+						},
+						"cell": {
+							"pattern": "^[A-Za-z]{1,3}[0-9]+$",
+							"type": "string"
+						},
+						"height_px": {
+							"maximum": 10000,
+							"minimum": 1,
+							"type": "integer"
+						},
+						"image": {
+							"type": "string"
+						},
+						"op": {
+							"type": "string"
+						},
+						"sheet": {
+							"minLength": 1,
+							"type": "string"
+						},
+						"width_px": {
+							"maximum": 10000,
+							"minimum": 1,
+							"type": "integer"
+						}
+					},
+					"required": ["op", "sheet", "cell", "image"],
+					"type": "object"
+				},
+				"set_cells": {
+					"additionalProperties": false,
+					"properties": {
+						"cells": {
+							"additionalProperties": {
+								"anyOf": [
+									{
+										"type": ["string", "number", "boolean", "null"]
+									},
+									{
+										"additionalProperties": false,
+										"minProperties": 1,
+										"properties": {
+											"date": {
+												"type": "string"
+											},
+											"datetime": {
+												"type": "string"
+											},
+											"formula": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"style_from": {
+												"pattern": "^[A-Za-z]{1,3}[0-9]+$",
+												"type": "string"
+											},
+											"value": {
+												"type": ["string", "number", "boolean", "null"]
+											}
+										},
+										"type": "object"
+									}
+								]
+							},
+							"maxProperties": 50000,
+							"minProperties": 1,
+							"propertyNames": {
+								"pattern": "^[A-Za-z]{1,3}[0-9]+$"
+							},
+							"type": "object"
+						},
+						"op": {
+							"type": "string"
+						},
+						"sheet": {
+							"minLength": 1,
+							"type": "string"
+						}
+					},
+					"required": ["op", "sheet", "cells"],
+					"type": "object"
+				}
+			},
+			"operations": ["add_sheet", "clear_cells", "insert_image", "set_cells"],
+			"outline": true,
+			"read": true,
+			"track_changes": false
+		}
+	},
+	"image_types": ["png", "jpeg", "gif"],
+	"limits": {}
+}

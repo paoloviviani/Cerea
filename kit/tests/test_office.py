@@ -87,7 +87,7 @@ class ChatSide(unittest.TestCase):
     def test_the_chat_learns_the_url_from_one_variable_that_defaults_to_off(self):
         chat = service("chat")
         self.assertIn("CHAT_GOTENBERG_URL: ${CHAT_GOTENBERG_URL:-}", chat)
-        self.assertRegex(chat, r"networks: \[default, office\]")
+        self.assertRegex(chat, r"networks: \[default, office, docs\]")
 
     def test_the_example_documents_it_commented_out(self):
         self.assertRegex(EXAMPLE, re.compile(r"^# CHAT_GOTENBERG_URL='http://gotenberg:3000'$", re.MULTILINE))

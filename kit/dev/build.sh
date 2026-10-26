@@ -21,7 +21,7 @@
 #
 # Only the images .env's COMPOSE_PROFILES need are built (gateway always;
 # compose.yaml says which profile takes which image: redaction for the
-# redaction and documents profiles, cerea for chat); --all builds every one.
+# redaction and documents profiles, cerea and cerea-documents for chat); --all builds every one.
 # A ref names the remote branch first, then a tag, then a commit. Scratch files go to dev/src/tmp, not /tmp.
 #
 # Environment:
@@ -82,13 +82,14 @@ if [ -f "$ROOT/.env" ]; then
 fi
 wants() { [ "$all" = 1 ] || [ -z "$profiles" ] || [[ ",$profiles," == *",$1,"* ]]; }
 # compose.yaml says which profile needs which local image.
-build_gateway=1 build_redaction=0 build_cerea=0
+build_gateway=1 build_redaction=0 build_cerea=0 build_documents=0
 while read -r prof anchor; do
   wants "$prof" || continue
   case $anchor in
     gateway-image) build_gateway=1 ;;
     redaction-image) build_redaction=1 ;;
     cerea-image) build_cerea=1 ;;
+    documents-image) build_documents=1 ;;
   esac
 done < <(profile_images "$ROOT/compose.yaml")
 [ "$ner" = 1 ] && build_redaction=1
@@ -174,6 +175,11 @@ if [ "$build_cerea" = 1 ]; then
       --build-arg APP_BASE=/chat --build-arg PUBLIC_COMMIT_SHA="${c_sha:0:8}" "$SRC/cerea"
   fi
   env_items+=(CEREA_REGISTRY=local "CEREA_VERSION=$c_tag")
+  # The document service lives in the Cerea repository and is versioned with
+  # the chat: compose names it cerea-documents:$CEREA_VERSION in the same registry.
+  if [ "$build_documents" = 1 ]; then
+    ensure "local/cerea-documents:$c_tag" "$c_sha" "$SRC/cerea/documents"
+  fi
 fi
 
 if [ "$write_env" = 1 ]; then

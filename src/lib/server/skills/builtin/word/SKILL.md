@@ -71,6 +71,14 @@ reading it back, not by looking at a picture:
 
 ## Editing an existing document
 
+**First choice: the document tools.** If `doc_outline`, `doc_read` and `doc_edit` are in your tool list, edit a
+supplied Word file with them and write no code: `doc_outline` for the structure and ids, `doc_read` for exact
+content, then `doc_edit` with typed operations (replace text, fill `{{placeholders}}`, set or insert paragraphs, table cells and rows, images; `track_changes` for edits the person can review). The edit is saved as a new version of the file
+under the same name, the original is kept, and the result gives you the diff and a verification report to
+summarise for the person. Edit again by the same name to build on your last version. If the tools are not in
+your list, the service is not set up on this deployment: use the helpers below, which do the same work inside
+the sandbox. (New files are still made as described elsewhere in this skill.)
+
 **Decision rule.** A new document: python-docx. A document the person
 supplied that you must change: use the bundled helpers. **Never**
 `docx.Document(path)` + `save()` on a supplied file for edits: python-docx
@@ -132,7 +140,7 @@ not a rendered view.
 - The document is the deliverable: the file must exist when you finish —
   run the code yourself or write one complete runnable block; a script the
   person still has to run is not the file.
-- Edit the file the person attached with the helpers above (read it, modify,
+- Edit the file the person attached with the document tools, or the helpers above (read it, modify,
   save under a new name unless asked to overwrite) — never rebuild an edited document from
   scratch unless they asked for a redesign.
 - Deliverables are saved by a code block to `/mnt/output/<clear filename>`;

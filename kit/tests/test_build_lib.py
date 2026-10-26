@@ -78,6 +78,7 @@ class ProfileImagesTest(unittest.TestCase):
         self.assertIn(("documents", "redaction-image"), m)
         self.assertIn(("redaction", "redaction-image"), m)
         self.assertIn(("chat", "cerea-image"), m)
+        self.assertIn(("chat", "documents-image"), m)
         self.assertIn(("gateway", "gateway-image"), m)
 
     def test_every_local_image_anchor_has_a_build_case(self):

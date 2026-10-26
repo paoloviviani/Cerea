@@ -74,8 +74,13 @@ echo "images $s"
 # 4. Pullable with no registry login.
 anon=$(mktemp -d) && echo '{}' >"$anon/config.json"
 owner=${REPO%%/*}
-DOCKER_CONFIG=$anon docker manifest inspect "ghcr.io/${owner,,}/cerea:$V" >/dev/null ||
-	stop "image not pullable anonymously"
+# Both images of the release: the chat and the document service (ADR 0103).
+# A package's first push is private on GitHub: its visibility is the owner's to
+# set once, and this step is what notices when it has not been.
+for image in cerea cerea-documents; do
+	DOCKER_CONFIG=$anon docker manifest inspect "ghcr.io/${owner,,}/$image:$V" >/dev/null ||
+		stop "$image:$V not pullable anonymously"
+done
 rm -rf "$anon"
 echo "anonymous pull OK"
 
@@ -87,7 +92,7 @@ mkdir -p "$logdir" || stop "cannot create $logdir"
 log="$logdir/$T-fresh-kit.log"
 scripts/release/fresh-kit-check.sh "$T" >"$log" 2>&1
 grep -qx E2E_OK "$log" || { tail -30 "$log"; stop "fresh-kit test (full log: $log)"; }
-grep -E "^(chat|gateway|seeded) " "$log"
+grep -E "^(chat|gateway|documents|seeded) " "$log"
 echo E2E_OK
 echo "fresh-kit log: $log"
 

@@ -57,6 +57,7 @@ import { urlsInUserText } from "../builtinTools/webFetchTool";
 import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
 import { billToHeader } from "$lib/server/billTo";
 import { configuredBackend } from "$lib/server/fetching";
+import { getCapabilities as getDocumentCapabilities } from "$lib/server/documents/client";
 import { resolveToolApprovalPolicy } from "../toolApprovalPolicy";
 
 export type RunMcpFlowContext = Pick<
@@ -335,8 +336,12 @@ export async function* runMcpFlow({
 		artifactToolsEnabled && delegationEnabled()
 			? { models: await delegationModelsFor(locals) }
 			: undefined;
+	// The document service's capabilities (cached a minute); null when it is
+	// not configured or not answering. Resolved here like the probe above.
+	const documentCapabilities = await getDocumentCapabilities();
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
+		documentCapabilities,
 		memoryEnabled: memoryAllowed,
 		...(memoryProject ? { projectMemoryProjectId: memoryProject._id } : {}),
 		askUserQuestionEnabled: (

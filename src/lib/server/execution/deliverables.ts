@@ -108,12 +108,15 @@ export async function storeDeliverable({
 	name,
 	mime,
 	bytes,
+	derivedFrom,
 }: {
 	conversationId: Conversation["_id"];
 	userId?: User["_id"];
 	name: string;
 	mime: string;
 	bytes: Buffer;
+	/** The stored file this one was made from (a document edit): recorded on its row. */
+	derivedFrom?: { sha256: string; name: string };
 }): Promise<StoreDeliverableResult> {
 	if (bytes.byteLength > MAX_DELIVERABLE_BYTES) {
 		return {
@@ -177,6 +180,9 @@ export async function storeDeliverable({
 		mime,
 		size: bytes.byteLength,
 		gridFsId,
+		...(derivedFrom
+			? { derivedFromSha256: derivedFrom.sha256, derivedFromName: derivedFrom.name }
+			: {}),
 		createdAt: new Date(),
 	});
 
