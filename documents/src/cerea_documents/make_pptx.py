@@ -1,7 +1,7 @@
 """Create a .pptx from a spec with python-pptx.
 
-The built-in set is PowerPoint's default master and layouts, resized to 16:9 and restyled through the
-master (fonts, colours, title style). With a template the uploaded file's master and layouts are used as
+The built-in set is PowerPoint's default master and layouts with geometry rebuilt for the slide size
+(16:9 or 4:3) and restyled through the master (fonts, colours, title style). With a template the uploaded file's master and layouts are used as
 they are; `layout` then names one of its layouts. Native charts are python-pptx charts."""
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from pptx.dml.color import RGBColor
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.enum.text import PP_ALIGN
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
-from pptx.util import Emu, Inches, Pt
+from pptx.util import Emu, Pt
 
 from . import charts
 from .determinism import FIXED, fix_zip
@@ -26,6 +26,13 @@ from .images_ref import ImageSet
 from .theme import Theme
 
 EMU_CM = 360_000
+MARGIN_CM = 1.6
+TITLE_PT = 36  # title style on the master; long titles step down through TITLE_STEPS
+TITLE_STEPS = (36, 32, 28, 24)
+BODY_LEVEL_PT = (24, 22, 20, 18, 18)  # the master's body style
+BODY_STEPS = (24, 22, 20, 18, 16, 14)  # sizes a body may take; below the last it is too dense for a slide
+SMALL_PT = 16  # below this a note suggests splitting the slide
+TABLE_STEPS = (18, 16, 14, 12, 11, 10)
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 P = "http://schemas.openxmlformats.org/presentationml/2006/main"
 BUILTIN = {"title": 0, "title_content": 1, "section": 2, "two_content": 3, "title_only": 5, "blank": 6}
@@ -78,21 +85,98 @@ class PptxBuilder:
                 lst.remove(sld)
         else:
             self.prs = Presentation()
-            if spec.get("size", "16:9") == "16:9":
-                self._widen()
+            self._lay_out_base(12_192_000 if spec.get("size", "16:9") == "16:9" else 9_144_000)
             self._restyle()
         self.W, self.H = int(self.prs.slide_width), int(self.prs.slide_height)
 
     # ---- the built-in set ---------------------------------------------------------------------
 
-    def _widen(self) -> None:
-        factor = 12_192_000 / int(self.prs.slide_width)
-        self.prs.slide_width = Emu(12_192_000)
-        holders = [self.prs.slide_master, *self.prs.slide_layouts]
-        for h in holders:
-            for shape in h.shapes:
-                if shape.left is not None and shape.width is not None:
-                    shape.left, shape.width = Emu(int(shape.left * factor)), Emu(int(shape.width * factor))
+    def _lay_out_base(self, width: int) -> None:
+        """Give the default deck's master and every layout geometry for the chosen slide size.
+
+        python-pptx's default deck is 4:3 and most of its layout placeholders have no geometry of their own
+        (they inherit the master's). Rescaling them in place wrote the inherited numbers back twice scaled and
+        with a zero height, so the geometry is set here from the slide size instead: one margin, a title band,
+        a content area, a footer row, and the same figures in every layout."""
+        self.prs.slide_width = Emu(width)
+        m = int(EMU_CM * MARGIN_CM)
+        gap = int(EMU_CM)
+        inner = width - 2 * m
+        title: Box = (m, int(EMU_CM * 0.9), inner, int(EMU_CM * 3.0))
+        body: Box = (m, int(EMU_CM * 4.4), inner, int(EMU_CM * 12.2))
+        col = (inner - gap) // 2
+        foot_y, foot_h = int(EMU_CM * 17.4), int(EMU_CM * 1.0)
+        foot_w = int(EMU_CM * 7.5)
+        footers: dict[PP_PLACEHOLDER, Box] = {
+            PP_PLACEHOLDER.DATE: (m, foot_y, foot_w, foot_h),
+            PP_PLACEHOLDER.FOOTER: ((width - int(EMU_CM * 11)) // 2, foot_y, int(EMU_CM * 11), foot_h),
+            PP_PLACEHOLDER.SLIDE_NUMBER: (width - m - foot_w, foot_y, foot_w, foot_h),
+        }
+        wide = int(EMU_CM * 3)
+        centred_w = width - 2 * wide
+        cap_w = int(EMU_CM * 10.5)
+        pic_w = min(int(EMU_CM * 20), inner)
+        pic_x = (width - pic_w) // 2
+        by_layout: dict[str, list[Box | None]] = {  # None: inherit from the master
+            "Title Slide": [
+                (wide, int(EMU_CM * 5.2), centred_w, int(EMU_CM * 4.4)),
+                (wide + int(EMU_CM * 2), int(EMU_CM * 10.2), centred_w - int(EMU_CM * 4), int(EMU_CM * 3.4)),
+            ],
+            "Title and Content": [None, None],
+            "Section Header": [
+                (wide, int(EMU_CM * 5.6), centred_w, int(EMU_CM * 4.4)),
+                (wide, int(EMU_CM * 10.2), centred_w, int(EMU_CM * 3.0)),
+            ],
+            "Two Content": [None, (m, body[1], col, body[3]), (m + col + gap, body[1], col, body[3])],
+            "Comparison": [
+                None,
+                (m, body[1], col, int(EMU_CM * 1.8)),
+                (m, body[1] + int(EMU_CM * 1.9), col, body[3] - int(EMU_CM * 1.9)),
+                (m + col + gap, body[1], col, int(EMU_CM * 1.8)),
+                (m + col + gap, body[1] + int(EMU_CM * 1.9), col, body[3] - int(EMU_CM * 1.9)),
+            ],
+            "Title Only": [None],
+            "Blank": [],
+            "Content with Caption": [
+                (m, int(EMU_CM * 1.6), cap_w, int(EMU_CM * 3.4)),
+                (m + cap_w + gap, int(EMU_CM * 1.6), inner - cap_w - gap, int(EMU_CM * 14.8)),
+                (m, int(EMU_CM * 5.2), cap_w, int(EMU_CM * 11.2)),
+            ],
+            "Picture with Caption": [
+                (pic_x, int(EMU_CM * 12.6), pic_w, int(EMU_CM * 1.7)),
+                (pic_x, int(EMU_CM * 1.6), pic_w, int(EMU_CM * 10.8)),
+                (pic_x, int(EMU_CM * 14.4), pic_w, int(EMU_CM * 2.2)),
+            ],
+            "Title and Vertical Text": [None, None],
+            "Vertical Title and Text": [
+                (width - m - int(EMU_CM * 7.5), int(EMU_CM * 1.6), int(EMU_CM * 7.5), int(EMU_CM * 15.0)),
+                (m, int(EMU_CM * 1.6), inner - int(EMU_CM * 8.5), int(EMU_CM * 15.0)),
+            ],
+        }
+        master: Any = self.prs.slide_master
+        for ph in master.placeholders:
+            kind = ph.placeholder_format.type
+            box = footers.get(kind) or (title if kind == PP_PLACEHOLDER.TITLE else body)
+            self._set_box(ph, box)
+        layouts: list[Any] = list(self.prs.slide_layouts)
+        for lay in layouts:
+            boxes = list(by_layout.get(lay.name, []))
+            for ph in lay.placeholders:
+                kind = ph.placeholder_format.type
+                if kind in footers:
+                    self._set_box(ph, None)  # the master's footer row
+                elif boxes:
+                    self._set_box(ph, boxes.pop(0))
+                else:
+                    self._set_box(ph, None)
+
+    @staticmethod
+    def _set_box(ph: Any, box: Box | None) -> None:
+        sp_pr = ph._element.spPr
+        for xfrm in sp_pr.findall(f"{{{A}}}xfrm"):
+            sp_pr.remove(xfrm)
+        if box is not None:
+            ph.left, ph.top, ph.width, ph.height = (Emu(v) for v in box)
 
     def _restyle(self) -> None:
         t = self.t
@@ -117,14 +201,14 @@ class PptxBuilder:
             title.set("algn", "l")
             rpr = title.find(f"{{{A}}}defRPr")
             if rpr is not None:
-                rpr.set("sz", str(int(t.heading_sizes[1] * 100 * 1.45)))
+                rpr.set("sz", str(TITLE_PT * 100))
                 rpr.set("b", "1")
                 for fill in rpr.findall(f"{{{A}}}solidFill"):
                     rpr.remove(fill)
                 fill = etree.SubElement(rpr, f"{{{A}}}solidFill")
                 etree.SubElement(fill, f"{{{A}}}srgbClr").set("val", t.colors["heading"])
                 rpr.insert(0, fill)
-        for lvl, size in zip(range(1, 6), (20, 18, 16, 14, 14), strict=True):
+        for lvl, size in zip(range(1, 6), BODY_LEVEL_PT, strict=True):
             el = styles.find(f"{{{P}}}bodyStyle/{{{A}}}lvl{lvl}pPr/{{{A}}}defRPr")
             if el is not None:
                 el.set("sz", str(int(size * 100)))
@@ -201,7 +285,7 @@ class PptxBuilder:
         where = f"slides[{i}]"
         visuals_only = bool(s.get("images") or s.get("charts"))
         default = (
-            "title" if i == 0 and not s.get("body") and not visuals_only
+            "title" if (i == 0 or s.get("subtitle")) and not s.get("body") and not visuals_only
             else "two_content" if s.get("body_right")
             else "title_content" if s.get("body") or visuals_only
             else "title_only"
@@ -224,7 +308,7 @@ class PptxBuilder:
                     title_ph,
                     [{"text": s["title"]}],
                     0,
-                    size=36 if centered else None,
+                    size=self._title_size(s["title"], title_ph, 44 if centered else TITLE_PT),
                     bold=True if centered else None,
                     align=PP_ALIGN.CENTER if centered else None,
                     heading=True,
@@ -244,18 +328,16 @@ class PptxBuilder:
                     align=PP_ALIGN.CENTER if centered else None,
                 )
         left, right = [*bodies, None, None][:2]
-        area = self._area(slide, title_ph, left)
-        self.fill(
-            slide,
-            s.get("body") or [],
-            left,
-            area if s.get("body_right") is None else self._half(area, 0),
-            s,
-            where,
-            extra=True,
-        )
+        area = self._area(slide, title_ph, left, right if s.get("body_right") is None else None)
+        left_area, right_area = area, area
         if s.get("body_right"):
-            self.fill(slide, s["body_right"], right, self._half(area, 1), s, where + ".body_right", extra=False)
+            if left is not None and right is not None and left.width and right.width:
+                left_area, right_area = self._box(left), self._box(right)  # the layout's own columns
+            else:
+                left_area, right_area = self._half(area, 0), self._half(area, 1)
+        self.fill(slide, s.get("body") or [], left, left_area, s, where, extra=True)
+        if s.get("body_right"):
+            self.fill(slide, s["body_right"], right, right_area, s, where + ".body_right", extra=False)
         for ph in pictures:
             self._remove(ph)
         if s.get("notes"):
@@ -268,19 +350,44 @@ class PptxBuilder:
     def _remove(shape: Any) -> None:
         shape.element.getparent().remove(shape.element)
 
-    def _area(self, slide: Any, title_ph: Any, body_ph: Any) -> Box:
-        if body_ph is not None and body_ph.width:
-            return int(body_ph.left), int(body_ph.top), int(body_ph.width), int(body_ph.height)
-        top = int(
-            (title_ph.top + title_ph.height) if title_ph is not None and title_ph.top is not None else Inches(1.4)
-        ) + int(Inches(0.2))
-        margin = int(Inches(0.6))
-        return margin, top, self.W - 2 * margin, self.H - top - margin
+    @staticmethod
+    def _box(ph: Any) -> Box:
+        return int(ph.left), int(ph.top), int(ph.width), int(ph.height)
+
+    def _title_size(self, text: str, title_ph: Any, start: int) -> int | None:
+        """A size for a title that would not fit its placeholder in two lines at the default; None keeps the style's."""
+        if self.has_template:
+            return None
+        if title_ph is None or not title_ph.width or not title_ph.height:
+            return start if start != TITLE_PT else None
+        width_pt, height_pt = title_ph.width / 12700, title_ph.height / 12700
+        for size in (s for s in TITLE_STEPS if s <= start):
+            lines = math.ceil(len(text) * size * 0.55 / max(width_pt, 1))
+            if lines * size * 1.2 <= height_pt:
+                return size if size != TITLE_PT else None
+        return TITLE_STEPS[-1]
+
+    def _area(self, slide: Any, title_ph: Any, body_ph: Any, second_ph: Any = None) -> Box:
+        """The content area: the body placeholder's box (joined with the second column's when that is unused)."""
+        if body_ph is not None and body_ph.width and body_ph.height:
+            x, y, w, h = self._box(body_ph)
+            if second_ph is not None and second_ph.width and second_ph.height and second_ph.left > x:
+                w = int(second_ph.left + second_ph.width) - x
+                h = max(h, int(second_ph.top + second_ph.height) - y)
+            return x, y, w, h
+        margin = int(EMU_CM * MARGIN_CM)
+        title_bottom = (
+            int(title_ph.top + title_ph.height)
+            if title_ph is not None and title_ph.top is not None
+            else int(EMU_CM * 3)
+        )
+        top = title_bottom + int(EMU_CM * 0.4)
+        return margin, top, self.W - 2 * margin, max(self.H - top - int(EMU_CM * 2.4), int(EMU_CM * 4))
 
     @staticmethod
     def _half(area: Box, side: int) -> Box:
         x, y, w, h = area
-        gap = int(Inches(0.3))
+        gap = int(EMU_CM)
         return (x + side * (w + gap) // 2, y, (w - gap) // 2, h)
 
     # ---- content ------------------------------------------------------------------------------
@@ -296,21 +403,21 @@ class PptxBuilder:
         x, y, w, h = area
         text_area, visual_area = area, area
         if text and visuals:
-            gap = int(Inches(0.3))
+            gap = int(EMU_CM)
             tw = int((w - gap) * 0.42)
             text_area, visual_area = (x, y, tw, h), (x + tw + gap, y, w - tw - gap, h)
         if text:
             target = ph
             if target is None:
                 target = slide.shapes.add_textbox(*text_area)
-            else:
+            elif text_area != self._box(target):  # only when the text shares the area with a table, picture or chart
                 target.left, target.top, target.width, target.height = text_area
-            self._body(target, text, text_area)
+            self._body(target, text, text_area, where)
         elif ph is not None:
             self._remove(ph)
         self._visuals(slide, visuals, visual_area, where)
 
-    def _body(self, shape: Any, blocks: list[dict[str, Any]], area: Box) -> None:
+    def _body(self, shape: Any, blocks: list[dict[str, Any]], area: Box, where: str) -> None:
         paras: list[tuple[list[dict[str, Any]], int, str]] = []  # runs, level, kind
         for b in blocks:
             if b["type"] == "list":
@@ -319,17 +426,27 @@ class PptxBuilder:
                 paras.extend(([{"text": line, "code": True}], 0, "code") for line in b["text"].split("\n"))
             else:
                 paras.append((b.get("runs") or [{"text": b.get("text", "")}], 0, b["type"]))
-        size = self._fit_size(paras, area)
+        size, fits = self._fit_size(paras, area)
+        if not fits:
+            self.notes.append(
+                f"{where}: the text is too long for one slide even at {size} pt; split it over two slides or shorten it"
+            )
+        elif size < SMALL_PT:
+            self.notes.append(f"{where}: the text was set at {size} pt to fit; consider splitting it over two slides")
         tf = shape.text_frame
         tf.word_wrap = True
+        body_pr = tf._txBody.find(f"{{{A}}}bodyPr")
+        for old in [e for e in body_pr if e.tag in (f"{{{A}}}noAutofit", f"{{{A}}}spAutoFit", f"{{{A}}}normAutofit")]:
+            body_pr.remove(old)
+        etree.SubElement(body_pr, f"{{{A}}}normAutofit")  # PowerPoint shrinks further if the text is edited
         for n, (runs, level, kind) in enumerate(paras):
             p = tf.paragraphs[0] if n == 0 else tf.add_paragraph()
             if kind in ("paragraph", "quote", "code"):
                 self._nobullet(p)
             p.level = min(level, 4)
             for r in runs:
-                self._run(p, r, size - 2 * min(level, 3), italic=kind == "quote", mono=kind == "code")
-            p.space_after = Pt(6)
+                self._run(p, r, size - 2 * min(level, 2), italic=kind == "quote", mono=kind == "code")
+            p.space_after = Pt(max(4, size // 3))
 
     def _flatten(self, items: list[Any], level: int, ordered: bool, out: list[Any]) -> None:
         for n, it in enumerate(items, 1):
@@ -348,17 +465,23 @@ class PptxBuilder:
         if ppr.find(f"{{{A}}}buNone") is None:
             etree.SubElement(ppr, f"{{{A}}}buNone")
 
-    def _fit_size(self, paras: list[Any], area: Box) -> int:
-        """The largest of 20..12 pt at which the text is estimated to fit the area."""
-        for size in (20, 18, 16, 14, 12):
-            per_line = max(10, int(area[2] / 12700 / (size * 0.52)))
-            lines = sum(
-                max(1, math.ceil(sum(len(r["text"]) for r in runs) / max(per_line - 4 * lvl, 6)))
-                for runs, lvl, _k in paras
-            )
-            if lines * size * 1.2 + len(paras) * 6 <= area[3] / 12700:
-                return size
-        return 12
+    def _fit_size(self, paras: list[Any], area: Box) -> tuple[int, bool]:
+        """The largest body size (24 down to 14 pt) at which the text is estimated to fit; False if none does."""
+        for size in BODY_STEPS:
+            if self._text_height(paras, area[2] / 12700, size) <= area[3] / 12700 * 0.92:
+                return size, True
+        return BODY_STEPS[-1], False
+
+    @staticmethod
+    def _text_height(paras: list[Any], width_pt: float, size: int) -> float:
+        total = 0.0
+        for runs, lvl, _k in paras:
+            sz = size - 2 * min(lvl, 2)
+            indent = 22 + 18 * lvl  # bullet hanging indent and nesting, in pt
+            per_line = max(8, int((width_pt - indent - 14) / (sz * 0.44)))
+            lines = max(1, math.ceil(sum(len(r["text"]) for r in runs) / per_line))
+            total += lines * sz * 1.2 + max(4, size // 3)
+        return total + 14  # the frame's top and bottom insets
 
     def _run(self, p: Any, r: dict[str, Any], size: float | None, italic: bool = False, mono: bool = False) -> None:
         run = p.add_run()
@@ -415,17 +538,27 @@ class PptxBuilder:
         placed = [v for v in visuals if self._has_box(v)]
         flow = [v for v in visuals if not self._has_box(v)]
         for v in placed:
-            self._place(slide, v, self._box_of(v), where)
+            self._place(slide, v, self._clamp(self._box_of(v), where), where)
         if not flow:
             return
         x, y, w, h = area
         cols = 1 if len(flow) == 1 else 2
         rows = math.ceil(len(flow) / cols)
-        gap = int(Inches(0.2))
+        gap = int(EMU_CM * 0.5)
         cw, ch = (w - gap * (cols - 1)) // cols, (h - gap * (rows - 1)) // rows
         for n, v in enumerate(flow):
             r, c = divmod(n, cols)
             self._place(slide, v, (x + c * (cw + gap), y + r * (ch + gap), cw, ch), where)
+
+    def _clamp(self, box: Box, where: str) -> Box:
+        """An explicit box is kept inside the slide (and said so when it had to move or shrink)."""
+        x, y, w, h = box
+        nw, nh = min(w, self.W), min(h, self.H)
+        nx = x if x < 0 else min(max(x, 0), self.W - (nw or self.W // 10))
+        ny = y if y < 0 else min(max(y, 0), self.H - (nh or self.H // 10))
+        if (nx, ny, nw, nh) != box:
+            self.notes.append(f"{where}: an explicit box reached past the slide edge and was fitted inside it")
+        return nx, ny, nw, nh
 
     @staticmethod
     def _has_box(v: dict[str, Any]) -> bool:
@@ -460,6 +593,7 @@ class PptxBuilder:
             w = int(h * aspect)
         if not h:
             h = int(w / aspect)
+        w, h = min(w, self.W - max(x, 0)), min(h, self.H - max(y, 0))  # never past the slide edge
         if w / h > aspect:  # fit inside the box without distortion, centred in it
             w2, h2 = int(h * aspect), h
         else:
@@ -471,9 +605,9 @@ class PptxBuilder:
 
     def _chart(self, slide: Any, c: dict[str, Any], box: Box) -> None:
         x, y, w, h = box
-        x, y = (int(Inches(0.6)) if x < 0 else x), (int(Inches(1.6)) if y < 0 else y)
-        w = w or int(Inches(6))
-        h = h or int(w * 9 / 16)
+        x, y = (int(EMU_CM * MARGIN_CM) if x < 0 else x), (int(EMU_CM * 4.4) if y < 0 else y)
+        w = w or int(self.W * 0.5)
+        h = h or min(int(w * 9 / 16), self.H - y - int(EMU_CM * 1.5))
         if c.get("render", "native") == "native":
             try:
                 charts.add_pptx_chart(slide.shapes, c, self.t, x, y, w, h)
@@ -489,6 +623,24 @@ class PptxBuilder:
         pic = slide.shapes.add_picture(io.BytesIO(png), x, y, w, h)
         pic._element.nvPicPr.cNvPr.set("descr", c.get("title") or f"{c['chart_type']} chart")
 
+    @staticmethod
+    def _table_fit(data: list[Any], cols: int, col_w: list[int], height: int) -> tuple[int, list[int], bool]:
+        """The largest of 18..10 pt at which the rows (with wrapping) are estimated to fit the height."""
+        size, heights = TABLE_STEPS[-1], list[int]()
+        for size in TABLE_STEPS:
+            heights = []
+            for row in data:
+                lines = 1
+                for ci in range(cols):
+                    raw = row[ci] if ci < len(row) else ""
+                    text = str(raw.get("text", "") if isinstance(raw, dict) else "" if raw is None else raw)
+                    per_line = max(4, int((col_w[ci] / 12700 - 14) / (size * 0.52)))
+                    lines = max(lines, math.ceil(len(text) / per_line) if text else 1)
+                heights.append(int(Pt(lines * size * 1.2 + 8)))
+            if sum(heights) <= height:
+                return size, heights, True
+        return size, heights, False
+
     def _table(self, slide: Any, b: dict[str, Any], box: Box) -> None:
         t = self.t
         style = b.get("style") or t.table_style
@@ -496,24 +648,28 @@ class PptxBuilder:
         cols = max([len(header or []), *(len(r) for r in rows)])
         data = ([header] if header else []) + rows
         x, y, w, h = box
-        x, y = (int(Inches(0.6)) if x < 0 else x), (int(Inches(1.6)) if y < 0 else y)
+        x, y = (int(EMU_CM * MARGIN_CM) if x < 0 else x), (int(EMU_CM * 4.4) if y < 0 else y)
         w = w or self.W - 2 * x
-        h = h or int(Inches(4))
-        size = max(9, min(14, int(16 - len(data) / 2)))
-        row_h = int(Pt(size * 2.1))
-        frame = slide.shapes.add_table(len(data), cols, x, y, w, min(h, row_h * len(data)))
+        h = h or max(self.H - y - int(EMU_CM * 2.4), int(EMU_CM * 4))
+        widths = b.get("widths") or [1] * cols
+        col_w = [int(w * wd / sum(widths)) for wd in widths]
+        size, heights, fits = self._table_fit(data, cols, col_w, h)
+        if not fits:
+            self.notes.append(
+                f"slide table with {len(data)} rows is taller than its area even at {size} pt; split it over two slides"
+            )
+        frame = slide.shapes.add_table(len(data), cols, x, y, w, min(h, sum(heights)) if fits else sum(heights))
         table = frame.table
         sid = frame._element.find(f".//{{{A}}}tableStyleId")
         if sid is not None:
             sid.text = TABLE_STYLE_IDS[style]
         table.first_row = bool(header)
-        widths = b.get("widths") or [1] * cols
-        for i, wd in enumerate(widths):
-            table.columns[i].width = int(w * wd / sum(widths))
+        for i, cw in enumerate(col_w):
+            table.columns[i].width = cw
         aligns = {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER, "right": PP_ALIGN.RIGHT}
         for ri, row in enumerate(data):
             is_head = bool(header) and ri == 0
-            table.rows[ri].height = row_h
+            table.rows[ri].height = heights[ri]
             for ci in range(cols):
                 raw = row[ci] if ci < len(row) else ""
                 spec = raw if isinstance(raw, dict) else {"text": raw}

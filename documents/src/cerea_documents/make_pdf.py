@@ -388,8 +388,9 @@ class PdfBuilder:
             h = w / aspect
         if w > self.width:
             w, h = self.width, h * self.width / w
-        if h > self.height:  # never taller than the frame, or the page cannot be laid out
-            w, h = w * self.height / h, self.height
+        room = self.height - 14  # the frame's own padding
+        if h > room:  # never taller than the frame, or the page cannot be laid out
+            w, h = w * room / h, room
         return w, h
 
     def _picture(self, data: bytes, w: float, h: float, align: str, caption: str | None) -> list[Flowable]:

@@ -125,6 +125,12 @@ jobs:
     if: github.event_name != 'schedule' && needs.changes.outputs.documents == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # LibreOffice behind Gotenberg: a generated deck must convert (the render check below)
+    services:
+      gotenberg:
+        image: gotenberg/gotenberg:8.38.1
+        ports:
+          - 3000:3000
     defaults:
       run:
         working-directory: documents
@@ -140,6 +146,10 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy
       - run: uv run pytest
+      - name: Render check (LibreOffice via Gotenberg)
+        run: |
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:3000/health && break; sleep 1; done
+          GOTENBERG_URL=http://127.0.0.1:3000 uv run pytest -q tests/test_pptx_layout.py -k converts
       - name: Build the image (no push)
         run: docker build -t cerea-documents:ci .
       - name: Image stays under 300 MB
