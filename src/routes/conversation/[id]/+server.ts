@@ -41,7 +41,7 @@ import { applyUpdateToMessage } from "$lib/server/generation/applyUpdate";
 import { AbortRegistry } from "$lib/server/abortRegistry";
 import { createGenerationWriter, type GenerationWriter } from "$lib/server/generation/writer";
 import { turnEnded, turnRunning } from "$lib/server/generation/turnState";
-import { armTurnCap, classifyTurnAbort } from "$lib/server/generation/turnCap";
+import { armTurnCap, classifyTurnAbort, untilCapped } from "$lib/server/generation/turnCap";
 import { clampStoppedContent } from "$lib/server/stopTruncation";
 import { MetricsServer } from "$lib/server/metrics";
 import { randomUUID } from "$lib/utils/randomUuid";
@@ -749,7 +749,8 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				// run the text generation and send updates to the client. Skipped when the
 				// resumed call asked something else: the model has no round to answer yet.
 				if (!parkedAgain) {
-					for await (const event of textGeneration(ctx)) await update(event);
+					for await (const event of untilCapped(textGeneration(ctx), ctrl.signal))
+						await update(event);
 				}
 				if (ctrl.signal.aborted) {
 					const abort = classifyTurnAbort(ctrl.signal);
