@@ -7,9 +7,13 @@ import { ObjectId } from "mongodb";
 
 const env = vi.hoisted(() => ({ servers: [{ name: "search", url: "https://search.test/mcp" }] }));
 vi.mock("$lib/server/mcp/registry", () => ({ getMcpServers: () => env.servers }));
+// The servers on this person's own machines.
+vi.mock("$lib/server/mcp/local", () => ({
+	localConnectorViews: async () => [{ key: "local:mine:notes" }],
+}));
 
 import { collections, ready } from "$lib/server/database";
-import { baseKey, loadSwitches, setPolicy } from "$lib/server/mcp/deploymentModes";
+import { baseKey, loadSwitches, MAX_SWITCHES, setPolicy } from "$lib/server/mcp/deploymentModes";
 import { PUT } from "./+server";
 
 const userId = new ObjectId();
@@ -61,6 +65,27 @@ describe("PUT /api/v2/mcp/switches", () => {
 		expect((await call({ key: "base:nothing", enabled: true })).status).toBe(404);
 		expect((await call({ key: "connector:not-an-id", enabled: true })).status).toBe(404);
 		expect((await call({ key: "x", enabled: true })).status).toBe(404);
+	});
+
+	it("switches a server on the person's own machine, and no one else's (review L3)", async () => {
+		expect((await call({ key: "local:mine:notes", enabled: true })).status).toBe(200);
+		expect((await loadSwitches(userId)).on.has("local:mine:notes")).toBe(true);
+		expect((await call({ key: "local:theirs:mail", enabled: true })).status).toBe(404);
+		expect((await loadSwitches(userId)).on.has("local:theirs:mail")).toBe(false);
+	});
+
+	it("refuses a new switch past the cap, and still changes one already kept (review L3)", async () => {
+		const full = Array.from({ length: MAX_SWITCHES }, (_, i) => `base:s${i}`);
+		await collections.connectorSwitches.insertOne({
+			_id: new ObjectId(),
+			userId,
+			off: full,
+			on: [],
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+		expect((await call({ key: "base:search", enabled: false })).status).toBe(400);
+		expect((await loadSwitches(userId)).off.has("base:search")).toBe(false);
 	});
 
 	it("needs a signed-in person", async () => {

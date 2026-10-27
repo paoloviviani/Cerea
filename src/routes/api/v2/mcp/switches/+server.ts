@@ -16,6 +16,7 @@ import {
 	connectorKey,
 	isLocalKey,
 	loadPolicies,
+	MAX_SWITCHES,
 	policyIn,
 	setSwitch,
 } from "$lib/server/mcp/deploymentModes";
@@ -42,8 +43,23 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 			: null;
 		if (!row) error(404, "No such connector.");
 		if (key !== connectorKey(id)) error(404, "No such connector.");
-	} else if (!isLocalKey(key)) {
+	} else if (isLocalKey(key)) {
+		// Only a server on one of this person's own machines.
+		const { localConnectorViews } = await import("$lib/server/mcp/local");
+		if (!(await localConnectorViews(user._id)).some((view) => view.key === key)) {
+			error(404, "No such connector.");
+		}
+	} else {
 		error(404, "No such connector.");
+	}
+
+	const row = await collections.connectorSwitches.findOne(
+		{ userId: user._id },
+		{ projection: { off: 1, on: 1 } }
+	);
+	const kept = [...(row?.off ?? []), ...(row?.on ?? [])];
+	if (!kept.includes(key) && kept.length >= MAX_SWITCHES) {
+		error(400, "Too many connectors switched; switch some back first.");
 	}
 
 	const policy = policyIn(await loadPolicies(), key);
