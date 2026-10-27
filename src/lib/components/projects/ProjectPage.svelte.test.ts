@@ -11,12 +11,7 @@ import { page } from "@vitest/browser/context";
 
 import ProjectPage from "./ProjectPage.svelte";
 import { renderWithApp, appNavigation } from "$lib/components/__tests__/renderWithApp";
-import {
-	connectors,
-	connectorsLoaded,
-	resetConversationSelections,
-} from "$lib/stores/mcpConnectors";
-import { allMcpServers } from "$lib/stores/mcpServers";
+import { connectors, connectorsLoaded } from "$lib/stores/mcpConnectors";
 import type { McpConnectorView } from "$lib/types/McpConnector";
 import type { ProjectView } from "$lib/types/Project";
 
@@ -26,6 +21,8 @@ vi.mock("$env/dynamic/public", () => ({
 
 function connector(overrides: Partial<McpConnectorView> & { id: string }): McpConnectorView {
 	return {
+		key: `connector:${overrides.id}`,
+		enabled: true,
 		name: `Server ${overrides.id}`,
 		url: `https://${overrides.id}.test/mcp`,
 		auth: "none",
@@ -224,7 +221,6 @@ async function typeInto(selector: string, value: string) {
 beforeEach(() => {
 	connectors.set([]);
 	connectorsLoaded.set(false);
-	resetConversationSelections();
 });
 
 afterEach(() => {
@@ -468,13 +464,10 @@ describe("ProjectPage defaults for new chats", () => {
 		stubApi({ connectors: [CONN_ON(), CONN_OFF()] });
 		mountCreate(false);
 		await waitForText("Web search on by default");
-		await vi.waitFor(() =>
-			expect(
-				document.body.querySelector('input[name="project-default-connector-conn-a"]')
-			).not.toBeNull()
-		);
-		expect(text()).toContain("Connectors on by default:");
-		expect(text()).toContain("· not signed in");
+		// Connectors are switched in Workspace now (ADR 0104): a project no longer has a list of them.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(text()).not.toContain("Connectors on by default");
+		expect(document.body.querySelector('input[name^="project-default-connector-"]')).toBeNull();
 		for (const banned of [
 			"Use the app default",
 			"Checked connectors start on",
@@ -489,42 +482,6 @@ describe("ProjectPage defaults for new chats", () => {
 		}
 		// Nothing exists to attach documents or memory to yet.
 		expect(document.body.querySelector('[data-testid="project-documents"]')).toBeNull();
-	});
-
-	it("lists built-in servers before the person's own, under headings, and toggles them", async () => {
-		allMcpServers.set([
-			{ id: "base-search", name: "search", url: "https://m/s", type: "base" } as never,
-		]);
-		stubApi({
-			connectors: [
-				connector({ id: "dep-1", name: "company wiki", scope: "deployment", connected: true }),
-				CONN_ON(),
-			],
-			project: projectView({ defaultMcpConnectorIds: [] }),
-		});
-		mountExisting(true, "settings");
-		await vi.waitFor(() =>
-			expect(
-				document.body.querySelector('input[name="project-default-connector-base-search"]')
-			).not.toBeNull()
-		);
-		const names = [
-			...document.body.querySelectorAll('input[name^="project-default-connector-"]'),
-		].map((el) => el.getAttribute("name"));
-		expect(names).toEqual([
-			"project-default-connector-dep-1",
-			"project-default-connector-base-search",
-			"project-default-connector-conn-a",
-		]);
-		expect(text()).toContain("Built-in");
-		expect(text()).toContain("Your connectors");
-		await flipSwitch("project-default-connector-base-search");
-		await vi.waitFor(() =>
-			expect(
-				switchControl("project-default-connector-base-search").getAttribute("aria-checked")
-			).toBe("true")
-		);
-		allMcpServers.set([]);
 	});
 
 	it("seeds the web-search toggle from the app default, on and off", async () => {
@@ -543,23 +500,19 @@ describe("ProjectPage defaults for new chats", () => {
 	});
 
 	it("an existing project seeds from its stored explicit values", async () => {
+		// A stored `defaultMcpConnectorIds` from before ADR 0104 is ignored: no switch, no save.
 		stubApi({
-			project: projectView({ defaultWebSearch: false, defaultMcpConnectorIds: ["conn-a"] }),
+			project: projectView({
+				defaultWebSearch: false,
+				...({ defaultMcpConnectorIds: ["conn-a"] } as object),
+			}),
 		});
 		mountExisting(true, "settings");
-		await waitForText("Connectors on by default:");
+		await waitForText("Web search on by default");
 		await vi.waitFor(() =>
-			expect(
-				document.body.querySelector('input[name="project-default-connector-conn-a"]')
-			).not.toBeNull()
+			expect(switchControl("project-default-websearch").getAttribute("aria-checked")).toBe("false")
 		);
-		expect(switchControl("project-default-websearch").getAttribute("aria-checked")).toBe("false");
-		expect(switchControl("project-default-connector-conn-a").getAttribute("aria-checked")).toBe(
-			"true"
-		);
-		expect(switchControl("project-default-connector-conn-b").getAttribute("aria-checked")).toBe(
-			"false"
-		);
+		expect(document.body.querySelector('input[name^="project-default-connector-"]')).toBeNull();
 	});
 
 	it("an existing project without a stored value falls back to the app default", async () => {
@@ -572,23 +525,12 @@ describe("ProjectPage defaults for new chats", () => {
 	});
 
 	it("create saves every setting as an explicit value, then opens the project's page", async () => {
-		const seen = stubApi({ connectors: [CONN_ON(), CONN_OFF()] });
+		const seen = stubApi({});
 		mountCreate(false);
 		await waitForText("Web search on by default");
-		await vi.waitFor(() =>
-			expect(
-				document.body.querySelector('input[name="project-default-connector-conn-a"]')
-			).not.toBeNull()
-		);
 		await typeInto("#project-name", "Grant");
 		await typeInto("#project-instructions, [aria-label='Instructions']", "Be brief.");
 		await flipSwitch("project-default-websearch");
-		await flipSwitch("project-default-connector-conn-a");
-		await vi.waitFor(() =>
-			expect(switchControl("project-default-connector-conn-a").getAttribute("aria-checked")).toBe(
-				"true"
-			)
-		);
 
 		button("Create project")?.click();
 		await vi.waitFor(() => expect(seen.some((call) => call.method === "POST")).toBe(true));
@@ -599,8 +541,9 @@ describe("ProjectPage defaults for new chats", () => {
 			indexPastChats: false,
 			retrievalLimit: 6,
 			defaultWebSearch: true,
-			defaultMcpConnectorIds: ["conn-a"],
 		});
+		// A project no longer carries connector defaults.
+		expect(seen[0].body).not.toHaveProperty("defaultMcpConnectorIds");
 		await vi.waitFor(() =>
 			expect(appNavigation().goto).toHaveBeenCalledWith("/projects/proj-new", {
 				replaceState: true,

@@ -30,17 +30,6 @@
 	import { consumeMessageUpdates } from "$lib/utils/consumeMessageUpdates";
 	import { v4 } from "uuid";
 	import { useSettingsStore } from "$lib/stores/settings.js";
-	import {
-		applyProjectServerDefaults,
-		enabledServers,
-		mcpServersLoaded,
-	} from "$lib/stores/mcpServers";
-	import {
-		enabledConnectors,
-		defaultConnectorIds,
-		openConversationSelection,
-	} from "$lib/stores/mcpConnectors";
-	import { get } from "svelte/store";
 	import { browser } from "$app/environment";
 	import { reattachStream } from "$lib/utils/reattachStream";
 	import type { TreeNode, TreeId } from "$lib/utils/tree/tree";
@@ -130,23 +119,6 @@
 		void page.params.id;
 		if ($settings.locationMode === "device") void requestDeviceLocation();
 		else clearDeviceLocation();
-	});
-
-	// The MCP selection for THIS conversation: initialized from the project
-	// defaults when the project names any, else the workspace defaults, then
-	// fully independent. Switching conversations preserves each chat's own
-	// set; the defaults are never rewritten from here.
-	let baseDefaultsFor: string | null = null;
-	$effect(() => {
-		const id = page.params.id ?? null;
-		const seed = data.projectDefaults?.defaultMcpConnectorIds ?? get(defaultConnectorIds);
-		untrack(() => openConversationSelection(id, seed));
-		// Once per opened chat: a data refresh must not undo what was toggled since.
-		if (id !== baseDefaultsFor) {
-			baseDefaultsFor = id;
-			const projectIds = data.projectDefaults?.defaultMcpConnectorIds;
-			untrack(() => applyProjectServerDefaults(projectIds));
-		}
 	});
 
 	function createMessagesPath<T>(messages: TreeNode<T>[], msgId?: TreeId): TreeNode<T>[] {
@@ -351,23 +323,6 @@
 
 			const streamingMode = resolveStreamingMode($settings);
 
-			// Wait for the MCP store to hydrate before sending so the server receives
-			// the user's exact selection. Sending [] before the base server list is
-			// fetched filters env servers to nothing; omitting the field would skip
-			// any explicit opt-outs the user saved in localStorage.
-			if (!get(mcpServersLoaded)) {
-				await new Promise<void>((resolve) => {
-					let unsub: (() => void) | undefined;
-					unsub = mcpServersLoaded.subscribe((loaded) => {
-						if (loaded) {
-							// unsub may still be undefined if subscribe fires synchronously
-							unsub?.();
-							resolve();
-						}
-					});
-				});
-			}
-
 			const messageUpdatesIterator = await fetchMessageUpdates(
 				convId,
 				{
@@ -378,24 +333,6 @@
 					...(resumeElicitationId ? { resumeElicitationId } : {}),
 					generationId: activeGenerationId,
 					files: isRetry ? userMessage?.files : base64Files,
-					// Connectors go in this list too, and leaving them out was a real
-					// bug: `runMcpFlow` filters the merged server list down to these
-					// names, so a turn with one connector and no servers sent an
-					// empty array — an array, so the filter ran — and arrived with
-					// no tools at all.
-					selectedMcpServerNames: [
-						...$enabledServers.map((s) => s.name),
-						...$enabledConnectors.map((c) => c.name),
-					],
-					selectedMcpServers: $enabledServers.map((s) => ({
-						name: s.name,
-						url: s.url,
-						headers: s.headers,
-					})),
-					// Ids only. The line above sends a URL and headers because a
-					// custom server is *defined* in this browser; a connector is
-					// defined on the server, and so is its credential.
-					selectedConnectorIds: $enabledConnectors.map((c) => c.id),
 					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 					// Only while the person chose "From this device"; never otherwise.
 					location: $settings.locationMode === "device" ? currentDeviceLocation() : undefined,

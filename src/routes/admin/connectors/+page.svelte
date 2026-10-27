@@ -19,8 +19,9 @@
 	import Rich from "$lib/i18n/Rich.svelte";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconAddLarge from "~icons/carbon/add-large";
-	import type { McpConnectorView } from "$lib/types/McpConnector";
-	import { allMcpServers, healthCheckServer } from "$lib/stores/mcpServers";
+	import type { ConnectorMode, McpConnectorView } from "$lib/types/McpConnector";
+	import type { MCPServer, MCPTool } from "$lib/types/Tool";
+	import Switch from "$lib/components/Switch.svelte";
 
 	// Example values and an HTTP header name, not words. i18n: literal
 	const EXAMPLE_URL = "https://mcp.notion.com/mcp";
@@ -39,11 +40,93 @@
 	let token = $state("");
 	let tokenHeader = $state("");
 
-	// The servers `.env` (`MCP_SERVERS`) defines: the same store the chat reads, so their
-	// state is whatever the health route last said, with no probe loop of its own. Read-only.
+	// The servers `.env` (`MCP_SERVERS`) defines, with how the deployment offers each
+	// (ADR 0104). Their address and key are edited in `.env`; their mode is set here.
+	let envList = $state<MCPServer[]>([]);
 	const envServers = $derived(
-		$allMcpServers.filter((s) => s.type === "base").sort((a, b) => a.name.localeCompare(b.name))
+		envList
+			.map((server) => ({ ...server, ...(checks[server.id] ?? {}) }))
+			.sort((a, b) => a.name.localeCompare(b.name))
 	);
+	/** What the Check button last found, by server id. */
+	let checks = $state<
+		Record<string, { status?: MCPServer["status"]; tools?: MCPTool[]; errorMessage?: string }>
+	>({});
+
+	async function check(server: MCPServer) {
+		checks[server.id] = { status: "connecting" };
+		try {
+			const response = await fetch(`${base}/api/mcp/health`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ url: server.url }),
+			});
+			const result = (await response.json()) as {
+				ready?: boolean;
+				tools?: MCPTool[];
+				error?: string;
+			};
+			checks[server.id] =
+				result.ready && result.tools
+					? { status: "connected", tools: result.tools }
+					: { status: "error", errorMessage: result.error };
+		} catch (err) {
+			checks[server.id] = {
+				status: "error",
+				errorMessage: err instanceof Error ? err.message : undefined,
+			};
+		}
+	}
+
+	const MODES: ConnectorMode[] = ["off", "on", "locked"];
+	// Spelled out rather than built from the mode, so each message can be found and translated.
+	const modeLabel = (mode: ConnectorMode): string =>
+		mode === "off"
+			? m["admin.connectors.mode.off"]()
+			: mode === "locked"
+				? m["admin.connectors.mode.locked"]()
+				: m["admin.connectors.mode.on"]();
+	const modeHint = (mode: ConnectorMode): string =>
+		mode === "off"
+			? m["admin.connectors.mode.off_hint"]()
+			: mode === "locked"
+				? m["admin.connectors.mode.locked_hint"]()
+				: m["admin.connectors.mode.on_hint"]();
+
+	/**
+	 * Change how one connector is offered, shown at once and put back if refused. `target` is a
+	 * `.env` server (by name) or an administrator's connector (by id).
+	 */
+	async function setPolicy(
+		target: { kind: "base"; name: string } | { kind: "connector"; id: string },
+		change: { mode?: ConnectorMode; alwaysLoaded?: boolean }
+	) {
+		const beforeEnv = envList;
+		const beforeShared = connectors;
+		const apply = <T extends { mode?: ConnectorMode; alwaysLoaded?: boolean }>(row: T): T => ({
+			...row,
+			...(change.mode !== undefined ? { mode: change.mode } : {}),
+			...(change.alwaysLoaded !== undefined ? { alwaysLoaded: change.alwaysLoaded } : {}),
+		});
+		if (target.kind === "base") {
+			envList = envList.map((row) => (row.name === target.name ? apply(row) : row));
+		} else {
+			connectors = connectors.map((row) => (row.id === target.id ? apply(row) : row));
+		}
+		failure = null;
+		try {
+			const response = await fetch(`${base}/api/v2/admin/connector-modes`, {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ ...target, ...change }),
+			});
+			if (!response.ok) throw new Error(m["admin.connectors.mode.save_failed"]());
+		} catch (err) {
+			envList = beforeEnv;
+			connectors = beforeShared;
+			failure = err instanceof Error ? err.message : m["admin.connectors.mode.save_failed"]();
+		}
+	}
 
 	const shared = $derived(connectors.filter((c) => c.scope === "deployment"));
 
@@ -70,7 +153,10 @@
 	async function load() {
 		failure = null;
 		try {
-			connectors = (await api<{ data: McpConnectorView[] }>("/connectors")).data;
+			// `admin=1` lists the connectors that are switched off too, and each one's always-loaded flag.
+			connectors = (await api<{ data: McpConnectorView[] }>("/connectors?admin=1")).data;
+			const env = await fetch(`${base}/api/mcp/servers?admin=1`);
+			if (env.ok) envList = (await env.json()) as MCPServer[];
 		} catch (err) {
 			failure = err instanceof Error ? err.message : m["admin.connectors.load_failed"]();
 		} finally {
@@ -142,6 +228,62 @@
 {#snippet code(text: string)}<code class="font-mono">{text}</code>{/snippet}
 
 {#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
+
+<!--
+	How one connector is offered: off, on, or on and locked, and whether the assistant has it
+	loaded from the start. One line says what the chosen mode means.
+-->
+{#snippet policyControl(
+	id: string,
+	mode: ConnectorMode | undefined,
+	alwaysLoaded: boolean | undefined,
+	label: string,
+	onmode: (mode: ConnectorMode) => void,
+	onloaded: (on: boolean) => void
+)}
+	{@const current = mode ?? "on"}
+	<div class="mt-3 flex flex-col gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
+		<div class="flex flex-wrap items-center gap-2">
+			<span class="text-xs font-medium">{m["admin.connectors.mode.label"]()}</span>
+			<div
+				role="radiogroup"
+				aria-label={label}
+				class="inline-flex overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600"
+			>
+				{#each MODES as option (option)}
+					<label
+						class="cursor-pointer px-2.5 py-1 text-xs font-medium has-[:focus-visible]:outline-2 {current ===
+						option
+							? 'bg-blue-600 text-white'
+							: 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300'}"
+					>
+						<input
+							type="radio"
+							class="sr-only"
+							name={`mode-${id}`}
+							value={option}
+							checked={current === option}
+							onchange={() => onmode(option)}
+						/>
+						{modeLabel(option)}
+					</label>
+				{/each}
+			</div>
+		</div>
+		<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="mode-hint">
+			{modeHint(current)}
+		</p>
+		{#if current !== "off"}
+			<div class="flex items-center gap-2">
+				<Switch name={`loaded-${id}`} bind:checked={() => alwaysLoaded === true, onloaded} />
+				<span class="text-xs font-medium">{m["admin.connectors.mode.always_loaded"]()}</span>
+			</div>
+			<p class="text-xs text-gray-500 dark:text-gray-400">
+				{m["admin.connectors.mode.always_loaded_hint"]()}
+			</p>
+		{/if}
+	</div>
+{/snippet}
 
 <section class="flex flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
 	<div class="flex items-start justify-between gap-3">
@@ -282,45 +424,57 @@
 				{#each envServers as server (server.id)}
 					<li
 						data-testid="env-server"
-						class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 max-sm:flex-col max-sm:items-stretch dark:border-gray-700"
+						class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"
 					>
-						<div class="min-w-0">
-							<p class="truncate text-sm font-medium">{server.name}</p>
-							<p class="truncate text-xs text-gray-500 dark:text-gray-400" title={server.url}>
-								{server.url}
-							</p>
-							{#if server.errorMessage}
-								<p class="mt-1 text-xs text-red-600 dark:text-red-400">{server.errorMessage}</p>
-							{/if}
+						<div
+							class="flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-stretch"
+						>
+							<div class="min-w-0">
+								<p class="truncate text-sm font-medium">{server.name}</p>
+								<p class="truncate text-xs text-gray-500 dark:text-gray-400" title={server.url}>
+									{server.url}
+								</p>
+								{#if server.errorMessage}
+									<p class="mt-1 text-xs text-red-600 dark:text-red-400">{server.errorMessage}</p>
+								{/if}
+							</div>
+							<div class="flex shrink-0 flex-wrap items-center gap-2">
+								<span
+									class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+								>
+									{m["admin.connectors.env.badge"]()}
+								</span>
+								<span class="text-xs text-gray-500">
+									{server.status === "connected"
+										? server.tools
+											? m["admin.connectors.env.status.reachable_tools"]({
+													count: server.tools.length,
+												})
+											: m["admin.connectors.env.status.reachable"]()
+										: server.status === "error"
+											? m["admin.connectors.env.status.unreachable"]()
+											: server.status === "connecting"
+												? m["admin.connectors.env.status.checking"]()
+												: m["admin.connectors.env.status.not_checked"]()}
+								</span>
+								<button
+									type="button"
+									onclick={() => check(server)}
+									disabled={server.status === "connecting"}
+									class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+								>
+									{m["admin.connectors.env.check"]()}
+								</button>
+							</div>
 						</div>
-						<div class="flex shrink-0 flex-wrap items-center gap-2">
-							<span
-								class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300"
-							>
-								{m["admin.connectors.env.badge"]()}
-							</span>
-							<span class="text-xs text-gray-500">
-								{server.status === "connected"
-									? server.tools
-										? m["admin.connectors.env.status.reachable_tools"]({
-												count: server.tools.length,
-											})
-										: m["admin.connectors.env.status.reachable"]()
-									: server.status === "error"
-										? m["admin.connectors.env.status.unreachable"]()
-										: server.status === "connecting"
-											? m["admin.connectors.env.status.checking"]()
-											: m["admin.connectors.env.status.not_checked"]()}
-							</span>
-							<button
-								type="button"
-								onclick={() => healthCheckServer(server)}
-								disabled={server.status === "connecting"}
-								class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
-							>
-								{m["admin.connectors.env.check"]()}
-							</button>
-						</div>
+						{@render policyControl(
+							server.id,
+							server.mode,
+							server.alwaysLoaded,
+							server.name,
+							(mode) => setPolicy({ kind: "base", name: server.name }, { mode }),
+							(alwaysLoaded) => setPolicy({ kind: "base", name: server.name }, { alwaysLoaded })
+						)}
 					</li>
 				{/each}
 			</ul>
@@ -337,34 +491,45 @@
 		<ul class="flex flex-col gap-2">
 			{#each shared as connector (connector.id)}
 				<li
-					class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 max-sm:flex-col max-sm:items-stretch dark:border-gray-700"
+					data-testid="shared-connector"
+					class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"
 				>
-					<div class="min-w-0">
-						<p class="truncate text-sm font-medium">{connector.name}</p>
-						<p class="truncate text-xs text-gray-500 dark:text-gray-400" title={connector.url}>
-							{connector.url}
-						</p>
-						{#if connector.lastError}
-							<p class="mt-1 text-xs text-red-600 dark:text-red-400">{connector.lastError}</p>
-						{/if}
+					<div class="flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-stretch">
+						<div class="min-w-0">
+							<p class="truncate text-sm font-medium">{connector.name}</p>
+							<p class="truncate text-xs text-gray-500 dark:text-gray-400" title={connector.url}>
+								{connector.url}
+							</p>
+							{#if connector.lastError}
+								<p class="mt-1 text-xs text-red-600 dark:text-red-400">{connector.lastError}</p>
+							{/if}
+						</div>
+						<div class="flex shrink-0 flex-wrap items-center gap-2">
+							<span class="text-xs text-gray-500">
+								{connector.auth === "oauth"
+									? m["admin.connectors.auth.oauth"]()
+									: connector.auth === "token"
+										? m["admin.connectors.auth.token"]()
+										: m["admin.connectors.auth.none"]()}
+							</span>
+							<button
+								onclick={() => remove(connector)}
+								disabled={busy}
+								class="flex items-center gap-1.5 rounded-lg border border-red-500/15 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 disabled:opacity-50 dark:border-red-500/25 dark:bg-red-900/30 dark:text-red-400"
+							>
+								<IconTrash class="size-3" />
+								{m["admin.connectors.remove"]()}
+							</button>
+						</div>
 					</div>
-					<div class="flex shrink-0 flex-wrap items-center gap-2">
-						<span class="text-xs text-gray-500">
-							{connector.auth === "oauth"
-								? m["admin.connectors.auth.oauth"]()
-								: connector.auth === "token"
-									? m["admin.connectors.auth.token"]()
-									: m["admin.connectors.auth.none"]()}
-						</span>
-						<button
-							onclick={() => remove(connector)}
-							disabled={busy}
-							class="flex items-center gap-1.5 rounded-lg border border-red-500/15 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 disabled:opacity-50 dark:border-red-500/25 dark:bg-red-900/30 dark:text-red-400"
-						>
-							<IconTrash class="size-3" />
-							{m["admin.connectors.remove"]()}
-						</button>
-					</div>
+					{@render policyControl(
+						connector.id,
+						connector.mode,
+						connector.alwaysLoaded,
+						connector.name,
+						(mode) => setPolicy({ kind: "connector", id: connector.id }, { mode }),
+						(alwaysLoaded) => setPolicy({ kind: "connector", id: connector.id }, { alwaysLoaded })
+					)}
 				</li>
 			{/each}
 		</ul>

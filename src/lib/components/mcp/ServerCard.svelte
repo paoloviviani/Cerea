@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
 	import type { MCPServer } from "$lib/types/Tool";
-	import { toggleServer, healthCheckServer } from "$lib/stores/mcpServers";
+	import { healthCheckServer } from "$lib/stores/mcpServers";
+	import { setConnectorEnabled } from "$lib/stores/mcpConnectors";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import IconPending from "~icons/carbon/pending-filled";
@@ -14,12 +15,15 @@
 
 	interface Props {
 		server: MCPServer;
-		isSelected: boolean;
 		/** Marks a server the deployment's `.env` defines (shown to administrators). */
 		fromEnv?: boolean;
 	}
 
-	let { server, isSelected, fromEnv = false }: Props = $props();
+	let { server, fromEnv = false }: Props = $props();
+
+	const locked = $derived(server.mode === "locked");
+	const isOn = $derived(server.enabled !== false);
+	let switchError = $state<string | null>(null);
 
 	let isLoadingHealth = $state(false);
 
@@ -61,11 +65,13 @@
 		}
 	});
 
-	// Switch setter handles enable/disable (simple, idiomatic)
+	// Switch setter: the server keeps the choice (ADR 0104); shown at once, put back if refused.
 	function setEnabled(v: boolean) {
-		if (v === isSelected) return;
-		toggleServer(server.id);
-		if (v && server.status !== "connected") handleHealthCheck();
+		if (v === isOn || !server.key) return;
+		switchError = null;
+		setConnectorEnabled(server.key, v).catch((err: unknown) => {
+			switchError = err instanceof Error ? err.message : m["mcp.connectors.switch_failed"]();
+		});
 	}
 
 	async function handleHealthCheck() {
@@ -113,6 +119,11 @@
 	{/if}
 {/snippet}
 
+{#snippet enableSwitch()}
+	<!-- Enable Switch (function binding per Svelte 5 docs) -->
+	<Switch name={`enable-${server.id}`} bind:checked={() => isOn, setEnabled} />
+{/snippet}
+
 <ServerCardFrame
 	pills={server.status || fromEnv ? statusPills : undefined}
 	name={server.name}
@@ -120,11 +131,13 @@
 	description={server.url}
 	toggleLabel={m["mcp.card.toggle_label"]()}
 	toggleLabelShort={m["mcp.card.toggle_label_short"]()}
+	toggle={locked ? undefined : enableSwitch}
+	fixedLabel={locked ? m["mcp.card.locked"]() : undefined}
+	toggleTitle={locked ? m["mcp.card.locked_title"]() : undefined}
 >
-	{#snippet toggle()}
-		<!-- Enable Switch (function binding per Svelte 5 docs) -->
-		<Switch name={`enable-${server.id}`} bind:checked={() => isSelected, setEnabled} />
-	{/snippet}
+	{#if switchError}
+		<p class="mb-2 text-xs text-red-700 dark:text-red-300">{switchError}</p>
+	{/if}
 
 	<!-- Error Message -->
 	{#if server.errorMessage}

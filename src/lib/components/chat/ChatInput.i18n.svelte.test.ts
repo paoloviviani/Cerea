@@ -8,12 +8,7 @@ import { writable } from "svelte/store";
 import ChatInput from "./ChatInput.svelte";
 import { renderWithApp } from "../__tests__/renderWithApp";
 import { unbracketedWords, useEnglish, usePseudoLocale } from "../__tests__/enXaManage";
-import {
-	connectors,
-	connectorsFailed,
-	connectorsLoaded,
-	resetConversationSelections,
-} from "$lib/stores/mcpConnectors";
+import { connectors, connectorsFailed, connectorsLoaded } from "$lib/stores/mcpConnectors";
 import { allMcpServers } from "$lib/stores/mcpServers";
 import { m } from "$lib/paraglide/messages";
 
@@ -34,7 +29,6 @@ beforeEach(() => {
 	connectors.set([]);
 	connectorsLoaded.set(true);
 	connectorsFailed.set(false);
-	resetConversationSelections();
 	allMcpServers.set([]);
 	vi.stubGlobal(
 		"fetch",

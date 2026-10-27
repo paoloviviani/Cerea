@@ -21,7 +21,6 @@ import {
 	useEnglish,
 	usePseudoLocale,
 } from "$lib/components/__tests__/enXaManage";
-import { allMcpServers } from "$lib/stores/mcpServers";
 import { m } from "$lib/paraglide/messages";
 
 vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_APP_NAME: "chat-ui" } }));
@@ -44,7 +43,6 @@ function stub(routes: Record<string, unknown>) {
 afterEach(() => {
 	useEnglish();
 	vi.unstubAllGlobals();
-	allMcpServers.set([]);
 	document.body.innerHTML = "";
 });
 
@@ -208,10 +206,10 @@ describe("Administration, in the pseudo-locale", () => {
 
 	it("renders Connectors, with its add form", async () => {
 		usePseudoLocale();
-		allMcpServers.set([
-			{ id: "base-wiki", name: "wiki", url: "https://wiki.test/mcp", type: "base" },
-		] as never);
 		stub({
+			"/api/mcp/servers": [
+				{ id: "base-wiki", name: "wiki", url: "https://wiki.test/mcp", type: "base", mode: "on" },
+			],
 			"/api/v2/mcp/connectors": {
 				data: [
 					{
@@ -220,6 +218,8 @@ describe("Administration, in the pseudo-locale", () => {
 						url: "https://notion.test/mcp",
 						auth: "oauth",
 						scope: "deployment",
+						mode: "locked",
+						alwaysLoaded: true,
 					},
 				],
 			},

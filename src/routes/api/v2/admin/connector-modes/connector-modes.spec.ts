@@ -20,13 +20,15 @@ import { baseKey, connectorKey, loadPolicies, policyIn } from "$lib/server/mcp/d
 import { PUT } from "./+server";
 
 const put = (body: unknown) =>
-	PUT({
-		locals: {},
-		request: new Request("http://localhost/api/v2/admin/connector-modes", {
-			method: "PUT",
-			body: JSON.stringify(body),
-		}),
-	} as never).then(
+	Promise.resolve(
+		PUT({
+			locals: {},
+			request: new Request("http://localhost/api/v2/admin/connector-modes", {
+				method: "PUT",
+				body: JSON.stringify(body),
+			}),
+		} as never)
+	).then(
 		async (res) => ({ status: res.status, body: await res.json() }),
 		(err: { status?: number }) => ({ status: err.status ?? 500, body: null })
 	);

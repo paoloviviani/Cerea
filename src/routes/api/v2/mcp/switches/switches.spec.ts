@@ -15,13 +15,15 @@ import { PUT } from "./+server";
 const userId = new ObjectId();
 
 const call = (body: unknown, signedIn = true) =>
-	PUT({
-		locals: signedIn ? { user: { _id: userId } } : {},
-		request: new Request("http://localhost/api/v2/mcp/switches", {
-			method: "PUT",
-			body: JSON.stringify(body),
-		}),
-	} as never).then(
+	Promise.resolve(
+		PUT({
+			locals: signedIn ? { user: { _id: userId } } : {},
+			request: new Request("http://localhost/api/v2/mcp/switches", {
+				method: "PUT",
+				body: JSON.stringify(body),
+			}),
+		} as never)
+	).then(
 		async (res) => ({ status: res.status, body: await res.json() }),
 		(err: { status?: number }) => ({ status: err.status ?? 500, body: null })
 	);

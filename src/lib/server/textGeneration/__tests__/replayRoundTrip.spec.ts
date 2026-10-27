@@ -160,10 +160,14 @@ async function sendMessage(
 		JSON.stringify({
 			inputs: prompt,
 			...(parentId ? { id: parentId } : {}),
-			...(opts.withTools === false
-				? {}
-				: { selectedMcpServers: [{ name: "mock", url: "https://mock.test/mcp", headers: [] }] }),
 		})
+	);
+
+	// A turn without tools is one where the deployment offers no connector.
+	const { collections } = await import("$lib/server/database");
+	await collections.connectorModes.updateOne(
+		{ key: "base:mock" },
+		{ $set: { mode: opts.withTools === false ? "off" : "on" } }
 	);
 
 	const response = await POST({
@@ -213,7 +217,6 @@ async function sendMessageAndDetach(
 		JSON.stringify({
 			inputs: prompt,
 			...(parentId ? { id: parentId } : {}),
-			selectedMcpServers: [{ name: "mock", url: "https://mock.test/mcp", headers: [] }],
 		})
 	);
 

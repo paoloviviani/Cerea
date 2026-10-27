@@ -3,7 +3,7 @@
 	import { onDestroy, onMount, tick, untrack } from "svelte";
 	import { MediaQuery } from "svelte/reactivity";
 
-	import { afterNavigate, goto } from "$app/navigation";
+	import { afterNavigate } from "$app/navigation";
 
 	import { DropdownMenu } from "bits-ui";
 	import IconPlus from "~icons/lucide/plus";
@@ -13,18 +13,14 @@
 	import CarbonUpload from "~icons/carbon/upload";
 	import CarbonLink from "~icons/carbon/link";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
-	import CarbonClose from "~icons/carbon/close";
 	import LucideLibrary from "~icons/lucide/library";
 	import UrlFetchModal from "./UrlFetchModal.svelte";
 	import CarbonEarth from "~icons/carbon/earth";
 	import LucideShieldCheck from "~icons/lucide/shield-check";
 	import LucideMic from "~icons/lucide/mic";
-	import LucideLaptop from "~icons/lucide/laptop";
-	import LucideInfo from "~icons/lucide/info";
 	import TogglePill from "$lib/components/TogglePill.svelte";
 	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
 	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
-	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 
 	import {
 		composeDictation,
@@ -42,25 +38,6 @@
 	} from "$lib/utils/dictation";
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	import { requireAuthUser } from "$lib/utils/auth";
-	import {
-		selectedServerIds,
-		allMcpServers,
-		toggleServer,
-		disableAllServers,
-	} from "$lib/stores/mcpServers";
-	import {
-		connectors,
-		connectorsFailed,
-		connectorsLoaded,
-		refreshConnectors,
-		selectedConnectorIds,
-		toggleConnector,
-		totalEnabledMcpCount,
-		disableAllConnectors,
-	} from "$lib/stores/mcpConnectors";
-	import type { MCPServer } from "$lib/types/Tool";
-	import type { McpConnectorView } from "$lib/types/McpConnector";
-	import { getMcpServerFaviconUrl } from "$lib/utils/favicon";
 	import {
 		SlashCommandState,
 		matchSlashCommand,
@@ -88,8 +65,6 @@
 		disabled?: boolean;
 		// tools removed
 		modelIsMultimodal?: boolean;
-		// Whether the currently selected model supports tool calling (incl. overrides)
-		modelSupportsTools?: boolean;
 		// Knowledge bases attached to THIS conversation, as {id, name} pairs.
 		// Bindable: the toggle updates it optimistically, and on the home page —
 		// where no conversation exists to PATCH — the list rides into the
@@ -149,7 +124,6 @@
 		disabled = false,
 
 		modelIsMultimodal = false,
-		modelSupportsTools = true,
 		knowledgeBases = $bindable([]),
 		webSearch = $bindable(false),
 		chatTools = true,
@@ -352,33 +326,6 @@
 			knowledgeStoresLoading = false;
 		}
 	}
-
-	// The composer's MCP flyout lists what the deployment provides (the `.env` servers and the
-	// administrator's connectors) as one section, by name; the person's own connectors and the
-	// ones on their machines follow it. Ids and selection are each kind's own.
-	// Said once, shown on the pill and at the top of the Connectors menu.
-	const NO_TOOLS_NOTE = $derived(m["chat.input.no_tools"]());
-	let noToolsNoteOpen = $state(false);
-	let noToolsNoteHover = $state(false);
-	const ownConnectors = $derived($connectors.filter((c) => c.scope !== "deployment"));
-	const provided = $derived(
-		[
-			...$allMcpServers.map((server) => ({
-				kind: "base" as const,
-				id: server.id,
-				name: server.name,
-				server,
-			})),
-			...$connectors
-				.filter((c) => c.scope === "deployment")
-				.map((connector) => ({
-					kind: "connector" as const,
-					id: connector.id,
-					name: connector.name,
-					connector,
-				})),
-		].sort((a, b) => a.name.localeCompare(b.name))
-	);
 
 	function isBaseAttached(id: string): boolean {
 		return knowledgeBases.some((base) => base.id === id);
@@ -1186,118 +1133,6 @@
 										</DropdownMenu.SubContent>
 									</DropdownMenu.Sub>
 
-									{#if chatTools}
-										<!-- MCP Servers submenu: legacy env-configured base servers
-							     plus the person's connectors (ADR 0064) in one flyout.
-							     Connectors refresh when the submenu opens so one added
-							     moments ago is offered immediately. Signed-out visitors
-							     get a 401 ("none") and see only the base rows. -->
-										<DropdownMenu.Sub
-											onOpenChange={(open) => {
-												if (open) void refreshConnectors();
-											}}
-										>
-											<DropdownMenu.SubTrigger
-												class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 data-[state=open]:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10 dark:data-[state=open]:bg-white/10"
-											>
-												<div class="flex items-center gap-1">
-													<IconMCP classNames="size-4 opacity-90 dark:opacity-80" />
-													{m["chat.input.connectors"]()}
-												</div>
-												<div class="ml-auto flex items-center">
-													<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />
-												</div>
-											</DropdownMenu.SubTrigger>
-											<DropdownMenu.SubContent
-												class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-												side={narrowViewport.current ? "bottom" : "right"}
-												align={narrowViewport.current ? "start" : "center"}
-												sideOffset={10}
-												collisionPadding={8}
-												sticky="always"
-												trapFocus={false}
-												onCloseAutoFocus={(e) => e.preventDefault()}
-												interactOutsideBehavior="defer-otherwise-close"
-											>
-												{#if !modelSupportsTools}
-													<div
-														role="note"
-														data-testid="mcp-no-tools-menu-note"
-														class="mb-1 max-w-64 rounded-md bg-gray-100 px-2 py-1.5 text-xs text-gray-700 dark:bg-white/10 dark:text-gray-200"
-													>
-														{NO_TOOLS_NOTE}
-													</div>
-												{/if}
-												{#if provided.length > 0}
-													<div
-														role="presentation"
-														data-testid="mcp-provided-heading"
-														class="px-2 pt-1 pb-0.5 text-xs font-medium text-gray-500 select-none dark:text-gray-400"
-													>
-														{m["chat.input.built_in"]()}
-													</div>
-													{#each provided as item (item.id)}
-														{#if item.kind === "base"}
-															{@render baseItem(item.server)}
-														{:else}
-															{@render connectorItem(item.connector)}
-														{/if}
-													{/each}
-												{/if}
-
-												{#if provided.length > 0 && signedIn && (!$connectorsLoaded || $connectorsFailed || ownConnectors.length > 0)}
-													<DropdownMenu.Separator
-														class="my-1 h-px bg-gray-200 dark:bg-gray-700/60"
-													/>
-												{/if}
-
-												{#if signedIn}
-													{#if !$connectorsLoaded}
-														<DropdownMenu.Item
-															class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
-															disabled
-														>
-															{m["chat.input.connectors_loading"]()}
-														</DropdownMenu.Item>
-													{:else if $connectorsFailed}
-														<DropdownMenu.Item
-															class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
-															disabled
-														>
-															{m["chat.input.connectors_failed"]()}
-														</DropdownMenu.Item>
-													{:else if ownConnectors.length === 0}
-														<!-- Only when there is nothing else to toggle: a deployment with servers needs no lecture. -->
-														{#if provided.length === 0}
-															<DropdownMenu.Item
-																class="flex h-9 items-center rounded-md px-2 py-1 text-sm text-gray-500 select-none sm:h-8 dark:text-gray-400"
-																disabled
-															>
-																{m["chat.input.connectors_none"]()}
-															</DropdownMenu.Item>
-														{/if}
-													{:else}
-														{#each ownConnectors as connector (connector.id)}
-															{@render connectorItem(connector)}
-														{/each}
-													{/if}
-												{/if}
-
-												{#if provided.length > 0 || (signedIn && $connectorsLoaded && !$connectorsFailed && ownConnectors.length > 0)}
-													<DropdownMenu.Separator
-														class="my-1 h-px bg-gray-200 dark:bg-gray-700/60"
-													/>
-												{/if}
-												<DropdownMenu.Item
-													class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-													onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
-												>
-													{m["chat.input.manage_connectors"]()}
-												</DropdownMenu.Item>
-											</DropdownMenu.SubContent>
-										</DropdownMenu.Sub>
-									{/if}
-
 									<!-- Knowledge bases submenu: attach to THIS conversation, in
 							     addition to any bases its project carries. Signed-in only,
 							     since retrieval runs as the reader — and hidden entirely
@@ -1397,73 +1232,6 @@
 								</DropdownMenu.Content>
 							</DropdownMenu.Portal>
 						</DropdownMenu.Root>
-
-						{#if chatTools && $totalEnabledMcpCount > 0}
-							<!-- A model that cannot use tools leaves the pill visible but dimmed,
-							     with a note a tap, hover or keyboard focus reveals. -->
-							<div class="relative ml-1.5 shrink-0">
-								<div
-									class="inline-flex h-8 items-center gap-1.5 rounded-full bg-blue-600/10 pr-1 pl-2 text-xs font-semibold text-blue-700 sm:h-7 dark:bg-blue-600/20 dark:text-blue-400"
-									class:opacity-60={!modelSupportsTools}
-									data-testid="connectors-pill"
-									data-no-tools={!modelSupportsTools ? "" : undefined}
-								>
-									<!-- The manager is a workspace tab now, not an overlay
-							     mounted here — every opener navigates to it. -->
-									<button
-										class="inline-flex cursor-pointer items-center gap-1 bg-transparent p-0 leading-none whitespace-nowrap text-current select-none focus:outline-hidden"
-										type="button"
-										title={modelSupportsTools ? m["chat.input.manage_connectors"]() : undefined}
-										aria-describedby={modelSupportsTools ? undefined : "connectors-no-tools-note"}
-										aria-expanded={modelSupportsTools ? undefined : noToolsNoteOpen}
-										onclick={() => {
-											if (modelSupportsTools) void goto(`${base}/workspace?tab=mcp`);
-											else noToolsNoteOpen = !noToolsNoteOpen;
-										}}
-										onmouseenter={() => (noToolsNoteHover = true)}
-										onmouseleave={() => (noToolsNoteHover = false)}
-										onfocus={() => (noToolsNoteHover = true)}
-										onblur={() => (noToolsNoteHover = false)}
-									>
-										{#if !modelSupportsTools}
-											<LucideInfo class="size-3.5" aria-hidden="true" />
-										{/if}
-										{m["chat.input.connectors_count"]({ count: $totalEnabledMcpCount })}
-									</button>
-									<button
-										class="grid size-5 place-items-center rounded-full bg-blue-600/15 text-blue-700 transition-colors hover:bg-blue-600/25 dark:bg-blue-600/25 dark:text-blue-300 dark:hover:bg-blue-600/35"
-										aria-label={m["chat.input.connectors_off"]()}
-										onclick={() => {
-											disableAllServers();
-											disableAllConnectors();
-										}}
-										type="button"
-									>
-										<CarbonClose class="size-3.5" />
-									</button>
-								</div>
-								{#if !modelSupportsTools}
-									<div
-										id="connectors-no-tools-note"
-										role="note"
-										data-testid="connectors-no-tools-note"
-										class={[
-											"absolute bottom-full left-0 z-20 mb-1.5 w-64 rounded-xl border border-gray-200 bg-white p-2.5 text-xs font-normal text-gray-700 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200",
-											!(noToolsNoteOpen || noToolsNoteHover) && "sr-only",
-										]}
-									>
-										{NO_TOOLS_NOTE}
-										<button
-											type="button"
-											class="mt-1.5 block font-semibold text-blue-700 underline dark:text-blue-400"
-											onclick={() => void goto(`${base}/workspace?tab=mcp`)}
-										>
-											{m["chat.input.manage_connectors"]()}
-										</button>
-									</div>
-								{/if}
-							</div>
-						{/if}
 					</div>
 				{/if}
 
@@ -1539,124 +1307,6 @@
 		onfiles={handleFetchedFiles}
 	/>
 </div>
-
-{#snippet baseItem(server: MCPServer)}
-	<DropdownMenu.CheckboxItem
-		checked={$selectedServerIds.has(server.id)}
-		onCheckedChange={() => toggleServer(server.id)}
-		closeOnSelect={false}
-		class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-	>
-		{#snippet children({ checked })}
-			<img
-				src={getMcpServerFaviconUrl(server.url)}
-				alt=""
-				class="size-4 flex-shrink-0 rounded-sm"
-			/>
-			<span class="max-w-52 truncate py-1">{server.name}</span>
-			<div class="ml-auto flex items-center">
-				<!-- Toggle visual -->
-				<span
-					class={[
-						"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
-						checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
-					]}
-				>
-					<span
-						class={[
-							"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
-							checked ? "translate-x-[14px]" : "translate-x-0.5",
-						]}
-					></span>
-				</span>
-			</div>
-		{/snippet}
-	</DropdownMenu.CheckboxItem>
-{/snippet}
-
-{#snippet connectorItem(connector: McpConnectorView)}
-	{#if connector.connected}
-		<DropdownMenu.CheckboxItem
-			checked={$selectedConnectorIds.has(connector.id)}
-			onCheckedChange={() => toggleConnector(connector.id)}
-			closeOnSelect={false}
-			class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-		>
-			{#snippet children({ checked })}
-				{#if connector.local}
-					<!-- A server on one of the person's own machines has no web address to take an icon from. -->
-					<LucideLaptop class="size-4 flex-shrink-0 text-gray-500" />
-				{:else}
-					<img
-						src={getMcpServerFaviconUrl(connector.url)}
-						alt=""
-						class="size-4 flex-shrink-0 rounded-sm"
-					/>
-				{/if}
-				<span class={["truncate py-1", connector.lastError ? "max-w-32" : "max-w-52"]}
-					>{connector.name}</span
-				>
-				{#if connector.lastError}
-					<!-- Its last check failed, so a turn may well get
-																			     no tools from it; said here, where it is
-																			     switched on, not only in the manager. -->
-					<span
-						class="truncate py-1 text-xs text-amber-600 dark:text-amber-400"
-						title={connector.lastError}
-					>
-						{m["chat.input.needs_attention"]()}
-					</span>
-				{/if}
-				<div class="ml-auto flex items-center">
-					<!-- Toggle visual -->
-					<span
-						class={[
-							"relative mt-px flex h-4 w-7 items-center self-center rounded-full transition-colors",
-							checked ? "bg-blue-600/80" : "bg-gray-300 dark:bg-gray-700",
-						]}
-					>
-						<span
-							class={[
-								"block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform",
-								checked ? "translate-x-[14px]" : "translate-x-0.5",
-							]}
-						></span>
-					</span>
-				</div>
-			{/snippet}
-		</DropdownMenu.CheckboxItem>
-	{:else}
-		<!-- Not connected (OAuth sign-in pending): it
-													     contributes no tools, so there is nothing to
-													     toggle. Tapping opens the manager, where the
-													     sign-in lives, instead of selecting a no-op. -->
-		<DropdownMenu.Item
-			class="flex h-9 items-center gap-2 rounded-md px-2 text-sm leading-none text-gray-800 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 dark:text-gray-100 dark:data-highlighted:bg-white/10"
-			title={m["chat.input.sign_in_hint"]()}
-			onSelect={() => void goto(`${base}/workspace?tab=mcp`)}
-		>
-			<img
-				src={getMcpServerFaviconUrl(connector.url)}
-				alt=""
-				class="size-4 flex-shrink-0 rounded-sm"
-			/>
-			<span class="max-w-32 truncate py-1">{connector.name}</span>
-			<span class="truncate py-1 text-xs text-gray-500 dark:text-gray-400">
-				{m["chat.input.not_signed_in"]()}
-			</span>
-			<div class="ml-auto flex items-center">
-				<!-- Toggle visual, visibly off -->
-				<span
-					class="relative mt-px flex h-4 w-7 items-center self-center rounded-full bg-gray-300 transition-colors dark:bg-gray-700"
-				>
-					<span
-						class="block size-3 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform"
-					></span>
-				</span>
-			</div>
-		</DropdownMenu.Item>
-	{/if}
-{/snippet}
 
 <style>
 	/* In the base layer so utility classes (font-mono, text-xs, prose) keep

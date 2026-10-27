@@ -19,21 +19,3 @@ export function resolveWebSearchEnabled(options: {
 	if (typeof options.projectDefault === "boolean") return options.projectDefault;
 	return options.settingsEnabled === true;
 }
-
-/**
- * Initial connector selection for a new (or first-opened) chat.
- *
- * Project defaults win when the project names any; otherwise the workspace
- * MCP defaults apply. The returned array is a fresh copy the caller owns —
- * mutating it must never mutate either default.
- */
-export function resolveInitialConnectorIds(options: {
-	projectDefaults?: string[];
-	workspaceDefaults?: string[] | Set<string>;
-}): string[] {
-	if (options.projectDefaults && options.projectDefaults.length > 0) {
-		return [...options.projectDefaults];
-	}
-	const workspace = options.workspaceDefaults ?? [];
-	return [...workspace];
-}

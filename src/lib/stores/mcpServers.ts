@@ -1,82 +1,19 @@
 import { m } from "$lib/paraglide/messages";
 /**
- * MCP Servers Store
- * Manages base (env-configured) MCP servers. User-added custom servers were
- * the half this store used to carry; they are gone (ADR 0064 — connectors
- * are how a person brings their own server), and what remains of the split
- * is the selection and disable state for the deployment's base list.
+ * The deployment's `.env` servers, as Workspace shows them (ADR 0104).
+ *
+ * Each arrives with how the deployment offers it (`on`, or `locked` when a
+ * person cannot switch it off) and whether this person has it on. The server
+ * decides what a turn uses from its own records; this store only shows them
+ * and carries the status of the health checks. Nothing here is a selection:
+ * the browser keeps no choice of its own, and the old localStorage keys
+ * (`mcp:selected-ids`, `mcp:disabled-base-ids`) are forgotten, not read.
  */
 
-import { writable, derived, get } from "svelte/store";
+import { writable } from "svelte/store";
 import { base } from "$app/paths";
-import { env as publicEnv } from "$env/dynamic/public";
 import { browser } from "$app/environment";
 import type { MCPServer, ServerStatus, MCPTool } from "$lib/types/Tool";
-
-// Namespace storage by app identity to avoid collisions across apps
-function toKeyPart(s: string | undefined): string {
-	return (s || "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
-}
-
-const appLabel = toKeyPart(publicEnv.PUBLIC_APP_ASSETS || publicEnv.PUBLIC_APP_NAME);
-const baseLabel = toKeyPart(typeof base === "string" ? base : "");
-// Storage keys read "<assets directory>:mcp:..." (kept as is: renaming would reset
-// what people already chose).
-const KEY_PREFIX = appLabel || baseLabel || "app";
-
-const STORAGE_KEYS = {
-	SELECTED_IDS: `${KEY_PREFIX}:mcp:selected-ids`,
-	DISABLED_BASE_IDS: `${KEY_PREFIX}:mcp:disabled-base-ids`,
-} as const;
-
-// Load selected server IDs from localStorage
-function loadSelectedIds(): Set<string> {
-	if (!browser) return new Set();
-
-	try {
-		const json = localStorage.getItem(STORAGE_KEYS.SELECTED_IDS);
-		const ids: string[] = json ? JSON.parse(json) : [];
-		return new Set(ids);
-	} catch (error) {
-		console.error("Failed to load selected MCP server IDs from localStorage:", error);
-		return new Set();
-	}
-}
-
-// Save selected IDs to localStorage
-function saveSelectedIds(ids: Set<string>) {
-	if (!browser) return;
-
-	try {
-		localStorage.setItem(STORAGE_KEYS.SELECTED_IDS, JSON.stringify([...ids]));
-	} catch (error) {
-		console.error("Failed to save selected MCP server IDs to localStorage:", error);
-	}
-}
-
-// Load disabled base server IDs from localStorage (empty set if missing or on error)
-function loadDisabledBaseIds(): Set<string> {
-	if (!browser) return new Set();
-
-	try {
-		const json = localStorage.getItem(STORAGE_KEYS.DISABLED_BASE_IDS);
-		return new Set(json ? JSON.parse(json) : []);
-	} catch (error) {
-		console.error("Failed to load disabled base MCP server IDs from localStorage:", error);
-		return new Set();
-	}
-}
-
-// Save disabled base server IDs to localStorage
-function saveDisabledBaseIds(ids: Set<string>) {
-	if (!browser) return;
-
-	try {
-		localStorage.setItem(STORAGE_KEYS.DISABLED_BASE_IDS, JSON.stringify([...ids]));
-	} catch (error) {
-		console.error("Failed to save disabled base MCP server IDs to localStorage:", error);
-	}
-}
 
 // Store for base servers
 export const allMcpServers = writable<MCPServer[]>([]);
@@ -84,111 +21,36 @@ export const allMcpServers = writable<MCPServer[]>([]);
 // Track if initial server load has completed
 export const mcpServersLoaded = writable<boolean>(false);
 
-// Store for selected server IDs
-export const selectedServerIds = writable<Set<string>>(loadSelectedIds());
-
-// Auto-persist selected IDs when they change
-if (browser) {
-	selectedServerIds.subscribe((ids) => {
-		saveSelectedIds(ids);
-	});
-}
-
 /**
- * A server the deployment has on for everyone has no switch and no selection:
- * the server adds it to every turn (`deploymentModes.ts`). Whatever this
- * browser stored about one (`mcp:selected-ids`, `mcp:disabled-base-ids`) is
- * ignored, which is what makes an old tab unable to switch it off.
+ * Forget what older builds kept in this browser about which servers were on:
+ * the server owns that now, and a stale copy must never look like a choice.
  */
-export const isAlwaysOn = (server: { mode?: string }): boolean => server.mode === "always";
-
-/** The servers a person can switch: everything the deployment does not provide outright. */
-export const optionalServers = derived(allMcpServers, ($all) => $all.filter((s) => !isAlwaysOn(s)));
-
-// Derived store: only enabled servers (the ones with a switch that is on)
-export const enabledServers = derived([allMcpServers, selectedServerIds], ([$all, $selected]) =>
-	$all.filter((s) => !isAlwaysOn(s) && $selected.has(s.id))
-);
-
-// Derived store: count of enabled servers
-export const enabledServersCount = derived(enabledServers, ($enabled) => $enabled.length);
-
-// Note: Authorization overlay (with user's HF token) for the Hugging Face MCP host
-// is applied server-side when enabled via MCP_FORWARD_HF_USER_TOKEN.
-
-/**
- * The base servers a project's defaults put on for the open chat, or null when
- * the chat follows the person's own preferences. Kept so a background refresh
- * (which recomputes the selection) does not undo it.
- */
-let projectBaseOverride: Set<string> | null = null;
-
-/**
- * Start a chat's base-server selection from its project's defaults.
- *
- * A project's `defaultMcpConnectorIds` can name base servers (`base-…`) as well
- * as connectors. When it names at least one, exactly those base servers are on
- * for this chat; when it names none (every project saved before base servers
- * could be chosen), the chat keeps the person's own selection. The person's
- * stored preferences are not rewritten: this is the chat's starting point.
- * Call with no ids to hand the selection back to the preferences.
- */
-export function applyProjectServerDefaults(ids?: Iterable<string>): void {
-	const baseIds = new Set([...(ids ?? [])].filter((id) => id.startsWith("base-")));
-	const wasOverridden = projectBaseOverride !== null;
-	projectBaseOverride = baseIds.size > 0 ? baseIds : null;
-	if (projectBaseOverride) {
-		const wanted = projectBaseOverride;
-		selectedServerIds.set(
-			new Set(
-				get(allMcpServers)
-					.filter((s) => s.type === "base" && !isAlwaysOn(s) && wanted.has(s.id))
-					.map((s) => s.id)
-			)
-		);
-	} else if (wasOverridden) {
-		const disabled = loadDisabledBaseIds();
-		selectedServerIds.set(
-			new Set(
-				get(allMcpServers)
-					.filter((s) => s.type === "base" && !isAlwaysOn(s) && !disabled.has(s.id))
-					.map((s) => s.id)
-			)
-		);
+export function forgetOldMcpSelections(): void {
+	if (!browser) return;
+	try {
+		const stale: string[] = [];
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i);
+			if (
+				key &&
+				(key.endsWith(":mcp:selected-ids") ||
+					key.endsWith(":mcp:disabled-base-ids") ||
+					key.startsWith("pystino:mcp:conversation-connector-ids:") ||
+					key === "pystino:mcp:selected-connector-ids" ||
+					key === "pystino:mcp:default-connector-ids")
+			) {
+				stale.push(key);
+			}
+		}
+		for (const key of stale) localStorage.removeItem(key);
+	} catch {
+		// A browser that will not let us look leaves nothing that is read anyway.
 	}
 }
 
-/**
- * Populate the MCP store from a known base-server list without making a network
- * request. Applies the user's disabled-server preferences and sets
- * mcpServersLoaded synchronously.
- *
- * Called from the root layout script block with the server list that arrived in
- * the SSR payload, so the store is ready before any child onMount fires.
- * The background refreshMcpServers() call still runs to pick up status changes.
- */
-export function initWithServers(baseServers: MCPServer[]): void {
-	allMcpServers.set(baseServers);
-
-	// Load disabled base servers
-	const disabledBaseIds = loadDisabledBaseIds();
-
-	// Auto-enable all base servers that aren't explicitly disabled, unless the
-	// open chat started from a project's defaults (see applyProjectServerDefaults).
-	selectedServerIds.update(() => {
-		const newSelection = new Set<string>();
-
-		for (const server of baseServers) {
-			if (isAlwaysOn(server)) continue;
-			if (
-				projectBaseOverride ? projectBaseOverride.has(server.id) : !disabledBaseIds.has(server.id)
-			) {
-				newSelection.add(server.id);
-			}
-		}
-
-		return newSelection;
-	});
+/** Set the store from a known server list without a request (the SSR payload, tests). */
+export function initWithServers(servers: MCPServer[]): void {
+	allMcpServers.set(servers);
 	mcpServersLoaded.set(true);
 }
 
@@ -210,53 +72,6 @@ export async function refreshMcpServers() {
 		// failed refresh is a stale list, which is the useful half of the truth.
 		mcpServersLoaded.set(true);
 	}
-}
-
-/**
- * Toggle a server on/off
- */
-export function toggleServer(id: string) {
-	if (projectBaseOverride && id.startsWith("base-")) {
-		// The chat's own choice: follow it, so a refresh keeps what was toggled.
-		if (projectBaseOverride.has(id)) projectBaseOverride.delete(id);
-		else projectBaseOverride.add(id);
-	}
-	selectedServerIds.update(($ids) => {
-		const newSet = new Set($ids);
-		if (newSet.has(id)) {
-			newSet.delete(id);
-			// Track if this is a base server being disabled
-			if (id.startsWith("base-")) {
-				const disabled = loadDisabledBaseIds();
-				disabled.add(id);
-				saveDisabledBaseIds(disabled);
-			}
-		} else {
-			newSet.add(id);
-			// Remove from disabled if re-enabling a base server
-			if (id.startsWith("base-")) {
-				const disabled = loadDisabledBaseIds();
-				disabled.delete(id);
-				saveDisabledBaseIds(disabled);
-			}
-		}
-		return newSet;
-	});
-}
-
-/**
- * Disable all MCP servers (marks all base servers as disabled)
- */
-export function disableAllServers() {
-	// Get current base server IDs and mark them all as disabled
-	const servers = get(allMcpServers);
-	const baseServerIds = servers.filter((s) => s.type === "base" && !isAlwaysOn(s)).map((s) => s.id);
-
-	// Save all base servers as disabled
-	saveDisabledBaseIds(new Set(baseServerIds));
-
-	// Clear the selection
-	selectedServerIds.set(new Set());
 }
 
 /**
@@ -317,5 +132,6 @@ export async function healthCheckServer(
 
 // Initialize on module load
 if (browser) {
+	forgetOldMcpSelections();
 	refreshMcpServers();
 }

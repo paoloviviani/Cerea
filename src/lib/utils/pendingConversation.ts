@@ -22,7 +22,7 @@ export interface ConversationData {
 	/** Owning project, when created under one. */
 	projectId?: string;
 	/** Project defaults for seeding per-chat state on first open. */
-	projectDefaults?: { defaultWebSearch?: boolean; defaultMcpConnectorIds?: string[] };
+	projectDefaults?: { defaultWebSearch?: boolean };
 	plan?: PlanState;
 	/** Bases attached to this conversation, resolved to names for the composer. */
 	knowledgeBases?: { id: string; name: string }[];

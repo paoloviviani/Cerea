@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { resolveWebSearchEnabled, resolveInitialConnectorIds } from "./webSearchDefaults";
+import { resolveWebSearchEnabled } from "./webSearchDefaults";
 
 describe("resolveWebSearchEnabled", () => {
 	it("is off when nothing is set anywhere", () => {
@@ -61,36 +61,5 @@ describe("resolveWebSearchEnabled", () => {
 		const chatB = resolveWebSearchEnabled({ settingsEnabled: appDefault });
 		expect(chatA).toBe(false);
 		expect(chatB).toBe(true);
-	});
-});
-
-describe("resolveInitialConnectorIds", () => {
-	it("project defaults win when the project names any", () => {
-		expect(
-			resolveInitialConnectorIds({
-				projectDefaults: ["conn-a"],
-				workspaceDefaults: ["conn-b", "conn-c"],
-			})
-		).toEqual(["conn-a"]);
-	});
-
-	it("workspace defaults apply when the project leaves them unset", () => {
-		expect(resolveInitialConnectorIds({ workspaceDefaults: ["conn-b", "conn-c"] })).toEqual([
-			"conn-b",
-			"conn-c",
-		]);
-		expect(resolveInitialConnectorIds({})).toEqual([]);
-	});
-
-	it("returns a copy: mutating the selection never mutates a default", () => {
-		const project = ["conn-a"];
-		const workspace = ["conn-b"];
-		const selection = resolveInitialConnectorIds({
-			projectDefaults: project,
-			workspaceDefaults: workspace,
-		});
-		selection.push("conn-evil");
-		expect(project).toEqual(["conn-a"]);
-		expect(workspace).toEqual(["conn-b"]);
 	});
 });

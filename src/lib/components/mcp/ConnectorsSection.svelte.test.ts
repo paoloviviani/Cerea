@@ -26,6 +26,8 @@ vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_APP_NAME: "chat-ui" } }));
 
 function connector(overrides: Partial<McpConnectorView> & { id: string }): McpConnectorView {
 	return {
+		key: `connector:${overrides.id}`,
+		enabled: true,
 		name: `Server ${overrides.id}`,
 		url: `https://${overrides.id}.test/mcp`,
 		auth: "none",
@@ -51,7 +53,11 @@ const SHARED = (manageable: boolean) =>
 	});
 
 /** Serve the connector list this render should see, and record anything else. */
-function stubApi(list: McpConnectorView[], seen: { method: string; url: string }[] = []) {
+function stubApi(
+	list: McpConnectorView[],
+	seen: { method: string; url: string; body?: unknown }[] = [],
+	switchStatus = 200
+) {
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -60,7 +66,13 @@ function stubApi(list: McpConnectorView[], seen: { method: string; url: string }
 			if (url.includes("/api/v2/mcp/connectors") && method === "GET") {
 				return Response.json({ data: list });
 			}
-			seen.push({ method, url });
+			seen.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+			if (url.includes("/api/v2/mcp/switches")) {
+				return Response.json(
+					switchStatus === 200 ? {} : { message: "Your administrator keeps this on." },
+					{ status: switchStatus }
+				);
+			}
 			return Response.json({});
 		})
 	);
@@ -465,7 +477,7 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		expect(footers).toHaveLength(3);
 		const footer = card.querySelector('[data-testid="card-footer"]') as HTMLElement;
 		const shortLabel = [...footer.querySelectorAll("span")].find(
-			(el) => el.textContent === "Default in new chats"
+			(el) => el.textContent === "Use in chats"
 		) as HTMLElement;
 		expect(getComputedStyle(shortLabel).display).not.toBe("none");
 		const pill = card.querySelector('[data-testid="local-pill"]') as HTMLElement;
@@ -595,5 +607,66 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		}
 		// The person's own connector stays out of the group.
 		expect(section?.textContent).not.toContain("Mine");
+	});
+});
+
+describe("ConnectorsSection: switching connectors on and off (ADR 0104)", () => {
+	beforeEach(() => {
+		vi.unstubAllGlobals();
+		connectors.set([]);
+		allMcpServers.set([]);
+	});
+	afterEach(() => vi.unstubAllGlobals());
+
+	const provided = (extra: Partial<McpConnectorView> & { id: string }) =>
+		connector({ scope: "deployment", manageable: false, auth: "none", mode: "on", ...extra });
+
+	const theSwitch = (root: HTMLElement) =>
+		root.querySelector<HTMLElement>('[role="switch"]') as HTMLElement;
+
+	it("gives a connector the deployment has on a switch, and keeps the choice on the server", async () => {
+		const seen: { method: string; url: string; body?: unknown }[] = [];
+		stubApi([provided({ id: "maps", name: "Maps" })], seen);
+		const screen = mount();
+		await expect.element(screen.getByText("Maps", { exact: true })).toBeInTheDocument();
+		expect(theSwitch(screen.baseElement).getAttribute("aria-checked")).toBe("true");
+
+		theSwitch(screen.baseElement).click();
+
+		await vi.waitFor(() =>
+			expect(seen).toContainEqual(
+				expect.objectContaining({
+					method: "PUT",
+					body: { key: "connector:maps", enabled: false },
+				})
+			)
+		);
+		await vi.waitFor(() =>
+			expect(theSwitch(screen.baseElement).getAttribute("aria-checked")).toBe("false")
+		);
+	});
+
+	it("shows a locked connector as on, with a lock and no switch", async () => {
+		stubApi([provided({ id: "maps", name: "Maps", mode: "locked" })]);
+		const screen = mount();
+		await expect.element(screen.getByText("Maps", { exact: true })).toBeInTheDocument();
+		await expect.element(page.getByTestId("card-locked")).toHaveTextContent("Always on");
+		expect(
+			screen.baseElement.querySelector('[role="switch"][name="use-connector-maps"]')
+		).toBeNull();
+	});
+
+	it("puts a switch back and says so when the server refuses it", async () => {
+		stubApi([connector({ id: "mine", name: "Mine" })], [], 409);
+		const screen = mount();
+		await expect.element(screen.getByText("Mine", { exact: true })).toBeInTheDocument();
+		expect(theSwitch(screen.baseElement).getAttribute("aria-checked")).toBe("true");
+
+		theSwitch(screen.baseElement).click();
+
+		await expect.element(page.getByTestId("switch-error")).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(theSwitch(screen.baseElement).getAttribute("aria-checked")).toBe("true")
+		);
 	});
 });

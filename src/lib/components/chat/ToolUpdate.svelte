@@ -15,6 +15,7 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import LucideTriangleAlert from "~icons/lucide/triangle-alert";
 	import LucideWrench from "~icons/lucide/wrench";
+	import LucidePlug from "~icons/lucide/plug";
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import { coordinationCall, getCodeSessionLinks } from "$lib/utils/codeSessionLinks";
 	import ImageLightbox from "./ImageLightbox.svelte";
@@ -93,6 +94,38 @@
 	});
 
 	let toolFnName = $derived(tool.find(isMessageToolCallUpdate)?.call.name);
+
+	// `load_tools` (ADR 0104) is the assistant making a connector's tools available, not work
+	// the person asked for: one quiet line ("Loaded Maps") instead of a card to open.
+	const loadLine = $derived.by(() => {
+		if (toolFnName !== "load_tools") return null;
+		const raw = expandJsonText(
+			(inputParameters as Record<string, unknown> | undefined)?.connectors
+		);
+		const asked = (Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : []).filter(
+			(name): name is string => typeof name === "string" && name.trim().length > 0
+		);
+		if (asked.length === 0) return null;
+		const result = tool.find(isMessageToolResultUpdate);
+		const outputs = result?.result.status === ToolResultStatus.Success ? result.result.outputs : [];
+		const text = outputs.map((out) => getOutputText(out) ?? "").join("\n");
+		const failed = tool.some(isMessageToolErrorUpdate);
+		const loaded = (name: string) =>
+			!failed &&
+			new RegExp(
+				`(^|\\n)Loaded ${escapeRegExp(name)}\\.|(^|\\n)${escapeRegExp(name)} is already loaded`,
+				"i"
+			).test(text);
+		const done = Boolean(result) || failed;
+		const names = asked.join(", ");
+		const label = !done
+			? m["chat.tool.loading_connectors"]({ names })
+			: asked.every(loaded)
+				? m["chat.tool.loaded_connectors"]({ names })
+				: m["chat.tool.load_failed"]({ names: asked.filter((name) => !loaded(name)).join(", ") });
+		return { label, failed: done && !asked.every(loaded) };
+	});
+	const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	let toolError = $derived(tool.some(isMessageToolErrorUpdate));
 	let toolDone = $derived(tool.some(isMessageToolResultUpdate));
 	let isExecuting = $derived(!toolDone && !toolError && loading);
@@ -276,7 +309,17 @@
 	let lightboxSrc = $state<string | null>(null);
 </script>
 
-{#if toolFnName}
+{#if loadLine}
+	<BlockWrapper>
+		<div
+			data-testid="load-tools-line"
+			class="flex max-w-full items-center gap-1 text-sm text-gray-500 select-none dark:text-gray-400"
+		>
+			<LucidePlug class="size-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+			<span class="min-w-0 truncate" class:router-shimmer={isExecuting}>{loadLine.label}</span>
+		</div>
+	</BlockWrapper>
+{:else if toolFnName}
 	<BlockWrapper>
 		<!-- Header row -->
 		<div class="flex max-w-full flex-col items-start gap-1 select-none">

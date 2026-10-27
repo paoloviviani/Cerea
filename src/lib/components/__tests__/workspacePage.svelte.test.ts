@@ -175,7 +175,7 @@ describe("the workspace panel", () => {
 		).toBeNull();
 	});
 
-	it("the MCP tab labels the per-connector new-chat default switch", async () => {
+	it("the MCP tab labels the per-connector switch", async () => {
 		// The connectors store is module state shared with the cases above,
 		// which all stub an empty list: serve one connected connector here so
 		// its card (and label) renders, then put the empty list back.
@@ -189,6 +189,8 @@ describe("the workspace panel", () => {
 						data: [
 							{
 								id: "conn-a",
+								key: "connector:conn-a",
+								enabled: true,
 								name: "Notion",
 								url: "https://mcp.notion.com/mcp",
 								auth: "none",
@@ -207,9 +209,7 @@ describe("the workspace panel", () => {
 		);
 		const screen = mountWorkspace("?tab=mcp");
 
-		await expect
-			.element(screen.getByText("On by default in new chats", { exact: true }))
-			.toBeInTheDocument();
+		await expect.element(screen.getByText("Use in my chats", { exact: true })).toBeInTheDocument();
 		screen.unmount();
 		document.getElementById("app")?.remove();
 		connectors.set([]);

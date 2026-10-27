@@ -50,12 +50,6 @@
 	import MoveToProjectModal from "$lib/components/MoveToProjectModal.svelte";
 	import { useMoveConversation } from "$lib/utils/useMoveConversation";
 	import { projectTitle } from "$lib/stores/projectTitle";
-	import {
-		connectors as mcpConnectors,
-		connectorsLoaded as mcpConnectorsLoaded,
-		refreshConnectors as refreshMcpConnectors,
-	} from "$lib/stores/mcpConnectors";
-	import { allMcpServers } from "$lib/stores/mcpServers";
 	import { GatewayError, gwGet, type BillableGroup, type VectorStore } from "$lib/gateway";
 	import ProjectMemorySection from "./ProjectMemorySection.svelte";
 	import ProjectDocumentsSection from "./ProjectDocumentsSection.svelte";
@@ -141,7 +135,6 @@
 	let indexPastChats = $state(false);
 	let retrievalLimit = $state("6");
 	let defaultWebSearch = $state(false);
-	let defaultConnectors = $state<string[]>([]);
 
 	let shareWith = $state("");
 	let shareKind = $state<"user" | "group">("user");
@@ -199,7 +192,6 @@
 			typeof from?.defaultWebSearch === "boolean"
 				? from.defaultWebSearch
 				: $settings.webSearchEnabled === true;
-		defaultConnectors = [...(from?.defaultMcpConnectorIds ?? [])];
 	}
 
 	// The phone's top bar names the project instead of "New Chat".
@@ -243,11 +235,6 @@
 				/* a convenience: the group field falls back to free text */
 			}
 		}
-		try {
-			await refreshMcpConnectors();
-		} catch {
-			/* the section reports the failure state from the store */
-		}
 	});
 
 	// ---- saving -------------------------------------------------------------
@@ -260,8 +247,7 @@
 				instructions !== project.instructions ||
 				indexPastChats !== project.indexPastChats ||
 				(Number(retrievalLimit) || 6) !== project.retrievalLimit ||
-				defaultWebSearch !== (project.defaultWebSearch ?? $settings.webSearchEnabled === true) ||
-				JSON.stringify(defaultConnectors) !== JSON.stringify(project.defaultMcpConnectorIds ?? []))
+				defaultWebSearch !== (project.defaultWebSearch ?? $settings.webSearchEnabled === true))
 	);
 
 	function fields() {
@@ -273,7 +259,6 @@
 			indexPastChats,
 			retrievalLimit: Number(retrievalLimit) || 6,
 			defaultWebSearch,
-			defaultMcpConnectorIds: defaultConnectors,
 		};
 	}
 
@@ -299,41 +284,6 @@
 		} finally {
 			busy = false;
 		}
-	}
-
-	// What the project can switch on for new chats. The deployment's own servers
-	// (the `.env` base servers and administrators' connectors, as Workspace →
-	// Connectors groups them) first, then the person's own
-	// (including their machines', as before). A base server's id is `base-…`; both kinds
-	// are stored in the same list.
-	const builtInDefaults = $derived(
-		[
-			...$allMcpServers
-				.filter((server) => server.type === "base")
-				.map((server) => ({ id: server.id, name: server.name, connected: true })),
-			...$mcpConnectors
-				.filter((connector) => connector.scope === "deployment")
-				.map((connector) => ({
-					id: connector.id,
-					name: connector.name,
-					connected: connector.connected,
-				})),
-		].sort((x, y) => x.name.localeCompare(y.name))
-	);
-	const ownDefaults = $derived(
-		$mcpConnectors
-			.filter((connector) => connector.scope !== "deployment")
-			.map((connector) => ({
-				id: connector.id,
-				name: connector.name,
-				connected: connector.connected,
-			}))
-	);
-
-	function toggleDefaultConnector(connectorId: string) {
-		defaultConnectors = defaultConnectors.includes(connectorId)
-			? defaultConnectors.filter((entry) => entry !== connectorId)
-			: [...defaultConnectors, connectorId];
 	}
 
 	// ---- knowledge bases: attached and detached at any time -----------------
@@ -835,44 +785,6 @@
 						{#if webSearchUnavailable}
 							<p class="mt-1 text-xs text-amber-700 dark:text-amber-400">{webSearchUnavailable}</p>
 						{/if}
-						<div class="mt-3">
-							<span class="text-sm text-ink">{m["projects.page.defaults.connectors"]()}</span>
-							{#if !$mcpConnectorsLoaded}
-								<p class={s.HINT}>{m["projects.page.defaults.loading"]()}</p>
-							{:else if builtInDefaults.length + ownDefaults.length === 0}
-								<p class={s.HINT}>{m["projects.page.defaults.none"]()}</p>
-							{:else}
-								<div class="mt-1 max-h-40 space-y-1 overflow-y-auto">
-									{#each [{ key: "built-in", heading: m["projects.page.defaults.built_in"](), rows: builtInDefaults }, { key: "own", heading: m["projects.page.defaults.own"](), rows: ownDefaults }] as group (group.key)}
-										{#if group.rows.length > 0}
-											{#if builtInDefaults.length > 0 && ownDefaults.length > 0}
-												<p class="pt-1 text-xs font-medium text-ink-muted">{group.heading}</p>
-											{/if}
-											{#each group.rows as row (row.id)}
-												<div class="flex items-center gap-2 text-sm">
-													<Switch
-														name={`project-default-connector-${row.id}`}
-														disabled={busy || !owned || !row.connected}
-														bind:checked={
-															() => defaultConnectors.includes(row.id),
-															() => toggleDefaultConnector(row.id)
-														}
-													/>
-													<span>
-														{row.name}
-														{#if !row.connected}
-															<span class="text-xs text-ink-faint"
-																>{m["projects.page.defaults.not_signed_in"]()}</span
-															>
-														{/if}
-													</span>
-												</div>
-											{/each}
-										{/if}
-									{/each}
-								</div>
-							{/if}
-						</div>
 					</div>
 				</section>
 
