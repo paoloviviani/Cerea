@@ -14,8 +14,8 @@ from typing import Any
 from lxml import etree
 from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.enum.shapes import PP_PLACEHOLDER
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE, PP_PLACEHOLDER
+from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.util import Emu, Pt
 
@@ -23,7 +23,7 @@ from . import charts
 from .determinism import FIXED, fix_zip
 from .errors import InvalidRequest
 from .images_ref import ImageSet
-from .theme import Theme
+from .theme import DEFAULT_COLORS, Theme
 
 EMU_CM = 360_000
 MARGIN_CM = 1.6
@@ -67,6 +67,32 @@ def _as_plain_pptx(data: bytes) -> bytes:
     return out.getvalue()
 
 
+SHAPE_TYPES = {
+    "rect": MSO_SHAPE.RECTANGLE,
+    "rounded_rect": MSO_SHAPE.ROUNDED_RECTANGLE,
+    "ellipse": MSO_SHAPE.OVAL,
+    "chevron": MSO_SHAPE.CHEVRON,
+}
+SHAPE_TEXT_PT = 18
+MIN_CONTRAST = 4.5
+EDGE_CM = 0.01  # tolerance when a shape touches the slide edge
+OVERLAP_CM = 0.2  # a shape that covers less than this of a placeholder (either way) is not an overlap
+
+
+def _luminance(h: str) -> float:
+    def lin(v: int) -> float:
+        c = v / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * lin(int(h[0:2], 16)) + 0.7152 * lin(int(h[2:4], 16)) + 0.0722 * lin(int(h[4:6], 16))
+
+
+def contrast(a: str, b: str) -> float:
+    """WCAG contrast ratio of two hex colours."""
+    hi, lo = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
 def _rgb(h: str) -> RGBColor:
     return RGBColor.from_string(h.lstrip("#").upper())
 
@@ -75,6 +101,7 @@ class PptxBuilder:
     def __init__(self, spec: dict[str, Any], images: ImageSet, theme: Theme, template: bytes | None) -> None:
         self.spec, self.images, self.t = spec, images, theme
         self.notes: list[str] = []
+        self._warned_contrast: set[str] = set()
         self.charts: list[dict[str, Any]] = []
         self.has_template = template is not None
         if template:
@@ -268,6 +295,7 @@ class PptxBuilder:
     # ---- build --------------------------------------------------------------------------------
 
     def build(self) -> tuple[bytes, dict[str, Any]]:
+        self._check_shape_bounds()
         for i, s in enumerate(self.spec["slides"]):
             self.slide(i, s)
         cp = self.prs.core_properties
@@ -292,6 +320,8 @@ class PptxBuilder:
         )  # fmt: skip
         layout = self.pick(s.get("layout") or default, where)
         slide = self.prs.slides.add_slide(layout)
+        self._background(slide, s.get("background"), self.t.slide_background, where)
+        mine = self._shapes(slide, s.get("shapes") or [], "back", where)
         phs = list(slide.placeholders)
         title_ph = next(
             (p for p in phs if p.placeholder_format.type in (PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.CENTER_TITLE)), None
@@ -345,6 +375,211 @@ class PptxBuilder:
         for ph in list(slide.placeholders):  # nothing may be left as "Click to add text"
             if ph.has_text_frame and not ph.text_frame.text.strip() and ph.element.getparent() is not None:
                 self._remove(ph)
+        content = [sh for sh in slide.shapes if sh.shape_id not in {m.shape_id for m in mine}]
+        mine += self._shapes(slide, s.get("shapes") or [], "front", where)
+        self._warn_overlaps(s.get("shapes") or [], mine, content, where)
+
+    # ---- backgrounds and free shapes -----------------------------------------------------------
+
+    def _slide_cm(self) -> tuple[float, float]:
+        return self.W / EMU_CM, self.H / EMU_CM
+
+    def _check_shape_bounds(self) -> None:
+        """Every shape lies on the slide (all of them, before anything is built): a 422 names the shape and the size."""
+        sw, sh = self._slide_cm()
+        for i, s in enumerate(self.spec["slides"]):
+            for j, shape in enumerate(s.get("shapes") or []):
+                x, y, w, h = (float(shape[k]) for k in ("x_cm", "y_cm", "w_cm", "h_cm"))
+                if x + w > sw + EDGE_CM or y + h > sh + EDGE_CM:
+                    size = (
+                        "16:9" if abs(sw / sh - 16 / 9) < 0.01 else "4:3" if abs(sw / sh - 4 / 3) < 0.01 else "custom"
+                    )
+                    over = [
+                        f"{ax} {p:g} + {dim} {d:g} = {p + d:.2f} cm, past the slide's {lim:.2f} cm"
+                        for ax, dim, p, d, lim in (("x", "w", x, w, sw), ("y", "h", y, h, sh))
+                        if p + d > lim + EDGE_CM
+                    ]
+                    raise InvalidRequest(
+                        f"slides[{i}].shapes[{j}] ({shape['kind']}) reaches outside the slide: "
+                        + " and ".join(over)
+                        + f", but the slide is {sw:.2f} x {sh:.2f} cm ({size}). Move it or make it smaller.",
+                        reason="schema",
+                        details={"slide_cm": [round(sw, 2), round(sh, 2)], "slide": i, "shape": j},
+                    )
+
+    def _background(self, slide: Any, own: dict[str, Any] | None, default: dict[str, Any] | None, where: str) -> None:
+        bg = own or default
+        if not bg:
+            return
+        label = f"{where}.background" if own else "theme.slide_background"
+        colors: list[str]
+        if "color" in bg:
+            colors = [bg["color"]]
+            fill = f'<a:solidFill xmlns:a="{A}"><a:srgbClr val="{_hex(bg["color"])}"/></a:solidFill>'
+        elif "gradient" in bg:
+            colors = list(bg["gradient"])
+            stops = "".join(
+                f'<a:gs pos="{pos}"><a:srgbClr val="{_hex(c)}"/></a:gs>'
+                for pos, c in zip((0, 100_000), colors, strict=True)
+            )
+            ang = int(float(bg.get("angle", 90)) * 60_000) % 21_600_000
+            fill = f'<a:gradFill xmlns:a="{A}" rotWithShape="1"><a:gsLst>{stops}</a:gsLst><a:lin ang="{ang}" scaled="0"/></a:gradFill>'
+        else:
+            colors = []
+            img = self.images.get(bg["image"])
+            _part, rid = slide.part.get_or_add_image_part(io.BytesIO(_cover(img.data, img.info.ext, self.W, self.H)))
+            fill = (
+                f'<a:blipFill xmlns:a="{A}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+                f'dpi="0" rotWithShape="1"><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch></a:blipFill>'
+            )
+        c_sld = slide._element.find(f"{{{P}}}cSld")
+        for old in c_sld.findall(f"{{{P}}}bg"):
+            c_sld.remove(old)
+        node = etree.fromstring(f'<p:bg xmlns:p="{P}"><p:bgPr>{fill}<a:effectLst xmlns:a="{A}"/></p:bgPr></p:bg>')
+        c_sld.insert(0, node)
+        self._contrast_note(colors, label)
+
+    def _contrast_note(self, colors: list[str], label: str) -> None:
+        """Text colour is never changed on its own: say when the text colours cannot be read on a solid background."""
+        text = {k: self.t.colors[k] for k in ("text", "heading") if self.t.uses(f"color_{k}")}
+        for c in colors:
+            for name, fg in text.items():
+                ratio = contrast(_hex(fg), _hex(c))
+                key = f"{label}|{c}|{name}"
+                if ratio < MIN_CONTRAST and key not in self._warned_contrast:
+                    self._warned_contrast.add(key)
+                    self.notes.append(
+                        f"{label}: the {name} colour {_hex(fg)} has a contrast of {ratio:.1f}:1 with {_hex(c)} "
+                        f"(under {MIN_CONTRAST}:1); set theme.colors.{name} to a lighter or darker colour, "
+                        "or colour the text runs"
+                    )
+
+    def _shapes(self, slide: Any, shapes: list[dict[str, Any]], layer: str, where: str) -> list[Any]:
+        """Draw the shapes of one layer in list order: back ones go under the layout's placeholders, front ones on top."""
+        tree = slide.shapes._spTree
+        made: list[Any] = []
+        first = 2  # after nvGrpSpPr and grpSpPr
+        for j, spec in enumerate(shapes):
+            if (spec.get("layer") or "back") != layer:
+                continue
+            shape = self._shape(slide, spec, f"{where}.shapes[{j}]")
+            if layer == "back":
+                tree.remove(shape._element)
+                tree.insert(first, shape._element)
+                first += 1
+            made.append(shape)
+        return made
+
+    def _shape(self, slide: Any, spec: dict[str, Any], where: str) -> Any:
+        kind = spec["kind"]
+        x, y, w, h = (round(float(spec[k]) * EMU_CM) for k in ("x_cm", "y_cm", "w_cm", "h_cm"))
+        x, y = min(x, self.W), min(y, self.H)
+        w, h = min(w, self.W - x), min(h, self.H - y)  # rounding must not push the edge past the slide
+        style = spec.get("line") or {}
+        if kind in ("line", "arrow"):
+            shape = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, x, y, x + w, y + h)
+            ln = shape.line
+            ln.color.rgb = _rgb(style.get("color") or self.t.colors["text"])
+            ln.width = Pt(style.get("width_pt", 2))
+            if kind == "arrow":
+                etree.SubElement(ln._get_or_add_ln(), f"{{{A}}}tailEnd").set("type", "triangle")
+            self._drop_style(shape)
+            return shape
+        if kind == "text":
+            shape = slide.shapes.add_textbox(x, y, w, h)
+            fill: str | None = None
+        else:
+            shape = slide.shapes.add_shape(SHAPE_TYPES[kind], x, y, w, h)
+            given = spec.get("fill")
+            fill = None if given == "none" else _hex(given or self.t.colors["accent"])
+            if fill:
+                shape.fill.solid()
+                shape.fill.fore_color.rgb = _rgb(fill)
+            else:
+                shape.fill.background()
+            if kind == "rounded_rect":
+                radius = float(spec.get("radius", 0.5)) * EMU_CM
+                shape.adjustments[0] = min(0.5, radius / max(1, min(w, h)))
+        if style:
+            shape.line.color.rgb = _rgb(style.get("color") or self.t.colors["text"])
+            shape.line.width = Pt(style.get("width_pt", 1))
+        else:
+            shape.line.fill.background()
+        self._drop_style(shape)
+        shape.name = f"{kind} {where.rsplit('[', 1)[1].rstrip(']')}"
+        if "text" in spec or "runs" in spec:
+            self._shape_text(shape, spec, fill, w, h, where)
+        return shape
+
+    @staticmethod
+    def _drop_style(shape: Any) -> None:
+        """The theme's own shape style adds shadows and its line; every property is set explicitly instead."""
+        for st in shape._element.findall(f"{{{P}}}style"):
+            shape._element.remove(st)
+
+    def _shape_text(self, shape: Any, spec: dict[str, Any], fill: str | None, w: int, h: int, where: str) -> None:
+        size = float(spec.get("size_pt", SHAPE_TEXT_PT))
+        runs = spec.get("runs") or [{"text": spec.get("text", "")}]
+        paras: list[list[dict[str, Any]]] = [[]]
+        for r in runs:  # a line break in the text starts a new paragraph
+            for n, part in enumerate(str(r["text"]).split("\n")):
+                if n:
+                    paras.append([])
+                if part:
+                    paras[-1].append({**r, "text": part})
+        tf = shape.text_frame
+        tf.word_wrap = True
+        tf.auto_size = MSO_AUTO_SIZE.NONE
+        tf.vertical_anchor = {"top": MSO_ANCHOR.TOP, "middle": MSO_ANCHOR.MIDDLE, "bottom": MSO_ANCHOR.BOTTOM}[
+            spec.get("valign") or ("middle" if spec["kind"] != "text" else "top")
+        ]
+        align = {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER, "right": PP_ALIGN.RIGHT}[
+            spec.get("align") or ("center" if spec["kind"] != "text" else "left")
+        ]
+        default_color = self._text_on(fill)
+        for n, runs_in in enumerate(paras):
+            p = tf.paragraphs[0] if n == 0 else tf.add_paragraph()
+            p.alignment = align
+            for r in runs_in:
+                self._run(p, r, size)
+                if not r.get("color") and default_color:
+                    p.runs[-1].font.color.rgb = _rgb(default_color)
+        est = self._text_height([(r, 0, "paragraph") for r in paras], w / 12700 + 22, math.ceil(size))
+        if est > h / 12700:
+            self.notes.append(
+                f"{where}: the text will not fit in a {w / EMU_CM:.1f} x {h / EMU_CM:.1f} cm shape at {size:g} pt; "
+                "make the shape larger, shorten the text or use a smaller size_pt (10 at least)"
+            )
+
+    def _text_on(self, fill: str | None) -> str | None:
+        """Default text colour inside a filled shape: the theme's text colour, or white when that is hard to read on the fill."""
+        if not fill:
+            return None
+        text = self.t.colors["text"] if self.t.uses("color_text") else DEFAULT_COLORS["text"]
+        return (
+            text
+            if contrast(_hex(text), fill) >= MIN_CONTRAST
+            else max(("FFFFFF", "000000"), key=lambda c: contrast(c, fill))
+        )
+
+    def _warn_overlaps(self, specs: list[dict[str, Any]], mine: list[Any], content: list[Any], where: str) -> None:
+        """A shape over the title or body (or a table, picture, chart) hides or collides with it."""
+        for shape in mine:
+            x, y, w, h = box_of(shape)
+            for other in content:
+                if None in (other.left, other.top, other.width, other.height):
+                    continue
+                ox, oy, ow, oh = box_of(other)
+                if (
+                    min(x + w, ox + ow) - max(x, ox) > OVERLAP_CM * EMU_CM
+                    and min(y + h, oy + oh) - max(y, oy) > OVERLAP_CM * EMU_CM
+                ):
+                    what = f"the {'placeholder' if other.is_placeholder else 'content'} {other.name!r}"
+                    self.notes.append(
+                        f"{where}.shapes[{shape.name.rsplit(' ', 1)[1]}] overlaps {what}; "
+                        "use the blank or title_only layout for slides built from shapes, or move the shape"
+                    )
+                    break
 
     @staticmethod
     def _remove(shape: Any) -> None:
@@ -698,6 +933,45 @@ class PptxBuilder:
                     f.color.rgb = _rgb(colour)
                 elif not (is_head and style in ("banded", "grid")):
                     f.color.rgb = _rgb(t.colors["text"])
+
+
+def _hex(value: str) -> str:
+    return value.lstrip("#").upper()
+
+
+def box_of(shape: Any) -> Box:
+    return int(shape.left), int(shape.top), int(shape.width), int(shape.height)
+
+
+def _cover_box(iw: int, ih: int, sw: int, sh: int) -> tuple[int, int, int, int]:
+    """The centred (left, top, right, bottom) pixel box of a picture that has the slide's proportions."""
+    if iw * sh > ih * sw:  # wider than the slide: the sides go
+        width = max(1, round(ih * sw / sh))
+        left = (iw - width) // 2
+        return left, 0, left + width, ih
+    height = max(1, round(iw * sh / sw))
+    top = (ih - height) // 2
+    return 0, top, iw, top + height
+
+
+def _cover(data: bytes, ext: str, sw: int, sh: int) -> bytes:
+    """The picture cropped to the slide's proportions, so that it fills the slide without being stretched.
+
+    The crop is made in the pixels because LibreOffice ignores the crop rectangle of a slide background and
+    would stretch the whole picture; a cropped file looks the same in every application."""
+    from PIL import Image
+
+    with Image.open(io.BytesIO(data)) as im:
+        box = _cover_box(im.width, im.height, sw, sh)
+        if box == (0, 0, im.width, im.height):
+            return data
+        out = io.BytesIO()
+        cropped = im.crop(box)
+        if ext == "jpeg":
+            cropped.convert("RGB").save(out, "JPEG", quality=95, icc_profile=im.info.get("icc_profile"))
+        else:  # PNG, and GIF (a still frame)
+            cropped.save(out, "PNG")
+        return out.getvalue()
 
 
 def build_pptx(

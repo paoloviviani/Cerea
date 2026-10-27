@@ -39,6 +39,7 @@ class Theme:
     space_after: float = 6.0
     table_style: str = "banded"
     template: str | None = None
+    slide_background: dict[str, object] | None = None  # pptx: the background of slides that name none
     explicit: set[str] = field(default_factory=set)
 
     def uses(self, key: str) -> bool:
@@ -59,6 +60,8 @@ def resolve_theme(raw: dict[str, object] | None) -> Theme:
     raw = raw or {}
     if "template" in raw:
         t.template = str(raw["template"])
+    if isinstance(raw.get("slide_background"), dict):
+        t.slide_background = dict(raw["slide_background"])  # type: ignore[call-overload]
     for key in ("body_font", "heading_font"):
         if key in raw:
             setattr(t, key, str(raw[key]))
