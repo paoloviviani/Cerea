@@ -71,5 +71,17 @@ class McpExample(unittest.TestCase):
             self.assertIn(f"  {host}:", OVERRIDE)
 
 
+    def test_maps_skill_names_only_tools_the_osm_server_has(self):
+        skill = (MCP / "skills" / "maps-routing" / "SKILL.md").read_text(encoding="utf-8")
+        front = re.match(r"(?s)^---\nname: maps-routing\ndescription: >\n(.+?)\n---\n", skill)
+        self.assertIsNotNone(front, "frontmatter with name and description")
+        osm_tools = {
+            "geocode", "reverse_geocode", "route", "route_matrix", "optimize_route", "isochrone",
+            "find_nearby_pois", "poi_details", "suggest_meeting_point", "straight_line_distance", "map_link",
+        }
+        named = set(re.findall(r"`([a-z_]+)`", skill))
+        self.assertEqual(named - osm_tools, set(), "tools the skill names that osm-mcp does not have")
+        self.assertIn("tools/mcp/skills/maps-routing/SKILL.md", README)
+
 if __name__ == "__main__":
     unittest.main()
