@@ -34,9 +34,19 @@ type Screen = ReturnType<typeof mount>;
 
 const boxOf = (screen: Screen) => screen.container.querySelector("textarea") as HTMLTextAreaElement;
 
-async function type(screen: Screen, text: string) {
-	await screen.getByPlaceholder("Ask anything").fill(text);
+/** Types like the browser does, without going through the (timer-driven)
+ * locator, so fake timers can be on. */
+async function typeFast(screen: Screen, text: string) {
+	const box = boxOf(screen);
+	box.focus();
+	box.value = text;
+	box.dispatchEvent(new Event("input", { bubbles: true }));
 	await tick();
+}
+
+/** Moves the debounce clock past its delay. */
+async function pastDebounce() {
+	await vi.advanceTimersByTimeAsync(COMPOSER_DRAFT_DEBOUNCE_MS + 1);
 }
 
 function clearDraftKeys() {
@@ -59,12 +69,19 @@ afterEach(() => {
 });
 
 describe("a landed send leaves no draft behind", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	it("a debounced save still pending at the send never lands afterwards", async () => {
 		const s = track(mount({ draftKey: CONV }));
-		await type(s, "typed a moment ago");
+		await typeFast(s, "typed a moment ago");
 		// The write is still debounced; the send clears the box now.
 		await s.rerender({ draftKey: CONV, value: "" });
-		await wait(PAST_DEBOUNCE);
+		await pastDebounce();
 		expect(localStorage.getItem(CONV)).toBeNull();
 		s.unmount();
 		mounted = [];
@@ -73,20 +90,20 @@ describe("a landed send leaves no draft behind", () => {
 
 	it("text typed while the send is in flight is kept and saved; the sent text is not", async () => {
 		const s = track(mount({ draftKey: CONV }));
-		await type(s, "the sent one");
+		await typeFast(s, "the sent one");
 		await s.rerender({ draftKey: CONV, value: "" });
-		await type(s, "the next one");
-		await wait(PAST_DEBOUNCE);
+		await typeFast(s, "the next one");
+		await pastDebounce();
 		expect(localStorage.getItem(CONV)).toBe("the next one");
 		expect(boxOf(s).value).toBe("the next one");
 	});
 
 	it("first message of a new chat: the key flips from home after the clear", async () => {
 		const s = track(mount({ draftKey: HOME }));
-		await type(s, "first message");
+		await typeFast(s, "first message");
 		await s.rerender({ draftKey: HOME, value: "" });
 		await s.rerender({ draftKey: CONV, value: "" });
-		await wait(PAST_DEBOUNCE);
+		await pastDebounce();
 		expect(localStorage.getItem(HOME)).toBeNull();
 		expect(localStorage.getItem(CONV)).toBeNull();
 		expect(boxOf(s).value).toBe("");
@@ -94,18 +111,20 @@ describe("a landed send leaves no draft behind", () => {
 
 	it("first message of a new chat: the remount under the new key restores nothing", async () => {
 		const home = mount({ draftKey: HOME });
-		await type(home, "first message");
+		await typeFast(home, "first message");
 		await home.rerender({ draftKey: HOME, value: "" });
 		home.unmount();
 		const conv = track(mount({ draftKey: CONV }));
-		await wait(PAST_DEBOUNCE);
+		await pastDebounce();
 		expect(boxOf(conv).value).toBe("");
 		expect(localStorage.getItem(HOME)).toBeNull();
 		const back = track(mount({ draftKey: HOME }));
 		await tick();
 		expect(boxOf(back).value).toBe("");
 	});
+});
 
+describe("another tab", () => {
 	it("a send in one tab empties the same conversation's composer in another", async () => {
 		localStorage.setItem(CONV, "shared draft");
 		const tabB = track(mount({ draftKey: CONV }));

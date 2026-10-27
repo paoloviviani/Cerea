@@ -40,6 +40,7 @@ test("a reply stream cut mid-way leaves the composer empty, not holding the sent
 						if (sentFirst) {
 							reader.cancel().catch(() => {});
 							controller.error(new TypeError("network error"));
+							(window as unknown as { __cut?: boolean }).__cut = true;
 							return;
 						}
 						const chunk = await reader.read();
@@ -64,16 +65,16 @@ test("a reply stream cut mid-way leaves the composer empty, not holding the sent
 	const conversationId = page.url().split("/").pop() ?? "";
 
 	await expect(page.getByLabel("Conversation messages").getByText("this was sent")).toBeVisible();
-	// Let the cut stream end and the composer settle, then check it twice over:
-	// the box and what a reload would restore.
-	await page.waitForTimeout(2_000);
-	await expect(page.getByPlaceholder("Ask anything")).toHaveValue("");
-	await page.waitForTimeout(800);
-	const stored = await page.evaluate(
-		(id) => localStorage.getItem(`cerea:composer-draft:chat:${id}`),
-		conversationId
-	);
-	expect(stored).toBeNull();
+	// The cut really happened, and the turn's loading state ended after it.
+	await page.waitForFunction(() => (window as unknown as { __cut?: boolean }).__cut === true);
+	await expect(page.getByRole("button", { name: "Stop generating" })).toBeHidden();
+	// The box and what a reload would restore both stay empty.
+	await expect.poll(() => page.getByPlaceholder("Ask anything").inputValue()).toBe("");
+	await expect
+		.poll(() =>
+			page.evaluate((id) => localStorage.getItem(`cerea:composer-draft:chat:${id}`), conversationId)
+		)
+		.toBeNull();
 });
 
 test("a send the server rejects puts its text back in the composer", async ({ page }) => {

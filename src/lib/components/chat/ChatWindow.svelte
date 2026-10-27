@@ -283,9 +283,11 @@
 		draft = "";
 	};
 
-	// A failed fresh send puts its text back in the box (the page sets
-	// sendFailedText in the failure path; retries never set it — their
-	// content already lives in the thread). Consumed once: if the person
+	// A fresh send the server never accepted (rejected before the reply
+	// stream opened, or failed before it could be sent) puts its text back in
+	// the box: the page sets sendFailedText there. Retries never set it, nor
+	// does a send whose reply stream broke after the server accepted it —
+	// that content already lives in the thread. Consumed once: if the person
 	// typed something new in the meantime, that newer text wins and the
 	// failed one stays retrievable from the thread's retry.
 	$effect(() => {

@@ -304,8 +304,10 @@
 				// A command deferred to the confirmation sheet keeps its draft.
 				if (ran) {
 					clearSentComposerDraft(sentKey, message);
-					draft = "";
-					files = [];
+					if (sentKey === draftKey) {
+						draft = "";
+						files = [];
+					}
 				}
 			} finally {
 				busy = false;
@@ -374,13 +376,20 @@
 			return;
 		}
 		busy = true;
+		const sentKey = draftKey;
+		const message = draft.trim();
 		try {
 			const ran = await runCommand({ command, args });
 			// A command deferred to the confirmation sheet keeps its draft —
-			// the sheet's own run (or a Cancel) decides what happens next.
+			// the sheet's own run (or a Cancel) decides what happens next. A
+			// composer moved to another agent mid-run shows that agent's draft,
+			// which must survive; the old key's stored text goes.
 			if (ran) {
-				draft = "";
-				files = [];
+				clearSentComposerDraft(sentKey, message);
+				if (sentKey === draftKey) {
+					draft = "";
+					files = [];
+				}
 			}
 		} finally {
 			busy = false;
