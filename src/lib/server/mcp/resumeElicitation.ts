@@ -1,7 +1,7 @@
 import type { ObjectId } from "mongodb";
 import { logger } from "$lib/server/logger";
 import { callMcpTool, getMcpToolTimeoutMs } from "./httpClient";
-import { getMcpServers } from "./registry";
+import { envServersFor } from "./deploymentModes";
 import { openDurableElicitation, takeResumableElicitation } from "./elicitation";
 import { ToolResultStatus } from "$lib/types/Tool";
 import {
@@ -124,7 +124,11 @@ async function runApprovedCall(
 	}
 
 	const { mcp } = call;
-	const server = [...getMcpServers(), ...extraServers].find((s) => s.name === mcp.server);
+	// An approved call may run on any `.env` server that is still offered: the selection it was
+	// made under is gone, but one the administrator has since switched off is not called.
+	const server = [...(await envServersFor("any")), ...extraServers].find(
+		(s) => s.name === mcp.server
+	);
 	if (!server) {
 		return {
 			type: MessageUpdateType.Tool,
@@ -346,7 +350,9 @@ export async function resumeParkedToolCall({
 		return { resumed: true, updates, grantedTools };
 	}
 
-	const server = [...getMcpServers(), ...extraServers].find((s) => s.name === pending.server);
+	const server = [...(await envServersFor("any")), ...extraServers].find(
+		(s) => s.name === pending.server
+	);
 	if (!server) return { resumed: false, reason: `unknown server ${pending.server}`, updates: [] };
 
 	let update: MessageUpdate;

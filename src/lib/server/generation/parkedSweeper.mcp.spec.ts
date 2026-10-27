@@ -146,12 +146,49 @@ describe("resuming a parked turn", () => {
 		expect(servers).toEqual([]);
 	});
 
-	it("resumes as before when the conversation recorded no selection", async () => {
+	it("resumes with only what the deployment provides when no selection was recorded", async () => {
 		await seedParkedTurn();
 
 		await sweepParkedCalls();
 
 		expect(seen.locals).toHaveLength(1);
-		expect((seen.locals[0] as SeenLocals).mcp).toBeUndefined();
+		// Resolved by the same function as a fresh turn, with nothing chosen: no person's
+		// connector, no server the browser named.
+		expect((seen.locals[0] as SeenLocals).mcp?.selectedServers).toEqual([]);
+	});
+
+	it("applies the deployment's modes on resume, whatever the recorded selection says", async () => {
+		const always = new ObjectId();
+		const off = new ObjectId();
+		const base = {
+			userId,
+			scope: "deployment" as const,
+			auth: "none" as const,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		};
+		await collections.mcpConnectors.insertMany([
+			{ ...base, _id: always, name: "Search", url: "https://search.test/mcp" },
+			{ ...base, _id: off, name: "Maps", url: "https://maps.test/mcp" },
+		]);
+		await collections.connectorModes.insertOne({
+			_id: new ObjectId(),
+			key: `connector:${off}`,
+			mode: "off",
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		try {
+			// A selection recorded by a stale tab: it names the off one and omits the always-on one.
+			await seedParkedTurn({ connectorIds: [off.toString()], customServers: [] });
+
+			await sweepParkedCalls();
+
+			const names = ((seen.locals[0] as SeenLocals).mcp?.selectedServers ?? []).map((s) => s.name);
+			expect(names).toEqual(["Search"]);
+		} finally {
+			await collections.mcpConnectors.deleteMany({ _id: { $in: [always, off] } });
+			await collections.connectorModes.deleteMany({});
+		}
 	});
 });

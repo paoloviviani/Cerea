@@ -69,16 +69,19 @@ function requireUser(locals: App.Locals) {
 	return locals.user;
 }
 
-export const GET: RequestHandler = async ({ locals }) => {
+export const GET: RequestHandler = async ({ locals, url }) => {
 	const user = requireUser(locals);
 	// Asked once per listing, and it decides only whether the *manage*
 	// buttons render — never what is listed. Everybody sees the deployment's
 	// connectors, because they are offered to them.
 	const identity = await callerIdentity(locals);
+	// `?admin=1` is the admin page asking for the connectors that are switched off too.
+	const includeOff = url.searchParams.get("admin") === "1";
+	if (includeOff) await requireAdmin(locals);
 	// This person's own machines' servers ride the same list (ADR 0102), after the configured
 	// connectors; empty unless LOCAL_CONNECTORS_ENABLED.
 	const [configured, local] = await Promise.all([
-		viewsFor(user._id, identity?.isAdmin ?? false),
+		viewsFor(user._id, identity?.isAdmin ?? false, includeOff),
 		localConnectorViews(user._id),
 	]);
 	return json({ data: [...configured, ...local] });

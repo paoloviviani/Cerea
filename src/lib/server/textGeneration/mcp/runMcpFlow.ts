@@ -8,7 +8,7 @@ import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
 import { m } from "$lib/paraglide/messages";
 import { MessageUpdateType, type MessageUpdate } from "$lib/types/MessageUpdate";
-import { getMcpServers } from "$lib/server/mcp/registry";
+import { alwaysEnvNames, envServersFor, loadModes } from "$lib/server/mcp/deploymentModes";
 import { isValidUrl } from "$lib/server/urlSafety";
 import { isLocalServerUrl } from "$lib/server/mcp/localUrl";
 import { getOpenAiToolsForMcp } from "$lib/server/mcp/tools";
@@ -396,8 +396,11 @@ export async function* runMcpFlow({
 	// again this turn, whatever arguments the model writes for it.
 	const toolBlocker = createToolBlocker();
 
-	// Start from env-configured servers
-	let servers = getMcpServers();
+	// Start from the env-configured servers the deployment offers this turn: the always-on ones,
+	// plus the optional ones this person chose, never an off one (`deploymentModes.ts`).
+	const connectorModes = await loadModes();
+	let servers = await envServersFor(locals?.mcp?.selectedServerNames, connectorModes);
+	const alwaysOn = await alwaysEnvNames(connectorModes);
 	try {
 		logger.debug(
 			{ baseServers: servers.map((s) => ({ name: s.name, url: s.url })), count: servers.length },
@@ -439,7 +442,7 @@ export async function* runMcpFlow({
 			: undefined;
 		if (Array.isArray(names)) {
 			const before = servers.map((s) => s.name);
-			servers = servers.filter((s) => names.includes(s.name));
+			servers = servers.filter((s) => names.includes(s.name) || alwaysOn.has(s.name));
 			try {
 				logger.debug(
 					{ selectedNames: names, before, after: servers.map((s) => s.name) },

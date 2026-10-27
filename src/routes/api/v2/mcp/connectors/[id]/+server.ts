@@ -14,6 +14,7 @@ import { probe } from "$lib/server/mcp/discovery";
 import { beginAuthorization, staticRegistration } from "$lib/server/mcp/oauth";
 import { ownedBy, usableBy, view } from "$lib/server/mcp/connectors";
 import { callerIdentity } from "$lib/server/admin";
+import { clearMode, connectorKey } from "$lib/server/mcp/deploymentModes";
 import { credentialHeaders } from "$lib/server/mcp/selection";
 import { listTools } from "$lib/server/mcp/health";
 import { seal } from "$lib/server/mcp/secretBox";
@@ -290,5 +291,6 @@ export const DELETE: RequestHandler = async ({ locals, params, url }) => {
 	// there is in the gateway's sharing (ADR 0062), so this is one delete each.
 	await collections.mcpTokens.deleteMany({ connectorId: connector._id });
 	await collections.mcpConnectors.deleteOne({ _id: connector._id });
+	await clearMode(connectorKey(connector._id.toString()));
 	return new Response(null, { status: 204 });
 };

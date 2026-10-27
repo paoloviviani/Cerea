@@ -1,5 +1,6 @@
 import type { MCPServer } from "$lib/types/Tool";
 import { config } from "$lib/server/config";
+import { baseKey, loadModes, modeIn } from "$lib/server/mcp/deploymentModes";
 
 export async function GET() {
 	// Parse MCP_SERVERS environment variable
@@ -17,16 +18,25 @@ export async function GET() {
 		servers = [];
 	}
 
-	// Convert internal server config to client MCPServer format
-	const mcpServers: MCPServer[] = servers.map((server) => ({
-		id: `base-${server.name}`, // Stable ID based on name
-		name: server.name,
-		url: server.url,
-		type: "base" as const,
-		// headers intentionally omitted
-		isLocked: false, // Base servers can be toggled by users
-		status: undefined, // Status determined client-side via health check
-	}));
+	// What the deployment offers: an `off` server is not listed to anyone (the admin page reads
+	// its own list, with every mode), and `mode` tells the client whether a switch is shown.
+	const modes = await loadModes();
+	const mcpServers: MCPServer[] = servers.flatMap((server): MCPServer[] => {
+		const mode = modeIn(modes, baseKey(server.name));
+		if (mode === "off") return [];
+		return [
+			{
+				id: `base-${server.name}`, // Stable ID based on name
+				name: server.name,
+				url: server.url,
+				type: "base" as const,
+				mode,
+				// headers intentionally omitted
+				isLocked: false, // Base servers can be toggled by users
+				status: undefined, // Status determined client-side via health check
+			},
+		];
+	});
 
 	return Response.json(mcpServers);
 }

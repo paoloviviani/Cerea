@@ -39,6 +39,22 @@ export interface McpRegistration {
 	source: "dcr" | "static";
 }
 
+/**
+ * How the deployment offers one of its own connectors (the `.env` servers and
+ * the administrator's). `always` is the default: offered on every turn with no
+ * switch. `optional` shows people a switch. `off` is offered to nobody.
+ */
+export type ConnectorMode = "always" | "optional" | "off";
+
+export const CONNECTOR_MODES: readonly ConnectorMode[] = ["always", "optional", "off"];
+
+/** One stored mode. `key` is `connector:<id>` or `base:<server name>`. */
+export interface ConnectorModeRow extends Timestamps {
+	_id: ObjectId;
+	key: string;
+	mode: ConnectorMode;
+}
+
 export interface McpConnector extends Timestamps {
 	_id: ObjectId;
 
@@ -192,6 +208,11 @@ export interface McpConnectorView {
 	 * everyone else do not.
 	 */
 	manageable: boolean;
+	/**
+	 * For a deployment connector, how it is offered (`off` ones are not listed to
+	 * anyone but an administrator). Absent on a person's own.
+	 */
+	mode?: ConnectorMode;
 	/** Whether *this* person has a usable credential for it. */
 	connected: boolean;
 	/** For an OAuth connector, whether it can be signed in to at all. */

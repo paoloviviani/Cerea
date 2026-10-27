@@ -94,9 +94,20 @@ if (browser) {
 	});
 }
 
-// Derived store: only enabled servers
+/**
+ * A server the deployment has on for everyone has no switch and no selection:
+ * the server adds it to every turn (`deploymentModes.ts`). Whatever this
+ * browser stored about one (`mcp:selected-ids`, `mcp:disabled-base-ids`) is
+ * ignored, which is what makes an old tab unable to switch it off.
+ */
+export const isAlwaysOn = (server: { mode?: string }): boolean => server.mode === "always";
+
+/** The servers a person can switch: everything the deployment does not provide outright. */
+export const optionalServers = derived(allMcpServers, ($all) => $all.filter((s) => !isAlwaysOn(s)));
+
+// Derived store: only enabled servers (the ones with a switch that is on)
 export const enabledServers = derived([allMcpServers, selectedServerIds], ([$all, $selected]) =>
-	$all.filter((s) => $selected.has(s.id))
+	$all.filter((s) => !isAlwaysOn(s) && $selected.has(s.id))
 );
 
 // Derived store: count of enabled servers
@@ -131,7 +142,7 @@ export function applyProjectServerDefaults(ids?: Iterable<string>): void {
 		selectedServerIds.set(
 			new Set(
 				get(allMcpServers)
-					.filter((s) => s.type === "base" && wanted.has(s.id))
+					.filter((s) => s.type === "base" && !isAlwaysOn(s) && wanted.has(s.id))
 					.map((s) => s.id)
 			)
 		);
@@ -140,7 +151,7 @@ export function applyProjectServerDefaults(ids?: Iterable<string>): void {
 		selectedServerIds.set(
 			new Set(
 				get(allMcpServers)
-					.filter((s) => s.type === "base" && !disabled.has(s.id))
+					.filter((s) => s.type === "base" && !isAlwaysOn(s) && !disabled.has(s.id))
 					.map((s) => s.id)
 			)
 		);
@@ -168,6 +179,7 @@ export function initWithServers(baseServers: MCPServer[]): void {
 		const newSelection = new Set<string>();
 
 		for (const server of baseServers) {
+			if (isAlwaysOn(server)) continue;
 			if (
 				projectBaseOverride ? projectBaseOverride.has(server.id) : !disabledBaseIds.has(server.id)
 			) {
@@ -238,7 +250,7 @@ export function toggleServer(id: string) {
 export function disableAllServers() {
 	// Get current base server IDs and mark them all as disabled
 	const servers = get(allMcpServers);
-	const baseServerIds = servers.filter((s) => s.type === "base").map((s) => s.id);
+	const baseServerIds = servers.filter((s) => s.type === "base" && !isAlwaysOn(s)).map((s) => s.id);
 
 	// Save all base servers as disabled
 	saveDisabledBaseIds(new Set(baseServerIds));

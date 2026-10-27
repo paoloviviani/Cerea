@@ -19,6 +19,8 @@ import { logger } from "$lib/server/logger";
 import { bearerFor } from "./oauth";
 import { resolveLocalSelection } from "./local";
 import { withoutLocalUrls } from "./localUrl";
+import { getMcpServers } from "./registry";
+import { effectiveConnectorIds, loadModes } from "./deploymentModes";
 import type { McpConnector } from "$lib/types/McpConnector";
 import type { McpTurnSelection } from "$lib/types/Conversation";
 
@@ -158,9 +160,31 @@ export async function mcpLocalsFor(
 	selection: McpTurnSelection,
 	userId?: ObjectId
 ): Promise<McpLocals> {
+	// The deployment decides what it offers (`deploymentModes.ts`), not the browser: an
+	// always-on connector is added whatever was sent, an off one is dropped, an optional one
+	// stays only when it was chosen. Applied here because this is the one function the turn
+	// route and both sweepers build a turn's servers with.
+	const modes = await loadModes();
+	const { ids: connectorIds, always: alwaysIds } = await effectiveConnectorIds(
+		selection.connectorIds,
+		modes
+	);
 	const resolved = userId
-		? await resolveSelection({ connectorIds: selection.connectorIds, userId })
+		? await resolveSelection({ connectorIds, userId })
 		: { servers: [], needAuthorization: [] };
+
+	// An always-on connector the person has not signed in to is left out quietly: they never
+	// chose it, so telling the model it "needs attention" every turn would make it nag. The
+	// Connectors page is where they are asked to sign in.
+	const alwaysNames = new Set<string>();
+	if (alwaysIds.length > 0) {
+		const { ObjectId: Oid } = await import("mongodb");
+		const rows = await collections.mcpConnectors
+			.find({ _id: { $in: alwaysIds.map((id) => new Oid(id)) } }, { projection: { name: 1 } })
+			.toArray();
+		for (const row of rows) alwaysNames.add(row.name);
+	}
+	const needAuthorization = resolved.needAuthorization.filter((name) => !alwaysNames.has(name));
 
 	if (resolved.needAuthorization.length > 0) {
 		// Left out rather than called without a token: a 401 would reach the
@@ -181,22 +205,38 @@ export async function mcpLocalsFor(
 			})
 		: { servers: [], unavailable: [] };
 
+	// The `.env` servers are the deployment's: their URL and headers come from the environment
+	// and their mode from the settings. A copy the browser sent under the same name is ignored,
+	// so a stale tab can neither switch one off (a same-named entry would replace the real one
+	// and lose its headers) nor smuggle an off one in.
+	const envNames = new Set(getMcpServers().map((server) => server.name));
+	const customServers = withoutLocalUrls(selection.customServers)
+		.filter((server) => !envNames.has(server.name))
+		.map(({ name, url }) => ({ name, url }));
+
 	return {
 		// Told to the model this turn (`runMcpFlow`), so it says the
 		// connector needs attention instead of improvising its tools.
 		unavailable: [
-			...resolved.needAuthorization.map((name) => ({
+			...needAuthorization.map((name) => ({
 				name,
 				reason: "not signed in, or its token is missing",
 			})),
 			...local.unavailable,
 		],
-		// A local server was chosen by id, so it is in the turn whatever names the browser listed.
+		// A local server was chosen by id, and a deployment connector by the deployment, so both
+		// are in the turn whatever names the browser listed.
 		selectedServerNames: selection.serverNames
-			? [...new Set([...selection.serverNames, ...local.servers.map((server) => server.name)])]
+			? [
+					...new Set([
+						...selection.serverNames,
+						...resolved.servers.map((server) => server.name),
+						...local.servers.map((server) => server.name),
+					]),
+				]
 			: undefined,
 		selectedServers: [
-			...withoutLocalUrls(selection.customServers).map(({ name, url }) => ({ name, url })),
+			...customServers,
 			// Connectors **last**, because `runMcpFlow` deduplicates by name
 			// and the later entry wins. Two of these can share a name — a
 			// connector called "Notion" beside a stale custom server of the

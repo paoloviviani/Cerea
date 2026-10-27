@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ObjectId } from "mongodb";
 import {
 	MessageToolUpdateType,
@@ -23,6 +23,8 @@ import type { McpFlowResult, RunMcpFlowContext } from "./runMcpFlow";
 // ---------------------------------------------------------------------------
 
 const mocks = vi.hoisted(() => ({
+	/** The servers each tool listing was asked about, newest last. */
+	listedServers: [] as string[][],
 	create: vi.fn(),
 	executeToolCalls: vi.fn(),
 	getAbortTime: vi.fn(() => undefined as number | undefined),
@@ -103,14 +105,16 @@ vi.mock("$lib/server/webSearch/config", () => ({
 }));
 
 vi.mock("$lib/server/mcp/tools", () => ({
-	getOpenAiToolsForMcp: async (servers: unknown[]) =>
-		servers.length === 0
+	getOpenAiToolsForMcp: async (servers: { name: string }[]) => {
+		mocks.listedServers.push(servers.map((s) => s.name));
+		return servers.length === 0
 			? { tools: [], mapping: {}, unavailable: [] }
 			: {
 					tools: mocks.mcpTools,
 					mapping: { do_thing: { fnName: "do_thing", server: "hf", tool: "do_thing" } },
 					unavailable: mocks.unlisted,
-				},
+				};
+	},
 }));
 
 vi.mock("./toolInvocation", () => ({ executeToolCalls: mocks.executeToolCalls }));
@@ -286,6 +290,7 @@ beforeEach(() => {
 	mocks.mcpTools = [{ type: "function", function: { name: "do_thing" } }];
 	mocks.multimodalFlags = [];
 	mocks.servers = [{ name: "hf", url: "https://example.test/mcp" }];
+	mocks.listedServers = [];
 	mocks.codeToolEnabled = "true";
 	mocks.askQuestionEnabled = undefined;
 	mocks.unlisted = [];
@@ -355,6 +360,54 @@ function systemPrompt(): string {
 	const first = requestMessages(0)[0];
 	return first?.role === "system" && typeof first.content === "string" ? first.content : "";
 }
+
+describe("runMcpFlow and the deployment's connector modes", () => {
+	const mode = async (key: string, value: "optional" | "off") => {
+		const { collections } = await import("$lib/server/database");
+		await collections.connectorModes.insertOne({
+			_id: new ObjectId(),
+			key,
+			mode: value,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+	};
+	afterEach(async () => {
+		const { collections } = await import("$lib/server/database");
+		await collections.connectorModes.deleteMany({});
+	});
+
+	it("offers an .env server on for everyone even when the browser's names leave it out", async () => {
+		scriptRounds([{ content: "ok" }]);
+		await runFlow({
+			locals: { mcp: { selectedServerNames: ["somethingelse"], selectedServers: [] } },
+		} as never);
+		expect(mocks.listedServers.at(-1)).toEqual(["hf"]);
+	});
+
+	it("never offers an off .env server, even when the browser names it", async () => {
+		await mode("base:hf", "off");
+		scriptRounds([{ content: "ok" }]);
+		await runFlow({
+			locals: { mcp: { selectedServerNames: ["hf"], selectedServers: [] } },
+		} as never);
+		expect(mocks.listedServers.flat()).not.toContain("hf");
+	});
+
+	it("offers an optional .env server only when it was chosen", async () => {
+		await mode("base:hf", "optional");
+		scriptRounds([{ content: "ok" }]);
+		await runFlow({
+			locals: { mcp: { selectedServerNames: ["hf"], selectedServers: [] } },
+		} as never);
+		expect(mocks.listedServers.at(-1)).toEqual(["hf"]);
+
+		mocks.listedServers = [];
+		scriptRounds([{ content: "ok" }]);
+		await runFlow();
+		expect(mocks.listedServers.flat()).not.toContain("hf");
+	});
+});
 
 describe("runMcpFlow connectors that did not load", () => {
 	it("tells the model which selected connector has no credential, and not to fake it", async () => {

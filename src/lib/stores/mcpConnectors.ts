@@ -23,7 +23,7 @@ import { m } from "$lib/paraglide/messages";
 import { writable, derived, get } from "svelte/store";
 import { base } from "$app/paths";
 import { browser } from "$app/environment";
-import { enabledServersCount } from "$lib/stores/mcpServers";
+import { allMcpServers, enabledServersCount, isAlwaysOn } from "$lib/stores/mcpServers";
 import type { McpConnectorView } from "$lib/types/McpConnector";
 
 export const LEGACY_STORAGE_KEY = "pystino:mcp:selected-connector-ids";
@@ -198,7 +198,26 @@ export function resetConversationSelections(): void {
  * halfway is a worse answer than a connector that is visibly off.
  */
 export const enabledConnectors = derived([connectors, selectedConnectorIds], ([$all, $selected]) =>
-	$all.filter((c) => c.connected && $selected.has(c.id))
+	// A connector the deployment has on for everyone is never sent as a choice: the server
+	// adds it, and an id kept from before it became "on for everyone" must not be counted.
+	$all.filter((c) => !isAlwaysOn(c) && c.connected && $selected.has(c.id))
+);
+
+/**
+ * What the deployment provides to everyone, by name: the `.env` servers and the
+ * administrator's connectors that are on for everyone. Shown as one read-only line.
+ * A connector this person still has to sign in to is not in it (it does nothing yet);
+ * `alwaysOnToSignIn` has those.
+ */
+export const alwaysOnNames = derived([allMcpServers, connectors], ([$servers, $connectors]) =>
+	[
+		...$servers.filter(isAlwaysOn).map((s) => s.name),
+		...$connectors.filter((c) => isAlwaysOn(c) && c.connected).map((c) => c.name),
+	].sort((a, b) => a.localeCompare(b))
+);
+
+export const alwaysOnToSignIn = derived(connectors, ($connectors) =>
+	$connectors.filter((c) => isAlwaysOn(c) && !c.connected)
 );
 
 export const enabledConnectorsCount = derived(enabledConnectors, ($on) => $on.length);
@@ -210,7 +229,7 @@ export const enabledConnectorsCount = derived(enabledConnectors, ($on) => $on.le
  */
 export const defaultEnabledConnectors = derived(
 	[connectors, defaultConnectorIds],
-	([$all, $defaults]) => $all.filter((c) => c.connected && $defaults.has(c.id))
+	([$all, $defaults]) => $all.filter((c) => !isAlwaysOn(c) && c.connected && $defaults.has(c.id))
 );
 
 export const defaultEnabledConnectorsCount = derived(defaultEnabledConnectors, ($on) => $on.length);
@@ -233,7 +252,8 @@ export async function refreshConnectors(): Promise<void> {
 		// leave an id that the server would only refuse. Both the defaults
 		// and every cached per-conversation set: a removed connector refuses
 		// whoever names it.
-		const live = new Set(data.map((c) => c.id));
+		// One the deployment provides outright has no selection either, so a stale id for it goes too.
+		const live = new Set(data.filter((c) => !isAlwaysOn(c)).map((c) => c.id));
 		defaultConnectorIds.update(($ids) => new Set([...$ids].filter((id) => live.has(id))));
 		for (const [key, ids] of conversationSelections) {
 			conversationSelections.set(key, new Set([...ids].filter((id) => live.has(id))));

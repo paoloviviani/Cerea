@@ -225,12 +225,16 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 	// built-in tools only (the model then hunted for the missing connector
 	// among the skills). Best effort: a failure leaves the environment's
 	// servers, as a fresh turn's failed resolution does.
-	if (conv.mcpSelection) {
-		try {
-			locals.mcp = await mcpLocalsFor(conv.mcpSelection, park.userId);
-		} catch (err) {
-			logger.warn({ err }, "[parked] could not restore the turn's MCP selection");
-		}
+	//
+	// A conversation with no recorded selection (one that predates it) still gets what the
+	// deployment offers to everyone: the same resolver, with nothing chosen.
+	try {
+		locals.mcp = await mcpLocalsFor(
+			conv.mcpSelection ?? { connectorIds: [], customServers: [] },
+			park.userId
+		);
+	} catch (err) {
+		logger.warn({ err }, "[parked] could not restore the turn's MCP selection");
 	}
 
 	const generationId = randomUUID();

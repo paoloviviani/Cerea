@@ -10,6 +10,7 @@ import type { Project } from "$lib/types/Project";
 import type {
 	LocalConnectorOauth,
 	McpConnector,
+	ConnectorModeRow,
 	McpOauthPending,
 	McpToken,
 } from "$lib/types/McpConnector";
@@ -258,6 +259,9 @@ export class Database {
 		// in the bucket under `project:<id>` (see `ProjectDocument`).
 		const projectDocuments = db.collection<ProjectDocument>("projectDocuments");
 		const mcpConnectors = db.collection<McpConnector>("mcpConnectors");
+		// How the deployment offers its own connectors (`.env` servers and the administrator's):
+		// always, optional or off. A missing row means always. See `mcp/deploymentModes.ts`.
+		const connectorModes = db.collection<ConnectorModeRow>("connectorModes");
 		const mcpTokens = db.collection<McpToken>("mcpTokens");
 		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
 		// A local connector's sign-in in flight (ADR 0102): who started it, for which device and
@@ -313,6 +317,7 @@ export class Database {
 			knowledgeConfig,
 			knowledgeConfigHistory,
 			mcpConnectors,
+			connectorModes,
 			mcpTokens,
 			mcpOauthPending,
 			localConnectorOauth,
@@ -361,6 +366,7 @@ export class Database {
 			projectMemories,
 			projectDocuments,
 			mcpConnectors,
+			connectorModes,
 			mcpTokens,
 			mcpOauthPending,
 			localConnectorOauth,
@@ -429,6 +435,9 @@ export class Database {
 			.catch((e) =>
 				logger.error(e, "Error creating index for conversations by messageId and ancestors")
 			);
+		connectorModes
+			.createIndex({ key: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for connectorModes"));
 		mcpConnectors
 			.createIndex({ userId: 1, updatedAt: -1 })
 			.catch((e) => logger.error(e, "Error creating index for mcpConnectors by userId"));

@@ -60,6 +60,8 @@ export interface MCPServer {
 	/** "base": deployment-configured (MCP_SERVERS). The user-added "custom"
 	 * half is gone — connectors are how a person brings a server (ADR 0064). */
 	type: "base";
+	/** How the deployment offers it: `always` has no switch; `optional` does. Never `off` here. */
+	mode?: "always" | "optional";
 	headers?: KeyValuePair[];
 	env?: KeyValuePair[];
 	status?: ServerStatus;
