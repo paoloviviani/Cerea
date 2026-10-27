@@ -9,8 +9,8 @@ redaction: each runs on its own, and together they are the intended setup.
 
     Start here to find the section written for you.
 
-![Cerea: a chat with a plan and two sub-agents](assets/cerea-chat-light.webp#only-light)
-![Cerea: a chat with a plan and two sub-agents](assets/cerea-chat-dark.webp#only-dark)
+![Cerea: a chat with a plan and two sub-agents](assets/cerea-chat-light-framed.webp#only-light)
+![Cerea: a chat with a plan and two sub-agents](assets/cerea-chat-dark-framed.webp#only-dark)
 
 _A chat where the assistant kept a plan and handed two lookups to sub-agents._
 
