@@ -5,6 +5,26 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.31.0 — 2026-10-27
+
+Pins: Cerea `0.31.0` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings.
+
+- **Decks the assistant creates can now be designed.** A slide can have a
+  background (a colour, a two-colour gradient, or a picture cropped to fill the
+  slide) and up to 30 shapes placed where you want them: rectangles, rounded
+  cards, circles, lines, arrows, chevrons and text boxes, each with its own text.
+  Every shape is kept on the slide, shapes sit behind the title and body unless
+  asked otherwise, and you are warned about text that won't fit, shapes over the
+  slide's text, and text that is hard to read on its background. Word, Excel and
+  PDF files are unchanged.
+- **A custom design when you ask for one.** Ordinary decks are still made with
+  the document tools. If you explicitly ask for a custom visual design the tools
+  can't express, the assistant may build the deck in the sandbox instead, and
+  says so. When it is unclear which you want ("make it look great"), it asks you
+  first.
+
 ## v0.30.1 — 2026-10-26
 
 Pins: Cerea `0.30.1` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
