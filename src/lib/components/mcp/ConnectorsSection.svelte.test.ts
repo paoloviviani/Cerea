@@ -158,19 +158,18 @@ describe("ConnectorsSection", () => {
 		expect(seen.map((call) => call.url)).toEqual(["/api/v2/mcp/connectors/c-mine"]);
 	});
 
-	it("still lets an administrator change a deployment connector here, but not remove it", async () => {
-		stubApi([MINE(), SHARED(true)]);
+	it("shows an administrator a deployment connector read-only here: no Edit, Check or Remove", async () => {
+		// The server says `manageable: false` in Workspace even for an administrator
+		// (it is true only in the admin listing), and the row listens.
+		stubApi([MINE(), SHARED(false)]);
 		const screen = mount();
 
 		await expect
 			.element(screen.getByText("Built-in connectors (1)", { exact: true }))
 			.toBeInTheDocument();
 		const names = sectionButtons(screen.baseElement, "Built-in connectors (1)");
-		// Manageable stays: editing and re-checking somebody else's deployment
-		// connector is still an administrator's job. Removal left for the
-		// admin screen, which is the only place that confirms "for everyone".
-		expect(names).toContain("Edit");
-		expect(names).toContain("Check");
+		expect(names).not.toContain("Edit");
+		expect(names).not.toContain("Check");
 		expect(names.some((name) => name?.includes("Remove"))).toBe(false);
 	});
 
@@ -575,7 +574,7 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 			type: "base",
 		});
 		allMcpServers.set([env("osm"), env("search")]);
-		stubApi([MINE(), SHARED(true)]);
+		stubApi([MINE(), SHARED(false)]);
 		const screen = mount();
 
 		await expect
@@ -598,15 +597,112 @@ describe("ConnectorsSection: cards on a phone, and the detail sheet", () => {
 		).toBe(1);
 		for (const card of cards) {
 			expect(card.querySelector("h4 img"), card.textContent ?? "").not.toBeNull();
+			// The `.env` card has its own Check; an administrator's connector is checked in Admin.
 			expect(
 				[...card.querySelectorAll("button")].some((b) => b.textContent?.trim() === "Check")
-			).toBe(true);
+			).toBe(card.textContent?.includes("Shared") === false);
 			const url = card.querySelector('[data-testid="card-description"]') as HTMLElement;
 			expect(getComputedStyle(url).textOverflow).toBe("ellipsis");
 			expect(url.getAttribute("title")).toMatch(/^https?:\/\//);
 		}
 		// The person's own connector stays out of the group.
 		expect(section?.textContent).not.toContain("Mine");
+	});
+});
+
+describe("ConnectorsSection: what every card says about its tools", () => {
+	beforeEach(() => {
+		vi.unstubAllGlobals();
+		connectors.set([]);
+		allMcpServers.set([]);
+	});
+
+	const tools = [
+		{ name: "geocode", description: "Find a place" },
+		{ name: "route", description: "Plan a route" },
+	];
+
+	it("renders a .env card and an administrator's card with the same tool count and disclosure", async () => {
+		allMcpServers.set([
+			{
+				id: "base-osm",
+				name: "OpenStreetMap",
+				url: "https://osm.test/mcp",
+				type: "base",
+				status: "connected",
+				tools: tools.map((t) => ({ ...t, inputSchema: {} })),
+			} as MCPServer,
+		]);
+		stubApi([
+			connector({
+				id: "c-geo",
+				name: "Find locations",
+				scope: "deployment",
+				manageable: false,
+				tools,
+				checkedAt: new Date().toISOString(),
+			}),
+		]);
+		const screen = mount();
+		await expect
+			.element(screen.getByText("Built-in connectors (2)", { exact: true }))
+			.toBeInTheDocument();
+
+		const cardOf = (name: string) =>
+			[...screen.baseElement.querySelectorAll('[data-testid="card-name"]')]
+				.find((el) => el.textContent?.trim() === name)
+				?.closest("div.rounded-lg") as HTMLElement;
+		const shape = (card: HTMLElement) => ({
+			count: card.textContent?.match(/\d+ tools/)?.[0],
+			disclosure: card.querySelector("details > summary")?.textContent?.trim(),
+			items: [...card.querySelectorAll("details li")].map((li) =>
+				li.querySelector("span")?.textContent?.trim()
+			),
+			// Neither opens a sheet: a deployment connector is read-only here.
+			opensSheet: card.querySelector('h4 button[aria-haspopup="dialog"]') !== null,
+		});
+		const env = shape(cardOf("OpenStreetMap"));
+		const added = shape(cardOf("Find locations"));
+		expect(env.count).toBe("2 tools");
+		expect(env.disclosure).toBe("Available tools (2)");
+		expect(added).toEqual(env);
+		expect(added.opensSheet).toBe(false);
+	});
+
+	it("says 'Tools not checked yet', 'No tools found' or that listing failed, with the error", async () => {
+		const deployment = { scope: "deployment" as const, manageable: false };
+		stubApi([
+			connector({ id: "c-new", name: "Unchecked", ...deployment }),
+			connector({
+				id: "c-empty",
+				name: "Empty",
+				...deployment,
+				tools: [],
+				checkedAt: "2026-10-27T10:00:00Z",
+			}),
+			connector({
+				id: "c-bad",
+				name: "Broken",
+				...deployment,
+				tools: [],
+				checkedAt: "2026-10-27T10:00:00Z",
+				lastError: "401 Unauthorized",
+			}),
+		]);
+		const screen = mount();
+		await expect
+			.element(screen.getByText("Built-in connectors (3)", { exact: true }))
+			.toBeInTheDocument();
+		const statusOf = (name: string) =>
+			[...screen.baseElement.querySelectorAll('[data-testid="card-name"]')]
+				.find((el) => el.textContent?.trim() === name)
+				?.closest("div.rounded-lg")
+				?.querySelector('[data-testid="tools-status"]')
+				?.textContent?.trim();
+		expect(statusOf("Unchecked")).toBe("Tools not checked yet");
+		expect(statusOf("Empty")).toBe("No tools found");
+		expect(statusOf("Broken")).toBe("Could not list its tools");
+		expect(screen.baseElement.textContent).toContain("401 Unauthorized");
 	});
 });
 

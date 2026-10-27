@@ -20,9 +20,13 @@ import { probe } from "$lib/server/mcp/discovery";
 import { seal, sealingAvailable } from "$lib/server/mcp/secretBox";
 import { staticRegistration } from "$lib/server/mcp/oauth";
 import { view, viewsFor } from "$lib/server/mcp/connectors";
+import { checkConnectorTools } from "$lib/server/mcp/check";
 import { localConnectorViews } from "$lib/server/mcp/local";
 import { callerIdentity, requireAdmin } from "$lib/server/admin";
 import type { McpConnector } from "$lib/types/McpConnector";
+
+/** How long an add waits for the tool listing it triggers; a failure is stored on the row. */
+const AUTO_CHECK_MS = 10_000;
 
 const create = z.object({
 	name: z.string().trim().min(1).max(128),
@@ -62,6 +66,8 @@ const create = z.object({
 	 * become the whole deployment's by omission.
 	 */
 	scope: z.enum(["user", "deployment"]).default("user"),
+	/** One sentence the assistant reads in its list of connectors (ADR 0104). */
+	description: z.string().trim().max(300).optional(),
 });
 
 function requireUser(locals: App.Locals) {
@@ -103,8 +109,18 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	if (!parsed.success) {
 		error(400, parsed.error.issues[0]?.message ?? "That connector is not valid.");
 	}
-	const { name, url, authMode, token, tokenHeader, tokenPrefix, clientId, clientSecret, scope } =
-		parsed.data;
+	const {
+		name,
+		url,
+		authMode,
+		token,
+		tokenHeader,
+		tokenPrefix,
+		clientId,
+		clientSecret,
+		scope,
+		description,
+	} = parsed.data;
 
 	if (scope === "deployment") {
 		// Checked before the probe, so a non-administrator does not cause an
@@ -129,6 +145,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		auth: "none",
 		createdAt: now,
 		updatedAt: now,
+		...(description ? { description } : {}),
 	};
 
 	if (token) {
@@ -178,5 +195,21 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	}
 
 	await collections.mcpConnectors.insertOne(connector);
-	return json(await view(connector, user._id, scope === "deployment"), { status: 201 });
+	// List its tools now rather than leaving the row with none: with no tool
+	// names the assistant cannot tell what the connector is for, and nobody
+	// reading the card can see that. Only where there is something to list
+	// with: a server that asked for a sign-in we could not work out, or an
+	// OAuth one nobody has signed in to yet, keeps what it already says. A
+	// failure is recorded on the row (`lastError`), never swallowed and never
+	// a reason to refuse the add.
+	if (connector.auth === "token" || (connector.auth === "none" && !connector.lastError)) {
+		await checkConnectorTools(connector, user._id, AUTO_CHECK_MS);
+	}
+	const stored = (await collections.mcpConnectors.findOne({ _id: connector._id })) ?? connector;
+	return json(
+		await view(stored, user._id, scope === "deployment", undefined, scope === "deployment"),
+		{
+			status: 201,
+		}
+	);
 };

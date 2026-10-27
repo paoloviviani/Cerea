@@ -49,10 +49,12 @@ const ENV = [
 ];
 
 let puts: Array<{ url: string; body: Record<string, unknown> }>;
+let posts: Array<{ url: string; body: Record<string, unknown> }>;
 let putStatus = 200;
 
 beforeEach(() => {
 	puts = [];
+	posts = [];
 	putStatus = 200;
 	extraServers = 0;
 	vi.unstubAllGlobals();
@@ -63,6 +65,10 @@ beforeEach(() => {
 			if (init?.method === "PUT") {
 				puts.push({ url, body: JSON.parse(String(init.body)) });
 				return Response.json({}, { status: putStatus });
+			}
+			if (init?.method === "POST" && url.includes("/api/v2/mcp/connectors")) {
+				posts.push({ url, body: JSON.parse(String(init.body)) });
+				return Response.json({});
 			}
 			if (url.includes("/api/mcp/servers")) {
 				const more = Array.from({ length: extraServers }, (_, i) => ({
@@ -204,5 +210,211 @@ describe("admin MCP page", () => {
 		} finally {
 			shell.remove();
 		}
+	});
+
+	it("edits an added connector: name, address, description and a new key, through the admin API", async () => {
+		const screen = renderWithApp(Page, {} as never);
+		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+		const card = screen.baseElement.querySelector(
+			'[data-testid="shared-connector"]'
+		) as HTMLElement;
+		// The .env servers are edited in .env: no Edit on them.
+		for (const row of rows(screen.baseElement)) {
+			expect([...row.querySelectorAll("button")].map((b) => b.textContent?.trim())).not.toContain(
+				"Edit"
+			);
+		}
+		[...card.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Edit")?.click();
+		const form = (await vi.waitFor(() => {
+			const found = card.querySelector('[data-testid="edit-connector"]');
+			expect(found).not.toBeNull();
+			return found;
+		})) as HTMLElement;
+		const inputs = [...form.querySelectorAll("input")];
+		const fill = async (input: HTMLInputElement, value: string) => {
+			await page.elementLocator(input).fill(value);
+		};
+		// OAuth: a credential is each person's own, so there is no shared key field.
+		expect(form.querySelector('input[type="password"]')).toBeNull();
+		await fill(inputs[0], "Notion team");
+		await fill(inputs[1], "https://notion.test/v2/mcp");
+		await fill(inputs[2], "Our team notes.");
+		[...form.querySelectorAll("button")]
+			.find((b) => b.textContent?.trim() === "Save changes")
+			?.click();
+		await vi.waitFor(() =>
+			expect(posts).toContainEqual({
+				url: expect.stringContaining("/api/v2/mcp/connectors/c-gui?scope=deployment"),
+				body: {
+					action: "update",
+					name: "Notion team",
+					url: "https://notion.test/v2/mcp",
+					description: "Our team notes.",
+				},
+			})
+		);
+	});
+
+	it("sends a replaced shared key with its header, and 'remove' clears it", async () => {
+		const original = globalThis.fetch;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.includes("/api/v2/mcp/connectors") && (init?.method ?? "GET") === "GET") {
+					return Response.json({
+						data: [{ ...NOTION, id: "c-key", auth: "token", tokenHeader: "X-API-Key" }],
+					});
+				}
+				return original(input, init);
+			})
+		);
+		const screen = renderWithApp(Page, {} as never);
+		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+		const card = screen.baseElement.querySelector(
+			'[data-testid="shared-connector"]'
+		) as HTMLElement;
+		[...card.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Edit")?.click();
+		const form = (await vi.waitFor(() => {
+			const found = card.querySelector('[data-testid="edit-connector"]');
+			expect(found).not.toBeNull();
+			return found;
+		})) as HTMLElement;
+		await page
+			.elementLocator(form.querySelector('input[type="password"]') as HTMLElement)
+			.fill("new-key");
+		[...form.querySelectorAll("button")]
+			.find((b) => b.textContent?.trim() === "Save changes")
+			?.click();
+		await vi.waitFor(() =>
+			expect(posts.at(-1)?.body).toMatchObject({
+				action: "update",
+				token: "new-key",
+				tokenHeader: "X-API-Key",
+				tokenPrefix: "",
+			})
+		);
+	});
+
+	it("shows N tools, 'not checked yet' or the error on every added card, and Check calls the admin API", async () => {
+		const screen = renderWithApp(Page, {} as never);
+		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+		const card = screen.baseElement.querySelector(
+			'[data-testid="shared-connector"]'
+		) as HTMLElement;
+		expect(card.querySelector('[data-testid="tools-status"]')?.textContent?.trim()).toBe(
+			"Tools not checked yet"
+		);
+		[...card.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Check")?.click();
+		await vi.waitFor(() =>
+			expect(posts).toContainEqual({
+				url: expect.stringContaining("/api/v2/mcp/connectors/c-gui?scope=deployment"),
+				body: { action: "check" },
+			})
+		);
+	});
+
+	it("sends the description of a connector being added", async () => {
+		renderWithApp(Page, {} as never);
+		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+		await page.getByRole("button", { name: "Add", exact: true }).click();
+		await page.getByLabelText("Name").fill("Find locations");
+		await page.getByLabelText("URL").fill("https://api.example.test/mcp");
+		await page.getByLabelText("Description").fill("Finds places.");
+		await page.getByRole("button", { name: "Add for everyone" }).click();
+		await vi.waitFor(() =>
+			expect(posts).toContainEqual({
+				url: expect.stringContaining("/api/v2/mcp/connectors"),
+				body: expect.objectContaining({
+					name: "Find locations",
+					description: "Finds places.",
+					scope: "deployment",
+				}),
+			})
+		);
+	});
+
+	it("fits a phone: the edit form has no horizontal scroll at 390px", async () => {
+		await page.viewport(390, 800);
+		const screen = renderWithApp(Page, {} as never);
+		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+		const card = screen.baseElement.querySelector(
+			'[data-testid="shared-connector"]'
+		) as HTMLElement;
+		[...card.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Edit")?.click();
+		const form = (await vi.waitFor(() => {
+			const found = card.querySelector('[data-testid="edit-connector"]');
+			expect(found).not.toBeNull();
+			return found;
+		})) as HTMLElement;
+		expect(form.scrollWidth).toBeLessThanOrEqual(form.clientWidth);
+		expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+	});
+
+	it("repairs an OAuth connector from Admin: Re-check asks the server again, and app details take a client id", async () => {
+		const original = globalThis.fetch;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.includes("/api/v2/mcp/connectors") && (init?.method ?? "GET") === "GET") {
+					return Response.json({ data: [{ ...NOTION, canAuthorize: false }] });
+				}
+				return original(input, init);
+			})
+		);
+		const screen = renderWithApp(Page, {} as never);
+		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+		const card = screen.baseElement.querySelector(
+			'[data-testid="shared-connector"]'
+		) as HTMLElement;
+		const button = (label: string) =>
+			[...card.querySelectorAll("button")].find((b) => b.textContent?.trim() === label);
+
+		button("Re-check")?.click();
+		await vi.waitFor(() =>
+			expect(posts).toContainEqual({
+				url: expect.stringContaining("/api/v2/mcp/connectors/c-gui?scope=deployment"),
+				body: { action: "reprobe" },
+			})
+		);
+
+		button("Add app details")?.click();
+		const form = (await vi.waitFor(() => {
+			const found = card.querySelector('[data-testid="app-details"]');
+			expect(found).not.toBeNull();
+			return found;
+		})) as HTMLElement;
+		await page.elementLocator(form.querySelector("input") as HTMLElement).fill("my-client");
+		[...form.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Save")?.click();
+		await vi.waitFor(() =>
+			expect(posts).toContainEqual({
+				url: expect.stringContaining("/api/v2/mcp/connectors/c-gui?scope=deployment"),
+				body: { action: "update", clientId: "my-client" },
+			})
+		);
+	});
+
+	it("does not offer app details to a connector that can already sign people in", async () => {
+		const screen = renderWithApp(Page, {} as never);
+		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+		const names = [...screen.baseElement.querySelectorAll("button")].map((b) =>
+			b.textContent?.trim()
+		);
+		expect(names).toContain("Re-check");
+		expect(names).not.toContain("Add app details");
+	});
+
+	it("warns about a key typed into an address, in the add form and the edit form", async () => {
+		const screen = renderWithApp(Page, {} as never);
+		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+		await page.getByRole("button", { name: "Add", exact: true }).click();
+		expect(screen.baseElement.querySelector('[data-testid="url-secret-warning"]')).toBeNull();
+		await page.getByLabelText("URL").fill("https://api.example.test/mcp?apiKey=abc&page=1");
+		await vi.waitFor(() => {
+			const warning = screen.baseElement.querySelector('[data-testid="url-secret-warning"]');
+			expect(warning?.textContent).toContain("apiKey");
+			expect(warning?.textContent).toContain("Put the key in the key field instead");
+		});
 	});
 });
