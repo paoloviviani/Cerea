@@ -1,7 +1,6 @@
 import type { ObjectId } from "mongodb";
 import { logger } from "$lib/server/logger";
 import { callMcpTool, getMcpToolTimeoutMs } from "./httpClient";
-import { callableEnvServers, loadPolicies } from "./deploymentModes";
 import { openDurableElicitation, takeResumableElicitation } from "./elicitation";
 import { ToolResultStatus } from "$lib/types/Tool";
 import {
@@ -76,12 +75,13 @@ function toolApprovalDenied(toolUuid: string, tool: string): MessageUpdate {
 }
 
 /**
- * The servers an approved call may run on. The turn's own resolved connectors when the caller
- * has them (what this person has on, and nothing they switched off since); else the `.env`
- * servers the administrator still offers, which is all a caller with no turn can know.
+ * The servers an approved call may run on: the caller's resolved connectors for this person
+ * (`locals.mcp.servers`), and nothing else. Fails closed (ADR 0104): a connector switched off
+ * since the call was parked, or a caller that could not resolve the person's connectors, runs
+ * nothing, rather than falling back to every server the deployment offers.
  */
 async function serversForResume(extraServers: McpServerConfig[]): Promise<McpServerConfig[]> {
-	return extraServers.length > 0 ? extraServers : callableEnvServers(await loadPolicies());
+	return extraServers;
 }
 
 /**

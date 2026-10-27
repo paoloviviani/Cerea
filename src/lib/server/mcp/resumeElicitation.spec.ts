@@ -26,6 +26,11 @@ vi.mock("./httpClient", () => ({
 	},
 }));
 
+// One server the deployment offers to everybody, which a resume must still not reach on its own.
+vi.mock("./registry", () => ({
+	getMcpServers: () => [{ name: "search", url: "http://search.invalid/mcp" }],
+}));
+
 const fetchPageMock = vi.fn();
 vi.mock("$lib/server/fetching", () => ({ fetchPage: fetchPageMock }));
 
@@ -561,6 +566,24 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 		const result = outcome.updates.find((u) => "subtype" in u && u.subtype === "result") as
 			undefined | { result: { outputs: { text?: string }[] } };
 		expect(result?.result.outputs[0]?.text).toBe("search results");
+	});
+
+	it("runs nothing on a server the person's resolved connectors leave out, even one the deployment offers", async () => {
+		// The person switched it off while the call waited (or resolving their connectors failed):
+		// the caller passes no servers, and nothing falls back to the deployment's own list.
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "search:search",
+			args: { q: "cats" },
+			mcp: { server: "search", toolName: "search" },
+			scope: "once",
+		});
+
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+
+		expect(calls.seen).toEqual([]);
+		expect(JSON.stringify(outcome.updates)).toContain("Unknown MCP server: search");
 	});
 
 	it("drains a queued call behind the resolved one when it shares the just-granted tool", async () => {
