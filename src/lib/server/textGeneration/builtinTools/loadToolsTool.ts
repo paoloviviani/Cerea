@@ -8,6 +8,8 @@ export type LoadReport =
 	| { name: string; status: "loaded"; tools: string[] }
 	| { name: string; status: "already"; tools: string[] }
 	| { name: string; status: "unknown" }
+	/** More than one connector matches the name (or offers the tool): none is loaded. */
+	| { name: string; status: "ambiguous"; candidates: string[] }
 	| { name: string; status: "switched off" }
 	| { name: string; status: "needs sign-in" }
 	| { name: string; status: "unavailable"; reason: string };
@@ -55,6 +57,8 @@ function describe(report: LoadReport): string {
 			return `${report.name} is already loaded: ${report.tools.join(", ") || "no tools listed"}.`;
 		case "unknown":
 			return `${report.name}: no connector with that name is available.`;
+		case "ambiguous":
+			return `${report.name}: ambiguous, it could be ${report.candidates.join(", ")}. Call ${LOAD_TOOLS_TOOL_NAME} again with the exact name of the one you mean.`;
 		case "switched off":
 			return `${report.name}: the person has switched it off. Tell them they can turn it on under Workspace, Connectors.`;
 		case "needs sign-in":

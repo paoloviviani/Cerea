@@ -53,6 +53,8 @@ export interface ExecuteToolCallsParams {
 		sources: { index: number; link: string }[];
 	};
 	abortSignal?: AbortSignal;
+	/** What to tell the model about a call to a name with no tool behind it, by name. */
+	unknownToolNotes?: Record<string, string>;
 	toolTimeoutMs?: number;
 	/** Reasoning that led to this round of calls; persisted on the round's first Call update. */
 	roundReasoning?: string;
@@ -152,6 +154,7 @@ export async function* executeToolCalls({
 	toPrimitive,
 	processToolOutput,
 	abortSignal,
+	unknownToolNotes,
 	toolTimeoutMs,
 	roundReasoning,
 	roundContent,
@@ -556,7 +559,7 @@ export async function* executeToolCalls({
 
 		const mappingEntry = mapping[p.call.name];
 		if (!mappingEntry) {
-			const message = `Unknown MCP function: ${p.call.name}`;
+			const message = unknownToolNotes?.[p.call.name] ?? `Unknown MCP function: ${p.call.name}`;
 			results.push({
 				index,
 				error: message,

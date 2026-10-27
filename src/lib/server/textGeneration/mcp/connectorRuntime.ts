@@ -77,10 +77,18 @@ export function createConnectorRuntime(options: ConnectorRuntimeOptions): TurnCo
 		return next;
 	};
 
-	const find = (name: string): TurnConnector | undefined =>
-		connectors.find((c) => c.key === name) ??
-		connectors.find((c) => norm(c.name) === norm(name)) ??
-		connectors.find((c) => norm(c.name).startsWith(norm(name)) && norm(name).length >= 3);
+	/** The one connector a name means: its key, its exact name, or a unique prefix of it. */
+	const find = (name: string): TurnConnector | { candidates: string[] } | undefined => {
+		const exact = connectors.filter((c) => c.key === name || norm(c.name) === norm(name));
+		const matches =
+			exact.length > 0
+				? exact
+				: norm(name).length >= 3
+					? connectors.filter((c) => norm(c.name).startsWith(norm(name)))
+					: [];
+		if (matches.length === 1) return matches[0];
+		return matches.length > 1 ? { candidates: matches.map((c) => c.name) } : undefined;
+	};
 
 	const toolNamesOf = (connectorName: string): string[] =>
 		Object.values(mapping)
@@ -132,6 +140,10 @@ export function createConnectorRuntime(options: ConnectorRuntimeOptions): TurnCo
 			const newKeys: string[] = [];
 			for (const name of names) {
 				const connector = find(name);
+				if (connector && "candidates" in connector) {
+					reports.push({ name, status: "ambiguous", candidates: connector.candidates });
+					continue;
+				}
 				if (!connector) {
 					const stopped = blocked.find((b) => norm(b.name) === norm(name) || b.key === name);
 					reports.push(
@@ -171,13 +183,24 @@ export function createConnectorRuntime(options: ConnectorRuntimeOptions): TurnCo
 		async loadForCalls(toolNames) {
 			const missing = toolNames.filter((name) => !(name in mapping) && !builtinNames.has(name));
 			if (missing.length === 0) return [];
+			// Load a tool's connector only when exactly one unloaded connector offers it; a name two
+			// of them offer is reported as ambiguous, and neither is loaded on a guess.
 			const owners = new Set<string>();
-			for (const connector of connectors) {
-				if (loaded.has(connector.key)) continue;
-				const provided = new Set(connector.toolNames.map(sanitizeName));
-				if (missing.some((name) => provided.has(name))) owners.add(connector.key);
+			const ambiguous: LoadReport[] = [];
+			for (const name of missing) {
+				const offering = connectors.filter(
+					(c) => !loaded.has(c.key) && c.toolNames.map(sanitizeName).includes(name)
+				);
+				if (offering.length === 1) owners.add(offering[0].key);
+				else if (offering.length > 1) {
+					ambiguous.push({
+						name,
+						status: "ambiguous",
+						candidates: offering.map((c) => c.name),
+					});
+				}
 			}
-			return owners.size === 0 ? [] : load([...owners]);
+			return [...ambiguous, ...(owners.size === 0 ? [] : await load([...owners]))];
 		},
 	};
 }

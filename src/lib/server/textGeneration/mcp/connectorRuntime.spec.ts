@@ -97,6 +97,32 @@ describe("load_tools", () => {
 		expect(tools.map((t) => t.function.name)).toEqual(["maps_find"]);
 	});
 
+	it("loads a name that matches more than one connector only when one is meant (review L4)", async () => {
+		const { runtime, tools } = setup([connector("github"), connector("gitlab")]);
+		const reports = await runtime.load(["git"]);
+		expect(reports).toEqual([
+			{ name: "git", status: "ambiguous", candidates: ["github", "gitlab"] },
+		]);
+		expect(tools).toEqual([]);
+		// The exact name is not ambiguous.
+		expect((await runtime.load(["GitHub"]))[0].status).toBe("loaded");
+		const tool = createLoadToolsBuiltin(setup([connector("github"), connector("gitlab")]).runtime);
+		const said = await tool.execute({ connectors: ["git"] }, { uuid: "u", toolCallId: "t" });
+		expect(said).toEqual({ resultText: expect.stringContaining("ambiguous") });
+		expect(JSON.stringify(said)).toContain("github, gitlab");
+	});
+
+	it("does not guess which connector a tool two of them offer belongs to (review L4)", async () => {
+		const { runtime, tools } = setup([
+			connector("github", { toolNames: ["create_issue"] }),
+			connector("gitlab", { toolNames: ["create_issue"] }),
+		]);
+		expect(await runtime.loadForCalls(["create_issue"])).toEqual([
+			{ name: "create_issue", status: "ambiguous", candidates: ["github", "gitlab"] },
+		]);
+		expect(tools).toEqual([]);
+	});
+
 	it("answers the model in words, never with a credential", async () => {
 		const { runtime } = setup([connector("maps")]);
 		const tool = createLoadToolsBuiltin(runtime);
