@@ -23,6 +23,7 @@ import {
 	setSwitch,
 	loadSwitches,
 	isEnabled,
+	offeredEnvServers,
 } from "./deploymentModes";
 import { mcpLocalsFor } from "./selection";
 import { resetCatalogCache, rememberTools } from "./catalogCache";
@@ -188,5 +189,71 @@ describe("what is loaded", () => {
 		} finally {
 			await new Promise((resolve) => fake.close(resolve));
 		}
+	});
+});
+
+describe("the catalogue line of a connector row (review M3)", () => {
+	it("uses the tools stored on its own row, never another listing of the same address", async () => {
+		await seedConnectors();
+		const url = "https://own.test/mcp";
+		await collections.mcpConnectors.updateOne(
+			{ _id: ids.own },
+			{ $set: { tools: [{ name: "own_tool", description: "Mine." }] } }
+		);
+		// What somebody else's credential listed at the same address.
+		rememberTools(url, [{ name: "someone_elses_tool", description: "Not yours." }]);
+		const own = (await mcpLocalsFor({}, userId)).connectors.find((c) => c.name === "Own");
+		expect(own?.toolNames).toEqual(["own_tool"]);
+		expect(own?.summary).toBe("Mine.");
+	});
+});
+
+describe("what the catalogue refresh polls (review L1)", () => {
+	it("is the .env servers the deployment offers, not those set Off", async () => {
+		env.servers = [
+			{ name: "search", url: "https://search.test/mcp" },
+			{ name: "osm", url: "https://osm.test/mcp" },
+		];
+		await setPolicy(baseKey("osm"), { mode: "off" });
+		expect((await offeredEnvServers()).map((s) => s.name)).toEqual(["search"]);
+	});
+});
+
+describe("failing closed (review L2)", () => {
+	afterEach(() => vi.restoreAllMocks());
+
+	it("offers no deployment connector when the policies cannot be read, and keeps the person's own", async () => {
+		await seedConnectors();
+		env.servers = [{ name: "search", url: "https://search.test/mcp" }];
+		vi.spyOn(collections.connectorModes, "find").mockImplementation(() => {
+			throw new Error("database unavailable");
+		});
+		const locals = await mcpLocalsFor({}, userId);
+		expect(names(locals.connectors)).toEqual(["Own"]);
+	});
+
+	it("keeps only what is locked on when the person's switches cannot be read", async () => {
+		await seedConnectors();
+		env.servers = [{ name: "search", url: "https://search.test/mcp" }];
+		vi.spyOn(collections.connectorSwitches, "findOne").mockRejectedValue(new Error("down"));
+		const locals = await mcpLocalsFor({}, userId);
+		expect(names(locals.connectors)).toEqual(["Locked"]);
+	});
+});
+
+describe("recording a switch (review L3)", () => {
+	afterEach(() => vi.restoreAllMocks());
+
+	it("is one atomic update, and moves the key between the lists", async () => {
+		const spy = vi.spyOn(collections.connectorSwitches, "updateOne");
+		await setSwitch(userId, "local:dev:notes", true);
+		expect(spy).toHaveBeenCalledTimes(1);
+		expect((await loadSwitches(userId)).on.has("local:dev:notes")).toBe(true);
+		await setSwitch(userId, "base:search", false);
+		await setSwitch(userId, "base:search", true);
+		const after = await loadSwitches(userId);
+		expect([...after.off]).toEqual([]);
+		expect([...after.on]).toEqual(["local:dev:notes"]);
+		expect(spy).toHaveBeenCalledTimes(3);
 	});
 });

@@ -7,13 +7,15 @@
  * to every enabled connector, so it reads from here:
  *
  * - the `.env` servers have no database row, so this is their cache. It is
- *   filled on boot and refreshed on a timer, and every real tool listing
- *   (a connector being loaded) refreshes its entry too;
- * - an administrator's or a person's own connector also stores its tool names
- *   from its last check on its row, which is the fallback here.
+ *   filled on boot and refreshed on a timer, and only by that refresh, which
+ *   lists each server with no person's credential: a listing a turn makes with
+ *   somebody's token never lands here, so it never reaches anybody else's list.
+ *   Between refreshes an entry does not change, so a server's line is the same
+ *   from one turn to the next;
+ * - an administrator's or a person's own connector uses the tool names stored
+ *   on its row by its last check, never this cache.
  *
- * Keyed by address. The tool names of an address are not a credential, and one
- * connector's entry never stands in for another's.
+ * Keyed by the server's configured address.
  */
 
 import { logger } from "$lib/server/logger";
@@ -43,25 +45,55 @@ export function resetCatalogCache(): void {
 	known.clear();
 }
 
-/** List the given servers once, so their entries are filled. A failure leaves the old entry. */
+let refreshing = false;
+
+/**
+ * List the given `.env` servers once, so their entries are filled. Each is listed as a turn
+ * would call it (`callableServers`: URL safety and the deployment's own overlays) but with no
+ * person's token, and recorded under its configured address. A failure leaves the old entry.
+ * A refresh that is still running is not started again.
+ */
 export async function refreshCatalog(servers: McpServerConfig[]): Promise<void> {
-	const { getOpenAiToolsForMcp } = await import("./tools");
-	await Promise.all(
-		servers.map(async (server) => {
-			try {
-				// Listing records into this cache as a side effect.
-				await getOpenAiToolsForMcp([server], { ttlMs: 0 });
-			} catch (err) {
-				logger.info({ server: server.name, err: String(err) }, "[mcp] catalogue refresh failed");
-			}
-		})
-	);
+	if (refreshing) return;
+	refreshing = true;
+	try {
+		const { getOpenAiToolsForMcp } = await import("./tools");
+		const { callableServers } = await import("./serverOverlays");
+		await Promise.all(
+			servers.map(async (server) => {
+				const [callable] = callableServers([server]);
+				if (!callable) return;
+				try {
+					const { tools, unavailable } = await getOpenAiToolsForMcp([callable], { ttlMs: 0 });
+					if (unavailable?.length) return;
+					rememberTools(
+						server.url,
+						tools.map((tool) => ({
+							name: tool.function.name,
+							description: tool.function.description,
+						}))
+					);
+				} catch (err) {
+					logger.info({ server: server.name, err: String(err) }, "[mcp] catalogue refresh failed");
+				}
+			})
+		);
+	} finally {
+		refreshing = false;
+	}
 }
 
-/** Fill the `.env` servers' entries now and again every quarter of an hour. */
-export function startCatalogRefresh(list: () => McpServerConfig[]): void {
-	void refreshCatalog(list());
+/**
+ * Fill the `.env` servers' entries now and again every quarter of an hour. `list` gives the
+ * servers to poll each time: the ones the deployment offers (not Off), read afresh.
+ */
+export function startCatalogRefresh(list: () => Promise<McpServerConfig[]>): void {
+	const run = () =>
+		list()
+			.then(refreshCatalog)
+			.catch((err) => logger.info({ err: String(err) }, "[mcp] catalogue refresh skipped"));
+	void run();
 	if (timer) return;
-	timer = setInterval(() => void refreshCatalog(list()), REFRESH_MS);
+	timer = setInterval(() => void run(), REFRESH_MS);
 	timer.unref?.();
 }

@@ -73,8 +73,12 @@ export function summaryOf(description: string | undefined, tools: CatalogTool[])
 		: "Its tools are listed when you load it.";
 }
 
+/**
+ * A connector row's tools are the ones its own last check stored on it. Never the address cache:
+ * two rows may share an address, and a listing made with one person's credential is theirs.
+ */
 function toolsOfRow(row: McpConnector): CatalogTool[] {
-	return knownTools(row.url) ?? row.tools ?? [];
+	return row.tools ?? [];
 }
 
 /**
@@ -82,15 +86,16 @@ function toolsOfRow(row: McpConnector): CatalogTool[] {
  * because of their own switch or a missing sign-in listed apart.
  */
 export async function resolveConnectors(userId: ObjectId | undefined): Promise<ResolvedConnectors> {
-	const policies = await loadPolicies();
+	// Unreadable policies fail closed: no deployment connector this turn, the person's own still.
+	const policies = await loadPolicies().catch(() => null);
 	const switches = await loadSwitches(userId);
 	const connectors: TurnConnector[] = [];
 	const blocked: BlockedConnector[] = [];
 
 	// The `.env` servers: no row, no credential lookup, so no cost.
-	for (const server of getMcpServers() as McpServerConfig[]) {
+	for (const server of policies ? (getMcpServers() as McpServerConfig[]) : []) {
 		const key = baseKey(server.name);
-		const policy = policyIn(policies, key);
+		const policy = policyIn(policies ?? new Map(), key);
 		if (policy.mode === "off") continue;
 		if (!isEnabled(key, policy, switches)) {
 			blocked.push({ key, name: server.name, reason: "switched off" });
@@ -136,7 +141,8 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 	for (const row of rows) {
 		const key = connectorKey(row._id.toString());
 		const deployment = (row.scope ?? "user") === "deployment";
-		const policy = deployment ? policyIn(policies, key) : undefined;
+		if (deployment && !policies) continue;
+		const policy = deployment && policies ? policyIn(policies, key) : undefined;
 		if (policy?.mode === "off") continue;
 		if (!isEnabled(key, policy, switches)) {
 			blocked.push({ key, name: row.name, reason: "switched off" });

@@ -58,10 +58,10 @@ export async function loadPolicies(): Promise<Map<string, ConnectorPolicy>> {
 				.map((r) => [r.key, { mode: r.mode, alwaysLoaded: r.alwaysLoaded === true }])
 		);
 	} catch (err) {
-		// A policy that cannot be read must not turn into "offer nothing" or "lock
-		// everything" by accident; the default is the documented one.
+		// Fails closed: an unreadable policy must never read as "On" for a connector set Off.
+		// Callers that build a turn offer no deployment connector at all that turn.
 		logger.warn({ err: String(err) }, "connector_modes_unreadable");
-		return new Map();
+		throw err;
 	}
 }
 
@@ -99,6 +99,11 @@ export async function clearPolicy(key: string): Promise<void> {
 	await collections.connectorModes.deleteOne({ key });
 }
 
+/** What the catalogue refresh polls: the `.env` servers the deployment offers, read afresh. */
+export async function offeredEnvServers(): Promise<McpServerConfig[]> {
+	return callableEnvServers(await loadPolicies());
+}
+
 /** The `.env` servers that are not switched off by the administrator. */
 export function callableEnvServers(policies: Map<string, ConnectorPolicy>): McpServerConfig[] {
 	return getMcpServers().filter((s) => policyIn(policies, baseKey(s.name)).mode !== "off");
@@ -109,6 +114,8 @@ export function callableEnvServers(policies: Map<string, ConnectorPolicy>): McpS
 export interface Switches {
 	off: Set<string>;
 	on: Set<string>;
+	/** The person's switches could not be read: everything they could switch is off this turn. */
+	unreadable?: boolean;
 }
 
 export async function loadSwitches(userId: ObjectId | undefined): Promise<Switches> {
@@ -118,7 +125,7 @@ export async function loadSwitches(userId: ObjectId | undefined): Promise<Switch
 		return { off: new Set(row?.off ?? []), on: new Set(row?.on ?? []) };
 	} catch (err) {
 		logger.warn({ err: String(err) }, "connector_switches_unreadable");
-		return { off: new Set(), on: new Set() };
+		return { off: new Set(), on: new Set(), unreadable: true };
 	}
 }
 
@@ -134,29 +141,50 @@ export function isEnabled(
 ): boolean {
 	if (policy?.mode === "off") return false;
 	if (policy?.mode === "locked") return true;
+	// Unknown switches fail closed: only what nobody can switch off stays on.
+	if (switches.unreadable) return false;
 	if (isLocalKey(key)) return switches.on.has(key);
 	return !switches.off.has(key);
 }
 
-/** Record one switch. A switch equal to the default is stored as no entry at all. */
+/** The most switches one person keeps; a sanity bound, far above any real list. */
+export const MAX_SWITCHES = 500;
+
+/**
+ * Record one switch, in one atomic update. A switch equal to the default is stored as no entry
+ * at all. `off` holds a default-on connector turned off; `on` holds a default-off one turned on.
+ * Each list is capped at `MAX_SWITCHES` (the API refuses a new switch past it first).
+ */
 export async function setSwitch(userId: ObjectId, key: string, enabled: boolean): Promise<void> {
 	const defaultOn = !isLocalKey(key);
 	const now = new Date();
-	// `off` holds a default-on connector turned off; `on` holds a default-off one turned on.
-	const [add, remove] =
-		enabled === defaultOn
-			? [undefined, defaultOn ? "off" : "on"]
-			: [defaultOn ? "off" : "on", defaultOn ? "on" : "off"];
+	const add = enabled === defaultOn ? undefined : defaultOn ? "off" : "on";
+	const remove = add === "off" ? "on" : add === "on" ? "off" : defaultOn ? "off" : "on";
+	const list = (field: string) => ({ $ifNull: [`$${field}`, []] });
 	await collections.connectorSwitches.updateOne(
 		{ userId },
-		{
-			$setOnInsert: { createdAt: now },
-			$set: { updatedAt: now },
-			$pull: { [remove]: key } as never,
-		},
+		[
+			{
+				$set: {
+					userId,
+					createdAt: { $ifNull: ["$createdAt", now] },
+					updatedAt: now,
+					[remove]: { $setDifference: [list(remove), [key]] },
+					...(add
+						? {
+								[add]: {
+									$slice: [
+										{
+											$concatArrays: [{ $setDifference: [list(add), [key]] }, [key]],
+										},
+										-MAX_SWITCHES,
+									],
+								},
+							}
+						: {}),
+				},
+			},
+		] as never,
 		{ upsert: true }
 	);
-	if (add) {
-		await collections.connectorSwitches.updateOne({ userId }, { $addToSet: { [add]: key } });
-	}
 }

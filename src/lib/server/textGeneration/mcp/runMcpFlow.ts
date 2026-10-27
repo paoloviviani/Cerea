@@ -12,8 +12,7 @@ import type { McpServerConfig } from "$lib/server/mcp/httpClient";
 import { mcpLocalsFor, type ResolvedServer } from "$lib/server/mcp/selection";
 import { createConnectorRuntime, type TurnConnectorRuntime } from "./connectorRuntime";
 import { connectorCatalogNotice, createLoadToolsBuiltin } from "../builtinTools/loadToolsTool";
-import { isValidUrl } from "$lib/server/urlSafety";
-import { isLocalServerUrl } from "$lib/server/mcp/localUrl";
+import { callableServers } from "$lib/server/mcp/serverOverlays";
 import { getOpenAiToolsForMcp } from "$lib/server/mcp/tools";
 import type {
 	ChatCompletionChunk,
@@ -28,12 +27,6 @@ import { executeToolCalls, type NormalizedToolCall } from "./toolInvocation";
 import { hasTruncatedToolCall, parseToolArguments, withParseableArguments } from "./toolArgs";
 import { createToolBlocker } from "./toolBlocker";
 import type { TextGenerationContext } from "../types";
-import {
-	hasAuthHeader,
-	isStrictHfMcpLogin,
-	hasNonEmptyToken,
-	isExaMcpServer,
-} from "$lib/server/mcp/hf";
 import { buildImageRefResolver } from "./fileRefs";
 import { prepareMessagesWithFiles } from "$lib/server/textGeneration/utils/prepareFiles";
 import { makeImageProcessor } from "$lib/server/endpoints/images";
@@ -414,75 +407,8 @@ export async function* runMcpFlow({
 
 	// What may be called of a server this turn: public HTTPS only, plus the per-server header
 	// overlays. Applied to the connectors loaded at the start and again to each one loaded later.
-	const prepareServers = (input: ResolvedServer[]): McpServerConfig[] => {
-		let list: McpServerConfig[] = input.map((s) => ({ ...s }));
-		// Enforce server-side safety (public HTTPS only, no private ranges by default)
-		{
-			const before = list.slice();
-			list = list.filter((s) => {
-				try {
-					// A local connector's address is internal (`machine://`, produced only by the
-					// selection resolution) and is checked by its opener, not by this public-URL rule.
-					return isLocalServerUrl(s.url) || isValidUrl(s.url, { allowInsecure: true });
-				} catch {
-					return false;
-				}
-			});
-			try {
-				const rejected = before.filter((b) => !list.includes(b));
-				if (rejected.length > 0) {
-					logger.warn(
-						{ rejected: rejected.map((r) => ({ name: r.name, url: r.url })) },
-						"[mcp] rejected servers by URL safety"
-					);
-				}
-			} catch {}
-		}
-		// Optionally attach the logged-in user's HF token to the official HF MCP server only.
-		// Never override an explicit Authorization header, and require token to look like an HF token.
-		try {
-			const shouldForward = config.MCP_FORWARD_HF_USER_TOKEN === "true";
-			const userToken = locals?.token;
-			if (shouldForward && hasNonEmptyToken(userToken)) {
-				list = list.map((s) => {
-					try {
-						if (isStrictHfMcpLogin(s.url) && !hasAuthHeader(s.headers)) {
-							return {
-								...s,
-								headers: { ...(s.headers ?? {}), Authorization: `Bearer ${userToken}` },
-							};
-						}
-					} catch {
-						// ignore URL parse errors and leave server unchanged
-					}
-					return s;
-				});
-			}
-		} catch {
-			// best-effort overlay; continue if anything goes wrong
-		}
-		// Inject Exa API key for mcp.exa.ai servers via URL param (mcp.exa.ai doesn't support headers)
-		try {
-			const exaApiKey = config.EXA_API_KEY;
-			if (hasNonEmptyToken(exaApiKey)) {
-				list = list.map((s) => {
-					try {
-						if (isExaMcpServer(s.url)) {
-							const url = new URL(s.url);
-							if (!url.searchParams.has("exaApiKey")) {
-								url.searchParams.set("exaApiKey", exaApiKey);
-								return { ...s, url: url.toString() };
-							}
-						}
-					} catch {}
-					return s;
-				});
-			}
-		} catch {
-			// best-effort injection; continue if anything goes wrong
-		}
-		return list;
-	};
+	const prepareServers = (input: ResolvedServer[]): McpServerConfig[] =>
+		callableServers(input, locals?.token);
 
 	// The servers loaded now: always loaded, then what the conversation loaded earlier. The
 	// rest are lines for the assistant (`load_tools`), and nothing contacts them until then.
@@ -1351,9 +1277,23 @@ export async function* runMcpFlow({
 
 				// A call to a tool of a connector that is not loaded loads it, then runs, rather than
 				// failing: the assistant knows the tool name from its list.
-				await connectorRuntime?.loadForCalls(calls.map((call) => call.name));
+				const autoLoads =
+					(await connectorRuntime?.loadForCalls(calls.map((call) => call.name))) ?? [];
+				// A tool name more than one unloaded connector offers is not guessed at: the call fails
+				// with the choice, and the model loads the one it means.
+				const unknownToolNotes = Object.fromEntries(
+					autoLoads
+						.filter((report) => report.status === "ambiguous")
+						.map((report) => [
+							report.name,
+							`${report.name} is offered by more than one connector (ambiguous: ${
+								"candidates" in report ? report.candidates.join(", ") : ""
+							}). Call load_tools with the one you mean, then call it again.`,
+						])
+				);
 				const exec = executeToolCalls({
 					calls,
+					unknownToolNotes,
 					mapping,
 					servers,
 					parseArgs,
