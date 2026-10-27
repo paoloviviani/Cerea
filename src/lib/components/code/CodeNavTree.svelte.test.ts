@@ -5,6 +5,7 @@ import CodeNavTree from "./CodeNavTree.svelte";
 import { livePage } from "./codeNavPage.svelte";
 import { CODE_TREE_COLLAPSE_KEY } from "$lib/utils/codeTreeCollapse";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
+import { clearCodePanelCache } from "$lib/stores/codeTreeCache.svelte";
 import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 
 /**
@@ -81,6 +82,7 @@ function rails(screen: ReturnType<typeof mount>, kind: "device" | "workspace") {
 
 beforeEach(() => {
 	localStorage.clear();
+	clearCodePanelCache();
 	codeDeviceList.devices = [];
 	codeDeviceList.loading = true;
 	livePage.url = new URL("http://localhost:3000/code");
