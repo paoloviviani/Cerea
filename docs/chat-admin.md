@@ -85,8 +85,12 @@ saved tool names yet is listed without them until its first check or first use.
 Every connector added here is **On** until you change it, and that includes the
 servers in `MCP_SERVERS`. **After an upgrade, review this page:** set what you
 do not want everybody to have to **Off**, and what people should be able to turn
-off to plain **On**. Each person's own switches are kept on the server, so they
-follow them between browsers. Tool approvals are unchanged: a call to a
+off to plain **On**. Tell people what changes for them too: their own
+connectors also come back **On** after the upgrade, and the choices older
+versions kept in their browser (which connectors were on in a chat, and the
+defaults for new chats) are not carried over; they switch connectors off again
+in Workspace → Connectors. From then on each person's switches are kept on the
+server, so they follow them between browsers. Tool approvals are unchanged: a call to a
 connector's tool asks first, whatever its mode.
 
 ## Voice

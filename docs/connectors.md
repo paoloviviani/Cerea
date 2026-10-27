@@ -6,7 +6,7 @@
 
 A **connector** is a remote [MCP](https://modelcontextprotocol.io) server you
 add to Cerea so the assistant can use its tools: your notes, a tracker, a
-search service. You manage them under **Workspace → MCP Servers**. Servers
+search service. You manage them under **Workspace → Connectors**. Servers
 added here are _remote_; Cerea does not run MCP servers itself. A server that
 runs on your own laptop or server is a [local connector](local-connectors.md):
 you enroll that machine under **Workspace → Local connectors**, and its servers
@@ -31,7 +31,7 @@ Only connect to servers you trust.
 
 ## Using them
 
-Switch connectors on and off in one place: **Workspace → MCP Servers**. Each
+Switch connectors on and off in one place: **Workspace → Connectors**. Each
 connector there has a switch, and a connector that is on is available to the
 assistant in every chat. There is nothing to choose in the composer or per
 conversation.
@@ -59,8 +59,8 @@ An administrator can provide connectors to the whole deployment (see
 [Administering the chat](chat-admin.md)). They are **provided automatically**:
 you do not add them, they are on for you from the start, and they appear in
 Workspace under **Built-in connectors**. Each is either on with a switch you can
-turn off, or marked **Always on** (with a lock) when your administrator keeps it
-on for everyone. A connector the administrator has switched off is not shown.
+turn off, or, when your administrator offers it as **On, locked**, marked
+**Always on** with a lock and no switch: it stays on for everyone. A connector the administrator has switched off is not shown.
 
 The **definition** is shared and the **credential is not**: each person signs in
 to a shared OAuth connector themselves. The exception is a static token, which

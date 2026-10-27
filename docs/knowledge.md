@@ -60,8 +60,10 @@ arrives. The page lists them at the top, in this order:
 
 The page also holds the project's **name and description**, its **chats** (each
 with a link and **Remove from project**), **sharing** and the **defaults for
-new chats**: web search on or off, and which [connectors](connectors.md) start
-selected; when the project leaves either unset, the app defaults apply.
+new chats**: web search on or off; when the project leaves it unset, the app
+default applies. A project no longer picks the [connectors](connectors.md) new
+chats start with: that setting is retired, and connectors are switched on and
+off for you in Workspace → Connectors.
 
 **Knowledge bases can be attached or detached at any time**, not only when the
 project is created: search the list under **Knowledge bases** and press
