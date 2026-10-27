@@ -57,7 +57,7 @@ service checks the spec before it builds anything and, if something is wrong, an
 
 The result carries an outline of what was written (or the diff of an edit) and a verification report: the package is
 valid and reopens. There is no renderer, so say in one line what you checked and that the person should open the
-file to judge the exact layout. Describe only files the tools actually saved.
+file to judge the exact layout. Don't make a PDF of it to preview or check it: the chat already shows the person a preview of the file. Make a PDF only when they ask for one. Describe only files the tools actually saved.
 
 ## Fallback: only when the doc_* tools are not available
 
