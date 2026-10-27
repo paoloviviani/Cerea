@@ -114,7 +114,7 @@ nav:
           - "Reference": agent-machines-reference.md
       - "Local connectors": local-connectors.md
       - "The headless browser": browser.md
-      - "Office previews": office.md
+      - "Word, Excel, PowerPoint and PDF files": office.md
   - Operating Cerea:
       - Deploying: deploy.md
       - "The deploy kit": deploy-kit.md

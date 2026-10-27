@@ -1212,6 +1212,37 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   pins that wording, so a change to a skill must keep the two apart. The execution
   prompt's generic "write binary files with python-docx..." sentences name the
   same exception.
+- Decks (`documents/src/cerea_documents/make_pptx.py`, schema in `spec.py`): six
+  built-in 16:9 layouts, body text 24/22/20/18 pt stepping down to 14 pt (below
+  16 pt a note suggests splitting the slide), content kept below the title.
+  A slide takes a `background` (colour, two-colour gradient, or a picture
+  `fit: "cover"`; `theme.slide_background` for all) and up to 30 `shapes` (`rect`,
+  `rounded_rect`, `ellipse`, `line`, `arrow`, `chevron`, `text`; cm on the slide;
+  `layer` back by default, so behind the placeholders). Shapes with text (a `text`
+  kind, or `text`/`runs`) must lie fully on the slide; a **decorative** shape may
+  **bleed** (`x_cm`/`y_cm` from -50) if at least `MIN_SEEN_CM` (0.5 cm) shows on
+  both axes (`_bleeds`, `_check_shape_bounds`, all checked before anything is
+  built, so a 422 names `slides[i].shapes[j]`, the values and the slide size).
+  Warnings, not errors, go into the result's notes: contrast under 4.5:1 of the
+  theme's text colours on a solid background, a shape over a placeholder or
+  content (`OVERLAP_CM`), overflow. `theme.slide_background` and the shapes are
+  new in 0.31.0, the bleed in 0.31.1.
+- Range errors from the schema check (`spec.py` `_check`, `_friendly`) state the
+  field, the value and the allowed range ("-70 is less than the minimum (-50);
+  allowed range -50 to 100"); `properties`/`required` are put in the details only
+  for `additionalProperties` and `required` failures, where the parent's keys
+  help.
+- The tool card shows object arguments. `ToolCall.parameters` holds primitives, so
+  `mcp/toolParams.ts` `toPrimitive` keeps an object or array argument (a document
+  `spec`) as compact JSON text, cut at `MAX_PARAM_JSON_CHARS` (20,000) with a
+  visible "... (N more characters)" and not dropped. `ToolUpdate.svelte`
+  pretty-prints JSON text that parses (`expandJsonText`) and shows cut text as it
+  is. It applies to every tool, not only the document ones.
+- The PowerPoint skill: the tools are the default; an **explicit** request for a
+  custom design the tools cannot express (free-placed cards, an infographic) is
+  built in the sandbox from the skill's "Fallback" section, said in one line, and
+  never mixed with the tools in one deck; an unclear request asks through
+  `ask_user_question` with two options. `officeSkills.spec.ts` pins the wording.
 
 ## Office previews and `convert_document`
 
