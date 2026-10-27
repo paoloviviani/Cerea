@@ -13,6 +13,7 @@
 	it is a decision rather than an accident.
 -->
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -620,9 +621,7 @@
 								{/if}
 							</div>
 							<div class="flex shrink-0 flex-wrap items-center gap-2">
-								<span
-									class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300"
-								>
+								<span class="{s.PILL} {s.PILL_TONES.neutral}">
 									{m["admin.connectors.env.badge"]()}
 								</span>
 								<span class="text-xs text-gray-500">

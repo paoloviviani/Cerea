@@ -335,7 +335,7 @@
 												{item.label}
 											</span>
 											<span class="mt-0.5 block truncate">
-												<span class="rounded-full bg-sunken px-1.5 py-px text-xxs text-ink-muted">
+												<span class="{styles.PILL} {styles.PILL_TONES.neutral}">
 													{artifactBadge(item.identifier)}
 												</span>
 											</span>
@@ -361,7 +361,7 @@
 												{item.label}
 											</span>
 											<span class="mt-0.5 block truncate">
-												<span class="rounded-full bg-sunken px-1.5 py-px text-xxs text-ink-muted">
+												<span class="{styles.PILL} {styles.PILL_TONES.neutral}">
 													{m["chat.deliverables.dashboard"]()}
 												</span>
 											</span>
@@ -391,7 +391,7 @@
 													{item.name}
 												</span>
 												<span class="mt-0.5 block truncate">
-													<span class="rounded-full bg-sunken px-1.5 py-px text-xxs text-ink-muted">
+													<span class="{styles.PILL} {styles.PILL_TONES.neutral}">
 														{m["chat.deliverables.file"]()}
 													</span>
 												</span>

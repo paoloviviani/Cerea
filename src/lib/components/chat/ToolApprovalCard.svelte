@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import Rich from "$lib/i18n/Rich.svelte";
 	import { getContext } from "svelte";
@@ -333,7 +334,7 @@
 				</span>
 				{#if firstTurnChip}
 					<span
-						class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+						class="{s.PILL} {s.PILL_TONES.warn}"
 						data-testid="first-turn-chip"
 						title={firstTurnHint()}>{firstTurnLabel()}</span
 					>

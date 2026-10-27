@@ -245,7 +245,9 @@
 			<ul class="space-y-2">
 				{#each documents as doc (doc.id)}
 					<li class={s.card(doc.status === "ready")}>
-						<div class="flex items-start justify-between gap-3 px-4 py-2.5">
+						<div
+							class="flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3"
+						>
 							<div class="min-w-0 flex-1">
 								<p class="truncate text-sm font-medium" title={doc.name}>{doc.name}</p>
 								<p class="text-xs text-ink-muted">
@@ -268,7 +270,7 @@
 							</div>
 							<button
 								type="button"
-								class={s.CARD_DESTRUCTIVE}
+								class="{s.CARD_DESTRUCTIVE} self-start sm:shrink-0"
 								aria-label={m["projects.documents.remove_label"]({ name: doc.name })}
 								onclick={() => remove(doc)}
 							>

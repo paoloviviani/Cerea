@@ -6,6 +6,7 @@
 	question is only what does the fetching.
 -->
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -146,7 +147,7 @@
 							{#if value === "playwright" && playwrightHealth}
 								{#if playwrightHealth.reason === "not configured"}
 									<span
-										class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+										class="{s.PILL} {s.PILL_TONES.neutral}"
 										title={m["admin.fetch.health.not_configured_hint"]({
 											name: "PLAYWRIGHT_WS_ENDPOINT",
 										})}
@@ -154,16 +155,11 @@
 										{m["admin.fetch.health.not_configured"]()}
 									</span>
 								{:else if playwrightHealth.reachable}
-									<span
-										class="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800 dark:bg-green-900/30 dark:text-green-300"
-									>
+									<span class="{s.PILL} {s.PILL_TONES.good}">
 										{m["admin.fetch.health.reachable"]()}
 									</span>
 								{:else}
-									<span
-										class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
-										title={playwrightHealth.reason}
-									>
+									<span class="{s.PILL} {s.PILL_TONES.warn}" title={playwrightHealth.reason}>
 										{playwrightHealth.reason
 											? m["admin.fetch.health.unreachable_reason"]({
 													reason: playwrightHealth.reason,

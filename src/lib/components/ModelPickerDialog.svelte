@@ -110,8 +110,7 @@
 								<span class="font-normal text-gray-500 dark:text-gray-400">
 									· {model.baseName}</span
 								>
-								<span
-									class="ml-1 rounded-full bg-blue-500/10 px-1.5 py-px align-middle text-[10px] font-medium text-blue-700 dark:text-blue-400"
+								<span class="ml-1 {s.PILL} {s.PILL_TONES.busy}"
 									>{m["app.model_picker.custom_badge"]()}</span
 								>{/if}
 						</span>

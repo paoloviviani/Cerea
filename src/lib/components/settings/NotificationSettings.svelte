@@ -7,6 +7,7 @@
 	browser has blocked. The permission prompt appears only on the click.
 -->
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import Switch from "$lib/components/Switch.svelte";
@@ -300,8 +301,7 @@
 								<div class="truncate text-[13px] font-medium text-gray-800 dark:text-gray-200">
 									{device.label}
 									{#if device.fingerprint === thisFingerprint}
-										<span
-											class="ml-1 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-normal text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+										<span class="ml-1 {s.PILL} {s.PILL_TONES.busy}"
 											>{m["settings.notifications.devices.badge"]()}</span
 										>
 									{/if}

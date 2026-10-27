@@ -235,7 +235,7 @@
 								</button>
 							</div>
 						{:else}
-							<div class="flex items-start justify-between gap-3">
+							<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 								<div class="min-w-0">
 									<p
 										class="text-sm whitespace-pre-wrap text-ink {omitted.has(index)
@@ -270,7 +270,7 @@
 										{/if}
 									</div>
 								</div>
-								<div class="flex shrink-0 gap-2">
+								<div class="flex flex-wrap gap-2 sm:shrink-0">
 									<button
 										type="button"
 										class={s.CARD_ACTION}

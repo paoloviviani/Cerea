@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import type { PageData } from "./$types";
 
 	import { base } from "$app/paths";
@@ -89,9 +90,7 @@
 									{modelLabel(model)}
 								</h3>
 								{#if model.customBase}
-									<span
-										class="rounded-full bg-blue-500/10 px-1.5 py-px text-[10px] font-medium text-blue-700 dark:text-blue-400"
-									>
+									<span class="{s.PILL} {s.PILL_TONES.busy}">
 										{m["models.list.custom"]()}
 									</span>
 								{/if}
