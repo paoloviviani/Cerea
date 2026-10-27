@@ -75,3 +75,20 @@ test("a reply stream cut mid-way leaves the composer empty, not holding the sent
 	);
 	expect(stored).toBeNull();
 });
+
+test("a send the server rejects puts its text back in the composer", async ({ page }) => {
+	await page.route(/\/conversation\/[a-f0-9]{24}$/, async (route) => {
+		if (route.request().method() !== "POST") return route.continue();
+		await route.fulfill({
+			status: 429,
+			contentType: "application/json",
+			body: JSON.stringify({ message: "Too many requests" }),
+		});
+	});
+
+	await page.goto(`${E2E_APP_BASE}/`);
+	await page.getByPlaceholder("Ask anything").fill("never accepted");
+	await page.getByRole("button", SEND).click();
+	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
+	await expect(page.getByPlaceholder("Ask anything")).toHaveValue("never accepted");
+});

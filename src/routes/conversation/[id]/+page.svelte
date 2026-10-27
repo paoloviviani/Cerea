@@ -347,6 +347,11 @@
 				// A user abort rejects the fetch; that is not an error worth a toast
 				if (!$isAborted && !(err instanceof DOMException && err.name === "AbortError")) {
 					error.set(err.message);
+					// The server never accepted this send (a rejected POST or a
+					// network failure before the stream opened): put a fresh
+					// send's text back, like every never-accepted path. Aborts
+					// stay out, and retries and resumes already live in the thread.
+					if (!isRetry && !resumeElicitationId && prompt) sendFailedText = prompt;
 				}
 			});
 			if (messageUpdatesIterator === undefined) return;
