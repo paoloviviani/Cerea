@@ -55,7 +55,7 @@ service checks the spec first and answers with what is allowed if something is o
   call's `images` and named the same way in the slide.
 - **Backgrounds and shapes:** a slide (or `theme.slide_background`, for all) can have a `background`: a colour, a
   two-colour gradient, or a picture from the conversation (`fit: "cover"`, cropped, not stretched). `shapes` (up to
-  30: rectangle, rounded rectangle, ellipse, line, arrow, chevron, text box) are placed in cm on the slide and must
+  40: rectangle, rounded rectangle, ellipse, line, arrow, chevron, text box; text from 8 pt) are placed in cm on the slide and must
   stay inside it, except that a decorative shape without text may bleed off an edge (negative `x_cm`/`y_cm`, at
   least 0.5 cm still showing) and text never does (a 422 names the shape that breaks this); they sit behind the title and body unless `layer: "front"`.
   Use them on `blank` or `title_only` slides for designed pages (cards, a cover, a section slide), set the text
@@ -76,11 +76,16 @@ service checks the spec first and answers with what is allowed if something is o
 
 - `doc_outline` shows slides (1-based), layouts, shapes with ids, placeholders, pictures and notes; `doc_read` gives
   a slide's paragraphs with runs and notes. Look before you edit.
+- To fix or redesign one slide, use `doc_edit` `replace_slide` (`{slide, spec}`, one slide spec exactly as in
+  `doc_create`; the deck's theme is read from the file) or `add_slide` (`{after, spec}`); do not re-create the deck.
+  `theme.slide_numbers: true` numbers every slide but the first. Read the result's `notes`: fit warnings that
+  name a slide are real (small labels in roomy boxes are not flagged).
 - `doc_edit` applies typed operations, all or none: replace text (across runs, keeping formatting), set a
   placeholder's text, replace or insert images, duplicate, delete or reorder slides, set speaker notes. To add a
-  slide to an existing deck, duplicate a similar one and change its text. Adding native charts to an existing
-  deck, editing chart data and layout redesigns are not available: say so, or recreate the deck with `doc_create`
-  when the person wants a redesign or many changes.
+  slide, use `add_slide` (or duplicate a similar one and change its text). `update_shape` moves or resizes one shape
+  by its id from `doc_outline`. Editing the data of an existing
+  chart and changing masters or layouts are not available: say so (a chart can be put on a rebuilt slide with
+  `replace_slide`), or recreate the deck with `doc_create` when the person wants a redesign of most of it.
 - An edit is saved as a new version under the same name; the original stays. Layouts, masters and every part you did
   not edit stay as they were.
 

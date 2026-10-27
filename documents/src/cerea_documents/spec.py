@@ -56,6 +56,8 @@ RUN = {
     "additionalProperties": False,
 }
 _RUNS = {"type": "array", "items": RUN, "maxItems": 500, "description": "formatted text; use instead of text"}
+_SIZE_PT = {"type": "number", "minimum": 8, "maximum": 96}
+SHAPE_RUN = {**RUN, "properties": {**dict(RUN["properties"]), "size_pt": _SIZE_PT}}  # type: ignore[call-overload]
 _TEXT = {"text": _STR, "runs": _RUNS}
 
 THEME = {
@@ -71,6 +73,7 @@ THEME = {
         "body_size_pt": {"type": "number", "minimum": 8, "maximum": 18},
         "heading_sizes_pt": {
             "type": "object",
+            "description": "h1-h6: Word/PDF headings; h1 is also the PowerPoint title size (36 there)",
             "properties": {f"h{i}": {"type": "number", "minimum": 8, "maximum": 60} for i in range(1, 7)},
             "additionalProperties": False,
         },
@@ -206,6 +209,7 @@ BACKGROUND = {
     ],
     "description": "slide background: a colour, a two-colour gradient or a picture cropped to cover the slide",
 }
+MAX_SHAPES = 40
 SHAPE_KINDS = ("rect", "rounded_rect", "ellipse", "line", "arrow", "chevron", "text")
 _SHAPE_CM = {"type": "number", "minimum": 0, "maximum": 100}
 _SHAPE_POS_CM = {
@@ -224,8 +228,10 @@ SHAPE = _obj(
         "fill": {"anyOf": [_COLOR, {"const": "none"}]},
         "line": _obj({"color": _COLOR, "width_pt": {"type": "number", "minimum": 0.25, "maximum": 20}}),
         "radius": {"type": "number", "minimum": 0, "maximum": 50, "description": "cm, rounded_rect"},
-        **_TEXT,
-        "size_pt": {"type": "number", "minimum": 10, "maximum": 96},
+        "text": _STR,
+        "runs": {**_RUNS, "items": SHAPE_RUN, "description": "formatted text; use instead of text"},
+        "color": _COLOR,
+        "size_pt": {"type": "number", "minimum": 8, "maximum": 96},
         "align": _ALIGN,
         "valign": {"enum": ["top", "middle", "bottom"]},
         "layer": {"enum": ["back", "front"], "description": "default back: behind the title and body"},
@@ -247,7 +253,12 @@ SLIDE = _obj(
         "body_right": {"type": "array", "items": {"type": "object"}, "maxItems": 50, "description": "two_content"},
         "notes": {"type": "string", "maxLength": 20_000},
         "background": BACKGROUND,
-        "shapes": {"type": "array", "maxItems": 30, "items": SHAPE, "description": "free shapes, in cm on the slide"},
+        "shapes": {
+            "type": "array",
+            "maxItems": MAX_SHAPES,
+            "items": SHAPE,
+            "description": "free shapes, in cm on the slide",
+        },
         "images": {
             "type": "array",
             "maxItems": 20,
@@ -410,7 +421,15 @@ TOP["pptx"] = {
     **TOP["pptx"],
     "properties": {
         **TOP["pptx"]["properties"],
-        "theme": {**THEME, "properties": {**dict(THEME["properties"]), "slide_background": BACKGROUND}},  # type: ignore[call-overload]
+        "theme": {
+            **THEME,
+            "properties": {
+                **dict(THEME["properties"]),  # type: ignore[call-overload]
+                "slide_background": BACKGROUND,
+                "heading_bold": {"type": "boolean", "description": "default true"},
+                "slide_numbers": {"type": "boolean", "description": "not on slide 1"},
+            },
+        },
     },
 }
 TOP["pdf"] = TOP["docx"]
@@ -484,12 +503,9 @@ def create_schemas() -> dict[str, Any]:
 # ---- validation ---------------------------------------------------------------------------------
 
 
-def _where(err: ValidationError) -> str:
-    path = ".".join(str(p) for p in err.absolute_path)
-    return f"{path}: " if path else ""
-
-
 def _check(schema: dict[str, Any], instance: Any, label: str, **details: Any) -> None:
+    """Raise InvalidRequest for the best-matching error. A `label` that ends in ": " is a prefix as it is;
+    any other label (`slides[3]`) is a place the error's own path continues from (`slides[3].shapes`)."""
     errors = list(Draft202012Validator(schema).iter_errors(instance))
     if not errors:
         return
@@ -498,23 +514,55 @@ def _check(schema: dict[str, Any], instance: Any, label: str, **details: Any) ->
     if err.validator in ("additionalProperties", "required"):  # only here do the parent's keys help
         props = {k: v for k, v in (schema.get("properties") or {}).items() if k != "type"}
         extra = {"properties": sorted(props), "required": [r for r in schema.get("required", []) if r != "type"]}
-    raise InvalidRequest(
-        f"{label}{_where(err)}{_friendly(err)}",
-        reason="schema",
-        details={**extra, **details},
-    )
+    path = ".".join(str(p) for p in err.absolute_path)
+    if label.endswith(": "):
+        head = f"{label}{path}: " if path else label
+    else:
+        head = f"{label}.{path}: " if path else f"{label}: "
+    raise InvalidRequest(f"{head}{friendly(err)}", reason="schema", details={**extra, **details})
 
 
 _BOUND_WORDS = {"minimum": "less than the minimum", "maximum": "more than the maximum"}
+_PER = {
+    "shapes": "per slide",
+    "body": "per slide",
+    "body_right": "per slide",
+    "images": "per slide",
+    "charts": "per slide",
+    "slides": "per deck",
+    "sheets": "per workbook",
+}
+_ECHO = 60  # an instance longer than this (characters) is described, never repeated
 
 
-def _friendly(err: ValidationError) -> str:
+def _what(value: Any) -> str:
+    """A big value as a type and a size, so an error never repeats it."""
+    if isinstance(value, list):
+        return f"a list of {len(value)} items"
+    if isinstance(value, dict):
+        return f"an object with {len(value)} properties"
+    if isinstance(value, str) and len(value) > _ECHO:
+        return f"a text of {len(value)} characters"
+    return repr(value)
+
+
+def friendly(err: ValidationError) -> str:
+    """The message of a schema error, short and without the offending value when that is big."""
+    last = err.absolute_path[-1] if err.absolute_path else None
     if err.validator == "additionalProperties":
         schema = err.schema if isinstance(err.schema, dict) else {}
         allowed = sorted(schema.get("properties") or {})
         return f"{err.message} Allowed properties: {allowed}"
+    if err.validator in ("maxItems", "minItems") and isinstance(err.instance, list):
+        n = len(err.instance)
+        noun = last if isinstance(last, str) else "items"
+        noun = noun[:-1] if n == 1 and noun.endswith("s") else noun
+        if err.validator == "maxItems":
+            per = f" {_PER[last]}" if isinstance(last, str) and last in _PER else ""
+            return f"{n} {noun}; {err.validator_value} at most{per}"
+        return f"{n} {noun}; at least {err.validator_value} needed"
     if err.validator == "enum":
-        return f"{err.instance!r} is not one of {err.validator_value}"
+        return f"{_what(err.instance)} is not one of {err.validator_value}"
     if err.validator in _BOUND_WORDS and isinstance(err.schema, dict):
         lo, hi = err.schema.get("minimum"), err.schema.get("maximum")
         if lo is not None and hi is not None:
@@ -522,7 +570,12 @@ def _friendly(err: ValidationError) -> str:
         else:
             span = f"{err.validator_value:g} or {'more' if err.validator == 'minimum' else 'less'}"
         return f"{err.instance:g} is {_BOUND_WORDS[err.validator]} ({err.validator_value:g}); allowed range {span}"
-    return err.message
+    # every other message (type, const, oneOf, maxLength, pattern, ...) repeats the instance with repr():
+    # swap a list, an object or a long text for its type and size
+    message = err.message
+    if isinstance(err.instance, list | dict) or (isinstance(err.instance, str) and len(err.instance) > _ECHO):
+        message = message.replace(repr(err.instance), _what(err.instance))
+    return message
 
 
 def depth_of(value: Any, limit: int) -> int:
@@ -671,7 +724,7 @@ def _check_slides(slides: list[Any], limits: Limits, count: list[int]) -> None:
         raise InvalidRequest(f"more than {limits.max_slides} slides", reason="too_large")
     allowed = block_schemas("pptx")
     for i, s in enumerate(slides):
-        _check(SLIDE, s, f"slides[{i}]: ")
+        _check(SLIDE, s, f"slides[{i}]")
         for key in ("body", "body_right"):
             for j, b in enumerate(s.get(key) or []):
                 check_block(b, allowed, f"slides[{i}].{key}[{j}]", limits, count)
@@ -726,7 +779,7 @@ def _check_sheets(sheets: list[Any], limits: Limits) -> None:
     seen: set[str] = set()
     total = 0
     for i, sh in enumerate(sheets):
-        _check(SHEET, sh, f"sheets[{i}]: ")
+        _check(SHEET, sh, f"sheets[{i}]")
         name = sh["name"]
         if SHEET_BAD.search(name) or name.lower() in seen or name.startswith("'") or name.endswith("'"):
             raise InvalidRequest(

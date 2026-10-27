@@ -291,11 +291,11 @@ Implemented (also listed by `/v1/capabilities`):
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Word       | `replace_text`, `fill_placeholders`, `set_paragraph_text`, `insert_paragraph_after`, `delete_paragraph`, `set_table_cell`, `add_table_row`, `insert_image_after`, `replace_image`; `track_changes` + `author` write `w:ins`/`w:del` |
 | Excel      | `set_cells` (strings, numbers, booleans, `{"formula": "=B3*2"}`, `{"date": "2026-01-31"}`, `{"datetime": "..."}`, `style_from`), `clear_cells`, `add_sheet` (appended), `insert_image` (at a cell)                                  |
-| PowerPoint | `replace_text`, `set_placeholder_text`, `replace_image`, `insert_image`, `duplicate_slide`, `delete_slide`, `reorder_slides`, `set_notes`                                                                                           |
+| PowerPoint | `replace_text`, `set_placeholder_text`, `replace_image`, `insert_image`, `duplicate_slide`, `delete_slide`, `reorder_slides`, `set_notes`, `replace_slide`, `add_slide`, `update_shape`                                             |
 
 Deferred (not in capabilities as operations; an unknown name is refused with the list of what exists):
 Word `add_comment`, `insert_chart`; Excel `insert_rows`/`delete_rows` (v1.1: needs safe formula, merge
-and table shifting), `insert_chart`; PowerPoint `add_slide`, `insert_chart`, and `insert_image` into a
+and table shifting), `insert_chart`; PowerPoint `insert_chart`, and `insert_image` into a
 picture placeholder (positioned images work). `set_notes` refuses a deck that has no notes master;
 `track_changes` is Word-only (Excel and PowerPoint refuse it). Conversion is a later step (`convert` is
 `false` in capabilities); the edit operations also work on files this service created.

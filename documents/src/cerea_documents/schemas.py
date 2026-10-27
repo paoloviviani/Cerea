@@ -9,6 +9,7 @@ from jsonschema.exceptions import ValidationError
 
 from .config import Limits
 from .errors import InvalidRequest
+from .spec import friendly
 
 FORMATS = ("docx", "xlsx", "pptx")
 EXT_FORMAT = {
@@ -64,7 +65,7 @@ def validate_envelope(body: Any, limits: Limits) -> None:
         raise InvalidRequest("the body must be a JSON object", reason="schema")
     err = _first(Draft202012Validator(_envelope(limits)), body)
     if err is not None:
-        raise InvalidRequest(f"invalid request body: {_where(err)}{err.message}", reason="schema")
+        raise InvalidRequest(f"invalid request body: {_where(err)}{friendly(err)}", reason="schema")
 
 
 def validate_edit(fmt: str, body: Any, limits: Limits) -> None:
@@ -88,7 +89,7 @@ def validate_edit(fmt: str, body: Any, limits: Limits) -> None:
         err = _first(Draft202012Validator(schema), op)
         if err is not None:
             raise InvalidRequest(
-                f"operations[{i}] ({name}): {_where(err)}{err.message}",
+                f"operations[{i}] ({name}): {_where(err)}{friendly(err)}",
                 reason="schema",
                 operation_index=i,
                 details={
@@ -133,7 +134,7 @@ def validate_read(fmt: str, body: Any) -> None:
     err = _first(Draft202012Validator(schema), body)
     if err is not None:
         raise InvalidRequest(
-            f"invalid read request for {fmt}: {_where(err)}{err.message}",
+            f"invalid read request for {fmt}: {_where(err)}{friendly(err)}",
             reason="schema",
             details={"target_shape": _READ_TARGETS[fmt]},
         )

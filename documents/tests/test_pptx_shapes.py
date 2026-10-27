@@ -351,7 +351,7 @@ def test_the_shape_schema_rules() -> None:
             build([{"layout": "blank", "shapes": [shape]}])
 
     refused({"kind": "hexagon", "x_cm": 1, "y_cm": 1, "w_cm": 1, "h_cm": 1}, "kind")
-    refused(rect(size_pt=9, text="x"), "size_pt")
+    refused(rect(size_pt=7, text="x"), "size_pt")
     refused(rect(w_cm=0), "w_cm and h_cm above 0")
     refused({"kind": "line", "x_cm": 1, "y_cm": 1, "w_cm": 0, "h_cm": 0}, "needs w_cm or h_cm")
     refused({"kind": "arrow", "x_cm": 1, "y_cm": 1, "w_cm": 2, "h_cm": 0, "text": "x"}, "takes `line` only")
@@ -360,7 +360,7 @@ def test_the_shape_schema_rules() -> None:
     refused(rect(text="a", runs=[{"text": "b"}]), "one of")
     refused(rect(fill="blue"), "fill")
     with pytest.raises(InvalidRequest, match="shapes"):
-        build([{"layout": "blank", "shapes": [rect()] * 31}])
+        build([{"layout": "blank", "shapes": [rect()] * 41}])
 
 
 def test_text_that_cannot_fit_its_shape_is_a_warning_not_an_error() -> None:

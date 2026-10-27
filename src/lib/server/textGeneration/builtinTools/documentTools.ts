@@ -665,7 +665,7 @@ export function createDocumentBuiltins(
 							"to /mnt/output): list them in `images` and name them the same way in image blocks. Word and " +
 							"PDF also take `markdown` instead of `blocks` (headings, lists, tables, **bold**, links, code; no " +
 							"HTML). A slide may have a `background` (an image is a file in the conversation) and free `shapes` " +
-							"(cm on the slide, kept inside it, text 10 pt or more): for designed slides on the blank or " +
+							"(cm on the slide, kept inside it, text 8 pt or more): for designed slides on the blank or " +
 							"title_only layout, not for ordinary text. The result gives the file's name, an outline and the charts' render; to change the file " +
 							"afterwards use doc_edit with that name. Formats and their specs, `?` marking an optional property:\n" +
 							specText,
