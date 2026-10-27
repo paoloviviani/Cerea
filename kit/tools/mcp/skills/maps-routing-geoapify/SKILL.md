@@ -18,6 +18,11 @@ Two map connectors may be available. Use whichever is there; with both, follow t
   and others). Free. Its place search runs on volunteer servers that are sometimes slow or busy; the rest
   is usually quick.
 
+**Recognise the connectors by their address or tools, not their name:** an administrator may call them
+anything ("Find locations", "Maps"). Geoapify is the one at `api.geoapify.com`, or the one offering
+`search_places`; OpenStreetMap is the one offering `find_nearby_pois`. If a connector's line gives no tools
+and you can't tell what it is, load it with `load_tools` and look at what it offers.
+
 If a connector's tools are not available yet, load it with `load_tools` by the name the catalogue gives
 it; if they are already available, go straight to them. Load only what the question needs.
 
@@ -85,7 +90,8 @@ work; never invent one.
 ## When OpenStreetMap's place search fails
 
 `find_nearby_pois` already tries every configured server before it gives up and can take up to a minute.
-If it fails or times out, **don't call it again** with another radius, category or tag. Use Geoapify if it's
+If it fails or times out, **don't call it again**: not with another radius, category or tag, and not
+the same call after a pause, **even when the error message says to wait and retry**. Use Geoapify if it's
 available, otherwise a web search for "<what> near <place>", reading the results' own pages for addresses,
 hours and prices. Say in a few words that the map search didn't answer. For the rest of the conversation,
 skip OSM's place tools (`find_nearby_pois`, `poi_details`, `suggest_meeting_point`) unless the person asks.
@@ -94,6 +100,7 @@ skip OSM's place tools (`find_nearby_pois`, `poi_details`, `suggest_meeting_poin
 
 - Map data can be out of date. Give opening hours and phone numbers as "listed as", and suggest checking
   before travelling when it matters. When sources disagree, prefer the place's own website.
-- Give names, addresses, distances and a `map_link`; never raw coordinates unless asked.
+- Give names, addresses, distances and a `map_link`; never raw coordinates unless asked. Use the same
+  starting point for the distances and the links; if the address only resolved to its street, say so.
 - Geometry tools take GeoJSON in `[longitude, latitude]` order; routing and place tools take `lat` and
   `lon` separately. Don't swap them.
