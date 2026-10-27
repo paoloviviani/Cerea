@@ -288,11 +288,20 @@ describe("the tool text comes from the service's schemas", () => {
 		expect(text).toContain("A slide: {");
 		expect(text).toContain("item = string | {");
 		expect(text).toContain("Run = {");
+		expect(text).toContain("Hex = ");
+		expect(text).toContain("Background = {color: Hex} | {");
+		expect(text).toContain("PptxTheme = Theme plus {slide_background?: Background}");
+		expect(text).toContain("background?: Background");
+		expect(text).toMatch(
+			/shapes\?: \{[^]*kind: "rect"\|"rounded_rect"[^]*layer\?: "back"\|"front"/
+		);
+		// the deck-only theme setting is written once, in the PptxTheme legend line
+		expect(text.split("slide_background")).toHaveLength(2);
 		expect(text).toContain("Cell = ");
 		// the same pieces are written once, not per block and format
 		expect(text.split("Run = {")).toHaveLength(2);
 		expect(text).toContain("PDF (.pdf): the same spec and blocks as Word (.docx)");
-		expect(text.length).toBeLessThan(9_000);
+		expect(text.length).toBeLessThan(9_500);
 		expect(text).not.toMatch(/deployment template|admin/i);
 	});
 

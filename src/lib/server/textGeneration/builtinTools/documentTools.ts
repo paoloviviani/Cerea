@@ -146,7 +146,10 @@ function propertyList(
 		.filter(([key]) => key !== "type")
 		.map(([key, value]) => {
 			const hint =
-				notes && typeof value.description === "string" && value.description.length <= 110
+				notes &&
+				typeof value.description === "string" &&
+				value.description.length <= 110 &&
+				!aliases?.has(JSON.stringify(value))
 					? ` (${value.description})`
 					: "";
 			return `${key}${required.has(key) ? "" : "?"}: ${describeSchema(value, depth, aliases)}${hint}`;
@@ -172,7 +175,27 @@ function sharedAliases(schemas: Partial<Record<CreateFormat, CreateFormatSchemas
 		legend.push(`${name} = ${describeSchema(schema, depth, aliases)}`);
 		aliases.set(JSON.stringify(schema), name);
 	};
+	// a hex colour appears dozens of times: written once
+	const hex = first?.document.properties?.theme?.properties?.accent;
+	if (hex) {
+		legend.push("Hex = hex colour string such as 1F3864");
+		aliases.set(JSON.stringify(hex), "Hex");
+	}
 	define("Theme", first?.document.properties?.theme, 3);
+	const slide = schemas.pptx?.slide;
+	define("Background", slide?.properties?.background, 2);
+	const deck = schemas.pptx?.document.properties?.theme;
+	const base = first?.document.properties?.theme;
+	if (deck && base && JSON.stringify(deck) !== JSON.stringify(base)) {
+		// the deck's theme is the shared one plus what only decks have
+		const extra = Object.fromEntries(
+			Object.entries(deck.properties ?? {}).filter(([key]) => !(key in (base.properties ?? {})))
+		);
+		legend.push(
+			`PptxTheme = Theme plus {${propertyList({ properties: extra }, 2, true, aliases)}}`
+		);
+		aliases.set(JSON.stringify(deck), "PptxTheme");
+	}
 	const paragraph = first?.blocks.paragraph;
 	define("Run", paragraph?.properties?.runs?.items, 1);
 	const rows = first?.blocks.table?.properties?.rows;
@@ -641,7 +664,9 @@ export function createDocumentBuiltins(
 							"Images are files in the conversation (an attachment, a file you made earlier, an image saved " +
 							"to /mnt/output): list them in `images` and name them the same way in image blocks. Word and " +
 							"PDF also take `markdown` instead of `blocks` (headings, lists, tables, **bold**, links, code; no " +
-							"HTML). The result gives the file's name, an outline and the charts' render; to change the file " +
+							"HTML). A slide may have a `background` (an image is a file in the conversation) and free `shapes` " +
+							"(cm on the slide, kept inside it, text 10 pt or more): for designed slides on the blank or " +
+							"title_only layout, not for ordinary text. The result gives the file's name, an outline and the charts' render; to change the file " +
 							"afterwards use doc_edit with that name. Formats and their specs, `?` marking an optional property:\n" +
 							specText,
 						parameters: {

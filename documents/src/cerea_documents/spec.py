@@ -192,6 +192,40 @@ _PLACED = {
     "x_cm": {"type": "number", "minimum": 0, "maximum": 200},
     "y_cm": {"type": "number", "minimum": 0, "maximum": 200},
 }
+BACKGROUND = {
+    "anyOf": [
+        _obj({"color": _COLOR}, ["color"]),
+        _obj(
+            {
+                "gradient": {"type": "array", "items": _COLOR, "minItems": 2, "maxItems": 2},
+                "angle": {"type": "number", "minimum": 0, "maximum": 360, "description": "degrees; 90 = downwards"},
+            },
+            ["gradient"],
+        ),
+        _obj({"image": {"type": "string", "maxLength": 300}, "fit": {"const": "cover"}}, ["image"]),
+    ],
+    "description": "slide background: a colour, a two-colour gradient or a picture cropped to cover the slide",
+}
+SHAPE_KINDS = ("rect", "rounded_rect", "ellipse", "line", "arrow", "chevron", "text")
+_SHAPE_CM = {"type": "number", "minimum": 0, "maximum": 100}
+SHAPE = _obj(
+    {
+        "kind": {"enum": list(SHAPE_KINDS)},
+        "x_cm": _SHAPE_CM,
+        "y_cm": _SHAPE_CM,
+        "w_cm": _SHAPE_CM,
+        "h_cm": _SHAPE_CM,
+        "fill": {"anyOf": [_COLOR, {"const": "none"}]},
+        "line": _obj({"color": _COLOR, "width_pt": {"type": "number", "minimum": 0.25, "maximum": 20}}),
+        "radius": {"type": "number", "minimum": 0, "maximum": 50, "description": "cm, rounded_rect"},
+        **_TEXT,
+        "size_pt": {"type": "number", "minimum": 10, "maximum": 96},
+        "align": _ALIGN,
+        "valign": {"enum": ["top", "middle", "bottom"]},
+        "layer": {"enum": ["back", "front"], "description": "default back: behind the title and body"},
+    },
+    ["kind", "x_cm", "y_cm", "w_cm", "h_cm"],
+)
 SLIDE = _obj(
     {
         "layout": {
@@ -206,6 +240,8 @@ SLIDE = _obj(
         "body": {"type": "array", "items": {"type": "object"}, "maxItems": 50, "description": "blocks"},
         "body_right": {"type": "array", "items": {"type": "object"}, "maxItems": 50, "description": "two_content"},
         "notes": {"type": "string", "maxLength": 20_000},
+        "background": BACKGROUND,
+        "shapes": {"type": "array", "maxItems": 30, "items": SHAPE, "description": "free shapes, in cm on the slide"},
         "images": {
             "type": "array",
             "maxItems": 20,
@@ -363,6 +399,13 @@ TOP: dict[str, dict[str, Any]] = {
         },
         ["slides"],
     ),
+}
+TOP["pptx"] = {
+    **TOP["pptx"],
+    "properties": {
+        **TOP["pptx"]["properties"],
+        "theme": {**THEME, "properties": {**dict(THEME["properties"]), "slide_background": BACKGROUND}},  # type: ignore[call-overload]
+    },
 }
 TOP["pdf"] = TOP["docx"]
 ENVELOPE: dict[str, Any] = _obj(
@@ -624,7 +667,27 @@ def _check_slides(slides: list[Any], limits: Limits, count: list[int]) -> None:
                 raise InvalidRequest(
                     f"slides[{i}].images[{j}]: `fit` and an explicit box are alternatives", reason="schema"
                 )
+        _check_shapes(s.get("shapes") or [], f"slides[{i}]")
         count[0] += 1
+
+
+def _check_shapes(shapes: list[dict[str, Any]], where: str) -> None:
+    """What a shape may carry depends on its kind (its place on the slide is checked when the slide size is known)."""
+    for j, sh in enumerate(shapes):
+        at, kind = f"{where}.shapes[{j}]", sh["kind"]
+        if kind in ("line", "arrow"):
+            if not (sh["w_cm"] or sh["h_cm"]):
+                raise InvalidRequest(f"{at}: a {kind} needs w_cm or h_cm above 0 (it runs from x, y)", reason="schema")
+            if any(k in sh for k in ("fill", "text", "runs", "radius")):
+                raise InvalidRequest(f"{at}: a {kind} takes `line` only (no fill, text or radius)", reason="schema")
+        elif not (sh["w_cm"] and sh["h_cm"]):
+            raise InvalidRequest(f"{at}: a {kind} needs w_cm and h_cm above 0", reason="schema")
+        if kind == "text" and sh.get("fill", "none") != "none":
+            raise InvalidRequest(f"{at}: a text box has no fill; use a rect to give it one", reason="schema")
+        if "radius" in sh and kind != "rounded_rect":
+            raise InvalidRequest(f"{at}: `radius` is for rounded_rect only", reason="schema")
+        if "text" in sh and "runs" in sh:
+            raise InvalidRequest(f"{at}: give one of `text` and `runs`", reason="schema")
 
 
 def col_to_n(col: str) -> int:

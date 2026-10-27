@@ -53,6 +53,13 @@ service checks the spec first and answers with what is allowed if something is o
   make the picture in the sandbox, save it under `/mnt/output/` and pass it as an image reference.
 - **Images:** files in the conversation (an attachment, or a picture saved under `/mnt/output/`), listed in the
   call's `images` and named the same way in the slide.
+- **Backgrounds and shapes:** a slide (or `theme.slide_background`, for all) can have a `background`: a colour, a
+  two-colour gradient, or a picture from the conversation (`fit: "cover"`, cropped, not stretched). `shapes` (up to
+  30: rectangle, rounded rectangle, ellipse, line, arrow, chevron, text box) are placed in cm on the slide and must
+  stay inside it (a 422 names the shape that does not); they sit behind the title and body unless `layer: "front"`.
+  Use them on `blank` or `title_only` slides for designed pages (cards, a cover, a section slide), set the text
+  colour yourself when the background is dark (the result warns on low contrast), and never use shapes for ordinary
+  text slides: those are a title and body.
 
 ### Designing the deck
 

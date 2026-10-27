@@ -3889,6 +3889,60 @@
 								"minimum": 0,
 								"type": "number"
 							},
+							"slide_background": {
+								"anyOf": [
+									{
+										"additionalProperties": false,
+										"properties": {
+											"color": {
+												"description": "hex colour such as 1F3864",
+												"pattern": "^#?[0-9A-Fa-f]{6}$",
+												"type": "string"
+											}
+										},
+										"required": ["color"],
+										"type": "object"
+									},
+									{
+										"additionalProperties": false,
+										"properties": {
+											"angle": {
+												"description": "degrees; 90 = downwards",
+												"maximum": 360,
+												"minimum": 0,
+												"type": "number"
+											},
+											"gradient": {
+												"items": {
+													"description": "hex colour such as 1F3864",
+													"pattern": "^#?[0-9A-Fa-f]{6}$",
+													"type": "string"
+												},
+												"maxItems": 2,
+												"minItems": 2,
+												"type": "array"
+											}
+										},
+										"required": ["gradient"],
+										"type": "object"
+									},
+									{
+										"additionalProperties": false,
+										"properties": {
+											"fit": {
+												"const": "cover"
+											},
+											"image": {
+												"maxLength": 300,
+												"type": "string"
+											}
+										},
+										"required": ["image"],
+										"type": "object"
+									}
+								],
+								"description": "slide background: a colour, a two-colour gradient or a picture cropped to cover the slide"
+							},
 							"table_style": {
 								"enum": ["banded", "grid", "minimal", "plain"]
 							},
@@ -3910,6 +3964,60 @@
 			"slide": {
 				"additionalProperties": false,
 				"properties": {
+					"background": {
+						"anyOf": [
+							{
+								"additionalProperties": false,
+								"properties": {
+									"color": {
+										"description": "hex colour such as 1F3864",
+										"pattern": "^#?[0-9A-Fa-f]{6}$",
+										"type": "string"
+									}
+								},
+								"required": ["color"],
+								"type": "object"
+							},
+							{
+								"additionalProperties": false,
+								"properties": {
+									"angle": {
+										"description": "degrees; 90 = downwards",
+										"maximum": 360,
+										"minimum": 0,
+										"type": "number"
+									},
+									"gradient": {
+										"items": {
+											"description": "hex colour such as 1F3864",
+											"pattern": "^#?[0-9A-Fa-f]{6}$",
+											"type": "string"
+										},
+										"maxItems": 2,
+										"minItems": 2,
+										"type": "array"
+									}
+								},
+								"required": ["gradient"],
+								"type": "object"
+							},
+							{
+								"additionalProperties": false,
+								"properties": {
+									"fit": {
+										"const": "cover"
+									},
+									"image": {
+										"maxLength": 300,
+										"type": "string"
+									}
+								},
+								"required": ["image"],
+								"type": "object"
+							}
+						],
+						"description": "slide background: a colour, a two-colour gradient or a picture cropped to cover the slide"
+					},
 					"body": {
 						"description": "blocks",
 						"items": {
@@ -4073,6 +4181,133 @@
 					"notes": {
 						"maxLength": 20000,
 						"type": "string"
+					},
+					"shapes": {
+						"description": "free shapes, in cm on the slide",
+						"items": {
+							"additionalProperties": false,
+							"properties": {
+								"align": {
+									"enum": ["left", "center", "right"]
+								},
+								"fill": {
+									"anyOf": [
+										{
+											"description": "hex colour such as 1F3864",
+											"pattern": "^#?[0-9A-Fa-f]{6}$",
+											"type": "string"
+										},
+										{
+											"const": "none"
+										}
+									]
+								},
+								"h_cm": {
+									"maximum": 100,
+									"minimum": 0,
+									"type": "number"
+								},
+								"kind": {
+									"enum": ["rect", "rounded_rect", "ellipse", "line", "arrow", "chevron", "text"]
+								},
+								"layer": {
+									"description": "default back: behind the title and body",
+									"enum": ["back", "front"]
+								},
+								"line": {
+									"additionalProperties": false,
+									"properties": {
+										"color": {
+											"description": "hex colour such as 1F3864",
+											"pattern": "^#?[0-9A-Fa-f]{6}$",
+											"type": "string"
+										},
+										"width_pt": {
+											"maximum": 20,
+											"minimum": 0.25,
+											"type": "number"
+										}
+									},
+									"required": [],
+									"type": "object"
+								},
+								"radius": {
+									"description": "cm, rounded_rect",
+									"maximum": 50,
+									"minimum": 0,
+									"type": "number"
+								},
+								"runs": {
+									"description": "formatted text; use instead of text",
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"bold": {
+												"type": "boolean"
+											},
+											"code": {
+												"type": "boolean"
+											},
+											"color": {
+												"description": "hex colour such as 1F3864",
+												"pattern": "^#?[0-9A-Fa-f]{6}$",
+												"type": "string"
+											},
+											"italic": {
+												"type": "boolean"
+											},
+											"link": {
+												"maxLength": 2000,
+												"pattern": "^(https?://|mailto:)[^\\s]+$",
+												"type": "string"
+											},
+											"text": {
+												"maxLength": 20000,
+												"type": "string"
+											},
+											"underline": {
+												"type": "boolean"
+											}
+										},
+										"required": ["text"],
+										"type": "object"
+									},
+									"maxItems": 500,
+									"type": "array"
+								},
+								"size_pt": {
+									"maximum": 96,
+									"minimum": 10,
+									"type": "number"
+								},
+								"text": {
+									"maxLength": 20000,
+									"type": "string"
+								},
+								"valign": {
+									"enum": ["top", "middle", "bottom"]
+								},
+								"w_cm": {
+									"maximum": 100,
+									"minimum": 0,
+									"type": "number"
+								},
+								"x_cm": {
+									"maximum": 100,
+									"minimum": 0,
+									"type": "number"
+								},
+								"y_cm": {
+									"maximum": 100,
+									"minimum": 0,
+									"type": "number"
+								}
+							},
+							"required": ["kind", "x_cm", "y_cm", "w_cm", "h_cm"],
+							"type": "object"
+						},
+						"maxItems": 30,
+						"type": "array"
 					},
 					"subtitle": {
 						"maxLength": 500,

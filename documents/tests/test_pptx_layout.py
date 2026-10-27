@@ -221,17 +221,11 @@ def test_docx_and_pdf_images_never_exceed_the_text_area(fmt: str) -> None:
     assert all(0 < sh.width <= tw and 0 < sh.height <= th for sh in d.inline_shapes)
 
 
-@pytest.mark.skipif(
-    not os.environ.get("GOTENBERG_URL"), reason="needs a Gotenberg (LibreOffice) service; CI provides one"
-)
-def test_a_generated_deck_converts_to_a_pdf_page_per_slide() -> None:
+def to_pdf(data: bytes) -> bytes:
+    """Convert a deck through LibreOffice (Gotenberg at GOTENBERG_URL)."""
     import urllib.request
     import uuid
 
-    import pypdf
-
-    slides = [s for deck in DECKS.values() for s in deck]
-    _, data = create.create({"format": "pptx", "spec": {"slides": slides}}, None, IMG, Limits())
     boundary = uuid.uuid4().hex
     body = (
         (
@@ -247,6 +241,17 @@ def test_a_generated_deck_converts_to_a_pdf_page_per_slide() -> None:
         {"Content-Type": f"multipart/form-data; boundary={boundary}"},
     )
     with urllib.request.urlopen(req, timeout=120) as resp:
-        pdf = resp.read()
+        pdf: bytes = resp.read()
     assert pdf.startswith(b"%PDF")
-    assert len(pypdf.PdfReader(io.BytesIO(pdf)).pages) == len(slides)
+    return pdf
+
+
+@pytest.mark.skipif(
+    not os.environ.get("GOTENBERG_URL"), reason="needs a Gotenberg (LibreOffice) service; CI provides one"
+)
+def test_a_generated_deck_converts_to_a_pdf_page_per_slide() -> None:
+    import pypdf
+
+    slides = [s for deck in DECKS.values() for s in deck]
+    _, data = create.create({"format": "pptx", "spec": {"slides": slides}}, None, IMG, Limits())
+    assert len(pypdf.PdfReader(io.BytesIO(to_pdf(data))).pages) == len(slides)
