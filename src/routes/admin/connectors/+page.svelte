@@ -248,11 +248,17 @@
 			<div
 				role="radiogroup"
 				aria-label={label}
-				class="inline-flex overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600"
+				class="inline-flex overflow-clip rounded-lg border border-gray-200 dark:border-gray-600"
 			>
 				{#each MODES as option (option)}
+					<!--
+						`relative` keeps the hidden radio inside its label. Unpositioned, the
+						`sr-only` input's containing block was the page's fixed, clipping shell:
+						tapping an option focused it, and the browser scrolled that shell (which
+						overflow-hidden does not forbid) to reveal it, shifting the whole page up.
+					-->
 					<label
-						class="cursor-pointer px-2.5 py-1 text-xs font-medium has-[:focus-visible]:outline-2 {current ===
+						class="relative cursor-pointer px-2.5 py-1 text-xs font-medium has-[:focus-visible]:outline-2 {current ===
 						option
 							? 'bg-blue-600 text-white'
 							: 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300'}"

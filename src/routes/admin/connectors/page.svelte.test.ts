@@ -54,6 +54,7 @@ let putStatus = 200;
 beforeEach(() => {
 	puts = [];
 	putStatus = 200;
+	extraServers = 0;
 	vi.unstubAllGlobals();
 	vi.stubGlobal(
 		"fetch",
@@ -63,13 +64,26 @@ beforeEach(() => {
 				puts.push({ url, body: JSON.parse(String(init.body)) });
 				return Response.json({}, { status: putStatus });
 			}
-			if (url.includes("/api/mcp/servers")) return Response.json(ENV);
+			if (url.includes("/api/mcp/servers")) {
+				const more = Array.from({ length: extraServers }, (_, i) => ({
+					id: `base-extra-${i}`,
+					key: `base:extra-${i}`,
+					name: `extra-${i}`,
+					url: `https://extra-${i}.test/mcp`,
+					type: "base",
+					mode: "on",
+					alwaysLoaded: false,
+				}));
+				return Response.json([...ENV, ...more]);
+			}
 			if (url.includes("/api/v2/mcp/connectors")) return Response.json({ data: [NOTION] });
 			return Response.json({});
 		})
 	);
 });
 afterEach(() => vi.unstubAllGlobals());
+
+let extraServers = 0;
 
 const rows = (root: HTMLElement) => [...root.querySelectorAll('[data-testid="env-server"]')];
 
@@ -153,5 +167,42 @@ describe("admin MCP page", () => {
 		search.querySelector<HTMLInputElement>('input[type="radio"][value="locked"]')?.click();
 		await expect.element(page.getByText("Could not change it. Try again.")).toBeInTheDocument();
 		expect(search.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.value).toBe("on");
+	});
+
+	it("does not scroll or shift anything when an option is tapped on a phone", async () => {
+		// The admin layout: a fixed shell that clips (`overflow-hidden`) around the one
+		// scroller the page lives in. A tap on an option focuses its visually hidden radio,
+		// and a focused element is scrolled into view in every ancestor that can scroll,
+		// clipped ones included.
+		await page.viewport(412, 800);
+		extraServers = 10;
+		const shell = document.createElement("div");
+		shell.style.cssText =
+			"position:fixed;inset:0;overflow:hidden;display:grid;grid-template-rows:1fr";
+		const scroller = document.createElement("div");
+		scroller.style.cssText = "min-height:0;overflow-y:auto";
+		shell.append(scroller);
+		document.body.append(shell);
+		try {
+			const screen = renderWithApp(Page, {} as never, { baseElement: scroller });
+			await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+			const card = rows(screen.baseElement).at(-3) as HTMLElement;
+			expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight + 300);
+			scroller.scrollTop = card.offsetTop - 200;
+			const scrollables = [scroller, shell, document.documentElement, document.body];
+			const snapshot = () => ({
+				scrolls: scrollables.map((el) => [el.scrollTop, el.scrollLeft]),
+				card: card.getBoundingClientRect().top,
+			});
+			const before = snapshot();
+			const option = card.querySelector<HTMLInputElement>('input[value="locked"]')
+				?.parentElement as HTMLElement;
+			await page.elementLocator(option).click();
+			await vi.waitFor(() => expect(puts).toHaveLength(1));
+			await new Promise((r) => setTimeout(r, 100));
+			expect(snapshot()).toEqual(before);
+		} finally {
+			shell.remove();
+		}
 	});
 });
