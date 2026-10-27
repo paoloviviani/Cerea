@@ -5,6 +5,31 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.31.1 — 2026-10-27
+
+Pins: Cerea `0.31.1` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings.
+
+- **Decorative shapes can run off the slide edge.** A circle or band without
+  text may extend past the edge, as long as part of it stays on the slide; it is
+  clipped there when presenting. Shapes with text must still be fully on the
+  slide. In 0.31.0 any shape past the edge made the whole deck fail.
+- **Clearer errors from the document tools.** A value out of range now says the
+  field, the value and the allowed range, without a list of unrelated settings.
+- **The tool card shows the whole request.** A document's content (and any
+  other structured input) now appears under the card's Input, pretty-printed and
+  shortened visibly when very long; before, it was missing.
+- **A maps skill in the kit.** `tools/mcp/skills/maps-routing/SKILL.md`, beside
+  the OpenStreetMap example, tells the assistant which map tool answers which
+  question and to use a web search when the place search doesn't answer, without
+  retrying it. Add it in Admin → Skills. The kit README also explains how to
+  order `OVERPASS_BASE_URL` (the server that answers first, the ones that tend
+  to hang last).
+- **Documentation for Word, Excel, PowerPoint and PDF files**, rewritten: what
+  to ask for, styling, templates, designed slides, versions, previews and
+  limits, plus the administrator notes and a mention in the README.
+
 ## v0.31.0 — 2026-10-27
 
 Pins: Cerea `0.31.0` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
