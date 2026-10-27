@@ -264,9 +264,9 @@ def test_an_empty_placeholder_does_not_count_as_overlap() -> None:
 @pytest.mark.parametrize(
     ("size", "shape", "needle"),
     [
-        ("16:9", rect(x_cm=30, w_cm=6), "33.87 x 19.05 cm (16:9)"),
-        ("4:3", rect(x_cm=20, w_cm=6), "25.40 x 19.05 cm (4:3)"),
-        ("16:9", rect(y_cm=17, h_cm=3), "19.05 cm"),
+        ("16:9", rect(x_cm=30, w_cm=6, text="a"), "33.87 x 19.05 cm (16:9)"),
+        ("4:3", rect(x_cm=20, w_cm=6, text="a"), "25.40 x 19.05 cm (4:3)"),
+        ("16:9", rect(y_cm=17, h_cm=3, text="a"), "19.05 cm"),
     ],
 )
 def test_a_shape_outside_the_slide_is_a_422_naming_it_and_the_slide_size(
@@ -280,10 +280,69 @@ def test_a_shape_outside_the_slide_is_a_422_naming_it_and_the_slide_size(
 
 def test_a_shape_that_fits_exactly_is_accepted() -> None:
     _, prs, _ = build(
-        [{"layout": "blank", "shapes": [{"kind": "rect", "x_cm": 0, "y_cm": 0, "w_cm": 33.867, "h_cm": 19.05}]}]
+        [
+            {
+                "layout": "blank",
+                "shapes": [{"kind": "rect", "x_cm": 0, "y_cm": 0, "w_cm": 33.867, "h_cm": 19.05, "text": "a"}],
+            }
+        ]
     )
     s = prs.slides[0].shapes[0]
     assert s.left + s.width <= prs.slide_width and s.top + s.height <= prs.slide_height
+
+
+def test_a_shape_without_text_may_bleed_off_every_edge() -> None:
+    bleeds = [
+        {"kind": "ellipse", "x_cm": 28, "y_cm": -2, "w_cm": 10, "h_cm": 10},  # top right corner
+        {"kind": "rect", "x_cm": -3, "y_cm": 15, "w_cm": 8, "h_cm": 8},  # bottom left corner
+        {"kind": "line", "x_cm": -5, "y_cm": 4, "w_cm": 50, "h_cm": 0},  # across both side edges
+        {"kind": "arrow", "x_cm": 10, "y_cm": -1, "w_cm": 0, "h_cm": 8},
+    ]
+    _, prs, _ = build([{"layout": "blank", "shapes": bleeds}])
+    made = list(prs.slides[0].shapes)
+    assert len(made) == 4
+    top_right = next(m for m in made if m.name.startswith("ellipse"))
+    assert top_right.top == -2 * CM and top_right.left + top_right.width > prs.slide_width
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        {"kind": "rect", "x_cm": 40, "y_cm": 1, "w_cm": 5, "h_cm": 5},  # entirely right of the slide
+        {"kind": "rect", "x_cm": -10, "y_cm": 1, "w_cm": 5, "h_cm": 5},  # entirely left
+        {"kind": "ellipse", "x_cm": 1, "y_cm": -8, "w_cm": 5, "h_cm": 5},  # entirely above
+        {"kind": "rect", "x_cm": -5, "y_cm": 1, "w_cm": 5.3, "h_cm": 5},  # 0.3 cm showing
+    ],
+)
+def test_a_bleeding_shape_must_still_show_half_a_centimetre(shape: dict[str, Any]) -> None:
+    with pytest.raises(InvalidRequest) as ei:
+        build([{"layout": "blank", "shapes": [rect(), shape]}])
+    assert "slides[0].shapes[1]" in str(ei.value) and "lies off the slide" in str(ei.value)
+    assert "33.87 x 19.05 cm (16:9)" in str(ei.value)
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        rect(x_cm=-1, w_cm=5, text="Title"),
+        rect(y_cm=-2, w_cm=5, runs=[{"text": "x"}]),
+        {"kind": "text", "x_cm": 1, "y_cm": -1, "w_cm": 5, "h_cm": 2, "text": "hi"},
+        {"kind": "text", "x_cm": 30, "y_cm": 1, "w_cm": 8, "h_cm": 2, "text": "hi"},
+    ],
+)
+def test_a_shape_with_text_never_bleeds(shape: dict[str, Any]) -> None:
+    with pytest.raises(InvalidRequest) as ei:
+        build([{"layout": "blank", "shapes": [shape]}])
+    msg = str(ei.value)
+    assert "slides[0].shapes[0]" in msg and "reaches outside the slide" in msg and "33.87 x 19.05 cm (16:9)" in msg
+
+
+def test_a_position_below_minus_fifty_is_a_range_error_naming_the_range_without_the_parent_keys() -> None:
+    with pytest.raises(InvalidRequest) as ei:
+        build([{"layout": "blank", "shapes": [rect(y_cm=-60)]}])
+    msg = str(ei.value)
+    assert "y_cm: -60 is less than the minimum (-50); allowed range -50 to 100" in msg
+    assert "properties" not in ei.value.details and "required" not in ei.value.details
 
 
 def test_the_shape_schema_rules() -> None:
@@ -386,7 +445,7 @@ def test_backgrounds_and_shapes_work_on_a_template_deck_too() -> None:
                 "layout": "Brand Content",
                 "title": "T",
                 "background": {"color": "EEEEEE"},
-                "shapes": [rect(x_cm=15, y_cm=12)],
+                "shapes": [rect(x_cm=15, y_cm=12, text="a")],
             }
         ],
         theme={"template": "brand.pptx"},
@@ -399,7 +458,7 @@ def test_backgrounds_and_shapes_work_on_a_template_deck_too() -> None:
     with pytest.raises(InvalidRequest, match="shapes\\[0\\]"):  # bounds use the template's own slide size
         w = prs.slide_width / CM
         build(
-            [{"layout": "Brand Content", "shapes": [rect(x_cm=w - 1)]}],
+            [{"layout": "Brand Content", "shapes": [rect(x_cm=w - 1, text="a")]}],
             theme={"template": "brand.pptx"},
             template=template,
         )

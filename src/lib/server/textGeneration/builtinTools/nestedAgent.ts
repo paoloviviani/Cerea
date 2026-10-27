@@ -16,6 +16,7 @@ import { parseToolArguments, withParseableArguments } from "../mcp/toolArgs";
 import { stripLoneSurrogates } from "../utils/loneSurrogates";
 import { isRateLimitError, withUpstreamRetry } from "../utils/upstreamRetry";
 import type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
+import { toPrimitive } from "../mcp/toolParams";
 
 /**
  * The loop behind a sub-agent tool: a complete nested agent run on a fresh
@@ -523,10 +524,7 @@ export async function runNestedAgent(
 				mapping: deps.mapping,
 				servers: deps.servers,
 				parseArgs: parseToolArguments,
-				toPrimitive: (value) =>
-					typeof value === "string" || typeof value === "number" || typeof value === "boolean"
-						? value
-						: undefined,
+				toPrimitive,
 				processToolOutput: (text) => ({ annotated: text, sources: [] }),
 				abortSignal: runSignal,
 				builtinTools: allowedBuiltins,

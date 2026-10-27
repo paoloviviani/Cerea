@@ -76,6 +76,7 @@ SHAPE_TYPES = {
 SHAPE_TEXT_PT = 18
 MIN_CONTRAST = 4.5
 EDGE_CM = 0.01  # tolerance when a shape touches the slide edge
+MIN_SEEN_CM = 0.5  # a bleeding shape must overlap the slide by this much on both axes
 OVERLAP_CM = 0.2  # a shape that covers less than this of a placeholder (either way) is not an overlap
 
 
@@ -384,27 +385,49 @@ class PptxBuilder:
     def _slide_cm(self) -> tuple[float, float]:
         return self.W / EMU_CM, self.H / EMU_CM
 
+    @staticmethod
+    def _bleeds(shape: dict[str, Any]) -> bool:
+        """Decorative shapes (no text, no runs, not a `text` kind) may run off the slide, as a design bleed does."""
+        return shape["kind"] != "text" and "text" not in shape and "runs" not in shape
+
     def _check_shape_bounds(self) -> None:
-        """Every shape lies on the slide (all of them, before anything is built): a 422 names the shape and the size."""
+        """Shapes with text lie on the slide; decorative ones may bleed but must overlap it (all checked before building)."""
         sw, sh = self._slide_cm()
+        size = "16:9" if abs(sw / sh - 16 / 9) < 0.01 else "4:3" if abs(sw / sh - 4 / 3) < 0.01 else "custom"
         for i, s in enumerate(self.spec["slides"]):
             for j, shape in enumerate(s.get("shapes") or []):
                 x, y, w, h = (float(shape[k]) for k in ("x_cm", "y_cm", "w_cm", "h_cm"))
-                if x + w > sw + EDGE_CM or y + h > sh + EDGE_CM:
-                    size = (
-                        "16:9" if abs(sw / sh - 16 / 9) < 0.01 else "4:3" if abs(sw / sh - 4 / 3) < 0.01 else "custom"
-                    )
+                name = f"slides[{i}].shapes[{j}] ({shape['kind']})"
+                where = {"slide_cm": [round(sw, 2), round(sh, 2)], "slide": i, "shape": j}
+                if self._bleeds(shape):
+                    seen = [
+                        f"{ax} {p:g} to {p + d:g} cm against the slide's 0 to {lim:.2f} cm"
+                        for ax, p, d, lim in (("x", x, w, sw), ("y", y, h, sh))
+                        if p + d < MIN_SEEN_CM or p > lim - MIN_SEEN_CM
+                    ]
+                    if seen:
+                        raise InvalidRequest(
+                            f"{name} lies off the slide: "
+                            + " and ".join(seen)
+                            + f". A shape without text may bleed past an edge but at least {MIN_SEEN_CM:g} cm of it "
+                            f"must show; the slide is {sw:.2f} x {sh:.2f} cm ({size}).",
+                            reason="schema",
+                            details=where,
+                        )
+                    continue
+                if x < -EDGE_CM or y < -EDGE_CM or x + w > sw + EDGE_CM or y + h > sh + EDGE_CM:
                     over = [
-                        f"{ax} {p:g} + {dim} {d:g} = {p + d:.2f} cm, past the slide's {lim:.2f} cm"
+                        f"{ax} {p:g} + {dim} {d:g} = {p + d:.2f} cm, outside the slide's 0 to {lim:.2f} cm"
                         for ax, dim, p, d, lim in (("x", "w", x, w, sw), ("y", "h", y, h, sh))
-                        if p + d > lim + EDGE_CM
+                        if p < -EDGE_CM or p + d > lim + EDGE_CM
                     ]
                     raise InvalidRequest(
-                        f"slides[{i}].shapes[{j}] ({shape['kind']}) reaches outside the slide: "
+                        f"{name} reaches outside the slide: "
                         + " and ".join(over)
-                        + f", but the slide is {sw:.2f} x {sh:.2f} cm ({size}). Move it or make it smaller.",
+                        + f", but the slide is {sw:.2f} x {sh:.2f} cm ({size}). Shapes with text must stay on the "
+                        "slide: move it or make it smaller (a shape without text may bleed off an edge).",
                         reason="schema",
-                        details={"slide_cm": [round(sw, 2), round(sh, 2)], "slide": i, "shape": j},
+                        details=where,
                     )
 
     def _background(self, slide: Any, own: dict[str, Any] | None, default: dict[str, Any] | None, where: str) -> None:
@@ -473,8 +496,9 @@ class PptxBuilder:
     def _shape(self, slide: Any, spec: dict[str, Any], where: str) -> Any:
         kind = spec["kind"]
         x, y, w, h = (round(float(spec[k]) * EMU_CM) for k in ("x_cm", "y_cm", "w_cm", "h_cm"))
-        x, y = min(x, self.W), min(y, self.H)
-        w, h = min(w, self.W - x), min(h, self.H - y)  # rounding must not push the edge past the slide
+        if not self._bleeds(spec):
+            x, y = min(x, self.W), min(y, self.H)
+            w, h = min(w, self.W - x), min(h, self.H - y)  # rounding must not push the edge past the slide
         style = spec.get("line") or {}
         if kind in ("line", "arrow"):
             shape = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, x, y, x + w, y + h)

@@ -4293,13 +4293,15 @@
 									"type": "number"
 								},
 								"x_cm": {
+									"description": "cm; negative only for a shape without text that bleeds off the slide",
 									"maximum": 100,
-									"minimum": 0,
+									"minimum": -50,
 									"type": "number"
 								},
 								"y_cm": {
+									"description": "cm; negative only for a shape without text that bleeds off the slide",
 									"maximum": 100,
-									"minimum": 0,
+									"minimum": -50,
 									"type": "number"
 								}
 							},

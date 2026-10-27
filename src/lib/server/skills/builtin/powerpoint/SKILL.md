@@ -56,7 +56,8 @@ service checks the spec first and answers with what is allowed if something is o
 - **Backgrounds and shapes:** a slide (or `theme.slide_background`, for all) can have a `background`: a colour, a
   two-colour gradient, or a picture from the conversation (`fit: "cover"`, cropped, not stretched). `shapes` (up to
   30: rectangle, rounded rectangle, ellipse, line, arrow, chevron, text box) are placed in cm on the slide and must
-  stay inside it (a 422 names the shape that does not); they sit behind the title and body unless `layer: "front"`.
+  stay inside it, except that a decorative shape without text may bleed off an edge (negative `x_cm`/`y_cm`, at
+  least 0.5 cm still showing) and text never does (a 422 names the shape that breaks this); they sit behind the title and body unless `layer: "front"`.
   Use them on `blank` or `title_only` slides for designed pages (cards, a cover, a section slide), set the text
   colour yourself when the background is dark (the result warns on low contrast), and never use shapes for ordinary
   text slides: those are a title and body.

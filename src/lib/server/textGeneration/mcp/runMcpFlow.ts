@@ -65,6 +65,7 @@ import { billToHeader } from "$lib/server/billTo";
 import { configuredBackend } from "$lib/server/fetching";
 import { getCapabilities as getDocumentCapabilities } from "$lib/server/documents/client";
 import { resolveToolApprovalPolicy } from "../toolApprovalPolicy";
+import { toPrimitive } from "./toolParams";
 
 export type RunMcpFlowContext = Pick<
 	TextGenerationContext,
@@ -826,13 +827,6 @@ export async function* runMcpFlow({
 				nestedAgentNames.add(tool.name);
 			}
 		}
-
-		const toPrimitive = (value: unknown) => {
-			if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-				return value;
-			}
-			return undefined;
-		};
 
 		const parseArgs = parseToolArguments;
 
