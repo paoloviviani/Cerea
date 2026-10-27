@@ -293,7 +293,7 @@
 									</button>
 								</div>
 							{:else}
-								<div class="flex items-start justify-between gap-3">
+								<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 									<div class="min-w-0">
 										<p class="text-sm text-ink {omitted.has(index) ? 'opacity-60' : ''}">
 											{memory.text}
@@ -320,7 +320,7 @@
 											{/if}
 										</div>
 									</div>
-									<div class="flex shrink-0 gap-2">
+									<div class="flex flex-wrap gap-2 sm:shrink-0">
 										<button type="button" class={s.CARD_ACTION} onclick={() => beginEdit(memory)}>
 											<CarbonEdit class="size-3.5" />
 											{m["memory.manager.edit"]()}

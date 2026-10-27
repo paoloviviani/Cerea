@@ -15,6 +15,7 @@
 	saying how it went.
 -->
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
@@ -551,18 +552,14 @@
 		>
 			{#snippet pills()}
 				{#if connector.connected}
-					<span
-						class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
-					>
+					<span class="{s.PILL} {s.PILL_TONES.good}">
 						<IconCheckmark class="size-3" />
 						{connector.auth === "none"
 							? m["mcp.connectors.ready"]()
 							: m["mcp.connectors.connected"]()}
 					</span>
 				{:else}
-					<span
-						class="inline-flex items-center gap-1 rounded-full bg-gray-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400"
-					>
+					<span class="{s.PILL} {s.PILL_TONES.neutral}">
 						<IconWarning class="size-3" />
 						{m["mcp.connectors.not_signed_in"]()}
 					</span>
@@ -836,18 +833,12 @@
 		>
 			{#snippet pills()}
 				{#if local.state === "ready"}
-					<span
-						data-testid="local-pill"
-						class="inline-flex items-center gap-1 rounded-full bg-green-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-green-600 dark:bg-green-900/20 dark:text-green-400"
-					>
+					<span data-testid="local-pill" class="{s.PILL} {s.PILL_TONES.good}">
 						<IconCheckmark class="size-3" />
 						{m["mcp.connectors.pill_on"]()}
 					</span>
 				{:else}
-					<span
-						data-testid="local-pill"
-						class="inline-flex items-center gap-1 rounded-full bg-gray-100 py-0.5 pr-2 pl-1.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400"
-					>
+					<span data-testid="local-pill" class="{s.PILL} {s.PILL_TONES.neutral}">
 						<IconWarning class="size-3" />
 						{local.state === "offline"
 							? m["mcp.detail.state.offline"]()

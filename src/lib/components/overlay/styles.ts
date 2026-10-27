@@ -123,6 +123,7 @@ export const PILL_TONES = {
 	good: "bg-ok-subtle text-ok",
 	busy: "bg-accent-subtle text-accent",
 	bad: "bg-danger-subtle text-danger",
+	warn: "bg-warn-subtle text-warn",
 	neutral: "bg-sunken text-ink-muted",
 } as const;
 export type PillTone = keyof typeof PILL_TONES;

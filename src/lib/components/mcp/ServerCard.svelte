@@ -10,6 +10,8 @@
 	import LucideHammer from "~icons/lucide/hammer";
 	import IconSettings from "~icons/carbon/settings";
 	import Switch from "$lib/components/Switch.svelte";
+	import * as s from "$lib/components/overlay/styles";
+	import type { PillTone } from "$lib/components/overlay/styles";
 	import ServerCardFrame from "./ServerCardFrame.svelte";
 	import { getMcpServerFaviconUrl } from "$lib/utils/favicon";
 
@@ -36,30 +38,26 @@
 			case "connected":
 				return {
 					label: m["mcp.card.status.connected"](),
-					color: "text-green-600 dark:text-green-400",
-					bgColor: "bg-green-100 dark:bg-green-900/20",
+					tone: "good" as PillTone,
 					icon: IconCheckmark,
 				};
 			case "connecting":
 				return {
 					label: m["mcp.card.status.connecting"](),
-					color: "text-blue-600 dark:text-blue-400",
-					bgColor: "bg-blue-100 dark:bg-blue-900/20",
+					tone: "busy" as PillTone,
 					icon: IconPending,
 				};
 			case "error":
 				return {
 					label: m["mcp.card.status.problem"](),
-					color: "text-red-600 dark:text-red-400",
-					bgColor: "bg-red-100 dark:bg-red-900/20",
+					tone: "bad" as PillTone,
 					icon: IconWarning,
 				};
 			case "disconnected":
 			default:
 				return {
 					label: m["mcp.card.status.not_checked"](),
-					color: "text-gray-600 dark:text-gray-400",
-					bgColor: "bg-gray-100 dark:bg-gray-700",
+					tone: "neutral" as PillTone,
 					icon: IconPending,
 				};
 		}
@@ -89,15 +87,13 @@
 		<span
 			data-testid="from-env"
 			title={m["mcp.card.from_env_title"]()}
-			class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+			class="{s.PILL} {s.PILL_TONES.neutral}"
 		>
 			{m["mcp.card.from_env"]()}
 		</span>
 	{/if}
 	{#if server.status}
-		<span
-			class="inline-flex items-center gap-1 rounded-full {statusInfo.bgColor} py-0.5 pr-2 pl-1.5 text-xs font-medium {statusInfo.color}"
-		>
+		<span class="{s.PILL} {s.PILL_TONES[statusInfo.tone]}">
 			{#if server.status === "connected"}
 				<IconCheckmark class="size-3" />
 			{:else if server.status === "connecting"}

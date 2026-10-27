@@ -14,6 +14,7 @@
 	conversation PATCH or the new-chat default here; machine ops there).
 -->
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import { DropdownMenu } from "bits-ui";
 	import type { Snippet } from "svelte";
@@ -128,10 +129,7 @@
 									<span class="text-gray-500 dark:text-gray-400"> · {row.baseName}</span>{/if}</span
 							>
 							{#if row.baseName}
-								<span
-									class="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-px text-[10px] font-medium text-blue-700 dark:text-blue-400"
-									>{m["chat.effort_picker.custom"]()}</span
-								>
+								<span class="{s.PILL} {s.PILL_TONES.busy}">{m["chat.effort_picker.custom"]()}</span>
 							{/if}
 						</span>
 						{#if row.description}

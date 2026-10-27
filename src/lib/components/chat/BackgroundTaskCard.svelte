@@ -16,6 +16,7 @@
 	not a panel.
 -->
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import type { MessageBackgroundTaskUpdate } from "$lib/types/MessageUpdate";
 	import LucideUsers from "~icons/lucide/users";
@@ -61,18 +62,12 @@
 			</span>
 		{/if}
 		{#if update.followUp}
-			<span
-				class="shrink-0 rounded-full bg-gray-100 px-1.5 py-px text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-				title={m["chat.background.follow_up_title"]()}
-			>
+			<span class="{s.PILL} {s.PILL_TONES.neutral}" title={m["chat.background.follow_up_title"]()}>
 				{m["chat.background.follow_up"]()}
 			</span>
 		{/if}
 		{#if update.automatic}
-			<span
-				class="shrink-0 rounded-full bg-gray-100 px-1.5 py-px text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-				title={m["chat.background.automatic_title"]()}
-			>
+			<span class="{s.PILL} {s.PILL_TONES.neutral}" title={m["chat.background.automatic_title"]()}>
 				{m["chat.background.automatic"]()}
 			</span>
 		{/if}

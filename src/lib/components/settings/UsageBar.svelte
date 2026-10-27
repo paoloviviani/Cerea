@@ -8,6 +8,7 @@
 	a statement of the rule and its period, with no amount and no bar.
 -->
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import { formatCurrency, formatNumber } from "$lib/i18n/format";
 	import type { UsageEntry } from "$lib/types/UsageReport";
@@ -56,10 +57,7 @@
 		<span class="font-medium text-gray-800 dark:text-gray-200">
 			{entry.label}
 			{#if entry.scope}
-				<span
-					class="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-normal text-gray-500 dark:bg-gray-700 dark:text-gray-400"
-					>{entry.scope}</span
-				>
+				<span class="ml-1.5 {s.PILL} {s.PILL_TONES.neutral}">{entry.scope}</span>
 			{/if}
 		</span>
 		<span class="shrink-0 text-[12px] text-gray-500 dark:text-gray-400">

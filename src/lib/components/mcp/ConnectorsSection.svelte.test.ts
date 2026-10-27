@@ -296,7 +296,7 @@ describe("ConnectorsSection: servers on the person's own machines (ADR 0102)", (
 		await expect.element(screen.getByText("My notes folder")).toBeInTheDocument();
 		expect(pills(screen)).toEqual(["on"]);
 		const pill = screen.baseElement.querySelector('[data-testid="local-pill"]') as HTMLElement;
-		expect(pill.className).toContain("bg-green-100");
+		expect(pill.className).toContain("bg-ok-subtle");
 	});
 
 	it("says why a server is not on: offline, needs login (with the command), disabled, invalid (with the detail)", async () => {
