@@ -73,7 +73,7 @@ THEME = {
         "body_size_pt": {"type": "number", "minimum": 8, "maximum": 18},
         "heading_sizes_pt": {
             "type": "object",
-            "description": "h1: PowerPoint slide titles (36); h2-h6: Word and PDF",
+            "description": "h1-h6: Word/PDF headings; h1 is also the PowerPoint title size (36 there)",
             "properties": {f"h{i}": {"type": "number", "minimum": 8, "maximum": 60} for i in range(1, 7)},
             "additionalProperties": False,
         },

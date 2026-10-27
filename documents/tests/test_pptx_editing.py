@@ -472,3 +472,168 @@ def test_replace_slide_and_add_slide_leave_every_other_part_byte_identical() -> 
     changed = {n for n in a if a[n] != b.get(n)}
     assert changed == {"[Content_Types].xml", "ppt/presentation.xml", "ppt/_rels/presentation.xml.rels"}
     assert set(b) - set(a) == {"ppt/slides/slide4.xml", "ppt/slides/_rels/slide4.xml.rels"}
+
+
+# ---- review fixes ----------------------------------------------------------------------------------
+
+
+def test_text_that_crosses_the_edge_of_the_card_it_sits_in_warns_even_with_nothing_below_it() -> None:
+    card = rect(x_cm=2, y_cm=5, w_cm=8, h_cm=3, fill="1E293B")
+    inside = label(
+        x_cm=2.5, y_cm=6.5, w_cm=7, h_cm=1.4, text="A sentence of some length that takes lines. " * 3, size_pt=14
+    )
+    report, _, _ = build([{"layout": "blank", "shapes": [card, inside]}])
+    assert any("run out of shapes[0], the shape behind it" in n for n in fit_notes(report))
+
+
+def test_a_middle_anchored_box_that_spills_both_ways_out_of_its_card_warns() -> None:
+    card = rect(x_cm=2, y_cm=5, w_cm=8, h_cm=2, fill="1E293B")
+    mid = label(
+        x_cm=2.2, y_cm=5.1, w_cm=7.6, h_cm=1.8, valign="middle", text="Lorem ipsum dolor sit amet " * 8, size_pt=14
+    )
+    report, _, _ = build([{"layout": "blank", "shapes": [card, mid]}])
+    assert any("the shape behind it" in n for n in fit_notes(report))
+
+
+def test_text_that_would_run_up_into_the_title_warns() -> None:
+    up = label(x_cm=2, y_cm=4.0, w_cm=20, h_cm=0.8, valign="bottom", text="word " * 60, size_pt=14)
+    report, _, _ = build([{"layout": "title_only", "title": "Hello world title", "shapes": [up]}])
+    assert any("overlap the text of the placeholder" in n for n in fit_notes(report))
+
+
+def test_a_template_deck_keeps_its_background_and_text_colour_on_a_replaced_slide() -> None:
+    slides = [
+        {"layout": "Brand Cover", "title": "Cover"},
+        {"layout": "Brand Content", "title": "T"},
+        {"layout": "Brand Content", "title": "U"},
+    ]
+    theme = {"template": "t.pptx", "slide_background": {"color": "0F172A"}, "colors": {"text": "E2E8F0"}}
+    data = build(slides, theme=theme, template=style_template_pptx())[2]
+    spec = {"layout": "Brand Content", "title": "Again", "body": [{"type": "paragraph", "text": "x"}]}
+    _, out = do_edit(data, [{"op": "replace_slide", "slide": 2, "spec": spec}], fmt="pptx")
+    s = prs_of(out).slides[1]
+    assert s._element.xpath("p:cSld/p:bg//a:srgbClr/@val") == ["0F172A"]
+
+
+def pic_deck() -> bytes:
+    bg = {"image": "wide.png", "fit": "cover"}
+    return build(
+        [
+            {"layout": "blank", "background": bg},
+            {"layout": "blank", "background": bg},
+            {"layout": "blank", "background": bg},
+        ]
+    )[2]
+
+
+def test_a_picture_background_shared_by_the_deck_is_carried_to_the_replaced_and_the_added_slide() -> None:
+    src = pic_deck()
+    media = {
+        n
+        for n in core.outline(src, "pptx", Limits())["slides"][0]
+        and __import__("zipfile").ZipFile(io.BytesIO(src)).namelist()
+        if "media/" in n
+    }
+    rep, out = do_edit(src, [{"op": "replace_slide", "slide": 2, "spec": {"layout": "blank"}}], fmt="pptx")
+    assert not rep["verify"]["added"]
+    p = prs_of(out)
+    assert p.slides[1]._element.xpath("p:cSld/p:bg/p:bgPr/a:blipFill")
+    assert (
+        p.slides[1]
+        .part.related_part(p.slides[1]._element.xpath("p:cSld/p:bg//a:blip/@r:embed")[0])
+        .partname.startswith("/ppt/media/")
+    )
+    rep, out = do_edit(src, [{"op": "add_slide", "after": 3, "spec": {"layout": "blank"}}], fmt="pptx")
+    assert prs_of(out).slides[3]._element.xpath("p:cSld/p:bg/p:bgPr/a:blipFill")
+    assert {n for n in rep["verify"]["added"] if "media/" in n} == set() and media
+
+
+def test_add_slide_first_on_a_numbered_deck_numbers_the_former_first_slide() -> None:
+    _, out = do_edit(
+        deck(), [{"op": "add_slide", "after": 0, "spec": {"layout": "title", "title": "Zero"}}], fmt="pptx"
+    )
+    assert numbers(prs_of(out))[:2] == [[], ["2"]]
+    _, out = do_edit(deck(), [{"op": "add_slide", "after": 2, "spec": {"layout": "blank"}}], fmt="pptx")
+    assert numbers(prs_of(out))[2] == ["3"]
+
+
+def with_sections(data: bytes, first_empty: bool) -> bytes:
+    from .fixtures import rezip
+
+    z = __import__("zipfile").ZipFile(io.BytesIO(data))
+    pres = z.read("ppt/presentation.xml").decode()
+    ids = __import__("re").findall(r'<p:sldId id="(\d+)"', pres)
+    p14 = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+    members = "".join(f'<p14:sldId id="{i}"/>' for i in ids)
+    empty = (
+        '<p14:section name="E" id="{11111111-1111-1111-1111-111111111111}"><p14:sldIdLst/></p14:section>'
+        if first_empty
+        else ""
+    )
+    ext = (
+        '<p:extLst><p:ext uri="{521415D9-36F7-43E2-AB2F-B90AF26B5E84}">'
+        f'<p14:sectionLst xmlns:p14="{p14}">{empty}<p14:section name="A" id="{{22222222-2222-2222-2222-222222222222}}">'
+        f"<p14:sldIdLst>{members}</p14:sldIdLst></p14:section></p14:sectionLst></p:ext></p:extLst>"
+    )
+    assert "<p:extLst>" not in pres
+    return rezip(data, {"ppt/presentation.xml": pres.replace("</p:presentation>", ext + "</p:presentation>").encode()})
+
+
+def test_a_slide_added_first_joins_the_first_section_that_has_slides() -> None:
+    src = with_sections(deck(), first_empty=True)
+    _, out = do_edit(src, [{"op": "add_slide", "after": 0, "spec": {"layout": "blank"}}], fmt="pptx")
+    pres = __import__("zipfile").ZipFile(io.BytesIO(out)).read("ppt/presentation.xml").decode()
+    sections = __import__("re").findall(r'<p14:section name="(\w)".*?</p14:section>', pres, flags=__import__("re").S)
+    body = __import__("re").search(r'name="A".*?</p14:section>', pres, flags=__import__("re").S).group(0)  # type: ignore[union-attr]
+    assert sections == ["E", "A"] and body.count("<p14:sldId ") == 4
+    assert pres.index('name="E"') < pres.index("<p14:sldId ") and "<p14:sldIdLst/>" in pres.split('name="A"')[0]
+
+
+def test_update_shape_takes_the_doc_create_ranges_and_refuses_group_members() -> None:
+    src = deck()
+    card = next(s for s in core.outline(src, "pptx", Limits())["slides"][1]["shapes"] if s["name"] == "rounded_rect 1")
+    refuses(src, [{"op": "update_shape", "slide": 2, "shape": card["id"], "w_cm": 0}], "w_cm", fmt="pptx")
+    refuses(src, [{"op": "update_shape", "slide": 2, "shape": card["id"], "x_cm": -60}], "x_cm", fmt="pptx")
+    deco = build([{"layout": "blank", "shapes": [rect(x_cm=1, y_cm=1, w_cm=5, h_cm=5)]}])[2]
+    _, out = do_edit(
+        deco, [{"op": "update_shape", "slide": 1, "shape": 2, "x_cm": -3}], fmt="pptx"
+    )  # decoration may bleed
+    assert prs_of(out).slides[0].shapes[0].left == -3 * CM
+    p = prs_of(src)
+    group = p.slides[1].shapes.add_group_shape([s for s in p.slides[1].shapes if s.name == "rounded_rect 1"])
+    buf = io.BytesIO()
+    p.save(buf)
+    refuses(
+        buf.getvalue(),
+        [{"op": "update_shape", "slide": 2, "shape": card["id"], "x_cm": 2}],
+        "inside a group",
+        fmt="pptx",
+    )
+    assert group is not None
+
+
+def test_the_shape_id_is_described_as_the_outline_id() -> None:
+    from cerea_documents.powerpoint import OPS
+
+    assert "doc_outline" in OPS["update_shape"][0]["properties"]["shape"]["description"]
+
+
+def test_a_bounds_error_under_replace_slide_names_the_slide_in_its_details_too() -> None:
+    off = {"layout": "blank", "shapes": [rect(x_cm=30, w_cm=6, text="x")]}
+    err = refuses(deck(), [{"op": "replace_slide", "slide": 2, "spec": off}], "slide 2.shapes[0]", fmt="pptx")
+    assert err.details["slide"] == 2 and err.details["shape"] == 0
+
+
+def test_new_part_names_ignore_case() -> None:
+    from types import SimpleNamespace
+
+    from cerea_documents.slide_ops import _free_name
+
+    pkg = SimpleNamespace(names=["ppt/media/Image5.PNG", "ppt/media/image2.png"])
+    assert _free_name(pkg, "ppt/media/image1.png") == "ppt/media/image6.png"  # type: ignore[arg-type]
+
+
+def test_the_heading_sizes_description_names_the_powerpoint_title() -> None:
+    from cerea_documents.spec import THEME
+
+    assert "PowerPoint title size" in THEME["properties"]["heading_sizes_pt"]["description"]  # type: ignore[index]

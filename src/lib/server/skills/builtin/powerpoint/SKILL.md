@@ -82,9 +82,10 @@ service checks the spec first and answers with what is allowed if something is o
   name a slide are real (small labels in roomy boxes are not flagged).
 - `doc_edit` applies typed operations, all or none: replace text (across runs, keeping formatting), set a
   placeholder's text, replace or insert images, duplicate, delete or reorder slides, set speaker notes. To add a
-  slide to an existing deck, duplicate a similar one and change its text. Adding native charts to an existing
-  deck, editing chart data and layout redesigns are not available: say so, or recreate the deck with `doc_create`
-  when the person wants a redesign or many changes.
+  slide, use `add_slide` (or duplicate a similar one and change its text). `update_shape` moves or resizes one shape
+  by its id from `doc_outline`. Editing the data of an existing
+  chart and changing masters or layouts are not available: say so (a chart can be put on a rebuilt slide with
+  `replace_slide`), or recreate the deck with `doc_create` when the person wants a redesign of most of it.
 - An edit is saved as a new version under the same name; the original stays. Layouts, masters and every part you did
   not edit stay as they were.
 

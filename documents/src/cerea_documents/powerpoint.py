@@ -751,6 +751,8 @@ def _schema(props: dict[str, Any], required: list[str]) -> dict[str, Any]:
 _SLIDE = {"type": "integer", "minimum": 1}
 _TEXT = {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}
 _CM = {"type": "number", "minimum": 0, "maximum": 1000}
+_POS_CM = {"type": "number", "minimum": -50, "maximum": 100}  # as a shape of doc_create
+_DIM_CM = {"type": "number", "exclusiveMinimum": 0, "maximum": 100}
 _SLIDE_SPEC = {"type": "object", "description": "one slide, exactly as doc_create takes it in `slides`"}
 
 
@@ -841,11 +843,11 @@ OPS: dict[str, tuple[dict[str, Any], Callable[[Session, dict[str, Any]], dict[st
         _schema(
             {
                 "slide": _SLIDE,
-                "shape": {"type": "integer", "minimum": 0},
-                "x_cm": _CM,
-                "y_cm": _CM,
-                "w_cm": _CM,
-                "h_cm": _CM,
+                "shape": {"type": "integer", "minimum": 0, "description": "the shape's id from doc_outline"},
+                "x_cm": _POS_CM,
+                "y_cm": _POS_CM,
+                "w_cm": _DIM_CM,
+                "h_cm": _DIM_CM,
             },
             ["slide", "shape"],
         ),

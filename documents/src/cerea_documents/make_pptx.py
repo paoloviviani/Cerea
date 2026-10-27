@@ -407,7 +407,7 @@ class PptxBuilder:
         content = [sh for sh in slide.shapes if sh.shape_id not in {m.shape_id for m in mine}]
         mine += self._shapes(slide, s.get("shapes") or [], "front", where)
         self._warn_overlaps(s.get("shapes") or [], mine, content, where)
-        self._warn_fit(where)
+        self._warn_fit(where, content)
         if number is None:
             number = str(i + 1) if self.t.slide_numbers and i > 0 else False
         if number is not False:
@@ -622,11 +622,28 @@ class PptxBuilder:
                     p.runs[-1].font.color.rgb = _rgb(default_color)
         return self._text_height([(r, 0, "paragraph") for r in paras], w / 12700, math.ceil(size), shape=True)
 
-    def _warn_fit(self, where: str) -> None:
+    def _warn_fit(self, where: str, content: list[Any] | None = None) -> None:
         """One note per shape whose text is estimated to run past its frame, and only when that matters: the text
         would leave the slide, spill out of a filled shape, or land on another shape's text."""
-        infos = self._shape_info
-        for me in infos:
+        infos = list(self._shape_info)
+        for ph in content or []:  # the title and body of the slide are text too
+            if (
+                ph.is_placeholder
+                and ph.has_text_frame
+                and ph.text_frame.text.strip()
+                and None not in (ph.left, ph.top, ph.width, ph.height)
+            ):
+                infos.append(
+                    {
+                        "where": f"the placeholder {ph.name!r}",
+                        "box": box_of(ph),
+                        "text": True,
+                        "filled": False,
+                        "placeholder": True,
+                        "need": None,
+                    }
+                )
+        for me in self._shape_info:
             need_pt = me["need"]
             x, y, w, h = me["box"]
             if need_pt is None or need_pt * 12700 <= h + 12700 or not me["text"]:
@@ -646,24 +663,21 @@ class PptxBuilder:
                 if other is me:
                     continue
                 ox, oy, ow, oh = other["box"]
+                name = other["where"].rsplit(".", 1)[-1]
+                if other["filled"] and not other.get("placeholder"):
+                    inside = ox <= x + tol and x + w <= ox + ow + tol and oy <= y + tol and y + h <= oy + oh + tol
+                    if inside and (bottom > oy + oh + tol or top < oy - tol):
+                        reasons.append(f"run out of {name}, the shape behind it")
+                        continue
+                if not other["text"]:
+                    continue
                 spill = (  # the part of the text outside its own frame, against the other shape
                     min(bottom, oy + oh) - max(y + h, oy) if bottom > y + h else 0,
                     min(y, oy + oh) - max(top, oy) if top < y else 0,
                 )
                 apart = min(x + w, ox + ow) - max(x, ox)
-                if apart <= int(OVERLAP_CM * EMU_CM) or max(spill) <= int(OVERLAP_CM * EMU_CM):
-                    continue
-                name = other["where"].rsplit(".", 1)[-1]
-                if other["text"]:
+                if apart > int(OVERLAP_CM * EMU_CM) and max(spill) > int(OVERLAP_CM * EMU_CM):
                     reasons.append(f"overlap the text of {name}")
-                elif (
-                    other["filled"]
-                    and ox <= x + tol
-                    and x + w <= ox + ow + tol
-                    and oy <= y + tol
-                    and y + h <= oy + oh + tol
-                ):
-                    reasons.append(f"run out of {name}, the shape behind it")
             if reasons:
                 self.notes.append(
                     f"{me['where']}: the text will not fit in a {w / EMU_CM:.1f} x {h / EMU_CM:.1f} cm shape at "
@@ -676,33 +690,18 @@ class PptxBuilder:
         placeholder when it has one, otherwise in a small text box at the bottom right. The built-in set (and the
         text box) get the theme's muted colour at 10 pt; a template's placeholder keeps the template's look."""
         ph = next((p for p in layout.placeholders if p.placeholder_format.type == PP_PLACEHOLDER.SLIDE_NUMBER), None)
-        styled = ph is None or not self.has_template
-        rpr = f'<a:rPr lang="en-US" sz="{SLIDE_NUMBER_PT * 100}"><a:solidFill><a:srgbClr val="{_hex(self.t.colors["muted"])}"/></a:solidFill></a:rPr>'
-        field = (
-            f'<a:fld id="{SLIDE_NUMBER_GUID}" type="slidenum">{rpr if styled else '<a:rPr lang="en-US"/>'}'
-            f"<a:t>{text}</a:t></a:fld>"
-        )
-        para = f'<a:p xmlns:a="{A}">{"<a:pPr algn=" + chr(34) + "r" + chr(34) + "/>" if styled else ""}{field}</a:p>'
         tree = slide.shapes._spTree
-        if ph is not None:
-            new_id = max([int(v) for v in tree.xpath("//p:cNvPr/@id")] or [1]) + 1
-            sp = etree.fromstring(
-                f'<p:sp xmlns:p="{P}" xmlns:a="{A}"><p:nvSpPr><p:cNvPr id="{new_id}" name="Slide Number Placeholder"/>'
-                '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>'
-                f'<p:nvPr><p:ph type="sldNum" sz="quarter" idx="{ph.placeholder_format.idx}"/></p:nvPr></p:nvSpPr>'
-                "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/></p:txBody></p:sp>"
+        new_id = max([int(v) for v in tree.xpath("//p:cNvPr/@id")] or [1]) + 1
+        tree.append(
+            number_sp(
+                new_id,
+                None if ph is None else ph.placeholder_format.idx,
+                text,
+                self.t.colors["muted"],
+                ph is None or not self.has_template,
+                (self.W, self.H),
             )
-            sp.find(f"{{{P}}}txBody").append(etree.fromstring(para))
-            tree.append(sp)
-            return
-        w, h = int(EMU_CM * 3), int(EMU_CM * 0.9)
-        box = slide.shapes.add_textbox(self.W - int(EMU_CM * MARGIN_CM) - w, self.H - int(EMU_CM * 0.8) - h, w, h)
-        box.name = "Slide Number"
-        box.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
-        txb = box._element.find(f"{{{P}}}txBody")
-        for old in txb.findall(f"{{{A}}}p"):
-            txb.remove(old)
-        txb.append(etree.fromstring(para))
+        )
 
     def _text_on(self, fill: str | None) -> str | None:
         """Default text colour inside a filled shape: the theme's text colour, or white when that is hard to read on the fill."""
@@ -1097,6 +1096,35 @@ class PptxBuilder:
                     f.color.rgb = _rgb(colour)
                 elif not (is_head and style in ("banded", "grid")):
                     f.color.rgb = _rgb(t.colors["text"])
+
+
+def number_sp(new_id: int, idx: int | None, text: str, muted: str, styled: bool, slide: tuple[int, int]) -> Any:
+    """The `p:sp` of a slide number: a field in the layout's slide-number placeholder (`idx`), or, without one, in
+    a text box at the bottom right. `styled` sets 10 pt in the muted colour, right-aligned."""
+    rpr = (
+        f'<a:rPr lang="en-US" sz="{SLIDE_NUMBER_PT * 100}"><a:solidFill><a:srgbClr val="{_hex(muted)}"/></a:solidFill></a:rPr>'
+        if styled
+        else '<a:rPr lang="en-US"/>'
+    )
+    field = f'<a:fld id="{SLIDE_NUMBER_GUID}" type="slidenum">{rpr}<a:t>{text}</a:t></a:fld>'
+    algn = '<a:pPr algn="r"/>' if styled else ""
+    para = f"<a:p>{algn}{field}</a:p>"
+    if idx is not None:
+        return etree.fromstring(
+            f'<p:sp xmlns:p="{P}" xmlns:a="{A}"><p:nvSpPr><p:cNvPr id="{new_id}" name="Slide Number Placeholder"/>'
+            '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>'
+            f'<p:nvPr><p:ph type="sldNum" sz="quarter" idx="{idx}"/></p:nvPr></p:nvSpPr>'
+            f"<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>{para}</p:txBody></p:sp>"
+        )
+    w, h = int(EMU_CM * 3), int(EMU_CM * 0.9)
+    x, y = slide[0] - int(EMU_CM * MARGIN_CM) - w, slide[1] - int(EMU_CM * 0.8) - h
+    return etree.fromstring(
+        f'<p:sp xmlns:p="{P}" xmlns:a="{A}"><p:nvSpPr><p:cNvPr id="{new_id}" name="Slide Number"/>'
+        '<p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>'
+        f'<p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{w}" cy="{h}"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>'
+        f'<p:txBody><a:bodyPr wrap="square" anchor="ctr"><a:noAutofit/></a:bodyPr><a:lstStyle/>{para}</p:txBody></p:sp>'
+    )
 
 
 def _hex(value: str) -> str:

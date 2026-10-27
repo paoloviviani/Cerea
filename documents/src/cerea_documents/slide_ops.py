@@ -17,6 +17,7 @@ import io
 import json
 import re
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any
 
 from lxml import etree
@@ -89,8 +90,9 @@ def _layouts(pkg: Pkg, master: str) -> list[tuple[str, str]]:
     return out
 
 
-def _bg_of(tree: El) -> dict[str, Any] | None:
-    """A slide's own solid or two-colour gradient background as a spec `background`; None otherwise."""
+def _bg_of(tree: El, media: dict[str, str]) -> dict[str, Any] | None:
+    """A slide's own background as a spec `background` (solid or two-colour gradient), or {"_picture": media part}
+    for a picture; None otherwise. `media` maps the slide's relationship ids to parts."""
     pr = tree.find("p:cSld/p:bg/p:bgPr", NSM)
     if pr is None:
         return None
@@ -102,11 +104,16 @@ def _bg_of(tree: El) -> dict[str, Any] | None:
         lin = pr.find("a:gradFill/a:lin", NSM)
         ang = int(lin.get("ang") or 5_400_000) / 60_000 if lin is not None else 90
         return {"gradient": [s.get("val") for s in stops], "angle": ang}
-    return None
+    blip = pr.find("a:blipFill/a:blip", NSM)
+    target = media.get(blip.get(f"{{{R_NS}}}embed") or "") if blip is not None else None
+    return {"_picture": target} if target else None
 
 
-def recover_theme(pkg: Pkg, spec: dict[str, Any]) -> tuple[Theme, str, dict[str, Any]]:
-    """The theme to build a slide with, read from the file: (theme, "built-in" | "template", what was recovered)."""
+def recover_theme(pkg: Pkg, spec: dict[str, Any]) -> tuple[Theme, str, dict[str, Any], tuple[El, str] | None]:
+    """The theme to build a slide with, read from the file: (theme, "built-in" | "template", what was recovered,
+    the picture background most slides share as (its `p:bg`, its media part) when that is the common one).
+    Fonts, accent and title style come from the master of a deck without a template; the text colour, the
+    background and the slide numbers are read from the slides on both paths."""
     master = _master(pkg)
     mtree = pkg.tree(master)
     layouts = _layouts(pkg, master)
@@ -124,13 +131,13 @@ def recover_theme(pkg: Pkg, spec: dict[str, Any]) -> tuple[Theme, str, dict[str,
     numbered = any(f.get("type") == "slidenum" for t in trees for f in t.iter(a("fld")) if f.getparent() is not None)
     found: list[str] = []
     defaults: list[str] = []
-    if not builtin:
+    if builtin:
+        t = Theme(slide_numbers=numbered)
+    else:
         t = Theme(template="the deck's own styles", slide_numbers=numbered)
         found.append("the deck's own master, layouts and theme (used as they are)")
-        return t, "template", {"style": "template", "recovered": found, "defaults": defaults}
-    t = Theme(slide_numbers=numbered)
     th = next((x for _i, typ, x, _m in pkg.rels(master) if typ == THEME_REL), None)
-    if th is not None:
+    if builtin and th is not None:
         root = pkg.tree(th)
         for tag, attr in (("majorFont", "heading_font"), ("minorFont", "body_font")):
             lat = root.find(f".//a:fontScheme/a:{tag}/a:latin", NSM)
@@ -142,7 +149,7 @@ def recover_theme(pkg: Pkg, spec: dict[str, Any]) -> tuple[Theme, str, dict[str,
             for dep in ("link", "table_header_fill"):
                 t.colors[dep] = t.colors["accent"]
         found.append("fonts and accent from the theme")
-    if rpr is not None:
+    if builtin and rpr is not None:
         sz = rpr.get("sz")
         if sz and sz.isdigit():
             t.heading_sizes[1] = int(sz) / 100
@@ -168,7 +175,7 @@ def recover_theme(pkg: Pkg, spec: dict[str, Any]) -> tuple[Theme, str, dict[str,
         t.colors["text"] = runs.most_common(1)[0][0]
         t.explicit.add("color_text")
         found.append("text colour (the one most body text uses)")
-    else:
+    elif builtin:
         defaults.append(f"text colour {DEFAULT_COLORS['text']} (no body text in the deck to read it from)")
     if numbered:
         muted = next(
@@ -184,15 +191,29 @@ def recover_theme(pkg: Pkg, spec: dict[str, Any]) -> tuple[Theme, str, dict[str,
         if muted:
             t.colors["muted"] = muted.upper()
         found.append("slide numbers (the other slides have them)")
-    bgs = Counter(json.dumps(b, sort_keys=True) for tree in trees if (b := _bg_of(tree)))
-    if bgs:
-        t.slide_background = json.loads(bgs.most_common(1)[0][0])
+    bgs = Counter(
+        json.dumps(b, sort_keys=True)
+        for (_e, part), tree in zip(slides, trees, strict=True)
+        if (b := _bg_of(tree, {i: tgt for i, _typ, tgt, _m in pkg.rels(part)}))
+    )
+    pic: tuple[El, str] | None = None
+    top = json.loads(bgs.most_common(1)[0][0]) if bgs else None
+    if top and "_picture" in top:
+        for (_e, part), tree in zip(slides, trees, strict=True):
+            node = tree.find("p:cSld/p:bg", NSM)
+            if node is not None and _bg_of(tree, {i: tgt for i, _typ, tgt, _m in pkg.rels(part)}) == top:
+                pic = (copy.deepcopy(node), top["_picture"])
+                break
+        found.append("background (the picture most slides share)")
+    elif top:
+        t.slide_background = top
         found.append("background (the one most slides share)")
     else:
         defaults.append("background (no slide has a solid or gradient background to copy; the master's is used)")
     if any(b.get("type") == "table" for key in ("body", "body_right") for b in spec.get(key) or []):
         defaults.append("table style banded (not recorded in the file)")
-    return t, "built-in", {"style": "built-in", "recovered": found, "defaults": defaults}
+    style = "built-in" if builtin else "template"
+    return t, style, {"style": style, "recovered": found, "defaults": defaults}, pic
 
 
 # ---- moving a built slide into the package --------------------------------------------------------
@@ -215,7 +236,7 @@ def _content_type(src: Pkg, part: str) -> tuple[bool, str]:
 def _free_name(dst: Pkg, part: str) -> str:
     folder, _, base = part.rpartition("/")
     stem, ext = re.match(r"^(.*?)\d*(\.[^.]+)$", base).groups()  # type: ignore[union-attr]
-    n = next_numbered(dst, re.escape(folder) + "/" + re.escape(stem) + r"(\d+)" + re.escape(ext) + "$")
+    n = next_numbered(dst, "(?i)" + re.escape(folder) + "/" + re.escape(stem) + r"(\d+)" + re.escape(ext) + "$")
     return f"{folder}/{stem}{n}{ext}"
 
 
@@ -281,11 +302,11 @@ def _link(ctx: Session, new: str, after: int) -> int:
     sid.set(f"{{{R_NS}}}id", rid)
     if after == 0:
         lst.insert(0, sid)
-        first = _sections(root)[:1]
-        if first and _section_ids(first[0]):
-            twin = etree.Element(_section_ids(first[0])[0].tag)
+        first = next((sec for sec in _sections(root) if _section_ids(sec)), None)  # the first one with slides
+        if first is not None:
+            twin = etree.Element(_section_ids(first)[0].tag)
             twin.set("id", sid.get("id") or "")
-            _section_ids(first[0])[0].addprevious(twin)
+            _section_ids(first)[0].addprevious(twin)
     else:
         prev = ctx.ids[after - 1]
         for el, src_n in ctx.copies:  # several copies of one slide stay in the order they were made
@@ -308,24 +329,38 @@ def _link(ctx: Session, new: str, after: int) -> int:
 # ---- building -------------------------------------------------------------------------------------
 
 
-def _remap(exc: InvalidRequest | PatchError, label: str) -> PatchError:
+def _remap(exc: InvalidRequest | PatchError, label: str, slide: int) -> PatchError:
     """The builder's own wording, with the slide named the way the request names it."""
     msg = re.sub(r"slides\[0\]", label, exc.message)
-    return PatchError(msg, reason=getattr(exc, "reason", None), details=dict(exc.details))
+    details = dict(exc.details)
+    if "slide" in details:
+        details["slide"] = slide
+    return PatchError(msg, reason=getattr(exc, "reason", None), details=details)
 
 
-def _build(ctx: Session, spec: dict[str, Any], position: int, label: str) -> tuple[Pkg, str, dict[str, Any], list[str]]:
-    """Build `spec` as slide `position` (1-based) of a one-slide copy of the deck; return (that file, the slide's
-    part in it, what was recovered from the deck, the builder's notes)."""
+@dataclass
+class Built:
+    pkg: Pkg  # the scratch one-slide deck
+    part: str  # the slide's part in it
+    info: dict[str, Any]
+    notes: list[str]
+    theme: Theme
+    style: str
+    pic: tuple[El, str] | None
+    own_background: bool
+
+
+def _build(ctx: Session, spec: dict[str, Any], position: int, label: str, slide: int) -> Built:
+    """Build `spec` as slide `position` (1-based) of a one-slide copy of the deck."""
     from .make_pptx import PptxBuilder
 
     pkg = ctx.pkg
     try:
         checked = validate_spec("pptx", {"slides": [spec]}, pkg.limits)
     except InvalidRequest as exc:
-        raise _remap(exc, label) from exc
+        raise _remap(exc, label, slide) from exc
     one = checked["slides"][0]
-    theme, style, info = recover_theme(pkg, one)
+    theme, style, info, pic = recover_theme(pkg, one)
     own = {k: v for k, v in one.items() if k != "notes"}  # notes are written through the notes engine below
     builder = PptxBuilder(
         {"slides": [own], "size": "16:9"},
@@ -339,12 +374,63 @@ def _build(ctx: Session, spec: dict[str, Any], position: int, label: str) -> tup
         number: str | bool = str(position) if theme.slide_numbers and position > 1 else False
         builder.slide(position - 1, own, where=label, number=number)
     except InvalidRequest as exc:
-        raise _remap(exc, label) from exc
+        raise _remap(exc, label, slide) from exc
     buf = io.BytesIO()
     builder.prs.save(buf)
     built = Pkg(buf.getvalue(), pkg.limits)
-    part = _slides(built)[-1][1]
-    return built, part, info, list(builder.notes)
+    return Built(
+        built, _slides(built)[-1][1], info, list(builder.notes), theme, style, pic, bool(one.get("background"))
+    )
+
+
+def _apply_picture_background(pkg: Pkg, part: str, b: Built) -> None:
+    """The picture background most slides share: its `p:bg` and a relationship to the media already in the deck."""
+    if b.pic is None or b.own_background:
+        return
+    node, media = b.pic
+    csld = pkg.tree(part).find("p:cSld", NSM)
+    assert csld is not None
+    for old in csld.findall("p:bg", NSM):
+        csld.remove(old)
+    new = copy.deepcopy(node)
+    rid = add_rel(pkg, part, R_NS + "/image", relative_target(part, media))
+    for blip in new.iter(a("blip")):
+        blip.set(f"{{{R_NS}}}embed", rid)
+    csld.insert(0, new)
+    pkg.touch(part)
+
+
+def _set_number(pkg: Pkg, part: str, text: str) -> None:
+    for f in pkg.tree(part).iter(a("fld")):
+        if f.get("type") == "slidenum":
+            t = f.find("a:t", NSM)
+            if t is not None and t.text != text:
+                t.text = text
+                pkg.touch(part)
+
+
+def _number_old_first(ctx: Session, b: Built) -> None:
+    """After a slide is added in front, the former first slide is slide 2 and needs its number."""
+    from .make_pptx import number_sp
+
+    pkg = ctx.pkg
+    part = ctx.parts[0]
+    if part is None or not b.theme.slide_numbers:
+        return
+    tree = pkg.tree(part)
+    if any(f.get("type") == "slidenum" for f in tree.iter(a("fld"))):
+        return
+    layout = next((t for _i, typ, t, _m in pkg.rels(part) if typ == LAYOUT_REL), None)
+    idx = None
+    if layout:
+        ph = pkg.tree(layout).find(".//p:sp/p:nvSpPr/p:nvPr/p:ph[@type='sldNum']", NSM)
+        idx = int(ph.get("idx", "0")) if ph is not None else None
+    sz = pkg.tree(_pres(pkg)).find("p:sldSz", NSM)
+    size = (int(sz.get("cx") or 0), int(sz.get("cy") or 0)) if sz is not None else (12_192_000, 6_858_000)
+    new_id = max([int(c.get("id") or 0) for c in tree.iter(p_("cNvPr"))] or [1]) + 1
+    sp = number_sp(new_id, idx, "2", b.theme.colors["muted"], idx is None or b.style == "built-in", size)
+    _sptree(tree).append(sp)
+    pkg.touch(part)
 
 
 def _install(ctx: Session, built: Pkg, built_part: str, dst_part: str, keep: tuple[str, ...]) -> list[str | None]:
@@ -391,11 +477,12 @@ def op_replace_slide(ctx: Session, args: dict[str, Any]) -> dict[str, Any]:
     part = ctx.part(n)
     lst = pkg.tree(_pres(pkg)).find("p:sldIdLst", NSM)
     position = list(lst).index(ctx.ids[n - 1]) + 1 if lst is not None and ctx.ids[n - 1].getparent() is lst else n
-    built, built_part, info, notes = _build(ctx, spec, position, f"slide {n}")
-    old = _install(ctx, built, built_part, part, (NOTES_REL,))
+    b = _build(ctx, spec, position, f"slide {n}", n)
+    old = _install(ctx, b.pkg, b.part, part, (NOTES_REL,))
+    _apply_picture_background(pkg, part, b)
     drop_orphans(pkg, old)
-    notes = _result(ctx, part, spec, notes, info)
-    return {"slide": n, "theme_from_file": info, **({"notes": notes} if notes else {})}
+    notes = _result(ctx, part, spec, b.notes, b.info)
+    return {"slide": n, "theme_from_file": b.info, **({"notes": notes} if notes else {})}
 
 
 def op_add_slide(ctx: Session, args: dict[str, Any]) -> dict[str, Any]:
@@ -408,13 +495,23 @@ def op_add_slide(ctx: Session, args: dict[str, Any]) -> dict[str, Any]:
     if len(_slides(pkg)) >= pkg.limits.max_slides:
         raise PatchError(f"the deck already has {pkg.limits.max_slides} slides, the most this service writes")
     label = f"the new slide (after slide {after})" if after else "the new slide (first)"
-    built, built_part, info, notes = _build(ctx, spec, after + 1, label)
+    b = _build(ctx, spec, after + 1, label, after + 1)
     new = f"ppt/slides/slide{next_numbered(pkg, r'ppt/slides/slide(\d+)\.xml$')}.xml"
-    pkg.add_tree(new, copy.deepcopy(built.tree(built_part)))
-    _install(ctx, built, built_part, new, ())
+    pkg.add_tree(new, copy.deepcopy(b.pkg.tree(b.part)))
+    _install(ctx, b.pkg, b.part, new, ())
+    _apply_picture_background(pkg, new, b)
     position = _link(ctx, new, after)
-    notes = _result(ctx, new, spec, notes, info)
-    return {"new_slide_position": position, "part": new, "theme_from_file": info, **({"notes": notes} if notes else {})}
+    if b.theme.slide_numbers and position > 1:
+        _set_number(pkg, new, str(position))
+    if after == 0:
+        _number_old_first(ctx, b)
+    notes = _result(ctx, new, spec, b.notes, b.info)
+    return {
+        "new_slide_position": position,
+        "part": new,
+        "theme_from_file": b.info,
+        **({"notes": notes} if notes else {}),
+    }
 
 
 # ---- moving or resizing one shape -----------------------------------------------------------------
@@ -429,6 +526,8 @@ def op_update_shape(ctx: Session, args: dict[str, Any]) -> dict[str, Any]:
     if el is None:
         ids = [e.get("id") for e in tree.iterfind(".//p:cNvPr", NSM)]
         raise PatchError(f"no shape with id {shape!r} on slide {slide}; ids here: {ids}")
+    if el.getparent() is not _sptree(tree):
+        raise PatchError(f"shape {shape} is inside a group; move or resize the group instead")
     xf = el.find("./p:spPr/a:xfrm", NSM)
     if xf is None:
         xf = el.find("./p:xfrm", NSM)
