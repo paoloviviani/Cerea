@@ -556,7 +556,9 @@ files, newest snapshot by default (`BACKUP_RESTORE_CHOWN` hands them to you). Th
 
 Simple stdio MCP servers (the kind a README tells you to start with `uvx
 <package>`) can run as containers beside the kit and appear in everyone's chat
-as Base Servers, with no host port and no VPN. `tools/mcp/` has an example
+as built-in connectors, with no host port and no VPN. Each is on for everyone
+until an administrator sets otherwise under Admin → Connectors (off, on, or on
+and locked, and whether its tools are always loaded). `tools/mcp/` has an example
 override with two of them, a web search (`duckduckgo-mcp-server`) and
 OpenStreetMap (`osm-mcp`, an npm package). Each service is one
 [`mcp-proxy`](https://github.com/sparfenyuk/mcp-proxy) wrapping one server:

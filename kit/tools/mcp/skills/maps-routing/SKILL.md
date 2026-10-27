@@ -8,9 +8,10 @@ description: >
 
 # Maps: places, addresses and routes
 
-The OpenStreetMap connector answers map questions. Its place searches use public servers run by
-volunteers, which are sometimes slow or busy; the rest (addresses, routes) uses other services and is
-usually quick.
+The OpenStreetMap connector answers map questions. If its tools are not available yet, load the
+OpenStreetMap connector first with `load_tools` (it is named osm in the kit's example); if they are
+already available, go straight to them. Its place searches use public servers run by volunteers, which
+are sometimes slow or busy; the rest (addresses, routes) uses other services and is usually quick.
 
 ## Places nearby ("parking near…", "cafés around…", "a pharmacy open now")
 

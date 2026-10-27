@@ -31,7 +31,20 @@ Only connect to servers you trust.
 
 ## Using them
 
-Switch a connector on for a conversation from the composer: the **+** menu, then **MCP Servers**. Its tools are then available to the assistant. A project can start new chats with particular connectors selected ([Knowledge and projects](knowledge.md#projects)).
+Switch connectors on and off in one place: **Workspace → MCP Servers**. Each
+connector there has a switch, and a connector that is on is available to the
+assistant in every chat. There is nothing to choose in the composer or per
+conversation.
+
+You do not need to say which connector to use. The assistant sees a short list
+of the connectors that are on (a name, a sentence, the tools each offers) and
+**loads a connector's tools when a request needs them**. You see a quiet line
+such as "Loaded Maps" in the conversation. Once loaded, a connector stays
+loaded for the rest of that conversation. Turning a connector off in Workspace
+means the assistant no longer sees it, from your next message.
+
+A connector you added that needs a sign-in is not offered to the assistant
+until you have signed in.
 
 **Every call to an MCP tool asks first, by default.** The approval card shows
 the tool and its arguments, and you can allow that one call, allow the tool for
@@ -42,23 +55,29 @@ which appears as a form in the conversation.
 
 ## Connectors for everybody
 
-An administrator can publish a connector to the whole deployment (see
-[Administering the chat](chat-admin.md)). The **definition** is shared and the
-**credential is not**: each person signs in to a shared OAuth connector
-themselves. The exception is a static token, which belongs to the connector
-rather than to a person, so publishing one **shares the key** with everyone who
-uses it. The admin screen says so, because it is a decision and not an
-accident.
+An administrator can provide connectors to the whole deployment (see
+[Administering the chat](chat-admin.md)). They are **provided automatically**:
+you do not add them, they are on for you from the start, and they appear in
+Workspace under **Built-in connectors**. Each is either on with a switch you can
+turn off, or marked **Always on** (with a lock) when your administrator keeps it
+on for everyone. A connector the administrator has switched off is not shown.
+
+The **definition** is shared and the **credential is not**: each person signs in
+to a shared OAuth connector themselves. The exception is a static token, which
+belongs to the connector rather than to a person, so publishing one **shares
+the key** with everyone who uses it. The admin screen says so, because it is a
+decision and not an accident.
 
 ## For operators
 
-A deployment can also configure base servers with the upstream `MCP_SERVERS`
-variable (see [Configuration](configuration.md)); they appear beside the
-connectors as **Base Servers**, each with a health check. Connector credentials need `CHAT_SECRET_KEY`:
+A deployment can also configure servers with the `MCP_SERVERS` variable (see
+[Configuration](configuration.md)); they appear beside the administrator's
+connectors under **Built-in connectors**, each with a health check, and an
+administrator sets how each is offered on the same admin screen. Connector credentials need `CHAT_SECRET_KEY`:
 without it, connectors cannot store a token and say so.
 
 On a kit install, stdio MCP servers can run as containers beside the stack and
-be offered as base servers, with no host port: see "Server-side MCP servers" in
+be offered as built-in connectors, with no host port: see "Server-side MCP servers" in
 the kit README. They are shared by everyone who signs in, so use them for servers
 without a personal credential; personal accounts belong in
 [local connectors](local-connectors.md).

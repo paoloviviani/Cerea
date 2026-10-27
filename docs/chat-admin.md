@@ -31,7 +31,7 @@ server; the page's gate is for navigation, never a permission.
 | **Knowledge**  | Which embedding model the deployment uses and which model reads documents, on one screen with the consequences: see below. Hidden when the deployment turns the knowledge pipeline off (`CHAT_KNOWLEDGE_ENABLED=false`) |
 | **Web search** | Which search backend the composer's Web search pill uses, picked from the search backends the gateway offers (not hidden when knowledge is off)                                                                         |
 | **Fetching**   | Which backend fetches a URL: a plain HTTPS request, or the [headless browser](browser.md), with a live check of whether the renderer answers                                                                            |
-| **Connectors** | MCP servers offered to everybody: see [Connectors](connectors.md#connectors-for-everybody)                                                                                                                              |
+| **Connectors** | MCP servers offered to everybody, and how each is offered: see [Connectors for everybody](#connectors-for-everybody) below                                                                                              |
 | **Skills**     | Deployment-wide skills that every account sees; the bundled ones can be switched off by name (`CHAT_SKILLS_DISABLED`)                                                                                                   |
 | **Voice**      | Whether the composer offers browser dictation: yes, no, or only when no voice model is available (the default): see below                                                                                               |
 | **Sub-agents** | Whether the assistant may hand work to sub-agents (`delegate`, `research`): on by default; see below                                                                                                                    |
@@ -58,6 +58,36 @@ not search for it, you fetch it, and the only question is what does the
 reading. Selecting the headless browser before its service is up is a legitimate
 order of operations, so the health check warns and never locks the setting. The
 status meanings are on the [browser page](browser.md#turning-it-on).
+
+## Connectors for everybody
+
+The **Connectors** section lists the connectors the deployment provides: the
+servers in `MCP_SERVERS` (their address and key stay in `.env`) and the ones you
+add here. For each one you choose how it is offered:
+
+- **Off:** offered to nobody.
+- **On** (the default): on for everyone from the start, and a person can switch
+  it off in Workspace.
+- **On, locked:** on for everyone, and nobody can switch it off.
+
+A fourth setting, **Always loaded**, is a switch of its own. The assistant
+normally sees a connector as one line and loads its tools when a request needs
+them. An always loaded connector skips that: its tools are in every request from
+the start. A change applies from the next message, with no restart.
+
+The reason to be selective is cost. A connector's tool descriptions go into the
+request every time they are loaded, and they can be long. Leave big or rarely
+used connectors as plain **On** and the assistant pays for their tools only in
+the conversations that use them; make a connector always loaded only when
+nearly every conversation needs it (a web search, say). A connector with no
+saved tool names yet is listed without them until its first check or first use.
+
+Every connector added here is **On** until you change it, and that includes the
+servers in `MCP_SERVERS`. **After an upgrade, review this page:** set what you
+do not want everybody to have to **Off**, and what people should be able to turn
+off to plain **On**. Each person's own switches are kept on the server, so they
+follow them between browsers. Tool approvals are unchanged: a call to a
+connector's tool asks first, whatever its mode.
 
 ## Voice
 
