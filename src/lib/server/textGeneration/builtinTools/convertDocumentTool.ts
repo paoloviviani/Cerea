@@ -141,8 +141,9 @@ export function createConvertDocumentBuiltin(): BuiltinTool[] {
 			},
 			preprompt:
 				`PDF: ${CONVERT_DOCUMENT_TOOL_NAME} turns a document in this conversation, or Markdown or ` +
-				"HTML you write, into a PDF the person can open and download. Use it when they ask for a PDF; " +
-				"it is not needed to read a document (its text is already given to you).",
+				"HTML you write, into a PDF the person can open and download. Use it only when they ask for a PDF. " +
+				"It is not needed to read a document (its text is already given to you), and not to preview or " +
+				"check a Word, Excel or PowerPoint file you made: the chat already shows the person a preview of it.",
 
 			async execute(args, ctx) {
 				if (!ctx.conversationId) return { error: "There is no conversation to save a PDF in." };
