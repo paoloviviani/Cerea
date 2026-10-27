@@ -70,6 +70,17 @@ add here. For each one you choose how it is offered:
   it off in Workspace.
 - **On, locked:** on for everyone, and nobody can switch it off.
 
+**Edit** (on a connector you added) changes its name, address, a one-sentence
+**description**, and its shared access key or header, or removes the key. The
+description is what the assistant reads in its list of connectors, so say what
+the connector is for. This is the only place a provided connector is changed:
+Workspace shows it read-only to everyone, administrators included, and the
+server refuses a change that does not come from this page. **Check** lists its
+tools again with the connector's own access key. Adding a connector, and
+changing its address or key, lists its tools automatically; if that fails, the
+reason shows on its card instead of a tool count. (A connector each person signs
+in to cannot be listed until somebody has: use **Check** after signing in.)
+
 A fourth setting, **Always loaded**, is a switch of its own. The assistant
 normally sees a connector as one line and loads its tools when a request needs
 them. An always loaded connector skips that: its tools are in every request from
@@ -80,7 +91,8 @@ request every time they are loaded, and they can be long. Leave big or rarely
 used connectors as plain **On** and the assistant pays for their tools only in
 the conversations that use them; make a connector always loaded only when
 nearly every conversation needs it (a web search, say). A connector with no
-saved tool names yet is listed without them until its first check or first use.
+saved tool names is listed to the assistant with its address and a note that its
+tools have not been checked.
 
 Every connector added here is **On** until you change it, and that includes the
 servers in `MCP_SERVERS`. **After an upgrade, review this page:** set what you

@@ -45,6 +45,12 @@ export interface TurnConnector {
 	summary: string;
 	/** Tool names as last seen; empty when it has never been listed. */
 	toolNames: string[];
+	/**
+	 * The host of its address (`api.example.com`), which tells the assistant what a connector
+	 * with no tool names is. Absent for a server on a person's machine. Derived from the row's
+	 * address only, so the line it lands in stays the same from turn to turn.
+	 */
+	host?: string;
 	/** The server to call, with this person's credential, or why it cannot be used now. */
 	open(): Promise<{ server: ResolvedServer } | { unavailable: string }>;
 }
@@ -70,7 +76,17 @@ export function summaryOf(description: string | undefined, tools: CatalogTool[])
 	}
 	return tools.length > 0
 		? "Tools it offers are listed below."
-		: "Its tools are listed when you load it.";
+		: "its tools haven't been checked; load it to see them.";
+}
+
+/** The host of an address, or undefined for one that does not parse. */
+export function hostOf(address: string | undefined): string | undefined {
+	if (!address) return undefined;
+	try {
+		return new URL(address).hostname || undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /**
@@ -109,6 +125,7 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 			alwaysLoaded: policy.alwaysLoaded,
 			summary: summaryOf(server.description, tools),
 			toolNames: tools.map((t) => t.name),
+			host: hostOf(server.url),
 			open: async () => ({
 				server: {
 					name: server.name,
@@ -164,6 +181,7 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 			alwaysLoaded: policy?.alwaysLoaded ?? false,
 			summary: summaryOf(row.description, tools),
 			toolNames: tools.map((t) => t.name),
+			host: hostOf(row.url),
 			open: async () => {
 				const headers = await credentialHeaders({ connector: row, userId });
 				if (!headers) return { unavailable: "not signed in, or its token is missing" };

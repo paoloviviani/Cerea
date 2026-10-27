@@ -8,18 +8,15 @@
 
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
-import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { probe } from "$lib/server/mcp/discovery";
 import { beginAuthorization, staticRegistration } from "$lib/server/mcp/oauth";
 import { ownedBy, usableBy, view } from "$lib/server/mcp/connectors";
 import { callerIdentity } from "$lib/server/admin";
 import { clearPolicy, connectorKey } from "$lib/server/mcp/deploymentModes";
-import { credentialHeaders } from "$lib/server/mcp/selection";
-import { listTools } from "$lib/server/mcp/health";
+import { checkConnectorTools } from "$lib/server/mcp/check";
 import { seal } from "$lib/server/mcp/secretBox";
 import { logger } from "$lib/server/logger";
-import type { McpConnector } from "$lib/types/McpConnector";
 
 const body = z.object({
 	action: z.enum(["authorize", "reprobe", "disconnect", "check", "update"]),
@@ -52,6 +49,8 @@ const body = z.object({
 	 */
 	clientId: z.string().trim().min(1).max(512).optional(),
 	clientSecret: z.string().trim().min(1).max(2048).optional(),
+	/** One sentence the assistant reads in its list of connectors. Empty clears it. */
+	description: z.string().trim().max(300).optional(),
 });
 
 function requireUser(locals: App.Locals) {
@@ -59,51 +58,40 @@ function requireUser(locals: App.Locals) {
 	return locals.user;
 }
 
-export const GET: RequestHandler = async ({ locals, params }) => {
+export const GET: RequestHandler = async ({ locals, params, url }) => {
 	const user = requireUser(locals);
 	// Usable, not owned: a deployment connector is readable by everybody it
 	// is offered to, which is what a row needs in order to render.
 	const connector = await usableBy(params.id as string, user._id);
 	if (!connector) error(404, "No such connector.");
 	const identity = await callerIdentity(locals);
-	return json(await view(connector, user._id, identity?.isAdmin ?? false));
+	const isAdmin = identity?.isAdmin ?? false;
+	return json(
+		await view(connector, user._id, isAdmin, undefined, isAdmin && asksAsDeployment(url))
+	);
 };
 
 /**
- * List a connector's tools with its own credential, and record the answer.
- *
- * Tools on success, the server's error on failure — the one check that tells
- * a working token from a wrong one, which an anonymous probe cannot.
+ * Whether the request says it is the administrator's own screen (Admin,
+ * Connectors). A connector the deployment provides is configured only there:
+ * Workspace shows it read-only to everybody, so this route refuses to change
+ * one unless the request says so, the way `DELETE` already does.
  */
-async function checkTools(connector: McpConnector, userId: ObjectId): Promise<void> {
-	const headers = await credentialHeaders({ connector, userId });
-	if (!headers) {
-		error(400, "Sign in to this connector first, or give it a token.");
-	}
-	const result = await listTools(connector.url, headers);
-	await collections.mcpConnectors.updateOne(
-		{ _id: connector._id },
-		{
-			$set: {
-				checkedAt: new Date(),
-				updatedAt: new Date(),
-				// Names and descriptions only. An input schema is large, is
-				// not shown, and would put arbitrary third-party JSON in a
-				// document we read on every listing.
-				tools: result.ok
-					? result.tools.map(({ name, description }) => ({ name, description }))
-					: [],
-				...(result.ok ? {} : { lastError: result.error.slice(0, 500) }),
-			},
-			// `$unset` rather than `$set: undefined`: the driver does not
-			// drop undefined by default, so that writes a literal null and
-			// the field stops matching its own `string | undefined` type.
-			...(result.ok ? { $unset: { lastError: "" } } : {}),
-		}
-	);
+function asksAsDeployment(url: URL): boolean {
+	return url.searchParams.get("scope") === "deployment";
 }
 
-export const POST: RequestHandler = async ({ locals, params, request }) => {
+/** The Check button: list the tools with the connector's own credential, or say why it cannot. */
+async function checkOrRefuse(
+	connector: Parameters<typeof checkConnectorTools>[0],
+	userId: Parameters<typeof checkConnectorTools>[1]
+): Promise<void> {
+	if ((await checkConnectorTools(connector, userId)) === "no credential") {
+		error(400, "Sign in to this connector first, or give it a token.");
+	}
+}
+
+export const POST: RequestHandler = async ({ locals, params, request, url }) => {
 	const user = requireUser(locals);
 
 	const parsed = body.safeParse(await request.json());
@@ -111,22 +99,35 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const { action, next } = parsed.data;
 
 	// Two different permissions, and conflating them was the thing to get right
-	// here. **Using** a connector — signing in to it, checking it, disconnecting
-	// your own token — is open to everybody it is offered to. **Changing** one —
-	// its URL, its credentials, its existence — belongs to whoever owns it, and
-	// for a deployment connector that is an administrator, because the change
-	// lands on everybody else's requests too.
+	// here. **Using** a connector — signing in to it, disconnecting your own
+	// token — is open to everybody it is offered to. **Changing** one — its URL,
+	// its credentials, its tool check, its existence — belongs to whoever owns it,
+	// and a deployment connector's owner is an administrator acting on the Admin
+	// screen, because the change lands on everybody else's requests too.
+	//
+	// Check is a change: it replaces the stored tool list for everyone, and for
+	// an OAuth connector it lists with the caller's own sign-in, so one person's
+	// view of the tools would become the shared one.
 	const identity = await callerIdentity(locals);
 	const isAdmin = identity?.isAdmin ?? false;
-	const changes = action === "update" || action === "reprobe";
-	const connector = changes
-		? await ownedBy(params.id as string, user._id, isAdmin)
-		: await usableBy(params.id as string, user._id);
+	const adminScreen = isAdmin && asksAsDeployment(url);
+	const changes = action === "update" || action === "reprobe" || action === "check";
+	const connector = await usableBy(params.id as string, user._id);
 	if (!connector) {
 		// 404 rather than 403 for a connector that exists but is not this
 		// person's to change: telling those apart confirms it exists.
 		error(404, "No such connector.");
 	}
+	if (changes && (connector.scope ?? "user") === "deployment") {
+		if (!isAdmin) error(404, "No such connector.");
+		if (!adminScreen) {
+			error(403, "A connector the deployment provides is changed in Admin, Connectors.");
+		}
+	}
+	const respond = async () => {
+		const refreshed = await usableBy(params.id as string, user._id);
+		return json(await view(refreshed ?? connector, user._id, isAdmin, undefined, adminScreen));
+	};
 
 	if (action === "reprobe" && connector.auth === "token") {
 		// The probe is anonymous by design, so for a server that takes a token
@@ -134,9 +135,8 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 		// already known, and which used to land on the row as an error. Asking
 		// again how it authenticates means, for a token connector, trying the
 		// token: list its tools with it and report what the server says.
-		await checkTools(connector, user._id);
-		const refreshed = await usableBy(params.id as string, user._id);
-		return json(await view(refreshed ?? connector, user._id, isAdmin));
+		await checkOrRefuse(connector, user._id);
+		return respond();
 	}
 
 	if (action === "reprobe") {
@@ -156,17 +156,15 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 			update.lastError = result.reason;
 		}
 		await collections.mcpConnectors.updateOne({ _id: connector._id }, { $set: update });
-		const refreshed = await usableBy(params.id as string, user._id);
-		return json(await view(refreshed ?? connector, user._id, isAdmin));
+		return respond();
 	}
 
 	if (action === "check") {
 		// The health check the old server list had, moved server-side — which
 		// is what makes it work at all here: the credential is sealed in the
 		// database, so a browser-side check could never have used it.
-		await checkTools(connector, user._id);
-		const refreshed = await usableBy(params.id as string, user._id);
-		return json(await view(refreshed ?? connector, user._id, isAdmin));
+		await checkOrRefuse(connector, user._id);
+		return respond();
 	}
 
 	if (action === "update") {
@@ -174,10 +172,17 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 		// `""` is the value `$unset` wants; the driver's types insist on it
 		// rather than `unknown`, and they are right to.
 		const unset: Record<string, ""> = {};
+		/** The address or the credential changed: the tools are listed again. */
+		let relist = false;
 
 		if (parsed.data.name) set.name = parsed.data.name;
+		if (parsed.data.description !== undefined) {
+			if (parsed.data.description) set.description = parsed.data.description;
+			else unset.description = "";
+		}
 		if (parsed.data.url && parsed.data.url !== connector.url) {
 			set.url = parsed.data.url;
+			relist = true;
 			// The old discovery described a different server, and a stale
 			// authorization endpoint is worse than none: it would send somebody
 			// to consent for a resource they are no longer adding.
@@ -193,10 +198,12 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 			unset.tokenSealed = "";
 			unset.tokenHeader = "";
 			unset.tokenPrefix = "";
+			relist = true;
 			if (connector.auth === "token") set.auth = "none";
 		} else if (parsed.data.token) {
 			set.tokenSealed = seal(parsed.data.token);
 			set.auth = "token";
+			relist = true;
 			// The recorded failure is almost always the anonymous probe's "it
 			// asks for authentication", which a token is the answer to. Kept, it
 			// reads as though the token had not worked; Re-check says if it did.
@@ -205,7 +212,10 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 			if (parsed.data.tokenPrefix !== undefined) set.tokenPrefix = parsed.data.tokenPrefix;
 		} else if (connector.auth === "token") {
 			// Editing the header of a connector whose secret is staying put.
-			if (parsed.data.tokenHeader) set.tokenHeader = parsed.data.tokenHeader;
+			if (parsed.data.tokenHeader) {
+				set.tokenHeader = parsed.data.tokenHeader;
+				relist = true;
+			}
 			if (parsed.data.tokenPrefix !== undefined) set.tokenPrefix = parsed.data.tokenPrefix;
 		}
 
@@ -232,16 +242,20 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 			{ _id: connector._id },
 			{ $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) }
 		);
-		const refreshed = await usableBy(params.id as string, user._id);
-		return json(await view(refreshed ?? connector, user._id, isAdmin));
+		// A new address or credential means the stored tools describe something
+		// else, so they are listed again now, and a failure lands on the row.
+		if (relist) {
+			const changed = await usableBy(params.id as string, user._id);
+			if (changed) await checkConnectorTools(changed, user._id);
+		}
+		return respond();
 	}
 
 	if (action === "disconnect") {
 		// The authorisation goes; the connector stays, so signing in again is
 		// one click rather than re-adding a URL.
 		await collections.mcpTokens.deleteMany({ connectorId: connector._id, userId: user._id });
-		const refreshed = await usableBy(params.id as string, user._id);
-		return json(await view(refreshed ?? connector, user._id, isAdmin));
+		return respond();
 	}
 
 	// authorize

@@ -27,7 +27,13 @@ export async function view(
 	/** Whether this caller administers the deployment. */
 	isAdmin = false,
 	/** What a listing already read: the deployment's policies and this person's switches. */
-	context?: { policies: Map<string, ConnectorPolicy>; switches: Switches }
+	context?: { policies: Map<string, ConnectorPolicy>; switches: Switches },
+	/**
+	 * The administrator's own screen (Admin, Connectors) is the only place a
+	 * deployment connector is changed. Everywhere else, Workspace included, it
+	 * is read-only, whoever looks at it.
+	 */
+	adminScreen = false
 ): Promise<McpConnectorView> {
 	const ctx = context ?? {
 		policies: await loadPolicies(),
@@ -75,6 +81,7 @@ export async function view(
 		scopesSupported: connector.oauth?.scopesSupported,
 		issuer: connector.oauth?.issuer,
 		lastError: connector.lastError,
+		description: connector.description,
 		tools: connector.tools,
 		checkedAt: connector.checkedAt?.toISOString(),
 		scope: connector.scope ?? "user",
@@ -86,10 +93,11 @@ export async function view(
 			: {}),
 		// Using a connector and changing one are different permissions. A
 		// deployment connector renders for everybody because it is offered to
-		// them; only an administrator gets the buttons that would change it for
-		// everyone else, and that answer is computed here rather than guessed at
-		// in the component.
-		manageable: (connector.scope ?? "user") === "user" ? true : isAdmin,
+		// them, and it is read-only in Workspace even for an administrator: the
+		// administrator changes it on the Admin screen, which asks for the
+		// listing with `?admin=1`. That answer is computed here rather than
+		// guessed at in the component.
+		manageable: (connector.scope ?? "user") === "user" ? true : isAdmin && adminScreen,
 		updatedAt: connector.updatedAt.toISOString(),
 	};
 }
@@ -109,7 +117,11 @@ export async function view(
 export async function viewsFor(
 	userId: ObjectId,
 	isAdmin = false,
-	/** The administrator's page lists the connectors that are switched off too. */
+	/**
+	 * The administrator's page (`?admin=1`): lists the connectors that are
+	 * switched off too, and is the one listing where a deployment connector is
+	 * `manageable`.
+	 */
 	includeOff = false
 ): Promise<McpConnectorView[]> {
 	const rows = await collections.mcpConnectors
@@ -125,7 +137,7 @@ export async function viewsFor(
 			(row.scope ?? "user") !== "deployment" ||
 			policyIn(context.policies, connectorKey(row._id.toString())).mode !== "off"
 	);
-	return Promise.all(listed.map((row) => view(row, userId, isAdmin, context)));
+	return Promise.all(listed.map((row) => view(row, userId, isAdmin, context, includeOff)));
 }
 
 /**

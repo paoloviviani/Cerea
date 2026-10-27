@@ -32,6 +32,7 @@
 	import Switch from "$lib/components/Switch.svelte";
 	import Rich from "$lib/i18n/Rich.svelte";
 	import ServerCardFrame from "./ServerCardFrame.svelte";
+	import ConnectorTools from "./ConnectorTools.svelte";
 	import ServerCard from "./ServerCard.svelte";
 	import { getMcpServerFaviconUrl } from "$lib/utils/favicon";
 	import { allMcpServers } from "$lib/stores/mcpServers";
@@ -525,6 +526,9 @@
 				bind:checked={() => connector.enabled && connector.connected, (on) => setOn(connector, on)}
 			/>
 		{/snippet}
+		<!-- A connector the deployment provides (the administrator's, like a `.env` one) is
+		     read-only here and shows its tools inline, with no detail sheet. The sheet stays for
+		     a person's own connectors and machines. -->
 		<!-- A connector the administrator keeps on has no switch: it stays on for everyone. -->
 		<ServerCardFrame
 			toggle={connector.mode === "locked" ? undefined : connectorSwitch}
@@ -543,7 +547,7 @@
 				: connector.connected
 					? m["mcp.connectors.on_for_new"]()
 					: m["mcp.connectors.sign_in_first"]()}
-			onopen={() => (detail = connector)}
+			onopen={connector.scope === "user" ? () => (detail = connector) : undefined}
 		>
 			{#snippet pills()}
 				{#if connector.connected}
@@ -570,6 +574,7 @@
 							? m["mcp.connectors.auth.token"]()
 							: m["mcp.connectors.auth.none"]()}
 				</span>
+				<ConnectorTools {connector} />
 				{#if connector.registrationSource === "static"}
 					<!-- Worth saying: it explains why Sign in works on a server
 						     that refuses to register clients, and why a re-check
@@ -593,11 +598,11 @@
 
 			<div class="flex flex-wrap gap-1">
 				<!-- Changing a connector — its URL, its credentials, the shared
-					     record of how it authenticates — is `manageable`'s whole
-					     question, computed server-side per caller. A deployment
-					     connector renders these only for an administrator: for
-					     everybody else they were buttons whose requests the server
-					     was already refusing. -->
+					     record of how it authenticates, its tool check — is
+					     `manageable`'s whole question, computed server-side. A
+					     person's own connector is manageable; a deployment one is not
+					     here, for anybody, administrators included: it is changed in
+					     Admin, Connectors, and the server refuses it from here. -->
 				{#if connector.manageable}
 					<button
 						onclick={() => beginEdit(connector)}
@@ -673,6 +678,8 @@
 					</button>
 				{/if}
 			</div>
+
+			<ConnectorTools {connector} list />
 
 			{#if credentialsFor === connector.id}
 				<form

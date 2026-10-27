@@ -39,7 +39,9 @@ export function connectorCatalogNotice(connectors: TurnConnector[]): string {
 		.map((c) => {
 			const names = c.toolNames.slice(0, MAX_NAMES_IN_LINE).join(", ");
 			const more = c.toolNames.length > MAX_NAMES_IN_LINE ? ", ..." : "";
-			return `- ${c.name}: ${c.summary}${names ? ` Tools: ${names}${more}.` : ""}`;
+			// With no tool names the host is what says which service this is.
+			const where = c.toolNames.length === 0 && c.host ? ` (${c.host})` : "";
+			return `- ${c.name}${where}: ${c.summary}${names ? ` Tools: ${names}${more}.` : ""}`;
 		});
 	if (lines.length === 0) return "";
 	return [
