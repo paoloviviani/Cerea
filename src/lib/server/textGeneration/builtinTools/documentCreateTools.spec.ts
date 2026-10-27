@@ -290,7 +290,11 @@ describe("the tool text comes from the service's schemas", () => {
 		expect(text).toContain("Run = {");
 		expect(text).toContain("Hex = ");
 		expect(text).toContain("Background = {color: Hex} | {");
-		expect(text).toContain("PptxTheme = Theme plus {slide_background?: Background}");
+		expect(text).toMatch(
+			/PptxTheme = Theme plus \{[^}]*slide_background\?: Background[^}]*slide_numbers\?: boolean/
+		);
+		expect(text).toContain("heading_bold?: boolean");
+		expect(text).toContain("h1: PowerPoint slide titles");
 		expect(text).toContain("background?: Background");
 		expect(text).toMatch(
 			/shapes\?: \{[^]*kind: "rect"\|"rounded_rect"[^]*layer\?: "back"\|"front"/

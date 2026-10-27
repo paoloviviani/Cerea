@@ -1362,6 +1362,7 @@
 							},
 							"heading_sizes_pt": {
 								"additionalProperties": false,
+								"description": "h1: PowerPoint slide titles (36); h2-h6: Word and PDF",
 								"properties": {
 									"h1": {
 										"maximum": 60,
@@ -2783,6 +2784,7 @@
 							},
 							"heading_sizes_pt": {
 								"additionalProperties": false,
+								"description": "h1: PowerPoint slide titles (36); h2-h6: Word and PDF",
 								"properties": {
 									"h1": {
 										"maximum": 60,
@@ -3820,6 +3822,10 @@
 								},
 								"type": "object"
 							},
+							"heading_bold": {
+								"description": "default true",
+								"type": "boolean"
+							},
 							"heading_font": {
 								"enum": [
 									"Arial",
@@ -3845,6 +3851,7 @@
 							},
 							"heading_sizes_pt": {
 								"additionalProperties": false,
+								"description": "h1: PowerPoint slide titles (36); h2-h6: Word and PDF",
 								"properties": {
 									"h1": {
 										"maximum": 60,
@@ -3942,6 +3949,10 @@
 									}
 								],
 								"description": "slide background: a colour, a two-colour gradient or a picture cropped to cover the slide"
+							},
+							"slide_numbers": {
+								"description": "not on slide 1",
+								"type": "boolean"
 							},
 							"table_style": {
 								"enum": ["banded", "grid", "minimal", "plain"]
@@ -4190,6 +4201,11 @@
 								"align": {
 									"enum": ["left", "center", "right"]
 								},
+								"color": {
+									"description": "hex colour such as 1F3864",
+									"pattern": "^#?[0-9A-Fa-f]{6}$",
+									"type": "string"
+								},
 								"fill": {
 									"anyOf": [
 										{
@@ -4261,6 +4277,11 @@
 												"pattern": "^(https?://|mailto:)[^\\s]+$",
 												"type": "string"
 											},
+											"size_pt": {
+												"maximum": 96,
+												"minimum": 8,
+												"type": "number"
+											},
 											"text": {
 												"maxLength": 20000,
 												"type": "string"
@@ -4277,7 +4298,7 @@
 								},
 								"size_pt": {
 									"maximum": 96,
-									"minimum": 10,
+									"minimum": 8,
 									"type": "number"
 								},
 								"text": {
@@ -4308,7 +4329,7 @@
 							"required": ["kind", "x_cm", "y_cm", "w_cm", "h_cm"],
 							"type": "object"
 						},
-						"maxItems": 30,
+						"maxItems": 40,
 						"type": "array"
 					},
 					"subtitle": {
@@ -4454,6 +4475,7 @@
 							},
 							"heading_sizes_pt": {
 								"additionalProperties": false,
+								"description": "h1: PowerPoint slide titles (36); h2-h6: Word and PDF",
 								"properties": {
 									"h1": {
 										"maximum": 60,
@@ -4996,12 +5018,27 @@
 			"track_changes": true
 		},
 		"pptx": {
-			"deferred_operations": [
-				"add_slide",
-				"insert_chart",
-				"insert_image into a picture placeholder"
-			],
+			"deferred_operations": ["insert_chart", "insert_image into a picture placeholder"],
 			"operation_schemas": {
+				"add_slide": {
+					"additionalProperties": false,
+					"properties": {
+						"after": {
+							"description": "0: first",
+							"minimum": 0,
+							"type": "integer"
+						},
+						"op": {
+							"type": "string"
+						},
+						"spec": {
+							"description": "one slide, exactly as doc_create takes it in `slides`",
+							"type": "object"
+						}
+					},
+					"required": ["op", "after", "spec"],
+					"type": "object"
+				},
 				"delete_slide": {
 					"additionalProperties": false,
 					"properties": {
@@ -5120,6 +5157,24 @@
 					"required": ["op", "slide", "shape", "image"],
 					"type": "object"
 				},
+				"replace_slide": {
+					"additionalProperties": false,
+					"properties": {
+						"op": {
+							"type": "string"
+						},
+						"slide": {
+							"minimum": 1,
+							"type": "integer"
+						},
+						"spec": {
+							"description": "one slide, exactly as doc_create takes it in `slides`",
+							"type": "object"
+						}
+					},
+					"required": ["op", "slide", "spec"],
+					"type": "object"
+				},
 				"replace_text": {
 					"additionalProperties": false,
 					"properties": {
@@ -5216,17 +5271,58 @@
 					},
 					"required": ["op", "slide", "placeholder", "text"],
 					"type": "object"
+				},
+				"update_shape": {
+					"additionalProperties": false,
+					"properties": {
+						"h_cm": {
+							"maximum": 1000,
+							"minimum": 0,
+							"type": "number"
+						},
+						"op": {
+							"type": "string"
+						},
+						"shape": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"slide": {
+							"minimum": 1,
+							"type": "integer"
+						},
+						"w_cm": {
+							"maximum": 1000,
+							"minimum": 0,
+							"type": "number"
+						},
+						"x_cm": {
+							"maximum": 1000,
+							"minimum": 0,
+							"type": "number"
+						},
+						"y_cm": {
+							"maximum": 1000,
+							"minimum": 0,
+							"type": "number"
+						}
+					},
+					"required": ["op", "slide", "shape"],
+					"type": "object"
 				}
 			},
 			"operations": [
+				"add_slide",
 				"delete_slide",
 				"duplicate_slide",
 				"insert_image",
 				"reorder_slides",
 				"replace_image",
+				"replace_slide",
 				"replace_text",
 				"set_notes",
-				"set_placeholder_text"
+				"set_placeholder_text",
+				"update_shape"
 			],
 			"outline": true,
 			"read": true,

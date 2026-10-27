@@ -56,6 +56,9 @@ def test_healthz_is_open_and_capabilities_need_the_secret(client: TestClient) ->
             "delete_slide",
             "reorder_slides",
             "set_notes",
+            "replace_slide",
+            "add_slide",
+            "update_shape",
         ]
     )
     assert "add_comment" in caps["formats"]["docx"]["deferred_operations"] and caps["create"] is True

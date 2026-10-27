@@ -35,6 +35,13 @@ SMALL_PT = 16  # below this a note suggests splitting the slide
 TABLE_STEPS = (18, 16, 14, 12, 11, 10)
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 P = "http://schemas.openxmlformats.org/presentationml/2006/main"
+SHAPE_MIN_PT = 8  # smallest text size_pt of a shape; the fit note says so
+INSET_LR_PT, INSET_TB_PT = 7.2, 3.6  # PowerPoint's default text-frame insets (0.254 and 0.127 cm), written explicitly
+INSET_LR_EMU, INSET_TB_EMU = 91_440, 45_720
+CHAR_EM = 0.46  # average character width in em, for the fit estimate
+SLIDE_NUMBER_PT = 10
+SLIDE_NUMBER_GUID = "{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}"
+LAYOUT_ALIASES = {"title_and_content": "title_content"}  # PowerPoint's own name for it
 BUILTIN = {"title": 0, "title_content": 1, "section": 2, "two_content": 3, "title_only": 5, "blank": 6}
 TABLE_STYLE_IDS = {
     "banded": "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}",
@@ -99,12 +106,24 @@ def _rgb(h: str) -> RGBColor:
 
 
 class PptxBuilder:
-    def __init__(self, spec: dict[str, Any], images: ImageSet, theme: Theme, template: bytes | None) -> None:
+    def __init__(
+        self,
+        spec: dict[str, Any],
+        images: ImageSet,
+        theme: Theme,
+        template: bytes | None,
+        *,
+        file_style: str | None = None,
+    ) -> None:
+        """`file_style` is for building into an existing deck (the edit operations): "builtin" is a deck this
+        builder made without a template (its master is already restyled and it is styled as the built-in set),
+        "template" one that takes its styles from its own master and layouts."""
         self.spec, self.images, self.t = spec, images, theme
         self.notes: list[str] = []
         self._warned_contrast: set[str] = set()
         self.charts: list[dict[str, Any]] = []
-        self.has_template = template is not None
+        self._shape_info: list[dict[str, Any]] = []
+        self.has_template = template is not None and file_style != "builtin"
         if template:
             self.prs = Presentation(io.BytesIO(_as_plain_pptx(template)))
             lst = self.prs.slides._sldIdLst
@@ -229,8 +248,8 @@ class PptxBuilder:
             title.set("algn", "l")
             rpr = title.find(f"{{{A}}}defRPr")
             if rpr is not None:
-                rpr.set("sz", str(TITLE_PT * 100))
-                rpr.set("b", "1")
+                rpr.set("sz", str(int(self.title_pt() * 100)))
+                rpr.set("b", "1" if t.heading_bold else "0")
                 for fill in rpr.findall(f"{{{A}}}solidFill"):
                     rpr.remove(fill)
                 fill = etree.SubElement(rpr, f"{{{A}}}solidFill")
@@ -242,12 +261,18 @@ class PptxBuilder:
                 el.set("sz", str(int(size * 100)))
         self.prs.core_properties  # noqa: B018 - touches the part so it exists before properties are set
 
+    def title_pt(self) -> float:
+        """The master's title size: the theme's h1 when it is given, else TITLE_PT."""
+        return float(self.t.heading_sizes[1]) if "heading_size_h1" in self.t.explicit else float(TITLE_PT)
+
     # ---- layouts ------------------------------------------------------------------------------
 
     def layouts(self) -> dict[str, Any]:
         return {lay.name.lower(): lay for lay in self.prs.slide_layouts}
 
     def pick(self, name: str, where: str) -> Any:
+        if name.lower() in LAYOUT_ALIASES and not (self.has_template and name.lower() in self.layouts()):
+            name = LAYOUT_ALIASES[name.lower()]  # unless the template has a layout of exactly that name
         if not self.has_template:
             if name in BUILTIN:
                 return self.prs.slide_layouts[BUILTIN[name]]
@@ -310,8 +335,11 @@ class PptxBuilder:
         self.prs.save(out)
         return fix_zip(out.getvalue()), {"charts": self.charts, "notes": self.notes, "slides": len(self.spec["slides"])}
 
-    def slide(self, i: int, s: dict[str, Any]) -> None:
-        where = f"slides[{i}]"
+    def slide(self, i: int, s: dict[str, Any], *, where: str | None = None, number: str | bool | None = None) -> None:
+        """Build slide `i` (0-based, its place in the deck). `number` is for the edit operations: the text of
+        the slide number, False for none; by default the theme decides (every slide but the first)."""
+        where = where or f"slides[{i}]"
+        self._shape_info = []
         visuals_only = bool(s.get("images") or s.get("charts"))
         default = (
             "title" if (i == 0 or s.get("subtitle")) and not s.get("body") and not visuals_only
@@ -339,8 +367,8 @@ class PptxBuilder:
                     title_ph,
                     [{"text": s["title"]}],
                     0,
-                    size=self._title_size(s["title"], title_ph, 44 if centered else TITLE_PT),
-                    bold=True if centered else None,
+                    size=self._title_size(s["title"], title_ph, 44 if centered else self.title_pt()),
+                    bold=True if centered and self.t.heading_bold else None,
                     align=PP_ALIGN.CENTER if centered else None,
                     heading=True,
                 )
@@ -379,6 +407,11 @@ class PptxBuilder:
         content = [sh for sh in slide.shapes if sh.shape_id not in {m.shape_id for m in mine}]
         mine += self._shapes(slide, s.get("shapes") or [], "front", where)
         self._warn_overlaps(s.get("shapes") or [], mine, content, where)
+        self._warn_fit(where)
+        if number is None:
+            number = str(i + 1) if self.t.slide_numbers and i > 0 else False
+        if number is not False:
+            self._slide_number(slide, layout, str(number))
 
     # ---- backgrounds and free shapes -----------------------------------------------------------
 
@@ -531,9 +564,23 @@ class PptxBuilder:
             shape.line.fill.background()
         self._drop_style(shape)
         shape.name = f"{kind} {where.rsplit('[', 1)[1].rstrip(']')}"
+        info: dict[str, Any] = {
+            "where": where,
+            "box": (x, y, w, h),
+            "text": bool(("text" in spec or "runs" in spec) and self._plain(spec).strip()),
+            "filled": bool(fill),
+            "need": None,
+        }
         if "text" in spec or "runs" in spec:
-            self._shape_text(shape, spec, fill, w, h, where)
+            info["need"] = self._shape_text(shape, spec, fill, w, h, where)
+            info["size"] = float(spec.get("size_pt", SHAPE_TEXT_PT))
+            info["anchor"] = spec.get("valign") or ("middle" if kind != "text" else "top")
+        self._shape_info.append(info)
         return shape
+
+    @staticmethod
+    def _plain(spec: dict[str, Any]) -> str:
+        return "".join(r["text"] for r in spec["runs"]) if "runs" in spec else str(spec.get("text", ""))
 
     @staticmethod
     def _drop_style(shape: Any) -> None:
@@ -541,7 +588,8 @@ class PptxBuilder:
         for st in shape._element.findall(f"{{{P}}}style"):
             shape._element.remove(st)
 
-    def _shape_text(self, shape: Any, spec: dict[str, Any], fill: str | None, w: int, h: int, where: str) -> None:
+    def _shape_text(self, shape: Any, spec: dict[str, Any], fill: str | None, w: int, h: int, where: str) -> float:
+        """Write the text of a shape; return the height (pt) the estimate says it needs, insets included."""
         size = float(spec.get("size_pt", SHAPE_TEXT_PT))
         runs = spec.get("runs") or [{"text": spec.get("text", "")}]
         paras: list[list[dict[str, Any]]] = [[]]
@@ -554,26 +602,107 @@ class PptxBuilder:
         tf = shape.text_frame
         tf.word_wrap = True
         tf.auto_size = MSO_AUTO_SIZE.NONE
+        tf.margin_left = tf.margin_right = Emu(
+            INSET_LR_EMU
+        )  # PowerPoint's defaults, written so the estimate below is of the real frame
+        tf.margin_top = tf.margin_bottom = Emu(INSET_TB_EMU)
         tf.vertical_anchor = {"top": MSO_ANCHOR.TOP, "middle": MSO_ANCHOR.MIDDLE, "bottom": MSO_ANCHOR.BOTTOM}[
             spec.get("valign") or ("middle" if spec["kind"] != "text" else "top")
         ]
         align = {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER, "right": PP_ALIGN.RIGHT}[
             spec.get("align") or ("center" if spec["kind"] != "text" else "left")
         ]
-        default_color = self._text_on(fill)
+        default_color = _hex(spec["color"]) if spec.get("color") else self._text_on(fill)
         for n, runs_in in enumerate(paras):
             p = tf.paragraphs[0] if n == 0 else tf.add_paragraph()
             p.alignment = align
             for r in runs_in:
-                self._run(p, r, size)
+                self._run(p, r, r.get("size_pt", size))
                 if not r.get("color") and default_color:
                     p.runs[-1].font.color.rgb = _rgb(default_color)
-        est = self._text_height([(r, 0, "paragraph") for r in paras], w / 12700 + 22, math.ceil(size))
-        if est > h / 12700:
-            self.notes.append(
-                f"{where}: the text will not fit in a {w / EMU_CM:.1f} x {h / EMU_CM:.1f} cm shape at {size:g} pt; "
-                "make the shape larger, shorten the text or use a smaller size_pt (10 at least)"
+        return self._text_height([(r, 0, "paragraph") for r in paras], w / 12700, math.ceil(size), shape=True)
+
+    def _warn_fit(self, where: str) -> None:
+        """One note per shape whose text is estimated to run past its frame, and only when that matters: the text
+        would leave the slide, spill out of a filled shape, or land on another shape's text."""
+        infos = self._shape_info
+        for me in infos:
+            need_pt = me["need"]
+            x, y, w, h = me["box"]
+            if need_pt is None or need_pt * 12700 <= h + 12700 or not me["text"]:
+                continue
+            need = int(need_pt * 12700)
+            over = need - h
+            anchor = me["anchor"]
+            top = y if anchor == "top" else y - over if anchor == "bottom" else y - over // 2
+            bottom = top + need
+            reasons: list[str] = []
+            tol = int(EDGE_CM * EMU_CM)
+            if top < -tol or bottom > self.H + tol:
+                reasons.append("run off the slide")
+            if me["filled"]:
+                reasons.append("spill out of its filled shape")
+            for other in infos:
+                if other is me:
+                    continue
+                ox, oy, ow, oh = other["box"]
+                spill = (  # the part of the text outside its own frame, against the other shape
+                    min(bottom, oy + oh) - max(y + h, oy) if bottom > y + h else 0,
+                    min(y, oy + oh) - max(top, oy) if top < y else 0,
+                )
+                apart = min(x + w, ox + ow) - max(x, ox)
+                if apart <= int(OVERLAP_CM * EMU_CM) or max(spill) <= int(OVERLAP_CM * EMU_CM):
+                    continue
+                name = other["where"].rsplit(".", 1)[-1]
+                if other["text"]:
+                    reasons.append(f"overlap the text of {name}")
+                elif (
+                    other["filled"]
+                    and ox <= x + tol
+                    and x + w <= ox + ow + tol
+                    and oy <= y + tol
+                    and y + h <= oy + oh + tol
+                ):
+                    reasons.append(f"run out of {name}, the shape behind it")
+            if reasons:
+                self.notes.append(
+                    f"{me['where']}: the text will not fit in a {w / EMU_CM:.1f} x {h / EMU_CM:.1f} cm shape at "
+                    f"{me['size']:g} pt (about {need / EMU_CM:.1f} cm of height needed) and would {' and '.join(reasons)}; "
+                    f"make the shape larger, shorten the text or use a smaller size_pt ({SHAPE_MIN_PT} at least)"
+                )
+
+    def _slide_number(self, slide: Any, layout: Any, text: str) -> None:
+        """The slide number as a field, so that moving the slide keeps it right: in the layout's own slide-number
+        placeholder when it has one, otherwise in a small text box at the bottom right. The built-in set (and the
+        text box) get the theme's muted colour at 10 pt; a template's placeholder keeps the template's look."""
+        ph = next((p for p in layout.placeholders if p.placeholder_format.type == PP_PLACEHOLDER.SLIDE_NUMBER), None)
+        styled = ph is None or not self.has_template
+        rpr = f'<a:rPr lang="en-US" sz="{SLIDE_NUMBER_PT * 100}"><a:solidFill><a:srgbClr val="{_hex(self.t.colors["muted"])}"/></a:solidFill></a:rPr>'
+        field = (
+            f'<a:fld id="{SLIDE_NUMBER_GUID}" type="slidenum">{rpr if styled else '<a:rPr lang="en-US"/>'}'
+            f"<a:t>{text}</a:t></a:fld>"
+        )
+        para = f'<a:p xmlns:a="{A}">{"<a:pPr algn=" + chr(34) + "r" + chr(34) + "/>" if styled else ""}{field}</a:p>'
+        tree = slide.shapes._spTree
+        if ph is not None:
+            new_id = max([int(v) for v in tree.xpath("//p:cNvPr/@id")] or [1]) + 1
+            sp = etree.fromstring(
+                f'<p:sp xmlns:p="{P}" xmlns:a="{A}"><p:nvSpPr><p:cNvPr id="{new_id}" name="Slide Number Placeholder"/>'
+                '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>'
+                f'<p:nvPr><p:ph type="sldNum" sz="quarter" idx="{ph.placeholder_format.idx}"/></p:nvPr></p:nvSpPr>'
+                "<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/></p:txBody></p:sp>"
             )
+            sp.find(f"{{{P}}}txBody").append(etree.fromstring(para))
+            tree.append(sp)
+            return
+        w, h = int(EMU_CM * 3), int(EMU_CM * 0.9)
+        box = slide.shapes.add_textbox(self.W - int(EMU_CM * MARGIN_CM) - w, self.H - int(EMU_CM * 0.8) - h, w, h)
+        box.name = "Slide Number"
+        box.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+        txb = box._element.find(f"{{{P}}}txBody")
+        for old in txb.findall(f"{{{A}}}p"):
+            txb.remove(old)
+        txb.append(etree.fromstring(para))
 
     def _text_on(self, fill: str | None) -> str | None:
         """Default text colour inside a filled shape: the theme's text colour, or white when that is hard to read on the fill."""
@@ -613,18 +742,20 @@ class PptxBuilder:
     def _box(ph: Any) -> Box:
         return int(ph.left), int(ph.top), int(ph.width), int(ph.height)
 
-    def _title_size(self, text: str, title_ph: Any, start: int) -> int | None:
+    def _title_size(self, text: str, title_ph: Any, start: float) -> float | None:
         """A size for a title that would not fit its placeholder in two lines at the default; None keeps the style's."""
         if self.has_template:
             return None
+        master = self.title_pt()
         if title_ph is None or not title_ph.width or not title_ph.height:
-            return start if start != TITLE_PT else None
+            return start if start != master else None
         width_pt, height_pt = title_ph.width / 12700, title_ph.height / 12700
-        for size in (s for s in TITLE_STEPS if s <= start):
+        steps = [z for z in sorted({master, *TITLE_STEPS}, reverse=True) if z <= start] or [master]
+        for size in steps:
             lines = math.ceil(len(text) * size * 0.55 / max(width_pt, 1))
             if lines * size * 1.2 <= height_pt:
-                return size if size != TITLE_PT else None
-        return TITLE_STEPS[-1]
+                return size if size != master else None
+        return steps[-1] if steps[-1] != master else None
 
     def _area(self, slide: Any, title_ph: Any, body_ph: Any, second_ph: Any = None) -> Box:
         """The content area: the body placeholder's box (joined with the second column's when that is unused)."""
@@ -732,8 +863,17 @@ class PptxBuilder:
         return BODY_STEPS[-1], False
 
     @staticmethod
-    def _text_height(paras: list[Any], width_pt: float, size: int) -> float:
+    def _text_height(paras: list[Any], width_pt: float, size: int, *, shape: bool = False) -> float:
+        """The height (pt) the text is estimated to need. A body has its bullets' indent and the gap written
+        after each paragraph; a shape has neither, only the frame's own insets and the runs' own sizes."""
         total = 0.0
+        if shape:
+            avail = max(width_pt - 2 * INSET_LR_PT, 8)
+            for runs, _lvl, _k in paras:
+                sz = max([float(r.get("size_pt", size)) for r in runs] or [float(size)])
+                em = sum(len(r["text"]) * float(r.get("size_pt", size)) for r in runs) * CHAR_EM * 1.05
+                total += max(1, math.ceil(em / avail)) * sz * 1.2
+            return total + 2 * INSET_TB_PT
         for runs, lvl, _k in paras:
             sz = size - 2 * min(lvl, 2)
             indent = 22 + 18 * lvl  # bullet hanging indent and nesting, in pt

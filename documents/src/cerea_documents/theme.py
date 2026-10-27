@@ -40,6 +40,8 @@ class Theme:
     table_style: str = "banded"
     template: str | None = None
     slide_background: dict[str, object] | None = None  # pptx: the background of slides that name none
+    heading_bold: bool = True  # pptx: slide titles
+    slide_numbers: bool = False  # pptx: a number on every slide but the first
     explicit: set[str] = field(default_factory=set)
 
     def uses(self, key: str) -> bool:
@@ -62,6 +64,10 @@ def resolve_theme(raw: dict[str, object] | None) -> Theme:
         t.template = str(raw["template"])
     if isinstance(raw.get("slide_background"), dict):
         t.slide_background = dict(raw["slide_background"])  # type: ignore[call-overload]
+    if "heading_bold" in raw:
+        t.heading_bold = bool(raw["heading_bold"])
+    if "slide_numbers" in raw:
+        t.slide_numbers = bool(raw["slide_numbers"])
     for key in ("body_font", "heading_font"):
         if key in raw:
             setattr(t, key, str(raw[key]))
