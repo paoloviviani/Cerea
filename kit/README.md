@@ -582,8 +582,9 @@ within one 50-second budget, so put the server that answers first and the ones
 that tend to hang last.
 
 `tools/mcp/skills/` has two example skills that tell the assistant which map
-tool answers which question, and to fall back to a web search when the place
-search does not answer. Add one of them, not both, for everyone in Admin →
+tool answers which question. Both steer it away from the OpenStreetMap server's
+place search (`find_nearby_pois`), which depends on the public Overpass servers
+and in practice times out: places come from Geoapify or a web search instead. Add one of them, not both, for everyone in Admin →
 Skills (paste it, or import it as a zip of its folder):
 
 - `maps-routing`: the OpenStreetMap server alone;
