@@ -5,6 +5,51 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.32.1 — 2026-10-27
+
+Pins: Cerea `0.32.1` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings.
+
+- **Connectors the deployment provides are configured only in Admin →
+  Connectors.** In Workspace everyone sees them read-only, administrators
+  included, with the same card for every connector: its status, how many tools
+  it has, and the list of tools. Admin → Connectors can now edit a connector you
+  added (name, address, a description the assistant reads, the shared key), and
+  repair one that uses sign-in (Re-check, and the app's client id and secret).
+  Changing a connector's address signs everybody out of it.
+- **Tools are checked when a connector is added** or its address or key
+  changes, and every card says how many tools it has, that they haven't been
+  checked yet, or why they couldn't be listed. A connector whose tools aren't
+  known is still named to the assistant with its address, so it can be found.
+  Error details, and addresses carrying a key, are shown only to
+  administrators; Admin warns when a key is written into an address.
+- **A sent message no longer comes back as a draft.** It happened when the
+  reply was cut off (a dropped connection, a phone going to sleep), and in the
+  agents composer when you switched agent while a message or a command was
+  sending. A message the server refuses (a rate limit, a server error) now goes
+  back into the box instead of being lost.
+- **The agent panel no longer flashes.** It keeps your machines and sessions
+  between visits and refreshes them in the background, changing only what
+  changed.
+- **The plan stays current.** The assistant updates its plan after every
+  finished step, not only at the start.
+- **No PDF just to preview a file.** The assistant no longer converts a deck
+  or document it made to PDF to show it: the chat already previews it. It makes
+  a PDF when you ask for one.
+- **Phones:** tapping Off, On or On, locked in Admin → Connectors no longer
+  scrolls the page away; pills ("Built-in", "Remembered for you") stay on one
+  line with a large text size; memory and project cards put their buttons
+  under the text.
+- **Geoapify in the kit's MCP example.** The kit README shows the
+  `MCP_SERVERS` entry for Geoapify's hosted MCP server, with a placeholder for
+  your key (there is no container to run; every call costs Geoapify credits),
+  or add it under Admin → Connectors with a shared key.
+- **Two example map skills:** `tools/mcp/skills/maps-routing` for the
+  OpenStreetMap server alone, and `tools/mcp/skills/maps-routing-geoapify` for
+  OpenStreetMap with Geoapify, including how to pick a Geoapify place category.
+  Add one of them in Admin → Skills.
+
 ## v0.32.0 — 2026-10-27
 
 Pins: Cerea `0.32.0` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
