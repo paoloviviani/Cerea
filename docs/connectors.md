@@ -68,6 +68,21 @@ belongs to the connector rather than to a person, so publishing one **shares
 the key** with everyone who uses it. The admin screen says so, because it is a
 decision and not an accident.
 
+**Who changes what, and where.** A connector the deployment provides, whether
+the administrator added it or it comes from `.env`, is configured only in
+**Admin → Connectors** (the `.env` ones in `.env`). In Workspace everybody sees
+it read-only, administrators included: its status, how many tools it has and
+the list of them, and your own **Use in my chats** switch where the
+administrator allows one. Your own connectors are edited in Workspace as
+before. Every card says what is known about its tools: "N tools", "Tools not
+checked yet", or why listing them failed. People who are not administrators
+see the address without its query string, and a generic "Could not list its
+tools" instead of the server's own error: those are for the administrator.
+
+For a connector each person signs in to (OAuth), the tool list comes from the
+checking administrator's own sign-in, so it reflects what that administrator's
+account can use.
+
 ## For operators
 
 A deployment can also configure servers with the `MCP_SERVERS` variable (see

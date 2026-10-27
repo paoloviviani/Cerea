@@ -4,7 +4,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { createConnectorRuntime } from "./connectorRuntime";
 import { connectorCatalogNotice, createLoadToolsBuiltin } from "../builtinTools/loadToolsTool";
-import type { BlockedConnector, TurnConnector } from "$lib/server/mcp/turnConnectors";
+import {
+	hostOf,
+	summaryOf,
+	type BlockedConnector,
+	type TurnConnector,
+} from "$lib/server/mcp/turnConnectors";
 
 vi.mock("$lib/server/logger", () => ({
 	logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -152,5 +157,32 @@ describe("the list of connectors the assistant can load", () => {
 		expect(text).toContain("- maps: maps things. Tools: route, geocode.");
 		expect(text).not.toContain("- search:");
 		expect(connectorCatalogNotice([])).toBe("");
+	});
+
+	it("names the host of a connector whose tools are not known, and says so, the same way every turn", () => {
+		const unknown = connector("Find locations", {
+			summary: summaryOf(undefined, []),
+			toolNames: [],
+			host: "api.geoapify.com",
+		});
+		const text = connectorCatalogNotice([unknown, connector("maps", { host: "maps.test" })]);
+		expect(text).toContain(
+			"- Find locations (api.geoapify.com): its tools haven't been checked; load it to see them."
+		);
+		// With tool names the line is as it was: the host adds nothing there.
+		expect(text).toContain("- maps: maps things. Tools: maps_find.");
+		// Stable across turns: built again from the same row, it is the same text.
+		expect(connectorCatalogNotice([unknown, connector("maps", { host: "maps.test" })])).toBe(text);
+	});
+
+	it("puts a multi-line description on one line", () => {
+		expect(summaryOf("Finds places.\n\n  - Also routes.\r\nTry it.", [])).toBe(
+			"Finds places. - Also routes. Try it."
+		);
+	});
+
+	it("takes the host from the address, and none from one that does not parse", () => {
+		expect(hostOf("https://api.geoapify.com/v1/mcp?apiKey=x")).toBe("api.geoapify.com");
+		expect(hostOf("not an address")).toBeUndefined();
 	});
 });

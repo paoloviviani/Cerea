@@ -93,7 +93,7 @@ service checks the spec first and answers with what is allowed if something is o
 
 The result carries an outline of the slides written (or the diff of an edit) and a verification report: the file is
 valid and reopens. There is no renderer, so say in one line what you checked and that the person should open the
-deck for the visual verdict. Describe only files the tools actually saved.
+deck for the visual verdict. Don't make a PDF of it to preview or check it: the chat already shows the person a preview of the file. Make a PDF only when they ask for one. Describe only files the tools actually saved.
 
 ## Fallback: when the doc_* tools are not available, or for a custom design
 
