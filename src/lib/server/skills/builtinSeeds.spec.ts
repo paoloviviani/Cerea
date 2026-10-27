@@ -125,7 +125,11 @@ describe("the built-in definitions", () => {
 		for (const skill of ["word", "excel", "powerpoint", "pdf"]) {
 			const body = definition(skill).content;
 			expect(body, skill).toContain("ONLY way");
-			expect(body, skill).toContain("## Fallback: only when the doc_* tools are not available");
+			expect(body, skill).toContain(
+				skill === "powerpoint"
+					? "## Fallback: when the doc_* tools are not available, or for a custom design"
+					: "## Fallback: only when the doc_* tools are not available"
+			);
 		}
 		for (const builtin of listBuiltinSkills()) {
 			expect(

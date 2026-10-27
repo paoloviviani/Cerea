@@ -10,6 +10,9 @@ import { listBuiltinSkills } from "./builtinSkills";
 
 const OFFICE = ["word", "excel", "powerpoint", "pdf"] as const;
 const FALLBACK = "## Fallback: only when the doc_* tools are not available";
+/** PowerPoint alone has a second case: the person's explicit custom-design request. */
+const PPTX_FALLBACK = "## Fallback: when the doc_* tools are not available, or for a custom design";
+const fallbackOf = (name: string) => (name === "powerpoint" ? PPTX_FALLBACK : FALLBACK);
 /** Names that mean "write Python for the document": only the fallback may use them. */
 const SANDBOX_WAYS =
 	/micropip|load_skill_file|execute_code|python-docx|python-pptx|openpyxl|reportlab|pypdf|xlsx_patch|docx_edit|docx_tables|docx_verify|pptx_edit|pptx_slides|pptx_verify|generate\.py|validate\.py|edit\.py|import docx|import openpyxl|DataFrame\.to_excel/;
@@ -22,7 +25,7 @@ function skill(name: string) {
 
 function parts(name: string) {
 	const content = skill(name).content;
-	const at = content.indexOf(FALLBACK);
+	const at = content.indexOf(fallbackOf(name));
 	return {
 		content,
 		at,
@@ -55,8 +58,9 @@ describe.each(OFFICE)("the %s skill", (name) => {
 
 	it("has exactly one fallback section, labelled, and it is the last", () => {
 		const { content, fallback } = parts(name);
-		expect(content.split(FALLBACK)).toHaveLength(2);
-		expect(fallback.startsWith(FALLBACK)).toBe(true);
+		const heading = fallbackOf(name);
+		expect(content.split(heading)).toHaveLength(2);
+		expect(fallback.startsWith(heading)).toBe(true);
 		expect(fallback).toContain("Read this section only if `doc_create` is NOT in your tool list");
 		expect(fallback).toMatch(/must not be mixed with the\s+tools/);
 		// nothing after the fallback heading is a second-level section of its own
@@ -85,6 +89,44 @@ describe.each(OFFICE)("the %s skill", (name) => {
 		expect(content).not.toMatch(/First choice/i);
 		expect(content).not.toMatch(/or the helpers above/);
 		expect(content).not.toMatch(/use the helpers below/);
+	});
+});
+
+describe("the powerpoint design exception", () => {
+	it("is opt-in, announced in one line, and never mixed within a deck, above the fallback", () => {
+		const { toolsFirst } = parts("powerpoint");
+		const rule = section(toolsFirst, "One rule");
+		expect(rule).toContain("ONLY way");
+		expect(rule).toContain("explicitly asks");
+		expect(rule).toMatch(/say in one line that you are building a custom design in\s+the sandbox/);
+		expect(rule).toMatch(/never\s+mixed/);
+		expect(rule).toMatch(/\bdoc_edit\b/);
+		expect(rule).toMatch(/"make it nice" is not an opt-in/);
+		// when unsure, ask first: with the question tool, else in plain text
+		expect(rule).toMatch(/When it is unclear which the person wants/);
+		expect(rule).toMatch(/ask before building\s+anything/);
+		expect(rule).toContain("`ask_user_question`");
+		expect(rule).toMatch(/clean deck in\s+standard layouts/);
+		expect(rule).toMatch(/custom design with free shapes and backgrounds/);
+		expect(rule).toMatch(/not in your tool list, ask the same in plain\s+text/);
+		expect(rule).toMatch(/Clear cases need\s+no question/);
+	});
+
+	it("the fallback names both cases and carries the design guidance", () => {
+		const { fallback } = parts("powerpoint");
+		expect(fallback).toMatch(/or the design exception in "One rule"\s+applies/);
+		expect(fallback).toContain("16:9");
+		expect(fallback).toContain("validate.py");
+		expect(fallback).toMatch(/at least 14 pt/);
+		expect(fallback).toContain("/mnt/output/");
+	});
+
+	it("the other three skills keep the strict rule, with no exception", () => {
+		for (const name of ["word", "excel", "pdf"]) {
+			const { content, toolsFirst } = parts(name);
+			expect(section(toolsFirst, "One rule"), name).not.toContain("explicitly asks");
+			expect(content, name).toContain(FALLBACK);
+		}
 	});
 });
 
