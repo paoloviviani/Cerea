@@ -58,11 +58,18 @@ class CaddyErasureRefusalTests(unittest.TestCase):
             ],
             check=True, capture_output=True, timeout=30,
         )
-        deadline = time.monotonic() + 15
+        # Ready means Caddy answers a request it handles itself. Two checks
+        # that look right are not: a bare connection (Docker's port forwarder
+        # accepts before Caddy listens, then resets), and a request to `/`
+        # (Caddy proxies it to `gateway`, a name that does not resolve here,
+        # and on a loaded machine that lookup outlasts the request timeout, so
+        # every try timed out with Caddy up). The refused path is answered by
+        # Caddy alone, with no upstream.
+        deadline = time.monotonic() + 30
         up = False
         while time.monotonic() < deadline:
             try:
-                urllib.request.urlopen(f"http://127.0.0.1:{cls.port}/", timeout=1)
+                urllib.request.urlopen(f"http://127.0.0.1:{cls.port}/internal/erasure", timeout=2)
                 up = True
                 break
             except urllib.error.HTTPError:
