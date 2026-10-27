@@ -581,12 +581,23 @@ often busy. `OVERPASS_BASE_URL` takes a comma-separated list tried in order
 within one 50-second budget, so put the server that answers first and the ones
 that tend to hang last.
 
-`tools/mcp/skills/maps-routing/SKILL.md` is a skill that tells the assistant
-which OpenStreetMap tool answers which question, and to fall back to a web
-search when the place search does not answer. An administrator adds it for
-everyone in Admin → Skills (paste it, or import it as a zip of its folder). It
-is not a built-in skill because it names this example's tools: drop it if you
-do not run `mcp-osm`, and edit it if you add other map servers.
+`tools/mcp/skills/` has two example skills that tell the assistant which map
+tool answers which question, and to fall back to a web search when the place
+search does not answer. Add one of them, not both, for everyone in Admin →
+Skills (paste it, or import it as a zip of its folder):
+
+- `maps-routing`: the OpenStreetMap server alone;
+- `maps-routing-geoapify`: OpenStreetMap together with Geoapify (below),
+  including how to pick a Geoapify place category.
+
+They are not built-in skills because they name these servers' tools: edit them
+if you run other map servers.
+
+Geoapify runs a hosted MCP server, so there is no container to add: it needs
+only a key from geoapify.com (a free tier exists; every call costs credits) and
+an entry in `MCP_SERVERS` with the key in a header, as in step 2. The key is
+shared by everyone who signs in. An administrator can instead add it under
+Admin → Connectors with a shared access key, which keeps it out of `.env`.
 
 1. Add the example's services and its `mcp-cache` volume to
    `compose.override.yaml`: copy `tools/mcp/compose.override.example.yaml` if you
@@ -602,6 +613,13 @@ do not run `mcp-osm`, and edit it if you add other map servers.
    ```
    MCP_SERVERS='[{"name":"search","url":"http://mcp-search:8096/mcp"},{"name":"osm","url":"http://mcp-osm:8096/mcp"}]'
    MCP_INTERNAL_HOSTS='mcp-search,mcp-osm'
+   ```
+
+   With Geoapify as well (a hosted https server: nothing to add to
+   `MCP_INTERNAL_HOSTS`), replace `YOUR-GEOAPIFY-KEY` with your key:
+
+   ```
+   MCP_SERVERS='[{"name":"search","url":"http://mcp-search:8096/mcp"},{"name":"osm","url":"http://mcp-osm:8096/mcp"},{"name":"geoapify","url":"https://api.geoapify.com/v1/mcp","headers":{"x-api-key":"YOUR-GEOAPIFY-KEY"}}]'
    ```
 
 3. `docker compose up -d --build`. The first start of each server downloads its
