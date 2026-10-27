@@ -199,6 +199,10 @@
 		isRetry?: boolean;
 		resumeElicitationId?: string;
 	}): Promise<void> {
+		// True once the server accepted the request and its reply stream is
+		// open: from then on the message is in the thread, whatever happens to
+		// the stream.
+		let accepted = false;
 		try {
 			stopRequestedFor = null;
 			$isAborted = false;
@@ -346,6 +350,7 @@
 				}
 			});
 			if (messageUpdatesIterator === undefined) return;
+			accepted = true;
 
 			// Clear only attachments this send actually consumed: a direct fix
 			// request (artifact "ask to fix") empties `files` around its call and
@@ -399,8 +404,11 @@
 			// the optimistic message stays in the thread with its retry,
 			// and the person gets an editable copy without retyping.
 			// Retries, elicitation resumes and aborts never restore — their
-			// content already lives in the thread.
-			if (!isRetry && !resumeElicitationId && prompt) sendFailedText = prompt;
+			// content already lives in the thread. Nor does a send the server
+			// accepted whose reply stream broke afterwards (a dropped
+			// connection): the turn runs on and the message is sent, so
+			// restoring it would leave a sent message in the box.
+			if (!accepted && !isRetry && !resumeElicitationId && prompt) sendFailedText = prompt;
 			console.error(err);
 		} finally {
 			writeMessageInFlight = false;

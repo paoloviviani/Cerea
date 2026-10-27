@@ -123,6 +123,78 @@ for (const [label, width] of [
 			await vi.waitFor(() => expect(boxValue(second)).toBe("kept after refusal"));
 		});
 
+		it("leaving mid-send does not bring the sent text back when it lands", async () => {
+			await browserPage.viewport(width, 800);
+			let land: () => void = () => {};
+			const first = mount(
+				"d1",
+				"a1",
+				() =>
+					new Promise<void>((resolve) => {
+						land = resolve;
+					})
+			);
+			await fill(first, "sent while leaving");
+			await first.getByRole("button", { name: "Send message" }).click();
+			await vi.waitFor(() => expect(onsend).toHaveBeenCalledTimes(1));
+			// The person navigates away before the daemon answers; unmounting
+			// lands the draft, which is still the text being sent.
+			drop(first);
+			expect(localStorage.getItem(keyFor("d1", "a1"))).toBe("sent while leaving");
+			land();
+			await vi.waitFor(() => expect(localStorage.getItem(keyFor("d1", "a1"))).toBeNull());
+
+			const back = mount("d1", "a1");
+			await tick();
+			expect(boxValue(back)).toBe("");
+		});
+
+		it("switching agents mid-send does not leave the sent text under the old agent", async () => {
+			await browserPage.viewport(width, 800);
+			let land: () => void = () => {};
+			const first = mount(
+				"d1",
+				"a1",
+				() =>
+					new Promise<void>((resolve) => {
+						land = resolve;
+					})
+			);
+			await fill(first, "sent from a1");
+			await first.getByRole("button", { name: "Send message" }).click();
+			await vi.waitFor(() => expect(onsend).toHaveBeenCalledTimes(1));
+			await first.rerender({ deviceId: "d1", agentId: "a2" });
+			await tick();
+			expect(boxValue(first)).toBe("");
+			land();
+			await vi.waitFor(() => expect(localStorage.getItem(keyFor("d1", "a1"))).toBeNull());
+			// The other agent's composer was never touched by the landing send.
+			expect(boxValue(first)).toBe("");
+			expect(localStorage.getItem(keyFor("d1", "a2"))).toBeNull();
+		});
+
+		it("text typed under the same agent while the send is in flight is kept", async () => {
+			await browserPage.viewport(width, 800);
+			let land: () => void = () => {};
+			const first = mount(
+				"d1",
+				"a1",
+				() =>
+					new Promise<void>((resolve) => {
+						land = resolve;
+					})
+			);
+			await fill(first, "the sent one");
+			await first.getByRole("button", { name: "Send message" }).click();
+			await vi.waitFor(() => expect(onsend).toHaveBeenCalledTimes(1));
+			await fill(first, "the next one");
+			land();
+			await tick();
+			await vi.waitFor(() => expect(boxValue(first)).toBe("the next one"));
+			drop(first);
+			expect(localStorage.getItem(keyFor("d1", "a1"))).toBe("the next one");
+		});
+
 		it("each device+agent keeps its own draft", async () => {
 			await browserPage.viewport(width, 800);
 			const first = mount("d1", "a1");

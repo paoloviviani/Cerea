@@ -76,6 +76,18 @@ export function clearComposerDraft(key: string): void {
 }
 
 /**
+ * Drops the stored draft after a send of `sent` landed, but only while the
+ * stored text is that same text. A composer that waits for the send (the agent
+ * composer) keeps showing it, so leaving mid-send lands it under its key; the
+ * composer's own clear then misses, because it is gone or shows another key.
+ * Newer text stored under the key since is a different message and stays.
+ */
+export function clearSentComposerDraft(key: string, sent: string): void {
+	const stored = readComposerDraft(key);
+	if (stored !== null && stored.trim() === sent.trim()) clearComposerDraft(key);
+}
+
+/**
  * Drops every stored draft. Called on sign-out, before the `POST /logout` —
  * drafts are per-device state, and on a shared browser the next person must
  * not see the previous person's unsent text. Never throws; keys outside the
