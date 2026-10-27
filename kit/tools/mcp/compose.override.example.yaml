@@ -72,8 +72,11 @@ services:
       # Optional, see the osm-mcp README: OSRM_BASE_URL, VALHALLA_BASE_URL,
       # OVERPASS_BASE_URL (comma-separated mirrors), ORS_API_KEY (a shared
       # credential: see the note on credentials above), OSM_ALLOW_TOOLS=essential.
-      # A skill that steers the assistant between these tools sits beside this
-      # file: tools/mcp/skills/maps-routing/SKILL.md (see the kit README).
+      # Skills that steer the assistant between these tools sit beside this
+      # file: tools/mcp/skills/maps-routing (OpenStreetMap alone) and
+      # tools/mcp/skills/maps-routing-geoapify (with Geoapify's hosted server,
+      # which needs no service here: only a key and a line in MCP_SERVERS; see
+      # the kit README).
     volumes:
       - mcp-cache:/cache
     tmpfs:
