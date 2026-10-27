@@ -13,7 +13,7 @@ artifacts, Python in the browser, and coding agents on your own machines.
 **The name.** _Cerea_ is a Turinese _modo di dire_: a historic, affectionate
 greeting that means both _buongiorno_ and _arrivederci_.
 
-![Cerea](docs/assets/cerea-chat-light.webp)
+![Cerea](docs/assets/cerea-chat-light-framed.webp)
 
 ## Cerea and Pystino
 
