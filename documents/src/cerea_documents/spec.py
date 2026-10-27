@@ -208,11 +208,17 @@ BACKGROUND = {
 }
 SHAPE_KINDS = ("rect", "rounded_rect", "ellipse", "line", "arrow", "chevron", "text")
 _SHAPE_CM = {"type": "number", "minimum": 0, "maximum": 100}
+_SHAPE_POS_CM = {
+    "type": "number",
+    "minimum": -50,
+    "maximum": 100,
+    "description": "cm; negative only for a shape without text that bleeds off the slide",
+}
 SHAPE = _obj(
     {
         "kind": {"enum": list(SHAPE_KINDS)},
-        "x_cm": _SHAPE_CM,
-        "y_cm": _SHAPE_CM,
+        "x_cm": _SHAPE_POS_CM,
+        "y_cm": _SHAPE_POS_CM,
         "w_cm": _SHAPE_CM,
         "h_cm": _SHAPE_CM,
         "fill": {"anyOf": [_COLOR, {"const": "none"}]},
@@ -488,16 +494,18 @@ def _check(schema: dict[str, Any], instance: Any, label: str, **details: Any) ->
     if not errors:
         return
     err = best_match(errors) or errors[0]
-    props = {k: v for k, v in (schema.get("properties") or {}).items() if k != "type"}
+    extra: dict[str, Any] = {}
+    if err.validator in ("additionalProperties", "required"):  # only here do the parent's keys help
+        props = {k: v for k, v in (schema.get("properties") or {}).items() if k != "type"}
+        extra = {"properties": sorted(props), "required": [r for r in schema.get("required", []) if r != "type"]}
     raise InvalidRequest(
         f"{label}{_where(err)}{_friendly(err)}",
         reason="schema",
-        details={
-            "properties": sorted(props),
-            "required": [r for r in schema.get("required", []) if r != "type"],
-            **details,
-        },
+        details={**extra, **details},
     )
+
+
+_BOUND_WORDS = {"minimum": "less than the minimum", "maximum": "more than the maximum"}
 
 
 def _friendly(err: ValidationError) -> str:
@@ -507,6 +515,13 @@ def _friendly(err: ValidationError) -> str:
         return f"{err.message} Allowed properties: {allowed}"
     if err.validator == "enum":
         return f"{err.instance!r} is not one of {err.validator_value}"
+    if err.validator in _BOUND_WORDS and isinstance(err.schema, dict):
+        lo, hi = err.schema.get("minimum"), err.schema.get("maximum")
+        if lo is not None and hi is not None:
+            span = f"{lo:g} to {hi:g}"
+        else:
+            span = f"{err.validator_value:g} or {'more' if err.validator == 'minimum' else 'less'}"
+        return f"{err.instance:g} is {_BOUND_WORDS[err.validator]} ({err.validator_value:g}); allowed range {span}"
     return err.message
 
 

@@ -141,6 +141,29 @@ describe("the card's Input when the Call's parameters are empty", () => {
 	});
 });
 
+describe("the card's Input for an object argument (a document spec)", () => {
+	async function inputOf(parameters: Record<string, unknown>) {
+		const tool = [{ ...call, call: { name: "doc_create", parameters } } as MessageToolUpdate];
+		const view = renderWithApp(ToolUpdate, { tool });
+		view.baseElement.querySelector<HTMLButtonElement>("button[aria-label='Expand']")?.click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		return view.baseElement.querySelector("pre")?.textContent ?? "";
+	}
+
+	it("shows the spec pretty-printed beside the other arguments", async () => {
+		const spec = { slides: [{ shapes: [{ kind: "ellipse", y_cm: -2 }] }] };
+		const text = await inputOf({ format: "pptx", spec: JSON.stringify(spec) });
+		expect(JSON.parse(text)).toEqual({ format: "pptx", spec });
+		expect(text).toContain('\n            "kind": "ellipse"');
+	});
+
+	it("shows cut-off spec text as it is, with its count", async () => {
+		const cut = '{"slides":[{"title":"xx… (1234 more characters)';
+		const text = await inputOf({ spec: cut });
+		expect(JSON.parse(text)).toEqual({ spec: cut });
+	});
+});
+
 describe("the collapsed card's thumbnail strip", () => {
 	const device = "b".repeat(24);
 	const urlOf = (n: number) =>

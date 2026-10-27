@@ -231,3 +231,11 @@ def test_failure_builds_nothing() -> None:
     """All or none: one bad block anywhere means the call fails and no file is produced."""
     with pytest.raises(InvalidRequest):
         create.create({"format": "docx", "spec": {"blocks": [P, P, {"type": "list", "items": []}]}}, None, {}, LIMITS)
+
+
+def test_a_range_error_names_the_field_value_and_range_and_not_the_parents_keys() -> None:
+    err = refused(
+        "docx", {"blocks": [{"type": "heading", "level": 9, "text": "x"}]}, "level: 9 is more than the maximum"
+    )
+    assert "allowed range" in str(err)
+    assert "properties" not in err.details and "required" not in err.details

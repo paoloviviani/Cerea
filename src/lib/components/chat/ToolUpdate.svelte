@@ -122,6 +122,31 @@
 		| { type: "image"; data: string; mimeType: string; size?: number }
 		| { type: "image"; url: string; mimeType: string; size?: number };
 
+	// An object or array argument is stored as JSON text (see toolParams.ts);
+	// show it as the structure it is. Text that is cut off ("… (N more characters)")
+	// does not parse and stays as it is.
+	const expandJsonText = (value: unknown): unknown => {
+		if (typeof value !== "string" || !/^\s*[{[]/.test(value)) return value;
+		try {
+			const parsed: unknown = JSON.parse(value);
+			return parsed !== null && typeof parsed === "object" ? parsed : value;
+		} catch {
+			return value;
+		}
+	};
+
+	const formatInput = (parameters: unknown): string =>
+		formatValue(
+			parameters && typeof parameters === "object"
+				? Object.fromEntries(
+						Object.entries(parameters as Record<string, unknown>).map(([k, v]) => [
+							k,
+							expandJsonText(v),
+						])
+					)
+				: parameters
+		);
+
 	const formatValue = (value: unknown): string => {
 		if (value == null) return "";
 		if (typeof value === "object") {
@@ -423,7 +448,7 @@
 								{m["chat.tool.input"]()}
 							</div>
 							<pre
-								class="rounded-lg bg-gray-100 p-2 font-mono text-xs break-all whitespace-pre-wrap dark:bg-gray-800/70">{formatValue(
+								class="rounded-lg bg-gray-100 p-2 font-mono text-xs break-all whitespace-pre-wrap dark:bg-gray-800/70">{formatInput(
 									inputParameters
 								)}</pre>
 						</div>

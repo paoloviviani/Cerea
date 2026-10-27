@@ -19,8 +19,8 @@ export interface NestedAgentCall {
 	toolName: string;
 	/**
 	 * Raw arguments as the model produced them, redacted and truncated. Not
-	 * `ToolCall.parameters`, which drops non-primitives — a sandbox command
-	 * arrives there as `{}`.
+	 * `ToolCall.parameters`, which keeps an object argument only as cut JSON
+	 * text for the tool card, unredacted.
 	 */
 	arguments: string;
 	/** Occurrences of this exact (tool, arguments) pair so far, including this one. */

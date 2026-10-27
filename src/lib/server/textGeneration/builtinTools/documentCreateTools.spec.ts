@@ -480,6 +480,25 @@ describe("the service's errors become messages a model can act on", () => {
 		expect(stored.saved).toHaveLength(0);
 	});
 
+	it("hands the model a range error with the field, the value and the allowed range", async () => {
+		reply = {
+			status: 422,
+			body: {
+				error: {
+					code: "invalid_request",
+					reason: "schema",
+					message:
+						"slides[0]: shapes.1.y_cm: -60 is less than the minimum (-50); allowed range -50 to 100",
+				},
+			},
+		};
+		const error = await run();
+		expect(error).toContain("shapes.1.y_cm: -60");
+		expect(error).toContain("allowed range -50 to 100");
+		expect(error).toContain("No file was made.");
+		expect(error).not.toContain("Details:");
+	});
+
 	it("maps too large, unsupported, timeout and a failing service", async () => {
 		reply = { status: 413, body: { error: { message: "the request is larger than 64 MiB" } } };
 		expect(await run()).toMatch(/too large/);
