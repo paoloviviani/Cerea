@@ -563,6 +563,18 @@ and Nominatim's usage policy asks for it. Walking and cycling routes use the
 FOSSGIS `routed-foot` / `routed-bike` servers; point `OSRM_BASE_URL` at your own
 if you need more than light use.
 
+The public Overpass servers (the place search) are run by volunteers and are
+often busy. `OVERPASS_BASE_URL` takes a comma-separated list tried in order
+within one 50-second budget, so put the server that answers first and the ones
+that tend to hang last.
+
+`tools/mcp/skills/maps-routing/SKILL.md` is a skill that tells the assistant
+which OpenStreetMap tool answers which question, and to fall back to a web
+search when the place search does not answer. An administrator adds it for
+everyone in Admin → Skills (paste it, or import it as a zip of its folder). It
+is not a built-in skill because it names this example's tools: drop it if you
+do not run `mcp-osm`, and edit it if you add other map servers.
+
 1. Add the example's services and its `mcp-cache` volume to
    `compose.override.yaml`: copy `tools/mcp/compose.override.example.yaml` if you
    have no override yet, otherwise paste the two services under your `services:`
