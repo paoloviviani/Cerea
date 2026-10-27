@@ -522,7 +522,7 @@
 			<Switch
 				name={`use-connector-${connector.id}`}
 				disabled={!connector.connected}
-				bind:checked={() => connector.enabled, (on) => setOn(connector, on)}
+				bind:checked={() => connector.enabled && connector.connected, (on) => setOn(connector, on)}
 			/>
 		{/snippet}
 		<!-- A connector the administrator keeps on has no switch: it stays on for everyone. -->
@@ -865,7 +865,9 @@
 				<Switch
 					name={`use-connector-${connector.id}`}
 					disabled={!connector.connected}
-					bind:checked={() => connector.enabled, (on) => setOn(connector, on)}
+					bind:checked={
+						() => connector.enabled && connector.connected, (on) => setOn(connector, on)
+					}
 				/>
 			{/snippet}
 

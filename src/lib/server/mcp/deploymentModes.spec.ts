@@ -102,6 +102,18 @@ describe("what is on for a person", () => {
 		expect(names((await mcpLocalsFor({}, userId)).connectors)).toContain("Locked");
 	});
 
+	it("never offers a .env server the administrator switched off, nor lists it as something the person turned off", async () => {
+		env.servers = [
+			{ name: "search", url: "https://search.test/mcp" },
+			{ name: "osm", url: "https://osm.test/mcp" },
+		];
+		await setPolicy(baseKey("osm"), { mode: "off" });
+		const locals = await mcpLocalsFor({ loadedConnectors: ["base:osm"] }, userId);
+		expect(names(locals.connectors)).toEqual(["search"]);
+		expect(locals.blocked).toEqual([]);
+		expect(locals.servers).toEqual([]);
+	});
+
 	it("turns a switch back to the default by removing it", async () => {
 		await setSwitch(userId, "base:search", false);
 		expect((await loadSwitches(userId)).off.has("base:search")).toBe(true);

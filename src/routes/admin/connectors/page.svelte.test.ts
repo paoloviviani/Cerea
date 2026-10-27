@@ -134,7 +134,7 @@ describe("admin MCP page", () => {
 	it("sets 'always loaded' with its own switch, and says what it costs", async () => {
 		const screen = renderWithApp(Page, {} as never);
 		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
-		expect(screen.baseElement.textContent).toContain("keep big or rarely used connectors off this");
+		expect(screen.baseElement.textContent).toContain("keep big or rarely used connectors off");
 		const [, search] = rows(screen.baseElement);
 		search.querySelector<HTMLInputElement>('input[name="loaded-base-search"]')?.click();
 		await vi.waitFor(() =>

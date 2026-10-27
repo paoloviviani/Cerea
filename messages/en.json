@@ -1619,7 +1619,7 @@
 	"admin.connectors.form.url": "URL",
 	"admin.connectors.load_failed": "Could not load connectors. Try again.",
 	"admin.connectors.mode.always_loaded": "Always loaded",
-	"admin.connectors.mode.always_loaded_hint": "Its tools are in every request, so the assistant never has to ask for them. They add to the length of every message: keep big or rarely used connectors off this.",
+	"admin.connectors.mode.always_loaded_hint": "Its tools are in every request, so the assistant never has to load it. This adds length to every message: keep big or rarely used connectors off.",
 	"admin.connectors.mode.label": "Offered as",
 	"admin.connectors.mode.locked": "On, locked",
 	"admin.connectors.mode.locked_hint": "On for everyone. People cannot switch it off.",
