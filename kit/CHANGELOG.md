@@ -5,6 +5,42 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.32.0 — 2026-10-27
+
+Pins: Cerea `0.32.0` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings.
+
+**After updating, check Admin → Connectors.** Every connector, including the
+ones in `MCP_SERVERS`, starts **On**, and every person has them all on,
+their own connectors too. Choices kept in old browsers are lost. Set anything
+people shouldn't have to **Off**, and mark connectors used in nearly every chat
+as **Always loaded**.
+
+- **Connectors are switched in one place: Workspace → Connectors.** The
+  composer no longer lists them, and chats no longer have their own selection.
+  Administrators set each deployment connector to Off, On (people may switch it
+  off) or On, locked, under Admin → Connectors.
+- **Tools load when they're needed.** The assistant sees each connector as one
+  line and loads its tools only when a request needs them; a short "Loaded
+  Maps" line shows when it does. Conversations that don't use a connector no
+  longer pay for its tool descriptions (in our measurement, about 5,700 tokens
+  of tool definitions dropped to about 2,300 with search and maps enabled). A
+  connector marked "Always loaded" is there from the start.
+- **Retired: a project's connector defaults.** They are ignored, and the
+  section is gone from the project page.
+- **PowerPoint: fix one slide without rebuilding the deck.** The assistant can
+  replace a slide, add one, or move or resize a shape. It reads the deck's look
+  back from the file and leaves every other part of the file unchanged.
+- **PowerPoint: fewer false "will not fit" warnings.** The note now appears only
+  when text runs off the slide, out of its card, or onto other text, and says
+  how much room it needs.
+- **PowerPoint: more room for design.** Up to 40 shapes per slide, text down to
+  8 pt, a text colour per shape and a size per run. Slide titles follow the
+  theme's heading size, and `slide_numbers` numbers every slide but the first.
+  Limit errors are one short sentence.
+- **New screenshots** in the README and the documentation.
+
 ## v0.31.1 — 2026-10-27
 
 Pins: Cerea `0.31.1` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
