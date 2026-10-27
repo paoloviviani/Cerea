@@ -12,8 +12,14 @@ vi.mock("$lib/server/logger", () => ({
 	logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-const { parsePlanArgs, renderPlanBlock, injectPlanState, createPlanTool, PLAN_TOOL_NAME } =
-	await import("./planTool");
+const {
+	parsePlanArgs,
+	renderPlanBlock,
+	injectPlanState,
+	createPlanTool,
+	nextStepReminder,
+	PLAN_TOOL_NAME,
+} = await import("./planTool");
 
 const ctx = { uuid: "uuid-1", toolCallId: "call_plan" };
 
@@ -190,6 +196,10 @@ describe("createPlanTool execute", () => {
 		expect(conv.plan?.version).toBe(5);
 
 		expect("resultText" in outcome && outcome.resultText).toContain("PLAN (v5 — 1/3 done)");
+		// The reminder rides in the tool result, next to the latest calls, so a long turn keeps updating.
+		expect("resultText" in outcome && outcome.resultText).toContain(
+			"When it is done, call update_plan again"
+		);
 		if ("extraUpdates" in outcome) {
 			expect(outcome.extraUpdates?.[0]).toMatchObject({
 				type: MessageUpdateType.Plan,
@@ -226,5 +236,33 @@ describe("createPlanTool execute", () => {
 
 		expect("error" in outcome && outcome.error).toContain("could not be saved");
 		expect(conv.plan).toBeUndefined();
+	});
+});
+
+describe("nextStepReminder", () => {
+	it("names the step in progress and asks for an update before the next one", () => {
+		const text = nextStepReminder({
+			steps: [
+				{ step: "read the data", status: "completed" },
+				{ step: "draft the table", status: "in_progress" },
+				{ step: "write it up", status: "pending" },
+			],
+		} as never);
+		expect(text).toContain('"draft the table"');
+		expect(text).toContain("before starting the next step");
+	});
+
+	it("asks to mark the next step when none is in progress", () => {
+		const text = nextStepReminder({
+			steps: [
+				{ step: "read the data", status: "completed" },
+				{ step: "write it up", status: "pending" },
+			],
+		} as never);
+		expect(text).toContain("No step is in_progress");
+	});
+
+	it("says nothing once every step is done", () => {
+		expect(nextStepReminder({ steps: [{ step: "a", status: "completed" }] } as never)).toBe("");
 	});
 });
