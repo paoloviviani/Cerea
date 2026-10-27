@@ -14,12 +14,20 @@ usually quick.
 
 ## Places nearby ("parking near…", "cafés around…", "a pharmacy open now")
 
-1. **First: `find_nearby_pois`.** Search by category, or by an OpenStreetMap tag when the request is
+1. **First: `find_nearby_pois`, once.** Search by category, or by an OpenStreetMap tag when the request is
    specific (cuisine, diet, wheelchair access, a brand). It can take up to a minute when the servers are busy;
    give it that time.
-2. **If it fails or times out: a web search** for "<what> near <place>", and read the results' own pages for
+2. **If it fails or times out, do not call it again** (not with another radius, category or tag): the tool
+   already tries every configured server before it gives up, so a second call only adds another minute of
+   waiting. Go straight to **a web search** for "<what> near <place>", and read the results' own pages for
    addresses, hours and prices. For parking, include the operator sites and the city's parking pages. Say in
    a few words that the map search didn't answer.
+3. **For the rest of the conversation**, once a place search has failed, skip the tools that need it
+   (`find_nearby_pois`, `poi_details`, `suggest_meeting_point`) and use web search for places. Try them again
+   only if the person asks.
+
+A search that answered but found few places is not a failure: report what it found, and widen the radius
+once only if the person wants more.
 
 For a place's details (opening hours, phone, website), use `poi_details`. If it fails, use the place's own
 website from a web search.
