@@ -229,10 +229,11 @@ export interface McpConnectorView {
 	/** Whose it is. `deployment` entries come from an administrator. */
 	scope: "user" | "deployment";
 	/**
-	 * Whether *this* caller may edit or remove it. False for everybody on a
-	 * deployment connector except an administrator — the row still renders,
-	 * because it is offered to them, but the buttons that would change it for
-	 * everyone else do not.
+	 * Whether *this* caller may edit or remove it here. A person's own: true. A
+	 * deployment connector: false in Workspace for everybody, administrators
+	 * included, and true only in the administrator's listing (`?admin=1`) — the
+	 * row still renders, because it is offered to them, but it is changed on
+	 * the Admin screen.
 	 */
 	manageable: boolean;
 	/**
@@ -266,6 +267,8 @@ export interface McpConnectorView {
 	scopesSupported?: string[];
 	issuer?: string;
 	lastError?: string;
+	/** The administrator's one sentence on what it is for, when there is one. */
+	description?: string;
 	/** From the last check. Absent means "not checked", not "none". */
 	tools?: { name: string; description?: string }[];
 	checkedAt?: string;

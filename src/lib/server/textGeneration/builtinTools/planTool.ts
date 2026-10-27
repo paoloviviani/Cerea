@@ -28,10 +28,14 @@ export const planToolDefinition = {
 	function: {
 		name: PLAN_TOOL_NAME,
 		description:
-			"Create or update the task plan for complex, multi-step work, and keep it current " +
-			"as you go: rewrite the whole plan each call, mark steps completed the moment they " +
-			"finish, and revise pending steps when reality diverges. " +
-			"Skip it entirely for simple or single-step requests.",
+			"Create or update the task plan for complex, multi-step work. Once a plan exists, it is " +
+			"your progress record and the person watches it: call this tool again every time a step " +
+			"finishes, before starting the next one, in the same turn, sending the whole plan with " +
+			"that step completed and the next one in_progress. Never do the work of two steps " +
+			"without updating the plan in between, and never end a turn with a step still " +
+			"in_progress that is actually done: update the plan first, then write your answer. " +
+			"Revise pending steps when reality diverges, and mark abandoned ones skipped. " +
+			"Skip the tool entirely for simple or single-step requests.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -203,13 +207,32 @@ export function injectPlanState(
 	return updated;
 }
 
+/**
+ * What the model reads right after each update, beside its latest tool calls: the plan
+ * itself is re-shown only at the start of a turn, so without this a long turn drifts
+ * and the plan stops moving after the first steps.
+ */
+export function nextStepReminder(plan: Pick<PlanState, "steps">): string {
+	const current = plan.steps.find((s) => s.status === "in_progress");
+	if (current) {
+		return (
+			`\nNow working on: "${truncate(current.step, MAX_STEP_CHARS)}". When it is done, call ` +
+			`${PLAN_TOOL_NAME} again (that step completed, the next one in_progress) before starting the next step.`
+		);
+	}
+	if (plan.steps.some((s) => s.status === "pending")) {
+		return `\nNo step is in_progress: mark the one you start next in_progress with ${PLAN_TOOL_NAME}.`;
+	}
+	return "";
+}
+
 export function createPlanTool(conv: Pick<Conversation, "_id" | "plan">): BuiltinTool {
 	return {
 		name: PLAN_TOOL_NAME,
 		definition: planToolDefinition,
 		exemptFromToolRestraint: true,
 		preprompt:
-			`PLAN: for multi-step work, call ${PLAN_TOOL_NAME} with 3-7 short steps (one in_progress, a one or two word label each) and keep it current: mark a step completed as soon as it is done, rewrite the goal when the request changes. ` +
+			`PLAN: for multi-step work, call ${PLAN_TOOL_NAME} with 3-7 short steps (one in_progress, a one or two word label each). Then call it again after every finished step, before you start the next, so the plan always shows where you are; before your final answer, make sure every finished step is marked completed. Rewrite the goal when the request changes. ` +
 			`Not for simple questions or one-step requests. The interface shows the plan, so do not repeat it in your reply.`,
 		async execute(args, ctx) {
 			const parsed = parsePlanArgs(args);
@@ -253,7 +276,10 @@ export function createPlanTool(conv: Pick<Conversation, "_id" | "plan">): Builti
 				version: plan.version,
 				...(parsed.explanation ? { explanation: parsed.explanation } : {}),
 			};
-			return { resultText: renderPlanBlock(plan), extraUpdates: [planUpdate] };
+			return {
+				resultText: `${renderPlanBlock(plan)}${nextStepReminder(plan)}`,
+				extraUpdates: [planUpdate],
+			};
 		},
 	};
 }

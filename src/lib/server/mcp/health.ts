@@ -21,6 +21,7 @@
 
 import { getClient, releaseClient, retainClient } from "$lib/server/mcp/clientPool";
 import { logger } from "$lib/server/logger";
+import { stripAddress } from "$lib/utils/connectorUrl";
 
 export interface McpToolSummary {
 	name: string;
@@ -59,10 +60,12 @@ function looksLikeAuthFailure(message: string): boolean {
  */
 export async function listTools(
 	url: string,
-	headers: Record<string, string> = {}
+	headers: Record<string, string> = {},
+	/** Give up sooner than the default, for a check somebody is waiting on while adding or saving. */
+	timeoutMs: number = TIMEOUT_MS
 ): Promise<ToolListing> {
 	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+	const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
 	try {
 		// Timed in two phases so a slow check can be told apart: a slow
@@ -91,7 +94,8 @@ export async function listTools(
 			}));
 			logger.info(
 				{
-					url,
+					// Without the query string: it may carry a key.
+					url: stripAddress(url),
 					acquireMs: listedAt - acquiredAt,
 					listMs: Date.now() - listedAt,
 					count: tools.length,

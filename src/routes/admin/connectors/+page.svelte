@@ -19,6 +19,10 @@
 	import Rich from "$lib/i18n/Rich.svelte";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconAddLarge from "~icons/carbon/add-large";
+	import IconEdit from "~icons/carbon/edit";
+	import IconRefresh from "~icons/carbon/renew";
+	import ConnectorTools from "$lib/components/mcp/ConnectorTools.svelte";
+	import { credentialLikeParams } from "$lib/utils/connectorUrl";
 	import type { ConnectorMode, McpConnectorView } from "$lib/types/McpConnector";
 	import type { MCPServer, MCPTool } from "$lib/types/Tool";
 	import Switch from "$lib/components/Switch.svelte";
@@ -39,6 +43,29 @@
 	let authMode = $state<"auto" | "none" | "token">("auto");
 	let token = $state("");
 	let tokenHeader = $state("");
+	let description = $state("");
+
+	/** The connector being edited, and what is in its form. */
+	let editing = $state<McpConnectorView | null>(null);
+	let editName = $state("");
+	let editUrl = $state("");
+	let editDescription = $state("");
+	let editToken = $state("");
+	let editTokenHeader = $state("");
+	let clearEditToken = $state(false);
+	/** Which connector's tool check is running. */
+	let checking = $state<string | null>(null);
+	/** Which OAuth connector has its app details (client id and secret) form open. */
+	let detailsFor = $state<string | null>(null);
+	let rowClientId = $state("");
+	let rowClientSecret = $state("");
+	// Shown so somebody registering a client by hand can copy it: the same value the server derives.
+	const redirectUri = $derived(
+		typeof window === "undefined" ? "" : `${window.location.origin}${base}/mcp/callback`
+	);
+	/** Query parameters of the address being typed that look like a key. */
+	const addUrlSecrets = $derived(credentialLikeParams(url.trim()));
+	const editUrlSecrets = $derived(credentialLikeParams(editUrl.trim()));
 
 	// The servers `.env` (`MCP_SERVERS`) defines, with how the deployment offers each
 	// (ADR 0104). Their address and key are edited in `.env`; their mode is set here.
@@ -178,6 +205,7 @@
 					name: name.trim(),
 					url: url.trim(),
 					scope: "deployment",
+					...(description.trim() ? { description: description.trim() } : {}),
 					authMode,
 					...(authMode === "token"
 						? {
@@ -196,6 +224,7 @@
 			url = "";
 			token = "";
 			tokenHeader = "";
+			description = "";
 			authMode = "auto";
 			adding = false;
 			await load();
@@ -203,6 +232,116 @@
 			failure = err instanceof Error ? err.message : m["admin.connectors.add_failed"]();
 		} finally {
 			busy = false;
+		}
+	}
+
+	// `?scope=deployment` says this is the administrator's screen: the same routes serve
+	// Workspace, where a connector the deployment provides cannot be changed by anyone.
+	const asDeployment = (id: string) => `/connectors/${id}?scope=deployment`;
+
+	function beginEdit(connector: McpConnectorView) {
+		editing = connector;
+		editName = connector.name;
+		editUrl = connector.url;
+		editDescription = connector.description ?? "";
+		editToken = "";
+		editTokenHeader = connector.tokenHeader ?? "";
+		clearEditToken = false;
+		failure = null;
+	}
+
+	function cancelEdit() {
+		editing = null;
+		editToken = "";
+		clearEditToken = false;
+	}
+
+	async function saveEdit(event: SubmitEvent) {
+		event.preventDefault();
+		const target = editing;
+		if (!target || !editName.trim() || !editUrl.trim()) return;
+		busy = true;
+		failure = null;
+		try {
+			const header = editTokenHeader.trim();
+			await api(asDeployment(target.id), {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					action: "update",
+					name: editName.trim(),
+					url: editUrl.trim(),
+					// Always sent: an empty one clears it.
+					description: editDescription.trim(),
+					...(editToken.trim()
+						? {
+								token: editToken.trim(),
+								...(header
+									? {
+											tokenHeader: header,
+											tokenPrefix: /^authorization$/i.test(header) ? "Bearer " : "",
+										}
+									: {}),
+							}
+						: {}),
+					...(clearEditToken ? { clearToken: true } : {}),
+				}),
+			});
+			cancelEdit();
+			await load();
+		} catch (err) {
+			failure = err instanceof Error ? err.message : m["admin.connectors.edit_failed"]();
+		} finally {
+			busy = false;
+		}
+	}
+
+	/** Register the OAuth client id (and secret) a provider without self-registration gave you. */
+	async function saveDetails(event: SubmitEvent, connector: McpConnectorView) {
+		event.preventDefault();
+		if (!rowClientId.trim()) return;
+		busy = true;
+		failure = null;
+		try {
+			await api(asDeployment(connector.id), {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					action: "update",
+					clientId: rowClientId.trim(),
+					...(rowClientSecret.trim() ? { clientSecret: rowClientSecret.trim() } : {}),
+				}),
+			});
+			rowClientId = "";
+			rowClientSecret = "";
+			detailsFor = null;
+			await load();
+		} catch (err) {
+			failure = err instanceof Error ? err.message : m["admin.connectors.edit_failed"]();
+		} finally {
+			busy = false;
+		}
+	}
+
+	/**
+	 * Check one connector. A shared-key or open one lists its tools again with its own key;
+	 * an OAuth one is asked again how it signs people in (`reprobe`), which is what repairs a
+	 * connector whose address changed or whose provider moved.
+	 */
+	async function recheck(connector: McpConnectorView, action: "check" | "reprobe" = "check") {
+		checking = connector.id;
+		failure = null;
+		try {
+			await api(asDeployment(connector.id), {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ action }),
+			});
+			await load();
+		} catch (err) {
+			failure = err instanceof Error ? err.message : m["admin.connectors.check_failed"]();
+		} finally {
+			checking = null;
 		}
 	}
 
@@ -228,6 +367,17 @@
 {#snippet code(text: string)}<code class="font-mono">{text}</code>{/snippet}
 
 {#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
+
+<!-- An address with a key in it is shown to nobody but you, but it is still stored in the clear. -->
+{#snippet urlWarning(names: string[])}
+	<p
+		role="alert"
+		data-testid="url-secret-warning"
+		class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+	>
+		{m["admin.connectors.form.url_secret_warning"]({ names: names.join(", ") })}
+	</p>
+{/snippet}
 
 <!--
 	How one connector is offered: off, on, or on and locked, and whether the assistant has it
@@ -344,6 +494,27 @@
 					/>
 				</label>
 			</div>
+			{#if addUrlSecrets.length > 0}
+				{@render urlWarning(addUrlSecrets)}
+			{/if}
+
+			<label class="flex flex-col gap-1">
+				<span class="text-xs font-medium"
+					>{m["admin.connectors.form.description"]()}
+					<span class="font-normal text-gray-500">{m["admin.connectors.form.optional"]()}</span
+					></span
+				>
+				<input
+					class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+					placeholder={m["admin.connectors.form.description_placeholder"]()}
+					maxlength="300"
+					bind:value={description}
+					disabled={busy}
+				/>
+				<span class="text-xs text-gray-500 dark:text-gray-400">
+					{m["admin.connectors.form.description_hint"]()}
+				</span>
+			</label>
 
 			<label class="flex flex-col gap-1">
 				<span class="text-xs font-medium">{m["admin.connectors.form.auth"]()}</span>
@@ -395,6 +566,10 @@
 					{m["admin.connectors.form.individual"]()}
 				</p>
 			{/if}
+
+			<p class="text-xs text-gray-500 dark:text-gray-400">
+				{m["admin.connectors.form.add_hint"]()}
+			</p>
 
 			<div class="flex justify-end gap-2">
 				<button
@@ -506,6 +681,11 @@
 							<p class="truncate text-xs text-gray-500 dark:text-gray-400" title={connector.url}>
 								{connector.url}
 							</p>
+							{#if connector.description}
+								<p class="mt-1 text-xs text-gray-600 dark:text-gray-300">
+									{connector.description}
+								</p>
+							{/if}
 							{#if connector.lastError}
 								<p class="mt-1 text-xs text-red-600 dark:text-red-400">{connector.lastError}</p>
 							{/if}
@@ -518,6 +698,53 @@
 										? m["admin.connectors.auth.token"]()
 										: m["admin.connectors.auth.none"]()}
 							</span>
+							<ConnectorTools {connector} />
+							{#if connector.manageable}
+								<button
+									type="button"
+									onclick={() => beginEdit(connector)}
+									disabled={busy}
+									class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+								>
+									<IconEdit class="size-3" />
+									{m["admin.connectors.edit"]()}
+								</button>
+								{#if connector.auth === "oauth"}
+									<!-- Asks the server again how it signs people in: the repair for a changed address. -->
+									<button
+										type="button"
+										onclick={() => recheck(connector, "reprobe")}
+										disabled={busy || checking !== null}
+										title={m["admin.connectors.recheck_title"]()}
+										class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+									>
+										{m["admin.connectors.recheck"]()}
+									</button>
+									{#if !connector.canAuthorize}
+										<button
+											type="button"
+											onclick={() =>
+												(detailsFor = detailsFor === connector.id ? null : connector.id)}
+											disabled={busy}
+											class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+										>
+											{m["mcp.connectors.add_app_details"]()}
+										</button>
+									{/if}
+								{/if}
+								<button
+									type="button"
+									onclick={() => recheck(connector)}
+									disabled={busy || checking !== null}
+									title={m["admin.connectors.check_title"]()}
+									class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+								>
+									<IconRefresh class="size-3 {checking === connector.id ? 'animate-spin' : ''}" />
+									{checking === connector.id
+										? m["admin.connectors.checking"]()
+										: m["admin.connectors.check"]()}
+								</button>
+							{/if}
 							<button
 								onclick={() => remove(connector)}
 								disabled={busy}
@@ -528,6 +755,157 @@
 							</button>
 						</div>
 					</div>
+					<ConnectorTools {connector} list />
+					{#if detailsFor === connector.id}
+						<form
+							data-testid="app-details"
+							class="mt-3 space-y-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+							onsubmit={(event) => saveDetails(event, connector)}
+						>
+							<input
+								autocomplete="off"
+								aria-label={m["mcp.connectors.client_id"]()}
+								placeholder={m["mcp.connectors.client_id"]()}
+								class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+								bind:value={rowClientId}
+								required
+								disabled={busy}
+							/>
+							<input
+								type="password"
+								autocomplete="off"
+								aria-label={m["mcp.connectors.client_secret_placeholder"]()}
+								placeholder={m["mcp.connectors.client_secret_placeholder"]()}
+								class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+								bind:value={rowClientSecret}
+								disabled={busy}
+							/>
+							<p class="text-xs text-gray-500 dark:text-gray-400">
+								{m["mcp.connectors.redirect_uri_row"]()}
+								<code class="rounded-sm bg-gray-100 px-1 py-0.5 break-all dark:bg-gray-800"
+									>{redirectUri}</code
+								>
+							</p>
+							<div class="flex justify-end">
+								<button
+									type="submit"
+									disabled={busy || !rowClientId.trim()}
+									class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+								>
+									{m["mcp.connectors.save"]()}
+								</button>
+							</div>
+						</form>
+					{/if}
+					{#if editing?.id === connector.id}
+						<form
+							data-testid="edit-connector"
+							class="mt-3 space-y-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+							onsubmit={saveEdit}
+						>
+							<label class="flex flex-col gap-1">
+								<span class="text-xs font-medium">{m["admin.connectors.form.name"]()}</span>
+								<input
+									class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+									bind:value={editName}
+									required
+									disabled={busy}
+								/>
+							</label>
+							<label class="flex flex-col gap-1">
+								<span class="text-xs font-medium">{m["admin.connectors.form.url"]()}</span>
+								<input
+									type="url"
+									class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+									bind:value={editUrl}
+									required
+									disabled={busy}
+								/>
+								{#if editUrlSecrets.length > 0}
+									{@render urlWarning(editUrlSecrets)}
+								{/if}
+							</label>
+							<label class="flex flex-col gap-1">
+								<span class="text-xs font-medium"
+									>{m["admin.connectors.form.description"]()}
+									<span class="font-normal text-gray-500"
+										>{m["admin.connectors.form.optional"]()}</span
+									></span
+								>
+								<input
+									class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+									placeholder={m["admin.connectors.form.description_placeholder"]()}
+									maxlength="300"
+									bind:value={editDescription}
+									disabled={busy}
+								/>
+								<span class="text-xs text-gray-500 dark:text-gray-400">
+									{m["admin.connectors.form.description_hint"]()}
+								</span>
+							</label>
+							{#if connector.auth !== "oauth"}
+								<!-- A shared key belongs to the connector; an OAuth one is each person's own. -->
+								<div class="flex flex-wrap gap-2">
+									<label class="flex min-w-48 flex-2 flex-col gap-1" style="flex-grow:2">
+										<span class="text-xs font-medium"
+											>{m["admin.connectors.form.new_token"]()}
+											<span class="font-normal text-gray-500"
+												>{connector.auth === "token"
+													? m["admin.connectors.form.leave_blank"]()
+													: m["admin.connectors.form.optional"]()}</span
+											></span
+										>
+										<input
+											type="password"
+											autocomplete="off"
+											class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+											bind:value={editToken}
+											disabled={busy}
+										/>
+									</label>
+									<label class="flex min-w-32 flex-1 flex-col gap-1">
+										<span class="text-xs font-medium">{m["admin.connectors.form.header"]()}</span>
+										<input
+											class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+											placeholder={EXAMPLE_HEADER}
+											bind:value={editTokenHeader}
+											disabled={busy || !editToken.trim()}
+										/>
+									</label>
+								</div>
+								{#if connector.auth === "token"}
+									<label class="flex items-center gap-2 text-xs">
+										<input
+											type="checkbox"
+											bind:checked={clearEditToken}
+											disabled={busy || !!editToken.trim()}
+										/>
+										{m["admin.connectors.form.remove_key"]()}
+									</label>
+								{/if}
+							{/if}
+							<p class="text-xs text-gray-500 dark:text-gray-400">
+								{m["admin.connectors.form.edit_hint"]()}
+							</p>
+							<div class="flex justify-end gap-2">
+								<button
+									type="button"
+									onclick={cancelEdit}
+									disabled={busy}
+									class="btn rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800"
+								>
+									{m["admin.connectors.form.cancel"]()}
+								</button>
+								<button
+									type="submit"
+									disabled={busy || !editName.trim() || !editUrl.trim()}
+									class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+								>
+									{busy ? m["admin.connectors.form.saving"]() : m["admin.connectors.form.save"]()}
+								</button>
+							</div>
+						</form>
+					{/if}
 					{@render policyControl(
 						connector.id,
 						connector.mode,
