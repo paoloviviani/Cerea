@@ -241,6 +241,20 @@ describe("connectors loaded by a sub-agent (ADR 0104)", () => {
 		expect(second.slice(0, toolNames(requests[0].req).length)).toEqual(toolNames(requests[0].req));
 	});
 
+	it("never widens to a tool that was on offer at the start and left out of its allowlist", async () => {
+		const { openai, requests } = upstream([
+			{ calls: [{ name: "load_tools", args: { connectors: ["maps"] } }] },
+			{ content: "done" },
+		]);
+		const d = deps(openai);
+		loader(d);
+		// `srv_do` (say, Gmail's send_email) is offered to the turn, and this agent may not use it.
+		await runNestedAgent(spec({ allowedTools: new Set(["web_search", "load_tools"]) }), ctx(), d);
+		expect(toolNames(requests[0].req)).not.toContain("srv_do");
+		expect(toolNames(requests[1].req)).toContain("maps_find");
+		expect(toolNames(requests[1].req)).not.toContain("srv_do");
+	});
+
 	it("does not offer what was loaded to an agent that may not load", async () => {
 		const { openai, requests } = upstream([
 			{ calls: [{ name: "web_search", args: { query: "x" } }] },

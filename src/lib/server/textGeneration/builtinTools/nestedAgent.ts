@@ -255,16 +255,20 @@ export async function runNestedAgent(
 	const availableNames = new Set(nestedTools.map((tool) => tool.function.name));
 	// A sub-agent allowed `load_tools` may call what it loads, and what it loads is loaded for the
 	// whole conversation. The list it was given at the start grows as the turn's does.
+	// Only tools added after this agent started count: one that was on offer at the start and left
+	// out of its allowlist stays out, whoever loads what afterwards.
 	let seenConnectorsVersion = deps.connectors?.version ?? 0;
+	const startToolCount = deps.mcpTools.length;
+	const offeredAtStart = new Set(deps.mcpTools.map((tool) => tool.function.name));
 	const refreshLoadedTools = () => {
 		const version = deps.connectors?.version ?? 0;
 		if (version === seenConnectorsVersion) return;
 		seenConnectorsVersion = version;
 		if (!builtinNames.has(LOAD_TOOLS_TOOL_NAME)) return;
 		const current = new Map(deps.servers.map((server) => [server.name, server]));
-		for (const tool of deps.mcpTools) {
+		for (const tool of deps.mcpTools.slice(startToolCount)) {
 			const name = tool.function.name;
-			if (availableNames.has(name) || builtinNames.has(name)) continue;
+			if (availableNames.has(name) || builtinNames.has(name) || offeredAtStart.has(name)) continue;
 			const server = current.get(deps.mapping[name]?.server ?? "");
 			if (spec.requireToolServer && !(server && spec.requireToolServer(server))) continue;
 			nestedTools.push(tool);
