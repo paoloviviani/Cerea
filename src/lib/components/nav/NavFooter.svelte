@@ -26,6 +26,7 @@
 	import { onDestroy } from "svelte";
 	import { browser } from "$app/environment";
 	import { switchTheme, subscribeToTheme } from "$lib/switchTheme";
+	import { clearCodePanelCache } from "$lib/stores/codeTreeCache.svelte";
 	import { clearAllComposerDrafts } from "$lib/utils/composerDraft";
 	import { clearTranscripts } from "$lib/stores/agentTranscriptCache";
 	import IconSun from "$lib/components/icons/IconSun.svelte";
@@ -112,6 +113,7 @@
 		onsubmit={() => {
 			clearAllComposerDrafts();
 			clearTranscripts();
+			clearCodePanelCache();
 		}}
 	>
 		<button

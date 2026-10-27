@@ -43,10 +43,17 @@
 	import IconChevronRight from "~icons/carbon/chevron-right";
 	import IconTime from "~icons/carbon/time";
 	import IconPermissions from "~icons/carbon/security";
+	import {
+		bindCodeCacheOwner,
+		codeTreeCache,
+		dropCachedAgent,
+		dropCachedTree,
+		isCodeTreeFresh,
+		loadDeviceTree,
+		type DeviceSubtree,
+	} from "$lib/stores/codeTreeCache.svelte";
 	import { forgetTranscript, transcriptKey } from "$lib/stores/agentTranscriptCache";
 	import {
-		listWorkspaces,
-		listAgents,
 		confirmDevice,
 		revokeDevice,
 		archiveAgent,
@@ -95,14 +102,6 @@
 		workspaceKey,
 	} from "$lib/utils/codeTreeCollapse";
 
-	/** One paired device's live subtree, read through the proxy. */
-	interface DeviceSubtree {
-		workspaces: CodeWorkspace[];
-		agents: CodeAgentSession[];
-		/** The daemon behind this pairing could not be reached. */
-		off: boolean;
-	}
-
 	/**
 	 * The stand-alone rows beside the device tree (Schedules, at the top):
 	 * one address, same shape as the branch, so the two can never drift. A
@@ -114,7 +113,12 @@
 	const SIDEBAR_ITEM_ACTIVE =
 		"flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm bg-gray-100 font-semibold text-gray-900 dark:bg-gray-700 dark:text-white";
 
-	let trees = $state<Record<string, DeviceSubtree>>({});
+	// The subtrees live in a module cache, not here: this component mounts and
+	// unmounts as the person moves between chats and /code, and rows held in
+	// component state began empty on every visit.
+	bindCodeCacheOwner(page.data.user?.id);
+	$effect(() => bindCodeCacheOwner(page.data.user?.id));
+	const trees = $derived(codeTreeCache.trees);
 	let pairingOpen = $state(false);
 	let workspaceDialogFor = $state<string | null>(null);
 	let agentDialogFor = $state<CodeWorkspace | null>(null);
@@ -310,20 +314,8 @@
 		Object.values(trees).some((tree) => tree.agents.some((agent) => agent.parentId))
 	);
 
-	async function loadTree(deviceId: string): Promise<DeviceSubtree> {
-		try {
-			const [{ workspaces }, { agents }] = await Promise.all([
-				listWorkspaces(deviceId),
-				listAgents(deviceId),
-			]);
-			return { workspaces, agents, off: false };
-		} catch {
-			return { workspaces: [], agents: [], off: true };
-		}
-	}
-
-	async function reloadDevice(deviceId: string) {
-		trees = { ...trees, [deviceId]: await loadTree(deviceId) };
+	function reloadDevice(deviceId: string) {
+		return loadDeviceTree(deviceId);
 	}
 
 	// The device list itself is the shared poll (`codeDeviceList.svelte.ts`,
@@ -346,12 +338,13 @@
 	// whichever device is slowest (X4): a `Promise.all` that only assigns
 	// `trees` once every promise has settled meant one slow machine blocked
 	// every other device's rows too, reload after reload.
-	async function refreshTrees() {
+	// `ifStale` (the visit's first read) skips a device whose cached subtree is
+	// still young, so returning to /code neither refetches nor flashes.
+	async function refreshTrees(opts: { ifStale?: boolean } = {}) {
 		await Promise.all(
-			loadableDevices.map(async (device) => {
-				const tree = await loadTree(device.id);
-				trees = { ...trees, [device.id]: tree };
-			})
+			loadableDevices
+				.filter((device) => !(opts.ifStale && isCodeTreeFresh(device.id)))
+				.map((device) => loadDeviceTree(device.id))
 		);
 	}
 	// The device list (`codeDeviceList`) and this tree's own load are two
@@ -368,7 +361,7 @@
 	});
 	onMount(() => {
 		const stopDevicePoll = useCodeDevicePoll();
-		void refreshTrees();
+		void refreshTrees({ ifStale: true });
 		const interval = setInterval(() => void refreshTrees(), TREE_POLL_MS);
 		const onFocus = () => {
 			void refreshCodeDevices();
@@ -402,9 +395,7 @@
 		// the dialog busy (or report a revoke that happened as a failure).
 		dropCodeDevice(id);
 		void refreshCodeDevices();
-		const rest = { ...trees };
-		delete rest[id];
-		trees = rest;
+		dropCachedTree(id);
 		if (selectedDeviceId === id) {
 			void goto(`${base}/code`, { keepFocus: true });
 		}
@@ -420,6 +411,7 @@
 	async function handleArchiveAgent(device: CodeDeviceView, agent: CodeAgentSession) {
 		await archiveAgent(device.id, agent.id);
 		forgetTranscript(transcriptKey(device.id, agent.id));
+		dropCachedAgent(device.id, agent.id);
 		if (selectedDeviceId === device.id && selectedAgentId === agent.id) {
 			void goto(`${base}/code?device=${device.id}&ws=${agent.workspaceId}`, { keepFocus: true });
 		}
@@ -434,6 +426,7 @@
 	async function handleDeleteAgent(device: CodeDeviceView, agent: CodeAgentSession) {
 		await deleteAgent(device.id, agent.id);
 		forgetTranscript(transcriptKey(device.id, agent.id));
+		dropCachedAgent(device.id, agent.id);
 		if (selectedDeviceId === device.id && selectedAgentId === agent.id) {
 			void goto(`${base}/code?device=${device.id}&ws=${agent.workspaceId}`, { keepFocus: true });
 		}
@@ -795,7 +788,7 @@
 					     drawn, not padded) has nothing left to mark. The vertical
 					     space between machines, above, keeps the groups apart. -->
 					<div data-testid="device-rail">
-						{#if device.online === false || tree?.off}
+						{#if device.online === false || (tree?.off && tree.workspaces.length === 0)}
 							<!-- Offline renders as a plain label, never a spinner (X4):
 						     an unreachable machine is never even asked for its
 						     tree (see `loadableDevices` above), so there is
@@ -812,6 +805,12 @@
 								{m["code.nav.add_workspace"]()}
 							</button>
 						{:else}
+							{#if tree?.off}
+								<!-- The last read failed: the rows below are the last good ones. -->
+								<p class="py-0.5 pl-2 text-xs text-gray-400 dark:text-gray-500">
+									{m["code.nav.offline_dot"]()}
+								</p>
+							{/if}
 							{#each tree?.workspaces ?? [] as ws (ws.id)}
 								{@const wsActive = ws.id === selectedWorkspaceId && deviceActive}
 								{@const wsExpanded = isWorkspaceExpanded(device.id, ws.id)}
