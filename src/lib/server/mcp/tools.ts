@@ -2,6 +2,7 @@ import { forgetLocalConnection, getClient, releaseClient, retainClient } from ".
 import { isLocalServerUrl } from "./localUrl";
 import type { McpServerConfig } from "./httpClient";
 import { logger } from "$lib/server/logger";
+import { rememberTools } from "./catalogCache";
 // use console.* for lightweight diagnostics in production logs
 
 export type OpenAiTool = {
@@ -63,7 +64,7 @@ const cache = new Map<string, ServerCacheEntry>();
 //   ^[a-zA-Z0-9_-]{1,64}$
 // Dots are not universally accepted (e.g., MiniMax via HF router rejects them).
 // Normalize any disallowed characters (including ".") to underscore and trim to 64 chars.
-function sanitizeName(name: string) {
+export function sanitizeName(name: string) {
 	return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
 }
 
@@ -343,6 +344,8 @@ export async function getOpenAiToolsForMcp(
 			try {
 				const tools = await fetchWithLocalRetry(server, { signal });
 				cache.set(key, { fetchedAt: now, ttlMs, tools });
+				// What the assistant is told it can load, without contacting the server again.
+				rememberTools(server.url, tools);
 				return tools;
 			} catch (err) {
 				logger.warn(

@@ -94,19 +94,13 @@ async function denyAndResume(row: McpElicitation): Promise<void> {
 
 	const { locals, settings } = await rebuildIdentity(pending.userId, pending.sessionId);
 
-	// The connectors the turn was started with. A resume has no request to
-	// read them from, and without this every round after the park ran with the
-	// built-in tools only (the model then hunted for the missing connector
-	// among the skills). Best effort: a failure leaves the environment's
-	// servers, as a fresh turn's failed resolution does.
-	//
-	// A conversation with no recorded selection (one that predates it) still gets what the
-	// deployment offers to everyone: the same resolver, with nothing chosen.
+	// The connectors this turn may use. A resume has no request to read them from, and without
+	// this every round after the park ran with the built-in tools only (the model then hunted
+	// for the missing connector among the skills). The same resolver as a fresh turn: the
+	// deployment's policies, the person's switches and what the conversation has loaded
+	// (ADR 0104). Best effort: a failure leaves the built-in tools, as a fresh turn's does.
 	try {
-		locals.mcp = await mcpLocalsFor(
-			conv.mcpSelection ?? { connectorIds: [], customServers: [] },
-			pending.userId
-		);
+		locals.mcp = await mcpLocalsFor(conv, pending.userId);
 	} catch (err) {
 		logger.warn({ err }, "[approval] could not restore the turn's MCP selection");
 	}

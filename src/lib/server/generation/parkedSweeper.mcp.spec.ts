@@ -56,7 +56,7 @@ afterAll(() => {
 	else process.env.CHAT_SECRET_KEY = originalKey;
 });
 
-async function seedParkedTurn(mcpSelection?: Record<string, unknown>) {
+async function seedParkedTurn(loadedConnectors?: string[]) {
 	await collections.mcpConnectors.insertOne({
 		_id: connectorId,
 		userId,
@@ -85,7 +85,7 @@ async function seedParkedTurn(mcpSelection?: Record<string, unknown>) {
 			},
 			{ id: "asst-1", from: "assistant", content: "", ancestors: ["sys", "user-1"], children: [] },
 		],
-		...(mcpSelection ? { mcpSelection } : {}),
+		...(loadedConnectors ? { loadedConnectors } : {}),
 		createdAt: new Date(),
 		updatedAt: new Date(),
 	} as never);
@@ -111,53 +111,44 @@ async function seedParkedTurn(mcpSelection?: Record<string, unknown>) {
 }
 
 type SeenLocals = {
-	mcp?: { selectedServers: { name: string; url: string; headers?: Record<string, string> }[] };
+	mcp?: { servers: { name: string; url: string; headers?: Record<string, string> }[] };
 };
 
 describe("resuming a parked turn", () => {
-	it("restores the turn's connectors, with their credential, after execute_code", async () => {
-		await seedParkedTurn({
-			connectorIds: [connectorId.toString()],
-			customServers: [{ name: "adhoc", url: "https://adhoc.test/mcp" }],
-		});
+	it("restores the connectors the conversation loaded, with their credential, after execute_code", async () => {
+		await seedParkedTurn([`connector:${connectorId}`]);
 
 		await sweepParkedCalls();
 
 		const row = await collections.parkedCalls.findOne({});
 		expect(row?.status).toBe("resumed");
 		expect(seen.locals).toHaveLength(1);
-		const servers = (seen.locals[0] as SeenLocals).mcp?.selectedServers ?? [];
-		expect(servers.map((server) => server.name)).toEqual(["adhoc", "Joplin"]);
-		expect(servers.find((server) => server.name === "Joplin")?.headers).toEqual({
-			Authorization: "Bearer joplin-token",
-		});
-		// The ad-hoc server comes back as name and URL only — never a credential.
-		expect(servers.find((server) => server.name === "adhoc")?.headers).toBeUndefined();
+		const servers = (seen.locals[0] as SeenLocals).mcp?.servers ?? [];
+		expect(servers.map((server) => server.name)).toEqual(["Joplin"]);
+		expect(servers[0].headers).toEqual({ Authorization: "Bearer joplin-token" });
 	});
 
 	it("never resolves a connector for anybody but the user who parked", async () => {
 		const stranger = new ObjectId();
-		await seedParkedTurn({ connectorIds: [connectorId.toString()], customServers: [] });
+		await seedParkedTurn([`connector:${connectorId}`]);
 		await collections.mcpConnectors.updateOne({ _id: connectorId }, { $set: { userId: stranger } });
 
 		await sweepParkedCalls();
 
-		const servers = (seen.locals[0] as SeenLocals).mcp?.selectedServers ?? [];
-		expect(servers).toEqual([]);
+		expect((seen.locals[0] as SeenLocals).mcp?.servers ?? []).toEqual([]);
 	});
 
-	it("resumes with only what the deployment provides when no selection was recorded", async () => {
+	it("resumes with only what is always loaded when the conversation loaded nothing", async () => {
 		await seedParkedTurn();
 
 		await sweepParkedCalls();
 
 		expect(seen.locals).toHaveLength(1);
-		// Resolved by the same function as a fresh turn, with nothing chosen: no person's
-		// connector, no server the browser named.
-		expect((seen.locals[0] as SeenLocals).mcp?.selectedServers).toEqual([]);
+		// The same resolver as a fresh turn, with nothing loaded: no connector of the person's.
+		expect((seen.locals[0] as SeenLocals).mcp?.servers).toEqual([]);
 	});
 
-	it("applies the deployment's modes on resume, whatever the recorded selection says", async () => {
+	it("applies the deployment's policies on resume, whatever the conversation remembers", async () => {
 		const always = new ObjectId();
 		const off = new ObjectId();
 		const base = {
@@ -171,20 +162,30 @@ describe("resuming a parked turn", () => {
 			{ ...base, _id: always, name: "Search", url: "https://search.test/mcp" },
 			{ ...base, _id: off, name: "Maps", url: "https://maps.test/mcp" },
 		]);
-		await collections.connectorModes.insertOne({
-			_id: new ObjectId(),
-			key: `connector:${off}`,
-			mode: "off",
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		});
+		await collections.connectorModes.insertMany([
+			{
+				_id: new ObjectId(),
+				key: `connector:${always}`,
+				mode: "on",
+				alwaysLoaded: true,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			},
+			{
+				_id: new ObjectId(),
+				key: `connector:${off}`,
+				mode: "off",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			},
+		]);
 		try {
-			// A selection recorded by a stale tab: it names the off one and omits the always-on one.
-			await seedParkedTurn({ connectorIds: [off.toString()], customServers: [] });
+			// The conversation remembers loading the one the administrator has since switched off.
+			await seedParkedTurn([`connector:${off}`]);
 
 			await sweepParkedCalls();
 
-			const names = ((seen.locals[0] as SeenLocals).mcp?.selectedServers ?? []).map((s) => s.name);
+			const names = ((seen.locals[0] as SeenLocals).mcp?.servers ?? []).map((s) => s.name);
 			expect(names).toEqual(["Search"]);
 		} finally {
 			await collections.mcpConnectors.deleteMany({ _id: { $in: [always, off] } });

@@ -30,6 +30,8 @@ export interface McpServerConfig {
 	name: string;
 	url: string;
 	headers?: Record<string, string>;
+	/** One sentence on what it is for; optional, in `MCP_SERVERS` entries. */
+	description?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;

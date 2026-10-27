@@ -601,6 +601,18 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.mcpConnectors, "userId", userId),
 	},
 	{
+		name: "connectorSwitches",
+		owner: "userId",
+		mergeRule: "reassign-unique-keep-target",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// One row per person (unique on userId): preferences, not content. The
+		// target's own switches stay; the stray's row is dropped on a collision.
+		merge: (stray, target) =>
+			reassignWithUniqueConflict(collections.connectorSwitches, "userId", stray, target),
+		erase: (userId) => eraseByField(collections.connectorSwitches, "userId", userId),
+	},
+	{
 		name: "mcpTokens",
 		owner: "userId",
 		mergeRule: "reassign-unique-keep-target",

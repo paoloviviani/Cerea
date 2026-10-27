@@ -1,26 +1,31 @@
 /**
- * How the deployment offers its own connectors to people.
+ * How the deployment offers its own connectors, and each person's own
+ * switches (ADR 0104).
  *
  * The deployment's connectors are the `.env` servers (`MCP_SERVERS`) and the
- * ones an administrator adds (`scope: "deployment"`). Each has a mode:
+ * ones an administrator adds (`scope: "deployment"`). Each has a policy:
  *
- * - `always` (the default, so a row is only ever stored for the other two):
- *   offered on every turn, with no switch. The turn adds it whatever the
- *   browser sent.
- * - `optional`: offered with a switch; on a turn only when that person chose it.
- * - `off`: offered to nobody, whatever the browser sent.
+ * - mode `on` (the default, so a row is only ever stored for something else):
+ *   on for everyone, and a person may switch it off in Workspace;
+ * - mode `locked`: on for everyone, and nobody may switch it off;
+ * - mode `off`: offered to nobody;
+ * - `alwaysLoaded`: its tools are loaded from the start of every turn instead
+ *   of being a line the assistant loads when it needs them.
  *
- * The browser is not asked. Its stored selection (`mcp:selected-ids`,
- * `mcp:disabled-base-ids`) can be stale for weeks, and "an always-on connector
- * a tab switched off" or "an off one a tab switched on" are exactly the two
- * failures this exists to prevent. Every path that builds a turn's servers
- * goes through here: the turn route, the parked-turn and tool-approval
- * sweepers (`mcpLocalsFor`), and `runMcpFlow`'s own list of `.env` servers.
+ * A person's switches live in `connectorSwitches`, one row each: the
+ * connectors they turned off that are on by default (the deployment's in mode
+ * `on`, and their own), and the ones they turned on that are off by default
+ * (the servers on their machines).
  *
- * Read from Mongo on each use rather than cached, so a change takes effect on
- * the next turn without a restart or an invalidation to forget.
+ * The browser decides nothing. It used to send what it had selected, and its
+ * stored selection could be weeks stale; now it sends nothing and every path
+ * that builds a turn asks the server (`turnConnectors.ts`).
+ *
+ * Read from Mongo on each use, not cached, so a change takes effect on the
+ * next turn without a restart or an invalidation to forget.
  */
 
+import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import type { ConnectorMode } from "$lib/types/McpConnector";
@@ -28,102 +33,130 @@ import { CONNECTOR_MODES } from "$lib/types/McpConnector";
 import type { McpServerConfig } from "./httpClient";
 import { getMcpServers } from "./registry";
 
-export const DEFAULT_MODE: ConnectorMode = "always";
+export interface ConnectorPolicy {
+	mode: ConnectorMode;
+	alwaysLoaded: boolean;
+}
+
+export const DEFAULT_POLICY: ConnectorPolicy = { mode: "on", alwaysLoaded: false };
 
 export const baseKey = (name: string) => `base:${name}`;
 export const connectorKey = (id: string) => `connector:${id}`;
+export const isLocalKey = (key: string) => key.startsWith("local:");
 
 export function isConnectorMode(value: unknown): value is ConnectorMode {
 	return typeof value === "string" && (CONNECTOR_MODES as readonly string[]).includes(value);
 }
 
-/** Every stored mode, by key. A key that is not here is `always`. */
-export async function loadModes(): Promise<Map<string, ConnectorMode>> {
+/** Every stored policy, by key. A key that is not here is `on`, not always loaded. */
+export async function loadPolicies(): Promise<Map<string, ConnectorPolicy>> {
 	try {
 		const rows = await collections.connectorModes.find({}).toArray();
-		return new Map(rows.filter((r) => isConnectorMode(r.mode)).map((r) => [r.key, r.mode]));
+		return new Map(
+			rows
+				.filter((r) => isConnectorMode(r.mode))
+				.map((r) => [r.key, { mode: r.mode, alwaysLoaded: r.alwaysLoaded === true }])
+		);
 	} catch (err) {
-		// A mode that cannot be read must not become "offer nothing" or "offer
+		// A policy that cannot be read must not turn into "offer nothing" or "lock
 		// everything" by accident; the default is the documented one.
 		logger.warn({ err: String(err) }, "connector_modes_unreadable");
 		return new Map();
 	}
 }
 
-export function modeIn(modes: Map<string, ConnectorMode>, key: string): ConnectorMode {
-	return modes.get(key) ?? DEFAULT_MODE;
+export function policyIn(policies: Map<string, ConnectorPolicy>, key: string): ConnectorPolicy {
+	return policies.get(key) ?? DEFAULT_POLICY;
 }
 
-/** Store a mode. `always` removes the row, because it is the default. */
-export async function setMode(key: string, mode: ConnectorMode): Promise<void> {
-	if (mode === DEFAULT_MODE) {
+/** Change a connector's mode and/or its always-loaded flag. The default is stored as no row. */
+export async function setPolicy(
+	key: string,
+	change: { mode?: ConnectorMode; alwaysLoaded?: boolean }
+): Promise<ConnectorPolicy> {
+	const current = policyIn(await loadPolicies(), key);
+	const next: ConnectorPolicy = {
+		mode: change.mode ?? current.mode,
+		alwaysLoaded: change.alwaysLoaded ?? current.alwaysLoaded,
+	};
+	if (next.mode === DEFAULT_POLICY.mode && next.alwaysLoaded === DEFAULT_POLICY.alwaysLoaded) {
 		await collections.connectorModes.deleteOne({ key });
-		return;
+		return next;
 	}
 	const now = new Date();
 	await collections.connectorModes.updateOne(
 		{ key },
-		{ $set: { mode, updatedAt: now }, $setOnInsert: { createdAt: now } },
+		{
+			$set: { mode: next.mode, alwaysLoaded: next.alwaysLoaded, updatedAt: now },
+			$setOnInsert: { createdAt: now },
+		},
 		{ upsert: true }
 	);
+	return next;
 }
 
-export async function clearMode(key: string): Promise<void> {
+export async function clearPolicy(key: string): Promise<void> {
 	await collections.connectorModes.deleteOne({ key });
 }
 
-/**
- * The `.env` servers a turn may use.
- *
- * `selectedNames` is what the person switched on (the names the browser sent);
- * `undefined` means no selection exists, so only the always-on servers apply.
- * `off` never passes. Pass `"any"` where the call was already approved in a
- * turn that had its own selection (a resume): everything but `off` may be
- * called.
- */
-export async function envServersFor(
-	selectedNames: readonly string[] | undefined | "any",
-	modes?: Map<string, ConnectorMode>
-): Promise<McpServerConfig[]> {
-	const all = modes ?? (await loadModes());
-	return getMcpServers().filter((server) => {
-		const mode = modeIn(all, baseKey(server.name));
-		if (mode === "off") return false;
-		if (mode === "always") return true;
-		return selectedNames === "any" || (selectedNames?.includes(server.name) ?? false);
-	});
+/** The `.env` servers that are not switched off by the administrator. */
+export function callableEnvServers(policies: Map<string, ConnectorPolicy>): McpServerConfig[] {
+	return getMcpServers().filter((s) => policyIn(policies, baseKey(s.name)).mode !== "off");
 }
 
-/** The names of the `.env` servers that are on for everyone. */
-export async function alwaysEnvNames(modes?: Map<string, ConnectorMode>): Promise<Set<string>> {
-	const all = modes ?? (await loadModes());
-	return new Set(
-		getMcpServers()
-			.filter((s) => modeIn(all, baseKey(s.name)) === "always")
-			.map((s) => s.name)
-	);
+// --- a person's own switches ---------------------------------------------------------------
+
+export interface Switches {
+	off: Set<string>;
+	on: Set<string>;
+}
+
+export async function loadSwitches(userId: ObjectId | undefined): Promise<Switches> {
+	if (!userId) return { off: new Set(), on: new Set() };
+	try {
+		const row = await collections.connectorSwitches.findOne({ userId });
+		return { off: new Set(row?.off ?? []), on: new Set(row?.on ?? []) };
+	} catch (err) {
+		logger.warn({ err: String(err) }, "connector_switches_unreadable");
+		return { off: new Set(), on: new Set() };
+	}
 }
 
 /**
- * What a turn's connector ids become: the person's own and their machines'
- * pass through; a deployment connector is added when `always`, kept only when
- * `optional`, and dropped when `off`, whatever was sent.
+ * Whether a connector is on for this person: its deployment mode first (`off`
+ * never, `locked` always, whatever they did), then their own switch, then the
+ * default: on, except for the servers on their machines.
  */
-export async function effectiveConnectorIds(
-	sent: readonly string[],
-	modes?: Map<string, ConnectorMode>
-): Promise<{ ids: string[]; always: string[] }> {
-	const all = modes ?? (await loadModes());
-	const deployment = await collections.mcpConnectors
-		.find({ scope: "deployment" }, { projection: { _id: 1 } })
-		.toArray();
-	const modeById = new Map(
-		deployment.map((c) => [c._id.toString(), modeIn(all, connectorKey(c._id.toString()))])
+export function isEnabled(
+	key: string,
+	policy: ConnectorPolicy | undefined,
+	switches: Switches
+): boolean {
+	if (policy?.mode === "off") return false;
+	if (policy?.mode === "locked") return true;
+	if (isLocalKey(key)) return switches.on.has(key);
+	return !switches.off.has(key);
+}
+
+/** Record one switch. A switch equal to the default is stored as no entry at all. */
+export async function setSwitch(userId: ObjectId, key: string, enabled: boolean): Promise<void> {
+	const defaultOn = !isLocalKey(key);
+	const now = new Date();
+	// `off` holds a default-on connector turned off; `on` holds a default-off one turned on.
+	const [add, remove] =
+		enabled === defaultOn
+			? [undefined, defaultOn ? "off" : "on"]
+			: [defaultOn ? "off" : "on", defaultOn ? "on" : "off"];
+	await collections.connectorSwitches.updateOne(
+		{ userId },
+		{
+			$setOnInsert: { createdAt: now },
+			$set: { updatedAt: now },
+			$pull: { [remove]: key } as never,
+		},
+		{ upsert: true }
 	);
-	const kept = sent.filter((id) => {
-		const mode = modeById.get(id);
-		return mode === undefined || mode === "optional";
-	});
-	const always = [...modeById].filter(([, mode]) => mode === "always").map(([id]) => id);
-	return { ids: [...new Set([...kept, ...always])], always };
+	if (add) {
+		await collections.connectorSwitches.updateOne({ userId }, { $addToSet: { [add]: key } });
+	}
 }

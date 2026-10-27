@@ -9,8 +9,16 @@
 
 import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
-import type { ConnectorMode, McpConnector, McpConnectorView } from "$lib/types/McpConnector";
-import { connectorKey, loadModes, modeIn } from "./deploymentModes";
+import type { McpConnector, McpConnectorView } from "$lib/types/McpConnector";
+import {
+	connectorKey,
+	isEnabled,
+	loadPolicies,
+	loadSwitches,
+	policyIn,
+	type ConnectorPolicy,
+	type Switches,
+} from "./deploymentModes";
 
 /** One connector as the client sees it. */
 export async function view(
@@ -18,9 +26,16 @@ export async function view(
 	userId: ObjectId,
 	/** Whether this caller administers the deployment. */
 	isAdmin = false,
-	/** The deployment connector's mode, when the caller already has it (a listing). */
-	mode?: ConnectorMode
+	/** What a listing already read: the deployment's policies and this person's switches. */
+	context?: { policies: Map<string, ConnectorPolicy>; switches: Switches }
 ): Promise<McpConnectorView> {
+	const ctx = context ?? {
+		policies: await loadPolicies(),
+		switches: await loadSwitches(userId),
+	};
+	const key = connectorKey(connector._id.toString());
+	const deployment = (connector.scope ?? "user") === "deployment";
+	const policy = deployment ? policyIn(ctx.policies, key) : undefined;
 	let connected = false;
 	if (connector.auth === "token") {
 		connected = Boolean(connector.tokenSealed);
@@ -63,10 +78,11 @@ export async function view(
 		tools: connector.tools,
 		checkedAt: connector.checkedAt?.toISOString(),
 		scope: connector.scope ?? "user",
-		...((connector.scope ?? "user") === "deployment"
-			? {
-					mode: mode ?? modeIn(await loadModes(), connectorKey(connector._id.toString())),
-				}
+		key,
+		// This person's turns use it: its mode, then their own switch.
+		enabled: isEnabled(key, policy, ctx.switches),
+		...(policy
+			? { mode: policy.mode, ...(isAdmin ? { alwaysLoaded: policy.alwaysLoaded } : {}) }
 			: {}),
 		// Using a connector and changing one are different permissions. A
 		// deployment connector renders for everybody because it is offered to
@@ -101,13 +117,15 @@ export async function viewsFor(
 		.sort({ updatedAt: -1 })
 		.limit(200)
 		.toArray();
-	const modes = await loadModes();
-	const modeOf = (row: McpConnector) => modeIn(modes, connectorKey(row._id.toString()));
+	const context = { policies: await loadPolicies(), switches: await loadSwitches(userId) };
 	// A deployment connector that is off is offered to nobody, so it is not listed.
 	const listed = rows.filter(
-		(row) => includeOff || (row.scope ?? "user") !== "deployment" || modeOf(row) !== "off"
+		(row) =>
+			includeOff ||
+			(row.scope ?? "user") !== "deployment" ||
+			policyIn(context.policies, connectorKey(row._id.toString())).mode !== "off"
 	);
-	return Promise.all(listed.map((row) => view(row, userId, isAdmin, modeOf(row))));
+	return Promise.all(listed.map((row) => view(row, userId, isAdmin, context)));
 }
 
 /**

@@ -30,7 +30,15 @@ function parseServers(raw: string): McpServerConfig[] {
 					headers = Object.fromEntries(headerEntries);
 				}
 
-				return headers ? { name, url, headers } : { name, url };
+				const description = (entry as Record<string, unknown>).description;
+				return {
+					name,
+					url,
+					...(headers ? { headers } : {}),
+					...(typeof description === "string" && description.trim()
+						? { description: description.trim() }
+						: {}),
+				};
 			})
 			.filter((server): server is McpServerConfig => Boolean(server));
 	} catch (error) {

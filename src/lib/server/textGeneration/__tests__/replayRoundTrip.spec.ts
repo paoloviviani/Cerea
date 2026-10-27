@@ -61,6 +61,7 @@ vi.mock("$lib/server/urlSafety", async (importOriginal) => ({
 }));
 
 vi.mock("$lib/server/mcp/tools", () => ({
+	sanitizeName: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64),
 	getOpenAiToolsForMcp: async () => ({
 		tools: [
 			{
@@ -283,13 +284,25 @@ beforeAll(async () => {
 	await ready;
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+	// The mock server is loaded from the start of every turn (ADR 0104), as it always was.
+	const { collections } = await import("$lib/server/database");
+	await collections.connectorModes.updateOne(
+		{ key: "base:mock" },
+		{
+			$set: { mode: "on", alwaysLoaded: true, updatedAt: new Date() },
+			$setOnInsert: { createdAt: new Date() },
+		},
+		{ upsert: true }
+	);
 	mocks.create.mockReset();
 	mocks.callMcpTool.mockReset();
 	scriptToolResult({ text: "18°C, sunny" });
 });
 
 afterEach(async () => {
+	const { collections } = await import("$lib/server/database");
+	await collections.connectorModes.deleteMany({ key: "base:mock" });
 	await cleanupTestData();
 });
 

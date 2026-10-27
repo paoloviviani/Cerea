@@ -34,6 +34,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	knowledgeConfig: false,
 	knowledgeConfigHistory: false,
 	mcpConnectors: true,
+	connectorSwitches: true, // a person's own connector on/off switches; owner-keyed, one row each
 	connectorModes: false, // the deployment's own connector modes, not user content
 	mcpTokens: true,
 	mcpOauthPending: true,

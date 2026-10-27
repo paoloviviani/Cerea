@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ObjectId } from "mongodb";
+import { collections } from "$lib/server/database";
+import { rememberTools, resetCatalogCache } from "$lib/server/mcp/catalogCache";
 import {
 	MessageToolUpdateType,
 	MessageUpdateType,
@@ -25,6 +27,16 @@ import type { McpFlowResult, RunMcpFlowContext } from "./runMcpFlow";
 const mocks = vi.hoisted(() => ({
 	/** The servers each tool listing was asked about, newest last. */
 	listedServers: [] as string[][],
+	/** The tool names each upstream request carried, as they were when it was sent. */
+	sentTools: [] as string[][],
+	/** When set, replaces the fixed tool listing (see the connectors-on-demand tests). */
+	listTools: undefined as
+		| undefined
+		| ((servers: { name: string }[]) => {
+				tools: unknown[];
+				mapping: Record<string, unknown>;
+				unavailable: unknown[];
+		  }),
 	create: vi.fn(),
 	executeToolCalls: vi.fn(),
 	getAbortTime: vi.fn(() => undefined as number | undefined),
@@ -105,8 +117,10 @@ vi.mock("$lib/server/webSearch/config", () => ({
 }));
 
 vi.mock("$lib/server/mcp/tools", () => ({
+	sanitizeName: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64),
 	getOpenAiToolsForMcp: async (servers: { name: string }[]) => {
 		mocks.listedServers.push(servers.map((s) => s.name));
+		if (mocks.listTools) return mocks.listTools(servers);
 		return servers.length === 0
 			? { tools: [], mapping: {}, unavailable: [] }
 			: {
@@ -194,12 +208,18 @@ function streamFor(round: Round) {
 /** Queue the upstream responses, in order. A missing round means the flow looped further than scripted. */
 function scriptRounds(rounds: Round[]) {
 	let next = 0;
-	mocks.create.mockImplementation(async () => {
-		const round = rounds[next++];
-		if (!round) throw new Error(`upstream called ${next} times but only ${rounds.length} scripted`);
-		if (round.error) throw round.error;
-		return streamFor(round);
-	});
+	mocks.create.mockImplementation(
+		async (request: { tools?: Array<{ function: { name: string } }> }) => {
+			// Copied: the flow appends to its tool list in place, and a later round must not rewrite
+			// what an earlier request was sent.
+			mocks.sentTools.push((request?.tools ?? []).map((tool) => tool.function.name));
+			const round = rounds[next++];
+			if (!round)
+				throw new Error(`upstream called ${next} times but only ${rounds.length} scripted`);
+			if (round.error) throw round.error;
+			return streamFor(round);
+		}
+	);
 }
 
 /** Make every scripted tool call resolve with `output`. */
@@ -283,7 +303,7 @@ function finalAnswer(updates: MessageUpdate[]) {
 	return answer?.type === MessageUpdateType.FinalAnswer ? answer.text : undefined;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
 	mocks.create.mockReset();
 	mocks.executeToolCalls.mockReset();
 	mocks.getAbortTime.mockReset();
@@ -291,6 +311,17 @@ beforeEach(() => {
 	mocks.multimodalFlags = [];
 	mocks.servers = [{ name: "hf", url: "https://example.test/mcp" }];
 	mocks.listedServers = [];
+	mocks.sentTools = [];
+	// The fixture's one server is loaded from the start of every turn, as before.
+	await collections.connectorModes.deleteMany({});
+	await collections.connectorModes.insertOne({
+		_id: new ObjectId(),
+		key: "base:hf",
+		mode: "on",
+		alwaysLoaded: true,
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	});
 	mocks.codeToolEnabled = "true";
 	mocks.askQuestionEnabled = undefined;
 	mocks.unlisted = [];
@@ -361,51 +392,144 @@ function systemPrompt(): string {
 	return first?.role === "system" && typeof first.content === "string" ? first.content : "";
 }
 
-describe("runMcpFlow and the deployment's connector modes", () => {
-	const mode = async (key: string, value: "optional" | "off") => {
-		const { collections } = await import("$lib/server/database");
+describe("runMcpFlow and connectors on demand (ADR 0104)", () => {
+	const hf = { name: "hf", url: "https://example.test/mcp" };
+	const osm = { name: "osm", url: "https://osm.test/mcp" };
+
+	// The fixture's tool listing: every server lists one tool named after it, except hf's `do_thing`.
+	beforeEach(() => {
+		mocks.servers = [hf, osm];
+		mocks.listTools = (servers: { name: string }[]) => {
+			const tools = servers.map((s) => ({
+				type: "function" as const,
+				function: { name: s.name === "hf" ? "do_thing" : `${s.name}_find` },
+			}));
+			const mapping = Object.fromEntries(
+				servers.map((s, i) => [
+					tools[i].function.name,
+					{ fnName: tools[i].function.name, server: s.name, tool: tools[i].function.name },
+				])
+			);
+			return { tools, mapping, unavailable: [] };
+		};
+		rememberTools(osm.url, [{ name: "osm_find", description: "Find places on the map." }]);
+	});
+	afterEach(() => {
+		mocks.listTools = undefined;
+		resetCatalogCache();
+	});
+
+	const sentTools = (n: number): string[] => mocks.sentTools[n];
+
+	it("lists a connector that is not loaded as one line, with none of its tools", async () => {
+		scriptRounds([{ content: "ok" }]);
+		await runFlow();
+		expect(sentTools(0)).toContain("do_thing");
+		expect(sentTools(0)).not.toContain("osm_find");
+		expect(sentTools(0)).toContain("load_tools");
+		const prompt = systemPrompt();
+		expect(prompt).toContain("- osm: Find places on the map. Tools: osm_find.");
+		// Always-loaded connectors skip the list.
+		expect(prompt).not.toContain("- hf:");
+		// Only the loaded one was ever listed.
+		expect(mocks.listedServers.flat()).toEqual(["hf"]);
+	});
+
+	it("loads a connector the conversation loaded before, after the tools already there", async () => {
+		scriptRounds([{ content: "ok" }]);
+		await runFlow({
+			conv: { _id: new ObjectId(), loadedConnectors: ["base:osm"] },
+		} as never);
+		const names = sentTools(0);
+		expect(names).toEqual(expect.arrayContaining(["do_thing", "osm_find"]));
+		expect(names.indexOf("osm_find")).toBeGreaterThan(names.indexOf("do_thing"));
+		// Still a line, so the system prompt does not change when a connector gets loaded.
+		expect(systemPrompt()).toContain("- osm:");
+	});
+
+	it("load_tools adds the tools for the next round, appended, and remembers them on the conversation", async () => {
+		const conv = { _id: new ObjectId(), messages: [] } as never;
+		await collections.conversations.insertOne({
+			_id: (conv as { _id: ObjectId })._id,
+			messages: [],
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+		mocks.executeToolCalls.mockImplementation(async function* ({
+			calls,
+			builtinTools,
+		}: {
+			calls: Array<{ id: string; name: string; arguments: string }>;
+			builtinTools: Array<{
+				name: string;
+				execute: (a: unknown, c: unknown) => Promise<{ resultText: string }>;
+			}>;
+		}) {
+			const tool = builtinTools.find((t) => t.name === calls[0].name);
+			if (!tool) throw new Error("no such builtin");
+			const result = await tool.execute(JSON.parse(calls[0].arguments), { uuid: "u" });
+			yield {
+				type: "complete",
+				summary: {
+					toolMessages: [{ role: "tool", tool_call_id: calls[0].id, content: result.resultText }],
+					toolRuns: [],
+				},
+			};
+		});
+		scriptRounds([
+			{ toolCalls: [{ id: "c1", name: "load_tools", arguments: '{"connectors":["osm"]}' }] },
+			{ content: "done" },
+		]);
+		await runFlow({ conv } as never);
+		expect(sentTools(0)).not.toContain("osm_find");
+		const second = sentTools(1);
+		expect(second).toContain("osm_find");
+		// Appended: everything sent the first time is in the same place.
+		expect(second.slice(0, sentTools(0).length)).toEqual(sentTools(0));
+		const toolMessage = requestMessages(1).find((m) => m.role === "tool");
+		expect(String(toolMessage?.content)).toContain("Loaded osm");
+		const row = await collections.conversations.findOne({ _id: (conv as { _id: ObjectId })._id });
+		expect(row?.loadedConnectors).toEqual(["base:osm"]);
+		await collections.conversations.deleteOne({ _id: (conv as { _id: ObjectId })._id });
+	});
+
+	it("loads the connector when the model calls one of its tools by name", async () => {
+		const seen: string[][] = [];
+		mocks.executeToolCalls.mockImplementation(async function* ({
+			mapping,
+		}: {
+			mapping: Record<string, unknown>;
+		}) {
+			seen.push(Object.keys(mapping));
+			yield {
+				type: "complete",
+				summary: {
+					toolMessages: [{ role: "tool", tool_call_id: "c1", content: "ok" }],
+					toolRuns: [],
+				},
+			};
+		});
+		scriptRounds([
+			{ toolCalls: [{ id: "c1", name: "osm_find", arguments: "{}" }] },
+			{ content: "done" },
+		]);
+		await runFlow();
+		expect(seen[0]).toContain("osm_find");
+		expect(sentTools(1)).toContain("osm_find");
+	});
+
+	it("does not offer a locked-off or off connector, and honours a person's own switch", async () => {
 		await collections.connectorModes.insertOne({
 			_id: new ObjectId(),
-			key,
-			mode: value,
+			key: "base:osm",
+			mode: "off",
 			createdAt: new Date(),
 			updatedAt: new Date(),
 		});
-	};
-	afterEach(async () => {
-		const { collections } = await import("$lib/server/database");
-		await collections.connectorModes.deleteMany({});
-	});
-
-	it("offers an .env server on for everyone even when the browser's names leave it out", async () => {
 		scriptRounds([{ content: "ok" }]);
-		await runFlow({
-			locals: { mcp: { selectedServerNames: ["somethingelse"], selectedServers: [] } },
-		} as never);
-		expect(mocks.listedServers.at(-1)).toEqual(["hf"]);
-	});
-
-	it("never offers an off .env server, even when the browser names it", async () => {
-		await mode("base:hf", "off");
-		scriptRounds([{ content: "ok" }]);
-		await runFlow({
-			locals: { mcp: { selectedServerNames: ["hf"], selectedServers: [] } },
-		} as never);
-		expect(mocks.listedServers.flat()).not.toContain("hf");
-	});
-
-	it("offers an optional .env server only when it was chosen", async () => {
-		await mode("base:hf", "optional");
-		scriptRounds([{ content: "ok" }]);
-		await runFlow({
-			locals: { mcp: { selectedServerNames: ["hf"], selectedServers: [] } },
-		} as never);
-		expect(mocks.listedServers.at(-1)).toEqual(["hf"]);
-
-		mocks.listedServers = [];
-		scriptRounds([{ content: "ok" }]);
-		await runFlow();
-		expect(mocks.listedServers.flat()).not.toContain("hf");
+		await runFlow({ conv: { _id: new ObjectId(), loadedConnectors: ["base:osm"] } } as never);
+		expect(sentTools(0)).not.toContain("osm_find");
+		expect(systemPrompt()).not.toContain("- osm:");
 	});
 });
 

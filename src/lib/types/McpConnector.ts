@@ -41,18 +41,38 @@ export interface McpRegistration {
 
 /**
  * How the deployment offers one of its own connectors (the `.env` servers and
- * the administrator's). `always` is the default: offered on every turn with no
- * switch. `optional` shows people a switch. `off` is offered to nobody.
+ * the administrator's) (ADR 0104). `on` is the default: on for everyone, and a
+ * person may switch it off in Workspace. `locked`: on for everyone and nobody
+ * may switch it off. `off`: offered to nobody.
  */
-export type ConnectorMode = "always" | "optional" | "off";
+export type ConnectorMode = "off" | "on" | "locked";
 
-export const CONNECTOR_MODES: readonly ConnectorMode[] = ["always", "optional", "off"];
+export const CONNECTOR_MODES: readonly ConnectorMode[] = ["off", "on", "locked"];
 
-/** One stored mode. `key` is `connector:<id>` or `base:<server name>`. */
+/**
+ * One stored policy row. `key` is `connector:<id>` or `base:<server name>`. A
+ * connector with no row is `on` and not always loaded.
+ */
 export interface ConnectorModeRow extends Timestamps {
 	_id: ObjectId;
 	key: string;
 	mode: ConnectorMode;
+	/** Loaded from the start of every turn instead of being a catalogue line the model loads. */
+	alwaysLoaded?: boolean;
+}
+
+/**
+ * One person's own switches (ADR 0104): the connectors they turned off that
+ * are on by default (the deployment's in mode `on`, and their own), and the
+ * ones they turned on that are off by default (those on their machines).
+ * Keys as in `ConnectorModeRow`, plus `local:<device>:<server>`. One row per
+ * person.
+ */
+export interface ConnectorSwitchesRow extends Timestamps {
+	_id: ObjectId;
+	userId: User["_id"];
+	off: string[];
+	on: string[];
 }
 
 export interface McpConnector extends Timestamps {
@@ -160,6 +180,13 @@ export interface McpConnector extends Timestamps {
 	 */
 	tools?: { name: string; description?: string }[];
 	checkedAt?: Date;
+
+	/**
+	 * One sentence on what it is for, shown to the assistant in its list of
+	 * connectors it can load (ADR 0104). Optional: without one the sentence is
+	 * made from the tool names.
+	 */
+	description?: string;
 }
 
 /**
@@ -209,10 +236,18 @@ export interface McpConnectorView {
 	 */
 	manageable: boolean;
 	/**
+	 * The key a switch is stored under (`connector:<id>`, or the local id).
+	 */
+	key: string;
+	/**
 	 * For a deployment connector, how it is offered (`off` ones are not listed to
 	 * anyone but an administrator). Absent on a person's own.
 	 */
 	mode?: ConnectorMode;
+	/** Deployment connector: loaded from the start of every turn (administrators see it). */
+	alwaysLoaded?: boolean;
+	/** Whether this person's turns use it: its mode and their own switch together. */
+	enabled: boolean;
 	/** Whether *this* person has a usable credential for it. */
 	connected: boolean;
 	/** For an OAuth connector, whether it can be signed in to at all. */

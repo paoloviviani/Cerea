@@ -50,6 +50,18 @@ import { drainPool, getClient } from "$lib/server/mcp/clientPool";
 import { callMcpTool } from "$lib/server/mcp/httpClient";
 import { localServerUrl } from "$lib/server/mcp/localUrl";
 import { mcpLocalsFor } from "$lib/server/mcp/selection";
+import { setSwitch } from "$lib/server/mcp/deploymentModes";
+import type { ObjectId as TurnUserId } from "mongodb";
+
+/**
+ * A turn for `userId` in which they switched these servers on (a server on a machine is off
+ * until its owner opts in) and the assistant loaded them: what the turn route and both sweepers
+ * build, through the one resolver.
+ */
+async function turnWith(keys: string[], userId: TurnUserId) {
+	for (const key of keys) await setSwitch(userId, key, true);
+	return mcpLocalsFor({ loadedConnectors: keys }, userId);
+}
 import { resetLocalListCache } from "$lib/server/mcp/local";
 import { createLocalTransport } from "$lib/server/mcp/localTransport";
 import { getPairedDevice, listDevices } from "$lib/server/codeDevices";
@@ -320,29 +332,9 @@ describe("whose connector it is", () => {
 		const machine = connectorsMachine();
 		const deviceId = await pair(machine);
 		const stranger = await createTestUser();
-		const locals = await mcpLocalsFor(
-			{ connectorIds: [`local:${deviceId}:notes`], customServers: [] },
-			stranger.user._id
-		);
-		expect(locals.selectedServers).toEqual([]);
+		const locals = await turnWith([`local:${deviceId}:notes`], stranger.user._id);
+		expect(locals.servers).toEqual([]);
 		expect(locals.unavailable).toEqual([]);
-	});
-
-	it("drops a machine:// address a browser supplied as a custom server", async () => {
-		const machine = connectorsMachine();
-		const deviceId = await pair(machine);
-		const { withoutClientCredentials } = await import("$lib/server/mcp/selection");
-		expect(
-			withoutClientCredentials([
-				{ name: "x", url: urlOf(deviceId) },
-				{ name: "ok", url: "https://example.com/mcp" },
-			])
-		).toEqual([{ name: "ok", url: "https://example.com/mcp" }]);
-		const locals = await mcpLocalsFor(
-			{ connectorIds: [], customServers: [{ name: "x", url: urlOf(deviceId) }] },
-			user.user._id
-		);
-		expect(locals.selectedServers).toEqual([]);
 	});
 });
 
@@ -397,12 +389,9 @@ describe("the MCP panel's list and a turn's selection", () => {
 		expect(entry.local.detail).toMatch(/not connected/);
 
 		const started = Date.now();
-		const locals = await mcpLocalsFor(
-			{ connectorIds: [`local:${deviceId}:notes`], customServers: [] },
-			user.user._id
-		);
+		const locals = await turnWith([`local:${deviceId}:notes`], user.user._id);
 		expect(Date.now() - started).toBeLessThan(1_000);
-		expect(locals.selectedServers).toEqual([]);
+		expect(locals.servers).toEqual([]);
 		expect(locals.unavailable).toEqual([
 			{ name: "notes · on laptop", reason: "laptop is offline" },
 		]);
@@ -415,17 +404,11 @@ describe("the MCP panel's list and a turn's selection", () => {
 			{ name: "old", state: "disabled" },
 		]);
 		const deviceId = await pair(machine);
-		const locals = await mcpLocalsFor(
-			{
-				connectorIds: ["notes", "crm", "old"].map((s) => `local:${deviceId}:${s}`),
-				serverNames: [],
-				customServers: [],
-			},
+		const locals = await turnWith(
+			["notes", "crm", "old"].map((s) => `local:${deviceId}:${s}`),
 			user.user._id
 		);
-		expect(locals.selectedServers).toEqual([{ name: "notes · on laptop", url: urlOf(deviceId) }]);
-		// Chosen by id, so in the turn whatever names the browser listed.
-		expect(locals.selectedServerNames).toEqual(["notes · on laptop"]);
+		expect(locals.servers).toEqual([{ name: "notes · on laptop", url: urlOf(deviceId) }]);
 		expect(locals.unavailable.map((u) => u.name).sort()).toEqual([
 			"crm · on laptop",
 			"old · on laptop",
@@ -447,11 +430,8 @@ describe("the switches", () => {
 			await testRequest(connectorsGET, { path: "/api/v2/mcp/connectors", locals: user.locals })
 		).json();
 		expect(data.some((c: { local?: unknown }) => c.local)).toBe(false);
-		const locals = await mcpLocalsFor(
-			{ connectorIds: [`local:${deviceId}:notes`], customServers: [] },
-			user.user._id
-		);
-		expect(locals.selectedServers).toEqual([]);
+		const locals = await turnWith([`local:${deviceId}:notes`], user.user._id);
+		expect(locals.servers).toEqual([]);
 		await expect(createLocalTransport(urlOf(deviceId))).rejects.toThrow(/not enabled/i);
 
 		// A new connectors machine is refused at its hello (4404: it retries, nothing revoked).
@@ -559,10 +539,7 @@ describe("approving and revoking", () => {
 			await testRequest(listGET, { path: "/api/v2/local-connectors", locals: user.locals })
 		).json();
 		expect(machines).toEqual([]);
-		const locals = await mcpLocalsFor(
-			{ connectorIds: [`local:${deviceId}:notes`], customServers: [] },
-			user.user._id
-		);
+		const locals = await turnWith([`local:${deviceId}:notes`], user.user._id);
 		expect(locals.unavailable).toEqual([]);
 	});
 });

@@ -10,7 +10,8 @@ import { assertOcrConfigValid } from "$lib/server/files/extractDocument";
 import { configuredBackend } from "$lib/server/fetching";
 import { checkAndRunMigrations } from "$lib/migrations/migrations";
 import { refreshConversationStats } from "$lib/jobs/refresh-conversation-stats";
-import { loadMcpServersOnStartup } from "$lib/server/mcp/registry";
+import { getMcpServers, loadMcpServersOnStartup } from "$lib/server/mcp/registry";
+import { startCatalogRefresh } from "$lib/server/mcp/catalogCache";
 import { AbortedGenerations } from "$lib/server/abortedGenerations";
 import { GenerationReaper } from "$lib/server/generation/reaper";
 import { ParkedCallSweeper } from "$lib/server/generation/parkedSweeper";
@@ -57,6 +58,8 @@ export async function initServer(): Promise<void> {
 
 	// Load MCP servers at startup
 	loadMcpServersOnStartup();
+	// What each `.env` server offers, for the assistant's list of connectors it can load.
+	startCatalogRefresh(getMcpServers);
 
 	// Init AbortedGenerations refresh process
 	AbortedGenerations.getInstance();

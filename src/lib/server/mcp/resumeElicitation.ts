@@ -1,7 +1,7 @@
 import type { ObjectId } from "mongodb";
 import { logger } from "$lib/server/logger";
 import { callMcpTool, getMcpToolTimeoutMs } from "./httpClient";
-import { envServersFor } from "./deploymentModes";
+import { callableEnvServers, loadPolicies } from "./deploymentModes";
 import { openDurableElicitation, takeResumableElicitation } from "./elicitation";
 import { ToolResultStatus } from "$lib/types/Tool";
 import {
@@ -76,6 +76,15 @@ function toolApprovalDenied(toolUuid: string, tool: string): MessageUpdate {
 }
 
 /**
+ * The servers an approved call may run on. The turn's own resolved connectors when the caller
+ * has them (what this person has on, and nothing they switched off since); else the `.env`
+ * servers the administrator still offers, which is all a caller with no turn can know.
+ */
+async function serversForResume(extraServers: McpServerConfig[]): Promise<McpServerConfig[]> {
+	return extraServers.length > 0 ? extraServers : callableEnvServers(await loadPolicies());
+}
+
+/**
  * Runs a call the tool-approval gate has already cleared — accepted just now,
  * or auto-cleared because an earlier item in the same queue granted this
  * exact tool "for the conversation". A non-MCP gated tool re-issues through
@@ -124,11 +133,7 @@ async function runApprovedCall(
 	}
 
 	const { mcp } = call;
-	// An approved call may run on any `.env` server that is still offered: the selection it was
-	// made under is gone, but one the administrator has since switched off is not called.
-	const server = [...(await envServersFor("any")), ...extraServers].find(
-		(s) => s.name === mcp.server
-	);
+	const server = (await serversForResume(extraServers)).find((s) => s.name === mcp.server);
 	if (!server) {
 		return {
 			type: MessageUpdateType.Tool,
@@ -350,9 +355,7 @@ export async function resumeParkedToolCall({
 		return { resumed: true, updates, grantedTools };
 	}
 
-	const server = [...(await envServersFor("any")), ...extraServers].find(
-		(s) => s.name === pending.server
-	);
+	const server = (await serversForResume(extraServers)).find((s) => s.name === pending.server);
 	if (!server) return { resumed: false, reason: `unknown server ${pending.server}`, updates: [] };
 
 	let update: MessageUpdate;
