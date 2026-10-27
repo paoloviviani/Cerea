@@ -24,7 +24,7 @@ export const codeDeviceList = $state<{
 const POLL_MS = 8000;
 /** The list is kept across visits (stale-while-revalidate); entering the
  * panel re-reads it only once it is older than this. */
-export const CODE_LIST_STALE_MS = 30_000;
+export const CODE_LIST_STALE_MS = POLL_MS;
 
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let refCount = 0;
@@ -34,6 +34,7 @@ let stopResume: (() => void) | null = null;
 // name and count the tree and the inbox would draw. The poll also stops asking.
 onCodeReauth(() => {
 	codeDeviceList.devices = [];
+	listEpoch += 1;
 	codeDeviceList.loading = false;
 	codeDeviceList.fetchedAt = 0;
 });
@@ -43,7 +44,9 @@ onCodeReauth(() => {
 export function clearCodeDeviceList(): void {
 	listEpoch += 1;
 	codeDeviceList.devices = [];
-	codeDeviceList.loading = true;
+	// With the sign-in stale nothing will read the list again, so "loading"
+	// would never end.
+	codeDeviceList.loading = !codeReauth.required;
 	codeDeviceList.fetchedAt = 0;
 }
 

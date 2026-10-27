@@ -6,10 +6,13 @@ import NavFooter from "$lib/components/nav/NavFooter.svelte";
 import { livePage } from "./codeNavPage.svelte";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 import {
-	bindCodeCacheOwner,
 	clearCodePanelCache,
 	codeTreeCache,
+	dropCachedTree,
+	loadDeviceTree,
 } from "$lib/stores/codeTreeCache.svelte";
+import { clearCodeDeviceList, refreshCodeDevices } from "$lib/stores/codeDeviceList.svelte";
+import { flagCodeReauth, resetCodeReauth } from "$lib/stores/codeReauth.svelte";
 
 /**
  * The sidebar's machines and sessions outlive the tree component: leaving
@@ -69,6 +72,8 @@ beforeEach(() => {
 	localStorage.clear();
 	clearCodePanelCache();
 	livePage.url = new URL("http://localhost:3000/code");
+	livePage.data = {};
+	resetCodeReauth();
 	agents = [agent("a1"), agent("a2")];
 	apiMock.listDevices.mockReset().mockResolvedValue({ devices: [{ ...device }] });
 	apiMock.listWorkspaces.mockReset().mockImplementation(async () => ({ workspaces: [workspace] }));
@@ -131,6 +136,32 @@ describe("CodeNavTree keeps its list between visits", () => {
 		expect(second.getByText("Agent a2 renamed").element()).toBe(a2Row);
 	});
 
+	it("a visit after more than one poll interval re-reads; one inside it does not", async () => {
+		const first = renderWithApp(CodeNavTree);
+		await expect.element(first.getByText("Agent a1")).toBeVisible();
+		first.unmount();
+		const ageBy = (ms: number) => {
+			codeDeviceList.fetchedAt = Date.now() - ms;
+			for (const id of Object.keys(codeTreeCache.fetchedAt))
+				codeTreeCache.fetchedAt[id] = Date.now() - ms;
+		};
+
+		ageBy(5_000);
+		apiMock.listDevices.mockClear();
+		apiMock.listWorkspaces.mockClear();
+		let screen = renderWithApp(CodeNavTree);
+		await settle();
+		expect(apiMock.listDevices).not.toHaveBeenCalled();
+		expect(apiMock.listWorkspaces).not.toHaveBeenCalled();
+		screen.unmount();
+
+		ageBy(9_000);
+		screen = renderWithApp(CodeNavTree);
+		await settle();
+		expect(apiMock.listDevices).toHaveBeenCalledTimes(1);
+		expect(apiMock.listWorkspaces).toHaveBeenCalledTimes(1);
+	});
+
 	it("a failed refresh keeps the cached rows and says the machine did not answer", async () => {
 		const first = renderWithApp(CodeNavTree);
 		await expect.element(first.getByText("Agent a1")).toBeVisible();
@@ -165,14 +196,85 @@ describe("the cache belongs to one person", () => {
 	});
 
 	it("a different account never sees the previous one's machines", async () => {
-		bindCodeCacheOwner("ada");
-		const screen = renderWithApp(CodeNavTree);
-		await expect.element(screen.getByText("Agent a1")).toBeVisible();
-		screen.unmount();
+		livePage.data = { user: { id: "ada" } };
+		const first = renderWithApp(CodeNavTree);
+		await expect.element(first.getByText("Agent a1")).toBeVisible();
+		first.unmount();
+		expect(codeTreeCache.owner).toBe("ada");
 
-		bindCodeCacheOwner("grace");
-		expect(codeTreeCache.trees).toEqual({});
-		expect(codeDeviceList.devices).toEqual([]);
+		// Grace signs in on the same tab; the tree mounts for her.
+		livePage.data = { user: { id: "grace" } };
+		apiMock.listDevices.mockClear();
+		const second = renderWithApp(CodeNavTree);
+		flushSync();
+		expect(second.baseElement.textContent).not.toContain("Agent a1");
+		expect(second.baseElement.textContent).not.toContain("Box d1");
 		expect(codeTreeCache.owner).toBe("grace");
+		// ...and her own read still fills the tree.
+		await expect.element(second.getByText("Agent a1")).toBeVisible();
+		expect(apiMock.listDevices).toHaveBeenCalled();
+	});
+
+	it("signing out with a read in flight: the answer lands in an empty cache, not a filled one", async () => {
+		let resolve!: (v: unknown) => void;
+		apiMock.listWorkspaces.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+		const pending = loadDeviceTree("d1");
+		const footer = renderWithApp(NavFooter, { user: { username: "ada" } } as never);
+		footer.baseElement
+			.querySelector("form")
+			?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		resolve({ workspaces: [workspace] });
+		await pending;
+		expect(codeTreeCache.trees).toEqual({});
+		expect(codeTreeCache.fetchedAt).toEqual({});
+		footer.unmount();
+	});
+});
+
+describe("a clear cancels reads already in flight", () => {
+	it("a device's first read, pending across a clear, does not land", async () => {
+		let resolve!: (v: unknown) => void;
+		apiMock.listWorkspaces.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+		const pending = loadDeviceTree("d1");
+		clearCodePanelCache();
+		resolve({ workspaces: [workspace] });
+		await pending;
+		expect(codeTreeCache.trees).toEqual({});
+	});
+
+	it("a device's first read, pending across a removal, does not land", async () => {
+		let resolve!: (v: unknown) => void;
+		apiMock.listWorkspaces.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+		const pending = loadDeviceTree("d1");
+		dropCachedTree("d1");
+		resolve({ workspaces: [workspace] });
+		await pending;
+		expect(codeTreeCache.trees).toEqual({});
+	});
+
+	it("a device-list read pending across a clear does not land", async () => {
+		let resolve!: (v: unknown) => void;
+		apiMock.listDevices.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+		const pending = refreshCodeDevices();
+		clearCodeDeviceList();
+		resolve({ devices: [{ ...device }] });
+		await pending;
+		expect(codeDeviceList.devices).toEqual([]);
+	});
+
+	it("a device-list read pending when the sign-in goes stale does not land", async () => {
+		let resolve!: (v: unknown) => void;
+		apiMock.listDevices.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+		const pending = refreshCodeDevices();
+		flagCodeReauth();
+		resolve({ devices: [{ ...device }] });
+		await pending;
+		expect(codeDeviceList.devices).toEqual([]);
+	});
+
+	it("clearing while the sign-in is stale does not leave the list loading for ever", () => {
+		flagCodeReauth();
+		clearCodeDeviceList();
+		expect(codeDeviceList.loading).toBe(false);
 	});
 });

@@ -1053,8 +1053,8 @@ before?}` ahead of `historyDone`; without the capability (an older galopin,
   The device list (`codeDeviceList`) and each device's workspaces and sessions
   (`stores/codeTreeCache.svelte.ts`) are module state, so returning to `/code`
   draws the last list in the first frame, with no loading state. Entering the
-  panel re-reads only what is older than 30 s (`CODE_LIST_STALE_MS` /
-  `CODE_CACHE_STALE_MS`); focus and app-resume re-read at once; the 8 s poll
+  panel re-reads only what is older than the 8 s poll interval
+  (`CODE_LIST_STALE_MS` / `CODE_CACHE_STALE_MS`); focus and app-resume re-read at once; the 8 s poll
   runs while the panel is open. Every read folds in place
   (`utils/reconcileById.ts`: unchanged rows keep their objects, so keyed rows
   do not re-render). A failed tree read keeps the rows and flags the device
