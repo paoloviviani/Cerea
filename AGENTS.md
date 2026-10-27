@@ -1049,6 +1049,18 @@ before?}` ahead of `historyDone`; without the capability (an older galopin,
   splice, because the machine owns the listings. The paired-device list
   itself is one shared poll (`$lib/stores/codeDeviceList.svelte.ts`) — do not
   reintroduce a second one alongside it.
+- **The machines and sessions list outlives the tree (stale-while-revalidate).**
+  The device list (`codeDeviceList`) and each device's workspaces and sessions
+  (`stores/codeTreeCache.svelte.ts`) are module state, so returning to `/code`
+  draws the last list in the first frame, with no loading state. Entering the
+  panel re-reads only what is older than 30 s (`CODE_LIST_STALE_MS` /
+  `CODE_CACHE_STALE_MS`); focus and app-resume re-read at once; the 8 s poll
+  runs while the panel is open. Every read folds in place
+  (`utils/reconcileById.ts`: unchanged rows keep their objects, so keyed rows
+  do not re-render). A failed tree read keeps the rows and flags the device
+  "Offline." above them. The cache is per person: `NavFooter`'s sign-out calls
+  `clearCodePanelCache()` beside the drafts, `bindCodeCacheOwner(user.id)`
+  empties it on an account switch, and a stale sign-in drops it.
 - **The agent view is the chat's own machinery.** `ChatMessageColumn`,
   `ChatInput`, the approval card, the shared side pane. That is what makes
   live updates arrive by construction; a bespoke stack here would be a second

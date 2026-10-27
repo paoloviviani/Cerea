@@ -1,4 +1,5 @@
 import { CodeApiError, listDevices, loadCodeStatus, type CodeDeviceView } from "$lib/codeApi";
+import { reconcileById } from "$lib/utils/reconcileById";
 import { onAppResume } from "$lib/utils/appResume";
 import { codeReauth, onCodeReauth } from "$lib/stores/codeReauth.svelte";
 
@@ -9,12 +10,21 @@ import { codeReauth, onCodeReauth } from "$lib/stores/codeReauth.svelte";
  * polled it separately every 8s (X4) — one interval, ref-counted across
  * however many consumers are mounted, replaces both.
  */
-export const codeDeviceList = $state<{ devices: CodeDeviceView[]; loading: boolean }>({
+export const codeDeviceList = $state<{
+	devices: CodeDeviceView[];
+	loading: boolean;
+	/** When the list was last read successfully; 0 before the first read. */
+	fetchedAt: number;
+}>({
 	devices: [],
 	loading: true,
+	fetchedAt: 0,
 });
 
 const POLL_MS = 8000;
+/** The list is kept across visits (stale-while-revalidate); entering the
+ * panel re-reads it only once it is older than this. */
+export const CODE_LIST_STALE_MS = 30_000;
 
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let refCount = 0;
@@ -25,7 +35,17 @@ let stopResume: (() => void) | null = null;
 onCodeReauth(() => {
 	codeDeviceList.devices = [];
 	codeDeviceList.loading = false;
+	codeDeviceList.fetchedAt = 0;
 });
+
+/** Sign-out or another account: forget the list, and show the loading state
+ * again until the next account's own read lands. */
+export function clearCodeDeviceList(): void {
+	listEpoch += 1;
+	codeDeviceList.devices = [];
+	codeDeviceList.loading = true;
+	codeDeviceList.fetchedAt = 0;
+}
 
 // Bumped by every local mutation (and every new read): a list read that
 // started before it is stale and must not overwrite what the mutation
@@ -48,15 +68,25 @@ export function isAgentDevice(device: CodeDeviceView): boolean {
  * waiting on a round trip, and discard any list read still in flight. */
 export function dropCodeDevice(id: string): void {
 	listEpoch += 1;
+	codeDeviceList.loading = false;
 	codeDeviceList.devices = codeDeviceList.devices.filter((d) => d.id !== id);
 }
 
-export async function refreshCodeDevices(): Promise<void> {
+/** Re-read the list and fold it in place (unchanged machines keep their
+ * rows). `ifStale` skips the read while the cached list is still young: the
+ * visit's first read, which must not flash or refetch on every return. A
+ * failed read keeps the cached list. */
+export async function refreshCodeDevices(opts: { ifStale?: boolean } = {}): Promise<void> {
 	if (codeReauth.required) return;
+	if (opts.ifStale && Date.now() - codeDeviceList.fetchedAt < CODE_LIST_STALE_MS) return;
 	const epoch = ++listEpoch;
 	try {
 		const { devices } = await listDevices();
-		if (epoch === listEpoch) codeDeviceList.devices = devices.filter(isAgentDevice);
+		if (epoch === listEpoch) {
+			const next = reconcileById(codeDeviceList.devices, devices.filter(isAgentDevice));
+			if (next !== codeDeviceList.devices) codeDeviceList.devices = next;
+			codeDeviceList.fetchedAt = Date.now();
+		}
 	} catch (err) {
 		// A 401 that is not the stale-sign-in answer means there is no session
 		// at all (it lapsed while the tab was open): the list cannot come back
@@ -66,7 +96,7 @@ export async function refreshCodeDevices(): Promise<void> {
 		// than blanking the tree; the next poll tick tries again.
 		if (err instanceof CodeApiError && err.status === 401) void loadCodeStatus(true);
 	} finally {
-		codeDeviceList.loading = false;
+		if (epoch === listEpoch) codeDeviceList.loading = false;
 	}
 }
 
@@ -76,7 +106,7 @@ export async function refreshCodeDevices(): Promise<void> {
 export function useCodeDevicePoll(): () => void {
 	refCount += 1;
 	if (refCount === 1) {
-		void refreshCodeDevices();
+		void refreshCodeDevices({ ifStale: true });
 		pollHandle = setInterval(() => void refreshCodeDevices(), POLL_MS);
 		// A sleeping tab's interval is throttled or frozen: re-read the moment
 		// the app is back, and let a returning sign-in clear the stale flag.
