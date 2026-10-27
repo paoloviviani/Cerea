@@ -117,7 +117,7 @@ function act(id: ObjectId, locals: App.Locals, body: Record<string, unknown>, qu
 	} as never);
 }
 
-async function expectStatus(promise: Promise<Response>, status: number) {
+async function expectStatus(promise: Response | Promise<Response>, status: number) {
 	try {
 		await promise;
 		expect.fail("Should have thrown");
