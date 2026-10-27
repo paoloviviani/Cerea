@@ -52,7 +52,7 @@ interface RecordContext {
 
 /**
  * Built from the loop's own inputs, not the emitted Call/Result updates, whose
- * `ToolCall.parameters` drops non-primitives. Fire-and-forget: a logging
+ * `ToolCall.parameters` keeps an object argument only as cut JSON text. Fire-and-forget: a logging
  * failure must never change how the sub-agent runs.
  */
 export function recordNestedAgentCalls(
