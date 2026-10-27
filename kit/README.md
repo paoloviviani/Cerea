@@ -171,12 +171,11 @@ again. Keep the old directory until the new stack works.
 | `bootstrap` | always | a one-shot on every `up`: creates the chat's database role and extensions, and the bundled Authelia's signing key and first user if absent; it never overwrites anything |
 | `gateway`, `migrate`, `valkey` | `gateway` | Pystino: the OpenAI-compatible API at `/v1` and the admin console |
 | `chat`, `chat-mongo` | `chat` | Cerea at `/chat` |
-| `documents` | `chat` | the document service: typed, precise edits of Word, Excel and PowerPoint files for the chat's `doc_outline`, `doc_read` and `doc_edit` tools. On with the chat; internal network only (see below) |
+| `documents` | `chat` | the document service (`cerea-documents`): creates and edits Word, Excel, PowerPoint and PDF files for the chat's `doc_*` tools. On with the chat; internal network only (see below) |
 | `authelia` | `authelia` | the bundled identity provider at `/authelia` (stock image, `authelia/configuration.yml`) |
 | `redaction` | `redaction` | PII redaction for the gateway |
 | `extractor` | `documents`, `redaction` | the local document reader (Word, Excel, PowerPoint and old `.doc` files, scanned-PDF pages as images); `homelab` runs it through `documents`, without redaction |
 | `playwright` | `fetch` | a headless browser for the chat's web fetch. On in the `enterprise` preset; on any other preset, add it later with `./configure --fetch && docker compose up -d`, and remove it with `./configure --no-fetch` |
-| `gotenberg` | `office` | Office files as PDF previews in the chat, and the `convert_document` tool for models (Gotenberg: LibreOffice and Chromium). Off in every preset; add it with `./configure --office-preview && docker compose up -d`, remove it with `--no-office-preview` |
 | `gotenberg` | `office` | Office files as PDF previews in the chat, and the `convert_document` tool for models (Gotenberg: LibreOffice and Chromium). Off in every preset; add it with `./configure --office-preview && docker compose up -d`, remove it with `--no-office-preview` |
 
 Every service names an image and nothing builds on `up`. `COMPOSE_PROFILES`
@@ -209,7 +208,7 @@ timeout (`GOTENBERG_API_TIMEOUT`, 60s), short queues, no JavaScript in
 Chromium, and refuses non-public addresses and `downloadFrom`. Pin another
 image with `GOTENBERG_IMAGE`.
 
-### Editing Word, Excel and PowerPoint files (`documents` service)
+### Creating and editing Word, Excel, PowerPoint and PDF files (`documents` service)
 
 With the chat, a small service (`cerea-documents`, the same version as the chat)
 gives models typed tools instead of code in the browser: `doc_create` (a new Word,
@@ -223,18 +222,30 @@ original, and the person gets an ordinary file card with the diff and a
 verification report in the conversation. There is no administrator template: the
 look is the built-in neutral style plus what the person asks for, or a file they
 upload. Without the service the tools are not offered and the skills fall back to
-the in-sandbox helpers.
+the in-sandbox helpers. Decks can have slide backgrounds and up to 30 shapes per
+slide; a person who explicitly asks for a custom deck design gets one built in
+the browser sandbox instead (the PowerPoint skill's one exception). What people
+can ask for, and the limits, are on [Word, Excel, PowerPoint and PDF
+files](office.md).
 
 `./configure` mints `CHAT_DOCUMENTS_SECRET`, which the chat sends and the
-service requires; an install from before it needs `./configure` run once more
-(then `docker compose up -d`). The chat finds the service at
+service requires; an install from before 0.30.0 needs `./configure` run once more
+(then `docker compose pull && docker compose up -d`), or the `documents`
+container does not start and the tools stay off (the chat is unaffected). The chat finds the service at
 `CHAT_DOCUMENTS_URL` (default `http://documents:8090`; set it empty to turn the
 tools off). The service parses uploaded files, so it sits alone with the chat
 on an `internal` Docker network (no route to the internet, no published port),
 has no volumes, a read-only root filesystem with a small tmpfs, no
 capabilities, and CPU, memory and process limits (`DOCUMENTS_CPUS`,
 `DOCUMENTS_MEM_LIMIT`, defaults 2 and 2g); every request runs in a fresh,
-resource-limited subprocess. Pin another image with `DOCUMENTS_IMAGE`.
+resource-limited subprocess (up to 30 s of work, 1.5 GiB of memory, 4 at a
+time; a request may be up to 64 MiB). Size the memory limit for your largest
+files. Pin another image with `DOCUMENTS_IMAGE`; its own settings are in
+`documents/README.md`.
+
+`./configure --office-preview` (the `office` profile above) is separate: it adds
+Office previews and `convert_document`, not the document tools. Without it
+decks are previewed in the browser.
 
 ## MongoDB: 8 by default, 4.4 where the host cannot run it
 

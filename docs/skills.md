@@ -22,27 +22,28 @@ description matching decides.
 ## The office skills
 
 With the document service (the default in the kit, see
-[Office previews and document conversion](office.md)) the `word`, `excel`,
+[Word, Excel, PowerPoint and PDF files](office.md)) the `word`, `excel`,
 `powerpoint` and `pdf` skills create and edit files **only** through the
 `doc_*` tools: one rule, stated first in each skill, and no Python for
-documents. Where the service is not deployed they fall back to **Python in your
+documents. The one exception is a custom deck design you explicitly ask for
+(see [powerpoint](#powerpoint)). Where the service is not deployed they fall back to **Python in your
 browser** (see [Python in the browser](pyodide.md)): the needed packages are
 already vendored by the deployment, and the files the code writes come back as
 downloadable artifacts. The fallback instructions sit in a clearly labelled last
 section of each skill and say they apply only when the tools are absent. The
 honest limits are listed with each skill.
 
-| Skill              | What it is for                                                 |
-| ------------------ | -------------------------------------------------------------- |
-| `word`             | Creating and editing Word documents (document tools)           |
-| `excel`            | Workbooks with formulas, formatting and native charts          |
-| `pdf`              | Creating PDF documents (document tools)                        |
-| `pdf-tools`        | Working with existing PDFs: merge, split, forms, encryption    |
-| `powerpoint`       | Decks from a markdown outline, on a template's real layouts    |
-| `charts`           | Publication-minded figures with matplotlib and seaborn         |
-| `data-analysis`    | Profiling data and testing hypotheses, with the caveats stated |
-| `business-writing` | Internal communications in the usual formats                   |
-| `themes`           | Colour and font themes applied across documents and decks      |
+| Skill              | What it is for                                                      |
+| ------------------ | ------------------------------------------------------------------- |
+| `word`             | Creating and editing Word documents (document tools)                |
+| `excel`            | Workbooks with formulas, formatting and native charts               |
+| `pdf`              | Creating PDF documents (document tools)                             |
+| `pdf-tools`        | Working with existing PDFs: merge, split, forms, encryption         |
+| `powerpoint`       | Decks on real layouts, with backgrounds and shapes (document tools) |
+| `charts`           | Publication-minded figures with matplotlib and seaborn              |
+| `data-analysis`    | Profiling data and testing hypotheses, with the caveats stated      |
+| `business-writing` | Internal communications in the usual formats                        |
+| `themes`           | Colour and font themes applied across documents and decks           |
 
 Three more built-ins handle data shaping: `csv-shaping`, `json-shaping` and
 `report-writing`.
@@ -53,11 +54,16 @@ Reports, letters, meeting notes — built structure-first: real heading styles,
 tables, lists, and consistent typography. **Verified by reading the document
 back** (headings, tables, cell values), not by rendering pages: there is no
 document renderer in the browser, so exact spacing and pagination deserve a
-look from you when layout matters.
+look from you when layout matters. With the document service it also edits a
+Word file you supply, as tracked changes if you ask; comments, footnote text,
+content controls and fields are not available.
 
 ### excel
 
-Workbooks, analysis, charts. Formulas are written as **real formulas** — but
+Workbooks, analysis, charts. With the document service it also edits a
+workbook you supply (cells, formulas, new sheets, pictures); inserting or
+deleting rows and adding charts to an existing workbook are not available.
+Formulas are written as **real formulas** — but
 they are not recalculated here: the file stores the formula, and its value
 appears when the file is opened in a spreadsheet application. Anything the
 assistant reports as a number in the chat was computed in Python from your
@@ -85,14 +91,29 @@ PDF work — the assistant will say so if you ask for it to encrypt.
 
 Decks built by filling real **layouts and placeholders** — never text boxes
 overlaid on slides — so the master's branding carries through. With the document
-service the assistant writes a slide spec (layouts, titles, body blocks, notes,
-native charts, tables, images) and works with your own `.pptx` when you attach
-one and ask for its look; editing an existing deck changes only the slides and
-text it names. Without the service the skill falls back to the bundled outline
-generator: it ships a demonstration template, picks visual types from a markdown
-outline and validates structurally (empty placeholders, estimated overflow,
-off-slide shapes). Either way the visual verdict is yours to make when you
-open the deck.
+service the assistant writes a slide spec: six 16:9 layouts, titles, body
+blocks, speaker notes, native charts, tables and images. Text is 20 to 24 pt
+and never below 14 pt (the assistant splits a crowded slide), and content stays
+below the title. It works with your own `.pptx` when you attach one and ask for
+its look; editing an existing deck changes only the slides and text it names.
+For designed pages a slide can have a background (a colour, a two-colour
+gradient or a picture cropped to fill) and up to 30 shapes (rectangle, rounded
+rectangle, ellipse, line, arrow, chevron, text box). A shape without text may
+run off an edge if at least 0.5 cm shows; text always stays on the slide. The
+result warns about overflow, overlap and low contrast.
+
+The tools are the default. The one exception: when you **explicitly ask for a
+custom design** the tools cannot express (an infographic, a timeline drawn from
+shapes, a "designed" deck), the assistant builds it in the browser sandbox and
+says so in one line. When it is unclear which you want ("make it look great"),
+it asks, with two choices: a clean deck in standard layouts, or a custom design.
+A deck is never made both ways. Adding native charts to an existing deck and
+editing chart data are not available.
+
+Without the service the skill falls back to the bundled outline generator: it
+ships a demonstration template, picks visual types from a markdown outline and
+validates structurally (empty placeholders, estimated overflow, off-slide
+shapes). Either way the visual verdict is yours to make when you open the deck.
 
 ### charts
 

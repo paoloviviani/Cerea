@@ -1,149 +1,220 @@
-# Office previews and document conversion
+# Word, Excel, PowerPoint and PDF files
 
-!!! info "For operators"
+Ask the assistant for a report, a workbook, a deck or a PDF and it makes the
+file, saves it in the chat and shows it in the side pane. Give it a file of your
+own and ask for a change, and it changes only what you named.
 
-    Turning this on is a deployment change: it adds one service.
+This page says what you can ask for, what you get and what it cannot do. The
+last parts are for administrators.
 
-Cerea previews Word, Excel, PowerPoint and OpenDocument files in the chat's side
-pane, and, when asked for a PDF, models can make one.
+## What to ask for
 
-## With Gotenberg (the `office` profile)
+- **A new file.** "Write a two-page report on the survey results as a Word
+  file." "Make a budget workbook with a total row and a chart." "Build a
+  ten-slide deck for the board meeting, with speaker notes." "Make a PDF
+  handout."
+- **A change to a file.** Attach a Word, Excel or PowerPoint file, or point to
+  one the assistant made earlier, and ask: "Change 2025 to 2026 everywhere",
+  "fix the total in B12", "move slide 5 to the front", "replace the logo".
+- **A file from your template.** Upload a Word, PowerPoint or Excel template that
+  has `{{placeholders}}`, and the assistant fills them in.
+- **A look.** See "Styling by asking" below.
 
-Run `./configure --office-preview && docker compose up -d` in the kit (off by
-default; `--no-office-preview` removes it). The chat reaches Gotenberg at
-`CHAT_GOTENBERG_URL`. Then:
+The assistant says what it made or changed and what it checked. It cannot see
+the finished page, so open the file when the layout matters.
 
-- **Previews.** docx, pptx, xlsx, odt and the other formats LibreOffice reads
-  open as a PDF, drawn in the page (the same on a desktop and a phone; see
-  below). If the converter cannot make a deck's or a Word file's PDF, the
-  browser preview described under "Without it" is used instead. The PDF is made the first time a
-  file is opened, except for files a model produced, which are converted as soon
-  as they are stored. It is kept in the chat's file store, keyed by the SHA-256
-  of the file's bytes and a converter version: identical files share one
-  preview, an edited file gets its own, and a Gotenberg upgrade (a new converter
-  version in the release) makes fresh ones. A preview is deleted when the last
-  file that uses it is deleted: with the conversation, when a produced file
-  expires, and when an account is erased.
-- **`convert_document` tool.** Offered to models only while Gotenberg is
-  configured. It converts a file already in the conversation (an attachment or a
-  produced file) to PDF with LibreOffice, or renders Markdown or HTML the model
-  writes to PDF with Chromium (no JavaScript, no network). The PDF is saved in
-  the conversation and listed like any produced file. Nothing is metered: it
-  runs on your server.
+## What you get
 
-Gotenberg parses untrusted files, so the kit runs it on an internal-only
-network with no internet access, no published port and no shared volumes, with
-CPU and memory limits and timeouts; see the [kit README](deploy-kit.md).
+A file card in the chat, with a preview, a download and a version list. Word,
+Excel and PowerPoint files are real Office files: you can open and edit them
+in Office. PDFs are made directly, so the same request gives the same file.
 
-## Creating and editing Word, Excel, PowerPoint and PDF files
+### Creating
 
-!!! info "For operators"
+The assistant writes a description of the document and the service builds it.
+These can go in:
 
-    The `documents` service runs with the chat profile in the kit; no switch to turn on.
+| Format     | What it can hold                                                                                                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Word       | headings, paragraphs with bold, italic, links and colour, lists, tables, images with captions, charts, quotes, code, a table of contents, page breaks, page size and margins, headers and footers with page numbers |
+| Excel      | sheets, values, formulas, number formats, bold and fills, column widths, frozen rows, filters, tables, charts, pictures at a cell                                                                                   |
+| PowerPoint | slides in six layouts, tables, pictures, charts, speaker notes, backgrounds and shapes (see "Designed slides")                                                                                                      |
+| PDF        | the same as Word, except that charts are pictures                                                                                                                                                                   |
 
-With the document service (`cerea-documents`, ADR 0103) the model works on
-Office and PDF files through typed tools instead of writing code in the browser:
+Pictures must be files the chat already has: an attachment, a chart the
+assistant drew, or an image from the browser sandbox. The assistant never
+downloads anything for a document. Only PNG, JPEG and GIF work.
 
-- **`doc_create`** makes a new Word, Excel, PowerPoint or PDF file from a
-  **document spec** (below). **`doc_create_from_template`** fills a template the
-  person uploaded in the chat.
-- **`doc_outline`** gives a file's structure with stable ids; **`doc_read`**
-  gives the exact content of ids or ranges.
-- **`doc_edit`** applies typed operations (replace text, fill placeholders, set
-  cells and formulas, edit tables, replace or insert images, reorder slides,
-  tracked changes in Word). All operations apply or none do, and only the parts
-  they name are touched: every other part of the file stays byte for byte.
+### Editing
 
-A file is named the way the model already sees it: an attachment, or a file a
-tool or a run produced. A created file, or an edit, is saved as a file the person
-sees as an ordinary file card (preview, download, the version list). An edit is a
-**new version** of its file under the same name and the original attachment is
-never changed; a created file starts a new file, and creating again under the
-same name saves the next version. The result tells the model what was written (an
-outline for a created file, the diff for an edit) and a verification report
-(that the package is valid and reopens). Tracked changes carry the person's
-display name unless the model gives another author.
+An edit can replace text, fill placeholders, set cells and formulas, change
+table cells, add or swap pictures, and reorder, copy or delete slides. Word
+edits can be tracked changes, under your name unless you say another. The
+result lists what changed.
 
-The tools are offered only while `CHAT_DOCUMENTS_URL` and `CHAT_DOCUMENTS_SECRET`
-are set and the service answers. `doc_create` and `doc_create_from_template` are
-offered when the service reports `create` and `create_from_template` at
-`/v1/capabilities`, and `doc_edit` offers exactly the operations the service
-reports (the tool text is built from the service's own schemas, so a new block or
-operation reaches the model without a chat release). Without the service the
-Excel, Word, PowerPoint and PDF skills use their in-sandbox helpers; with it,
-those skills say the tools are the **only** way and keep the helpers in a labelled
-fallback section.
+- All the changes in one request apply, or none do.
+- Only the parts you named change. Everything else stays exactly as it was.
+- **Every edit is a new version** under the same name. Your original is never
+  changed, and the version list on the file card gives you the earlier ones.
+  Making a file again under the same name also saves the next version.
 
-### The document spec
+### Charts
 
-One JSON schema family for all formats (the full property lists are in the
-service's `documents/README.md`, and the model reads them from the service itself):
+A chart can be **native**, which stays editable in Office with its data in the
+file, or a **picture**. Bar, column, stacked, line, area, pie, doughnut and
+scatter charts are available. Word, Excel and PowerPoint can have either kind;
+a PDF always gets a picture. If a native chart cannot be written, the file gets
+a picture instead and the assistant says so.
 
-| Format     | The spec holds                                                                                                                                            |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Word, PDF  | `title`, `language`, `page` (size, orientation, margins), `header` and `footer` (with `{page}` and `{pages}`), `theme`, and `blocks` or Markdown          |
-| Excel      | `sheets` with `rows` or `cells` (values, formulas, number formats, bold, fill), column widths, freeze panes, autofilter, tables, charts, images at a cell |
-| PowerPoint | `slides` with a layout, title, body blocks, speaker notes, images (a box or fitted to the body) and charts                                                |
+### Styling by asking
 
-Blocks: heading, paragraph (bold, italic, underline, link, code, colour), nested
-lists, tables (header row, widths, alignment), images with captions, charts, quotes,
-code, a table of contents and page breaks. Markdown with a small front-matter is
-accepted for prose and converted to the same blocks; raw HTML is refused.
+The default style is neutral. To change it, say what you want in the request:
 
-**Styling.** There is one neutral built-in style set, and the spec's `theme`
-carries what the person asked for in the prompt: body and heading fonts from a
-list of fonts commonly installed with Office, colours, heading sizes, spacing,
-table style and an accent colour. There is no administrator template. When a
-person uploads a Word, PowerPoint or Excel file in the chat and asks for that
-look, `theme.template` takes the styles (Word styles, headers and page setup;
-PowerPoint master and layouts, named in each slide's `layout`; Excel named
-styles) from it, and `doc_create_from_template` fills its `{{placeholders}}`
-(Word body, tables, headers and footers; PowerPoint text boxes, placeholders and
-notes; Excel cells and named ranges). A paragraph, shape or cell that holds only
-a placeholder can become a picture. Macro-enabled templates are refused, and a
-created file never carries active content.
+- fonts for body and headings, from a list of common Office fonts (Arial,
+  Calibri, Cambria, Georgia, Garamond, Verdana and others);
+- colours, an accent colour, heading sizes, spacing and table style.
 
-**Charts.** A chart block (bar, column, stacked, line, area, pie, doughnut,
-scatter) says `render`: `native` or `image`.
+There is no company template set up by the administrator. To use your own look,
+upload a Word, PowerPoint or Excel file in the chat and ask for it: the
+assistant takes the styles, headers and page setup from it (for a deck, its
+layouts and fonts too). A PDF cannot use a template. Files with macros are
+refused, and a file the assistant makes never contains macros or other active
+content.
 
-| `render` | Word                                    | Excel                                           | PowerPoint     | PDF   |
-| -------- | --------------------------------------- | ----------------------------------------------- | -------------- | ----- |
-| `native` | a native chart, editable in Word        | a native chart, drawn from the cells            | a native chart | image |
-| `image`  | a PNG (matplotlib, a fixed clean style) | a PNG anchored at a cell (needs literal values) | a PNG          | image |
+### Designed slides
 
-If a native chart cannot be written the file still contains the chart as an image
-and the result says so. The chart's data stays in the file, so the person can edit
-a native chart in Office. A picture the model made in the browser sandbox is
-passed to the tool by name, like any image.
+By default a deck uses six 16:9 layouts: title, title and content, section,
+two columns, title only and blank. Text is 20 to 24 pt and never shrinks below
+14 pt: when a slide has too much on it, the assistant splits it. Tables,
+pictures and charts sit below the title.
 
-**Images** are files the conversation already has (an attachment, a generated
-chart, a sandbox output); the service never fetches anything itself. PNG, JPEG and
-GIF only, checked against their content.
+For a more designed page you can ask for:
 
-**PDF** is built directly from the spec (reportlab, with embedded DejaVu fonts, so
-Latin, Greek and Cyrillic render), deterministically, with no converter. Output is
-reproducible: the same spec gives the same bytes. Editing an existing PDF stays in
-the `pdf-tools` skill.
+- **a background**: a colour, a two-colour gradient, or a picture, cropped to
+  fill the slide;
+- **shapes**: up to 30 on a slide (rectangle, rounded rectangle, ellipse, line,
+  arrow, chevron or text box), placed on the slide in centimetres, for cards, a
+  cover or a section slide.
 
-The service parses untrusted files and specs, so the kit runs it on an internal-only
-network with no internet access, a read-only filesystem, no capabilities and
-resource limits, and every request in a fresh subprocess with its own limits; see
-the [kit README](deploy-kit.md).
+Shapes with text stay fully on the slide. A decoration without text, such as a
+big circle in a corner, may run off an edge as long as at least 0.5 cm of it
+shows. The assistant gets a warning when text is hard to read on its background,
+when a shape covers the title or body, or when text overflows, and fixes it
+or tells you.
 
-## Without it
+If the request is refused, the message says which value was wrong and what is
+allowed, so the assistant can correct it.
 
-A `.pptx` deck is drawn in the browser by pptx-glimpse, as one image per slide
-(text as outlines, never live markup), with Carlito and Liberation fonts loaded
-only when a deck is previewed. When the library reports features it cannot draw
-(charts, SmartArt, some effects) the pane says it is an approximate rendering.
-Word files keep the previous browser preview; Excel and the rest have none, and
-the download is always there.
+### A custom design
 
-## How a PDF is shown
+Backgrounds and shapes cover cards, covers and section pages. For something
+the tools cannot draw, such as an infographic or a timeline built from shapes,
+you can **explicitly ask for a custom design**. The assistant then builds the
+deck in the browser sandbox and says so in one line. That route is more
+distinctive and more likely to need fixes, and a deck is made one way or the
+other, never both.
 
-Every PDF, including the one the converter makes of an Office file, is drawn in
-the page with [pdf.js](https://github.com/mozilla/pdf.js) (Apache-2.0), one
-canvas per page, on every device. The library and its worker are part of the
-chat's own build and are served from the same origin: nothing is fetched from a
-CDN, and nothing is loaded until a PDF is opened. The first 60 pages are drawn;
-"New tab" and "Download" stay in the header as secondary actions.
+If you only say "make it look great" or "something eye-catching", the assistant
+asks which you want: a clean deck in standard layouts (the reliable default) or
+a custom design. "A deck about X" goes to the standard route without a question.
+You can still ask for edits to a sandbox-built deck afterwards.
+
+## Previews
+
+The side pane shows the file you open.
+
+- **With the converter** (the administrator turned on Office previews), Word,
+  Excel, PowerPoint and OpenDocument files open as a PDF, drawn the same on a
+  desktop and a phone. Files the assistant makes are converted as soon as they
+  are saved; others the first time you open them. The assistant can also
+  convert a file in the chat to PDF, or write Markdown or HTML out as a PDF
+  (the `convert_document` tool).
+- **Without it**, a deck is drawn in the browser, one picture per slide. When it
+  uses something the browser cannot draw (some charts, SmartArt, some effects)
+  the pane says the view is approximate. Word files keep a simpler preview.
+  Excel and other formats have no preview. The download is always there.
+
+Every PDF is drawn in the page, one canvas per page; the first 60 pages are
+shown, and "New tab" and "Download" stay in the header.
+
+## Limits
+
+- **Size.** A request to the service may be up to 64 MiB, the description of the
+  document up to 1 MiB, a picture up to 20 MiB and 40 million pixels, and a deck up
+  to 200 slides, a workbook up to 100,000 cells and a chart up to 5,000 values.
+  An edit may have up to 200 operations. A file to convert to PDF may be up
+  to 20 MB.
+- **Time.** One call is stopped after about 30 seconds of work (60 seconds in
+  all). A very large file may need to be split.
+- **Editing a deck:** you cannot add a native chart to an existing deck, edit
+  a chart's data, or redesign layouts. Ask for a new deck instead.
+- **Editing a workbook:** you cannot insert or delete rows, or add charts to an
+  existing workbook. New formulas have no value until the file is opened in
+  Excel; numbers the assistant quotes come from your data, not from a formula.
+- **Editing a Word file:** comments, footnote text, content controls and fields
+  are not available.
+- **Editing a PDF** is not part of this: merging, splitting, filling forms and
+  similar work on an existing PDF is the `pdf-tools` skill, in the browser.
+- **PDF text.** Latin, Greek and Cyrillic render. Chinese, Japanese, Korean
+  and Arabic do not, and the assistant says so.
+- **Not checked by eye.** Nobody renders the page for the assistant, so it
+  checks that the file is valid and reopens, and leaves the visual verdict to
+  you.
+
+## When there is no document service
+
+If your administrator has not set up the document service, the assistant has no
+document tools. The Word, Excel, PowerPoint and PDF skills then write the file
+as Python in your browser (see [Python in the browser](pyodide.md)). That works,
+but without the precise, all-or-nothing edits: a deck is built from a markdown
+outline, and checks are less thorough. Ask your administrator if the tools are
+missing.
+
+## For administrators
+
+Two services are involved, both in the kit and both optional for the chat to
+work.
+
+| Service                         | What it does                                            | Setting                                                                |
+| ------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `documents` (`cerea-documents`) | creates and edits Word, Excel, PowerPoint and PDF files | `CHAT_DOCUMENTS_URL`, `CHAT_DOCUMENTS_SECRET`; on with the chat        |
+| `gotenberg`                     | Office previews as PDF and the `convert_document` tool  | `CHAT_GOTENBERG_URL`; off until you run `./configure --office-preview` |
+
+The settings are in [Configuration](configuration.md) and the kit's runbook
+([the deploy kit](deploy-kit.md)) covers resources, the secret and upgrading
+from 0.29.x (run `./configure` once).
+
+### The document service (`cerea-documents`, ADR 0103)
+
+The tools `doc_outline`, `doc_read`, `doc_edit`, `doc_create` and
+`doc_create_from_template` are offered only while `CHAT_DOCUMENTS_URL` and
+`CHAT_DOCUMENTS_SECRET` are set and the service answers. The chat asks the
+service what it can do, and builds the tools from the answer, so a new
+operation in the service reaches the assistant without a chat release.
+`doc_create` and `doc_create_from_template` are offered when the service reports
+that it can create; `doc_edit` offers exactly the operations it lists. Without the
+service, or with `CHAT_DOCUMENTS_URL` empty, the skills use their in-browser
+methods.
+
+The service parses untrusted files and descriptions, so the kit runs it on an
+internal-only network with no internet access, a read-only filesystem, no
+capabilities and CPU, memory and process limits, and every request runs in a
+fresh process with its own limits. Its image is versioned with the chat. The
+limits above are its defaults; the service's own settings (all prefixed
+`CEREA_DOCUMENTS_`) are listed in `documents/README.md`.
+
+### Office previews (Gotenberg, the `office` profile)
+
+Run `./configure --office-preview && docker compose up -d` in the kit
+(`--no-office-preview` removes it). Previews are made the first time a file is
+opened, except for files the assistant made, which are converted when they are
+saved. A preview is kept in the chat's file store under the hash of the file and
+a converter version, so identical files share one preview, an edited file gets
+its own, and a new converter version in a release makes fresh ones. It is deleted with the last file that
+uses it. If the converter cannot make a PDF, the browser preview is used.
+
+`convert_document` is offered to models only while Gotenberg is configured. It
+needs the converter, so without it nothing converts to PDF except the
+document service's own PDF creation. Gotenberg parses untrusted files, so the kit
+runs it on an internal-only network with no internet access, no published port,
+no shared volumes, CPU and memory limits and timeouts.
