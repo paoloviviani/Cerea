@@ -56,7 +56,12 @@ the gateway.
   go to an OCR endpoint you name (`CHAT_OCR_BASE_URL`). Scanned PDFs reach a
   model that sees images as page images.
 - **Artifacts**: HTML, React and Mermaid previews in sandboxed frames with no
-  network access, and generated Word, Excel, PowerPoint and PDF files.
+  network access, and generated files (see the next item).
+- **Word, Excel, PowerPoint and PDF files**: the assistant creates and edits
+  them through the bundled document service, saving each edit as a new version
+  and leaving the original alone. Styling by asking, or from a template you
+  upload; designed slides with backgrounds and shapes; native charts
+  ([docs/office.md](docs/office.md)).
 - **Skills and connectors**: built-in skills for office files and data
   analysis ([docs/skills.md](docs/skills.md)), and remote MCP servers as
   connectors ([docs/connectors.md](docs/connectors.md)).
