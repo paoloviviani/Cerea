@@ -175,6 +175,12 @@ describe("the list of connectors the assistant can load", () => {
 		expect(connectorCatalogNotice([unknown, connector("maps", { host: "maps.test" })])).toBe(text);
 	});
 
+	it("puts a multi-line description on one line", () => {
+		expect(summaryOf("Finds places.\n\n  - Also routes.\r\nTry it.", [])).toBe(
+			"Finds places. - Also routes. Try it."
+		);
+	});
+
 	it("takes the host from the address, and none from one that does not parse", () => {
 		expect(hostOf("https://api.geoapify.com/v1/mcp?apiKey=x")).toBe("api.geoapify.com");
 		expect(hostOf("not an address")).toBeUndefined();

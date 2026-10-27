@@ -25,6 +25,9 @@ import { localConnectorViews } from "$lib/server/mcp/local";
 import { callerIdentity, requireAdmin } from "$lib/server/admin";
 import type { McpConnector } from "$lib/types/McpConnector";
 
+/** How long an add waits for the tool listing it triggers; a failure is stored on the row. */
+const AUTO_CHECK_MS = 10_000;
+
 const create = z.object({
 	name: z.string().trim().min(1).max(128),
 	// http is refused: a bearer token on a plaintext connection is the thing
@@ -200,7 +203,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	// failure is recorded on the row (`lastError`), never swallowed and never
 	// a reason to refuse the add.
 	if (connector.auth === "token" || (connector.auth === "none" && !connector.lastError)) {
-		await checkConnectorTools(connector, user._id);
+		await checkConnectorTools(connector, user._id, AUTO_CHECK_MS);
 	}
 	const stored = (await collections.mcpConnectors.findOne({ _id: connector._id })) ?? connector;
 	return json(

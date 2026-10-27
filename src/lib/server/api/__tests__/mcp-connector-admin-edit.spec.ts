@@ -43,10 +43,19 @@ vi.mock("$lib/server/mcp/health", async (importOriginal) => {
 	return {
 		...actual,
 		// Every connector here has an https address; the one server answering is the mock.
-		listTools: (_url: string, headers?: Record<string, string>) =>
-			actual.listTools(mockUrl(), headers),
+		listTools: (_url: string, headers?: Record<string, string>, timeoutMs?: number) => {
+			timeouts.push(timeoutMs);
+			return actual.listTools(mockUrl(), headers, timeoutMs);
+		},
 	};
 });
+vi.mock("$lib/server/mcp/discovery", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("$lib/server/mcp/discovery")>();
+	return { ...actual, probe: (url: string) => probeAnswer(url) };
+});
+/** The wait each tool listing was given, in order (`undefined` is the default). */
+const timeouts: (number | undefined)[] = [];
+let probeAnswer: (url: string) => Promise<unknown> = async () => ({ auth: "unknown", reason: "x" });
 let mockAddress = "";
 const mockUrl = () => mockAddress;
 
@@ -60,6 +69,8 @@ beforeAll(async () => {
 
 afterEach(async () => {
 	vi.unstubAllGlobals();
+	timeouts.length = 0;
+	await collections.mcpTokens.deleteMany({});
 	await collections.mcpConnectors.deleteMany({ _id: { $in: seeded.splice(0) } });
 	await collections.mcpConnectors.deleteMany({ url: ADDRESS });
 	await cleanupTestData();
@@ -298,8 +309,188 @@ describe.sequential("adding a connector lists its tools", () => {
 		});
 		expect(response.status).toBe(201);
 		const body = (await response.json()) as { tools?: unknown[]; lastError?: string };
-		expect(body.tools).toEqual([]);
+		expect(body.tools).toBeUndefined();
 		expect(body.lastError).toBeTruthy();
+	});
+});
+
+describe.sequential("a failed check keeps what the last good one found", () => {
+	it("keeps the stored tools and only records the error", async () => {
+		const person = await createTestUser();
+		const id = await seed(person, { tools: [{ name: "echo" }], tokenSealed: seal("wrong") });
+		stubAdminGateway(person.user._id);
+		await act(id, withToken(person), { action: "check" }, "?scope=deployment");
+		const row = await collections.mcpConnectors.findOne({ _id: id });
+		expect(row?.tools).toEqual([{ name: "echo" }]);
+		expect(row?.lastError).toBeTruthy();
+	});
+
+	it("leaves a connector that never listed without tools", async () => {
+		const person = await createTestUser();
+		const id = await seed(person, { tokenSealed: seal("wrong") });
+		stubAdminGateway(person.user._id);
+		await act(id, withToken(person), { action: "check" }, "?scope=deployment");
+		const row = await collections.mcpConnectors.findOne({ _id: id });
+		expect(row?.tools).toBeUndefined();
+		expect(row?.lastError).toBeTruthy();
+	});
+});
+
+describe.sequential("the wait of an automatic check is capped", () => {
+	it("gives the listing 10 s on add and on a key change, and the default on the Check button", async () => {
+		const person = await createTestUser();
+		stubAdminGateway(person.user._id);
+		const locals = withToken(person);
+		await create({
+			locals,
+			url: new URL("http://localhost/api/v2/mcp/connectors"),
+			request: new Request("http://localhost/api", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					name: "Find",
+					url: ADDRESS,
+					scope: "deployment",
+					authMode: "token",
+					token: TOKEN,
+				}),
+			}),
+		} as never);
+		expect(timeouts).toEqual([10_000]);
+		const row = await collections.mcpConnectors.findOne({ url: ADDRESS });
+		const rowId = row?._id as ObjectId;
+		await act(rowId, locals, { action: "update", token: TOKEN }, "?scope=deployment");
+		expect(timeouts).toEqual([10_000, 10_000]);
+		await act(rowId, locals, { action: "check" }, "?scope=deployment");
+		expect(timeouts).toEqual([10_000, 10_000, undefined]);
+	});
+});
+
+describe.sequential("an OAuth deployment connector can be repaired from Admin", () => {
+	const oauth = (host: string) => ({
+		issuer: `https://${host}`,
+		authorizationEndpoint: `https://${host}/authorize`,
+		tokenEndpoint: `https://${host}/token`,
+		resource: `https://${host}/mcp`,
+		supportsS256: true,
+	});
+
+	it("changing the address asks the new server how to sign in and drops everybody's sign-in", async () => {
+		const person = await createTestUser();
+		const other = await createTestUser();
+		const id = await seed(person, {
+			auth: "oauth",
+			tokenSealed: undefined,
+			oauth: oauth("old.example.test"),
+		});
+		await collections.mcpTokens.insertOne({
+			_id: new ObjectId(),
+			connectorId: id,
+			userId: other.user._id,
+			accessTokenSealed: seal("old-access"),
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		probeAnswer = async () => ({ auth: "oauth", oauth: oauth("new.example.test") });
+		stubAdminGateway(person.user._id);
+
+		await act(
+			id,
+			withToken(person),
+			{ action: "update", url: "https://new.example.test/mcp" },
+			"?scope=deployment"
+		);
+		const row = await collections.mcpConnectors.findOne({ _id: id });
+		expect(row?.auth).toBe("oauth");
+		expect(row?.oauth?.issuer).toBe("https://new.example.test");
+		expect(await collections.mcpTokens.countDocuments({ connectorId: id })).toBe(0);
+	});
+
+	it("takes a client id from the Admin card for a provider that does not register clients", async () => {
+		const person = await createTestUser();
+		const id = await seed(person, {
+			auth: "oauth",
+			tokenSealed: undefined,
+			oauth: oauth("p.test"),
+		});
+		stubAdminGateway(person.user._id);
+		const response = await act(
+			id,
+			withToken(person),
+			{ action: "update", clientId: "my-client", clientSecret: "shh" },
+			"?scope=deployment"
+		);
+		const view = (await response.json()) as { canAuthorize: boolean; clientId?: string };
+		expect(view).toMatchObject({ canAuthorize: true, clientId: "my-client" });
+	});
+
+	it("re-checks an OAuth row from Admin", async () => {
+		const person = await createTestUser();
+		const id = await seed(person, {
+			auth: "oauth",
+			tokenSealed: undefined,
+			oauth: oauth("p.test"),
+		});
+		probeAnswer = async () => ({ auth: "oauth", oauth: oauth("moved.test") });
+		stubAdminGateway(person.user._id);
+		await act(id, withToken(person), { action: "reprobe" }, "?scope=deployment");
+		expect((await collections.mcpConnectors.findOne({ _id: id }))?.oauth?.issuer).toBe(
+			"https://moved.test"
+		);
+	});
+});
+
+describe.sequential("what a person who is not an administrator sees of a deployment row", () => {
+	const SECRET_URL = "https://api.example.test/mcp?apiKey=SECRET123";
+
+	it("gets the address without its query and a generic error; the administrator's screen and an owner get the stored ones", async () => {
+		const person = await createTestUser();
+		const reader = await createTestUser();
+		await seed(person, {
+			url: SECRET_URL,
+			lastError: "upstream said: GET /mcp?apiKey=SECRET123 refused",
+			tools: [],
+		});
+		const mine = await seed(reader, {
+			scope: "user",
+			url: SECRET_URL,
+			lastError: "own failure ?apiKey=SECRET123",
+		});
+
+		const asReader = await list(reader.locals);
+		const shared = asReader.find((c) => (c as { scope?: string }).scope === "deployment") as
+			{ url: string; lastError?: string } | undefined;
+		expect(shared?.url).toBe("https://api.example.test/mcp");
+		expect(shared?.lastError).toBe("Could not list its tools");
+		expect(JSON.stringify(asReader.filter((c) => c.id !== mine.toString()))).not.toContain(
+			"SECRET123"
+		);
+		// The owner sees their own row as stored.
+		const own = asReader.find((c) => c.id === mine.toString()) as unknown as {
+			url: string;
+			lastError?: string;
+		};
+		expect(own.url).toBe(SECRET_URL);
+		expect(own.lastError).toContain("own failure");
+
+		// An administrator in Workspace is not on the Admin screen: redacted too.
+		stubAdminGateway(person.user._id);
+		const inWorkspace = (await list(withToken(person))) as unknown as {
+			url: string;
+			scope: string;
+		}[];
+		expect(inWorkspace.find((c) => c.scope === "deployment")?.url).toBe(
+			"https://api.example.test/mcp"
+		);
+		// On the Admin screen: as stored.
+		const onAdmin = (await list(withToken(person), "?admin=1")) as unknown as {
+			url: string;
+			scope: string;
+			lastError?: string;
+		}[];
+		const adminRow = onAdmin.find((c) => c.scope === "deployment");
+		expect(adminRow?.url).toBe(SECRET_URL);
+		expect(adminRow?.lastError).toContain("SECRET123");
 	});
 });
 

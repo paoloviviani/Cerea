@@ -22,6 +22,7 @@
 	import IconEdit from "~icons/carbon/edit";
 	import IconRefresh from "~icons/carbon/renew";
 	import ConnectorTools from "$lib/components/mcp/ConnectorTools.svelte";
+	import { credentialLikeParams } from "$lib/utils/connectorUrl";
 	import type { ConnectorMode, McpConnectorView } from "$lib/types/McpConnector";
 	import type { MCPServer, MCPTool } from "$lib/types/Tool";
 	import Switch from "$lib/components/Switch.svelte";
@@ -54,6 +55,17 @@
 	let clearEditToken = $state(false);
 	/** Which connector's tool check is running. */
 	let checking = $state<string | null>(null);
+	/** Which OAuth connector has its app details (client id and secret) form open. */
+	let detailsFor = $state<string | null>(null);
+	let rowClientId = $state("");
+	let rowClientSecret = $state("");
+	// Shown so somebody registering a client by hand can copy it: the same value the server derives.
+	const redirectUri = $derived(
+		typeof window === "undefined" ? "" : `${window.location.origin}${base}/mcp/callback`
+	);
+	/** Query parameters of the address being typed that look like a key. */
+	const addUrlSecrets = $derived(credentialLikeParams(url.trim()));
+	const editUrlSecrets = $derived(credentialLikeParams(editUrl.trim()));
 
 	// The servers `.env` (`MCP_SERVERS`) defines, with how the deployment offers each
 	// (ADR 0104). Their address and key are edited in `.env`; their mode is set here.
@@ -284,15 +296,46 @@
 		}
 	}
 
-	/** List its tools again with the connector's own key, and show what came back. */
-	async function recheck(connector: McpConnectorView) {
+	/** Register the OAuth client id (and secret) a provider without self-registration gave you. */
+	async function saveDetails(event: SubmitEvent, connector: McpConnectorView) {
+		event.preventDefault();
+		if (!rowClientId.trim()) return;
+		busy = true;
+		failure = null;
+		try {
+			await api(asDeployment(connector.id), {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					action: "update",
+					clientId: rowClientId.trim(),
+					...(rowClientSecret.trim() ? { clientSecret: rowClientSecret.trim() } : {}),
+				}),
+			});
+			rowClientId = "";
+			rowClientSecret = "";
+			detailsFor = null;
+			await load();
+		} catch (err) {
+			failure = err instanceof Error ? err.message : m["admin.connectors.edit_failed"]();
+		} finally {
+			busy = false;
+		}
+	}
+
+	/**
+	 * Check one connector. A shared-key or open one lists its tools again with its own key;
+	 * an OAuth one is asked again how it signs people in (`reprobe`), which is what repairs a
+	 * connector whose address changed or whose provider moved.
+	 */
+	async function recheck(connector: McpConnectorView, action: "check" | "reprobe" = "check") {
 		checking = connector.id;
 		failure = null;
 		try {
 			await api(asDeployment(connector.id), {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ action: "check" }),
+				body: JSON.stringify({ action }),
 			});
 			await load();
 		} catch (err) {
@@ -324,6 +367,17 @@
 {#snippet code(text: string)}<code class="font-mono">{text}</code>{/snippet}
 
 {#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
+
+<!-- An address with a key in it is shown to nobody but you, but it is still stored in the clear. -->
+{#snippet urlWarning(names: string[])}
+	<p
+		role="alert"
+		data-testid="url-secret-warning"
+		class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+	>
+		{m["admin.connectors.form.url_secret_warning"]({ names: names.join(", ") })}
+	</p>
+{/snippet}
 
 <!--
 	How one connector is offered: off, on, or on and locked, and whether the assistant has it
@@ -440,6 +494,9 @@
 					/>
 				</label>
 			</div>
+			{#if addUrlSecrets.length > 0}
+				{@render urlWarning(addUrlSecrets)}
+			{/if}
 
 			<label class="flex flex-col gap-1">
 				<span class="text-xs font-medium"
@@ -652,6 +709,29 @@
 									<IconEdit class="size-3" />
 									{m["admin.connectors.edit"]()}
 								</button>
+								{#if connector.auth === "oauth"}
+									<!-- Asks the server again how it signs people in: the repair for a changed address. -->
+									<button
+										type="button"
+										onclick={() => recheck(connector, "reprobe")}
+										disabled={busy || checking !== null}
+										title={m["admin.connectors.recheck_title"]()}
+										class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+									>
+										{m["admin.connectors.recheck"]()}
+									</button>
+									{#if !connector.canAuthorize}
+										<button
+											type="button"
+											onclick={() =>
+												(detailsFor = detailsFor === connector.id ? null : connector.id)}
+											disabled={busy}
+											class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+										>
+											{m["mcp.connectors.add_app_details"]()}
+										</button>
+									{/if}
+								{/if}
 								<button
 									type="button"
 									onclick={() => recheck(connector)}
@@ -676,6 +756,47 @@
 						</div>
 					</div>
 					<ConnectorTools {connector} list />
+					{#if detailsFor === connector.id}
+						<form
+							data-testid="app-details"
+							class="mt-3 space-y-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+							onsubmit={(event) => saveDetails(event, connector)}
+						>
+							<input
+								autocomplete="off"
+								aria-label={m["mcp.connectors.client_id"]()}
+								placeholder={m["mcp.connectors.client_id"]()}
+								class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+								bind:value={rowClientId}
+								required
+								disabled={busy}
+							/>
+							<input
+								type="password"
+								autocomplete="off"
+								aria-label={m["mcp.connectors.client_secret_placeholder"]()}
+								placeholder={m["mcp.connectors.client_secret_placeholder"]()}
+								class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+								bind:value={rowClientSecret}
+								disabled={busy}
+							/>
+							<p class="text-xs text-gray-500 dark:text-gray-400">
+								{m["mcp.connectors.redirect_uri_row"]()}
+								<code class="rounded-sm bg-gray-100 px-1 py-0.5 break-all dark:bg-gray-800"
+									>{redirectUri}</code
+								>
+							</p>
+							<div class="flex justify-end">
+								<button
+									type="submit"
+									disabled={busy || !rowClientId.trim()}
+									class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+								>
+									{m["mcp.connectors.save"]()}
+								</button>
+							</div>
+						</form>
+					{/if}
 					{#if editing?.id === connector.id}
 						<form
 							data-testid="edit-connector"
@@ -700,6 +821,9 @@
 									required
 									disabled={busy}
 								/>
+								{#if editUrlSecrets.length > 0}
+									{@render urlWarning(editUrlSecrets)}
+								{/if}
 							</label>
 							<label class="flex flex-col gap-1">
 								<span class="text-xs font-medium"

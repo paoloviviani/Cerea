@@ -10,6 +10,7 @@
 import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import type { McpConnector, McpConnectorView } from "$lib/types/McpConnector";
+import { stripAddress } from "$lib/utils/connectorUrl";
 import {
 	connectorKey,
 	isEnabled,
@@ -19,6 +20,9 @@ import {
 	type ConnectorPolicy,
 	type Switches,
 } from "./deploymentModes";
+
+/** What a person sees of a failure on a connector the deployment provides. */
+const GENERIC_ERROR = "Could not list its tools";
 
 /** One connector as the client sees it. */
 export async function view(
@@ -57,10 +61,15 @@ export async function view(
 		connected = true;
 	}
 
+	// What the administrator typed may carry a key (`?apiKey=`), and an upstream's error may
+	// echo a request. Only the administrator's own screen, and a person's own connector,
+	// get either as stored.
+	const seesDetail = !deployment || (isAdmin && adminScreen);
+
 	return {
 		id: connector._id.toString(),
 		name: connector.name,
-		url: connector.url,
+		url: seesDetail ? connector.url : stripAddress(connector.url),
 		auth: connector.auth,
 		connected,
 		// Whether a sign-in can even be offered: OAuth, discovered, and either
@@ -80,7 +89,7 @@ export async function view(
 		registrationSource: connector.registration?.source,
 		scopesSupported: connector.oauth?.scopesSupported,
 		issuer: connector.oauth?.issuer,
-		lastError: connector.lastError,
+		lastError: seesDetail || !connector.lastError ? connector.lastError : GENERIC_ERROR,
 		description: connector.description,
 		tools: connector.tools,
 		checkedAt: connector.checkedAt?.toISOString(),

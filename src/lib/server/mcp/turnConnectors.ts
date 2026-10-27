@@ -68,7 +68,9 @@ export interface ResolvedConnectors {
 }
 
 export function summaryOf(description: string | undefined, tools: CatalogTool[]): string {
-	if (description?.trim()) return description.trim();
+	// One line: the catalogue is a list of lines, and a description is the administrator's text.
+	const oneLine = description?.replace(/\s+/g, " ").trim();
+	if (oneLine) return oneLine;
 	const first = tools.find((t) => t.description?.trim())?.description?.trim();
 	if (first) {
 		const sentence = first.split(/(?<=[.!?])\s/)[0].replace(/\s+/g, " ");

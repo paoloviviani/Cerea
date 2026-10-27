@@ -81,6 +81,13 @@ function asksAsDeployment(url: URL): boolean {
 	return url.searchParams.get("scope") === "deployment";
 }
 
+/**
+ * How long an add or a save waits for the tool listing it triggers. The listing is made inside
+ * the request, so a server that does not answer must not hold the administrator's save for the
+ * full default (30 s); a failure is stored on the row and Check tries again with the longer wait.
+ */
+const AUTO_CHECK_MS = 10_000;
+
 /** The Check button: list the tools with the connector's own credential, or say why it cannot. */
 async function checkOrRefuse(
 	connector: Parameters<typeof checkConnectorTools>[0],
@@ -192,6 +199,24 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 			unset.tools = "";
 			unset.checkedAt = "";
 			set.auth = connector.auth === "oauth" ? "none" : connector.auth;
+			// Nobody's sign-in is carried to a new address: those tokens were issued by
+			// the old server's authorization server, and sending them to a new host
+			// would hand them to somebody else.
+			await collections.mcpTokens.deleteMany({ connectorId: connector._id });
+			if (connector.auth === "oauth") {
+				// Ask the new server how it signs people in, so the row is not left saying
+				// "no sign-in needed" while every call is refused.
+				const result = await probe(parsed.data.url);
+				set.probedAt = new Date();
+				delete unset.probedAt;
+				if (result.auth === "oauth") {
+					set.auth = "oauth";
+					set.oauth = result.oauth;
+					delete unset.oauth;
+				} else if (result.auth === "unknown") {
+					set.lastError = result.reason;
+				}
+			}
 		}
 
 		if (parsed.data.clearToken) {
@@ -246,7 +271,7 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 		// else, so they are listed again now, and a failure lands on the row.
 		if (relist) {
 			const changed = await usableBy(params.id as string, user._id);
-			if (changed) await checkConnectorTools(changed, user._id);
+			if (changed) await checkConnectorTools(changed, user._id, AUTO_CHECK_MS);
 		}
 		return respond();
 	}

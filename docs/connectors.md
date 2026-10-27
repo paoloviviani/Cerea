@@ -75,7 +75,13 @@ it read-only, administrators included: its status, how many tools it has and
 the list of them, and your own **Use in my chats** switch where the
 administrator allows one. Your own connectors are edited in Workspace as
 before. Every card says what is known about its tools: "N tools", "Tools not
-checked yet", or why listing them failed.
+checked yet", or why listing them failed. People who are not administrators
+see the address without its query string, and a generic "Could not list its
+tools" instead of the server's own error: those are for the administrator.
+
+For a connector each person signs in to (OAuth), the tool list comes from the
+checking administrator's own sign-in, so it reflects what that administrator's
+account can use.
 
 ## For operators
 

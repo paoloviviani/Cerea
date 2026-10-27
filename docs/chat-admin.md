@@ -81,6 +81,14 @@ changing its address or key, lists its tools automatically; if that fails, the
 reason shows on its card instead of a tool count. (A connector each person signs
 in to cannot be listed until somebody has: use **Check** after signing in.)
 
+For a connector each person signs in to, **Re-check** asks the server again how
+people sign in, and **Add app details** takes the client ID and secret from a
+provider that does not register apps itself. Changing such a connector's
+address signs everybody out of it (their saved sign-ins are removed, so they
+are never sent to the new address) and asks the new server how to sign in. An
+address with a key in it (`?apiKey=`) is warned about: put the key in the key
+field instead.
+
 A fourth setting, **Always loaded**, is a switch of its own. The assistant
 normally sees a connector as one line and loads its tools when a request needs
 them. An always loaded connector skips that: its tools are in every request from

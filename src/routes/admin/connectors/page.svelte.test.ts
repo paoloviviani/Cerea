@@ -350,4 +350,71 @@ describe("admin MCP page", () => {
 		expect(form.scrollWidth).toBeLessThanOrEqual(form.clientWidth);
 		expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
 	});
+
+	it("repairs an OAuth connector from Admin: Re-check asks the server again, and app details take a client id", async () => {
+		const original = globalThis.fetch;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.includes("/api/v2/mcp/connectors") && (init?.method ?? "GET") === "GET") {
+					return Response.json({ data: [{ ...NOTION, canAuthorize: false }] });
+				}
+				return original(input, init);
+			})
+		);
+		const screen = renderWithApp(Page, {} as never);
+		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+		const card = screen.baseElement.querySelector(
+			'[data-testid="shared-connector"]'
+		) as HTMLElement;
+		const button = (label: string) =>
+			[...card.querySelectorAll("button")].find((b) => b.textContent?.trim() === label);
+
+		button("Re-check")?.click();
+		await vi.waitFor(() =>
+			expect(posts).toContainEqual({
+				url: expect.stringContaining("/api/v2/mcp/connectors/c-gui?scope=deployment"),
+				body: { action: "reprobe" },
+			})
+		);
+
+		button("Add app details")?.click();
+		const form = (await vi.waitFor(() => {
+			const found = card.querySelector('[data-testid="app-details"]');
+			expect(found).not.toBeNull();
+			return found;
+		})) as HTMLElement;
+		await page.elementLocator(form.querySelector("input") as HTMLElement).fill("my-client");
+		[...form.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Save")?.click();
+		await vi.waitFor(() =>
+			expect(posts).toContainEqual({
+				url: expect.stringContaining("/api/v2/mcp/connectors/c-gui?scope=deployment"),
+				body: { action: "update", clientId: "my-client" },
+			})
+		);
+	});
+
+	it("does not offer app details to a connector that can already sign people in", async () => {
+		const screen = renderWithApp(Page, {} as never);
+		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+		const names = [...screen.baseElement.querySelectorAll("button")].map((b) =>
+			b.textContent?.trim()
+		);
+		expect(names).toContain("Re-check");
+		expect(names).not.toContain("Add app details");
+	});
+
+	it("warns about a key typed into an address, in the add form and the edit form", async () => {
+		const screen = renderWithApp(Page, {} as never);
+		await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
+		await page.getByRole("button", { name: "Add", exact: true }).click();
+		expect(screen.baseElement.querySelector('[data-testid="url-secret-warning"]')).toBeNull();
+		await page.getByLabelText("URL").fill("https://api.example.test/mcp?apiKey=abc&page=1");
+		await vi.waitFor(() => {
+			const warning = screen.baseElement.querySelector('[data-testid="url-secret-warning"]');
+			expect(warning?.textContent).toContain("apiKey");
+			expect(warning?.textContent).toContain("Put the key in the key field instead");
+		});
+	});
 });
