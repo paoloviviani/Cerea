@@ -10,14 +10,32 @@
 import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import type { McpConnector, McpConnectorView } from "$lib/types/McpConnector";
+import {
+	connectorKey,
+	isEnabled,
+	loadPolicies,
+	loadSwitches,
+	policyIn,
+	type ConnectorPolicy,
+	type Switches,
+} from "./deploymentModes";
 
 /** One connector as the client sees it. */
 export async function view(
 	connector: McpConnector,
 	userId: ObjectId,
 	/** Whether this caller administers the deployment. */
-	isAdmin = false
+	isAdmin = false,
+	/** What a listing already read: the deployment's policies and this person's switches. */
+	context?: { policies: Map<string, ConnectorPolicy>; switches: Switches }
 ): Promise<McpConnectorView> {
+	const ctx = context ?? {
+		policies: await loadPolicies(),
+		switches: await loadSwitches(userId),
+	};
+	const key = connectorKey(connector._id.toString());
+	const deployment = (connector.scope ?? "user") === "deployment";
+	const policy = deployment ? policyIn(ctx.policies, key) : undefined;
 	let connected = false;
 	if (connector.auth === "token") {
 		connected = Boolean(connector.tokenSealed);
@@ -60,6 +78,12 @@ export async function view(
 		tools: connector.tools,
 		checkedAt: connector.checkedAt?.toISOString(),
 		scope: connector.scope ?? "user",
+		key,
+		// This person's turns use it: its mode, then their own switch.
+		enabled: isEnabled(key, policy, ctx.switches),
+		...(policy
+			? { mode: policy.mode, ...(isAdmin ? { alwaysLoaded: policy.alwaysLoaded } : {}) }
+			: {}),
 		// Using a connector and changing one are different permissions. A
 		// deployment connector renders for everybody because it is offered to
 		// them; only an administrator gets the buttons that would change it for
@@ -82,13 +106,26 @@ export async function view(
  * as `user`; that is the safe direction, since the alternative would silently
  * publish somebody's personal Notion connector to the whole deployment.
  */
-export async function viewsFor(userId: ObjectId, isAdmin = false): Promise<McpConnectorView[]> {
+export async function viewsFor(
+	userId: ObjectId,
+	isAdmin = false,
+	/** The administrator's page lists the connectors that are switched off too. */
+	includeOff = false
+): Promise<McpConnectorView[]> {
 	const rows = await collections.mcpConnectors
 		.find({ $or: [{ userId }, { scope: "deployment" }] })
 		.sort({ updatedAt: -1 })
 		.limit(200)
 		.toArray();
-	return Promise.all(rows.map((row) => view(row, userId, isAdmin)));
+	const context = { policies: await loadPolicies(), switches: await loadSwitches(userId) };
+	// A deployment connector that is off is offered to nobody, so it is not listed.
+	const listed = rows.filter(
+		(row) =>
+			includeOff ||
+			(row.scope ?? "user") !== "deployment" ||
+			policyIn(context.policies, connectorKey(row._id.toString())).mode !== "off"
+	);
+	return Promise.all(listed.map((row) => view(row, userId, isAdmin, context)));
 }
 
 /**

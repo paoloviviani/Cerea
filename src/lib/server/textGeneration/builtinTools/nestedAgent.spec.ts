@@ -40,7 +40,8 @@ function upstream(script: Array<Reply | ((req: Req, opts: Opts) => Promise<Reply
 	const requests: Array<{ req: Req; opts: Opts }> = [];
 	let next = 0;
 	const create = vi.fn(async (req: Req, opts: Opts) => {
-		requests.push({ req, opts });
+		// The tool list is copied: a sub-agent that loads connectors appends to it in place.
+		requests.push({ req: { ...req, tools: req.tools ? [...req.tools] : undefined }, opts });
 		const step = script[Math.min(next, script.length - 1)];
 		next += 1;
 		const reply = typeof step === "function" ? await step(req, opts) : step;
@@ -193,6 +194,82 @@ describe("a sub-agent run", () => {
 		const refusal = requests[1].req.messages.find((m) => m.role === "tool");
 		expect(refusal?.content).toContain("not available");
 		expect(steps).toEqual(["delegate:refused"]);
+	});
+});
+
+describe("connectors loaded by a sub-agent (ADR 0104)", () => {
+	// A stand-in for the turn's runtime: loading changes the turn's own lists in place and bumps
+	// `version`, which is how a sub-agent finds out.
+	function loader(d: NestedAgentDeps) {
+		const state = { version: 0 };
+		d.connectors = state;
+		const loadTools: BuiltinTool = {
+			name: "load_tools",
+			definition: {
+				type: "function",
+				function: { name: "load_tools", parameters: { type: "object" } },
+			},
+			execute: async () => {
+				d.servers.push({ name: "maps", url: "https://maps.test/mcp" });
+				d.mapping.maps_find = { fnName: "maps_find", server: "maps", tool: "find" };
+				d.mcpTools.push({
+					type: "function",
+					function: { name: "maps_find", parameters: { type: "object" } },
+				});
+				state.version += 1;
+				return { resultText: "Loaded maps." };
+			},
+		};
+		d.hostBuiltinTools.push(loadTools);
+	}
+
+	it("offers what it loaded on its next request, after the tools it started with", async () => {
+		const { openai, requests } = upstream([
+			{ calls: [{ name: "load_tools", args: { connectors: ["maps"] } }] },
+			{ content: "done" },
+		]);
+		const d = deps(openai);
+		loader(d);
+		await runNestedAgent(
+			spec({ allowedTools: new Set(["web_search", "srv_do", "load_tools"]) }),
+			ctx(),
+			d
+		);
+		expect(toolNames(requests[0].req)).not.toContain("maps_find");
+		const second = toolNames(requests[1].req);
+		expect(second).toContain("maps_find");
+		expect(second.slice(0, toolNames(requests[0].req).length)).toEqual(toolNames(requests[0].req));
+	});
+
+	it("never widens to a tool that was on offer at the start and left out of its allowlist", async () => {
+		const { openai, requests } = upstream([
+			{ calls: [{ name: "load_tools", args: { connectors: ["maps"] } }] },
+			{ content: "done" },
+		]);
+		const d = deps(openai);
+		loader(d);
+		// `srv_do` (say, Gmail's send_email) is offered to the turn, and this agent may not use it.
+		await runNestedAgent(spec({ allowedTools: new Set(["web_search", "load_tools"]) }), ctx(), d);
+		expect(toolNames(requests[0].req)).not.toContain("srv_do");
+		expect(toolNames(requests[1].req)).toContain("maps_find");
+		expect(toolNames(requests[1].req)).not.toContain("srv_do");
+	});
+
+	it("does not offer what was loaded to an agent that may not load", async () => {
+		const { openai, requests } = upstream([
+			{ calls: [{ name: "web_search", args: { query: "x" } }] },
+			{ content: "done" },
+		]);
+		const d = deps(openai);
+		loader(d);
+		// Another agent (the main turn) loads between this agent's requests.
+		d.hostBuiltinTools[0].execute = async () => {
+			d.connectors = { version: 1 };
+			d.mcpTools.push({ type: "function", function: { name: "maps_find" } });
+			return { resultText: "found" };
+		};
+		await runNestedAgent(spec(), ctx(), d);
+		expect(toolNames(requests[1].req)).not.toContain("maps_find");
 	});
 });
 

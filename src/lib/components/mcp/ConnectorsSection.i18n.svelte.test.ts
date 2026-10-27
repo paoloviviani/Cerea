@@ -15,6 +15,7 @@ import { unbracketedWords, useEnglish, usePseudoLocale } from "../__tests__/enXa
 vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_APP_NAME: "chat-ui" } }));
 
 const base = {
+	enabled: true,
 	url: "https://one.test/mcp",
 	auth: "oauth" as const,
 	manageable: true,
@@ -23,9 +24,25 @@ const base = {
 	updatedAt: new Date().toISOString(),
 };
 const LIST: McpConnectorView[] = [
-	{ ...base, id: "c1", name: "Mine", scope: "user" },
-	{ ...base, id: "c2", name: "Shared", scope: "deployment", manageable: false },
-	{ ...base, id: "c3", name: "Linked", scope: "user", auth: "token", connected: true },
+	{ ...base, id: "c1", key: "connector:c1", name: "Mine", scope: "user" },
+	{
+		...base,
+		id: "c2",
+		key: "connector:c2",
+		name: "Shared",
+		scope: "deployment",
+		manageable: false,
+		mode: "on",
+	},
+	{
+		...base,
+		id: "c3",
+		key: "connector:c3",
+		name: "Linked",
+		scope: "user",
+		auth: "token",
+		connected: true,
+	},
 ];
 
 describe("Connectors, in the pseudo-locale", () => {

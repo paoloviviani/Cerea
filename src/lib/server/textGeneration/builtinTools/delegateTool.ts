@@ -12,6 +12,7 @@ import { WEB_SEARCH_TOOL_NAME } from "./gatewaySearchTool";
 import { WEB_FETCH_TOOL_NAME } from "./fetchUrlUtils";
 import { WEB_FETCH_STRUCTURED_TOOL_NAME } from "./webFetchStructuredTool";
 import { redactSecrets } from "./nestedAgentCallLog";
+import { LOAD_TOOLS_TOOL_NAME } from "./loadToolsTool";
 import { logger } from "$lib/server/logger";
 import {
 	MessageUpdateType,
@@ -46,12 +47,16 @@ const MODEL_LIST_IN_DESCRIPTION = 12;
  * the web. Never `execute_code` (it runs in the person's browser through a
  * parked call, which a sub-agent cannot do), never `delegate`/`research`
  * (depth one), never the plan tool, and none of the tools that write
- * (`remember`, artifacts, document conversion).
+ * (`remember`, artifacts, document conversion). `load_tools` is allowed: it makes a connector's tools
+ * callable and writes nothing.
  */
 export const SUBAGENT_BUILTIN_TOOLS: ReadonlySet<string> = new Set([
 	WEB_SEARCH_TOOL_NAME,
 	WEB_FETCH_TOOL_NAME,
 	WEB_FETCH_STRUCTURED_TOOL_NAME,
+	// Loading a connector's tools is not writing anything; what a sub-agent loads is loaded for
+	// the conversation (ADR 0104).
+	LOAD_TOOLS_TOOL_NAME,
 ]);
 
 /** What a research agent may use: the web, and only the web. */

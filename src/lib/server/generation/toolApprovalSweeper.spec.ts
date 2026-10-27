@@ -9,6 +9,12 @@ import { MessageUpdateStatus, MessageUpdateType } from "$lib/types/MessageUpdate
 // responsible for: claiming, denying, and feeding the refusal into the message.
 const seen = vi.hoisted(() => ({ locals: [] as unknown[] }));
 
+// One `.env` server, loaded from the start of every turn (below), stands for "what the deployment
+// provides": a resumed turn must get it from the same resolver as a fresh one.
+vi.mock("$lib/server/mcp/registry", () => ({
+	getMcpServers: () => [{ name: "search", url: "https://search.test/mcp" }],
+}));
+
 vi.mock("$lib/server/textGeneration", () => ({
 	async *textGeneration(ctx: { locals: unknown }) {
 		seen.locals.push(ctx.locals);
@@ -30,7 +36,7 @@ async function seedParkedConversation(params: {
 	elicitationId: string;
 	expiresAt: Date;
 	status?: "pending" | "resolved";
-	mcpSelection?: { connectorIds: string[]; customServers: { name: string; url: string }[] };
+	loadedConnectors?: string[];
 }) {
 	const conversationId = new ObjectId();
 	const messageId = "assistant-1";
@@ -51,7 +57,7 @@ async function seedParkedConversation(params: {
 				children: [],
 			},
 		],
-		...(params.mcpSelection ? { mcpSelection: params.mcpSelection } : {}),
+		...(params.loadedConnectors ? { loadedConnectors: params.loadedConnectors } : {}),
 		createdAt: new Date(),
 		updatedAt: new Date(),
 	} as never);
@@ -130,25 +136,34 @@ describe("sweepExpiredToolApprovals (ADR 0075 deny-timeout)", () => {
 		expect(state?.status).toBe("done");
 	});
 
-	it("continues the turn with the MCP servers it was started with", async () => {
+	it("continues the turn with the connectors the deployment provides, and what the conversation loaded", async () => {
 		// Without this the rounds after the refusal ran with the built-in tools
 		// only, as every resumed turn did.
 		seen.locals.length = 0;
-		const elicitationId = crypto.randomUUID();
-		await seedParkedConversation({
-			elicitationId,
-			expiresAt: new Date(Date.now() - 1_000),
-			mcpSelection: {
-				connectorIds: [],
-				customServers: [{ name: "adhoc", url: "https://adhoc.test/mcp" }],
-			},
+		await collections.connectorModes.insertOne({
+			_id: new ObjectId(),
+			key: "base:search",
+			mode: "on",
+			alwaysLoaded: true,
+			createdAt: new Date(),
+			updatedAt: new Date(),
 		});
+		try {
+			await seedParkedConversation({
+				elicitationId: crypto.randomUUID(),
+				expiresAt: new Date(Date.now() - 1_000),
+				// A stale key and a connector that does not exist change nothing.
+				loadedConnectors: ["base:gone"],
+			});
 
-		await sweepExpiredToolApprovals();
+			await sweepExpiredToolApprovals();
 
-		expect(seen.locals).toHaveLength(1);
-		const mcp = (seen.locals[0] as { mcp?: { selectedServers: { name: string }[] } }).mcp;
-		expect(mcp?.selectedServers.map((server) => server.name)).toEqual(["adhoc"]);
+			expect(seen.locals).toHaveLength(1);
+			const mcp = (seen.locals[0] as { mcp?: { servers: { name: string }[] } }).mcp;
+			expect(mcp?.servers.map((server) => server.name)).toEqual(["search"]);
+		} finally {
+			await collections.connectorModes.deleteMany({});
+		}
 	});
 
 	it("leaves a not-yet-expired prompt alone", async () => {

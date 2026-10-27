@@ -86,10 +86,9 @@ export interface Project extends Timestamps {
 	defaultWebSearch?: boolean;
 
 	/**
-	 * MCP connector selection for new chats in this project, by connector id.
-	 * `undefined` (or empty) means the project leaves it unset and new chats
-	 * fall back to the workspace MCP defaults. The ids are names only: every
-	 * turn re-checks ownership and the credential server-side.
+	 * Retired (ADR 0104): a project's connector defaults seeded the per-chat
+	 * selection, which no longer exists. Old rows may still hold the field; it is
+	 * never read, and nothing writes it.
 	 */
 	defaultMcpConnectorIds?: string[];
 
@@ -113,8 +112,6 @@ export interface ProjectView {
 	retrievalLimit: number;
 	/** Web-search default for new chats here; `undefined` means "use the app default". */
 	defaultWebSearch?: boolean;
-	/** MCP connector defaults for new chats here; `undefined`/empty means "use the workspace defaults". */
-	defaultMcpConnectorIds?: string[];
 	/** Whether the viewer owns it. Editing, sharing and deleting need this. */
 	owned: boolean;
 	shares: { kind: "user" | "group"; principal: string }[];

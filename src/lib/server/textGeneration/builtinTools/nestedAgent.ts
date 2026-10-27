@@ -16,6 +16,7 @@ import { parseToolArguments, withParseableArguments } from "../mcp/toolArgs";
 import { stripLoneSurrogates } from "../utils/loneSurrogates";
 import { isRateLimitError, withUpstreamRetry } from "../utils/upstreamRetry";
 import type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
+import { LOAD_TOOLS_TOOL_NAME } from "./loadToolsTool";
 import { toPrimitive } from "../mcp/toolParams";
 
 /**
@@ -57,6 +58,12 @@ export interface NestedAgentDeps {
 	completionBase: NestedCompletionBase;
 	requestHeaders: Record<string, string>;
 	servers: McpServerConfig[];
+	/**
+	 * The turn's connectors, when some are loaded on demand (ADR 0104). `version` goes up when
+	 * tools were added to `servers`, `mapping` and `mcpTools`, which are changed in place; a
+	 * sub-agent allowed `load_tools` then offers itself the new ones.
+	 */
+	connectors?: { readonly version: number };
 	mapping: Record<string, McpToolMapping>;
 	mcpTools: OpenAiTool[];
 	/** Every builtin offered this turn; filtered by the spec's allowlist here. */
@@ -246,6 +253,28 @@ export async function runNestedAgent(
 	];
 	if (nestedTools.length === 0) return { error: spec.failure.noTools };
 	const availableNames = new Set(nestedTools.map((tool) => tool.function.name));
+	// A sub-agent allowed `load_tools` may call what it loads, and what it loads is loaded for the
+	// whole conversation. The list it was given at the start grows as the turn's does.
+	// Only tools added after this agent started count: one that was on offer at the start and left
+	// out of its allowlist stays out, whoever loads what afterwards.
+	let seenConnectorsVersion = deps.connectors?.version ?? 0;
+	const startToolCount = deps.mcpTools.length;
+	const offeredAtStart = new Set(deps.mcpTools.map((tool) => tool.function.name));
+	const refreshLoadedTools = () => {
+		const version = deps.connectors?.version ?? 0;
+		if (version === seenConnectorsVersion) return;
+		seenConnectorsVersion = version;
+		if (!builtinNames.has(LOAD_TOOLS_TOOL_NAME)) return;
+		const current = new Map(deps.servers.map((server) => [server.name, server]));
+		for (const tool of deps.mcpTools.slice(startToolCount)) {
+			const name = tool.function.name;
+			if (availableNames.has(name) || builtinNames.has(name) || offeredAtStart.has(name)) continue;
+			const server = current.get(deps.mapping[name]?.server ?? "");
+			if (spec.requireToolServer && !(server && spec.requireToolServer(server))) continue;
+			nestedTools.push(tool);
+			availableNames.add(name);
+		}
+	};
 	// Preflight first: it books nothing, which is the ordering composeGuards requires.
 	// The approval gate follows it, and is always there: a sub-agent never runs
 	// an MCP tool the person would have been asked about in the main chat.
@@ -290,6 +319,7 @@ export async function runNestedAgent(
 	const observer = spec.observer;
 
 	const complete = async (withTools: boolean, signal: AbortSignal | undefined) => {
+		refreshLoadedTools();
 		const request: ChatCompletionCreateParamsNonStreaming = {
 			...base,
 			stream: false,

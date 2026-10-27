@@ -34,7 +34,7 @@
 	import ServerCardFrame from "./ServerCardFrame.svelte";
 	import ServerCard from "./ServerCard.svelte";
 	import { getMcpServerFaviconUrl } from "$lib/utils/favicon";
-	import { allMcpServers, selectedServerIds } from "$lib/stores/mcpServers";
+	import { allMcpServers } from "$lib/stores/mcpServers";
 	import type { MCPServer } from "$lib/types/Tool";
 	import ConnectorDetailSheet from "./ConnectorDetailSheet.svelte";
 	import type { McpConnectorView, McpLocalView } from "$lib/types/McpConnector";
@@ -42,9 +42,7 @@
 		connectors,
 		connectorsLoaded,
 		refreshConnectors,
-		defaultConnectorIds,
-		toggleDefaultConnector,
-		selectDefaultConnector,
+		setConnectorEnabled,
 	} from "$lib/stores/mcpConnectors";
 
 	// The list lives in a store rather than here, because the composer's MCP
@@ -157,18 +155,15 @@
 		void load();
 	});
 
-	// Somebody who has just approved a consent screen meant to use that
-	// connector, so it is switched on in the defaults for new chats rather
-	// than left for them to find. Ids are compared against the loaded list
-	// first: a stale `?mcpConnector=` in a bookmarked URL should select
-	// nothing.
-	$effect(() => {
-		const justConnected = page.url.searchParams.get("mcpConnector");
-		if (outcome !== "connected" || !justConnected) return;
-		if ($connectors.some((c) => c.id === justConnected && c.connected)) {
-			selectDefaultConnector(justConnected);
-		}
-	});
+	/** Why the last switch was refused (a connector the administrator keeps on), shown under the group. */
+	let switchError = $state<string | null>(null);
+	function setOn(connector: McpConnectorView, on: boolean) {
+		if (connector.enabled === on) return;
+		switchError = null;
+		setConnectorEnabled(connector.key, on).catch((err: unknown) => {
+			switchError = err instanceof Error ? err.message : m["mcp.connectors.switch_failed"]();
+		});
+	}
 
 	async function add(event: SubmitEvent) {
 		event.preventDefault();
@@ -523,7 +518,17 @@
 	{/if}
 
 	{#snippet connectorCard(connector: McpConnectorView)}
+		{#snippet connectorSwitch()}
+			<Switch
+				name={`use-connector-${connector.id}`}
+				disabled={!connector.connected}
+				bind:checked={() => connector.enabled && connector.connected, (on) => setOn(connector, on)}
+			/>
+		{/snippet}
+		<!-- A connector the administrator keeps on has no switch: it stays on for everyone. -->
 		<ServerCardFrame
+			toggle={connector.mode === "locked" ? undefined : connectorSwitch}
+			fixedLabel={connector.mode === "locked" ? m["mcp.card.locked"]() : undefined}
 			name={connector.name}
 			iconSrc={getMcpServerFaviconUrl(connector.url)}
 			description={connector.url}
@@ -533,9 +538,11 @@
 			toggleLabelShort={connector.connected
 				? m["mcp.card.toggle_label_short"]()
 				: m["mcp.connectors.sign_in_first"]()}
-			toggleTitle={connector.connected
-				? m["mcp.connectors.on_for_new"]()
-				: m["mcp.connectors.sign_in_first"]()}
+			toggleTitle={connector.mode === "locked"
+				? m["mcp.card.locked_title"]()
+				: connector.connected
+					? m["mcp.connectors.on_for_new"]()
+					: m["mcp.connectors.sign_in_first"]()}
 			onopen={() => (detail = connector)}
 		>
 			{#snippet pills()}
@@ -574,15 +581,6 @@
 						{m["mcp.connectors.own_app"]()}
 					</span>
 				{/if}
-			{/snippet}
-			{#snippet toggle()}
-				<Switch
-					name={`use-connector-${connector.id}`}
-					disabled={!connector.connected}
-					bind:checked={
-						() => $defaultConnectorIds.has(connector.id), () => toggleDefaultConnector(connector.id)
-					}
-				/>
 			{/snippet}
 
 			{#if connector.lastError}
@@ -868,7 +866,7 @@
 					name={`use-connector-${connector.id}`}
 					disabled={!connector.connected}
 					bind:checked={
-						() => $defaultConnectorIds.has(connector.id), () => toggleDefaultConnector(connector.id)
+						() => connector.enabled && connector.connected, (on) => setOn(connector, on)
 					}
 				/>
 			{/snippet}
@@ -960,6 +958,16 @@
 				</p>
 			{/if}
 
+			{#if switchError}
+				<p
+					role="alert"
+					data-testid="switch-error"
+					class="mt-3 rounded-lg border border-red-500/15 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/25 dark:bg-red-900/20 dark:text-red-300"
+				>
+					{switchError}
+				</p>
+			{/if}
+
 			{#if own.length === 0}
 				<div
 					class="mt-3 flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 p-6 dark:border-gray-700"
@@ -1006,11 +1014,7 @@
 				<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
 					{#each provided as item (item.id)}
 						{#if item.kind === "base"}
-							<ServerCard
-								server={item.server}
-								isSelected={$selectedServerIds.has(item.server.id)}
-								fromEnv={isAdmin}
-							/>
+							<ServerCard server={item.server} fromEnv={isAdmin} />
 						{:else}
 							{@render connectorCard(item.connector)}
 						{/if}

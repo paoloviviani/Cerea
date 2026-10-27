@@ -5,17 +5,6 @@ import type { Timestamps } from "./Timestamps";
 import type { User } from "./User";
 import type { Project } from "./Project";
 
-/**
- * What a turn was asked to use: ids and names, never a credential. Ad-hoc
- * servers keep only their name and URL, which is all the server side ever
- * keeps of them.
- */
-export interface McpTurnSelection {
-	connectorIds: string[];
-	serverNames?: string[];
-	customServers: { name: string; url: string }[];
-}
-
 export interface Conversation extends Timestamps {
 	_id: ObjectId;
 
@@ -25,11 +14,13 @@ export interface Conversation extends Timestamps {
 	model: string;
 
 	/**
-	 * The MCP selection the latest turn ran with — connector ids and server
-	 * names, never a credential. Kept so a parked turn resumes with the same
-	 * connectors: the resume has no request to read them from.
+	 * The connectors whose tools the assistant has loaded in this conversation
+	 * (`load_tools`, ADR 0104), as connector keys, in the order they were
+	 * loaded. They stay loaded on later turns, and a later load is appended, so
+	 * the start of the request stays the same and prompt caching keeps working.
+	 * (`mcpSelection`, the per-chat selection this replaced, is no longer read.)
 	 */
-	mcpSelection?: McpTurnSelection;
+	loadedConnectors?: string[];
 
 	title: string;
 	rootMessageId?: Message["id"];

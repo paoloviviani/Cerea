@@ -16,6 +16,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
+import { resolveConnectors } from "./testing/resolveConnectors";
 
 beforeAll(async () => {
 	await ready;
@@ -54,7 +55,6 @@ beforeEach(async () => {
 
 describe("resolving a selection", () => {
 	it("attaches a static token as a bearer", async () => {
-		const { resolveSelection } = await import("./selection");
 		const id = await addConnector({
 			userId: owner,
 			name: "Tokenised",
@@ -62,7 +62,7 @@ describe("resolving a selection", () => {
 			token: "static-secret-42",
 		});
 
-		const { servers, needAuthorization } = await resolveSelection({
+		const { servers, needAuthorization } = await resolveConnectors({
 			connectorIds: [id.toString()],
 			userId: owner,
 		});
@@ -75,7 +75,6 @@ describe("resolving a selection", () => {
 	it("gives a stranger's id nothing, on data that resolves for its owner", async () => {
 		// The pairing is the point. Asserting only the empty result would pass
 		// against a query that finds nothing at all.
-		const { resolveSelection } = await import("./selection");
 		const id = await addConnector({
 			userId: owner,
 			name: "Private",
@@ -83,20 +82,19 @@ describe("resolving a selection", () => {
 			token: "not-yours",
 		});
 
-		const mine = await resolveSelection({ connectorIds: [id.toString()], userId: owner });
+		const mine = await resolveConnectors({ connectorIds: [id.toString()], userId: owner });
 		expect(mine.servers).toHaveLength(1);
 
-		const theirs = await resolveSelection({ connectorIds: [id.toString()], userId: stranger });
+		const theirs = await resolveConnectors({ connectorIds: [id.toString()], userId: stranger });
 		expect(theirs.servers).toEqual([]);
 		expect(theirs.needAuthorization).toEqual([]);
 		expect(JSON.stringify(theirs)).not.toContain("not-yours");
 	});
 
 	it("leaves an unauthorised OAuth connector out rather than calling it bare", async () => {
-		const { resolveSelection } = await import("./selection");
 		const id = await addConnector({ userId: owner, name: "Notion", auth: "oauth" });
 
-		const { servers, needAuthorization } = await resolveSelection({
+		const { servers, needAuthorization } = await resolveConnectors({
 			connectorIds: [id.toString()],
 			userId: owner,
 		});
@@ -108,44 +106,11 @@ describe("resolving a selection", () => {
 	});
 
 	it("survives a malformed id instead of throwing", async () => {
-		const { resolveSelection } = await import("./selection");
-		const { servers } = await resolveSelection({
+		const { servers } = await resolveConnectors({
 			connectorIds: ["not-an-object-id"],
 			userId: owner,
 		});
 		expect(servers).toEqual([]);
-	});
-});
-
-describe("what the client sent about ad-hoc servers", () => {
-	it("keeps the URL and drops the credential", async () => {
-		const { withoutClientCredentials } = await import("./selection");
-		const out = withoutClientCredentials([
-			{ name: "Old", url: "https://old.test/mcp", headers: { Authorization: "Bearer leaked" } },
-		]);
-		expect(out).toEqual([{ name: "Old", url: "https://old.test/mcp" }]);
-		expect(JSON.stringify(out)).not.toContain("leaked");
-	});
-});
-
-describe("the name filter the turn is narrowed by", () => {
-	/**
-	 * `runMcpFlow` filters the merged server list to `selectedServerNames`, and
-	 * the client used to build that list from its servers alone. A turn with one
-	 * connector and no servers therefore sent `[]` — an array, so the filter ran
-	 * — and arrived with no tools, no error and an answer that just quietly did
-	 * not use Notion. This reproduces the filter rather than the whole flow,
-	 * because the defect was in what the two sides agreed the list contained.
-	 */
-	const narrow = (servers: { name: string }[], names: string[] | undefined) =>
-		Array.isArray(names) ? servers.filter((s) => names.includes(s.name)) : servers;
-
-	it("drops a connector whose name was left out of the list", () => {
-		expect(narrow([{ name: "Notion" }], [])).toEqual([]);
-	});
-
-	it("keeps it once the list names it", () => {
-		expect(narrow([{ name: "Notion" }], ["Notion"])).toEqual([{ name: "Notion" }]);
 	});
 });
 
@@ -162,7 +127,6 @@ describe("a connector the deployment shares", () => {
 	 * failed closed for an unrelated reason.
 	 */
 	it("resolves for somebody who does not own it, while a private one does not", async () => {
-		const { resolveSelection } = await import("./selection");
 		const shared = await addConnector({
 			userId: owner,
 			name: "Shared",
@@ -171,7 +135,7 @@ describe("a connector the deployment shares", () => {
 		});
 		const private_ = await addConnector({ userId: owner, name: "Private", auth: "none" });
 
-		const theirs = await resolveSelection({
+		const theirs = await resolveConnectors({
 			connectorIds: [shared.toString(), private_.toString()],
 			userId: stranger,
 		});
@@ -180,7 +144,7 @@ describe("a connector the deployment shares", () => {
 		expect(theirs.servers.map((s) => s.name)).toEqual(["Shared"]);
 
 		// And the owner still gets both, so the filter is not simply broken.
-		const mine = await resolveSelection({
+		const mine = await resolveConnectors({
 			connectorIds: [shared.toString(), private_.toString()],
 			userId: owner,
 		});
@@ -193,7 +157,6 @@ describe("a connector the deployment shares", () => {
 		// the owner has authorised it; the stranger must still be told to sign
 		// in rather than handed the owner's bearer.
 		const { seal } = await import("./secretBox");
-		const { resolveSelection } = await import("./selection");
 		const shared = await addConnector({
 			userId: owner,
 			name: "SharedOauth",
@@ -210,10 +173,10 @@ describe("a connector the deployment shares", () => {
 			updatedAt: new Date(),
 		} as never);
 
-		const mine = await resolveSelection({ connectorIds: [shared.toString()], userId: owner });
+		const mine = await resolveConnectors({ connectorIds: [shared.toString()], userId: owner });
 		expect(mine.servers[0]?.headers?.Authorization).toBe("Bearer the-owners-token");
 
-		const theirs = await resolveSelection({
+		const theirs = await resolveConnectors({
 			connectorIds: [shared.toString()],
 			userId: stranger,
 		});

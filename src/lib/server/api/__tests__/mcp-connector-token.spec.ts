@@ -20,7 +20,7 @@ import { ObjectId } from "mongodb";
 import { env } from "$env/dynamic/private";
 import { collections, ready } from "$lib/server/database";
 import { probe } from "$lib/server/mcp/discovery";
-import { resolveSelection } from "$lib/server/mcp/selection";
+import { resolveConnectors as resolveSelection } from "$lib/server/mcp/testing/resolveConnectors";
 import { seal } from "$lib/server/mcp/secretBox";
 import type { McpConnector } from "$lib/types/McpConnector";
 import { startMockMcp, type MockMcp } from "../../../../../tests/mock-mcp";

@@ -8,9 +8,11 @@ import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
 import { m } from "$lib/paraglide/messages";
 import { MessageUpdateType, type MessageUpdate } from "$lib/types/MessageUpdate";
-import { getMcpServers } from "$lib/server/mcp/registry";
-import { isValidUrl } from "$lib/server/urlSafety";
-import { isLocalServerUrl } from "$lib/server/mcp/localUrl";
+import type { McpServerConfig } from "$lib/server/mcp/httpClient";
+import { mcpLocalsFor, type ResolvedServer } from "$lib/server/mcp/selection";
+import { createConnectorRuntime, type TurnConnectorRuntime } from "./connectorRuntime";
+import { connectorCatalogNotice, createLoadToolsBuiltin } from "../builtinTools/loadToolsTool";
+import { callableServers } from "$lib/server/mcp/serverOverlays";
 import { getOpenAiToolsForMcp } from "$lib/server/mcp/tools";
 import type {
 	ChatCompletionChunk,
@@ -25,12 +27,6 @@ import { executeToolCalls, type NormalizedToolCall } from "./toolInvocation";
 import { hasTruncatedToolCall, parseToolArguments, withParseableArguments } from "./toolArgs";
 import { createToolBlocker } from "./toolBlocker";
 import type { TextGenerationContext } from "../types";
-import {
-	hasAuthHeader,
-	isStrictHfMcpLogin,
-	hasNonEmptyToken,
-	isExaMcpServer,
-} from "$lib/server/mcp/hf";
 import { buildImageRefResolver } from "./fileRefs";
 import { prepareMessagesWithFiles } from "$lib/server/textGeneration/utils/prepareFiles";
 import { makeImageProcessor } from "$lib/server/endpoints/images";
@@ -396,150 +392,48 @@ export async function* runMcpFlow({
 	// again this turn, whatever arguments the model writes for it.
 	const toolBlocker = createToolBlocker();
 
-	// Start from env-configured servers
-	let servers = getMcpServers();
-	try {
-		logger.debug(
-			{ baseServers: servers.map((s) => ({ name: s.name, url: s.url })), count: servers.length },
-			"[mcp] base servers loaded"
-		);
-	} catch {}
-
-	// Merge in request-provided custom servers (if any)
-	try {
-		const reqMcp = locals?.mcp;
-		const custom = Array.isArray(reqMcp?.selectedServers) ? reqMcp?.selectedServers : [];
-		if (custom.length > 0) {
-			// Deduplicate by server name (request takes precedence)
-			const byName = new Map<
-				string,
-				{ name: string; url: string; headers?: Record<string, string> }
-			>();
-			for (const s of servers) byName.set(s.name, s);
-			for (const s of custom) byName.set(s.name, s);
-			servers = [...byName.values()];
-			try {
-				logger.debug(
-					{
-						customProvidedCount: custom.length,
-						mergedServers: servers.map((s) => ({
-							name: s.name,
-							url: s.url,
-							hasAuth: !!s.headers?.Authorization,
-						})),
-					},
-					"[mcp] merged request-provided servers"
-				);
-			} catch {}
-		}
-
-		// If the client specified a selection by name, filter to those
-		const names = Array.isArray(reqMcp?.selectedServerNames)
-			? reqMcp?.selectedServerNames
-			: undefined;
-		if (Array.isArray(names)) {
-			const before = servers.map((s) => s.name);
-			servers = servers.filter((s) => names.includes(s.name));
-			try {
-				logger.debug(
-					{ selectedNames: names, before, after: servers.map((s) => s.name) },
-					"[mcp] applied name selection"
-				);
-			} catch {}
-		}
-	} catch {
-		// ignore selection merge errors and proceed with env servers
-	}
-
-	// If selection/merge yielded no servers, bail early with clearer log
-	if (shouldSkipMcpFlow(servers.length, builtinTools.length)) {
-		logger.warn({}, "[mcp] no MCP servers selected after merge/name filter, and no builtin tools");
-		return "not_applicable";
-	}
-
-	// Enforce server-side safety (public HTTPS only, no private ranges by default)
-	{
-		const before = servers.slice();
-		servers = servers.filter((s) => {
-			try {
-				// A local connector's address is internal (`machine://`, produced only by the
-				// selection resolution) and is checked by its opener, not by this public-URL rule.
-				return isLocalServerUrl(s.url) || isValidUrl(s.url, { allowInsecure: true });
-			} catch {
-				return false;
-			}
-		});
+	// The connectors this turn may use (ADR 0104): resolved on the server from the deployment's
+	// policies, this person's switches and what the conversation has loaded. The route and the
+	// sweepers already did that and attached it; a caller that did not gets it resolved here.
+	let turnMcp = locals?.mcp;
+	if (!turnMcp) {
 		try {
-			const rejected = before.filter((b) => !servers.includes(b));
-			if (rejected.length > 0) {
-				logger.warn(
-					{ rejected: rejected.map((r) => ({ name: r.name, url: r.url })) },
-					"[mcp] rejected servers by URL safety"
-				);
-			}
-		} catch {}
-	}
-	if (shouldSkipMcpFlow(servers.length, builtinTools.length)) {
-		logger.warn({}, "[mcp] all selected MCP servers rejected by URL safety guard");
-		return "not_applicable";
-	}
-
-	// Optionally attach the logged-in user's HF token to the official HF MCP server only.
-	// Never override an explicit Authorization header, and require token to look like an HF token.
-	try {
-		const shouldForward = config.MCP_FORWARD_HF_USER_TOKEN === "true";
-		const userToken = locals?.token;
-
-		if (shouldForward && hasNonEmptyToken(userToken)) {
-			const overlayApplied: string[] = [];
-			servers = servers.map((s) => {
-				try {
-					if (isStrictHfMcpLogin(s.url) && !hasAuthHeader(s.headers)) {
-						overlayApplied.push(s.name);
-						return {
-							...s,
-							headers: { ...(s.headers ?? {}), Authorization: `Bearer ${userToken}` },
-						};
-					}
-				} catch {
-					// ignore URL parse errors and leave server unchanged
-				}
-				return s;
-			});
-			if (overlayApplied.length > 0) {
-				try {
-					logger.debug({ overlayApplied }, "[mcp] forwarded HF token to servers");
-				} catch {}
-			}
+			turnMcp = await mcpLocalsFor(conv, identityUser?._id);
+		} catch (err) {
+			logger.warn({ err: String(err) }, "[mcp] connectors could not be resolved; none this turn");
 		}
-	} catch {
-		// best-effort overlay; continue if anything goes wrong
 	}
+	const turnConnectors = turnMcp?.connectors ?? [];
 
-	// Inject Exa API key for mcp.exa.ai servers via URL param (mcp.exa.ai doesn't support headers)
-	try {
-		const exaApiKey = config.EXA_API_KEY;
-		if (hasNonEmptyToken(exaApiKey)) {
-			const overlayApplied: string[] = [];
-			servers = servers.map((s) => {
-				try {
-					if (isExaMcpServer(s.url)) {
-						const url = new URL(s.url);
-						if (!url.searchParams.has("exaApiKey")) {
-							url.searchParams.set("exaApiKey", exaApiKey);
-							overlayApplied.push(s.name);
-							return { ...s, url: url.toString() };
-						}
-					}
-				} catch {}
-				return s;
-			});
-			if (overlayApplied.length > 0) {
-				logger.debug({ overlayApplied }, "[mcp] injected Exa API key to servers");
-			}
-		}
-	} catch {
-		// best-effort injection; continue if anything goes wrong
+	// What may be called of a server this turn: public HTTPS only, plus the per-server header
+	// overlays. Applied to the connectors loaded at the start and again to each one loaded later.
+	const prepareServers = (input: ResolvedServer[]): McpServerConfig[] =>
+		callableServers(input, locals?.token);
+
+	// The servers loaded now: always loaded, then what the conversation loaded earlier. The
+	// rest are lines for the assistant (`load_tools`), and nothing contacts them until then.
+	// Changed in place as connectors are loaded, so dispatch and sub-agents see the new ones.
+	const servers: McpServerConfig[] = prepareServers(turnMcp?.servers ?? []);
+	logger.debug(
+		{
+			loaded: servers.map((s) => s.name),
+			catalogue: turnConnectors.filter((c) => !c.alwaysLoaded).map((c) => c.name),
+		},
+		"[mcp] connectors for this turn"
+	);
+
+	// `load_tools` is offered whenever there is a connector the assistant can load, loaded
+	// already or not, so the tool list does not change from one turn to the next.
+	let connectorRuntime: TurnConnectorRuntime | undefined;
+	if (turnConnectors.some((c) => !c.alwaysLoaded)) {
+		builtinTools.push(
+			createLoadToolsBuiltin({
+				get version() {
+					return connectorRuntime?.version ?? 0;
+				},
+				load: async (names) => (connectorRuntime ? connectorRuntime.load(names) : []),
+			})
+		);
 	}
 
 	logger.debug(
@@ -590,6 +484,8 @@ export async function* runMcpFlow({
 	let producedOutput = false;
 
 	try {
+		// Only the loaded connectors are listed (cached per server). The rest are lines for the
+		// assistant and cost no connection (ADR 0104).
 		const {
 			tools: mcpTools,
 			mapping,
@@ -618,6 +514,50 @@ export async function* runMcpFlow({
 			...builtinTools.map((tool) => tool.definition),
 			...shapedMcpTools.filter((tool) => !builtinNames.has(tool.function.name)),
 		];
+		let advertisedToolNames = oaTools.map((tool) => tool.function.name);
+		// The turn's connectors, loaded on demand. It changes `servers`, `mapping`, `oaTools` and
+		// `shapedMcpTools` in place, appending, so the request's start does not change.
+		connectorRuntime = createConnectorRuntime({
+			connectors: turnConnectors,
+			blocked: turnMcp?.blocked ?? [],
+			loadedKeys: turnMcp?.loadedKeys ?? [],
+			servers,
+			mapping,
+			tools: oaTools,
+			mcpTools: shapedMcpTools,
+			builtinNames,
+			prepare: prepareServers,
+			list: (list) => getOpenAiToolsForMcp(list, { signal: abortSignal }),
+			repair: withRepairedToolSchemas,
+			persist: async (keys) => {
+				await collections.conversations.updateOne(
+					{ _id: conv._id },
+					{ $addToSet: { loadedConnectors: { $each: keys } } }
+				);
+				conv.loadedConnectors = [...new Set([...(conv.loadedConnectors ?? []), ...keys])];
+			},
+			onLoaded: () => {
+				advertisedToolNames = oaTools.map((tool) => tool.function.name);
+				logToolDefinitionSize("after load_tools");
+			},
+		});
+		// How big the tool definitions are, so a deployment can see what loading on demand saves
+		// (characters, and a rough token count of one per four characters).
+		const logToolDefinitionSize = (when: string) => {
+			const chars = JSON.stringify(oaTools).length;
+			logger.info(
+				{
+					when,
+					toolCount: oaTools.length,
+					toolDefinitionChars: chars,
+					toolDefinitionTokensEstimate: Math.ceil(chars / 4),
+					catalogueCount: turnConnectors.filter((c) => !c.alwaysLoaded).length,
+					loadedConnectors: connectorRuntime?.loadedKeys().length ?? 0,
+				},
+				"[mcp] tool definition size"
+			);
+		};
+		logToolDefinitionSize("turn start");
 		try {
 			logger.info(
 				{ toolCount: oaTools.length, toolNames: oaTools.map((t) => t.function.name) },
@@ -721,10 +661,13 @@ export async function* runMcpFlow({
 		if (toolPreprompt.trim().length > 0) {
 			prepromptPieces.push(toolPreprompt);
 		}
+		// One line for each connector the assistant can load (ADR 0104).
+		const catalogNotice = connectorCatalogNotice(turnConnectors);
+		if (catalogNotice) prepromptPieces.push(catalogNotice);
 		// Connectors left out before the turn (no credential) and those whose
 		// listing failed just now, deduplicated by name.
 		const notLoaded = new Map<string, { name: string; reason: string }>();
-		const requestUnavailable = locals?.mcp?.unavailable ?? [];
+		const requestUnavailable = turnMcp?.unavailable ?? [];
 		for (const entry of [...requestUnavailable, ...unlisted]) notLoaded.set(entry.name, entry);
 		const unavailableNotice = unavailableConnectorsNotice([...notLoaded.values()]);
 		if (unavailableNotice) {
@@ -811,6 +754,8 @@ export async function* runMcpFlow({
 			},
 			servers,
 			mapping,
+			// A sub-agent that may call `load_tools` loads for the whole conversation.
+			connectors: connectorRuntime,
 			// Repaired, not raw: the sandbox sub-agent is the heaviest caller of the
 			// hf_sandbox_* grammar these rewrites exist for.
 			mcpTools: shapedMcpTools,
@@ -859,8 +804,6 @@ export async function* runMcpFlow({
 		let recoveredExecuteCodeCalls = 0;
 		// For the leaked-markup check: only names that are really callable this
 		// run can make "<name" in a final answer mean a call that never happened.
-		const advertisedToolNames = oaTools.map((tool) => tool.function.name);
-
 		/**
 		 * The turn's last resort, run when it would otherwise end without an
 		 * answer: one completion with the tools taken away and a short
@@ -1332,8 +1275,25 @@ export async function* runMcpFlow({
 						: {}),
 				};
 
+				// A call to a tool of a connector that is not loaded loads it, then runs, rather than
+				// failing: the assistant knows the tool name from its list.
+				const autoLoads =
+					(await connectorRuntime?.loadForCalls(calls.map((call) => call.name))) ?? [];
+				// A tool name more than one unloaded connector offers is not guessed at: the call fails
+				// with the choice, and the model loads the one it means.
+				const unknownToolNotes = Object.fromEntries(
+					autoLoads
+						.filter((report) => report.status === "ambiguous")
+						.map((report) => [
+							report.name,
+							`${report.name} is offered by more than one connector (ambiguous: ${
+								"candidates" in report ? report.candidates.join(", ") : ""
+							}). Call load_tools with the one you mean, then call it again.`,
+						])
+				);
 				const exec = executeToolCalls({
 					calls,
+					unknownToolNotes,
 					mapping,
 					servers,
 					parseArgs,

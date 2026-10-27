@@ -11,6 +11,8 @@ import { configuredBackend } from "$lib/server/fetching";
 import { checkAndRunMigrations } from "$lib/migrations/migrations";
 import { refreshConversationStats } from "$lib/jobs/refresh-conversation-stats";
 import { loadMcpServersOnStartup } from "$lib/server/mcp/registry";
+import { startCatalogRefresh } from "$lib/server/mcp/catalogCache";
+import { offeredEnvServers } from "$lib/server/mcp/deploymentModes";
 import { AbortedGenerations } from "$lib/server/abortedGenerations";
 import { GenerationReaper } from "$lib/server/generation/reaper";
 import { ParkedCallSweeper } from "$lib/server/generation/parkedSweeper";
@@ -57,6 +59,9 @@ export async function initServer(): Promise<void> {
 
 	// Load MCP servers at startup
 	loadMcpServersOnStartup();
+	// What each `.env` server offers, for the assistant's list of connectors it can load.
+	// Only what the deployment offers (not Off), read afresh each time.
+	startCatalogRefresh(offeredEnvServers);
 
 	// Init AbortedGenerations refresh process
 	AbortedGenerations.getInstance();

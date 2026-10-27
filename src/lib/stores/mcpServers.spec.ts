@@ -1,151 +1,74 @@
 /**
- * Unit tests for mcpServers store — focused on initWithServers.
+ * The `.env` servers store (ADR 0104): a list the server provides, with no
+ * selection of the browser's own.
  *
- * The test environment runs in Node (browser === false), so:
- *   - localStorage helpers (loadCustomServers, loadDisabledBaseIds, etc.) return
- *     empty collections — isolating the tests to pure store-state behavior.
- *   - The module-level `if (browser) { refreshMcpServers(); }` does NOT run,
- *     so no real fetch is attempted during import.
+ * The test environment runs in Node (browser === false), so the module-level
+ * refresh does not run and no real fetch is attempted during import.
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { get } from "svelte/store";
 import type { MCPServer } from "$lib/types/Tool";
 
-// These imports resolve after vi.mock hoisting, so the mock is active.
-import {
-	allMcpServers,
-	mcpServersLoaded,
-	selectedServerIds,
-	enabledServers,
-	initWithServers,
-	applyProjectServerDefaults,
-} from "./mcpServers";
+import * as store from "./mcpServers";
+import { allMcpServers, mcpServersLoaded, initWithServers } from "./mcpServers";
 
-// --- helpers ---
-
-function makeServer(name: string): MCPServer {
+function makeServer(name: string, extra: Partial<MCPServer> = {}): MCPServer {
 	return {
 		id: `base-${name}`,
+		key: `base:${name}`,
 		name,
 		url: `https://mcp.example.com/${name}`,
 		type: "base",
+		mode: "on",
+		enabled: true,
 		isLocked: false,
 		status: undefined,
+		...extra,
 	};
 }
 
-/** Reset all stores to their initial state before each test. */
-function resetStores() {
+beforeEach(() => {
 	allMcpServers.set([]);
 	mcpServersLoaded.set(false);
-	selectedServerIds.set(new Set());
-}
-
-beforeEach(resetStores);
-
-// ─── tests ───────────────────────────────────────────────────────────────────
+});
 
 describe("initWithServers", () => {
-	it("sets mcpServersLoaded to true with an empty list", () => {
+	it("marks the list loaded, even when it is empty", () => {
 		expect(get(mcpServersLoaded)).toBe(false);
-
 		initWithServers([]);
-
 		expect(get(mcpServersLoaded)).toBe(true);
 		expect(get(allMcpServers)).toEqual([]);
-		expect(get(selectedServerIds).size).toBe(0);
 	});
 
-	it("populates allMcpServers with the provided base servers", () => {
-		const servers = [makeServer("search"), makeServer("files")];
-
+	it("keeps what the server said about each one: its mode and whether this person has it on", () => {
+		const servers = [
+			makeServer("search", { mode: "locked" }),
+			makeServer("files", { enabled: false }),
+		];
 		initWithServers(servers);
-
 		expect(get(allMcpServers)).toEqual(servers);
 	});
 
-	it("adds all base server IDs to selectedServerIds (none disabled in this env)", () => {
-		const servers = [makeServer("search"), makeServer("files")];
-
-		initWithServers(servers);
-
-		const selected = get(selectedServerIds);
-		expect(selected.has("base-search")).toBe(true);
-		expect(selected.has("base-files")).toBe(true);
-		expect(selected.size).toBe(2);
-	});
-
-	it("enabledServers derived store reflects the base servers after init", () => {
-		const servers = [makeServer("search"), makeServer("files")];
-
-		initWithServers(servers);
-
-		expect(get(enabledServers)).toEqual(servers);
-	});
-
-	it("is idempotent — second call with new data wins cleanly", () => {
-		const first = [makeServer("search")];
-		const second = [makeServer("files"), makeServer("code")];
-
-		initWithServers(first);
-		expect(get(allMcpServers)).toEqual(first);
-		expect(get(mcpServersLoaded)).toBe(true);
-
-		initWithServers(second);
-		expect(get(allMcpServers)).toEqual(second);
-		expect(get(mcpServersLoaded)).toBe(true);
-		const selected = get(selectedServerIds);
-		expect(selected.has("base-files")).toBe(true);
-		expect(selected.has("base-code")).toBe(true);
-		expect(selected.has("base-search")).toBe(false);
-	});
-
-	it("mcpServersLoaded transitions false → true exactly once per call", () => {
-		const transitions: boolean[] = [];
-		const unsub = mcpServersLoaded.subscribe((v) => transitions.push(v));
-
+	it("is idempotent: a second call with new data wins cleanly", () => {
 		initWithServers([makeServer("search")]);
-
-		unsub();
-		// Initial subscribe fires with false, then the set(true) fires.
-		expect(transitions).toEqual([false, true]);
-	});
-
-	it("does not include unrecognised IDs already in selectedServerIds", () => {
-		// Pre-seed a stale ID that has no corresponding server any more.
-		selectedServerIds.set(new Set(["base-old-gone"]));
-
-		initWithServers([makeServer("search")]);
-
-		const selected = get(selectedServerIds);
-		expect(selected.has("base-old-gone")).toBe(false);
-		expect(selected.has("base-search")).toBe(true);
+		initWithServers([makeServer("files"), makeServer("code")]);
+		expect(get(allMcpServers).map((s) => s.name)).toEqual(["files", "code"]);
 	});
 });
 
-describe("applyProjectServerDefaults", () => {
-	it("a new chat in a project with a base-server default starts with exactly that one selected", () => {
-		initWithServers([makeServer("search"), makeServer("files")]);
-		expect([...get(selectedServerIds)].sort()).toEqual(["base-files", "base-search"]);
-
-		applyProjectServerDefaults(["base-files", "conn-x"]);
-		expect([...get(selectedServerIds)]).toEqual(["base-files"]);
-		expect(get(enabledServers).map((s) => s.name)).toEqual(["files"]);
-
-		// A background refresh keeps the chat's starting point.
-		initWithServers([makeServer("search"), makeServer("files")]);
-		expect([...get(selectedServerIds)]).toEqual(["base-files"]);
-
-		// A chat in a project that names no base server follows the person's own selection.
-		applyProjectServerDefaults(["conn-x"]);
-		expect([...get(selectedServerIds)].sort()).toEqual(["base-files", "base-search"]);
-	});
-
-	it("leaves the selection alone when the project names no base server", () => {
-		initWithServers([makeServer("search")]);
-		applyProjectServerDefaults(["conn-x"]);
-		applyProjectServerDefaults(undefined);
-		expect([...get(selectedServerIds)]).toEqual(["base-search"]);
+describe("no selection of the browser's own", () => {
+	it("exports nothing that chooses servers for a turn", () => {
+		// What older builds exported; the server decides what a turn uses now, so a stale
+		// choice kept here could only mislead.
+		for (const removed of [
+			"selectedServerIds",
+			"enabledServers",
+			"toggleServer",
+			"disableAllServers",
+			"applyProjectServerDefaults",
+		]) {
+			expect(store, removed).not.toHaveProperty(removed);
+		}
 	});
 });

@@ -22,6 +22,7 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { isMachineOnline, MachineLink } from "$lib/server/code/machines";
 import { localConnectorsEnabled } from "$lib/server/codeEnabled";
+import { loadSwitches } from "./deploymentModes";
 import { machineMode, type McpServer } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
 import type { McpConnectorView, McpLocalView } from "$lib/types/McpConnector";
@@ -133,7 +134,12 @@ export async function localDevicesOf(userId: ObjectId): Promise<CodeDevice[]> {
 	return devices.filter(servesLocalConnectors);
 }
 
-function viewOf(device: CodeDevice, server: StoredServer, online: boolean): McpConnectorView {
+function viewOf(
+	device: CodeDevice,
+	server: StoredServer,
+	online: boolean,
+	enabled: boolean
+): McpConnectorView {
 	const deviceId = device._id.toString();
 	const state: McpLocalView["state"] = online ? server.state : "offline";
 	const local: McpLocalView = {
@@ -152,6 +158,9 @@ function viewOf(device: CodeDevice, server: StoredServer, online: boolean): McpC
 	};
 	return {
 		id: localConnectorId(deviceId, server.name),
+		key: localConnectorId(deviceId, server.name),
+		// Off until the person turns it on: a server on their machine is theirs to opt in to.
+		enabled,
 		name: localDisplayName(server.name, device.name),
 		// Nothing to show: the address is internal and the machine is named beside it.
 		url: "",
@@ -176,9 +185,17 @@ export async function localConnectorViews(userId: ObjectId): Promise<McpConnecto
 	if (!localConnectorsEnabled()) return [];
 	const devices = await localDevicesOf(userId);
 	const lists = await Promise.all(devices.map((device) => serversOf(device)));
+	const switches = await loadSwitches(userId);
 	return devices.flatMap((device, index) => {
 		const online = isMachineOnline(device._id.toString());
-		return lists[index].servers.map((server) => viewOf(device, server, online));
+		return lists[index].servers.map((server) =>
+			viewOf(
+				device,
+				server,
+				online,
+				switches.on.has(localConnectorId(device._id.toString(), server.name))
+			)
+		);
 	});
 }
 

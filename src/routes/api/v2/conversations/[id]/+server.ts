@@ -42,23 +42,18 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 		: undefined;
 
 	// Project defaults ride along so a first-opened chat can seed its per-chat
-	// state (web search, connector selection) without a second round trip.
-	// Names only; every turn re-checks reach and credentials server-side.
-	let projectDefaults:
-		{ defaultWebSearch?: boolean; defaultMcpConnectorIds?: string[] } | undefined;
+	// state (web search) without a second round trip.
+	let projectDefaults: { defaultWebSearch?: boolean } | undefined;
 	try {
 		if ("projectId" in conversation && conversation.projectId) {
 			const project = await collections.projects.findOne(
 				{ _id: new ObjectId(conversation.projectId) },
-				{ projection: { defaultWebSearch: 1, defaultMcpConnectorIds: 1 } }
+				{ projection: { defaultWebSearch: 1 } }
 			);
 			if (project) {
 				projectDefaults = {
 					...(typeof project.defaultWebSearch === "boolean"
 						? { defaultWebSearch: project.defaultWebSearch }
-						: {}),
-					...(Array.isArray(project.defaultMcpConnectorIds)
-						? { defaultMcpConnectorIds: project.defaultMcpConnectorIds }
 						: {}),
 				};
 			}

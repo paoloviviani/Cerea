@@ -1,7 +1,6 @@
 import type { ObjectId } from "mongodb";
 import { logger } from "$lib/server/logger";
 import { callMcpTool, getMcpToolTimeoutMs } from "./httpClient";
-import { getMcpServers } from "./registry";
 import { openDurableElicitation, takeResumableElicitation } from "./elicitation";
 import { ToolResultStatus } from "$lib/types/Tool";
 import {
@@ -76,6 +75,16 @@ function toolApprovalDenied(toolUuid: string, tool: string): MessageUpdate {
 }
 
 /**
+ * The servers an approved call may run on: the caller's resolved connectors for this person
+ * (`locals.mcp.servers`), and nothing else. Fails closed (ADR 0104): a connector switched off
+ * since the call was parked, or a caller that could not resolve the person's connectors, runs
+ * nothing, rather than falling back to every server the deployment offers.
+ */
+async function serversForResume(extraServers: McpServerConfig[]): Promise<McpServerConfig[]> {
+	return extraServers;
+}
+
+/**
  * Runs a call the tool-approval gate has already cleared — accepted just now,
  * or auto-cleared because an earlier item in the same queue granted this
  * exact tool "for the conversation". A non-MCP gated tool re-issues through
@@ -124,7 +133,7 @@ async function runApprovedCall(
 	}
 
 	const { mcp } = call;
-	const server = [...getMcpServers(), ...extraServers].find((s) => s.name === mcp.server);
+	const server = (await serversForResume(extraServers)).find((s) => s.name === mcp.server);
 	if (!server) {
 		return {
 			type: MessageUpdateType.Tool,
@@ -346,7 +355,7 @@ export async function resumeParkedToolCall({
 		return { resumed: true, updates, grantedTools };
 	}
 
-	const server = [...getMcpServers(), ...extraServers].find((s) => s.name === pending.server);
+	const server = (await serversForResume(extraServers)).find((s) => s.name === pending.server);
 	if (!server) return { resumed: false, reason: `unknown server ${pending.server}`, updates: [] };
 
 	let update: MessageUpdate;

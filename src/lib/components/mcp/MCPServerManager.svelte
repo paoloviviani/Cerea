@@ -3,7 +3,7 @@
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import ConnectorsSection from "./ConnectorsSection.svelte";
 	import { allMcpServers, refreshMcpServers, healthCheckServer } from "$lib/stores/mcpServers";
-	import { connectors, totalDefaultMcpCount } from "$lib/stores/mcpConnectors";
+	import { connectors, enabledConnectorsCount } from "$lib/stores/mcpConnectors";
 	import IconRefresh from "~icons/carbon/renew";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import * as s from "$lib/components/overlay/styles";
@@ -12,11 +12,12 @@
 
 	let isRefreshing = $state(false);
 
-	// Defaults, not the active chat: this tab edits what new chats start with.
-	const enabledCount = $derived($totalDefaultMcpCount);
+	// What is on for this person: their switches, the administrator's locked ones included.
+	const enabledCount = $derived($enabledConnectorsCount);
 	const onMachines = $derived($connectors.filter((c) => c.local));
 	const onMachinesReady = $derived(onMachines.filter((c) => c.local?.state === "ready").length);
-	const serverCount = $derived($allMcpServers.length + onMachines.length);
+	// Everything listed below: the built-in servers, the connectors in Workspace and the ones on machines.
+	const serverCount = $derived($allMcpServers.length + $connectors.length);
 
 	async function handleRefresh() {
 		if (isRefreshing) return;
@@ -102,6 +103,7 @@
 				<ul class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
 					<li>{m["mcp.manager.tip_trust"]()}</li>
 					<li>{m["mcp.manager.tip_enable"]()}</li>
+					<li>{m["mcp.manager.tip_on_demand"]()}</li>
 					<li>{m["mcp.manager.tip_check"]()}</li>
 				</ul>
 			</div>

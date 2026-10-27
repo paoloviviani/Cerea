@@ -80,7 +80,10 @@ class McpExample(unittest.TestCase):
             "find_nearby_pois", "poi_details", "suggest_meeting_point", "straight_line_distance", "map_link",
         }
         named = set(re.findall(r"`([a-z_]+)`", skill))
-        self.assertEqual(named - osm_tools, set(), "tools the skill names that osm-mcp does not have")
+        # `load_tools` is the chat's own built-in that loads a connector's tools (ADR 0104).
+        self.assertEqual(
+            named - osm_tools - {"load_tools"}, set(), "tools the skill names that osm-mcp does not have"
+        )
         self.assertIn("tools/mcp/skills/maps-routing/SKILL.md", README)
 
 if __name__ == "__main__":

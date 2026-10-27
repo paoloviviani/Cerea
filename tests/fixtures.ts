@@ -326,7 +326,6 @@ export interface ApiHelpers {
 		conversationId: string;
 		parentId: string;
 		content: string;
-		mcpServers?: Array<{ name: string; url: string }>;
 	}): Promise<MessageUpdate[]>;
 }
 
@@ -357,7 +356,7 @@ function apiHelpers(request: APIRequestContext): ApiHelpers {
 			return { conversationId: payload.conversationId, rootMessageId: root };
 		},
 
-		async sendMessage({ conversationId, parentId, content, mcpServers }) {
+		async sendMessage({ conversationId, parentId, content }) {
 			const res = await request.post(`${E2E_APP_URL}/conversation/${conversationId}`, {
 				// Without `origin` the CSRF guard rejects the multipart body.
 				headers: { origin: E2E_APP_URL },
@@ -366,16 +365,6 @@ function apiHelpers(request: APIRequestContext): ApiHelpers {
 						inputs: content,
 						id: parentId, // parent message id — required
 						is_retry: false,
-						...(mcpServers
-							? {
-									selectedMcpServerNames: mcpServers.map((s) => s.name),
-									selectedMcpServers: mcpServers.map((s) => ({
-										name: s.name,
-										url: s.url,
-										headers: [],
-									})),
-								}
-							: {}),
 					}),
 				},
 			});

@@ -36,6 +36,8 @@ import { streamFor, describeMessages, type ChatMessage, type Round } from "./rep
 const mocks = vi.hoisted(() => ({
 	create: vi.fn(),
 	callMcpTool: vi.fn(),
+	/** The servers each tool listing was asked about. */
+	listed: [] as string[][],
 }));
 
 // Only the client is stubbed. The SDK's error classes stay real: the retry
@@ -61,7 +63,9 @@ vi.mock("$lib/server/urlSafety", async (importOriginal) => ({
 }));
 
 vi.mock("$lib/server/mcp/tools", () => ({
-	getOpenAiToolsForMcp: async () => ({
+	sanitizeName: (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64),
+	getOpenAiToolsForMcp: async (servers: Array<{ name: string }>) => ({
+		listedBy: mocks.listed.push(servers.map((server) => server.name)),
 		tools: [
 			{
 				type: "function",
@@ -148,7 +152,7 @@ async function sendMessage(
 	conv: Conversation,
 	locals: App.Locals,
 	prompt: string,
-	opts: { withTools?: boolean } = {}
+	opts: { withTools?: boolean; staleTab?: Record<string, unknown> } = {}
 ): Promise<void> {
 	// Append to the current leaf. The route requires an explicit parent for any
 	// message after the root, exactly as the client sends one.
@@ -159,10 +163,16 @@ async function sendMessage(
 		JSON.stringify({
 			inputs: prompt,
 			...(parentId ? { id: parentId } : {}),
-			...(opts.withTools === false
-				? {}
-				: { selectedMcpServers: [{ name: "mock", url: "https://mock.test/mcp", headers: [] }] }),
+			// What an old tab still posts (ADR 0104): the server ignores it.
+			...opts.staleTab,
 		})
+	);
+
+	// A turn without tools is one where the deployment offers no connector.
+	const { collections } = await import("$lib/server/database");
+	await collections.connectorModes.updateOne(
+		{ key: "base:mock" },
+		{ $set: { mode: opts.withTools === false ? "off" : "on" } }
 	);
 
 	const response = await POST({
@@ -212,7 +222,6 @@ async function sendMessageAndDetach(
 		JSON.stringify({
 			inputs: prompt,
 			...(parentId ? { id: parentId } : {}),
-			selectedMcpServers: [{ name: "mock", url: "https://mock.test/mcp", headers: [] }],
 		})
 	);
 
@@ -283,13 +292,26 @@ beforeAll(async () => {
 	await ready;
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+	// The mock server is loaded from the start of every turn (ADR 0104), as it always was.
+	const { collections } = await import("$lib/server/database");
+	await collections.connectorModes.updateOne(
+		{ key: "base:mock" },
+		{
+			$set: { mode: "on", alwaysLoaded: true, updatedAt: new Date() },
+			$setOnInsert: { createdAt: new Date() },
+		},
+		{ upsert: true }
+	);
 	mocks.create.mockReset();
 	mocks.callMcpTool.mockReset();
+	mocks.listed = [];
 	scriptToolResult({ text: "18°C, sunny" });
 });
 
 afterEach(async () => {
+	const { collections } = await import("$lib/server/database");
+	await collections.connectorModes.deleteMany({ key: "base:mock" });
 	await cleanupTestData();
 });
 
@@ -378,6 +400,31 @@ describe.sequential("the generation log", () => {
 			generationId: generation?.generationId ?? "",
 		});
 		expect(events).toBeGreaterThan(0);
+	});
+});
+
+describe.sequential("the connectors a turn uses are the server's decision (ADR 0104)", () => {
+	const staleTab = {
+		selectedMcpServerNames: ["evil", "mock"],
+		selectedMcpServers: [{ name: "evil", url: "https://evil.test/mcp", headers: [] }],
+		selectedConnectorIds: ["000000000000000000000000"],
+	};
+
+	it("ignores the selection an old tab still sends, offering exactly what the deployment provides", async () => {
+		const { conv, locals } = await newConversation();
+		scriptRounds([{ content: "ok" }]);
+		await sendMessage(conv, locals, "Hi", { staleTab });
+		expect(mocks.listed.flat()).toEqual(["mock"]);
+	});
+
+	it("does not let an old tab switch off what the deployment provides", async () => {
+		const { conv, locals } = await newConversation();
+		scriptRounds([{ content: "ok" }]);
+		// The tab asks for no servers at all.
+		await sendMessage(conv, locals, "Hi", {
+			staleTab: { selectedMcpServerNames: [], selectedMcpServers: [], selectedConnectorIds: [] },
+		});
+		expect(mocks.listed.flat()).toEqual(["mock"]);
 	});
 });
 

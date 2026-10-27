@@ -18,6 +18,7 @@
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
 	import type { Snippet } from "svelte";
+	import LucideLock from "~icons/lucide/lock";
 
 	interface Props {
 		name: string;
@@ -28,11 +29,13 @@
 		description?: string;
 		/** The status pills row. */
 		pills?: Snippet;
-		/** The switch with its own `name`; the label text is this frame's. */
-		toggle: Snippet;
+		/** The switch with its own `name`; the label text is this frame's. Absent: no switch. */
+		toggle?: Snippet;
 		/** Label beside the switch from `sm` up, then the shorter one below it. */
-		toggleLabel: string;
-		toggleLabelShort: string;
+		toggleLabel?: string;
+		toggleLabelShort?: string;
+		/** Shown where the switch would be when there is none (a connector the administrator keeps on). */
+		fixedLabel?: string;
 		toggleTitle?: string;
 		/** Error messages, buttons and forms under the grid. */
 		children?: Snippet;
@@ -49,6 +52,7 @@
 		toggle,
 		toggleLabel,
 		toggleLabelShort,
+		fixedLabel,
 		toggleTitle,
 		children,
 		onopen,
@@ -121,18 +125,29 @@
 
 			<!-- Source order is the phone's: the footer comes last. From sm up it moves
 			     to the top right, beside the name. -->
-			<div
-				data-no-open
-				data-testid="card-footer"
-				title={toggleTitle}
-				class="flex items-center justify-between gap-2 border-t border-gray-200/70 pt-2 sm:col-start-2 sm:row-start-1 sm:justify-end sm:border-0 sm:pt-0.5 dark:border-gray-700/70"
-			>
-				<span class="text-xs text-gray-600 dark:text-gray-400">
-					<span class="sm:hidden">{toggleLabelShort}</span>
-					<span class="max-sm:hidden">{toggleLabel}</span>
-				</span>
-				{@render toggle()}
-			</div>
+			{#if toggle}
+				<div
+					data-no-open
+					data-testid="card-footer"
+					title={toggleTitle}
+					class="flex items-center justify-between gap-2 border-t border-gray-200/70 pt-2 sm:col-start-2 sm:row-start-1 sm:justify-end sm:border-0 sm:pt-0.5 dark:border-gray-700/70"
+				>
+					<span class="text-xs text-gray-600 dark:text-gray-400">
+						<span class="sm:hidden">{toggleLabelShort}</span>
+						<span class="max-sm:hidden">{toggleLabel}</span>
+					</span>
+					{@render toggle()}
+				</div>
+			{:else if fixedLabel}
+				<div
+					data-testid="card-locked"
+					title={toggleTitle}
+					class="flex items-center gap-1.5 border-t border-gray-200/70 pt-2 text-xs text-gray-600 sm:col-start-2 sm:row-start-1 sm:justify-end sm:border-0 sm:pt-0.5 dark:border-gray-700/70 dark:text-gray-400"
+				>
+					<LucideLock class="size-3" aria-hidden="true" />
+					{fixedLabel}
+				</div>
+			{/if}
 		</div>
 
 		{@render children?.()}

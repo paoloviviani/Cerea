@@ -30,10 +30,10 @@ const create = z.object({
 	indexPastChats: z.boolean().default(false),
 	retrievalLimit: z.number().int().min(1).max(20).default(6),
 	// Defaults for new chats here. Optional throughout: absent means "fall
-	// back to the app / workspace defaults". Connector ids are names only —
-	// every turn re-checks ownership server-side.
+	// back to the app default". (`defaultMcpConnectorIds`, a project's connector
+	// defaults, is retired with the per-chat selection it seeded; a client that
+	// still sends it is ignored.)
 	defaultWebSearch: z.boolean().optional(),
-	defaultMcpConnectorIds: z.array(z.string().min(1).max(64)).max(50).optional(),
 });
 
 function requireUser(locals: App.Locals) {
@@ -70,9 +70,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		retrievalLimit: parsed.data.retrievalLimit,
 		...(parsed.data.defaultWebSearch !== undefined
 			? { defaultWebSearch: parsed.data.defaultWebSearch }
-			: {}),
-		...(parsed.data.defaultMcpConnectorIds !== undefined
-			? { defaultMcpConnectorIds: parsed.data.defaultMcpConnectorIds }
 			: {}),
 		shares: [],
 		createdAt: now,

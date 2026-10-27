@@ -25,7 +25,6 @@ import {
 	MessageCodeExecutionUpdateType,
 } from "$lib/types/MessageUpdate";
 import type { StreamingMode } from "$lib/types/Settings";
-import type { KeyValuePair } from "$lib/types/Tool";
 
 type MessageUpdateRequestOptions = {
 	base: string;
@@ -39,19 +38,6 @@ type MessageUpdateRequestOptions = {
 	// so the server can match a stop point to the run it belongs to
 	generationId?: string;
 	files?: MessageFile[];
-	// Optional: pass selected MCP server names (client-side selection)
-	selectedMcpServerNames?: string[];
-	// Optional: pass selected MCP server configs (for custom client-defined servers)
-	selectedMcpServers?: Array<{ name: string; url: string; headers?: KeyValuePair[] }>;
-	/**
-	 * Connectors to use, by id only (ADR 0064).
-	 *
-	 * Note what is *not* here, and why that is the point: no URL and no
-	 * headers. The server looks the connector up, re-checks that this person
-	 * owns it and unseals the credential itself, so a browser that sends
-	 * somebody else's id gets a 404 rather than their token.
-	 */
-	selectedConnectorIds?: string[];
 	// User's IANA timezone (e.g. "America/New_York")
 	timezone?: string;
 	// Rounded device coordinates; the server uses them only if the setting is "device"
@@ -90,10 +76,6 @@ export async function fetchMessageUpdates(
 		...(opts.resumeElicitationId ? { resumeElicitationId: opts.resumeElicitationId } : {}),
 		is_continue: Boolean(opts.isContinue),
 		generationId: opts.generationId,
-		// Will be ignored server-side if unsupported
-		selectedMcpServerNames: opts.selectedMcpServerNames,
-		selectedMcpServers: opts.selectedMcpServers,
-		selectedConnectorIds: opts.selectedConnectorIds,
 		timezone: opts.timezone,
 		...(opts.location ? { location: opts.location } : {}),
 	});

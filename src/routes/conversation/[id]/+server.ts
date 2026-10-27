@@ -32,8 +32,7 @@ import { addSibling } from "$lib/utils/tree/addSibling.js";
 import { usageLimits } from "$lib/server/usageLimits";
 import { textGeneration } from "$lib/server/textGeneration";
 import { indexConversation, parseAttachedKnowledgeBaseIds } from "$lib/server/projects";
-import { mcpLocalsFor, withoutClientCredentials } from "$lib/server/mcp/selection";
-import type { McpTurnSelection } from "$lib/types/Conversation";
+import { mcpLocalsFor } from "$lib/server/mcp/selection";
 import type { TextGenerationContext } from "$lib/server/textGeneration/types";
 import { logger } from "$lib/server/logger.js";
 import { compressUpdatesForStorage } from "$lib/server/generation/compressUpdates";
@@ -182,9 +181,6 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		is_retry: isRetry,
 		resumeElicitationId,
 		generationId,
-		selectedMcpServerNames,
-		selectedMcpServers,
-		selectedConnectorIds,
 		timezone,
 		location,
 	} = z
@@ -202,25 +198,6 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			is_retry: z.optional(z.boolean()),
 			/** Continue the tool call a durable elicitation parked, before generating. */
 			resumeElicitationId: z.optional(z.string().uuid()),
-			selectedMcpServerNames: z.optional(z.array(z.string())),
-			/**
-			 * Connectors this person picked, by id (ADR 0064). The URL and the
-			 * credential are read server-side; the browser holds neither.
-			 */
-			selectedConnectorIds: z.optional(z.array(z.string().max(64))),
-			selectedMcpServers: z
-				.optional(
-					z.array(
-						z.object({
-							name: z.string(),
-							url: z.string(),
-							headers: z
-								.optional(z.array(z.object({ key: z.string(), value: z.string() })))
-								.default([]),
-						})
-					)
-				)
-				.default([]),
 			timezone: z.optional(z.string()),
 			/** Device coordinates, rounded; ignored unless the person's setting is "device". */
 			location: deviceLocationSchema,
@@ -237,40 +214,17 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		})
 		.parse(JSON.parse(json));
 
-	// Attach MCP selection to locals so the text generation pipeline can consume it.
-	//
-	// Connectors are resolved here, server-side, with this person's own
-	// credential (ADR 0064). Anything the client sent about an ad-hoc server
-	// keeps its URL and **loses its headers**: a credential the browser
-	// supplies is a credential the browser holds, which is the defect
-	// connectors exist to close.
+	// The connectors this turn may use, decided here from the deployment's policies, this
+	// person's own switches and what this conversation has loaded (ADR 0104). The browser no
+	// longer sends a choice: an old tab that still posts `selectedMcpServers`,
+	// `selectedMcpServerNames` or `selectedConnectorIds` is ignored (the schema above drops
+	// them), so stale browser state can neither widen nor narrow what a turn uses.
 	try {
-		const selection: McpTurnSelection = {
-			connectorIds: selectedConnectorIds ?? [],
-			...(selectedMcpServerNames ? { serverNames: selectedMcpServerNames } : {}),
-			customServers: withoutClientCredentials(
-				(selectedMcpServers ?? []).map((s) => ({
-					name: s.name,
-					url: s.url,
-					headers:
-						s.headers && s.headers.length > 0
-							? Object.fromEntries(s.headers.map((h) => [h.key, h.value]))
-							: undefined,
-				}))
-			).map(({ name, url }) => ({ name, url })),
-		};
-		locals.mcp = await mcpLocalsFor(selection, locals.user?._id);
-		// Recorded for a resume: a turn that parks (execute_code, a timer, a
-		// tool approval) continues later with no request, and must run with the
-		// same connectors. Ids and names only; best effort, never fails the turn.
-		await collections.conversations
-			.updateOne({ _id: convId }, { $set: { mcpSelection: selection } })
-			.catch((err) => logger.warn({ err }, "mcp_selection_not_recorded"));
+		locals.mcp = await mcpLocalsFor(conv, locals.user?._id);
 	} catch (err) {
-		// The pipeline falls back to the environment's servers. Logged rather
-		// than swallowed: a connector silently absent is the hardest version of
-		// this to debug.
-		logger.warn({ err }, "mcp_selection_failed");
+		// Logged rather than swallowed: a connector silently absent is the hardest version of
+		// this to debug. The turn then runs with the built-in tools.
+		logger.warn({ err }, "mcp_resolution_failed");
 	}
 
 	// Attach user timezone so the tool prompt can include localized time
@@ -694,7 +648,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 						conversationId: convId,
 						elicitationId: resumeElicitationId,
 						generationId: effectiveGenerationId,
-						extraServers: locals.mcp?.selectedServers,
+						extraServers: locals.mcp?.servers,
 						signal: ctrl.signal,
 						token: locals.token,
 					});

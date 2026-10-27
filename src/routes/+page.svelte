@@ -20,12 +20,6 @@
 	import { loading } from "$lib/stores/loading.js";
 	import { loadAttachmentsFromUrls } from "$lib/utils/loadAttachmentsFromUrls";
 	import { requireAuthUser } from "$lib/utils/auth";
-	import {
-		adoptNewChatSelection,
-		defaultConnectorIds,
-		openConversationSelection,
-	} from "$lib/stores/mcpConnectors";
-	import { get } from "svelte/store";
 
 	let { data } = $props();
 
@@ -138,9 +132,6 @@
 				model,
 				updatedAt: new Date(),
 			});
-			// The connectors switched on here belong to this first message; the
-			// conversation page would otherwise seed the new id from the defaults.
-			adoptNewChatSelection(conversationId);
 			await goto(`${base}/conversation/${conversationId}`, {
 				state: { pendingMessage: message, pendingFilesNonce },
 			});
@@ -155,9 +146,6 @@
 	}
 
 	onMount(async () => {
-		// The new-chat selection starts at the workspace defaults; the first
-		// toggle then diverges without touching them.
-		openConversationSelection(null, get(defaultConnectorIds));
 		try {
 			// Check if auth is required before processing any query params
 			const hasQ = page.url.searchParams.has("q");

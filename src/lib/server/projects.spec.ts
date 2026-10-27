@@ -215,7 +215,8 @@ describe("projectView defaults for new chats", () => {
 		const view = await projectView({ project, owned: true });
 
 		expect(view.defaultWebSearch).toBe(true);
-		expect(view.defaultMcpConnectorIds).toEqual(["conn-a"]);
+		// The stored field is retired (ADR 0104): kept on old rows, never shown.
+		expect(view).not.toHaveProperty("defaultMcpConnectorIds");
 	});
 
 	it("leaves the defaults unset when the project does not set them", async () => {
@@ -224,6 +225,5 @@ describe("projectView defaults for new chats", () => {
 		const view = await projectView({ project, owned: true });
 
 		expect(view.defaultWebSearch).toBeUndefined();
-		expect(view.defaultMcpConnectorIds).toBeUndefined();
 	});
 });

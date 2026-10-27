@@ -403,3 +403,55 @@ describe("between-session tools in an agent transcript", () => {
 		expect(view.baseElement.querySelector("[data-testid='session-link']")).toBeNull();
 	});
 });
+
+describe("load_tools (ADR 0104)", () => {
+	const loadCall = (connectors: unknown): MessageToolUpdate =>
+		({
+			type: MessageUpdateType.Tool,
+			subtype: MessageToolUpdateType.Call,
+			uuid: "l1",
+			call: { name: "load_tools", parameters: { connectors } },
+		}) as MessageToolUpdate;
+	const loadResult = (text: string): MessageToolUpdate =>
+		({
+			type: MessageUpdateType.Tool,
+			subtype: MessageToolUpdateType.Result,
+			uuid: "l1",
+			result: {
+				status: ToolResultStatus.Success,
+				call: { name: "load_tools", parameters: {} },
+				outputs: [{ text }],
+				display: true,
+			},
+		}) as MessageToolUpdate;
+	const line = (view: ReturnType<typeof renderWithApp>) =>
+		view.baseElement.querySelector('[data-testid="load-tools-line"]');
+
+	it("is one quiet line, not a card to open", async () => {
+		const view = renderWithApp(ToolUpdate, {
+			tool: [
+				loadCall(JSON.stringify(["Maps"])),
+				loadResult("Loaded Maps. Its tools are available from now on: route."),
+			],
+		});
+		expect(line(view)?.textContent?.trim()).toBe("Loaded Maps");
+		expect(view.baseElement.querySelector("button[aria-label='Expand']")).toBeNull();
+	});
+
+	it("says so when a connector could not be loaded", async () => {
+		const view = renderWithApp(ToolUpdate, {
+			tool: [
+				loadCall(["Maps", "Notion"]),
+				loadResult(
+					"Loaded Maps. Its tools are available from now on: route.\nNotion: the person needs to sign in to it first, under Workspace, Connectors."
+				),
+			],
+		});
+		expect(line(view)?.textContent?.trim()).toBe("Could not load Notion");
+	});
+
+	it("reads as loading until the answer arrives", async () => {
+		const view = renderWithApp(ToolUpdate, { tool: [loadCall(["Maps"])] });
+		expect(line(view)?.textContent?.trim()).toBe("Loading Maps");
+	});
+});

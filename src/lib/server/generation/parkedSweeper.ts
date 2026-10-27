@@ -220,17 +220,15 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 
 	const { locals, settings, tokenExpired } = await rebuildIdentity(park);
 
-	// The connectors the turn was started with. A resume has no request to
-	// read them from, and without this every round after the park ran with the
-	// built-in tools only (the model then hunted for the missing connector
-	// among the skills). Best effort: a failure leaves the environment's
-	// servers, as a fresh turn's failed resolution does.
-	if (conv.mcpSelection) {
-		try {
-			locals.mcp = await mcpLocalsFor(conv.mcpSelection, park.userId);
-		} catch (err) {
-			logger.warn({ err }, "[parked] could not restore the turn's MCP selection");
-		}
+	// The connectors this turn may use. A resume has no request to read them from, and without
+	// this every round after the park ran with the built-in tools only (the model then hunted
+	// for the missing connector among the skills). The same resolver as a fresh turn: the
+	// deployment's policies, the person's switches and what the conversation has loaded
+	// (ADR 0104). Best effort: a failure leaves the built-in tools, as a fresh turn's does.
+	try {
+		locals.mcp = await mcpLocalsFor(conv, park.userId);
+	} catch (err) {
+		logger.warn({ err }, "[parked] could not restore the turn's MCP selection");
 	}
 
 	const generationId = randomUUID();

@@ -154,15 +154,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	// turn time.
 	const { resolveWebSearchEnabled } = await import("$lib/server/webSearchDefaults");
 	let initialWebSearch: boolean | undefined;
-	let seedProjectDefaults:
-		{ defaultWebSearch?: boolean; defaultMcpConnectorIds?: string[] } | undefined;
+	let seedProjectDefaults: { defaultWebSearch?: boolean } | undefined;
 	try {
 		const settingsDoc = await collections.settings.findOne(authCondition(locals));
 		const projectDoc =
 			projectId !== undefined
 				? await collections.projects.findOne(
 						{ _id: projectId },
-						{ projection: { defaultWebSearch: 1, defaultMcpConnectorIds: 1 } }
+						{ projection: { defaultWebSearch: 1 } }
 					)
 				: null;
 		const projectDefault =
@@ -173,9 +172,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			seedProjectDefaults = {
 				...(typeof projectDoc.defaultWebSearch === "boolean"
 					? { defaultWebSearch: projectDoc.defaultWebSearch }
-					: {}),
-				...(Array.isArray(projectDoc.defaultMcpConnectorIds)
-					? { defaultMcpConnectorIds: projectDoc.defaultMcpConnectorIds }
 					: {}),
 			};
 		}

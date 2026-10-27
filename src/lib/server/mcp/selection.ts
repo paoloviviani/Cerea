@@ -1,26 +1,18 @@
 /**
- * Turning a person's connector choice into servers a turn can call
- * (ADR 0064).
+ * Turning the deployment's policies, a person's switches and a conversation's
+ * loaded set into the servers a turn can call (ADR 0064, ADR 0104).
  *
- * The browser sends **ids**, and the URL and the credential are read here. It
- * used to send the URL *and* the `Authorization` header, both out of
- * `localStorage`, which is the defect this ADR exists to close: a credential
- * the client supplies is a credential the client holds.
- *
- * A header arriving from the browser is therefore **ignored**, not honoured.
- * Silently, once per turn, with a log line — refusing the turn would break
- * sessions whose stored servers predate connectors, and honouring it would
- * keep the hole open for exactly as long as one stale tab exists.
+ * The URL and the credential are read here, on the server. The browser used to
+ * send both (out of `localStorage`) and now sends no choice at all: a
+ * credential the client supplies is a credential the client holds, and a
+ * selection it stores can be weeks stale.
  */
 
 import type { ObjectId } from "mongodb";
-import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { bearerFor } from "./oauth";
-import { resolveLocalSelection } from "./local";
-import { withoutLocalUrls } from "./localUrl";
+import { resolveConnectors, type BlockedConnector, type TurnConnector } from "./turnConnectors";
 import type { McpConnector } from "$lib/types/McpConnector";
-import type { McpTurnSelection } from "$lib/types/Conversation";
 
 export interface ResolvedServer {
 	name: string;
@@ -58,153 +50,70 @@ export async function credentialHeaders(options: {
 	return { [header]: `${prefix}${secret}` };
 }
 
-/**
- * The connectors this person picked, with their own credentials attached.
- *
- * A connector they have not authorised is left out rather than called without
- * a token: the call would 401, the model would be told a tool failed, and the
- * person would get an answer shaped by a missing capability instead of a
- * prompt to sign in.
- */
-export async function resolveSelection(options: {
-	connectorIds: string[];
-	userId: ObjectId;
-}): Promise<{ servers: ResolvedServer[]; needAuthorization: string[] }> {
-	const { connectorIds, userId } = options;
-	if (connectorIds.length === 0) return { servers: [], needAuthorization: [] };
-
-	const { ObjectId: Oid } = await import("mongodb");
-	const ids = connectorIds.filter((id) => Oid.isValid(id)).map((id) => new Oid(id));
-	if (ids.length === 0) return { servers: [], needAuthorization: [] };
-
-	// Their own, plus the deployment's. An id belonging to *another person's*
-	// connector still resolves to nothing — that is the property the tests
-	// pair a positive case against — while an administrator's shared connector
-	// resolves for everybody, which is what sharing a definition means.
-	//
-	// The credential is unaffected by this widening and that is the whole
-	// design: `credentialHeaders` looks a token up by `(userId, connectorId)`,
-	// so a shared Notion connector still reaches each person's own workspace as
-	// themselves. Widening the *definition* lookup does not widen the token
-	// lookup, and the two must not be merged for convenience.
-	const connectors = await collections.mcpConnectors
-		.find({ _id: { $in: ids }, $or: [{ userId }, { scope: "deployment" }] })
-		.toArray();
-
-	const servers: ResolvedServer[] = [];
-	const needAuthorization: string[] = [];
-
-	for (const connector of connectors) {
-		if (connector.auth === "none") {
-			servers.push({ name: connector.name, url: connector.url });
-			continue;
-		}
-		const headers = await credentialHeaders({ connector, userId });
-		if (!headers) {
-			needAuthorization.push(connector.name);
-			continue;
-		}
-		servers.push({
-			name: connector.name,
-			url: connector.url,
-			headers,
-		});
-	}
-
-	return { servers, needAuthorization };
-}
-
-/**
- * Strip credentials from whatever the client sent about ad-hoc servers.
- *
- * The URL is still honoured — selecting a server is the person's choice to
- * make — but any header is dropped. Anything that needs a credential needs to
- * be a connector.
- */
-export function withoutClientCredentials(
-	sent: { name: string; url: string; headers?: Record<string, string> }[]
-): ResolvedServer[] {
-	const carried = sent.filter((server) => server.headers && Object.keys(server.headers).length > 0);
-	if (carried.length > 0) {
-		logger.info(
-			{ servers: carried.map((server) => server.name) },
-			"mcp_client_headers_ignored: add these as connectors so the credential lives server-side"
-		);
-	}
-	// A `machine://` address names a channel to somebody's own machine: only the selection
-	// resolution below may produce one, never a browser.
-	return withoutLocalUrls(sent).map(({ name, url }) => ({ name, url }));
-}
-
 /** The `locals.mcp` a turn runs with (read by `runMcpFlow`). */
 export interface McpLocals {
+	/** Loaded connectors that could not be opened this turn, with why. */
 	unavailable: Array<{ name: string; reason: string }>;
-	selectedServerNames?: string[];
-	selectedServers: ResolvedServer[];
+	/** Every connector that is on for this person: the assistant's list, and what `load_tools` can load. */
+	connectors: TurnConnector[];
+	/** Connectors left out of it for the assistant to explain: switched off, or needing a sign-in. */
+	blocked: BlockedConnector[];
+	/** The keys loaded at the start of the turn: always loaded, then the conversation's, in order. */
+	loadedKeys: string[];
+	/** The loaded connectors' servers, with this person's credential, in `loadedKeys` order. */
+	servers: ResolvedServer[];
 }
 
 /**
- * Build a turn's MCP servers from its selection, resolving connectors
- * server-side with this person's own credential.
+ * Build a turn's connectors (ADR 0104): the ones on for this person, and which
+ * are loaded.
  *
  * One function for every way a turn runs, and that is the point of it: a turn
- * that parks — on `execute_code`, a timer, a tool approval — is resumed later
- * with no request to read a selection from. Before this, the resume rebuilt the
- * identity but not the connectors, so everything after the first
- * `execute_code` ran with the built-in tools only and the model went looking
- * for the missing connector among the skills.
+ * that parks (on `execute_code`, a timer, a tool approval) is resumed later
+ * with no request to read anything from, and used to run with the built-in
+ * tools only. The inputs are the deployment's policies, the person's own
+ * switches and the conversation's loaded set, never the browser.
+ *
+ * Only the loaded connectors are opened here (their credential looked up);
+ * the rest are lines for the assistant and cost nothing.
  */
 export async function mcpLocalsFor(
-	selection: McpTurnSelection,
+	conv: { loadedConnectors?: string[] },
 	userId?: ObjectId
 ): Promise<McpLocals> {
-	const resolved = userId
-		? await resolveSelection({ connectorIds: selection.connectorIds, userId })
-		: { servers: [], needAuthorization: [] };
-
-	if (resolved.needAuthorization.length > 0) {
-		// Left out rather than called without a token: a 401 would reach the
-		// model as "that tool failed" and the person would get an answer
-		// shaped by a missing capability instead of a prompt to sign in.
-		logger.info(
-			{ connectors: resolved.needAuthorization },
-			"mcp_connector_not_authorized: left out of this turn"
-		);
-	}
-
-	// Servers on the person's own machines (ADR 0102), by id like any connector. An offline
-	// machine is left out and said so, never waited for.
-	const local = userId
-		? await resolveLocalSelection({ connectorIds: selection.connectorIds, userId }).catch((err) => {
-				logger.warn({ err: String(err) }, "mcp_local_selection_failed");
-				return { servers: [], unavailable: [] };
-			})
-		: { servers: [], unavailable: [] };
-
-	return {
-		// Told to the model this turn (`runMcpFlow`), so it says the
-		// connector needs attention instead of improvising its tools.
-		unavailable: [
-			...resolved.needAuthorization.map((name) => ({
-				name,
-				reason: "not signed in, or its token is missing",
-			})),
-			...local.unavailable,
-		],
-		// A local server was chosen by id, so it is in the turn whatever names the browser listed.
-		selectedServerNames: selection.serverNames
-			? [...new Set([...selection.serverNames, ...local.servers.map((server) => server.name)])]
-			: undefined,
-		selectedServers: [
-			...withoutLocalUrls(selection.customServers).map(({ name, url }) => ({ name, url })),
-			// Connectors **last**, because `runMcpFlow` deduplicates by name
-			// and the later entry wins. Two of these can share a name — a
-			// connector called "Notion" beside a stale custom server of the
-			// same name in somebody's localStorage — and the one that must
-			// survive is the one carrying a credential this browser never
-			// held.
-			...resolved.servers,
-			...local.servers,
-		],
-	};
+	const { connectors, blocked } = await resolveConnectors(userId);
+	const byKey = new Map(connectors.map((c) => [c.key, c]));
+	const alwaysKeys = connectors.filter((c) => c.alwaysLoaded).map((c) => c.key);
+	// Always loaded first, then what the assistant loaded, in the order it did. A key that is no
+	// longer on for this person (switched off, deleted, signed out) is simply not loaded.
+	const wanted = [...new Set([...alwaysKeys, ...(conv.loadedConnectors ?? [])])].filter((key) =>
+		byKey.has(key)
+	);
+	const unavailable: McpLocals["unavailable"] = [];
+	const servers: ResolvedServer[] = [];
+	const loadedKeys: string[] = [];
+	const opened = await Promise.all(
+		wanted.map(async (key) => {
+			try {
+				return (await byKey.get(key)?.open()) ?? { unavailable: "it is not available" };
+			} catch (err) {
+				logger.warn({ err: String(err), key }, "mcp_connector_open_failed");
+				return { unavailable: "it could not be opened" };
+			}
+		})
+	);
+	opened.forEach((result, index) => {
+		const key = wanted[index];
+		const name = byKey.get(key)?.name ?? key;
+		if ("server" in result) {
+			servers.push(result.server);
+			loadedKeys.push(key);
+		} else {
+			// Left out rather than called without a token: a 401 would reach the model as
+			// "that tool failed" and the person would get an answer shaped by a missing capability.
+			unavailable.push({ name, reason: result.unavailable });
+			logger.info({ connector: name }, "mcp_connector_not_opened: left out");
+		}
+	});
+	return { unavailable, connectors, blocked, loadedKeys, servers };
 }

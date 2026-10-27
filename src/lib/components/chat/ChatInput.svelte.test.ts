@@ -1,22 +1,12 @@
 import ChatInput from "./ChatInput.svelte";
-import { renderWithApp, appNavigation } from "$lib/components/__tests__/renderWithApp";
+import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { tick } from "svelte";
 import { page } from "@vitest/browser/context";
-import { get, writable } from "svelte/store";
-import {
-	connectors,
-	connectorsFailed,
-	connectorsLoaded,
-	defaultConnectorIds,
-	enabledConnectors,
-	openConversationSelection,
-	resetConversationSelections,
-	selectedConnectorIds,
-} from "$lib/stores/mcpConnectors";
-import { allMcpServers, selectedServerIds } from "$lib/stores/mcpServers";
+import { writable } from "svelte/store";
+import { connectors, connectorsFailed, connectorsLoaded } from "$lib/stores/mcpConnectors";
+import { allMcpServers } from "$lib/stores/mcpServers";
 import type { McpConnectorView } from "$lib/types/McpConnector";
-import type { MCPServer } from "$lib/types/Tool";
 
 /** The connector list loads over a fetch; a slow CI runner needs more than
  * vi.waitFor's 1s default (a 5s bound still fails fast on a real regression). */
@@ -132,7 +122,6 @@ beforeEach(() => {
 	connectors.set([]);
 	connectorsLoaded.set(false);
 	connectorsFailed.set(false);
-	resetConversationSelections();
 	allMcpServers.set([]);
 	for (let i = localStorage.length - 1; i >= 0; i--) {
 		const key = localStorage.key(i);
@@ -271,9 +260,11 @@ describe("ChatInput: attaching knowledge bases", () => {
 	});
 });
 
-describe("ChatInput: MCP connector toggles", () => {
-	const notionConnector: McpConnectorView = {
+describe("ChatInput: no connectors in the composer (ADR 0104)", () => {
+	const notion: McpConnectorView = {
 		id: "conn-notion",
+		key: "connector:conn-notion",
+		enabled: true,
 		name: "Notion",
 		url: "https://mcp.notion.com/mcp",
 		auth: "oauth",
@@ -283,286 +274,36 @@ describe("ChatInput: MCP connector toggles", () => {
 		canAuthorize: true,
 		updatedAt: new Date().toISOString(),
 	};
-	const pendingConnector: McpConnectorView = {
-		id: "conn-pending",
-		name: "Pending",
-		url: "https://mcp.example.com/mcp",
-		auth: "oauth",
-		scope: "user",
-		manageable: true,
-		connected: false,
-		canAuthorize: true,
-		updatedAt: new Date().toISOString(),
-	};
 
-	function seedConnectors(list: McpConnectorView[], selected: string[] = []) {
-		stubbedConnectors = list;
-		connectors.set(list);
+	it("lists no connectors in the + menu and shows no count pill, however many are on", async () => {
+		stubbedConnectors = [notion];
+		connectors.set([notion]);
 		connectorsLoaded.set(true);
-		connectorsFailed.set(false);
-		// As the conversation page does on first open: the chat inherits the
-		// workspace defaults, then its selection lives independently of them.
-		defaultConnectorIds.set(new Set(selected));
-		openConversationSelection("test-chat", selected);
-	}
-
-	const openMcpSubmenu = async () => {
-		const trigger = submenuTrigger("Connectors");
-		if (!trigger) throw new Error("no MCP submenu trigger");
-		trigger.click();
-	};
-
-	const findConnectorItem = (name: string): HTMLElement => {
-		const item = [
-			...document.body.querySelectorAll<HTMLElement>(
-				'[role="menuitemcheckbox"], [role="menuitem"]'
-			),
-		].find((el) => el.textContent?.includes(name));
-		if (!item) {
-			// Say what was on screen: on CI this has failed after a toggle with
-			// nothing to go on.
-			const menus = [...document.body.querySelectorAll('[role="menu"]')]
-				.map((menu) => menu.textContent?.replace(/\s+/g, " ").trim().slice(0, 200))
-				.join(" | ");
-			throw new Error(`no menu item for ${name}; menus: ${menus || "(none open)"}`);
-		}
-		return item;
-	};
-
-	it("marks a connector whose last check failed, with the reason on hover", async () => {
-		const failing: McpConnectorView = {
-			...notionConnector,
-			id: "conn-jmcp",
-			name: "jmcp",
-			auth: "token",
-			lastError: "the server refused the credential",
-		};
-		seedConnectors([notionConnector, failing], ["conn-jmcp"]);
-		stubFetch();
-		const { container } = await renderComposer({ id: CONV_ID });
-		await openMenu(container);
-		await openMcpSubmenu();
-
-		await waitSlow(() =>
-			expect(findConnectorItem("jmcp").textContent).toContain("Needs attention")
-		);
-		const mark = [...findConnectorItem("jmcp").querySelectorAll("span")].find(
-			(el) => el.textContent?.trim() === "Needs attention"
-		);
-		expect(mark?.getAttribute("title")).toBe("the server refused the credential");
-		// Still switchable: it may work next turn, and the turn says so if not.
-		expect(findConnectorItem("jmcp").getAttribute("role")).toBe("menuitemcheckbox");
-		expect(findConnectorItem("Notion").textContent).not.toContain("Needs attention");
-	});
-
-	it("toggling a connector off removes it from the set a turn would send", async () => {
-		seedConnectors([notionConnector], ["conn-notion"]);
-		stubFetch();
-		const { container } = await renderComposer({ id: CONV_ID });
-		await openMenu(container);
-		await openMcpSubmenu();
-
-		await waitSlow(() =>
-			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("true")
-		);
-		findConnectorItem("Notion").click();
-
-		await waitSlow(() =>
-			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("false")
-		);
-		expect(get(selectedConnectorIds).has("conn-notion")).toBe(false);
-		// The turn posts the enabled set, so an off connector sends no tools.
-		expect(get(enabledConnectors)).toEqual([]);
-		// …but the workspace defaults the chat inherited never moved.
-		expect(get(defaultConnectorIds)).toEqual(new Set(["conn-notion"]));
-	});
-
-	it("toggling a connector on adds it to the set a turn would send", async () => {
-		seedConnectors([notionConnector], []);
-		stubFetch();
-		const { container } = await renderComposer({ id: CONV_ID });
-		await openMenu(container);
-		await openMcpSubmenu();
-
-		await waitSlow(() =>
-			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("false")
-		);
-		findConnectorItem("Notion").click();
-
-		await waitSlow(() =>
-			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("true")
-		);
-		expect(get(enabledConnectors).map((c) => c.id)).toEqual(["conn-notion"]);
-		// …but the workspace defaults never moved.
-		expect(get(defaultConnectorIds)).toEqual(new Set());
-	});
-
-	it("loads the list when the submenu opens", async () => {
-		// Nothing seeded: the refresh on open is what fills the list.
-		stubbedConnectors = [notionConnector];
-		connectors.set([]);
-		connectorsLoaded.set(false);
-		stubFetch();
-		const { container } = await renderComposer({ id: CONV_ID });
-		await openMenu(container);
-		await openMcpSubmenu();
-
-		await waitSlow(() => expect(document.body.textContent).toContain("Loading connectors…"));
-		await waitSlow(() =>
-			expect(findConnectorItem("Notion").getAttribute("aria-checked")).toBe("false")
-		);
-	});
-
-	it("a disconnected connector offers sign-in through the manager instead of selecting", async () => {
-		seedConnectors([pendingConnector], []);
-		stubFetch();
-		const { container } = await renderComposer({ id: CONV_ID });
-		await openMenu(container);
-		await openMcpSubmenu();
-
-		await waitSlow(() =>
-			expect(findConnectorItem("Pending").textContent).toContain("Not signed in")
-		);
-		expect(findConnectorItem("Pending").getAttribute("role")).toBe("menuitem");
-		findConnectorItem("Pending").click();
-
-		// The manager is a workspace tab now, not a dialog: selecting a
-		// disconnected connector navigates to it, where the sign-in lives.
-		await waitSlow(() => expect(appNavigation().goto).toHaveBeenCalledWith("/workspace?tab=mcp"));
-		// …and nothing was selected: a no-op toggle would send no tools.
-		expect(get(selectedConnectorIds).size).toBe(0);
-		expect(get(enabledConnectors)).toEqual([]);
-	});
-
-	it("lists the .env servers and the administrator's connectors as one section, by name", async () => {
-		const shared: McpConnectorView = {
-			...notionConnector,
-			id: "conn-shared",
-			name: "Notion",
-			scope: "deployment",
-		};
-		const mine: McpConnectorView = { ...notionConnector, id: "conn-mine", name: "Zed (mine)" };
 		allMcpServers.set([
-			{ id: "base-search", name: "search", url: "https://s.test/mcp", type: "base" },
-			{ id: "base-osm", name: "osm", url: "https://o.test/mcp", type: "base" },
-		]);
-		selectedServerIds.set(new Set(["base-search"]));
-		seedConnectors([mine, shared], []);
-		stubFetch();
-		const { container } = await renderComposer({ id: CONV_ID });
-		await openMenu(container);
-		await openMcpSubmenu();
-		try {
-			await waitSlow(() => expect(findConnectorItem("Notion")).toBeTruthy());
-			const menu = findConnectorItem("Notion").closest('[role="menu"]') as HTMLElement;
-			// One heading for everything the deployment provides, not one per kind.
-			expect(menu.querySelectorAll('[data-testid="mcp-provided-heading"]')).toHaveLength(1);
-			const labels = [
-				...menu.querySelectorAll<HTMLElement>(
-					'[data-testid="mcp-provided-heading"], [role^="menuitem"]'
-				),
-			].map((el) => el.textContent?.replace(/\s+/g, " ").trim());
-			expect(labels.slice(0, 5)).toEqual(["Built-in", "Notion", "osm", "search", "Zed (mine)"]);
-			// Selection semantics are unchanged: the base row toggles its `base-` id.
-			findConnectorItem("search").click();
-			await waitSlow(() => expect(get(selectedServerIds).has("base-search")).toBe(false));
-		} finally {
-			allMcpServers.set([]);
-		}
-	});
-
-	it("with no connectors the submenu says where to add one, keeping the manager row", async () => {
-		seedConnectors([], []);
-		stubFetch();
-		const { container } = await renderComposer({ id: CONV_ID });
-		await openMenu(container);
-		await openMcpSubmenu();
-
-		await waitSlow(() =>
-			expect(document.body.textContent).toContain(
-				"No connectors yet. Add one under Manage connectors."
-			)
-		);
-		expect(document.body.textContent).toContain("Manage connectors");
-	});
-
-	it("a failed load says so instead of pretending there is nothing", async () => {
-		seedConnectors([], []);
-		stubFetch({ connectorsStatus: 500 });
-		const { container } = await renderComposer({ id: CONV_ID });
-		await openMenu(container);
-		await openMcpSubmenu();
-
-		await waitSlow(() => expect(document.body.textContent).toContain("Could not load connectors"));
-		expect(document.body.textContent).toContain("Manage connectors");
-	});
-
-	it("dims the pill and explains it when the model cannot use connectors", async () => {
-		seedConnectors([notionConnector], ["conn-notion"]);
-		stubFetch();
-		const { container } = await renderComposer(
-			{ id: CONV_ID },
-			[],
-			false,
-			{},
 			{
-				modelSupportsTools: false,
-			}
-		);
-		const pill = container.querySelector<HTMLElement>('[data-testid="connectors-pill"]');
-		expect(pill?.hasAttribute("data-no-tools")).toBe(true);
-		expect(pill?.className).toContain("opacity-60");
-		expect(pill?.innerHTML).not.toContain("line-through");
-		const note = container.querySelector<HTMLElement>('[data-testid="connectors-no-tools-note"]');
-		expect(note?.textContent).toContain("This model can't use connectors. Pick another model");
-		// Hidden until asked for, but a tap shows it.
-		expect(note?.className).toContain("sr-only");
-		pill?.querySelector<HTMLButtonElement>("button")?.click();
-		await waitSlow(() => expect(note?.className).not.toContain("sr-only"));
-
-		await openMenu(container);
-		await openMcpSubmenu();
-		await waitSlow(() =>
-			expect(document.body.querySelector('[data-testid="mcp-no-tools-menu-note"]')).not.toBeNull()
-		);
-	});
-
-	it("shows no dimming or explanation when the model can use connectors", async () => {
-		seedConnectors([notionConnector], ["conn-notion"]);
+				id: "base-search",
+				key: "base:search",
+				name: "search",
+				url: "https://search.example.com/mcp",
+				type: "base",
+				mode: "locked",
+				enabled: true,
+			},
+		]);
 		stubFetch();
 		const { container } = await renderComposer({ id: CONV_ID });
-		const pill = container.querySelector<HTMLElement>('[data-testid="connectors-pill"]');
-		expect(pill).not.toBeNull();
-		expect(pill?.hasAttribute("data-no-tools")).toBe(false);
-		expect(pill?.className).not.toContain("opacity-60");
-		expect(container.querySelector('[data-testid="connectors-no-tools-note"]')).toBeNull();
 		await openMenu(container);
-		await openMcpSubmenu();
-		await waitSlow(() => expect(findConnectorItem("Notion")).toBeTruthy());
-		expect(document.body.querySelector('[data-testid="mcp-no-tools-menu-note"]')).toBeNull();
+		// The knowledge submenu is still there; the connectors one is gone, and so are the rows
+		// and the pill the old picker drew. Switching connectors is Workspace's job.
+		expect(submenuTrigger("Knowledge bases")).toBeTruthy();
+		expect(submenuTrigger("Connectors")).toBeUndefined();
+		expect(document.body.textContent).not.toContain("Notion");
+		expect(document.body.textContent).not.toContain("Manage connectors");
+		expect(container.querySelector('[data-testid="connectors-pill"]')).toBeNull();
 	});
 });
 
 describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
-	const pendingConnector: McpConnectorView = {
-		id: "conn-pending",
-		name: "Pending",
-		url: "https://mcp.example.com/mcp",
-		auth: "oauth",
-		scope: "user",
-		manageable: true,
-		connected: false,
-		canAuthorize: true,
-		updatedAt: new Date().toISOString(),
-	};
-
-	const baseServer: MCPServer = {
-		id: "srv-base",
-		name: "Base Server With A Long Name",
-		url: "https://mcp.base.example/mcp",
-		type: "base",
-	};
-
 	const openSubmenu = async (name: string, waitFor: string) => {
 		// Ancestor containers also start with the label (their textContent
 		// includes it), so pick the shortest match: the trigger itself, whose
@@ -627,19 +368,10 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 		const restoreHeight = window.innerHeight;
 		await page.viewport(390, 844);
 		try {
-			// A wide MCP flyout (base server plus a "Not signed in" connector
-			// row) is what used to extend past the left edge here.
-			stubbedConnectors = [pendingConnector];
-			connectors.set([pendingConnector]);
-			connectorsLoaded.set(true);
 			stubFetch();
-			allMcpServers.set([baseServer]);
 			const { container } = await renderComposer({ id: CONV_ID });
 			await openMenu(container);
 			await settlePanels();
-			expectPanelsInViewport();
-
-			await openSubmenu("Connectors", "Not signed in");
 			expectPanelsInViewport();
 
 			await openSubmenu("Knowledge bases", "Specs");
@@ -757,14 +489,10 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 		const restoreHeight = window.innerHeight;
 		await page.viewport(1280, 800);
 		try {
-			stubbedConnectors = [pendingConnector];
-			connectors.set([pendingConnector]);
-			connectorsLoaded.set(true);
 			stubFetch();
-			allMcpServers.set([baseServer]);
 			const { container } = await renderComposer({ id: CONV_ID });
 			await openMenu(container);
-			await openSubmenu("Connectors", "Not signed in");
+			await openSubmenu("Knowledge bases", "Specs");
 
 			const panels = [...document.body.querySelectorAll<HTMLElement>('[role="menu"]')];
 			const submenu = panels[panels.length - 1];

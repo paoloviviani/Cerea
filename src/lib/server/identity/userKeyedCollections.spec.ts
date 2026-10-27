@@ -34,6 +34,8 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	knowledgeConfig: false,
 	knowledgeConfigHistory: false,
 	mcpConnectors: true,
+	connectorSwitches: true, // a person's own connector on/off switches; owner-keyed, one row each
+	connectorModes: false, // the deployment's own connector modes, not user content
 	mcpTokens: true,
 	mcpOauthPending: true,
 	localConnectorOauth: true, // a local connector's sign-in in flight; deleted on merge, erased with the account

@@ -60,6 +60,14 @@ export interface MCPServer {
 	/** "base": deployment-configured (MCP_SERVERS). The user-added "custom"
 	 * half is gone — connectors are how a person brings a server (ADR 0064). */
 	type: "base";
+	/** The key a switch is stored under (`base:<name>`). */
+	key?: string;
+	/** How the deployment offers it (ADR 0104): `locked` has no switch. `off` only for administrators. */
+	mode?: "off" | "on" | "locked";
+	/** Whether this person's turns use it: its mode and their own switch together. */
+	enabled?: boolean;
+	/** Administrators only: loaded from the start of every turn. */
+	alwaysLoaded?: boolean;
 	headers?: KeyValuePair[];
 	env?: KeyValuePair[];
 	status?: ServerStatus;

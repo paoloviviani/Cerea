@@ -238,9 +238,6 @@ export async function projectView(access: ProjectAccess): Promise<ProjectView> {
 		...(typeof project.defaultWebSearch === "boolean"
 			? { defaultWebSearch: project.defaultWebSearch }
 			: {}),
-		...(Array.isArray(project.defaultMcpConnectorIds)
-			? { defaultMcpConnectorIds: project.defaultMcpConnectorIds }
-			: {}),
 		owned,
 		// Only the owner is shown the share list. Somebody a project was shared
 		// with has no business reading who else it went to.
