@@ -103,7 +103,7 @@
 	import CommandConfirmSheet from "./CommandConfirmSheet.svelte";
 	import PermissionsDialog from "./PermissionsDialog.svelte";
 	import IconShield from "~icons/lucide/shield";
-	import { codeDraftKey } from "$lib/utils/composerDraft";
+	import { clearSentComposerDraft, codeDraftKey } from "$lib/utils/composerDraft";
 
 	interface Props {
 		deviceId: string;
@@ -298,12 +298,16 @@
 				return;
 			}
 			busy = true;
+			const sentKey = draftKey;
 			try {
 				const ran = await runCommand(run);
 				// A command deferred to the confirmation sheet keeps its draft.
 				if (ran) {
-					draft = "";
-					files = [];
+					clearSentComposerDraft(sentKey, message);
+					if (sentKey === draftKey) {
+						draft = "";
+						files = [];
+					}
 				}
 			} finally {
 				busy = false;
@@ -311,13 +315,20 @@
 			return;
 		}
 		busy = true;
+		const sentKey = draftKey;
 		try {
 			await onsend(message, files);
+			// The send landed, so its text is not a draft any more, wherever the
+			// composer is by now: it may have been unmounted or moved to another
+			// agent while the send was in flight, leaving the text in storage
+			// under the key it was typed for.
+			clearSentComposerDraft(sentKey, message);
 			// Cleared only on a landed send: a refused follow-up keeps its text
 			// and its files, like every composer here. And only the text that was
-			// sent: what was typed while the send was in flight is the next
-			// message, not something to wipe.
-			if (draft.trim() === message) {
+			// sent, and only here: what was typed while the send was in flight is
+			// the next message, and a composer now on another agent shows that
+			// agent's draft, not this one.
+			if (sentKey === draftKey && draft.trim() === message) {
 				draft = "";
 				files = [];
 			}
@@ -340,10 +351,12 @@
 			return;
 		}
 		busy = true;
+		const sentKey = draftKey;
 		try {
 			if ((await onstop?.()) === false) return;
 			await onsend(message, files);
-			if (draft.trim() === message) {
+			clearSentComposerDraft(sentKey, message);
+			if (sentKey === draftKey && draft.trim() === message) {
 				draft = "";
 				files = [];
 			}
@@ -363,13 +376,20 @@
 			return;
 		}
 		busy = true;
+		const sentKey = draftKey;
+		const message = draft.trim();
 		try {
 			const ran = await runCommand({ command, args });
 			// A command deferred to the confirmation sheet keeps its draft —
-			// the sheet's own run (or a Cancel) decides what happens next.
+			// the sheet's own run (or a Cancel) decides what happens next. A
+			// composer moved to another agent mid-run shows that agent's draft,
+			// which must survive; the old key's stored text goes.
 			if (ran) {
-				draft = "";
-				files = [];
+				clearSentComposerDraft(sentKey, message);
+				if (sentKey === draftKey) {
+					draft = "";
+					files = [];
+				}
 			}
 		} finally {
 			busy = false;

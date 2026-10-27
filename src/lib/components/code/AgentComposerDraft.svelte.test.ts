@@ -13,7 +13,11 @@ vi.mock("$env/dynamic/public", () => ({
 vi.mock("$lib/codeApi", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/codeApi")>()),
 	listAgentCommands: async () => ({ commands: [] }),
+	// `/compact` waits on this, so a test can switch agent mid-run.
+	compactAgent: async () => compactGate(),
 }));
+
+let compactGate: () => Promise<void> = async () => {};
 
 const PREFIX = "cerea:composer-draft:";
 const keyFor = (deviceId: string, agentId: string) => `${PREFIX}code:${deviceId}:${agentId}`;
@@ -22,7 +26,12 @@ type Screen = ReturnType<typeof renderWithApp<typeof AgentComposer>>;
 let mounted: Screen[] = [];
 let onsend: ReturnType<typeof vi.fn>;
 
-function mount(deviceId: string, agentId: string, impl?: (text: string) => Promise<void>): Screen {
+function mount(
+	deviceId: string,
+	agentId: string,
+	impl?: (text: string) => Promise<void>,
+	extra: Record<string, unknown> = {}
+): Screen {
 	onsend = vi.fn(impl ?? (async () => {}));
 	const screen = renderWithApp(AgentComposer, {
 		deviceId,
@@ -33,6 +42,7 @@ function mount(deviceId: string, agentId: string, impl?: (text: string) => Promi
 		onsend,
 		onstop: async () => true,
 		onchanged: () => {},
+		...extra,
 	});
 	mounted.push(screen);
 	return screen;
@@ -122,6 +132,110 @@ for (const [label, width] of [
 			const second = mount("d1", "a1");
 			await vi.waitFor(() => expect(boxValue(second)).toBe("kept after refusal"));
 		});
+
+		it("leaving mid-send does not bring the sent text back when it lands", async () => {
+			await browserPage.viewport(width, 800);
+			let land: () => void = () => {};
+			const first = mount(
+				"d1",
+				"a1",
+				() =>
+					new Promise<void>((resolve) => {
+						land = resolve;
+					})
+			);
+			await fill(first, "sent while leaving");
+			await first.getByRole("button", { name: "Send message" }).click();
+			await vi.waitFor(() => expect(onsend).toHaveBeenCalledTimes(1));
+			// The person navigates away before the daemon answers; unmounting
+			// lands the draft, which is still the text being sent.
+			drop(first);
+			expect(localStorage.getItem(keyFor("d1", "a1"))).toBe("sent while leaving");
+			land();
+			await vi.waitFor(() => expect(localStorage.getItem(keyFor("d1", "a1"))).toBeNull());
+
+			const back = mount("d1", "a1");
+			await tick();
+			expect(boxValue(back)).toBe("");
+		});
+
+		it("switching agents mid-send does not leave the sent text under the old agent", async () => {
+			await browserPage.viewport(width, 800);
+			let land: () => void = () => {};
+			const first = mount(
+				"d1",
+				"a1",
+				() =>
+					new Promise<void>((resolve) => {
+						land = resolve;
+					})
+			);
+			// The other agent holds the very same words: only the key guard, not
+			// the text comparison, tells the two drafts apart.
+			localStorage.setItem(keyFor("d1", "a2"), "sent from a1");
+			await fill(first, "sent from a1");
+			await first.getByRole("button", { name: "Send message" }).click();
+			await vi.waitFor(() => expect(onsend).toHaveBeenCalledTimes(1));
+			await first.rerender({ deviceId: "d1", agentId: "a2" });
+			await vi.waitFor(() => expect(boxValue(first)).toBe("sent from a1"));
+			land();
+			await vi.waitFor(() => expect(localStorage.getItem(keyFor("d1", "a1"))).toBeNull());
+			// The other agent's composer and draft were not touched by the landing send.
+			await tick();
+			expect(boxValue(first)).toBe("sent from a1");
+			expect(localStorage.getItem(keyFor("d1", "a2"))).toBe("sent from a1");
+		});
+
+		it("text typed under the same agent while the send is in flight is kept", async () => {
+			await browserPage.viewport(width, 800);
+			let land: () => void = () => {};
+			const first = mount(
+				"d1",
+				"a1",
+				() =>
+					new Promise<void>((resolve) => {
+						land = resolve;
+					})
+			);
+			await fill(first, "the sent one");
+			await first.getByRole("button", { name: "Send message" }).click();
+			await vi.waitFor(() => expect(onsend).toHaveBeenCalledTimes(1));
+			await fill(first, "the next one");
+			land();
+			await tick();
+			await vi.waitFor(() => expect(boxValue(first)).toBe("the next one"));
+			drop(first);
+			expect(localStorage.getItem(keyFor("d1", "a1"))).toBe("the next one");
+		});
+
+		for (const via of ["the send button", "Enter"] as const) {
+			it(`a slow command from ${via}, with the agent switched mid-run, spares the new agent's draft`, async () => {
+				await browserPage.viewport(width, 800);
+				let finish: () => void = () => {};
+				compactGate = () =>
+					new Promise<void>((resolve) => {
+						finish = resolve;
+					});
+				const first = mount("d1", "a1", undefined, { compactSupported: true });
+				localStorage.setItem(keyFor("d1", "a2"), "a2's own draft");
+				await fill(first, "/compact");
+				if (via === "Enter") {
+					const ta = first.container.querySelector("textarea");
+					ta?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+				} else {
+					await first.getByRole("button", { name: "Send message" }).click();
+				}
+				await tick();
+				await first.rerender({ deviceId: "d1", agentId: "a2" });
+				await vi.waitFor(() => expect(boxValue(first)).toBe("a2's own draft"));
+				finish();
+				await vi.waitFor(() => expect(localStorage.getItem(keyFor("d1", "a1"))).toBeNull());
+				await tick();
+				expect(boxValue(first)).toBe("a2's own draft");
+				expect(localStorage.getItem(keyFor("d1", "a2"))).toBe("a2's own draft");
+				compactGate = async () => {};
+			});
+		}
 
 		it("each device+agent keeps its own draft", async () => {
 			await browserPage.viewport(width, 800);
