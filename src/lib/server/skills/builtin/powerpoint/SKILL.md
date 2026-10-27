@@ -18,6 +18,19 @@ Do not write Python to make or change one (no python-pptx, no bundled scripts su
 editing), and do not mix the two ways. If the tools are not in your tool list, jump to the last section,
 "Fallback".
 
+**One exception, opt-in.** When the person explicitly asks for a custom visual design the tools cannot express
+(free-placed shapes or cards, coloured or picture backgrounds, an infographic, a timeline drawn from shapes, a
+"designed" or "creative" deck), or asks for something the tool rejected as not expressible, build that deck in the
+sandbox as the last section, "Fallback", describes, and say in one line that you are building a custom design in
+the sandbox. A plain "make it nice" is not an opt-in, and "a deck about X" still goes through `doc_create`. Within
+one deck the two ways are never mixed; a later edit of a sandbox-built deck may use `doc_edit` normally.
+
+**When it is unclear which the person wants** ("make it look great", "something eye-catching", a style the tools
+may not express), ask before building anything. Call `ask_user_question` with two plain options: a clean deck in
+standard layouts (the reliable default), or a custom design with free shapes and backgrounds (more distinctive,
+more likely to need fixes). If that tool is not in your tool list, ask the same in plain text. Clear cases need
+no question: an ordinary deck request goes to the tools, an explicit custom design request to the sandbox.
+
 ## Creating a deck
 
 Call `doc_create` with `format: "pptx"` and a `spec` of `slides`. The tool's description lists every property; the
@@ -69,11 +82,19 @@ The result carries an outline of the slides written (or the diff of an edit) and
 valid and reopens. There is no renderer, so say in one line what you checked and that the person should open the
 deck for the visual verdict. Describe only files the tools actually saved.
 
-## Fallback: only when the doc_* tools are not available
+## Fallback: when the doc_* tools are not available, or for a custom design
 
-**Read this section only if `doc_create` is NOT in your tool list.** If it is, stop reading here: everything below
-is the older in-sandbox method for deployments without the document service, and it must not be mixed with the
-tools. These instructions write Python inside the browser sandbox; the helper scripts are bundled with this skill.
+**Read this section only if `doc_create` is NOT in your tool list, or the design exception in "One rule"
+applies** (the person explicitly asked for a custom design the tools cannot express). Otherwise stop reading
+here: everything below is the in-sandbox method, and it must not be mixed with the tools within one deck. These
+instructions write Python inside the browser sandbox; the helper scripts are bundled with this skill.
+
+**Design guidance for the exception case:**
+
+- Stay on a 16:9 slide, and keep every shape inside it: check the bounds with the bundled `validate.py`.
+- One palette and one or two fonts across the deck, text at least 14 pt, and enough contrast against the
+  background (dark on light or light on dark, never mid on mid).
+- Save the deck under `/mnt/output/`.
 
 ### Setup
 
