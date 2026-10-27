@@ -92,15 +92,28 @@ For a more designed page you can ask for:
 
 - **a background**: a colour, a two-colour gradient, or a picture, cropped to
   fill the slide;
-- **shapes**: up to 30 on a slide (rectangle, rounded rectangle, ellipse, line,
+- **shapes**: up to 40 on a slide (rectangle, rounded rectangle, ellipse, line,
   arrow, chevron or text box), placed on the slide in centimetres, for cards, a
-  cover or a section slide.
+  cover or a section slide; their text may be as small as 8 pt;
+- **slide numbers**: on every slide but the first, bottom right, as a field, so
+  moving a slide keeps the number right;
+- **title size**: the deck's slide titles follow the theme's first heading size
+  (36 pt by default).
 
 Shapes with text stay fully on the slide. A decoration without text, such as a
 big circle in a corner, may run off an edge as long as at least 0.5 cm of it
 shows. The assistant gets a warning when text is hard to read on its background,
-when a shape covers the title or body, or when text overflows, and fixes it
-or tells you.
+when a shape covers the title or body, or when text runs out of its shape onto
+other text, out of a filled card or off the slide, and fixes it or tells you. A
+short label in a box that is slightly too small, with nothing around it, is
+not a warning.
+
+To fix one slide the assistant rebuilds just that slide (or adds one after a
+given slide) in your file, in the deck's own look, and nothing else in the file
+changes. It reads the look back from the file: size, fonts, accent, title
+style, the text colour and background most slides share, and whether the
+slides are numbered. It says which values it could not recover and used the
+defaults for. It can also move or resize a single shape.
 
 If the request is refused, the message says which value was wrong and what is
 allowed, so the assistant can correct it.

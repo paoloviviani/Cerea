@@ -290,7 +290,11 @@ describe("the tool text comes from the service's schemas", () => {
 		expect(text).toContain("Run = {");
 		expect(text).toContain("Hex = ");
 		expect(text).toContain("Background = {color: Hex} | {");
-		expect(text).toContain("PptxTheme = Theme plus {slide_background?: Background}");
+		expect(text).toMatch(
+			/PptxTheme = Theme plus \{[^}]*slide_background\?: Background[^}]*slide_numbers\?: boolean/
+		);
+		expect(text).toContain("heading_bold?: boolean");
+		expect(text).toContain("h1 is also the PowerPoint title size");
 		expect(text).toContain("background?: Background");
 		expect(text).toMatch(
 			/shapes\?: \{[^]*kind: "rect"\|"rounded_rect"[^]*layer\?: "back"\|"front"/
@@ -488,7 +492,7 @@ describe("the service's errors become messages a model can act on", () => {
 					code: "invalid_request",
 					reason: "schema",
 					message:
-						"slides[0]: shapes.1.y_cm: -60 is less than the minimum (-50); allowed range -50 to 100",
+						"slides[0].shapes.1.y_cm: -60 is less than the minimum (-50); allowed range -50 to 100",
 				},
 			},
 		};

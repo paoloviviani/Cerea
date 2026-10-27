@@ -646,7 +646,7 @@ def op_reorder_slides(ctx: Session, args: dict[str, Any]) -> dict[str, Any]:
             f"order must list each remaining slide number exactly once: {present} (slide numbers are those of the original deck); "
             f"got {order}"
         )
-    new: list[El] = []
+    new: list[El] = [el for el, src in ctx.copies if src == 0 and el.getparent() is lst]  # added as the first slide
     for n in order:
         new.append(ctx.ids[n - 1])
         new += [el for el, src in ctx.copies if src == n and el.getparent() is lst]  # copies stay behind their source
@@ -695,10 +695,15 @@ _NOTES_XML = (
 
 
 def op_set_notes(ctx: Session, args: dict[str, Any]) -> dict[str, Any]:
-    pkg = ctx.pkg
     slide = args["slide"]
     lines = _lines(args["text"])
-    part = ctx.part(slide)
+    created = write_notes(ctx.pkg, ctx.part(slide), lines, slide)
+    return {"slide": slide, "paragraphs": len(lines), "notes_page_created": created}
+
+
+def write_notes(pkg: Pkg, part: str, lines: list[str], slide: Any) -> bool:
+    """Put `lines` on the notes page of the slide part `part` (creating the page when the deck has a notes master);
+    returns whether the page was created."""
     notes = next((t for _i, typ, t, _m in pkg.rels(part) if typ.endswith("/notesSlide")), None)
     created = False
     if notes is None:
@@ -731,7 +736,7 @@ def op_set_notes(ctx: Session, args: dict[str, Any]) -> dict[str, Any]:
         raise PatchError(f"the notes page of slide {slide} has no body placeholder to put text in")
     _set_lines(_txbody(body), lines)
     pkg.touch(notes)
-    return {"slide": slide, "paragraphs": len(lines), "notes_page_created": created}
+    return created
 
 
 def _schema(props: dict[str, Any], required: list[str]) -> dict[str, Any]:
@@ -746,6 +751,18 @@ def _schema(props: dict[str, Any], required: list[str]) -> dict[str, Any]:
 _SLIDE = {"type": "integer", "minimum": 1}
 _TEXT = {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}
 _CM = {"type": "number", "minimum": 0, "maximum": 1000}
+_POS_CM = {"type": "number", "minimum": -50, "maximum": 100}  # as a shape of doc_create
+_DIM_CM = {"type": "number", "exclusiveMinimum": 0, "maximum": 100}
+_SLIDE_SPEC = {"type": "object", "description": "one slide, exactly as doc_create takes it in `slides`"}
+
+
+def _slide_ops() -> Any:
+    """The whole-slide operations build with python-pptx; it is loaded only when one is used."""
+    from . import slide_ops
+
+    return slide_ops
+
+
 OPS: dict[str, tuple[dict[str, Any], Callable[[Session, dict[str, Any]], dict[str, Any]]]] = {
     "replace_text": (
         _schema(
@@ -811,8 +828,33 @@ OPS: dict[str, tuple[dict[str, Any], Callable[[Session, dict[str, Any]], dict[st
         op_reorder_slides,
     ),
     "set_notes": (_schema({"slide": _SLIDE, "text": _TEXT}, ["slide", "text"]), op_set_notes),
+    "replace_slide": (
+        _schema({"slide": _SLIDE, "spec": _SLIDE_SPEC}, ["slide", "spec"]),
+        lambda ctx, args: _slide_ops().op_replace_slide(ctx, args),
+    ),
+    "add_slide": (
+        _schema(
+            {"after": {"type": "integer", "minimum": 0, "description": "0: first"}, "spec": _SLIDE_SPEC},
+            ["after", "spec"],
+        ),
+        lambda ctx, args: _slide_ops().op_add_slide(ctx, args),
+    ),
+    "update_shape": (
+        _schema(
+            {
+                "slide": _SLIDE,
+                "shape": {"type": "integer", "minimum": 0, "description": "the shape's id from doc_outline"},
+                "x_cm": _POS_CM,
+                "y_cm": _POS_CM,
+                "w_cm": _DIM_CM,
+                "h_cm": _DIM_CM,
+            },
+            ["slide", "shape"],
+        ),
+        lambda ctx, args: _slide_ops().op_update_shape(ctx, args),
+    ),
 }
-DEFERRED = ["add_slide", "insert_chart", "insert_image into a picture placeholder"]
+DEFERRED = ["insert_chart", "insert_image into a picture placeholder"]
 
 
 def start(pkg: Pkg, track: bool, author: str, images: ImageSet) -> Session:
