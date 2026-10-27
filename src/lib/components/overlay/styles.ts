@@ -118,7 +118,7 @@ export const CARD_SUBTITLE = "truncate text-sm text-ink-muted";
  * shared palette holds; the 700 steps clear it on the same fills.
  */
 export const PILL =
-	"inline-flex items-center gap-1 rounded-full py-0.5 pr-2 pl-1.5 text-xs font-medium";
+	"inline-flex shrink-0 items-center gap-1 rounded-full py-0.5 pr-2 pl-1.5 text-xs font-medium whitespace-nowrap";
 export const PILL_TONES = {
 	good: "bg-ok-subtle text-ok",
 	busy: "bg-accent-subtle text-accent",
