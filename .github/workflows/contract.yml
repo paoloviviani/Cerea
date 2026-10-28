@@ -50,7 +50,7 @@ jobs:
           docker run -d --name pg --network gw -e POSTGRES_USER=gateway -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=gateway pgvector/pgvector:pg18
           docker run -d --name valkey --network gw valkey/valkey:8-alpine
           until docker exec pg pg_isready -U gateway -d gateway >/dev/null 2>&1; do sleep 1; done
-          env="-e GATEWAY_DATABASE_URL=postgresql+asyncpg://gateway:pw@pg:5432/gateway -e GATEWAY_VALKEY_URL=redis://valkey:6379/0 -e GATEWAY_SECRET_KEY=contract -e GATEWAY_SESSION_SECRET=contract"
+          env="-e GATEWAY_DATABASE_URL=postgresql+asyncpg://gateway:pw@pg:5432/gateway -e GATEWAY_VALKEY_URL=redis://valkey:6379/0 -e GATEWAY_SECRET_KEY=contract -e GATEWAY_SESSION_SECRET=contract -e GATEWAY_CHAT__ENABLED=true"
           docker run --rm --network gw $env "$img" alembic -c apps/gateway/alembic.ini upgrade head
           docker run -d --name gateway --network gw -p 127.0.0.1:8000:8000 $env "$img"
           until curl -fsS http://127.0.0.1:8000/healthz >/dev/null; do sleep 1; done

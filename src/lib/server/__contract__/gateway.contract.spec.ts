@@ -33,7 +33,12 @@ describe.skipIf(!base || !key)("gateway contract", () => {
 		// `deploy/ci/pystino-contract.env` moves only with a Pystino release.)
 		if ("capabilities" in body) {
 			const capabilities = body.capabilities as Record<string, unknown>;
-			expect(typeof capabilities.code_agents).toBe("boolean");
+			// Null when the gateway runs without its chat integration
+			// (GATEWAY_CHAT__ENABLED false); gatewaySession.ts reads anything but
+			// `true` as "not allowed", so null is a valid shape here.
+			expect(
+				capabilities.code_agents === null || typeof capabilities.code_agents === "boolean"
+			).toBe(true);
 			expect(typeof capabilities.api_keys).toBe("boolean");
 		}
 	});
