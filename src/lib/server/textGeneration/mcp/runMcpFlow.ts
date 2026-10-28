@@ -56,6 +56,7 @@ import {
 	MAX_RECOVERED_EXECUTE_CODE_CALLS,
 	recoverLeakedExecuteCodeCall,
 } from "./leakedExecuteCode";
+import { UNTRUSTED_SYSTEM_LINE } from "../untrusted";
 import { urlsInUserText } from "../builtinTools/webFetchTool";
 import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
 import { billToHeader } from "$lib/server/billTo";
@@ -674,6 +675,8 @@ export async function* runMcpFlow({
 				userPreprompt = userPreprompt.slice(adminInstructions.length).replace(/^\s+/, "");
 			}
 		}
+		// Fixed text after the administrator's block: tool output is data (untrusted.ts).
+		prepromptPieces.push(UNTRUSTED_SYSTEM_LINE);
 		if (toolPreprompt.trim().length > 0) {
 			prepromptPieces.push(toolPreprompt);
 		}

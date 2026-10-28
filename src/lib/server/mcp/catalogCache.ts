@@ -64,7 +64,10 @@ export async function refreshCatalog(servers: McpServerConfig[]): Promise<void> 
 				const [callable] = callableServers([server]);
 				if (!callable) return;
 				try {
-					const { tools, unavailable } = await getOpenAiToolsForMcp([callable], { ttlMs: 0 });
+					const { tools, unavailable } = await getOpenAiToolsForMcp([callable], {
+						ttlMs: 0,
+						markUntrusted: false,
+					});
 					if (unavailable?.length) return;
 					rememberTools(
 						server.url,

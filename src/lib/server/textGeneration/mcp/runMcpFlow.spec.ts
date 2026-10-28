@@ -11,6 +11,7 @@ import type { ChatCompletionMessageParam } from "openai/resources/chat/completio
 import { RETRY_BACKOFF_MS } from "$lib/server/textGeneration/utils/upstreamRetry";
 import { APIConnectionError } from "openai";
 import type { McpFlowResult, RunMcpFlowContext } from "./runMcpFlow";
+import { UNTRUSTED_SYSTEM_LINE, markUntrustedResult, untrustedResultFooter } from "../untrusted";
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -605,6 +606,20 @@ describe("runMcpFlow connectors that did not load", () => {
 		expect(prompt).toContain("Do NOT call a tool unless");
 		expect(prompt.indexOf("Do NOT call a tool unless")).toBeGreaterThan(prompt.indexOf("RULES"));
 		expect(prompt.indexOf("GLOBAL PROMPT")).toBeLessThan(prompt.indexOf("UNAVAILABLE CONNECTORS"));
+	});
+
+	it("puts the guard line right after the administrator's block, with the same bytes on every turn", async () => {
+		const block =
+			"Instructions from this deployment's administrator:\nRULES\nEnd of the administrator's instructions.";
+		const prompts: string[] = [];
+		for (let turn = 0; turn < 2; turn++) {
+			scriptRounds([{ content: "ok" }]);
+			await runFlow({ adminInstructions: block, preprompt: `${block}\n\nGLOBAL PROMPT` } as never);
+			prompts.push(systemPrompt());
+		}
+		expect(prompts[0]).toBe(prompts[1]);
+		expect(prompts[0].startsWith(`${block}\n\n${UNTRUSTED_SYSTEM_LINE}\n\n`)).toBe(true);
+		expect(prompts[0].split(UNTRUSTED_SYSTEM_LINE)).toHaveLength(2);
 	});
 
 	it("says nothing when every connector loaded", async () => {
@@ -1887,7 +1902,7 @@ describe("runMcpFlow and look_doc", () => {
 		expect(followUp.at(-2)).toEqual({
 			role: "tool",
 			tool_call_id: "call_1",
-			content: "deck.pptx has 9 slides. Showing slide 1.",
+			content: markUntrustedResult("look_doc", `deck.pptx has 9 slides. Showing slide 1.`),
 		});
 		expect(followUp.at(-1)).toEqual({
 			role: "user",
@@ -1901,6 +1916,7 @@ describe("runMcpFlow and look_doc", () => {
 					type: "image_url",
 					image_url: { url: `data:image/png;base64,${RED_PNG}`, detail: "auto" },
 				},
+				{ type: "text", text: untrustedResultFooter("look_doc") },
 			],
 		});
 	});

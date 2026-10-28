@@ -339,6 +339,7 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 					},
 				],
 				display: true,
+				external: false,
 			},
 		});
 

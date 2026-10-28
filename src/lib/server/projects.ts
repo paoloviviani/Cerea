@@ -56,6 +56,7 @@ import type { Project, ProjectView } from "$lib/types/Project";
 import type { Conversation } from "$lib/types/Conversation";
 import type { Message } from "$lib/types/Message";
 import type { User } from "$lib/types/User";
+import { fenceRetrievedPassages } from "$lib/server/textGeneration/untrusted";
 
 /** How a viewer is named in a share: their address, and their groups. */
 export interface ViewerPrincipals {
@@ -382,7 +383,7 @@ export async function projectContext(options: {
 			parts.push(
 				`The following passages come from ${source}. Use them where ` +
 					"they are relevant and say which one you used; ignore them where they are " +
-					`not.\n\n${render(fromKnowledge)}`
+					`not.\n\n${fenceRetrievedPassages(source, render(fromKnowledge))}`
 			);
 		}
 
@@ -392,7 +393,7 @@ export async function projectContext(options: {
 			parts.push(
 				"The following passages come from this project's own past conversations. Use them " +
 					"where they are relevant and say which one you used; ignore them where they are " +
-					`not.\n\n${render(fromPastChats)}`
+					`not.\n\n${fenceRetrievedPassages("this project's past chats", render(fromPastChats))}`
 			);
 		}
 	}

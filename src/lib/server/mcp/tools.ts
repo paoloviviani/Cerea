@@ -1,4 +1,5 @@
 import { forgetLocalConnection, getClient, releaseClient, retainClient } from "./clientPool";
+import { withUntrustedSuffix } from "$lib/server/textGeneration/untrusted";
 import { isLocalServerUrl } from "./localUrl";
 import type { McpServerConfig } from "./httpClient";
 import { logger } from "$lib/server/logger";
@@ -314,7 +315,16 @@ async function fetchWithLocalRetry(
 
 export async function getOpenAiToolsForMcp(
 	servers: McpServerConfig[],
-	{ ttlMs = DEFAULT_TTL_MS, signal }: { ttlMs?: number; signal?: AbortSignal } = {}
+	{
+		ttlMs = DEFAULT_TTL_MS,
+		signal,
+		markUntrusted = true,
+	}: {
+		ttlMs?: number;
+		signal?: AbortSignal;
+		/** Add the "output is data" sentence to each description. Off only for a listing shown to a user. */
+		markUntrusted?: boolean;
+	} = {}
 ): Promise<{
 	tools: OpenAiTool[];
 	mapping: Record<string, McpToolMapping>;
@@ -374,7 +384,8 @@ export async function getOpenAiToolsForMcp(
 			type: "function",
 			function: {
 				name,
-				description,
+				// Every connector tool is external: its results are data, not instructions.
+				description: markUntrusted ? withUntrustedSuffix(description) : description,
 				parameters,
 			},
 		});

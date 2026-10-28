@@ -17,6 +17,7 @@ import { getClient } from "$lib/server/mcp/clientPool";
 import type { BuiltinTool, BuiltinToolImage } from "../builtinTools/types";
 import type { ImageProcessor } from "$lib/server/endpoints/images";
 import { pictureMessages, type ToolPictures } from "./pictureMessages";
+import { isExternalTool, markUntrustedResult } from "../untrusted";
 import { openDurableElicitation, type ElicitationSink } from "$lib/server/mcp/elicitation";
 import { turnAwaitingInput } from "$lib/server/generation/turnState";
 import { attachFileRefsToArgs, type FileRefResolver } from "./fileRefs";
@@ -573,6 +574,8 @@ export async function* executeToolCalls({
 						call: { name: p.call.name, parameters: p.paramsClean },
 						outputs: [{ text: outcome.resultText }],
 						display: true,
+						// Stored with the result so a later replay does not have to guess from the name.
+						external: isExternalTool(p.call.name, true),
 					},
 				});
 				for (const update of outcome.extraUpdates ?? []) {
@@ -778,7 +781,12 @@ export async function* executeToolCalls({
 					"[mcp] tool returned an error result"
 				);
 				toolBlocker?.recordFailure(p.call.name, message);
-				results.push({ index, error: message, uuid: p.uuid, paramsClean: p.paramsClean });
+				results.push({
+					index,
+					error: message,
+					uuid: p.uuid,
+					paramsClean: p.paramsClean,
+				});
 				updatesQueue.push({
 					type: MessageUpdateType.Tool,
 					subtype: MessageToolUpdateType.Error,
@@ -815,6 +823,7 @@ export async function* executeToolCalls({
 						},
 					],
 					display: true,
+					external: true,
 				},
 			});
 		} catch (err) {
@@ -870,15 +879,24 @@ export async function* executeToolCalls({
 		const name = prepared[r.index].call.name;
 		const id = prepared[r.index].call.id;
 		if (r.awaiting) continue;
+		// What an external tool returns is marked as data for the model; the stored
+		// run and the card keep the plain text. Errors stay plain: callers read their
+		// "Error: " prefix, and an empty result has nothing to mark.
+		const external = isExternalTool(name, builtinByName.has(name));
+		const mark = (text: string) => (external ? markUntrustedResult(name, text) : text);
 		if (!r.error) {
 			const output = r.output ?? "";
 			toolRuns.push({ name, parameters: r.paramsClean, output });
 			// For the LLM follow-up call, we keep only the textual output
-			toolMessages.push({ role: "tool", tool_call_id: id, content: output });
+			toolMessages.push({ role: "tool", tool_call_id: id, content: mark(output) });
 			if (r.images?.length) pictures.push({ id, name, subject: r.imagesOf, images: r.images });
 		} else {
 			// Communicate error to LLM so it doesn't hallucinate success
-			toolMessages.push({ role: "tool", tool_call_id: id, content: `Error: ${r.error}` });
+			toolMessages.push({
+				role: "tool",
+				tool_call_id: id,
+				content: `Error: ${r.error}`,
+			});
 		}
 	}
 

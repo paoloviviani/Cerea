@@ -6,6 +6,7 @@ import type { EndpointMessage } from "$lib/server/endpoints/endpoints";
 import type { OpenAI } from "openai";
 import { TEXT_MIME_ALLOWLIST } from "$lib/constants/mime";
 import { stripThink } from "$lib/utils/stripThink";
+import { isExternalToolName, markUntrustedResult } from "../untrusted";
 import { stripLoneSurrogates } from "./loneSurrogates";
 import type { makeImageProcessor } from "$lib/server/endpoints/images";
 import {
@@ -237,6 +238,8 @@ function replayAssistantTurn(
 	}
 
 	const outputsByUuid = new Map<string, string>();
+	// Successful results, and whether the result said it was outside content when it ran.
+	const toolTextUuids = new Map<string, boolean | undefined>();
 	const rounds: MessageToolCallUpdate[][] = [];
 	let round: MessageToolCallUpdate[] = [];
 	let roundHasOutcome = false;
@@ -260,6 +263,8 @@ function replayAssistantTurn(
 						: JSON.stringify(firstOutput ?? "")
 					: `Error: ${result.message}`
 			);
+			if (result.status === ToolResultStatus.Success)
+				toolTextUuids.set(update.uuid, result.external);
 			roundHasOutcome = true;
 		} else if (isToolErrorUpdate(update)) {
 			outputsByUuid.set(update.uuid, `Error: ${update.message}`);
@@ -353,17 +358,27 @@ function replayAssistantTurn(
 		for (const u of callsInRound) {
 			// A call with no persisted outcome means the run was aborted
 			// mid-execution; say so instead of fabricating an empty success.
-			const output = outputsByUuid.has(u.uuid)
+			const stored = outputsByUuid.has(u.uuid)
 				? (outputsByUuid.get(u.uuid) ?? "")
 				: "Error: interrupted before a result was recorded";
+			// The text is cut first and marked after, so the footer is never the part
+			// that gets cut off.
+			const cut =
+				stored.length > MAX_REPLAYED_TOOL_OUTPUT_CHARS
+					? stripLoneSurrogates(stored.slice(0, MAX_REPLAYED_TOOL_OUTPUT_CHARS)) +
+						"\n[...truncated]"
+					: stored;
+			// The same marks the live turn gave an external tool's successful result, so a
+			// page's text is as marked a turn later (a resumed approved call replays this
+			// way too). What the result said when it ran wins; the name is the fallback for
+			// results stored before it said.
+			const marked = toolTextUuids.has(u.uuid)
+				? (toolTextUuids.get(u.uuid) ?? isExternalToolName(u.call.name))
+				: false;
 			replayed.push({
 				role: "tool",
 				tool_call_id: idByUuid.get(u.uuid) ?? u.uuid,
-				content:
-					output.length > MAX_REPLAYED_TOOL_OUTPUT_CHARS
-						? stripLoneSurrogates(output.slice(0, MAX_REPLAYED_TOOL_OUTPUT_CHARS)) +
-							"\n[...truncated]"
-						: output,
+				content: marked ? markUntrustedResult(u.call.name, cut) : cut,
 			});
 		}
 	}

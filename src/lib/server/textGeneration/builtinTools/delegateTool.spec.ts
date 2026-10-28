@@ -42,6 +42,7 @@ const {
 	SUBAGENT_TIMEOUT_MS,
 	SUBAGENT_TOKEN_BUDGET,
 } = await import("./delegateTool");
+import { UNTRUSTED_SYSTEM_LINE } from "../untrusted";
 import type { NestedAgentBuiltinTool, NestedAgentDeps } from "./nestedAgent";
 import type { BuiltinTool, BuiltinToolContext } from "./types";
 import type { MessageSubAgentUpdate } from "$lib/types/MessageUpdate";
@@ -603,7 +604,9 @@ describe("the research preset", () => {
 		const { research } = make(openai, { research: true });
 		const { ctx, emitted } = context();
 		await research?.execute({ question: "How does X work compared with Y?" }, ctx);
-		expect(requests[0].messages[0].content).toBe(RESEARCH_SYSTEM_PROMPT);
+		expect(requests[0].messages[0].content).toBe(
+			`${RESEARCH_SYSTEM_PROMPT}\n\n${UNTRUSTED_SYSTEM_LINE}`
+		);
 		expect(requests[0].messages[1].content).toBe("How does X work compared with Y?");
 		expect(emitted[0].preset).toBe("research");
 	});
@@ -615,7 +618,7 @@ describe("the research preset", () => {
 			const { research } = make(openai, { research: true });
 			await research?.execute({ question: "How does X work compared with Y?" }, context().ctx);
 			expect(requests[0].messages[0].content).toBe(
-				`Instructions from this deployment's administrator:\nADMIN RULES\nEnd of the administrator's instructions.\n\n${RESEARCH_SYSTEM_PROMPT}`
+				`Instructions from this deployment's administrator:\nADMIN RULES\nEnd of the administrator's instructions.\n\n${RESEARCH_SYSTEM_PROMPT}\n\n${UNTRUSTED_SYSTEM_LINE}`
 			);
 		} finally {
 			admin.text = "";

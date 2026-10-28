@@ -31,7 +31,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		return json({ error: unavailable[0].reason } satisfies LocalToolsAnswer);
 	}
 
-	const listing = await getOpenAiToolsForMcp(servers);
+	const listing = await getOpenAiToolsForMcp(servers, { markUntrusted: false });
 	if (listing.unavailable.length > 0) {
 		return json({ error: listing.unavailable[0].reason } satisfies LocalToolsAnswer);
 	}

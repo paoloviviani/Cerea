@@ -128,6 +128,7 @@ async function runApprovedCall(
 						call: { name: call.tool, parameters: { url } },
 						outputs: [{ text: result.resultText }],
 						display: true,
+						external: true,
 					},
 				};
 	}
@@ -184,6 +185,7 @@ async function runApprovedCall(
 					},
 				],
 				display: true,
+				external: true,
 			},
 		};
 	} catch (err) {
@@ -277,6 +279,7 @@ export async function resumeParkedToolCall({
 							},
 						],
 						display: true,
+						external: false,
 					},
 				},
 			],
@@ -422,6 +425,7 @@ export async function resumeParkedToolCall({
 							},
 						],
 						display: true,
+						external: true,
 					},
 				};
 	} catch (err) {

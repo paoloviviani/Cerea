@@ -28,6 +28,7 @@ vi.mock("../../logger", () => ({
 }));
 
 const { executeToolCalls, isValidJsonObject } = await import("./toolInvocation");
+const { markUntrustedResult, untrustedResultFooter } = await import("../untrusted");
 
 const SERVERS = [{ name: "hf", url: "https://example.test/mcp" }];
 const MAPPING = { do_thing: { fnName: "do_thing", server: "hf", tool: "do_thing" } };
@@ -103,7 +104,11 @@ describe("executeToolCalls", () => {
 		const events = await drain([CALL]);
 
 		expect(toolMessagesOf(events)).toEqual([
-			{ role: "tool", tool_call_id: "call_1", content: "all good" },
+			{
+				role: "tool",
+				tool_call_id: "call_1",
+				content: markUntrustedResult("do_thing", `all good`),
+			},
 		]);
 		expect(summaryOf(events).toolRuns).toHaveLength(1);
 		const result = toolUpdatesOf(events).find((u) => u.subtype === MessageToolUpdateType.Result);
@@ -124,7 +129,11 @@ describe("executeToolCalls", () => {
 		const events = await drain([CALL]);
 
 		expect(toolMessagesOf(events)).toEqual([
-			{ role: "tool", tool_call_id: "call_1", content: "Error: repo not found: acme/missing" },
+			{
+				role: "tool",
+				tool_call_id: "call_1",
+				content: "Error: repo not found: acme/missing",
+			},
 		]);
 		// A failed call produced no output, so it must not appear as a completed run.
 		expect(summaryOf(events).toolRuns).toHaveLength(0);
@@ -251,7 +260,7 @@ describe("executeToolCalls argument handling", () => {
 		const toolMessages = toolMessagesOf(events);
 		expect(toolMessages.map((m) => m.tool_call_id)).toEqual(["call_1", "call_2"]);
 		expect(String(toolMessages[0].content)).toContain("Invalid tool arguments");
-		expect(toolMessages[1].content).toBe("ok");
+		expect(toolMessages[1].content).toBe(markUntrustedResult("do_thing", `ok`));
 	});
 });
 
@@ -804,13 +813,18 @@ describe("pictures a builtin returns", () => {
 		]);
 
 		expect(summaryOf(events).toolMessages).toEqual([
-			{ role: "tool", tool_call_id: "call_a", content: "2 slides" },
+			{
+				role: "tool",
+				tool_call_id: "call_a",
+				content: markUntrustedResult("look_doc", `2 slides`),
+			},
 			{
 				role: "user",
 				content: [
 					{ type: "text", text: INTRO },
 					{ type: "text", text: "[deck.pptx, slide 1 of 2]" },
 					{ type: "image_url", image_url: { url: "data:image/png;base64,QUJD", detail: "auto" } },
+					{ type: "text", text: untrustedResultFooter("look_doc") },
 				],
 			},
 		]);
