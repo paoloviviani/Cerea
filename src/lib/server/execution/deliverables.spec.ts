@@ -61,30 +61,23 @@ describe("storeDeliverable", () => {
 		expect(row?.size).toBe(bytes.byteLength);
 	});
 
-	it("dedups identical bytes within a conversation instead of storing twice", async () => {
+	it("dedups identical bytes under the same name, but gives another name its own row", async () => {
 		const conversationId = newConversationId();
 		const bytes = Buffer.from("same content");
+		const save = (name: string) =>
+			storeDeliverable({ conversationId, name, mime: "text/plain", bytes });
 
-		const first = await storeDeliverable({
-			conversationId,
-			name: "a.txt",
-			mime: "text/plain",
-			bytes,
-		});
-		const second = await storeDeliverable({
-			conversationId,
-			// Different name for the same bytes: the existing row's name wins,
-			// which is fine — dedup is about not duplicating storage, not about
-			// which of two names a rerun happened to use.
-			name: "b.txt",
-			mime: "text/plain",
-			bytes,
-		});
+		const first = await save("a.txt");
+		const again = await save("a.txt");
+		// Another name for the same bytes is another file with its own versions: its
+		// own row, never a's (a restore or an edit of one must not move the other).
+		const other = await save("b.txt");
 
-		expect(first.ok && second.ok).toBe(true);
-		if (!first.ok || !second.ok) return;
-		expect(second.ref.sha256).toBe(first.ref.sha256);
-		expect(await collections.codeExecutionOutputs.countDocuments({ conversationId })).toBe(1);
+		if (!first.ok || !again.ok || !other.ok) throw new Error("not stored");
+		expect(again.existing).toBe(true);
+		expect(other.existing).toBeUndefined();
+		expect(other.ref.name).toBe("b.txt");
+		expect(await collections.codeExecutionOutputs.countDocuments({ conversationId })).toBe(2);
 	});
 
 	it("stores the same bytes again for a different conversation", async () => {

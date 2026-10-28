@@ -136,7 +136,7 @@ class RunsStore {
 		};
 		this.#runs[key] = state;
 
-		withAttachmentMounts(() => session.run(code))
+		withAttachmentMounts(() => session.run(code), code)
 			.then((outcome) => {
 				const settled: RunState = {
 					...state,

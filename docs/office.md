@@ -68,6 +68,10 @@ result lists what changed.
   next version, with the earlier ones unchanged. To go back, ask it to restore
   a version: that version becomes the latest again, and the result says which
   one it started from.
+  The numbers are the assistant's: it counts your attachment as version 1, and a
+  version keeps its number even after older ones expire. The version list on
+  the file card counts the files the assistant made, so its "v1" can be the
+  assistant's version 2 when the file started as an attachment.
 - **Code sees the latest version.** Every file of the conversation (what you
   attached and what was made since, by the document tools or by code) is in the
   sandbox at `/mnt/data/<name>` as its latest version; earlier versions are not

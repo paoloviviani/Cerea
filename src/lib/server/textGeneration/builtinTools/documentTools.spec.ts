@@ -20,6 +20,7 @@ vi.mock("$lib/server/database", () => ({
 		conversations: { findOne: vi.fn(async () => db.conversation) },
 		users: { findOne: vi.fn(async () => (db.userName ? { name: db.userName } : null)) },
 		codeExecutionOutputs: {
+			updateOne: vi.fn(async () => ({})),
 			find: (query: { name: string; conversationId?: unknown }) => {
 				// Like the real query: a missing filter matches every conversation's rows.
 				const rows = () =>
@@ -533,6 +534,14 @@ describe("doc_edit versioning", () => {
 		const body = requests.find((r) => r.path === "/v1/edit")?.body ?? "";
 		expect(body).toContain('name="image"; filename="logo.png"');
 		expect(body).toContain("PNGDATA");
+	});
+
+	it("does not require operations in the schema, so a restore can omit them", async () => {
+		const edit = await named(DOC_EDIT_TOOL_NAME);
+		const parameters = edit.definition.function.parameters as { required: string[] };
+		expect(parameters.required).toEqual(["file"]);
+		const out = await edit.execute({ file: "report.docx" }, ctx());
+		expect(out).toMatchObject({ error: expect.stringContaining("or `version` alone to restore") });
 	});
 
 	it("rejects an operation outside the listed ones before any call", async () => {

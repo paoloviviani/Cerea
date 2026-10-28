@@ -244,6 +244,19 @@ describe("dedupeDeliverablesByName", () => {
 		];
 		expect(dedupeDeliverablesByName(rows).map((r) => r.sha256)).toEqual(["s2", "s3"]);
 	});
+
+	it("keeps the row that last became current: a restored older version beats a newer one", () => {
+		const rows = [
+			{ name: "a.pdf", sha256: "v3", createdAt: "2026-10-28T10:10:00Z" },
+			{
+				name: "a.pdf",
+				sha256: "v2",
+				createdAt: "2026-10-28T10:00:00Z",
+				latestAt: "2026-10-28T10:20:00Z",
+			},
+		];
+		expect(dedupeDeliverablesByName(rows).map((r) => r.sha256)).toEqual(["v2"]);
+	});
 });
 
 const outputs = (

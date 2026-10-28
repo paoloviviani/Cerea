@@ -4,6 +4,7 @@ import { collections } from "$lib/server/database";
 import { storeDeliverable } from "$lib/server/execution/deliverables";
 import { error, json } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
+import type { CodeExecutionOutput } from "$lib/types/CodeExecutionOutput";
 
 /**
  * The browser uploads a run's own output files here once they settle —
@@ -77,19 +78,14 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	);
 	if (!conversation) error(404, "Conversation not found");
 
+	// Newest first by the moment a row last became the file's current version: a
+	// restore (`latestAt`) puts an older version back on top.
 	const files = await collections.codeExecutionOutputs
-		.find({ conversationId })
-		.project({
-			name: 1,
-			mime: 1,
-			size: 1,
-			sha256: 1,
-			createdAt: 1,
-			latestAt: 1,
-			tool: 1,
-			summary: 1,
-		})
-		.sort({ createdAt: -1 })
+		.aggregate<CodeExecutionOutput>([
+			{ $match: { conversationId } },
+			{ $addFields: { liveAt: { $ifNull: ["$latestAt", "$createdAt"] } } },
+			{ $sort: { liveAt: -1, _id: -1 } },
+		])
 		.toArray();
 
 	return json({
@@ -101,6 +97,9 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 			createdAt: file.createdAt.toISOString(),
 			// A restored older version is the latest again from this moment.
 			...(file.latestAt ? { latestAt: file.latestAt.toISOString() } : {}),
+			...(file.version ? { version: file.version } : {}),
+			...(file.tool ? { tool: file.tool } : {}),
+			...(file.summary ? { summary: file.summary } : {}),
 		})),
 	});
 };

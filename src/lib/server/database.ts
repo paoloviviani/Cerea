@@ -855,9 +855,27 @@ export class Database {
 
 		// Dedup + the access-checked download lookup: one row per distinct
 		// deliverable a conversation has produced.
-		codeExecutionOutputs
-			.createIndex({ conversationId: 1, sha256: 1 }, { unique: true })
-			.catch((e) => logger.error(e, "Error creating index for codeExecutionOutputs by sha256"));
+		// One row per (name, content): the same bytes under another name are another
+		// file's version. The earlier unique (conversationId, sha256) index is
+		// replaced by this one and a plain lookup index.
+		void (async () => {
+			try {
+				const indexes = await codeExecutionOutputs.indexes().catch(() => []);
+				const old = indexes.find(
+					(index) =>
+						index.unique === true &&
+						JSON.stringify(index.key) === JSON.stringify({ conversationId: 1, sha256: 1 })
+				);
+				await codeExecutionOutputs.createIndex(
+					{ conversationId: 1, name: 1, sha256: 1 },
+					{ unique: true }
+				);
+				if (old?.name) await codeExecutionOutputs.dropIndex(old.name);
+				await codeExecutionOutputs.createIndex({ conversationId: 1, sha256: 1 });
+			} catch (e) {
+				logger.error(e, "Error creating index for codeExecutionOutputs by name and sha256");
+			}
+		})();
 		// Conversation-delete cleanup lists a conversation's rows by this alone.
 		codeExecutionOutputs
 			.createIndex({ conversationId: 1 })

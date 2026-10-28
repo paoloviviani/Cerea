@@ -51,7 +51,7 @@ class ConversationAttachments {
 	}
 
 	/** The pending mount of the open conversation's files; `undefined` when none is open. */
-	ensure(): Promise<void> | undefined {
+	ensure(code?: string): Promise<void> | undefined {
 		const source = this.#source;
 		const session = getExecutionSession();
 		if (!source || !session) return undefined;
@@ -64,7 +64,7 @@ class ConversationAttachments {
 		const next = this.#queue
 			.then(async () => {
 				if (mounter.needsSync(source.files)) await mounter.sync(source.files);
-				await mounter.syncProduced(await listProduced(source.conversationId));
+				await mounter.syncProduced(await listProduced(source.conversationId), { code });
 			})
 			.catch((err) => console.warn("[attachments] mounting failed:", err))
 			.finally(() => {
@@ -93,11 +93,16 @@ class ConversationAttachments {
 	}
 }
 
+/** How long a run waits for the list of the conversation's stored files. */
+export const LIST_TIMEOUT_MS = 5000;
+
 /** The conversation's stored files; empty when the list cannot be had (the run still goes ahead). */
 async function listProduced(conversationId: string): Promise<ProducedFile[]> {
 	try {
+		// Every run waits on this: a slow answer must not hold the code back.
 		const response = await fetch(`/conversation/${conversationId}/code-execution/output`, {
 			credentials: "same-origin",
+			signal: AbortSignal.timeout(LIST_TIMEOUT_MS),
 		});
 		if (!response.ok) return [];
 		const body = (await response.json()) as { files?: ProducedFile[] };
@@ -152,7 +157,7 @@ export function trackAttachmentSource(
  * `/mnt/data`. With no conversation open `run` is called synchronously, as
  * it always was.
  */
-export function withAttachmentMounts<T>(run: () => Promise<T>): Promise<T> {
-	const pending = conversationAttachments?.ensure();
+export function withAttachmentMounts<T>(run: () => Promise<T>, code?: string): Promise<T> {
+	const pending = conversationAttachments?.ensure(code);
 	return pending ? pending.then(run, run) : run();
 }

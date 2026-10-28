@@ -1,9 +1,8 @@
 import type { ObjectId } from "mongodb";
-import { collections } from "$lib/server/database";
 import { downloadDeliverable } from "$lib/server/execution/deliverables";
+import { attachmentNamed, numberedRows } from "$lib/server/execution/fileVersions";
 import { downloadFile } from "$lib/server/files/downloadFile";
-import type { MessageFile } from "$lib/types/Message";
-import { planAttachments, type PlannedAttachment } from "$lib/utils/execution/attachmentNames";
+import type { PlannedAttachment } from "$lib/utils/execution/attachmentNames";
 import { MOUNT_ROOT } from "$lib/utils/execution/protocol";
 
 /** The name as the model sees it for a file in the sandbox: `/mnt/data/<name>` or the bare name. */
@@ -104,38 +103,27 @@ export async function listFileVersions(
 	reference: string
 ): Promise<{ name: string; versions: FileVersion[]; attachment?: PlannedAttachment } | undefined> {
 	const wanted = bareName(reference);
-	const conversation = await collections.conversations.findOne(
-		{ _id: conversationId },
-		{ projection: { messages: 1, createdAt: 1 } }
-	);
-	const files: MessageFile[] = (conversation?.messages ?? []).flatMap(
-		(message) => message.files ?? []
-	);
-	const planned = planAttachments(files).find(
-		(entry) => entry.file.type === "hash" && (entry.name === wanted || entry.file.name === wanted)
-	);
-	const rows = await collections.codeExecutionOutputs
-		.find({ conversationId, name: wanted })
-		.sort({ createdAt: 1 })
-		.toArray();
-	if (!planned && rows.length === 0) return undefined;
+	const attachment = await attachmentNamed(conversationId, wanted);
+	const rows = await numberedRows(conversationId, wanted);
+	if (!attachment && rows.length === 0) return undefined;
 
 	const versions: FileVersion[] = [];
-	if (planned) {
+	if (attachment) {
 		versions.push({
 			version: 1,
 			origin: "attachment",
-			sha256: planned.file.value,
-			at: conversation?.createdAt ?? new Date(0),
+			sha256: attachment.planned.file.value,
+			at: attachment.at,
 			tool: "attachment",
 			summary: "uploaded by the user",
 			current: false,
-			mime: planned.file.mime,
+			mime: attachment.planned.file.mime,
 		});
 	}
 	for (const row of rows) {
 		versions.push({
-			version: versions.length + 1,
+			// Stored with the row, so expiring older rows never renumbers it.
+			version: row.version ?? versions.length + 1,
 			origin: "output",
 			sha256: row.sha256,
 			at: row.createdAt,
@@ -147,7 +135,7 @@ export async function listFileVersions(
 	}
 	let latest = versions.length - 1;
 	if (rows.length > 0) {
-		const offset = planned ? 1 : 0;
+		const offset = attachment ? 1 : 0;
 		latest =
 			offset +
 			rows.reduce(
@@ -156,7 +144,7 @@ export async function listFileVersions(
 			);
 	}
 	versions[latest].current = true;
-	return { name: planned?.name ?? wanted, versions, attachment: planned };
+	return { name: attachment?.planned.name ?? wanted, versions, attachment: attachment?.planned };
 }
 
 /**
@@ -194,9 +182,11 @@ export async function findConversationFile(
 
 	let pick: FileVersion | undefined;
 	if (options.version !== undefined) {
-		const number = options.version === "previous" ? versions.indexOf(current) : options.version;
-		pick = versions[number - 1];
-		if (!pick || number < 1) {
+		pick =
+			options.version === "previous"
+				? versions[versions.indexOf(current) - 1]
+				: versions.find((v) => v.version === options.version);
+		if (!pick) {
 			return {
 				ok: false,
 				error:

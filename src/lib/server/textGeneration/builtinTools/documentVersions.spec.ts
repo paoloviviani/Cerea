@@ -10,6 +10,7 @@ import { collections, ready } from "$lib/server/database";
 import {
 	deleteConversationDeliverables,
 	storeDeliverable,
+	sweepExpiredDeliverables,
 } from "$lib/server/execution/deliverables";
 
 const service = vi.hoisted(() => ({
@@ -289,5 +290,107 @@ describe("versions of a file", () => {
 		const same = body(await edit({ file: "letter.docx", version: 1, operations: replace("=v1") }));
 		expect(same).toMatchObject({ saved: false });
 		expect(same.note).toContain("The latest version is still 2");
+	});
+
+	it("restores with `operations: []` as well as with none", async () => {
+		const { conversationId, edit } = await setup();
+		await makeFirst(conversationId, "letter.docx", "v1");
+		await edit({ file: "letter.docx", operations: replace("a") });
+		expect(body(await edit({ file: "letter.docx", version: 1, operations: [] }))).toMatchObject({
+			restored: true,
+			version: 1,
+		});
+	});
+
+	it("restoring one file never moves the current version of another file with the same bytes", async () => {
+		const { conversationId, edit } = await setup();
+		await makeFirst(conversationId, "form.pdf", "same");
+		await makeFirst(conversationId, "form_copy.pdf", "same");
+		await edit({ file: "form.pdf", operations: replace("a") });
+		await edit({ file: "form_copy.pdf", operations: replace("b") });
+
+		const restored = body(await edit({ file: "form.pdf", version: 1 }));
+		expect(restored).toMatchObject({ restored: true, file: "form.pdf", version: 1 });
+
+		const form = await findConversationFile(conversationId, "form.pdf");
+		const copy = await findConversationFile(conversationId, "form_copy.pdf");
+		expect(form.ok && form.bytes.toString()).toBe("same");
+		expect(copy.ok && copy.bytes.toString()).toBe("same+b");
+		const rows = await collections.codeExecutionOutputs.find({ conversationId }).toArray();
+		expect(rows.filter((r) => r.name === "form_copy.pdf" && r.latestAt)).toEqual([]);
+	});
+
+	it("a file made with bytes equal to another name's older version does not roll that name back", async () => {
+		const { conversationId, edit } = await setup();
+		await makeFirst(conversationId, "form.pdf", "same");
+		await edit({ file: "form.pdf", operations: replace("a") });
+		await makeFirst(conversationId, "other.docx", "seed");
+
+		const made = body(await edit({ file: "other.docx", operations: replace("=same") }));
+		expect(made).toMatchObject({ saved: true, file: "other.docx", version: 2 });
+		const form = await findConversationFile(conversationId, "form.pdf");
+		expect(form.ok && form.bytes.toString()).toBe("same+a");
+		expect(form.ok && form.version).toBe(2);
+	});
+
+	it("a version keeps its number when older rows expire", async () => {
+		const { conversationId, outline } = await setup({ name: "form.pdf", bytes: "ORIGINAL" });
+		for (const content of ["two", "three", "four"]) {
+			await makeFirst(conversationId, "form.pdf", content);
+		}
+		const numbers = async () =>
+			(await listFileVersions(conversationId, "form.pdf"))?.versions.map((v) => v.version);
+		expect(await numbers()).toEqual([1, 2, 3, 4]);
+
+		// Version 2 is old enough to expire; 3 and 4 are not.
+		const old = new Date(Date.now() - 40 * 24 * 3600 * 1000);
+		await collections.codeExecutionOutputs.updateOne(
+			{ conversationId, version: 2 },
+			{ $set: { createdAt: old } }
+		);
+		expect(await sweepExpiredDeliverables(Date.now(), 30)).toBeGreaterThanOrEqual(1);
+		expect(await numbers()).toEqual([1, 3, 4]);
+
+		// And the model can still name version 3.
+		await outline({ file: "form.pdf", version: 3 });
+		expect(service.outlined.at(-1)).toBe("three");
+	});
+
+	it("a restored old version is not swept while it is the current one", async () => {
+		const { conversationId, edit } = await setup();
+		await makeFirst(conversationId, "letter.docx", "v1");
+		await edit({ file: "letter.docx", operations: replace("a") });
+		const old = new Date(Date.now() - 40 * 24 * 3600 * 1000);
+		await collections.codeExecutionOutputs.updateMany(
+			{ conversationId },
+			{ $set: { createdAt: old } }
+		);
+		await edit({ file: "letter.docx", version: 1 }); // v1 restored: latestAt is now
+		await sweepExpiredDeliverables(Date.now(), 30);
+		const left = await listFileVersions(conversationId, "letter.docx");
+		expect(left?.versions.map((v) => [v.version, v.current])).toEqual([[1, true]]);
+	});
+
+	it("numbers rows from before numbers were stored by position, once", async () => {
+		const { conversationId } = await setup({ name: "form.pdf", bytes: "ORIGINAL" });
+		for (const content of ["two", "three"]) await makeFirst(conversationId, "form.pdf", content);
+		await collections.codeExecutionOutputs.updateMany(
+			{ conversationId },
+			{ $unset: { version: "" } }
+		);
+
+		expect(
+			(await listFileVersions(conversationId, "form.pdf"))?.versions.map((v) => v.version)
+		).toEqual([1, 2, 3]);
+		// Persisted: a row removed afterwards does not renumber the next list.
+		const rows = await collections.codeExecutionOutputs
+			.find({ conversationId })
+			.sort({ createdAt: 1 })
+			.toArray();
+		expect(rows.map((r) => r.version)).toEqual([2, 3]);
+		await collections.codeExecutionOutputs.deleteOne({ _id: rows[0]._id });
+		expect(
+			(await listFileVersions(conversationId, "form.pdf"))?.versions.map((v) => v.version)
+		).toEqual([1, 3]);
 	});
 });

@@ -54,6 +54,10 @@ under the conversation, like knowledge files.
   next run. A file edited since it was attached shows the edit at its name;
   earlier versions are not mounted (the document tools take a `version` for
   them).
+  Images the code drew (`figure-1.png`) or the tools saved are not mounted
+  unless the code names them; every run waits at most five seconds for the
+  list of files, and a download that stalls is skipped with a note and tried
+  again on the next run.
 - **The chat page registers its conversation while it is created**, not in an
   effect after it: a code card that is already on screen starts its run before
   the page's own effects, and the first run used to find `/mnt/data` empty.

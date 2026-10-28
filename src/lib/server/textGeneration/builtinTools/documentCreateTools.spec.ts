@@ -25,6 +25,7 @@ vi.mock("$lib/server/database", () => ({
 		conversations: { findOne: vi.fn(async () => db.conversation) },
 		users: { findOne: vi.fn(async () => null) },
 		codeExecutionOutputs: {
+			updateOne: vi.fn(async () => ({})),
 			find: (query: { name: string }) => ({
 				sort: () => ({
 					limit: () => ({

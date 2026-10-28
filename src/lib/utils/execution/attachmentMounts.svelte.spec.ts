@@ -322,4 +322,41 @@ describe("every file of the conversation is in /mnt/data", () => {
 		void unmount(app);
 		target.remove();
 	});
+
+	it("goes ahead with what is mounted when the list of produced files stalls", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string, init?: { signal?: AbortSignal }) => {
+				if (!url.endsWith("/code-execution/output")) return served(url);
+				// A list that never answers: only the run's own deadline ends it.
+				return new Promise<Response>((_resolve, reject) =>
+					init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
+				);
+			})
+		);
+		setAttachmentSource({ conversationId: "c1", messages: [{ files: [pdf()] }] });
+		const run = vi.fn(async () => "ran");
+		await withAttachmentMounts(run);
+		expect(run).toHaveBeenCalledTimes(1);
+		expect(listing()).toEqual(["/mnt/data/form.pdf"]);
+		warn.mockRestore();
+	}, 15000);
+
+	it("mounts an image output only for code that names it", async () => {
+		produced = [
+			{
+				name: "figure-1.png",
+				size: 9,
+				sha256: "i1",
+				mime: "image/png",
+				createdAt: "2026-10-28T10:00:00Z",
+			},
+		];
+		setAttachmentSource({ conversationId: "c1", messages: [] });
+		await withAttachmentMounts(async () => undefined, "print(1)");
+		expect(listing()).toEqual([]);
+		await withAttachmentMounts(async () => undefined, 'open("/mnt/data/figure-1.png")');
+		expect(listing()).toEqual(["/mnt/data/figure-1.png"]);
+	});
 });

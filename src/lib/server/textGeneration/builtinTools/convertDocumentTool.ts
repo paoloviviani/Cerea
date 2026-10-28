@@ -65,7 +65,7 @@ async function findSource(
 	reference: string,
 	version?: VersionRequest
 ): Promise<Found> {
-	const file = await findConversationFile(conversationId, reference, { version });
+	const file = await findConversationFile(conversationId, reference, { prefer: "output", version });
 	if (!file.ok) return file;
 	const { name, bytes } = file;
 	if (bytes.byteLength > MAX_SOURCE_BYTES) {

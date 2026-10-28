@@ -647,7 +647,8 @@ export function createDocumentBuiltins(
 							operations: {
 								type: "array",
 								description:
-									"The edits, in order. Each is an object with `op` (the operation's name) and its properties.",
+									"The edits, in order, each an object with `op` (the operation's name) and its properties. " +
+									"Required unless restoring: with `version`, omit it (or give []) to restore that version.",
 								items: {
 									type: "object",
 									properties: { op: { type: "string", enum: operations } },
@@ -676,7 +677,7 @@ export function createDocumentBuiltins(
 								items: { type: "string" },
 							},
 						},
-						required: ["file", "operations"],
+						required: ["file"],
 					},
 				},
 			},
@@ -690,6 +691,7 @@ export function createDocumentBuiltins(
 					args.version !== null &&
 					args.version !== "" &&
 					(args.operations === undefined ||
+						args.operations === null ||
 						(Array.isArray(args.operations) && args.operations.length === 0));
 				if (!restoring && (!Array.isArray(args.operations) || args.operations.length === 0)) {
 					return {
@@ -761,7 +763,8 @@ export function createDocumentBuiltins(
 						summary: `restored version ${source.version}`,
 					});
 					if (!restored.ok) return { error: restored.error };
-					if (restored.existing) await markCurrentVersion(ctx.conversationId, restored.ref.sha256);
+					if (restored.existing)
+						await markCurrentVersion(ctx.conversationId, restored.ref.name, restored.ref.sha256);
 					const where = await versionOf(ctx, restored.ref.name, restored.ref.sha256);
 					turn?.touchedSlides.delete(restored.ref.name);
 					return {
@@ -815,7 +818,8 @@ export function createDocumentBuiltins(
 					};
 				}
 				// The same bytes as another, earlier version: that version is the latest now.
-				if (stored.existing) await markCurrentVersion(ctx.conversationId, stored.ref.sha256);
+				if (stored.existing)
+					await markCurrentVersion(ctx.conversationId, stored.ref.name, stored.ref.sha256);
 				const { version } = await versionOf(ctx, stored.ref.name, stored.ref.sha256);
 				const diff = edited.diff.slice(0, MAX_DIFF_LINES);
 				if (turn && edited.format === "pptx") {
@@ -1083,7 +1087,8 @@ async function saveCreated(
 	});
 	if (!stored.ok) return { error: stored.error };
 	options.turn?.touchedSlides.delete(stored.ref.name); // a new file: every slide is new
-	if (stored.existing) await markCurrentVersion(ctx.conversationId, stored.ref.sha256);
+	if (stored.existing)
+		await markCurrentVersion(ctx.conversationId, stored.ref.name, stored.ref.sha256);
 	const { version } = await versionOf(ctx, stored.ref.name, stored.ref.sha256);
 	const diff = (made.diff ?? []).slice(0, MAX_DIFF_LINES);
 	return {

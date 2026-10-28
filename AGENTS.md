@@ -1229,7 +1229,7 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   The original is never touched.
 - **Versions** (`conversationFiles.ts`, `listFileVersions`): a name's versions
   are its attachment (1) and then each stored row of that name by `createdAt`;
-  numbers never change. `doc_outline`, `doc_read`, `doc_edit`, `look_doc` and
+  numbers are stored on the row at insert (`version`, `fileVersions.ts`; old rows are numbered by position once), so expiring older rows never renumbers; rows are unique per (conversation, name, content). `doc_outline`, `doc_read`, `doc_edit`, `look_doc` and
   `convert_document` take `version` (a number, or "previous"; `parseVersion`,
   `VERSION_PROPERTY`), and `doc_outline` lists the versions (`file_versions`,
   when there is more than one), so no extra tool. `doc_edit` with `version` and

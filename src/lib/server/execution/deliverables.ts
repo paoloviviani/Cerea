@@ -8,6 +8,7 @@ import { MAX_FILE_BYTES } from "$lib/utils/execution/protocol";
 import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 import type { Conversation } from "$lib/types/Conversation";
 import type { User } from "$lib/types/User";
+import { nextVersionNumber } from "./fileVersions";
 import {
 	previewInBackground,
 	previewOwner,
@@ -139,7 +140,9 @@ export async function storeDeliverable({
 
 	const sha256 = createHash("sha256").update(bytes).digest("hex");
 
-	const existing = await collections.codeExecutionOutputs.findOne({ conversationId, sha256 });
+	// One row per (name, content): the same bytes under another name are another file with
+	// its own version history, never this one's row.
+	const existing = await collections.codeExecutionOutputs.findOne({ conversationId, name, sha256 });
 	if (existing) {
 		return { ok: true, ref: { name: existing.name, size: existing.size, sha256 }, existing: true };
 	}
@@ -182,6 +185,7 @@ export async function storeDeliverable({
 		setTimeout(() => reject(new Error("Deliverable upload timed out")), 20_000);
 	});
 
+	const version = await nextVersionNumber(conversationId, name);
 	await collections.codeExecutionOutputs.insertOne({
 		_id: new ObjectId(),
 		conversationId,
@@ -194,6 +198,7 @@ export async function storeDeliverable({
 		...(derivedFrom
 			? { derivedFromSha256: derivedFrom.sha256, derivedFromName: derivedFrom.name }
 			: {}),
+		version,
 		...(tool ? { tool } : {}),
 		...(summary ? { summary: summary.slice(0, 200) } : {}),
 		createdAt: new Date(),
@@ -306,7 +311,7 @@ export async function sweepExpiredDeliverables(
 	let removed = 0;
 	for (;;) {
 		const stale = await collections.codeExecutionOutputs
-			.find({ createdAt: { $lt: cutoff } })
+			.find(staleBefore(cutoff))
 			.project<{ _id: ObjectId; gridFsId: ObjectId; conversationId: ObjectId; sha256: string }>({
 				gridFsId: 1,
 				conversationId: 1,
@@ -390,7 +395,7 @@ export async function deliverableStorageSummary(days: number, now = Date.now()) 
 	const expiring = cutoff
 		? await collections.codeExecutionOutputs
 				.aggregate<{ count: number; bytes: number }>([
-					{ $match: { createdAt: { $lt: cutoff } } },
+					{ $match: staleBefore(cutoff) },
 					{ $group: { _id: null, count: { $sum: 1 }, bytes: { $sum: "$size" } } },
 				])
 				.next()
@@ -466,10 +471,19 @@ export async function markStoredRefs(
  */
 export async function markCurrentVersion(
 	conversationId: Conversation["_id"],
+	name: string,
 	sha256: string
 ): Promise<void> {
 	await collections.codeExecutionOutputs.updateOne(
-		{ conversationId, sha256 },
+		{ conversationId, name, sha256 },
 		{ $set: { latestAt: new Date() } }
 	);
+}
+
+/** The moment a row last counted as live: a restore (`latestAt`) keeps its row from expiring. */
+const LIVE_AT = { $ifNull: ["$latestAt", "$createdAt"] };
+
+/** A filter for the rows whose last live moment is before `cutoff`. */
+function staleBefore(cutoff: Date) {
+	return { $expr: { $lt: [LIVE_AT, cutoff] } };
 }
