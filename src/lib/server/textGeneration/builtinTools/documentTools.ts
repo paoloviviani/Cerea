@@ -138,8 +138,9 @@ function pdfNote(caps: DocumentCapabilities): string {
 		"for a radio group; an option's value or label for a list or combo box (a list of them for a multi-select " +
 		"list). `flatten` bakes the values in. Every value is checked and a bad one is refused with what the field " +
 		"takes; the result re-reads each value and lists any that did not take, and the required fields left " +
-		"empty. A signed PDF (filling would invalidate its signature), a scanned form with no fields and an XFA " +
-		"form cannot be filled. Text is limited to Western European characters. "
+		"empty. A signed PDF (filling would invalidate its signature) and an XFA form cannot be filled. A form " +
+		"with no fields (scanned, or drawn blanks) has nothing for fill_form: follow the pdf-tools skill, which " +
+		"writes the values onto the page in the sandbox. Text is limited to Western European characters. "
 	);
 }
 
