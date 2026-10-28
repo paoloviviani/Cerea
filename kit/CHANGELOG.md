@@ -5,6 +5,42 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.32.3 — 2026-10-28
+
+Pins: Cerea `0.32.3` (chat and `cerea-documents`), Pystino `0.19.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required.
+Pystino 0.19.0 runs two database migrations on start (0073, 0074).
+
+- **The assistant can look at documents.** A new tool shows a model that reads
+  images the pages or slides of a Word, Excel, PowerPoint or PDF file in the
+  chat (up to 6 at a time), so it can check the layout of what it made and fix
+  broken slides or pages, or read a scanned PDF as it looks. Office files are
+  rendered by LibreOffice through the kit's converter, so fonts can differ
+  slightly from Microsoft Office.
+- **Images in tool results, per model.** In the Pystino console each model has
+  an "Images in tool results" capability, on by default for models that accept
+  images; turn it off for a model that ignores or mishandles them. A standalone
+  chat uses `toolImages: false` in `MODELS`. If a provider refuses a request
+  because of its images, the chat retries once without them instead of failing.
+- **Protection against instructions hidden in content.** Web pages, documents,
+  page images, connector results and passages retrieved from knowledge bases
+  or past chats are now marked as content from outside, in the tool
+  descriptions, around each result and in the system prompt, so the assistant
+  reports instructions it finds there instead of following them. In our tests
+  no model obeyed planted instructions with this in place; tools that act still
+  ask for approval as before.
+- **Per-user quota resets and a Quota usage page** (Pystino console): reset one
+  user's consumption of a per-user quota without resetting everyone, and see,
+  per user, every quota that applies, how much is used and when it resets.
+- **A back link in project chats:** a chat in a project shows "← project name"
+  at the top, back to the project's chat list.
+- **PDF forms without fields** (drawn blanks, scans) are written onto the
+  original page or rebuilt, on request, instead of being declared impossible;
+  the assistant also finds the sandbox's PDF library (reportlab) reliably.
+- **Document service:** new render endpoint; redeploy `cerea-documents` with the
+  chat (the kit does this with `docker compose pull`).
+
 ## v0.32.2 — 2026-10-28
 
 Pins: Cerea `0.32.2` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
