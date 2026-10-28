@@ -5,6 +5,7 @@ import type {
 	ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
 import { withAdminInstructions } from "$lib/server/adminInstructions";
+import { UNTRUSTED_SYSTEM_LINE } from "../untrusted";
 import { logger } from "$lib/server/logger";
 import type { McpToolMapping, OpenAiTool } from "$lib/server/mcp/tools";
 import type { McpServerConfig } from "$lib/server/mcp/httpClient";
@@ -289,7 +290,10 @@ export async function runNestedAgent(
 	let messages: ChatCompletionMessageParam[] = [
 		// The administrator's instructions lead every sub-agent's brief too: they
 		// are the deployment's rules for the assistant, not the person's preference.
-		{ role: "system", content: withAdminInstructions(spec.systemPrompt) },
+		{
+			role: "system",
+			content: withAdminInstructions(`${spec.systemPrompt}\n\n${UNTRUSTED_SYSTEM_LINE}`),
+		},
 		{ role: "user", content: spec.task },
 	];
 

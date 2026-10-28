@@ -37,6 +37,7 @@ const { runNestedAgent, createSubAgentApprovalGuard, APPROVAL_REFUSAL_PREFIX } =
 	await import("./nestedAgent");
 import type { NestedAgentDeps, NestedAgentObserver, NestedAgentSpec } from "./nestedAgent";
 import type { BuiltinTool } from "./types";
+import { UNTRUSTED_SYSTEM_LINE, markUntrustedResult } from "../untrusted";
 
 type Req = {
 	stream?: boolean;
@@ -166,27 +167,79 @@ describe("a sub-agent run", () => {
 		const { openai, requests } = upstream([{ content: "ok" }]);
 		await runNestedAgent(spec(), ctx(), deps(openai));
 		expect(requests[0].req.messages.map((m) => [m.role, m.content])).toEqual([
-			["system", "system"],
+			["system", `system\n\n${UNTRUSTED_SYSTEM_LINE}`],
 			["user", "the brief"],
 		]);
 	});
 
-	it("leads its system prompt with the administrator's instructions, and adds nothing when there are none", async () => {
+	it("leads its system prompt with the administrator's instructions, then its own, then the guard line", async () => {
 		admin.text = "ADMIN RULES";
 		try {
 			const { openai, requests } = upstream([{ content: "ok" }]);
 			await runNestedAgent(spec(), ctx(), deps(openai));
 			expect(requests[0].req.messages[0]).toEqual({
 				role: "system",
-				content:
-					"Instructions from this deployment's administrator:\nADMIN RULES\nEnd of the administrator's instructions.\n\nsystem",
+				content: `Instructions from this deployment's administrator:\nADMIN RULES\nEnd of the administrator's instructions.\n\nsystem\n\n${UNTRUSTED_SYSTEM_LINE}`,
 			});
 		} finally {
 			admin.text = "";
 		}
 		const { openai, requests } = upstream([{ content: "ok" }]);
 		await runNestedAgent(spec(), ctx(), deps(openai));
-		expect(requests[0].req.messages[0].content).toBe("system");
+		expect(requests[0].req.messages[0].content).toBe(`system\n\n${UNTRUSTED_SYSTEM_LINE}`);
+	});
+
+	it("shows and stores a failed connector call as an error, not a success", async () => {
+		mocks.callMcpTool.mockResolvedValue({ text: "quota exceeded", isError: true, content: [] });
+		const { openai, requests } = upstream([{ calls: [{ name: "srv_do" }] }, { content: "done" }]);
+		const steps: Array<{ outcome: string; error?: string }> = [];
+		const observer: NestedAgentObserver = {
+			calling: () => {},
+			step: (step) => steps.push({ outcome: step.outcome, error: step.error }),
+		};
+		await runNestedAgent(
+			spec({ observer, allowedTools: new Set(["srv_do"]) }),
+			ctx(),
+			deps(openai, { toolApproval: { policy: "always-allow", approvedTools: new Set() } })
+		);
+		expect(steps).toEqual([{ outcome: "error", error: "quota exceeded" }]);
+		// The model reads the error as an error, with nothing in front of "Error: ".
+		const tool = requests[1].req.messages.find((m) => m.role === "tool");
+		expect(tool?.content).toBe("Error: quota exceeded");
+	});
+
+	it("marks what an external built-in and a connector tool return, and nothing else", async () => {
+		const { openai, requests } = upstream([
+			{
+				calls: [
+					{ name: "web_search", args: { query: "x" } },
+					{ name: "srv_do" },
+					{ name: "update_plan" },
+				],
+			},
+			{ content: "done" },
+		]);
+		const internal: BuiltinTool = {
+			name: "update_plan",
+			definition: { type: "function", function: { name: "update_plan" } },
+			execute: async () => ({ resultText: "plan saved" }),
+		};
+		await runNestedAgent(
+			spec({ allowedTools: new Set(["web_search", "srv_do", "update_plan"]) }),
+			ctx(),
+			deps(openai, {
+				hostBuiltinTools: [searchTool(), internal],
+				toolApproval: { policy: "always-allow", approvedTools: new Set() },
+			})
+		);
+		const contents = requests[1].req.messages
+			.filter((m) => m.role === "tool")
+			.map((m) => m.content);
+		expect(contents).toEqual([
+			markUntrustedResult("web_search", `result: found it`),
+			markUntrustedResult("srv_do", `mcp ok`),
+			"plan saved",
+		]);
 	});
 
 	it("sends the person's own token and conversation header on every request (billing)", async () => {

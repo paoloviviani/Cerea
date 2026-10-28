@@ -16,6 +16,7 @@ import { createWebFetchStructuredBuiltin } from "./webFetchStructuredTool";
 import { createMemoryBuiltins } from "./memoryTool";
 import { configuredBackend } from "$lib/server/fetching";
 import type { BuiltinTool } from "./types";
+import { EXTERNAL_BUILTIN_TOOLS, withUntrustedSuffix } from "../untrusted";
 
 export type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
 export { PLAN_TOOL_NAME } from "./planTool";
@@ -305,6 +306,16 @@ export function getEnabledBuiltinTools(params: {
 				research: tools.some((tool) => tool.name === WEB_SEARCH_TOOL_NAME),
 			})
 		);
+	}
+
+	// External tools carry the guard sentence in their description (untrusted.ts).
+	for (const tool of tools) {
+		if (!EXTERNAL_BUILTIN_TOOLS.has(tool.name)) continue;
+		const { function: fn } = tool.definition;
+		tool.definition = {
+			...tool.definition,
+			function: { ...fn, description: withUntrustedSuffix(fn.description) },
+		};
 	}
 
 	return tools;

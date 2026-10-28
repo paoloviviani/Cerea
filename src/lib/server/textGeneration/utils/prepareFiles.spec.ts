@@ -1,3 +1,4 @@
+import { markUntrustedResult } from "../untrusted";
 import { describe, expect, it } from "vitest";
 import { prepareMessagesWithFiles } from "./prepareFiles";
 import type { EndpointMessage } from "$lib/server/endpoints/endpoints";
@@ -42,6 +43,39 @@ const errorUpdate = (uuid: string, message: string) =>
 	}) satisfies MessageUpdate;
 
 describe("prepareMessagesWithFiles tool history replay", () => {
+	it("marks a replayed external or connector result as data, and no internal one, with the same bytes each time", async () => {
+		const messages: EndpointMessage[] = [
+			{ from: "user", content: "go" },
+			{
+				from: "assistant",
+				content: "done",
+				updates: [
+					callUpdate("a", "web_fetch", {}),
+					callUpdate("b", "some_connector_tool", {}),
+					callUpdate("c", "update_plan", {}),
+					resultUpdate("a", "web_fetch", "page"),
+					resultUpdate("b", "some_connector_tool", "data"),
+					resultUpdate("c", "update_plan", "saved"),
+				],
+			},
+		];
+		const run = async () =>
+			(
+				await prepareMessagesWithFiles(messages, imageProcessor, false, {
+					replayToolHistory: true,
+				})
+			)
+				.filter((m) => m.role === "tool")
+				.map((m) => m.content);
+		const first = await run();
+		expect(first).toEqual([
+			markUntrustedResult("web_fetch", `page`),
+			markUntrustedResult("some_connector_tool", `data`),
+			"saved",
+		]);
+		expect(await run()).toEqual(first);
+	});
+
 	it("keeps flat {role, content} messages when replay is off", async () => {
 		const messages: EndpointMessage[] = [
 			{ from: "user", content: "hi" },
@@ -89,7 +123,11 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 					},
 				],
 			},
-			{ role: "tool", tool_call_id: "u10000000", content: "18°C, sunny" },
+			{
+				role: "tool",
+				tool_call_id: "u10000000",
+				content: markUntrustedResult("get_weather", `18°C, sunny`),
+			},
 			{
 				role: "assistant",
 				content: null,
@@ -101,7 +139,11 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 					},
 				],
 			},
-			{ role: "tool", tool_call_id: "u20000000", content: "sunny all week" },
+			{
+				role: "tool",
+				tool_call_id: "u20000000",
+				content: markUntrustedResult("get_forecast", `sunny all week`),
+			},
 			{
 				role: "assistant",
 				content: "It is 18°C and sunny in Paris.",
@@ -157,7 +199,11 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 					},
 				],
 			},
-			{ role: "tool", tool_call_id: "a00000000", content: "res-a" },
+			{
+				role: "tool",
+				tool_call_id: "a00000000",
+				content: markUntrustedResult("search", `res-a`),
+			},
 			{ role: "tool", tool_call_id: "b00000000", content: "Error: timeout" },
 			{ role: "assistant", content: "done" },
 		]);
@@ -208,7 +254,11 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 					},
 				],
 			},
-			{ role: "tool", tool_call_id: "u10000000", content: "18°C" },
+			{
+				role: "tool",
+				tool_call_id: "u10000000",
+				content: markUntrustedResult("get_weather", `18°C`),
+			},
 		]);
 	});
 
@@ -510,7 +560,11 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 				],
 				reasoning_content: "round one reasoning",
 			},
-			{ role: "tool", tool_call_id: "u10000000", content: "18°C" },
+			{
+				role: "tool",
+				tool_call_id: "u10000000",
+				content: markUntrustedResult("get_weather", `18°C`),
+			},
 			{
 				role: "assistant",
 				content: "It is 18°C in Paris.",
@@ -766,7 +820,11 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 				],
 				content: "Let me check that.",
 			},
-			{ role: "tool", tool_call_id: "u10000000", content: "18°C, sunny" },
+			{
+				role: "tool",
+				tool_call_id: "u10000000",
+				content: markUntrustedResult("get_weather", `18°C, sunny`),
+			},
 			{ role: "assistant", content: "It is 18°C and sunny in Paris." },
 		]);
 	});
@@ -940,7 +998,11 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 					},
 				],
 			},
-			{ role: "tool", tool_call_id: "u10000000", content: "18°C" },
+			{
+				role: "tool",
+				tool_call_id: "u10000000",
+				content: markUntrustedResult("get_weather", `18°C`),
+			},
 			{ role: "assistant", content: "done" },
 		]);
 		// No reasoning_content anywhere, since the producer doesn't match.

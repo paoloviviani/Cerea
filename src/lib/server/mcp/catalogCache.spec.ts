@@ -4,6 +4,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const listing = vi.hoisted(() => ({
+	tools: [{ name: "find", description: "Find things.", inputSchema: { type: "object" } }] as Array<
+		Record<string, unknown>
+	>,
+}));
 const pool = vi.hoisted(() => ({
 	seen: [] as Array<{ url: string; headers?: Record<string, string> }>,
 	gate: undefined as Promise<void> | undefined,
@@ -14,9 +19,7 @@ vi.mock("./clientPool", () => ({
 		return {
 			listTools: async () => {
 				await pool.gate;
-				return {
-					tools: [{ name: "find", description: "Find things.", inputSchema: { type: "object" } }],
-				};
+				return { tools: listing.tools };
 			},
 		};
 	},
@@ -65,6 +68,16 @@ describe("the catalogue cache", () => {
 		// Recorded under the configured address, which is what a turn looks up.
 		expect(knownTools(exa)?.map((t) => t.name)).toEqual(["find"]);
 		expect(knownTools(hf)?.map((t) => t.name)).toEqual(["find"]);
+	});
+
+	it("records a tool's own description in the catalogue, never the guard sentence", async () => {
+		const url = "https://mcp.exa.ai/mcp";
+		listing.tools = [{ name: "bare", inputSchema: { type: "object" } }];
+		await refreshCatalog([{ name: "exa", url }]);
+		expect(knownTools(url)?.[0].description).toBeUndefined();
+		listing.tools = [
+			{ name: "find", description: "Find things.", inputSchema: { type: "object" } },
+		];
 	});
 
 	it("does not start a refresh while one is still running", async () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { logger } from "$lib/server/logger";
 import { sanitizeJsonSchema, getOpenAiToolsForMcp, resetMcpToolsCache } from "./tools";
 import type { McpServerConfig } from "./httpClient";
+import { UNTRUSTED_DESCRIPTION_SUFFIX } from "$lib/server/textGeneration/untrusted";
 
 // In-memory MCP servers keyed by URL: each listTools call is recorded so tests
 // can assert exactly which servers were (re-)listed vs served from the cache.
@@ -411,7 +412,7 @@ describe("getOpenAiToolsForMcp tool annotations", () => {
 
 		const { tools, mapping } = await getOpenAiToolsForMcp([SERVER_A]);
 
-		expect(tools[0].function.description).toBe("Search things");
+		expect(tools[0].function.description).toBe(`Search things ${UNTRUSTED_DESCRIPTION_SUFFIX}`);
 		expect(mapping.search.annotations).toEqual({ readOnlyHint: true });
 	});
 

@@ -14,6 +14,8 @@ export interface ToolResultSuccess {
 	call: ToolCall;
 	outputs: Record<string, unknown>[];
 	display?: boolean;
+	/** The output is content from outside (a page, a document, a connector's data); set when the call ran. */
+	external?: boolean;
 }
 
 export interface ToolResultError {
