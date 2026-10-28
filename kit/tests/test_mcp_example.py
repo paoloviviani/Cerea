@@ -44,7 +44,8 @@ class McpExample(unittest.TestCase):
         self.assertRegex(OVERRIDE, r'OSM_USER_AGENT: "cerea-kit \(\+[^)\s]+\)"')
         self.assertNotRegex(OVERRIDE, r"OSM_USER_AGENT:.*example\.org")  # Nominatim refuses placeholder domains
         self.assertIn("NPM_CONFIG_CACHE: /cache/npm", OVERRIDE)
-        self.assertRegex(DOCKERFILE, r"(?m)^FROM node:\d+-slim@sha256:[0-9a-f]{64} AS node$")
+        # A major or an exact patch version (pinned at a security fix), always with its digest.
+        self.assertRegex(DOCKERFILE, r"(?m)^FROM node:\d+(?:\.\d+){0,2}-slim@sha256:[0-9a-f]{64} AS node$")
         self.assertIn("USER 10001", DOCKERFILE)
 
     def test_override_is_valid_compose(self):
