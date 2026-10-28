@@ -48,6 +48,7 @@
 	import { projectsChanged } from "$lib/stores/projectsRevision";
 	import MoveMenu from "$lib/components/MoveMenu.svelte";
 	import MoveToProjectModal from "$lib/components/MoveToProjectModal.svelte";
+	import DeleteConversationModal from "$lib/components/DeleteConversationModal.svelte";
 	import { useMoveConversation } from "$lib/utils/useMoveConversation";
 	import { projectTitle } from "$lib/stores/projectTitle";
 	import { GatewayError, gwGet, type BillableGroup, type VectorStore } from "$lib/gateway";
@@ -353,6 +354,7 @@
 
 	const moveConversation = useMoveConversation();
 	let moving = $state<ProjectConversation | null>(null);
+	let deleting = $state<ProjectConversation | null>(null);
 
 	/** The chat is no longer in this project: drop its row and count. */
 	function leftProject(conversation: ProjectConversation) {
@@ -375,6 +377,22 @@
 			project.name
 		);
 		if (ok) leftProject(conversation);
+	}
+
+	/**
+	 * Delete one of the person's own chats, with the same confirmation modal
+	 * the sidebar's row menu uses and the same endpoint. Offered for the
+	 * author's chats only: the server's delete is the caller's own anyway.
+	 */
+	async function deleteChat(conversation: ProjectConversation) {
+		failure = null;
+		try {
+			await api(`/conversations/${conversation.id}`, { method: "DELETE" });
+			leftProject(conversation);
+			projectsChanged();
+		} catch (err) {
+			failure = err instanceof Error ? err.message : m["nav.projects.delete_chat_failed"]();
+		}
 	}
 
 	// ---- sharing and deleting -------------------------------------------------
@@ -453,6 +471,19 @@
 		chat={{ id: moving.id, title: moving.title, model: moving.model, projectId: project?.id }}
 		onclose={() => (moving = null)}
 		onmoved={() => moving && leftProject(moving)}
+	/>
+{/if}
+
+{#if deleting}
+	<DeleteConversationModal
+		open={true}
+		title={deleting.title}
+		onclose={() => (deleting = null)}
+		ondelete={() => {
+			const target = deleting;
+			deleting = null;
+			if (target) void deleteChat(target);
+		}}
 	/>
 {/if}
 
@@ -976,6 +1007,7 @@
 													label={conversation.title}
 													onmove={conversation.mine ? () => (moving = conversation) : undefined}
 													onremove={() => removeChat(conversation)}
+													ondelete={conversation.mine ? () => (deleting = conversation) : undefined}
 												/>
 											{/if}
 										</li>

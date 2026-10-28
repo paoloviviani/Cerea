@@ -1,10 +1,14 @@
+import { onDestroy } from "svelte";
 import type { MessageFile } from "$lib/types/Message";
 import { getExecutionSession } from "./runtime";
 import { getMountsStore } from "./mounts.svelte";
-import { AttachmentMounter } from "./attachmentMounter";
+import { AttachmentMounter, type ProducedFile } from "./attachmentMounter";
 
 /**
- * Keeps the open chat conversation's attachments mounted in the sandbox.
+ * Keeps the open chat conversation's files mounted in the sandbox: its
+ * attachments, and the files its tools and runs produced (the latest version
+ * of each name, listed from the server on every run, because a document tool
+ * can save a new version between two runs).
  *
  * The sandbox is session-global — one interpreter shared by every chat block
  * and artifact — so this follows the conversation page: it is told which
@@ -46,24 +50,22 @@ class ConversationAttachments {
 			: undefined;
 	}
 
-	/** A pending mount, or `undefined` when there is nothing to do right now. */
-	ensure(): Promise<void> | undefined {
+	/** The pending mount of the open conversation's files; `undefined` when none is open. */
+	ensure(code?: string): Promise<void> | undefined {
 		const source = this.#source;
 		const session = getExecutionSession();
 		if (!source || !session) return undefined;
 		const mounter = this.mounterFor(source.conversationId, session);
-		if (!mounter.needsSync(source.files)) {
-			// Nothing new to mount, but an earlier run's mount may still be in
-			// flight: starting now would run the code before its files are there.
-			return this.#pending > 0 ? this.#queue.then(() => undefined) : undefined;
-		}
 		// Serialised: a run that starts while a mount is in flight waits for it
-		// rather than racing a second fetch of the same file. `sync` does not
-		// throw, but the catch keeps one that somehow did from leaving the queue
+		// rather than racing a second fetch of the same file. Neither step
+		// throws, but the catch keeps one that somehow did from leaving the queue
 		// rejected — every later mount chained onto it would be skipped, silently.
 		this.#pending += 1;
 		const next = this.#queue
-			.then(() => mounter.sync(source.files))
+			.then(async () => {
+				if (mounter.needsSync(source.files)) await mounter.sync(source.files);
+				await mounter.syncProduced(await listProduced(source.conversationId), { code });
+			})
 			.catch((err) => console.warn("[attachments] mounting failed:", err))
 			.finally(() => {
 				this.#pending -= 1;
@@ -91,6 +93,26 @@ class ConversationAttachments {
 	}
 }
 
+/** How long a run waits for the list of the conversation's stored files. */
+export const LIST_TIMEOUT_MS = 5000;
+
+/** The conversation's stored files; empty when the list cannot be had (the run still goes ahead). */
+async function listProduced(conversationId: string): Promise<ProducedFile[]> {
+	try {
+		// Every run waits on this: a slow answer must not hold the code back.
+		const response = await fetch(`/conversation/${conversationId}/code-execution/output`, {
+			credentials: "same-origin",
+			signal: AbortSignal.timeout(LIST_TIMEOUT_MS),
+		});
+		if (!response.ok) return [];
+		const body = (await response.json()) as { files?: ProducedFile[] };
+		return Array.isArray(body.files) ? body.files : [];
+	} catch (err) {
+		console.warn("[attachments] the conversation's produced files were not listed:", err);
+		return [];
+	}
+}
+
 let conversationAttachments: ConversationAttachments | undefined;
 
 function store(): ConversationAttachments {
@@ -107,14 +129,35 @@ export function setAttachmentSource(
 }
 
 /**
+ * Follow the open conversation from a component's script (the chat page):
+ * `read` gives the conversation and its messages, or `null` when there is
+ * none, and the source is dropped when the component is destroyed.
+ *
+ * It must be `$effect.pre`, not `$effect`. Effects run children first, and a
+ * code card that is on screen when the page mounts (a reload or a reopened tab
+ * while the turn waits on `execute_code`) starts its run in its own effect: a
+ * plain `$effect` here registered the conversation only after that run had
+ * started, so the first run found nothing mounted and `/mnt/data` was empty.
+ * A pre effect runs while the page is being created, before any child exists.
+ */
+export function trackAttachmentSource(
+	read: () => { conversationId: string; messages: Array<{ files?: MessageFile[] }> } | null
+): void {
+	$effect.pre(() => {
+		setAttachmentSource(read());
+	});
+	onDestroy(() => setAttachmentSource(null));
+}
+
+/**
  * Run `run` once the open conversation's attachments have settled in the
  * sandbox — mounted, or reported as not available on the chips. A mount that
  * fails never blocks the run, but the run does wait for it to finish failing:
  * code that starts while a file is still being fetched sees an empty
- * `/mnt/data`. When there is nothing pending `run` is called synchronously, as
+ * `/mnt/data`. With no conversation open `run` is called synchronously, as
  * it always was.
  */
-export function withAttachmentMounts<T>(run: () => Promise<T>): Promise<T> {
-	const pending = conversationAttachments?.ensure();
+export function withAttachmentMounts<T>(run: () => Promise<T>, code?: string): Promise<T> {
+	const pending = conversationAttachments?.ensure(code);
 	return pending ? pending.then(run, run) : run();
 }

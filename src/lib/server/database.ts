@@ -855,9 +855,27 @@ export class Database {
 
 		// Dedup + the access-checked download lookup: one row per distinct
 		// deliverable a conversation has produced.
-		codeExecutionOutputs
-			.createIndex({ conversationId: 1, sha256: 1 }, { unique: true })
-			.catch((e) => logger.error(e, "Error creating index for codeExecutionOutputs by sha256"));
+		// One row per (name, content): the same bytes under another name are another
+		// file's version. The earlier unique (conversationId, sha256) index is
+		// replaced by this one and a plain lookup index.
+		void (async () => {
+			try {
+				const indexes = await codeExecutionOutputs.indexes().catch(() => []);
+				const old = indexes.find(
+					(index) =>
+						index.unique === true &&
+						JSON.stringify(index.key) === JSON.stringify({ conversationId: 1, sha256: 1 })
+				);
+				await codeExecutionOutputs.createIndex(
+					{ conversationId: 1, name: 1, sha256: 1 },
+					{ unique: true }
+				);
+				if (old?.name) await codeExecutionOutputs.dropIndex(old.name);
+				await codeExecutionOutputs.createIndex({ conversationId: 1, sha256: 1 });
+			} catch (e) {
+				logger.error(e, "Error creating index for codeExecutionOutputs by name and sha256");
+			}
+		})();
 		// Conversation-delete cleanup lists a conversation's rows by this alone.
 		codeExecutionOutputs
 			.createIndex({ conversationId: 1 })
@@ -872,6 +890,23 @@ export class Database {
 		// GridFS bytes were usually left behind for good. An existing TTL index
 		// is dropped and replaced by a plain one the sweep's range query uses.
 		void replaceTtlIndex(codeExecutionOutputs, "codeExecutionOutputs");
+		// The sweep's stale filter asks for `latestAt` first (`latestAt` set and
+		// old; rows without one fall through to `createdAt`): sparse, so only
+		// the rows a restore touched are in it.
+		codeExecutionOutputs
+			.createIndex({ latestAt: 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for codeExecutionOutputs by latestAt"));
+		// Two saves racing on the same name must not store the same version
+		// number: the loser (`storeDeliverable`) recomputes and retries. Rows
+		// still without a version (the lazy back-fill's targets) sit outside it.
+		codeExecutionOutputs
+			.createIndex(
+				{ conversationId: 1, name: 1, version: 1 },
+				{ unique: true, partialFilterExpression: { version: { $exists: true } } }
+			)
+			.catch((e) =>
+				logger.error(e, "Error creating index for codeExecutionOutputs by name and version")
+			);
 		// The sweep for orphaned bytes asks which files a row still names.
 		codeExecutionOutputs
 			.createIndex({ gridFsId: 1 })

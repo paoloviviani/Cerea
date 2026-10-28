@@ -7,6 +7,7 @@ import {
 	cleanupTestData,
 } from "$lib/server/api/__tests__/testHelpers";
 
+import { markCurrentVersion } from "$lib/server/execution/deliverables";
 import { GET as listDeliverables, POST } from "./+server";
 import { GET } from "./[sha256]/+server";
 
@@ -144,6 +145,34 @@ describe.sequential("GET /conversation/[id]/code-execution/output", () => {
 		expect(body.files[0].mime).toBe("text/csv");
 		expect(body.files[0].sha256).toMatch(/^[0-9a-f]{64}$/);
 		expect(() => new Date(body.files[0].createdAt).toISOString()).not.toThrow();
+	});
+
+	it("puts a restored older version first, so the panel and the mount follow it", async () => {
+		const { locals } = await createTestUser();
+		const conv = await createTestConversation(locals);
+		const id = conv._id.toString();
+		const upload = (content: string) =>
+			POST({
+				params: { id },
+				locals,
+				request: uploadRequest([{ name: "form.pdf", content }]),
+			} as never);
+		const sha = async (content: string) =>
+			((await (await upload(content)).json()) as { files: Array<{ sha256: string }> }).files[0]
+				.sha256;
+		const v2 = await sha("version two");
+		await new Promise((r) => setTimeout(r, 5));
+		await sha("version three");
+		await new Promise((r) => setTimeout(r, 5));
+		await markCurrentVersion(conv._id, "form.pdf", v2);
+
+		const res = await listDeliverables({ params: { id }, locals } as never);
+		const body = (await res.json()) as {
+			files: Array<{ sha256: string; latestAt?: string; version?: number }>;
+		};
+		expect(body.files.map((f) => f.version)).toEqual([1, 2]);
+		expect(body.files[0].sha256).toBe(v2);
+		expect(body.files[0].latestAt).toBeDefined();
 	});
 
 	it("refuses a stranger's conversation with 404, not 403", async () => {

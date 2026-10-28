@@ -1,4 +1,5 @@
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { collections, ready, replaceTtlIndex } from "$lib/server/database";
 import {
@@ -14,6 +15,14 @@ import {
 	sweepExpiredDeliverables,
 	sweepOrphanedDeliverableBytes,
 } from "./deliverables";
+
+// The number `nextVersionNumber` returns is left real; the race tests below
+// override it once each, for the moment when a concurrent save's row has landed
+// between the read and the insert.
+vi.mock("./fileVersions", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./fileVersions")>();
+	return { ...actual, nextVersionNumber: vi.fn(actual.nextVersionNumber) };
+});
 
 beforeAll(async () => {
 	await ready;
@@ -61,30 +70,23 @@ describe("storeDeliverable", () => {
 		expect(row?.size).toBe(bytes.byteLength);
 	});
 
-	it("dedups identical bytes within a conversation instead of storing twice", async () => {
+	it("dedups identical bytes under the same name, but gives another name its own row", async () => {
 		const conversationId = newConversationId();
 		const bytes = Buffer.from("same content");
+		const save = (name: string) =>
+			storeDeliverable({ conversationId, name, mime: "text/plain", bytes });
 
-		const first = await storeDeliverable({
-			conversationId,
-			name: "a.txt",
-			mime: "text/plain",
-			bytes,
-		});
-		const second = await storeDeliverable({
-			conversationId,
-			// Different name for the same bytes: the existing row's name wins,
-			// which is fine — dedup is about not duplicating storage, not about
-			// which of two names a rerun happened to use.
-			name: "b.txt",
-			mime: "text/plain",
-			bytes,
-		});
+		const first = await save("a.txt");
+		const again = await save("a.txt");
+		// Another name for the same bytes is another file with its own versions: its
+		// own row, never a's (a restore or an edit of one must not move the other).
+		const other = await save("b.txt");
 
-		expect(first.ok && second.ok).toBe(true);
-		if (!first.ok || !second.ok) return;
-		expect(second.ref.sha256).toBe(first.ref.sha256);
-		expect(await collections.codeExecutionOutputs.countDocuments({ conversationId })).toBe(1);
+		if (!first.ok || !again.ok || !other.ok) throw new Error("not stored");
+		expect(again.existing).toBe(true);
+		expect(other.existing).toBeUndefined();
+		expect(other.ref.name).toBe("b.txt");
+		expect(await collections.codeExecutionOutputs.countDocuments({ conversationId })).toBe(2);
 	});
 
 	it("stores the same bytes again for a different conversation", async () => {
@@ -176,6 +178,77 @@ describe("storeDeliverable", () => {
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
 		expect(result.error).toContain("limit");
+	});
+});
+
+describe("a raced version number", () => {
+	it("recomputes the number and retries when another save took it", async () => {
+		const { nextVersionNumber } = await import("./fileVersions");
+		const conversationId = newConversationId();
+		// Another writer's row, already stored under this name with version 1.
+		await collections.codeExecutionOutputs.insertOne({
+			_id: new ObjectId(),
+			conversationId,
+			sha256: "1".repeat(64),
+			name: "race.txt",
+			mime: "text/plain",
+			size: 1,
+			gridFsId: new ObjectId(),
+			version: 1,
+			createdAt: new Date(),
+		});
+		// The raced save read its number before that row landed: it says 1,
+		// which the unique (conversation, name, version) index refuses.
+		vi.mocked(nextVersionNumber).mockImplementationOnce(async () => 1);
+
+		const result = await storeDeliverable({
+			conversationId,
+			name: "race.txt",
+			mime: "text/plain",
+			bytes: Buffer.from(`raced-${Math.random()}`),
+		});
+
+		expect(result.ok).toBe(true);
+		const versions = await collections.codeExecutionOutputs
+			.find({ conversationId })
+			.project<{ version: number }>({ version: 1 })
+			.sort({ version: 1 })
+			.toArray();
+		expect(versions.map((row) => row.version)).toEqual([1, 2]);
+	});
+
+	it("a racing save that stored the same bytes wins: this one reports them stored", async () => {
+		const { nextVersionNumber } = await import("./fileVersions");
+		const conversationId = newConversationId();
+		const bytes = Buffer.from("twin bytes");
+		const sha256 = createHash("sha256").update(bytes).digest("hex");
+		// The twin row lands between the number read and the insert.
+		vi.mocked(nextVersionNumber).mockImplementationOnce(async () => {
+			await collections.codeExecutionOutputs.insertOne({
+				_id: new ObjectId(),
+				conversationId,
+				sha256,
+				name: "twin.txt",
+				mime: "text/plain",
+				size: bytes.byteLength,
+				gridFsId: new ObjectId(),
+				version: 1,
+				createdAt: new Date(),
+			});
+			return 1;
+		});
+
+		const result = await storeDeliverable({
+			conversationId,
+			name: "twin.txt",
+			mime: "text/plain",
+			bytes,
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.existing).toBe(true);
+		expect(await collections.codeExecutionOutputs.countDocuments({ conversationId })).toBe(1);
 	});
 });
 
@@ -320,6 +393,42 @@ describe("sweepExpiredDeliverables", () => {
 		await sweepExpiredDeliverables();
 
 		expect(await downloadDeliverable(conversationId, stored.ref.sha256)).toBeDefined();
+	});
+
+	it("expires a restored row from the restore's moment, however young the row is", async () => {
+		const conversationId = newConversationId();
+		const stored = await storeDeliverable({
+			conversationId,
+			name: "restored-long-ago.txt",
+			mime: "text/plain",
+			bytes: Buffer.from(`restored-${Math.random()}`),
+		});
+		expect(stored.ok).toBe(true);
+		if (!stored.ok) return;
+		await collections.codeExecutionOutputs.updateOne(
+			{ conversationId, sha256: stored.ref.sha256 },
+			{ $set: { createdAt: new Date(), latestAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000) } }
+		);
+
+		await sweepExpiredDeliverables();
+
+		expect(await collections.codeExecutionOutputs.countDocuments({ conversationId })).toBe(0);
+	});
+});
+
+describe("the sweep's indexes", () => {
+	it("latestAt is indexed sparse, and a name's version number is unique", async () => {
+		const indexes = await collections.codeExecutionOutputs.indexes();
+		const latestAt = indexes.find(
+			(index) => JSON.stringify(index.key) === JSON.stringify({ latestAt: 1 })
+		);
+		expect(latestAt).toMatchObject({ sparse: true });
+		const version = indexes.find(
+			(index) =>
+				JSON.stringify(index.key) === JSON.stringify({ conversationId: 1, name: 1, version: 1 })
+		);
+		expect(version).toMatchObject({ unique: true });
+		expect(version?.partialFilterExpression).toEqual({ version: { $exists: true } });
 	});
 });
 

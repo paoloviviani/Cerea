@@ -20,21 +20,24 @@ vi.mock("$lib/server/database", () => ({
 		conversations: { findOne: vi.fn(async () => db.conversation) },
 		users: { findOne: vi.fn(async () => (db.userName ? { name: db.userName } : null)) },
 		codeExecutionOutputs: {
-			find: (query: { name: string; conversationId?: unknown }) => ({
-				sort: () => ({
-					limit: () => ({
-						// Like the real query: a missing filter matches every conversation's rows.
-						next: async () =>
-							db.outputs.find(
-								(row) =>
-									row.name === query.name &&
-									(query.conversationId === undefined ||
-										row.conversationId === undefined ||
-										String(row.conversationId) === String(query.conversationId))
-							) ?? null,
+			updateOne: vi.fn(async () => ({})),
+			find: (query: { name: string; conversationId?: unknown }) => {
+				// Like the real query: a missing filter matches every conversation's rows.
+				const rows = () =>
+					db.outputs.filter(
+						(row) =>
+							row.name === query.name &&
+							(query.conversationId === undefined ||
+								row.conversationId === undefined ||
+								String(row.conversationId) === String(query.conversationId))
+					);
+				return {
+					sort: () => ({
+						limit: () => ({ next: async () => rows()[0] ?? null }),
+						toArray: async () => rows(),
 					}),
-				}),
-			}),
+				};
+			},
 			countDocuments: vi.fn(
 				async (query: { name: string }) => db.outputs.filter((r) => r.name === query.name).length
 			),
@@ -66,6 +69,7 @@ vi.mock("$lib/server/execution/deliverables", () => ({
 		const buffer = stored.outputs.get(sha);
 		return buffer ? { buffer, name: "n", mime: "m" } : undefined;
 	}),
+	markCurrentVersion: vi.fn(async () => undefined),
 	storeDeliverable: vi.fn(
 		async (input: {
 			name: string;
@@ -427,7 +431,9 @@ describe("doc_edit versioning", () => {
 		expect(body).toMatchObject({
 			saved: true,
 			file: "report.docx",
-			version: 1,
+			// the attachment is version 1, so the first edit is version 2
+			version: 2,
+			started_from: "version 1 (the latest)",
 			diff: ["word/document.xml:", "- Dear Acme", "+ Dear Beta"],
 			verify: { ok: true, parts: 20, byte_identical: 19, changed: ["word/document.xml"] },
 		});
@@ -478,7 +484,10 @@ describe("doc_edit versioning", () => {
 		const second = requests.filter((r) => r.path === "/v1/edit")[1];
 		expect(second.body).toContain("PK edited docx");
 		expect(stored.saved[1].derivedFrom).toMatchObject({ sha256: "e".repeat(64) });
-		expect(JSON.parse(out.resultText)).toMatchObject({ version: 2 });
+		expect(JSON.parse(out.resultText)).toMatchObject({
+			version: 3,
+			started_from: "version 2 (the latest)",
+		});
 	});
 
 	it("says so when the edit changed nothing", async () => {
@@ -525,6 +534,14 @@ describe("doc_edit versioning", () => {
 		const body = requests.find((r) => r.path === "/v1/edit")?.body ?? "";
 		expect(body).toContain('name="image"; filename="logo.png"');
 		expect(body).toContain("PNGDATA");
+	});
+
+	it("does not require operations in the schema, so a restore can omit them", async () => {
+		const edit = await named(DOC_EDIT_TOOL_NAME);
+		const parameters = edit.definition.function.parameters as { required: string[] };
+		expect(parameters.required).toEqual(["file"]);
+		const out = await edit.execute({ file: "report.docx" }, ctx());
+		expect(out).toMatchObject({ error: expect.stringContaining("or `version` alone to restore") });
 	});
 
 	it("rejects an operation outside the listed ones before any call", async () => {
@@ -735,7 +752,7 @@ describe("PDF forms", () => {
 		});
 		expect(stored.saved[0].bytes.equals(PDF)).toBe(true);
 		const body = JSON.parse(out.resultText);
-		expect(body).toMatchObject({ saved: true, file: "form.pdf", version: 1 });
+		expect(body).toMatchObject({ saved: true, file: "form.pdf", version: 2 });
 		// a value that did not take reaches the model, which must not claim it was filled
 		expect(body.verify).toMatchObject({
 			ok: false,

@@ -108,7 +108,7 @@ class ArtifactRunsStore {
 			this.#memory[key] = state;
 		});
 
-		withAttachmentMounts(() => session.run(content))
+		withAttachmentMounts(() => session.run(content), content)
 			.then((outcome) => {
 				const settled: RunState = {
 					...state,

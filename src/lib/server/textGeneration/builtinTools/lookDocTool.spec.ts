@@ -25,7 +25,8 @@ vi.mock("$lib/server/documents/client", async (importOriginal) => ({
 }));
 
 const files = vi.hoisted(() => ({ find: vi.fn() }));
-vi.mock("./conversationFiles", () => ({
+vi.mock("./conversationFiles", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./conversationFiles")>()),
 	findConversationFile: files.find,
 	bareName: (s: string) => s,
 }));
@@ -199,6 +200,26 @@ describe("look_doc through the preview cache", () => {
 		expect(service.render.mock.calls[1][1]).toEqual({ pages: [5], max_side_px: 1200 });
 		expect(first).toMatchObject({ resultText: expect.stringContaining("deck.pptx has 12 slides") });
 		expect(second).toMatchObject({ images: [{ label: "deck.pptx, slide 5 of 12" }] });
+	});
+
+	it("looks at an earlier version, names it, and refuses a bad version before anything is drawn", async () => {
+		files.find.mockResolvedValue({ ...pptx(), version: 1, versionCount: 3, currentVersion: 3 });
+		const look = tool();
+
+		const out = await look.execute({ file: "deck.pptx", version: 1, pages: 2 }, ctx());
+		expect(files.find).toHaveBeenCalledWith(conversationId, "deck.pptx", {
+			prefer: "output",
+			version: 1,
+		});
+		expect(out).toMatchObject({
+			resultText: expect.stringContaining("deck.pptx (version 1) has 12 slides"),
+		});
+
+		service.render.mockClear();
+		expect(await look.execute({ file: "deck.pptx", version: "latest-ish" }, ctx())).toMatchObject({
+			error: expect.stringContaining("`version` is a whole number from 1"),
+		});
+		expect(service.render).not.toHaveBeenCalled();
 	});
 
 	it("does not convert a file the chat already previewed", async () => {

@@ -73,6 +73,7 @@
 		size: number;
 		sha256: string;
 		createdAt: string;
+		latestAt?: string;
 	}
 
 	let conversationId = $derived(page.params?.id);

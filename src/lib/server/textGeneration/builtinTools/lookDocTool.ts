@@ -8,7 +8,7 @@ import {
 } from "$lib/server/office/gotenberg";
 import { getOrCreatePreview, previewOwner } from "$lib/server/office/previewStore";
 import { logger } from "$lib/server/logger";
-import { findConversationFile } from "./conversationFiles";
+import { VERSION_PROPERTY, findConversationFile, parseVersion } from "./conversationFiles";
 import type { DocumentTurnState } from "./documentTools";
 import {
 	MAX_IMAGES_PER_TURN,
@@ -166,6 +166,7 @@ export function createLookDocBuiltins(
 								description:
 									"Name of the file in the conversation, e.g. deck.pptx (or /mnt/data/deck.pptx).",
 							},
+							version: VERSION_PROPERTY,
 							pages: {
 								description: `1-based page or slide numbers: a number, a range string such as "2-4", or a list of them. At most ${cap} pages.`,
 								anyOf: [
@@ -194,8 +195,11 @@ export function createLookDocBuiltins(
 				const parsed = parsePages(args.pages, cap);
 				if (!parsed.ok) return { error: parsed.error };
 
+				const version = parseVersion(args.version);
+				if (!version.ok) return { error: version.error };
 				const file = await findConversationFile(ctx.conversationId, args.file, {
 					prefer: "output",
+					version: version.version,
 				});
 				if (!file.ok) return { error: file.error };
 				const ext = extensionOf(file.name);
@@ -249,7 +253,10 @@ export function createLookDocBuiltins(
 				const deck = isSlideDeck(file.name);
 				const noun = deck ? "slide" : "page";
 				const size = deck ? { max_side_px: SLIDE_MAX_SIDE_PX } : { width_px: PAGE_WIDTH_PX };
-				const touched = deck ? turn?.touchedSlides.get(file.name) : undefined;
+				const touched =
+					deck && file.version === file.currentVersion
+						? turn?.touchedSlides.get(file.name)
+						: undefined;
 				const asked = parsed.pages ?? touched?.slice(0, cap);
 
 				try {
@@ -289,7 +296,7 @@ export function createLookDocBuiltins(
 					const first = rendered.pages[0];
 					return {
 						resultText:
-							`${file.name} has ${rendered.page_count} ${noun}${rendered.page_count === 1 ? "" : "s"}. ` +
+							`${file.name}${file.version === file.currentVersion ? "" : ` (version ${file.version})`} has ${rendered.page_count} ${noun}${rendered.page_count === 1 ? "" : "s"}. ` +
 							`Showing ${noun}${shown.length === 1 ? "" : "s"} ${shown.join(", ")} as ${formats} image${shown.length === 1 ? "" : "s"} ` +
 							`(${first ? `${first.width}x${first.height} px` : ""}), next to this result. ` +
 							(more > 0 ? `${more} more not shown: ask for them with \`pages\`. ` : "") +

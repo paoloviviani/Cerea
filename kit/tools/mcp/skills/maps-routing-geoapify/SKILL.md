@@ -42,7 +42,7 @@ it; if they are already available, go straight to them. Load only what the quest
 | What's reachable within a time ("15 minutes' walk") | OSM `isochrone` | — |
 | A fair meeting point | travel times with OSM `route_matrix`, then a place near the best point from `search_places` | — |
 | Inside an area? Buffers, areas, lengths | Geoapify geometry tools | — |
-| A link to show the place or route | OSM `map_link` (offline, always works) | — |
+| A link to show the place or route | OSM `map_link` with coordinates you already have | — |
 
 Ask one service, not both, for the same thing. Use the second only when the first fails or can't answer.
 
@@ -100,7 +100,13 @@ pages for addresses, hours and prices. Call them only if the person asks for the
 
 - Map data can be out of date. Give opening hours and phone numbers as "listed as", and suggest checking
   before travelling when it matters. When sources disagree, prefer the place's own website.
-- Give names, addresses, distances and a `map_link`; never raw coordinates unless asked. Use the same
-  starting point for the distances and the links; if the address only resolved to its street, say so.
+- **A named venue** (restaurant, shop, museum): find its address with a web search or its own website
+  first, then geocode the address. Don't geocode the venue's name.
+- Don't cross-check one service's coordinates with the other unless the results conflict.
+- **`map_link`:** pass coordinates you already have (`"lat,lon"`), never names: it geocodes names itself and
+  can land on the wrong spot. One link per answer is usually enough.
+- Give names, addresses and distances; never raw coordinates unless asked. Use the same coordinates for
+  the distances and the link; if the address only resolved to its street, say so.
+- Say which distance you mean: walking (from `route`) or straight-line, never both unlabelled.
 - Geometry tools take GeoJSON in `[longitude, latitude]` order; routing and place tools take `lat` and
   `lon` separately. Don't swap them.
