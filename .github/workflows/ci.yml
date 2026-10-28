@@ -209,8 +209,8 @@ jobs:
           else
             echo "client=false" >> "$GITHUB_OUTPUT"
           fi
-          # the document service: only when it (or this workflow) changed
-          if grep -qE '^(documents/|\.github/workflows/ci\.yml$)' <<<"$changed"; then
+          # the document service: only when it (or this workflow, or the skill copy of its PDF form code) changed
+          if grep -qE '^(documents/|\.github/workflows/ci\.yml$|scripts/sync_pdf_tools\.py$|src/lib/server/skills/builtin/pdf-tools/)' <<<"$changed"; then
             echo "documents=true" >> "$GITHUB_OUTPUT"
           else
             echo "documents=false" >> "$GITHUB_OUTPUT"

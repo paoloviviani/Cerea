@@ -5017,6 +5017,56 @@
 			"read": true,
 			"track_changes": true
 		},
+		"pdf": {
+			"deferred_operations": [],
+			"operation_schemas": {
+				"fill_form": {
+					"additionalProperties": false,
+					"properties": {
+						"flatten": {
+							"description": "Bake the values into the pages; the form is no longer editable.",
+							"type": "boolean"
+						},
+						"op": {
+							"type": "string"
+						},
+						"values": {
+							"additionalProperties": {
+								"anyOf": [
+									{
+										"type": "string"
+									},
+									{
+										"type": "number"
+									},
+									{
+										"type": "boolean"
+									},
+									{
+										"type": "null"
+									},
+									{
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									}
+								]
+							},
+							"description": "Field name (as doc_outline lists it) to value: text, true/false or the on-state for a checkbox, an option for a radio group, an option's value or label for a list or combo box.",
+							"minProperties": 1,
+							"type": "object"
+						}
+					},
+					"required": ["op", "values"],
+					"type": "object"
+				}
+			},
+			"operations": ["fill_form"],
+			"outline": true,
+			"read": false,
+			"track_changes": false
+		},
 		"pptx": {
 			"deferred_operations": ["insert_chart", "insert_image into a picture placeholder"],
 			"operation_schemas": {

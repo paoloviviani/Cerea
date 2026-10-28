@@ -1,12 +1,13 @@
 ---
 name: pdf
-description: Create PDF documents with the doc_create tool (format pdf) - reports, letters, structured pages, tables, images and charts with reliable layout. Use when the task is to produce a new PDF; for merging, splitting, forms or reading an existing PDF use pdf-tools.
+description: Create PDF documents with the doc_create tool (format pdf) - reports, letters, structured pages, tables, images and charts with reliable layout. Use when the task is to produce a new PDF; for filling a form, merging, splitting or reading an existing PDF use pdf-tools.
 ---
 
 # PDF documents
 
-Use this skill when the person wants a **new** PDF. For an existing PDF (merge, split, rotate, fill forms, encrypt,
-extract text), use the `pdf-tools` skill: the document tools do not edit PDFs.
+Use this skill when the person wants a **new** PDF. For an existing PDF (fill a form, merge, split, rotate, encrypt,
+extract text), use the `pdf-tools` skill. Among the document tools only `doc_outline` and `doc_edit fill_form` work
+on an existing PDF (its form); they do not edit a PDF in any other way.
 
 ## One rule
 

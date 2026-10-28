@@ -49,6 +49,8 @@ class Limits:
     max_table_cells: int = 20_000  # all tables of one spec
     max_sheet_cells: int = 100_000  # all cells of one workbook spec
     max_chart_points: int = 5000  # values of one chart
+    max_pdf_pages: int = 2000  # a PDF to outline or fill
+    max_pdf_fields: int = 5000  # form fields of one PDF
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Limits:
@@ -77,6 +79,8 @@ class Limits:
             max_table_cells=_int(e, p + "MAX_TABLE_CELLS", d.max_table_cells),
             max_sheet_cells=_int(e, p + "MAX_SHEET_CELLS", d.max_sheet_cells),
             max_chart_points=_int(e, p + "MAX_CHART_POINTS", d.max_chart_points),
+            max_pdf_pages=_int(e, p + "MAX_PDF_PAGES", d.max_pdf_pages),
+            max_pdf_fields=_int(e, p + "MAX_PDF_FIELDS", d.max_pdf_fields),
         )
 
     def to_dict(self) -> dict[str, int]:

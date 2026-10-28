@@ -27,7 +27,7 @@ def test_healthz_is_open_and_capabilities_need_the_secret(client: TestClient) ->
     r = client.get("/v1/capabilities", headers=AUTH)
     assert r.status_code == 200
     caps = r.json()
-    assert set(caps["formats"]) == {"docx", "xlsx", "pptx"}
+    assert set(caps["formats"]) == {"docx", "xlsx", "pptx", "pdf"}
     for fmt in caps["formats"].values():
         # every operation is described by its schema (the chat builds its tool text from these)
         assert sorted(fmt["operation_schemas"]) == fmt["operations"]

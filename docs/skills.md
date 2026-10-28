@@ -82,10 +82,14 @@ whose standard fonts cover ASCII only.
 
 ### pdf-tools
 
-The other half of PDF work, on an existing file: merge, split, rotate,
-reorder pages, fill AcroForm fields, extract text and metadata, encrypt and
-decrypt. Encryption uses RC4-128 because the browser has no AES library for
-PDF work — the assistant will say so if you ask for it to encrypt.
+The other half of PDF work, on an existing file: fill in a form, merge, split,
+rotate, reorder pages, extract text and metadata, encrypt and decrypt. With the
+document service a form is filled by `doc_outline` and `doc_edit` (see
+[Filling PDF forms](office.md#filling-pdf-forms)), one rule stated first in the
+skill; the browser route for forms is only the fallback when the service is
+absent. Everything else is done in the browser. Encryption uses RC4-128 because
+the browser has no AES library for PDF work — the assistant will say so if you
+ask for it to encrypt.
 
 ### powerpoint
 

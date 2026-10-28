@@ -130,11 +130,63 @@ describe("the powerpoint design exception", () => {
 	});
 });
 
+describe("the pdf-tools skill and PDF forms", () => {
+	const FORMS_FALLBACK = "## Fallback: forms in the sandbox";
+	const content = skill("pdf-tools").content;
+	const at = content.indexOf(FORMS_FALLBACK);
+	const toolsFirst = content.slice(0, at);
+	const fallback = content.slice(at);
+	/** The helper's form functions and what they return: only the fallback may name them. */
+	const HELPER_FORMS = /form_fields|fill_form\(|pdf_tools\.fill_form|PdfFormError/;
+
+	it("states one rule for forms first: doc_outline and doc_edit when they are offered", () => {
+		expect(at).toBeGreaterThan(0);
+		expect(content.split(FORMS_FALLBACK)).toHaveLength(2);
+		const rule = section(toolsFirst, "One rule for forms");
+		expect(rule).toMatch(
+			/When `doc_edit` is in your tool list, a PDF form is filled ONLY with\s+`doc_outline` and `doc_edit`/
+		);
+		expect(rule).toMatch(/Do not fill a form in the sandbox/);
+		expect(rule).toMatch(/jump to the last section, "Fallback: forms in the sandbox"/);
+		const headings = toolsFirst.match(/^## .+$/gm) ?? [];
+		expect(headings[0]).toBe("## One rule for forms");
+	});
+
+	it("tells the model to list the fields first, ask about anything ambiguous and report what was filled", () => {
+		const rule = section(toolsFirst, "One rule for forms");
+		expect(rule).toMatch(/Always call it first/);
+		expect(rule).toMatch(/never\s+guess a field name/);
+		expect(rule).toMatch(/ambiguous[^]*ask the user/);
+		expect(rule).toMatch(/Report what was filled/);
+		expect(rule).toMatch(/not_taken/);
+		expect(rule).toMatch(/\*\*XFA\*\*/);
+		expect(rule).toMatch(/\*\*no form fields\*\*/);
+	});
+
+	it("names the helper's form functions only in the fallback, which is the last section", () => {
+		expect(toolsFirst.replace(section(toolsFirst, "One rule for forms"), "")).not.toMatch(
+			HELPER_FORMS
+		);
+		expect(fallback.slice(FORMS_FALLBACK.length)).not.toMatch(/^## /m);
+		expect(fallback).toContain("Read this section only if `doc_edit` is NOT in your tool list");
+		expect(fallback).toMatch(/must not be mixed with the\s+tools/);
+		expect(fallback).toMatch(HELPER_FORMS);
+		expect(fallback).toMatch(/XFA/);
+	});
+
+	it("uses the users, not the people", () => {
+		expect(content).not.toMatch(/\bpeople\b/i);
+	});
+});
+
 describe("pairs with the rest of the skills", () => {
 	it("the pdf skill sends existing-PDF work to pdf-tools, which stays a sandbox skill", () => {
 		const { toolsFirst } = parts("pdf");
 		expect(toolsFirst).toContain("`pdf-tools`");
-		expect(toolsFirst).toMatch(/do not edit PDFs/);
+		expect(toolsFirst).toMatch(
+			/only `doc_outline` and `doc_edit fill_form` work\s+on an existing PDF/
+		);
+		expect(toolsFirst).toMatch(/do not edit a PDF in any other way/);
 		const tools = skill("pdf-tools").content;
 		expect(tools).toContain("pypdf");
 		expect(tools).toMatch(/For \*\*creating\*\* a new PDF, use the `pdf`\s+skill instead/);

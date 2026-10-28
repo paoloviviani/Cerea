@@ -126,6 +126,23 @@ const CAPS = {
 			track_changes: true,
 		},
 		xlsx: { outline: true, read: true, operations: ["set_cells"], track_changes: false },
+		pdf: {
+			outline: true,
+			read: false,
+			operations: ["fill_form"],
+			operation_schemas: {
+				fill_form: {
+					type: "object",
+					properties: {
+						op: { type: "string" },
+						values: { type: "object" },
+						flatten: { type: "boolean" },
+					},
+					required: ["op", "values"],
+				},
+			},
+			track_changes: false,
+		},
 	},
 };
 
@@ -139,6 +156,8 @@ let requests: Array<{
 let capabilities: unknown = CAPS;
 let editStatus = 200;
 let editBody: unknown;
+/** Fields that replace parts of the service's edit answer (a PDF answer, for example). */
+let editOverride: Record<string, unknown> | undefined;
 
 beforeAll(async () => {
 	server = http.createServer((req, res) => {
@@ -164,16 +183,19 @@ beforeAll(async () => {
 			if (req.url === "/v1/edit") {
 				if (editStatus !== 200) return json(editStatus, editBody);
 				return json(200, {
-					format: "docx",
-					engine: "cerea-documents/test",
-					operations: [{ index: 0, op: "replace_text", result: { replaced: 1 } }],
-					diff: ["word/document.xml:", "- Dear Acme", "+ Dear Beta"],
-					verify: { ok: true, parts: 20, byte_identical: 19, changed: ["word/document.xml"] },
-					passed_through: [],
-					file_name: "report.docx",
-					content_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-					file_bytes: EDITED.byteLength,
-					file_base64: EDITED.toString("base64"),
+					...{
+						format: "docx",
+						engine: "cerea-documents/test",
+						operations: [{ index: 0, op: "replace_text", result: { replaced: 1 } }],
+						diff: ["word/document.xml:", "- Dear Acme", "+ Dear Beta"],
+						verify: { ok: true, parts: 20, byte_identical: 19, changed: ["word/document.xml"] },
+						passed_through: [],
+						file_name: "report.docx",
+						content_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+						file_bytes: EDITED.byteLength,
+						file_base64: EDITED.toString("base64"),
+					},
+					...editOverride,
 				});
 			}
 			json(404, {});
@@ -203,6 +225,7 @@ beforeEach(() => {
 	capabilities = CAPS;
 	editStatus = 200;
 	editBody = undefined;
+	editOverride = undefined;
 	stored.attachments.clear();
 	stored.outputs.clear();
 	stored.saved = [];
@@ -276,6 +299,7 @@ describe("gating", () => {
 			"replace_text",
 			"set_table_cell",
 			"set_cells",
+			"fill_form",
 		]);
 	});
 
@@ -553,5 +577,116 @@ describe("loop protection", () => {
 		let last: unknown;
 		for (let i = 0; i < 31; i += 1) last = await outline.execute({ file: "report.docx" }, ctx());
 		expect(last).toMatchObject({ error: expect.stringContaining("limit") });
+	});
+});
+
+describe("PDF forms", () => {
+	const pdfOps = [{ op: "fill_form", values: { full_name: "Ada", agree: true } }];
+	const PDF = Buffer.from("%PDF-1.7 filled");
+
+	beforeEach(() => {
+		db.conversation = { messages: [{ files: [attachment("form.pdf", "sha-f")] }] };
+		stored.attachments.set(`${conversationId}:sha-f`, Buffer.from("%PDF-1.7 original"));
+	});
+
+	it("describes fill_form from the service's schema and says a PDF has no other edit", async () => {
+		const text = (await named(DOC_EDIT_TOOL_NAME)).definition.function.description ?? "";
+		expect(text).toContain("PDF (.pdf): fill_form{values: object, flatten?: boolean}");
+		expect(text).toMatch(/A PDF has one operation, fill_form, and no other edit/);
+		expect(text).toMatch(/call doc_outline first for the field names and allowed values/);
+		expect(text).toMatch(/XFA form cannot be filled/);
+		const outline = (await named(DOC_OUTLINE_TOOL_NAME)).definition.function.description ?? "";
+		expect(outline).toMatch(/PDF's pages and, when it has a form, its fields/);
+	});
+
+	it("says nothing about PDF forms when the service lists no fill_form", async () => {
+		capabilities = { formats: { docx: CAPS.formats.docx } };
+		resetCapabilitiesCache();
+		const text = (await named(DOC_EDIT_TOOL_NAME)).definition.function.description ?? "";
+		expect(text).not.toMatch(/fill_form|A PDF has one operation/);
+	});
+
+	it("sends a PDF to the service under its name and saves the filled one as the next version", async () => {
+		editOverride = {
+			format: "pdf",
+			operations: [
+				{
+					index: 0,
+					op: "fill_form",
+					result: { filled: [{ field: "full_name", value: "Ada" }], skipped: ["email"] },
+				},
+			],
+			diff: ['full_name: "" -> "Ada"', 'agree: "Off" -> "Si"'],
+			verify: {
+				ok: false,
+				pages: 3,
+				fields_checked: 2,
+				filled: 1,
+				not_taken: [{ field: "agree", value: "Si", found: "Off" }],
+				problems: ["field \"agree\": wanted 'Si', found 'Off'"],
+				flattened: false,
+				reopened_with: "pypdf",
+			},
+			file_name: "form.pdf",
+			content_type: "application/pdf",
+			file_base64: PDF.toString("base64"),
+		};
+		const out = result(
+			await (
+				await named(DOC_EDIT_TOOL_NAME)
+			).execute({ file: "form.pdf", operations: pdfOps }, ctx())
+		);
+		const sent = requests.find((r) => r.path === "/v1/edit");
+		expect(sent?.body).toContain('filename="form.pdf"');
+		expect(sent?.body).toContain('"op":"fill_form"');
+		expect(stored.saved[0]).toMatchObject({
+			name: "form.pdf",
+			mime: "application/pdf",
+			derivedFrom: { sha256: "sha-f", name: "form.pdf" },
+		});
+		expect(stored.saved[0].bytes.equals(PDF)).toBe(true);
+		const body = JSON.parse(out.resultText);
+		expect(body).toMatchObject({ saved: true, file: "form.pdf", version: 1 });
+		// a value that did not take reaches the model, which must not claim it was filled
+		expect(body.verify).toMatchObject({
+			ok: false,
+			fields_checked: 2,
+			filled: 1,
+			not_taken: [{ field: "agree", found: "Off" }],
+			flattened: false,
+		});
+		expect(body.diff).toEqual(['full_name: "" -> "Ada"', 'agree: "Off" -> "Si"']);
+	});
+
+	it("a refused value comes back as the service's message, naming the field and what it takes", async () => {
+		editStatus = 422;
+		editBody = {
+			error: {
+				code: "operation_failed",
+				message:
+					'operation 0 (fill_form): 1 value was not acceptable and nothing was written: field "colour" takes one of "red", "green", "blue", not "pink"',
+				details: { nothing_written: true },
+			},
+		};
+		const out = await (
+			await named(DOC_EDIT_TOOL_NAME)
+		).execute({ file: "form.pdf", operations: pdfOps }, ctx());
+		expect(out).toMatchObject({
+			error: expect.stringContaining('field "colour" takes one of "red", "green", "blue"'),
+		});
+		expect(stored.saved).toHaveLength(0);
+	});
+
+	it("outlines a PDF through the service", async () => {
+		await (await named(DOC_OUTLINE_TOOL_NAME)).execute({ file: "/mnt/data/form.pdf" }, ctx());
+		expect(requests.find((r) => r.path === "/v1/outline")?.body).toContain('filename="form.pdf"');
+	});
+
+	it("doc_read does not apply to a PDF and says what to use", async () => {
+		const out = await (
+			await named(DOC_READ_TOOL_NAME)
+		).execute({ file: "form.pdf", targets: ["p1"] }, ctx());
+		expect(out).toMatchObject({ error: expect.stringContaining("doc_outline lists its pages") });
+		expect(requests.filter((r) => r.path === "/v1/read")).toHaveLength(0);
 	});
 });
