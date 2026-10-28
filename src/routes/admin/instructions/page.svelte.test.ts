@@ -90,6 +90,18 @@ describe("Assistant instructions (admin)", () => {
 		expect(calls.some((c) => c.method === "PUT")).toBe(false);
 	});
 
+	it("counts the trimmed text, like the server: padding is neither counted nor a reason to refuse", async () => {
+		stubApi();
+		renderWithApp(Page, {});
+		await expect.element(box()).toHaveValue("Be brief.");
+		await box().fill("  Be brief  ");
+		await expect.element(page.getByText("8 of 4000 characters")).toBeVisible();
+
+		await box().fill("x".repeat(4000) + "     ");
+		await expect.element(page.getByText("4000 of 4000 characters")).toBeVisible();
+		await expect.element(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+	});
+
 	it("works at 390px: no sideways scroll, and every control reachable", async () => {
 		await page.viewport(390, 800);
 		stubApi();

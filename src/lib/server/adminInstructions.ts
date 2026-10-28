@@ -15,12 +15,16 @@ export const ADMIN_INSTRUCTIONS_MAX = 4000;
  * Chat turns only. The /code panel, galopin and title generation never call it.
  */
 export function adminInstructions(): string {
-	return (config.ADMIN_INSTRUCTIONS ?? "").trim().slice(0, ADMIN_INSTRUCTIONS_MAX);
+	// A saved value wins even when empty (clearing sticks); the environment is
+	// only the default for a deployment that never saved one.
+	const raw = config.getSaved("ADMIN_INSTRUCTIONS") ?? config.ADMIN_INSTRUCTIONS ?? "";
+	return raw.trim().slice(0, ADMIN_INSTRUCTIONS_MAX);
 }
 
 /** Whether users may read the instructions in Settings. On unless explicitly `"false"`. */
 export function adminInstructionsVisible(): boolean {
-	return config.ADMIN_INSTRUCTIONS_VISIBLE !== "false";
+	const raw = config.getSaved("ADMIN_INSTRUCTIONS_VISIBLE") ?? config.ADMIN_INSTRUCTIONS_VISIBLE;
+	return raw !== "false";
 }
 
 /**
@@ -33,8 +37,23 @@ export function visibleAdminInstructions(): { adminInstructions?: string } {
 	return text && adminInstructionsVisible() ? { adminInstructions: text } : {};
 }
 
-/** A system prompt with the administrator's instructions first, when there are any. */
-export function withAdminInstructions(prompt: string): string {
+/** The line that opens the block, and the one that closes it. Fixed text: the prefix stays cacheable. */
+export const ADMIN_INSTRUCTIONS_OPEN = "Instructions from this deployment's administrator:";
+export const ADMIN_INSTRUCTIONS_CLOSE = "End of the administrator's instructions.";
+
+/**
+ * The administrator's instructions as a delimited block, or "" when there are
+ * none. Labelled and closed so that whatever a user wrote after it cannot read
+ * as a continuation of it (or the other way round).
+ */
+export function adminInstructionsBlock(): string {
 	const text = adminInstructions();
-	return text ? `${text}\n\n${prompt}` : prompt;
+	return text ? `${ADMIN_INSTRUCTIONS_OPEN}\n${text}\n${ADMIN_INSTRUCTIONS_CLOSE}` : "";
+}
+
+/** A system prompt with the administrator's block first, when there are instructions. */
+export function withAdminInstructions(prompt: string): string {
+	const block = adminInstructionsBlock();
+	if (!block) return prompt;
+	return prompt ? `${block}\n\n${prompt}` : block;
 }

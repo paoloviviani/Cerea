@@ -5,8 +5,9 @@ import { injectExecutionPrompt } from "./executionPrompt";
 
 export interface PrepromptInput {
 	/**
-	 * The administrator's instructions for the whole deployment
-	 * (`adminInstructions()`). Read first, before everything the person writes.
+	 * The administrator's instructions for the whole deployment, as the
+	 * delimited block (`adminInstructionsBlock()`). First, before everything
+	 * the person writes.
 	 */
 	adminInstructions?: string;
 	/** The conversation's stored system prompt. */

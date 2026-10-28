@@ -83,6 +83,7 @@ vi.mock("openai", async (importOriginal) => ({
 
 vi.mock("$lib/server/config", () => ({
 	config: {
+		getSaved: () => undefined,
 		OPENAI_BASE_URL: "https://router.test/v1",
 		OPENAI_API_KEY: "sk-test",
 		MCP_FORWARD_HF_USER_TOKEN: "false",
@@ -567,6 +568,26 @@ describe("runMcpFlow connectors that did not load", () => {
 		} as never);
 
 		expect(systemPrompt().match(/- jmcp:/g)).toHaveLength(1);
+	});
+
+	it("puts the administrator's block first on a tool turn, and the per-turn notice after the user's prompts", async () => {
+		scriptRounds([{ content: "ok" }]);
+		const block =
+			"Instructions from this deployment's administrator:\nRULES\nEnd of the administrator's instructions.";
+
+		await runFlow({
+			adminInstructions: block,
+			// What index.ts hands over: the block already leads the preprompt.
+			preprompt: `${block}\n\nGLOBAL PROMPT`,
+			locals: { mcp: { unavailable: [{ name: "jmcp", reason: "no token" }] } },
+		} as never);
+
+		const prompt = systemPrompt();
+		expect(prompt.startsWith(block)).toBe(true);
+		expect(prompt.split("RULES")).toHaveLength(2);
+		expect(prompt).toContain("Do NOT call a tool unless");
+		expect(prompt.indexOf("Do NOT call a tool unless")).toBeGreaterThan(prompt.indexOf("RULES"));
+		expect(prompt.indexOf("GLOBAL PROMPT")).toBeLessThan(prompt.indexOf("UNAVAILABLE CONNECTORS"));
 	});
 
 	it("says nothing when every connector loaded", async () => {

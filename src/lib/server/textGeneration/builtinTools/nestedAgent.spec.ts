@@ -22,7 +22,14 @@ const admin = vi.hoisted(() => ({ text: "" }));
 vi.mock("$lib/server/config", () => ({
 	config: new Proxy(
 		{},
-		{ get: (_t, key) => (key === "ADMIN_INSTRUCTIONS" ? admin.text : undefined) }
+		{
+			get: (_t, key) =>
+				key === "getSaved"
+					? () => undefined
+					: key === "ADMIN_INSTRUCTIONS"
+						? admin.text
+						: undefined,
+		}
 	),
 }));
 
@@ -171,7 +178,8 @@ describe("a sub-agent run", () => {
 			await runNestedAgent(spec(), ctx(), deps(openai));
 			expect(requests[0].req.messages[0]).toEqual({
 				role: "system",
-				content: "ADMIN RULES\n\nsystem",
+				content:
+					"Instructions from this deployment's administrator:\nADMIN RULES\nEnd of the administrator's instructions.\n\nsystem",
 			});
 		} finally {
 			admin.text = "";

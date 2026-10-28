@@ -451,7 +451,7 @@ models.
 called by `resolvePreprompt`, fed by `textGeneration/userPrompts.ts`): **the
 administrator's instructions** (`server/adminInstructions.ts`: config keys
 `ADMIN_INSTRUCTIONS` / `ADMIN_INSTRUCTIONS_VISIBLE`, edited at `/admin/instructions`,
-read from the config's in-memory copy so a turn adds no query; also put first in
+read from the config's in-memory copy so a turn adds no query, a saved empty value winning over the env default via `getSaved`; sent as a labelled, closed block, first in the system prompt even on tool turns (`runMcpFlow` puts it ahead of the tool contract); also put first in
 every sub-agent's system prompt in `runNestedAgent`; never the /code panel,
 galopin or titles; Settings gets the text only while visible, and no field at
 all otherwise), then **global,

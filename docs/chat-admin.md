@@ -158,7 +158,11 @@ means none.
 It applies to chats only. The [Agents panel](code-panel.md) and the coding
 agents on users' machines never get it, and neither does the title Cerea
 generates for a chat. Sub-agents the assistant starts (`delegate`, `research`)
-do get it, at the top of their own instructions.
+do get it too, at the top of their own instructions, so a style rule such as
+"keep answers short" also shortens their reports back to the assistant. Write
+rules that make sense for both. The text is sent as a block that opens with
+"Instructions from this deployment's administrator:" and ends with a closing
+line, so what a user writes after it is never read as part of it.
 
 **Show these instructions to users** (on by default) decides whether users can
 read the text, read-only and labelled "From your administrator", in

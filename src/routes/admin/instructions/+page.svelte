@@ -20,7 +20,9 @@
 	let note = $state<string | null>(null);
 
 	const dirty = $derived(text.trim() !== savedText || visible !== savedVisible);
-	const over = $derived(text.length > max);
+	// Trimmed, like the server: trailing blanks are not saved, so not counted.
+	const length = $derived(text.trim().length);
+	const over = $derived(length > max);
 
 	async function problem(response: Response): Promise<Error> {
 		const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
@@ -130,7 +132,7 @@
 					: 'text-gray-500 dark:text-gray-400'}"
 				data-testid="instructions-count"
 			>
-				{m["admin.instructions.count"]({ count: text.length, max })}
+				{m["admin.instructions.count"]({ count: length, max })}
 			</p>
 		</div>
 

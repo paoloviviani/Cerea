@@ -56,6 +56,11 @@ const { textGeneration } = await import("$lib/server/textGeneration");
 const { generateFromDefaultEndpoint } = await import("$lib/server/generateFromDefaultEndpoint");
 const { models } = await import("$lib/server/models");
 
+const { ADMIN_INSTRUCTIONS_OPEN, ADMIN_INSTRUCTIONS_CLOSE } =
+	await import("$lib/server/adminInstructions");
+const blockOf = (text: string) =>
+	`${ADMIN_INSTRUCTIONS_OPEN}\n${text}\n${ADMIN_INSTRUCTIONS_CLOSE}`;
+
 const DEFAULT_MODEL = "test-org/test-model";
 
 beforeAll(async () => {
@@ -134,9 +139,19 @@ describe.sequential("a chat turn", () => {
 		await send(conv, locals);
 
 		const system = systemOf(sent());
-		expect(system).toContain("ADMIN RULES\n\nGLOBAL PROMPT");
-		// Nothing the turn assembles comes before the administrator's text.
-		expect(system.indexOf("ADMIN RULES")).toBeLessThanOrEqual(system.indexOf("GLOBAL PROMPT"));
+		// The fixed label and closing line, written out so a change to them is noticed.
+		expect(
+			system.startsWith("Instructions from this deployment's administrator:\nADMIN RULES\n")
+		).toBe(true);
+		expect(system).toContain("\nEnd of the administrator's instructions.\n\n");
+		// Delimited, trimmed, and literally first, tool contract included.
+		expect(system.startsWith(`${blockOf("ADMIN RULES")}\n\n`)).toBe(true);
+		// On a tool turn the tool contract sits between the block and the
+		// person's prompt: the block is before both.
+		expect(system.indexOf("GLOBAL PROMPT")).toBeGreaterThan(
+			system.indexOf(ADMIN_INSTRUCTIONS_CLOSE)
+		);
+		expect(system).toContain("Do NOT call a tool unless");
 		expect(system.split("ADMIN RULES")).toHaveLength(2);
 	});
 
@@ -180,7 +195,11 @@ describe.sequential("a chat turn", () => {
 		for await (const _event of events) void _event;
 
 		expect(mocks.create).toHaveBeenCalled();
-		expect(systemOf(sent())).toContain("ADMIN RULES\n\nGLOBAL PROMPT");
+		const system = systemOf(sent());
+		expect(system.startsWith(blockOf("ADMIN RULES"))).toBe(true);
+		expect(system.indexOf("GLOBAL PROMPT")).toBeGreaterThan(
+			system.indexOf(ADMIN_INSTRUCTIONS_CLOSE)
+		);
 	});
 });
 
@@ -222,6 +241,7 @@ describe.sequential("what is not a chat turn", () => {
 			"src/lib/server/adminInstructions.ts",
 			"src/lib/server/textGeneration/builtinTools/nestedAgent.ts",
 			"src/lib/server/textGeneration/index.ts",
+			"src/lib/server/textGeneration/mcp/runMcpFlow.ts",
 			"src/lib/server/textGeneration/preprompt.ts",
 			"src/lib/stores/settings.ts",
 			"src/routes/admin/instructions/+page.svelte",

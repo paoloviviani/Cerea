@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { state } = vi.hoisted(() => ({
-	state: { values: {} as Record<string, string>, managerOn: "true", admin: true },
+	state: {
+		order: [] as string[],
+		values: {} as Record<string, string>,
+		managerOn: "true",
+		admin: true,
+	},
 }));
 
 vi.mock("$lib/server/admin", () => ({
@@ -20,9 +25,11 @@ vi.mock("$lib/server/config", () => ({
 		get(_target, key: string) {
 			if (key === "set") {
 				return async (name: string, value: string) => {
+					state.order.push(name);
 					state.values[name] = value;
 				};
 			}
+			if (key === "getSaved") return (name: string) => state.values[name];
 			if (key === "ENABLE_CONFIG_MANAGER") return state.managerOn;
 			return state.values[key];
 		},
@@ -31,7 +38,9 @@ vi.mock("$lib/server/config", () => ({
 
 import { GET, PUT } from "./+server";
 import {
+	ADMIN_INSTRUCTIONS_CLOSE,
 	ADMIN_INSTRUCTIONS_MAX,
+	ADMIN_INSTRUCTIONS_OPEN,
 	visibleAdminInstructions,
 	withAdminInstructions,
 } from "$lib/server/adminInstructions";
@@ -53,9 +62,12 @@ const status = async (run: () => Promise<Response>) =>
 
 beforeEach(() => {
 	state.values = {};
+	state.order = [];
 	state.managerOn = "true";
 	state.admin = true;
 });
+
+const block = (text: string) => `${ADMIN_INSTRUCTIONS_OPEN}\n${text}\n${ADMIN_INSTRUCTIONS_CLOSE}`;
 
 describe("the administrator's instructions API", () => {
 	it("is empty and visible when nothing was ever saved", async () => {
@@ -109,9 +121,9 @@ describe("the administrator's instructions API", () => {
 	it("takes effect at once: the next turn's prompt uses the new text, and clearing removes it", async () => {
 		expect(withAdminInstructions("base")).toBe("base");
 		await PUT(put({ instructions: "First rules", visible: true }));
-		expect(withAdminInstructions("base")).toBe("First rules\n\nbase");
+		expect(withAdminInstructions("base")).toBe(`${block("First rules")}\n\nbase`);
 		await PUT(put({ instructions: "Second rules", visible: true }));
-		expect(withAdminInstructions("base")).toBe("Second rules\n\nbase");
+		expect(withAdminInstructions("base")).toBe(`${block("Second rules")}\n\nbase`);
 		await PUT(put({ instructions: "", visible: true }));
 		expect(withAdminInstructions("base")).toBe("base");
 	});
@@ -121,6 +133,11 @@ describe("the administrator's instructions API", () => {
 		expect(visibleAdminInstructions()).toEqual({ adminInstructions: "Rules" });
 		await PUT(put({ instructions: "Rules", visible: false }));
 		expect(visibleAdminInstructions()).toEqual({});
-		expect(withAdminInstructions("base")).toBe("Rules\n\nbase");
+		expect(withAdminInstructions("base")).toBe(`${block("Rules")}\n\nbase`);
+	});
+
+	it("writes visibility before the text, so a failed second write can never leave new text visible", async () => {
+		await PUT(put({ instructions: "New secret rules", visible: false }));
+		expect(state.order).toEqual(["ADMIN_INSTRUCTIONS_VISIBLE", "ADMIN_INSTRUCTIONS"]);
 	});
 });

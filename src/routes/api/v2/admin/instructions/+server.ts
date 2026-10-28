@@ -53,8 +53,13 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 			`Send { instructions, visible }: instructions up to ${ADMIN_INSTRUCTIONS_MAX} characters.`
 		);
 	}
-	await config.set("ADMIN_INSTRUCTIONS", parsed.data.instructions);
+	// Two writes that are not atomic, so the order decides what a half-finished
+	// save can leave behind. Visibility goes first: when hiding, a failure after
+	// it leaves the old text hidden (safe), where text first would leave the
+	// new text visible against the administrator's wish. When showing, a failure
+	// leaves the old text shown, which is what it already was applying.
 	await config.set("ADMIN_INSTRUCTIONS_VISIBLE", parsed.data.visible ? "true" : "false");
+	await config.set("ADMIN_INSTRUCTIONS", parsed.data.instructions);
 	// Who and how long, never the text: it can name internal policy.
 	logger.info(
 		{

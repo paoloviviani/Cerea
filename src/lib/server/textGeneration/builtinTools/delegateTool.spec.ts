@@ -20,7 +20,14 @@ const admin = vi.hoisted(() => ({ text: "" }));
 vi.mock("$lib/server/config", () => ({
 	config: new Proxy(
 		{},
-		{ get: (_t, key) => (key === "ADMIN_INSTRUCTIONS" ? admin.text : undefined) }
+		{
+			get: (_t, key) =>
+				key === "getSaved"
+					? () => undefined
+					: key === "ADMIN_INSTRUCTIONS"
+						? admin.text
+						: undefined,
+		}
 	),
 }));
 
@@ -176,7 +183,11 @@ describe("delegate: the brief", () => {
 			const { openai, requests } = upstream([{ content: "answer" }]);
 			const { delegate } = make(openai);
 			await delegate.execute({ task: BRIEF }, context().ctx);
-			expect(String(requests[0].messages[0].content).startsWith("ADMIN RULES\n\n")).toBe(true);
+			expect(
+				String(requests[0].messages[0].content).startsWith(
+					"Instructions from this deployment's administrator:\nADMIN RULES\nEnd of the administrator's instructions.\n\n"
+				)
+			).toBe(true);
 		} finally {
 			admin.text = "";
 		}
@@ -603,7 +614,9 @@ describe("the research preset", () => {
 			const { openai, requests } = upstream([{ content: "x" }]);
 			const { research } = make(openai, { research: true });
 			await research?.execute({ question: "How does X work compared with Y?" }, context().ctx);
-			expect(requests[0].messages[0].content).toBe(`ADMIN RULES\n\n${RESEARCH_SYSTEM_PROMPT}`);
+			expect(requests[0].messages[0].content).toBe(
+				`Instructions from this deployment's administrator:\nADMIN RULES\nEnd of the administrator's instructions.\n\n${RESEARCH_SYSTEM_PROMPT}`
+			);
 		} finally {
 			admin.text = "";
 		}
