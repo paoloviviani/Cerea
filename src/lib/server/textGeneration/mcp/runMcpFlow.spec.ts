@@ -67,6 +67,13 @@ const mocks = vi.hoisted(() => ({
 	useUserToken: "false",
 	// Web search grants, as `resolveWebSearchFor` reports them.
 	searchGranted: [] as string[],
+	// What the document service reports (`getCapabilities`); null is "not configured".
+	documentCaps: null as unknown,
+}));
+
+vi.mock("$lib/server/documents/client", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/server/documents/client")>()),
+	getCapabilities: async () => mocks.documentCaps,
 }));
 
 // The gate itself is real; only the build flag behind it is forced on.
@@ -146,7 +153,10 @@ vi.mock("$lib/server/textGeneration/utils/prepareFiles", () => ({
 }));
 
 vi.mock("$lib/server/endpoints/images", () => ({ makeImageProcessor: () => () => undefined }));
-vi.mock("./fileRefs", () => ({ buildImageRefResolver: () => undefined }));
+vi.mock("./fileRefs", () => ({
+	buildImageRefResolver: () => undefined,
+	attachFileRefsToArgs: () => undefined,
+}));
 vi.mock("$lib/server/logger", () => ({
 	logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -329,6 +339,7 @@ beforeEach(async () => {
 	mocks.delegation = "false";
 	mocks.visible = [];
 	mocks.searchGranted = [];
+	mocks.documentCaps = null;
 	mocks.useUserToken = "false";
 	mocks.getAbortTime.mockReturnValue(undefined);
 	scriptToolResults();
@@ -1771,5 +1782,105 @@ describe("runMcpFlow and sub-agents", () => {
 		} as Partial<Parameters<typeof runMcpFlow>[0]>);
 		expect(result).toBe("aborted");
 		expect(nestedSignal?.aborted).toBe(true);
+	});
+});
+
+describe("runMcpFlow and look_doc", () => {
+	const RENDER_CAPS = {
+		formats: {},
+		render: { formats: ["pdf"], image_types: ["png", "jpeg"] },
+		limits: { max_render_pages: 6 },
+	};
+	const offered = () =>
+		(
+			(mocks.create.mock.calls[0]?.[0] as { tools?: Array<{ function: { name: string } }> })
+				?.tools ?? []
+		).map((t) => t.function.name);
+
+	it("is offered to a model that sees images, and not to a text-only one", async () => {
+		mocks.documentCaps = RENDER_CAPS;
+		scriptRounds([{ content: "a" }]);
+		await runFlow({ model: { ...context().model, multimodal: true } } as never);
+		expect(offered()).toContain("look_doc");
+
+		mocks.create.mockReset();
+		scriptRounds([{ content: "b" }]);
+		await runFlow({ model: { ...context().model, multimodal: false } } as never);
+		expect(offered()).not.toContain("look_doc");
+	});
+
+	it("follows the person's image switch, like the images it sends", async () => {
+		mocks.documentCaps = RENDER_CAPS;
+		scriptRounds([{ content: "a" }]);
+		await runFlow({
+			forceMultimodal: false,
+			model: { ...context().model, multimodal: true },
+		} as never);
+		expect(offered()).not.toContain("look_doc");
+
+		mocks.create.mockReset();
+		scriptRounds([{ content: "b" }]);
+		await runFlow({
+			forceMultimodal: true,
+			model: { ...context().model, multimodal: false },
+		} as never);
+		expect(offered()).toContain("look_doc");
+	});
+
+	it("is absent when the document service cannot draw pages", async () => {
+		mocks.documentCaps = { formats: {} };
+		scriptRounds([{ content: "a" }]);
+		await runFlow({ model: { ...context().model, multimodal: true } } as never);
+		expect(offered()).not.toContain("look_doc");
+	});
+
+	it("gives the model the pages it asked for as image content in its next request", async () => {
+		mocks.documentCaps = RENDER_CAPS;
+		const real = await vi.importActual<typeof import("./toolInvocation")>("./toolInvocation");
+		// The real executeToolCalls, with a look_doc that answers with two pictures.
+		mocks.executeToolCalls.mockImplementation(
+			(params: Parameters<typeof real.executeToolCalls>[0]) =>
+				real.executeToolCalls({
+					...params,
+					builtinTools: [
+						{
+							name: "look_doc",
+							definition: { type: "function", function: { name: "look_doc" } },
+							execute: async () => ({
+								resultText: "deck.pptx has 2 slides. Showing slides 1, 2.",
+								images: [
+									{ mime: "image/png", base64: "AAAA", label: "deck.pptx, slide 1 of 2" },
+									{ mime: "image/jpeg", base64: "BBBB", label: "deck.pptx, slide 2 of 2" },
+								],
+							}),
+						},
+					],
+				})
+		);
+		scriptRounds([
+			{ toolCalls: [{ id: "call_1", name: "look_doc", arguments: '{"file":"deck.pptx"}' }] },
+			{ content: "the slides look fine" },
+		]);
+
+		const { result } = await runFlow({
+			model: { ...context().model, multimodal: true },
+		} as never);
+
+		expect(result).toBe("completed");
+		const followUp = requestMessages(1);
+		expect(followUp.at(-2)).toEqual({
+			role: "tool",
+			tool_call_id: "call_1",
+			content: "deck.pptx has 2 slides. Showing slides 1, 2.",
+		});
+		expect(followUp.at(-1)).toEqual({
+			role: "user",
+			content: [
+				{ type: "text", text: "[look_doc result: deck.pptx, slide 1 of 2]" },
+				{ type: "image_url", image_url: { url: "data:image/png;base64,AAAA", detail: "auto" } },
+				{ type: "text", text: "[look_doc result: deck.pptx, slide 2 of 2]" },
+				{ type: "image_url", image_url: { url: "data:image/jpeg;base64,BBBB", detail: "auto" } },
+			],
+		});
 	});
 });

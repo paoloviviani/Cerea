@@ -313,3 +313,29 @@ describe("ask_user_question enablement", () => {
 		expect(names).not.toContain("ask_user_question");
 	});
 });
+
+describe("look_doc", () => {
+	const documentCapabilities = {
+		formats: {},
+		render: { formats: ["pdf"], image_types: ["png", "jpeg"] },
+	};
+	const names = (extra: Partial<Parameters<typeof getEnabledBuiltinTools>[0]>) =>
+		getEnabledBuiltinTools({ conv: { _id: new ObjectId() }, ...extra }).map((tool) => tool.name);
+
+	it("is offered when the model sees images and the document service draws pages", () => {
+		expect(names({ documentCapabilities, modelSeesImages: true })).toContain("look_doc");
+	});
+
+	it("is absent for a text-only model, however the service is set up", () => {
+		expect(names({ documentCapabilities, modelSeesImages: false })).not.toContain("look_doc");
+		expect(names({ documentCapabilities })).not.toContain("look_doc");
+	});
+
+	it("is absent without a document service or without its render capability", () => {
+		expect(names({ modelSeesImages: true })).not.toContain("look_doc");
+		expect(names({ documentCapabilities: null, modelSeesImages: true })).not.toContain("look_doc");
+		expect(names({ documentCapabilities: { formats: {} }, modelSeesImages: true })).not.toContain(
+			"look_doc"
+		);
+	});
+});

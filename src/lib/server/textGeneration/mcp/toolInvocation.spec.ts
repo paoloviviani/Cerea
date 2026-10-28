@@ -783,3 +783,52 @@ describe("executeToolCalls with a tool blocker", () => {
 		expect(String(toolMessagesOf(events)[0].content)).toContain("unavailable");
 	});
 });
+
+describe("pictures a builtin returns", () => {
+	const looker = (images: Array<{ mime: string; base64: string; label: string }> | undefined) =>
+		({
+			name: "look_doc",
+			definition: { type: "function", function: { name: "look_doc" } },
+			execute: async () => ({ resultText: "2 slides", ...(images ? { images } : {}) }),
+		}) satisfies BuiltinTool;
+
+	it("follow the tool messages as one user message of image content", async () => {
+		const events = await drain([{ id: "call_a", name: "look_doc", arguments: "{}" }], undefined, [
+			looker([{ mime: "image/png", base64: "QUJD", label: "deck.pptx, slide 1 of 2" }]),
+		]);
+
+		expect(summaryOf(events).toolMessages).toEqual([
+			{ role: "tool", tool_call_id: "call_a", content: "2 slides" },
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "[look_doc result: deck.pptx, slide 1 of 2]" },
+					{ type: "image_url", image_url: { url: "data:image/png;base64,QUJD", detail: "auto" } },
+				],
+			},
+		]);
+		// the saved run keeps the text only: an image does not go into the history
+		expect(summaryOf(events).toolRuns).toEqual([
+			{ name: "look_doc", parameters: {}, output: "2 slides" },
+		]);
+	});
+
+	it("never come between the tool messages of one assistant turn", async () => {
+		const events = await drain(
+			[
+				{ id: "call_a", name: "look_doc", arguments: "{}" },
+				{ id: "call_b", name: "look_doc", arguments: "{}" },
+			],
+			undefined,
+			[looker([{ mime: "image/png", base64: "QQ==", label: "x" }])]
+		);
+		expect(summaryOf(events).toolMessages.map((m) => m.role)).toEqual(["tool", "tool", "user"]);
+	});
+
+	it("add nothing when the tool returned none", async () => {
+		const events = await drain([{ id: "call_a", name: "look_doc", arguments: "{}" }], undefined, [
+			looker(undefined),
+		]);
+		expect(summaryOf(events).toolMessages.map((m) => m.role)).toEqual(["tool"]);
+	});
+});

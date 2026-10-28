@@ -68,6 +68,10 @@ export interface DocumentCapabilities {
 	create_from_template?: boolean;
 	create_formats?: CreateFormat[];
 	create_schemas?: Partial<Record<CreateFormat, CreateFormatSchemas>>;
+	/** Pages of a PDF as images (`/v1/render`); absent on a service that predates it. */
+	render?: { formats: string[]; image_types: string[] };
+	/** The most pages one render call draws, and the longest side of one image (the service's own limits). */
+	limits?: { max_render_pages?: number; max_render_px?: number };
 }
 
 export type DocumentsFailure =
@@ -151,6 +155,22 @@ function parseCapabilities(raw: unknown): DocumentCapabilities | null {
 	if (r.create_schemas && typeof r.create_schemas === "object") {
 		out.create_schemas = r.create_schemas as DocumentCapabilities["create_schemas"];
 	}
+	const render = r.render;
+	if (render && typeof render === "object") {
+		const entry = render as Record<string, unknown>;
+		const strings = (value: unknown): string[] =>
+			Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+		out.render = { formats: strings(entry.formats), image_types: strings(entry.image_types) };
+	}
+	if (r.limits && typeof r.limits === "object") {
+		const limits = r.limits as Record<string, unknown>;
+		const whole = (value: unknown): number | undefined =>
+			typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+		out.limits = {
+			max_render_pages: whole(limits.max_render_pages),
+			max_render_px: whole(limits.max_render_px),
+		};
+	}
 	return out;
 }
 
@@ -196,8 +216,13 @@ interface ServiceError {
 	details?: Record<string, unknown>;
 }
 
-async function failure(response: Response, creating = false): Promise<DocumentsError> {
-	const untouched = creating ? "No file was made." : "Nothing was changed.";
+async function failure(
+	response: Response,
+	creating = false,
+	rendering = false
+): Promise<DocumentsError> {
+	// A render changes nothing, so its refusals say only what was wrong.
+	const untouched = rendering ? "" : creating ? "No file was made." : "Nothing was changed.";
 	let error: ServiceError = {};
 	const text = await response.text().catch(() => "");
 	try {
@@ -232,7 +257,7 @@ async function failure(response: Response, creating = false): Promise<DocumentsE
 		case 422:
 			return new DocumentsError(
 				"rejected",
-				`${said || "The document service refused the request."}${hint} ${untouched}`
+				`${said || "The document service refused the request."}${hint} ${untouched}`.trim()
 			);
 		case 504:
 			return new DocumentsError(
@@ -257,6 +282,7 @@ async function call(
 	options: { signal?: AbortSignal; accept?: string }
 ): Promise<Response> {
 	const creating = route.startsWith("/v1/create");
+	const rendering = route.startsWith("/v1/render");
 	if (!isDocumentsConfigured()) {
 		throw new DocumentsError("unavailable", "Document tools are not available on this deployment.");
 	}
@@ -284,7 +310,7 @@ async function call(
 		logger.warn({ err, route }, "documents_unreachable");
 		throw new DocumentsError("unavailable", "The document service is not reachable right now.");
 	}
-	if (!response.ok) throw await failure(response, creating);
+	if (!response.ok) throw await failure(response, creating, rendering);
 	return response;
 }
 
@@ -460,4 +486,54 @@ export async function createFromTemplate(
 	);
 	const { json, bytes } = await readFile(response, "filled document");
 	return createResult(json, bytes, template.name);
+}
+
+/** One page the service drew. */
+export interface RenderedPage {
+	page: number;
+	width: number;
+	height: number;
+	/** "png" or "jpeg": whichever was smaller for this page. */
+	format: string;
+	content_type: string;
+	base64: string;
+}
+
+export interface RenderResult {
+	page_count: number;
+	pages: RenderedPage[];
+}
+
+/**
+ * `POST /v1/render`: pages of a PDF as images. `pages` are 1-based; absent means the first ones up to the
+ * service's cap. Exactly one of `width_px` (pages) and `max_side_px` (slides) says the size.
+ */
+export async function renderPdf(
+	pdf: Buffer,
+	request: { pages?: number[]; width_px?: number; max_side_px?: number },
+	options: { signal?: AbortSignal } = {}
+): Promise<RenderResult> {
+	const response = await call(
+		"/v1/render",
+		documentForm({ name: "document.pdf", bytes: pdf }, request),
+		options
+	);
+	const json = (await response.json()) as {
+		page_count?: unknown;
+		images?: Array<Record<string, unknown>>;
+	};
+	if (typeof json.page_count !== "number" || !Array.isArray(json.images)) {
+		throw new DocumentsError("failed", "The document service returned no pages.");
+	}
+	return {
+		page_count: json.page_count,
+		pages: json.images.map((item) => ({
+			page: Number(item.page),
+			width: Number(item.width),
+			height: Number(item.height),
+			format: String(item.format),
+			content_type: String(item.content_type),
+			base64: String(item.data_base64),
+		})),
+	};
 }

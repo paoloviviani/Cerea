@@ -193,6 +193,24 @@ The side pane shows the file you open.
 Every PDF is drawn in the page, one canvas per page; the first 60 pages are
 shown, and "New tab" and "Download" stay in the header.
 
+## The assistant looking at a file
+
+When the chosen model can read images and the document service is running, the
+assistant can look at pages of a Word, Excel, PowerPoint or PDF file in the chat
+(the `look_doc` tool): after it makes or redesigns a deck or document it checks
+the layout and fixes what is broken (text running out of a box, a cut-off table,
+an empty slide). It can also read a scanned or image-only PDF, or a form, as it
+really looks. This is for the assistant; you keep the preview above.
+
+- **It looks sparingly.** At most 6 pages or slides per call, about 1,000 tokens
+  or more for each, and not after small text edits.
+- **Office files need the converter.** They are drawn by LibreOffice, like the
+  preview, so fonts and line breaks can differ slightly from Microsoft Office:
+  it spots a broken layout, not a pixel difference. Without the converter the
+  assistant can still look at PDFs.
+- **A text-only model is not offered the tool.** It has no way to see an image.
+- Encrypted PDFs are refused.
+
 ## Limits
 
 - **Size.** A request to the service may be up to 64 MiB, the description of the

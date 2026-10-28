@@ -348,6 +348,7 @@ export async function* runMcpFlow({
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		documentCapabilities,
+		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal),
 		memoryEnabled: memoryAllowed,
 		...(memoryProject ? { projectMemoryProjectId: memoryProject._id } : {}),
 		askUserQuestionEnabled: (

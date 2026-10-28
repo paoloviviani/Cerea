@@ -9,7 +9,8 @@ import { createDelegateTools, type DelegateModel } from "./delegateTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
 import { createExecuteCodeBuiltin } from "./executeCodeTool";
 import { createConvertDocumentBuiltin } from "./convertDocumentTool";
-import { createDocumentBuiltins } from "./documentTools";
+import { createDocumentBuiltins, type DocumentTurnState } from "./documentTools";
+import { createLookDocBuiltins } from "./lookDocTool";
 import type { DocumentCapabilities } from "$lib/server/documents/client";
 import { createWebFetchStructuredBuiltin } from "./webFetchStructuredTool";
 import { createMemoryBuiltins } from "./memoryTool";
@@ -28,6 +29,7 @@ export {
 export { isNestedAgentTool } from "./nestedAgent";
 export { DELEGATE_TOOL_NAME, RESEARCH_TOOL_NAME } from "./delegateTool";
 export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
+export { LOOK_DOC_TOOL_NAME } from "./lookDocTool";
 export {
 	DOC_OUTLINE_TOOL_NAME,
 	DOC_READ_TOOL_NAME,
@@ -145,6 +147,11 @@ export function getEnabledBuiltinTools(params: {
 	 * `doc_*` tool; otherwise only the operations it lists are offered.
 	 */
 	documentCapabilities?: DocumentCapabilities | null;
+	/**
+	 * Whether the turn's model accepts images (`forceMultimodal ?? model.multimodal`), resolved by the
+	 * caller. `look_doc` shows the model pictures of pages, so a text-only model is not offered it.
+	 */
+	modelSeesImages?: boolean;
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
@@ -184,7 +191,14 @@ export function getEnabledBuiltinTools(params: {
 
 	// Typed Word, Excel and PowerPoint tools through the document service (ADR 0103).
 	// Gated on the service being configured and answering, and on its capabilities.
-	tools.push(...createDocumentBuiltins(params.documentCapabilities));
+	const documentTurn: DocumentTurnState = { touchedSlides: new Map() };
+	tools.push(...createDocumentBuiltins(params.documentCapabilities, documentTurn));
+
+	// Looking at pages: only for a model that sees images, and only where the document service draws
+	// pages (and, for Office files, Gotenberg converts them). Otherwise absent, never an error at call time.
+	if (params.modelSeesImages === true) {
+		tools.push(...createLookDocBuiltins(params.documentCapabilities, documentTurn));
+	}
 
 	// Memory joins every conversation: a standing fact about somebody is as
 	// relevant to one chat as another, and the whole point is that it survives

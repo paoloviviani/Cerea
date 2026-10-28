@@ -56,8 +56,11 @@ service checks the spec before it builds anything and, if something is wrong, an
 ## Reporting
 
 The result carries an outline of what was written (or the diff of an edit) and a verification report: the package is
-valid and reopens. There is no renderer, so say in one line what you checked and that the person should open the
-file to judge the exact layout. Don't make a PDF of it to preview or check it: the chat already shows the person a preview of the file. Make a PDF only when they ask for one. Describe only files the tools actually saved.
+valid and reopens. **When `look_doc` is in your tool list, look at the pages once after creating or redesigning a
+document, and after an edit that changes layout (tables, images, page breaks, headers); fix what is broken and look
+again only at the pages you changed.** Not after a small text edit. It is for you; the person already has a preview.
+Without it there is no renderer, so say in one line what you checked and that the person should open the file to
+judge the exact layout. Don't make a PDF of it to preview or check it: the chat already shows the person a preview of the file. Make a PDF only when they ask for one. Describe only files the tools actually saved.
 
 ## Fallback: only when the doc_* tools are not available
 

@@ -14,7 +14,7 @@ import {
 	type McpToolTextResponse,
 } from "$lib/server/mcp/httpClient";
 import { getClient } from "$lib/server/mcp/clientPool";
-import type { BuiltinTool } from "../builtinTools/types";
+import type { BuiltinTool, BuiltinToolImage } from "../builtinTools/types";
 import { openDurableElicitation, type ElicitationSink } from "$lib/server/mcp/elicitation";
 import { turnAwaitingInput } from "$lib/server/generation/turnState";
 import { attachFileRefsToArgs, type FileRefResolver } from "./fileRefs";
@@ -177,6 +177,8 @@ export async function* executeToolCalls({
 		structured?: unknown;
 		blocks?: unknown[];
 		error?: string;
+		/** Pictures a builtin returned (look_doc): sent to the model as a user message after the round's tool messages. */
+		images?: BuiltinToolImage[];
 		awaiting?: boolean;
 		uuid: string;
 		paramsClean: Record<string, Primitive>;
@@ -525,6 +527,7 @@ export async function* executeToolCalls({
 				results.push({
 					index,
 					output: outcome.resultText,
+					...(outcome.images?.length ? { images: outcome.images } : {}),
 					uuid: p.uuid,
 					paramsClean: p.paramsClean,
 				});
@@ -829,6 +832,7 @@ export async function* executeToolCalls({
 
 	// Collate outputs in original call order
 	results.sort((a, b) => a.index - b.index);
+	const pictures: Array<{ id: string; name: string; images: BuiltinToolImage[] }> = [];
 	for (const r of results) {
 		const name = prepared[r.index].call.name;
 		const id = prepared[r.index].call.id;
@@ -838,14 +842,39 @@ export async function* executeToolCalls({
 			toolRuns.push({ name, parameters: r.paramsClean, output });
 			// For the LLM follow-up call, we keep only the textual output
 			toolMessages.push({ role: "tool", tool_call_id: id, content: output });
+			if (r.images?.length) pictures.push({ id, name, images: r.images });
 		} else {
 			// Communicate error to LLM so it doesn't hallucinate success
 			toolMessages.push({ role: "tool", tool_call_id: id, content: `Error: ${r.error}` });
 		}
 	}
 
+	// A tool message holds text only on OpenAI-compatible APIs, so the pictures a builtin returned follow
+	// the round's tool messages as one user message of image parts: the model's next request carries them.
+	if (pictures.length > 0) toolMessages.push(pictureMessage(pictures));
+
 	yield {
 		type: "complete",
 		summary: { toolMessages, toolRuns, ...(awaitingInput ? { awaitingInput: true } : {}) },
 	};
+}
+
+/** The user message that shows the model the pictures its tools returned (one text part before each picture). */
+export function pictureMessage(
+	pictures: Array<{ id: string; name: string; images: BuiltinToolImage[] }>
+): ChatCompletionMessageParam {
+	const content: Array<
+		| { type: "text"; text: string }
+		| { type: "image_url"; image_url: { url: string; detail: "auto" } }
+	> = [];
+	for (const picture of pictures) {
+		for (const image of picture.images) {
+			content.push({ type: "text", text: `[${picture.name} result: ${image.label}]` });
+			content.push({
+				type: "image_url",
+				image_url: { url: `data:${image.mime};base64,${image.base64}`, detail: "auto" },
+			});
+		}
+	}
+	return { role: "user", content };
 }

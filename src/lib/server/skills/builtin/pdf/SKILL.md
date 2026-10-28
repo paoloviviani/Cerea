@@ -38,8 +38,11 @@ what is allowed if something is off.
 ## Reporting
 
 The result gives the page count, an outline of the headings and a verification report: the PDF reopens and has
-pages. There is no renderer, so say in one line what you checked and that the person should open the file to judge
-spacing and alignment. A request to change the PDF afterwards is a new `doc_create` with the corrected spec.
+pages. **When `look_doc` is in your tool list, look at the pages once after creating a PDF, and fix what is broken
+(cut-off text, a table off the page) with a corrected spec.** It is also how you read a scanned or image-only PDF
+that has no text: look at its pages. It is for you; the person already has a preview. Without it there is no
+renderer, so say in one line what you checked and that the person should open the file to judge spacing and
+alignment. A request to change the PDF afterwards is a new `doc_create` with the corrected spec.
 Describe only files the tools actually saved.
 
 ## Fallback: only when the doc_* tools are not available

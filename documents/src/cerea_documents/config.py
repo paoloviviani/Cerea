@@ -51,6 +51,8 @@ class Limits:
     max_chart_points: int = 5000  # values of one chart
     max_pdf_pages: int = 2000  # a PDF to outline or fill
     max_pdf_fields: int = 5000  # form fields of one PDF
+    max_render_pages: int = 6  # images of one look_doc render call
+    max_render_px: int = 2000  # the longest side of one rendered image
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Limits:
@@ -81,6 +83,8 @@ class Limits:
             max_chart_points=_int(e, p + "MAX_CHART_POINTS", d.max_chart_points),
             max_pdf_pages=_int(e, p + "MAX_PDF_PAGES", d.max_pdf_pages),
             max_pdf_fields=_int(e, p + "MAX_PDF_FIELDS", d.max_pdf_fields),
+            max_render_pages=_int(e, p + "MAX_RENDER_PAGES", d.max_render_pages),
+            max_render_px=_int(e, p + "MAX_RENDER_PX", d.max_render_px),
         )
 
     def to_dict(self) -> dict[str, int]:
