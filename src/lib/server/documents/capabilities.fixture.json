@@ -5552,5 +5552,9 @@
 		}
 	},
 	"image_types": ["png", "jpeg", "gif"],
-	"limits": {}
+	"limits": {},
+	"render": {
+		"formats": ["pdf"],
+		"image_types": ["png", "jpeg"]
+	}
 }

@@ -197,4 +197,6 @@ def capabilities() -> dict[str, Any]:
         "create_formats": list(CREATE_FORMATS),
         "create_schemas": create_schemas(),
         "convert": False,
+        # pages of a PDF as images (render.py): the chat offers look_doc only when this is true
+        "render": {"formats": ["pdf"], "image_types": ["png", "jpeg"]},
     }

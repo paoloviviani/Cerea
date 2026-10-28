@@ -10,6 +10,9 @@ filling a form, merging, splitting, rotating, reordering, extracting text or
 metadata, encrypting or decrypting. For **creating** a new PDF, use the `pdf`
 skill instead.
 
+**A scanned or image-only PDF** has no text to extract. When `look_doc` is in your tool list, look at its pages to
+read it as it really looks (a form with no fields, a scan, a drawing): a few pages at a time, only the ones you need.
+
 ## One rule for forms
 
 **When `doc_edit` is in your tool list, a PDF form is filled ONLY with

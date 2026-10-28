@@ -137,6 +137,28 @@ a group is `group.name`. An XFA form (`/XFA` in the AcroForm) says `xfa: true` a
   `flatten_incomplete` (nothing written) when a field with a value has a printable widget it could not draw.
   `operations[0].result.required_missing` lists required fields still empty.
 
+### `POST /v1/render`
+
+Pages of a PDF as images (`look_doc`). The Office-to-PDF step is the chat's (Gotenberg); this service only draws a
+PDF, with pypdfium2 (PDFium, BSD-3-Clause / Apache-2.0), in the worker like every other job and with the same
+secret, limits and memory cap. pypdfium2 is imported only by a render job, never by `core`, so the other workers do
+not pay for it (`tests/test_render.py` checks). Parts: `file` (the PDF) and `body`:
+
+```json
+{ "pages": [2, 3], "max_side_px": 1200 }
+```
+
+- `pages`: 1-based, at most `max_render_pages` (6); absent means the first ones up to that cap. A page that does not
+  exist is a 422 `page_out_of_range` with `details.page_count`; too many is a 422 `too_many_render_pages`.
+- Exactly one of `width_px` (a page fitted to a width) and `max_side_px` (a slide fitted to its longest side), each
+  at most `max_render_px` (2,000). A page that would be larger on its other side is scaled down to fit.
+- Answer: `{"format": "pdf", "page_count": N, "images": [{"page", "width", "height", "format", "content_type",
+"data_base64"}]}`. Each page is PNG or JPEG, whichever is smaller.
+- An encrypted PDF is a 422 `encrypted`; a file that is not a PDF is `not_a_pdf`; one that cannot be read, `damaged`;
+  one over `max_pdf_pages`, `too_many_pages`. A render that needs more memory than the worker's cap is a 413.
+- `GET /v1/capabilities` carries `"render": {"formats": ["pdf"], "image_types": ["png", "jpeg"]}`, and the limits
+  `max_render_pages` and `max_render_px` (`CEREA_DOCUMENTS_MAX_RENDER_PAGES`, `CEREA_DOCUMENTS_MAX_RENDER_PX`).
+
 ### `POST /v1/read`
 
 Body `{"targets": [...]}`; targets by format: Word `["p3", "t1"]` (paragraph text with run formatting;
@@ -424,6 +446,7 @@ there and here).
 | lxml                                                               | BSD-3-Clause                                   |     | Pillow                            | MIT-CMU (HPND family, OSI-approved)    |
 | reportlab, charset-normalizer (its dependency)                     | BSD-3-Clause, MIT                              |     | pypdf                             | BSD-3-Clause                           |
 | matplotlib (charts as images)                                      | PSF-style (matplotlib licence, OSI classifier) |     | numpy                             | BSD-3-Clause (see the exception below) |
+| pypdfium2 (pages as images, `look_doc`; bundles PDFium)            | BSD-3-Clause, Apache-2.0 (see below)           |     |                                   |                                        |
 | contourpy, kiwisolver, cycler                                      | BSD                                            |     | fonttools, pyparsing, six         | MIT                                    |
 | python-dateutil, packaging, tzdata                                 | Apache-2.0 or BSD                              |     | (matplotlib's other dependencies) |                                        |
 
@@ -433,6 +456,10 @@ Two things to know about the chart and PDF dependencies:
   BSD-3-Clause; 0BSD and Zlib are OSI-approved; **CC0-1.0 applies to one vendored header** (Highway's
   `hwy/contrib/random/random-inl.h`, a public-domain dedication) and is not on the OSI list. `tests/test_licences.py`
   therefore allows that exact expression for numpy and nothing else, so any change to it is seen.
+- **pypdfium2** is BSD-3-Clause or Apache-2.0 (its metadata says "BSD-3-Clause, Apache-2.0, dependency licenses"); the
+  PDFium library inside its wheel is BSD-3-Clause, and the wheel lists the licences of the libraries PDFium itself
+  bundles. It is not PyMuPDF, which is AGPL. `tests/test_licences.py` passes on its text, so no allow-list entry was
+  added.
 - **The DejaVu fonts** that matplotlib ships (Bitstream Vera licence plus public-domain changes, a permissive font
   licence that is not on the OSI list) are what the PDF builder embeds, as subsets. They are data, not code; the
   alternative is a PDF without Unicode text.
@@ -443,6 +470,11 @@ httpx, httpcore, idna (BSD); certifi, pathspec (MPL-2.0); ruff, mypy (MIT); lxml
 The build stage uses `uv` (Apache-2.0 or MIT) and `binutils` (to strip the libraries); neither is in the final image.
 
 ## Image size
+
+pypdfium2 added about 12 MB (PDFium is 7 MB, plus its own copy of the C++ runtime). `dedupe_libs.py`, run by the
+Dockerfile after the libraries are stripped, turns the identical copies of `libstdc++` and `libgcc_s` that numpy,
+matplotlib, contourpy, kiwisolver and pypdfium2 each vendor into symlinks to one (the loader finds the same file under
+the same name), which saves about 10 MB; the image is about 309 MB, against a 314,572,800-byte gate.
 
 CI fails the image over 300 MB (`docker image inspect --format '{{.Size}}'`). Creation adds numpy, matplotlib,
 fontTools, reportlab and pypdf, which on `python:3.13-slim` took the image to about 357 MB (layers) and past the

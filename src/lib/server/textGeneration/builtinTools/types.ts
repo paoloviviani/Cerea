@@ -3,9 +3,25 @@ import type { OpenAiTool } from "$lib/server/mcp/tools";
 import type { MessageUpdate } from "$lib/types/MessageUpdate";
 import type { ElicitationSink } from "$lib/server/mcp/elicitation";
 
+/** A picture a tool shows the model (look_doc's pages). */
+export interface BuiltinToolImage {
+	mime: string;
+	base64: string;
+	/** What it shows, said to the model just before it (for example "slides.pptx, slide 3"). */
+	label: string;
+}
+
 export type BuiltinToolResult =
-	/** The call finished; `resultText` becomes the tool message the model reads next round. */
-	| { resultText: string; extraUpdates?: MessageUpdate[] }
+	/**
+	 * The call finished; `resultText` becomes the tool message the model reads next round. `images` reach the
+	 * model in the same round as image content (a user message after the tool messages: a tool message is text).
+	 */
+	| {
+			resultText: string;
+			extraUpdates?: MessageUpdate[];
+			images?: BuiltinToolImage[];
+			imagesOf?: string;
+	  }
 	/** Model-readable failure; surfaces as a tool error the model can retry on. */
 	| { error: string }
 	/**

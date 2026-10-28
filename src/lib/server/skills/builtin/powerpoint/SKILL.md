@@ -92,8 +92,11 @@ service checks the spec first and answers with what is allowed if something is o
 ## Reporting
 
 The result carries an outline of the slides written (or the diff of an edit) and a verification report: the file is
-valid and reopens. There is no renderer, so say in one line what you checked and that the person should open the
-deck for the visual verdict. Don't make a PDF of it to preview or check it: the chat already shows the person a preview of the file. Make a PDF only when they ask for one. Describe only files the tools actually saved.
+valid and reopens. **When `look_doc` is in your tool list, look at the deck once after creating or redesigning it,
+and after an edit that changes layout (moved or resized shapes, a new slide, long text in a small box); fix what is
+broken (text running out of its box, overlaps, an empty slide) and look again only at the slides you changed.** Not
+after a small text edit. It is for you; the user already has a preview. Without it there is no renderer, so say
+in one line what you checked and that the user should open the deck for the visual verdict. Don't make a PDF of it to preview or check it: the chat already shows the user a preview of the file. Make a PDF only when they ask for one. Describe only files the tools actually saved.
 
 ## Fallback: when the doc_* tools are not available, or for a custom design
 

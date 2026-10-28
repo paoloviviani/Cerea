@@ -14,7 +14,9 @@ import {
 	type McpToolTextResponse,
 } from "$lib/server/mcp/httpClient";
 import { getClient } from "$lib/server/mcp/clientPool";
-import type { BuiltinTool } from "../builtinTools/types";
+import type { BuiltinTool, BuiltinToolImage } from "../builtinTools/types";
+import type { ImageProcessor } from "$lib/server/endpoints/images";
+import { pictureMessages, type ToolPictures } from "./pictureMessages";
 import { openDurableElicitation, type ElicitationSink } from "$lib/server/mcp/elicitation";
 import { turnAwaitingInput } from "$lib/server/generation/turnState";
 import { attachFileRefsToArgs, type FileRefResolver } from "./fileRefs";
@@ -96,6 +98,35 @@ export interface ExecuteToolCallsParams {
 	 * nothing about the tool and are not reported.
 	 */
 	toolBlocker?: ToolBlocker;
+	/**
+	 * The model's image limits (type, size in bytes, pixels), as the turn's own image processor applies them
+	 * to what the user attaches. Pictures a builtin returns are fitted through it; absent sends them as they are.
+	 */
+	imageProcessor?: ImageProcessor;
+}
+
+/** The pictures through the turn's image processor; one it cannot fit is dropped with a note in its place. */
+async function fitImages(
+	images: BuiltinToolImage[],
+	processor: ImageProcessor | undefined
+): Promise<BuiltinToolImage[]> {
+	if (!processor) return images;
+	const out: BuiltinToolImage[] = [];
+	for (const image of images) {
+		try {
+			const fitted = await processor({
+				type: "base64",
+				name: image.label,
+				value: image.base64,
+				mime: image.mime,
+			});
+			out.push({ ...image, mime: fitted.mime, base64: fitted.image.toString("base64") });
+		} catch (err) {
+			logger.warn({ err }, "[builtin] a picture could not be fitted to the model's image limits");
+			out.push({ ...image, mime: "", base64: "" });
+		}
+	}
+	return out;
 }
 
 /** Where a gated call dispatches: an MCP server, or the `web_fetch` builtin. */
@@ -165,6 +196,7 @@ export async function* executeToolCalls({
 	clientKind,
 	toolApproval,
 	toolBlocker,
+	imageProcessor,
 }: ExecuteToolCallsParams): AsyncGenerator<ToolExecutionEvent, void, undefined> {
 	const effectiveTimeoutMs = toolTimeoutMs ?? getMcpToolTimeoutMs();
 	const toolMessages: ChatCompletionMessageParam[] = [];
@@ -177,6 +209,9 @@ export async function* executeToolCalls({
 		structured?: unknown;
 		blocks?: unknown[];
 		error?: string;
+		/** Pictures a builtin returned (look_doc): sent to the model as a user message after the round's tool messages. */
+		images?: BuiltinToolImage[];
+		imagesOf?: string;
 		awaiting?: boolean;
 		uuid: string;
 		paramsClean: Record<string, Primitive>;
@@ -525,6 +560,7 @@ export async function* executeToolCalls({
 				results.push({
 					index,
 					output: outcome.resultText,
+					...(outcome.images?.length ? { images: outcome.images, imagesOf: outcome.imagesOf } : {}),
 					uuid: p.uuid,
 					paramsClean: p.paramsClean,
 				});
@@ -829,6 +865,7 @@ export async function* executeToolCalls({
 
 	// Collate outputs in original call order
 	results.sort((a, b) => a.index - b.index);
+	const pictures: ToolPictures[] = [];
 	for (const r of results) {
 		const name = prepared[r.index].call.name;
 		const id = prepared[r.index].call.id;
@@ -838,10 +875,22 @@ export async function* executeToolCalls({
 			toolRuns.push({ name, parameters: r.paramsClean, output });
 			// For the LLM follow-up call, we keep only the textual output
 			toolMessages.push({ role: "tool", tool_call_id: id, content: output });
+			if (r.images?.length) pictures.push({ id, name, subject: r.imagesOf, images: r.images });
 		} else {
 			// Communicate error to LLM so it doesn't hallucinate success
 			toolMessages.push({ role: "tool", tool_call_id: id, content: `Error: ${r.error}` });
 		}
+	}
+
+	// A tool message holds text only on OpenAI-compatible APIs, so the pictures a builtin returned follow
+	// the round's tool messages as an assistant bridge and one user message of image parts: the model's
+	// next request carries them, and roles still alternate (tool, assistant, user).
+	if (pictures.length > 0) {
+		const ready: ToolPictures[] = [];
+		for (const picture of pictures) {
+			ready.push({ ...picture, images: await fitImages(picture.images, imageProcessor) });
+		}
+		toolMessages.push(...pictureMessages(ready));
 	}
 
 	yield {

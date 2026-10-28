@@ -82,6 +82,10 @@ def run(job: Path) -> int:
             else:
                 report, out = creation.create_from_template(body, data, fmt, images, limits)
             _write(job, {"result": report}, out)
+        elif spec["kind"] == "render":
+            from . import render  # PDFium is loaded only here, never by core
+
+            _write(job, {"result": render.render_pages(data, body, limits)})
         elif spec["kind"] == "selftest_spin":  # used by tests: a runaway operation
             while True:
                 pass

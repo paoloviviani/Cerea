@@ -30,6 +30,35 @@ export const DOC_EDIT_TOOL_NAME = "doc_edit";
 export const DOC_CREATE_TOOL_NAME = "doc_create";
 export const DOC_CREATE_FROM_TEMPLATE_TOOL_NAME = "doc_create_from_template";
 
+/**
+ * What one turn's document tools tell each other. `doc_edit` records the slides a deck edit touched, by the
+ * saved file's name, and `look_doc` shows those by default: the slides that changed are the ones worth a look.
+ */
+export interface DocumentTurnState {
+	touchedSlides: Map<string, number[]>;
+}
+
+/** The (1-based, current) slide numbers a deck edit's operations report, in order, without repeats. */
+export function slidesTouched(operations: unknown[]): number[] {
+	const found: number[] = [];
+	for (const operation of operations) {
+		const result = (operation as { result?: Record<string, unknown> } | null)?.result;
+		if (!result || typeof result !== "object") continue;
+		for (const key of ["slide", "new_slide_position"] as const) {
+			const value = result[key];
+			if (
+				typeof value === "number" &&
+				Number.isInteger(value) &&
+				value > 0 &&
+				!found.includes(value)
+			) {
+				found.push(value);
+			}
+		}
+	}
+	return found.sort((a, b) => a - b);
+}
+
 /** Loop protection, not capability: a turn makes at most this many document calls. */
 export const MAX_DOCUMENT_CALLS_PER_TURN = 30;
 
@@ -395,7 +424,8 @@ function savedName(file: Extract<ConversationFile, { ok: true }>): string {
  * person sees as an ordinary file card.
  */
 export function createDocumentBuiltins(
-	caps: DocumentCapabilities | null | undefined
+	caps: DocumentCapabilities | null | undefined,
+	turn?: DocumentTurnState
 ): BuiltinTool[] {
 	if (!caps) return [];
 	const formats = DOCUMENT_FORMATS.filter((f) => caps.formats[f]);
@@ -643,6 +673,13 @@ export function createDocumentBuiltins(
 					name: stored.ref.name,
 				});
 				const diff = edited.diff.slice(0, MAX_DIFF_LINES);
+				if (turn && edited.format === "pptx") {
+					const slides = slidesTouched(edited.operations);
+					// An edit that reports no slides (replace_text, reorder) leaves nothing known to be touched,
+					// and an older edit's slide numbers may no longer mean the same slides.
+					if (slides.length > 0) turn.touchedSlides.set(stored.ref.name, slides);
+					else turn.touchedSlides.delete(stored.ref.name);
+				}
 				return {
 					resultText: capped({
 						saved: true,
@@ -777,6 +814,7 @@ export function createDocumentBuiltins(
 						derivedFrom: template ? { sha256: template.sha256, name: template.name } : undefined,
 						runKey: DOC_CREATE_TOOL_NAME,
 						canEdit: operations.length > 0,
+						turn,
 					});
 				},
 			});
@@ -866,6 +904,7 @@ export function createDocumentBuiltins(
 					derivedFrom: { sha256: source.sha256, name: source.name },
 					runKey: DOC_CREATE_FROM_TEMPLATE_TOOL_NAME,
 					canEdit: operations.length > 0,
+					turn,
 				});
 			},
 		});
@@ -883,6 +922,7 @@ async function saveCreated(
 		derivedFrom?: { sha256: string; name: string };
 		runKey: string;
 		canEdit: boolean;
+		turn?: DocumentTurnState;
 	}
 ): Promise<BuiltinToolResult> {
 	if (!ctx.conversationId) return { error: "There is no conversation to save the file in." };
@@ -895,6 +935,7 @@ async function saveCreated(
 		derivedFrom: options.derivedFrom,
 	});
 	if (!stored.ok) return { error: stored.error };
+	options.turn?.touchedSlides.delete(stored.ref.name); // a new file: every slide is new
 	const version = await collections.codeExecutionOutputs.countDocuments({
 		conversationId: ctx.conversationId,
 		name: stored.ref.name,

@@ -67,6 +67,13 @@ const mocks = vi.hoisted(() => ({
 	useUserToken: "false",
 	// Web search grants, as `resolveWebSearchFor` reports them.
 	searchGranted: [] as string[],
+	// What the document service reports (`getCapabilities`); null is "not configured".
+	documentCaps: null as unknown,
+}));
+
+vi.mock("$lib/server/documents/client", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/server/documents/client")>()),
+	getCapabilities: async () => mocks.documentCaps,
 }));
 
 // The gate itself is real; only the build flag behind it is forced on.
@@ -145,8 +152,17 @@ vi.mock("$lib/server/textGeneration/utils/prepareFiles", () => ({
 	},
 }));
 
-vi.mock("$lib/server/endpoints/images", () => ({ makeImageProcessor: () => () => undefined }));
-vi.mock("./fileRefs", () => ({ buildImageRefResolver: () => undefined }));
+vi.mock("$lib/server/endpoints/images", () => ({
+	// Hands an image back as it came, like the real processor does for one inside the limits.
+	makeImageProcessor: () => async (file: { value: string; mime: string }) => ({
+		image: Buffer.from(file.value, "base64"),
+		mime: file.mime,
+	}),
+}));
+vi.mock("./fileRefs", () => ({
+	buildImageRefResolver: () => undefined,
+	attachFileRefsToArgs: () => undefined,
+}));
 vi.mock("$lib/server/logger", () => ({
 	logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -329,6 +345,7 @@ beforeEach(async () => {
 	mocks.delegation = "false";
 	mocks.visible = [];
 	mocks.searchGranted = [];
+	mocks.documentCaps = null;
 	mocks.useUserToken = "false";
 	mocks.getAbortTime.mockReturnValue(undefined);
 	scriptToolResults();
@@ -1771,5 +1788,141 @@ describe("runMcpFlow and sub-agents", () => {
 		} as Partial<Parameters<typeof runMcpFlow>[0]>);
 		expect(result).toBe("aborted");
 		expect(nestedSignal?.aborted).toBe(true);
+	});
+});
+
+const RED_PNG =
+	"iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAE0lEQVR4nGP4z8DwnwGM/zMwAAAf7gP9NRsAMwAAAABJRU5ErkJggg==";
+
+describe("runMcpFlow and look_doc", () => {
+	const RENDER_CAPS = {
+		formats: {},
+		render: { formats: ["pdf"], image_types: ["png", "jpeg"] },
+		limits: { max_render_pages: 6 },
+	};
+	const offered = () =>
+		(
+			(mocks.create.mock.calls[0]?.[0] as { tools?: Array<{ function: { name: string } }> })
+				?.tools ?? []
+		).map((t) => t.function.name);
+
+	it("is offered to a model that sees images, and not to a text-only one", async () => {
+		mocks.documentCaps = RENDER_CAPS;
+		scriptRounds([{ content: "a" }]);
+		await runFlow({ model: { ...context().model, multimodal: true } } as never);
+		expect(offered()).toContain("look_doc");
+
+		mocks.create.mockReset();
+		scriptRounds([{ content: "b" }]);
+		await runFlow({ model: { ...context().model, multimodal: false } } as never);
+		expect(offered()).not.toContain("look_doc");
+	});
+
+	it("follows the person's image switch, like the images it sends", async () => {
+		mocks.documentCaps = RENDER_CAPS;
+		scriptRounds([{ content: "a" }]);
+		await runFlow({
+			forceMultimodal: false,
+			model: { ...context().model, multimodal: true },
+		} as never);
+		expect(offered()).not.toContain("look_doc");
+
+		mocks.create.mockReset();
+		scriptRounds([{ content: "b" }]);
+		await runFlow({
+			forceMultimodal: true,
+			model: { ...context().model, multimodal: false },
+		} as never);
+		expect(offered()).toContain("look_doc");
+	});
+
+	it("is absent when the document service cannot draw pages", async () => {
+		mocks.documentCaps = { formats: {} };
+		scriptRounds([{ content: "a" }]);
+		await runFlow({ model: { ...context().model, multimodal: true } } as never);
+		expect(offered()).not.toContain("look_doc");
+	});
+
+	const lookerFlow = async () => {
+		mocks.documentCaps = RENDER_CAPS;
+		const real = await vi.importActual<typeof import("./toolInvocation")>("./toolInvocation");
+		let n = 0;
+		// The real executeToolCalls, with a look_doc that answers with a picture each time.
+		mocks.executeToolCalls.mockImplementation(
+			(params: Parameters<typeof real.executeToolCalls>[0]) =>
+				real.executeToolCalls({
+					...params,
+					builtinTools: [
+						{
+							name: "look_doc",
+							definition: { type: "function", function: { name: "look_doc" } },
+							execute: async () => {
+								n += 1;
+								return {
+									resultText: `deck.pptx has 9 slides. Showing slide ${n}.`,
+									imagesOf: `deck.pptx, slide ${n}`,
+									images: [
+										{ mime: "image/png", base64: RED_PNG, label: `deck.pptx, slide ${n} of 9` },
+									],
+								};
+							},
+						},
+					],
+				})
+		);
+	};
+
+	it("gives the model the pages it asked for as image content in its next request", async () => {
+		await lookerFlow();
+		scriptRounds([
+			{ toolCalls: [{ id: "call_1", name: "look_doc", arguments: '{"file":"deck.pptx"}' }] },
+			{ content: "the slides look fine" },
+		]);
+
+		const { result } = await runFlow({ model: { ...context().model, multimodal: true } } as never);
+
+		expect(result).toBe("completed");
+		const followUp = requestMessages(1);
+		expect(followUp.slice(-3).map((m) => m.role)).toEqual(["assistant", "tool", "user"]);
+		expect(followUp.at(-2)).toEqual({
+			role: "tool",
+			tool_call_id: "call_1",
+			content: "deck.pptx has 9 slides. Showing slide 1.",
+		});
+		expect(followUp.at(-1)).toEqual({
+			role: "user",
+			content: [
+				expect.objectContaining({
+					type: "text",
+					text: expect.stringContaining("Images returned by look_doc for deck.pptx, slide 1."),
+				}),
+				{ type: "text", text: "[deck.pptx, slide 1 of 9]" },
+				{
+					type: "image_url",
+					image_url: { url: `data:image/png;base64,${RED_PNG}`, detail: "auto" },
+				},
+			],
+		});
+	});
+
+	it("keeps only the latest look_doc pictures in the request", async () => {
+		await lookerFlow();
+		scriptRounds([
+			{ toolCalls: [{ id: "call_1", name: "look_doc", arguments: "{}" }] },
+			{ toolCalls: [{ id: "call_2", name: "look_doc", arguments: "{}" }] },
+			{ content: "done" },
+		]);
+		await runFlow({ model: { ...context().model, multimodal: true } } as never);
+
+		const images = (messages: ChatCompletionMessageParam[]) =>
+			JSON.stringify(messages).split(`data:image/png;base64,${RED_PNG}`).length - 1;
+		expect(images(requestMessages(1))).toBe(1);
+		const last = requestMessages(2);
+		expect(images(last)).toBe(1); // not two: the first call's picture was replaced
+		expect(JSON.stringify(last)).toContain(
+			"[images from an earlier look_doc call removed; call look_doc again if you need them]"
+		);
+		// the surviving one is the second call's
+		expect(JSON.stringify(last.at(-1))).toContain("slide 2");
 	});
 });

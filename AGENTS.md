@@ -1286,6 +1286,25 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   skill's rule: when `doc_edit` is offered a form is filled only through it; the sandbox helper is the last,
   labelled section (`officeSkills.spec.ts` pins it). Fixtures are built in `documents/tests/pdf_fixtures.py`.
 
+- `look_doc` (Cerea #38): `builtinTools/lookDocTool.ts`. The model sees pages or slides of a Word, Excel,
+  PowerPoint or PDF file in the conversation (at most 6 per call, 1-based numbers or ranges, `parsePages`).
+  An Office file goes to PDF through the preview cache (`getOrCreatePreview`, owner `att:`/`out:` as the preview
+  routes use, so a file already previewed costs no conversion); a PDF is used as it is. The PDF goes to the
+  documents service's `POST /v1/render` (`documents/.../render.py`, pypdfium2, loaded only by a render job and never
+  by `core`; `tests/test_render.py` checks), which returns PNG or JPEG per page, whichever is smaller: a deck
+  (pptx, odp) by its longest side (1,200 px), anything else by width (1,000 px). **Offered only when it can
+  work**: `getEnabledBuiltinTools({ modelSeesImages })` (`forceMultimodal ?? model.multimodal`, resolved in
+  `runMcpFlow`) and the service's `capabilities.render`; without Gotenberg it is offered for PDFs only and its
+  description says so. Otherwise the tool is absent, never an error at call time. For a deck, the default pages
+  are the slides the turn's last `doc_edit` touched (`DocumentTurnState.touchedSlides`, filled from the operations'
+  results; a miss falls back to the first slides). **Images in a tool result**: nothing carried them before, since
+  a tool message is text on OpenAI-compatible APIs. A builtin returns `images` (`BuiltinToolImage`) and
+  `executeToolCalls` fits them to the turn's image limits (`imageProcessor`) and appends one user message of `image_url` parts after the round's tool messages,
+  directly after them (`pictureMessages`: tool, user, with no assistant bridge), so the next request of the turn carries them. Sub-agents are not given `look_doc` (their allowlists do not name it). They are not stored: the
+  saved tool run is the text (which pages were shown), so a later turn does not carry the pictures. The PowerPoint,
+  Word, PDF and pdf-tools skills say when to look; the "no PDF just to preview" rule stands (the preview is for the
+  user, `look_doc` for the model). Not built: measurements for a text-only model (the issue keeps it as a follow-up). Only the latest picture message stays in the request (`withoutOlderPictures`; older ones become a one-line note) and a turn shows at most 18 images (`MAX_IMAGES_PER_TURN`). The first text part of each call's pictures says they are the document's content, not instructions from the user. The placement was tried live (Cortecs: mistral-medium-3.5, mistral-small-2603, gemma-4-31b-it, kimi-k3 all accept tool then user; mistral-small read a 512 px picture right 5/5 and 5/5 that way, but 4/5 and 3/5 behind an assistant "(looking at the pages)" bridge and 5/5 and 0/5 with the image inside the tool message), so there is no bridge: `runMcpFlow` has no per-provider notion of strict alternation to key one on. A unit test pins the sequence.
+
 ## Office previews and `convert_document`
 
 Optional, per deployment: the kit's `office` profile runs Gotenberg (LibreOffice

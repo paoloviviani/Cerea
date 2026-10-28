@@ -175,6 +175,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 fmt = resolve_format(name, body) if kind == "create_from_template" else body["format"]
             else:
                 fmt = resolve_format(name, body)
+            if kind == "render":
+                fmt = "pdf"  # only PDF bytes are drawn: Office files are converted by the chat first
             if kind == "edit":
                 validate_envelope(body, limits)
                 if fmt is None:
@@ -186,7 +188,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 res = await run_job(
                     kind, data, filename_format=fmt, body=body, images=images, limits=limits, tmpdir=st.tmpdir
                 )
-            if kind not in ("edit", "create", "create_from_template"):
+            if kind not in ("edit", "create", "create_from_template"):  # outline, read, render
                 return JSONResponse(res.result)
             assert res.file is not None
             out_name = name or "document"
@@ -221,6 +223,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             Route("/v1/outline", endpoint("outline"), methods=["POST"]),
             Route("/v1/read", endpoint("read"), methods=["POST"]),
             Route("/v1/edit", endpoint("edit"), methods=["POST"]),
+            Route("/v1/render", endpoint("render"), methods=["POST"]),
             Route("/v1/create", endpoint("create"), methods=["POST"]),
             Route("/v1/create_from_template", endpoint("create_from_template"), methods=["POST"]),
         ]
