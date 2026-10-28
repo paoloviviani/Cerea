@@ -17,6 +17,7 @@ import { gateway, GatewayCallFailed } from "$lib/server/gatewayServer";
 import { logger } from "$lib/server/logger";
 import { chunkMarkdown } from "./chunking";
 import { INDEXED_DIMENSIONS, toUuid, withClient } from "./db";
+import { isMrlModel, tooWideMessage, truncateRenormalise } from "./mrl";
 import { fromUuid } from "./db";
 import { deleteDerived } from "./deleteDerived";
 import { embed } from "./embed";
@@ -599,10 +600,31 @@ async function embedChunks(token: string, base: VectorStore, texts: string[]): P
 	for (let i = 0; i < texts.length; i += 32) {
 		out.push(...(await embed(token, model, texts.slice(i, i + 32), base.dimensions ?? undefined)));
 	}
+	// A provider that ignores `dimensions` answers at the native width. For a
+	// known MRL model the vector is cut and renormalised here, so documents and
+	// queries (both come through this function) share one space; anything else
+	// is left wide and fails honestly further on.
+	const target = base.dimensions;
+	const native = out[0]?.length ?? 0;
+	if (target && native > target && isMrlModel(model)) {
+		const key = `${base._id.toString()}:${model}`;
+		if (!truncationLogged.has(key)) {
+			truncationLogged.add(key);
+			logger.info(
+				{ base: base._id.toString(), model, native, truncatedTo: target },
+				"knowledge_embedding_truncated: provider ignored dimensions"
+			);
+		}
+		return out.map((v) => truncateRenormalise(v, target));
+	}
 	return out;
 }
 
+/** Bases already logged as truncated, so the line is once per base, not per call. */
+const truncationLogged = new Set<string>();
+
 async function upsertChunks(
+	model: string,
 	storeId: ObjectId,
 	documentId: ObjectId,
 	chunks: { ordinal: number; text: string }[],
@@ -628,10 +650,7 @@ async function upsertChunks(
 				const vector = vectors[i];
 				const dims = vector.length;
 				if (!INDEXED_DIMENSIONS.includes(dims as (typeof INDEXED_DIMENSIONS)[number])) {
-					throw new KnowledgeError(
-						400,
-						`The embedding model returns ${dims} dimensions; this store indexes ${INDEXED_DIMENSIONS.join(", ")}.`
-					);
+					throw new KnowledgeError(400, tooWideMessage(dims, INDEXED_DIMENSIONS, model));
 				}
 				await client.query(
 					`INSERT INTO knowledge_chunks
@@ -789,7 +808,7 @@ export async function ingestDocument(
 			// Nothing to keep, and the old passages must not outlive the text
 			// they came from: the replace happens in the same transaction as
 			// every other one, with no rows to write.
-			await upsertChunks(base._id, document._id, [], []);
+			await upsertChunks(base.embeddingModel ?? "", base._id, document._id, [], []);
 			await collections.knowledgeDocuments.updateOne(
 				{ _id: document._id },
 				{
@@ -826,12 +845,12 @@ export async function ingestDocument(
 			if (!target) {
 				throw new KnowledgeError(
 					400,
-					`The embedding model returns ${width} dimensions; this store indexes ${INDEXED_DIMENSIONS.join(", ")}.`
+					tooWideMessage(width, INDEXED_DIMENSIONS, base.embeddingModel ?? "")
 				);
 			}
 			logger.info(
 				{ base: base._id.toString(), native: width, truncatedTo: target },
-				"knowledge_embedding_truncated: the model speaks wider than the store indexes"
+				"knowledge_embedding_too_wide: asking the provider for a narrower vector"
 			);
 			base.dimensions = target;
 			await collections.vectorStores.updateOne(
@@ -844,7 +863,7 @@ export async function ingestDocument(
 				chunks.map((chunk) => chunk.text)
 			);
 		}
-		await upsertChunks(base._id, document._id, chunks, vectors);
+		await upsertChunks(base.embeddingModel ?? "", base._id, document._id, chunks, vectors);
 		// The source may have been deleted while it was being embedded (a
 		// conversation deleted mid-index, a base dropped mid-reindex). The
 		// delete found no chunks to remove, and these would outlive it.
