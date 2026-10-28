@@ -124,7 +124,8 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 						"engine is the same sandbox the code blocks run in: no network access " +
 						"at run time (no sockets, no urllib, no requests), but " +
 						'micropip.install("<package>") works for the standard library plus ' +
-						"vendored document packages (python-docx, openpyxl, pypdf, python-pptx) " +
+						"vendored packages (python-docx, openpyxl, pypdf, python-pptx, xlsxwriter, " +
+						"reportlab, seaborn; install first, a plain import fails until then) " +
 						"and whatever else this runtime already bundles (numpy, pandas, lxml, " +
 						"Pillow, ...) — same-origin only, never a third-party request. Any other " +
 						"PyPI package installs only if the person has turned that on in their " +

@@ -181,6 +181,20 @@ describe("the pdf-tools skill and PDF forms", () => {
 	});
 });
 
+describe("a PDF form with no fields", () => {
+	const tools = skill("pdf-tools").content;
+	it("offers writing onto the original page or a rebuilt copy, never 'impossible'", () => {
+		expect(tools).toContain("**no form fields**");
+		expect(tools).toContain("write the values onto the original page");
+		expect(tools).toContain('micropip.install("reportlab", "pypdf")');
+		expect(tools).toContain("a clean filled copy");
+		expect(tools).toContain("Never say it is impossible to fill");
+	});
+	it("is the one sanctioned exception to the tools-only rule, stated in the pdf skill and the sandbox prompt", () => {
+		expect(skill("pdf").content).toContain("writing values onto a form that has no form fields");
+	});
+});
+
 describe("pairs with the rest of the skills", () => {
 	it("the pdf skill sends existing-PDF work to pdf-tools, which stays a sandbox skill", () => {
 		const { toolsFirst } = parts("pdf");

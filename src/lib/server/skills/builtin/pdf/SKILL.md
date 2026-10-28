@@ -13,7 +13,8 @@ on an existing PDF (its form); they do not edit a PDF in any other way.
 
 **When `doc_create` is in your tool list, `doc_create` with `format: "pdf"` is the ONLY way to create a PDF.** Do not
 write Python to make one (no reportlab, no hand-written PDF syntax), and do not make a Word file only to convert
-it. If the tool is not in your tool list, jump to the last section, "Fallback".
+it. If the tool is not in your tool list, jump to the last section, "Fallback". One exception, for an existing PDF
+and not a new one: writing values onto a form that has no form fields, which the `pdf-tools` skill describes.
 
 ## Creating a PDF
 

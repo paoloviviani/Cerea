@@ -132,6 +132,12 @@ describe("execution prompt", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("openpyxl");
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("pypdf");
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("python-pptx");
+		// Every vendored wheel is named, so a model doesn't conclude one is missing
+		// from a failed plain import (it happened with reportlab on a flat PDF form).
+		for (const pkg of ["xlsxwriter", "reportlab", "seaborn"]) {
+			expect(EXECUTION_SYSTEM_PROMPT).toContain(pkg);
+		}
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("a plain `import` fails before the install");
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("numpy, pandas");
 		// Rung (c): everything else on PyPI is gated on the person's own setting,
 		// never framed as something they should install themselves.

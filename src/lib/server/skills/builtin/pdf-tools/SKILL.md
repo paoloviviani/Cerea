@@ -47,12 +47,27 @@ encryption) has no tool and is always done in the sandbox.
 5. Text is limited to Western European characters (accents and the euro are
    fine); a value with other letters (Polish "Ł", Greek, Cyrillic) is refused
    with the characters named: tell the user, do not transliterate unasked.
-6. If `doc_outline` says the PDF is an **XFA** form (Adobe LiveCycle), has **no
-   form fields** (a scanned or printed form), or is **signed** (`signed: true`:
-   filling would invalidate the digital signature, and there is no way around
-   it here), it cannot be filled: say so plainly and offer what can be done (the
-   user can fill an XFA form in Adobe Acrobat, or a signed one in a copy made
-   before signing; for a form with no fields, a typed copy of the answers).
+6. If `doc_outline` says the PDF is an **XFA** form (Adobe LiveCycle) or is
+   **signed** (`signed: true`: filling would invalidate the digital signature,
+   and there is no way around it here), it cannot be filled: say so plainly and
+   offer what can be done (the user can fill an XFA form in Adobe Acrobat, or a
+   signed one in a copy made before signing).
+7. If the PDF has **no form fields** (a scanned or printed form, or blanks that
+   are only drawn lines), `fill_form` can't fill it, but the form can still be
+   completed. Say there are no fields, then offer the two ways and ask which the
+   user wants (unless they already said):
+   - **write the values onto the original page**: in the sandbox, install
+     `reportlab` and `pypdf` (`await micropip.install("reportlab", "pypdf")`),
+     find where the labels are (pypdf's text extraction with a visitor gives each
+     text's position), draw the values beside them on an overlay page with
+     reportlab, and merge it onto the original with pypdf. Look at the result with
+     `look_doc` if it is offered, fix what landed in the wrong place, and deliver
+     it as a new file next to the original;
+   - **a clean filled copy**: rebuild the form with `doc_create` and the values in
+     it (the layout is new, not the original).
+
+   Never say it is impossible to fill: a PDF without fields can be written on,
+   it just isn't a form a viewer can type into.
 
 ## Setup
 
