@@ -404,3 +404,14 @@ def test_a_viewer_shows_the_values(flatten: bool) -> None:
     assert _ink(_render(filled, 1), (160, 668, 176, 684)) <= _ink(_render(empty, 1), (160, 668, 176, 684)) + 15
     # page 3: the combo shows its label, and the list marks its selection
     assert _ink(_render(filled, 2), (160, 716, 310, 736)) > _ink(_render(empty, 2), (160, 716, 310, 736)) + 20
+
+
+def test_a_worker_that_never_sees_a_pdf_does_not_load_pypdf() -> None:
+    """Every worker imports `core`. The library is loaded by the functions that need it, so the memory a
+    chart or a large Office file has under the worker's cap is what it was before PDF forms."""
+    import subprocess
+    import sys
+
+    code = "import sys, cerea_documents.core; sys.exit(1 if 'pypdf' in sys.modules else 0)"
+    done = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stderr

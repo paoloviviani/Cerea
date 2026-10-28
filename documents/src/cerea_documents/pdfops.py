@@ -4,13 +4,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import ENGINE
 from .config import Limits
 from .errors import DocumentError, InvalidDocument, PatchError, UnsafeDocument
-from .pdfform import PdfFormError, fill_pdf_form, inspect_reader, open_reader
 
+if TYPE_CHECKING:
+    from .pdfform import PdfFormError
+
+# pypdf is imported by the functions that need it, not here: every worker imports `core`, and a worker that
+# does not touch a PDF must not pay for the library (its memory cap is tight for charts and large files).
 CAN_READ = False
 DEFERRED: list[str] = []
 MAX_PAGES_LISTED = 200
@@ -56,6 +60,8 @@ def _raise(exc: PdfFormError) -> DocumentError:
 
 
 def _open(data: bytes, limits: Limits) -> Any:
+    from .pdfform import PdfFormError, open_reader
+
     try:
         reader = open_reader(data)
         pages = len(reader.pages)
@@ -88,6 +94,8 @@ def _page_sizes(reader: Any) -> list[dict[str, Any]]:
 
 
 def outline(data: bytes, limits: Limits) -> dict[str, Any]:
+    from .pdfform import PdfFormError, inspect_reader
+
     reader = _open(data, limits)
     try:
         form = inspect_reader(reader, max_fields=limits.max_pdf_fields)
@@ -107,6 +115,8 @@ def outline(data: bytes, limits: Limits) -> dict[str, Any]:
 
 def _fill(data: bytes, op: dict[str, Any], limits: Limits) -> tuple[dict[str, Any], bytes]:
     """(report, new bytes)"""
+    from .pdfform import PdfFormError, fill_pdf_form
+
     try:
         out, report = fill_pdf_form(data, op["values"], bool(op.get("flatten")), max_fields=limits.max_pdf_fields)
     except PdfFormError as exc:
