@@ -93,7 +93,13 @@ export function retentionCutoff(days = fileRetentionDays(), now = Date.now()): D
 }
 
 export type StoreDeliverableResult =
-	{ ok: true; ref: PersistedDeliverableRef } | { ok: false; status: 413; error: string };
+	| {
+			ok: true;
+			ref: PersistedDeliverableRef;
+			/** These exact bytes were already stored (under `ref.name`): no new row was made. */
+			existing?: true;
+	  }
+	| { ok: false; status: 413; error: string };
 
 /**
  * Store one deliverable's bytes for a conversation, deduped by content.
@@ -109,6 +115,8 @@ export async function storeDeliverable({
 	mime,
 	bytes,
 	derivedFrom,
+	tool,
+	summary,
 }: {
 	conversationId: Conversation["_id"];
 	userId?: User["_id"];
@@ -117,6 +125,9 @@ export async function storeDeliverable({
 	bytes: Buffer;
 	/** The stored file this one was made from (a document edit): recorded on its row. */
 	derivedFrom?: { sha256: string; name: string };
+	/** Which tool made it and what it is, for the file's version list. */
+	tool?: string;
+	summary?: string;
 }): Promise<StoreDeliverableResult> {
 	if (bytes.byteLength > MAX_DELIVERABLE_BYTES) {
 		return {
@@ -130,7 +141,7 @@ export async function storeDeliverable({
 
 	const existing = await collections.codeExecutionOutputs.findOne({ conversationId, sha256 });
 	if (existing) {
-		return { ok: true, ref: { name: existing.name, size: existing.size, sha256 } };
+		return { ok: true, ref: { name: existing.name, size: existing.size, sha256 }, existing: true };
 	}
 
 	const usage = await collections.codeExecutionOutputs
@@ -183,6 +194,8 @@ export async function storeDeliverable({
 		...(derivedFrom
 			? { derivedFromSha256: derivedFrom.sha256, derivedFromName: derivedFrom.name }
 			: {}),
+		...(tool ? { tool } : {}),
+		...(summary ? { summary: summary.slice(0, 200) } : {}),
 		createdAt: new Date(),
 	});
 
@@ -444,4 +457,19 @@ export async function markStoredRefs(
 		sha256: ref.sha256,
 		uploaded: stored.has(ref.sha256),
 	}));
+}
+
+/**
+ * Make an already stored version the current one of its name again. The store
+ * keeps one row per distinct content, so a restore marks the row instead of
+ * copying it; the version number does not change.
+ */
+export async function markCurrentVersion(
+	conversationId: Conversation["_id"],
+	sha256: string
+): Promise<void> {
+	await collections.codeExecutionOutputs.updateOne(
+		{ conversationId, sha256 },
+		{ $set: { latestAt: new Date() } }
+	);
 }

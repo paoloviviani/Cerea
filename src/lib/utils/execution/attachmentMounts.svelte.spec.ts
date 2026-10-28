@@ -7,18 +7,32 @@ import type { MessageFile } from "$lib/types/Message";
  * without touching a knowledge mount. The worker session is a fake whose
  * `loadFiles` is the assertion point; the stores are real.
  */
+const sandbox = vi.hoisted(() => ({ fs: new Map<string, string>() }));
 const session = vi.hoisted(() => ({
-	loadFiles: vi.fn(async (files: Array<{ name: string }>) =>
-		files.map((file) => `/mnt/data/${file.name}`)
+	loadFiles: vi.fn(async (files: Array<{ name: string; data: ArrayBuffer | string }>) =>
+		files.map((file) => {
+			// What `execute_code` would list: the file and the bytes it holds.
+			const text =
+				typeof file.data === "string"
+					? file.data
+					: new TextDecoder().decode(file.data as ArrayBuffer);
+			sandbox.fs.set(`/mnt/data/${file.name}`, text);
+			return `/mnt/data/${file.name}`;
+		})
 	),
-	removeFile: vi.fn(async (_path: string) => undefined),
+	removeFile: vi.fn(async (path: string) => {
+		sandbox.fs.delete(path);
+	}),
 	onStatus: vi.fn(() => () => undefined),
 }));
 
 vi.mock("./runtime", () => ({ getExecutionSession: () => session }));
 
 import { getMountsStore } from "./mounts.svelte";
+import { mount, unmount } from "svelte";
 import { setAttachmentSource, withAttachmentMounts } from "./attachmentMounts.svelte";
+import AttachmentSourceFixture from "./AttachmentSourceFixture.svelte";
+import type { ProducedFile } from "./attachmentMounter";
 
 const file = (value: string, name: string): MessageFile => ({
 	type: "hash",
@@ -28,10 +42,15 @@ const file = (value: string, name: string): MessageFile => ({
 	extracted: { value: `${value}-text`, pages: 1 },
 });
 
+/** What the conversation's produced files are, as the list endpoint answers. */
+let produced: ProducedFile[] = [];
+
 const served = (url: string) =>
-	new Response(`bytes of ${url.split("/").pop()}`, {
-		headers: { "Content-Length": "20" },
-	});
+	url.endsWith("/code-execution/output")
+		? Response.json({ files: produced })
+		: new Response(`bytes of ${url.split("/").pop()}`, {
+				headers: { "Content-Length": "20" },
+			});
 
 beforeEach(() => {
 	vi.stubGlobal(
@@ -42,6 +61,8 @@ beforeEach(() => {
 
 afterEach(() => {
 	setAttachmentSource(null);
+	produced = [];
+	sandbox.fs.clear();
 	vi.unstubAllGlobals();
 	session.loadFiles.mockClear();
 	session.removeFile.mockClear();
@@ -79,10 +100,10 @@ describe("conversation attachments in the sandbox", () => {
 				.sort()
 		).toEqual(["/mnt/data/report.pdf", "/mnt/data/report.pdf.md"]);
 
-		// A second run has nothing pending: no new mount, and it runs synchronously.
+		// A second run mounts nothing again (it only asks which files the conversation has now).
 		session.loadFiles.mockClear();
 		const run = vi.fn(async () => "ran");
-		void withAttachmentMounts(run);
+		await withAttachmentMounts(run);
 		expect(run).toHaveBeenCalledTimes(1);
 		expect(session.loadFiles).not.toHaveBeenCalled();
 	});
@@ -112,7 +133,8 @@ describe("conversation attachments in the sandbox", () => {
 		expect(mounts?.files).toEqual([]);
 		await withAttachmentMounts(async () => undefined);
 		const urls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
-		expect(urls.filter((url) => url.includes("/conversation/c2/"))).toHaveLength(2);
+		// z.pdf and its text, and the list of the conversation's produced files.
+		expect(urls.filter((url) => url.includes("/conversation/c2/"))).toHaveLength(3);
 		// c1's files were taken out of the sandbox before c2's went in.
 		const removed = session.removeFile.mock.calls.map(([path]) => path);
 		expect(removed).toEqual(expect.arrayContaining(["/mnt/data/a.pdf", "/mnt/data/a.pdf.md"]));
@@ -164,7 +186,7 @@ describe("conversation attachments in the sandbox", () => {
 		warn.mockRestore();
 	});
 
-	it("makes a run wait for a mount still in flight, even when there is nothing new to mount", async () => {
+	it("makes a run wait for a mount still in flight", async () => {
 		let release: (() => void) | undefined;
 		const gate = new Promise<void>((resolve) => (release = resolve));
 		vi.stubGlobal(
@@ -202,5 +224,102 @@ describe("conversation attachments in the sandbox", () => {
 		await withAttachmentMounts(async () => undefined);
 		expect(session.loadFiles).toHaveBeenCalled();
 		warn.mockRestore();
+	});
+});
+
+/** The model's view: what `execute_code` lists at /mnt/data once the run's mounts have settled. */
+const listing = () => [...sandbox.fs.keys()].sort();
+
+describe("every file of the conversation is in /mnt/data", () => {
+	const pdf = (): MessageFile => ({
+		type: "hash",
+		value: "h1",
+		name: "form.pdf",
+		mime: "application/pdf",
+	});
+
+	it("mounts an attached PDF for the first run", async () => {
+		setAttachmentSource({ conversationId: "c1", messages: [{ files: [pdf()] }] });
+		await withAttachmentMounts(async () => undefined);
+		expect(listing()).toEqual(["/mnt/data/form.pdf"]);
+	});
+
+	it("mounts what the document tools produced, and the latest version where a name has several", async () => {
+		produced = [
+			{ name: "form.pdf", size: 9, sha256: "v2", createdAt: "2026-10-28T10:00:00Z" },
+			{ name: "form.pdf", size: 9, sha256: "v3", createdAt: "2026-10-28T10:05:00Z" },
+			{ name: "letter.docx", size: 9, sha256: "l1", createdAt: "2026-10-28T10:06:00Z" },
+		];
+		setAttachmentSource({ conversationId: "c1", messages: [{ files: [pdf()] }] });
+		await withAttachmentMounts(async () => undefined);
+
+		// The produced file replaces the attachment of the same name, and only its latest version is fetched.
+		expect(listing()).toEqual(["/mnt/data/form.pdf", "/mnt/data/letter.docx"]);
+		expect(sandbox.fs.get("/mnt/data/form.pdf")).toBe("bytes of v3");
+		const urls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+		expect(urls.some((url) => url.endsWith("/code-execution/output/v2"))).toBe(false);
+	});
+
+	it("follows a version saved between two runs, and a restore of an older one", async () => {
+		produced = [{ name: "form.pdf", size: 9, sha256: "v2", createdAt: "2026-10-28T10:00:00Z" }];
+		setAttachmentSource({ conversationId: "c1", messages: [{ files: [pdf()] }] });
+		await withAttachmentMounts(async () => undefined);
+		expect(sandbox.fs.get("/mnt/data/form.pdf")).toBe("bytes of v2");
+
+		produced = [
+			...produced,
+			{ name: "form.pdf", size: 9, sha256: "v3", createdAt: "2026-10-28T10:05:00Z" },
+		];
+		await withAttachmentMounts(async () => undefined);
+		expect(sandbox.fs.get("/mnt/data/form.pdf")).toBe("bytes of v3");
+
+		// Version 2 was restored: it is the latest again, though v3 was made later.
+		produced = [
+			{
+				name: "form.pdf",
+				size: 9,
+				sha256: "v2",
+				createdAt: "2026-10-28T10:00:00Z",
+				latestAt: "2026-10-28T10:10:00Z",
+			},
+			produced[1],
+		];
+		await withAttachmentMounts(async () => undefined);
+		expect(sandbox.fs.get("/mnt/data/form.pdf")).toBe("bytes of v2");
+
+		// Nothing changed: nothing is fetched or written again.
+		session.loadFiles.mockClear();
+		await withAttachmentMounts(async () => undefined);
+		expect(session.loadFiles).not.toHaveBeenCalled();
+	});
+
+	it("takes produced files out with the conversation", async () => {
+		produced = [{ name: "letter.docx", size: 9, sha256: "l1", createdAt: "2026-10-28T10:00:00Z" }];
+		setAttachmentSource({ conversationId: "c1", messages: [] });
+		await withAttachmentMounts(async () => undefined);
+		expect(listing()).toEqual(["/mnt/data/letter.docx"]);
+
+		setAttachmentSource({ conversationId: "c2", messages: [] });
+		produced = [];
+		await withAttachmentMounts(async () => undefined);
+		expect(listing()).toEqual([]);
+	});
+
+	it("a code card that runs the moment the page mounts already finds the attached files", async () => {
+		const seen: string[][] = [];
+		const target = document.createElement("div");
+		document.body.append(target);
+		const app = mount(AttachmentSourceFixture, {
+			target,
+			props: {
+				files: [pdf()],
+				// The card's run, as `RunsStore.run` does it: mounts first, then the code.
+				run: () => void withAttachmentMounts(async () => seen.push(listing())),
+			},
+		});
+		await vi.waitFor(() => expect(seen).toHaveLength(1));
+		expect(seen[0]).toEqual(["/mnt/data/form.pdf"]);
+		void unmount(app);
+		target.remove();
 	});
 });

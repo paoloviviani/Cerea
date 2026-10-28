@@ -13,7 +13,12 @@ import {
 	markdownToHtml,
 } from "$lib/server/office/gotenberg";
 import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
-import { findConversationFile } from "./conversationFiles";
+import {
+	VERSION_PROPERTY,
+	findConversationFile,
+	parseVersion,
+	type VersionRequest,
+} from "./conversationFiles";
 import type { BuiltinTool } from "./types";
 
 export const CONVERT_DOCUMENT_TOOL_NAME = "convert_document";
@@ -57,9 +62,10 @@ export function outputNameFor(requested: unknown, fallbackStem: string): string 
 /** The file as a conversion source: size and kind checked. */
 async function findSource(
 	conversationId: NonNullable<Parameters<BuiltinTool["execute"]>[1]["conversationId"]>,
-	reference: string
+	reference: string,
+	version?: VersionRequest
 ): Promise<Found> {
-	const file = await findConversationFile(conversationId, reference);
+	const file = await findConversationFile(conversationId, reference, { version });
 	if (!file.ok) return file;
 	const { name, bytes } = file;
 	if (bytes.byteLength > MAX_SOURCE_BYTES) {
@@ -120,6 +126,7 @@ export function createConvertDocumentBuiltin(): BuiltinTool[] {
 								description:
 									"Name of a file in the conversation, e.g. report.docx (or /mnt/data/report.docx).",
 							},
+							version: VERSION_PROPERTY,
 							markdown: {
 								type: "string",
 								description: "Markdown to render as a document (alternative to file and html).",
@@ -166,7 +173,9 @@ export function createConvertDocumentBuiltin(): BuiltinTool[] {
 					let pdf: Buffer;
 					let fallbackStem = "document";
 					if (given[0] === "file") {
-						const found = await findSource(ctx.conversationId, String(args.file));
+						const version = parseVersion(args.version);
+						if (!version.ok) return { error: version.error };
+						const found = await findSource(ctx.conversationId, String(args.file), version.version);
 						if (!found.ok) return { error: found.error };
 						const source = found.source;
 						fallbackStem = source.name.replace(/\.[^.]*$/, "") || "document";
@@ -199,6 +208,11 @@ export function createConvertDocumentBuiltin(): BuiltinTool[] {
 						name,
 						mime: "application/pdf",
 						bytes: pdf,
+						tool: CONVERT_DOCUMENT_TOOL_NAME,
+						summary:
+							given[0] === "file"
+								? `PDF of ${String(args.file).slice(0, 80)}`
+								: `PDF from ${given[0]}`,
 					});
 					if (!stored.ok) return { error: stored.error };
 

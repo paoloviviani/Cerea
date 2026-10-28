@@ -23,6 +23,7 @@ vi.mock("$lib/server/database", () => ({
 					limit: () => ({
 						next: async () => db.outputs.find((row) => row.name === query.name) ?? null,
 					}),
+					toArray: async () => db.outputs.filter((row) => row.name === query.name),
 				}),
 			}),
 		},
@@ -43,6 +44,7 @@ vi.mock("$lib/server/files/downloadFile", () => ({
 	}),
 }));
 vi.mock("$lib/server/execution/deliverables", () => ({
+	markCurrentVersion: vi.fn(async () => undefined),
 	downloadDeliverable: vi.fn(async (_id: unknown, sha: string) => {
 		const buffer = stored.outputs.get(sha);
 		return buffer ? { buffer, name: "n", mime: "m" } : undefined;
@@ -168,6 +170,17 @@ describe("converting a file of the conversation", () => {
 				files: [{ name: "Q3 report.pdf", size: PDF.byteLength, sha256: "f".repeat(64) }],
 			},
 		]);
+	});
+
+	it("converts an earlier version of a file when asked for one, and refuses a bad version", async () => {
+		db.outputs = [{ name: "deck.pptx", sha256: "s1", createdAt: new Date() }];
+		stored.outputs.set("s1", Buffer.from("deck bytes"));
+		await tool().execute({ file: "deck.pptx", version: 1 }, ctx());
+		expect(requests[0].body).toContain("deck bytes");
+		expect(await tool().execute({ file: "deck.pptx", version: 4 }, ctx())).toMatchObject({
+			error: expect.stringContaining('"deck.pptx" has no version 4'),
+		});
+		expect(requests).toHaveLength(1);
 	});
 
 	it("converts a file a run produced, and Markdown or HTML files through Chromium", async () => {

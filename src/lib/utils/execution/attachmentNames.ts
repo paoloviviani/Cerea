@@ -136,7 +136,7 @@ export function mountNamesByHash(
 
 /** The one line the model reads, when the code tool is on offer. */
 export function attachmentMountNotice(name: string): string {
-	return `The original file is available to code at ${MOUNT_ROOT}/${name}.`;
+	return `The file is available to code at ${MOUNT_ROOT}/${name} (its latest version, if it has been edited).`;
 }
 
 export type CapVerdict = "ok" | "file" | "total";

@@ -6,7 +6,7 @@ import {
 	type AttachmentSource,
 	type PlannedAttachment,
 } from "./attachmentNames";
-import { MOUNT_ROOT } from "./protocol";
+import { MOUNT_ROOT, safeMountName } from "./protocol";
 
 /**
  * Mounts one conversation's chat attachments into the sandbox, bringing it up
@@ -18,7 +18,23 @@ import { MOUNT_ROOT } from "./protocol";
  * conversation. A file attached in the turn that is still streaming has no
  * stored hash yet and is mounted from its own bytes; its extracted text
  * arrives with the next sync.
+ *
+ * The conversation's other files are mounted too: what the document tools and
+ * the sandbox itself produced (`syncProduced`). A name has one file at
+ * `/mnt/data/<name>`, the latest version of it; a produced file replaces an
+ * attachment of the same name there, because the document tools resolve a
+ * name to the latest version too. Earlier versions are not mounted.
  */
+
+/** One stored file of the conversation, as the list endpoint gives it. */
+export interface ProducedFile {
+	name: string;
+	size: number;
+	sha256: string;
+	createdAt: string;
+	/** When an older version was made the latest again (a restore). */
+	latestAt?: string;
+}
 
 export interface MounterSession {
 	loadFiles(files: Array<{ name: string; data: ArrayBuffer | string }>): Promise<string[]>;
@@ -50,6 +66,10 @@ function decodeBase64(value: string): ArrayBuffer {
 
 export class AttachmentMounter {
 	#entries = new Map<string, Entry>();
+	/** Mount name -> the produced version mounted there. */
+	#produced = new Map<string, { sha256: string; path: string; bytes: number }>();
+	/** Produced versions over a cap: not tried again. */
+	#refused = new Set<string>();
 	#mountedBytes = 0;
 
 	constructor(
@@ -99,11 +119,88 @@ export class AttachmentMounter {
 			const bytes = await this.fetchOriginal(entry, planned);
 			if (!bytes || !(await this.mount(entry, planned.name, bytes))) return;
 			entry.original = true;
+			// Written over whatever produced file held this name: it is mounted again below.
+			this.#produced.delete(planned.name);
 		}
 		if (planned.textName && planned.file.extracted && !entry.text) {
 			const bytes = await this.fetchHash(entry, planned.textName, planned.file.extracted.value);
 			if (bytes && (await this.mount(entry, planned.textName, bytes))) entry.text = true;
 		}
+	}
+
+	/**
+	 * Mount the latest version of each produced file, replacing an older
+	 * version (or an attachment) of the same name. Never throws, like `sync`.
+	 */
+	async syncProduced(listed: readonly ProducedFile[]): Promise<void> {
+		const latest = new Map<string, ProducedFile>();
+		for (const file of listed) {
+			const name = safeMountName(file.name);
+			if (!name) continue;
+			const at = (f: ProducedFile) => Date.parse(f.latestAt ?? f.createdAt) || 0;
+			const best = latest.get(name);
+			if (!best || at(file) >= at(best)) latest.set(name, file);
+		}
+		for (const [name, file] of latest) {
+			const held = this.#produced.get(name);
+			if (held?.sha256 === file.sha256 || this.#refused.has(file.sha256)) continue;
+			try {
+				await this.mountProduced(name, file, held);
+			} catch (err) {
+				console.warn(`[attachments] ${name} could not be mounted:`, err);
+				this.hooks.skipped({
+					name,
+					reason: err instanceof Error ? err.message : "could not be mounted",
+				});
+			}
+		}
+	}
+
+	private async mountProduced(
+		name: string,
+		file: ProducedFile,
+		held: { path: string; bytes: number } | undefined
+	): Promise<void> {
+		const url = `/conversation/${this.conversationId}/code-execution/output/${file.sha256}`;
+		let bytes: ArrayBuffer;
+		try {
+			bytes = await fetchWithinCap(url, MAX_ATTACHMENT_FILE_BYTES);
+		} catch (err) {
+			if (err instanceof OverCapError) {
+				this.#refused.add(file.sha256);
+				this.hooks.skipped({
+					name,
+					reason: `${(err.bytes / MB).toFixed(1)} MB is over the ${MAX_ATTACHMENT_FILE_BYTES / MB} MB per-file limit`,
+				});
+			} else {
+				const status = err instanceof FetchFailedError ? ` (status ${err.status})` : "";
+				console.warn(`[attachments] ${name} was not fetched from ${url}${status}:`, err);
+				this.hooks.skipped({
+					name,
+					reason: err instanceof Error ? err.message : "could not be loaded",
+				});
+			}
+			return;
+		}
+		// The file it replaces gives its bytes back to the total before the check.
+		const others = this.#mountedBytes - (held?.bytes ?? 0);
+		const verdict = checkAttachmentCaps(others, bytes.byteLength);
+		if (verdict !== "ok") {
+			this.#refused.add(file.sha256);
+			this.hooks.skipped({
+				name,
+				reason:
+					verdict === "file"
+						? `${(bytes.byteLength / MB).toFixed(1)} MB is over the ${MAX_ATTACHMENT_FILE_BYTES / MB} MB per-file limit`
+						: "the conversation's files would pass the 100 MB total limit",
+			});
+			return;
+		}
+		const [path] = await this.session.loadFiles([{ name, data: bytes }]);
+		const mounted = path ?? `${MOUNT_ROOT}/${name}`;
+		this.#mountedBytes = others + bytes.byteLength;
+		this.#produced.set(name, { sha256: file.sha256, path: mounted, bytes: bytes.byteLength });
+		this.hooks.mounted({ path: mounted, name });
 	}
 
 	/** Remove everything this mounter put in the sandbox; returns the paths. */
@@ -119,7 +216,17 @@ export class AttachmentMounter {
 				}
 			}
 		}
+		for (const { path } of this.#produced.values()) {
+			try {
+				await this.session.removeFile(path);
+				removed.push(path);
+			} catch {
+				// Already gone.
+			}
+		}
 		this.#entries.clear();
+		this.#produced.clear();
+		this.#refused.clear();
 		this.#mountedBytes = 0;
 		return removed;
 	}

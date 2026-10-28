@@ -44,8 +44,19 @@ assistant could not read the file's text. When the app extracted text from it
 under the conversation, like knowledge files.
 
 - **When the assistant can run code**, the text it sees for an attachment starts
-  with one line saying where the original is: "The original file is available
-  to code at `/mnt/data/<name>`." Without the code tool the line is left out.
+  with one line saying where the file is: "The file is available to code at
+  `/mnt/data/<name>` (its latest version, if it has been edited)." Without the
+  code tool the line is left out.
+- **Files made in the conversation are there too.** What the document tools
+  saved (a Word file it made, a filled PDF) and what earlier runs saved to
+  `/mnt/output` are mounted at `/mnt/data/<name>`, the latest version of each
+  name, and a version saved between two runs replaces the older one before the
+  next run. A file edited since it was attached shows the edit at its name;
+  earlier versions are not mounted (the document tools take a `version` for
+  them).
+- **The chat page registers its conversation while it is created**, not in an
+  effect after it: a code card that is already on screen starts its run before
+  the page's own effects, and the first run used to find `/mnt/data` empty.
 - **Same name twice**: attaching the same file again (same content) does not
   add a copy; it stays `report.pdf`. A different file with the same name
   (two `report.pdf` with different content) gets the next free name, `report

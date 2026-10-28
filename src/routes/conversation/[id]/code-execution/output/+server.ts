@@ -79,7 +79,16 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
 	const files = await collections.codeExecutionOutputs
 		.find({ conversationId })
-		.project({ name: 1, mime: 1, size: 1, sha256: 1, createdAt: 1 })
+		.project({
+			name: 1,
+			mime: 1,
+			size: 1,
+			sha256: 1,
+			createdAt: 1,
+			latestAt: 1,
+			tool: 1,
+			summary: 1,
+		})
 		.sort({ createdAt: -1 })
 		.toArray();
 
@@ -90,6 +99,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 			size: file.size,
 			sha256: file.sha256,
 			createdAt: file.createdAt.toISOString(),
+			// A restored older version is the latest again from this moment.
+			...(file.latestAt ? { latestAt: file.latestAt.toISOString() } : {}),
 		})),
 	});
 };

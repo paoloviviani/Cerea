@@ -18,6 +18,13 @@ describe("execution prompt", () => {
 		expect(EXECUTION_SYSTEM_PROMPT).toContain("/mnt/output/name.png");
 	});
 
+	it("says every file of the conversation is mounted as its latest version, and earlier ones are not", () => {
+		expect(EXECUTION_SYSTEM_PROMPT).toContain(
+			"Every file of the conversation is an input at `/mnt/data/<name>`"
+		);
+		expect(EXECUTION_SYSTEM_PROMPT).toContain("earlier versions are not mounted");
+	});
+
 	it("keeps execute_code from standing in for a missing tool or connector", () => {
 		// Without this, a request for a service with no tool on offer was answered
 		// by Python faking the service — the sandbox has no network to reach it.

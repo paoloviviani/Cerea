@@ -34,5 +34,15 @@ export interface CodeExecutionOutput {
 	 */
 	derivedFromSha256?: string;
 	derivedFromName?: string;
+	/** The tool that made it ("doc_edit", "doc_create"...); absent for a sandbox run's file. */
+	tool?: string;
+	/** One line on what it is, for the version list ("replace_text x2; from version 1"). */
+	summary?: string;
+	/**
+	 * Set when an older version was made the current one again (a restore):
+	 * the file is keyed by content, so the row is not copied, it is marked.
+	 * The current version of a name is the row with the latest `latestAt ?? createdAt`.
+	 */
+	latestAt?: Date;
 	createdAt: Date;
 }

@@ -30,6 +30,7 @@ vi.mock("$lib/server/database", () => ({
 					limit: () => ({
 						next: async () => db.outputs.find((row) => row.name === query.name) ?? null,
 					}),
+					toArray: async () => db.outputs.filter((row) => row.name === query.name),
 				}),
 			}),
 			countDocuments: vi.fn(
@@ -58,6 +59,7 @@ vi.mock("$lib/server/files/downloadFile", () => ({
 	}),
 }));
 vi.mock("$lib/server/execution/deliverables", () => ({
+	markCurrentVersion: vi.fn(async () => undefined),
 	downloadDeliverable: vi.fn(async (_id: unknown, sha: string) => {
 		const buffer = stored.outputs.get(sha);
 		return buffer ? { buffer, name: "n", mime: "m" } : undefined;

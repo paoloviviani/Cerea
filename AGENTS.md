@@ -1227,6 +1227,21 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   name), with `derivedFromSha256/Name` on the store row, and listed through an
   `Outputs` update (`runKey` `doc_edit:<uuid>`, so it renders as a file card).
   The original is never touched.
+- **Versions** (`conversationFiles.ts`, `listFileVersions`): a name's versions
+  are its attachment (1) and then each stored row of that name by `createdAt`;
+  numbers never change. `doc_outline`, `doc_read`, `doc_edit`, `look_doc` and
+  `convert_document` take `version` (a number, or "previous"; `parseVersion`,
+  `VERSION_PROPERTY`), and `doc_outline` lists the versions (`file_versions`,
+  when there is more than one), so no extra tool. `doc_edit` with `version` and
+  no operations restores. The store keeps one row per content, so a result whose
+  bytes equal an earlier version marks that row current (`latestAt`,
+  `markCurrentVersion`) instead of copying it; the current version is the row
+  with the latest `latestAt ?? createdAt`. The sandbox mounts the latest version
+  of every name at `/mnt/data/<name>` (`AttachmentMounter.syncProduced`, listed
+  per run from `code-execution/output`); earlier versions are not mounted. The
+  chat page registers its conversation with `trackAttachmentSource`
+  (`$effect.pre`): a plain `$effect` runs after a child code card's run and the
+  first run saw an empty `/mnt/data`.
 - Creation (step 3): `doc_create` and `doc_create_from_template` are offered
   when the service reports `create` / `create_from_template`, and their text is
   **generated from `create_schemas`** the same way (`describeSchema`; the theme,
