@@ -890,6 +890,23 @@ export class Database {
 		// GridFS bytes were usually left behind for good. An existing TTL index
 		// is dropped and replaced by a plain one the sweep's range query uses.
 		void replaceTtlIndex(codeExecutionOutputs, "codeExecutionOutputs");
+		// The sweep's stale filter asks for `latestAt` first (`latestAt` set and
+		// old; rows without one fall through to `createdAt`): sparse, so only
+		// the rows a restore touched are in it.
+		codeExecutionOutputs
+			.createIndex({ latestAt: 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for codeExecutionOutputs by latestAt"));
+		// Two saves racing on the same name must not store the same version
+		// number: the loser (`storeDeliverable`) recomputes and retries. Rows
+		// still without a version (the lazy back-fill's targets) sit outside it.
+		codeExecutionOutputs
+			.createIndex(
+				{ conversationId: 1, name: 1, version: 1 },
+				{ unique: true, partialFilterExpression: { version: { $exists: true } } }
+			)
+			.catch((e) =>
+				logger.error(e, "Error creating index for codeExecutionOutputs by name and version")
+			);
 		// The sweep for orphaned bytes asks which files a row still names.
 		codeExecutionOutputs
 			.createIndex({ gridFsId: 1 })

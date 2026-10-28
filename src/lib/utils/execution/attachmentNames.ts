@@ -34,6 +34,8 @@ export interface AttachmentSource {
 	value: string;
 	mime?: string;
 	extracted?: { value: string };
+	/** The name's version this file is, when it was numbered at upload (1 needs no record). */
+	version?: number;
 }
 
 export interface PlannedAttachment {

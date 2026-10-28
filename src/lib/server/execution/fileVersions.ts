@@ -3,6 +3,11 @@ import type { Conversation } from "$lib/types/Conversation";
 import type { MessageFile } from "$lib/types/Message";
 import { planAttachments, type PlannedAttachment } from "$lib/utils/execution/attachmentNames";
 
+/** Mongo's duplicate-key error: a unique index refused the write. */
+export function isDuplicateKeyError(err: unknown): boolean {
+	return (err as { code?: number } | null | undefined)?.code === 11000;
+}
+
 /** The attachment of a conversation a name stands for, if there is one, and when it was sent. */
 export async function attachmentNamed(
 	conversationId: Conversation["_id"],
@@ -34,17 +39,24 @@ export async function numberedRows(conversationId: Conversation["_id"], name: st
 		.toArray();
 	const missing = rows.filter((row) => row.version === undefined);
 	if (missing.length > 0) {
-		const offset = (await attachmentNamed(conversationId, name)) ? 1 : 0;
+		const attachment = await attachmentNamed(conversationId, name);
+		// The attachment of the name counts as taken, at the number it was given
+		// at upload (1 when it carries none: the first version of its name).
 		const taken = new Set(rows.flatMap((row) => (row.version === undefined ? [] : [row.version])));
-		let next = offset + 1;
+		if (attachment) taken.add(attachment.planned.file.version ?? 1);
+		let next = 1;
 		for (const row of missing) {
 			while (taken.has(next)) next += 1;
 			row.version = next;
 			taken.add(next);
-			await collections.codeExecutionOutputs.updateOne(
-				{ _id: row._id, version: { $exists: false } },
-				{ $set: { version: next } }
-			);
+			await collections.codeExecutionOutputs
+				.updateOne({ _id: row._id, version: { $exists: false } }, { $set: { version: next } })
+				.catch((err) => {
+					// Another process numbering these same rows concurrently took the
+					// number first (the unique index refused the write). The row keeps
+					// no number; the next pass numbers it past the one that won.
+					if (!isDuplicateKeyError(err)) throw err;
+				});
 		}
 	}
 	return rows.sort(
@@ -52,12 +64,18 @@ export async function numberedRows(conversationId: Conversation["_id"], name: st
 	);
 }
 
-/** The next version number of a name: one past the highest stored, or 2 after an attachment, else 1. */
+/**
+ * The next version number of a name: one past the highest number taken — by a
+ * stored row, or by the attachment of that name, which was given the next free
+ * number at upload when the name already had versions.
+ */
 export async function nextVersionNumber(
 	conversationId: Conversation["_id"],
 	name: string
 ): Promise<number> {
 	const rows = await numberedRows(conversationId, name);
-	if (rows.length > 0) return Math.max(...rows.map((row) => row.version ?? 0)) + 1;
-	return (await attachmentNamed(conversationId, name)) ? 2 : 1;
+	const attachment = await attachmentNamed(conversationId, name);
+	let highest = attachment ? (attachment.planned.file.version ?? 1) : 0;
+	for (const row of rows) highest = Math.max(highest, row.version ?? 0);
+	return highest + 1;
 }

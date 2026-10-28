@@ -8,7 +8,7 @@ import { MAX_FILE_BYTES } from "$lib/utils/execution/protocol";
 import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 import type { Conversation } from "$lib/types/Conversation";
 import type { User } from "$lib/types/User";
-import { nextVersionNumber } from "./fileVersions";
+import { isDuplicateKeyError, nextVersionNumber } from "./fileVersions";
 import {
 	previewInBackground,
 	previewOwner,
@@ -67,6 +67,9 @@ export const MAX_DELIVERABLE_TOTAL_BYTES_PER_CONVERSATION = 5 * MAX_DELIVERABLE_
 export const DEFAULT_RETENTION_DAYS = 30;
 /** Ten years: a number past this is a typo, and "forever" is 0. */
 export const MAX_RETENTION_DAYS = 3650;
+
+/** How often a raced version number is recomputed before the insert gives up and fails. */
+const MAX_VERSION_RETRIES = 3;
 
 /**
  * How many days produced files are kept: `CHAT_FILE_RETENTION_DAYS`, set from
@@ -185,24 +188,41 @@ export async function storeDeliverable({
 		setTimeout(() => reject(new Error("Deliverable upload timed out")), 20_000);
 	});
 
-	const version = await nextVersionNumber(conversationId, name);
-	await collections.codeExecutionOutputs.insertOne({
-		_id: new ObjectId(),
-		conversationId,
-		...(userId ? { userId } : {}),
-		sha256,
-		name,
-		mime,
-		size: bytes.byteLength,
-		gridFsId,
-		...(derivedFrom
-			? { derivedFromSha256: derivedFrom.sha256, derivedFromName: derivedFrom.name }
-			: {}),
-		version,
-		...(tool ? { tool } : {}),
-		...(summary ? { summary: summary.slice(0, 200) } : {}),
-		createdAt: new Date(),
-	});
+	let version = await nextVersionNumber(conversationId, name);
+	// A save racing this one can take the same version number between the read
+	// and the insert; the unique (conversation, name, version) index refuses
+	// the second, which recomputes the number and tries again. If the racing
+	// save stored these very bytes, its row is this file's: `existing` says so,
+	// and this call's GridFS entry stays for the orphan sweep to free.
+	for (let attempt = 0; ; attempt += 1) {
+		try {
+			await collections.codeExecutionOutputs.insertOne({
+				_id: new ObjectId(),
+				conversationId,
+				...(userId ? { userId } : {}),
+				sha256,
+				name,
+				mime,
+				size: bytes.byteLength,
+				gridFsId,
+				...(derivedFrom
+					? { derivedFromSha256: derivedFrom.sha256, derivedFromName: derivedFrom.name }
+					: {}),
+				version,
+				...(tool ? { tool } : {}),
+				...(summary ? { summary: summary.slice(0, 200) } : {}),
+				createdAt: new Date(),
+			});
+			break;
+		} catch (err) {
+			if (!isDuplicateKeyError(err) || attempt >= MAX_VERSION_RETRIES) throw err;
+			const twin = await collections.codeExecutionOutputs.findOne({ conversationId, name, sha256 });
+			if (twin) {
+				return { ok: true, ref: { name: twin.name, size: twin.size, sha256 }, existing: true };
+			}
+			version = await nextVersionNumber(conversationId, name);
+		}
+	}
 
 	// A produced Office file is opened at once, so its PDF preview is made now
 	// (when the deployment has a converter) instead of at the first click.
@@ -480,10 +500,15 @@ export async function markCurrentVersion(
 	);
 }
 
-/** The moment a row last counted as live: a restore (`latestAt`) keeps its row from expiring. */
-const LIVE_AT = { $ifNull: ["$latestAt", "$createdAt"] };
-
-/** A filter for the rows whose last live moment is before `cutoff`. */
+/**
+ * A filter for the rows whose last live moment is before `cutoff`: those with
+ * a `latestAt` before it, and those without one whose `createdAt` is before it
+ * (in Mongo a missing field matches `null`). Two plain filters instead of the
+ * old `$expr` over `$ifNull`, so the sweep and the storage summary read the
+ * `latestAt` and `createdAt` indexes rather than scanning the collection.
+ */
 function staleBefore(cutoff: Date) {
-	return { $expr: { $lt: [LIVE_AT, cutoff] } };
+	return {
+		$or: [{ latestAt: { $lt: cutoff } }, { latestAt: null, createdAt: { $lt: cutoff } }],
+	};
 }

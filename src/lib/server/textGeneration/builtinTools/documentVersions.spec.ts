@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { ObjectId } from "mongodb";
+import { Collection, ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import {
 	deleteConversationDeliverables,
@@ -392,5 +392,45 @@ describe("versions of a file", () => {
 		expect(
 			(await listFileVersions(conversationId, "form.pdf"))?.versions.map((v) => v.version)
 		).toEqual([1, 3]);
+	});
+
+	it("a numbering pass that loses a number to a concurrent one still lists the file", async () => {
+		const { conversationId } = await setup({ name: "form.pdf", bytes: "ORIGINAL" });
+		for (const content of ["two", "three"]) await makeFirst(conversationId, "form.pdf", content);
+		await collections.codeExecutionOutputs.updateMany(
+			{ conversationId },
+			{ $unset: { version: "" } }
+		);
+
+		// Another process numbering these same rows took each number first: the
+		// unique (conversation, name, version) index refuses every write, and the
+		// pass leaves the rows unnumbered rather than failing.
+		const updateOne = vi.spyOn(collections.codeExecutionOutputs, "updateOne");
+		updateOne.mockImplementation(async (filter, update, options) => {
+			if ((update as { $set?: { version?: number } }).$set?.version !== undefined) {
+				throw Object.assign(new Error("E11000 duplicate key error"), { code: 11000 });
+			}
+			return Collection.prototype.updateOne.call(
+				collections.codeExecutionOutputs,
+				filter,
+				update,
+				options
+			);
+		});
+		try {
+			expect(
+				(await listFileVersions(conversationId, "form.pdf"))?.versions.map((v) => v.version)
+			).toEqual([1, 2, 3]);
+		} finally {
+			updateOne.mockRestore();
+		}
+
+		// The next pass numbers the leftover rows, past the numbers the winner took.
+		await listFileVersions(conversationId, "form.pdf");
+		const rows = await collections.codeExecutionOutputs
+			.find({ conversationId })
+			.sort({ createdAt: 1 })
+			.toArray();
+		expect(rows.map((r) => r.version)).toEqual([2, 3]);
 	});
 });

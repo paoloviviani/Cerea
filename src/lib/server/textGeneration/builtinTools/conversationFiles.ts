@@ -13,7 +13,7 @@ export function bareName(reference: string): string {
 
 /** One version of a file: the attachment (when the name is one) or a produced file. */
 export interface FileVersion {
-	/** 1 = the original attachment, or the first produced file when there is no attachment. */
+	/** 1 = the original attachment or the first produced file; a version keeps its number for good. */
 	version: number;
 	origin: "attachment" | "output";
 	sha256: string;
@@ -87,16 +87,18 @@ export function describeVersions(versions: readonly FileVersion[]): string {
 }
 
 /** The latest moment a stored version became the current one: restoring an old version sets `latestAt`. */
-function becameCurrentAt(row: { createdAt: Date; latestAt?: Date }): number {
+function becameCurrentAt(row: { createdAt: Date; latestAt?: Date | null }): number {
 	return (row.latestAt ?? row.createdAt).getTime();
 }
 
 /**
- * Every version of the file a name stands for, oldest first: the attachment of
- * that name (version 1) and then each stored file of that name in the order it
- * was first made. A stored version keeps its number for good. Restoring an old
- * one does not copy it (the store keeps one row per distinct content): the row
- * is marked as current again, and the list says which is current.
+ * Every version of the file a name stands for, oldest number first: the
+ * attachment of that name and each stored file of that name. A stored version
+ * keeps its number for good, and an attachment uploaded under a name that
+ * already had versions was numbered at upload, so the numbers stay one series.
+ * Restoring an old one does not copy it (the store keeps one row per distinct
+ * content): the row is marked as current again, and the list says which is
+ * current.
  */
 export async function listFileVersions(
 	conversationId: ObjectId,
@@ -110,7 +112,10 @@ export async function listFileVersions(
 	const versions: FileVersion[] = [];
 	if (attachment) {
 		versions.push({
-			version: 1,
+			// Numbered at upload when the name already had versions (a file
+			// re-uploaded under a produced name takes the next free one); 1 when
+			// it carries no number: the first version of its name.
+			version: attachment.planned.file.version ?? 1,
 			origin: "attachment",
 			sha256: attachment.planned.file.value,
 			at: attachment.at,
@@ -144,6 +149,9 @@ export async function listFileVersions(
 			);
 	}
 	versions[latest].current = true;
+	// The numbers are the list's order, not the attachment-first one: an
+	// attachment numbered at upload sits among the rows it follows.
+	versions.sort((a, b) => a.version - b.version);
 	return { name: attachment?.planned.name ?? wanted, versions, attachment: attachment?.planned };
 }
 
@@ -198,8 +206,10 @@ export async function findConversationFile(
 	} else if (options.prefer === "output") {
 		pick = current.origin === "output" ? current : versions[0];
 	} else {
-		// An attachment of that name first, as before the document tools.
-		pick = listing.attachment ? versions[0] : current;
+		// An attachment of that name first, as before the document tools — it is
+		// the list's first entry only when it is version 1.
+		const attachmentEntry = versions.find((v) => v.origin === "attachment");
+		pick = listing.attachment && attachmentEntry ? attachmentEntry : current;
 	}
 
 	const read = async (entry: FileVersion): Promise<{ name: string; bytes: Buffer } | undefined> => {
@@ -218,7 +228,7 @@ export async function findConversationFile(
 	let found = await read(pick);
 	if (!found && options.version === undefined && pick.origin === "output" && listing.attachment) {
 		// A produced file whose bytes are gone: the attachment of that name is still the answer.
-		pick = versions[0];
+		pick = versions.find((v) => v.origin === "attachment") ?? current;
 		found = await read(pick);
 	}
 	if (!found) {

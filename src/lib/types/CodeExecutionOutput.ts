@@ -35,9 +35,10 @@ export interface CodeExecutionOutput {
 	derivedFromSha256?: string;
 	derivedFromName?: string;
 	/**
-	 * Its number among the versions of its name (an attachment of that name is 1),
-	 * fixed when the row is made so that expiring older rows never renumbers it.
-	 * Absent on rows from before it was stored: `numberedRows` fills it in.
+	 * Its number among the versions of its name (the attachment of that name,
+	 * numbered at upload, comes first), fixed when the row is made so that
+	 * expiring older rows never renumbers it. Absent on rows from before it
+	 * was stored: `numberedRows` fills it in.
 	 */
 	version?: number;
 	/** The tool that made it ("doc_edit", "doc_create"...); absent for a sandbox run's file. */
@@ -48,7 +49,9 @@ export interface CodeExecutionOutput {
 	 * Set when an older version was made the current one again (a restore):
 	 * the file is keyed by content, so the row is not copied, it is marked.
 	 * The current version of a name is the row with the latest `latestAt ?? createdAt`.
+	 * Typed nullable as well as optional, because the retention sweep's filter
+	 * matches a missing one with `null` (in Mongo the two are the same match).
 	 */
-	latestAt?: Date;
+	latestAt?: Date | null;
 	createdAt: Date;
 }
