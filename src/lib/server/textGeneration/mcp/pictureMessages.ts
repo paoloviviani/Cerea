@@ -75,3 +75,47 @@ export function withoutOlderPictures(
 		isPictureMessage(message) ? { role: "user", content: PICTURES_REMOVED } : message
 	);
 }
+
+/** What replaces the pictures when the endpoint refused a request that carried them. */
+export const PICTURES_COULD_NOT_BE_SENT =
+	"[the images could not be sent to this model; describe what you can from the text, or tell the user]";
+
+/** What look_doc answers for the rest of a turn once pictures were refused. */
+export const IMAGES_UNAVAILABLE_ERROR =
+	"Images are not available on this model this turn: the request with images was refused (400/422). " +
+	"Describe what you can from the text, or tell the user.";
+
+/** Shared between the request loop and look_doc for one turn. */
+export interface PictureState {
+	unavailable: boolean;
+}
+
+/** Whether any message of the request is a picture message. */
+export function hasPictureMessage(messages: ChatCompletionMessageParam[]): boolean {
+	return messages.some(isPictureMessage);
+}
+
+/** The request with every picture message replaced by one text note (one note, not one per message). */
+export function withoutPictures(
+	messages: ChatCompletionMessageParam[]
+): ChatCompletionMessageParam[] {
+	const out: ChatCompletionMessageParam[] = [];
+	let noted = false;
+	for (const message of messages) {
+		if (!isPictureMessage(message)) {
+			out.push(message);
+			continue;
+		}
+		if (noted) continue;
+		noted = true;
+		out.push({ role: "user", content: PICTURES_COULD_NOT_BE_SENT });
+	}
+	return out;
+}
+
+/** The endpoint answered "this request is not acceptable": 400 or 422. Not auth, throttling, timeouts or 5xx. */
+export function isRejectedRequest(err: unknown): boolean {
+	const status =
+		typeof err === "object" && err !== null ? (err as { status?: unknown }).status : undefined;
+	return status === 400 || status === 422;
+}

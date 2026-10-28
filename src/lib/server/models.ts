@@ -66,6 +66,17 @@ const modelConfig = z.object({
 		.optional(),
 	multimodal: z.boolean().default(false),
 	multimodalAcceptedMimetypes: z.array(z.string()).optional(),
+	/**
+	 * A MODELS override only: `false` switches pictures in tool turns (`look_doc`) off for this model, `true`
+	 * switches them on where the gateway's listing would have them off. The outcome is `toolImagesOff`.
+	 */
+	toolImages: z.boolean().optional(),
+	/**
+	 * Derived in `buildModels`, after the MODELS merge: pictures in tool turns are explicitly off. Separate from
+	 * "not an image model" (`multimodal`), because a MODELS `multimodal: true` or the user's image switch can
+	 * make a model an image model that the listing did not.
+	 */
+	toolImagesOff: z.boolean().optional(),
 	// Aggregated tool-calling capability across providers (HF router)
 	supportsTools: z.boolean().default(false),
 	// Reasoning-capable model (accepts `reasoning_effort` parameter). Drives the
@@ -327,6 +338,19 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 			);
 		}
 
+		// Does the gateway know the `tool_images` capability at all? This comes from the main `/models` listing:
+		// a MODELS entry that points at another endpoint inherits it unless it carries its own `endpoints`, in
+		// which case it is treated like a standalone endpoint (only an explicit `toolImages` changes it). Pystino lists it on every model that
+		// takes images (an admin may switch it off per model), so "at least one chat model lists it" tells
+		// a gateway that has the feature from one that does not (an older Pystino, a plain OpenAI-compatible
+		// endpoint). Only in the first case does a model that does not list it mean "off"; in the second the
+		// absence says nothing, so the rule falls back to "accepts images". A listing in which every model
+		// has it switched off looks like the second case: tool pictures stay on there until one model
+		// lists it again, which is the safe direction because the retry below covers a model that rejects them.
+		const gatewayKnowsToolImages = serves.some((m) =>
+			(m.supported_features ?? []).some((feature) => feature.toLowerCase() === "tool_images")
+		);
+
 		let modelsRaw = serves.map((m) => {
 			// Gateway first, then the HuggingFace router's nested shape. A
 			// deployment has one or the other, never both, and reading only the
@@ -369,6 +393,10 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 				// with an explicit value replaces this in the merge below.
 				preservesReasoning: preservesReasoningByDefault(m.id),
 				multimodal: supportsImageInput,
+				// Explicitly off only when the gateway knows the capability, the model takes images and does not
+				// list it. The MODELS merge below can still change that.
+				toolImagesOff:
+					gatewayKnowsToolImages && supportsImageInput && !features.includes("tool_images"),
 				multimodalAcceptedMimetypes: supportsImageInput ? ["image/*"] : undefined,
 				supportsTools,
 				supportsReasoning,
@@ -404,6 +432,14 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 				return {
 					...model,
 					...rest,
+					// After the merge, so a `multimodal: true` override is not mistaken for "off". An explicit
+					// `toolImages` wins; an override with its own endpoints no longer sits behind the listing.
+					toolImagesOff:
+						override.toolImages !== undefined
+							? !override.toolImages
+							: override.endpoints?.length
+								? false
+								: model.toolImagesOff,
 				};
 			});
 		}
