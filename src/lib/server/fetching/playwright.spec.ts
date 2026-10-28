@@ -70,6 +70,14 @@ describe("renderWithPlaywright", () => {
 		vi.clearAllMocks();
 	});
 
+	it("creates the browser context without Brotli in Accept-Encoding (CVE-2026-111497)", async () => {
+		const { browser } = makeHarness();
+		await renderWithPlaywright("https://example.test/");
+		expect(browser.newContext).toHaveBeenCalledWith(
+			expect.objectContaining({ extraHTTPHeaders: { "Accept-Encoding": "gzip, deflate" } })
+		);
+	});
+
 	describe("request interception", () => {
 		async function routeHandler() {
 			const { context } = makeHarness();

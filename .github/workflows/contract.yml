@@ -57,7 +57,7 @@ jobs:
           key=$(docker exec gateway gateway seed | grep -o 'gwk_[A-Za-z0-9_-]*' | head -n 1)
           echo "GATEWAY_CONTRACT_KEY=$key" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
-        with: { node-version: 24, cache: npm }
+        with: { node-version: 24.22.1, cache: npm }
       - run: npm ci
       - name: The contract
         env:

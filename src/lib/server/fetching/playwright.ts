@@ -126,6 +126,7 @@ export async function probePlaywrightHealth(): Promise<PlaywrightHealth> {
 	return result;
 }
 
+export const BROWSER_EXTRA_HEADERS = { "Accept-Encoding": "gzip, deflate" };
 const NAVIGATION_TIMEOUT_MS = 30_000;
 // A bounded window given to client-side rendering after `domcontentloaded`,
 // which fires before a React/Vue/etc. page has produced anything — the whole
@@ -238,6 +239,10 @@ async function withRenderedPage<T>(url: string, render: (page: Page) => Promise<
 		const context = await browser.newContext({
 			userAgent: "Cerea-Chat-Fetcher/1.0",
 			javaScriptEnabled: true,
+			// CVE-2026-111497 (Brotli decoder out-of-bounds write): the remote Chromium's
+			// Brotli is unverified, so never advertise `br`. Chromium offers it on its own
+			// over HTTPS; a well-behaved server then answers gzip or deflate instead.
+			extraHTTPHeaders: BROWSER_EXTRA_HEADERS,
 		});
 		// The initial URL was validated above, but the browser follows redirects and loads
 		// subresources on its own. Every request, redirect hops included, goes through the
