@@ -5,6 +5,34 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.32.2 — 2026-10-28
+
+Pins: Cerea `0.32.2` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required.
+
+- **Assistant instructions for the whole deployment.** Administrators can
+  write one set of instructions that every chat follows, under Administration →
+  Assistant instructions (up to 4,000 characters). They come first, before each
+  user's own instructions, and reach sub-agents too, so style rules such as
+  "keep answers short" also shorten research reports. A switch decides whether
+  users can read them in Settings; when it is off they still apply. Coding
+  agents on users' machines are not affected.
+- **Filling PDF forms.** Upload a fillable PDF and ask the assistant to fill
+  it: it lists the form's fields (every type, on every page, with the values
+  each accepts), fills them, and checks each value first: a value a field
+  doesn't accept is refused with what it takes, and nothing is written. The
+  filled file is saved as a new version, shows its values in every viewer,
+  and can be flattened on request. Digitally signed PDFs are refused (filling
+  would break the signature), as are XFA forms and encrypted files; characters
+  the form's font can't show are refused by name (Italian accents and € work).
+- **Map skills avoid OpenStreetMap's place search.** Both example skills now
+  send place searches to Geoapify or a web search, because the public Overpass
+  servers time out. The kit README shows how to hide those tools with
+  `OSM_DENY_TOOLS` in the `mcp-osm` service.
+- **Document service:** PDF can now be outlined and edited (form filling only);
+  new limits `CEREA_DOCUMENTS_MAX_PDF_PAGES` and `CEREA_DOCUMENTS_MAX_PDF_FIELDS`.
+
 ## v0.32.1 — 2026-10-27
 
 Pins: Cerea `0.32.1` (chat and `cerea-documents`), Pystino `0.18.1` (unchanged).
