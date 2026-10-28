@@ -712,18 +712,27 @@
 				<FeatureAnnouncementToast announcement={featureAnnouncement} />
 			{/if}
 		{/snippet}
-		{#snippet head()}
+		{#snippet top()}
 			{#if projectId && projectName}
-				<a
-					href="{base}/projects/{projectId}"
-					data-testid="project-back"
-					aria-label={m["chat.project.back_label"]({ name: projectName })}
-					class="pointer-events-auto flex w-fit max-w-full items-center gap-1 text-xs text-ink-muted no-underline hover:text-ink"
-				>
-					<IconArrowLeft class="size-3 shrink-0" />
-					<span class="truncate">{projectName}</span>
-				</a>
+				<!-- A fixed row, outside the scroller: the way back stays in view at any scroll. -->
+				<div class="pointer-events-auto z-10 h-8 shrink-0 md:h-14">
+					<div
+						class="mx-auto flex h-full max-w-3xl items-center px-3 sm:px-5 md:pt-4 md:pr-16 xl:max-w-4xl"
+					>
+						<a
+							href="{base}/projects/{projectId}"
+							data-testid="project-back"
+							aria-label={m["chat.project.back_label"]({ name: projectName })}
+							class="flex w-fit max-w-full items-center gap-1 text-xs text-ink-muted no-underline hover:text-ink"
+						>
+							<IconArrowLeft class="size-3 shrink-0" />
+							<span class="truncate">{projectName}</span>
+						</a>
+					</div>
+				</div>
 			{/if}
+		{/snippet}
+		{#snippet head()}
 			{#if preprompt && preprompt != currentModel.preprompt}
 				<SystemPromptModal preprompt={preprompt ?? ""} />
 			{/if}

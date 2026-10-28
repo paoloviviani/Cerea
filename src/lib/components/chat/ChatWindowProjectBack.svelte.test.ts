@@ -99,6 +99,9 @@ describe("the way back to a chat's project", () => {
 		const screen = await mount({ projectId: "p1", projectName: "Padova 1 Novembre 2026" });
 		const link = screen.container.querySelector<HTMLAnchorElement>("[data-testid=project-back]");
 		if (!link) throw new Error("no back link");
+		// A fixed row: the link lives outside the scrolling transcript, so it stays in view.
+		expect(link.closest(".overflow-y-auto")).toBeNull();
+		expect(screen.container.querySelector(".overflow-y-auto")).not.toBeNull();
 		expect(link.getAttribute("href")).toMatch(/\/projects\/p1$/);
 		expect(link.textContent).toContain("Padova 1 Novembre 2026");
 		expect(link.getAttribute("aria-label")).toBe("Back to the project Padova 1 Novembre 2026");
