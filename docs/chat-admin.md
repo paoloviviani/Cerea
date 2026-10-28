@@ -178,6 +178,17 @@ deployment configuration, not personal data, so it is not part of an account's
 export or erasure; a database backup includes it with the rest of the
 configuration. It applies to the next message anyone sends.
 
+## Images in tool results
+
+When the assistant looks at pages of a document (`look_doc`), the pictures go
+to the model inside a tool turn. Some models mishandle that, so Pystino has a
+per-model capability, **Images in tool results**, on by default for every model
+that accepts images. To switch it off for one model, use the console's model
+page: the chat stops offering `look_doc` to that model. Without Pystino, set
+`"toolImages": false` on the model's `MODELS` entry. If an endpoint rejects a
+request carrying pictures, the chat retries once without them and the turn
+carries on. See [Office files](office.md#the-assistant-looking-at-a-file).
+
 ## Prompt injection
 
 Pages, documents and connector results can contain text written to steer the

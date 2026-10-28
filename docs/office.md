@@ -209,6 +209,31 @@ really looks. This is for the assistant; you keep the preview above.
   it spots a broken layout, not a pixel difference. Without the converter the
   assistant can still look at PDFs.
 - **A text-only model is not offered the tool.** It has no way to see an image.
+- **Some models take images but mishandle them inside a tool turn**, and some
+  chat templates reject them. So the tool is offered only to a model whose
+  "Images in tool results" capability is on:
+  - **With Pystino**, the capability is on by default for every model that
+    accepts images, and an administrator turns it off for one model in the
+    console's model page. A Pystino version that does not list the capability
+    at all changes nothing: the tool is offered to every model that accepts
+    images.
+  - **With a standalone or other OpenAI-compatible endpoint**, the tool is
+    offered to every model that accepts images. To switch it off for one
+    model, add `"toolImages": false` to its entry in `MODELS`, for example
+    `MODELS='[{"id": "my-model", "toolImages": false}]'`. A `MODELS` entry
+    with `"multimodal": true` for a model the listing shows as text-only is
+    offered the tool too, and so is a text-only model when you force images on
+    for a message: only an explicit "off" (the console switch or
+    `"toolImages": false`) withholds it. An entry that gives its own
+    `endpoints` is treated like a standalone endpoint.
+- **A model that rejects the pictures does not break the turn.** If the
+  endpoint refuses a request that carries pictures (a 400 or 422 answer, which
+  can also mean the request was too long, so the cause is not assumed), the
+  chat sends the same request once more without them, with a note that the
+  images could not be sent. For the rest of that turn the assistant gets no
+  more pictures: `look_doc` answers that images are not available on this
+  model, and the assistant describes what it can from the text or tells you.
+  Other errors (server errors, timeouts, rate limits) are not retried this way.
 - Encrypted PDFs are refused.
 
 ## Limits

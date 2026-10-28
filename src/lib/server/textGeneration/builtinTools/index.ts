@@ -11,6 +11,7 @@ import { createExecuteCodeBuiltin } from "./executeCodeTool";
 import { createConvertDocumentBuiltin } from "./convertDocumentTool";
 import { createDocumentBuiltins, type DocumentTurnState } from "./documentTools";
 import { createLookDocBuiltins } from "./lookDocTool";
+import type { PictureState } from "../mcp/pictureMessages";
 import type { DocumentCapabilities } from "$lib/server/documents/client";
 import { createWebFetchStructuredBuiltin } from "./webFetchStructuredTool";
 import { createMemoryBuiltins } from "./memoryTool";
@@ -150,9 +151,12 @@ export function getEnabledBuiltinTools(params: {
 	documentCapabilities?: DocumentCapabilities | null;
 	/**
 	 * Whether the turn's model accepts images (`forceMultimodal ?? model.multimodal`), resolved by the
-	 * caller. `look_doc` shows the model pictures of pages, so a text-only model is not offered it.
+	 * caller, and the model's `toolImages` capability. `look_doc` shows the model pictures of pages, so a
+	 * text-only model, or one whose pictures in tool turns are switched off, is not offered it.
 	 */
 	modelSeesImages?: boolean;
+	/** Whether pictures have been refused by this turn's model, shared with the request loop (`pictureMessages.ts`). */
+	pictureState?: PictureState;
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
@@ -198,7 +202,9 @@ export function getEnabledBuiltinTools(params: {
 	// Looking at pages: only for a model that sees images, and only where the document service draws
 	// pages (and, for Office files, Gotenberg converts them). Otherwise absent, never an error at call time.
 	if (params.modelSeesImages === true) {
-		tools.push(...createLookDocBuiltins(params.documentCapabilities, documentTurn));
+		tools.push(
+			...createLookDocBuiltins(params.documentCapabilities, documentTurn, params.pictureState)
+		);
 	}
 
 	// Memory joins every conversation: a standing fact about somebody is as
