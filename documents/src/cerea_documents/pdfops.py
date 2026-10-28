@@ -121,16 +121,33 @@ def _page_sizes(reader: Any) -> list[dict[str, Any]]:
     for number, page in enumerate(reader.pages, start=1):
         if number > MAX_PAGES_LISTED:
             break
-        box = page.mediabox
+        box = page.cropbox  # the page as a viewer shows it (the media box when there is no crop)
         entry: dict[str, Any] = {
             "page": number,
             "width_pt": round(float(box.width), 1),
             "height_pt": round(float(box.height), 1),
         }
+        if round(float(box.left), 1) or round(float(box.bottom), 1):
+            # positions are in the page's own space: this is where the visible area starts in it
+            entry["origin_x"] = round(float(box.left), 1)
+            entry["origin_y"] = round(float(box.bottom), 1)
         if page.get("/Rotate"):
             entry["rotation"] = int(page["/Rotate"])
         out.append(entry)
     return out
+
+
+FLAT_NOTE = (
+    "this PDF has no form fields: the blanks (if any) are only drawn on the page. Write onto it with "
+    "doc_edit place_text, using the text lines (`lines`, with x, y and width) listed on each page to put values "
+    "next to their labels; look at the page with look_doc first and after"
+)
+
+
+def _operations(form: dict[str, Any]) -> list[str]:
+    if form["xfa"] or form.get("signed"):
+        return ["fill_form"] if form["has_form"] and not form["xfa"] else []
+    return ["fill_form"] if form["has_form"] else ["place_text"]
 
 
 def outline(data: bytes, limits: Limits) -> dict[str, Any]:
@@ -141,13 +158,16 @@ def outline(data: bytes, limits: Limits) -> dict[str, Any]:
         form = inspect_reader(reader, max_fields=limits.max_pdf_fields)
     except PdfFormError as exc:
         raise _raise(exc) from exc
-    from .pdflayout import annotate, text_lines
+    from .pdflayout import Layout, annotate, text_lines
 
     pages = len(reader.pages)
+    layout = Layout(reader)  # each page's text is read once, for the lines and for the labels
+    lines = text_lines(layout)
     if form["fields"]:
-        annotate(reader, form)
+        annotate(layout, form)
+    elif not form["xfa"] and not form.get("signed"):
+        form["note"] = FLAT_NOTE
     sizes = _page_sizes(reader)
-    lines = text_lines(reader, pages=pages)
     for entry in sizes:
         rows = lines.get(entry["page"])
         if rows is not None:
@@ -156,7 +176,7 @@ def outline(data: bytes, limits: Limits) -> dict[str, Any]:
         "page_count": pages,
         "pages": sizes,
         "form": form,
-        "operations": ["fill_form"] if form["has_form"] and not form["xfa"] else [],
+        "operations": _operations(form),
     }
     if pages > MAX_PAGES_LISTED:
         out["pages_truncated"] = pages - MAX_PAGES_LISTED

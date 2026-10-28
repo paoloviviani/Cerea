@@ -69,7 +69,6 @@ def render_pages(data: bytes, body: dict[str, Any], limits: Limits) -> dict[str,
 
     try:
         pdf = pdfium.PdfDocument(data)
-        pdf.init_forms()  # before any page is loaded: without the form layer a filled form is drawn empty
     except PdfiumError as exc:
         if "password" in str(exc).lower():
             raise InvalidDocument(
@@ -78,6 +77,14 @@ def render_pages(data: bytes, body: dict[str, Any], limits: Limits) -> dict[str,
             ) from exc
         raise InvalidDocument(f"the PDF cannot be read ({str(exc)[:160]})", reason="damaged") from exc
     try:
+        # before any page is loaded: without the form layer a filled form is drawn empty. This PDFium has neither
+        # V8 nor XFA, so no document script runs. A form layer that will not start is not a damaged file: the
+        # pages are drawn without it, from a fresh handle (the form env is tied to the first one)
+        try:
+            pdf.init_forms()
+        except Exception:
+            pdf.close()
+            pdf = pdfium.PdfDocument(data)
         count = len(pdf)
         if count < 1:
             raise InvalidDocument("the PDF has no pages", reason="damaged")

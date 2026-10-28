@@ -612,6 +612,12 @@ describe("PDF forms", () => {
 		stored.attachments.set(`${conversationId}:sha-f`, Buffer.from("%PDF-1.7 original"));
 	});
 
+	it("does not name place_text in the preprompt when the service does not list it", async () => {
+		const prompt = (await named(DOC_EDIT_TOOL_NAME)).preprompt ?? "";
+		expect(prompt).toContain("doc_edit fill_form");
+		expect(prompt).not.toContain("place_text");
+	});
+
 	it("describes fill_form from the service's schema and says a PDF has no other edit", async () => {
 		const text = (await named(DOC_EDIT_TOOL_NAME)).definition.function.description ?? "";
 		expect(text).toContain("PDF (.pdf): fill_form{values: object, flatten?: boolean}");
@@ -650,6 +656,7 @@ describe("PDF forms", () => {
 		expect(text).toMatch(/A PDF has two operations, fill_form and place_text, and no other edit/);
 		expect(text).toMatch(/place_text writes text at positions/);
 		expect(text).toMatch(/refused on one with fields unless allow_on_form/);
+		expect((await named(DOC_EDIT_TOOL_NAME)).preprompt).toContain("doc_edit place_text");
 	});
 
 	it("saves a flattened PDF as <name>-flattened.pdf and leaves the fillable file alone", async () => {

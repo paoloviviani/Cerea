@@ -22,6 +22,7 @@ from .pdfform import (
     open_reader,
     read_form,
 )
+from .pdflayout import page_segments
 
 MAX_ITEMS = 300
 MAX_TEXT = 500
@@ -37,15 +38,20 @@ def _number(value: Any) -> float | None:
     return float(value)
 
 
-def _plan(items: list[dict[str, Any]], boxes: list[Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _plan(
+    items: list[dict[str, Any]], boxes: list[Any], rotated: dict[int, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(valid items with their font, width and size settled, problems)"""
     plan: list[dict[str, Any]] = []
     problems: list[dict[str, Any]] = []
     for index, item in enumerate(items):
         where = f"item {index}"
 
-        def bad(message: str, item: dict[str, Any] = item, where: str = where, index: int = index) -> None:
-            problems.append({"item": index, "value": item.get("text"), "message": f"{where}: {message}"})
+        def bad(
+            message: str, item: dict[str, Any] = item, where: str = where, index: int = index, reason: str = ""
+        ) -> None:
+            problem = {"item": index, "value": item.get("text"), "message": f"{where}: {message}"}
+            problems.append({**problem, "reason": reason} if reason else problem)
 
         page, text = item.get("page"), item.get("text")
         x, y = _number(item.get("x")), _number(item.get("y"))
@@ -70,12 +76,20 @@ def _plan(items: list[dict[str, Any]], boxes: list[Any]) -> tuple[list[dict[str,
             bad(f'font must be "Helvetica" or "Helvetica-Bold", not "{item.get("font")}"')
             continue
         try:
-            _check_shown(text.replace("\t", " "))
+            _check_shown(text)
         except _Reject as exc:
             bad(exc.message)
             continue
         base, factor = FONTS[font_key]
         width = _text_width(text, size) * factor
+        if page in rotated and not _near_a_line(rotated[page](), x, y, size):
+            bad(
+                f"page {page} is rotated, and x and y are in the page's own unrotated space, which the picture does "
+                "not show: place text only next to a text line that doc_outline lists on this page (within "
+                f"{ROTATED_REACH:g} points of it)",
+                reason="rotated_page",
+            )
+            continue
         left, bottom, right, top = boxes[page - 1]
         if x < left or x + width > right + 0.01 or y < bottom or y + size * 0.8 > top:
             bad(
@@ -85,6 +99,19 @@ def _plan(items: list[dict[str, Any]], boxes: list[Any]) -> tuple[list[dict[str,
             continue
         plan.append({"page": page, "x": x, "y": y, "text": text, "size": size, "font": base, "w": width})
     return plan, problems
+
+
+ROTATED_REACH = 30.0
+
+
+def _near_a_line(segs: list[Any], x: float, y: float, size: float) -> bool:
+    """The point is within ROTATED_REACH of a text segment's box."""
+    for s in segs:
+        dx = max(s.x0 - x, 0.0, x - s.x1)
+        dy = max(s.y - 0.3 * s.size - y, 0.0, y - (s.y + s.size))
+        if dx * dx + dy * dy <= ROTATED_REACH**2:
+            return True
+    return False
 
 
 def _overlay(writer: PdfWriter, page: Any, ops: bytes, fonts: set[str]) -> None:
@@ -143,10 +170,13 @@ def place_text(
     if len(items) > MAX_ITEMS:
         raise PdfFormError(f"{len(items)} items is more than the {MAX_ITEMS} one call takes", reason="too_many_items")
     boxes = []
-    for page in reader.pages:
-        box = page.mediabox
+    rotated: dict[int, Any] = {}
+    for number, page in enumerate(reader.pages, start=1):
+        box = page.cropbox  # what a viewer shows; the media box when there is no crop
         boxes.append((float(box.left), float(box.bottom), float(box.right), float(box.top)))
-    plan, problems = _plan(items, boxes)
+        if int(page.rotation) % 360:
+            rotated[number] = lambda page=page: page_segments(page)
+    plan, problems = _plan(items, boxes, rotated)
     if problems:
         lines = "; ".join(p["message"] for p in problems[:6])
         more = f" (and {len(problems) - 6} more)" if len(problems) > 6 else ""

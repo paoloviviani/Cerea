@@ -69,14 +69,21 @@ encryption) has no tool and is always done in the sandbox.
      are not obvious from the text;
    - call `place_text` once with all the items (it cannot be combined with `fill_form` and is refused on a PDF
      that has fields, unless `allow_on_form: true` is given to add text the fields do not cover);
-   - **check with `look_doc`** and adjust: place again from the original file's outline if something landed in the
-     wrong place (the result lists each item and whether it was found at its position);
+   - **check with `look_doc`** and adjust. To correct misplaced text, do not place more text on top of it: call
+     `doc_edit` with `version` set to the version before the placement (`file_versions` in `doc_outline` lists
+     them), and place again with the corrected positions (the result lists each item and whether it was found at
+     its position);
+   - positions are in the page's own space, not the picture's: on a **rotated** page (`rotation` in the page's
+     entry) compare with the `lines` positions, not with what `look_doc` shows, and a page whose visible area is
+     cropped says where it starts (`origin_x`, `origin_y`); `place_text` refuses a rotated page's item that is not
+     next to a listed line;
    - text is limited to Western European characters, as above;
    - the sandbox route (`reportlab` and `pypdf`: install them with `micropip`, find the label positions with a
      pypdf text visitor, draw an overlay and merge it) is only for when `doc_edit` is not in your tool list.
 8. **Never rebuild an official or third-party form as a substitute** (not with `doc_create`, not in the sandbox):
-   a lookalike is not the form the user has to submit. If the original is damaged or lost, ask the user to attach
-   the original again; do not recreate it.
+   a lookalike is not the form the user has to submit. If the original is damaged or lost, restore the earlier
+   version (`doc_edit` with `version` set to a version that is still the original; `file_versions` in `doc_outline`
+   lists them), or, if there is none, ask the user to attach the original again; do not recreate it.
 
 ## Setup
 

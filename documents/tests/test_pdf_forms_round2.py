@@ -6,13 +6,16 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 from PIL import Image
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import ArrayObject, DictionaryObject, NameObject, NumberObject, RectangleObject
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
@@ -311,3 +314,151 @@ def test_a_flatten_is_saved_as_a_new_file_unless_in_place_is_asked_for() -> None
 
 def fields_by_name_or_none(data: bytes) -> dict[str, Any]:
     return fields_by_name(data)
+
+
+# -- review round: budgets, flat outlines, crop and rotation, escaping, control characters ---------------------
+
+
+def _dense(pages: int, rows: int, cols: int, lines: int) -> bytes:
+    """Many small fields and many text lines (the review's probes)."""
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(600, 800))
+    form = c.acroForm
+    for p in range(pages):
+        c.setFont("Helvetica", 6)
+        for i in range(lines):
+            c.drawString(10 + (i % 3) * 190, 790 - (i // 3) * 3.9, f"Label number {i} of page {p} ....")
+        for r in range(rows):
+            for k in range(cols):
+                form.textfield(name=f"f{p}_{r}_{k}", x=20 + k * 9, y=780 - r * 9.5, width=8, height=8, borderWidth=0)
+        c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def test_the_outline_of_a_page_with_thousands_of_fields_answers_in_time_with_every_field() -> None:
+    data = _dense(1, 80, 60, 600)
+    started = time.monotonic()
+    out = outline(data)
+    assert time.monotonic() - started < 10  # the worker is cut off at 20 s of CPU
+    assert len(out["form"]["fields"]) == 4800 and out["form"]["tables"]
+    assert all("rect" in f for f in out["form"]["fields"])
+
+
+def test_the_outline_of_a_very_long_form_labels_the_first_pages_and_says_so() -> None:
+    data = _dense(2000, 2, 1, 60)
+    started = time.monotonic()
+    out = outline(data)
+    assert time.monotonic() - started < 10
+    fields = out["form"]["fields"]
+    assert len(fields) == 4000  # the list is complete
+    assert "no label or table" in out["form"]["labels_note"]
+    assert any("label" in f for f in fields[:80]) and not any("label" in f for f in fields[-80:])
+
+
+def test_the_outline_is_the_same_bytes_twice() -> None:
+    for data in (isee(), make_fax_pdf(), make_form_pdf()):
+        assert json.dumps(outline(data), sort_keys=True) == json.dumps(outline(data), sort_keys=True)
+    first = json.dumps(core.outline(isee(), "pdf", LIMITS))
+    assert first == json.dumps(core.outline(isee(), "pdf", LIMITS))
+
+
+def test_a_flat_pdfs_outline_offers_place_text_and_points_to_the_lines() -> None:
+    out = outline(make_fax_pdf())
+    assert out["operations"] == ["place_text"]
+    assert "place_text" in out["form"]["note"] and "`lines`" in out["form"]["note"]
+    assert outline(make_form_pdf())["operations"] == ["fill_form"]
+
+
+def _fax_with(mutate: Any) -> bytes:
+    writer = PdfWriter(clone_from=io.BytesIO(make_fax_pdf()))
+    mutate(writer)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def test_the_crop_box_bounds_the_text_and_its_origin_is_reported() -> None:
+    cropped = _fax_with(lambda w: setattr(w.pages[0], "cropbox", RectangleObject([100, 100, 500, 700])))
+    page = outline(cropped)["pages"][0]
+    assert (page["width_pt"], page["height_pt"], page["origin_x"], page["origin_y"]) == (400.0, 600.0, 100.0, 100.0)
+    with pytest.raises(PatchError, match="leave the page"):
+        edit(cropped, {"op": "place_text", "items": [{"page": 1, "x": 20, "y": 20, "text": "outside the crop"}]})
+    report, _out = edit(cropped, {"op": "place_text", "items": [{"page": 1, "x": 160, "y": 648, "text": "inside"}]})
+    assert report["verify"]["ok"] is True
+
+
+def test_a_rotated_page_takes_text_only_next_to_a_reported_line() -> None:
+    rotated = _fax_with(lambda w: w.pages[0].rotate(90))
+    with pytest.raises(PatchError, match="rotated") as info:
+        edit(rotated, {"op": "place_text", "items": [{"page": 1, "x": 300, "y": 300, "text": "far from any text"}]})
+    assert info.value.details["problems"][0]["reason"] == "rotated_page"
+    report, _ = edit(rotated, {"op": "place_text", "items": [{"page": 1, "x": 160, "y": 649, "text": "near To"}]})
+    assert report["verify"]["ok"] is True
+
+
+def test_a_signed_pdf_is_refused_by_place_text() -> None:
+    def sign(w: PdfWriter) -> None:
+        w._root_object[NameObject("/AcroForm")] = DictionaryObject(
+            {NameObject("/Fields"): ArrayObject(), NameObject("/SigFlags"): NumberObject(3)}
+        )
+
+    with pytest.raises(PatchError, match="signature"):
+        edit(_fax_with(sign), {"op": "place_text", "items": [{"page": 1, "x": 100, "y": 700, "text": "a"}]})
+
+
+@pytest.mark.parametrize("text", ["a) Tj ET 1 0 0 RG BT /F1 50 Tf (pwn", "back\\slash) Tj (x", "a\\", "(((", "))) \\("])
+def test_text_is_escaped_and_cannot_add_drawing_operators(text: str) -> None:
+    flat = make_fax_pdf()
+    report, out = edit(flat, {"op": "place_text", "items": [{"page": 1, "x": 100, "y": 300, "text": text}]})
+    assert report["verify"]["ok"] is True
+    reader = PdfReader(io.BytesIO(out))
+    # the whole text is one drawn string: nothing in it was read as an operator, so the page gained exactly one
+    # text fragment, equal to the text
+    from cerea_documents.pdflayout import _fragments
+
+    after = [f.raw for f in _fragments(reader.pages[0])]
+    before = [f.raw for f in _fragments(PdfReader(io.BytesIO(flat)).pages[0])]
+    assert len(after) == len(before) + 1 and after.count(text) == 1
+
+
+def test_the_pages_own_resources_survive_a_placement() -> None:
+    flat = make_fax_pdf()
+    before = set(PdfReader(io.BytesIO(flat)).pages[0]["/Resources"]["/Font"].keys())
+    _, out = edit(
+        flat, {"op": "place_text", "items": [{"page": 1, "x": 100, "y": 300, "text": "x", "font": "Helvetica-Bold"}]}
+    )
+    after = set(PdfReader(io.BytesIO(out)).pages[0]["/Resources"]["/Font"].keys())
+    assert before < after and {"/CrPT2"} <= after - before
+    assert "Fax cover sheet" in PdfReader(io.BytesIO(out)).pages[0].extract_text()
+
+
+@pytest.mark.parametrize("text", ["a\x00b", "a\x1fb", "tab\there", "bell\x07", "del\x7f"])
+def test_control_characters_are_refused_in_placed_text(text: str) -> None:
+    with pytest.raises(PatchError, match="control characters"):
+        edit(make_fax_pdf(), {"op": "place_text", "items": [{"page": 1, "x": 100, "y": 300, "text": text}]})
+
+
+def test_control_characters_are_refused_in_form_values_but_a_line_break_is_for_multiline_fields() -> None:
+    with pytest.raises(PatchError, match="control characters"):
+        edit(make_form_pdf(), {"op": "fill_form", "values": {"full_name": "Ada\x00 Lovelace"}})
+    with pytest.raises(PatchError, match="single-line"):
+        edit(make_form_pdf(), {"op": "fill_form", "values": {"full_name": "Ada\nLovelace"}})
+
+
+def test_the_render_has_no_script_engine_and_no_xfa() -> None:
+    import pypdfium2 as pdfium
+
+    flags = pdfium.PDFIUM_INFO.flags
+    assert "V8" not in flags and "XFA" not in flags  # a document's JavaScript can never run
+
+
+def test_a_form_layer_that_will_not_start_renders_the_page_without_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    import pypdfium2 as pdfium
+
+    def broken(self: Any, *args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("no form env")
+
+    monkeypatch.setattr(pdfium.PdfDocument, "init_forms", broken)
+    item = render_pages(make_fax_pdf(), {"pages": [1], "width_px": 400}, LIMITS)["images"][0]
+    assert item["width"] == 400

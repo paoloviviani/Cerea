@@ -196,9 +196,16 @@ describe("a PDF form with no fields", () => {
 		expect(tools).toContain("<name>-flattened.pdf");
 		expect(tools).toMatch(/\*\*After filling, look at the page with `look_doc`\*\*/);
 	});
+	it("corrects misplaced text by going back to the earlier version, and knows rotated and cropped pages", () => {
+		expect(tools).toMatch(/`version` set to the version before the placement/);
+		expect(tools).toMatch(/`file_versions` in\s+`doc_outline`/);
+		expect(tools).toMatch(/on a \*\*rotated\*\* page/);
+		expect(tools).toMatch(/`origin_x`, `origin_y`/);
+	});
 	it("never rebuilds an official form as a substitute", () => {
 		expect(tools).toMatch(/\*\*Never rebuild an official or third-party form as a substitute\*\*/);
-		expect(tools).toMatch(/ask the user to attach\s+the original again/);
+		expect(tools).toMatch(/restore the earlier\s+version/);
+		expect(tools).toMatch(/ask the user to attach the original again/);
 	});
 	it("is no longer an exception to the tools-only rule in the pdf skill", () => {
 		expect(skill("pdf").content).not.toContain("One exception, for an existing PDF");

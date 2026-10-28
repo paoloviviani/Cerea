@@ -88,7 +88,10 @@ def test_outline_lists_pages_and_every_kind_of_field() -> None:
 def test_outline_of_a_pdf_without_a_form_says_so() -> None:
     o = core.outline(make_plain_pdf(), "pdf", LIMITS)
     assert o["page_count"] == 2 and o["form"]["has_form"] is False and o["form"]["fields"] == []
-    assert "no fillable form fields" in o["form"]["note"] and o["operations"] == []
+    assert (
+        "no form fields" in o["form"]["note"] and "place_text" in o["form"]["note"] and "`lines`" in o["form"]["note"]
+    )
+    assert o["operations"] == ["place_text"]
 
 
 def test_outline_reports_xfa_as_such() -> None:

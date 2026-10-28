@@ -422,9 +422,23 @@ class _Reject(Exception):
         self.allowed = allowed
 
 
-def _check_shown(text: str) -> None:
-    """The appearances use a Western European font (Windows-1252): refuse what it cannot show, never write '?'."""
-    bad = sorted({c for c in text if c not in "\n\r\t" and not _encodable(c)})
+def _control(char: str) -> bool:
+    return char < " " or char == "\x7f"
+
+
+def _check_shown(text: str, *, newlines: bool = False) -> None:
+    """The appearances use a Western European font (Windows-1252): refuse what it cannot show, never write '?'.
+    Control characters are refused too (a line break only where `newlines`): they draw nothing and have no place
+    in a form value."""
+    controls = sorted({c for c in text if _control(c) and not (newlines and c in "\n\r")})
+    if controls:
+        shown = ", ".join(f"U+{ord(c):04X}" for c in controls[:8])
+        raise _Reject(
+            f"cannot contain control characters ({shown}): remove them"
+            + ("" if newlines else "; a line break needs a multiline field"),
+            {"control_characters": [ord(c) for c in controls]},
+        )
+    bad = sorted({c for c in text if not _control(c) and not _encodable(c)})
     if bad:
         shown = ", ".join(f'"{c}"' for c in bad[:8])
         raise _Reject(
@@ -467,7 +481,7 @@ def coerce(field: Field, value: Any) -> Any:
         if isinstance(value, bool) or not isinstance(value, str | int | float):
             raise _Reject(f"needs text, not {_shown(value)}")
         text = value if isinstance(value, str) else (str(int(value)) if float(value).is_integer() else str(value))
-        _check_shown(text)
+        _check_shown(text, newlines=True)  # a line break in a single-line field is refused just below
         limit = field.max_length
         if limit and len(text) > limit:
             raise _Reject(f"takes at most {limit} characters, and this has {len(text)}", {"max_length": limit})

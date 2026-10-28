@@ -1284,7 +1284,7 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   `place_text` (`pdfplace.py`) draws Helvetica text into the page as an overlay, bounds-checked, refused on a PDF
   with fields unless `allow_on_form`, and re-extracted for the verify report. `flatten` is saved by the chat as
   `<name>-flattened.pdf` (the result's `save_as_suffix`) unless `flatten_in_place`. Text that does not fit a field
-  is shrunk (6 pt floor) and listed in `clipped`. `look_doc` draws form fields (`init_forms()`). `documents/.../pdfform.py` is the whole
+  is shrunk (6 pt floor) and listed in `clipped`. `look_doc` draws form fields (`init_forms()`; this PDFium has no V8 or XFA). Page text is read once (`pdflayout.Layout`) for the first 40 pages only, with a 6 s safety net; fields on later pages come without label or table and `labels_note` says so. Positions are in the page's own space: `pages` gives `origin_x/y` for a cropped page, and `place_text` checks the crop box and refuses a rotated page's item unless it is within 30 pt of a listed line. Control characters are refused in placed text and form values. `documents/.../pdfform.py` is the whole
   of the logic and is **copied** into the `pdf-tools` skill's `scripts/pdf_tools.py` between two markers by
   `scripts/sync_pdf_tools.py` (`documents/tests/test_pdf_tools_helper.py` fails when it is stale, and CI's
   `documents` job runs when either file changes): edit `pdfform.py`, run the script, never the copy. Values are

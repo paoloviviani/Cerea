@@ -151,13 +151,20 @@ function pdfNote(caps: DocumentCapabilities): string {
 	);
 }
 
-const SHARED_PREPROMPT =
-	"Word, Excel and PowerPoint files: use doc_outline to see a file's structure, doc_read for exact content, " +
-	"and doc_edit to change it. Never write code to edit a supplied Office file, and never rewrite a whole file " +
-	"to change a part of it; the edit tools touch only what the operations name. Files are given by name (an " +
-	"attachment, or a file you produced); an edit is saved as a new version under the same name, and the " +
-	"user's original stays as it was. To fill a PDF form, doc_outline lists its fields and doc_edit fill_form " +
-	"fills them; to write on a PDF without fields, doc_edit place_text; never fill a form in the sandbox.";
+/** The preprompt of the document tools. place_text is named only when the service offers it. */
+function sharedPreprompt(caps: DocumentCapabilities): string {
+	const place = caps.formats.pdf?.operations.includes("place_text") === true;
+	return (
+		"Word, Excel and PowerPoint files: use doc_outline to see a file's structure, doc_read for exact content, " +
+		"and doc_edit to change it. Never write code to edit a supplied Office file, and never rewrite a whole file " +
+		"to change a part of it; the edit tools touch only what the operations name. Files are given by name (an " +
+		"attachment, or a file you produced); an edit is saved as a new version under the same name, and the " +
+		"user's original stays as it was. To fill a PDF form, doc_outline lists its fields and doc_edit fill_form " +
+		"fills them; " +
+		(place ? "to write on a PDF without fields, doc_edit place_text; " : "") +
+		"never fill a form in the sandbox."
+	);
+}
 
 const CREATE_LABEL: Record<CreateFormat, string> = FORMAT_LABEL;
 
@@ -502,7 +509,7 @@ export function createDocumentBuiltins(
 					},
 				},
 			},
-			preprompt: SHARED_PREPROMPT,
+			preprompt: sharedPreprompt(caps),
 			async execute(args, ctx) {
 				const limit = countCall();
 				if (limit) return { error: limit };
@@ -548,7 +555,7 @@ export function createDocumentBuiltins(
 					},
 				},
 			},
-			preprompt: canOutline ? undefined : SHARED_PREPROMPT,
+			preprompt: canOutline ? undefined : sharedPreprompt(caps),
 			async execute(args, ctx) {
 				const limit = countCall();
 				if (limit) return { error: limit };
@@ -632,7 +639,7 @@ export function createDocumentBuiltins(
 					},
 				},
 			},
-			preprompt: SHARED_PREPROMPT,
+			preprompt: sharedPreprompt(caps),
 			async execute(args, ctx) {
 				const limit = countCall();
 				if (limit) return { error: limit };

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import math
 import re
+import time
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,7 +23,9 @@ from .pdfform import _text_width as _helvetica_width
 
 MAX_LINES_PER_PAGE = 200
 MAX_LINES_TOTAL = 1500
-MAX_TEXT_PAGES = 40  # pages whose text lines are listed; fields are labelled on every page
+LAYOUT_PAGES = 40  # pages whose text is read at all: their lines are listed and their fields are labelled
+LAYOUT_SECONDS = 6.0  # a safety net on top of the page cap: the outline must answer inside the worker's limits
+MAX_FRAGMENTS = 20_000  # text fragments read from one page
 MAX_LABEL = 80
 MAX_SEGMENT_TEXT = 300
 LINE_TOLERANCE = 1.5  # points between baselines of the same line
@@ -96,7 +100,7 @@ def _fragments(page: Any) -> list[Seg]:
         page.extract_text(visitor_text=visit)
     except Exception:  # a page whose content cannot be parsed has no text lines
         return []
-    return found
+    return found[:MAX_FRAGMENTS]
 
 
 def page_segments(page: Any) -> list[Seg]:
@@ -124,23 +128,69 @@ def page_segments(page: Any) -> list[Seg]:
     return [s for s in out if s.text]
 
 
-def text_lines(reader: Any, *, pages: int) -> dict[int, list[dict[str, Any]]]:
+class PageText:
+    """The segments of one page, indexed by line so that "what is on this line" and "what is just above" are
+    bisections, not scans."""
+
+    def __init__(self, segs: list[Seg]) -> None:
+        self.segs = segs
+        lines: dict[float, list[Seg]] = {}
+        for s in segs:
+            lines.setdefault(round(s.y, 1), []).append(s)
+        self.lines: list[tuple[float, list[Seg]]] = sorted(lines.items())
+        self.ys = [y for y, _ in self.lines]
+
+    def between(self, low: float, high: float) -> list[Seg]:
+        """Segments whose baseline is in [low, high]."""
+        first, last = bisect_left(self.ys, low), bisect_right(self.ys, high)
+        return [s for _, line in self.lines[first:last] for s in line]
+
+
+class Layout:
+    """The text of a PDF's first pages, extracted once and shared by the outline's text lines and the field
+    labels. Pages past LAYOUT_PAGES, and any page after the time budget is spent, are not read (`complete` is
+    False then): the fields on them come without a label."""
+
+    def __init__(self, reader: Any, *, seconds: float = LAYOUT_SECONDS) -> None:
+        self.reader = reader
+        self.pages = len(reader.pages)
+        self.deadline = time.monotonic() + seconds
+        self._cache: dict[int, PageText] = {}
+        self.complete = self.pages <= LAYOUT_PAGES
+        self.out_of_time = False
+
+    def page(self, number: int) -> PageText | None:
+        if number in self._cache:
+            return self._cache[number]
+        if not 1 <= number <= min(self.pages, LAYOUT_PAGES):
+            return None
+        if time.monotonic() > self.deadline:
+            self.out_of_time = True
+            self.complete = False
+            return None
+        self._cache[number] = PageText(page_segments(self.reader.pages[number - 1]))
+        return self._cache[number]
+
+
+def text_lines(layout: Layout) -> dict[int, list[dict[str, Any]]]:
     """{page number: [{x, y, w, text}]} for the first pages, capped per page and in total."""
     out: dict[int, list[dict[str, Any]]] = {}
     total = 0
-    for number in range(1, min(pages, MAX_TEXT_PAGES) + 1):
+    for number in range(1, min(layout.pages, LAYOUT_PAGES) + 1):
         if total >= MAX_LINES_TOTAL:
             break
-        rows = []
-        for seg in page_segments(reader.pages[number - 1])[:MAX_LINES_PER_PAGE]:
-            rows.append(
-                {
-                    "x": round(seg.x0, 1),
-                    "y": round(seg.y, 1),
-                    "w": round(seg.x1 - seg.x0, 1),
-                    "text": seg.text[:MAX_SEGMENT_TEXT],
-                }
-            )
+        text = layout.page(number)
+        if text is None:
+            break
+        rows = [
+            {
+                "x": round(seg.x0, 1),
+                "y": round(seg.y, 1),
+                "w": round(seg.x1 - seg.x0, 1),
+                "text": seg.text[:MAX_SEGMENT_TEXT],
+            }
+            for seg in text.segs[:MAX_LINES_PER_PAGE]
+        ]
         rows = rows[: MAX_LINES_TOTAL - total]
         total += len(rows)
         out[number] = rows
@@ -178,7 +228,7 @@ def _boxes(fields: list[dict[str, Any]]) -> dict[int, list[Box]]:
 
 
 def _cluster(values: list[float], tolerance: float) -> list[float]:
-    """Cluster centres of sorted values: a value joins the cluster whose first member is within `tolerance`."""
+    """Cluster starts of sorted values: a value joins the cluster whose first member is within `tolerance`."""
     firsts: list[float] = []
     for v in sorted(values):
         if not firsts or v - firsts[-1] > tolerance:
@@ -187,7 +237,13 @@ def _cluster(values: list[float], tolerance: float) -> list[float]:
 
 
 def _nearest(centres: list[float], value: float) -> int:
-    return min(range(len(centres)), key=lambda i: abs(centres[i] - value))
+    """Index of the closest of the sorted `centres`."""
+    i = bisect_left(centres, value)
+    if i == 0:
+        return 0
+    if i == len(centres):
+        return len(centres) - 1
+    return i if centres[i] - value < value - centres[i - 1] else i - 1
 
 
 def find_tables(boxes: list[Box]) -> list[list[list[Box]]]:
@@ -204,7 +260,15 @@ def find_tables(boxes: list[Box]) -> list[list[list[Box]]]:
     current: list[list[Box]] = []
 
     def lined_up(a: list[Box], b: list[Box]) -> bool:
-        return sum(1 for p in a if any(abs(p.x - q.x) <= 6 for q in b)) >= 2
+        xs = [q.x for q in b]  # b is sorted by x
+        hits = 0
+        for p in a:
+            i = bisect_left(xs, p.x - 6)
+            if i < len(xs) and xs[i] <= p.x + 6:
+                hits += 1
+                if hits >= 2:
+                    return True
+        return False
 
     for row in rows:
         if len(row) < 2:
@@ -226,30 +290,39 @@ def find_tables(boxes: list[Box]) -> list[list[list[Box]]]:
     return tables
 
 
-def _above(segs: list[Seg], left: float, right: float, bottom: float, reach: float) -> Seg | None:
+def _above(text: PageText, left: float, right: float, bottom: float, reach: float) -> Seg | None:
     """The nearest text line above `bottom` (within `reach`) that starts in [left, right]."""
     best: Seg | None = None
-    for s in segs:
-        if (
-            bottom + 0.5 <= s.y <= bottom + reach
-            and left <= s.x0 < right
-            and (best is None or s.y < best.y or (s.y == best.y and s.x0 < best.x0))
-        ):
+    for s in text.between(bottom + 0.5, bottom + reach):
+        if left <= s.x0 < right and (best is None or s.y < best.y or (s.y == best.y and s.x0 < best.x0)):
             best = s
     return best
 
 
-def _left_text(segs: list[Seg], box: Box, row: list[Box]) -> str:
+class _Neighbours:
+    """The fields of a page by their bottom edge, to find the ones on a given line."""
+
+    def __init__(self, boxes: list[Box]) -> None:
+        self.boxes = sorted(boxes, key=lambda b: b.y)
+        self.ys = [b.y for b in self.boxes]
+        self.tallest = max((b.h for b in boxes), default=0.0)
+
+    def on_line(self, y: float) -> list[Box]:
+        first, last = bisect_left(self.ys, y - self.tallest - 1), bisect_right(self.ys, y)
+        return [b for b in self.boxes[first:last] if b.top + 1 >= y]
+
+
+def _left_text(text: PageText, box: Box, neighbours: _Neighbours) -> str:
     """The text on the field's line to its left (down to the previous field on that line), or "" for none."""
     centre = box.y + box.h / 2
-    on_line = [s for s in segs if box.y - 2 <= s.y <= box.top - 1 and s.x0 < box.x - 0.5]
+    on_line = [s for s in text.between(box.y - 2, box.top - 1) if s.x0 < box.x - 0.5]
     if not on_line:
         return ""
     line_y = min((s.y for s in on_line), key=lambda y: abs(y - centre))
     mine = [s for s in on_line if abs(s.y - line_y) <= LINE_TOLERANCE]
     # the previous field on this line bounds the text that belongs to this one
     prev_end = max(
-        (b.x1 for b in row if b.name != box.name and b.x1 <= box.x + 1 and b.y <= line_y <= b.top + 1),
+        (b.x1 for b in neighbours.on_line(line_y) if b.name != box.name and b.x1 <= box.x + 1),
         default=None,
     )
 
@@ -269,8 +342,8 @@ def _left_text(segs: list[Seg], box: Box, row: list[Box]) -> str:
             parts.append("".join(kept))
         return meaningful(clean(" ".join(parts)))
 
-    text = cut(prev_end) if prev_end is not None else ""
-    return text or cut(None)
+    found = cut(prev_end) if prev_end is not None else ""
+    return found or cut(None)
 
 
 def _trim(text: str, tail: bool) -> str:
@@ -279,51 +352,46 @@ def _trim(text: str, tail: bool) -> str:
     return "..." + text[-(MAX_LABEL - 3) :] if tail else text[: MAX_LABEL - 3] + "..."
 
 
-def annotate(reader: Any, form: dict[str, Any]) -> None:
-    """Add `label` and `table` to the form's fields (in place), and `tables` to the form."""
+def annotate(layout: Layout, form: dict[str, Any]) -> None:
+    """Add `label` and `table` to the form's fields (in place), and `tables` to the form. Only fields on pages
+    the layout reads get them; `form["labels_note"]` says when some were left out."""
     fields = form["fields"]
     by_page = _boxes(fields)
     info: dict[str, dict[str, Any]] = {}
     tables_out: list[dict[str, Any]] = []
-    segs_by_page: dict[int, list[Seg]] = {}
-
-    def segs_of(page: int) -> list[Seg]:
-        if page not in segs_by_page:
-            segs_by_page[page] = page_segments(reader.pages[page - 1])
-        return segs_by_page[page]
-
+    unlabelled = 0
     for page, boxes in sorted(by_page.items()):
-        segs = segs_of(page)
+        text = layout.page(page)
+        if text is None:
+            unlabelled += len(boxes)
+            continue
         tid = len(tables_out)
         for grid in find_tables(boxes):
             tid += 1
             all_boxes = [b for row in grid for b in row]
             centres = _cluster([b.x for b in all_boxes], 8.0)
+            columns: dict[int, list[Box]] = {}
+            for b in grid[0]:
+                columns.setdefault(_nearest(centres, b.x), []).append(b)
             headers: list[str] = []
             for c, left in enumerate(centres):
-                members = [b for b in grid[0] if _nearest(centres, b.x) == c] or [
-                    b for b in all_boxes if _nearest(centres, b.x) == c
-                ]
-                span_right = max(b.x1 for b in members)
-                head = _above(segs, left - 6, span_right, max(b.top for b in grid[0]), HEADER_REACH)
+                members = columns.get(c) or [b for b in all_boxes if _nearest(centres, b.x) == c]
+                head = _above(text, left - 6, max(b.x1 for b in members), max(b.top for b in grid[0]), HEADER_REACH)
                 headers.append(_trim(head.text, False) if head else "")
             for r, row in enumerate(grid, start=1):
                 for b in row:
                     col = _nearest(centres, b.x)
-                    info[b.name] = {
-                        "table": {"id": tid, "row": r, "col": col + 1},
-                        "label": headers[col],
-                    }
+                    info[b.name] = {"table": {"id": tid, "row": r, "col": col + 1}, "label": headers[col]}
             tables_out.append({"id": tid, "page": page, "rows": len(grid), "cols": len(centres), "headers": headers})
+        neighbours = _Neighbours(boxes)
         for box in boxes:
             if box.name in info and info[box.name].get("label"):
                 continue
-            row = [b for b in boxes if abs(b.top - box.top) <= 3.5 or (b.y < box.top and b.top > box.y)]
-            label = _left_text(segs, box, row)
+            label = _left_text(text, box, neighbours)
             if label:
                 label = _trim(label, True)
             else:
-                above = _above(segs, box.x - 2, box.x1 + 2, box.top, ABOVE_REACH)
+                above = _above(text, box.x - 2, box.x1 + 2, box.top, ABOVE_REACH)
                 label = _trim(above.text, False) if above else ""
             info.setdefault(box.name, {})
             if label:
@@ -334,3 +402,9 @@ def annotate(reader: Any, form: dict[str, Any]) -> None:
             f.update({k: v for k, v in extra.items() if v})
     if tables_out:
         form["tables"] = tables_out
+    if unlabelled:
+        form["labels_note"] = (
+            f"{unlabelled} field{'s' if unlabelled != 1 else ''} on later pages have no label or table: only the "
+            f"first {LAYOUT_PAGES} pages' text is read{' (time ran out)' if layout.out_of_time else ''}; "
+            "look at those pages with look_doc"
+        )
