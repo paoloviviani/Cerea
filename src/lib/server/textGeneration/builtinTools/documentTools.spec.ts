@@ -441,6 +441,29 @@ describe("doc_edit versioning", () => {
 		]);
 	});
 
+	it("remembers the slides a deck edit touched for look_doc, and forgets them when a later edit reports none", async () => {
+		const turn = { touchedSlides: new Map<string, number[]>() };
+		const edit = createDocumentBuiltins(CAPS as never, turn).find(
+			(tool) => tool.name === DOC_EDIT_TOOL_NAME
+		);
+		if (!edit) throw new Error("doc_edit is not offered");
+		editOverride = {
+			format: "pptx",
+			operations: [{ index: 0, op: "set_notes", result: { slide: 4 } }],
+		};
+		await edit.execute({ file: "report.docx", operations: ops }, ctx());
+		expect(turn.touchedSlides.get("report.docx")).toEqual([4]);
+
+		// a replace_text or reorder reports no slide: the old numbers may mean other slides now
+		editOverride = {
+			format: "pptx",
+			operations: [{ index: 0, op: "replace_text", result: { replaced: 2 } }],
+		};
+		stored.nextSha = "c".repeat(64);
+		await edit.execute({ file: "report.docx", operations: ops }, ctx());
+		expect(turn.touchedSlides.has("report.docx")).toBe(false);
+	});
+
 	it("edits the newest produced version next, so edits chain", async () => {
 		await (
 			await named(DOC_EDIT_TOOL_NAME)

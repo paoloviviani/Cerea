@@ -108,8 +108,17 @@ def test_an_image_larger_than_the_ceiling_is_refused(client: TestClient) -> None
 
 
 def test_a_very_tall_page_is_kept_inside_the_ceiling(client: TestClient) -> None:
-    out = render(client, make_deck_pdf(1, size=(20, 14400)), {"width_px": 1000}).json()
+    out = render(client, make_deck_pdf(1, size=(200, 14400)), {"width_px": 1000}).json()
     assert max(out["images"][0]["width"], out["images"][0]["height"]) <= Limits().max_render_px
+
+
+def test_a_degenerate_page_is_refused_not_drawn_as_a_sliver(client: TestClient) -> None:
+    strip = make_deck_pdf(1, size=(14400, 1))
+    r = render(client, strip, {"width_px": 1000})
+    assert r.status_code == 422 and r.json()["error"]["reason"] == "page_too_small"
+    assert r.json()["error"]["details"]["page"] == 1
+    # an ordinary small page still draws
+    assert render(client, make_deck_pdf(1, size=(200, 100)), {"width_px": 200}).status_code == 200
 
 
 def test_an_encrypted_pdf_is_refused(client: TestClient) -> None:

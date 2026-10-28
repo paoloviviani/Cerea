@@ -24,6 +24,7 @@ import type { Stream } from "openai/streaming";
 import { buildToolPreprompt, unavailableConnectorsNotice } from "../utils/toolPrompt";
 import type { EndpointMessage } from "../../endpoints/endpoints";
 import { executeToolCalls, type NormalizedToolCall } from "./toolInvocation";
+import { isPictureMessage, withoutOlderPictures } from "./pictureMessages";
 import { hasTruncatedToolCall, parseToolArguments, withParseableArguments } from "./toolArgs";
 import { createToolBlocker } from "./toolBlocker";
 import type { TextGenerationContext } from "../types";
@@ -1332,6 +1333,8 @@ export async function* runMcpFlow({
 					builtinTools,
 					guard,
 					toolBlocker,
+					// Pictures a tool returns are fitted to the same image limits as the user's attachments.
+					imageProcessor,
 					// The pre-call checkpoint (ADR 0075): every MCP call is gated the
 					// same way `web_fetch` already is, under the policy resolved above.
 					toolApproval: {
@@ -1361,10 +1364,15 @@ export async function* runMcpFlow({
 								logger.info({ loop }, "[mcp] parked on a durable prompt; run ends until answered");
 								return "awaiting_input";
 							}
+							const roundMessages = event.summary.toolMessages ?? [];
 							messagesOpenAI = [
-								...messagesOpenAI,
+								// Only the latest look_doc pictures stay in the request: older ones cost tokens
+								// every round and are one call away.
+								...(roundMessages.some(isPictureMessage)
+									? withoutOlderPictures(messagesOpenAI)
+									: messagesOpenAI),
 								assistantToolMessage,
-								...(event.summary.toolMessages ?? []),
+								...roundMessages,
 							];
 							toolMsgCount = event.summary.toolMessages?.length ?? 0;
 							toolRunCount = event.summary.toolRuns?.length ?? 0;

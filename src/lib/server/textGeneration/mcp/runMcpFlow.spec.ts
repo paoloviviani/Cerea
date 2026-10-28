@@ -152,7 +152,13 @@ vi.mock("$lib/server/textGeneration/utils/prepareFiles", () => ({
 	},
 }));
 
-vi.mock("$lib/server/endpoints/images", () => ({ makeImageProcessor: () => () => undefined }));
+vi.mock("$lib/server/endpoints/images", () => ({
+	// Hands an image back as it came, like the real processor does for one inside the limits.
+	makeImageProcessor: () => async (file: { value: string; mime: string }) => ({
+		image: Buffer.from(file.value, "base64"),
+		mime: file.mime,
+	}),
+}));
 vi.mock("./fileRefs", () => ({
 	buildImageRefResolver: () => undefined,
 	attachFileRefsToArgs: () => undefined,
@@ -1785,6 +1791,9 @@ describe("runMcpFlow and sub-agents", () => {
 	});
 });
 
+const RED_PNG =
+	"iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAE0lEQVR4nGP4z8DwnwGM/zMwAAAf7gP9NRsAMwAAAABJRU5ErkJggg==";
+
 describe("runMcpFlow and look_doc", () => {
 	const RENDER_CAPS = {
 		formats: {},
@@ -1834,10 +1843,11 @@ describe("runMcpFlow and look_doc", () => {
 		expect(offered()).not.toContain("look_doc");
 	});
 
-	it("gives the model the pages it asked for as image content in its next request", async () => {
+	const lookerFlow = async () => {
 		mocks.documentCaps = RENDER_CAPS;
 		const real = await vi.importActual<typeof import("./toolInvocation")>("./toolInvocation");
-		// The real executeToolCalls, with a look_doc that answers with two pictures.
+		let n = 0;
+		// The real executeToolCalls, with a look_doc that answers with a picture each time.
 		mocks.executeToolCalls.mockImplementation(
 			(params: Parameters<typeof real.executeToolCalls>[0]) =>
 				real.executeToolCalls({
@@ -1846,41 +1856,73 @@ describe("runMcpFlow and look_doc", () => {
 						{
 							name: "look_doc",
 							definition: { type: "function", function: { name: "look_doc" } },
-							execute: async () => ({
-								resultText: "deck.pptx has 2 slides. Showing slides 1, 2.",
-								images: [
-									{ mime: "image/png", base64: "AAAA", label: "deck.pptx, slide 1 of 2" },
-									{ mime: "image/jpeg", base64: "BBBB", label: "deck.pptx, slide 2 of 2" },
-								],
-							}),
+							execute: async () => {
+								n += 1;
+								return {
+									resultText: `deck.pptx has 9 slides. Showing slide ${n}.`,
+									imagesOf: `deck.pptx, slide ${n}`,
+									images: [
+										{ mime: "image/png", base64: RED_PNG, label: `deck.pptx, slide ${n} of 9` },
+									],
+								};
+							},
 						},
 					],
 				})
 		);
+	};
+
+	it("gives the model the pages it asked for as image content in its next request", async () => {
+		await lookerFlow();
 		scriptRounds([
 			{ toolCalls: [{ id: "call_1", name: "look_doc", arguments: '{"file":"deck.pptx"}' }] },
 			{ content: "the slides look fine" },
 		]);
 
-		const { result } = await runFlow({
-			model: { ...context().model, multimodal: true },
-		} as never);
+		const { result } = await runFlow({ model: { ...context().model, multimodal: true } } as never);
 
 		expect(result).toBe("completed");
 		const followUp = requestMessages(1);
+		expect(followUp.slice(-3).map((m) => m.role)).toEqual(["assistant", "tool", "user"]);
 		expect(followUp.at(-2)).toEqual({
 			role: "tool",
 			tool_call_id: "call_1",
-			content: "deck.pptx has 2 slides. Showing slides 1, 2.",
+			content: "deck.pptx has 9 slides. Showing slide 1.",
 		});
 		expect(followUp.at(-1)).toEqual({
 			role: "user",
 			content: [
-				{ type: "text", text: "[look_doc result: deck.pptx, slide 1 of 2]" },
-				{ type: "image_url", image_url: { url: "data:image/png;base64,AAAA", detail: "auto" } },
-				{ type: "text", text: "[look_doc result: deck.pptx, slide 2 of 2]" },
-				{ type: "image_url", image_url: { url: "data:image/jpeg;base64,BBBB", detail: "auto" } },
+				expect.objectContaining({
+					type: "text",
+					text: expect.stringContaining("Images returned by look_doc for deck.pptx, slide 1."),
+				}),
+				{ type: "text", text: "[deck.pptx, slide 1 of 9]" },
+				{
+					type: "image_url",
+					image_url: { url: `data:image/png;base64,${RED_PNG}`, detail: "auto" },
+				},
 			],
 		});
+	});
+
+	it("keeps only the latest look_doc pictures in the request", async () => {
+		await lookerFlow();
+		scriptRounds([
+			{ toolCalls: [{ id: "call_1", name: "look_doc", arguments: "{}" }] },
+			{ toolCalls: [{ id: "call_2", name: "look_doc", arguments: "{}" }] },
+			{ content: "done" },
+		]);
+		await runFlow({ model: { ...context().model, multimodal: true } } as never);
+
+		const images = (messages: ChatCompletionMessageParam[]) =>
+			JSON.stringify(messages).split(`data:image/png;base64,${RED_PNG}`).length - 1;
+		expect(images(requestMessages(1))).toBe(1);
+		const last = requestMessages(2);
+		expect(images(last)).toBe(1); // not two: the first call's picture was replaced
+		expect(JSON.stringify(last)).toContain(
+			"[images from an earlier look_doc call removed; call look_doc again if you need them]"
+		);
+		// the surviving one is the second call's
+		expect(JSON.stringify(last.at(-1))).toContain("slide 2");
 	});
 });

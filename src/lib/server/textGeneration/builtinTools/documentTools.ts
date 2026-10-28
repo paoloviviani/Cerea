@@ -675,7 +675,10 @@ export function createDocumentBuiltins(
 				const diff = edited.diff.slice(0, MAX_DIFF_LINES);
 				if (turn && edited.format === "pptx") {
 					const slides = slidesTouched(edited.operations);
+					// An edit that reports no slides (replace_text, reorder) leaves nothing known to be touched,
+					// and an older edit's slide numbers may no longer mean the same slides.
 					if (slides.length > 0) turn.touchedSlides.set(stored.ref.name, slides);
+					else turn.touchedSlides.delete(stored.ref.name);
 				}
 				return {
 					resultText: capped({

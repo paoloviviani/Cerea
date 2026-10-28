@@ -10,6 +10,7 @@ import { getOrCreatePreview, previewOwner } from "$lib/server/office/previewStor
 import { logger } from "$lib/server/logger";
 import { findConversationFile } from "./conversationFiles";
 import type { DocumentTurnState } from "./documentTools";
+import { MAX_IMAGES_PER_TURN } from "../mcp/pictureMessages";
 import type { BuiltinTool } from "./types";
 
 export const LOOK_DOC_TOOL_NAME = "look_doc";
@@ -24,9 +25,13 @@ export const PAGE_WIDTH_PX = 1000;
 /** A PDF larger than this is not sent to the renderer (the service's own cap is larger). */
 const MAX_PDF_BYTES = 32 * 1024 * 1024;
 
+const IMAGE_LIMIT_MESSAGE = (shown: number) =>
+	`look_doc has already shown you ${shown} images this turn, and the limit is ${MAX_IMAGES_PER_TURN}. ` +
+	"Say what you saw and let the user ask for more.";
+
 const TURN_LIMIT_MESSAGE =
 	`look_doc has reached its limit of ${MAX_LOOK_CALLS_PER_TURN} calls for this turn. ` +
-	"Say what you saw and let the person ask for more.";
+	"Say what you saw and let the user ask for more.";
 
 const SLIDE_EXTENSIONS = new Set([
 	"ppt",
@@ -124,6 +129,7 @@ export function createLookDocBuiltins(
 	);
 	const office = isGotenbergEnabled();
 	let calls = 0;
+	let imagesShown = 0;
 
 	return [
 		{
@@ -174,6 +180,7 @@ export function createLookDocBuiltins(
 					return { error: "There is no conversation to take the file from." };
 				if (calls >= MAX_LOOK_CALLS_PER_TURN) return { error: TURN_LIMIT_MESSAGE };
 				calls += 1;
+				if (imagesShown >= MAX_IMAGES_PER_TURN) return { error: IMAGE_LIMIT_MESSAGE(imagesShown) };
 				if (typeof args.file !== "string" || !args.file.trim()) {
 					return { error: "Give `file`: the name of a file in this conversation, e.g. deck.pptx." };
 				}
@@ -259,6 +266,14 @@ export function createLookDocBuiltins(
 						}
 						rendered = await renderPdf(pdf, size, { signal: ctx.abortSignal });
 					}
+					if (imagesShown + rendered.pages.length > MAX_IMAGES_PER_TURN) {
+						return {
+							error:
+								`${IMAGE_LIMIT_MESSAGE(imagesShown)} This call would add ${rendered.pages.length} more; ` +
+								"ask for fewer pages.",
+						};
+					}
+					imagesShown += rendered.pages.length;
 					const shown = rendered.pages.map((p) => p.page);
 					const more = rendered.page_count - shown.length;
 					const formats = [...new Set(rendered.pages.map((p) => p.format.toUpperCase()))].join(
@@ -273,7 +288,10 @@ export function createLookDocBuiltins(
 							(more > 0 ? `${more} more not shown: ask for them with \`pages\`. ` : "") +
 							(ext === "pdf"
 								? ""
-								: "Drawn by LibreOffice: fonts and line breaks can differ slightly from Microsoft Office."),
+								: "Drawn by LibreOffice: fonts and line breaks can differ slightly from Microsoft Office. ") +
+							// The pictures ride in this turn's requests only: a later turn replays this text, not them.
+							"Shown to you as images in this turn only; call look_doc again to see them later.",
+						imagesOf: `${file.name}, ${noun}${shown.length === 1 ? "" : "s"} ${shown.join(", ")}`,
 						images: rendered.pages.map((p) => ({
 							mime: p.content_type,
 							base64: p.base64,

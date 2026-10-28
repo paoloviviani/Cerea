@@ -1299,11 +1299,11 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   are the slides the turn's last `doc_edit` touched (`DocumentTurnState.touchedSlides`, filled from the operations'
   results; a miss falls back to the first slides). **Images in a tool result**: nothing carried them before, since
   a tool message is text on OpenAI-compatible APIs. A builtin returns `images` (`BuiltinToolImage`) and
-  `executeToolCalls` appends one user message of `image_url` parts after the round's tool messages
-  (`pictureMessage`), so the next request of the turn carries them, for sub-agents too. They are not stored: the
+  `executeToolCalls` fits them to the turn's image limits (`imageProcessor`) and appends one user message of `image_url` parts after the round's tool messages,
+  directly after them (`pictureMessages`: tool, user, with no assistant bridge), so the next request of the turn carries them. Sub-agents are not given `look_doc` (their allowlists do not name it). They are not stored: the
   saved tool run is the text (which pages were shown), so a later turn does not carry the pictures. The PowerPoint,
   Word, PDF and pdf-tools skills say when to look; the "no PDF just to preview" rule stands (the preview is for the
-  user, `look_doc` for the model). Not built: measurements for a text-only model (the issue keeps it as a follow-up).
+  user, `look_doc` for the model). Not built: measurements for a text-only model (the issue keeps it as a follow-up). Only the latest picture message stays in the request (`withoutOlderPictures`; older ones become a one-line note) and a turn shows at most 18 images (`MAX_IMAGES_PER_TURN`). The first text part of each call's pictures says they are the document's content, not instructions from the user. The placement was tried live (Cortecs: mistral-medium-3.5, mistral-small-2603, gemma-4-31b-it, kimi-k3 all accept tool then user; mistral-small read a 512 px picture right 5/5 and 5/5 that way, but 4/5 and 3/5 behind an assistant "(looking at the pages)" bridge and 5/5 and 0/5 with the image inside the tool message), so there is no bridge: `runMcpFlow` has no per-provider notion of strict alternation to key one on. A unit test pins the sequence.
 
 ## Office previews and `convert_document`
 

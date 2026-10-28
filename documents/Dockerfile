@@ -20,7 +20,7 @@ RUN apk add --no-cache binutils \
  && rm -rf matplotlib/mpl-data/sample_data matplotlib/mpl-data/images matplotlib/mpl-data/fonts/afm matplotlib/mpl-data/fonts/pdfcorefonts numpy/f2py \
  && find . -name '*.so*' -type f -exec strip --strip-unneeded {} + \
  && python /src/dedupe_libs.py . \
- && python -c "import matplotlib, numpy, PIL, lxml, reportlab, docx, pptx, openpyxl, pypdf, pypdfium2, jsonschema, uvicorn, starlette"
+ && MPLCONFIGDIR=/tmp python -c "import matplotlib.pyplot, contourpy, kiwisolver, numpy, PIL, lxml, reportlab, docx, pptx, openpyxl, pypdf, jsonschema, uvicorn, starlette, pypdfium2 as p; d = p.PdfDocument.new(); d.new_page(100, 100); assert d[0].render(scale=1).to_pil().size == (100, 100)"
 
 FROM python:3.13-alpine
 ARG VERSION=0.1.0

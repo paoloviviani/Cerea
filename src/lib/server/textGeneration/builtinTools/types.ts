@@ -16,7 +16,12 @@ export type BuiltinToolResult =
 	 * The call finished; `resultText` becomes the tool message the model reads next round. `images` reach the
 	 * model in the same round as image content (a user message after the tool messages: a tool message is text).
 	 */
-	| { resultText: string; extraUpdates?: MessageUpdate[]; images?: BuiltinToolImage[] }
+	| {
+			resultText: string;
+			extraUpdates?: MessageUpdate[];
+			images?: BuiltinToolImage[];
+			imagesOf?: string;
+	  }
 	/** Model-readable failure; surfaces as a tool error the model can retry on. */
 	| { error: string }
 	/**

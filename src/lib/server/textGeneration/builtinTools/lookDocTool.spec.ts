@@ -247,6 +247,17 @@ describe("look_doc through the preview cache", () => {
 		expect(out.resultText).toContain("LibreOffice");
 	});
 
+	it("says in its text that the pictures are for this turn only, because the text is what is replayed", async () => {
+		files.find.mockResolvedValue(pptx());
+		const out = await tool().execute({ file: "deck.pptx", pages: 2 }, ctx());
+		if (!("resultText" in out)) throw new Error("no result");
+		expect(out.resultText).toContain(
+			"Shown to you as images in this turn only; call look_doc again to see them later."
+		);
+		// what the intro of the picture message says they are of
+		expect(out).toMatchObject({ imagesOf: "deck.pptx, slide 2" });
+	});
+
 	it("shows the slides the last deck edit touched when no pages are given", async () => {
 		files.find.mockResolvedValue(pptx());
 		const turn = { touchedSlides: new Map([["deck.pptx", [4, 9]]]) };
@@ -374,6 +385,49 @@ describe("look_doc errors are plain", () => {
 		expect(await look.execute({ file: "deck.pptx", pages: 1 }, ctx())).toMatchObject({
 			error: expect.stringContaining("limit"),
 		});
+	});
+});
+
+describe("look_doc is bounded per turn", () => {
+	it("refuses a call that would take the turn past 18 images, and the next one once it is reached", async () => {
+		files.find.mockResolvedValue(pptx());
+		service.render.mockImplementation(async (_pdf: Buffer, request: { pages?: number[] }) =>
+			rendered(request.pages ?? [], 40)
+		);
+		const look = tool();
+		for (const pages of ["1-6", "7-12", "13-18"]) {
+			expect(await look.execute({ file: "deck.pptx", pages }, ctx())).toHaveProperty("images");
+		}
+		const refused = await look.execute({ file: "deck.pptx", pages: 19 }, ctx());
+		expect(refused).toMatchObject({ error: expect.stringContaining("limit is 18") });
+		expect(service.render).toHaveBeenCalledTimes(3); // refused before drawing
+	});
+
+	it("counts what a call really shows, so a default that returns 6 cannot slip past the limit", async () => {
+		files.find.mockResolvedValue(pptx());
+		const look = tool();
+		for (let i = 0; i < 3; i += 1) await look.execute({ file: "deck.pptx" }, ctx()); // 3 x 6 = 18
+		expect(await look.execute({ file: "deck.pptx" }, ctx())).toMatchObject({
+			error: expect.stringContaining("limit is 18"),
+		});
+		expect(await look.execute({ file: "deck.pptx", pages: 1 }, ctx())).toMatchObject({
+			error: expect.stringContaining("limit is 18"),
+		});
+	});
+
+	it("is not given to sub-agents", async () => {
+		const { SUBAGENT_BUILTIN_TOOLS } = await import("./delegateTool");
+		expect(SUBAGENT_BUILTIN_TOOLS.has("look_doc")).toBe(false);
+	});
+
+	it("says 'the user', not 'the person'", async () => {
+		files.find.mockResolvedValue(pptx());
+		const look = tool();
+		for (let i = 0; i < MAX_LOOK_CALLS_PER_TURN; i += 1)
+			await look.execute({ file: "deck.pptx", pages: 1 }, ctx());
+		const refused = await look.execute({ file: "deck.pptx", pages: 1 }, ctx());
+		expect(JSON.stringify(refused)).toContain("let the user ask for more");
+		expect(JSON.stringify(refused)).not.toContain("person");
 	});
 });
 

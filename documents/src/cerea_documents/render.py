@@ -18,6 +18,7 @@ from .config import Limits
 from .errors import InvalidDocument, InvalidRequest, UnsafeDocument
 
 JPEG_QUALITY = 80
+MIN_SIDE_PX = 8  # a page whose short side would be drawn smaller than this is refused
 _BODY_KEYS = {"pages", "width_px", "max_side_px"}
 
 
@@ -107,6 +108,14 @@ def _draw(pdf: Any, number: int, width_px: int | None, side_px: int | None, ceil
             raise InvalidDocument(f"page {number} has no size", reason="damaged")
         scale = (width_px / w_pt) if width_px is not None else (side_px or ceiling) / max(w_pt, h_pt)
         scale = min(scale, ceiling / max(w_pt, h_pt))  # a very tall or wide page never makes a huge bitmap
+        smallest = min(w_pt, h_pt) * scale
+        if smallest < MIN_SIDE_PX:  # a 14400 x 1 pt strip: a sliver of 0 or 1 px that shows nothing
+            raise InvalidRequest(
+                f"page {number} is {w_pt:.0f} x {h_pt:.0f} pt, which would be drawn only {smallest:.1f} px on its "
+                f"short side at this size, too small to show anything",
+                reason="page_too_small",
+                details={"page": number, "width_pt": round(w_pt, 1), "height_pt": round(h_pt, 1)},
+            )
         bitmap = page.render(scale=scale)
         image = bitmap.to_pil().convert("RGB")
     finally:
