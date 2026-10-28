@@ -230,9 +230,12 @@ def _above(segs: list[Seg], left: float, right: float, bottom: float, reach: flo
     """The nearest text line above `bottom` (within `reach`) that starts in [left, right]."""
     best: Seg | None = None
     for s in segs:
-        if bottom + 0.5 <= s.y <= bottom + reach and left <= s.x0 < right:
-            if best is None or s.y < best.y or (s.y == best.y and s.x0 < best.x0):
-                best = s
+        if (
+            bottom + 0.5 <= s.y <= bottom + reach
+            and left <= s.x0 < right
+            and (best is None or s.y < best.y or (s.y == best.y and s.x0 < best.x0))
+        ):
+            best = s
     return best
 
 
