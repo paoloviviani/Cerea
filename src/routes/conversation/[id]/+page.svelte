@@ -796,4 +796,6 @@
 	models={data.models}
 	currentModel={findCurrentModel(data.models, data.oldModels, data.model)}
 	conversationTitle={title}
+	projectId={data.projectId}
+	projectName={data.projectName}
 />

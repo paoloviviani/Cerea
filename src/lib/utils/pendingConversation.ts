@@ -21,6 +21,8 @@ export interface ConversationData {
 	reasoningEffort?: "low" | "medium" | "high";
 	/** Owning project, when created under one. */
 	projectId?: string;
+	/** That project's name, when the viewer can still read it; the way back to it. */
+	projectName?: string;
 	/** Project defaults for seeding per-chat state on first open. */
 	projectDefaults?: { defaultWebSearch?: boolean };
 	plan?: PlanState;

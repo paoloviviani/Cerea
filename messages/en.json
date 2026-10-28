@@ -1382,6 +1382,7 @@
 	"chat.preview.fix_title": "Send the problems and ask for a fix",
 	"chat.preview.label": "Preview",
 	"chat.preview.title": "Preview of {title}",
+	"chat.project.back_label": "Back to the project {name}",
 	"chat.question.fallback": "Question",
 	"chat.question.other": "Other: {value}",
 	"chat.reasoning.collapse": "Collapse",

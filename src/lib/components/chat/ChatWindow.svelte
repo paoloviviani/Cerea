@@ -3,6 +3,7 @@
 	import { modelLabel, settingsModelId } from "$lib/utils/customModelEntries";
 	import type { Message } from "$lib/types/Message";
 	import { onDestroy, untrack } from "svelte";
+	import IconArrowLeft from "~icons/carbon/arrow-left";
 
 	import ArtifactPanel from "./ArtifactPanel.svelte";
 	import PreviewPane from "./PreviewPane.svelte";
@@ -124,6 +125,9 @@
 		conversationEffort?: "low" | "medium" | "high";
 		/** Conversation title, used for the Markdown export heading and filename. */
 		conversationTitle?: string;
+		/** The project this chat belongs to and its name, when the viewer can still read it. */
+		projectId?: string;
+		projectName?: string;
 	}
 
 	let {
@@ -147,6 +151,8 @@
 		autoApproveTools = $bindable(false),
 		conversationEffort,
 		conversationTitle = "",
+		projectId,
+		projectName,
 	}: Props = $props();
 
 	let isReadOnly = $derived(!models.some((model) => model.id === currentModel.id));
@@ -707,6 +713,17 @@
 			{/if}
 		{/snippet}
 		{#snippet head()}
+			{#if projectId && projectName}
+				<a
+					href="{base}/projects/{projectId}"
+					data-testid="project-back"
+					aria-label={m["chat.project.back_label"]({ name: projectName })}
+					class="pointer-events-auto flex w-fit max-w-full items-center gap-1 text-xs text-ink-muted no-underline hover:text-ink"
+				>
+					<IconArrowLeft class="size-3 shrink-0" />
+					<span class="truncate">{projectName}</span>
+				</a>
+			{/if}
 			{#if preprompt && preprompt != currentModel.preprompt}
 				<SystemPromptModal preprompt={preprompt ?? ""} />
 			{/if}
