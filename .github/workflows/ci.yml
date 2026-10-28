@@ -193,6 +193,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      # The trailer rule has a local hook (.husky/commit-msg, the shared script
+      # scripts/check_no_ai_trailers.sh), but a hook only runs where its shims
+      # exist, and MAINTAINING.md rule 1 wants the history clean regardless:
+      # CI sees every commit whatever the local hook state. This is the one
+      # job with a full-history checkout, and it runs on every push, PR and
+      # dispatch, so the check rides it rather than paying a job of its own.
+      - name: Commit messages carry no AI attribution
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          # The commits new to the event: the pushed range on a push, the PR's
+          # base on a pull_request. A created ref (before all zeros) or a
+          # manual dispatch on the default branch has no before: the commits
+          # ahead of the default branch. When even that names nothing (a
+          # created ref carries no distinct merge-base), nothing is checked —
+          # the whole ancestry must never be scanned, because the fork kept
+          # upstream chat-ui's history, which predates this rule and carries
+          # upstream's own AI-attribution trailers.
+          base=""
+          if [ "$EVENT" = pull_request ] && [ -n "$PR_BASE" ]; then
+            base="$PR_BASE"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
+            base="$BEFORE"
+          fi
+          if [ -z "$base" ]; then
+            base="$(git merge-base "origin/$DEFAULT_BRANCH" "$GITHUB_SHA" 2>/dev/null || true)"
+            [ -n "$base" ] && [ "$base" != "$GITHUB_SHA" ] || {
+              echo "No range of new commits for this event; nothing checked."
+              exit 0
+            }
+          fi
+          messages="$(mktemp)"
+          # One header per commit: a message boundary must not butt one
+          # message's last line against the next's first.
+          git log --format='--- commit %H ---%n%B' "$base..$GITHUB_SHA" > "$messages"
+          if ! ./scripts/check_no_ai_trailers.sh "$messages"; then
+            cat "$messages" >&2
+            exit 1
+          fi
       - id: diff
         env:
           EVENT: ${{ github.event_name }}
