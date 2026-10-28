@@ -10,7 +10,11 @@ import { getOrCreatePreview, previewOwner } from "$lib/server/office/previewStor
 import { logger } from "$lib/server/logger";
 import { findConversationFile } from "./conversationFiles";
 import type { DocumentTurnState } from "./documentTools";
-import { MAX_IMAGES_PER_TURN } from "../mcp/pictureMessages";
+import {
+	MAX_IMAGES_PER_TURN,
+	IMAGES_UNAVAILABLE_ERROR,
+	type PictureState,
+} from "../mcp/pictureMessages";
 import type { BuiltinTool } from "./types";
 
 export const LOOK_DOC_TOOL_NAME = "look_doc";
@@ -120,7 +124,8 @@ export function canRenderPages(caps: DocumentCapabilities | null | undefined): b
  */
 export function createLookDocBuiltins(
 	caps: DocumentCapabilities | null | undefined,
-	turn?: DocumentTurnState
+	turn?: DocumentTurnState,
+	pictureState?: PictureState
 ): BuiltinTool[] {
 	if (!caps || !canRenderPages(caps)) return [];
 	const cap = Math.max(
@@ -176,6 +181,8 @@ export function createLookDocBuiltins(
 			},
 
 			async execute(args, ctx) {
+				// The endpoint rejected a request carrying pictures earlier in this turn.
+				if (pictureState?.unavailable) return { error: IMAGES_UNAVAILABLE_ERROR };
 				if (!ctx.conversationId)
 					return { error: "There is no conversation to take the file from." };
 				if (calls >= MAX_LOOK_CALLS_PER_TURN) return { error: TURN_LIMIT_MESSAGE };

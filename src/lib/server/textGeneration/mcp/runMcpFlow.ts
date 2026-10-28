@@ -24,7 +24,14 @@ import type { Stream } from "openai/streaming";
 import { buildToolPreprompt, unavailableConnectorsNotice } from "../utils/toolPrompt";
 import type { EndpointMessage } from "../../endpoints/endpoints";
 import { executeToolCalls, type NormalizedToolCall } from "./toolInvocation";
-import { isPictureMessage, withoutOlderPictures } from "./pictureMessages";
+import {
+	hasPictureMessage,
+	isPictureMessage,
+	isRejectedRequest,
+	withoutOlderPictures,
+	withoutPictures,
+	type PictureState,
+} from "./pictureMessages";
 import { hasTruncatedToolCall, parseToolArguments, withParseableArguments } from "./toolArgs";
 import { createToolBlocker } from "./toolBlocker";
 import type { TextGenerationContext } from "../types";
@@ -347,10 +354,14 @@ export async function* runMcpFlow({
 	// The document service's capabilities (cached a minute); null when it is
 	// not configured or not answering. Resolved here like the probe above.
 	const documentCapabilities = await getDocumentCapabilities();
+	// Set when the endpoint rejects a request carrying look_doc pictures: no more pictures this turn.
+	const pictureState: PictureState = { unavailable: false };
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		documentCapabilities,
-		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal),
+		// The model sees images (or the user's switch says so) and its pictures-in-tool-turns capability is not off.
+		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && model.toolImages !== false,
+		pictureState,
 		memoryEnabled: memoryAllowed,
 		...(memoryProject ? { projectMemoryProjectId: memoryProject._id } : {}),
 		askUserQuestionEnabled: (
@@ -943,26 +954,46 @@ export async function* runMcpFlow({
 			// request, or on a gateway that has no backend ready for a moment;
 			// absorb what outlasts the SDK's quick retries.
 			const roundReq = linkedRequestSignal(abortSignal);
-			const completionStream: Stream<ChatCompletionChunk> = await withUpstreamRetry(
-				() =>
-					openai.chat.completions.create(completionRequest, {
-						signal: roundReq.signal,
-						headers: {
-							"ChatUI-Conversation-ID": conv._id.toString(),
-							...(config.USE_USER_TOKEN === "true" && locals?.token
-								? { Authorization: `Bearer ${locals.token}` }
-								: {}),
-						},
-					}),
-				{
-					signal: abortSignal,
-					onBackoff: (attempt, delayMs, err) =>
-						logger.warn(
-							{ loop, attempt, delayMs, err: String(err) },
-							"[mcp] upstream failure; backing off in-loop"
-						),
-				}
-			);
+			const startRound = (request: ChatCompletionCreateParamsStreaming) =>
+				withUpstreamRetry(
+					() =>
+						openai.chat.completions.create(request, {
+							signal: roundReq.signal,
+							headers: {
+								"ChatUI-Conversation-ID": conv._id.toString(),
+								...(config.USE_USER_TOKEN === "true" && locals?.token
+									? { Authorization: `Bearer ${locals.token}` }
+									: {}),
+							},
+						}),
+					{
+						signal: abortSignal,
+						onBackoff: (attempt, delayMs, err) =>
+							logger.warn(
+								{ loop, attempt, delayMs, err: String(err) },
+								"[mcp] upstream failure; backing off in-loop"
+							),
+					}
+				);
+			let completionStream: Stream<ChatCompletionChunk>;
+			try {
+				completionStream = await startRound(completionRequest);
+			} catch (err) {
+				// A model or chat template that rejects pictures in a tool turn must not end the turn:
+				// retry once without them, and offer none for the rest of the turn.
+				if (!isRejectedRequest(err) || !hasPictureMessage(messagesOpenAI)) throw err;
+				logger.warn(
+					{
+						model: model.id ?? model.name,
+						status: (err as { status?: number }).status,
+						err: String(err),
+					},
+					"[mcp] the endpoint rejected a request with look_doc pictures; retrying without them"
+				);
+				pictureState.unavailable = true;
+				messagesOpenAI = withoutPictures(messagesOpenAI);
+				completionStream = await startRound({ ...completionRequest, messages: messagesOpenAI });
+			}
 
 			// If provider header was exposed, notify UI so it can render "via {provider}".
 			if (providerHeader) {

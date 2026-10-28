@@ -1851,6 +1851,28 @@ describe("runMcpFlow and look_doc", () => {
 		expect(offered()).toContain("look_doc");
 	});
 
+	it("is absent when the model's tool pictures are switched off, even if it sees images", async () => {
+		mocks.documentCaps = RENDER_CAPS;
+		scriptRounds([{ content: "a" }]);
+		await runFlow({ model: { ...context().model, multimodal: true, toolImages: false } } as never);
+		expect(offered()).not.toContain("look_doc");
+
+		mocks.create.mockReset();
+		scriptRounds([{ content: "b" }]);
+		await runFlow({ model: { ...context().model, multimodal: true, toolImages: true } } as never);
+		expect(offered()).toContain("look_doc");
+	});
+
+	it("is absent when the model's tool pictures are switched off, even if the user forces images on", async () => {
+		mocks.documentCaps = RENDER_CAPS;
+		scriptRounds([{ content: "a" }]);
+		await runFlow({
+			forceMultimodal: true,
+			model: { ...context().model, multimodal: true, toolImages: false },
+		} as never);
+		expect(offered()).not.toContain("look_doc");
+	});
+
 	it("is absent when the document service cannot draw pages", async () => {
 		mocks.documentCaps = { formats: {} };
 		scriptRounds([{ content: "a" }]);
@@ -1940,5 +1962,112 @@ describe("runMcpFlow and look_doc", () => {
 		);
 		// the surviving one is the second call's
 		expect(JSON.stringify(last.at(-1))).toContain("slide 2");
+	});
+
+	describe("when the endpoint rejects the pictures", () => {
+		const apiError = (status: number) => Object.assign(new Error(`${status} rejected`), { status });
+		const hasPicture = (request: { messages: ChatCompletionMessageParam[] }) =>
+			JSON.stringify(request.messages).includes('"type":"image_url"');
+
+		/** The real look_doc from the turn's own tool list answers the call the model makes in round 3. */
+		const realLookDocAfterFirst = async () => {
+			mocks.documentCaps = RENDER_CAPS;
+			const real = await vi.importActual<typeof import("./toolInvocation")>("./toolInvocation");
+			let n = 0;
+			mocks.executeToolCalls.mockImplementation(
+				(params: Parameters<typeof real.executeToolCalls>[0]) => {
+					n += 1;
+					const lookDoc = params.builtinTools?.find((t) => t.name === "look_doc");
+					if (n === 1) {
+						return real.executeToolCalls({
+							...params,
+							builtinTools: [
+								{
+									name: "look_doc",
+									definition: { type: "function", function: { name: "look_doc" } },
+									execute: async () => ({
+										resultText: "deck.pptx has 9 slides.",
+										imagesOf: "deck.pptx, slide 1",
+										images: [{ mime: "image/png", base64: RED_PNG, label: "slide 1" }],
+									}),
+								},
+							],
+						});
+					}
+					// Later rounds: the turn's real tool, which must now refuse.
+					return real.executeToolCalls({ ...params, builtinTools: lookDoc ? [lookDoc] : [] });
+				}
+			);
+		};
+
+		const script = (statusForPictures: number) => {
+			const rounds = [
+				{ toolCalls: [{ id: "call_1", name: "look_doc", arguments: '{"file":"deck.pptx"}' }] },
+				{ toolCalls: [{ id: "call_2", name: "look_doc", arguments: '{"file":"deck.pptx"}' }] },
+				{ content: "from the text only" },
+			];
+			let next = 0;
+			mocks.create.mockImplementation(
+				async (request: { messages: ChatCompletionMessageParam[] }) => {
+					mocks.sentTools.push([]);
+					if (hasPicture(request as never)) throw apiError(statusForPictures);
+					const round = rounds[next++];
+					if (!round) throw new Error("too many requests");
+					return streamFor(round as never);
+				}
+			);
+		};
+
+		it("retries once without the pictures, tells the model, and offers none for the rest of the turn", async () => {
+			await realLookDocAfterFirst();
+			script(400);
+			const { result, updates } = await runFlow({
+				model: { ...context().model, multimodal: true },
+			} as never);
+
+			expect(result).toBe("completed");
+			expect(finalAnswer(updates)).toBe("from the text only");
+			const sent = mocks.create.mock.calls.map(
+				(c) => c[0].messages as ChatCompletionMessageParam[]
+			);
+			// request 0: the first round; 1: carries pictures and is rejected; 2: the same without them
+			const rejected = sent[1];
+			const retried = sent[2];
+			expect(hasPicture({ messages: rejected })).toBe(true);
+			expect(hasPicture({ messages: retried })).toBe(false);
+			expect(JSON.stringify(retried)).toContain(
+				"[the images could not be sent to this model; describe what you can from the text, or tell the user]"
+			);
+			// a later look_doc call says images are unavailable, and nothing sent after has a picture
+			const tools = JSON.stringify(sent.at(-1));
+			expect(tools).toContain("Images are not available on this model this turn");
+			expect(sent.slice(2).some((m) => hasPicture({ messages: m }))).toBe(false);
+		});
+
+		it("also retries on a 422", async () => {
+			await realLookDocAfterFirst();
+			script(422);
+			const { result } = await runFlow({
+				model: { ...context().model, multimodal: true },
+			} as never);
+			expect(result).toBe("completed");
+		});
+
+		it("does not retry a 500: the turn fails as before", async () => {
+			await realLookDocAfterFirst();
+			script(500);
+			await expect(
+				runFlow({ model: { ...context().model, multimodal: true } } as never)
+			).rejects.toMatchObject({ status: 500 });
+			expect(mocks.create.mock.calls.filter((c) => hasPicture(c[0])).length).toBe(1);
+		});
+
+		it("does not retry a 400 on a request without pictures", async () => {
+			scriptRounds([{ error: apiError(400) }, { content: "never" }]);
+			// Fails before any output: the flow falls back (not_applicable), with no second request.
+			const { result } = await runFlow();
+			expect(result).toBe("not_applicable");
+			expect(mocks.create).toHaveBeenCalledTimes(1);
+		});
 	});
 });

@@ -66,6 +66,12 @@ const modelConfig = z.object({
 		.optional(),
 	multimodal: z.boolean().default(false),
 	multimodalAcceptedMimetypes: z.array(z.string()).optional(),
+	/**
+	 * Whether pictures may ride in a tool turn (`look_doc`). Derived in `buildModels`: the model takes images
+	 * and, on a gateway that lists `tool_images`, lists it. A MODELS override with `toolImages: false` turns
+	 * it off for one model on a plain endpoint. Absent (a hand-built model) means "as `multimodal` says".
+	 */
+	toolImages: z.boolean().optional(),
 	// Aggregated tool-calling capability across providers (HF router)
 	supportsTools: z.boolean().default(false),
 	// Reasoning-capable model (accepts `reasoning_effort` parameter). Drives the
@@ -327,6 +333,17 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 			);
 		}
 
+		// Does the gateway know the `tool_images` capability at all? Pystino lists it on every model that
+		// takes images (an admin may switch it off per model), so "at least one chat model lists it" tells
+		// a gateway that has the feature from one that does not (an older Pystino, a plain OpenAI-compatible
+		// endpoint). Only in the first case does a model that does not list it mean "off"; in the second the
+		// absence says nothing, so the rule falls back to "accepts images". A listing in which every model
+		// has it switched off looks like the second case: tool pictures stay on there until one model
+		// lists it again, which is the safe direction because the retry below covers a model that rejects them.
+		const gatewayKnowsToolImages = serves.some((m) =>
+			(m.supported_features ?? []).some((feature) => feature.toLowerCase() === "tool_images")
+		);
+
 		let modelsRaw = serves.map((m) => {
 			// Gateway first, then the HuggingFace router's nested shape. A
 			// deployment has one or the other, never both, and reading only the
@@ -369,6 +386,8 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 				// with an explicit value replaces this in the merge below.
 				preservesReasoning: preservesReasoningByDefault(m.id),
 				multimodal: supportsImageInput,
+				toolImages:
+					supportsImageInput && (!gatewayKnowsToolImages || features.includes("tool_images")),
 				multimodalAcceptedMimetypes: supportsImageInput ? ["image/*"] : undefined,
 				supportsTools,
 				supportsReasoning,
