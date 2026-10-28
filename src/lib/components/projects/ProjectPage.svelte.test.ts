@@ -136,6 +136,10 @@ function stubApi(
 				seen.push({ method, url, body });
 				return Response.json({ success: true });
 			}
+			if (/\/api\/v2\/conversations\/[^/]+$/.test(url) && method === "DELETE") {
+				seen.push({ method, url, body });
+				return Response.json({ success: true });
+			}
 			if (/\/projects\/[^/]+\/conversations\/[^/]+$/.test(url) && method === "DELETE") {
 				seen.push({ method, url, body });
 				return new Response(null, { status: 204 });
@@ -415,6 +419,42 @@ describe("ProjectPage chats", () => {
 		const items = await menuItem("Their thread", "Remove from project");
 		expect(items).not.toBeNull();
 		expect(text()).not.toContain("Move to project…");
+	});
+
+	it("deletes the author's chat after the same confirmation the sidebar opens", async () => {
+		const seen = stubApi({ project: projectView({ conversationCount: 2 }), chats: CHATS });
+		mountExisting();
+		await waitForText("Budget questions");
+
+		(await menuItem("Budget questions", "Delete")).click();
+		// The confirmation the sidebar's row menu opens, before anything is sent.
+		await waitForText("Delete chat");
+		expect(seen.some((call) => call.method === "DELETE")).toBe(false);
+
+		const confirm = [...document.body.querySelectorAll("button")].find(
+			(b) =>
+				b.textContent?.trim() === "Delete" && (b.checkVisibility?.() ?? b.offsetParent !== null)
+		) as HTMLButtonElement;
+		expect(confirm).not.toBeUndefined();
+		confirm.click();
+		await vi.waitFor(() =>
+			expect(
+				seen.some((call) => call.method === "DELETE" && call.url.endsWith("/conversations/c1"))
+			).toBe(true)
+		);
+		await vi.waitFor(() => expect(text()).not.toContain("Budget questions"));
+		expect(text()).toContain("Chats (1)");
+	});
+
+	it("offers no Delete for a chat someone else started", async () => {
+		stubApi({ project: projectView({ conversationCount: 2 }), chats: CHATS });
+		mountExisting();
+		await waitForText("Their thread");
+		await menuItem("Their thread", "Remove from project");
+		const names = [...document.body.querySelectorAll('[role="menuitem"]')].map((el) =>
+			el.textContent?.trim()
+		);
+		expect(names).toEqual(["Remove from project"]);
 	});
 });
 

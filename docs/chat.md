@@ -50,7 +50,9 @@ accents do not matter (`cafe` finds _Café Müller_), and what you type is taken
 literally, so `c++` finds exactly that. Only titles are searched, not what was
 said in the chats. Your own chats in projects are included; a colleague's chats
 in a project shared with you are in that project's page, not here. Click a row
-to open the conversation.
+to open the conversation. Each row's `⋯` menu offers **Move to project…**,
+**Remove from project** when the chat is in one, and **Delete**, which asks for
+confirmation first, exactly as the sidebar's menu does.
 
 Everything a conversation does that has a cost is metered against your token:
 the reply, the title Cerea generates from the first turn, reading a document,

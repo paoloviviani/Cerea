@@ -59,7 +59,8 @@ arrives. The page lists them at the top, in this order:
    turn that on (see [Past chats](#past-chats)).
 
 The page also holds the project's **name and description**, its **chats** (each
-with a link and **Remove from project**), **sharing** and the **defaults for
+with a link, **Remove from project** and, for your own chats, **Delete**),
+**sharing** and the **defaults for
 new chats**: web search on or off; when the project leaves it unset, the app
 default applies. A project no longer picks the [connectors](connectors.md) new
 chats start with: that setting is retired, and connectors are switched on and
@@ -76,7 +77,9 @@ with it.
 
 **Remove from project** does the same for one chat: the chat returns to your
 ordinary list and its transcript leaves the project's past-chats memory. You can
-remove a chat you started; the project's owner can remove any.
+remove a chat you started; the project's owner can remove any. **Delete** in the
+same menu deletes one of your own chats for good, after the same confirmation
+the sidebar's menu shows.
 
 ### Context documents
 
