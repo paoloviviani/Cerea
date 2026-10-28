@@ -15,6 +15,8 @@ type SettingsStore = {
 	locationPlace?: string;
 	activeModel: string;
 	globalSystemPrompt?: string;
+	/** The administrator's instructions; only present when they chose to show them. Read-only. */
+	adminInstructions?: string;
 	multimodalOverrides: Record<string, boolean>;
 	toolsOverrides: Record<string, boolean>;
 	artifactsOverrides: Record<string, boolean>;

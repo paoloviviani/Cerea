@@ -17,6 +17,7 @@ import { locationLine } from "$lib/utils/location";
 import { collections } from "$lib/server/database";
 import { projectContext } from "$lib/server/projects";
 import { userPromptsFor } from "./userPrompts";
+import { adminInstructionsBlock } from "$lib/server/adminInstructions";
 
 /** Updates that mean the user has already been shown something for this turn. */
 function isVisibleWork(update: MessageUpdate): boolean {
@@ -93,7 +94,11 @@ async function* textGenerationWithoutTitle(
 		timezone: ctx.locals?.timezone,
 	});
 
+	const adminBlock = adminInstructionsBlock();
 	let preprompt = resolvePreprompt({
+		// The administrator's text for every chat: first in the prompt, stable
+		// between turns, so it stays in the cached prefix.
+		adminInstructions: adminBlock,
 		conversationPreprompt: conv.preprompt,
 		globalPrompt,
 		customModelPrompt,
@@ -195,6 +200,10 @@ async function* textGenerationWithoutTitle(
 			artifactsOverride: ctx.artifactsOverride,
 			locals: ctx.locals,
 			preprompt,
+			// Also handed over on its own: the tool contract and connector notices
+			// are added ahead of `preprompt` there, and the administrator's block
+			// must still be the first thing in the system prompt.
+			adminInstructions: adminBlock,
 			abortSignal: ctx.abortController.signal,
 			abortController: ctx.abortController,
 			promptedAt: ctx.promptedAt,

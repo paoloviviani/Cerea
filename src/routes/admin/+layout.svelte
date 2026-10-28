@@ -44,6 +44,11 @@
 		{ href: "/admin/connectors", label: m["admin.layout.section.connectors"](), icon: IconPlug },
 		{ href: "/admin/skills", label: m["admin.layout.section.skills"](), icon: IconDocument },
 		{ href: "/admin/voice", label: m["admin.layout.section.voice"](), icon: IconMicrophone },
+		{
+			href: "/admin/instructions",
+			label: m["admin.layout.section.instructions"](),
+			icon: IconDocument,
+		},
 		{ href: "/admin/delegation", label: m["admin.layout.section.sub_agents"](), icon: IconBot },
 		{ href: "/admin/storage", label: m["admin.layout.section.storage"](), icon: IconDataBase },
 	]);

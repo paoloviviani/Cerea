@@ -235,6 +235,19 @@
 			</div>
 
 			<div class={s.STACK}>
+				{#if $settings.adminInstructions}
+					<div data-testid="admin-instructions">
+						<h3 class={s.SECTION_TITLE}>{m["models.custom.admin.title"]()}</h3>
+						<textarea
+							readonly
+							aria-label={m["models.custom.admin.title"]()}
+							class="{s.INPUT} min-h-24 cursor-default font-mono text-xs"
+							value={$settings.adminInstructions}
+						></textarea>
+						<p class="{s.HINT} mt-1">{m["models.custom.admin.hint"]()}</p>
+					</div>
+				{/if}
+
 				<div>
 					<h3 class={s.SECTION_TITLE}>{m["models.custom.global.title"]()}</h3>
 					<textarea

@@ -228,11 +228,14 @@ export async function* runMcpFlow({
 	generationId,
 	messageId,
 	preprompt,
+	adminInstructions,
 	abortSignal,
 	abortController,
 	promptedAt,
 }: RunMcpFlowContext & {
 	preprompt?: string;
+	/** The administrator's block, already at the start of `preprompt`: moved to the very front here. */
+	adminInstructions?: string;
 	abortSignal?: AbortSignal;
 	abortController?: AbortController;
 	promptedAt?: Date;
@@ -658,14 +661,29 @@ export async function* runMcpFlow({
 			artifactsMode,
 		});
 		const prepromptPieces: string[] = [];
+		// The administrator's instructions are the first thing the model reads,
+		// ahead of the tool contract, and stable between turns. `preprompt` carries
+		// the same block at its start (the tool-free path uses it there), so take
+		// it off that copy rather than send it twice.
+		let userPreprompt = preprompt;
+		if (adminInstructions?.trim()) {
+			prepromptPieces.push(adminInstructions.trim());
+			if (typeof userPreprompt === "string" && userPreprompt.startsWith(adminInstructions)) {
+				userPreprompt = userPreprompt.slice(adminInstructions.length).replace(/^\s+/, "");
+			}
+		}
 		if (toolPreprompt.trim().length > 0) {
 			prepromptPieces.push(toolPreprompt);
 		}
 		// One line for each connector the assistant can load (ADR 0104).
 		const catalogNotice = connectorCatalogNotice(turnConnectors);
 		if (catalogNotice) prepromptPieces.push(catalogNotice);
+		if (typeof userPreprompt === "string" && userPreprompt.trim().length > 0) {
+			prepromptPieces.push(userPreprompt);
+		}
 		// Connectors left out before the turn (no credential) and those whose
-		// listing failed just now, deduplicated by name.
+		// listing failed just now, deduplicated by name. After the prompts above:
+		// it changes from turn to turn, so everything before it stays a stable prefix.
 		const notLoaded = new Map<string, { name: string; reason: string }>();
 		const requestUnavailable = turnMcp?.unavailable ?? [];
 		for (const entry of [...requestUnavailable, ...unlisted]) notLoaded.set(entry.name, entry);
@@ -673,9 +691,6 @@ export async function* runMcpFlow({
 		if (unavailableNotice) {
 			logger.info({ unavailable: [...notLoaded.keys()] }, "[mcp] connectors unavailable this turn");
 			prepromptPieces.push(unavailableNotice);
-		}
-		if (typeof preprompt === "string" && preprompt.trim().length > 0) {
-			prepromptPieces.push(preprompt);
 		}
 		const mergedPreprompt = prepromptPieces.join("\n\n");
 		const hasSystemMessage = messagesOpenAI.length > 0 && messagesOpenAI[0]?.role === "system";

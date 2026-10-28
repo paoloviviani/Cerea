@@ -32,10 +32,11 @@ const EXISTING: CustomModelView = {
 	systemPrompt: "You plan menus.",
 };
 
-function settingsContext() {
+function settingsContext(extra: Record<string, unknown> = {}) {
 	const store = writable<Record<string, unknown>>({
 		activeModel: "test/glm",
 		globalSystemPrompt: "",
+		...extra,
 	});
 	const instantSet = vi.fn(async (patch: Record<string, unknown>) =>
 		store.update((s) => ({ ...s, ...patch }))
@@ -68,8 +69,12 @@ function stubApi(handler: (call: Call) => Response | Promise<Response>) {
 	return calls;
 }
 
-function mount(customModels: CustomModelView[], extra: Record<string, unknown> = {}) {
-	const { context, instantSet } = settingsContext();
+function mount(
+	customModels: CustomModelView[],
+	extra: Record<string, unknown> = {},
+	settings: Record<string, unknown> = {}
+) {
+	const { context, instantSet } = settingsContext(settings);
 	renderWithApp(CustomModelsManager, { models: MODELS, customModels, ...extra } as never, {
 		context,
 	});
@@ -101,6 +106,30 @@ describe("Customize models", () => {
 			expect(instantSet).toHaveBeenCalledWith({ globalSystemPrompt: "Always be brief." })
 		);
 		await expect.element(page.getByText("Saved")).toBeInTheDocument();
+	});
+
+	it("shows the administrator's instructions read-only, labelled, when the settings carry them", async () => {
+		stubApi(() => Response.json({}));
+		const { instantSet } = mount([], {}, { adminInstructions: "Always answer in English." });
+
+		const box = page.getByRole("textbox", { name: "From your administrator" });
+		await expect.element(box).toHaveValue("Always answer in English.");
+		await expect.element(box).toHaveAttribute("readonly");
+		// The person's own box is separate, and still theirs to edit.
+		await expect
+			.element(page.getByRole("textbox", { name: "Instructions for every chat" }))
+			.toBeVisible();
+		expect(instantSet).not.toHaveBeenCalled();
+	});
+
+	it("says nothing about administrator instructions when the settings do not carry them", async () => {
+		stubApi(() => Response.json({}));
+		mount([]);
+		await expect
+			.element(page.getByRole("textbox", { name: "Instructions for every chat" }))
+			.toBeVisible();
+		expect(document.body.textContent).not.toContain("From your administrator");
+		expect(document.body.querySelector('[data-testid="admin-instructions"]')).toBeNull();
 	});
 
 	it("shows the empty state, with a way to start", async () => {
