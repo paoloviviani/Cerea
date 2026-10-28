@@ -632,6 +632,13 @@ services:
 
   # --- profile: fetch (headless browser for the chat's web fetch) -------------
 
+  # CVE-2026-111497 (Brotli decoder out-of-bounds write): the Node in this image
+  # (24.22.1) is patched. Chromium's bundled Brotli is unverified, and the
+  # image's system libbrotli1 (1.1.0) is unpatched but, as far as is known, not
+  # used by the fetch path. The chat sends Accept-Encoding: gzip, deflate so
+  # servers never answer with Brotli. Bump this image (and PLAYWRIGHT_VERSION,
+  # and the chat's pinned playwright) when a Playwright release with a newer
+  # Chrome ships; none is newer than 1.64.1 yet.
   playwright:
     profiles: [fetch]
     image: ${PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.64.1-noble}
