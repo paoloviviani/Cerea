@@ -448,7 +448,13 @@ and `allowsModel` refuses a `custom:` id even for a machine that allows free
 models.
 
 **One function composes the prompt**: `composeUserPrompt` (`textGeneration/preprompt.ts`,
-called by `resolvePreprompt`, fed by `textGeneration/userPrompts.ts`): **global,
+called by `resolvePreprompt`, fed by `textGeneration/userPrompts.ts`): **the
+administrator's instructions** (`server/adminInstructions.ts`: config keys
+`ADMIN_INSTRUCTIONS` / `ADMIN_INSTRUCTIONS_VISIBLE`, edited at `/admin/instructions`,
+read from the config's in-memory copy so a turn adds no query; also put first in
+every sub-agent's system prompt in `runNestedAgent`; never the /code panel,
+galopin or titles; Settings gets the text only while visible, and no field at
+all otherwise), then **global,
 then the custom model's, then the conversation's stored prompt**; empty parts are
 skipped; `preprompt.spec.ts` asserts the order. What `resolvePreprompt` and the
 turn append after it (the artifacts and execution contracts, skills, memory, then

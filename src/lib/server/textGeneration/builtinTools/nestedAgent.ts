@@ -4,6 +4,7 @@ import type {
 	ChatCompletionCreateParamsStreaming,
 	ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
+import { withAdminInstructions } from "$lib/server/adminInstructions";
 import { logger } from "$lib/server/logger";
 import type { McpToolMapping, OpenAiTool } from "$lib/server/mcp/tools";
 import type { McpServerConfig } from "$lib/server/mcp/httpClient";
@@ -286,7 +287,9 @@ export async function runNestedAgent(
 	].reduce(composeGuards);
 
 	let messages: ChatCompletionMessageParam[] = [
-		{ role: "system", content: spec.systemPrompt },
+		// The administrator's instructions lead every sub-agent's brief too: they
+		// are the deployment's rules for the assistant, not the person's preference.
+		{ role: "system", content: withAdminInstructions(spec.systemPrompt) },
 		{ role: "user", content: spec.task },
 	];
 

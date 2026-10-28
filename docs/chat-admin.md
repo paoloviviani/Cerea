@@ -26,16 +26,17 @@ server; the page's gate is for navigation, never a permission.
 
 ## The sections
 
-| Section        | What you decide                                                                                                                                                                                                         |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Knowledge**  | Which embedding model the deployment uses and which model reads documents, on one screen with the consequences: see below. Hidden when the deployment turns the knowledge pipeline off (`CHAT_KNOWLEDGE_ENABLED=false`) |
-| **Web search** | Which search backend the composer's Web search pill uses, picked from the search backends the gateway offers (not hidden when knowledge is off)                                                                         |
-| **Fetching**   | Which backend fetches a URL: a plain HTTPS request, or the [headless browser](browser.md), with a live check of whether the renderer answers                                                                            |
-| **Connectors** | MCP servers offered to everybody, and how each is offered: see [Connectors for everybody](#connectors-for-everybody) below                                                                                              |
-| **Skills**     | Deployment-wide skills that every account sees; the bundled ones can be switched off by name (`CHAT_SKILLS_DISABLED`)                                                                                                   |
-| **Voice**      | Whether the composer offers browser dictation: yes, no, or only when no voice model is available (the default): see below                                                                                               |
-| **Sub-agents** | Whether the assistant may hand work to sub-agents (`delegate`, `research`): on by default; see below                                                                                                                    |
-| **Storage**    | How long files produced by code are kept: see below                                                                                                                                                                     |
+| Section                    | What you decide                                                                                                                                                                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Knowledge**              | Which embedding model the deployment uses and which model reads documents, on one screen with the consequences: see below. Hidden when the deployment turns the knowledge pipeline off (`CHAT_KNOWLEDGE_ENABLED=false`) |
+| **Web search**             | Which search backend the composer's Web search pill uses, picked from the search backends the gateway offers (not hidden when knowledge is off)                                                                         |
+| **Fetching**               | Which backend fetches a URL: a plain HTTPS request, or the [headless browser](browser.md), with a live check of whether the renderer answers                                                                            |
+| **Connectors**             | MCP servers offered to everybody, and how each is offered: see [Connectors for everybody](#connectors-for-everybody) below                                                                                              |
+| **Skills**                 | Deployment-wide skills that every account sees; the bundled ones can be switched off by name (`CHAT_SKILLS_DISABLED`)                                                                                                   |
+| **Voice**                  | Whether the composer offers browser dictation: yes, no, or only when no voice model is available (the default): see below                                                                                               |
+| **Assistant instructions** | One text added to every chat's instructions, before each user's own, and whether users can read it in Settings: see below                                                                                               |
+| **Sub-agents**             | Whether the assistant may hand work to sub-agents (`delegate`, `research`): on by default; see below                                                                                                                    |
+| **Storage**                | How long files produced by code are kept: see below                                                                                                                                                                     |
 
 **Knowledge** puts the configuration and its consequences together on purpose.
 Changing the embedding model touches **no existing base**: each pins the model
@@ -145,6 +146,33 @@ deployment that wants neither can switch it off here. The value is stored in
 the chat's configuration (changing it is logged with who made the change) and
 overrides `CHAT_DELEGATION`; with `ENABLE_CONFIG_MANAGER` off it can only be
 set in the environment. It applies to the next message anyone sends.
+
+## Assistant instructions
+
+One text for the whole deployment, added to **every chat's instructions, before
+each user's own**. Use it for what every answer should follow: a house style,
+a language, what the assistant must not do. It is up to 4,000 characters, with
+a live count; **Save** stores it and **Revert** drops unsaved edits. Empty
+means none.
+
+It applies to chats only. The [Agents panel](code-panel.md) and the coding
+agents on users' machines never get it, and neither does the title Cerea
+generates for a chat. Sub-agents the assistant starts (`delegate`, `research`)
+do get it, at the top of their own instructions.
+
+**Show these instructions to users** (on by default) decides whether users can
+read the text, read-only and labelled "From your administrator", in
+**Settings**, next to their own instructions. Turn it off and users see
+nothing about it, not even that it exists; it still applies. Administrators
+always see and edit it here.
+
+The text and the switch are stored in the chat's configuration (changing them
+is logged with who made the change, never the text) and override
+`ADMIN_INSTRUCTIONS` and `ADMIN_INSTRUCTIONS_VISIBLE`; with
+`ENABLE_CONFIG_MANAGER` off they can only be set in the environment. It is
+deployment configuration, not personal data, so it is not part of an account's
+export or erasure; a database backup includes it with the rest of the
+configuration. It applies to the next message anyone sends.
 
 ## Storage
 

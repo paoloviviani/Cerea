@@ -10,6 +10,7 @@ import { page } from "@vitest/browser/context";
 import Layout from "./+layout.svelte";
 import Connectors from "./connectors/+page.svelte";
 import Delegation from "./delegation/+page.svelte";
+import Instructions from "./instructions/+page.svelte";
 import Fetching from "./fetch/+page.svelte";
 import Knowledge from "./knowledge/+page.svelte";
 import Storage from "./storage/+page.svelte";
@@ -77,6 +78,16 @@ describe("Administration, in the pseudo-locale", () => {
 		renderWithApp(Delegation, {});
 		await expect.element(page.getByText(en("admin.delegation.title"))).toBeVisible();
 		expect(unbracketedWords(["CHAT_DELEGATION", "research", "delegate"])).toEqual([]);
+	});
+
+	it("renders Assistant instructions", async () => {
+		usePseudoLocale();
+		stub({
+			"/admin/instructions": { instructions: "", visible: true, max: 4000, configurable: false },
+		});
+		renderWithApp(Instructions, {});
+		await expect.element(page.getByText(en("admin.instructions.title"))).toBeVisible();
+		expect(unbracketedWords(["ADMIN_INSTRUCTIONS"])).toEqual([]);
 	});
 
 	it("renders Voice", async () => {

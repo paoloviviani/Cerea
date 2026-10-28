@@ -16,6 +16,15 @@ vi.mock("$lib/server/mcp/httpClient", () => ({
 	getMcpToolTimeoutMs: () => 5_000,
 }));
 vi.mock("$lib/server/mcp/clientPool", () => ({ getClient: async () => ({}) }));
+// The administrator's instructions come from the deployment config; a stand-in
+// the cases below set.
+const admin = vi.hoisted(() => ({ text: "" }));
+vi.mock("$lib/server/config", () => ({
+	config: new Proxy(
+		{},
+		{ get: (_t, key) => (key === "ADMIN_INSTRUCTIONS" ? admin.text : undefined) }
+	),
+}));
 
 const { runNestedAgent, createSubAgentApprovalGuard, APPROVAL_REFUSAL_PREFIX } =
 	await import("./nestedAgent");
@@ -153,6 +162,23 @@ describe("a sub-agent run", () => {
 			["system", "system"],
 			["user", "the brief"],
 		]);
+	});
+
+	it("leads its system prompt with the administrator's instructions, and adds nothing when there are none", async () => {
+		admin.text = "ADMIN RULES";
+		try {
+			const { openai, requests } = upstream([{ content: "ok" }]);
+			await runNestedAgent(spec(), ctx(), deps(openai));
+			expect(requests[0].req.messages[0]).toEqual({
+				role: "system",
+				content: "ADMIN RULES\n\nsystem",
+			});
+		} finally {
+			admin.text = "";
+		}
+		const { openai, requests } = upstream([{ content: "ok" }]);
+		await runNestedAgent(spec(), ctx(), deps(openai));
+		expect(requests[0].req.messages[0].content).toBe("system");
 	});
 
 	it("sends the person's own token and conversation header on every request (billing)", async () => {

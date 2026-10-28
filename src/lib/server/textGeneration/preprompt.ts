@@ -4,6 +4,11 @@ import type { ArtifactsMode } from "./artifacts";
 import { injectExecutionPrompt } from "./executionPrompt";
 
 export interface PrepromptInput {
+	/**
+	 * The administrator's instructions for the whole deployment
+	 * (`adminInstructions()`). Read first, before everything the person writes.
+	 */
+	adminInstructions?: string;
 	/** The conversation's stored system prompt. */
 	conversationPreprompt?: string;
 	/** The person's global system prompt (settings); every chat turn. */
@@ -42,8 +47,8 @@ export interface PrepromptInput {
 }
 
 /**
- * The person's own instructions for a chat turn, in the one order they apply:
- * their global prompt, then the custom model's prompt, then the conversation's
+ * The instructions for a chat turn, in the one order they apply: the
+ * administrator's (one text for the deployment), then the person's own: their global prompt, then the custom model's prompt, then the conversation's
  * stored prompt (the deployment model's default, or an imported share's), then
  * the one-line location the person opted to share, if any.
  * Empty and whitespace-only parts are skipped, so an unset global prompt leaves
@@ -54,15 +59,20 @@ export interface PrepromptInput {
  * The one function that composes them: a caller never joins prompts itself.
  */
 export function composeUserPrompt({
+	adminInstructions,
 	globalPrompt,
 	customModelPrompt,
 	conversationPreprompt,
 	locationLine,
 }: Pick<
 	PrepromptInput,
-	"globalPrompt" | "customModelPrompt" | "conversationPreprompt" | "locationLine"
+	| "adminInstructions"
+	| "globalPrompt"
+	| "customModelPrompt"
+	| "conversationPreprompt"
+	| "locationLine"
 >): string {
-	return [globalPrompt, customModelPrompt, conversationPreprompt, locationLine]
+	return [adminInstructions, globalPrompt, customModelPrompt, conversationPreprompt, locationLine]
 		.map((part) => part?.trim())
 		.filter((part): part is string => Boolean(part))
 		.join("\n\n");
@@ -76,6 +86,7 @@ export function composeUserPrompt({
  * contract, and the model must never write tags.
  */
 export function resolvePreprompt({
+	adminInstructions,
 	conversationPreprompt,
 	globalPrompt,
 	customModelPrompt,
@@ -90,6 +101,7 @@ export function resolvePreprompt({
 	skillsPreprompt,
 }: PrepromptInput): string | undefined {
 	const base = composeUserPrompt({
+		adminInstructions,
 		globalPrompt,
 		customModelPrompt,
 		conversationPreprompt,

@@ -14,6 +14,15 @@ vi.mock("$lib/server/mcp/httpClient", () => ({
 	getMcpToolTimeoutMs: () => 5_000,
 }));
 vi.mock("$lib/server/mcp/clientPool", () => ({ getClient: async () => ({}) }));
+// The administrator's instructions come from the deployment config; a stand-in
+// the cases below set.
+const admin = vi.hoisted(() => ({ text: "" }));
+vi.mock("$lib/server/config", () => ({
+	config: new Proxy(
+		{},
+		{ get: (_t, key) => (key === "ADMIN_INSTRUCTIONS" ? admin.text : undefined) }
+	),
+}));
 
 const {
 	createDelegateTools,
@@ -159,6 +168,18 @@ describe("delegate: the brief", () => {
 			expect(result).toMatchObject({ error: expect.stringContaining("task") });
 		}
 		expect(create).not.toHaveBeenCalled();
+	});
+
+	it("starts the sub-agent's system prompt with the administrator's instructions", async () => {
+		admin.text = "ADMIN RULES";
+		try {
+			const { openai, requests } = upstream([{ content: "answer" }]);
+			const { delegate } = make(openai);
+			await delegate.execute({ task: BRIEF }, context().ctx);
+			expect(String(requests[0].messages[0].content).startsWith("ADMIN RULES\n\n")).toBe(true);
+		} finally {
+			admin.text = "";
+		}
 	});
 
 	it("gives the sub-agent the brief and a fresh context, never this conversation", async () => {
@@ -574,6 +595,18 @@ describe("the research preset", () => {
 		expect(requests[0].messages[0].content).toBe(RESEARCH_SYSTEM_PROMPT);
 		expect(requests[0].messages[1].content).toBe("How does X work compared with Y?");
 		expect(emitted[0].preset).toBe("research");
+	});
+
+	it("lead the research agent's system prompt with the administrator's instructions", async () => {
+		admin.text = "ADMIN RULES";
+		try {
+			const { openai, requests } = upstream([{ content: "x" }]);
+			const { research } = make(openai, { research: true });
+			await research?.execute({ question: "How does X work compared with Y?" }, context().ctx);
+			expect(requests[0].messages[0].content).toBe(`ADMIN RULES\n\n${RESEARCH_SYSTEM_PROMPT}`);
+		} finally {
+			admin.text = "";
+		}
 	});
 
 	it("has a general research prompt: plan, primary sources, cross-check, cite, say where sources disagree or are thin, web only", () => {

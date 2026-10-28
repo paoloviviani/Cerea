@@ -214,3 +214,27 @@ describe("the opt-in location line", () => {
 		);
 	});
 });
+
+describe("the administrator's instructions", () => {
+	it("come first, before the person's global prompt and everything after it", () => {
+		const resolved =
+			resolvePreprompt({
+				adminInstructions: "ADMIN",
+				globalPrompt: "GLOBAL",
+				customModelPrompt: "CUSTOM",
+				conversationPreprompt: "CONVERSATION",
+				locationLine: "LOCATION",
+			}) ?? "";
+		expect(resolved.startsWith("ADMIN\n\nGLOBAL\n\nCUSTOM\n\nCONVERSATION\n\nLOCATION")).toBe(true);
+		expect(resolved.indexOf("ADMIN")).toBeLessThan(
+			resolved.indexOf(injectExecutionPrompt("").trim().slice(0, 40))
+		);
+	});
+
+	it("are absent when empty or blank: no stray blank lines", () => {
+		for (const adminInstructions of [undefined, "", "  \n "]) {
+			expect(composeUserPrompt({ adminInstructions, globalPrompt: "GLOBAL" })).toBe("GLOBAL");
+		}
+		expect(composeUserPrompt({ adminInstructions: "ADMIN" })).toBe("ADMIN");
+	});
+});

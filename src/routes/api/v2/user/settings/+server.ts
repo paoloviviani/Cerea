@@ -11,6 +11,7 @@ import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
 import { resolveStreamingMode } from "$lib/utils/messageUpdates";
 import { parseAccent, parseNeutral } from "$lib/utils/palettes";
 import { z } from "zod";
+import { visibleAdminInstructions } from "$lib/server/adminInstructions";
 import { locationSettingsFields } from "$lib/utils/location";
 import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
 import { localeFields, localePatch } from "$lib/server/localeSettings";
@@ -101,6 +102,10 @@ export const GET: RequestHandler = async ({ locals }) => {
 		hidePromptExamples: settings?.hidePromptExamples ?? DEFAULT_SETTINGS.hidePromptExamples,
 
 		globalSystemPrompt: settings?.globalSystemPrompt ?? undefined,
+		// The administrator's instructions, only while they are set and the
+		// administrator left them visible: otherwise neither the text nor the
+		// field is there.
+		...visibleAdminInstructions(),
 		multimodalOverrides: settings?.multimodalOverrides ?? {},
 		toolsOverrides: settings?.toolsOverrides ?? {},
 		artifactsOverrides: settings?.artifactsOverrides ?? {},

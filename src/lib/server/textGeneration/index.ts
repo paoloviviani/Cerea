@@ -17,6 +17,7 @@ import { locationLine } from "$lib/utils/location";
 import { collections } from "$lib/server/database";
 import { projectContext } from "$lib/server/projects";
 import { userPromptsFor } from "./userPrompts";
+import { adminInstructions } from "$lib/server/adminInstructions";
 
 /** Updates that mean the user has already been shown something for this turn. */
 function isVisibleWork(update: MessageUpdate): boolean {
@@ -94,6 +95,9 @@ async function* textGenerationWithoutTitle(
 	});
 
 	let preprompt = resolvePreprompt({
+		// The administrator's text for every chat: first in the prompt, stable
+		// between turns, so it stays in the cached prefix.
+		adminInstructions: adminInstructions(),
 		conversationPreprompt: conv.preprompt,
 		globalPrompt,
 		customModelPrompt,
