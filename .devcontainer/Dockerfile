@@ -1,3 +1,4 @@
+# Node >= 24.22.1 (CVE-2026-111497); the devcontainer image tracks the 24 line, so rebuild without cache.
 FROM mcr.microsoft.com/devcontainers/typescript-node:24-bookworm
 
 # Install MongoDB tools (mongosh, mongorestore, mongodump) directly from MongoDB repository
