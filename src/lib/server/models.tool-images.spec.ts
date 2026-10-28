@@ -60,9 +60,10 @@ describe("toolImages from a gateway that knows the capability", () => {
 			card("switched-off", ["tools"]),
 			card("text-only", ["tools", "tool_images"], false),
 		]);
-		const flag = (id: string) => built.find((m) => m.id === id)?.toolImages;
-		expect(flag("on")).toBe(true);
-		expect(flag("switched-off")).toBe(false);
+		const flag = (id: string) => built.find((m) => m.id === id)?.toolImagesOff;
+		expect(flag("on")).toBe(false);
+		expect(flag("switched-off")).toBe(true);
+		// not an image model: not "explicitly off" either, the multimodal flag decides
 		expect(flag("text-only")).toBe(false);
 	});
 });
@@ -70,8 +71,8 @@ describe("toolImages from a gateway that knows the capability", () => {
 describe("toolImages from a gateway that never lists it", () => {
 	it("falls back to accepting images", async () => {
 		const built = await build([card("vision", ["tools"]), card("text-only", ["tools"], false)]);
-		expect(built.find((m) => m.id === "vision")?.toolImages).toBe(true);
-		expect(built.find((m) => m.id === "text-only")?.toolImages).toBe(false);
+		expect(built.find((m) => m.id === "vision")?.toolImagesOff).toBe(false);
+		expect(built.find((m) => m.id === "text-only")?.toolImagesOff).toBe(false);
 	});
 });
 
@@ -81,9 +82,48 @@ describe("toolImages on a standalone endpoint", () => {
 			[card("a", []), card("b", [])],
 			JSON.stringify([{ id: "b", toolImages: false }])
 		);
-		expect(built.find((m) => m.id === "a")?.toolImages).toBe(true);
-		expect(built.find((m) => m.id === "b")?.toolImages).toBe(false);
+		expect(built.find((m) => m.id === "a")?.toolImagesOff).toBe(false);
+		expect(built.find((m) => m.id === "b")?.toolImagesOff).toBe(true);
 		// the override changes nothing else
 		expect(built.find((m) => m.id === "b")?.multimodal).toBe(true);
+	});
+});
+
+describe("toolImagesOff and MODELS overrides", () => {
+	it("a multimodal: true override on a listing without image input is not off", async () => {
+		const built = await build(
+			[card("plain", [], false), card("other", ["tool_images"])],
+			JSON.stringify([{ id: "plain", multimodal: true }])
+		);
+		const plain = built.find((m) => m.id === "plain");
+		expect(plain?.multimodal).toBe(true);
+		expect(plain?.toolImagesOff).toBe(false);
+	});
+
+	it("the same holds on a gateway that knows the capability and lists it for no one else", async () => {
+		const built = await build(
+			[card("plain", ["tools"], false), card("other", ["tool_images"])],
+			JSON.stringify([{ id: "plain", multimodal: true }])
+		);
+		expect(built.find((m) => m.id === "plain")?.toolImagesOff).toBe(false);
+	});
+
+	it("an override with its own endpoints does not inherit the listing's off", async () => {
+		const own = [{ type: "openai", baseURL: "http://elsewhere.test.invalid/v1" }];
+		const built = await build(
+			[card("a", ["tools"]), card("b", ["tools"]), card("on", ["tool_images"])],
+			JSON.stringify([{ id: "a", endpoints: own }])
+		);
+		expect(built.find((m) => m.id === "a")?.toolImagesOff).toBe(false);
+		expect(built.find((m) => m.id === "b")?.toolImagesOff).toBe(true);
+	});
+
+	it("an explicit toolImages: false still wins on an override with its own endpoints", async () => {
+		const own = [{ type: "openai", baseURL: "http://elsewhere.test.invalid/v1" }];
+		const built = await build(
+			[card("a", [])],
+			JSON.stringify([{ id: "a", endpoints: own, toolImages: false }])
+		);
+		expect(built.find((m) => m.id === "a")?.toolImagesOff).toBe(true);
 	});
 });

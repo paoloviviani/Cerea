@@ -360,7 +360,7 @@ export async function* runMcpFlow({
 		conv,
 		documentCapabilities,
 		// The model sees images (or the user's switch says so) and its pictures-in-tool-turns capability is not off.
-		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && model.toolImages !== false,
+		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && !model.toolImagesOff,
 		pictureState,
 		memoryEnabled: memoryAllowed,
 		...(memoryProject ? { projectMemoryProjectId: memoryProject._id } : {}),
@@ -845,35 +845,53 @@ export async function* runMcpFlow({
 		 * beats the canned fallback.
 		 */
 		const answerWithoutTools = async function* (): AsyncGenerator<MessageUpdate, string | null> {
+			// Pictures from look_doc ride along unless the endpoint already refused them this turn.
+			const rescueMessages = (): ChatCompletionMessageParam[] => [
+				...(pictureState.unavailable ? withoutPictures(messagesOpenAI) : messagesOpenAI),
+				{ role: "user" as const, content: ANSWER_NOW_INSTRUCTION },
+			];
 			const request: ChatCompletionCreateParamsStreaming = {
 				...completionBase,
 				tools: undefined,
 				tool_choice: undefined,
-				messages: [...messagesOpenAI, { role: "user" as const, content: ANSWER_NOW_INSTRUCTION }],
+				messages: rescueMessages(),
 			};
 			const rescueReq = linkedRequestSignal(abortSignal);
 			let stream: Stream<ChatCompletionChunk>;
 			try {
-				stream = await withUpstreamRetry(
-					() =>
-						openai.chat.completions.create(request, {
-							signal: rescueReq.signal,
-							headers: {
-								"ChatUI-Conversation-ID": conv._id.toString(),
-								...(config.USE_USER_TOKEN === "true" && locals?.token
-									? { Authorization: `Bearer ${locals.token}` }
-									: {}),
-							},
-						}),
-					{
-						signal: abortSignal,
-						onBackoff: (attempt, delayMs, err) =>
-							logger.warn(
-								{ attempt, delayMs, err: String(err) },
-								"[mcp] upstream failure on the no-tools answer; backing off"
-							),
-					}
-				);
+				const send = (req: ChatCompletionCreateParamsStreaming) =>
+					withUpstreamRetry(
+						() =>
+							openai.chat.completions.create(req, {
+								signal: rescueReq.signal,
+								headers: {
+									"ChatUI-Conversation-ID": conv._id.toString(),
+									...(config.USE_USER_TOKEN === "true" && locals?.token
+										? { Authorization: `Bearer ${locals.token}` }
+										: {}),
+								},
+							}),
+						{
+							signal: abortSignal,
+							onBackoff: (attempt, delayMs, err) =>
+								logger.warn(
+									{ attempt, delayMs, err: String(err) },
+									"[mcp] upstream failure on the no-tools answer; backing off"
+								),
+						}
+					);
+				try {
+					stream = await send(request);
+				} catch (err) {
+					if (!isRejectedRequest(err) || !hasPictureMessage(messagesOpenAI)) throw err;
+					logger.warn(
+						{ model: model.id ?? model.name, status: (err as { status?: number }).status },
+						"[mcp] the no-tools request with look_doc images was refused (400/422); retrying without them"
+					);
+					pictureState.unavailable = true;
+					messagesOpenAI = withoutPictures(messagesOpenAI);
+					stream = await send({ ...request, messages: rescueMessages() });
+				}
 			} catch (err) {
 				logger.warn({ err: String(err) }, "[mcp] the no-tools answer request failed");
 				return null;
@@ -988,7 +1006,7 @@ export async function* runMcpFlow({
 						status: (err as { status?: number }).status,
 						err: String(err),
 					},
-					"[mcp] the endpoint rejected a request with look_doc pictures; retrying without them"
+					"[mcp] the request with look_doc images was refused (400/422); retrying without them"
 				);
 				pictureState.unavailable = true;
 				messagesOpenAI = withoutPictures(messagesOpenAI);

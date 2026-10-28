@@ -220,9 +220,15 @@ really looks. This is for the assistant; you keep the preview above.
   - **With a standalone or other OpenAI-compatible endpoint**, the tool is
     offered to every model that accepts images. To switch it off for one
     model, add `"toolImages": false` to its entry in `MODELS`, for example
-    `MODELS='[{"id": "my-model", "toolImages": false}]'`.
+    `MODELS='[{"id": "my-model", "toolImages": false}]'`. A `MODELS` entry
+    with `"multimodal": true` for a model the listing shows as text-only is
+    offered the tool too, and so is a text-only model when you force images on
+    for a message: only an explicit "off" (the console switch or
+    `"toolImages": false`) withholds it. An entry that gives its own
+    `endpoints` is treated like a standalone endpoint.
 - **A model that rejects the pictures does not break the turn.** If the
-  endpoint refuses a request that carries pictures (a 400 or 422 answer), the
+  endpoint refuses a request that carries pictures (a 400 or 422 answer, which
+  can also mean the request was too long, so the cause is not assumed), the
   chat sends the same request once more without them, with a note that the
   images could not be sent. For the rest of that turn the assistant gets no
   more pictures: `look_doc` answers that images are not available on this

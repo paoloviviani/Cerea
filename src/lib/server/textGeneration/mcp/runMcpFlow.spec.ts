@@ -1851,15 +1851,29 @@ describe("runMcpFlow and look_doc", () => {
 		expect(offered()).toContain("look_doc");
 	});
 
+	it("is offered when the user forces images on for a text-only model, unless its tool pictures are off", async () => {
+		mocks.documentCaps = RENDER_CAPS;
+		scriptRounds([{ content: "a" }]);
+		await runFlow({
+			forceMultimodal: true,
+			model: { ...context().model, multimodal: false },
+		} as never);
+		expect(offered()).toContain("look_doc");
+	});
+
 	it("is absent when the model's tool pictures are switched off, even if it sees images", async () => {
 		mocks.documentCaps = RENDER_CAPS;
 		scriptRounds([{ content: "a" }]);
-		await runFlow({ model: { ...context().model, multimodal: true, toolImages: false } } as never);
+		await runFlow({
+			model: { ...context().model, multimodal: true, toolImagesOff: true },
+		} as never);
 		expect(offered()).not.toContain("look_doc");
 
 		mocks.create.mockReset();
 		scriptRounds([{ content: "b" }]);
-		await runFlow({ model: { ...context().model, multimodal: true, toolImages: true } } as never);
+		await runFlow({
+			model: { ...context().model, multimodal: true, toolImagesOff: false },
+		} as never);
 		expect(offered()).toContain("look_doc");
 	});
 
@@ -1868,7 +1882,7 @@ describe("runMcpFlow and look_doc", () => {
 		scriptRounds([{ content: "a" }]);
 		await runFlow({
 			forceMultimodal: true,
-			model: { ...context().model, multimodal: true, toolImages: false },
+			model: { ...context().model, multimodal: true, toolImagesOff: true },
 		} as never);
 		expect(offered()).not.toContain("look_doc");
 	});
@@ -2051,6 +2065,93 @@ describe("runMcpFlow and look_doc", () => {
 				model: { ...context().model, multimodal: true },
 			} as never);
 			expect(result).toBe("completed");
+		});
+
+		it("leaves a 429 to the upstream retry: the same pictures are sent again", async () => {
+			await realLookDocAfterFirst();
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				const rounds = [
+					{ toolCalls: [{ id: "call_1", name: "look_doc", arguments: '{"file":"deck.pptx"}' }] },
+					{ content: "done" },
+				];
+				let next = 0;
+				let throttled = false;
+				mocks.create.mockImplementation(
+					async (request: { messages: ChatCompletionMessageParam[] }) => {
+						mocks.sentTools.push([]);
+						if (hasPicture(request as never) && !throttled) {
+							throttled = true;
+							throw apiError(429);
+						}
+						return streamFor(rounds[next++] as never);
+					}
+				);
+				const pending = runFlow({ model: { ...context().model, multimodal: true } } as never);
+				let settled = false;
+				void pending.then(
+					() => (settled = true),
+					() => (settled = true)
+				);
+				while (!settled && vi.getTimerCount() === 0) {
+					await new Promise((resolve) => setImmediate(resolve));
+				}
+				if (vi.getTimerCount() > 0) await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS[0]);
+				const { result } = await pending;
+				expect(result).toBe("completed");
+				const withPictures = mocks.create.mock.calls.filter((c) => hasPicture(c[0]));
+				expect(withPictures.length).toBe(2);
+				expect(JSON.stringify(mocks.create.mock.calls)).not.toContain("could not be sent");
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("does not retry a 401: the turn fails as before", async () => {
+			await realLookDocAfterFirst();
+			script(401);
+			await expect(
+				runFlow({ model: { ...context().model, multimodal: true } } as never)
+			).rejects.toMatchObject({ status: 401 });
+			expect(mocks.create.mock.calls.filter((c) => hasPicture(c[0])).length).toBe(1);
+		});
+
+		it("retries the no-tools answer without the pictures when the last round is reached", async () => {
+			await realLookDocAfterFirst();
+			// The first call returns pictures; the 19 after it are plain tool results.
+			const first = mocks.executeToolCalls.getMockImplementation() as (p: unknown) => unknown;
+			scriptToolResults();
+			const rest = mocks.executeToolCalls.getMockImplementation() as (p: unknown) => unknown;
+			let toolRuns = 0;
+			mocks.executeToolCalls.mockImplementation(((p: unknown) =>
+				(toolRuns++ === 0 ? first : rest)(p)) as never);
+			// The endpoint refuses pictures only on the request that has no tools (the rescue).
+			let next = 0;
+			const rounds = [
+				{ toolCalls: [{ id: "call_1", name: "look_doc", arguments: '{"file":"deck.pptx"}' }] },
+				...Array.from({ length: 19 }, (_, i) => ({
+					toolCalls: [{ id: `call_${i + 2}`, name: "do_thing", arguments: "{}" }],
+				})),
+				{ content: "answer from the text" },
+			];
+			mocks.create.mockImplementation(
+				async (request: { tools?: unknown; messages: ChatCompletionMessageParam[] }) => {
+					mocks.sentTools.push([]);
+					if (!request.tools && hasPicture(request as never)) throw apiError(400);
+					return streamFor(rounds[next++] as never);
+				}
+			);
+			const { result, updates } = await runFlow({
+				model: { ...context().model, multimodal: true },
+			} as never);
+			expect(result).toBe("completed");
+			expect(finalAnswer(updates)).toBe("answer from the text");
+			const calls = mocks.create.mock.calls.map((c) => c[0]);
+			const rescues = calls.filter((c) => !c.tools);
+			expect(rescues).toHaveLength(2);
+			expect(hasPicture(rescues[0])).toBe(true);
+			expect(hasPicture(rescues[1])).toBe(false);
+			expect(String(rescues[1].messages.at(-1)?.content)).toContain("Answer the person now");
 		});
 
 		it("does not retry a 500: the turn fails as before", async () => {

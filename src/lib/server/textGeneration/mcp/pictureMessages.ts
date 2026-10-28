@@ -82,7 +82,7 @@ export const PICTURES_COULD_NOT_BE_SENT =
 
 /** What look_doc answers for the rest of a turn once pictures were refused. */
 export const IMAGES_UNAVAILABLE_ERROR =
-	"Images are not available on this model this turn: the endpoint rejected them. " +
+	"Images are not available on this model this turn: the request with images was refused (400/422). " +
 	"Describe what you can from the text, or tell the user.";
 
 /** Shared between the request loop and look_doc for one turn. */
