@@ -20,7 +20,11 @@ import {
 } from "$lib/server/documents/client";
 import { markCurrentVersion, storeDeliverable } from "$lib/server/execution/deliverables";
 import { logger } from "$lib/server/logger";
-import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
+import {
+	MessageCodeExecutionUpdateType,
+	MessageUpdateType,
+	type MessageUpdate,
+} from "$lib/types/MessageUpdate";
 import {
 	VERSION_PROPERTY,
 	bareName,
@@ -728,11 +732,7 @@ export function createDocumentBuiltins(
 				};
 
 				const name = savedName(source);
-				const outputs = (ref: {
-					name: string;
-					size: number;
-					sha256: string;
-				}): NonNullable<BuiltinToolResult["extraUpdates"]> => [
+				const outputs = (ref: { name: string; size: number; sha256: string }): MessageUpdate[] => [
 					{
 						type: MessageUpdateType.CodeExecution,
 						subtype: MessageCodeExecutionUpdateType.Outputs,
