@@ -79,6 +79,8 @@
 		overlay?: Snippet;
 		/** Rendered at the top of the container, above whatever the messages branch shows. */
 		head?: Snippet;
+		/** A fixed row above the scrolling transcript; absent, nothing is rendered. */
+		top?: Snippet;
 		/** Fired when the person scrolls within about one screen of the top
 		 * (the agent panel's cue to page an older history page in). Chat
 		 * routes never pass it. */
@@ -112,6 +114,7 @@
 		conversationId,
 		overlay,
 		head,
+		top,
 		onScrollNearTop,
 		introduction,
 		tail,
@@ -390,10 +393,11 @@
      hit-area would otherwise swallow every click meant for it. Children
      re-enable pointer events themselves. -->
 <div
-	class="pointer-events-auto relative z-[-1] min-h-0 min-w-0 flex-1"
+	class={["pointer-events-auto relative z-[-1] min-h-0 min-w-0 flex-1", top && "flex flex-col"]}
 	style="--scrollbar-gutter: {chatScroll.gutterHalfPx}px"
 >
 	{@render overlay?.()}
+	{@render top?.()}
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- tabindex: the document never scrolls in this app, so without it
 	     keyboard-only users cannot scroll the conversation at all. Keyboard

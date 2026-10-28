@@ -125,6 +125,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	// being told is how somebody spends an afternoon wondering why the
 	// assistant has forgotten their instructions.
 	let projectId: ObjectId | undefined;
+	let projectName: string | undefined;
 	if (values.projectId) {
 		if (!locals.user) {
 			error(401, "Projects need a signed-in account.");
@@ -135,6 +136,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			error(403, "That project is not available to you.");
 		}
 		projectId = access.project._id;
+		projectName = access.project.name || undefined;
 	}
 
 	// Bases attached from the composer ride in with the conversation's first
@@ -238,6 +240,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 					? { toolApprovalOverride: values.toolApprovalOverride }
 					: {}),
 				...(projectId ? { projectId: projectId.toString() } : {}),
+				...(projectName ? { projectName } : {}),
 				...(seedProjectDefaults ? { projectDefaults: seedProjectDefaults } : {}),
 				updatedAt: now,
 				modelId: values.model,

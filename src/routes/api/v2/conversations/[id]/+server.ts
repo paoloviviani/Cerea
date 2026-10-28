@@ -8,7 +8,12 @@ import { ObjectId } from "mongodb";
 import { validModelIdSchema } from "$lib/server/models";
 import { conversationOwnerFilter, isSelectableModel } from "$lib/server/customModels";
 import { applyConversationSettings } from "$lib/server/conversationSettings";
-import { knowledgeBaseViews, parseAttachedKnowledgeBaseIds } from "$lib/server/projects";
+import {
+	knowledgeBaseViews,
+	parseAttachedKnowledgeBaseIds,
+	projectAccess,
+	viewerPrincipals,
+} from "$lib/server/projects";
 import type { TurnStateSnapshot } from "$lib/types/TurnState";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import { moveConversationToProject } from "$lib/server/conversationProject";
@@ -44,18 +49,34 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	// Project defaults ride along so a first-opened chat can seed its per-chat
 	// state (web search) without a second round trip.
 	let projectDefaults: { defaultWebSearch?: boolean } | undefined;
+	// The project's name, for the chat's way back to it. Only a project this
+	// user can still read yields one: a chat whose project is gone, or whose
+	// share was withdrawn, shows no link.
+	let projectName: string | undefined;
 	try {
-		if ("projectId" in conversation && conversation.projectId) {
-			const project = await collections.projects.findOne(
+		if ("projectId" in conversation && conversation.projectId && locals.user) {
+			const found = await collections.projects.findOne(
 				{ _id: new ObjectId(conversation.projectId) },
-				{ projection: { defaultWebSearch: 1 } }
+				{ projection: { name: 1, defaultWebSearch: 1, userId: 1 } }
 			);
-			if (project) {
+			// The owner needs no group lookup; anyone else is checked against the shares.
+			const access = !found
+				? null
+				: found.userId.equals(locals.user._id)
+					? { project: found }
+					: await projectAccess(
+							conversation.projectId.toString(),
+							locals.user._id,
+							await viewerPrincipals(locals.user, locals.token)
+						);
+			if (access) {
+				const { project } = access;
 				projectDefaults = {
 					...(typeof project.defaultWebSearch === "boolean"
 						? { defaultWebSearch: project.defaultWebSearch }
 						: {}),
 				};
+				if (project.name) projectName = project.name;
 			}
 		}
 	} catch {
@@ -88,6 +109,7 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 			"projectId" in conversation && conversation.projectId
 				? conversation.projectId.toString()
 				: undefined,
+		projectName,
 		plan: "plan" in conversation ? conversation.plan : undefined,
 		turnState,
 	});
