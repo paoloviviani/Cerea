@@ -69,6 +69,7 @@ def render_pages(data: bytes, body: dict[str, Any], limits: Limits) -> dict[str,
 
     try:
         pdf = pdfium.PdfDocument(data)
+        pdf.init_forms()  # before any page is loaded: without the form layer a filled form is drawn empty
     except PdfiumError as exc:
         if "password" in str(exc).lower():
             raise InvalidDocument(
@@ -116,7 +117,7 @@ def _draw(pdf: Any, number: int, width_px: int | None, side_px: int | None, ceil
                 reason="page_too_small",
                 details={"page": number, "width_pt": round(w_pt, 1), "height_pt": round(h_pt, 1)},
             )
-        bitmap = page.render(scale=scale)
+        bitmap = page.render(scale=scale, may_draw_forms=True)
         image = bitmap.to_pil().convert("RGB")
     finally:
         page.close()

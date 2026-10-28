@@ -19,6 +19,7 @@ CAN_READ = False
 DEFERRED: list[str] = []
 MAX_PAGES_LISTED = 200
 MAX_SKIPPED_LISTED = 100
+FLATTENED_SUFFIX = "-flattened"
 
 FILL_FORM_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -41,10 +42,49 @@ FILL_FORM_SCHEMA: dict[str, Any] = {
         },
         "flatten": {
             "type": "boolean",
-            "description": "Bake the values into the pages; the form is no longer editable.",
+            "description": "Bake the values into the pages (the form is no longer editable). Saved as a new file, "
+            "<name>-flattened.pdf; the fillable file is left as it is.",
+        },
+        "flatten_in_place": {
+            "type": "boolean",
+            "description": "With flatten: replace the fillable file by the flattened one (a new version of the same "
+            "file) instead of writing <name>-flattened.pdf. Only when the user asked for that.",
         },
     },
     "required": ["op", "values"],
+    "additionalProperties": False,
+}
+
+PLACE_TEXT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "op": {"type": "string"},
+        "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 300,
+            "description": "Text to draw, one line per item. page is 1-based; x and y are PDF points from the page's "
+            "bottom left, where the text starts on its baseline (doc_outline gives the lines' positions).",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "page": {"type": "integer", "minimum": 1},
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                    "text": {"type": "string", "minLength": 1},
+                    "size": {"type": "number", "description": "Points, 4 to 72; default 10."},
+                    "font": {"type": "string", "description": '"Helvetica" (default) or "Helvetica-Bold".'},
+                },
+                "required": ["page", "x", "y", "text"],
+                "additionalProperties": False,
+            },
+        },
+        "allow_on_form": {
+            "type": "boolean",
+            "description": "A PDF that has form fields is refused (use fill_form); true allows text on it anyway.",
+        },
+    },
+    "required": ["op", "items"],
     "additionalProperties": False,
 }
 
@@ -101,10 +141,20 @@ def outline(data: bytes, limits: Limits) -> dict[str, Any]:
         form = inspect_reader(reader, max_fields=limits.max_pdf_fields)
     except PdfFormError as exc:
         raise _raise(exc) from exc
+    from .pdflayout import annotate, text_lines
+
     pages = len(reader.pages)
+    if form["fields"]:
+        annotate(reader, form)
+    sizes = _page_sizes(reader)
+    lines = text_lines(reader, pages=pages)
+    for entry in sizes:
+        rows = lines.get(entry["page"])
+        if rows is not None:
+            entry["lines"] = rows
     out: dict[str, Any] = {
         "page_count": pages,
-        "pages": _page_sizes(reader),
+        "pages": sizes,
         "form": form,
         "operations": ["fill_form"] if form["has_form"] and not form["xfa"] else [],
     }
@@ -114,17 +164,76 @@ def outline(data: bytes, limits: Limits) -> dict[str, Any]:
 
 
 def _fill(data: bytes, op: dict[str, Any], limits: Limits) -> tuple[dict[str, Any], bytes]:
-    """(report, new bytes)"""
+    """(result, new bytes)"""
     from .pdfform import PdfFormError, fill_pdf_form
 
     try:
         out, report = fill_pdf_form(data, op["values"], bool(op.get("flatten")), max_fields=limits.max_pdf_fields)
     except PdfFormError as exc:
         raise _raise(exc) from exc
-    return report, out
+    skipped = report["skipped"]
+    flattened = report["flattened"]
+    result = {
+        "filled": report["filled"],
+        "rejected": report["rejected"],
+        "skipped": skipped[:MAX_SKIPPED_LISTED],
+        "skipped_count": len(skipped),
+        "flattened": flattened,
+        "required_missing": report["required_missing"],
+        "clipped": report["clipped"],
+    }
+    if flattened and not op.get("flatten_in_place"):
+        # the chat saves it beside the fillable file, which stays as it was
+        result["save_as_suffix"] = FLATTENED_SUFFIX
+    problems = [f'field "{r["field"]}": wanted {r["value"]!r}, found {r["found"]!r}' for r in report["rejected"]]
+    problems += [
+        f'field "{n}": the text does not fit the box even at the smallest size, so it is cut off'
+        for n in report["clipped"]
+    ]
+    verify = {
+        "ok": not problems,
+        "pages": report["pages"],
+        "fields_checked": len(report["filled"]) + len(report["rejected"]),
+        "filled": len(report["filled"]),
+        "not_taken": report["rejected"],
+        "problems": problems,
+        "flattened": flattened,
+        "reopened_with": "pypdf",
+    }
+    return {"result": result, "diff": report["diff"], "verify": verify}, out
 
 
-OPS: dict[str, tuple[dict[str, Any], Callable[..., Any]]] = {"fill_form": (FILL_FORM_SCHEMA, _fill)}
+def _place(data: bytes, op: dict[str, Any], limits: Limits) -> tuple[dict[str, Any], bytes]:
+    from .pdfform import PdfFormError
+    from .pdfplace import place_text
+
+    try:
+        out, report = place_text(
+            data, op["items"], allow_on_form=bool(op.get("allow_on_form")), max_fields=limits.max_pdf_fields
+        )
+    except PdfFormError as exc:
+        raise _raise(exc) from exc
+    problems = [
+        f'page {r["page"]} ({r["x"]}, {r["y"]}): "{r["text"]}" was not found at its position after saving'
+        for r in report["not_found"]
+    ]
+    diff = [f'p{r["page"]} ({r["x"]}, {r["y"]}): "{r["text"]}"' for r in report["placed"] + report["not_found"]]
+    result = {"placed": report["placed"], "not_found": report["not_found"]}
+    verify = {
+        "ok": not problems,
+        "pages": report["pages"],
+        "items_checked": len(report["placed"]) + len(report["not_found"]),
+        "found_at_position": len(report["placed"]),
+        "problems": problems,
+        "reopened_with": "pypdf",
+    }
+    return {"result": result, "diff": diff, "verify": verify}, out
+
+
+OPS: dict[str, tuple[dict[str, Any], Callable[..., Any]]] = {
+    "fill_form": (FILL_FORM_SCHEMA, _fill),
+    "place_text": (PLACE_TEXT_SCHEMA, _place),
+}
 
 
 def edit(data: bytes, body: dict[str, Any], limits: Limits) -> tuple[dict[str, Any], bytes]:
@@ -132,44 +241,26 @@ def edit(data: bytes, body: dict[str, Any], limits: Limits) -> tuple[dict[str, A
     ops = body["operations"]
     if len(ops) != 1:
         raise PatchError(
-            "a PDF takes exactly one operation per call: fill_form",
+            "a PDF takes exactly one operation per call: fill_form or place_text, not both and not several",
             reason="one_operation",
             details={"operations": len(ops)},
         )
     _open(data, limits)  # the page limit and the cheap refusals, before the form is walked
     op = ops[0]
+    name = op["op"]
     try:
-        report, out = _fill(data, op, limits)
+        done, out = OPS[name][1](data, op, limits)
     except PatchError as exc:
         exc.operation_index = 0
-        exc.message = f"operation 0 (fill_form): {exc.message}"
+        exc.message = f"operation 0 ({name}): {exc.message}"
         exc.args = (exc.message,)
-        exc.details = {**exc.details, "operation": "fill_form", "applied_before_failure": 0, "nothing_written": True}
+        exc.details = {**exc.details, "operation": name, "applied_before_failure": 0, "nothing_written": True}
         raise
-    problems = [f'field "{r["field"]}": wanted {r["value"]!r}, found {r["found"]!r}' for r in report["rejected"]]
-    skipped = report["skipped"]
-    result = {
-        "filled": report["filled"],
-        "rejected": report["rejected"],
-        "skipped": skipped[:MAX_SKIPPED_LISTED],
-        "skipped_count": len(skipped),
-        "flattened": report["flattened"],
-        "required_missing": report["required_missing"],
-    }
     return {
         "format": "pdf",
         "engine": ENGINE,
-        "operations": [{"index": 0, "op": "fill_form", "result": result}],
-        "diff": report["diff"],
-        "verify": {
-            "ok": not problems,
-            "pages": report["pages"],
-            "fields_checked": len(report["filled"]) + len(report["rejected"]),
-            "filled": len(report["filled"]),
-            "not_taken": report["rejected"],
-            "problems": problems,
-            "flattened": report["flattened"],
-            "reopened_with": "pypdf",
-        },
+        "operations": [{"index": 0, "op": name, "result": done["result"]}],
+        "diff": done["diff"],
+        "verify": done["verify"],
         "passed_through": [],
     }, out

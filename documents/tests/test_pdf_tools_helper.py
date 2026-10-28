@@ -125,7 +125,9 @@ def test_the_helper_and_the_service_see_the_same_form_and_make_the_same_file(
     pdf_tools: ModuleType, form: str, tmp_path: Path
 ) -> None:
     service = core.outline(make_form_pdf(), "pdf", Limits())["form"]
-    assert pdf_tools.form_fields(form)["fields"] == service["fields"]
+    # the service adds the label and the table place (page text), which the helper does not compute
+    plain = [{k: v for k, v in f.items() if k not in ("label", "table")} for f in service["fields"]]
+    assert pdf_tools.form_fields(form)["fields"] == plain
     values = {"full_name": "Ada", "agree": True, "colour": "red", "country": "ES", "tags": ["grey"]}
     out = str(tmp_path / "h.pdf")
     pdf_tools.fill_form(form, values, out)

@@ -127,20 +127,27 @@ export function listedOperations(caps: DocumentCapabilities): string[] {
 }
 
 /**
- * What a model needs to know about PDF beyond the generated operation line: a PDF has the one operation, so it
- * cannot be changed in any other way, and `values` says what each kind of field takes.
+ * What a model needs to know about PDF beyond the generated operation lines: a PDF has two operations and no
+ * other edit; `values` says what each kind of field takes; positions are PDF points from the bottom left.
  */
 function pdfNote(caps: DocumentCapabilities): string {
-	if (!caps.formats.pdf?.operations.includes("fill_form")) return "";
+	const ops = caps.formats.pdf?.operations ?? [];
+	if (!ops.includes("fill_form")) return "";
+	const place = ops.includes("place_text");
 	return (
-		"A PDF has one operation, fill_form, and no other edit: call doc_outline first for the field names and " +
-		"allowed values, then give `values` as name: text; true, false or the on-state for a checkbox; one option " +
-		"for a radio group; an option's value or label for a list or combo box (a list of them for a multi-select " +
-		"list). `flatten` bakes the values in. Every value is checked and a bad one is refused with what the field " +
-		"takes; the result re-reads each value and lists any that did not take, and the required fields left " +
-		"empty. A signed PDF (filling would invalidate its signature) and an XFA form cannot be filled. A form " +
-		"with no fields (scanned, or drawn blanks) has nothing for fill_form: follow the pdf-tools skill, which " +
-		"writes the values onto the page in the sandbox. Text is limited to Western European characters. "
+		"A PDF has " +
+		(place ? "two operations, fill_form and place_text" : "one operation, fill_form") +
+		", and no other edit. Call doc_outline first (fields have `rect`, `label`, `table`); map values by " +
+		"label and position, never by name order. fill_form `values`: text; true, false or the on-state for a " +
+		"checkbox; one option for a radio group; an option's value or label for a list (a list for a " +
+		"multi-select). Bad values are refused with what the field takes; the result lists any that did not " +
+		"take. Never `flatten` unless the user asks: it is saved as <name>-flattened.pdf and the fillable file " +
+		"stays. Signed and XFA PDFs cannot be filled. " +
+		(place
+			? "place_text writes text at positions (points from the page's bottom left; doc_outline lists " +
+				"the text lines) on a PDF with no fields; refused on one with fields unless allow_on_form. "
+			: "") +
+		"Latin text only. "
 	);
 }
 
@@ -150,7 +157,7 @@ const SHARED_PREPROMPT =
 	"to change a part of it; the edit tools touch only what the operations name. Files are given by name (an " +
 	"attachment, or a file you produced); an edit is saved as a new version under the same name, and the " +
 	"user's original stays as it was. To fill a PDF form, doc_outline lists its fields and doc_edit fill_form " +
-	"fills them; never fill a form in the sandbox.";
+	"fills them; to write on a PDF without fields, doc_edit place_text; never fill a form in the sandbox.";
 
 const CREATE_LABEL: Record<CreateFormat, string> = FORMAT_LABEL;
 
@@ -398,6 +405,8 @@ function verifySummary(verify: EditResult["verify"]) {
 		...pick("filled"),
 		...pick("not_taken"),
 		...pick("flattened"),
+		...pick("items_checked"),
+		...pick("found_at_position"),
 	};
 }
 
@@ -411,6 +420,26 @@ function savedName(file: Extract<ConversationFile, { ok: true }>): string {
 	const base = file.origin === "output" ? file.name : (file.name.split("/").pop() ?? file.name);
 	// eslint-disable-next-line no-control-regex -- control bytes are valid filename attacks
 	return base.replace(/[\u0000-\u001f]/g, "").slice(0, 160) || "document";
+}
+
+/**
+ * A flattened PDF is a copy: the service says so (`save_as_suffix` on the operation's result) and the file is
+ * saved as `<name>-flattened.pdf`, leaving the fillable file as it was.
+ */
+function savedSuffix(edited: EditResult): string {
+	for (const operation of edited.operations ?? []) {
+		const result = (operation as { result?: { save_as_suffix?: unknown } }).result;
+		if (typeof result?.save_as_suffix === "string" && /^[-\w]{1,20}$/.test(result.save_as_suffix)) {
+			return result.save_as_suffix;
+		}
+	}
+	return "";
+}
+
+function withSuffix(name: string, suffix: string): string {
+	if (!suffix) return name;
+	const dot = name.lastIndexOf(".");
+	return dot > 0 ? `${name.slice(0, dot)}${suffix}${name.slice(dot)}` : `${name}${suffix}`;
 }
 
 /**
@@ -461,8 +490,10 @@ export function createDocumentBuiltins(
 					description:
 						"The structure of a Word, Excel, PowerPoint or PDF file with stable ids and short text previews: " +
 						"Word paragraphs (p1...), tables (t1...) and images; Excel sheets, used ranges, tables and charts; " +
-						"PowerPoint slides, shapes, placeholders, images and notes; a PDF's pages and, when it has a form, " +
-						"its fields (name, type, page, current value, allowed values, flags). Call it first; the ids it " +
+						"PowerPoint slides, shapes, placeholders, images and notes; a PDF's pages (size and text lines with " +
+						"positions) and, when it has a form, its fields (name, type, page, current value, allowed values, " +
+						"flags, rect, label, table). PDF positions are points, origin at the page's bottom left. " +
+						"Call it first; the ids it " +
 						"gives are what doc_read and doc_edit take.",
 					parameters: {
 						type: "object",
@@ -649,7 +680,7 @@ export function createDocumentBuiltins(
 					return { error: userMessage(err) };
 				}
 
-				const name = savedName(source);
+				const name = withSuffix(savedName(source), savedSuffix(edited));
 				const stored = await storeDeliverable({
 					conversationId: ctx.conversationId,
 					userId: ctx.userId,
@@ -690,7 +721,9 @@ export function createDocumentBuiltins(
 							source.origin === "attachment"
 								? `${source.name} (the attachment)`
 								: `${source.name} (previous version)`,
-						note: "Saved as a new file version; the person can open and download it, and the previous one is unchanged. Refer to it by this name.",
+						note: savedSuffix(edited)
+							? `Saved as a separate file; ${source.name} is unchanged and still the fillable form. Refer to the new file by this name.`
+							: "Saved as a new file version; the person can open and download it, and the previous one is unchanged. Refer to it by this name.",
 						operations: edited.operations,
 						diff,
 						...(edited.diff.length > diff.length

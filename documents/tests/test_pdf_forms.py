@@ -231,11 +231,13 @@ def test_xfa_and_forms_without_fields_are_refused_clearly() -> None:
         fill(make_plain_pdf(), {"name": "Ada"})
 
 
-def test_a_pdf_takes_one_operation_and_only_fill_form() -> None:
+def test_a_pdf_takes_one_operation_from_its_two() -> None:
     op = {"op": "fill_form", "values": {"full_name": "a"}}
     with pytest.raises(PatchError, match="exactly one operation"):
         core.edit(make_form_pdf(), "pdf", {"operations": [op, op]}, {}, LIMITS)
-    with pytest.raises(DocumentError, match=r"unknown operation 'replace_text' for pdf; available: \['fill_form'\]"):
+    with pytest.raises(
+        DocumentError, match=r"unknown operation 'replace_text' for pdf; available: \['fill_form', 'place_text'\]"
+    ):
         core.edit(
             make_form_pdf(), "pdf", {"operations": [{"op": "replace_text", "find": "a", "replace": "b"}]}, {}, LIMITS
         )
@@ -368,7 +370,7 @@ def test_http_read_of_a_pdf_says_what_to_use_instead(client: TestClient) -> None
 def test_http_pdf_is_listed_in_the_capabilities(client: TestClient) -> None:
     caps = client.get("/v1/capabilities", headers=AUTH).json()
     pdf = caps["formats"]["pdf"]
-    assert pdf["outline"] is True and pdf["read"] is False and pdf["operations"] == ["fill_form"]
+    assert pdf["outline"] is True and pdf["read"] is False and pdf["operations"] == ["fill_form", "place_text"]
     assert pdf["track_changes"] is False and pdf["operation_schemas"]["fill_form"]["required"] == ["op", "values"]
     assert caps["formats"]["docx"]["read"] is True
 

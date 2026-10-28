@@ -1274,10 +1274,17 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   never mixed with the tools in one deck; an unclear request asks through
   `ask_user_question` with two options. `officeSkills.spec.ts` pins the wording.
 
-- PDF forms (Cerea #39): `formats.pdf` in the capabilities lists the one PDF operation, `fill_form`
-  (`doc_edit`'s text shows it as the PDF line, plus a short note from `pdfNote` in `documentTools.ts`), and `read`
-  is false (`doc_read` refuses a `.pdf` without a call). `doc_outline` on a PDF returns its pages and `form`
-  (fields with type, pages, value, allowed values and flags; `xfa`). `documents/.../pdfform.py` is the whole
+- PDF forms (Cerea #39): `formats.pdf` in the capabilities lists the PDF operations, `fill_form` and `place_text`
+  (`doc_edit`'s text shows them as the PDF line, plus a short note from `pdfNote` in `documentTools.ts`; one
+  operation per call), and `read` is false (`doc_read` refuses a `.pdf` without a call). `doc_outline` on a PDF
+  returns its pages (size and the text lines with positions, `pdflayout.py`: at most 200 per page, estimated
+  widths) and `form` (fields with type, pages, value, allowed values, flags, `rect`, `label` and `table`; `xfa`).
+  Positions are PDF points, origin bottom left. Labels: the text to the left on the field's line (down to the
+  previous field), else the column header above for a grid (`table: {id, row, col}`), else the text just above.
+  `place_text` (`pdfplace.py`) draws Helvetica text into the page as an overlay, bounds-checked, refused on a PDF
+  with fields unless `allow_on_form`, and re-extracted for the verify report. `flatten` is saved by the chat as
+  `<name>-flattened.pdf` (the result's `save_as_suffix`) unless `flatten_in_place`. Text that does not fit a field
+  is shrunk (6 pt floor) and listed in `clipped`. `look_doc` draws form fields (`init_forms()`). `documents/.../pdfform.py` is the whole
   of the logic and is **copied** into the `pdf-tools` skill's `scripts/pdf_tools.py` between two markers by
   `scripts/sync_pdf_tools.py` (`documents/tests/test_pdf_tools_helper.py` fails when it is stale, and CI's
   `documents` job runs when either file changes): edit `pdfform.py`, run the script, never the copy. Values are

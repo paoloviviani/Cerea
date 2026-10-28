@@ -5024,7 +5024,11 @@
 					"additionalProperties": false,
 					"properties": {
 						"flatten": {
-							"description": "Bake the values into the pages; the form is no longer editable.",
+							"description": "Bake the values into the pages (the form is no longer editable). Saved as a new file, <name>-flattened.pdf; the fillable file is left as it is.",
+							"type": "boolean"
+						},
+						"flatten_in_place": {
+							"description": "With flatten: replace the fillable file by the flattened one (a new version of the same file) instead of writing <name>-flattened.pdf. Only when the user asked for that.",
 							"type": "boolean"
 						},
 						"op": {
@@ -5060,9 +5064,58 @@
 					},
 					"required": ["op", "values"],
 					"type": "object"
+				},
+				"place_text": {
+					"additionalProperties": false,
+					"properties": {
+						"allow_on_form": {
+							"description": "A PDF that has form fields is refused (use fill_form); true allows text on it anyway.",
+							"type": "boolean"
+						},
+						"items": {
+							"description": "Text to draw, one line per item. page is 1-based; x and y are PDF points from the page's bottom left, where the text starts on its baseline (doc_outline gives the lines' positions).",
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"font": {
+										"description": "\"Helvetica\" (default) or \"Helvetica-Bold\".",
+										"type": "string"
+									},
+									"page": {
+										"minimum": 1,
+										"type": "integer"
+									},
+									"size": {
+										"description": "Points, 4 to 72; default 10.",
+										"type": "number"
+									},
+									"text": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"x": {
+										"type": "number"
+									},
+									"y": {
+										"type": "number"
+									}
+								},
+								"required": ["page", "x", "y", "text"],
+								"type": "object"
+							},
+							"maxItems": 300,
+							"minItems": 1,
+							"type": "array"
+						},
+						"op": {
+							"type": "string"
+						}
+					},
+					"required": ["op", "items"],
+					"type": "object"
 				}
 			},
-			"operations": ["fill_form"],
+			"operations": ["fill_form", "place_text"],
 			"outline": true,
 			"read": false,
 			"track_changes": false
