@@ -36,7 +36,11 @@
 	import LucideFolderOpen from "~icons/lucide/folder-open";
 	import MoveMenu from "$lib/components/MoveMenu.svelte";
 	import MoveToProjectModal from "$lib/components/MoveToProjectModal.svelte";
+	import DeleteConversationModal from "$lib/components/DeleteConversationModal.svelte";
 	import { useMoveConversation } from "$lib/utils/useMoveConversation";
+	import { useConversationsStore } from "$lib/stores/conversations.svelte";
+	import { useNotificationsStore } from "$lib/stores/notifications.svelte";
+	import { projectsChanged } from "$lib/stores/projectsRevision";
 
 	interface ChatRow {
 		id: { toString(): string } | string;
@@ -48,7 +52,10 @@
 
 	const client = useAPIClient();
 	const moveConversation = useMoveConversation();
+	const convsStore = useConversationsStore();
+	const toasts = useNotificationsStore();
 	let moving = $state<ChatRow | null>(null);
+	let deleting = $state<ChatRow | null>(null);
 
 	/** Keep the row's project badge true after a move, without a reload. */
 	function moved(row: ChatRow, to: { id: string; name: string } | null) {
@@ -56,6 +63,26 @@
 			String(entry.id) === String(row.id) ? { ...entry, projectId: to?.id } : entry
 		);
 		if (to) projectNames = { ...projectNames, [to.id]: to.name };
+	}
+
+	/**
+	 * Delete the row's chat, the way the sidebar's row menu deletes: the same
+	 * confirmation modal and the same endpoint. The row goes once the server
+	 * has agreed; the sidebar's flat list and the Projects tree are told.
+	 */
+	async function deleteChat(row: ChatRow) {
+		try {
+			await client
+				.conversations({ id: String(row.id) })
+				.delete()
+				.then(handleResponse);
+			rows = rows.filter((entry) => String(entry.id) !== String(row.id));
+			convsStore?.remove(String(row.id));
+			projectsChanged();
+		} catch (err) {
+			console.error(err);
+			toasts?.pushMessage(m["nav.projects.delete_chat_failed"](), "error");
+		}
 	}
 
 	let input = $state("");
@@ -164,6 +191,19 @@
 		}}
 		onclose={() => (moving = null)}
 		onmoved={(to) => moving && moved(moving, to)}
+	/>
+{/if}
+
+{#if deleting}
+	<DeleteConversationModal
+		open={true}
+		title={deleting.title}
+		onclose={() => (deleting = null)}
+		ondelete={() => {
+			const target = deleting;
+			deleting = null;
+			if (target) void deleteChat(target);
+		}}
 	/>
 {/if}
 
@@ -293,6 +333,7 @@
 												projectNames[row.projectId as string]
 											).then((ok) => ok && moved(row, null))
 									: undefined}
+								ondelete={() => (deleting = row)}
 							/>
 						</div>
 					</li>

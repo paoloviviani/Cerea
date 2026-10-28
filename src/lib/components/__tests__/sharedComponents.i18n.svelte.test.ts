@@ -44,7 +44,12 @@ describe("shared components, in the pseudo-locale", () => {
 		render(RetryBtn, {});
 		render(StopGeneratingBtn, {});
 		render(UpdateBanner, { show: true });
-		render(MoveMenu, { label: "Holiday plans", onmove: () => {}, onremove: () => {} });
+		render(MoveMenu, {
+			label: "Holiday plans",
+			onmove: () => {},
+			onremove: () => {},
+			ondelete: () => {},
+		});
 		render(FileDrop, { files: [new File(["x"], "notes.txt")], maxBytes: 5 * 1024 * 1024 });
 		hasStray();
 	});
