@@ -82,6 +82,19 @@ class ConfigManager {
 		return this.keysFromDB[key] || keysFromEnv[key] || "";
 	}
 
+	/**
+	 * What an administrator saved under this key, or undefined when nothing was
+	 * saved. Unlike `get`, a saved empty string counts: `get` treats "" as unset
+	 * and falls back to the environment, which is right for most settings and
+	 * wrong for one whose clearing must stick.
+	 */
+	getSaved(key: ConfigKey): string | undefined {
+		if (!this.ConfigManagerEnabled) return undefined;
+		return Object.prototype.hasOwnProperty.call(this.keysFromDB, key)
+			? this.keysFromDB[key]
+			: undefined;
+	}
+
 	async updateSemaphore() {
 		await this.semaphoreCollection?.updateOne(
 			{ key: Semaphores.CONFIG_UPDATE },

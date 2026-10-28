@@ -160,6 +160,10 @@ holds two things you write yourself.
 **A global system prompt.** One text box, saved on your settings and sent with
 **every chat message**, whatever the model. It is for chat only: the
 [Agents panel](code-panel.md) and the titles Cerea generates never get it.
+If your administrator has written instructions for every chat, they come
+**before** yours and are shown above your box, read-only, as "From your
+administrator". An administrator can choose not to show them: they still
+apply, you just do not see them.
 
 **Custom models.** A custom model is a name, a **base model** (any model you
 can see, but not another custom model), a system prompt and an optional short
@@ -181,7 +185,8 @@ you** and are removed with your account.
   working on the deployment's default model, and the tab marks the model as
   unavailable until you pick another base.
 
-**What the model is told, in order:** your global prompt, then the custom
+**What the model is told, in order:** the administrator's instructions (if
+any), your global prompt, then the custom
 model's prompt, then the project's standing instructions and context (see
 [projects](knowledge.md)). Empty parts are skipped. Custom models are
 chat-only: the Agents panel ignores them.

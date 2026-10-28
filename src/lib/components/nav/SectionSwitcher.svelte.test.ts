@@ -155,6 +155,7 @@ describe("the switcher on the pages", () => {
 			"Connectors",
 			"Skills",
 			"Voice",
+			"Assistant instructions",
 			"Sub-agents",
 			"Storage",
 		]);
