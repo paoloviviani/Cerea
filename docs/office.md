@@ -59,6 +59,23 @@ result lists what changed.
 - **Every edit is a new version** under the same name. Your original is never
   changed, and the version list on the file card gives you the earlier ones.
   Making a file again under the same name also saves the next version.
+- **Earlier versions stay reachable.** Version 1 is your original attachment (or
+  the first file the assistant made), then 2, 3 and so on, and they keep their
+  numbers. The assistant sees the list (when, which tool, one line on what
+  changed) every time it outlines a file that has more than one version, and
+  it can outline, read, look at, convert or **edit from** any earlier version
+  by number, or as the "previous" one. An edit from version 1 is saved as the
+  next version, with the earlier ones unchanged. To go back, ask it to restore
+  a version: that version becomes the latest again, and the result says which
+  one it started from.
+  The numbers are the assistant's: it counts your attachment as version 1, and a
+  version keeps its number even after older ones expire. The version list on
+  the file card counts the files the assistant made, so its "v1" can be the
+  assistant's version 2 when the file started as an attachment.
+- **Code sees the latest version.** Every file of the conversation (what you
+  attached and what was made since, by the document tools or by code) is in the
+  sandbox at `/mnt/data/<name>` as its latest version; earlier versions are not
+  mounted there.
 
 ### Charts
 

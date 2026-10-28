@@ -18,10 +18,22 @@ import {
 	type FormatCapabilities,
 	type JsonSchema,
 } from "$lib/server/documents/client";
-import { storeDeliverable } from "$lib/server/execution/deliverables";
+import { markCurrentVersion, storeDeliverable } from "$lib/server/execution/deliverables";
 import { logger } from "$lib/server/logger";
-import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
-import { bareName, findConversationFile, type ConversationFile } from "./conversationFiles";
+import {
+	MessageCodeExecutionUpdateType,
+	MessageUpdateType,
+	type MessageUpdate,
+} from "$lib/types/MessageUpdate";
+import {
+	VERSION_PROPERTY,
+	bareName,
+	findConversationFile,
+	listFileVersions,
+	parseVersion,
+	type ConversationFile,
+	type FileVersion,
+} from "./conversationFiles";
 import type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
 
 export const DOC_OUTLINE_TOOL_NAME = "doc_outline";
@@ -149,7 +161,7 @@ const SHARED_PREPROMPT =
 	"and doc_edit to change it. Never write code to edit a supplied Office file, and never rewrite a whole file " +
 	"to change a part of it; the edit tools touch only what the operations name. Files are given by name (an " +
 	"attachment, or a file you produced); an edit is saved as a new version under the same name, and the " +
-	"user's original stays as it was. To fill a PDF form, doc_outline lists its fields and doc_edit fill_form " +
+	"user's original stays as it was. doc_outline lists a file's versions; `version` works from an earlier one. To fill a PDF form, doc_outline lists its fields and doc_edit fill_form " +
 	"fills them; never fill a form in the sandbox.";
 
 const CREATE_LABEL: Record<CreateFormat, string> = FORMAT_LABEL;
@@ -337,7 +349,11 @@ async function authorFor(userId: BuiltinToolContext["userId"]): Promise<string> 
 type Loaded =
 	{ ok: true; file: Extract<ConversationFile, { ok: true }> } | { ok: false; error: string };
 
-async function loadDocument(ctx: BuiltinToolContext, reference: unknown): Promise<Loaded> {
+async function loadDocument(
+	ctx: BuiltinToolContext,
+	reference: unknown,
+	rawVersion?: unknown
+): Promise<Loaded> {
 	if (!ctx.conversationId)
 		return { ok: false, error: "There is no conversation to take the file from." };
 	if (typeof reference !== "string" || !reference.trim()) {
@@ -346,7 +362,12 @@ async function loadDocument(ctx: BuiltinToolContext, reference: unknown): Promis
 			error: "Give `file`: the name of a document in this conversation, e.g. report.docx.",
 		};
 	}
-	const file = await findConversationFile(ctx.conversationId, reference, { prefer: "output" });
+	const version = parseVersion(rawVersion);
+	if (!version.ok) return version;
+	const file = await findConversationFile(ctx.conversationId, reference, {
+		prefer: "output",
+		version: version.version,
+	});
 	if (!file.ok) return file;
 	if (file.bytes.byteLength > MAX_DOCUMENT_BYTES) {
 		return {
@@ -413,6 +434,37 @@ function savedName(file: Extract<ConversationFile, { ok: true }>): string {
 	return base.replace(/[\u0000-\u001f]/g, "").slice(0, 160) || "document";
 }
 
+function versionEntry(v: FileVersion) {
+	return {
+		version: v.version,
+		at: v.at.toISOString(),
+		tool: v.tool,
+		...(v.summary ? { summary: v.summary } : {}),
+		...(v.current ? { latest: true } : {}),
+	};
+}
+
+/** Where a stored result sits in its file's versions, after it was saved. */
+async function versionOf(
+	ctx: BuiltinToolContext,
+	name: string,
+	sha256: string
+): Promise<{ version: number; count: number }> {
+	const listing = ctx.conversationId ? await listFileVersions(ctx.conversationId, name) : undefined;
+	const found = listing?.versions.find((v) => v.origin === "output" && v.sha256 === sha256);
+	return { version: found?.version ?? 0, count: listing?.versions.length ?? 0 };
+}
+
+/** A line for the version list: the operations an edit made, by name and count. */
+export function operationsSummary(operations: unknown[]): string {
+	const counts = new Map<string, number>();
+	for (const op of operations) {
+		const name = String((op as { op?: unknown } | null)?.op ?? "edit");
+		counts.set(name, (counts.get(name) ?? 0) + 1);
+	}
+	return [...counts].map(([name, n]) => (n > 1 ? `${name} x${n}` : name)).join(", ");
+}
+
 /**
  * `doc_outline`, `doc_read` and `doc_edit` (ADR 0103): Word, Excel and
  * PowerPoint files through the deployment's document service, as typed tools.
@@ -466,7 +518,7 @@ export function createDocumentBuiltins(
 						"gives are what doc_read and doc_edit take.",
 					parameters: {
 						type: "object",
-						properties: { file: fileProperty },
+						properties: { file: fileProperty, version: VERSION_PROPERTY },
 						required: ["file"],
 					},
 				},
@@ -475,11 +527,31 @@ export function createDocumentBuiltins(
 			async execute(args, ctx) {
 				const limit = countCall();
 				if (limit) return { error: limit };
-				const loaded = await loadDocument(ctx, args.file);
+				const loaded = await loadDocument(ctx, args.file, args.version);
 				if (!loaded.ok) return { error: loaded.error };
 				try {
 					const outline = await outlineDocument(loaded.file, { signal: ctx.abortSignal });
-					return { resultText: capped(outline) };
+					// A file with earlier versions says so first (the cap cuts from the end), so a model
+					// that lost the one it needs sees the list.
+					const listing =
+						loaded.file.versionCount > 1 && ctx.conversationId
+							? await listFileVersions(ctx.conversationId, bareName(String(args.file)))
+							: undefined;
+					const header = listing
+						? {
+								file_version: loaded.file.version,
+								file_versions: listing.versions.map(versionEntry),
+							}
+						: {};
+					return {
+						resultText: capped(
+							outline && typeof outline === "object" && !Array.isArray(outline)
+								? { ...header, ...outline }
+								: listing
+									? { ...header, outline }
+									: outline
+						),
+					};
 				} catch (err) {
 					return { error: userMessage(err) };
 				}
@@ -507,6 +579,7 @@ export function createDocumentBuiltins(
 						type: "object",
 						properties: {
 							file: fileProperty,
+							version: VERSION_PROPERTY,
 							targets: {
 								type: "array",
 								description: "What to read, in the shapes above (at most 200).",
@@ -524,7 +597,7 @@ export function createDocumentBuiltins(
 				if (!Array.isArray(args.targets) || args.targets.length === 0) {
 					return { error: "Give `targets`: a non-empty list of what to read." };
 				}
-				const loaded = await loadDocument(ctx, args.file);
+				const loaded = await loadDocument(ctx, args.file, args.version);
 				if (!loaded.ok) return { error: loaded.error };
 				if (/\.pdf$/i.test(loaded.file.name)) {
 					return {
@@ -565,10 +638,17 @@ export function createDocumentBuiltins(
 						type: "object",
 						properties: {
 							file: fileProperty,
+							version: {
+								...VERSION_PROPERTY,
+								description:
+									"Start from this earlier version instead of the latest: 1 is the original, then 2, 3...; " +
+									'or "previous". With no operations, that version is restored as the latest.',
+							},
 							operations: {
 								type: "array",
 								description:
-									"The edits, in order. Each is an object with `op` (the operation's name) and its properties.",
+									"The edits, in order, each an object with `op` (the operation's name) and its properties. " +
+									"Required unless restoring: with `version`, omit it (or give []) to restore that version.",
 								items: {
 									type: "object",
 									properties: { op: { type: "string", enum: operations } },
@@ -597,7 +677,7 @@ export function createDocumentBuiltins(
 								items: { type: "string" },
 							},
 						},
-						required: ["file", "operations"],
+						required: ["file"],
 					},
 				},
 			},
@@ -606,10 +686,20 @@ export function createDocumentBuiltins(
 				const limit = countCall();
 				if (limit) return { error: limit };
 				if (!ctx.conversationId) return { error: "There is no conversation to save the file in." };
-				if (!Array.isArray(args.operations) || args.operations.length === 0) {
-					return { error: "Give `operations`: a non-empty list of edits." };
+				const restoring =
+					args.version !== undefined &&
+					args.version !== null &&
+					args.version !== "" &&
+					(args.operations === undefined ||
+						args.operations === null ||
+						(Array.isArray(args.operations) && args.operations.length === 0));
+				if (!restoring && (!Array.isArray(args.operations) || args.operations.length === 0)) {
+					return {
+						error:
+							"Give `operations`: a non-empty list of edits (or `version` alone to restore an earlier version).",
+					};
 				}
-				const unknown = args.operations.filter(
+				const unknown = (restoring ? [] : (args.operations as unknown[])).filter(
 					(op) =>
 						!op ||
 						typeof op !== "object" ||
@@ -620,9 +710,10 @@ export function createDocumentBuiltins(
 						error: `Each operation needs an \`op\` from this list: ${operations.join(", ")}.`,
 					};
 				}
-				const loaded = await loadDocument(ctx, args.file);
+				const loaded = await loadDocument(ctx, args.file, args.version);
 				if (!loaded.ok) return { error: loaded.error };
 				const source = loaded.file;
+				const startedFrom = `version ${source.version}${source.version === source.currentVersion ? " (the latest)" : ""}`;
 
 				const imageList = await loadImages(ctx.conversationId, args.images);
 				if (!imageList.ok) return { error: imageList.error };
@@ -630,7 +721,7 @@ export function createDocumentBuiltins(
 
 				const track = canTrack && args.track_changes === true;
 				const request = {
-					operations: args.operations,
+					operations: (args.operations ?? []) as unknown[],
 					...(track
 						? {
 								track_changes: true,
@@ -642,6 +733,55 @@ export function createDocumentBuiltins(
 						: {}),
 				};
 
+				const name = savedName(source);
+				const outputs = (ref: { name: string; size: number; sha256: string }): MessageUpdate[] => [
+					{
+						type: MessageUpdateType.CodeExecution,
+						subtype: MessageCodeExecutionUpdateType.Outputs,
+						runKey: `${DOC_EDIT_TOOL_NAME}:${randomUUID()}`,
+						files: [ref],
+					},
+				];
+
+				if (restoring) {
+					if (source.version === source.currentVersion) {
+						return {
+							resultText: capped({
+								saved: false,
+								note: `Version ${source.version} is already the latest version of ${name}; nothing to restore.`,
+							}),
+						};
+					}
+					const restored = await storeDeliverable({
+						conversationId: ctx.conversationId,
+						userId: ctx.userId,
+						name,
+						mime: source.mime ?? "application/octet-stream",
+						bytes: source.bytes,
+						derivedFrom: { sha256: source.sha256, name: source.name },
+						tool: DOC_EDIT_TOOL_NAME,
+						summary: `restored version ${source.version}`,
+					});
+					if (!restored.ok) return { error: restored.error };
+					if (restored.existing)
+						await markCurrentVersion(ctx.conversationId, restored.ref.name, restored.ref.sha256);
+					const where = await versionOf(ctx, restored.ref.name, restored.ref.sha256);
+					turn?.touchedSlides.delete(restored.ref.name);
+					return {
+						resultText: capped({
+							saved: true,
+							restored: true,
+							file: restored.ref.name,
+							version: where.version,
+							started_from: startedFrom,
+							note: restored.existing
+								? `Restored: version ${where.version} is the latest version of ${restored.ref.name} again (versions keep their numbers).`
+								: `Restored: saved as version ${where.version}, the latest, with the contents of version ${source.version}.`,
+						}),
+						extraUpdates: outputs(restored.ref),
+					};
+				}
+
 				let edited: EditResult;
 				try {
 					edited = await editDocument(source, request, images, { signal: ctx.abortSignal });
@@ -649,7 +789,6 @@ export function createDocumentBuiltins(
 					return { error: userMessage(err) };
 				}
 
-				const name = savedName(source);
 				const stored = await storeDeliverable({
 					conversationId: ctx.conversationId,
 					userId: ctx.userId,
@@ -657,6 +796,10 @@ export function createDocumentBuiltins(
 					mime: edited.content_type,
 					bytes: edited.bytes,
 					derivedFrom: { sha256: source.sha256, name: source.name },
+					tool: DOC_EDIT_TOOL_NAME,
+					summary:
+						operationsSummary(args.operations as unknown[]) +
+						(source.version !== source.currentVersion ? `; from version ${source.version}` : ""),
 				});
 				if (!stored.ok) return { error: stored.error };
 
@@ -664,15 +807,20 @@ export function createDocumentBuiltins(
 					return {
 						resultText: capped({
 							saved: false,
-							note: "The operations left the file exactly as it was, so no new version was saved.",
+							started_from: startedFrom,
+							note:
+								"The operations left the file exactly as it was, so no new version was saved." +
+								(source.version !== source.currentVersion
+									? ` The latest version is still ${source.currentVersion}.`
+									: ""),
 							operations: edited.operations,
 						}),
 					};
 				}
-				const version = await collections.codeExecutionOutputs.countDocuments({
-					conversationId: ctx.conversationId,
-					name: stored.ref.name,
-				});
+				// The same bytes as another, earlier version: that version is the latest now.
+				if (stored.existing)
+					await markCurrentVersion(ctx.conversationId, stored.ref.name, stored.ref.sha256);
+				const { version } = await versionOf(ctx, stored.ref.name, stored.ref.sha256);
 				const diff = edited.diff.slice(0, MAX_DIFF_LINES);
 				if (turn && edited.format === "pptx") {
 					const slides = slidesTouched(edited.operations);
@@ -686,10 +834,11 @@ export function createDocumentBuiltins(
 						saved: true,
 						file: stored.ref.name,
 						version,
+						started_from: startedFrom,
 						derived_from:
 							source.origin === "attachment"
 								? `${source.name} (the attachment)`
-								: `${source.name} (previous version)`,
+								: `${source.name} (version ${source.version})`,
 						note: "Saved as a new file version; the person can open and download it, and the previous one is unchanged. Refer to it by this name.",
 						operations: edited.operations,
 						diff,
@@ -699,14 +848,7 @@ export function createDocumentBuiltins(
 						verify: verifySummary(edited.verify),
 						...(edited.passed_through?.length ? { passed_through: edited.passed_through } : {}),
 					}),
-					extraUpdates: [
-						{
-							type: MessageUpdateType.CodeExecution,
-							subtype: MessageCodeExecutionUpdateType.Outputs,
-							runKey: `${DOC_EDIT_TOOL_NAME}:${randomUUID()}`,
-							files: [stored.ref],
-						},
-					],
+					extraUpdates: outputs(stored.ref),
 				};
 			},
 		});
@@ -813,6 +955,8 @@ export function createDocumentBuiltins(
 					return saveCreated(ctx, made, {
 						name: createdName(args.file_name, spec.title, format),
 						derivedFrom: template ? { sha256: template.sha256, name: template.name } : undefined,
+						tool: DOC_CREATE_TOOL_NAME,
+						summary: `created${spec.title ? `: ${String(spec.title).slice(0, 80)}` : ""}`,
 						runKey: DOC_CREATE_TOOL_NAME,
 						canEdit: operations.length > 0,
 						turn,
@@ -903,6 +1047,8 @@ export function createDocumentBuiltins(
 				return saveCreated(ctx, made, {
 					name: createdName(args.file_name, fallback, made.format || "docx"),
 					derivedFrom: { sha256: source.sha256, name: source.name },
+					tool: DOC_CREATE_FROM_TEMPLATE_TOOL_NAME,
+					summary: `filled from ${source.name}`,
 					runKey: DOC_CREATE_FROM_TEMPLATE_TOOL_NAME,
 					canEdit: operations.length > 0,
 					turn,
@@ -921,6 +1067,8 @@ async function saveCreated(
 	options: {
 		name: string;
 		derivedFrom?: { sha256: string; name: string };
+		tool: string;
+		summary?: string;
 		runKey: string;
 		canEdit: boolean;
 		turn?: DocumentTurnState;
@@ -934,13 +1082,14 @@ async function saveCreated(
 		mime: made.content_type,
 		bytes: made.bytes,
 		derivedFrom: options.derivedFrom,
+		tool: options.tool,
+		summary: options.summary,
 	});
 	if (!stored.ok) return { error: stored.error };
 	options.turn?.touchedSlides.delete(stored.ref.name); // a new file: every slide is new
-	const version = await collections.codeExecutionOutputs.countDocuments({
-		conversationId: ctx.conversationId,
-		name: stored.ref.name,
-	});
+	if (stored.existing)
+		await markCurrentVersion(ctx.conversationId, stored.ref.name, stored.ref.sha256);
+	const { version } = await versionOf(ctx, stored.ref.name, stored.ref.sha256);
 	const diff = (made.diff ?? []).slice(0, MAX_DIFF_LINES);
 	return {
 		resultText: capped({

@@ -82,6 +82,14 @@ export type MessageFile = {
 	value: string;
 	mime: string;
 	/**
+	 * The file's number among the versions of its name, recorded at upload when
+	 * the conversation already had versions under that name: an attachment
+	 * uploaded after files were produced (or attached) under its name takes the
+	 * next free one, so every version of the name keeps a single number.
+	 * Absent means version 1, the first version of its name.
+	 */
+	version?: number;
+	/**
 	 * Set only on the copy of a file handed to the model for one turn
 	 * (`preprocessMessages`), never stored: the name the original is mounted
 	 * under in the code sandbox, so the prompt can say where it is when code is

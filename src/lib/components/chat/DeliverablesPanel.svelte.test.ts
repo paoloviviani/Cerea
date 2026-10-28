@@ -99,6 +99,37 @@ describe("DeliverablesPanel", () => {
 		screen.unmount();
 	});
 
+	it("shows the version that was restored, not the newest one saved", async () => {
+		// v2, v3, then v2 restored: the server answers by the moment each last became current.
+		vi.stubGlobal(
+			"fetch",
+			listResponse([
+				{
+					name: "form.pdf",
+					mime: "application/pdf",
+					size: 100,
+					sha256: "v3sha",
+					createdAt: "2026-09-10T12:10:00.000Z",
+				},
+				{
+					name: "form.pdf",
+					mime: "application/pdf",
+					size: 100,
+					sha256: "v2sha",
+					createdAt: "2026-09-10T12:00:00.000Z",
+					latestAt: "2026-09-10T12:20:00.000Z",
+				},
+			])
+		);
+		const screen = await mountOpen();
+		const download = screen.getByRole("link", { name: "Download form.pdf" });
+		await expect.element(download).toBeVisible();
+		expect(download.element().getAttribute("href")).toBe(
+			"/conversation/conv123456/code-execution/output/v2sha"
+		);
+		screen.unmount();
+	});
+
 	it("carries the chat export in the pane, running the same action", async () => {
 		vi.stubGlobal("fetch", listResponse([]));
 		const run = vi.fn();

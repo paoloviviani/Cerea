@@ -5,6 +5,7 @@ import { sha256 } from "$lib/utils/sha256";
 import { fileTypeFromBuffer } from "file-type";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
+import { nextVersionNumber } from "$lib/server/execution/fileVersions";
 import {
 	documentMime,
 	extractDocument,
@@ -47,7 +48,14 @@ export async function uploadFile(
 	token?: string,
 	options?: UploadOptions
 ): Promise<MessageFile> {
-	return writeAttachment(file, conv._id.toString(), token, undefined, options);
+	const stored = await writeAttachment(file, conv._id.toString(), token, undefined, options);
+	// An attachment whose name already has versions in this conversation (files
+	// produced or earlier attachments under it) takes the next free number at
+	// upload, so every version of the name keeps a single number and `version:
+	// N` resolves without ambiguity. Nothing stored under the name yet means
+	// version 1, which needs no record.
+	const version = await nextVersionNumber(conv._id, file.name);
+	return version > 1 ? { ...stored, version } : stored;
 }
 
 export interface UploadOptions {

@@ -25,6 +25,11 @@ import { uploadFile } from "./uploadFile";
 import { storeAttachment, findAttachments, deleteAttachmentsByPrefix } from "./attachmentStore";
 import { deleteConversationAttachments } from "./deleteConversationAttachments";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
+import {
+	deleteConversationDeliverables,
+	storeDeliverable,
+} from "$lib/server/execution/deliverables";
+import { listFileVersions } from "$lib/server/textGeneration/builtinTools/conversationFiles";
 
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -38,7 +43,10 @@ const devices: string[] = [];
 afterEach(async () => {
 	extractMock.mockReset();
 	for (const id of devices.splice(0)) await deleteAttachmentsByPrefix(`code:${id}:`);
-	await deleteConversationAttachments(conversations.splice(0));
+	const ids = conversations.splice(0);
+	await deleteConversationDeliverables(ids);
+	await deleteConversationAttachments(ids);
+	await collections.conversations.deleteMany({ _id: { $in: ids } });
 });
 
 function conversation(): Conversation {
@@ -242,5 +250,72 @@ describe("uploadFile: pages rendered to page images", () => {
 		devices.push(device);
 		await storeAttachment(pdf(), `code:${device}:ses_1`, "msg-1", "tok");
 		expect(extractMock.mock.calls[0][0].pageImages).toBeFalsy();
+	});
+});
+
+describe("uploadFile: the name's version number", () => {
+	const PLAIN = "application/octet-stream";
+
+	async function storeAsMessage(
+		conv: Conversation,
+		stored: Awaited<ReturnType<typeof uploadFile>>
+	) {
+		await collections.conversations.insertOne({
+			_id: conv._id,
+			title: "t",
+			model: "m",
+			messages: [
+				{
+					id: "m1",
+					from: "user",
+					content: "here",
+					files: [stored],
+				},
+			],
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			sessionId: "s",
+		} as never);
+	}
+
+	it("an attachment under a name the conversation already has versions of takes the next free one", async () => {
+		const conv = conversation();
+		for (const content of ["produced first", "then edited"]) {
+			const made = await storeDeliverable({
+				conversationId: conv._id,
+				name: "report.docx",
+				mime: PLAIN,
+				bytes: Buffer.from(content),
+			});
+			expect(made.ok).toBe(true);
+		}
+
+		const stored = await uploadFile(fileOf(Buffer.from("re-uploaded"), "report.docx", PLAIN), conv);
+		expect(stored.version).toBe(3);
+
+		// Once the message carries it, the numbering continues past it: the next
+		// produced file is version 4, and the list shows one number per version.
+		await storeAsMessage(conv, stored);
+		const made = await storeDeliverable({
+			conversationId: conv._id,
+			name: "report.docx",
+			mime: PLAIN,
+			bytes: Buffer.from("edited after the re-upload"),
+		});
+		expect(made.ok).toBe(true);
+
+		const listed = await listFileVersions(conv._id, "report.docx");
+		expect(listed?.versions.map((v) => [v.version, v.tool])).toEqual([
+			[1, "sandbox"],
+			[2, "sandbox"],
+			[3, "attachment"],
+			[4, "sandbox"],
+		]);
+	});
+
+	it("the first version of a name carries no number", async () => {
+		const conv = conversation();
+		const stored = await uploadFile(fileOf(Buffer.from("first"), "report.docx", PLAIN), conv);
+		expect(stored.version).toBeUndefined();
 	});
 });

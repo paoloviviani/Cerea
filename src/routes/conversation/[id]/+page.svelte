@@ -3,7 +3,7 @@
 	import ChatWindow from "$lib/components/chat/ChatWindow.svelte";
 	import { consumePendingFiles } from "$lib/utils/pendingFiles";
 	import { isAborted } from "$lib/stores/isAborted";
-	import { onDestroy, onMount, untrack } from "svelte";
+	import { onMount, untrack } from "svelte";
 	import { page } from "$app/state";
 	import {
 		clearDeviceLocation,
@@ -41,7 +41,7 @@
 	import { isConversationGenerationActive, isTurnSubscribable } from "$lib/utils/generationState";
 	import { noteServerNow } from "$lib/utils/clockSkew.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
-	import { setAttachmentSource } from "$lib/utils/execution/attachmentMounts.svelte";
+	import { trackAttachmentSource } from "$lib/utils/execution/attachmentMounts.svelte";
 
 	let { data } = $props();
 
@@ -712,14 +712,9 @@
 	// offered to it from here and taken back on leaving: never another
 	// conversation's files.
 	// Mounting itself waits for the first code run (attachmentMounts.svelte.ts).
-	$effect(() => {
-		if (!convId) {
-			setAttachmentSource(null);
-			return;
-		}
-		setAttachmentSource({ conversationId: convId, messages });
-	});
-	onDestroy(() => setAttachmentSource(null));
+	// Registered while the page is created (`trackAttachmentSource`), so a code card
+	// already on screen finds the files when it starts its first run.
+	trackAttachmentSource(() => (convId ? { conversationId: convId, messages } : null));
 
 	$effect(() => {
 		// No staleness heuristic: the reaper marks a dead run terminal, flipping this false.

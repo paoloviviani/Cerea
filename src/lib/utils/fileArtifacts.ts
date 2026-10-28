@@ -167,18 +167,27 @@ export interface DeliverableRow {
 	size: number;
 	sha256: string;
 	createdAt: string;
+	/** Set when an older version was made the latest again (a restore). */
+	latestAt?: string;
 }
+
+/** When a row last became its file's current version: a restore counts, not only the first save. */
+const liveAt = (row: Partial<DeliverableRow>): number =>
+	Date.parse(row.latestAt ?? row.createdAt ?? "") || 0;
 
 /**
  * One row per filename for the outputs list: the store keeps a row per
  * upload, so a re-run that rewrote `report.pdf` leaves two rows for one
- * file. The list shows the newest (the server already sorts newest first)
- * and the artifact panel owns the older versions — the same file is never
- * shown twice.
+ * file. The list shows the current one, the row that last became current
+ * (`latestAt ?? createdAt`, the order the server sorts by), and the artifact
+ * panel owns the older versions — the same file is never shown twice.
  */
-export function dedupeDeliverablesByName<T extends Pick<DeliverableRow, "name">>(rows: T[]): T[] {
+export function dedupeDeliverablesByName<
+	T extends Pick<DeliverableRow, "name"> & Partial<DeliverableRow>,
+>(rows: T[]): T[] {
+	const ordered = [...rows].sort((a, b) => liveAt(b) - liveAt(a));
 	const seen = new Set<string>();
-	return rows.filter((row) => {
+	return ordered.filter((row) => {
 		if (seen.has(row.name)) return false;
 		seen.add(row.name);
 		return true;

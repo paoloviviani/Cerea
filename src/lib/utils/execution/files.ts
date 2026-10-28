@@ -57,9 +57,11 @@ async function discardBody(response: Response): Promise<void> {
 
 export async function fetchWithinCap(
 	url: string,
-	maxBytes: number = MAX_FILE_BYTES
+	maxBytes: number = MAX_FILE_BYTES,
+	/** Aborts the request and the body read: a stalled download must not hold a run. */
+	signal?: AbortSignal
 ): Promise<ArrayBuffer> {
-	const response = await fetch(url, { credentials: "same-origin" });
+	const response = await fetch(url, { credentials: "same-origin", ...(signal ? { signal } : {}) });
 	if (!response.ok) {
 		// The app's own endpoints answer errors as JSON with a human message;
 		// surface it rather than a bare status code.

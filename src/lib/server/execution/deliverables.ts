@@ -8,6 +8,7 @@ import { MAX_FILE_BYTES } from "$lib/utils/execution/protocol";
 import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 import type { Conversation } from "$lib/types/Conversation";
 import type { User } from "$lib/types/User";
+import { isDuplicateKeyError, nextVersionNumber } from "./fileVersions";
 import {
 	previewInBackground,
 	previewOwner,
@@ -67,6 +68,9 @@ export const DEFAULT_RETENTION_DAYS = 30;
 /** Ten years: a number past this is a typo, and "forever" is 0. */
 export const MAX_RETENTION_DAYS = 3650;
 
+/** How often a raced version number is recomputed before the insert gives up and fails. */
+const MAX_VERSION_RETRIES = 3;
+
 /**
  * How many days produced files are kept: `CHAT_FILE_RETENTION_DAYS`, set from
  * Administration → Storage (or the environment), 0 for no expiry. Anything
@@ -93,7 +97,13 @@ export function retentionCutoff(days = fileRetentionDays(), now = Date.now()): D
 }
 
 export type StoreDeliverableResult =
-	{ ok: true; ref: PersistedDeliverableRef } | { ok: false; status: 413; error: string };
+	| {
+			ok: true;
+			ref: PersistedDeliverableRef;
+			/** These exact bytes were already stored (under `ref.name`): no new row was made. */
+			existing?: true;
+	  }
+	| { ok: false; status: 413; error: string };
 
 /**
  * Store one deliverable's bytes for a conversation, deduped by content.
@@ -109,6 +119,8 @@ export async function storeDeliverable({
 	mime,
 	bytes,
 	derivedFrom,
+	tool,
+	summary,
 }: {
 	conversationId: Conversation["_id"];
 	userId?: User["_id"];
@@ -117,6 +129,9 @@ export async function storeDeliverable({
 	bytes: Buffer;
 	/** The stored file this one was made from (a document edit): recorded on its row. */
 	derivedFrom?: { sha256: string; name: string };
+	/** Which tool made it and what it is, for the file's version list. */
+	tool?: string;
+	summary?: string;
 }): Promise<StoreDeliverableResult> {
 	if (bytes.byteLength > MAX_DELIVERABLE_BYTES) {
 		return {
@@ -128,9 +143,11 @@ export async function storeDeliverable({
 
 	const sha256 = createHash("sha256").update(bytes).digest("hex");
 
-	const existing = await collections.codeExecutionOutputs.findOne({ conversationId, sha256 });
+	// One row per (name, content): the same bytes under another name are another file with
+	// its own version history, never this one's row.
+	const existing = await collections.codeExecutionOutputs.findOne({ conversationId, name, sha256 });
 	if (existing) {
-		return { ok: true, ref: { name: existing.name, size: existing.size, sha256 } };
+		return { ok: true, ref: { name: existing.name, size: existing.size, sha256 }, existing: true };
 	}
 
 	const usage = await collections.codeExecutionOutputs
@@ -171,20 +188,41 @@ export async function storeDeliverable({
 		setTimeout(() => reject(new Error("Deliverable upload timed out")), 20_000);
 	});
 
-	await collections.codeExecutionOutputs.insertOne({
-		_id: new ObjectId(),
-		conversationId,
-		...(userId ? { userId } : {}),
-		sha256,
-		name,
-		mime,
-		size: bytes.byteLength,
-		gridFsId,
-		...(derivedFrom
-			? { derivedFromSha256: derivedFrom.sha256, derivedFromName: derivedFrom.name }
-			: {}),
-		createdAt: new Date(),
-	});
+	let version = await nextVersionNumber(conversationId, name);
+	// A save racing this one can take the same version number between the read
+	// and the insert; the unique (conversation, name, version) index refuses
+	// the second, which recomputes the number and tries again. If the racing
+	// save stored these very bytes, its row is this file's: `existing` says so,
+	// and this call's GridFS entry stays for the orphan sweep to free.
+	for (let attempt = 0; ; attempt += 1) {
+		try {
+			await collections.codeExecutionOutputs.insertOne({
+				_id: new ObjectId(),
+				conversationId,
+				...(userId ? { userId } : {}),
+				sha256,
+				name,
+				mime,
+				size: bytes.byteLength,
+				gridFsId,
+				...(derivedFrom
+					? { derivedFromSha256: derivedFrom.sha256, derivedFromName: derivedFrom.name }
+					: {}),
+				version,
+				...(tool ? { tool } : {}),
+				...(summary ? { summary: summary.slice(0, 200) } : {}),
+				createdAt: new Date(),
+			});
+			break;
+		} catch (err) {
+			if (!isDuplicateKeyError(err) || attempt >= MAX_VERSION_RETRIES) throw err;
+			const twin = await collections.codeExecutionOutputs.findOne({ conversationId, name, sha256 });
+			if (twin) {
+				return { ok: true, ref: { name: twin.name, size: twin.size, sha256 }, existing: true };
+			}
+			version = await nextVersionNumber(conversationId, name);
+		}
+	}
 
 	// A produced Office file is opened at once, so its PDF preview is made now
 	// (when the deployment has a converter) instead of at the first click.
@@ -293,7 +331,7 @@ export async function sweepExpiredDeliverables(
 	let removed = 0;
 	for (;;) {
 		const stale = await collections.codeExecutionOutputs
-			.find({ createdAt: { $lt: cutoff } })
+			.find(staleBefore(cutoff))
 			.project<{ _id: ObjectId; gridFsId: ObjectId; conversationId: ObjectId; sha256: string }>({
 				gridFsId: 1,
 				conversationId: 1,
@@ -377,7 +415,7 @@ export async function deliverableStorageSummary(days: number, now = Date.now()) 
 	const expiring = cutoff
 		? await collections.codeExecutionOutputs
 				.aggregate<{ count: number; bytes: number }>([
-					{ $match: { createdAt: { $lt: cutoff } } },
+					{ $match: staleBefore(cutoff) },
 					{ $group: { _id: null, count: { $sum: 1 }, bytes: { $sum: "$size" } } },
 				])
 				.next()
@@ -444,4 +482,33 @@ export async function markStoredRefs(
 		sha256: ref.sha256,
 		uploaded: stored.has(ref.sha256),
 	}));
+}
+
+/**
+ * Make an already stored version the current one of its name again. The store
+ * keeps one row per distinct content, so a restore marks the row instead of
+ * copying it; the version number does not change.
+ */
+export async function markCurrentVersion(
+	conversationId: Conversation["_id"],
+	name: string,
+	sha256: string
+): Promise<void> {
+	await collections.codeExecutionOutputs.updateOne(
+		{ conversationId, name, sha256 },
+		{ $set: { latestAt: new Date() } }
+	);
+}
+
+/**
+ * A filter for the rows whose last live moment is before `cutoff`: those with
+ * a `latestAt` before it, and those without one whose `createdAt` is before it
+ * (in Mongo a missing field matches `null`). Two plain filters instead of the
+ * old `$expr` over `$ifNull`, so the sweep and the storage summary read the
+ * `latestAt` and `createdAt` indexes rather than scanning the collection.
+ */
+function staleBefore(cutoff: Date) {
+	return {
+		$or: [{ latestAt: { $lt: cutoff } }, { latestAt: null, createdAt: { $lt: cutoff } }],
+	};
 }

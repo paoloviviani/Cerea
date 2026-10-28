@@ -195,3 +195,132 @@ describe("AttachmentMounter", () => {
 		expect(removed).toEqual(["/mnt/data/a.pdf", "/mnt/data/a.pdf.md"]);
 	});
 });
+
+describe("AttachmentMounter: produced files", () => {
+	const MB = 1024 * 1024;
+	const big = (mb: number) =>
+		new Response(new Uint8Array(mb * MB), { headers: { "Content-Length": String(mb * MB) } });
+	const row = (
+		name: string,
+		sha256: string,
+		size: number,
+		extra: Record<string, unknown> = {}
+	) => ({
+		name,
+		size,
+		sha256,
+		createdAt: "2026-10-28T10:00:00Z",
+		...extra,
+	});
+	const out = (sha: string) => `/conversation/conv1/code-execution/output/${sha}`;
+
+	it("takes the attachment's extracted text out when a produced file replaces the attachment, and fetches it no more", async () => {
+		const { mounter, fetched, removed, mounted } = setup({
+			"/conversation/conv1/output/h1": body("ORIGINAL"),
+			"/conversation/conv1/output/t1": body("old text"),
+			[out("p1")]: body("EDITED"),
+		});
+		const files = [pdf("h1", "report.pdf", "t1")];
+		await mounter.sync(files);
+		await mounter.syncProduced([row("report.pdf", "p1", 6)]);
+		expect(mounted.at(-1)).toBe("/mnt/data/report.pdf");
+		expect(removed).toEqual(["/mnt/data/report.pdf.md"]);
+
+		fetched.length = 0;
+		expect(mounter.needsSync(files)).toBe(false);
+		await mounter.sync(files);
+		expect(fetched).toEqual([]);
+	});
+
+	it("gives back the bytes of what a produced file replaces, so the replacement is not turned away", async () => {
+		const responses: Record<string, Response> = {};
+		const files = [1, 2, 3, 4, 5].map((n) => pdf(`h${n}`, `a${n}.pdf`));
+		for (let n = 1; n <= 5; n += 1) responses[`/conversation/conv1/output/h${n}`] = big(19);
+		responses[out("p1")] = big(19);
+		const { mounter, skipped, mounted } = setup(responses);
+		await mounter.sync(files); // 95 MB of the 100
+		await mounter.syncProduced([row("a5.pdf", "p1", 19 * MB)]);
+		expect(skipped).toEqual([]);
+		expect(mounted.at(-1)).toBe("/mnt/data/a5.pdf");
+	});
+
+	it("does not remember a total-cap refusal forever: it retries once room is freed", async () => {
+		const { mounter, fetched, skipped, mounted } = setup({
+			"/conversation/conv1/output/h1": big(19),
+			"/conversation/conv1/output/h2": big(19),
+			"/conversation/conv1/output/h3": big(19),
+			"/conversation/conv1/output/h4": big(19),
+			[out("a")]: big(19),
+			[out("a2")]: body("small"),
+			[out("b")]: big(19),
+		});
+		await mounter.sync([1, 2, 3, 4].map((n) => pdf(`h${n}`, `a${n}.pdf`))); // 76 MB
+		await mounter.syncProduced([row("a.bin", "a", 19 * MB)]); // 95 MB
+		await mounter.syncProduced([row("a.bin", "a", 19 * MB), row("b.bin", "b", 19 * MB)]);
+		expect(skipped.map((n) => n.name)).toEqual(["b.bin"]);
+		expect(skipped[0].reason).toContain("100 MB total limit");
+		// Turned away before the download: nothing was fetched for it.
+		expect(fetched).not.toContain(out("b"));
+		// Still no room: still no fetch.
+		await mounter.syncProduced([row("a.bin", "a", 19 * MB), row("b.bin", "b", 19 * MB)]);
+		expect(fetched).not.toContain(out("b"));
+
+		// a.bin is replaced by a tiny version: 18+ MB are free and b.bin goes in.
+		await mounter.syncProduced([
+			row("a.bin", "a2", 5, { createdAt: "2026-10-28T11:00:00Z" }),
+			row("b.bin", "b", 19 * MB),
+		]);
+		expect(mounted).toContain("/mnt/data/b.bin");
+	});
+
+	it("does not remember an attachment turned away for the total either", async () => {
+		const responses: Record<string, Response> = {};
+		for (let n = 1; n <= 5; n += 1) responses[`/conversation/conv1/output/h${n}`] = big(19);
+		responses["/conversation/conv1/output/h6"] = big(19);
+		const { mounter, skipped } = setup(responses);
+		const files = [1, 2, 3, 4, 5, 6].map((n) => pdf(`h${n}`, `a${n}.pdf`));
+		await mounter.sync(files);
+		expect(skipped.map((n) => n.name)).toEqual(["a6.pdf"]);
+		// Not final: but with no room freed there is nothing to try, so the next run does not refetch it.
+		expect(mounter.needsSync(files)).toBe(false);
+	});
+
+	it("leaves image outputs unmounted unless the code names them", async () => {
+		const { mounter, mounted } = setup({
+			[out("i1")]: body("PNG"),
+			[out("d1")]: body("CSV"),
+		});
+		const list = [
+			row("figure-1.png", "i1", 3, { mime: "image/png" }),
+			row("data.csv", "d1", 3, { mime: "text/csv" }),
+		];
+		await mounter.syncProduced(list, { code: "print(1)" });
+		expect(mounted).toEqual(["/mnt/data/data.csv"]);
+		await mounter.syncProduced(list, { code: 'Image.open("/mnt/data/figure-1.png")' });
+		expect(mounted).toEqual(["/mnt/data/data.csv", "/mnt/data/figure-1.png"]);
+	});
+
+	it("gives a download a timeout, and carries on without the file when it stalls", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		let stall = true;
+		const signals: Array<AbortSignal | undefined> = [];
+		const { mounter, skipped, mounted } = setup({});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url: string, init?: { signal?: AbortSignal }) => {
+				signals.push(init?.signal);
+				if (stall) throw new DOMException("signal timed out", "TimeoutError");
+				return body("late");
+			})
+		);
+		await mounter.syncProduced([row("a.csv", "c1", 4)]);
+		expect(signals[0]).toBeInstanceOf(AbortSignal);
+		expect(mounted).toEqual([]);
+		expect(skipped[0].reason).toContain("took too long");
+
+		stall = false;
+		await mounter.syncProduced([row("a.csv", "c1", 4)]);
+		expect(mounted).toEqual(["/mnt/data/a.csv"]);
+		warn.mockRestore();
+	});
+});
