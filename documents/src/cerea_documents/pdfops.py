@@ -154,6 +154,7 @@ def edit(data: bytes, body: dict[str, Any], limits: Limits) -> tuple[dict[str, A
         "skipped": skipped[:MAX_SKIPPED_LISTED],
         "skipped_count": len(skipped),
         "flattened": report["flattened"],
+        "required_missing": report["required_missing"],
     }
     return {
         "format": "pdf",

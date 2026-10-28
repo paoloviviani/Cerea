@@ -108,8 +108,9 @@ function pdfNote(caps: DocumentCapabilities): string {
 		"allowed values, then give `values` as name: text; true, false or the on-state for a checkbox; one option " +
 		"for a radio group; an option's value or label for a list or combo box (a list of them for a multi-select " +
 		"list). `flatten` bakes the values in. Every value is checked and a bad one is refused with what the field " +
-		"takes; the result re-reads each value and lists any that did not take. A scanned form with no fields " +
-		"and an XFA form cannot be filled. "
+		"takes; the result re-reads each value and lists any that did not take, and the required fields left " +
+		"empty. A signed PDF (filling would invalidate its signature), a scanned form with no fields and an XFA " +
+		"form cannot be filled. Text is limited to Western European characters. "
 	);
 }
 
@@ -118,7 +119,7 @@ const SHARED_PREPROMPT =
 	"and doc_edit to change it. Never write code to edit a supplied Office file, and never rewrite a whole file " +
 	"to change a part of it; the edit tools touch only what the operations name. Files are given by name (an " +
 	"attachment, or a file you produced); an edit is saved as a new version under the same name, and the " +
-	"person's original stays as it was. To fill a PDF form, doc_outline lists its fields and doc_edit fill_form " +
+	"user's original stays as it was. To fill a PDF form, doc_outline lists its fields and doc_edit fill_form " +
 	"fills them; never fill a form in the sandbox.";
 
 const CREATE_LABEL: Record<CreateFormat, string> = FORMAT_LABEL;

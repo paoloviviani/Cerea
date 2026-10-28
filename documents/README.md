@@ -128,7 +128,14 @@ a group is `group.name`. An XFA form (`/XFA` in the AcroForm) says `xfa: true` a
   file gives the same bytes.
 - Limits: `MAX_PDF_PAGES` 2000 and `MAX_PDF_FIELDS` 5000 (`unsafe_document`), nesting of fields at most 32
   deep, a field that is its own ancestor is read once. Encrypted PDFs are refused (`invalid_document` /
-  `encrypted`).
+  `encrypted`). A signed PDF (a signature field with a value, or `/SigFlags` bit 2) is refused for `fill_form`
+  and flatten, reason `signed`; its outline gives the signature field `value: null` and `signed: true`, never the
+  signature itself. Text is limited to Windows-1252 (a value with other characters is refused, naming them).
+  Every widget of a filled field, and of a field that already held a value without one, gets an appearance
+  drawn here (`/DA` size and colour, `/Q`, multiline, comb, password, `/MK` background, border and rotation);
+  `NeedAppearances` is not set. Flatten draws only visible widgets with the Print flag, and fails with
+  `flatten_incomplete` (nothing written) when a field with a value has a printable widget it could not draw.
+  `operations[0].result.required_missing` lists required fields still empty.
 
 ### `POST /v1/read`
 

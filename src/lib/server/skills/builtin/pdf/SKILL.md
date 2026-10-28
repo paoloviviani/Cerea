@@ -5,7 +5,7 @@ description: Create PDF documents with the doc_create tool (format pdf) - report
 
 # PDF documents
 
-Use this skill when the person wants a **new** PDF. For an existing PDF (fill a form, merge, split, rotate, encrypt,
+Use this skill when the user wants a **new** PDF. For an existing PDF (fill a form, merge, split, rotate, encrypt,
 extract text), use the `pdf-tools` skill. Among the document tools only `doc_outline` and `doc_edit fill_form` work
 on an existing PDF (its form); they do not edit a PDF in any other way.
 

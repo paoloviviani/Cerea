@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import io
+from typing import Any
 
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import (
@@ -152,3 +153,177 @@ def reread(data: bytes) -> dict[str, object]:
     """Field name -> /V as a plain value, straight from pypdf (no code of ours in between)."""
     reader = PdfReader(io.BytesIO(data))
     return {n: f.get("/V") for n, f in (reader.get_fields() or {}).items()}
+
+
+# -- hand-built structures, the way real forms are stored --------------------------------------------------
+# (after the review probes: a field tree whose widgets are separate unnamed kids, signatures, buttons without
+# appearances, widgets that are screen-only or rotated)
+
+
+def _n(s: str) -> NameObject:
+    return NameObject(s)
+
+
+def _ap_stream(w: float, h: float, data: bytes = b"") -> Any:
+    from pypdf.generic import DecodedStreamObject, FloatObject
+
+    s = DecodedStreamObject()
+    s.set_data(data)
+    s.update(
+        {
+            _n("/Type"): _n("/XObject"),
+            _n("/Subtype"): _n("/Form"),
+            _n("/BBox"): ArrayObject([FloatObject(0), FloatObject(0), FloatObject(w), FloatObject(h)]),
+        }
+    )
+    return s
+
+
+class Hand:
+    """A one-page document with an empty AcroForm (/DA Helvetica, /DR with /Helv) to add fields to."""
+
+    def __init__(self, rotate: int = 0, sigflags: int | None = None) -> None:
+        from pypdf.generic import FloatObject
+
+        buf = io.BytesIO()
+        c = canvas.Canvas(buf)
+        c.drawString(72, 800, "hand-built form")
+        c.showPage()
+        c.save()
+        self.w = PdfWriter(clone_from=io.BytesIO(buf.getvalue()))
+        if rotate:
+            self.w.pages[0][_n("/Rotate")] = NumberObject(rotate)
+        font = DictionaryObject(
+            {
+                _n("/Type"): _n("/Font"),
+                _n("/Subtype"): _n("/Type1"),
+                _n("/BaseFont"): _n("/Helvetica"),
+                _n("/Encoding"): _n("/WinAnsiEncoding"),
+            }
+        )
+        self.acro = DictionaryObject(
+            {
+                _n("/Fields"): ArrayObject(),
+                _n("/DA"): TextStringObject("/Helv 0 Tf 0 g"),
+                _n("/DR"): DictionaryObject({_n("/Font"): DictionaryObject({_n("/Helv"): self.w._add_object(font)})}),
+            }
+        )
+        if sigflags is not None:
+            self.acro[_n("/SigFlags")] = NumberObject(sigflags)
+        self.w._root_object[_n("/AcroForm")] = self.w._add_object(self.acro)
+        self.w.pages[0][_n("/Annots")] = ArrayObject()
+        self._float = FloatObject
+
+    def widget(self, parent: Any, rect: list[float], extra: dict[str, Any] | None = None, flags: int = 4) -> Any:
+        d = DictionaryObject(
+            {
+                _n("/Type"): _n("/Annot"),
+                _n("/Subtype"): _n("/Widget"),
+                _n("/Rect"): ArrayObject([self._float(x) for x in rect]),
+                _n("/F"): NumberObject(flags),
+                _n("/P"): self.w.pages[0].indirect_reference,
+            }
+        )
+        if parent is not None:
+            d[_n("/Parent")] = parent
+        for k, v in (extra or {}).items():
+            d[_n(k)] = v
+        ref = self.w._add_object(d)
+        self.w.pages[0]["/Annots"].append(ref)
+        return ref
+
+    def field(
+        self,
+        entries: dict[str, Any],
+        kids: list[list[float]] | None = None,
+        top: bool = True,
+        kid_extra: list[dict[str, Any]] | None = None,
+        rect: list[float] | None = None,
+        flags: int = 4,
+    ) -> Any:
+        """A terminal field. With `kids`, the widgets are separate unnamed kids; otherwise the field is its own widget."""
+        ref = self.w._add_object(DictionaryObject({_n(k): v for k, v in entries.items()}))
+        obj = ref.get_object()
+        if kids is not None:
+            obj[_n("/Kids")] = ArrayObject(
+                [self.widget(ref, r, (kid_extra[i] if kid_extra else None), flags) for i, r in enumerate(kids)]
+            )
+        else:
+            obj.update(
+                {
+                    _n("/Type"): _n("/Annot"),
+                    _n("/Subtype"): _n("/Widget"),
+                    _n("/Rect"): ArrayObject([self._float(x) for x in (rect or [100, 600, 300, 620])]),
+                    _n("/F"): NumberObject(flags),
+                    _n("/P"): self.w.pages[0].indirect_reference,
+                }
+            )
+            self.w.pages[0]["/Annots"].append(ref)
+        if top:
+            self.acro["/Fields"].append(ref)
+        return ref
+
+    def group(self, name: str, entries: dict[str, Any] | None = None) -> Any:
+        """A non-terminal node (`applicant`), added to the form's top level."""
+        d = {_n("/T"): TextStringObject(name), **{_n(k): v for k, v in (entries or {}).items()}}
+        ref = self.w._add_object(DictionaryObject(d))
+        self.acro["/Fields"].append(ref)
+        return ref
+
+    def bytes(self) -> bytes:
+        buf = io.BytesIO()
+        self.w.write(buf)
+        return buf.getvalue()
+
+
+def button_ap(w: Hand, states: list[str]) -> DictionaryObject:
+    return DictionaryObject(
+        {
+            _n("/N"): DictionaryObject(
+                {
+                    **{_n("/" + s): w.w._add_object(_ap_stream(10, 10, b"0 g 2 2 6 6 re f")) for s in states},
+                    _n("/Off"): w.w._add_object(_ap_stream(10, 10)),
+                }
+            )
+        }
+    )
+
+
+def make_repeated_field_pdf() -> bytes:
+    """`applicant` > `name` (text, DA on the grandparent) with two unnamed widget kids, and `spouse` > `name` with one:
+    how Acrobat stores a field that appears twice."""
+    h = Hand()
+    applicant = h.group("applicant", {"/FT": _n("/Tx"), "/DA": TextStringObject("/Helv 10 Tf 0 g")})
+    name1 = h.field(
+        {"/T": TextStringObject("name"), "/Parent": applicant},
+        kids=[[100, 700, 300, 720], [100, 650, 300, 670]],
+        top=False,
+    )
+    applicant.get_object()[_n("/Kids")] = ArrayObject([name1])
+    spouse = h.group("spouse", {"/FT": _n("/Tx")})
+    name2 = h.field({"/T": TextStringObject("name"), "/Parent": spouse}, kids=[[100, 550, 300, 570]], top=False)
+    spouse.get_object()[_n("/Kids")] = ArrayObject([name2])
+    return h.bytes()
+
+
+def make_signed_pdf(with_signature_value: bool = True) -> bytes:
+    from pypdf.generic import ByteStringObject
+
+    h = Hand(sigflags=3)
+    entries: dict[str, Any] = {"/T": TextStringObject("firma"), "/FT": _n("/Sig")}
+    if with_signature_value:
+        entries["/V"] = h.w._add_object(
+            DictionaryObject(
+                {
+                    _n("/Type"): _n("/Sig"),
+                    _n("/Filter"): _n("/Adobe.PPKLite"),
+                    _n("/ByteRange"): ArrayObject(
+                        [NumberObject(0), NumberObject(10), NumberObject(20), NumberObject(30)]
+                    ),
+                    _n("/Contents"): ByteStringObject(b"\x00" * 16 + b"SECRET-SIGNATURE-BYTES"),
+                }
+            )
+        )
+    h.field(entries, rect=[100, 100, 300, 140])
+    h.field({"/T": TextStringObject("nome"), "/FT": _n("/Tx")}, kids=[[100, 500, 300, 520]])
+    return h.bytes()

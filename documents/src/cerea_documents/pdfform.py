@@ -12,6 +12,7 @@ from __future__ import annotations
 import difflib
 import io
 import re
+import unicodedata
 from typing import Any
 
 from pypdf import PdfReader, PdfWriter
@@ -103,6 +104,11 @@ class Field:
         return ""
 
     @property
+    def signed(self) -> bool:
+        """A signature field that carries a signature."""
+        return self.kind == "signature" and isinstance(self.inherited("/V"), DictionaryObject)
+
+    @property
     def read_only(self) -> bool:
         return bool(self.flags & F_READ_ONLY)
 
@@ -165,6 +171,7 @@ class Form:
         self.fields: dict[str, Field] = {}
         self.duplicates: list[str] = []
         self.xfa = False
+        self.signed = False  # a signature is present: any change would invalidate it
         self.has_acroform = False
         self.partial_names: set[str] = set()  # the last name part of every field that has a parent
 
@@ -199,6 +206,8 @@ def read_form(root: Any, pages: Any, *, max_fields: int = 5000) -> Form:
         return form
     form.has_acroform = True
     form.xfa = "/XFA" in acro
+    flags = acro.get("/SigFlags")
+    form.signed = bool(isinstance(flags, int | NumberObject) and int(flags) & 2)
     top = acro.get("/Fields")
     if top is None:
         return form
@@ -224,7 +233,9 @@ def read_form(root: Any, pages: Any, *, max_fields: int = 5000) -> Form:
         if named:
             for kid in named:
                 walk(kid, name, chain, depth + 1)
-            return
+            kids = [k for k in kids if k not in named]  # widgets of this field that have no name of their own
+            if not kids or not name or not Field(name, node, chain).kind:
+                return
         if not name:
             return
         if len(form.fields) >= max_fields:
@@ -252,6 +263,7 @@ def read_form(root: Any, pages: Any, *, max_fields: int = 5000) -> Form:
 
     for ref in list(top.get_object()):
         walk(ref, "", (), 0)
+    form.signed = form.signed or any(f.signed for f in form.fields.values())
     return form
 
 
@@ -267,6 +279,8 @@ def current_value(field: Field) -> Any:
     """What the field holds now: text, "Off" or a state name, an export value, or a list of them (None: empty)."""
     value = field.inherited("/V")
     kind = field.kind
+    if kind == "signature":
+        return None  # never the signature dictionary or its contents
     if kind in ("checkbox", "radio"):
         if value is None:
             states = {_plain(w.get("/AS")) for w in field.widgets if w.get("/AS") is not None}
@@ -289,8 +303,9 @@ def describe(field: Field) -> dict[str, Any]:
     kind = field.kind
     out: dict[str, Any] = {"name": field.name, "type": kind, "pages": field.pages, "value": current_value(field)}
     if kind == "checkbox":
-        out["allowed"] = [True, False, *(field.states() or [CHECKBOX_ON_DEFAULT])]
-        out["on_state"] = (field.states() or [CHECKBOX_ON_DEFAULT])[0]
+        states = field.states() or [CHECKBOX_ON_DEFAULT]
+        out["allowed"] = [True, False, *states] if len(states) == 1 else [False, *states]
+        out["on_state"] = states[0]
     elif kind == "radio":
         out["allowed"] = field.states()
         labels = field.labels()
@@ -309,6 +324,8 @@ def describe(field: Field) -> dict[str, Any]:
             out["max_length"] = field.max_length
     elif kind in ("signature", "button"):
         out["fillable"] = False
+        if kind == "signature" and field.signed:
+            out["signed"] = True
     if field.required:
         out["required"] = True
     if field.read_only:
@@ -321,12 +338,19 @@ def inspect_reader(reader: PdfReader, *, max_fields: int = 5000) -> dict[str, An
     form = read_form(reader.trailer["/Root"], reader.pages, max_fields=max_fields)
     fields = [describe(f) for f in form.fields.values() if f.kind]
     out: dict[str, Any] = {"has_form": bool(fields), "xfa": form.xfa, "fields": fields}
+    if form.signed:
+        out["signed"] = True
     if form.duplicates:
         out["duplicate_names"] = sorted(set(form.duplicates))
     if form.xfa:
         out["note"] = (
             "this is an XFA form (Adobe LiveCycle): its values live in XML that this tool cannot fill; "
             "ask the user for an AcroForm (non-XFA) version or fill it in Adobe Acrobat"
+        )
+    elif form.signed:
+        out["note"] = (
+            "this PDF carries a digital signature: filling it would invalidate the signature, so it cannot be "
+            "filled here"
         )
     elif not fields:
         out["note"] = (
@@ -367,6 +391,26 @@ class _Reject(Exception):
         self.allowed = allowed
 
 
+def _check_shown(text: str) -> None:
+    """The appearances use a Western European font (Windows-1252): refuse what it cannot show, never write '?'."""
+    bad = sorted({c for c in text if c not in "\n\r\t" and not _encodable(c)})
+    if bad:
+        shown = ", ".join(f'"{c}"' for c in bad[:8])
+        raise _Reject(
+            f"cannot show the characters {shown}: the form is filled with a Western European font "
+            "(Latin letters with accents, and signs such as the euro), not other alphabets",
+            {"unsupported_characters": bad},
+        )
+
+
+def _encodable(char: str) -> bool:
+    try:
+        char.encode("cp1252")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _shown(value: Any) -> str:
     text = repr(value) if not isinstance(value, str) else '"' + value + '"'
     return text if len(text) <= 80 else text[:77] + '..."'
@@ -392,6 +436,7 @@ def coerce(field: Field, value: Any) -> Any:
         if isinstance(value, bool) or not isinstance(value, str | int | float):
             raise _Reject(f"needs text, not {_shown(value)}")
         text = value if isinstance(value, str) else (str(int(value)) if float(value).is_integer() else str(value))
+        _check_shown(text)
         limit = field.max_length
         if limit and len(text) > limit:
             raise _Reject(f"takes at most {limit} characters, and this has {len(text)}", {"max_length": limit})
@@ -400,8 +445,12 @@ def coerce(field: Field, value: Any) -> Any:
         return text
     if kind == "checkbox":
         states = field.states() or [CHECKBOX_ON_DEFAULT]
-        allowed = [True, False, *states]
+        allowed = [True, False, *states] if len(states) == 1 else [False, *states]
         if value is True:
+            if len(states) > 1:
+                raise _Reject(
+                    f"has several on-states ({_listing(states)}); give the one to choose, or false", [False, *states]
+                )
             return states[0]
         if value is False or value is None or (isinstance(value, str) and value.strip().lstrip("/") in ("", OFF)):
             return None
@@ -444,6 +493,7 @@ def coerce(field: Field, value: Any) -> Any:
                 folded = [v for v, label in choices if text.casefold() in (v.casefold(), label.casefold())]
                 match = folded[0] if len(set(folded)) == 1 else None
             if match is None and editable:
+                _check_shown(text)
                 match = text
             if match is None:
                 allowed = [{"value": v, "label": label} for v, label in choices]
@@ -507,22 +557,156 @@ def _add_object(writer: PdfWriter, obj: Any) -> Any:
     return add(obj)
 
 
-def _choice_appearance(
+# fmt: off
+_HELVETICA = (
+    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278,
+    556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
+    1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778,
+    667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
+    333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556,
+    556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
+)
+# fmt: on
+
+
+def _char_width(char: str) -> float:
+    """Helvetica's advance width in 1/1000 em; an accented letter is as wide as its base letter."""
+    code = ord(char)
+    if not 32 <= code < 127:
+        base = unicodedata.normalize("NFD", char)[0]
+        code = ord(base) if 32 <= ord(base) < 127 else 0
+    return float(_HELVETICA[code - 32]) if code else 556.0
+
+
+def _text_width(text: str, size: float) -> float:
+    return sum(_char_width(c) for c in text) * size / 1000
+
+
+def _frame(widget: DictionaryObject) -> tuple[float, float, list[float] | None]:
+    """(drawing width, drawing height, matrix) of a widget's appearance: /MK /R turns it by 90, 180 or 270."""
+    rect_array: Any = widget["/Rect"]
+    rect = [float(x.get_object()) for x in rect_array]
+    width, height = abs(rect[2] - rect[0]), abs(rect[3] - rect[1])
+    rotation = 0
+    mk = _resolved(widget, "/MK")
+    if isinstance(mk, DictionaryObject) and "/R" in mk:
+        r: Any = mk["/R"].get_object()
+        rotation = int(r) % 360
+    if rotation == 90:
+        return height, width, [0, 1, -1, 0, width, 0]
+    if rotation == 180:
+        return width, height, [-1, 0, 0, -1, width, height]
+    if rotation == 270:
+        return height, width, [0, -1, 1, 0, 0, height]
+    return width, height, None
+
+
+def _wrap(text: str, size: float, room: float) -> list[str]:
+    lines: list[str] = []
+    for paragraph in re.split(r"\r\n|\n|\r", text):
+        line = ""
+        for word in paragraph.split(" "):
+            trial = f"{line} {word}" if line else word
+            if line and _text_width(trial, size) > room:
+                lines.append(line)
+                line = word
+            else:
+                line = trial
+        lines.append(line)
+    return lines
+
+
+def _draw_text(field: Field, text: str, width: float, height: float, inset: float, size: float, colour: str) -> bytes:
+    """The text of a text field or a combo box: /Q alignment, multiline wrapping, comb cells, password dots."""
+    flags = field.flags if field.kind == "text" else 0
+    quad = field.inherited("/Q")
+    quad = int(quad) if isinstance(quad, int | NumberObject) else 0
+    if flags & F_PASSWORD:
+        text = "*" * len(text)
+    room = max(width - 2 * inset - 2, 1.0)
+
+    def at(fs: float, x: float, y: float, line: str) -> bytes:
+        head = f"BT\n/Helv {fs:.2f} Tf {colour}\n{x:.2f} {y:.2f} Td\n".encode()
+        return head + _pdf_text(line) + b" Tj\nET\n"
+
+    def left(line: str, fs: float) -> float:
+        gap = room - _text_width(line, fs)
+        return inset + 1 + (gap / 2 if quad == 1 else gap if quad == 2 else 0)
+
+    if flags & F_COMB and field.max_length:
+        fs = size if size > 0 else max(min(12.0, height - 2 * inset - 1), 4.0)
+        cell = (width - 2 * (inset - 1)) / field.max_length
+        out = b""
+        for i, char in enumerate(text[: field.max_length]):
+            x = (inset - 1) + i * cell + (cell - _text_width(char, fs)) / 2
+            out += at(fs, x, (height - fs) / 2 + fs * 0.22, char)
+        return out
+    if flags & F_MULTILINE:
+        fs = size if size > 0 else 12.0
+        out = b""
+        for number, line in enumerate(_wrap(text, fs, room)):
+            out += at(fs, left(line, fs), height - inset - fs * (1 + 1.15 * number) + fs * 0.1, line)
+        return out
+    fs = size if size > 0 else max(min(12.0, height - 2 * inset - 1), 4.0)
+    if size <= 0 and text and _text_width(text, fs) > room:
+        fs = max(min(fs, room / _text_width(text, 1.0)), 4.0)
+    return at(fs, left(text, fs), (height - fs) / 2 + fs * 0.22, text)
+
+
+def _draw_list(
+    field: Field,
+    widget: DictionaryObject,
+    texts: list[str],
+    selected: list[int],
+    width: float,
+    height: float,
+    inset: float,
+    size: float,
+    colour: str,
+) -> bytes:
+    out = b""
+    fs = size if size > 0 else 12.0
+    row = fs * 1.2
+    visible = max(int((height - 2 * inset) // row), 1)
+    top = 0
+    ti = field.inherited("/TI")
+    if isinstance(ti, int | NumberObject):
+        top = max(int(ti), 0)
+    if selected:
+        if selected[0] < top:
+            top = selected[0]
+        elif selected[0] >= top + visible:
+            top = selected[0] - visible + 1
+    widget[NameObject("/TI")] = NumberObject(top)
+    for line, index in enumerate(range(top, min(len(texts), top + visible + 1))):
+        y_top = height - inset - line * row
+        if index in selected:
+            out += f"0.600 0.756 0.854 rg\n{inset:.2f} {y_top - row:.2f} {max(width - 2 * inset, 1):.2f} {row:.2f} re f\n".encode()
+        out += (
+            f"BT\n/Helv {fs:.2f} Tf {colour}\n{inset + 1:.2f} {y_top - row + (row - fs) / 2 + fs * 0.22:.2f} Td\n".encode()
+            + _pdf_text(texts[index])
+            + b" Tj\nET\n"
+        )
+    return out
+
+
+def _appearance(
     writer: PdfWriter,
     field: Field,
     widget: DictionaryObject,
     acro: Any,
-    texts: list[str],
-    selected: list[int],
+    text: str = "",
+    texts: list[str] | None = None,
+    selected: list[int] | None = None,
 ) -> None:
-    """An appearance stream for a list or combo box, drawn here because the library's own is not good enough
-    for lists (the selection is not marked and the rows are misplaced) and shows a combo's value, not its label."""
-    rect_array: Any = widget["/Rect"]
-    rect = [float(x.get_object()) for x in rect_array]
-    width, height = abs(rect[2] - rect[0]), abs(rect[3] - rect[1])
+    """Give one widget an appearance stream of its own: background and border from /MK, then the text of a text
+    field or combo box, or the rows of a list box (the selection marked). Drawn here, not by the library, which
+    writes nothing for a field whose widgets are separate kids, draws list boxes wrongly and shows a combo's value
+    instead of its label. A rotated widget (/MK /R) gets its /Matrix."""
+    width, height, matrix = _frame(widget)
     size, colour = _da_parts(field, widget, acro)
-    mk = widget.get("/MK")
-    mk = mk.get_object() if mk is not None else DictionaryObject()
+    mk = _resolved(widget, "/MK")
+    mk = mk if isinstance(mk, DictionaryObject) else DictionaryObject()
     border = 1.0
     bs = widget.get("/BS")
     if bs is not None and "/W" in bs.get_object():
@@ -539,38 +723,10 @@ def _choice_appearance(
         )
     inset = border + 1.0
     out += f"{inset:.2f} {inset:.2f} {max(width - 2 * inset, 1):.2f} {max(height - 2 * inset, 1):.2f} re W n\n".encode()
-    if field.kind == "combo":
-        fs = size if size > 0 else max(min(12.0, height - 2 * inset - 1), 4.0)
-        baseline = (height - fs) / 2 + fs * 0.22
-        shown = texts[0] if texts else ""
-        out += (
-            f"BT\n/Helv {fs:.2f} Tf {colour}\n{inset + 1:.2f} {baseline:.2f} Td\n".encode()
-            + _pdf_text(shown)
-            + b" Tj\nET\n"
-        )
+    if field.kind == "list":
+        out += _draw_list(field, widget, texts or [], selected or [], width, height, inset, size, colour)
     else:
-        fs = size if size > 0 else 12.0
-        row = fs * 1.2
-        visible = max(int((height - 2 * inset) // row), 1)
-        top = 0
-        ti = field.inherited("/TI")
-        if isinstance(ti, int | NumberObject):
-            top = max(int(ti), 0)
-        if selected:
-            if selected[0] < top:
-                top = selected[0]
-            elif selected[0] >= top + visible:
-                top = selected[0] - visible + 1
-        widget[NameObject("/TI")] = NumberObject(top)
-        for line, index in enumerate(range(top, min(len(texts), top + visible + 1))):
-            y_top = height - inset - line * row
-            if index in selected:
-                out += f"0.600 0.756 0.854 rg\n{inset:.2f} {y_top - row:.2f} {max(width - 2 * inset, 1):.2f} {row:.2f} re f\n".encode()
-            out += (
-                f"BT\n/Helv {fs:.2f} Tf {colour}\n{inset + 1:.2f} {y_top - row + (row - fs) / 2 + fs * 0.22:.2f} Td\n".encode()
-                + _pdf_text(texts[index])
-                + b" Tj\nET\n"
-            )
+        out += _draw_text(field, text, width, height, inset, size, colour)
     out += b"Q\nEMC\n"
     stream = DecodedStreamObject()
     stream.set_data(out)
@@ -582,17 +738,51 @@ def _choice_appearance(
             NameObject("/Encoding"): NameObject("/WinAnsiEncoding"),
         }
     )
-    stream.update(
-        {
-            NameObject("/Type"): NameObject("/XObject"),
-            NameObject("/Subtype"): NameObject("/Form"),
-            NameObject("/BBox"): ArrayObject([FloatObject(0), FloatObject(0), FloatObject(width), FloatObject(height)]),
-            NameObject("/Resources"): DictionaryObject(
-                {NameObject("/Font"): DictionaryObject({NameObject("/Helv"): font})}
-            ),
-        }
-    )
+    entries: dict[Any, Any] = {
+        NameObject("/Type"): NameObject("/XObject"),
+        NameObject("/Subtype"): NameObject("/Form"),
+        NameObject("/BBox"): ArrayObject([FloatObject(0), FloatObject(0), FloatObject(width), FloatObject(height)]),
+        NameObject("/Resources"): DictionaryObject(
+            {NameObject("/Font"): DictionaryObject({NameObject("/Helv"): font})}
+        ),
+    }
+    if matrix:
+        entries[NameObject("/Matrix")] = ArrayObject([FloatObject(x) for x in matrix])
+    stream.update(entries)
     widget[NameObject("/AP")] = DictionaryObject({NameObject("/N"): _add_object(writer, stream)})
+
+
+def _draw_field(writer: PdfWriter, field: Field, acro: Any, only_missing: bool = False) -> None:
+    """(Re)draw every widget of a text, combo or list field from its current value."""
+    value = current_value(field)
+    for widget in field.widgets:
+        if "/Rect" not in widget or (only_missing and isinstance(_normal_appearance(widget), StreamObject)):
+            continue
+        if field.kind == "text":
+            _appearance(writer, field, widget, acro, text=value or "")
+        else:
+            texts, selected = _choice_view(field, value)
+            _appearance(
+                writer,
+                field,
+                widget,
+                acro,
+                text=texts[0] if field.kind == "combo" and texts else "",
+                texts=texts,
+                selected=selected,
+            )
+
+
+def _choice_view(field: Field, value: Any) -> tuple[list[str], list[int]]:
+    """What a list or combo box shows: the texts (one label for a combo, every row for a list) and the selected rows."""
+    choices = field.choices()
+    exports = [v for v, _ in choices]
+    chosen = value if isinstance(value, list) else ([value] if value else [])
+    labels = dict(choices)
+    selected = sorted(exports.index(v) for v in chosen if v in exports)
+    if field.kind == "combo":
+        return [labels.get(chosen[0]) or chosen[0]] if chosen else [""], selected
+    return [label for _, label in choices], selected
 
 
 # -- filling ----------------------------------------------------------------------------------------------
@@ -622,15 +812,7 @@ def _set_choice(writer: PdfWriter, field: Field, acro: Any, stored: str | list[s
         field.obj[NameObject("/I")] = ArrayObject([NumberObject(i) for i in indices])
     else:
         field.obj[NameObject("/V")] = TextStringObject(chosen[0])
-    labels = {v: label for v, label in choices}
-    selected = sorted(exports.index(v) for v in chosen if v in exports)
-    if field.kind == "combo":
-        texts = [labels.get(chosen[0], chosen[0])] if chosen else [""]
-    else:
-        texts = [label for _, label in choices]
-    for widget in field.widgets:
-        if "/Rect" in widget:
-            _choice_appearance(writer, field, widget, acro, texts, selected)
+    _draw_field(writer, field, acro)
 
 
 def _root(writer: PdfWriter) -> Any:
@@ -638,10 +820,18 @@ def _root(writer: PdfWriter) -> Any:
     return root if root is not None else writer._root_object
 
 
-def _flatten(writer: PdfWriter) -> int:
-    """Draw every widget's current appearance into its page and remove the widgets and the form. Returns how
-    many were drawn."""
+def _drawable(widget: DictionaryObject) -> bool:
+    """Flatten draws a widget that is visible and has the Print flag (a hidden or screen-only one is dropped)."""
+    flags = widget.get("/F", 0)
+    flags = int(flags) if isinstance(flags, int | NumberObject) else 0
+    return "/Rect" in widget and not flags & 0b100010 and bool(flags & 4)
+
+
+def _flatten(writer: PdfWriter) -> set[int]:
+    """Draw every widget's current appearance into its page and remove the widgets and the form. Returns the
+    identities (`id()`) of the widget dictionaries that were drawn."""
     drawn = 0
+    done: set[int] = set()
     for page in writer.pages:
         annots: Any = page.get("/Annots")
         if annots is None:
@@ -655,7 +845,6 @@ def _flatten(writer: PdfWriter) -> int:
             if annot.get("/Subtype") != "/Widget":
                 keep.append(ref)
                 continue
-            flags = int(annot.get("/F", 0))
             normal = _normal_appearance(annot)
             raw: Any = None
             if isinstance(normal, StreamObject):
@@ -666,7 +855,7 @@ def _flatten(writer: PdfWriter) -> int:
                     raw = normal.raw_get(state)
                 elif "/" + OFF in normal:  # an unchecked box or radio keeps its empty frame
                     raw = normal.raw_get("/" + OFF)
-            if raw is None or flags & 0b100010 or "/Rect" not in annot:  # no appearance, hidden or not viewable
+            if raw is None or not _drawable(annot):  # no appearance, hidden, screen-only or not viewable
                 continue
             stream = raw.get_object()
             if not isinstance(raw, IndirectObject):
@@ -691,6 +880,7 @@ def _flatten(writer: PdfWriter) -> int:
             names[tag] = raw
             ops += f"q {sx:.5f} 0 0 {sy:.5f} {rx0 - min(xs) * sx:.4f} {ry0 - min(ys) * sy:.4f} cm {tag} Do Q\n".encode()
             drawn += 1
+            done.add(id(annot))
         if ops:
             resources = page.get("/Resources")
             resources = resources.get_object() if resources is not None else page.get_inherited("/Resources")
@@ -717,7 +907,7 @@ def _flatten(writer: PdfWriter) -> int:
     root = _root(writer)
     if "/AcroForm" in root:
         del root["/AcroForm"]
-    return drawn
+    return done
 
 
 def _problem(name: str, value: Any, exc: _Reject) -> dict[str, Any]:
@@ -741,6 +931,10 @@ def fill_pdf_form(
             "this is an XFA form (Adobe LiveCycle). Its values live in XML that this tool cannot fill, and a "
             "viewer would show the XFA data, not the values written here. Ask for a non-XFA (AcroForm) version",
             reason="xfa",
+        )
+    if form.signed:
+        raise PdfFormError(
+            "filling this PDF would invalidate its digital signature, so it was not changed", reason="signed"
         )
     fillable = {n: f for n, f in form.fields.items() if f.kind}
     if not fillable:
@@ -791,20 +985,19 @@ def fill_pdf_form(
     root = _root(writer)
     wform = read_form(root, writer.pages, max_fields=max_fields)
     acro = root["/AcroForm"].get_object()
-    texts: dict[str, str] = {}
     for name, stored in plan.items():
         field = wform.fields[name]
         if field.kind == "text":
-            texts[name] = stored
+            field.obj[NameObject("/V")] = TextStringObject(stored)
+            _draw_field(writer, field, acro)
         elif field.kind in ("checkbox", "radio"):
             _set_button(field, stored)
         else:
             _set_choice(writer, field, acro, stored)
-    if texts:
-        writer.update_page_form_field_values(None, texts, auto_regenerate=False)
-        for name, text in texts.items():  # the library writes the text; the field's own value is what is kept
-            wform.fields[name].obj[NameObject("/V")] = TextStringObject(text)
-    writer.set_need_appearances_writer(True)
+    # a value the form already held and no appearance: every widget with a value ends up drawn
+    for field in wform.fields.values():
+        if field.kind in ("text", "combo", "list") and current_value(field) not in (None, "", []):
+            _draw_field(writer, field, acro, only_missing=True)
     written = io.BytesIO()
     writer.write(written)
     filled_bytes = written.getvalue()
@@ -835,13 +1028,34 @@ def fill_pdf_form(
     out_bytes = filled_bytes
     if flatten:
         flat = PdfWriter(clone_from=io.BytesIO(filled_bytes))
-        flattened = _flatten(flat)
+        fform = read_form(_root(flat), flat.pages, max_fields=max_fields)
+        drawn = _flatten(flat)
+        flattened = len(drawn)
+        missing = sorted(
+            f.name
+            for f in fform.fields.values()
+            if f.kind != "signature"
+            and _has_value(current_value(f))
+            and any(_drawable(w) and id(w) not in drawn for w in f.widgets)
+        )
+        if missing:
+            raise PdfFormError(
+                f"flattening would lose the value of {_listing(missing)}: a widget has no appearance to draw. "
+                "Nothing was written",
+                reason="flatten_incomplete",
+                problems=[{"field": n, "message": "its value has no appearance to draw"} for n in missing],
+            )
         flat_bytes = io.BytesIO()
         flat.write(flat_bytes)
         out_bytes = flat_bytes.getvalue()
         after = open_reader(out_bytes)
         if read_form(after.trailer["/Root"], after.pages).fields:
             raise PdfFormError("the flattened PDF still has form fields; it was not delivered", reason="flatten")
+    required_missing = sorted(
+        n
+        for n, f in cform.fields.items()
+        if f.required and f.kind in ("text", "checkbox", "radio", "list", "combo") and not _has_value(current_value(f))
+    )
     skipped = [
         n for n, f in fillable.items() if n not in plan and not f.read_only and f.kind not in ("signature", "button")
     ]
@@ -852,11 +1066,16 @@ def fill_pdf_form(
         "rejected": rejected,
         "skipped": skipped,
         "flattened": bool(flatten),
+        "required_missing": required_missing,
         "diff": diff,
     }
     if flatten:
         report["widgets_drawn"] = flattened
     return out_bytes, report
+
+
+def _has_value(value: Any) -> bool:
+    return value not in (None, "", [], OFF)
 
 
 def _same(wanted: Any, found: Any) -> bool:

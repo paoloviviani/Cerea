@@ -160,7 +160,9 @@ describe("the pdf-tools skill and PDF forms", () => {
 		expect(rule).toMatch(/Report what was filled/);
 		expect(rule).toMatch(/not_taken/);
 		expect(rule).toMatch(/\*\*XFA\*\*/);
-		expect(rule).toMatch(/\*\*no form fields\*\*/);
+		expect(rule).toMatch(/\*\*no\s+form fields\*\*/);
+		expect(rule).toMatch(/\*\*signed\*\*[^]*invalidate the digital signature/);
+		expect(rule).toMatch(/required_missing/);
 	});
 
 	it("names the helper's form functions only in the fallback, which is the last section", () => {

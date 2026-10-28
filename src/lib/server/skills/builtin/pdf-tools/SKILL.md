@@ -38,12 +38,18 @@ encryption) has no tool and is always done in the sandbox.
    - `flatten: true` bakes the values into the pages and the form is no longer
      editable: use it only when the user asks for a final, non-editable copy.
 4. Report what was filled, from the result: the fields set, the fields left
-   empty (`skipped`), and any value that did not take (`not_taken`; say so,
-   never claim it was filled). The file is a new version of the same name.
-5. If `doc_outline` says the PDF is an **XFA** form (Adobe LiveCycle), or has
-   **no form fields** (a scanned or printed form), it cannot be filled: say so
-   plainly and offer what can be done (the user can fill it in Adobe Acrobat;
-   for a form with no fields, a typed copy of the answers).
+   empty (`skipped`), the **required fields still empty** (`required_missing`:
+   tell the user), and any value that did not take (`not_taken`; say so, never
+   claim it was filled). The file is a new version of the same name.
+5. Text is limited to Western European characters (accents and the euro are
+   fine); a value with other letters (Polish "Ł", Greek, Cyrillic) is refused
+   with the characters named: tell the user, do not transliterate unasked.
+6. If `doc_outline` says the PDF is an **XFA** form (Adobe LiveCycle), has **no
+   form fields** (a scanned or printed form), or is **signed** (`signed: true`:
+   filling would invalidate the digital signature, and there is no way around
+   it here), it cannot be filled: say so plainly and offer what can be done (the
+   user can fill an XFA form in Adobe Acrobat, or a signed one in a copy made
+   before signing; for a form with no fields, a typed copy of the answers).
 
 ## Setup
 
@@ -127,8 +133,10 @@ report = pdf_tools.fill_form(
   Every value is checked first: a bad one raises an error naming the field and
   what it takes, and nothing is written, so fix the value and call again.
 - It returns a report read back from the written file: `filled`, `rejected`
-  (did not take - say so), `skipped` (fields given no value), `diff`. Report
+  (did not take - say so), `skipped` (fields given no value),
+  `required_missing`, `diff`. Report
   what was filled from it. `flatten=True` bakes the values in and removes the
   form.
-- An XFA form (`xfa: True`) or a PDF with no fields (`has_form: False`) cannot
-  be filled here either: say so.
+- An XFA form (`xfa: True`), a signed PDF (`signed: True`) or a PDF with no
+  fields (`has_form: False`) cannot be filled here either: say so. Text is
+  limited to Western European characters.

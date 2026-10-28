@@ -594,7 +594,8 @@ describe("PDF forms", () => {
 		expect(text).toContain("PDF (.pdf): fill_form{values: object, flatten?: boolean}");
 		expect(text).toMatch(/A PDF has one operation, fill_form, and no other edit/);
 		expect(text).toMatch(/call doc_outline first for the field names and allowed values/);
-		expect(text).toMatch(/XFA form cannot be filled/);
+		expect(text).toMatch(/A signed PDF \(filling would invalidate its signature\)/);
+		expect(text).toMatch(/XFA\s+form cannot be filled|XFA form cannot be filled/);
 		const outline = (await named(DOC_OUTLINE_TOOL_NAME)).definition.function.description ?? "";
 		expect(outline).toMatch(/PDF's pages and, when it has a form, its fields/);
 	});

@@ -151,8 +151,8 @@ the result as a new version of the file; your original stays as it was.
   read-only field) is refused with what the field takes, and the file is not
   changed. All values go in or none do.
 - **Checked afterwards.** The assistant reads every value back from the saved
-  file and tells you the fields it filled, the ones left empty and any value
-  that did not take.
+  file and tells you the fields it filled, the ones left empty, the required
+  ones still empty and any value that did not take.
 - **Shown in any viewer.** The values are written so browsers, Acrobat, Preview
   and LibreOffice all show them.
 - **Flatten.** Ask for a final copy and the values are baked into the pages: the
@@ -162,6 +162,10 @@ What it cannot do:
 
 - **XFA forms** (Adobe LiveCycle) keep their values in a different place that
   this tool cannot fill. The assistant says so; Adobe Acrobat can fill them.
+- **Signed PDFs** (a digital signature in the file) are refused, because
+  filling would invalidate the signature. Fill a copy made before signing.
+- **Other alphabets.** Text in forms is limited to Western European characters:
+  accents and the euro work, Polish "Ł", Greek or Cyrillic are refused.
 - **A scanned or printed form** has no fields, only lines drawn on the page.
   Filling those by writing text at positions is not available yet.
 - **Encrypted PDFs** (password-protected or restricted) are refused: remove the protection first.
