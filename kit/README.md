@@ -577,7 +577,12 @@ FOSSGIS `routed-foot` / `routed-bike` servers; point `OSRM_BASE_URL` at your own
 if you need more than light use.
 
 The public Overpass servers (the place search) are run by volunteers and are
-often busy. `OVERPASS_BASE_URL` takes a comma-separated list tried in order
+often busy. If they keep timing out for you, hide the tools that need them, so
+the assistant never waits on them: set
+`OSM_DENY_TOOLS: "find_nearby_pois,poi_details,suggest_meeting_point"` in the
+`mcp-osm` service's `environment` and run `docker compose up -d mcp-osm`. A
+denied tool is gone from the server's tool list; the chat picks the change up
+within 15 minutes, or at once with Check under Admin → Connectors. `OVERPASS_BASE_URL` takes a comma-separated list tried in order
 within one 50-second budget, so put the server that answers first and the ones
 that tend to hang last.
 
