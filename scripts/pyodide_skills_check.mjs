@@ -310,8 +310,10 @@ first = PdfReader("/pt-reordered.pdf").pages[0].extract_text()
 assert "Page B" in first, first[:120]
 
 fields = pdf_tools.form_fields("/pt-a.pdf")
-assert set(fields) >= {"Name", "Email"}, fields
+assert {f["name"] for f in fields["fields"]} >= {"Name", "Email"}, fields
 
+import pypdf
+print("sandbox pypdf", pypdf.__version__)
 pdf_tools.fill_form("/pt-a.pdf", {"Name": "Ada Lovelace", "Email": "ada@example.org"}, "/pt-filled.pdf")
 filled = PdfReader("/pt-filled.pdf")
 values = {name: str(field.get("/V", "")) for name, field in (filled.get_fields() or {}).items()}
@@ -322,6 +324,41 @@ assert "terms" in text[1], text[1][:120]
 
 info = pdf_tools.read_metadata("/pt-merged.pdf")
 assert isinstance(info, dict)
+
+# a three-page form with every kind of field, filled in the sandbox's own pypdf
+import io
+from reportlab.lib.pagesizes import A4
+c = canvas.Canvas("/pt-form.pdf", pagesize=A4)
+c.acroForm.textfield(name="full_name", x=72, y=700, width=200, height=20)
+c.showPage()
+c.acroForm.checkbox(name="agree", x=72, y=700, size=16)
+for i, colour in enumerate(("red", "green", "blue")):
+    c.acroForm.radio(name="colour", value=colour, x=72 + 40 * i, y=650, size=16)
+c.showPage()
+c.acroForm.choice(name="country", x=72, y=700, width=150, height=20, options=[("Italy", "IT"), ("France", "FR")], value="IT", fieldFlags="combo")
+c.acroForm.listbox(name="topics", x=72, y=600, width=150, height=60, options=["alpha", "beta", "gamma"], value="alpha")
+c.showPage()
+c.save()
+listing = pdf_tools.form_fields("/pt-form.pdf")
+types = {f["name"]: f["type"] for f in listing["fields"]}
+assert types == {"full_name": "text", "agree": "checkbox", "colour": "radio", "country": "combo", "topics": "list"}, types
+report = pdf_tools.fill_form(
+    "/pt-form.pdf",
+    {"full_name": "Ada", "agree": True, "colour": "green", "country": "France", "topics": "beta"},
+    "/pt-form-filled.pdf",
+)
+assert report["rejected"] == [] and len(report["filled"]) == 5, report
+got = {n: f.get("/V") for n, f in PdfReader("/pt-form-filled.pdf").get_fields().items()}
+assert got["full_name"] == "Ada" and got["country"] == "FR" and got["topics"] == "beta", got
+assert str(got["colour"]) == "/green" and str(got["agree"]) == "/Yes", got
+try:
+    pdf_tools.fill_form("/pt-form.pdf", {"colour": "pink"}, "/pt-never.pdf")
+    raise AssertionError("a bad option must be refused")
+except pdf_tools.PdfFormError as exc:
+    assert 'takes one of "red", "green", "blue"' in str(exc), str(exc)
+pdf_tools.fill_form("/pt-form.pdf", {"full_name": "Ada", "country": "FR"}, "/pt-form-flat.pdf", flatten=True)
+flat = PdfReader("/pt-form-flat.pdf")
+assert not (flat.get_fields() or {}) and "Ada" in flat.pages[0].extract_text()
 
 pdf_tools.encrypt_pdf("/pt-merged.pdf", "secret", "/pt-locked.pdf")
 locked = PdfReader("/pt-locked.pdf")

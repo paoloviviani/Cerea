@@ -47,6 +47,17 @@ describe("the service's contract reaches the edit tool", () => {
 		}
 	});
 
+	it("offers PDF forms: fill_form is the PDF's one operation, and a PDF cannot be read", () => {
+		expect(fixture.formats.pdf.operations).toEqual(["fill_form"]);
+		expect(fixture.formats.pdf.read).toBe(false);
+		expect(text).toContain("PDF (.pdf): fill_form{flatten?: boolean, values: object}");
+		expect(text).toMatch(/A PDF has one operation, fill_form, and no other edit/);
+	});
+
+	it("keeps the tool description within its budget", () => {
+		expect(text.length).toBeLessThan(3_000);
+	});
+
 	it("does not offer deferred operations", () => {
 		for (const format of DOCUMENT_FORMATS) {
 			for (const op of fixture.formats[format].deferred_operations) {

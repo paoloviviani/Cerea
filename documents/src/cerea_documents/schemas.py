@@ -11,10 +11,11 @@ from .config import Limits
 from .errors import InvalidRequest
 from .spec import friendly
 
-FORMATS = ("docx", "xlsx", "pptx")
+FORMATS = ("docx", "xlsx", "pptx", "pdf")
 EXT_FORMAT = {
     ".docx": "docx", ".docm": "docx", ".dotx": "docx", ".dotm": "docx",
     ".xlsx": "xlsx", ".xlsm": "xlsx", ".xltx": "xlsx", ".xltm": "xlsx",
+    ".pdf": "pdf",
     ".pptx": "pptx", ".pptm": "pptx", ".potx": "pptx", ".potm": "pptx", ".ppsx": "pptx", ".ppsm": "pptx",
 }  # fmt: skip
 

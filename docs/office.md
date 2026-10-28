@@ -16,6 +16,8 @@ last parts are for administrators.
 - **A change to a file.** Attach a Word, Excel or PowerPoint file, or point to
   one the assistant made earlier, and ask: "Change 2025 to 2026 everywhere",
   "fix the total in B12", "move slide 5 to the front", "replace the logo".
+- **A filled-in PDF form.** Attach a PDF form and say what to put in it:
+  "Fill in this application with my details." See "Filling PDF forms" below.
 - **A file from your template.** Upload a Word, PowerPoint or Excel template that
   has `{{placeholders}}`, and the assistant fills them in.
 - **A look.** See "Styling by asking" below.
@@ -132,6 +134,47 @@ asks which you want: a clean deck in standard layouts (the reliable default) or
 a custom design. "A deck about X" goes to the standard route without a question.
 You can still ask for edits to a sandbox-built deck afterwards.
 
+## Filling PDF forms
+
+Attach a fillable PDF form (an AcroForm, the kind with boxes you can click and
+type in) and tell the assistant what to enter. It first lists the form's
+fields: each one's name, type, page, current value and, for a checkbox, a radio
+group or a list, what it accepts. It matches your details to the fields and asks
+you about anything unclear instead of guessing. Then it fills the form and saves
+the result as a new version of the file; your original stays as it was.
+
+- **Every kind of field, on every page:** text, checkboxes (including those
+  whose "on" value is not "Yes"), radio groups, list and drop-down boxes
+  (several choices where the form allows it).
+- **Checked before anything is written.** A value a field does not accept (a
+  radio option that does not exist, a text longer than the field's limit, a
+  read-only field) is refused with what the field takes, and the file is not
+  changed. All values go in or none do.
+- **Checked afterwards.** The assistant reads every value back from the saved
+  file and tells you the fields it filled, the ones left empty, the required
+  ones still empty and any value that did not take.
+- **Shown in any viewer.** The values are written so browsers, Acrobat, Preview
+  and LibreOffice all show them.
+- **Flatten.** Ask for a final copy and the values are baked into the pages: the
+  form is no longer editable.
+
+What it cannot do:
+
+- **XFA forms** (Adobe LiveCycle) keep their values in a different place that
+  this tool cannot fill. The assistant says so; Adobe Acrobat can fill them.
+- **Signed PDFs** (a digital signature in the file) are refused, because
+  filling would invalidate the signature. Fill a copy made before signing.
+- **Other alphabets.** Text in forms is limited to Western European characters:
+  accents and the euro work, Polish "Ł", Greek or Cyrillic are refused.
+- **A scanned or printed form** has no fields, only lines drawn on the page.
+  Filling those by writing text at positions is not available yet.
+- **Encrypted PDFs** (password-protected or restricted) are refused: remove the protection first.
+- A PDF can be changed in no other way with these tools; merging, splitting,
+  rotating and the like are the `pdf-tools` skill, in the browser.
+
+Without the document service the `pdf-tools` skill fills the form in the browser
+sandbox with the same checks and the same report.
+
 ## Previews
 
 The side pane shows the file you open.
@@ -166,8 +209,9 @@ shown, and "New tab" and "Download" stay in the header.
   Excel; numbers the assistant quotes come from your data, not from a formula.
 - **Editing a Word file:** comments, footnote text, content controls and fields
   are not available.
-- **Editing a PDF** is not part of this: merging, splitting, filling forms and
-  similar work on an existing PDF is the `pdf-tools` skill, in the browser.
+- **Editing a PDF** is limited to filling its form (see above): merging,
+  splitting, rotating and similar work on an existing PDF is the `pdf-tools`
+  skill, in the browser. A PDF may have up to 2,000 pages and 5,000 form fields.
 - **PDF text.** Latin, Greek and Cyrillic render. Chinese, Japanese, Korean
   and Arabic do not, and the assistant says so.
 - **Not checked by eye.** Nobody renders the page for the assistant, so it

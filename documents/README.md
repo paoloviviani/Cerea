@@ -27,6 +27,9 @@ documents/
     core.py         outline / read / edit on bytes; format detection; all-or-none; verify
     schemas.py      JSON-schema validation of bodies and of every operation
     word.py excel.py powerpoint.py   the three engines (ported from the 0.29.0 sandbox helpers)
+    pdfform.py      PDF forms (AcroForm): list fields, validate and fill values, appearances, flatten, re-read;
+                    self-contained, and copied into the pdf-tools skill's helper (scripts/sync_pdf_tools.py)
+    pdfops.py       PDF as a format of outline and edit: pages, fields, and the one operation, fill_form
     verify.py       the post-edit check (byte-identical untouched parts, XML, rels, content types, reopen)
                     and the check of a created file (verify_created)
     spec.py         the document spec: JSON schemas, validation, the Markdown shorthand (published in capabilities)
@@ -92,8 +95,47 @@ Formats and operations actually implemented, deferred ones, and the effective li
 JSON structure with stable ids. Word: blocks `p1..` and `t1..` (style, text, table cells), images `i1..`,
 sections, header/footer text, `{{placeholders}}`, comment and tracked-change counts. Excel: sheets
 (state, used range, tables, charts, images, merged ranges), defined names. PowerPoint: slides with
-layout, shapes (id, kind, placeholder, text, box, picture part) and notes. Every outline also lists
-`passed_through`: macro, ActiveX and OLE parts present (never parsed, executed or modified).
+layout, shapes (id, kind, placeholder, text, box, picture part) and notes. PDF: `page_count`, `pages` (size
+in points, up to 200 listed) and `form` (see "PDF forms"). Every outline also lists `passed_through`: macro,
+ActiveX and OLE parts present (never parsed, executed or modified).
+
+### PDF forms
+
+A PDF (named `.pdf`, or unnamed with a `%PDF-` header) takes `outline` and `edit`; `read` answers 415 and points
+at `outline`. Capabilities list it as `formats.pdf` with `read: false` and the one operation `fill_form`.
+
+`outline` returns `form: {has_form, xfa, fields, note?}`. A field is `{name, type, pages, value}` plus, when they
+apply: `allowed` (checkbox: `true`, `false` and the on-state name; radio: its options), `on_state`, `options`
+(list and combo box: `[{value, label}]`), `editable`, `multiple`, `multiline`, `max_length`, `required`,
+`read_only`, `fillable: false` (signatures and push buttons). Names are the full dotted names, so a field inside
+a group is `group.name`. An XFA form (`/XFA` in the AcroForm) says `xfa: true` and is not fillable.
+
+`edit` takes exactly one operation, `{"op": "fill_form", "values": {name: value}, "flatten": false}`:
+
+- Values: text for a text field (within `max_length`; one line unless `multiline`); `true`, `false` or the
+  on-state name for a checkbox; one of `allowed` for a radio group; an option's `value` or `label` for a list
+  or combo box (a list of them when `multiple`); `null` clears. Every value is checked before anything is
+  written. A bad one is a 422 `operation_failed` naming the field and what it takes (`details.problems`, one
+  entry per value, with `allowed`), and nothing is written. A read-only field, a signature, an unknown field
+  name (with the closest names) and a form with no fields or in XFA are refused the same way.
+- Appearances: text values are drawn by pypdf's generator, list and combo boxes by this service (the selection
+  is marked and a combo box shows its label, not its export value), buttons switch their stored states;
+  `NeedAppearances` is set so a viewer may redraw. `flatten: true` draws every widget's appearance into its
+  page and removes the widgets and the AcroForm, so the file is no longer a form.
+- The result's `verify` re-reads the written file: `ok`, `fields_checked`, `filled`, `not_taken` (a value that
+  did not take, with what was found) and `problems`. `operations[0].result` lists `filled`, `skipped` (fields
+  given no value, up to 100) and `flattened`; `diff` has one line per changed field. The same edit of the same
+  file gives the same bytes.
+- Limits: `MAX_PDF_PAGES` 2000 and `MAX_PDF_FIELDS` 5000 (`unsafe_document`), nesting of fields at most 32
+  deep, a field that is its own ancestor is read once. Encrypted PDFs are refused (`invalid_document` /
+  `encrypted`). A signed PDF (a signature field with a value, or `/SigFlags` bit 2) is refused for `fill_form`
+  and flatten, reason `signed`; its outline gives the signature field `value: null` and `signed: true`, never the
+  signature itself. Text is limited to Windows-1252 (a value with other characters is refused, naming them).
+  Every widget of a filled field, and of a field that already held a value without one, gets an appearance
+  drawn here (`/DA` size and colour, `/Q`, multiline, comb, password, `/MK` background, border and rotation);
+  `NeedAppearances` is not set. Flatten draws only visible widgets with the Print flag, and fails with
+  `flatten_incomplete` (nothing written) when a field with a value has a printable widget it could not draw.
+  `operations[0].result.required_missing` lists required fields still empty.
 
 ### `POST /v1/read`
 

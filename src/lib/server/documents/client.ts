@@ -20,9 +20,10 @@ export const CAPABILITIES_FAILURE_TTL_MS = 15_000;
 /** The largest edited file read back (the service's own cap is larger). */
 export const MAX_RESULT_BYTES = 64 * 1024 * 1024;
 
-export const DOCUMENT_FORMATS = ["docx", "xlsx", "pptx"] as const;
+/** What `doc_outline` and `doc_edit` take. PDF is here for its forms: it has one operation, `fill_form`, and no `doc_read`. */
+export const DOCUMENT_FORMATS = ["docx", "xlsx", "pptx", "pdf"] as const;
 export type DocumentFormat = (typeof DOCUMENT_FORMATS)[number];
-/** What `doc_create` makes: the editable formats and PDF (which has no edit operations). */
+/** What `doc_create` makes. */
 export const CREATE_FORMATS = ["docx", "xlsx", "pptx", "pdf"] as const;
 export type CreateFormat = (typeof CREATE_FORMATS)[number];
 

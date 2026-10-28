@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from types import ModuleType
 from typing import Any
 
-from . import ENGINE, excel, powerpoint, word
+from . import ENGINE, excel, pdfops, powerpoint, word
 from .config import Limits
 from .errors import InvalidDocument, PatchError, UnsupportedFormat
 from .images import inspect_image
@@ -18,7 +18,7 @@ from .schemas import validate_edit, validate_read
 from .spec import CREATE_FORMATS, create_schemas
 from .verify import verify
 
-ENGINES: dict[str, ModuleType] = {"docx": word, "xlsx": excel, "pptx": powerpoint}
+ENGINES: dict[str, ModuleType] = {"docx": word, "xlsx": excel, "pptx": powerpoint, "pdf": pdfops}
 _FAMILY = {
     "wordprocessingml": "docx",
     "ms-word": "docx",
@@ -81,6 +81,15 @@ def detect_format(pkg: Pkg, filename_format: str | None = None) -> str:
     return fmt
 
 
+def _is_pdf(data: bytes, filename_format: str | None) -> bool:
+    """A PDF: named .pdf (then it must be one), or unnamed and PDF by its own header (within the first KiB).
+    A file named as another format is handled, and refused, as that format."""
+    looks_like = b"%PDF-" in data[:1024] and not data.startswith(b"PK")
+    if filename_format == "pdf" and not looks_like:
+        raise InvalidDocument("the file is named .pdf but is not a PDF", reason="not_a_pdf")
+    return looks_like if filename_format in (None, "pdf") else False
+
+
 def passed_through(pkg: Pkg) -> list[str]:
     """Macro, ActiveX and OLE parts present: never parsed or executed, copied through untouched."""
     return sorted(n for n in pkg.names if any(k in "/" + n or n.endswith(k) for k in ACTIVE_CONTENT))
@@ -92,6 +101,8 @@ def _images(raw: dict[str, bytes], limits: Limits) -> ImageSet:
 
 def outline(data: bytes, filename_format: str | None, limits: Limits) -> dict[str, Any]:
     with _structure_errors():
+        if _is_pdf(data, filename_format):
+            return {"format": "pdf", **pdfops.outline(data, limits), "passed_through": []}
         pkg = Pkg(data, limits)
         fmt = detect_format(pkg, filename_format)
         return {"format": fmt, **ENGINES[fmt].outline(pkg), "passed_through": passed_through(pkg)}
@@ -99,6 +110,12 @@ def outline(data: bytes, filename_format: str | None, limits: Limits) -> dict[st
 
 def read(data: bytes, filename_format: str | None, body: dict[str, Any], limits: Limits) -> dict[str, Any]:
     with _structure_errors():
+        if _is_pdf(data, filename_format):
+            raise UnsupportedFormat(
+                "doc_read does not apply to a PDF; doc_outline lists its pages and form fields, and its text is "
+                "already in the conversation",
+                reason="pdf_read",
+            )
         pkg = Pkg(data, limits)
         fmt = detect_format(pkg, filename_format)
         validate_read(fmt, body)
@@ -116,6 +133,9 @@ def edit(
 def _edit(
     data: bytes, filename_format: str | None, body: dict[str, Any], raw_images: dict[str, bytes], limits: Limits
 ) -> tuple[dict[str, Any], bytes]:
+    if _is_pdf(data, filename_format):
+        validate_edit("pdf", body, limits)
+        return pdfops.edit(data, body, limits)
     pkg = Pkg(data, limits)
     orig = Pkg(data, limits)  # untouched view of the source, for the verify report and the diff
     fmt = detect_format(pkg, filename_format)
@@ -160,7 +180,7 @@ def capabilities() -> dict[str, Any]:
     for name, eng in ENGINES.items():
         formats[name] = {
             "outline": True,
-            "read": True,
+            "read": getattr(eng, "CAN_READ", True),
             "operations": sorted(eng.OPS),
             # The JSON schema of every operation: what the chat builds its tool descriptions from,
             # so the contract has one source.

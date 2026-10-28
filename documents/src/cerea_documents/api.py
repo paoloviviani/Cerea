@@ -179,7 +179,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 validate_envelope(body, limits)
                 if fmt is None:
                     raise InvalidRequest(
-                        "cannot tell the document type: send the file with a .docx, .xlsx or .pptx name, or set 'format' in the body",
+                        "cannot tell the document type: send the file with a .docx, .xlsx, .pptx or .pdf name, or set 'format' in the body",
                         reason="format",
                     )
             async with gate:

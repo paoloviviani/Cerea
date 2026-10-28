@@ -48,6 +48,7 @@ const FORMAT_LABEL: Record<DocumentFormat, string> = {
 	docx: "Word (.docx)",
 	xlsx: "Excel (.xlsx)",
 	pptx: "PowerPoint (.pptx)",
+	pdf: "PDF (.pdf)",
 };
 
 /** A short type for one property of an operation schema: `string`, `0|1`, `object[]`. */
@@ -96,14 +97,32 @@ export function listedOperations(caps: DocumentCapabilities): string[] {
 	];
 }
 
+/**
+ * What a model needs to know about PDF beyond the generated operation line: a PDF has the one operation, so it
+ * cannot be changed in any other way, and `values` says what each kind of field takes.
+ */
+function pdfNote(caps: DocumentCapabilities): string {
+	if (!caps.formats.pdf?.operations.includes("fill_form")) return "";
+	return (
+		"A PDF has one operation, fill_form, and no other edit: call doc_outline first for the field names and " +
+		"allowed values, then give `values` as name: text; true, false or the on-state for a checkbox; one option " +
+		"for a radio group; an option's value or label for a list or combo box (a list of them for a multi-select " +
+		"list). `flatten` bakes the values in. Every value is checked and a bad one is refused with what the field " +
+		"takes; the result re-reads each value and lists any that did not take, and the required fields left " +
+		"empty. A signed PDF (filling would invalidate its signature), a scanned form with no fields and an XFA " +
+		"form cannot be filled. Text is limited to Western European characters. "
+	);
+}
+
 const SHARED_PREPROMPT =
 	"Word, Excel and PowerPoint files: use doc_outline to see a file's structure, doc_read for exact content, " +
 	"and doc_edit to change it. Never write code to edit a supplied Office file, and never rewrite a whole file " +
 	"to change a part of it; the edit tools touch only what the operations name. Files are given by name (an " +
 	"attachment, or a file you produced); an edit is saved as a new version under the same name, and the " +
-	"person's original stays as it was.";
+	"user's original stays as it was. To fill a PDF form, doc_outline lists its fields and doc_edit fill_form " +
+	"fills them; never fill a form in the sandbox.";
 
-const CREATE_LABEL: Record<CreateFormat, string> = { ...FORMAT_LABEL, pdf: "PDF (.pdf)" };
+const CREATE_LABEL: Record<CreateFormat, string> = FORMAT_LABEL;
 
 /** Shared definitions printed once and referred to by name (the theme, a text run, a table cell). */
 type Aliases = Map<string, string>;
@@ -345,6 +364,10 @@ function verifySummary(verify: EditResult["verify"]) {
 		...pick("removed"),
 		...pick("reopened_with"),
 		...pick("problems"),
+		...pick("fields_checked"),
+		...pick("filled"),
+		...pick("not_taken"),
+		...pick("flattened"),
 	};
 }
 
@@ -393,7 +416,7 @@ export function createDocumentBuiltins(
 	const fileProperty = {
 		type: "string",
 		description:
-			"Name of a Word, Excel or PowerPoint file in the conversation: an attachment or a file you " +
+			"Name of a Word, Excel, PowerPoint or PDF file in the conversation: an attachment or a file you " +
 			"produced, e.g. report.docx (or /mnt/data/report.docx).",
 	};
 
@@ -405,10 +428,11 @@ export function createDocumentBuiltins(
 				function: {
 					name: DOC_OUTLINE_TOOL_NAME,
 					description:
-						"The structure of a Word, Excel or PowerPoint file with stable ids and short text previews: " +
+						"The structure of a Word, Excel, PowerPoint or PDF file with stable ids and short text previews: " +
 						"Word paragraphs (p1...), tables (t1...) and images; Excel sheets, used ranges, tables and charts; " +
-						"PowerPoint slides, shapes, placeholders, images and notes. Call it first; the ids it gives are " +
-						"what doc_read and doc_edit take.",
+						"PowerPoint slides, shapes, placeholders, images and notes; a PDF's pages and, when it has a form, " +
+						"its fields (name, type, page, current value, allowed values, flags). Call it first; the ids it " +
+						"gives are what doc_read and doc_edit take.",
 					parameters: {
 						type: "object",
 						properties: { file: fileProperty },
@@ -471,6 +495,13 @@ export function createDocumentBuiltins(
 				}
 				const loaded = await loadDocument(ctx, args.file);
 				if (!loaded.ok) return { error: loaded.error };
+				if (/\.pdf$/i.test(loaded.file.name)) {
+					return {
+						error:
+							"doc_read does not apply to a PDF: doc_outline lists its pages and form fields, and its text " +
+							"is already in the conversation.",
+					};
+				}
 				try {
 					const content = await readDocument(loaded.file, args.targets, {
 						signal: ctx.abortSignal,
@@ -491,11 +522,13 @@ export function createDocumentBuiltins(
 				function: {
 					name: DOC_EDIT_TOOL_NAME,
 					description:
-						"Change a Word, Excel or PowerPoint file with typed operations; only what they name is touched and " +
+						"Change a Word, Excel, PowerPoint or PDF file with typed operations; only what they name is touched and " +
 						"everything else in the file stays byte for byte. All operations apply or none do. References " +
 						"(p3, t1, slide numbers) always mean the file as it is now, not as earlier operations in the same " +
 						"call leave it. The result is saved as a new version of the file (the original is kept) with a " +
-						"diff and a verification report. Operations, `?` marking an optional property: " +
+						"diff and a verification report. " +
+						pdfNote(caps) +
+						"Operations, `?` marking an optional property: " +
 						`${operationLines(caps).join(" | ")}.`,
 					parameters: {
 						type: "object",

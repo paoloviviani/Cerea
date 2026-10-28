@@ -1273,6 +1273,19 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   never mixed with the tools in one deck; an unclear request asks through
   `ask_user_question` with two options. `officeSkills.spec.ts` pins the wording.
 
+- PDF forms (Cerea #39): `formats.pdf` in the capabilities lists the one PDF operation, `fill_form`
+  (`doc_edit`'s text shows it as the PDF line, plus a short note from `pdfNote` in `documentTools.ts`), and `read`
+  is false (`doc_read` refuses a `.pdf` without a call). `doc_outline` on a PDF returns its pages and `form`
+  (fields with type, pages, value, allowed values and flags; `xfa`). `documents/.../pdfform.py` is the whole
+  of the logic and is **copied** into the `pdf-tools` skill's `scripts/pdf_tools.py` between two markers by
+  `scripts/sync_pdf_tools.py` (`documents/tests/test_pdf_tools_helper.py` fails when it is stale, and CI's
+  `documents` job runs when either file changes): edit `pdfform.py`, run the script, never the copy. Values are
+  all checked before anything is written; `/Btn` fields are set by hand (the library writes a radio's value as
+  text), `/Ch` appearances are drawn by us (the library's list box is wrong), `flatten` draws the appearances
+  into the pages and removes the form, because the library's `flatten=` leaves the widgets in place. The
+  skill's rule: when `doc_edit` is offered a form is filled only through it; the sandbox helper is the last,
+  labelled section (`officeSkills.spec.ts` pins it). Fixtures are built in `documents/tests/pdf_fixtures.py`.
+
 ## Office previews and `convert_document`
 
 Optional, per deployment: the kit's `office` profile runs Gotenberg (LibreOffice
