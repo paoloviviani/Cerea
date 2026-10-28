@@ -10,28 +10,18 @@ description: >
 
 The OpenStreetMap connector answers map questions. If its tools are not available yet, load the
 OpenStreetMap connector first with `load_tools` (it is named osm in the kit's example); if they are
-already available, go straight to them. Its place searches use public servers run by volunteers, which
-are sometimes slow or busy; the rest (addresses, routes) uses other services and is usually quick.
+already available, go straight to them. Use it for addresses, routes and travel times, which are quick.
+**Don't use its place tools** (`find_nearby_pois`, `poi_details`, `suggest_meeting_point`): they depend on
+public volunteer servers (Overpass) that, in practice, time out almost every time.
 
 ## Places nearby ("parking near…", "cafés around…", "a pharmacy open now")
 
-1. **First: `find_nearby_pois`, once.** Search by category, or by an OpenStreetMap tag when the request is
-   specific (cuisine, diet, wheelchair access, a brand). It can take up to a minute when the servers are busy;
-   give it that time.
-2. **If it fails or times out, do not call it again** (not with another radius, category or tag): the tool
-   already tries every configured server before it gives up, so a second call only adds another minute of
-   waiting. Go straight to **a web search** for "<what> near <place>", and read the results' own pages for
-   addresses, hours and prices. For parking, include the operator sites and the city's parking pages. Say in
-   a few words that the map search didn't answer.
-3. **For the rest of the conversation**, once a place search has failed, skip the tools that need it
-   (`find_nearby_pois`, `poi_details`, `suggest_meeting_point`) and use web search for places. Try them again
-   only if the person asks.
+Use **a web search** for "<what> near <place>", and read the results' own pages for addresses, hours and
+prices. For parking, include the operator sites and the city's parking pages. Then use `geocode` and `route`
+or `route_matrix` for distances and walking times, and end with a `map_link`.
 
-A search that answered but found few places is not a failure: report what it found, and widen the radius
-once only if the person wants more.
-
-For a place's details (opening hours, phone, website), use `poi_details`. If it fails, use the place's own
-website from a web search.
+Don't call `find_nearby_pois` or `poi_details`, not even once to try: they wait up to a minute and then fail.
+Call them only if the person asks for them by name.
 
 When sources disagree, prefer what the place's own website says.
 
@@ -45,8 +35,8 @@ Use `geocode` (a name or an address to a place) and `reverse_geocode` (coordinat
 - **Times from many origins to many destinations:** `route_matrix`.
 - **The best order to visit several stops:** `optimize_route`.
 - **What's reachable within a time or distance** ("within 15 minutes' walk"): `isochrone`.
-- **A fair meeting point for a group:** `suggest_meeting_point`. If it fails (it needs the place search),
-  compute travel times with `route_matrix` and pick a place found by a web search that balances them.
+- **A fair meeting point for a group:** compute travel times with `route_matrix`, and pick a place found by
+  a web search that balances them (not `suggest_meeting_point`, which needs the place search).
 - **Straight-line distance and map links:** `straight_line_distance` and `map_link` (offline, always
   available). End answers about a place or a route with a `map_link` when it helps.
 
