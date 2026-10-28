@@ -23,7 +23,15 @@ export async function attachmentNamed(
 	const planned = planAttachments(files).find(
 		(entry) => entry.file.type === "hash" && (entry.name === wanted || entry.file.name === wanted)
 	);
-	return planned ? { planned, at: conversation?.createdAt ?? new Date(0) } : undefined;
+	if (!planned) return undefined;
+	// When it was sent: the timestamp of the message that carries it (`files`
+	// keeps the message's own file object, so the match is by reference), the
+	// conversation's when the message carries none — the old reading, which
+	// keeps a message without a timestamp no newer than the produced rows.
+	const message = (conversation?.messages ?? []).find((sent) =>
+		(sent.files ?? []).some((file) => file === planned.file)
+	);
+	return { planned, at: message?.createdAt ?? conversation?.createdAt ?? new Date(0) };
 }
 
 /**

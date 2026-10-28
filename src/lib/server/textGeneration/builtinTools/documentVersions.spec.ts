@@ -333,6 +333,68 @@ describe("versions of a file", () => {
 		expect(form.ok && form.version).toBe(2);
 	});
 
+	it("a re-uploaded attachment is the newest content: current, listed at its message's moment, and the default edit source", async () => {
+		const { conversationId, edit } = await setup();
+		await makeFirst(conversationId, "report.docx", "v1");
+		await edit({ file: "report.docx", operations: replace("a") });
+
+		// What a re-upload is: the same name attached again, newer bytes, the
+		// number `uploadFile` gave it at upload (3: the two produced rows), on a
+		// message sent after the rows were made.
+		const bytes = "the re-uploaded report";
+		const sha = createHash("sha256").update(bytes).digest("hex");
+		const sentAt = new Date(Date.now() + 60_000);
+		const upload = collections.bucket.openUploadStream(`${conversationId}-${sha}`, {
+			metadata: { conversation: conversationId.toString(), mime: "application/octet-stream" },
+		});
+		upload.end(Buffer.from(bytes));
+		await new Promise((resolve) => upload.once("finish", resolve));
+		await collections.conversations.updateOne(
+			{ _id: conversationId },
+			{
+				$push: {
+					messages: {
+						id: "m2",
+						from: "user",
+						content: "here is the real one",
+						createdAt: sentAt,
+						files: [
+							{
+								type: "hash",
+								name: "report.docx",
+								value: sha,
+								mime: "application/octet-stream",
+								version: 3,
+							},
+						],
+					},
+				},
+			}
+		);
+
+		const listed = await listFileVersions(conversationId, "report.docx");
+		// Its moment is the message's, not the conversation's.
+		const attachment = listed?.versions.find((v) => v.origin === "attachment");
+		expect(attachment?.at.getTime()).toBe(sentAt.getTime());
+		expect(listed?.versions.map((v) => [v.version, v.tool, v.current])).toEqual([
+			[1, "doc_create", false],
+			[2, "doc_edit", false],
+			[3, "attachment", true],
+		]);
+
+		// The default edit source is the attachment, without naming a version.
+		const current = await findConversationFile(conversationId, "report.docx");
+		expect(current.ok && current.version).toBe(3);
+		expect(current.ok && current.bytes.toString()).toBe(bytes);
+		const edited = body(await edit({ file: "report.docx", operations: replace("z") }));
+		expect(edited).toMatchObject({
+			saved: true,
+			version: 4,
+			started_from: "version 3 (the latest)",
+		});
+		expect(service.edited.at(-1)).toBe(bytes);
+	});
+
 	it("a version keeps its number when older rows expire", async () => {
 		const { conversationId, outline } = await setup({ name: "form.pdf", bytes: "ORIGINAL" });
 		for (const content of ["two", "three", "four"]) {
