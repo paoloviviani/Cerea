@@ -211,7 +211,6 @@ General
 - Ask before anything that sends, buys, deletes or changes something outside the chat.
 ```
 
-
 ## Images in tool results
 
 When the assistant looks at pages of a document (`look_doc`), the pictures go
