@@ -267,12 +267,36 @@ describe("ProjectPage sections", () => {
 		mountExisting(false, "settings");
 		await waitForText("Project files (0)");
 
-		// The explainer lists the five levels, in prompt order.
-		const explainer = document.body.querySelector("[aria-labelledby='project-levels']");
-		const levels = [...(explainer?.querySelectorAll("li") ?? [])].map((li) => li.textContent);
-		expect(levels).toHaveLength(5);
+		// Two group headings, then the five levels in prompt order, each with an
+		// anchor id the page index links to.
+		const headings = [...document.body.querySelectorAll("h2")].map((h) => h.textContent?.trim());
+		expect(headings).toContain("Read in full on every message");
+		expect(headings).toContain("Searched when relevant");
+		expect(headings).toContain("New chats & sharing");
+		const ids = [
+			"project-level-1",
+			"project-level-2",
+			"project-level-3",
+			"project-level-4",
+			"project-level-5",
+		];
+		const sections = ids.map((id) => document.body.querySelector(`#${id}`));
+		sections.forEach((section) => expect(section).not.toBeNull());
 		["Instructions", "Project files", "Project notes", "Knowledge bases", "Past chats"].forEach(
-			(title, index) => expect(levels[index]).toContain(title)
+			(title, index) => expect(sections[index]?.textContent).toContain(title)
+		);
+		for (let k = 1; k < sections.length; k++)
+			expect(
+				(sections[k - 1] as Element).compareDocumentPosition(sections[k] as Element) &
+					Node.DOCUMENT_POSITION_FOLLOWING
+			).toBeTruthy();
+		const index = document.body.querySelector('[data-testid="settings-index"]');
+		expect([...(index?.querySelectorAll("a") ?? [])].map((a) => a.getAttribute("href"))).toEqual(
+			expect.arrayContaining([
+				"#project-group-full",
+				...ids.map((id) => `#${id}`),
+				"#project-danger",
+			])
 		);
 
 		expect(document.body.querySelector("h1")?.textContent).toContain("Grant application");
