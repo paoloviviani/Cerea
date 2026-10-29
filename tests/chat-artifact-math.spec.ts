@@ -54,7 +54,9 @@ test("a markdown artifact renders inline and display math", async ({
 
 	const panel = page.getByLabel(PANEL_LABEL, { exact: true });
 	await expect(panel).toBeVisible({ timeout: 30_000 });
-	await expect(panel.getByRole("heading", { name: "Math Notes" })).toBeVisible({
+	// Level 2 is the panel's own header: the live preview renders the
+	// artifact's content heading (`# Math Notes`) beside it.
+	await expect(panel.getByRole("heading", { name: "Math Notes", level: 2 })).toBeVisible({
 		timeout: 30_000,
 	});
 
