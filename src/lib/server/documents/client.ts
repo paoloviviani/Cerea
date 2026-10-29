@@ -510,7 +510,13 @@ export interface RenderResult {
  */
 export async function renderPdf(
 	pdf: Buffer,
-	request: { pages?: number[]; width_px?: number; max_side_px?: number },
+	request: {
+		pages?: number[];
+		width_px?: number;
+		max_side_px?: number;
+		grid?: boolean;
+		region?: { x: number; y: number; width: number; height: number };
+	},
 	options: { signal?: AbortSignal } = {}
 ): Promise<RenderResult> {
 	const response = await call(

@@ -31,6 +31,8 @@ export const MAX_LOOK_CALLS_PER_TURN = 10;
 /** The longest side of a slide image, and the width of a page image, in pixels. */
 export const SLIDE_MAX_SIDE_PX = 1200;
 export const PAGE_WIDTH_PX = 1000;
+/** A `region` is drawn this wide, whatever its size in points: a small area comes out large. */
+export const REGION_WIDTH_PX = 900;
 /** A PDF larger than this is not sent to the renderer (the service's own cap is larger). */
 const MAX_PDF_BYTES = 32 * 1024 * 1024;
 
@@ -111,6 +113,33 @@ export function parsePages(input: unknown, cap = LOOK_DOC_MAX_PAGES): ParsedPage
 	return { ok: true, pages: pages.length > 0 ? pages : undefined };
 }
 
+type Region = { x: number; y: number; width: number; height: number };
+
+/** The `grid` and `region` parameters, checked before anything is drawn. */
+export function parseOverlay(
+	args: Record<string, unknown>
+): { ok: true; grid: boolean; region?: Region } | { ok: false; error: string } {
+	const grid = args.grid === true || args.grid === "true";
+	const raw = args.region;
+	if (raw === undefined || raw === null) return { ok: true, grid };
+	const value = raw as Record<string, unknown>;
+	const numbers = ["x", "y", "width", "height"].map((key) => value?.[key]);
+	if (
+		typeof raw !== "object" ||
+		!numbers.every((n) => typeof n === "number" && Number.isFinite(n)) ||
+		(numbers[2] as number) < 4 ||
+		(numbers[3] as number) < 4
+	) {
+		return {
+			ok: false,
+			error:
+				"`region` is {x, y, width, height} in PDF points from the page's bottom left, at least 4 points wide and high.",
+		};
+	}
+	const [x, y, width, height] = numbers as number[];
+	return { ok: true, grid, region: { x, y, width, height } };
+}
+
 /** Whether the document service can draw pages (`/v1/render`): the first half of the tool's gate. */
 export function canRenderPages(caps: DocumentCapabilities | null | undefined): boolean {
 	return Boolean(caps?.render?.formats.includes("pdf"));
@@ -172,6 +201,23 @@ export function createLookDocBuiltins(
 									"Name of the file in the conversation, e.g. deck.pptx (or /mnt/data/deck.pptx).",
 							},
 							version: VERSION_PROPERTY,
+							grid: {
+								type: "boolean",
+								description:
+									"PDF pages: draw faint lines with labels every 50 points (every 10 inside a small region), in PDF points from the page's bottom left: the same numbers doc_outline and place_text use. Read positions from it, never guess them from the picture.",
+							},
+							region: {
+								type: "object",
+								description:
+									"PDF pages: draw only this area, larger, in PDF points from the page's bottom left (e.g. to check one blank line after writing on it). Not for a rotated page.",
+								properties: {
+									x: { type: "number" },
+									y: { type: "number" },
+									width: { type: "number" },
+									height: { type: "number" },
+								},
+								required: ["x", "y", "width", "height"],
+							},
 							pages: {
 								description: `1-based page or slide numbers: a number, a range string such as "2-4", or a list of them. At most ${cap} pages.`,
 								anyOf: [
@@ -258,7 +304,22 @@ export function createLookDocBuiltins(
 
 				const deck = isSlideDeck(file.name);
 				const noun = deck ? "slide" : "page";
-				const size = deck ? { max_side_px: SLIDE_MAX_SIDE_PX } : { width_px: PAGE_WIDTH_PX };
+				const overlay = parseOverlay(args);
+				if (!overlay.ok) return { error: overlay.error };
+				if ((overlay.grid || overlay.region) && ext !== "pdf") {
+					return {
+						error:
+							"`grid` and `region` work on PDF files, where positions are in PDF points; " +
+							`"${file.name}" is not one.`,
+					};
+				}
+				const size = deck
+					? { max_side_px: SLIDE_MAX_SIDE_PX }
+					: { width_px: overlay.region ? REGION_WIDTH_PX : PAGE_WIDTH_PX };
+				const extra = {
+					...(overlay.grid ? { grid: true } : {}),
+					...(overlay.region ? { region: overlay.region } : {}),
+				};
 				const touched =
 					deck && file.version === file.currentVersion
 						? turn?.touchedSlides.get(file.name)
@@ -270,7 +331,7 @@ export function createLookDocBuiltins(
 					try {
 						rendered = await renderPdf(
 							pdf,
-							{ ...(asked ? { pages: asked } : {}), ...size },
+							{ ...(asked ? { pages: asked } : {}), ...size, ...extra },
 							{ signal: ctx.abortSignal }
 						);
 					} catch (err) {
@@ -284,7 +345,7 @@ export function createLookDocBuiltins(
 						)) {
 							throw err;
 						}
-						rendered = await renderPdf(pdf, size, { signal: ctx.abortSignal });
+						rendered = await renderPdf(pdf, { ...size, ...extra }, { signal: ctx.abortSignal });
 					}
 					if (imagesShown + rendered.pages.length > MAX_IMAGES_PER_TURN) {
 						return {
@@ -306,6 +367,12 @@ export function createLookDocBuiltins(
 							`Showing ${noun}${shown.length === 1 ? "" : "s"} ${shown.join(", ")} as ${formats} image${shown.length === 1 ? "" : "s"} ` +
 							`(${first ? `${first.width}x${first.height} px` : ""}), next to this result. ` +
 							(more > 0 ? `${more} more not shown: ask for them with \`pages\`. ` : "") +
+							(overlay.grid
+								? "A grid is drawn over it: labels are PDF points from the page's bottom left, the numbers place_text takes. "
+								: "") +
+							(overlay.region
+								? `Only the area x ${overlay.region.x}, y ${overlay.region.y}, ${overlay.region.width} x ${overlay.region.height} points is shown. `
+								: "") +
 							(ext === "pdf"
 								? ""
 								: "Drawn by LibreOffice: fonts and line breaks can differ slightly from Microsoft Office. ") +
