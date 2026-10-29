@@ -158,7 +158,9 @@ def _page_sizes(reader: Any) -> list[dict[str, Any]]:
 FLAT_NOTE = (
     "this PDF has no form fields: the blanks (if any) are only drawn on the page. Write onto it with "
     "doc_edit place_text, using the text lines (`lines`, with x, y and width) listed on each page to put values "
-    "next to their labels; look at the page with look_doc first and after"
+    "next to their labels; look at the page with look_doc first and after. A scanned page (an image and no text) "
+    "also lists `skew_deg` (the tilt, counter-clockwise) and `rules` (the lines to write on, each x1, y1 to x2, y2): "
+    "write along a rule with place_text `along`, never by estimating positions from the picture"
 )
 
 
@@ -166,6 +168,18 @@ def _operations(form: dict[str, Any]) -> list[str]:
     if form["xfa"] or form.get("signed"):
         return ["fill_form"] if form["has_form"] and not form["xfa"] else []
     return ["fill_form"] if form["has_form"] else ["place_text"]
+
+
+def _read_scans(reader: Any, sizes: list[dict[str, Any]]) -> None:
+    """A page with no text whose content is one image (a scan): its tilt and the rules to write on. Never fails."""
+    try:
+        from .pdfscan import analyse
+
+        empty = [e["page"] for e in sizes if "lines" in e and not e["lines"]]
+        for number, found in analyse(reader, empty).items():
+            sizes[number - 1].update(found)
+    except Exception:
+        return
 
 
 def outline(data: bytes, limits: Limits) -> dict[str, Any]:
@@ -190,6 +204,8 @@ def outline(data: bytes, limits: Limits) -> dict[str, Any]:
         rows = lines.get(entry["page"])
         if rows is not None:
             entry["lines"] = rows
+    if not form["fields"] and not form["xfa"]:
+        _read_scans(reader, sizes)
     out: dict[str, Any] = {
         "page_count": pages,
         "pages": sizes,
