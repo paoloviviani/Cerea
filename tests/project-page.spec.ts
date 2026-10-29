@@ -150,7 +150,8 @@ test("@smoke the project page is one column with a section index on a desktop, w
 	const instructions = await page.getByLabel("Instructions", { exact: true }).boundingBox();
 	expect(name && instructions).toBeTruthy();
 	expect(instructions?.y ?? 0).toBeGreaterThan((name?.y ?? 0) + (name?.height ?? 0));
-	expect(Math.abs((instructions?.x ?? 0) - (name?.x ?? 1))).toBeLessThan(2);
+	// The instructions sit inside a card, so they start one card padding in.
+	expect(Math.abs((instructions?.x ?? 0) - (name?.x ?? 1))).toBeLessThan(24);
 	const index = await page.getByTestId("settings-index").boundingBox();
 	expect((index?.x ?? 9999) + (index?.width ?? 0)).toBeLessThanOrEqual(name?.x ?? 0);
 	await page.screenshot({ path: test.info().outputPath("desktop.png"), fullPage: true });
