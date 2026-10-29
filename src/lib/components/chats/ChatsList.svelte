@@ -242,40 +242,44 @@
 			</a>
 		</div>
 
-		<div class="relative mb-5">
-			<IconSearch
-				class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint"
-			/>
-			<input
-				bind:this={searchEl}
-				bind:value={input}
-				oninput={onInput}
-				onkeydown={(event) => {
-					if (event.key === "Escape" && input) {
-						event.preventDefault();
-						void clear();
-					}
-				}}
-				type="search"
-				name="chat-search"
-				data-testid="chats-search"
-				aria-label={m["chat.list.search"]()}
-				placeholder={m["chat.list.search"]()}
-				maxlength={MAX_TITLE_QUERY_LENGTH}
-				autocomplete="off"
-				spellcheck="false"
-				class="{s.SEARCH} pr-9 pl-9 [&::-webkit-search-cancel-button]:hidden"
-			/>
-			{#if input}
-				<button
-					type="button"
-					onclick={clear}
-					aria-label={m["chat.list.clear_search"]()}
-					class="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-ink-faint hover:bg-sunken hover:text-ink"
-				>
-					<IconClose class="size-4" />
-				</button>
-			{/if}
+		<!-- Pinned to the top of the scrolling area, on the page's own
+		     background so the rows pass behind it rather than through it. -->
+		<div class="sticky top-0 z-10 -mx-1 mb-4 bg-page px-1 pt-1 pb-2" data-testid="chats-search-bar">
+			<div class="relative">
+				<IconSearch
+					class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint"
+				/>
+				<input
+					bind:this={searchEl}
+					bind:value={input}
+					oninput={onInput}
+					onkeydown={(event) => {
+						if (event.key === "Escape" && input) {
+							event.preventDefault();
+							void clear();
+						}
+					}}
+					type="search"
+					name="chat-search"
+					data-testid="chats-search"
+					aria-label={m["chat.list.search"]()}
+					placeholder={m["chat.list.search"]()}
+					maxlength={MAX_TITLE_QUERY_LENGTH}
+					autocomplete="off"
+					spellcheck="false"
+					class="{s.SEARCH} pr-9 pl-9 [&::-webkit-search-cancel-button]:hidden"
+				/>
+				{#if input}
+					<button
+						type="button"
+						onclick={clear}
+						aria-label={m["chat.list.clear_search"]()}
+						class="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-ink-faint hover:bg-sunken hover:text-ink"
+					>
+						<IconClose class="size-4" />
+					</button>
+				{/if}
+			</div>
 		</div>
 
 		{#if failure}

@@ -109,6 +109,36 @@ describe("ChatsList delete", () => {
 		expect(convsStore.list.some((conv) => String(conv.id) === "a1")).toBe(false);
 	});
 
+	it("keeps the search box pinned at the top of the scrolling list", async () => {
+		const many = Array.from({ length: 60 }, (_, i) => ({
+			id: `r${i}`,
+			title: `Chat number ${i}`,
+			model: "m",
+			updatedAt: new Date().toISOString(),
+		}));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) =>
+				String(input).includes("/api/v2/projects")
+					? Response.json({ data: [] })
+					: new Response(superjson.stringify({ conversations: many, hasMore: false }))
+			)
+		);
+		renderWithApp(ChatsList, {} as never);
+		await vi.waitFor(() => expect(text()).toContain("Chat number 59"));
+
+		const bar = document.body.querySelector('[data-testid="chats-search-bar"]') as HTMLElement;
+		const scroller = bar.parentElement as HTMLElement;
+		// The test page gives the component no fixed height; give the scroller one.
+		scroller.style.flex = "none";
+		scroller.style.height = "300px";
+		const top = () => bar.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+		expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight);
+		scroller.scrollTop = scroller.scrollHeight;
+		await vi.waitFor(() => expect(scroller.scrollTop).toBeGreaterThan(0));
+		expect(Math.abs(top())).toBeLessThan(2);
+	});
+
 	it("leaves the row alone when the confirmation is cancelled", async () => {
 		renderWithApp(ChatsList, {} as never);
 		await vi.waitFor(() => expect(text()).toContain("Budget talk"));
