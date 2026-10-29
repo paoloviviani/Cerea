@@ -26,6 +26,20 @@ import type { ArtifactKind } from "./artifacts";
 const END_SCRIPT_TAG = "</scr" + "ipt>";
 
 /**
+ * Whether a (possibly still-streaming) HTML document has no unterminated
+ * `<script>` element. A live preview holds its re-render until this holds, so
+ * a script whose body is still streaming is never executed half-written; the
+ * count is a heuristic (a `<script` mentioned inside a string can skew it),
+ * and its failure mode is only a preview that lags until the document
+ * completes, never a wrong render.
+ */
+export function htmlScriptsBalanced(html: string): boolean {
+	const opens = (html.match(/<script(?=[\s>/])/gi) ?? []).length;
+	const closes = (html.match(/<\/script(?=[\s>]|$)/gi) ?? []).length;
+	return opens <= closes;
+}
+
+/**
  * Sandbox tokens for preview iframes (artifact panel + fullscreen modal).
  *
  * `allow-same-origin` is deliberately ABSENT and must stay absent: it is the

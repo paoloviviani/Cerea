@@ -49,7 +49,9 @@ test("create, update and rewrite render as v1 to v3 with history", async ({
 
 	const panel = page.getByLabel(PANEL_LABEL, { exact: true });
 	await expect(panel).toBeVisible({ timeout: 30_000 });
-	await expect(panel.getByRole("heading", { name: "Playground" })).toBeVisible({
+	// Level 2 is the panel's own header: the live preview renders the
+	// artifact's content heading (`# Playground`) beside it.
+	await expect(panel.getByRole("heading", { name: "Playground", level: 2 })).toBeVisible({
 		timeout: 30_000,
 	});
 	await expect(panel).toContainText("Version one.", { timeout: 30_000 });
@@ -152,8 +154,10 @@ test("a streamed-arguments draft is visible before the call completes", async ({
 
 	const panel = page.getByLabel(PANEL_LABEL, { exact: true });
 	// The draft preview arrives while arguments still stream: the panel shows
-	// the title with a streaming indicator before the final text lands.
-	await expect(panel.getByRole("heading", { name: "Big Doc" })).toBeVisible({
+	// the title with a streaming indicator before the final text lands. The
+	// draft previews live (markdown), so the panel header is matched at
+	// level 2 — the content's own `# Big Doc` heading renders beside it.
+	await expect(panel.getByRole("heading", { name: "Big Doc", level: 2 })).toBeVisible({
 		timeout: 30_000,
 	});
 	await expect(panel.getByText("Streaming…")).toBeVisible({ timeout: 30_000 });

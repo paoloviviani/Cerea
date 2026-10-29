@@ -405,6 +405,112 @@ describe("runMcpFlow", () => {
 	});
 });
 
+describe("runMcpFlow artifact drafts (tool mode)", () => {
+	const artifactModel = {
+		id: "test/model",
+		name: "test/model",
+		supportsTools: true,
+		supportsArtifacts: true,
+		parameters: {},
+	};
+
+	function draftUpdates(updates: MessageUpdate[]) {
+		return updates.filter(
+			(u): u is Extract<MessageUpdate, { type: MessageUpdateType.ArtifactDraft }> =>
+				u.type === MessageUpdateType.ArtifactDraft
+		);
+	}
+
+	it("emits the final complete draft when the arguments finish inside the throttle window", async () => {
+		// The content's closing quote lands in the tail chunk, right after the
+		// first emission and inside the 250 ms throttle window — so the in-loop
+		// parse skips it and only the post-stream emission can mark the draft
+		// complete.
+		const fullArgs = JSON.stringify({
+			command: "create",
+			identifier: "notes",
+			type: "markdown",
+			title: "Notes",
+			content: "# Hello\n\nWorld",
+		});
+		const head = fullArgs.slice(0, fullArgs.indexOf("World") - 1);
+		const tail = fullArgs.slice(fullArgs.indexOf("World") - 1);
+		scriptRounds([
+			{
+				deltas: [
+					{
+						tool_calls: [
+							{ index: 0, id: "call_1", function: { name: "artifact", arguments: head } },
+						],
+					},
+					{
+						tool_calls: [{ index: 0, function: { arguments: tail } }],
+					},
+				],
+			},
+			{ content: "done" },
+		]);
+		scriptToolResults();
+
+		const { updates } = await runFlow({
+			model: artifactModel,
+			messages: [{ from: "user", content: "make a note" }],
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+
+		const drafts = draftUpdates(updates);
+		expect(drafts).toHaveLength(2);
+		expect(drafts[0].contentComplete).toBeUndefined();
+		expect(drafts[1].content).toBe("# Hello\n\nWorld");
+		expect(drafts[1].contentComplete).toBe(true);
+		expect(drafts[1].identifier).toBe("notes");
+		expect(drafts[1].artifactType).toBe("markdown");
+	});
+
+	it("does not duplicate the final draft when the in-loop emission already caught the tail", async () => {
+		const fullArgs = JSON.stringify({
+			command: "create",
+			identifier: "notes",
+			type: "markdown",
+			title: "Notes",
+			content: "# Hello",
+		});
+		scriptRounds([
+			{
+				toolCalls: [{ id: "call_1", name: "artifact", arguments: fullArgs }],
+			},
+			{ content: "done" },
+		]);
+		scriptToolResults();
+
+		const { updates } = await runFlow({
+			model: artifactModel,
+			messages: [{ from: "user", content: "make a note" }],
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+
+		const drafts = draftUpdates(updates);
+		// One draft, emitted by the loop (a single delta is never throttled),
+		// already carrying the complete content.
+		expect(drafts).toHaveLength(1);
+		expect(drafts[0].content).toBe("# Hello");
+		expect(drafts[0].contentComplete).toBe(true);
+	});
+
+	it("emits no draft for calls that are not the artifact tool", async () => {
+		scriptRounds([
+			{ toolCalls: [{ id: "call_1", name: "do_thing", arguments: '{"content":"x"}' }] },
+			{ content: "done" },
+		]);
+		scriptToolResults();
+
+		const { updates } = await runFlow({
+			model: artifactModel,
+			messages: [{ from: "user", content: "do a thing" }],
+		} as Partial<Parameters<typeof runMcpFlow>[0]>);
+
+		expect(draftUpdates(updates)).toHaveLength(0);
+	});
+});
+
 /** The system prompt of the first upstream request. */
 function systemPrompt(): string {
 	const first = requestMessages(0)[0];

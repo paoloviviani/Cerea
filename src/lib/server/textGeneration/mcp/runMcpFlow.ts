@@ -1120,6 +1120,7 @@ export async function* runMcpFlow({
 								...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
 								...(draft.title ? { title: draft.title } : {}),
 								content: draft.content,
+								...(draft.contentComplete ? { contentComplete: true } : {}),
 							};
 						}
 					}
@@ -1179,6 +1180,34 @@ export async function* runMcpFlow({
 					clientThinkOpen = false;
 				}
 				lastAssistantContent += closer;
+			}
+
+			// Final artifact drafts: the arguments are complete once the round's
+			// stream ends, but the throttled loop above may have skipped the tail
+			// — and the contentComplete flag with it — with no further chunk to
+			// re-trigger a parse. Emit one last draft per artifact call so the
+			// panel previews at argument completion, before the call executes.
+			if (artifactsMode === "tool") {
+				for (const [indexStr, state] of Object.entries(toolCallState)) {
+					if (state.name !== ARTIFACT_TOOL_NAME || !state.id) continue;
+					const index = Number(indexStr);
+					const draft = extractArtifactDraft(state.arguments);
+					if (!draft) continue;
+					const sig = JSON.stringify(draft);
+					if (lastDraftSig[index] === sig) continue;
+					lastDraftSig[index] = sig;
+					draftEmitAt[index] = Date.now();
+					yield {
+						type: MessageUpdateType.ArtifactDraft,
+						toolCallId: state.id,
+						...(draft.command ? { command: draft.command } : {}),
+						...(draft.identifier ? { identifier: draft.identifier } : {}),
+						...(draft.artifactType ? { artifactType: draft.artifactType } : {}),
+						...(draft.title ? { title: draft.title } : {}),
+						content: draft.content,
+						...(draft.contentComplete ? { contentComplete: true } : {}),
+					};
+				}
 			}
 
 			let discardedTruncatedToolCalls = false;
