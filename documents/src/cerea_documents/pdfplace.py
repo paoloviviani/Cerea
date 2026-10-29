@@ -58,6 +58,9 @@ def _plan(
             bad(f"page must be a number from 1 to {len(boxes)}")
             continue
         along = item.get("along")
+        if item.get("fit") and along is None:
+            bad("fit shrinks text to the length of an `along` line: give along, or leave fit out")
+            continue
         angle = 0.0
         length: float | None = None
         if along is not None:

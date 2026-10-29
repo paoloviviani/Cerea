@@ -81,3 +81,8 @@ def test_a_field_too_low_for_the_smallest_size_is_reported_clipped() -> None:
     assert "Helvetica" in str(
         PdfReader(io.BytesIO(data)).pages[0]["/Annots"][2].get_object()["/AP"]["/N"].get_object()["/Resources"]
     )
+
+
+def test_an_empty_value_in_a_low_field_is_not_reported_clipped() -> None:
+    result, _ = fill(make_pdf(10), {"tiny": "", "low": "27"})
+    assert "tiny" not in result["operations"][0]["result"]["clipped"]

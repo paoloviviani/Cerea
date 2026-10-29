@@ -75,3 +75,9 @@ def test_a_turned_box_that_leaves_the_page_is_refused() -> None:
         place([{"page": 1, "text": "x", "along": [10, 10, 10, 10]}])  # no direction
     with pytest.raises(PatchError):
         place([{"page": 1, "text": "x", "x": 1, "y": 1, "along": [10, 10, 50, 10]}])  # both ways
+
+
+def test_fit_without_along_is_refused_not_ignored() -> None:
+    with pytest.raises(PatchError) as err:
+        place([{"page": 1, "text": "x", "x": 10, "y": 10, "fit": True}])
+    assert "give along" in str(err.value)

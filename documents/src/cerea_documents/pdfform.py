@@ -727,7 +727,7 @@ def _draw_text(
         for i, char in enumerate(text[: field.max_length]):
             x = (inset - 1) + i * cell + (cell - _text_width(char, fit)) / 2
             out += at(fit, x, _baseline(fit, inset, height), char)
-        return out, widest * fit <= cell + 0.01 and tall_enough
+        return out, (widest * fit <= cell + 0.01 and tall_enough) or not text
     if flags & F_MULTILINE:
         fs = size if size > 0 else AUTO_MAX
         lines = _wrap(text, fs, room)
@@ -743,7 +743,8 @@ def _draw_text(
         floor = min(AUTO_MIN, fs)
         fs = max(min(fs, room / _text_width(text, 1.0)), floor)
         fits = _text_width(text, fs) <= room + 0.01 and fs * (ASCENT + DESCENT) <= window + 0.01
-    return at(fs, left(text, fs), _baseline(fs, inset, height), text), fits
+    # no text, nothing to cut off, however low the box
+    return at(fs, left(text, fs), _baseline(fs, inset, height), text), fits or not text
 
 
 def _draw_list(
