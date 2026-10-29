@@ -193,6 +193,8 @@ export default defineConfig({
 				// The document tools (doc_outline, doc_read, doc_edit) reach the mock service.
 				CHAT_DOCUMENTS_URL: `http://127.0.0.1:${MOCK_DOCUMENTS_PORT}`,
 				CHAT_DOCUMENTS_SECRET: MOCK_DOCUMENTS_SECRET,
+				// The execute_code tool runs live in the sandbox specs.
+				CHAT_CODE_TOOL_ENABLED: "true",
 				// Scaled down together (production is 60000 / 90000 / 10000) so a reaper
 				// test sees a dead run finalized within its lifetime, while a live run
 				// heartbeating every second stays comfortably under the 5s stale threshold.

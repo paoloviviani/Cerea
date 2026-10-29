@@ -1,4 +1,5 @@
 import { onDestroy } from "svelte";
+import { base } from "$app/paths";
 import type { MessageFile } from "$lib/types/Message";
 import { getExecutionSession } from "./runtime";
 import { getMountsStore } from "./mounts.svelte";
@@ -100,7 +101,7 @@ export const LIST_TIMEOUT_MS = 5000;
 async function listProduced(conversationId: string): Promise<ProducedFile[]> {
 	try {
 		// Every run waits on this: a slow answer must not hold the code back.
-		const response = await fetch(`/conversation/${conversationId}/code-execution/output`, {
+		const response = await fetch(`${base}/conversation/${conversationId}/code-execution/output`, {
 			credentials: "same-origin",
 			signal: AbortSignal.timeout(LIST_TIMEOUT_MS),
 		});

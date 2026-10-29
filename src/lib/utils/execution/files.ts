@@ -1,3 +1,4 @@
+import { base } from "$app/paths";
 import { m } from "$lib/paraglide/messages";
 import { MAX_FILE_BYTES, MOUNT_ROOT } from "./protocol";
 import { formatNumber } from "$lib/i18n/format";
@@ -132,7 +133,7 @@ export interface MountedFile {
  * hand the runtime an empty file with a confusing silence behind it.
  */
 export async function listKnowledgeFiles(): Promise<KnowledgeFileRef[]> {
-	const storesResponse = await fetch("/api/v2/gateway/vector_stores", {
+	const storesResponse = await fetch(`${base}/api/v2/gateway/vector_stores`, {
 		credentials: "same-origin",
 	});
 	if (!storesResponse.ok) {
@@ -143,7 +144,7 @@ export async function listKnowledgeFiles(): Promise<KnowledgeFileRef[]> {
 	};
 	const refs: KnowledgeFileRef[] = [];
 	for (const store of stores.data) {
-		const docsResponse = await fetch(`/api/v2/gateway/vector_stores/${store.id}/files`, {
+		const docsResponse = await fetch(`${base}/api/v2/gateway/vector_stores/${store.id}/files`, {
 			credentials: "same-origin",
 		});
 		if (!docsResponse.ok) {
@@ -177,7 +178,7 @@ export async function mountKnowledgeFile(
 	ref: KnowledgeFileRef
 ): Promise<MountedFile> {
 	const bytes = await fetchWithinCap(
-		`/api/v2/gateway/vector_stores/${ref.storeId}/files/${ref.documentId}/content`
+		`${base}/api/v2/gateway/vector_stores/${ref.storeId}/files/${ref.documentId}/content`
 	);
 	const body = JSON.parse(new TextDecoder().decode(bytes)) as {
 		filename?: string | null;
@@ -200,7 +201,7 @@ export async function mountConversationFile(
 	conversationId: string,
 	file: { name: string; value: string }
 ): Promise<MountedFile> {
-	const bytes = await fetchWithinCap(`/conversation/${conversationId}/output/${file.value}`);
+	const bytes = await fetchWithinCap(`${base}/conversation/${conversationId}/output/${file.value}`);
 	const written = await session.loadFiles([{ name: file.name, data: bytes }]);
 	return { path: written[0] ?? `${MOUNT_ROOT}/${file.name}`, name: file.name };
 }

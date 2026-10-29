@@ -1,3 +1,4 @@
+import { base } from "$app/paths";
 import { fetchWithinCap, FetchFailedError, OverCapError } from "./files";
 import {
 	MAX_ATTACHMENT_FILE_BYTES,
@@ -233,7 +234,7 @@ export class AttachmentMounter {
 		const verdict = checkAttachmentCaps(others, file.size);
 		if (verdict !== "ok") return this.turnAway(name, file, verdict, file.size);
 
-		const url = `/conversation/${this.conversationId}/code-execution/output/${file.sha256}`;
+		const url = `${base}/conversation/${this.conversationId}/code-execution/output/${file.sha256}`;
 		let bytes: ArrayBuffer;
 		try {
 			bytes = await fetchWithinCap(
@@ -351,7 +352,7 @@ export class AttachmentMounter {
 		name: string,
 		hash: string
 	): Promise<ArrayBuffer | undefined> {
-		const url = `/conversation/${this.conversationId}/output/${hash}`;
+		const url = `${base}/conversation/${this.conversationId}/output/${hash}`;
 		try {
 			return await fetchWithinCap(url, MAX_ATTACHMENT_FILE_BYTES);
 		} catch (err) {
