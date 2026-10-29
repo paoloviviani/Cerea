@@ -23,16 +23,7 @@
 		children: Snippet;
 	}
 
-	let {
-		id,
-		title,
-		pill,
-		description,
-		active = false,
-		actions,
-		children,
-		...rest
-	}: Props = $props();
+	let { id, title, pill, description, active = false, actions, children, testid }: Props = $props();
 </script>
 
 <section {id} class="{s.card(active)} scroll-mt-2" data-testid={testid}>
