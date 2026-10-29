@@ -1219,26 +1219,33 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   schemas change.
 - Files are named as `convert_document` names them (`conversationFiles.ts`:
   attachments by their `/mnt/data` name, produced files by name, this
-  conversation only, access re-checked on every read). The document tools prefer
-  the newest **produced** file of a name over an attachment of the same name, so
-  edits chain.
+  conversation only, access re-checked on every read). The document tools edit
+  the **current** version of a name, produced file or attachment — an
+  attachment re-uploaded under the name is the newest content by construction
+  and takes over as the edit source — so edits chain.
 - An edit is stored with `storeDeliverable` under the **source's name** (the
   next version of the same file artifact, which `collectFileArtifacts` folds by
   name), with `derivedFromSha256/Name` on the store row, and listed through an
   `Outputs` update (`runKey` `doc_edit:<uuid>`, so it renders as a file card).
   The original is never touched.
 - **Versions** (`conversationFiles.ts`, `listFileVersions`): a name's versions
-  are its attachment (1) and then each stored row of that name by `createdAt`;
-  numbers are stored on the row at insert (`version`, `fileVersions.ts`; old rows are numbered by position once), so expiring older rows never renumbers; rows are unique per (conversation, name, content). `doc_outline`, `doc_read`, `doc_edit`, `look_doc` and
+  are its attachment and its stored rows, one number per version (the
+  attachment is 1, or the next free number when it was uploaded after the
+  name already had versions; numbered at upload, `MessageFile.version`);
+  numbers are stored at insert (`version`, `fileVersions.ts`; old rows are numbered by position once), so expiring older rows never renumbers; rows are unique per (conversation, name, content, version). `doc_outline`, `doc_read`, `doc_edit`, `look_doc` and
   `convert_document` take `version` (a number, or "previous"; `parseVersion`,
   `VERSION_PROPERTY`), and `doc_outline` lists the versions (`file_versions`,
   when there is more than one), so no extra tool. `doc_edit` with `version` and
   no operations restores. The store keeps one row per content, so a result whose
   bytes equal an earlier version marks that row current (`latestAt`,
-  `markCurrentVersion`) instead of copying it; the current version is the row
-  with the latest `latestAt ?? createdAt`. The sandbox mounts the latest version
-  of every name at `/mnt/data/<name>` (`AttachmentMounter.syncProduced`, listed
-  per run from `code-execution/output`); earlier versions are not mounted. The
+  `markCurrentVersion`) instead of copying it; the current version is the one
+  that became newest last — a row by the latest `latestAt ?? createdAt`, the
+  attachment by its message's timestamp. The sandbox mounts the current
+  version of every name at `/mnt/data/<name>` (`AttachmentMounter.syncProduced`,
+  listed per run from `code-execution/output`): a produced row is mounted over
+  the attachment of that name unless the attachment is the current version —
+  a re-upload is the newest content by construction; earlier versions are not
+  mounted. The
   chat page registers its conversation with `trackAttachmentSource`
   (`$effect.pre`): a plain `$effect` runs after a child code card's run and the
   first run saw an empty `/mnt/data`.

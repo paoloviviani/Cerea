@@ -1133,7 +1133,7 @@ describe("telling the model where an attachment is in the sandbox", () => {
 			codeToolOffered: true,
 		});
 		expect(textOf(out)).toContain(
-			'<document name="report.pdf" type="text/markdown">\nThe file is available to code at /mnt/data/report.pdf (its latest version, if it has been edited).\n# Report'
+			'<document name="report.pdf" type="text/markdown">\nThe file is available to code at /mnt/data/report.pdf (its current version, if it has been edited).\n# Report'
 		);
 	});
 

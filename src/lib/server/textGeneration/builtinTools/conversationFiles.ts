@@ -110,6 +110,10 @@ export async function listFileVersions(
 	if (!attachment && rows.length === 0) return undefined;
 
 	const versions: FileVersion[] = [];
+	// The moment each entry last became the newest content of the name: a row
+	// by `latestAt ?? createdAt` (a restore moves it forward), the attachment
+	// by when its message was sent.
+	const liveAt: number[] = [];
 	if (attachment) {
 		versions.push({
 			// Numbered at upload when the name already had versions (a file
@@ -124,6 +128,7 @@ export async function listFileVersions(
 			current: false,
 			mime: attachment.planned.file.mime,
 		});
+		liveAt.push(attachment.at.getTime());
 	}
 	for (const row of rows) {
 		versions.push({
@@ -137,16 +142,16 @@ export async function listFileVersions(
 			current: false,
 			mime: row.mime,
 		});
+		liveAt.push(becameCurrentAt(row));
 	}
-	let latest = versions.length - 1;
-	if (rows.length > 0) {
-		const offset = attachment ? 1 : 0;
-		latest =
-			offset +
-			rows.reduce(
-				(best, row, i) => (becameCurrentAt(row) >= becameCurrentAt(rows[best]) ? i : best),
-				0
-			);
+	// The newest content of the name is current, produced file or attachment:
+	// an attachment re-uploaded under the name is the newest by construction,
+	// so the "(latest)" marker and the tools' default edit source land on it.
+	// A tie goes to the entry built later (a row over an attachment sent in the
+	// same millisecond), as the row-only comparison did before.
+	let latest = 0;
+	for (let i = 1; i < versions.length; i += 1) {
+		if (liveAt[i] >= liveAt[latest]) latest = i;
 	}
 	versions[latest].current = true;
 	// The numbers are the list's order, not the attachment-first one: an
@@ -166,9 +171,10 @@ export async function listFileVersions(
  * their bytes.
  *
  * `prefer` says which wins when an attachment and a produced file carry the
- * same name. `convert_document` keeps the attachment first; the document tools
- * take the newest produced file first, because an edit is saved under its
- * source's name as the next version and the next edit must start from it.
+ * same name. The document tools (and `convert_document`, `look_doc`) take the
+ * current version, whichever origin it is — an edit is saved under its source's
+ * name as the next version, so the next edit must start from the newest
+ * content, and a re-uploaded attachment is the newest by construction.
  * `version` picks one version outright (`listFileVersions` numbers them) and
  * ignores `prefer`.
  */
@@ -204,7 +210,7 @@ export async function findConversationFile(
 			};
 		}
 	} else if (options.prefer === "output") {
-		pick = current.origin === "output" ? current : versions[0];
+		pick = current;
 	} else {
 		// An attachment of that name first, as before the document tools — it is
 		// the list's first entry only when it is version 1.

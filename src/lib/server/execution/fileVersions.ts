@@ -8,7 +8,12 @@ export function isDuplicateKeyError(err: unknown): boolean {
 	return (err as { code?: number } | null | undefined)?.code === 11000;
 }
 
-/** The attachment of a conversation a name stands for, if there is one, and when it was sent. */
+/**
+ * The attachment of a conversation a name stands for, if there is one, and
+ * when it was sent: the NEWEST attachment of that name, so a re-uploaded file
+ * — numbered at upload as a later version of the name — is the one the
+ * version list and the tools see, not the superseded first upload.
+ */
 export async function attachmentNamed(
 	conversationId: Conversation["_id"],
 	wanted: string
@@ -20,10 +25,22 @@ export async function attachmentNamed(
 	const files: MessageFile[] = (conversation?.messages ?? []).flatMap(
 		(message) => message.files ?? []
 	);
-	const planned = planAttachments(files).find(
-		(entry) => entry.file.type === "hash" && (entry.name === wanted || entry.file.name === wanted)
+	// The plan lists files in message order, so the last match is the newest
+	// (Array.findLast needs ES2023; this code compiles for ES2018).
+	let planned: PlannedAttachment | undefined;
+	for (const entry of planAttachments(files)) {
+		if (entry.file.type === "hash" && (entry.name === wanted || entry.file.name === wanted))
+			planned = entry;
+	}
+	if (!planned) return undefined;
+	// When it was sent: the timestamp of the message that carries it (`files`
+	// keeps the message's own file object, so the match is by reference), the
+	// conversation's when the message carries none — the old reading, which
+	// keeps a message without a timestamp no newer than the produced rows.
+	const message = (conversation?.messages ?? []).find((sent) =>
+		(sent.files ?? []).some((file) => file === planned.file)
 	);
-	return planned ? { planned, at: conversation?.createdAt ?? new Date(0) } : undefined;
+	return { planned, at: message?.createdAt ?? conversation?.createdAt ?? new Date(0) };
 }
 
 /**
