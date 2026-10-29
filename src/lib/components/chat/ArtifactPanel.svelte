@@ -162,18 +162,33 @@
 	// block the call is about to append, so the preview carries over seamlessly
 	// when the real version lands. `identity` keys the live-preview cadence: a
 	// new version (or the draft handover) gets an immediate first paint.
+	// The executed call's canonical block is itself typed in word by word, so a
+	// version first exists as a truncated, still-streaming prefix of content the
+	// complete draft already holds. Until that version completes, the draft stays
+	// the preview source: swapping to the prefix would drop the finished preview
+	// back to the code tab and rebuild it (resetting a table's sort and filter).
+	let handoverDraft = $derived(
+		version &&
+			!version.complete &&
+			openDraft?.contentComplete === true &&
+			(openDraft.command === "create" || openDraft.command === "rewrite" || !openDraft.command)
+			? openDraft
+			: undefined
+	);
 	let draftSource = $derived.by(() => {
-		if (!pendingDraft?.artifactType) return undefined;
-		const kind = normalizeArtifactKind(pendingDraft.artifactType);
+		const source = pendingDraft ?? handoverDraft;
+		if (!source?.artifactType) return undefined;
+		const kind = normalizeArtifactKind(source.artifactType);
 		if (!isPreviewableKind(kind)) return undefined;
 		return {
 			kind,
-			content: pendingDraft.content,
-			complete: pendingDraft.contentComplete === true,
-			identity: `draft:${pendingDraft.toolCallId}`,
+			content: source.content,
+			complete: source.contentComplete === true,
+			identity: `draft:${source.toolCallId}`,
 		};
 	});
 	let previewSource = $derived.by(() => {
+		if (handoverDraft && draftSource) return draftSource;
 		if (version) {
 			return {
 				kind: version.type,
@@ -951,28 +966,29 @@
 			{/if}
 		{/snippet}
 
-		{#if !version && pendingDraft}
-			{#if effectiveTab === "preview"}
-				{@render previewBody()}
-			{:else}
-				<div class="flex h-full flex-col">
-					<div class="relative min-h-0 flex-1">
-						<div
-							class="prose h-full max-w-none text-smd dark:prose-invert prose-pre:my-0 prose-pre:h-full prose-pre:rounded-none"
-						>
-							<!-- Draft streams unhighlighted: the executed call's canonical
-							     block gets the full highlight pass once it lands. -->
-							<!-- eslint-disable svelte/no-at-html-tags -->
-							<pre class="scrollbar-custom h-full overflow-auto border-0! px-5 py-4 font-mono"><code
-									class="block">{@html escapeHTML(pendingDraft.content)}</code
-								></pre>
-						</div>
-						<div
-							class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-page/90 to-transparent"
-						></div>
+		<!-- One render site for the preview body, whatever its source: the draft →
+		     version handover must stay in the same branch so the grid (sort, filter,
+		     scroll) is not torn down and rebuilt when the turn ends. -->
+		{#if effectiveTab === "preview" && ((!version && pendingDraft) || (version && !fileVersion))}
+			{@render previewBody()}
+		{:else if !version && pendingDraft}
+			<div class="flex h-full flex-col">
+				<div class="relative min-h-0 flex-1">
+					<div
+						class="prose h-full max-w-none text-smd dark:prose-invert prose-pre:my-0 prose-pre:h-full prose-pre:rounded-none"
+					>
+						<!-- Draft streams unhighlighted: the executed call's canonical
+						     block gets the full highlight pass once it lands. -->
+						<!-- eslint-disable svelte/no-at-html-tags -->
+						<pre class="scrollbar-custom h-full overflow-auto border-0! px-5 py-4 font-mono"><code
+								class="block">{@html escapeHTML(pendingDraft.content)}</code
+							></pre>
 					</div>
+					<div
+						class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-page/90 to-transparent"
+					></div>
 				</div>
-			{/if}
+			</div>
 		{:else if fileVersion}
 			<FileArtifactView version={fileVersion} {conversationId} />
 		{:else if !version}
@@ -983,8 +999,6 @@
 					{m["chat.panel.no_file"]()}
 				{/if}
 			</div>
-		{:else if effectiveTab === "preview"}
-			{@render previewBody()}
 		{:else}
 			<div class="flex h-full flex-col">
 				<div class="relative min-h-0 flex-1">

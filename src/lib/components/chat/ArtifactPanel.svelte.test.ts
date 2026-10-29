@@ -325,6 +325,59 @@ describe("tool-mode drafts", () => {
 		await vi.waitFor(() => expect(body(screen).querySelector("table")).not.toBeNull());
 	});
 
+	it("a table's sort survives the draft to version handover", async () => {
+		sidePane.openArtifact("sales");
+		const csv = "name,amount\nbravo,20\nalpha,7\n";
+		const done = draft({
+			artifactType: "table",
+			title: "Sales",
+			content: csv,
+			contentComplete: true,
+		});
+		const screen = mountPanel({ loading: true, drafts: [done] });
+		await vi.waitFor(() => expect(body(screen).querySelector("table")).not.toBeNull());
+		const grid = body(screen).querySelector('[data-testid="table-grid"]');
+		await screen.getByRole("button", { name: "amount", exact: true }).click();
+		await vi.waitFor(() =>
+			expect(body(screen).querySelector('th[aria-sort="ascending"]')).not.toBeNull()
+		);
+
+		// The canonical block types in word by word: a truncated, still-streaming
+		// version appears while the complete draft is still around.
+		await screen.rerender({
+			registry: registryWith(
+				version({
+					identifier: "sales",
+					type: "table",
+					title: "Sales",
+					content: "name,amount\nbravo,",
+					complete: false,
+				})
+			),
+			fileRegistry: emptyFileRegistry,
+			items: [],
+			loading: true,
+			drafts: [done],
+		});
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(body(screen).querySelector('[data-testid="table-grid"]')).toBe(grid);
+		expect(body(screen).querySelector('th[aria-sort="ascending"]')).not.toBeNull();
+
+		// The turn ends: the canonical block lands and the draft goes away.
+		await screen.rerender({
+			registry: registryWith(
+				version({ identifier: "sales", type: "table", title: "Sales", content: csv })
+			),
+			fileRegistry: emptyFileRegistry,
+			items: [],
+			loading: false,
+			drafts: [],
+		});
+		await vi.waitFor(() => expect(body(screen).querySelector("table")).not.toBeNull());
+		expect(body(screen).querySelector('[data-testid="table-grid"]')).toBe(grid);
+		expect(body(screen).querySelector('th[aria-sort="ascending"]')).not.toBeNull();
+	});
+
 	it("a markdown draft already previews while its arguments stream", async () => {
 		sidePane.openArtifact("notes");
 		const screen = mountPanel({
