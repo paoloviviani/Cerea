@@ -289,7 +289,7 @@ describe("CodeBlock execution", () => {
 		expect(surface.querySelectorAll('[data-testid="file-artifact-card"]').length).toBe(1);
 		const card = surface.querySelector('[data-testid="file-artifact-card"]') as HTMLElement;
 		expect(getComputedStyle(card).borderTopWidth).toBe("0px");
-		// The surface spans the block's own column, like the "Ran Python" card:
+		// The surface spans the block's own column, like the "Ran code" card:
 		// same left edge, same width, no inset.
 		const block = screen.baseElement.querySelector(".group.relative") as HTMLElement;
 		expect(

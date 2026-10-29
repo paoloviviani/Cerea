@@ -52,10 +52,10 @@ const mount = (updates: unknown[]) =>
 	} as never);
 
 describe("an execute_code run in a message", () => {
-	it("is one card, 'Ran Python', with no separate 'Called tool' row (request names its call)", () => {
+	it("is one card, 'Ran code', with no separate 'Called tool' row (request names its call)", () => {
 		const view = mount([call("t1"), request("t1"), result("t1"), resolved]);
 		const out = view.baseElement.textContent ?? "";
-		expect(out).toContain("Ran Python");
+		expect(out).toContain("Ran code");
 		expect(out).not.toContain("Called tool");
 		expect(out).not.toContain("execute_code");
 		expect(view.baseElement.querySelectorAll('[data-testid="code-execution-card"]')).toHaveLength(
@@ -66,7 +66,7 @@ describe("an execute_code run in a message", () => {
 	it("is still one card for a message stored before the request carried its call's uuid", () => {
 		const view = mount([call("t1"), request(), result("t1"), resolved]);
 		const out = view.baseElement.textContent ?? "";
-		expect(out).toContain("Ran Python");
+		expect(out).toContain("Ran code");
 		expect(out).not.toContain("Called tool");
 		expect(out).not.toContain("execute_code");
 	});

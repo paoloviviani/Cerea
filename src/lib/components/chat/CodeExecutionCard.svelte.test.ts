@@ -107,9 +107,9 @@ describe("CodeExecutionCard file presentation (replay)", () => {
 			.toBeVisible();
 	});
 
-	it("shows one header row, 'Ran Python', and no separate tool line", async () => {
+	it("shows one header row, 'Ran code', and no separate tool line", async () => {
 		const screen = mount(SHA);
-		await expect.element(screen.getByText("Ran Python")).toBeVisible();
+		await expect.element(screen.getByText("Ran code")).toBeVisible();
 		expect(screen.baseElement.textContent).not.toContain("Called tool");
 		expect(screen.baseElement.textContent).not.toContain("Assistant-run code");
 		// The file is visible with the code folded.

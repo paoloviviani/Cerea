@@ -67,7 +67,7 @@ test("@smoke a stored run shows one header and the same card for every file, at 
 	const message = page.locator('[data-message-role="assistant"]').last();
 
 	// One header row, the run's own label; no separate tool line.
-	await expect(message.getByText("Ran Python")).toBeVisible();
+	await expect(message.getByText("Ran code")).toBeVisible();
 	await expect(message).not.toContainText("Called tool");
 	await expect(message).not.toContainText("execute_code");
 
