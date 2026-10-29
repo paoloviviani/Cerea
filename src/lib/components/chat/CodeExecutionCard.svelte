@@ -195,7 +195,9 @@
 	// the person can watch it, then collapse once it settles — a completed run's
 	// output is reference, not the thing they are waiting on. A replayed card
 	// (`resolved`, fresh load) starts collapsed for the same reason. The header
-	// stays the toggle, so an error or a finished result is one click away.
+	// stays the toggle, so an error or a finished result is one click away. A
+	// failed run says "Failed" in the header and nothing more while folded: a
+	// traceback means nothing to most users, and the model reads it anyway.
 	let isRunning = $derived(
 		!resolved &&
 			runState != null &&
@@ -205,12 +207,6 @@
 	);
 	let isOpen = $state(false);
 	let failed = $derived(!!displayState && displayState.status === "error" && !isRunning);
-	let errorText = $derived(
-		displayState?.sandboxError ??
-			displayState?.outcome?.error ??
-			displayState?.outcome?.stderr ??
-			""
-	);
 	let duration = $derived.by(() => {
 		const st = displayState;
 		if (!st?.finishedAt || !st.startedAt) return "";
@@ -281,12 +277,6 @@
 					: ''}"
 			/>
 		</button>
-		{#if failed && !isOpen && errorText}
-			<!-- The failure stays readable with the code folded. -->
-			<pre
-				class="mx-4 mb-3 scrollbar-custom max-h-28 overflow-y-auto rounded-lg bg-amber-50 p-2 font-mono text-xs break-all whitespace-pre-wrap text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
-				data-testid="run-error">{errorText}</pre>
-		{/if}
 		{#if isOpen}
 			<div class="space-y-2 border-t border-gray-300/50 px-4 py-3 dark:border-gray-600/40">
 				<pre
