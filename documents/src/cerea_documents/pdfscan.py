@@ -95,16 +95,48 @@ def _load(page: Any, name: str) -> Any | None:
         width, height = int(item["/Width"]), int(item["/Height"])
         if width < 100 or height < 100 or width * height > MAX_PIXELS:
             return None
-        pictures = page.images
-        if len(pictures) != 1:
+        image = _decode(page, item)
+        if image is None:
             return None
-        image = pictures[0].image.convert("L")
     except Exception:
         return None
     scale = WORK_SIDE / max(image.size)
     if scale < 1:
         image = image.resize((max(1, round(image.width * scale)), max(1, round(image.height * scale))))
     return image
+
+
+def _decode(page: Any, item: Any) -> Any | None:
+    """The image as an 8-bit grey Pillow image, never decoding more than MAX_PIXELS pixels: the size the PDF
+    declares is not the size the pixel data has, so the data's own header is checked before anything is decoded.
+    A JPEG is decoded already reduced (Pillow's draft mode)."""
+    import io
+    import warnings
+
+    from PIL import Image
+
+    saved = Image.MAX_IMAGE_PIXELS
+    Image.MAX_IMAGE_PIXELS = MAX_PIXELS
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            if item.get("/Filter") == "/DCTDecode":
+                picture = Image.open(io.BytesIO(item.get_data()))
+                if picture.width * picture.height > MAX_PIXELS:
+                    return None
+                picture.draft("L", (WORK_SIDE, WORK_SIDE))
+            else:
+                pictures = page.images
+                if len(pictures) != 1:
+                    return None
+                picture = pictures[0].image
+                if picture.width * picture.height > MAX_PIXELS:
+                    return None
+            return picture.convert("L")
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning, OSError, ValueError):
+        return None
+    finally:
+        Image.MAX_IMAGE_PIXELS = saved
 
 
 def _threshold(grey: Any) -> Any:

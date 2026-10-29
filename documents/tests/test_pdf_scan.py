@@ -109,3 +109,47 @@ def test_a_page_with_text_is_not_analysed_and_a_blank_scan_does_not_fail() -> No
     pdf.save()
     page = outline(buffer.getvalue())["pages"][0]
     assert page.get("rules", []) == [] and "skew_deg" not in page
+
+
+def _jpeg_page(declared: int, real: int) -> bytes:
+    """A PDF whose one image declares `declared` pixels a side and carries a JPEG that is `real` a side."""
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject
+
+    jpeg = io.BytesIO()
+    Image.new("L", (real, real), 255).save(jpeg, format="JPEG", quality=30)
+    writer = PdfWriter()
+    page = writer.add_blank_page(A4[0], A4[1])
+    image = DecodedStreamObject()
+    image.set_data(jpeg.getvalue())
+    image.update(
+        {
+            NameObject("/Type"): NameObject("/XObject"),
+            NameObject("/Subtype"): NameObject("/Image"),
+            NameObject("/Width"): NumberObject(declared),
+            NameObject("/Height"): NumberObject(declared),
+            NameObject("/ColorSpace"): NameObject("/DeviceGray"),
+            NameObject("/BitsPerComponent"): NumberObject(8),
+            NameObject("/Filter"): NameObject("/DCTDecode"),
+        }
+    )
+    ref = writer._add_object(image)
+    page[NameObject("/Resources")] = DictionaryObject(
+        {NameObject("/XObject"): DictionaryObject({NameObject("/Im0"): ref})}
+    )
+    content = DecodedStreamObject()
+    content.set_data(f"q {A4[0]} 0 0 {A4[1]} 0 0 cm /Im0 Do Q".encode())
+    page[NameObject("/Contents")] = writer._add_object(content)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def test_an_image_larger_than_it_declares_is_not_decoded() -> None:
+    import time
+
+    started = time.monotonic()
+    page = outline(_jpeg_page(1000, 8000))["pages"][0]  # 64 megapixels of data under a 1 megapixel header
+    assert "image_only" not in page and "skew_deg" not in page
+    assert time.monotonic() - started < 5
+    assert Image.MAX_IMAGE_PIXELS != 36_000_000  # the limit is only held while decoding
