@@ -64,7 +64,9 @@ PLACE_TEXT_SCHEMA: dict[str, Any] = {
             "minItems": 1,
             "maxItems": 300,
             "description": "Text to draw, one line per item. page is 1-based; x and y are PDF points from the page's "
-            "bottom left, where the text starts on its baseline (doc_outline gives the lines' positions).",
+            "bottom left, where the text starts on its baseline (doc_outline gives the lines' positions). Text runs "
+            "horizontally unless an item says `rotate` (degrees, counter-clockwise) or `along` ([x1, y1, x2, y2]: the "
+            "baseline starts at (x1, y1) and runs toward (x2, y2), for a line that is not level, such as a scanned page).",
             "items": {
                 "type": "object",
                 "properties": {
@@ -74,8 +76,24 @@ PLACE_TEXT_SCHEMA: dict[str, Any] = {
                     "text": {"type": "string", "minLength": 1},
                     "size": {"type": "number", "description": "Points, 4 to 72; default 10."},
                     "font": {"type": "string", "description": '"Helvetica" (default) or "Helvetica-Bold".'},
+                    "rotate": {
+                        "type": "number",
+                        "description": "Turn the text this many degrees counter-clockwise about (x, y).",
+                    },
+                    "along": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "description": "[x1, y1, x2, y2]: instead of x, y and rotate. The text starts at (x1, y1) and "
+                        "follows the line toward (x2, y2).",
+                    },
+                    "fit": {
+                        "type": "boolean",
+                        "description": "With along: shrink the text (down to 6 pt) to fit the line's length.",
+                    },
                 },
-                "required": ["page", "x", "y", "text"],
+                "required": ["page", "text"],
                 "additionalProperties": False,
             },
         },
