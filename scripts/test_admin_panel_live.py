@@ -110,7 +110,7 @@ def main() -> int:
 
 def negative_flow(c: httpx.Client) -> None:
     print("\nthe panel explains rather than crashing:")
-    r = c.get(f"{CHAT}/admin/fetch")
+    r = c.get(f"{CHAT}/admin/web")
     check("the page loads at all", r.status_code == 200, str(r.status_code))
     # A 500 here would be the failure mode of asking the gateway badly, and
     # a rendered panel would be the failure mode of not asking it.
@@ -164,7 +164,7 @@ def positive_flow(c: httpx.Client) -> None:
     deployment-wide value is changed — this run must not flip live settings
     to prove it can read them."""
     print("\nthe panel renders the settings for an administrator:")
-    r = c.get(f"{CHAT}/admin/fetch")
+    r = c.get(f"{CHAT}/admin/web")
     check("the page loads at all", r.status_code == 200, str(r.status_code))
     check(
         "it shows the settings, not a refusal",

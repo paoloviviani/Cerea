@@ -3,6 +3,9 @@
 	choice on the Knowledge screen, and the same shape: the gateway offers the
 	backends, an administrator picks one, an env value (`WEB_SEARCH_MODEL`)
 	overrides it.
+
+	A section of the Web tab (`/admin/web#web-search`), beside fetching; the
+	anchor id is what the old `/admin/web-search` URL redirects to.
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
@@ -76,7 +79,8 @@
 {#snippet code(text: string)}<code>{text}</code>{/snippet}
 
 <form
-	class="flex flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700"
+	id="web-search"
+	class="flex scroll-mt-4 flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700"
 	onsubmit={save}
 >
 	<div class="flex flex-col gap-1">

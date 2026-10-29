@@ -1,6 +1,8 @@
 <!--
 	The deployment's instructions for every chat: one text, and whether users
 	can read it in Settings. Chat only; coding agents never get it.
+
+	A section of the Assistant tab (`/admin/assistant#instructions`).
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
@@ -85,7 +87,10 @@
 
 {#snippet code(value: string)}<code>{value}</code>{/snippet}
 
-<section class="flex flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
+<section
+	id="instructions"
+	class="flex scroll-mt-4 flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700"
+>
 	<div class="flex flex-col gap-1">
 		<h2 class="font-medium">{m["admin.instructions.title"]()}</h2>
 		<p class="text-xs text-gray-500 dark:text-gray-400">{m["admin.instructions.description"]()}</p>

@@ -19,17 +19,19 @@
 	import { base } from "$app/paths";
 	import IconBook from "~icons/carbon/book";
 	import IconDataBase from "~icons/carbon/data-base";
-	import IconDocument from "~icons/carbon/document";
-	import IconMicrophone from "~icons/carbon/microphone";
+	import IconEarth from "~icons/carbon/earth";
 	import IconLaunch from "~icons/carbon/launch";
 	import IconPlug from "~icons/carbon/plug";
 	import IconBot from "~icons/lucide/bot";
-	import IconSearch from "~icons/carbon/search";
+	import IconMagicWand from "~icons/carbon/magic-wand";
 	import SectionSwitcher from "$lib/components/nav/SectionSwitcher.svelte";
 	import type { LayoutServerData } from "./$types";
 
 	let { data, children }: { data: LayoutServerData; children: import("svelte").Snippet } = $props();
 
+	// Six tabs, so the row stays on one line. Web (search + fetching) and
+	// Assistant (instructions + sub-agents + voice) each stack what used to be
+	// separate tabs as sections with anchors; the old addresses redirect there.
 	// Only what exists. A tab leading to a 404 is
 	// worse than a tab that is not there. The Knowledge section hides when the
 	// deployment switch says the pipeline is off (FeatureFlags.knowledgeEnabled,
@@ -39,17 +41,10 @@
 		...((page.data as { knowledgeEnabled?: boolean }).knowledgeEnabled !== false
 			? [{ href: "/admin/knowledge", label: m["admin.layout.section.knowledge"](), icon: IconBook }]
 			: []),
-		{ href: "/admin/web-search", label: m["admin.layout.section.web_search"](), icon: IconSearch },
-		{ href: "/admin/fetch", label: m["admin.layout.section.fetching"](), icon: IconDocument },
+		{ href: "/admin/web", label: m["admin.layout.section.web"](), icon: IconEarth },
 		{ href: "/admin/connectors", label: m["admin.layout.section.connectors"](), icon: IconPlug },
-		{ href: "/admin/skills", label: m["admin.layout.section.skills"](), icon: IconDocument },
-		{ href: "/admin/voice", label: m["admin.layout.section.voice"](), icon: IconMicrophone },
-		{
-			href: "/admin/instructions",
-			label: m["admin.layout.section.instructions"](),
-			icon: IconDocument,
-		},
-		{ href: "/admin/delegation", label: m["admin.layout.section.sub_agents"](), icon: IconBot },
+		{ href: "/admin/skills", label: m["admin.layout.section.skills"](), icon: IconMagicWand },
+		{ href: "/admin/assistant", label: m["admin.layout.section.assistant"](), icon: IconBot },
 		{ href: "/admin/storage", label: m["admin.layout.section.storage"](), icon: IconDataBase },
 	]);
 
@@ -112,31 +107,41 @@
 	-->
 	<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 p-6">
 		<header class="flex flex-col gap-1">
-			<h1 class="text-xl font-semibold">{m["admin.layout.title"]()}</h1>
+			<!-- The title row: the title at the start and, when it is on, the
+			     way out to the console at the end. The section switcher (phone
+			     widths only) stays on its own line under it. -->
+			<div class="flex items-center justify-between gap-3">
+				<h1 class="text-xl font-semibold">{m["admin.layout.title"]()}</h1>
+				{#if (page.data as { consoleEnabled?: boolean }).consoleEnabled}
+					<!-- Not a section of this panel but a way out of it: the platform
+					     side — providers, models, prices, quotas, users — lives in the
+					     Pystino console, same origin. A small outlined button,
+					     deliberately unlike the tabs below so nobody expects a panel to
+					     open under it; the split is by whose decision it is (the file
+					     header), not by which service stores the data. The short label
+					     keeps the title row to one line; the full sentence is its
+					     tooltip and its accessible name, so it is still said in full.
+					     Gated on the deployment flag (FeatureFlags.consoleEnabled,
+					     CHAT_CONSOLE_ENABLED): a standalone profile's origin does not
+					     serve /console — satellite's is central's, generic has none —
+					     and a link to an unserved path would be a 404 wearing a
+					     feature's name. -->
+					<a
+						href="/console"
+						title={m["admin.layout.console_link"]()}
+						aria-label={m["admin.layout.console_link"]()}
+						class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-300 px-2.5 py-1 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+					>
+						<IconLaunch class="size-4" />
+						{m["admin.layout.console"]()}
+					</a>
+				{/if}
+			</div>
 			<SectionSwitcher
 				label={m["admin.layout.sections_label"]()}
 				sections={switcherSections}
 				current={currentSection}
 			/>
-			{#if (page.data as { consoleEnabled?: boolean }).consoleEnabled}
-				<!-- Not a section of this panel but a way out of it: the platform
-				     side — providers, models, prices, quotas, users — lives in the
-				     Pystino console, same origin. A link, deliberately styled
-				     unlike the tabs below so nobody expects a panel to open under
-				     it; the split is by whose decision it is (the file header),
-				     not by which service stores the data. Gated on the deployment
-				     flag (FeatureFlags.consoleEnabled, CHAT_CONSOLE_ENABLED): a
-				     standalone profile's origin does not serve /console —
-				     satellite's is central's, generic has none — and a link to
-				     an unserved path would be a 404 wearing a feature's name. -->
-				<a
-					href="/console"
-					class="inline-flex w-fit items-center gap-1.5 text-sm text-blue-600 hover:underline dark:text-blue-400"
-				>
-					<IconLaunch class="size-4" />
-					{m["admin.layout.console_link"]()}
-				</a>
-			{/if}
 		</header>
 
 		<nav

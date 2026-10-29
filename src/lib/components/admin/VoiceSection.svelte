@@ -2,6 +2,8 @@
 	Whether the composer offers dictation with the browser's own speech
 	recognition. Sits beside the server-side recorder (the transcription model),
 	and the default keeps the two from showing together.
+
+	A section of the Assistant tab (`/admin/assistant#voice`).
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
@@ -91,7 +93,10 @@
 
 {#snippet code(text: string)}<code>{text}</code>{/snippet}
 
-<section class="flex flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
+<section
+	id="voice"
+	class="flex scroll-mt-4 flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700"
+>
 	<div class="flex flex-col gap-1">
 		<h2 class="font-medium">{m["admin.voice.title"]()}</h2>
 		<p class="text-xs text-gray-500 dark:text-gray-400">

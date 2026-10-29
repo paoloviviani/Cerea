@@ -1,6 +1,8 @@
 <!--
 	Whether the assistant may hand work to sub-agents: the `delegate` tool and
 	the `research` preset. On by default; this is the deployment's off switch.
+
+	A section of the Assistant tab (`/admin/assistant#sub-agents`).
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
@@ -68,7 +70,10 @@
 
 {#snippet code(text: string)}<code>{text}</code>{/snippet}
 
-<section class="flex flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
+<section
+	id="sub-agents"
+	class="flex scroll-mt-4 flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700"
+>
 	<div class="flex flex-col gap-1">
 		<h2 class="font-medium">{m["admin.delegation.title"]()}</h2>
 		<p class="text-xs text-gray-500 dark:text-gray-400">

@@ -142,27 +142,18 @@ describe("the switcher on the pages", () => {
 		const data = (isAdmin: boolean) => ({ signedIn: true, identity: { isAdmin } });
 		const admin = renderWithApp(AdminLayout, { data: data(true), children: nothing } as never, {
 			page: {
-				url: "http://localhost:3000/admin/fetch",
+				url: "http://localhost:3000/admin/web",
 				data: { knowledgeEnabled: false },
 			},
 		});
-		await expect.element(trigger()).toHaveTextContent("Fetching");
+		await expect.element(trigger()).toHaveTextContent("Web");
 		await trigger().click();
 		// Knowledge hides with its pipeline, as it does in the tab row.
-		expect(sheetLabels()).toEqual([
-			"Web search",
-			"Fetching",
-			"Connectors",
-			"Skills",
-			"Voice",
-			"Assistant instructions",
-			"Sub-agents",
-			"Storage",
-		]);
+		expect(sheetLabels()).toEqual(["Web", "Connectors", "Skills", "Assistant", "Storage"]);
 		admin.unmount();
 
 		renderWithApp(AdminLayout, { data: data(false), children: nothing } as never, {
-			page: { url: "http://localhost:3000/admin/fetch" },
+			page: { url: "http://localhost:3000/admin/web" },
 		});
 		expect(document.querySelector('[data-testid="section-switcher"]')).toBeNull();
 	});

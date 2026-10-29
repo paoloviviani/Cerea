@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "@vitest/browser/context";
 
-import Page from "./+page.svelte";
+import Page from "./InstructionsSection.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 
 vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_APP_NAME: "chat-ui" } }));

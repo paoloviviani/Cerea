@@ -9,13 +9,10 @@ import { page } from "@vitest/browser/context";
 
 import Layout from "./+layout.svelte";
 import Connectors from "./connectors/+page.svelte";
-import Delegation from "./delegation/+page.svelte";
-import Instructions from "./instructions/+page.svelte";
-import Fetching from "./fetch/+page.svelte";
 import Knowledge from "./knowledge/+page.svelte";
 import Storage from "./storage/+page.svelte";
-import Voice from "./voice/+page.svelte";
-import WebSearch from "./web-search/+page.svelte";
+import Web from "./web/+page.svelte";
+import Assistant from "./assistant/+page.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import {
 	unbracketedWords,
@@ -68,39 +65,33 @@ describe("Administration, in the pseudo-locale", () => {
 			{ children, data: { signedIn: true, identity: { email: "a@b.c", isAdmin: true } } } as never,
 			{ page: { data: { consoleEnabled: true } } }
 		);
-		await expect.element(page.getByText(en("admin.layout.console_link"))).toBeVisible();
+		await expect.element(page.getByText(en("admin.layout.console"))).toBeVisible();
 		expect(unbracketedWords()).toEqual([]);
 	});
 
-	it("renders Sub-agents", async () => {
-		usePseudoLocale();
-		stub({ "/admin/delegation": { enabled: true, configurable: false } });
-		renderWithApp(Delegation, {});
-		await expect.element(page.getByText(en("admin.delegation.title"))).toBeVisible();
-		expect(unbracketedWords(["CHAT_DELEGATION", "research", "delegate"])).toEqual([]);
-	});
-
-	it("renders Assistant instructions", async () => {
+	it("renders Assistant: instructions, sub-agents and voice", async () => {
 		usePseudoLocale();
 		stub({
+			"/admin/delegation": { enabled: true, configurable: false },
 			"/admin/instructions": { instructions: "", visible: true, max: 4000, configurable: false },
-		});
-		renderWithApp(Instructions, {});
-		await expect.element(page.getByText(en("admin.instructions.title"))).toBeVisible();
-		expect(unbracketedWords(["ADMIN_INSTRUCTIONS"])).toEqual([]);
-	});
-
-	it("renders Voice", async () => {
-		usePseudoLocale();
-		stub({
 			"/admin/dictation": { mode: "fallback", transcriptionEnabled: true, configurable: false },
 		});
-		renderWithApp(Voice, {});
+		renderWithApp(Assistant, {});
+		await expect.element(page.getByText(en("admin.instructions.title"))).toBeVisible();
+		await expect.element(page.getByText(en("admin.delegation.title"))).toBeVisible();
 		await expect.element(page.getByText(en("admin.voice.option.yes.title"))).toBeVisible();
-		expect(unbracketedWords(["CHAT_DICTATION"])).toEqual([]);
+		expect(
+			unbracketedWords([
+				"ADMIN_INSTRUCTIONS",
+				"CHAT_DELEGATION",
+				"CHAT_DICTATION",
+				"research",
+				"delegate",
+			])
+		).toEqual([]);
 	});
 
-	it("renders Web search", async () => {
+	it("renders Web: web search and fetching", async () => {
 		usePseudoLocale();
 		stub({
 			"/admin/web-search": {
@@ -110,22 +101,14 @@ describe("Administration, in the pseudo-locale", () => {
 				source: "stored",
 				stale: true,
 			},
-		});
-		renderWithApp(WebSearch, {});
-		await expect.element(page.getByText(en("admin.web_search.backend.label"))).toBeVisible();
-		expect(unbracketedWords()).toEqual([]);
-	});
-
-	it("renders Fetching", async () => {
-		usePseudoLocale();
-		stub({
 			"/admin/fetching": {
 				backend: "playwright",
 				configurable: false,
 				playwright: { reachable: false, reason: "refused" },
 			},
 		});
-		renderWithApp(Fetching, {});
+		renderWithApp(Web, {});
+		await expect.element(page.getByText(en("admin.web_search.backend.label"))).toBeVisible();
 		await expect.element(page.getByText(en("admin.fetch.option.direct.title"))).toBeVisible();
 		expect(unbracketedWords(["FETCH_BACKEND", "PLAYWRIGHT_WS_ENDPOINT", "refused"])).toEqual([]);
 	});
