@@ -195,10 +195,13 @@ jobs:
         with: { fetch-depth: 0 }
       # The trailer rule has a local hook (.husky/commit-msg, the shared script
       # scripts/check_no_ai_trailers.sh), but a hook only runs where its shims
-      # exist, and MAINTAINING.md rule 1 wants the history clean regardless:
-      # CI sees every commit whatever the local hook state. This is the one
-      # job with a full-history checkout, and it runs on every push, PR and
-      # dispatch, so the check rides it rather than paying a job of its own.
+      # exist, and MAINTAINING.md rule 1 wants the history clean regardless.
+      # This job has the one full-history checkout and runs on most pushes,
+      # PRs and dispatches — but this workflow's own paths-ignore (docs,
+      # markdown, kit) skips it when every changed file is excluded, so it is
+      # not the whole guarantee: commit-messages.yml carries the same check
+      # with no paths-ignore, so the rule holds whatever the local hook state
+      # and whatever the changed files.
       - name: Commit messages carry no AI attribution
         env:
           EVENT: ${{ github.event_name }}
