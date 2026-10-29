@@ -47,8 +47,18 @@ with all of them, newest first: the title, when it was last used, the model,
 and the project it belongs to if it is in one. The search box is ready as soon
 as the page opens; type part of a title and the list narrows. Capitals and
 accents do not matter (`cafe` finds _Café Müller_), and what you type is taken
-literally, so `c++` finds exactly that. Only titles are searched, not what was
-said in the chats. Your own chats in projects are included; a colleague's chats
+literally, so `c++` finds exactly that. What was said in the chats is searched
+too, once you have finished a word: type a space, press **Enter**, or pause for a
+moment. Chats found that way show a short piece of the message under the title,
+with your words marked and who said it (you or the assistant). Chats whose title
+matches come first, then the best matches in the text. Several words must all be
+in the chat (not necessarily the same message); put them in quotes to find the
+exact phrase (`"codice fiscale"`), or put `-` before a word to leave out chats that
+have it. Words are matched whole and as typed, so `cat` does not find
+_concatenate_, and there is no matching of other forms of the word (`run` does
+not find _running_). Only what you and the assistant wrote is searched, not
+reasoning, tool results or the contents of attachments. Your own chats in projects
+are included; a colleague's chats
 in a project shared with you are in that project's page, not here. Click a row
 to open the conversation. Each row's `⋯` menu offers **Move to project…**,
 **Remove from project** when the chat is in one, and **Delete**, which asks for

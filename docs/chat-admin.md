@@ -272,6 +272,25 @@ period, or none, keeps everything that still exists. The value is stored in the
 chat's configuration and overrides `CHAT_FILE_RETENTION_DAYS`; with
 `ENABLE_CONFIG_MANAGER` off it can only be set in the environment.
 
+## Searching message text
+
+The **Chats** page searches what was said in chats with a MongoDB text index on
+the `conversations` collection (`conversations_text`, over titles and message
+text, no stemming so it serves any language). The chat creates it **once at
+startup**, in the background, so the app is usable while it builds; until it
+finishes, searches match titles only. On a large installation this takes minutes
+and a lot of disk read, then nothing more is needed: MongoDB keeps it current
+as chats are written.
+
+The index costs disk and a little write time: it holds an entry for every distinct
+word of every chat, so it can grow to a sizeable fraction of the message text
+already stored (the figure depends on your data; check `db.conversations.stats()`
+indexSizes after the first build). Check free
+space on the database volume before upgrading a very large installation. It is
+the only text index the collection can have. MongoDB 4.4 and 8 both support it.
+Dropping the index (`conversations_text`) turns message search off without
+harming anything else; the next start rebuilds it.
+
 ## Everything else is the console
 
 Users, groups, providers, models, prices, quotas and redaction are not here. If

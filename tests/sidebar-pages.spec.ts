@@ -10,6 +10,10 @@
  */
 import { test, expect, seedConversation, E2E_APP_BASE } from "./fixtures.ts";
 import { ObjectId, type Db } from "mongodb";
+import {
+	CONVERSATION_TEXT_INDEX_KEYS,
+	CONVERSATION_TEXT_INDEX_OPTIONS,
+} from "../src/lib/server/conversationTextIndex.ts";
 
 async function installUserSession(db: Db, sessionId: string): Promise<ObjectId> {
 	const now = new Date();
@@ -77,7 +81,7 @@ test.describe("the sidebar's Projects and Chats headers", () => {
 		await page.waitForURL(`**${E2E_APP_BASE}/chats`);
 
 		// The search box has the focus the moment the page opens.
-		const search = page.getByRole("searchbox", { name: "Search chats by title" });
+		const search = page.getByRole("searchbox", { name: "Search your chats" });
 		await expect(search).toBeFocused();
 
 		// Every chat, newest first, the project chat marked with its project.
@@ -128,6 +132,43 @@ test.describe("the sidebar's Projects and Chats headers", () => {
 		await page.getByRole("button", { name: "Clear search" }).click();
 		await expect(page.getByTestId("chats-row")).toHaveCount(4);
 		await expect(page.getByRole("searchbox")).toHaveValue("");
+	});
+
+	test("a word found only in a message shows its snippet, once the word is finished", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const userId = await installUserSession(db, session.sessionId);
+		await seedChats(db, session.sessionId, userId);
+		// The app builds this in the background at startup; make sure it is there.
+		await db
+			.collection("conversations")
+			.createIndex({ ...CONVERSATION_TEXT_INDEX_KEYS }, { ...CONVERSATION_TEXT_INDEX_OPTIONS });
+		await seedConversation(db, session.sessionId, {
+			title: "Dessert ideas",
+			messages: [
+				{ from: "system", content: "" },
+				{ from: "user", content: "What can I make with almonds?" },
+				{ from: "assistant", content: "Try a **Marzipan** loaf with orange zest." },
+			],
+			raw: { userId, updatedAt: minutesAgo(2) },
+		});
+
+		await page.goto(`${E2E_APP_BASE}/chats`);
+		await expect(page.getByTestId("chats-row")).toHaveCount(5);
+
+		const search = page.getByRole("searchbox", { name: "Search your chats" });
+		await search.pressSequentially("marzipan");
+		await search.press("Enter");
+		const rows = page.getByTestId("chats-row");
+		await expect(rows).toHaveCount(1);
+		await expect(rows.first()).toContainText("Dessert ideas");
+		await expect(page.getByTestId("chats-snippet")).toContainText("Try a Marzipan loaf");
+		await expect(page.getByTestId("chats-snippet").locator("mark")).toHaveText("Marzipan");
+
+		await rows.first().click();
+		await page.waitForURL(`**${E2E_APP_BASE}/conversation/*`);
 	});
 
 	test("with no chats at all, the page says so and offers a new one", async ({

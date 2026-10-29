@@ -5,9 +5,11 @@
 	The sidebar's Chats branch is the recent ones, grouped by day, and a chat
 	inside a project is shown under the project instead. This is the "find
 	anything" list: **every** chat, project chats included (marked with their
-	project), newest first, filtered by **title** on the server —
+	project), newest first, filtered on the server —
 	`GET /api/v2/conversations?q=` — so a chat from last year is found without
-	scrolling to it. Message text is not searched.
+	scrolling to it. Titles match as you type; message text is searched too
+	(`content=1`) once the words are finished: the input ends with a space, Enter
+	is pressed, or typing pauses for a moment. Those rows show a snippet.
 
 	The search box has focus when the page opens, filters as you type (after a
 	short pause, so a word is one request and not five), and ignores case and
@@ -27,6 +29,7 @@
 	import { formatDateTime } from "$lib/i18n/format";
 	import { FULL_DATE_TIME } from "$lib/i18n/dateOptions";
 	import type { ProjectView } from "$lib/types/Project";
+	import ChatSnippet from "./ChatSnippet.svelte";
 	import InfiniteScroll from "$lib/components/InfiniteScroll.svelte";
 	import * as s from "$lib/components/overlay/styles";
 	import IconAddLarge from "~icons/carbon/add-large";
@@ -48,6 +51,8 @@
 		model?: string;
 		updatedAt: Date;
 		projectId?: string;
+		/** Set when the chat was found by what was said in it. */
+		snippet?: { text: string; spans: [number, number][]; from: "user" | "assistant" };
 	}
 
 	const client = useAPIClient();
@@ -99,6 +104,9 @@
 	/** Bumped on every new search, so a slow answer to an old one is dropped. */
 	let generation = 0;
 	let debounce: ReturnType<typeof setTimeout> | undefined;
+	let idle: ReturnType<typeof setTimeout> | undefined;
+	/** Whether the current `query` also searches message text. */
+	let withContent = false;
 
 	const models = $derived(
 		new Map<string, string>(
@@ -121,7 +129,13 @@
 		const asked = nextPage;
 		try {
 			const result = await client.conversations
-				.get({ query: { p: asked, ...(query.trim() ? { q: query.trim() } : {}) } })
+				.get({
+					query: {
+						p: asked,
+						...(query.trim() ? { q: query.trim() } : {}),
+						...(query.trim() && withContent ? { content: 1 } : {}),
+					},
+				})
 				.then(handleResponse);
 			if (mine !== generation) return;
 			rows = reset ? result.conversations : [...rows, ...result.conversations];
@@ -145,20 +159,30 @@
 		}
 	}
 
+	/** Search for `input`, with message text when `content`; a repeat is not sent again. */
+	function run(content: boolean) {
+		const wanted = content && /[\p{L}\p{N}]{2}/u.test(input);
+		if (input.trim() === query.trim() && wanted === withContent) return;
+		query = input;
+		withContent = wanted;
+		void load(true);
+	}
+
 	function onInput() {
 		clearTimeout(debounce);
-		debounce = setTimeout(() => {
-			if (input.trim() === query.trim()) return;
-			query = input;
-			void load(true);
-		}, 250);
+		clearTimeout(idle);
+		// Titles as you type; message text once a word is finished.
+		debounce = setTimeout(() => run(/\s$/.test(input)), 250);
+		idle = setTimeout(() => run(true), 900);
 	}
 
 	async function clear() {
 		clearTimeout(debounce);
+		clearTimeout(idle);
 		input = "";
 		if (query !== "") {
 			query = "";
+			withContent = false;
 			void load(true);
 		}
 		await tick();
@@ -176,7 +200,10 @@
 				projectNames = Object.fromEntries(data.map((project) => [project.id, project.name]));
 			})
 			.catch(() => undefined);
-		return () => clearTimeout(debounce);
+		return () => {
+			clearTimeout(debounce);
+			clearTimeout(idle);
+		};
 	});
 </script>
 
@@ -251,6 +278,11 @@
 				bind:value={input}
 				oninput={onInput}
 				onkeydown={(event) => {
+					if (event.key === "Enter") {
+						clearTimeout(debounce);
+						clearTimeout(idle);
+						run(true);
+					}
 					if (event.key === "Escape" && input) {
 						event.preventDefault();
 						void clear();
@@ -264,6 +296,7 @@
 				maxlength={MAX_TITLE_QUERY_LENGTH}
 				autocomplete="off"
 				spellcheck="false"
+				aria-describedby="chats-search-hint"
 				class="{s.SEARCH} pr-9 pl-9 [&::-webkit-search-cancel-button]:hidden"
 			/>
 			{#if input}
@@ -277,6 +310,10 @@
 				</button>
 			{/if}
 		</div>
+
+		<p id="chats-search-hint" class="-mt-3 mb-5 text-xs text-ink-faint">
+			{m["chat.list.search_hint"]()}
+		</p>
 
 		{#if failure}
 			<p class="{s.ERROR} mb-4">{failure}</p>
@@ -314,6 +351,7 @@
 										</span>
 									{/if}
 								</div>
+								{#if row.snippet}<ChatSnippet snippet={row.snippet} />{/if}
 							</div>
 						</a>
 						<div class="absolute top-2 right-2">
