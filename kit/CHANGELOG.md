@@ -5,6 +5,36 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.32.5 — 2026-10-29
+
+Pins: Cerea `0.32.5` (chat and `cerea-documents`), Pystino `0.19.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required.
+
+- **The sandbox sees the conversation's files again.** On deployments served
+  under a base path, the sandbox's downloads dropped that base path, every
+  mount was silently skipped and `/mnt/data` looked empty. Attachments,
+  produced files and knowledge mounts are mounted again — a code step after a
+  document step finds the document, on a fresh page load and in a
+  conversation reopened later.
+- **Flattened PDFs report their values at the right positions.** The text
+  extraction now applies the placement in effect when a form's flattened
+  content is drawn (values were reported at the page's bottom-left corner),
+  so the assistant can check a filled form against the real layout instead
+  of inventing a caveat.
+- **PDF forms: two answers ready.** The filled values are vector text
+  (Helvetica), sharp in the file; macOS Preview shows them soft until the
+  field is clicked — a viewer quirk, not the file. If the form will be sent
+  or printed and must look the same everywhere, ask for the flattened copy.
+- **The admin screens consolidate from nine tabs to six** — Knowledge, Web,
+  Connectors, Skills, Assistant, Storage — with the five old addresses
+  redirecting to their sections (bookmarks keep working) and a Console
+  button in the title row when the console is enabled.
+- **Artifacts preview during the turn.** A preview appears as soon as the
+  artifact's content is complete, not only at the end of the turn; markdown,
+  SVG, mermaid and HTML update live while the assistant writes, each at its
+  own pace (HTML in its sandboxed iframe, only when the stream pauses).
+
 ## v0.32.4 — 2026-10-29
 
 Pins: Cerea `0.32.4` (chat and `cerea-documents`), Pystino `0.19.0`.
