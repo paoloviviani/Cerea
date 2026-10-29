@@ -353,7 +353,7 @@ steps it took. The assistant starts one with its `delegate` tool, and several
   thin. It uses the web only.
 
 An administrator can turn sub-agents off for the whole deployment, under
-**Administration → Sub-agents** ([Sub-agents](chat-admin.md#sub-agents)); the
+**Administration → Assistant → Sub-agents** ([Sub-agents](chat-admin.md#sub-agents)); the
 assistant is then not offered `delegate` or `research`. Coding agents on your own
 machines have their own, separate kind of delegation: see
 [Delegating work](agent-machines-reference.md#delegating-work).

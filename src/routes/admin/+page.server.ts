@@ -14,5 +14,5 @@ import type { PageServerLoad } from "./$types";
 export const load: PageServerLoad = async () => {
 	// The first section that exists: with the knowledge pipeline switched off
 	// at the deployment level there is no Knowledge tab to land on.
-	redirect(307, `${base}/admin/${knowledgeEnabled() ? "knowledge" : "fetch"}`);
+	redirect(307, `${base}/admin/${knowledgeEnabled() ? "knowledge" : "web"}`);
 };

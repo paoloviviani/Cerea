@@ -4,6 +4,8 @@
 	The distinction this screen exists to make: **fetching is not searching**.
 	Given a plain URL you do not search for it, you fetch it — and the useful
 	question is only what does the fetching.
+
+	A section of the Web tab (`/admin/web#fetch`), under web search.
 -->
 <script lang="ts">
 	import * as s from "$lib/components/overlay/styles";
@@ -91,7 +93,10 @@
 
 {#snippet code(text: string)}<code>{text}</code>{/snippet}
 
-<section class="flex flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
+<section
+	id="fetch"
+	class="flex scroll-mt-4 flex-col gap-5 rounded-lg border border-gray-200 p-5 dark:border-gray-700"
+>
 	<div class="flex flex-col gap-1">
 		<h2 class="font-medium">{m["admin.fetch.title"]()}</h2>
 		<p class="text-xs text-gray-500 dark:text-gray-400">

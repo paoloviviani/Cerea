@@ -237,6 +237,7 @@ describe.sequential("what is not a chat turn", () => {
 			.map((file) => file.slice(root.length + 1))
 			.sort();
 		expect(users).toEqual([
+			"src/lib/components/admin/InstructionsSection.svelte",
 			"src/lib/components/models/CustomModelsManager.svelte",
 			"src/lib/server/adminInstructions.ts",
 			"src/lib/server/textGeneration/builtinTools/nestedAgent.ts",
@@ -244,7 +245,6 @@ describe.sequential("what is not a chat turn", () => {
 			"src/lib/server/textGeneration/mcp/runMcpFlow.ts",
 			"src/lib/server/textGeneration/preprompt.ts",
 			"src/lib/stores/settings.ts",
-			"src/routes/admin/instructions/+page.svelte",
 			"src/routes/api/v2/admin/instructions/+server.ts",
 			"src/routes/api/v2/user/settings/+server.ts",
 		]);
