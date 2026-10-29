@@ -160,8 +160,7 @@ function pdfNote(caps: DocumentCapabilities): string {
 		"everywhere, offer the flattened copy. " +
 		(place
 			? "place_text writes text at positions on a PDF with no fields; refused on one with fields " +
-				"unless allow_on_form. A line that is not level (a scan) takes an item with `along: " +
-				"[x1, y1, x2, y2]` (or `rotate`, degrees counter-clockwise), so the text follows it. "
+				"unless allow_on_form. "
 			: "") +
 		"Latin text only. "
 	);

@@ -65,21 +65,23 @@ def _plan(
                 bad("along gives the start and the direction: leave out x, y and rotate")
                 continue
             values = [_number(v) for v in along] if isinstance(along, list) and len(along) == 4 else []
-            if len(values) != 4 or any(v is None for v in values):
+            x1, y1, x2, y2 = values if len(values) == 4 and None not in values else (None, None, None, None)
+            if x1 is None or y1 is None or x2 is None or y2 is None:
                 bad("along is [x1, y1, x2, y2]: four numbers, PDF points from the page's bottom left")
                 continue
-            x, y = values[0], values[1]
-            dx, dy = values[2] - values[0], values[3] - values[1]  # type: ignore[operator]
+            x, y = x1, y1
+            dx, dy = x2 - x1, y2 - y1
             length = math.hypot(dx, dy)
             if length < 1.0:
                 bad("along must run for at least 1 point")
                 continue
             angle = math.degrees(math.atan2(dy, dx))
         else:
-            x, y = _number(item.get("x")), _number(item.get("y"))
-            if x is None or y is None:
+            given_x, given_y = _number(item.get("x")), _number(item.get("y"))
+            if given_x is None or given_y is None:
                 bad("x and y must be numbers (PDF points from the page's bottom left)")
                 continue
+            x, y = given_x, given_y
             if item.get("rotate") is not None:
                 turn = _number(item.get("rotate"))
                 if turn is None:
