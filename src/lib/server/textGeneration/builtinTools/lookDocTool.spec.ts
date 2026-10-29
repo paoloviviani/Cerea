@@ -491,6 +491,25 @@ describe("look_doc grid and region", () => {
 		expect((out as { resultText: string }).resultText).toContain("x 100, y 200, 150 x 40 points");
 	});
 
+	it("says the area the service really drew, not the one asked for", async () => {
+		files.find.mockResolvedValue(pdfFile());
+		service.render.mockResolvedValue({
+			page_count: 1,
+			pages: [
+				{
+					...rendered([1], 1).pages[0],
+					region: { x: 100, y: 200, width: 100, height: 40 },
+				},
+			],
+		});
+		const out = await tool().execute(
+			{ file: "form.pdf", region: { x: 100, y: 200, width: 400, height: 40 } },
+			ctx() as never
+		);
+		expect((out as { resultText: string }).resultText).toContain("x 100, y 200, 100 x 40 points");
+		expect((out as { resultText: string }).resultText).not.toContain("400 x 40");
+	});
+
 	it("refuses a bad region and refuses both on a file that is not a PDF", async () => {
 		files.find.mockResolvedValue(pdfFile());
 		expect(

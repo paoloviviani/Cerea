@@ -371,7 +371,11 @@ export function createLookDocBuiltins(
 								? "A grid is drawn over it: labels are PDF points from the page's bottom left, the numbers place_text takes. "
 								: "") +
 							(overlay.region
-								? `Only the area x ${overlay.region.x}, y ${overlay.region.y}, ${overlay.region.width} x ${overlay.region.height} points is shown. `
+								? (() => {
+										// What the service really drew: the request, cut to the page.
+										const area = first?.region ?? overlay.region;
+										return `Only the area x ${area.x}, y ${area.y}, ${area.width} x ${area.height} points is shown. `;
+									})()
 								: "") +
 							(ext === "pdf"
 								? ""
