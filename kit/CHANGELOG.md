@@ -5,6 +5,51 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.32.4 — 2026-10-29
+
+Pins: Cerea `0.32.4` (chat and `cerea-documents`), Pystino `0.19.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required.
+
+- **Document versions.** Files a conversation produces or uploads are kept as
+  versions per name: the doc tools take a version number (or "previous"),
+  `doc_outline` lists a name's versions, an edit with a version and no
+  operations restores it, and the version list marks the current one. A file
+  re-uploaded under a name that already has versions becomes the newest
+  version and the default edit source; the sandbox mounts the current version
+  of every name at /mnt/data.
+- **PDF forms, round 2.** `look_doc` shows a form's pages with its fields
+  drawn; `doc_outline` lists each field's rectangle, label and options plus a
+  page's lines, within a page and time budget; a new `doc_edit place_text`
+  writes text at a position (shrinking to fit, floor 6 pt, reporting what was
+  clipped) for forms without fields; flattening saves a `-flattened.pdf`
+  copy and never touches the original; the pdf-tools skill's rules say to
+  match fields by label and position, never to flatten unasked and never to
+  rebuild an official form.
+- **Security hardening (CVE-2026-111497, Brotli decoder).** The chat's Node
+  base images are pinned at the fixed versions (24.22.1 / 22.23.4-slim), the
+  kit's MCP image is pinned by digest, and the web-fetch browser no longer
+  advertises Brotli. A `SECURITY.md` note documents it.
+- **Wide embedding models.** When a provider ignores the requested vector
+  width and answers wider than the store indexes (as Cortecs does for
+  qwen3-embedding-8b, 4096 against 3072), the chat now cuts the vectors to
+  the store's width for models documented as Matryoshka-trained (Qwen3
+  Embedding, OpenAI text-embedding-3, Nomic v1.5/v2, Jina v3/v4,
+  mxbai-embed-large, Snowflake Arctic L v2), for documents and searches
+  alike; other too-wide models fail with a message naming the model and the
+  known families.
+- **Delete in the chats lists.** The row menu on a project's chats and on the
+  Chats page offers Delete, through the same confirmation as the sidebar's.
+- **Maps skills use fewer tools.** A venue's address comes from the web,
+  routes, distances and map links from OpenStreetMap, instead of calling
+  Geoapify for each.
+- **An example of the administrator's instructions** is in the docs
+  (Administration page), covering maps, documents, web and general conduct.
+- **Note on downgrades:** this release replaces the deliverables'
+  `(conversationId, sha256)` uniqueness with `(conversationId, name, sha256)`
+  and adds `(conversationId, name, version)`; a database restored into an
+  older chat leaves those indexes non-unique and dedupes less.
+
 ## v0.32.3 — 2026-10-28
 
 Pins: Cerea `0.32.3` (chat and `cerea-documents`), Pystino `0.19.0`.
