@@ -116,7 +116,7 @@ describe("CodeExecutionCard file presentation (replay)", () => {
 		expect(screen.baseElement.querySelector('[data-testid="run-code"]')).toBeNull();
 	});
 
-	it("keeps a failed run's error readable with the code folded", async () => {
+	it("says a failed run failed without showing the traceback until opened", async () => {
 		const screen = render(CodeExecutionCard, {
 			props: {
 				conversationId: "conv-1",
@@ -129,10 +129,10 @@ describe("CodeExecutionCard file presentation (replay)", () => {
 			},
 			context: context(fileRegistry),
 		} as never);
-		await expect
-			.element(screen.getByTestId("run-error"))
-			.toHaveTextContent("NameError: make_report");
 		await expect.element(screen.getByText("Failed")).toBeVisible();
+		expect(screen.baseElement.textContent).not.toContain("NameError: make_report");
+		await screen.getByRole("button", { expanded: false }).click();
+		await expect.element(screen.getByText("NameError: make_report")).toBeVisible();
 	});
 
 	it("says a file was not saved after a reload when its record is uploaded: false", async () => {

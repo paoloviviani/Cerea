@@ -165,7 +165,7 @@ test("a deck opens as slide images on a phone", async ({ page, db, seedConversat
 	});
 });
 
-test("a failed run keeps its error readable with the code folded", async ({
+test("a failed run says Failed and shows its error only when opened", async ({
 	page,
 	db,
 	seedConversation,
@@ -184,6 +184,9 @@ test("a failed run keeps its error readable with the code folded", async ({
 	]);
 	await page.goto(`${E2E_APP_BASE}/conversation/${cid}`);
 	const message = page.locator('[data-message-role="assistant"]').last();
-	await expect(message.getByTestId("run-error")).toContainText("slide layout 9 out of range");
 	await expect(message.getByText("Failed", { exact: true })).toBeVisible();
+	// The traceback stays folded until the card is opened.
+	await expect(message.getByText(/slide layout 9 out of range/)).toHaveCount(0);
+	await message.getByTestId("code-execution-card").getByRole("button").first().click();
+	await expect(message.getByText(/slide layout 9 out of range/)).toBeVisible();
 });
