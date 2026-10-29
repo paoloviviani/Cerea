@@ -188,7 +188,17 @@ describe("a PDF form with no fields", () => {
 		expect(tools).toContain("`place_text({items: [{page, x, y, text, size?, font?}]})`");
 		expect(tools).toMatch(/put each\s+value next to its label/);
 		expect(tools).toMatch(/\*\*check with `look_doc`\*\*/);
-		expect(tools).toMatch(/only for when `doc_edit` is not in your tool list/);
+		expect(tools).toMatch(/doc tools first, the sandbox only for what they cannot do/);
+		expect(tools).toMatch(
+			/`fill_form` and `place_text` \(with `along` or\s+`rotate`\) are always the first choice/
+		);
+		expect(tools).toMatch(
+			/save it under the\s+\*\*same file name\*\*: it becomes the next version/
+		);
+		expect(tools).toMatch(/\*\*Never in the sandbox:\*\* a signed PDF/);
+		expect(tools).toMatch(
+			/filling real form fields by drawing over\s+them, rebuilding the form, or flattening unasked/
+		);
 	});
 	it("maps fields by label and position, never flattens unasked, checks with look_doc", () => {
 		expect(tools).toMatch(/by label and position, never by the order of the names/);

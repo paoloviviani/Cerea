@@ -177,7 +177,7 @@ function sharedPreprompt(caps: DocumentCapabilities): string {
 		"user's original stays as it was. doc_outline lists a file's versions; `version` works from an earlier one. To fill a PDF form, doc_outline lists its fields and doc_edit fill_form " +
 		"fills them; " +
 		(place ? "to write on a PDF without fields, doc_edit place_text; " : "") +
-		"never fill a form in the sandbox."
+		"fill form fields only with fill_form, and never sign, flatten or rebuild a form in the sandbox."
 	);
 }
 
