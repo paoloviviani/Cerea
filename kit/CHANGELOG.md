@@ -5,6 +5,18 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.32.6 — 2026-10-29
+
+Pins: Cerea `0.32.6` (chat and `cerea-documents`), Pystino `0.19.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required.
+
+- **The code card speaks plainly.** It says "Ran code", "Running code" and
+  "Getting ready to run code" instead of naming Python.
+- **A failed run no longer shows its traceback until you open it.** The folded
+  card says "Failed" in its header; opening it shows the code and the full
+  error as before. The assistant still receives the error.
+
 ## v0.32.5 — 2026-10-29
 
 Pins: Cerea `0.32.5` (chat and `cerea-documents`), Pystino `0.19.0`.
