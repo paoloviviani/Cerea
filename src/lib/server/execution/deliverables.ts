@@ -263,17 +263,33 @@ async function noteProducer(rowId: ObjectId, messageId: string | undefined): Pro
 export async function noteRunProducer(
 	conversationId: Conversation["_id"],
 	files: Array<{ name: string; sha256: string }>,
-	messageId: string
+	messageId: string,
+	now = Date.now()
 ): Promise<void> {
 	if (files.length === 0) return;
 	await collections.codeExecutionOutputs.updateMany(
 		{
 			conversationId,
-			$or: files.map((f) => ({ name: f.name, sha256: f.sha256 })),
+			// A run lists its files by relative path; the store keeps the base name.
+			$or: files.map((f) => ({ name: f.name.split("/").pop() ?? f.name, sha256: f.sha256 })),
+			// A row that already has producers gains this one; one with none is stamped only when it is
+			// fresh (this run just uploaded it): an older row of the same bytes may predate producers or
+			// belong to another branch, and stamping it would hide it from the branch that made it.
+			$and: [
+				{
+					$or: [
+						{ messageIds: { $exists: true } },
+						{ createdAt: { $gt: new Date(now - RECENT_ROW_MS) } },
+					],
+				},
+			],
 		},
 		{ $addToSet: { messageIds: messageId } }
 	);
 }
+
+/** How recent an upload is for the run that is recording it to be its producer. */
+const RECENT_ROW_MS = 60 * 60 * 1000;
 
 /** Read one deliverable's bytes back. The caller is responsible for the access check. */
 export async function downloadDeliverable(
@@ -526,6 +542,10 @@ export async function markStoredRefs(
  * Make an already stored version the current one of its name again. The store
  * keeps one row per distinct content, so a restore marks the row instead of
  * copying it; the version number does not change.
+ *
+ * Known limit: `latestAt` is the conversation's, not a branch's. Restoring (or re-making) bytes that
+ * another branch also holds moves the shared row's `latestAt`, so on that other branch the version may
+ * also read as the newest one. Versions stay correct per branch (`onBranch`); only this ordering is shared.
  */
 export async function markCurrentVersion(
 	conversationId: Conversation["_id"],

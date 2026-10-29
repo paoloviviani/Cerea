@@ -111,6 +111,24 @@ describe.sequential("POST /conversation/[id]/code-execution/run-files", () => {
 		expect(row?.messageIds).toEqual(["asst-1"]);
 	});
 
+	it("does not narrow an old row that has no producers to the message that names it", async () => {
+		const { locals, conv } = await ownerWithConversation();
+		const stored = await uploadFile(locals, conv._id, "old.csv", "a,b");
+		await collections.codeExecutionOutputs.updateOne(
+			{ conversationId: conv._id },
+			{ $set: { createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) } }
+		);
+
+		await record({
+			params: { id: conv._id.toString() },
+			locals,
+			request: recordRequest({ messageId: "asst-1", runKey: "chat:abc", sha256: [stored.sha256] }),
+		} as never);
+
+		const row = await collections.codeExecutionOutputs.findOne({ conversationId: conv._id });
+		expect(row?.messageIds).toBeUndefined();
+	});
+
 	it("records a file whose upload failed as uploaded: false instead of dropping it", async () => {
 		const { locals, conv } = await ownerWithConversation();
 		const sha256 = "d".repeat(64);
