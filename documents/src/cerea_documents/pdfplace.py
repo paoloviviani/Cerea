@@ -54,13 +54,43 @@ def _plan(
             problems.append({**problem, "reason": reason} if reason else problem)
 
         page, text = item.get("page"), item.get("text")
-        x, y = _number(item.get("x")), _number(item.get("y"))
         if isinstance(page, bool) or not isinstance(page, int) or not 1 <= page <= len(boxes):
             bad(f"page must be a number from 1 to {len(boxes)}")
             continue
-        if x is None or y is None:
-            bad("x and y must be numbers (PDF points from the page's bottom left)")
+        along = item.get("along")
+        if item.get("fit") and along is None:
+            bad("fit shrinks text to the length of an `along` line: give along, or leave fit out")
             continue
+        angle = 0.0
+        length: float | None = None
+        if along is not None:
+            if item.get("rotate") is not None or item.get("x") is not None or item.get("y") is not None:
+                bad("along gives the start and the direction: leave out x, y and rotate")
+                continue
+            values = [_number(v) for v in along] if isinstance(along, list) and len(along) == 4 else []
+            x1, y1, x2, y2 = values if len(values) == 4 and None not in values else (None, None, None, None)
+            if x1 is None or y1 is None or x2 is None or y2 is None:
+                bad("along is [x1, y1, x2, y2]: four numbers, PDF points from the page's bottom left")
+                continue
+            x, y = x1, y1
+            dx, dy = x2 - x1, y2 - y1
+            length = math.hypot(dx, dy)
+            if length < 1.0:
+                bad("along must run for at least 1 point")
+                continue
+            angle = math.degrees(math.atan2(dy, dx))
+        else:
+            given_x, given_y = _number(item.get("x")), _number(item.get("y"))
+            if given_x is None or given_y is None:
+                bad("x and y must be numbers (PDF points from the page's bottom left)")
+                continue
+            x, y = given_x, given_y
+            if item.get("rotate") is not None:
+                turn = _number(item.get("rotate"))
+                if turn is None:
+                    bad("rotate is a number of degrees, counter-clockwise")
+                    continue
+                angle = ((turn + 180.0) % 360.0) - 180.0
         if not isinstance(text, str) or not text.strip():
             bad("text must be a non-empty string")
             continue
@@ -82,6 +112,13 @@ def _plan(
             continue
         base, factor = FONTS[font_key]
         width = _text_width(text, size) * factor
+        if item.get("fit") and length is not None and width > length:
+            # shrunk to the segment, down to the floor the form fill uses; what still does not fit is refused
+            size = max(min(size, size * length / width), FIT_FLOOR)
+            width = _text_width(text, size) * factor
+            if width > length + 0.01:
+                bad(f"the text does not fit the {length:.0f} point line even at {FIT_FLOOR:g} pt: shorten it")
+                continue
         if page in rotated and not _near_a_line(rotated[page](), x, y, size):
             bad(
                 f"page {page} is rotated, and x and y are in the page's own unrotated space, which the picture does "
@@ -91,17 +128,29 @@ def _plan(
             )
             continue
         left, bottom, right, top = boxes[page - 1]
-        if x < left or x + width > right + 0.01 or y < bottom or y + size * 0.8 > top:
+        if abs(angle) < 1e-9:
+            xs, ys = [x, x + width], [y, y + size * 0.8]
+        else:  # the corners of the text's box (baseline to cap height), turned about its start
+            cos, sin = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+            corners = [(0.0, 0.0), (width, 0.0), (width, size * 0.8), (0.0, size * 0.8)]
+            xs = [x + u * cos - v * sin for u, v in corners]
+            ys = [y + u * sin + v * cos for u, v in corners]
+        if min(xs) < left - 0.01 or max(xs) > right + 0.01 or min(ys) < bottom - 0.01 or max(ys) > top + 0.01:
+            turned = f" (turned {angle:.1f} degrees)" if abs(angle) >= 1e-9 else ""
             bad(
-                f"the text would leave the page: it spans x {x:g} to {x + width:.1f} and y {y:g} to "
-                f"{y + size * 0.8:.1f} on a page of {right - left:.1f} x {top - bottom:.1f} points (origin bottom left)"
+                f"the text would leave the page{turned}: it spans x {min(xs):.1f} to {max(xs):.1f} and y "
+                f"{min(ys):.1f} to {max(ys):.1f} on a page of {right - left:.1f} x {top - bottom:.1f} points "
+                "(origin bottom left)"
             )
             continue
-        plan.append({"page": page, "x": x, "y": y, "text": text, "size": size, "font": base, "w": width})
+        plan.append(
+            {"page": page, "x": x, "y": y, "text": text, "size": size, "font": base, "w": width, "angle": angle}
+        )
     return plan, problems
 
 
 ROTATED_REACH = 30.0
+FIT_FLOOR = 6.0  # `fit` shrinks text to its line down to this size, like the form fill
 
 
 def _near_a_line(segs: list[Any], x: float, y: float, size: float) -> bool:
@@ -196,8 +245,13 @@ def place_text(
         fonts: set[str] = set()
         for e in entries:
             fonts.add(e["font"])
+            if abs(e["angle"]) < 1e-9:
+                place = f"{e['x']:.2f} {e['y']:.2f} Td"
+            else:
+                c, s_ = math.cos(math.radians(e["angle"])), math.sin(math.radians(e["angle"]))
+                place = f"{c:.6f} {s_:.6f} {-s_:.6f} {c:.6f} {e['x']:.2f} {e['y']:.2f} Tm"
             ops += (
-                f"BT\n{_TAGS[e['font']]} {e['size']:.2f} Tf 0 g\n{e['x']:.2f} {e['y']:.2f} Td\n".encode()
+                f"BT\n{_TAGS[e['font']]} {e['size']:.2f} Tf 0 g\n{place}\n".encode()
                 + _pdf_text(e["text"].replace("\t", " "))
                 + b" Tj\nET\n"
             )
@@ -224,6 +278,7 @@ def place_text(
             "w": round(e["w"], 1),
             "size": e["size"],
             "text": e["text"],
+            **({"angle": round(e["angle"], 2)} if abs(e["angle"]) >= 1e-9 else {}),
         }
         (placed if found else missing).append(row)
     return result, {

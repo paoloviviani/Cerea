@@ -53,5 +53,12 @@ export interface CodeExecutionOutput {
 	 * matches a missing one with `null` (in Mongo the two are the same match).
 	 */
 	latestAt?: Date | null;
+	/**
+	 * The assistant messages that produced this content (a document tool's, or the run's that
+	 * a run-files record named). A conversation is a tree of messages: a version counts only on
+	 * the branch of one of these. Absent on rows from before it was stored, and on files no
+	 * message is known for: those count on every branch.
+	 */
+	messageIds?: string[];
 	createdAt: Date;
 }

@@ -121,6 +121,7 @@ export async function storeDeliverable({
 	derivedFrom,
 	tool,
 	summary,
+	messageId,
 }: {
 	conversationId: Conversation["_id"];
 	userId?: User["_id"];
@@ -132,6 +133,12 @@ export async function storeDeliverable({
 	/** Which tool made it and what it is, for the file's version list. */
 	tool?: string;
 	summary?: string;
+	/**
+	 * The assistant message that made it. The conversation is a tree of messages and a version
+	 * counts only on the branch of its producers (`fileVersions.onBranch`); identical bytes made
+	 * again on another branch add that message to the same row.
+	 */
+	messageId?: string;
 }): Promise<StoreDeliverableResult> {
 	if (bytes.byteLength > MAX_DELIVERABLE_BYTES) {
 		return {
@@ -147,6 +154,7 @@ export async function storeDeliverable({
 	// its own version history, never this one's row.
 	const existing = await collections.codeExecutionOutputs.findOne({ conversationId, name, sha256 });
 	if (existing) {
+		await noteProducer(existing._id, messageId);
 		return { ok: true, ref: { name: existing.name, size: existing.size, sha256 }, existing: true };
 	}
 
@@ -211,6 +219,7 @@ export async function storeDeliverable({
 				version,
 				...(tool ? { tool } : {}),
 				...(summary ? { summary: summary.slice(0, 200) } : {}),
+				...(messageId ? { messageIds: [messageId] } : {}),
 				createdAt: new Date(),
 			});
 			break;
@@ -218,6 +227,7 @@ export async function storeDeliverable({
 			if (!isDuplicateKeyError(err) || attempt >= MAX_VERSION_RETRIES) throw err;
 			const twin = await collections.codeExecutionOutputs.findOne({ conversationId, name, sha256 });
 			if (twin) {
+				await noteProducer(twin._id, messageId);
 				return { ok: true, ref: { name: twin.name, size: twin.size, sha256 }, existing: true };
 			}
 			version = await nextVersionNumber(conversationId, name);
@@ -236,6 +246,50 @@ export async function storeDeliverable({
 
 	return { ok: true, ref: { name, size: bytes.byteLength, sha256 } };
 }
+
+/** Another message made these same bytes again: the row counts on its branch too. */
+async function noteProducer(rowId: ObjectId, messageId: string | undefined): Promise<void> {
+	if (!messageId) return;
+	await collections.codeExecutionOutputs.updateOne(
+		{ _id: rowId, messageIds: { $exists: true } },
+		{ $addToSet: { messageIds: messageId } }
+	);
+}
+
+/**
+ * The run-files record of a browser run names the message it belongs to: the stored rows of
+ * those files were made on that message's branch.
+ */
+export async function noteRunProducer(
+	conversationId: Conversation["_id"],
+	files: Array<{ name: string; sha256: string }>,
+	messageId: string,
+	now = Date.now()
+): Promise<void> {
+	if (files.length === 0) return;
+	await collections.codeExecutionOutputs.updateMany(
+		{
+			conversationId,
+			// A run lists its files by relative path; the store keeps the base name.
+			$or: files.map((f) => ({ name: f.name.split("/").pop() ?? f.name, sha256: f.sha256 })),
+			// A row that already has producers gains this one; one with none is stamped only when it is
+			// fresh (this run just uploaded it): an older row of the same bytes may predate producers or
+			// belong to another branch, and stamping it would hide it from the branch that made it.
+			$and: [
+				{
+					$or: [
+						{ messageIds: { $exists: true } },
+						{ createdAt: { $gt: new Date(now - RECENT_ROW_MS) } },
+					],
+				},
+			],
+		},
+		{ $addToSet: { messageIds: messageId } }
+	);
+}
+
+/** How recent an upload is for the run that is recording it to be its producer. */
+const RECENT_ROW_MS = 60 * 60 * 1000;
 
 /** Read one deliverable's bytes back. The caller is responsible for the access check. */
 export async function downloadDeliverable(
@@ -488,6 +542,10 @@ export async function markStoredRefs(
  * Make an already stored version the current one of its name again. The store
  * keeps one row per distinct content, so a restore marks the row instead of
  * copying it; the version number does not change.
+ *
+ * Known limit: `latestAt` is the conversation's, not a branch's. Restoring (or re-making) bytes that
+ * another branch also holds moves the shared row's `latestAt`, so on that other branch the version may
+ * also read as the newest one. Versions stay correct per branch (`onBranch`); only this ordering is shared.
  */
 export async function markCurrentVersion(
 	conversationId: Conversation["_id"],

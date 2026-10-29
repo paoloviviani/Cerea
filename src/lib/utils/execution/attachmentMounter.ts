@@ -70,6 +70,10 @@ interface Entry {
 	textPath?: string;
 	/** The attachment's number among its name's versions: 1 when it carries none. */
 	version: number;
+	/** When it was last sent (ms), when known: a re-sent file is the newest content of its name. */
+	sentAt?: number;
+	/** The stored hash (or inline bytes) mounted, to see another branch's file of that name. */
+	identity?: string;
 }
 
 const MB = 1024 * 1024;
@@ -87,6 +91,11 @@ function decodeBase64(value: string): ArrayBuffer {
 	const bytes = new Uint8Array(binary.length);
 	for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
 	return bytes.buffer;
+}
+
+/** What an attachment's content is, for telling one file from another under the same name. */
+function identityOf(planned: PlannedAttachment): string {
+	return `${planned.file.type}:${planned.file.value}`;
 }
 
 export class AttachmentMounter {
@@ -107,8 +116,17 @@ export class AttachmentMounter {
 
 	/** Whether a sync would do anything: new files, or text that has since arrived. */
 	needsSync(files: readonly AttachmentSource[]): boolean {
-		return planAttachments(files).some((planned) => {
+		const plan = planAttachments(files);
+		const names = new Set(plan.map((planned) => planned.name));
+		// An attachment of another branch is still mounted: it has to go.
+		for (const [name, entry] of this.#entries) {
+			if (!names.has(name) && (entry.original || entry.text)) return true;
+		}
+		return plan.some((planned) => {
 			const entry = this.#entries.get(planned.name);
+			// The same name now holds other content (the open branch changed): mount it again.
+			if (entry?.original && entry.identity !== undefined && entry.identity !== identityOf(planned))
+				return true;
 			if (entry?.refused) return false;
 			if (entry?.blockedAt !== undefined && this.#mountedBytes >= entry.blockedAt) return false;
 			return !entry?.original || (planned.textName !== undefined && !entry.text);
@@ -121,7 +139,9 @@ export class AttachmentMounter {
 	 * sandbox that refuses it — is reported through `skipped` and the rest go on.
 	 */
 	async sync(files: readonly AttachmentSource[]): Promise<void> {
-		for (const planned of planAttachments(files)) {
+		const plan = planAttachments(files);
+		await this.releaseAbsent(new Set(plan.map((planned) => planned.name)));
+		for (const planned of plan) {
 			try {
 				await this.syncOne(planned);
 			} catch (err) {
@@ -146,6 +166,14 @@ export class AttachmentMounter {
 		};
 		this.#entries.set(planned.name, entry);
 		entry.version = planned.file.version ?? 1;
+		entry.sentAt = planned.sentAt;
+		// The same name now holds other content (the conversation's branch changed): the file
+		// mounted for the old content is taken out and this one mounted in its place.
+		const identity = identityOf(planned);
+		if (entry.original && entry.identity !== undefined && entry.identity !== identity) {
+			await this.release(entry);
+		}
+		entry.identity = identity;
 		if (entry.refused) return;
 		if (entry.blockedAt !== undefined) {
 			// Waiting for room: nothing to try until the total has dropped below where it was.
@@ -170,6 +198,38 @@ export class AttachmentMounter {
 		}
 	}
 
+	/** Take out the attachments whose names the open branch does not have. */
+	private async releaseAbsent(names: ReadonlySet<string>): Promise<void> {
+		for (const [name, entry] of [...this.#entries]) {
+			if (names.has(name)) continue;
+			const produced = this.#produced.get(name);
+			if (produced) {
+				// A produced file holds the original's path now: only the text beside it is the attachment's.
+				if (entry.textPath) {
+					await this.session.removeFile(entry.textPath).catch(() => undefined);
+					this.#mountedBytes -= entry.textBytes;
+				}
+			} else {
+				await this.release(entry);
+			}
+			this.#entries.delete(name);
+		}
+	}
+
+	/** Take an attachment's files out of the sandbox, giving its bytes back to the total. */
+	private async release(entry: Entry): Promise<void> {
+		for (const path of entry.paths) await this.session.removeFile(path).catch(() => undefined);
+		this.#mountedBytes -= entry.originalBytes + entry.textBytes;
+		entry.paths = [];
+		entry.original = false;
+		entry.text = false;
+		entry.originalBytes = 0;
+		entry.textBytes = 0;
+		entry.textPath = undefined;
+		entry.refused = false;
+		entry.blockedAt = undefined;
+	}
+
 	/**
 	 * Mount the current version of each produced file, replacing an older
 	 * version of the same name — or an attachment of that name, unless the
@@ -188,6 +248,20 @@ export class AttachmentMounter {
 		listed: readonly ProducedFile[],
 		options: { code?: string } = {}
 	): Promise<void> {
+		// A produced file the list no longer holds (the conversation's branch changed, so it
+		// belongs to another one) is taken out: the sandbox shows this branch's files.
+		const listedNames = new Set(
+			listed.flatMap((file) => {
+				const name = safeMountName(file.name);
+				return name ? [name] : [];
+			})
+		);
+		for (const [name, held] of [...this.#produced]) {
+			if (listedNames.has(name)) continue;
+			await this.session.removeFile(held.path).catch(() => undefined);
+			this.#mountedBytes -= held.bytes;
+			this.#produced.delete(name);
+		}
 		const latest = new Map<string, ProducedFile>();
 		for (const file of listed) {
 			const name = safeMountName(file.name);
@@ -207,8 +281,14 @@ export class AttachmentMounter {
 			// treated as the newer one — the back-fill has not reached it, and an
 			// unnumbered row can only predate numbers, never a stamped upload.
 			const attachment = this.#entries.get(name);
-			if (attachment?.original && file.version !== undefined && attachment.version > file.version)
-				continue;
+			// An attachment sent after the file was made (a file attached again) is the newer content,
+			// whatever the numbers say; with no send time known the numbers decide.
+			if (attachment?.original) {
+				const liveAt = Date.parse(file.latestAt ?? file.createdAt) || 0;
+				if (attachment.sentAt !== undefined) {
+					if (attachment.sentAt > liveAt) continue;
+				} else if (file.version !== undefined && attachment.version > file.version) continue;
+			}
 			try {
 				await this.mountProduced(name, file, held);
 			} catch (err) {

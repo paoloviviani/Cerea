@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import io
+import math
 from typing import Any
 
 from .config import Limits
@@ -19,7 +20,10 @@ from .errors import InvalidDocument, InvalidRequest, UnsafeDocument
 
 JPEG_QUALITY = 80
 MIN_SIDE_PX = 8  # a page whose short side would be drawn smaller than this is refused
-_BODY_KEYS = {"pages", "width_px", "max_side_px"}
+_BODY_KEYS = {"pages", "width_px", "max_side_px", "grid", "region"}
+GRID_STEP_PT = 50.0  # the spacing of the grid's lines, in PDF points
+GRID_STEP_ZOOMED_PT = 10.0  # and inside a region narrower than ZOOMED_BELOW_PT
+ZOOMED_BELOW_PT = 160.0
 
 
 def _positive_int(body: dict[str, Any], key: str, maximum: int) -> int | None:
@@ -31,6 +35,25 @@ def _positive_int(body: dict[str, Any], key: str, maximum: int) -> int | None:
     if value > maximum:
         raise InvalidRequest(f"{key} is {value}; the most this service draws is {maximum}", reason="too_large_image")
     return value
+
+
+def _region(body: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    """(x, y, width, height) in PDF points from the body's `region`, or None; refuses what is not a real area."""
+    value = body.get("region")
+    if value is None:
+        return None
+    keys = ("x", "y", "width", "height")
+    if not isinstance(value, dict) or set(value) != set(keys):
+        raise InvalidRequest("region is {x, y, width, height} in PDF points", reason="schema")
+    numbers = []
+    for key in keys:
+        n = value[key]
+        if isinstance(n, bool) or not isinstance(n, int | float) or not math.isfinite(n):
+            raise InvalidRequest(f"region.{key} must be a number", reason="schema")
+        numbers.append(float(n))
+    if numbers[2] < 4 or numbers[3] < 4:
+        raise InvalidRequest("region.width and region.height must be at least 4 points", reason="schema")
+    return numbers[0], numbers[1], numbers[2], numbers[3]
 
 
 def check_body(body: dict[str, Any], limits: Limits) -> tuple[list[int] | None, int | None, int | None]:
@@ -56,6 +79,9 @@ def check_body(body: dict[str, Any], limits: Limits) -> tuple[list[int] | None, 
     side = _positive_int(body, "max_side_px", limits.max_render_px)
     if (width is None) == (side is None):
         raise InvalidRequest("send exactly one of width_px and max_side_px", reason="schema")
+    if body.get("grid") is not None and not isinstance(body["grid"], bool):
+        raise InvalidRequest("grid is true or false", reason="schema")
+    _region(body)
     return pages, width, side
 
 
@@ -102,18 +128,53 @@ def render_pages(data: bytes, body: dict[str, Any], limits: Limits) -> dict[str,
                 reason="page_out_of_range",
                 details={"page_count": count, "pages": bad},
             )
-        images = [_draw(pdf, p, width_px, side_px, limits.max_render_px) for p in dict.fromkeys(wanted)]
+        region, grid = _region(body), body.get("grid") is True
+        images = [_draw(pdf, p, width_px, side_px, limits.max_render_px, region, grid) for p in dict.fromkeys(wanted)]
     finally:
         pdf.close()
     return {"format": "pdf", "page_count": count, "images": images}
 
 
-def _draw(pdf: Any, number: int, width_px: int | None, side_px: int | None, ceiling: int) -> dict[str, Any]:
+def _draw(
+    pdf: Any,
+    number: int,
+    width_px: int | None,
+    side_px: int | None,
+    ceiling: int,
+    region: tuple[float, float, float, float] | None = None,
+    grid: bool = False,
+) -> dict[str, Any]:
     page = pdf[number - 1]
+    origin: tuple[float, float, float, float] | None = None  # (left, top, x0, y0) of the drawn area, for the grid
     try:
         w_pt, h_pt = page.get_size()  # the page as shown: rotation is applied
         if w_pt <= 0 or h_pt <= 0:
             raise InvalidDocument(f"page {number} has no size", reason="damaged")
+        crop = (0.0, 0.0, 0.0, 0.0)
+        if region is not None or grid:
+            if page.get_rotation() % 360:
+                raise InvalidRequest(
+                    f"page {number} is rotated: positions on it are in the page's own unrotated space, which a grid "
+                    "or a region cannot show; look at the whole page without them",
+                    reason="page_rotated",
+                    details={"page": number},
+                )
+            left, bottom, right, top = page.get_cropbox()
+            area = (left, bottom, right - left, top - bottom)
+            if region is not None:
+                rx, ry, rw, rh = region
+                x0, y0 = max(rx, left), max(ry, bottom)
+                x1, y1 = min(rx + rw, right), min(ry + rh, top)
+                if x1 - x0 < 1 or y1 - y0 < 1:
+                    raise InvalidRequest(
+                        f"the region is outside page {number}, which spans x {left:g} to {right:g} and y {bottom:g} to {top:g}",
+                        reason="region_outside",
+                        details={"page": number},
+                    )
+                crop = (x0 - left, y0 - bottom, right - x1, top - y1)
+                area = (x0, y0, x1 - x0, y1 - y0)
+                w_pt, h_pt = area[2], area[3]
+            origin = (area[0], area[1] + area[3], area[2], area[3])  # left, top, width, height of the area
         scale = (width_px / w_pt) if width_px is not None else (side_px or ceiling) / max(w_pt, h_pt)
         scale = min(scale, ceiling / max(w_pt, h_pt))  # a very tall or wide page never makes a huge bitmap
         smallest = min(w_pt, h_pt) * scale
@@ -124,10 +185,12 @@ def _draw(pdf: Any, number: int, width_px: int | None, side_px: int | None, ceil
                 reason="page_too_small",
                 details={"page": number, "width_pt": round(w_pt, 1), "height_pt": round(h_pt, 1)},
             )
-        bitmap = page.render(scale=scale, may_draw_forms=True)
+        bitmap = page.render(scale=scale, may_draw_forms=True, crop=crop)
         image = bitmap.to_pil().convert("RGB")
     finally:
         page.close()
+    if grid and origin is not None:
+        image = _with_grid(image, origin, scale)
     png = io.BytesIO()
     image.save(png, format="PNG", optimize=True)
     jpg = io.BytesIO()
@@ -136,7 +199,22 @@ def _draw(pdf: Any, number: int, width_px: int | None, side_px: int | None, ceil
         fmt, content_type, raw = "png", "image/png", png.getvalue()
     else:
         fmt, content_type, raw = "jpeg", "image/jpeg", jpg.getvalue()
+    shown: dict[str, Any] = {}
+    if region is not None and origin is not None:
+        shown["region"] = {
+            "x": round(origin[0], 1),
+            "y": round(origin[1] - origin[3], 1),
+            "width": round(origin[2], 1),
+            "height": round(origin[3], 1),
+        }
+    if grid:
+        shown["grid_step_pt"] = (
+            GRID_STEP_ZOOMED_PT
+            if region is not None and origin is not None and origin[2] < ZOOMED_BELOW_PT
+            else GRID_STEP_PT
+        )
     return {
+        **shown,
         "page": number,
         "width": image.width,
         "height": image.height,
@@ -144,3 +222,31 @@ def _draw(pdf: Any, number: int, width_px: int | None, side_px: int | None, ceil
         "content_type": content_type,
         "data_base64": base64.b64encode(raw).decode("ascii"),
     }
+
+
+def _with_grid(image: Any, origin: tuple[float, float, float, float], scale: float) -> Any:
+    """The picture with faint lines and labels at every grid step, in PDF points (origin at the page's bottom
+    left, the space `place_text` and `doc_outline` use): x labels along the top, y labels along the left."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    left, top, width, height = origin
+    step = GRID_STEP_ZOOMED_PT if width < ZOOMED_BELOW_PT else GRID_STEP_PT
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    size = max(10, min(16, round(image.width / 90)))
+    font = ImageFont.load_default(size=size)
+    line, text = (30, 110, 220, 70), (20, 70, 180, 255)
+    bottom = top - height
+    x = math.ceil(left / step) * step
+    while x <= left + width:
+        px = round((x - left) * scale)
+        draw.line([(px, 0), (px, image.height)], fill=line, width=1)
+        draw.text((px + 2, 1), f"{x:g}", fill=text, font=font)
+        x += step
+    y = math.ceil(bottom / step) * step
+    while y <= top:
+        py = round((top - y) * scale)
+        draw.line([(0, py), (image.width, py)], fill=line, width=1)
+        draw.text((2, py + 1), f"{y:g}", fill=text, font=font)
+        y += step
+    return Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB")

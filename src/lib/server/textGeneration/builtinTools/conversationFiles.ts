@@ -1,6 +1,13 @@
 import type { ObjectId } from "mongodb";
 import { downloadDeliverable } from "$lib/server/execution/deliverables";
-import { attachmentNamed, numberedRows } from "$lib/server/execution/fileVersions";
+import {
+	attachmentNamed,
+	branchOf,
+	numberedRows,
+	onBranch,
+	type Branch,
+} from "$lib/server/execution/fileVersions";
+import type { BuiltinToolContext } from "./types";
 import { downloadFile } from "$lib/server/files/downloadFile";
 import type { PlannedAttachment } from "$lib/utils/execution/attachmentNames";
 import { MOUNT_ROOT } from "$lib/utils/execution/protocol";
@@ -76,6 +83,23 @@ export function parseVersion(
 	};
 }
 
+const branches = new WeakMap<BuiltinToolContext, Promise<Branch | undefined>>();
+
+/**
+ * The branch of the conversation tree the tool call runs on: the assistant message it writes into
+ * and that message's ancestors (see `branchOf`). Worked out once per call; `undefined` when it
+ * cannot be told, which leaves every version visible.
+ */
+export function branchOfCall(ctx: BuiltinToolContext): Promise<Branch | undefined> {
+	if (!ctx.conversationId) return Promise.resolve(undefined);
+	let found = branches.get(ctx);
+	if (!found) {
+		found = branchOf(ctx.conversationId, ctx.messageId);
+		branches.set(ctx, found);
+	}
+	return found;
+}
+
 /** The text of a version list for an error or a result: "1 attachment; 2 doc_edit (...)". */
 export function describeVersions(versions: readonly FileVersion[]): string {
 	return versions
@@ -102,11 +126,14 @@ function becameCurrentAt(row: { createdAt: Date; latestAt?: Date | null }): numb
  */
 export async function listFileVersions(
 	conversationId: ObjectId,
-	reference: string
+	reference: string,
+	branch?: Branch
 ): Promise<{ name: string; versions: FileVersion[]; attachment?: PlannedAttachment } | undefined> {
 	const wanted = bareName(reference);
-	const attachment = await attachmentNamed(conversationId, wanted);
-	const rows = await numberedRows(conversationId, wanted);
+	const attachment = await attachmentNamed(conversationId, wanted, branch);
+	// Numbers are the whole conversation's (a version keeps its number for good, whatever
+	// branch made it); the list shows only what the branch can see.
+	const rows = (await numberedRows(conversationId, wanted)).filter((row) => onBranch(row, branch));
 	if (!attachment && rows.length === 0) return undefined;
 
 	const versions: FileVersion[] = [];
@@ -175,16 +202,18 @@ export async function listFileVersions(
  * current version, whichever origin it is — an edit is saved under its source's
  * name as the next version, so the next edit must start from the newest
  * content, and a re-uploaded attachment is the newest by construction.
+ * `branch` (the turn's message and its ancestors) limits all of it to what that branch of the
+ * conversation tree made or was sent: another branch's versions are not here.
  * `version` picks one version outright (`listFileVersions` numbers them) and
  * ignores `prefer`.
  */
 export async function findConversationFile(
 	conversationId: ObjectId,
 	reference: string,
-	options: { prefer?: "attachment" | "output"; version?: VersionRequest } = {}
+	options: { prefer?: "attachment" | "output"; version?: VersionRequest; branch?: Branch } = {}
 ): Promise<ConversationFile> {
 	const wanted = bareName(reference);
-	const listing = await listFileVersions(conversationId, reference);
+	const listing = await listFileVersions(conversationId, reference, options.branch);
 	if (!listing) {
 		return {
 			ok: false,

@@ -4,7 +4,7 @@ import { collections } from "$lib/server/database";
 import { submitCodeExecutionResult } from "$lib/server/generation/codeExecution";
 import { sweepParkedCalls } from "$lib/server/generation/parkedSweeper";
 import { logger } from "$lib/server/logger";
-import { markStoredRefs } from "$lib/server/execution/deliverables";
+import { markStoredRefs, noteRunProducer } from "$lib/server/execution/deliverables";
 import { error, json } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
@@ -70,17 +70,27 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 	const parsed = bodySchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) error(400, "Invalid code execution outcome");
 
-	const { fileRefs, ...rest } = parsed.data.outcome;
+	const { fileRefs: claimed, ...rest } = parsed.data.outcome;
+	const fileRefs = claimed?.length ? await markStoredRefs(conversationId, claimed) : undefined;
 	const result = await submitCodeExecutionResult({
 		executionId: parsed.data.executionId,
 		conversationId,
 		outcome: {
 			...rest,
-			...(fileRefs?.length ? { fileRefs: await markStoredRefs(conversationId, fileRefs) } : {}),
+			...(fileRefs?.length ? { fileRefs } : {}),
 		},
 	});
 
 	if (!result.ok) error(result.status, result.error);
+
+	// The files this run made belong to the message that parked: they count on its branch.
+	if (result.messageId && fileRefs?.length) {
+		await noteRunProducer(
+			conversationId,
+			fileRefs.filter((ref) => ref.uploaded),
+			result.messageId
+		).catch((err) => logger.error({ err }, "[execute_code] noting the run's producer failed"));
+	}
 
 	// Not awaited: the sweep runs the resumed turn to completion — minutes of
 	// work, not a request's worth. The deadline move above is what makes the

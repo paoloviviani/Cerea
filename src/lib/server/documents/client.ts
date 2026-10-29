@@ -497,6 +497,19 @@ export interface RenderedPage {
 	format: string;
 	content_type: string;
 	base64: string;
+	/** With a `region`: the area really drawn (the request clamped to the page), in PDF points. */
+	region?: { x: number; y: number; width: number; height: number };
+	/** With a `grid`: the spacing of its lines, in points. */
+	grid_step_pt?: number;
+}
+
+function isRegion(value: unknown): value is NonNullable<RenderedPage["region"]> {
+	const r = value as Record<string, unknown> | null | undefined;
+	return (
+		!!r &&
+		typeof r === "object" &&
+		["x", "y", "width", "height"].every((key) => typeof r[key] === "number")
+	);
 }
 
 export interface RenderResult {
@@ -510,7 +523,13 @@ export interface RenderResult {
  */
 export async function renderPdf(
 	pdf: Buffer,
-	request: { pages?: number[]; width_px?: number; max_side_px?: number },
+	request: {
+		pages?: number[];
+		width_px?: number;
+		max_side_px?: number;
+		grid?: boolean;
+		region?: { x: number; y: number; width: number; height: number };
+	},
 	options: { signal?: AbortSignal } = {}
 ): Promise<RenderResult> {
 	const response = await call(
@@ -534,6 +553,8 @@ export async function renderPdf(
 			format: String(item.format),
 			content_type: String(item.content_type),
 			base64: String(item.data_base64),
+			...(isRegion(item.region) ? { region: item.region } : {}),
+			...(typeof item.grid_step_pt === "number" ? { grid_step_pt: item.grid_step_pt } : {}),
 		})),
 	};
 }
