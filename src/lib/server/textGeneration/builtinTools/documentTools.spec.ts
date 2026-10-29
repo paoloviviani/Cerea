@@ -643,6 +643,9 @@ describe("PDF forms", () => {
 		expect(text).toMatch(/by label and position, never by name order/);
 		expect(text).toMatch(/Never `flatten` unless the user asks[^]*<name>-flattened\.pdf/);
 		expect(text).toMatch(/Signed and XFA PDFs cannot be filled/);
+		expect(text).toMatch(
+			/Values are vector text \(Helvetica\): sharp in the file; macOS Preview shows them soft until a field is clicked \(a viewer quirk\)\. If it will be sent or printed and must look the same everywhere, offer the flattened copy\./
+		);
 		const outline = (await named(DOC_OUTLINE_TOOL_NAME)).definition.function.description ?? "";
 		expect(outline).toMatch(/PDF's pages \(size and text lines with positions\)/);
 		expect(outline).toMatch(/rect, label, table/);

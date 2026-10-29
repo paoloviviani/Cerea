@@ -196,6 +196,17 @@ describe("a PDF form with no fields", () => {
 		expect(tools).toContain("<name>-flattened.pdf");
 		expect(tools).toMatch(/\*\*After filling, look at the page with `look_doc`\*\*/);
 	});
+
+	it("says the values are vector text, Preview's blur is a viewer quirk, and a flattened copy is the offer", () => {
+		expect(tools).toMatch(/vector text\*\* \(Helvetica\), not an image: the file itself is sharp/);
+		expect(tools).toMatch(
+			/\*\*Preview\*\* shows filled fields soft until the field is clicked[^]*a viewer quirk, not the file/
+		);
+		expect(tools).toMatch(
+			/must look the same everywhere, offer the flattened copy; flatten\s+only when the user takes the offer/
+		);
+	});
+
 	it("corrects misplaced text by going back to the earlier version, and knows rotated and cropped pages", () => {
 		expect(tools).toMatch(/`version` set to the version before the placement/);
 		expect(tools).toMatch(/`file_versions` in\s+`doc_outline`/);

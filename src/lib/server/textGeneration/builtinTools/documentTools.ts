@@ -140,7 +140,8 @@ export function listedOperations(caps: DocumentCapabilities): string[] {
 
 /**
  * What a model needs to know about PDF beyond the generated operation lines: a PDF has two operations and no
- * other edit; `values` says what each kind of field takes; positions are PDF points from the bottom left.
+ * other edit; `values` says what each kind of field takes; the filled values are vector text, which macOS
+ * Preview shows soft until a field is clicked.
  */
 function pdfNote(caps: DocumentCapabilities): string {
 	const ops = caps.formats.pdf?.operations ?? [];
@@ -150,14 +151,15 @@ function pdfNote(caps: DocumentCapabilities): string {
 		"A PDF has " +
 		(place ? "two operations, fill_form and place_text" : "one operation, fill_form") +
 		", and no other edit. Call doc_outline first (fields have `rect`, `label`, `table`); map values by " +
-		"label and position, never by name order. fill_form `values`: text; true, false or the on-state for a " +
-		"checkbox; one option for a radio group; an option's value or label for a list (a list for a " +
-		"multi-select). Bad values are refused with what the field takes; the result lists any that did not " +
-		"take. Never `flatten` unless the user asks: it is saved as <name>-flattened.pdf and the fillable file " +
-		"stays. Signed and XFA PDFs cannot be filled. " +
+		"label and position, never by name order. fill_form `values`: text; true/false or a checkbox's " +
+		"on-state; a radio option; a list option's value or label (a list for a multi-select). Never " +
+		"`flatten` unless the user asks: it saves <name>-flattened.pdf. Signed and XFA PDFs cannot be " +
+		"filled. Values are vector text (Helvetica): sharp in the file; macOS Preview shows them soft " +
+		"until a field is clicked (a viewer quirk). If it will be sent or printed and must look the same " +
+		"everywhere, offer the flattened copy. " +
 		(place
-			? "place_text writes text at positions (points from the page's bottom left; doc_outline lists " +
-				"the text lines) on a PDF with no fields; refused on one with fields unless allow_on_form. "
+			? "place_text writes text at positions on a PDF with no fields; refused on one with fields " +
+				"unless allow_on_form. "
 			: "") +
 		"Latin text only. "
 	);

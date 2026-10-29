@@ -4,7 +4,10 @@ label that describes it and, for fields aligned in rows and columns, its place i
 Positions are PDF points in the page's own space, origin at the bottom left (the same as a field's /Rect and as
 `place_text`). Text comes from pypdf's text visitor, one fragment per text-showing operation; fragments on one
 baseline are merged into segments. A fragment's width is not known to the visitor, so a segment's right edge
-(`x + w`) is estimated from Helvetica's widths: good to a few points, not exact.
+(`x + w`) is estimated from Helvetica's widths: good to a few points, not exact. Text drawn through a Form
+XObject — every value of a flattened form — is placed by the `cm` at its `Do` and the form's /Matrix; pypdf
+recurses into the form with a fresh state and applies neither, so an operator pair here composes them into the
+matrix the text visitor sees.
 
 Everything here is deterministic and capped. It imports pypdf only through the reader it is given, and only the
 PDF jobs of the service load this module.
@@ -16,6 +19,7 @@ import math
 import re
 import time
 from bisect import bisect_left, bisect_right
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -31,6 +35,8 @@ MAX_SEGMENT_TEXT = 300
 LINE_TOLERANCE = 1.5  # points between baselines of the same line
 HEADER_REACH = 30.0  # how far above a table's first row its column headers are looked for
 ABOVE_REACH = 24.0  # how far above a field "the text just above" is looked for
+
+_IDENTITY: tuple[float, ...] = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 
 _FILLER = re.compile(r"[._…]{3,}")
 _PRIVATE = re.compile("[-•●■▪]")
@@ -76,14 +82,97 @@ def clean(raw: str) -> str:
     return _SPACES.sub(" ", text).strip()
 
 
+def _mul(o: Sequence[float], i: Sequence[float]) -> list[float]:
+    """The affine matrix `o` composed with `i`, `i` applied first (`_mul(o, i)(p) == o(i(p))`); the PDF's
+    six-number [a b c d e f] shape."""
+    a, b, c, d, e, f = (float(v) for v in o)
+    return [
+        a * i[0] + c * i[1],
+        b * i[0] + d * i[1],
+        a * i[2] + c * i[3],
+        b * i[2] + d * i[3],
+        a * i[4] + c * i[5] + e,
+        b * i[4] + d * i[5] + f,
+    ]
+
+
+def _form_resources(page: Any) -> Any:
+    """The page's /Resources when its /XObject holds a Form XObject (text can then be drawn through one)."""
+    try:
+        resources = page["/Resources"].get_object()
+    except Exception:
+        try:
+            resources = page.get_inherited("/Resources")
+        except Exception:
+            return None
+    try:
+        xobjects = resources.get("/XObject")
+        if xobjects is not None:
+            for value in xobjects.get_object().values():
+                if value.get_object().get("/Subtype") == "/Form":
+                    return resources
+    except Exception:
+        return None
+    return None
+
+
 def _fragments(page: Any) -> list[Seg]:
     found: list[Seg] = []
+    page_resources = _form_resources(page)
+    # pypdf reads the text of a Form XObject with a fresh state: the `cm` at its `Do` and the form's own
+    # /Matrix are never applied, so text drawn through a form — every value of a flattened form — is reported
+    # at its place inside the form, near the page's origin. `placed` and `waiting` follow the forms the
+    # operand visitors walk through, in the order pypdf recurses, so `visit` can fold each form's placement
+    # into the `cm` it is given. A form counts as entered only from its first drawn operation on: the pieces
+    # of the surrounding text that pypdf flushes at the `Do` itself keep the placement outside the form.
+    placed: list[tuple[list[float], Any]] = []  # forms entered: (form space -> page space, resources for Dos)
+    waiting: tuple[list[float], Any] | None = None  # a `Do` seen, entered when its first operation arrives
+
+    def enter(operands: Any, cm: Any, level: Any) -> tuple[list[float], Any]:
+        """(placement, resources) of the form `operands` names, drawn with the CTM `cm` inside `level`."""
+        matrix = _IDENTITY
+        try:
+            item = level.get("/XObject").get_object()[operands[0]].get_object()
+            value = item.get("/Matrix")
+            if value is not None:
+                matrix = tuple(float(v) for v in value)
+            own = item.get("/Resources")
+            child = own.get_object() if own is not None else level
+        except Exception:
+            child = level  # an unreadable form is placed as its `cm` says, with the level's own resources
+        try:
+            outer = placed[-1][0] if placed else _IDENTITY
+            return _mul(_mul(outer, [float(v) for v in cm[:6]]), matrix), child
+        except Exception:
+            return list(_IDENTITY), child
+
+    def before(op: Any, operands: Any, cm: Any, _tm: Any) -> None:
+        nonlocal waiting
+        try:
+            if waiting is not None:  # an operation inside the waiting form: the form is entered from here on
+                placed.append(waiting)
+                waiting = None
+            if op == b"Do":
+                waiting = enter(operands, cm, placed[-1][1] if placed else page_resources)
+        except Exception:
+            waiting = (list(_IDENTITY), page_resources)  # the leave stays balanced even if this failed
+
+    def after(op: Any, operands: Any, cm: Any, tm: Any) -> None:
+        nonlocal waiting
+        if op != b"Do":
+            return
+        if waiting is not None:  # nothing was drawn from this form (empty, an image, cyclic): never entered
+            waiting = None
+        elif placed:
+            placed.pop()
 
     def visit(text: str, cm: list[float], tm: list[float], _font: Any, size: float) -> None:
         text = text.replace("\n", " ").replace("\r", " ")
         if not clean(text):  # nothing but blanks or bullet glyphs: not text a label can use
             return
         try:
+            if placed:  # text drawn through a form: fold the form's placement into the cm pypdf passes
+                cm = _mul(placed[-1][0], cm)
             x = tm[4] * cm[0] + tm[5] * cm[2] + cm[4]
             y = tm[4] * cm[1] + tm[5] * cm[3] + cm[5]
             a = tm[0] * cm[0] + tm[1] * cm[2]
@@ -97,7 +186,10 @@ def _fragments(page: Any) -> list[Seg]:
         found.append(Seg(text, x, x + _text_width(text, fs), y, fs))
 
     try:
-        page.extract_text(visitor_text=visit)
+        if page_resources is None:  # no form on the page: the visitors would only cost two calls per operator
+            page.extract_text(visitor_text=visit)
+        else:
+            page.extract_text(visitor_text=visit, visitor_operand_before=before, visitor_operand_after=after)
     except Exception:  # a page whose content cannot be parsed has no text lines
         return []
     return found[:MAX_FRAGMENTS]

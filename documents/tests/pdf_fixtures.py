@@ -134,6 +134,30 @@ def make_plain_pdf() -> bytes:
     return buf.getvalue()
 
 
+def make_flatten_check_pdf() -> bytes:
+    """A one-page form built to check where a flattened copy reports its values: three text fields whose
+    labels sit well above them, so no value shares its label's baseline, and the last one turned by 90°
+    (/MK /R), so its appearance stream carries a /Matrix."""
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    form = c.acroForm
+    c.drawString(72, 780, "Flatten check")
+    c.drawString(72, 700, "Who")
+    form.textfield(name="who", x=72, y=650, width=200, height=18)
+    c.drawString(300, 700, "Sum")
+    form.textfield(name="sum", x=300, y=650, width=120, height=18)
+    c.drawString(500, 700, "Turned")
+    form.textfield(name="turned", x=500, y=650, width=18, height=60)
+    c.save()
+
+    writer = PdfWriter(clone_from=io.BytesIO(buf.getvalue()))
+    fields = _acro_fields(writer)
+    fields["turned"][NameObject("/MK")] = DictionaryObject({NameObject("/R"): NumberObject(90)})
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
 def make_xfa_pdf() -> bytes:
     """The form fixture with an /XFA entry in its AcroForm, as a hybrid LiveCycle form carries."""
     writer = PdfWriter(clone_from=io.BytesIO(make_form_pdf()))
