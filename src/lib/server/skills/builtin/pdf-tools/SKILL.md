@@ -34,6 +34,9 @@ encryption) has no tool and is always done in the sandbox.
    form's fields have no label, look at the page with `look_doc` and compare the positions. When a match is
    ambiguous (two fields that could hold the same thing, a value that fits none of a list's options), ask the user
    before filling. Do not invent values the user did not give, and leave the other fields as they are.
+   When asked to fill a form with test or dummy data, fill **one consistent case**: pick one of mutually exclusive
+   options (such as "titolare" or "socio") and the section that goes with it, not every field, unless the user asks
+   to exercise them all; say which branch you left empty.
 3. `doc_edit` with one operation, `fill_form({values, flatten?})`:
    - text field: the text; checkbox: `true`, `false` or its on-state name (the
      name is not always "Yes"); radio group: one of its `allowed` names; list
@@ -41,8 +44,8 @@ encryption) has no tool and is always done in the sandbox.
      multi-select list);
    - every value is checked first, and a bad one is refused with what the field
      takes, so nothing is half-filled: read the message and correct it;
-   - text wider than its box is shrunk to fit (to 6 pt); `clipped` lists a value that still does not fit: shorten
-     it or tell the user.
+   - text is fitted to its box, in width and in height (down to 6 pt); `clipped` lists a value that still does not
+     fit: shorten it or tell the user.
    - **Never flatten unless the user asks for it.** A flattened PDF is no longer a form. To see the values, use
      `look_doc`, which draws filled fields; flatten is never a way to look. When the user does ask, `flatten: true`
      saves a separate file, `<name>-flattened.pdf`, and the fillable file stays as it was (`flatten_in_place`

@@ -197,6 +197,12 @@ describe("a PDF form with no fields", () => {
 		expect(tools).toMatch(/\*\*After filling, look at the page with `look_doc`\*\*/);
 	});
 
+	it("fills one consistent case with test data and says which branch stayed empty", () => {
+		expect(tools).toMatch(/\*\*one consistent case\*\*/);
+		expect(tools).toMatch(/say which branch you left empty/);
+		expect(tools).not.toMatch(/\bpeople\b/i);
+	});
+
 	it("says the values are vector text, Preview's blur is a viewer quirk, and a flattened copy is the offer", () => {
 		expect(tools).toMatch(/vector text\*\* \(Helvetica\), not an image: the file itself is sharp/);
 		expect(tools).toMatch(
