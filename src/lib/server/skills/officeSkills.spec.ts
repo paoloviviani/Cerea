@@ -197,6 +197,15 @@ describe("a PDF form with no fields", () => {
 		expect(tools).toMatch(/\*\*After filling, look at the page with `look_doc`\*\*/);
 	});
 
+	it("writes on a scan along its rules and never estimates positions by eye", () => {
+		expect(tools).toMatch(/never estimate positions by eye from `look_doc`/);
+		expect(tools).toContain("`skew_deg`");
+		expect(tools).toContain("`along: [x1, y1, x2, y2]`");
+		expect(tools).toContain("`region: {x, y, width, height}`");
+		expect(tools).toMatch(/Do not fill a form in the sandbox/);
+		expect(tools).not.toMatch(/\bpeople\b/i);
+	});
+
 	it("fills one consistent case with test data and says which branch stayed empty", () => {
 		expect(tools).toMatch(/\*\*one consistent case\*\*/);
 		expect(tools).toMatch(/say which branch you left empty/);

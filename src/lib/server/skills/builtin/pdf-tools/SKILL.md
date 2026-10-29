@@ -74,6 +74,12 @@ encryption) has no tool and is always done in the sandbox.
      value next to its label: `x` a little past the label's `x + w` (or on the blank line), `y` the label's `y` plus
      about 1 point; size 9 to 11 unless the blank is small. Look at the form with `look_doc` first when the blanks
      are not obvious from the text;
+   - **never estimate positions by eye from `look_doc`.** On a **scan** (a page that is only an image),
+     `doc_outline` gives `skew_deg` (the tilt, counter-clockwise) and `rules` (the blank lines, `x1, y1` to
+     `x2, y2` in points): write each value with `along: [x1, y1, x2, y2]` on its rule (add `fit: true` to shrink
+     a long value to the line), or `rotate` set to `skew_deg` where there is no rule, one item per value, so the
+     text follows the printed line instead of stepping across it. Check one blank at a time with `look_doc`
+     and `region: {x, y, width, height}` (a zoomed area), or `grid: true` to read positions in points;
    - call `place_text` once with all the items (it cannot be combined with `fill_form` and is refused on a PDF
      that has fields, unless `allow_on_form: true` is given to add text the fields do not cover);
    - **check with `look_doc`** and adjust. To correct misplaced text, do not place more text on top of it: call
