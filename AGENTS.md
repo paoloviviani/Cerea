@@ -1240,9 +1240,12 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   bytes equal an earlier version marks that row current (`latestAt`,
   `markCurrentVersion`) instead of copying it; the current version is the one
   that became newest last — a row by the latest `latestAt ?? createdAt`, the
-  attachment by its message's timestamp. The sandbox mounts the latest version
-  of every name at `/mnt/data/<name>` (`AttachmentMounter.syncProduced`, listed
-  per run from `code-execution/output`); earlier versions are not mounted. The
+  attachment by its message's timestamp. The sandbox mounts the current
+  version of every name at `/mnt/data/<name>` (`AttachmentMounter.syncProduced`,
+  listed per run from `code-execution/output`): a produced row is mounted over
+  the attachment of that name unless the attachment is the current version —
+  a re-upload is the newest content by construction; earlier versions are not
+  mounted. The
   chat page registers its conversation with `trackAttachmentSource`
   (`$effect.pre`): a plain `$effect` runs after a child code card's run and the
   first run saw an empty `/mnt/data`.

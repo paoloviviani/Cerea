@@ -214,6 +214,41 @@ describe("AttachmentMounter: produced files", () => {
 	});
 	const out = (sha: string) => `/conversation/conv1/code-execution/output/${sha}`;
 
+	it("leaves a re-uploaded attachment mounted: it is the current version of the name", async () => {
+		// Factories: each fetch must get a fresh body, so a second sync of the
+		// same row really re-fetches instead of failing on a consumed response.
+		const { mounter, loaded, mounted } = setup({
+			[out("p1")]: () => body("EDITED"),
+			[out("p2")]: () => body("EDITED MORE"),
+			[out("p3")]: () => body("EDITED AGAIN"),
+			"/conversation/conv1/output/h1": () => body("RE-UPLOADED"),
+		});
+		// Two produced versions of the name; the newest row is mounted.
+		const rows = [
+			row("report.docx", "p1", 6, { version: 1 }),
+			row("report.docx", "p2", 11, { version: 2, createdAt: "2026-10-28T11:00:00Z" }),
+		];
+		await mounter.syncProduced(rows);
+		expect(mounted).toEqual(["/mnt/data/report.docx"]);
+
+		// The name is re-uploaded, numbered 3 at upload: the newest content,
+		// mounted over the row like any attachment.
+		await mounter.sync([
+			{ type: "hash", name: "report.docx", value: "h1", mime: "application/pdf", version: 3 },
+		]);
+		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("RE-UPLOADED");
+
+		// The rows do not come back over it on the next runs.
+		await mounter.syncProduced(rows);
+		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("RE-UPLOADED");
+
+		// A row numbered past the attachment takes the path back.
+		await mounter.syncProduced([
+			row("report.docx", "p3", 11, { version: 4, createdAt: "2026-10-28T12:00:00Z" }),
+		]);
+		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("EDITED AGAIN");
+	});
+
 	it("takes the attachment's extracted text out when a produced file replaces the attachment, and fetches it no more", async () => {
 		const { mounter, fetched, removed, mounted } = setup({
 			"/conversation/conv1/output/h1": body("ORIGINAL"),

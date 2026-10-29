@@ -21,9 +21,11 @@ import { MOUNT_ROOT, safeMountName } from "./protocol";
  *
  * The conversation's other files are mounted too: what the document tools and
  * the sandbox itself produced (`syncProduced`). A name has one file at
- * `/mnt/data/<name>`, the latest version of it; a produced file replaces an
- * attachment of the same name there, because the document tools resolve a
- * name to the latest version too. Earlier versions are not mounted.
+ * `/mnt/data/<name>`, the current version of it; a produced file replaces an
+ * attachment of the same name there unless the attachment is the current
+ * version — a re-uploaded attachment is the newest content of its name by
+ * construction, and the document tools resolve a name to the current version.
+ * Earlier versions are not mounted.
  */
 
 /** One stored file of the conversation, as the list endpoint gives it. */
@@ -35,6 +37,8 @@ export interface ProducedFile {
 	createdAt: string;
 	/** When an older version was made the latest again (a restore). */
 	latestAt?: string;
+	/** Its number among the name's versions, when the row carries one. */
+	version?: number;
 }
 
 export interface MounterSession {
@@ -63,6 +67,8 @@ interface Entry {
 	originalBytes: number;
 	textBytes: number;
 	textPath?: string;
+	/** The attachment's number among its name's versions: 1 when it carries none. */
+	version: number;
 }
 
 const MB = 1024 * 1024;
@@ -135,8 +141,10 @@ export class AttachmentMounter {
 			paths: [],
 			originalBytes: 0,
 			textBytes: 0,
+			version: 1,
 		};
 		this.#entries.set(planned.name, entry);
+		entry.version = planned.file.version ?? 1;
 		if (entry.refused) return;
 		if (entry.blockedAt !== undefined) {
 			// Waiting for room: nothing to try until the total has dropped below where it was.
@@ -162,8 +170,12 @@ export class AttachmentMounter {
 	}
 
 	/**
-	 * Mount the latest version of each produced file, replacing an older
-	 * version (or an attachment) of the same name. Never throws, like `sync`.
+	 * Mount the current version of each produced file, replacing an older
+	 * version of the same name — or an attachment of that name, unless the
+	 * attachment is the current version: a re-uploaded attachment is newer
+	 * than every row that existed when it was numbered, and the tools resolve
+	 * the name to the current version, so the attachment stays mounted. Never
+	 * throws, like `sync`.
 	 *
 	 * Image outputs (the figures a run draws, charts the tools saved) are not
 	 * mounted unless `code` names them: they are the bulk of a long
@@ -189,6 +201,13 @@ export class AttachmentMounter {
 			const blocked = this.#blocked.get(file.sha256);
 			if (blocked !== undefined && this.#mountedBytes >= blocked) continue;
 			if (file.mime?.startsWith("image/") && !mentions(options.code, name)) continue;
+			// The mounted attachment is the current version of the name: a row
+			// with a lower number is an earlier version. A row with no number is
+			// treated as the newer one — the back-fill has not reached it, and an
+			// unnumbered row can only predate numbers, never a stamped upload.
+			const attachment = this.#entries.get(name);
+			if (attachment?.original && file.version !== undefined && attachment.version > file.version)
+				continue;
 			try {
 				await this.mountProduced(name, file, held);
 			} catch (err) {
