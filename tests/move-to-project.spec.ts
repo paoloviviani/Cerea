@@ -114,7 +114,7 @@ for (const scheme of ["light", "dark"] as const) {
 
 		// A drag onto the other project, shown part-way through.
 		const dragged = page.getByRole("link", { name: "Draft the cover letter" });
-		const target = page.getByRole("button", { name: "Budget 2027", exact: true });
+		const target = page.getByRole("link", { name: "Budget 2027", exact: true });
 		await dragged.hover();
 		await page.mouse.down();
 		const box = await boxOf(target);

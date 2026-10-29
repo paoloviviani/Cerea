@@ -135,7 +135,7 @@ test("the project page is one column on a phone", async ({ page, db, session }) 
 	expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(390);
 });
 
-test("@smoke the project page is two columns on a desktop, with nothing scrolling sideways", async ({
+test("@smoke the project page is one column with a section index on a desktop, with nothing scrolling sideways", async ({
 	page,
 	db,
 	session,
@@ -145,12 +145,14 @@ test("@smoke the project page is two columns on a desktop, with nothing scrollin
 	await page.goto(`${E2E_APP_BASE}/projects/new`);
 	await expect(page.getByLabel("Name")).toBeVisible();
 	expect(await horizontalOverflow(page)).toEqual([]);
-	// The name card and the instructions card sit side by side.
+	// One column in prompt order (name above instructions), with the index to its left.
 	const name = await page.getByLabel("Name").boundingBox();
 	const instructions = await page.getByLabel("Instructions", { exact: true }).boundingBox();
 	expect(name && instructions).toBeTruthy();
-	expect(Math.abs((name?.y ?? 0) - (instructions?.y ?? 0))).toBeLessThan(200);
-	expect(instructions?.x ?? 0).toBeGreaterThan((name?.x ?? 0) + (name?.width ?? 0));
+	expect(instructions?.y ?? 0).toBeGreaterThan((name?.y ?? 0) + (name?.height ?? 0));
+	expect(Math.abs((instructions?.x ?? 0) - (name?.x ?? 1))).toBeLessThan(2);
+	const index = await page.getByTestId("settings-index").boundingBox();
+	expect((index?.x ?? 9999) + (index?.width ?? 0)).toBeLessThanOrEqual(name?.x ?? 0);
 	await page.screenshot({ path: test.info().outputPath("desktop.png"), fullPage: true });
 });
 
