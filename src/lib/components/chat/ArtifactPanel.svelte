@@ -162,18 +162,33 @@
 	// block the call is about to append, so the preview carries over seamlessly
 	// when the real version lands. `identity` keys the live-preview cadence: a
 	// new version (or the draft handover) gets an immediate first paint.
+	// The executed call's canonical block is itself typed in word by word, so a
+	// version first exists as a truncated, still-streaming prefix of content the
+	// complete draft already holds. Until that version completes, the draft stays
+	// the preview source: swapping to the prefix would drop the finished preview
+	// back to the code tab and rebuild it (resetting a table's sort and filter).
+	let handoverDraft = $derived(
+		version &&
+			!version.complete &&
+			openDraft?.contentComplete === true &&
+			(openDraft.command === "create" || openDraft.command === "rewrite" || !openDraft.command)
+			? openDraft
+			: undefined
+	);
 	let draftSource = $derived.by(() => {
-		if (!pendingDraft?.artifactType) return undefined;
-		const kind = normalizeArtifactKind(pendingDraft.artifactType);
+		const source = pendingDraft ?? handoverDraft;
+		if (!source?.artifactType) return undefined;
+		const kind = normalizeArtifactKind(source.artifactType);
 		if (!isPreviewableKind(kind)) return undefined;
 		return {
 			kind,
-			content: pendingDraft.content,
-			complete: pendingDraft.contentComplete === true,
-			identity: `draft:${pendingDraft.toolCallId}`,
+			content: source.content,
+			complete: source.contentComplete === true,
+			identity: `draft:${source.toolCallId}`,
 		};
 	});
 	let previewSource = $derived.by(() => {
+		if (handoverDraft && draftSource) return draftSource;
 		if (version) {
 			return {
 				kind: version.type,

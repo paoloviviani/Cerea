@@ -342,6 +342,27 @@ describe("tool-mode drafts", () => {
 			expect(body(screen).querySelector('th[aria-sort="ascending"]')).not.toBeNull()
 		);
 
+		// The canonical block types in word by word: a truncated, still-streaming
+		// version appears while the complete draft is still around.
+		await screen.rerender({
+			registry: registryWith(
+				version({
+					identifier: "sales",
+					type: "table",
+					title: "Sales",
+					content: "name,amount\nbravo,",
+					complete: false,
+				})
+			),
+			fileRegistry: emptyFileRegistry,
+			items: [],
+			loading: true,
+			drafts: [done],
+		});
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(body(screen).querySelector('[data-testid="table-grid"]')).toBe(grid);
+		expect(body(screen).querySelector('th[aria-sort="ascending"]')).not.toBeNull();
+
 		// The turn ends: the canonical block lands and the draft goes away.
 		await screen.rerender({
 			registry: registryWith(
