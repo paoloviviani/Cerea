@@ -131,7 +131,7 @@ describe("the powerpoint design exception", () => {
 });
 
 describe("the pdf-tools skill and PDF forms", () => {
-	const FORMS_FALLBACK = "## Fallback: forms in the sandbox";
+	const FORMS_FALLBACK = "## Fallback: forms in the sandbox without the document tools";
 	const content = skill("pdf-tools").content;
 	const at = content.indexOf(FORMS_FALLBACK);
 	const toolsFirst = content.slice(0, at);
@@ -144,10 +144,14 @@ describe("the pdf-tools skill and PDF forms", () => {
 		expect(content.split(FORMS_FALLBACK)).toHaveLength(2);
 		const rule = section(toolsFirst, "One rule for forms");
 		expect(rule).toMatch(
-			/When `doc_edit` is in your tool list, a PDF form is filled ONLY with\s+`doc_outline` and `doc_edit`/
+			/When `doc_edit` is in your tool list, form fields are filled ONLY with\s+`fill_form`, and text on a PDF is placed with `place_text`/
 		);
-		expect(rule).toMatch(/Do not fill a form in the sandbox/);
-		expect(rule).toMatch(/jump to the last section, "Fallback: forms in the sandbox"/);
+		expect(rule).toMatch(/The sandbox is only\s+the overlay fallback in step 7/);
+		expect(rule).toMatch(/do not use the\s+helper's `form_fields` or `fill_form` below/);
+		expect(rule).not.toMatch(/Do not fill a form in the sandbox/);
+		expect(rule).toMatch(
+			/jump to the last section, "Fallback: forms in the sandbox without the\s+document tools"/
+		);
 		const headings = toolsFirst.match(/^## .+$/gm) ?? [];
 		expect(headings[0]).toBe("## One rule for forms");
 	});
@@ -192,9 +196,11 @@ describe("a PDF form with no fields", () => {
 		expect(tools).toMatch(
 			/`fill_form` and `place_text` \(with `along` or\s+`rotate`\) are always the first choice/
 		);
-		expect(tools).toMatch(
-			/save it under the\s+\*\*same file name\*\*: it becomes the next version/
-		);
+		expect(tools).toMatch(/save it as `\/mnt\/output\/<the same name>`/);
+		expect(tools).toMatch(/it becomes the next version/);
+		expect(tools).toMatch(/for what the tools cannot do, is separate and allowed/);
+		expect(tools).toContain('"individual" or "company"');
+		expect(tools).not.toMatch(/titolare|socio/);
 		expect(tools).toMatch(/\*\*Never in the sandbox:\*\* a signed PDF/);
 		expect(tools).toMatch(
 			/filling real form fields by drawing over\s+them, rebuilding the form, or flattening unasked/
@@ -212,7 +218,7 @@ describe("a PDF form with no fields", () => {
 		expect(tools).toContain("`skew_deg`");
 		expect(tools).toContain("`along: [x1, y1, x2, y2]`");
 		expect(tools).toContain("`region: {x, y, width, height}`");
-		expect(tools).toMatch(/Do not fill a form in the sandbox/);
+		expect(tools).toMatch(/The sandbox is only\s+the overlay fallback/);
 		expect(tools).not.toMatch(/\bpeople\b/i);
 	});
 

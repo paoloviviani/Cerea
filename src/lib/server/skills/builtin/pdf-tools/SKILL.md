@@ -15,10 +15,12 @@ read it as it really looks (a form with no fields, a scan, a drawing): a few pag
 
 ## One rule for forms
 
-**When `doc_edit` is in your tool list, a PDF form is filled ONLY with
-`doc_outline` and `doc_edit`.** Do not fill a form in the sandbox, and do not
-use the helper's `form_fields` or `fill_form` below. If the tools are not in
-your tool list, jump to the last section, "Fallback: forms in the sandbox".
+**When `doc_edit` is in your tool list, form fields are filled ONLY with
+`fill_form`, and text on a PDF is placed with `place_text`.** The sandbox is only
+the overlay fallback in step 7, for what those tools cannot do; do not use the
+helper's `form_fields` or `fill_form` below. If the tools are not in your tool
+list, jump to the last section, "Fallback: forms in the sandbox without the
+document tools".
 Everything else in this skill (merge, split, rotate, reorder, text, metadata,
 encryption) has no tool and is always done in the sandbox.
 
@@ -35,7 +37,7 @@ encryption) has no tool and is always done in the sandbox.
    ambiguous (two fields that could hold the same thing, a value that fits none of a list's options), ask the user
    before filling. Do not invent values the user did not give, and leave the other fields as they are.
    When asked to fill a form with test or dummy data, fill **one consistent case**: pick one of mutually exclusive
-   options (such as "titolare" or "socio") and the section that goes with it, not every field, unless the user asks
+   options (such as "individual" or "company") and the section that goes with it, not every field, unless the user asks
    to exercise them all; say which branch you left empty.
 3. `doc_edit` with one operation, `fill_form({values, flatten?})`:
    - text field: the text; checkbox: `true`, `false` or its on-state name (the
@@ -95,7 +97,7 @@ encryption) has no tool and is always done in the sandbox.
      `rotate`) are always the first choice. Only for what they cannot do (a tick or mark in a printed box, an
      image or signature picture, shapes, non-Western-European text, or an item `place_text` refuses for a reason
      other than safety) draw an overlay with `reportlab`, merge it with `pypdf` onto the **current version** and
-     save it under the **same file name**: it becomes the next version, and the original stays. Install them with
+     save it as `/mnt/output/<the same name>` (only `/mnt/output` is stored): it becomes the next version, and the original stays. Install them with
      `micropip`. Check the result with `look_doc` (`region` or `grid`). **Never in the sandbox:** a signed PDF
      (the tools refuse it, and the sandbox is not a way around that), filling real form fields by drawing over
      them, rebuilding the form, or flattening unasked.
@@ -159,11 +161,12 @@ pdf_tools.decrypt_pdf("locked.pdf", "secret", "open.pdf")
   shown. Only describe files you actually produced. Verify by re-opening the output with pypdf and
   reporting page counts or extracted values.
 
-## Fallback: forms in the sandbox
+## Fallback: forms in the sandbox without the document tools
 
 **Read this section only if `doc_edit` is NOT in your tool list.** If it is,
 stop reading here: this is the in-sandbox method for deployments without the
-document service, and it must not be mixed with the tools.
+document service, and it must not be mixed with the tools. (The overlay of step 7,
+for what the tools cannot do, is separate and allowed.)
 
 ```python
 listing = pdf_tools.form_fields("/mnt/data/form.pdf")     # always first
