@@ -88,7 +88,10 @@ def test_outline_lists_pages_and_every_kind_of_field() -> None:
 def test_outline_of_a_pdf_without_a_form_says_so() -> None:
     o = core.outline(make_plain_pdf(), "pdf", LIMITS)
     assert o["page_count"] == 2 and o["form"]["has_form"] is False and o["form"]["fields"] == []
-    assert "no fillable form fields" in o["form"]["note"] and o["operations"] == []
+    assert (
+        "no form fields" in o["form"]["note"] and "place_text" in o["form"]["note"] and "`lines`" in o["form"]["note"]
+    )
+    assert o["operations"] == ["place_text"]
 
 
 def test_outline_reports_xfa_as_such() -> None:
@@ -231,11 +234,13 @@ def test_xfa_and_forms_without_fields_are_refused_clearly() -> None:
         fill(make_plain_pdf(), {"name": "Ada"})
 
 
-def test_a_pdf_takes_one_operation_and_only_fill_form() -> None:
+def test_a_pdf_takes_one_operation_from_its_two() -> None:
     op = {"op": "fill_form", "values": {"full_name": "a"}}
     with pytest.raises(PatchError, match="exactly one operation"):
         core.edit(make_form_pdf(), "pdf", {"operations": [op, op]}, {}, LIMITS)
-    with pytest.raises(DocumentError, match=r"unknown operation 'replace_text' for pdf; available: \['fill_form'\]"):
+    with pytest.raises(
+        DocumentError, match=r"unknown operation 'replace_text' for pdf; available: \['fill_form', 'place_text'\]"
+    ):
         core.edit(
             make_form_pdf(), "pdf", {"operations": [{"op": "replace_text", "find": "a", "replace": "b"}]}, {}, LIMITS
         )
@@ -368,7 +373,7 @@ def test_http_read_of_a_pdf_says_what_to_use_instead(client: TestClient) -> None
 def test_http_pdf_is_listed_in_the_capabilities(client: TestClient) -> None:
     caps = client.get("/v1/capabilities", headers=AUTH).json()
     pdf = caps["formats"]["pdf"]
-    assert pdf["outline"] is True and pdf["read"] is False and pdf["operations"] == ["fill_form"]
+    assert pdf["outline"] is True and pdf["read"] is False and pdf["operations"] == ["fill_form", "place_text"]
     assert pdf["track_changes"] is False and pdf["operation_schemas"]["fill_form"]["required"] == ["op", "values"]
     assert caps["formats"]["docx"]["read"] is True
 

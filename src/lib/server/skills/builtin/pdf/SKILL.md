@@ -6,15 +6,15 @@ description: Create PDF documents with the doc_create tool (format pdf) - report
 # PDF documents
 
 Use this skill when the user wants a **new** PDF. For an existing PDF (fill a form, merge, split, rotate, encrypt,
-extract text), use the `pdf-tools` skill. Among the document tools only `doc_outline` and `doc_edit fill_form` work
-on an existing PDF (its form); they do not edit a PDF in any other way.
+extract text), use the `pdf-tools` skill. Among the document tools only `doc_outline`, `doc_edit fill_form` and `doc_edit place_text` work
+on an existing PDF (filling its form, or writing text onto a page); they do not edit a PDF in any other way.
 
 ## One rule
 
 **When `doc_create` is in your tool list, `doc_create` with `format: "pdf"` is the ONLY way to create a PDF.** Do not
 write Python to make one (no reportlab, no hand-written PDF syntax), and do not make a Word file only to convert
-it. If the tool is not in your tool list, jump to the last section, "Fallback". One exception, for an existing PDF
-and not a new one: writing values onto a form that has no form fields, which the `pdf-tools` skill describes.
+it. If the tool is not in your tool list, jump to the last section, "Fallback". Writing values onto an existing PDF that
+has no form fields is not creating a PDF: it is `doc_edit place_text`, which the `pdf-tools` skill describes.
 
 ## Creating a PDF
 

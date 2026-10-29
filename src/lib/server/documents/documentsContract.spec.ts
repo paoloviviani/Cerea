@@ -47,11 +47,14 @@ describe("the service's contract reaches the edit tool", () => {
 		}
 	});
 
-	it("offers PDF forms: fill_form is the PDF's one operation, and a PDF cannot be read", () => {
-		expect(fixture.formats.pdf.operations).toEqual(["fill_form"]);
+	it("offers PDF forms and text: fill_form and place_text are the PDF's operations, and a PDF cannot be read", () => {
+		expect(fixture.formats.pdf.operations).toEqual(["fill_form", "place_text"]);
 		expect(fixture.formats.pdf.read).toBe(false);
-		expect(text).toContain("PDF (.pdf): fill_form{flatten?: boolean, values: object}");
-		expect(text).toMatch(/A PDF has one operation, fill_form, and no other edit/);
+		expect(text).toContain(
+			"fill_form{flatten?: boolean, flatten_in_place?: boolean, values: object}"
+		);
+		expect(text).toMatch(/place_text\{allow_on_form\?: boolean, items: /);
+		expect(text).toMatch(/A PDF has two operations, fill_form and place_text, and no other edit/);
 	});
 
 	it("keeps the tool description within its budget", () => {

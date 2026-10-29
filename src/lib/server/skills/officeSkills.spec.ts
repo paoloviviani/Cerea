@@ -183,15 +183,33 @@ describe("the pdf-tools skill and PDF forms", () => {
 
 describe("a PDF form with no fields", () => {
 	const tools = skill("pdf-tools").content;
-	it("offers writing onto the original page or a rebuilt copy, never 'impossible'", () => {
+	it("is written on with place_text next to the labels, and the sandbox route is only the fallback", () => {
 		expect(tools).toContain("**no form fields**");
-		expect(tools).toContain("write the values onto the original page");
-		expect(tools).toContain('micropip.install("reportlab", "pypdf")');
-		expect(tools).toContain("a clean filled copy");
-		expect(tools).toContain("Never say it is impossible to fill");
+		expect(tools).toContain("`place_text({items: [{page, x, y, text, size?, font?}]})`");
+		expect(tools).toMatch(/put each\s+value next to its label/);
+		expect(tools).toMatch(/\*\*check with `look_doc`\*\*/);
+		expect(tools).toMatch(/only for when `doc_edit` is not in your tool list/);
 	});
-	it("is the one sanctioned exception to the tools-only rule, stated in the pdf skill and the sandbox prompt", () => {
-		expect(skill("pdf").content).toContain("writing values onto a form that has no form fields");
+	it("maps fields by label and position, never flattens unasked, checks with look_doc", () => {
+		expect(tools).toMatch(/by label and position, never by the order of the names/);
+		expect(tools).toMatch(/\*\*Never flatten unless the user asks for it\.\*\*/);
+		expect(tools).toContain("<name>-flattened.pdf");
+		expect(tools).toMatch(/\*\*After filling, look at the page with `look_doc`\*\*/);
+	});
+	it("corrects misplaced text by going back to the earlier version, and knows rotated and cropped pages", () => {
+		expect(tools).toMatch(/`version` set to the version before the placement/);
+		expect(tools).toMatch(/`file_versions` in\s+`doc_outline`/);
+		expect(tools).toMatch(/on a \*\*rotated\*\* page/);
+		expect(tools).toMatch(/`origin_x`, `origin_y`/);
+	});
+	it("never rebuilds an official form as a substitute", () => {
+		expect(tools).toMatch(/\*\*Never rebuild an official or third-party form as a substitute\*\*/);
+		expect(tools).toMatch(/restore the earlier\s+version/);
+		expect(tools).toMatch(/ask the user to attach the original again/);
+	});
+	it("is no longer an exception to the tools-only rule in the pdf skill", () => {
+		expect(skill("pdf").content).not.toContain("One exception, for an existing PDF");
+		expect(skill("pdf").content).toContain("`doc_edit place_text`");
 	});
 });
 
@@ -200,7 +218,7 @@ describe("pairs with the rest of the skills", () => {
 		const { toolsFirst } = parts("pdf");
 		expect(toolsFirst).toContain("`pdf-tools`");
 		expect(toolsFirst).toMatch(
-			/only `doc_outline` and `doc_edit fill_form` work\s+on an existing PDF/
+			/only `doc_outline`, `doc_edit fill_form` and `doc_edit place_text` work\s+on an existing PDF/
 		);
 		expect(toolsFirst).toMatch(/do not edit a PDF in any other way/);
 		const tools = skill("pdf-tools").content;

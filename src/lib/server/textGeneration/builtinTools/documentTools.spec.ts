@@ -629,15 +629,80 @@ describe("PDF forms", () => {
 		stored.attachments.set(`${conversationId}:sha-f`, Buffer.from("%PDF-1.7 original"));
 	});
 
+	it("does not name place_text in the preprompt when the service does not list it", async () => {
+		const prompt = (await named(DOC_EDIT_TOOL_NAME)).preprompt ?? "";
+		expect(prompt).toContain("doc_edit fill_form");
+		expect(prompt).not.toContain("place_text");
+	});
+
 	it("describes fill_form from the service's schema and says a PDF has no other edit", async () => {
 		const text = (await named(DOC_EDIT_TOOL_NAME)).definition.function.description ?? "";
 		expect(text).toContain("PDF (.pdf): fill_form{values: object, flatten?: boolean}");
 		expect(text).toMatch(/A PDF has one operation, fill_form, and no other edit/);
-		expect(text).toMatch(/call doc_outline first for the field names and allowed values/);
-		expect(text).toMatch(/A signed PDF \(filling would invalidate its signature\)/);
-		expect(text).toMatch(/XFA\s+form cannot be filled|XFA form cannot be filled/);
+		expect(text).toMatch(/Call doc_outline first \(fields have `rect`, `label`, `table`\)/);
+		expect(text).toMatch(/by label and position, never by name order/);
+		expect(text).toMatch(/Never `flatten` unless the user asks[^]*<name>-flattened\.pdf/);
+		expect(text).toMatch(/Signed and XFA PDFs cannot be filled/);
 		const outline = (await named(DOC_OUTLINE_TOOL_NAME)).definition.function.description ?? "";
-		expect(outline).toMatch(/PDF's pages and, when it has a form, its fields/);
+		expect(outline).toMatch(/PDF's pages \(size and text lines with positions\)/);
+		expect(outline).toMatch(/rect, label, table/);
+		expect(outline).toMatch(/origin at the page's bottom left/);
+	});
+
+	it("offers place_text for a PDF without fields when the service has it", async () => {
+		capabilities = {
+			...CAPS,
+			formats: {
+				...CAPS.formats,
+				pdf: {
+					...CAPS.formats.pdf,
+					operations: ["fill_form", "place_text"],
+					operation_schemas: {
+						...CAPS.formats.pdf.operation_schemas,
+						place_text: {
+							type: "object",
+							properties: { op: { type: "string" }, items: { type: "array" } },
+							required: ["op", "items"],
+						},
+					},
+				},
+			},
+		};
+		resetCapabilitiesCache();
+		const text = (await named(DOC_EDIT_TOOL_NAME)).definition.function.description ?? "";
+		expect(text).toMatch(/A PDF has two operations, fill_form and place_text, and no other edit/);
+		expect(text).toMatch(/place_text writes text at positions/);
+		expect(text).toMatch(/refused on one with fields unless allow_on_form/);
+		expect((await named(DOC_EDIT_TOOL_NAME)).preprompt).toContain("doc_edit place_text");
+	});
+
+	it("saves a flattened PDF as <name>-flattened.pdf and leaves the fillable file alone", async () => {
+		editOverride = {
+			format: "pdf",
+			operations: [
+				{ index: 0, op: "fill_form", result: { flattened: true, save_as_suffix: "-flattened" } },
+			],
+			diff: [],
+			verify: { ok: true, pages: 1, flattened: true },
+			file_name: "form.pdf",
+			content_type: "application/pdf",
+			file_base64: PDF.toString("base64"),
+		};
+		const out = result(
+			await (
+				await named(DOC_EDIT_TOOL_NAME)
+			).execute(
+				{ file: "form.pdf", operations: [{ op: "fill_form", values: { a: "b" }, flatten: true }] },
+				ctx()
+			)
+		);
+		expect(stored.saved[0]).toMatchObject({
+			name: "form-flattened.pdf",
+			derivedFrom: { sha256: "sha-f", name: "form.pdf" },
+		});
+		const body = JSON.parse(out.resultText);
+		expect(body).toMatchObject({ saved: true, file: "form-flattened.pdf" });
+		expect(body.note).toMatch(/form\.pdf is unchanged and still the fillable form/);
 	});
 
 	it("says nothing about PDF forms when the service lists no fill_form", async () => {

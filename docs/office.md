@@ -156,9 +156,13 @@ You can still ask for edits to a sandbox-built deck afterwards.
 Attach a fillable PDF form (an AcroForm, the kind with boxes you can click and
 type in) and tell the assistant what to enter. It first lists the form's
 fields: each one's name, type, page, current value and, for a checkbox, a radio
-group or a list, what it accepts. It matches your details to the fields and asks
-you about anything unclear instead of guessing. Then it fills the form and saves
-the result as a new version of the file; your original stays as it was.
+group or a list, what it accepts, plus where the field sits on the page and what
+it is for (the text beside it, or the column header above it in a table). It
+matches your details to the fields by that label and position, never by the
+order of their names, and asks you about anything unclear instead of guessing.
+Then it fills the form and saves the result as a new version of the file; your
+original stays as it was. It then looks at the page to check that every value is
+in its box and fully visible.
 
 - **Every kind of field, on every page:** text, checkboxes (including those
   whose "on" value is not "Yes"), radio groups, list and drop-down boxes
@@ -172,8 +176,13 @@ the result as a new version of the file; your original stays as it was.
   ones still empty and any value that did not take.
 - **Shown in any viewer.** The values are written so browsers, Acrobat, Preview
   and LibreOffice all show them.
-- **Flatten.** Ask for a final copy and the values are baked into the pages: the
-  form is no longer editable.
+- **Text fits its box.** Text wider than a narrow box (an amount, say) is shrunk
+  to fit, down to 6 points; if it still does not fit, the assistant tells you
+  rather than leaving it cut off.
+- **Flatten is a copy.** The assistant never flattens unless you ask. Ask for a
+  final copy and the values are baked into the pages in a separate file,
+  `name-flattened.pdf`; the fillable form stays as it was (unless you ask for it
+  to be replaced).
 
 What it cannot do:
 
@@ -183,14 +192,27 @@ What it cannot do:
   filling would invalidate the signature. Fill a copy made before signing.
 - **Other alphabets.** Text in forms is limited to Western European characters:
   accents and the euro work, Polish "Ł", Greek or Cyrillic are refused.
-- **A scanned or printed form** has no fields, only lines drawn on the page.
-  Filling those by writing text at positions is not available yet.
+- **Official forms are never rebuilt.** If a form is damaged or lost, the
+  assistant asks you to attach the original again; it does not make a lookalike.
 - **Encrypted PDFs** (password-protected or restricted) are refused: remove the protection first.
 - A PDF can be changed in no other way with these tools; merging, splitting,
   rotating and the like are the `pdf-tools` skill, in the browser.
 
+### A scanned or printed form
+
+A PDF with no fields (a scan, or a form with only lines drawn on the page) gets
+its text written onto the page. The assistant reads where each label is (the
+outline lists the page's text lines with their positions), looks at the page,
+and places each value next to its label with `place_text`; it then checks the
+picture and adjusts. The text is added to the page content and the file is saved
+as a new version. This is best effort: positions come from the page's text, so
+it works for forms that have text labels, and a form that is only an image is
+placed by what the assistant sees. A PDF that has form fields is filled, not
+written on.
+
 Without the document service the `pdf-tools` skill fills the form in the browser
-sandbox with the same checks and the same report.
+sandbox with the same checks and the same report, and writes onto a form without
+fields with `reportlab` and `pypdf`.
 
 ## Previews
 
@@ -269,7 +291,7 @@ really looks. This is for the assistant; you keep the preview above.
   Excel; numbers the assistant quotes come from your data, not from a formula.
 - **Editing a Word file:** comments, footnote text, content controls and fields
   are not available.
-- **Editing a PDF** is limited to filling its form (see above): merging,
+- **Editing a PDF** is limited to filling its form or writing text onto its pages (see above): merging,
   splitting, rotating and similar work on an existing PDF is the `pdf-tools`
   skill, in the browser. A PDF may have up to 2,000 pages and 5,000 form fields.
 - **PDF text.** Latin, Greek and Cyrillic render. Chinese, Japanese, Korean

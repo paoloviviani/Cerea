@@ -137,6 +137,7 @@ class Field:
 		self.chain = chain  # the field and its ancestors, nearest first (for inherited keys)
 		self.widgets: list[DictionaryObject] = []
 		self.pages: list[int] = []
+		self.widget_pages: list[int | None] = []  # the page of each widget, in step with `widgets`
 		self.top_level = len(chain) == 1
 
 	def inherited(self, key: str) -> Any:
@@ -321,6 +322,7 @@ def read_form(root: Any, pages: Any, *, max_fields: int = 5000) -> Form:
 			field.widgets.append(member)
 			page = by_ref.get(member_ref.idnum) if isinstance(member_ref, IndirectObject) else None
 			page = page or by_id.get(id(member))
+			field.widget_pages.append(page)
 			if page and page not in field.pages:
 				field.pages.append(page)
 		field.pages.sort()
@@ -394,11 +396,40 @@ def describe(field: Field) -> dict[str, Any]:
 		out["fillable"] = False
 		if kind == "signature" and field.signed:
 			out["signed"] = True
+	rects = widget_rects(field)
+	if rects:
+		out["rect"] = rects[0]
+		if len(rects) > 1:
+			out["rects"] = rects  # one per widget (a radio group's buttons, a field repeated on a page)
 	if field.required:
 		out["required"] = True
 	if field.read_only:
 		out["read_only"] = True
 	return out
+
+
+def widget_rects(field: Field) -> list[dict[str, Any]]:
+	"""Where the widgets sit: {page, x, y, w, h} in PDF points, origin at the page's bottom left."""
+	found: list[dict[str, Any]] = []
+	for widget, page in zip(field.widgets, field.widget_pages, strict=False):
+		raw = widget.get("/Rect")
+		raw = raw.get_object() if raw is not None else None
+		if not isinstance(raw, ArrayObject) or len(raw) != 4 or page is None:
+			continue
+		try:
+			x0, y0, x1, y1 = (float(v.get_object()) for v in raw)
+		except (TypeError, ValueError):
+			continue
+		found.append(
+			{
+				"page": page,
+				"x": round(min(x0, x1), 1),
+				"y": round(min(y0, y1), 1),
+				"w": round(abs(x1 - x0), 1),
+				"h": round(abs(y1 - y0), 1),
+			}
+		)
+	return found
 
 
 def inspect_reader(reader: PdfReader, *, max_fields: int = 5000) -> dict[str, Any]:
@@ -459,9 +490,23 @@ class _Reject(Exception):
 		self.allowed = allowed
 
 
-def _check_shown(text: str) -> None:
-	"""The appearances use a Western European font (Windows-1252): refuse what it cannot show, never write '?'."""
-	bad = sorted({c for c in text if c not in "\n\r\t" and not _encodable(c)})
+def _control(char: str) -> bool:
+	return char < " " or char == "\x7f"
+
+
+def _check_shown(text: str, *, newlines: bool = False) -> None:
+	"""The appearances use a Western European font (Windows-1252): refuse what it cannot show, never write '?'.
+	Control characters are refused too (a line break only where `newlines`): they draw nothing and have no place
+	in a form value."""
+	controls = sorted({c for c in text if _control(c) and not (newlines and c in "\n\r")})
+	if controls:
+		shown = ", ".join(f"U+{ord(c):04X}" for c in controls[:8])
+		raise _Reject(
+			f"cannot contain control characters ({shown}): remove them"
+			+ ("" if newlines else "; a line break needs a multiline field"),
+			{"control_characters": [ord(c) for c in controls]},
+		)
+	bad = sorted({c for c in text if not _control(c) and not _encodable(c)})
 	if bad:
 		shown = ", ".join(f'"{c}"' for c in bad[:8])
 		raise _Reject(
@@ -504,7 +549,7 @@ def coerce(field: Field, value: Any) -> Any:
 		if isinstance(value, bool) or not isinstance(value, str | int | float):
 			raise _Reject(f"needs text, not {_shown(value)}")
 		text = value if isinstance(value, str) else (str(int(value)) if float(value).is_integer() else str(value))
-		_check_shown(text)
+		_check_shown(text, newlines=True)  # a line break in a single-line field is refused just below
 		limit = field.max_length
 		if limit and len(text) > limit:
 			raise _Reject(f"takes at most {limit} characters, and this has {len(text)}", {"max_length": limit})
@@ -684,14 +729,25 @@ def _wrap(text: str, size: float, room: float) -> list[str]:
 	return lines
 
 
-def _draw_text(field: Field, text: str, width: float, height: float, inset: float, size: float, colour: str) -> bytes:
-	"""The text of a text field or a combo box: /Q alignment, multiline wrapping, comb cells, password dots."""
+AUTO_MAX = 12.0  # the size an auto-sized field starts from
+AUTO_MIN = 6.0  # and the smallest it is shrunk to; text that still does not fit is clipped and reported
+
+
+def _draw_text(
+	field: Field, text: str, width: float, height: float, inset: float, size: float, colour: str
+) -> tuple[bytes, bool]:
+	"""The text of a text field or a combo box: /Q alignment, multiline wrapping, comb cells, password dots.
+	A field whose /DA size is 0 is auto-sized: it starts from AUTO_MAX (less when the box is low) and shrinks
+	until the text fits the width (a comb field: its cells; a multiline field: its height), down to AUTO_MIN.
+	A single-line field with a fixed size is shrunk the same way when the text would be cut off.
+	Returns (the drawing operators, whether the text fits)."""
 	flags = field.flags if field.kind == "text" else 0
 	quad = field.inherited("/Q")
 	quad = int(quad) if isinstance(quad, int | NumberObject) else 0
 	if flags & F_PASSWORD:
 		text = "*" * len(text)
 	room = max(width - 2 * inset - 2, 1.0)
+	tall = max(height - 2 * inset - 1, 1.0)
 
 	def at(fs: float, x: float, y: float, line: str) -> bytes:
 		head = f"BT\n/Helv {fs:.2f} Tf {colour}\n{x:.2f} {y:.2f} Td\n".encode()
@@ -702,23 +758,34 @@ def _draw_text(field: Field, text: str, width: float, height: float, inset: floa
 		return inset + 1 + (gap / 2 if quad == 1 else gap if quad == 2 else 0)
 
 	if flags & F_COMB and field.max_length:
-		fs = size if size > 0 else max(min(12.0, height - 2 * inset - 1), 4.0)
 		cell = (width - 2 * (inset - 1)) / field.max_length
+		fs = size if size > 0 else max(min(AUTO_MAX, tall), 4.0)
+		widest = max((_text_width(c, 1.0) for c in text), default=0.0)
+		fit = fs
+		if size <= 0 and widest > 0 and widest * fs > cell - 1:
+			fit = max(min(fs, (cell - 1) / widest), AUTO_MIN)
 		out = b""
 		for i, char in enumerate(text[: field.max_length]):
-			x = (inset - 1) + i * cell + (cell - _text_width(char, fs)) / 2
-			out += at(fs, x, (height - fs) / 2 + fs * 0.22, char)
-		return out
+			x = (inset - 1) + i * cell + (cell - _text_width(char, fit)) / 2
+			out += at(fit, x, (height - fit) / 2 + fit * 0.22, char)
+		return out, widest * fit <= cell + 0.01
 	if flags & F_MULTILINE:
-		fs = size if size > 0 else 12.0
+		fs = size if size > 0 else AUTO_MAX
+		lines = _wrap(text, fs, room)
+		while size <= 0 and fs > AUTO_MIN and (len(lines) * 1.15 * fs > tall + 0.15 * fs):
+			fs = max(fs - 0.5, AUTO_MIN)
+			lines = _wrap(text, fs, room)
 		out = b""
-		for number, line in enumerate(_wrap(text, fs, room)):
+		for number, line in enumerate(lines):
 			out += at(fs, left(line, fs), height - inset - fs * (1 + 1.15 * number) + fs * 0.1, line)
-		return out
-	fs = size if size > 0 else max(min(12.0, height - 2 * inset - 1), 4.0)
-	if size <= 0 and text and _text_width(text, fs) > room:
-		fs = max(min(fs, room / _text_width(text, 1.0)), 4.0)
-	return at(fs, left(text, fs), (height - fs) / 2 + fs * 0.22, text)
+		return out, len(lines) * 1.15 * fs <= tall + 0.15 * fs
+	fs = size if size > 0 else max(min(AUTO_MAX, tall), 4.0)
+	fits = True
+	if text and _text_width(text, fs) > room:
+		floor = min(AUTO_MIN, fs)
+		fs = max(min(fs, room / _text_width(text, 1.0)), floor)
+		fits = _text_width(text, fs) <= room + 0.01
+	return at(fs, left(text, fs), (height - fs) / 2 + fs * 0.22, text), fits
 
 
 def _draw_list(
@@ -766,11 +833,12 @@ def _appearance(
 	text: str = "",
 	texts: list[str] | None = None,
 	selected: list[int] | None = None,
-) -> None:
+) -> bool:
 	"""Give one widget an appearance stream of its own: background and border from /MK, then the text of a text
 	field or combo box, or the rows of a list box (the selection marked). Drawn here, not by the library, which
 	writes nothing for a field whose widgets are separate kids, draws list boxes wrongly and shows a combo's value
-	instead of its label. A rotated widget (/MK /R) gets its /Matrix."""
+	instead of its label. A rotated widget (/MK /R) gets its /Matrix. Returns False when the text does not fit
+	the box even at the smallest size (it is clipped)."""
 	width, height, matrix = _frame(widget)
 	size, colour = _da_parts(field, widget, acro)
 	mk = _resolved(widget, "/MK")
@@ -791,10 +859,12 @@ def _appearance(
 		)
 	inset = border + 1.0
 	out += f"{inset:.2f} {inset:.2f} {max(width - 2 * inset, 1):.2f} {max(height - 2 * inset, 1):.2f} re W n\n".encode()
+	fits = True
 	if field.kind == "list":
 		out += _draw_list(field, widget, texts or [], selected or [], width, height, inset, size, colour)
 	else:
-		out += _draw_text(field, text, width, height, inset, size, colour)
+		drawn, fits = _draw_text(field, text, width, height, inset, size, colour)
+		out += drawn
 	out += b"Q\nEMC\n"
 	stream = DecodedStreamObject()
 	stream.set_data(out)
@@ -818,27 +888,33 @@ def _appearance(
 		entries[NameObject("/Matrix")] = ArrayObject([FloatObject(x) for x in matrix])
 	stream.update(entries)
 	widget[NameObject("/AP")] = DictionaryObject({NameObject("/N"): _add_object(writer, stream)})
+	return fits
 
 
-def _draw_field(writer: PdfWriter, field: Field, acro: Any, only_missing: bool = False) -> None:
-	"""(Re)draw every widget of a text, combo or list field from its current value."""
+def _draw_field(writer: PdfWriter, field: Field, acro: Any, only_missing: bool = False) -> bool:
+	"""(Re)draw every widget of a text, combo or list field from its current value. False: some text is clipped."""
 	value = current_value(field)
+	fits = True
 	for widget in field.widgets:
 		if "/Rect" not in widget or (only_missing and isinstance(_normal_appearance(widget), StreamObject)):
 			continue
 		if field.kind == "text":
-			_appearance(writer, field, widget, acro, text=value or "")
+			fits = _appearance(writer, field, widget, acro, text=value or "") and fits
 		else:
 			texts, selected = _choice_view(field, value)
-			_appearance(
-				writer,
-				field,
-				widget,
-				acro,
-				text=texts[0] if field.kind == "combo" and texts else "",
-				texts=texts,
-				selected=selected,
+			fits = (
+				_appearance(
+					writer,
+					field,
+					widget,
+					acro,
+					text=texts[0] if field.kind == "combo" and texts else "",
+					texts=texts,
+					selected=selected,
+				)
+				and fits
 			)
+	return fits
 
 
 def _choice_view(field: Field, value: Any) -> tuple[list[str], list[int]]:
@@ -1053,11 +1129,13 @@ def fill_pdf_form(
 	root = _root(writer)
 	wform = read_form(root, writer.pages, max_fields=max_fields)
 	acro = root["/AcroForm"].get_object()
+	clipped: list[str] = []
 	for name, stored in plan.items():
 		field = wform.fields[name]
 		if field.kind == "text":
 			field.obj[NameObject("/V")] = TextStringObject(stored)
-			_draw_field(writer, field, acro)
+			if not _draw_field(writer, field, acro):
+				clipped.append(name)
 		elif field.kind in ("checkbox", "radio"):
 			_set_button(field, stored)
 		else:
@@ -1135,6 +1213,7 @@ def fill_pdf_form(
 		"skipped": skipped,
 		"flattened": bool(flatten),
 		"required_missing": required_missing,
+		"clipped": clipped,
 		"diff": diff,
 	}
 	if flatten:

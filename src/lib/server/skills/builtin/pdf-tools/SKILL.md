@@ -22,15 +22,18 @@ your tool list, jump to the last section, "Fallback: forms in the sandbox".
 Everything else in this skill (merge, split, rotate, reorder, text, metadata,
 encryption) has no tool and is always done in the sandbox.
 
-1. `doc_outline` on the PDF lists its pages and, when it has a form, every
-   field: its full `name`, `type`, `pages`, current `value`, what it accepts
-   (`allowed`, or `options` with each `value` and `label`), `max_length`, and
-   `required` or `read_only` when set. Always call it first and use these
+1. `doc_outline` on the PDF lists its pages (with their size in points and the text lines on them, each with its
+   position) and, when it has a form, every field: its full `name`, `type`, `pages`, current `value`, what it
+   accepts (`allowed`, or `options` with each `value` and `label`), `max_length`, `required` or `read_only` when
+   set, and where it is: `rect` (`page`, `x`, `y`, `w`, `h` in PDF points, origin at the page's bottom left), a
+   `label` (the text beside, or the column header above, or just above it) and, for fields lined up in rows and
+   columns, `table: {id, row, col}` (the label is then the column header). Always call it first and use the field
    names exactly; never guess a field name.
-2. Match the user's data to the fields. When a match is ambiguous (two fields
-   that could hold the same thing, a value that fits none of a list's
-   options), ask the user before filling. Do not invent values the user did not
-   give, and leave the other fields as they are.
+2. **Match the user's data to the fields by label and position, never by the order of the names.** Generic names
+   (`Testo104`, `Text12`) say nothing and are not in reading order: read `label`, `table` and `rect`, and when a
+   form's fields have no label, look at the page with `look_doc` and compare the positions. When a match is
+   ambiguous (two fields that could hold the same thing, a value that fits none of a list's options), ask the user
+   before filling. Do not invent values the user did not give, and leave the other fields as they are.
 3. `doc_edit` with one operation, `fill_form({values, flatten?})`:
    - text field: the text; checkbox: `true`, `false` or its on-state name (the
      name is not always "Yes"); radio group: one of its `allowed` names; list
@@ -38,12 +41,17 @@ encryption) has no tool and is always done in the sandbox.
      multi-select list);
    - every value is checked first, and a bad one is refused with what the field
      takes, so nothing is half-filled: read the message and correct it;
-   - `flatten: true` bakes the values into the pages and the form is no longer
-     editable: use it only when the user asks for a final, non-editable copy.
-4. Report what was filled, from the result: the fields set, the fields left
-   empty (`skipped`), the **required fields still empty** (`required_missing`:
-   tell the user), and any value that did not take (`not_taken`; say so, never
-   claim it was filled). The file is a new version of the same name.
+   - text wider than its box is shrunk to fit (to 6 pt); `clipped` lists a value that still does not fit: shorten
+     it or tell the user.
+   - **Never flatten unless the user asks for it.** A flattened PDF is no longer a form. To see the values, use
+     `look_doc`, which draws filled fields; flatten is never a way to look. When the user does ask, `flatten: true`
+     saves a separate file, `<name>-flattened.pdf`, and the fillable file stays as it was (`flatten_in_place`
+     only if the user asked to replace it).
+4. **After filling, look at the page with `look_doc`** (when it is offered) and check that every value is in its
+   box and fully visible; fix what is not and fill again. Report what was filled, from the result: the fields set,
+   the fields left empty (`skipped`), the **required fields still empty** (`required_missing`: tell the user), and
+   any value that did not take (`not_taken`; say so, never claim it was filled). The file is a new version of the
+   same name.
 5. Text is limited to Western European characters (accents and the euro are
    fine); a value with other letters (Polish "Ł", Greek, Cyrillic) is refused
    with the characters named: tell the user, do not transliterate unasked.
@@ -53,21 +61,29 @@ encryption) has no tool and is always done in the sandbox.
    offer what can be done (the user can fill an XFA form in Adobe Acrobat, or a
    signed one in a copy made before signing).
 7. If the PDF has **no form fields** (a scanned or printed form, or blanks that
-   are only drawn lines), `fill_form` can't fill it, but the form can still be
-   completed. Say there are no fields, then offer the two ways and ask which the
-   user wants (unless they already said):
-   - **write the values onto the original page**: in the sandbox, install
-     `reportlab` and `pypdf` (`await micropip.install("reportlab", "pypdf")`),
-     find where the labels are (pypdf's text extraction with a visitor gives each
-     text's position), draw the values beside them on an overlay page with
-     reportlab, and merge it onto the original with pypdf. Look at the result with
-     `look_doc` if it is offered, fix what landed in the wrong place, and deliver
-     it as a new file next to the original;
-   - **a clean filled copy**: rebuild the form with `doc_create` and the values in
-     it (the layout is new, not the original).
-
-   Never say it is impossible to fill: a PDF without fields can be written on,
-   it just isn't a form a viewer can type into.
+   are only drawn lines), `fill_form` can't fill it, but `doc_edit` can write on the page:
+   `place_text({items: [{page, x, y, text, size?, font?}]})`. Say there are no fields, then:
+   - read the text lines of `doc_outline` (`x`, `y` is the baseline start, `w` the estimated width) and put each
+     value next to its label: `x` a little past the label's `x + w` (or on the blank line), `y` the label's `y` plus
+     about 1 point; size 9 to 11 unless the blank is small. Look at the form with `look_doc` first when the blanks
+     are not obvious from the text;
+   - call `place_text` once with all the items (it cannot be combined with `fill_form` and is refused on a PDF
+     that has fields, unless `allow_on_form: true` is given to add text the fields do not cover);
+   - **check with `look_doc`** and adjust. To correct misplaced text, do not place more text on top of it: call
+     `doc_edit` with `version` set to the version before the placement (`file_versions` in `doc_outline` lists
+     them), and place again with the corrected positions (the result lists each item and whether it was found at
+     its position);
+   - positions are in the page's own space, not the picture's: on a **rotated** page (`rotation` in the page's
+     entry) compare with the `lines` positions, not with what `look_doc` shows, and a page whose visible area is
+     cropped says where it starts (`origin_x`, `origin_y`); `place_text` refuses a rotated page's item that is not
+     next to a listed line;
+   - text is limited to Western European characters, as above;
+   - the sandbox route (`reportlab` and `pypdf`: install them with `micropip`, find the label positions with a
+     pypdf text visitor, draw an overlay and merge it) is only for when `doc_edit` is not in your tool list.
+8. **Never rebuild an official or third-party form as a substitute** (not with `doc_create`, not in the sandbox):
+   a lookalike is not the form the user has to submit. If the original is damaged or lost, restore the earlier
+   version (`doc_edit` with `version` set to a version that is still the original; `file_versions` in `doc_outline`
+   lists them), or, if there is none, ask the user to attach the original again; do not recreate it.
 
 ## Setup
 
