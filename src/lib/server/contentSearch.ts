@@ -21,11 +21,17 @@ export interface ContentSnippet {
 }
 
 export const SNIPPET_LENGTH = 160;
+/** All the text `buildSnippet` will read for one conversation, however many messages. */
+/** What the list query hands `buildSnippet`: at most this many messages, this many characters each. */
+export const SNIPPET_MESSAGES = 300;
+export const SNIPPET_MESSAGE_CHARS = 3000;
+export const MAX_TOTAL_SCAN = 200_000;
 /** Only this much of one message is searched for a snippet. */
 const MAX_SCAN = 40_000;
 
 const MARKS = /[̀-ͯ]/g;
 const EXTRA: Record<string, string> = { ł: "l", ø: "o", đ: "d", ð: "d", ħ: "h", ı: "i", ß: "ss" };
+const COMBINING = /^[\u0300-\u036f]$/;
 const WORD_CHAR = /[\p{L}\p{N}]/u;
 
 /** Lower-case, accent-free form of one character (possibly several characters). */
@@ -48,11 +54,15 @@ export function queryTerms(query: string): string[] {
 	return [...new Set(terms)];
 }
 
+const isWhole = (term: string): boolean => [...term].filter((c) => WORD_CHAR.test(c)).length >= 2;
+
 /**
  * The query as MongoDB should read it. Bare `$text` words mean "any of them";
  * a search for `codice fiscale` should find chats that have both, so each word
  * is quoted (a quoted term must be present) and phrases and `-negations` are
- * kept as typed.
+ * kept as typed. A quoted term is also matched inside longer words (`art`
+ * finds "category"). Terms with fewer than two letters or digits are dropped:
+ * a one-letter word matches nearly every chat.
  */
 export function textSearchString(query: string): string {
 	const parts: string[] = [];
@@ -61,7 +71,7 @@ export function textSearchString(query: string): string {
 		.matchAll(/(-?)"([^"]*)"?|(-?)(\S+)/g)) {
 		const negated = (match[1] || match[3]) === "-";
 		const raw = (match[2] ?? match[4] ?? "").replace(/"/g, " ").trim();
-		if (!raw) continue;
+		if (!raw || !isWhole(raw)) continue;
 		parts.push(negated ? `-"${raw}"` : `"${raw}"`);
 	}
 	return parts.join(" ");
@@ -69,7 +79,7 @@ export function textSearchString(query: string): string {
 
 /** Whether content search has something to do: a term of at least two letters or digits. */
 export function hasWholeWord(query: string): boolean {
-	return queryTerms(query).some((term) => [...term].filter((c) => WORD_CHAR.test(c)).length >= 2);
+	return queryTerms(query).some(isWhole);
 }
 
 /** Markdown reduced to the words: no fences, markers, link targets or images. */
@@ -92,6 +102,12 @@ function foldWithMap(text: string): { folded: string; origin: number[]; end: num
 	let at = 0;
 	for (const char of text) {
 		const f = fold(char);
+		if (f === "" && COMBINING.test(char) && end.length) {
+			// A combining mark belongs to the letter before it, so a match ends after it.
+			for (let k = end.length - 1; k >= 0 && end[k] === at; k--) end[k] = at + char.length;
+			at += char.length;
+			continue;
+		}
 		for (let i = 0; i < f.length; i++) {
 			origin.push(at);
 			end.push(at + char.length);
@@ -130,10 +146,14 @@ export function buildSnippet(
 ): ContentSnippet | undefined {
 	const terms = queryTerms(query);
 	if (!terms.length || !messages) return undefined;
+	let budget = MAX_TOTAL_SCAN;
 	for (const message of messages) {
+		if (budget <= 0) break;
 		if (message.from !== "user" && message.from !== "assistant") continue;
 		if (typeof message.content !== "string" || !message.content) continue;
-		const text = stripMarkdown(message.content.slice(0, MAX_SCAN));
+		const piece = message.content.slice(0, Math.min(MAX_SCAN, budget));
+		budget -= piece.length;
+		const text = stripMarkdown(piece);
 		const { folded, origin, end } = foldWithMap(text);
 		const hits = occurrences(folded, terms);
 		if (!hits.length) continue;

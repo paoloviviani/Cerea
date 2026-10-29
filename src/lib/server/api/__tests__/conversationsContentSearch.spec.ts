@@ -208,13 +208,49 @@ describe.sequential("GET /api/v2/conversations?q=&content=1", () => {
 		}
 	);
 
-	it("works for a visitor without an account", { timeout: 30000 }, async () => {
+	it("matches whole words, not parts of longer ones", { timeout: 30000 }, async () => {
+		const { locals } = await createTestUser();
+		await createTestConversation(locals, {
+			title: "Words",
+			messages: [msg("m1", "user", "a category of concatenated things")],
+		});
+		expect((await search(locals, "cat", withContent)).conversations).toHaveLength(0);
+		expect((await search(locals, "art cat", withContent)).conversations).toHaveLength(0);
+		expect((await search(locals, "category", withContent)).conversations).toHaveLength(1);
+	});
+
+	it("searches titles only for a visitor without an account", { timeout: 30000 }, async () => {
 		const locals = createTestLocals({ sessionId: "visitor-session" });
 		await createTestConversation(locals, {
-			title: "Anon",
-			messages: [msg("m1", "user", "the tamarind recipe")],
+			title: "Tamarind notes",
+			messages: [msg("m1", "user", "the cardamom recipe")],
 		});
-		const data = await search(locals, "tamarind", withContent);
-		expect(data.conversations.map((c) => c.title)).toEqual(["Anon"]);
+		expect((await search(locals, "cardamom", withContent)).conversations).toHaveLength(0);
+		expect((await search(locals, "tamarind", withContent)).conversations).toHaveLength(1);
+	});
+
+	it("drops one-letter words and stays fast on a huge chat", { timeout: 60000 }, async () => {
+		const { locals } = await createTestUser();
+		const messages = Array.from({ length: 2000 }, (_, i) =>
+			msg(`m${i}`, i % 2 ? "assistant" : "user", `${"filler words go here ".repeat(50)} ${i}`)
+		);
+		messages.push(msg("end", "user", "the rare gorgonzola"));
+		await createTestConversation(locals, { title: "Huge", messages });
+		await createTestConversation(locals, {
+			title: "Mini",
+			messages: [msg("s", "user", "a gorgonzola pizza")],
+		});
+
+		const began = Date.now();
+		const data = await search(locals, "gorgonzola", withContent);
+		expect(Date.now() - began).toBeLessThan(5000);
+		expect(data.conversations.map((c) => c.title).sort()).toEqual(["Huge", "Mini"]);
+		// The 2,000th message is past what a snippet reads; the hit is still listed.
+		expect(data.conversations.find((c) => c.title === "Huge")?.snippet).toBeUndefined();
+		expect(data.conversations.find((c) => c.title === "Mini")?.snippet).toBeDefined();
+
+		// "a" alone is not a word; "a gorgonzola" is searched as "gorgonzola".
+		expect((await search(locals, "a", withContent)).conversations).toHaveLength(0);
+		expect((await search(locals, "a gorgonzola", withContent)).conversations).toHaveLength(2);
 	});
 });

@@ -13,10 +13,19 @@
  * are other fields and are not indexed.
  */
 
-export const CONVERSATION_TEXT_INDEX_KEYS = { title: "text", "messages.content": "text" } as const;
+/**
+ * `userId` leads, so a `$text` query that names one user (every one does) reads
+ * only that user's entries rather than every match in the collection. Visitors
+ * without an account (no `userId`) are not searched by content.
+ */
+export const CONVERSATION_TEXT_INDEX_KEYS = {
+	userId: 1,
+	title: "text",
+	"messages.content": "text",
+} as const;
 
 export const CONVERSATION_TEXT_INDEX_OPTIONS = {
-	name: "conversations_text",
+	name: "conversations_user_text",
 	weights: { title: 10, "messages.content": 1 },
 	default_language: "none",
 	textIndexVersion: 3,

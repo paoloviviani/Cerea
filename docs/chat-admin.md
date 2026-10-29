@@ -275,7 +275,7 @@ chat's configuration and overrides `CHAT_FILE_RETENTION_DAYS`; with
 ## Searching message text
 
 The **Chats** page searches what was said in chats with a MongoDB text index on
-the `conversations` collection (`conversations_text`, over titles and message
+the `conversations` collection (`conversations_user_text`, over titles and message
 text, no stemming so it serves any language). The chat creates it **once at
 startup**, in the background, so the app is usable while it builds; until it
 finishes, searches match titles only. On a large installation this takes minutes
@@ -288,7 +288,7 @@ already stored (the figure depends on your data; check `db.conversations.stats()
 indexSizes after the first build). Check free
 space on the database volume before upgrading a very large installation. It is
 the only text index the collection can have. MongoDB 4.4 and 8 both support it.
-Dropping the index (`conversations_text`) turns message search off without
+Dropping the index (`conversations_user_text`) turns message search off without
 harming anything else; the next start rebuilds it.
 
 ## Everything else is the console

@@ -7,7 +7,13 @@ import type { Conversation } from "$lib/types/Conversation";
 import { CONV_NUM_PER_PAGE, MAX_TITLE_QUERY_LENGTH } from "$lib/constants/pagination";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import { titleSearchPattern } from "$lib/server/titleSearch";
-import { buildSnippet, hasWholeWord, textSearchString } from "$lib/server/contentSearch";
+import {
+	buildSnippet,
+	hasWholeWord,
+	textSearchString,
+	SNIPPET_MESSAGES,
+	SNIPPET_MESSAGE_CHARS,
+} from "$lib/server/contentSearch";
 
 type Row = Pick<Conversation, "_id" | "title" | "updatedAt" | "model" | "projectId">;
 
@@ -32,8 +38,9 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	// which escapes the input and caps its length), newest first. With
 	// `content=1` — the client's way of saying the words are complete: the
 	// input ends with a space, Enter was pressed, or typing stopped — and at
-	// least one whole word (two letters or digits), the message text is searched
-	// too, with the text index (`conversationTextIndex.ts`; `"a phrase"` and
+	// least one whole word (two letters or digits), and a signed-in caller (a
+	// visitor has no `userId`, which the index leads with), the message text is
+	// searched too, with the text index (`conversationTextIndex.ts`; `"a phrase"` and
 	// `-word` as MongoDB reads them, every plain word required). Those follow the title hits, by relevance
 	// and then recency, and never repeat one. A page is a slice of that
 	// concatenation, so `p` and infinite scroll work as before. Content hits
@@ -41,7 +48,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	const pattern = titleSearchPattern(q);
 	const auth = authCondition(locals);
 	const titleFilter = pattern ? { ...auth, title: { $regex: pattern } } : auth;
-	const withContent = !!pattern && url.searchParams.get("content") === "1" && hasWholeWord(q);
+	const withContent =
+		!!pattern && !!locals.user && url.searchParams.get("content") === "1" && hasWholeWord(q);
 
 	const start = p * pageSize;
 	const want = pageSize + 1;
@@ -63,25 +71,55 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
 	type Hit = Row & { messages?: { id: string; from: string; content?: string }[] };
 	let contentRows: Hit[] = [];
-	if (withContent && titleRows.length < want) {
+	if (withContent && locals.user && titleRows.length < want) {
 		try {
-			contentRows = await collections.conversations
-				.find({
-					...auth,
-					$text: { $search: textSearchString(q) },
-					title: { $not: { $regex: pattern as string } },
-				})
-				.project<Hit>({
-					...LIST_FIELDS,
-					"messages.id": 1,
-					"messages.from": 1,
-					"messages.content": 1,
-					score: { $meta: "textScore" },
-				})
-				.sort({ score: { $meta: "textScore" }, updatedAt: -1 })
-				.skip(Math.max(0, start - (titleTotal ?? 0)))
-				.limit(want - titleRows.length)
+			// Two steps, so the relevance sort only ever holds ids and scores: the
+			// ranked page of ids first, then just those conversations, with their
+			// messages cut to what a snippet may read.
+			const ranked = await collections.conversations
+				.aggregate<{ _id: Row["_id"] }>([
+					{
+						$match: {
+							userId: locals.user._id,
+							$text: { $search: textSearchString(q) },
+							title: { $not: { $regex: pattern as string } },
+						},
+					},
+					{ $project: { updatedAt: 1, score: { $meta: "textScore" } } },
+					{ $sort: { score: -1, updatedAt: -1, _id: -1 } },
+					{ $skip: Math.max(0, start - (titleTotal ?? 0)) },
+					{ $limit: want - titleRows.length },
+					{ $project: { _id: 1 } },
+				])
 				.toArray();
+			const ids = ranked.map((r) => r._id);
+			if (ids.length) {
+				const docs = await collections.conversations
+					.aggregate<Hit>([
+						{ $match: { _id: { $in: ids }, userId: locals.user._id } },
+						{
+							$project: {
+								...LIST_FIELDS,
+								messages: {
+									$map: {
+										input: { $slice: ["$messages", SNIPPET_MESSAGES] },
+										as: "m",
+										in: {
+											id: "$$m.id",
+											from: "$$m.from",
+											content: {
+												$substrCP: [{ $ifNull: ["$$m.content", ""] }, 0, SNIPPET_MESSAGE_CHARS],
+											},
+										},
+									},
+								},
+							},
+						},
+					])
+					.toArray();
+				const byId = new Map(docs.map((d) => [String(d._id), d]));
+				contentRows = ids.flatMap((id) => byId.get(String(id)) ?? []);
+			}
 		} catch (err) {
 			if (!isMissingTextIndex(err)) throw err;
 		}

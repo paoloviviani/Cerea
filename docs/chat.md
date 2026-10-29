@@ -56,7 +56,9 @@ in the chat (not necessarily the same message); put them in quotes to find the
 exact phrase (`"codice fiscale"`), or put `-` before a word to leave out chats that
 have it. Words are matched whole and as typed, so `cat` does not find
 _concatenate_, and there is no matching of other forms of the word (`run` does
-not find _running_). Only what you and the assistant wrote is searched, not
+not find _running_). A very long chat shows no snippet when the match is far into it,
+but is still listed. Searching message text needs a signed-in account; without one,
+only titles are searched. Only what you and the assistant wrote is searched, not
 reasoning, tool results or the contents of attachments. Your own chats in projects
 are included; a colleague's chats
 in a project shared with you are in that project's page, not here. Click a row

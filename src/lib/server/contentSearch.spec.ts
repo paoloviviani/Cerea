@@ -22,6 +22,7 @@ describe("query reading", () => {
 	});
 	it("requires every plain word", () => {
 		expect(textSearchString('codice fiscale -spam "a b"')).toBe('"codice" "fiscale" -"spam" "a b"');
+		expect(textSearchString("a codice x")).toBe('"codice"');
 	});
 });
 
@@ -56,6 +57,22 @@ describe("buildSnippet", () => {
 		expect(s.text.startsWith("… ")).toBe(true);
 		expect(s.text.endsWith(" …")).toBe(true);
 		expect(marked(s)).toEqual(["needle", "haystack"]);
+	});
+	it("extends a match over combining accents", () => {
+		const s = need(
+			buildSnippet([{ id: "1", from: "user", content: "un cafe\u0301 caldo" }], "cafe")
+		);
+		expect(marked(s)).toEqual(["cafe\u0301"]);
+	});
+	it("reads a bounded amount of a huge conversation", () => {
+		const messages = Array.from({ length: 2000 }, (_, i) => ({
+			id: String(i),
+			from: "user",
+			content: "x".repeat(1000) + (i === 1999 ? " needle" : ""),
+		}));
+		const began = Date.now();
+		expect(buildSnippet(messages, "needle")).toBeUndefined();
+		expect(Date.now() - began).toBeLessThan(1000);
 	});
 	it("returns nothing when no message holds a term", () => {
 		expect(buildSnippet([{ id: "1", from: "user", content: "hello" }], "world")).toBeUndefined();
