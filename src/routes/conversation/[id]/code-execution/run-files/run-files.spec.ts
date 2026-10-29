@@ -97,6 +97,20 @@ describe.sequential("POST /conversation/[id]/code-execution/run-files", () => {
 		]);
 	});
 
+	it("notes the message on the stored rows, so the file counts on that message's branch", async () => {
+		const { locals, conv } = await ownerWithConversation();
+		const stored = await uploadFile(locals, conv._id, "plot.csv", "a,b");
+
+		await record({
+			params: { id: conv._id.toString() },
+			locals,
+			request: recordRequest({ messageId: "asst-1", runKey: "chat:abc", sha256: [stored.sha256] }),
+		} as never);
+
+		const row = await collections.codeExecutionOutputs.findOne({ conversationId: conv._id });
+		expect(row?.messageIds).toEqual(["asst-1"]);
+	});
+
 	it("records a file whose upload failed as uploaded: false instead of dropping it", async () => {
 		const { locals, conv } = await ownerWithConversation();
 		const sha256 = "d".repeat(64);

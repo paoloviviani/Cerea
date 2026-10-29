@@ -8,7 +8,12 @@ import {
 } from "$lib/server/office/gotenberg";
 import { getOrCreatePreview, previewOwner } from "$lib/server/office/previewStore";
 import { logger } from "$lib/server/logger";
-import { VERSION_PROPERTY, findConversationFile, parseVersion } from "./conversationFiles";
+import {
+	VERSION_PROPERTY,
+	branchOfCall,
+	findConversationFile,
+	parseVersion,
+} from "./conversationFiles";
 import type { DocumentTurnState } from "./documentTools";
 import {
 	MAX_IMAGES_PER_TURN,
@@ -200,6 +205,7 @@ export function createLookDocBuiltins(
 				const file = await findConversationFile(ctx.conversationId, args.file, {
 					prefer: "output",
 					version: version.version,
+					branch: await branchOfCall(ctx),
 				});
 				if (!file.ok) return { error: file.error };
 				const ext = extensionOf(file.name);

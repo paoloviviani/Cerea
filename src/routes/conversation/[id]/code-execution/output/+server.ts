@@ -2,6 +2,7 @@ import type { RequestHandler } from "./$types";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
 import { storeDeliverable } from "$lib/server/execution/deliverables";
+import { branchOf, onBranch } from "$lib/server/execution/fileVersions";
 import { error, json } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import type { CodeExecutionOutput } from "$lib/types/CodeExecutionOutput";
@@ -67,7 +68,7 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
  * (no cross-conversation index exists), so the panel shows this chat's files,
  * persistent across reloads and devices for the 30-day retention window.
  */
-export const GET: RequestHandler = async ({ params, locals }) => {
+export const GET: RequestHandler = async ({ params, locals, url }) => {
 	if (!locals.user && !locals.sessionId) error(401, "Unauthorized");
 	if (!ObjectId.isValid(params.id)) error(404, "Conversation not found");
 	const conversationId = new ObjectId(params.id);
@@ -88,18 +89,29 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 		])
 		.toArray();
 
+	// `leaf` (a message id) limits the list to the versions of that message's branch of the
+	// conversation tree; without it every stored file is listed, as before.
+	// Several may be given, newest first: the newest message of a turn still streaming may not be saved.
+	let branch: Awaited<ReturnType<typeof branchOf>>;
+	for (const leaf of url.searchParams.getAll("leaf").slice(0, 3)) {
+		branch = await branchOf(conversationId, leaf);
+		if (branch) break;
+	}
+
 	return json({
-		files: files.map((file) => ({
-			name: file.name,
-			mime: file.mime,
-			size: file.size,
-			sha256: file.sha256,
-			createdAt: file.createdAt.toISOString(),
-			// A restored older version is the latest again from this moment.
-			...(file.latestAt ? { latestAt: file.latestAt.toISOString() } : {}),
-			...(file.version ? { version: file.version } : {}),
-			...(file.tool ? { tool: file.tool } : {}),
-			...(file.summary ? { summary: file.summary } : {}),
-		})),
+		files: files
+			.filter((file) => onBranch(file, branch))
+			.map((file) => ({
+				name: file.name,
+				mime: file.mime,
+				size: file.size,
+				sha256: file.sha256,
+				createdAt: file.createdAt.toISOString(),
+				// A restored older version is the latest again from this moment.
+				...(file.latestAt ? { latestAt: file.latestAt.toISOString() } : {}),
+				...(file.version ? { version: file.version } : {}),
+				...(file.tool ? { tool: file.tool } : {}),
+				...(file.summary ? { summary: file.summary } : {}),
+			})),
 	});
 };

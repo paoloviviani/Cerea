@@ -28,9 +28,27 @@ import { AttachmentMounter, type ProducedFile } from "./attachmentMounter";
  * are only ever fetched through the open conversation's own id.
  */
 
+/** What the chat page tells this about a message: the ones of the open branch, in order. */
+export interface SourceMessage {
+	id?: string;
+	files?: MessageFile[];
+	createdAt?: Date | string;
+}
+
 interface Source {
 	conversationId: string;
-	files: MessageFile[];
+	files: Array<MessageFile & { sentAt?: number }>;
+	/**
+	 * The last messages of the branch on screen, newest first: the files listed for it are that
+	 * branch's. The newest may not be saved yet (a client-minted id); the one before then names it.
+	 */
+	leafIds: string[];
+}
+
+function sentAtOf(message: SourceMessage): number | undefined {
+	if (!message.createdAt) return undefined;
+	const at = new Date(message.createdAt).getTime();
+	return Number.isFinite(at) ? at : undefined;
 }
 
 class ConversationAttachments {
@@ -41,12 +59,21 @@ class ConversationAttachments {
 	#pending = 0;
 
 	/** The open chat conversation and its messages; `null` when there is none. */
-	setSource(source: { conversationId: string; messages: Array<{ files?: MessageFile[] }> } | null) {
+	setSource(source: { conversationId: string; messages: SourceMessage[] } | null) {
 		if (this.#source && this.#source.conversationId !== source?.conversationId) this.reset();
 		this.#source = source
 			? {
 					conversationId: source.conversationId,
-					files: source.messages.flatMap((message) => message.files ?? []),
+					files: source.messages.flatMap((message) => {
+						const sentAt = sentAtOf(message);
+						return (message.files ?? []).map((file) =>
+							sentAt === undefined ? file : { ...file, sentAt }
+						);
+					}),
+					leafIds: source.messages
+						.slice(-2)
+						.reverse()
+						.flatMap((message) => (message.id ? [message.id] : [])),
 				}
 			: undefined;
 	}
@@ -65,7 +92,8 @@ class ConversationAttachments {
 		const next = this.#queue
 			.then(async () => {
 				if (mounter.needsSync(source.files)) await mounter.sync(source.files);
-				await mounter.syncProduced(await listProduced(source.conversationId), { code });
+				const listed = await listProduced(source.conversationId, source.leafIds);
+				if (listed) await mounter.syncProduced(listed, { code });
 			})
 			.catch((err) => console.warn("[attachments] mounting failed:", err))
 			.finally(() => {
@@ -97,20 +125,30 @@ class ConversationAttachments {
 /** How long a run waits for the list of the conversation's stored files. */
 export const LIST_TIMEOUT_MS = 5000;
 
-/** The conversation's stored files; empty when the list cannot be had (the run still goes ahead). */
-async function listProduced(conversationId: string): Promise<ProducedFile[]> {
+/**
+ * The conversation's stored files as the open branch sees them (`leaf` names its last
+ * messages); `undefined` when the list cannot be had (the run still goes ahead, and what is
+ * mounted stays as it is).
+ */
+async function listProduced(
+	conversationId: string,
+	leafIds: readonly string[] = []
+): Promise<ProducedFile[] | undefined> {
 	try {
+		const query = leafIds.length
+			? `?${leafIds.map((id) => `leaf=${encodeURIComponent(id)}`).join("&")}`
+			: "";
 		// Every run waits on this: a slow answer must not hold the code back.
-		const response = await fetch(`${base}/conversation/${conversationId}/code-execution/output`, {
-			credentials: "same-origin",
-			signal: AbortSignal.timeout(LIST_TIMEOUT_MS),
-		});
-		if (!response.ok) return [];
+		const response = await fetch(
+			`${base}/conversation/${conversationId}/code-execution/output${query}`,
+			{ credentials: "same-origin", signal: AbortSignal.timeout(LIST_TIMEOUT_MS) }
+		);
+		if (!response.ok) return undefined;
 		const body = (await response.json()) as { files?: ProducedFile[] };
 		return Array.isArray(body.files) ? body.files : [];
 	} catch (err) {
 		console.warn("[attachments] the conversation's produced files were not listed:", err);
-		return [];
+		return undefined;
 	}
 }
 
@@ -123,7 +161,7 @@ function store(): ConversationAttachments {
 
 /** Called by the chat page as its messages change; `null` on leaving it. */
 export function setAttachmentSource(
-	source: { conversationId: string; messages: Array<{ files?: MessageFile[] }> } | null
+	source: { conversationId: string; messages: SourceMessage[] } | null
 ): void {
 	if (typeof window === "undefined") return;
 	store().setSource(source);
@@ -142,7 +180,7 @@ export function setAttachmentSource(
  * A pre effect runs while the page is being created, before any child exists.
  */
 export function trackAttachmentSource(
-	read: () => { conversationId: string; messages: Array<{ files?: MessageFile[] }> } | null
+	read: () => { conversationId: string; messages: SourceMessage[] } | null
 ): void {
 	$effect.pre(() => {
 		setAttachmentSource(read());

@@ -714,7 +714,8 @@
 	// Mounting itself waits for the first code run (attachmentMounts.svelte.ts).
 	// Registered while the page is created (`trackAttachmentSource`), so a code card
 	// already on screen finds the files when it starts its first run.
-	trackAttachmentSource(() => (convId ? { conversationId: convId, messages } : null));
+	// The messages of the branch on screen, not the whole tree: another branch's files are not here.
+	trackAttachmentSource(() => (convId ? { conversationId: convId, messages: messagesPath } : null));
 
 	$effect(() => {
 		// No staleness heuristic: the reaper marks a dead run terminal, flipping this false.

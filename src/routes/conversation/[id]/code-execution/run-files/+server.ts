@@ -13,6 +13,7 @@ import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 import {
 	MAX_DELIVERABLES_PER_CONVERSATION,
 	markStoredRefs,
+	noteRunProducer,
 } from "$lib/server/execution/deliverables";
 import { MAX_CODE_RUN_FILES_PER_CONVERSATION } from "$lib/server/execution/runFiles";
 
@@ -114,6 +115,13 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 		});
 		if (files.length === 0) error(400, "None of those files are stored for this conversation");
 	}
+
+	// The run's files were made on this message's branch of the conversation.
+	await noteRunProducer(
+		conversationId,
+		files.filter((f) => f.uploaded !== false),
+		messageId
+	).catch(() => undefined);
 
 	const update: MessageCodeExecutionOutputsUpdate = {
 		type: MessageUpdateType.CodeExecution,

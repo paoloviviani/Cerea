@@ -28,6 +28,7 @@ import {
 import {
 	VERSION_PROPERTY,
 	bareName,
+	branchOfCall,
 	findConversationFile,
 	listFileVersions,
 	parseVersion,
@@ -383,6 +384,7 @@ async function loadDocument(
 	const file = await findConversationFile(ctx.conversationId, reference, {
 		prefer: "output",
 		version: version.version,
+		branch: await branchOfCall(ctx),
 	});
 	if (!file.ok) return file;
 	if (file.bytes.byteLength > MAX_DOCUMENT_BYTES) {
@@ -398,14 +400,18 @@ type LoadedImages =
 	{ ok: true; images: Array<{ name: string; bytes: Buffer }> } | { ok: false; error: string };
 
 /** The image files a call names: attachments, files produced earlier, sandbox outputs. */
-async function loadImages(
-	conversationId: NonNullable<BuiltinToolContext["conversationId"]>,
-	references: unknown
-): Promise<LoadedImages> {
+async function loadImages(ctx: BuiltinToolContext, references: unknown): Promise<LoadedImages> {
+	const conversationId = ctx.conversationId;
+	if (!conversationId)
+		return { ok: false, error: "There is no conversation to take the files from." };
+	const branch = await branchOfCall(ctx);
 	const images: Array<{ name: string; bytes: Buffer }> = [];
 	for (const reference of Array.isArray(references) ? references : []) {
 		if (typeof reference !== "string" || !reference.trim()) continue;
-		const image = await findConversationFile(conversationId, reference, { prefer: "output" });
+		const image = await findConversationFile(conversationId, reference, {
+			prefer: "output",
+			branch,
+		});
 		if (!image.ok) return { ok: false, error: image.error };
 		images.push({ name: bareName(reference), bytes: image.bytes });
 	}
@@ -468,7 +474,9 @@ async function versionOf(
 	name: string,
 	sha256: string
 ): Promise<{ version: number; count: number }> {
-	const listing = ctx.conversationId ? await listFileVersions(ctx.conversationId, name) : undefined;
+	const listing = ctx.conversationId
+		? await listFileVersions(ctx.conversationId, name, await branchOfCall(ctx))
+		: undefined;
 	const found = listing?.versions.find((v) => v.origin === "output" && v.sha256 === sha256);
 	return { version: found?.version ?? 0, count: listing?.versions.length ?? 0 };
 }
@@ -575,7 +583,11 @@ export function createDocumentBuiltins(
 					// that lost the one it needs sees the list.
 					const listing =
 						loaded.file.versionCount > 1 && ctx.conversationId
-							? await listFileVersions(ctx.conversationId, bareName(String(args.file)))
+							? await listFileVersions(
+									ctx.conversationId,
+									bareName(String(args.file)),
+									await branchOfCall(ctx)
+								)
 							: undefined;
 					const header = listing
 						? {
@@ -755,7 +767,7 @@ export function createDocumentBuiltins(
 				const source = loaded.file;
 				const startedFrom = `version ${source.version}${source.version === source.currentVersion ? " (the latest)" : ""}`;
 
-				const imageList = await loadImages(ctx.conversationId, args.images);
+				const imageList = await loadImages(ctx, args.images);
 				if (!imageList.ok) return { error: imageList.error };
 				const images = imageList.images;
 
@@ -801,6 +813,7 @@ export function createDocumentBuiltins(
 						derivedFrom: { sha256: source.sha256, name: source.name },
 						tool: DOC_EDIT_TOOL_NAME,
 						summary: `restored version ${source.version}`,
+						messageId: ctx.messageId,
 					});
 					if (!restored.ok) return { error: restored.error };
 					if (restored.existing)
@@ -840,6 +853,7 @@ export function createDocumentBuiltins(
 					summary:
 						operationsSummary(args.operations as unknown[]) +
 						(source.version !== source.currentVersion ? `; from version ${source.version}` : ""),
+					messageId: ctx.messageId,
 				});
 				if (!stored.ok) return { error: stored.error };
 
@@ -980,7 +994,7 @@ export function createDocumentBuiltins(
 						template = { name, bytes: loaded.file.bytes, sha256: loaded.file.sha256 };
 					}
 
-					const imageList = await loadImages(ctx.conversationId, args.images);
+					const imageList = await loadImages(ctx, args.images);
 					if (!imageList.ok) return { error: imageList.error };
 
 					let made: CreateResult;
@@ -1068,7 +1082,7 @@ export function createDocumentBuiltins(
 				const loaded = await loadDocument(ctx, args.template);
 				if (!loaded.ok) return { error: loaded.error };
 				const source = loaded.file;
-				const imageList = await loadImages(ctx.conversationId, args.images);
+				const imageList = await loadImages(ctx, args.images);
 				if (!imageList.ok) return { error: imageList.error };
 
 				const base = savedName(source);
@@ -1126,6 +1140,7 @@ async function saveCreated(
 		derivedFrom: options.derivedFrom,
 		tool: options.tool,
 		summary: options.summary,
+		messageId: ctx.messageId,
 	});
 	if (!stored.ok) return { error: stored.error };
 	options.turn?.touchedSlides.delete(stored.ref.name); // a new file: every slide is new

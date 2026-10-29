@@ -7,7 +7,7 @@ import {
 	cleanupTestData,
 } from "$lib/server/api/__tests__/testHelpers";
 
-import { markCurrentVersion } from "$lib/server/execution/deliverables";
+import { markCurrentVersion, storeDeliverable } from "$lib/server/execution/deliverables";
 import { GET as listDeliverables, POST } from "./+server";
 import { GET } from "./[sha256]/+server";
 
@@ -113,7 +113,11 @@ describe.sequential("GET /conversation/[id]/code-execution/output", () => {
 		const { locals } = await createTestUser();
 		const conv = await createTestConversation(locals);
 
-		const res = await listDeliverables({ params: { id: conv._id.toString() }, locals } as never);
+		const res = await listDeliverables({
+			url: new URL("http://localhost/"),
+			params: { id: conv._id.toString() },
+			locals,
+		} as never);
 
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { files: unknown[] };
@@ -134,7 +138,11 @@ describe.sequential("GET /conversation/[id]/code-execution/output", () => {
 			request: uploadRequest([{ name: "second.csv", content: "a,b", type: "text/csv" }]),
 		} as never);
 
-		const res = await listDeliverables({ params: { id: conv._id.toString() }, locals } as never);
+		const res = await listDeliverables({
+			url: new URL("http://localhost/"),
+			params: { id: conv._id.toString() },
+			locals,
+		} as never);
 
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as {
@@ -166,7 +174,11 @@ describe.sequential("GET /conversation/[id]/code-execution/output", () => {
 		await new Promise((r) => setTimeout(r, 5));
 		await markCurrentVersion(conv._id, "form.pdf", v2);
 
-		const res = await listDeliverables({ params: { id }, locals } as never);
+		const res = await listDeliverables({
+			url: new URL("http://localhost/"),
+			params: { id },
+			locals,
+		} as never);
 		const body = (await res.json()) as {
 			files: Array<{ sha256: string; latestAt?: string; version?: number }>;
 		};
@@ -175,13 +187,65 @@ describe.sequential("GET /conversation/[id]/code-execution/output", () => {
 		expect(body.files[0].latestAt).toBeDefined();
 	});
 
+	it("lists only the versions of the branch named by `leaf`", async () => {
+		const { locals } = await createTestUser();
+		const conv = await createTestConversation(locals);
+		const id = conv._id.toString();
+		// Two branches: u1 - a1 and u2 - a2. A document tool on a1 made "filled".
+		await collections.conversations.updateOne({ _id: conv._id }, {
+			$set: {
+				messages: [
+					{ id: "u1", from: "user", content: "", ancestors: [], children: ["a1"] },
+					{ id: "a1", from: "assistant", content: "", ancestors: ["u1"], children: [] },
+					{ id: "u2", from: "user", content: "", ancestors: [], children: ["a2"] },
+					{ id: "a2", from: "assistant", content: "", ancestors: ["u2"], children: [] },
+				],
+			},
+		} as never);
+		await POST({
+			params: { id },
+			locals,
+			request: uploadRequest([{ name: "shared.csv", content: "x" }]),
+		} as never);
+		await storeDeliverable({
+			conversationId: conv._id,
+			name: "filled.pdf",
+			mime: "application/pdf",
+			bytes: Buffer.from("filled"),
+			tool: "doc_edit",
+			messageId: "a1",
+		});
+		const list = async (query: string) =>
+			(
+				(await (
+					await listDeliverables({
+						url: new URL(`http://localhost/${query}`),
+						params: { id },
+						locals,
+					} as never)
+				).json()) as { files: Array<{ name: string }> }
+			).files
+				.map((f) => f.name)
+				.sort();
+
+		expect(await list("")).toEqual(["filled.pdf", "shared.csv"]);
+		expect(await list("?leaf=a1")).toEqual(["filled.pdf", "shared.csv"]);
+		expect(await list("?leaf=a2")).toEqual(["shared.csv"]);
+		// The newest message may not be saved yet: the one before it names the branch.
+		expect(await list("?leaf=not-saved&leaf=u2")).toEqual(["shared.csv"]);
+	});
+
 	it("refuses a stranger's conversation with 404, not 403", async () => {
 		const { locals: owner } = await createTestUser();
 		const conv = await createTestConversation(owner);
 		const { locals: stranger } = await createTestUser();
 
 		await expect(
-			listDeliverables({ params: { id: conv._id.toString() }, locals: stranger } as never)
+			listDeliverables({
+				url: new URL("http://localhost/"),
+				params: { id: conv._id.toString() },
+				locals: stranger,
+			} as never)
 		).rejects.toMatchObject({ status: 404 });
 	});
 
@@ -191,6 +255,7 @@ describe.sequential("GET /conversation/[id]/code-execution/output", () => {
 
 		await expect(
 			listDeliverables({
+				url: new URL("http://localhost/"),
 				params: { id: conv._id.toString() },
 				locals: createTestLocals({ sessionId: undefined }),
 			} as never)

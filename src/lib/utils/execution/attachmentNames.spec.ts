@@ -145,3 +145,19 @@ describe("attachment caps", () => {
 		expect(checkAttachmentCaps(MAX_ATTACHMENTS_TOTAL_BYTES - 10 * mb, 10 * mb + 1)).toBe("total");
 	});
 });
+
+describe("planAttachments: the same content sent again", () => {
+	it("is one mount that keeps the latest time it was sent", () => {
+		const file = (sentAt: number) => ({
+			type: "hash" as const,
+			name: "form.pdf",
+			value: "h1",
+			mime: "application/pdf",
+			sentAt,
+		});
+		const plan = planAttachments([file(10), file(30), file(20)]);
+		expect(plan).toHaveLength(1);
+		expect(plan[0].name).toBe("form.pdf");
+		expect(plan[0].sentAt).toBe(30);
+	});
+});
