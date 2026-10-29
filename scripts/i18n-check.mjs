@@ -78,6 +78,7 @@ export const CONVERTED = [
 	"src/lib/components/Tooltip.svelte",
 	"src/lib/components/UpdateBanner.svelte",
 	"src/lib/components/chat",
+	"src/lib/components/admin",
 	"src/lib/components/chats",
 	"src/lib/components/code",
 	"src/lib/components/knowledge",

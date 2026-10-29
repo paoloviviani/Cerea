@@ -117,9 +117,9 @@ def negative_flow(c: httpx.Client) -> None:
     check(
         "it shows the refusal, not the settings",
         ("needs an administrator" in r.text or "is for administrators" in r.text)
-        and "Detect automatically" not in r.text,
+        and "Fetching a URL" not in r.text,
         "the panel rendered for a non-administrator"
-        if "Detect automatically" in r.text
+        if "Fetching a URL" in r.text
         else "neither the refusal nor the panel appeared",
     )
 
@@ -168,7 +168,7 @@ def positive_flow(c: httpx.Client) -> None:
     check("the page loads at all", r.status_code == 200, str(r.status_code))
     check(
         "it shows the settings, not a refusal",
-        "Detect automatically" in r.text,
+        "Fetching a URL" in r.text,
         "the settings did not render for an administrator",
     )
 
