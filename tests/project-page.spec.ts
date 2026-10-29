@@ -62,10 +62,11 @@ test("create a project on its page, attach a base afterwards, add a document, re
 	// knowledge bases and the documents are on the settings tab.
 	await page.goto(`${E2E_APP_BASE}/projects/${projectId}?tab=settings`);
 
-	// The five levels are explained, in order.
-	const levels = page.locator("[aria-labelledby='project-levels'] li");
+	// The five levels are the index's numbered links, in order, under the two group headings.
+	const levels = page.getByTestId("settings-index").locator("a[href^='#project-level-']");
 	await expect(levels).toHaveCount(5);
 	await expect(levels.nth(1)).toContainText("Project files");
+	await expect(page.getByRole("heading", { name: "Read in full on every message" })).toBeVisible();
 
 	// Attach a knowledge base that exists only now.
 	const now = new Date();
