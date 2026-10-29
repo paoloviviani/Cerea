@@ -116,6 +116,13 @@ export interface MessageArtifactDraftUpdate {
 	artifactType?: string;
 	title?: string;
 	content: string;
+	/**
+	 * True once the `content` string's closing quote has streamed in — the
+	 * tool-call arguments are complete, so the draft's content is the artifact's
+	 * final content even though the call has not executed yet. Absent on drafts
+	 * from before this field existed (treated as incomplete).
+	 */
+	contentComplete?: boolean;
 }
 
 // Tool updates (for MCP and function calling)

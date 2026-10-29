@@ -3,11 +3,30 @@ import {
 	buildHtmlSrcdoc,
 	buildMermaidSrcdoc,
 	buildReactSrcdoc,
+	htmlScriptsBalanced,
 	PREVIEW_ALLOW,
 	PREVIEW_CSP,
 	PREVIEW_SANDBOX,
 } from "$lib/utils/previewSrcdoc";
 import { captureArtifactScreenshot } from "$lib/utils/artifactCapture";
+
+describe("htmlScriptsBalanced", () => {
+	it("accepts documents whose script elements are closed", () => {
+		expect(htmlScriptsBalanced("<h1>Hi</h1>")).toBe(true);
+		expect(htmlScriptsBalanced("<script>var x = 1;</script><p>ok</p>")).toBe(true);
+		expect(htmlScriptsBalanced("<script src='a.js'></script><script>b()</script>")).toBe(true);
+	});
+
+	it("rejects a document still inside a script element", () => {
+		expect(htmlScriptsBalanced("<p>a</p><script>var x = 1;")).toBe(false);
+		expect(htmlScriptsBalanced("<script>")).toBe(false);
+	});
+
+	it("is not fooled by script mentioned in text or attributes", () => {
+		expect(htmlScriptsBalanced("<p>use <script> tags carefully</p>")).toBe(false);
+		expect(htmlScriptsBalanced("<p>the tag &lt;script&gt; in text</p>")).toBe(true);
+	});
+});
 
 type PreviewMessage = {
 	type: string;

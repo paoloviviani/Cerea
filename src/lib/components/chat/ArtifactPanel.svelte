@@ -12,7 +12,7 @@
 	} from "$lib/utils/filePreview";
 	import type { MessageArtifactDraftUpdate } from "$lib/types/MessageUpdate";
 	import type { PaneItem } from "$lib/utils/paneItems";
-	import { artifactFileName, isPreviewableKind } from "$lib/utils/artifacts";
+	import { artifactFileName, isPreviewableKind, normalizeArtifactKind } from "$lib/utils/artifacts";
 	import { artifactRunKey } from "$lib/utils/execution/keys";
 	import { getArtifactRunsStore } from "$lib/utils/execution/artifactRuns.svelte";
 	import {
@@ -30,6 +30,7 @@
 		buildArtifactSrcdoc,
 		capturePreviewError,
 		composeFixRequest,
+		htmlScriptsBalanced,
 		normalizePreviewError,
 		PREVIEW_ALLOW,
 		PREVIEW_SANDBOX,
@@ -153,9 +154,44 @@
 	let writingDraft = $derived(
 		!version && !pendingDraft && drafts.some((d) => !d.identifier) ? true : false
 	);
-	let previewable = $derived(!!version && isPreviewableKind(version.type));
+
+	// ----- preview source -----
+	// What the preview tab renders: a version — or, before the executed call
+	// has appended its canonical block, a tool-mode draft whose content has
+	// finished streaming. A complete draft's content is byte-identical to the
+	// block the call is about to append, so the preview carries over seamlessly
+	// when the real version lands. `identity` keys the live-preview cadence: a
+	// new version (or the draft handover) gets an immediate first paint.
+	let draftSource = $derived.by(() => {
+		if (!pendingDraft?.artifactType) return undefined;
+		const kind = normalizeArtifactKind(pendingDraft.artifactType);
+		if (!isPreviewableKind(kind)) return undefined;
+		return {
+			kind,
+			content: pendingDraft.content,
+			complete: pendingDraft.contentComplete === true,
+			identity: `draft:${pendingDraft.toolCallId}`,
+		};
+	});
+	let previewSource = $derived.by(() => {
+		if (version) {
+			return {
+				kind: version.type,
+				content: version.content,
+				complete: version.complete,
+				identity: `version:${version.identifier}:${version.version}`,
+			};
+		}
+		return draftSource;
+	});
+	let previewable = $derived(!!previewSource && isPreviewableKind(previewSource.kind));
+	let previewStreaming = $derived(!!previewSource && !previewSource.complete);
 	let effectiveTab = $derived<"preview" | "code">(
-		!previewable || isStreamingVersion ? "code" : sidePane.tab
+		!previewable || (previewStreaming && !isLivePreviewKind(previewSource?.kind))
+			? "code"
+			: sidePane.userPinnedTab
+				? sidePane.tab
+				: "preview"
 	);
 
 	// ----- diff view for edit versions -----
@@ -199,6 +235,11 @@
 	let lastHighlightAt = 0;
 	let highlightTimer: ReturnType<typeof setTimeout> | undefined;
 	let codeScrollEl: HTMLElement | undefined = $state();
+
+	/** Kinds whose preview can re-render while the content is still streaming. */
+	function isLivePreviewKind(kind: ArtifactKind | undefined): boolean {
+		return kind === "markdown" || kind === "svg" || kind === "mermaid" || kind === "html";
+	}
 
 	function hljsLanguageFor(v: ArtifactVersion): string | undefined {
 		switch (v.type) {
@@ -369,7 +410,10 @@
 		el.scrollTop = 0;
 	});
 
-	onDestroy(() => clearTimeout(highlightTimer));
+	onDestroy(() => {
+		clearTimeout(highlightTimer);
+		clearTimeout(previewTimer);
+	});
 
 	// ----- live preview -----
 	const previewChannel = `artifact_${Math.random().toString(36).slice(2)}`;
@@ -377,11 +421,78 @@
 	let errors: CapturedPreviewError[] = $state([]);
 	let externalLinkUrl = $state<URL | null>(null);
 
+	// Live preview cadence: markdown, SVG and mermaid re-render at most once a
+	// second while their content streams; HTML re-renders only once the stream
+	// has paused this long (and never mid-script), so the iframe is not
+	// reloaded on every token and never executes a half-written script.
+	const LIVE_PREVIEW_INTERVAL_MS = 1000;
+	const HTML_LIVE_PREVIEW_DEBOUNCE_MS = 1000;
+
+	// What the preview actually renders: a snapshot of the preview source,
+	// committed immediately on completion, on a new version's first paint and
+	// at the live cadence while streaming. The preview body reads this, not
+	// `previewSource`, so a fast token stream repaints at a bounded rate.
+	let previewedKind = $state<ArtifactKind | undefined>();
+	let previewedContent = $state<string | undefined>();
+	let previewedComplete = $state(false);
+	let lastPreviewAt = 0;
+	let previewTimer: ReturnType<typeof setTimeout> | undefined;
+	let previewedIdentity: string | undefined;
+
 	let srcdoc = $derived.by(() => {
-		if (!version || !version.complete) return undefined;
-		if (version.type === "markdown" || version.type === "code" || version.type === "table")
+		if (!previewedKind || previewedContent === undefined) return undefined;
+		if (previewedKind === "markdown" || previewedKind === "code" || previewedKind === "table")
 			return undefined;
-		return buildArtifactSrcdoc(version.type, version.content, previewChannel);
+		return buildArtifactSrcdoc(previewedKind, previewedContent, previewChannel);
+	});
+
+	$effect(() => {
+		const source = previewSource;
+		clearTimeout(previewTimer);
+		if (!source) {
+			// Don't hold the previous artifact's preview while the new target has
+			// none (e.g. its opening tag just streamed in)
+			previewedKind = undefined;
+			previewedContent = undefined;
+			previewedComplete = false;
+			previewedIdentity = undefined;
+			return;
+		}
+		if (!sidePane.open) return;
+		const commit = () => {
+			previewedKind = source.kind;
+			previewedContent = source.content;
+			previewedComplete = source.complete;
+			previewedIdentity = source.identity;
+			lastPreviewAt = Date.now();
+		};
+		if (source.complete || !isLivePreviewKind(source.kind)) {
+			commit();
+			return;
+		}
+		// A new version's first paint is immediate (also the draft → version
+		// handover, whose content is identical, so the iframe does not reload);
+		// HTML holds even for that until its script tags balance.
+		if (source.identity !== previewedIdentity) {
+			if (source.kind !== "html" || htmlScriptsBalanced(source.content)) {
+				commit();
+				return;
+			}
+		} else if (source.kind !== "html" && Date.now() - lastPreviewAt >= LIVE_PREVIEW_INTERVAL_MS) {
+			commit();
+			return;
+		}
+		const elapsed = Date.now() - lastPreviewAt;
+		const delay =
+			source.kind === "html"
+				? HTML_LIVE_PREVIEW_DEBOUNCE_MS
+				: Math.max(0, LIVE_PREVIEW_INTERVAL_MS - elapsed);
+		previewTimer = setTimeout(() => {
+			// The pause can land mid-script: hold the re-render until the tags
+			// balance (the next chunk re-runs this effect) or the content completes.
+			if (source.kind === "html" && !htmlScriptsBalanced(source.content)) return;
+			commit();
+		}, delay);
 	});
 
 	// Reset captured errors whenever the previewed document changes
@@ -423,6 +534,10 @@
 			return;
 		}
 		if (data.type !== "chatui.preview.error") return;
+		// While the previewed content streams, half-written code throws by
+		// design (and a partial diagram fails to parse); only a completed
+		// document's errors count toward the problems pill.
+		if (!previewedComplete) return;
 		errors = capturePreviewError(errors, normalizePreviewError(data.detail));
 	}
 
@@ -442,10 +557,12 @@
 	}
 
 	// ----- screenshot to chat -----
-	// Only the live iframe preview can be captured: a non-null srcdoc already
-	// implies a complete, previewable, non-markdown version on the preview tab.
+	// Only the live iframe preview can be captured, and only of a completed
+	// version: a non-null srcdoc implies a previewable, non-markdown snapshot
+	// on the preview tab, and the version guard keeps draft previews (whose
+	// call may still fail) out of the screenshot path.
 	let screenshotSupported = $derived(
-		canScreenshot && effectiveTab === "preview" && !!srcdoc && previewLoaded
+		canScreenshot && !!version && effectiveTab === "preview" && !!srcdoc && previewLoaded
 	);
 	let capturing = $state(false);
 	let pendingScreenshot = $state<{ dataUrl: string; fileName: string; subject: string } | null>(
@@ -737,7 +854,7 @@
 				<button
 					type="button"
 					class="{tabBase} {effectiveTab === 'preview' ? tabActive : tabInactive}"
-					disabled={!previewable || isStreamingVersion}
+					disabled={!previewable || (previewStreaming && !isLivePreviewKind(previewSource?.kind))}
 					onclick={() => sidePane.selectTab("preview")}
 				>
 					{m["chat.panel.tab_preview"]()}
@@ -804,46 +921,18 @@
 
 	<!-- body -->
 	<div class="relative min-h-0 flex-1 bg-white dark:bg-gray-900">
-		{#if !version && pendingDraft}
-			<div class="flex h-full flex-col">
-				<div class="relative min-h-0 flex-1">
-					<div
-						class="prose h-full max-w-none text-smd dark:prose-invert prose-pre:my-0 prose-pre:h-full prose-pre:rounded-none"
-					>
-						<!-- Draft streams unhighlighted: the executed call's canonical
-						     block gets the full highlight pass once it lands. -->
-						<!-- eslint-disable svelte/no-at-html-tags -->
-						<pre class="scrollbar-custom h-full overflow-auto border-0! px-5 py-4 font-mono"><code
-								class="block">{@html escapeHTML(pendingDraft.content)}</code
-							></pre>
-					</div>
-					<div
-						class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-page/90 to-transparent"
-					></div>
-				</div>
-			</div>
-		{:else if fileVersion}
-			<FileArtifactView version={fileVersion} {conversationId} />
-		{:else if !version}
-			<div class="flex h-full items-center justify-center text-sm text-gray-400">
-				{#if writingDraft}
-					{m["chat.panel.writing"]()}
-				{:else}
-					{m["chat.panel.no_file"]()}
-				{/if}
-			</div>
-		{:else if effectiveTab === "preview"}
-			{#if version.type === "markdown"}
+		{#snippet previewBody()}
+			{#if previewedKind === "markdown" && previewedContent !== undefined}
 				<div bind:this={previewScrollEl} class="scrollbar-custom h-full overflow-y-auto px-6 py-5">
 					<div
 						class="prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
 					>
-						<MarkdownRenderer content={version.content} />
+						<MarkdownRenderer content={previewedContent} />
 					</div>
 				</div>
-			{:else if version.type === "table"}
+			{:else if previewedKind === "table" && previewedContent !== undefined}
 				<div bind:this={previewScrollEl} class="h-full overflow-hidden">
-					<TableGrid content={version.content} />
+					<TableGrid content={previewedContent} />
 				</div>
 			{:else if srcdoc}
 				<!-- Backing matches the panel theme so opening the preview doesn't flash
@@ -860,6 +949,42 @@
 					{srcdoc}
 				></iframe>
 			{/if}
+		{/snippet}
+
+		{#if !version && pendingDraft}
+			{#if effectiveTab === "preview"}
+				{@render previewBody()}
+			{:else}
+				<div class="flex h-full flex-col">
+					<div class="relative min-h-0 flex-1">
+						<div
+							class="prose h-full max-w-none text-smd dark:prose-invert prose-pre:my-0 prose-pre:h-full prose-pre:rounded-none"
+						>
+							<!-- Draft streams unhighlighted: the executed call's canonical
+							     block gets the full highlight pass once it lands. -->
+							<!-- eslint-disable svelte/no-at-html-tags -->
+							<pre class="scrollbar-custom h-full overflow-auto border-0! px-5 py-4 font-mono"><code
+									class="block">{@html escapeHTML(pendingDraft.content)}</code
+								></pre>
+						</div>
+						<div
+							class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-page/90 to-transparent"
+						></div>
+					</div>
+				</div>
+			{/if}
+		{:else if fileVersion}
+			<FileArtifactView version={fileVersion} {conversationId} />
+		{:else if !version}
+			<div class="flex h-full items-center justify-center text-sm text-gray-400">
+				{#if writingDraft}
+					{m["chat.panel.writing"]()}
+				{:else}
+					{m["chat.panel.no_file"]()}
+				{/if}
+			</div>
+		{:else if effectiveTab === "preview"}
+			{@render previewBody()}
 		{:else}
 			<div class="flex h-full flex-col">
 				<div class="relative min-h-0 flex-1">
@@ -1043,7 +1168,7 @@
 					<span class="ml-0.5 text-red-600 dark:text-red-500">−{stats.removed}</span>
 				</button>
 			{/if}
-			{#if !isStreamingVersion && screenshotSupported}
+			{#if !previewStreaming && screenshotSupported}
 				<!-- Rightmost footer action, labeled with a plain word: the header
 				     camera icon alone wasn't discoverable enough for the
 				     screenshot-and-annotate feedback loop -->
