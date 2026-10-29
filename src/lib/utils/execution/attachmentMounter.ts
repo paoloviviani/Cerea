@@ -93,6 +93,11 @@ function decodeBase64(value: string): ArrayBuffer {
 	return bytes.buffer;
 }
 
+/** What an attachment's content is, for telling one file from another under the same name. */
+function identityOf(planned: PlannedAttachment): string {
+	return `${planned.file.type}:${planned.file.value}`;
+}
+
 export class AttachmentMounter {
 	#entries = new Map<string, Entry>();
 	/** Mount name -> the produced version mounted there. */
@@ -111,8 +116,17 @@ export class AttachmentMounter {
 
 	/** Whether a sync would do anything: new files, or text that has since arrived. */
 	needsSync(files: readonly AttachmentSource[]): boolean {
-		return planAttachments(files).some((planned) => {
+		const plan = planAttachments(files);
+		const names = new Set(plan.map((planned) => planned.name));
+		// An attachment of another branch is still mounted: it has to go.
+		for (const [name, entry] of this.#entries) {
+			if (!names.has(name) && (entry.original || entry.text)) return true;
+		}
+		return plan.some((planned) => {
 			const entry = this.#entries.get(planned.name);
+			// The same name now holds other content (the open branch changed): mount it again.
+			if (entry?.original && entry.identity !== undefined && entry.identity !== identityOf(planned))
+				return true;
 			if (entry?.refused) return false;
 			if (entry?.blockedAt !== undefined && this.#mountedBytes >= entry.blockedAt) return false;
 			return !entry?.original || (planned.textName !== undefined && !entry.text);
@@ -125,7 +139,9 @@ export class AttachmentMounter {
 	 * sandbox that refuses it — is reported through `skipped` and the rest go on.
 	 */
 	async sync(files: readonly AttachmentSource[]): Promise<void> {
-		for (const planned of planAttachments(files)) {
+		const plan = planAttachments(files);
+		await this.releaseAbsent(new Set(plan.map((planned) => planned.name)));
+		for (const planned of plan) {
 			try {
 				await this.syncOne(planned);
 			} catch (err) {
@@ -153,7 +169,7 @@ export class AttachmentMounter {
 		entry.sentAt = planned.sentAt;
 		// The same name now holds other content (the conversation's branch changed): the file
 		// mounted for the old content is taken out and this one mounted in its place.
-		const identity = `${planned.file.type}:${planned.file.value}`;
+		const identity = identityOf(planned);
 		if (entry.original && entry.identity !== undefined && entry.identity !== identity) {
 			await this.release(entry);
 		}
@@ -179,6 +195,24 @@ export class AttachmentMounter {
 				entry.textBytes = bytes.byteLength;
 				entry.textPath = entry.paths.at(-1);
 			}
+		}
+	}
+
+	/** Take out the attachments whose names the open branch does not have. */
+	private async releaseAbsent(names: ReadonlySet<string>): Promise<void> {
+		for (const [name, entry] of [...this.#entries]) {
+			if (names.has(name)) continue;
+			const produced = this.#produced.get(name);
+			if (produced) {
+				// A produced file holds the original's path now: only the text beside it is the attachment's.
+				if (entry.textPath) {
+					await this.session.removeFile(entry.textPath).catch(() => undefined);
+					this.#mountedBytes -= entry.textBytes;
+				}
+			} else {
+				await this.release(entry);
+			}
+			this.#entries.delete(name);
 		}
 	}
 

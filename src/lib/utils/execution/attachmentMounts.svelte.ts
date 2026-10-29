@@ -43,6 +43,8 @@ interface Source {
 	 * branch's. The newest may not be saved yet (a client-minted id); the one before then names it.
 	 */
 	leafIds: string[];
+	/** The id of the generation in flight: the server finds its assistant message even when the page still holds its client-minted id. */
+	generationId?: string;
 }
 
 function sentAtOf(message: SourceMessage): number | undefined {
@@ -59,7 +61,9 @@ class ConversationAttachments {
 	#pending = 0;
 
 	/** The open chat conversation and its messages; `null` when there is none. */
-	setSource(source: { conversationId: string; messages: SourceMessage[] } | null) {
+	setSource(
+		source: { conversationId: string; messages: SourceMessage[]; generationId?: string } | null
+	) {
 		if (this.#source && this.#source.conversationId !== source?.conversationId) this.reset();
 		this.#source = source
 			? {
@@ -70,6 +74,7 @@ class ConversationAttachments {
 							sentAt === undefined ? file : { ...file, sentAt }
 						);
 					}),
+					generationId: source.generationId,
 					leafIds: source.messages
 						.slice(-2)
 						.reverse()
@@ -92,7 +97,11 @@ class ConversationAttachments {
 		const next = this.#queue
 			.then(async () => {
 				if (mounter.needsSync(source.files)) await mounter.sync(source.files);
-				const listed = await listProduced(source.conversationId, source.leafIds);
+				const listed = await listProduced(
+					source.conversationId,
+					source.leafIds,
+					source.generationId
+				);
 				if (listed) await mounter.syncProduced(listed, { code });
 			})
 			.catch((err) => console.warn("[attachments] mounting failed:", err))
@@ -132,12 +141,15 @@ export const LIST_TIMEOUT_MS = 5000;
  */
 async function listProduced(
 	conversationId: string,
-	leafIds: readonly string[] = []
+	leafIds: readonly string[] = [],
+	generationId?: string
 ): Promise<ProducedFile[] | undefined> {
 	try {
-		const query = leafIds.length
-			? `?${leafIds.map((id) => `leaf=${encodeURIComponent(id)}`).join("&")}`
-			: "";
+		const params = [
+			...(generationId ? [`generation=${encodeURIComponent(generationId)}`] : []),
+			...leafIds.map((id) => `leaf=${encodeURIComponent(id)}`),
+		];
+		const query = params.length ? `?${params.join("&")}` : "";
 		// Every run waits on this: a slow answer must not hold the code back.
 		const response = await fetch(
 			`${base}/conversation/${conversationId}/code-execution/output${query}`,
@@ -161,7 +173,7 @@ function store(): ConversationAttachments {
 
 /** Called by the chat page as its messages change; `null` on leaving it. */
 export function setAttachmentSource(
-	source: { conversationId: string; messages: SourceMessage[] } | null
+	source: { conversationId: string; messages: SourceMessage[]; generationId?: string } | null
 ): void {
 	if (typeof window === "undefined") return;
 	store().setSource(source);
@@ -180,7 +192,7 @@ export function setAttachmentSource(
  * A pre effect runs while the page is being created, before any child exists.
  */
 export function trackAttachmentSource(
-	read: () => { conversationId: string; messages: SourceMessage[] } | null
+	read: () => { conversationId: string; messages: SourceMessage[]; generationId?: string } | null
 ): void {
 	$effect.pre(() => {
 		setAttachmentSource(read());

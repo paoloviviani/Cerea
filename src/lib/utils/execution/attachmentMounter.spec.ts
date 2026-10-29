@@ -196,6 +196,35 @@ describe("AttachmentMounter", () => {
 	});
 });
 
+describe("AttachmentMounter: the open branch changes", () => {
+	it("needs a sync when a name holds other content, and swaps the file", async () => {
+		const { mounter, loaded, removed } = setup({
+			"/conversation/conv1/output/h1": () => body("BLANK"),
+			"/conversation/conv1/output/h2": () => body("OTHER"),
+		});
+		await mounter.sync([pdf("h1", "form.pdf")]);
+		expect(mounter.needsSync([pdf("h1", "form.pdf")])).toBe(false);
+		expect(mounter.needsSync([pdf("h2", "form.pdf")])).toBe(true);
+		await mounter.sync([pdf("h2", "form.pdf")]);
+		expect(removed).toEqual(["/mnt/data/form.pdf"]);
+		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("OTHER");
+		expect(mounter.needsSync([pdf("h2", "form.pdf")])).toBe(false);
+	});
+
+	it("releases the attachments the new branch does not have", async () => {
+		const { mounter, removed } = setup({
+			"/conversation/conv1/output/h1": () => body("A"),
+			"/conversation/conv1/output/h2": () => body("B"),
+			"/conversation/conv1/output/t1": () => body("text"),
+		});
+		await mounter.sync([pdf("h1", "old.pdf", "t1"), pdf("h2", "keep.pdf")]);
+		expect(mounter.needsSync([pdf("h2", "keep.pdf")])).toBe(true);
+		await mounter.sync([pdf("h2", "keep.pdf")]);
+		expect(removed.sort()).toEqual(["/mnt/data/old.pdf", "/mnt/data/old.pdf.md"]);
+		expect(mounter.needsSync([pdf("h2", "keep.pdf")])).toBe(false);
+	});
+});
+
 describe("AttachmentMounter: produced files", () => {
 	const MB = 1024 * 1024;
 	const big = (mb: number) =>

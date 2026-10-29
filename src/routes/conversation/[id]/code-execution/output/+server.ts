@@ -2,7 +2,7 @@ import type { RequestHandler } from "./$types";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
 import { storeDeliverable } from "$lib/server/execution/deliverables";
-import { branchOf, onBranch } from "$lib/server/execution/fileVersions";
+import { branchOf, branchOfGeneration, onBranch } from "$lib/server/execution/fileVersions";
 import { error, json } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import type { CodeExecutionOutput } from "$lib/types/CodeExecutionOutput";
@@ -92,8 +92,13 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
 	// `leaf` (a message id) limits the list to the versions of that message's branch of the
 	// conversation tree; without it every stored file is listed, as before.
 	// Several may be given, newest first: the newest message of a turn still streaming may not be saved.
-	let branch: Awaited<ReturnType<typeof branchOf>>;
-	for (const leaf of url.searchParams.getAll("leaf").slice(0, 3)) {
+	// The generation in flight names its own assistant message, which the page may still hold under a
+	// client-minted id; the leaves are the fallback.
+	let branch: Awaited<ReturnType<typeof branchOf>> = await branchOfGeneration(
+		conversationId,
+		url.searchParams.get("generation") ?? undefined
+	);
+	for (const leaf of branch ? [] : url.searchParams.getAll("leaf").slice(0, 3)) {
 		branch = await branchOf(conversationId, leaf);
 		if (branch) break;
 	}

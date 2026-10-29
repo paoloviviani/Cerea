@@ -739,7 +739,11 @@
 	// already on screen finds the files when it starts its first run.
 	// It reads `messagesPath` (the branch on screen, not the whole tree: another branch's files are not
 	// here), so it comes after it.
-	trackAttachmentSource(() => (convId ? { conversationId: convId, messages: messagesPath } : null));
+	trackAttachmentSource(() =>
+		convId
+			? { conversationId: convId, messages: messagesPath, generationId: activeGenerationId }
+			: null
+	);
 	let messagesAlternatives = $derived(createMessagesAlternatives(messages));
 
 	$effect(() => {

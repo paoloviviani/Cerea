@@ -38,6 +38,28 @@ export async function branchOf(
 	}
 }
 
+/**
+ * The branch of the assistant message a generation writes into (the server stamps `generationId` on it),
+ * for a page that still holds that message under a client-minted id; undefined when no message carries it.
+ */
+export async function branchOfGeneration(
+	conversationId: Conversation["_id"],
+	generationId: string | undefined
+): Promise<Branch | undefined> {
+	if (!generationId) return undefined;
+	try {
+		const conversation = await collections.conversations.findOne(
+			{ _id: conversationId },
+			{ projection: { messages: { $elemMatch: { generationId } } } }
+		);
+		const message = conversation?.messages?.[0];
+		if (!message?.ancestors) return undefined;
+		return new Set([...message.ancestors, message.id]);
+	} catch {
+		return undefined;
+	}
+}
+
 /** Whether a stored version counts on a branch: no known producer, or a producer on the branch. */
 export function onBranch(row: { messageIds?: string[] }, branch: Branch | undefined): boolean {
 	if (!branch || !row.messageIds || row.messageIds.length === 0) return true;

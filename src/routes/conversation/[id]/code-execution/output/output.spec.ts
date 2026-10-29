@@ -196,7 +196,14 @@ describe.sequential("GET /conversation/[id]/code-execution/output", () => {
 			$set: {
 				messages: [
 					{ id: "u1", from: "user", content: "", ancestors: [], children: ["a1"] },
-					{ id: "a1", from: "assistant", content: "", ancestors: ["u1"], children: [] },
+					{
+						id: "a1",
+						from: "assistant",
+						content: "",
+						generationId: "gen-1",
+						ancestors: ["u1"],
+						children: [],
+					},
 					{ id: "u2", from: "user", content: "", ancestors: [], children: ["a2"] },
 					{ id: "a2", from: "assistant", content: "", ancestors: ["u2"], children: [] },
 				],
@@ -233,6 +240,15 @@ describe.sequential("GET /conversation/[id]/code-execution/output", () => {
 		expect(await list("?leaf=a2")).toEqual(["shared.csv"]);
 		// The newest message may not be saved yet: the one before it names the branch.
 		expect(await list("?leaf=not-saved&leaf=u2")).toEqual(["shared.csv"]);
+		// A regenerate or an edited prompt mid-turn: the page holds the assistant message under a
+		// client-minted id, and the user message's branch (u1) does not include the assistant's own
+		// output. The generation names the assistant message.
+		expect(await list("?leaf=client-minted&leaf=u1")).toEqual(["shared.csv"]);
+		expect(await list("?generation=gen-1&leaf=client-minted&leaf=u1")).toEqual([
+			"filled.pdf",
+			"shared.csv",
+		]);
+		expect(await list("?generation=unknown&leaf=u2")).toEqual(["shared.csv"]);
 	});
 
 	it("refuses a stranger's conversation with 404, not 403", async () => {
