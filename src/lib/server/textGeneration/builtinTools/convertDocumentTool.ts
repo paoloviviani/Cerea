@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Branch } from "$lib/server/execution/fileVersions";
 import { storeDeliverable } from "$lib/server/execution/deliverables";
 import { logger } from "$lib/server/logger";
 import {
@@ -15,6 +16,7 @@ import {
 import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 import {
 	VERSION_PROPERTY,
+	branchOfCall,
 	findConversationFile,
 	parseVersion,
 	type VersionRequest,
@@ -63,9 +65,14 @@ export function outputNameFor(requested: unknown, fallbackStem: string): string 
 async function findSource(
 	conversationId: NonNullable<Parameters<BuiltinTool["execute"]>[1]["conversationId"]>,
 	reference: string,
-	version?: VersionRequest
+	version?: VersionRequest,
+	branch?: Branch
 ): Promise<Found> {
-	const file = await findConversationFile(conversationId, reference, { prefer: "output", version });
+	const file = await findConversationFile(conversationId, reference, {
+		prefer: "output",
+		version,
+		branch,
+	});
 	if (!file.ok) return file;
 	const { name, bytes } = file;
 	if (bytes.byteLength > MAX_SOURCE_BYTES) {
@@ -175,7 +182,12 @@ export function createConvertDocumentBuiltin(): BuiltinTool[] {
 					if (given[0] === "file") {
 						const version = parseVersion(args.version);
 						if (!version.ok) return { error: version.error };
-						const found = await findSource(ctx.conversationId, String(args.file), version.version);
+						const found = await findSource(
+							ctx.conversationId,
+							String(args.file),
+							version.version,
+							await branchOfCall(ctx)
+						);
 						if (!found.ok) return { error: found.error };
 						const source = found.source;
 						fallbackStem = source.name.replace(/\.[^.]*$/, "") || "document";
@@ -209,6 +221,7 @@ export function createConvertDocumentBuiltin(): BuiltinTool[] {
 						mime: "application/pdf",
 						bytes: pdf,
 						tool: CONVERT_DOCUMENT_TOOL_NAME,
+						messageId: ctx.messageId,
 						summary:
 							given[0] === "file"
 								? `PDF of ${String(args.file).slice(0, 80)}`

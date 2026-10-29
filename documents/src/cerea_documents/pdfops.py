@@ -64,7 +64,8 @@ PLACE_TEXT_SCHEMA: dict[str, Any] = {
             "minItems": 1,
             "maxItems": 300,
             "description": "Text to draw, one line per item. page is 1-based; x and y are PDF points from the page's "
-            "bottom left, where the text starts on its baseline (doc_outline gives the lines' positions).",
+            "bottom left, where the text starts on its baseline (doc_outline gives the lines' positions). Level "
+            "unless `rotate` or `along` (baseline from (x1, y1) toward (x2, y2): a sloping line, as on a scan).",
             "items": {
                 "type": "object",
                 "properties": {
@@ -74,8 +75,23 @@ PLACE_TEXT_SCHEMA: dict[str, Any] = {
                     "text": {"type": "string", "minLength": 1},
                     "size": {"type": "number", "description": "Points, 4 to 72; default 10."},
                     "font": {"type": "string", "description": '"Helvetica" (default) or "Helvetica-Bold".'},
+                    "rotate": {
+                        "type": "number",
+                        "description": "Degrees counter-clockwise.",
+                    },
+                    "along": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "description": "[x1, y1, x2, y2], instead of x, y and rotate.",
+                    },
+                    "fit": {
+                        "type": "boolean",
+                        "description": "With along: shrink to the line's length.",
+                    },
                 },
-                "required": ["page", "x", "y", "text"],
+                "required": ["page", "text"],
                 "additionalProperties": False,
             },
         },
@@ -140,7 +156,9 @@ def _page_sizes(reader: Any) -> list[dict[str, Any]]:
 FLAT_NOTE = (
     "this PDF has no form fields: the blanks (if any) are only drawn on the page. Write onto it with "
     "doc_edit place_text, using the text lines (`lines`, with x, y and width) listed on each page to put values "
-    "next to their labels; look at the page with look_doc first and after"
+    "next to their labels; look at the page with look_doc first and after. A scanned page (an image and no text) "
+    "also lists `skew_deg` (the tilt, counter-clockwise) and `rules` (the lines to write on, each x1, y1 to x2, y2): "
+    "write along a rule with place_text `along`, never by estimating positions from the picture"
 )
 
 
@@ -148,6 +166,18 @@ def _operations(form: dict[str, Any]) -> list[str]:
     if form["xfa"] or form.get("signed"):
         return ["fill_form"] if form["has_form"] and not form["xfa"] else []
     return ["fill_form"] if form["has_form"] else ["place_text"]
+
+
+def _read_scans(reader: Any, sizes: list[dict[str, Any]]) -> None:
+    """A page with no text whose content is one image (a scan): its tilt and the rules to write on. Never fails."""
+    try:
+        from .pdfscan import analyse
+
+        empty = [e["page"] for e in sizes if "lines" in e and not e["lines"]]
+        for number, found in analyse(reader, empty).items():
+            sizes[number - 1].update(found)
+    except Exception:
+        return
 
 
 def outline(data: bytes, limits: Limits) -> dict[str, Any]:
@@ -172,6 +202,8 @@ def outline(data: bytes, limits: Limits) -> dict[str, Any]:
         rows = lines.get(entry["page"])
         if rows is not None:
             entry["lines"] = rows
+    if not form["fields"] and not form["xfa"]:
+        _read_scans(reader, sizes)
     out: dict[str, Any] = {
         "page_count": pages,
         "pages": sizes,

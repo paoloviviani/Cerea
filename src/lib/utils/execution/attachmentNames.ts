@@ -36,10 +36,18 @@ export interface AttachmentSource {
 	extracted?: { value: string };
 	/** The name's version this file is, when it was numbered at upload (1 needs no record). */
 	version?: number;
+	/**
+	 * When the message carrying it was sent (ms), when the caller knows it. The same content
+	 * attached again later is one mount under its first name; its plan entry keeps the LATEST
+	 * time, so a re-sent file counts as sent at its last sending.
+	 */
+	sentAt?: number;
 }
 
 export interface PlannedAttachment {
 	file: AttachmentSource;
+	/** The latest `sentAt` among the files this one stands for (see `AttachmentSource.sentAt`). */
+	sentAt?: number;
 	/** The original bytes' file name under /mnt/data. */
 	name: string;
 	/** The extracted text's file name (`<name>.md`), when the file has any. */
@@ -83,15 +91,20 @@ function allocate(used: Set<string>, wanted: string): string {
  */
 export function planAttachments(files: readonly AttachmentSource[]): PlannedAttachment[] {
 	const used = new Set<string>();
-	const seen = new Set<string>();
+	const seen = new Map<string, PlannedAttachment | undefined>();
 	const plan: PlannedAttachment[] = [];
 	for (const file of files) {
 		if (file.mime === CLIPBOARD_MIME) continue;
 		// The same content attached again is one mount under its first name; a
 		// different file with the same name gets the next free " (n)" name below.
 		const identity = `${file.type}:${file.value}`;
-		if (seen.has(identity)) continue;
-		seen.add(identity);
+		if (seen.has(identity)) {
+			const first = seen.get(identity);
+			if (first && file.sentAt !== undefined && file.sentAt > (first.sentAt ?? -Infinity)) {
+				first.sentAt = file.sentAt;
+			}
+			continue;
+		}
 		const name = allocate(used, safeMountName(file.name) ?? "attachment");
 		let textName: string | undefined;
 		if (file.extracted) {
@@ -99,7 +112,14 @@ export function planAttachments(files: readonly AttachmentSource[]): PlannedAtta
 				name.length + 3 > MAX_NAME_CHARS ? `${name.slice(0, MAX_NAME_CHARS - 3)}.md` : `${name}.md`;
 			textName = allocate(used, wanted);
 		}
-		plan.push({ file, name, textName });
+		const entry: PlannedAttachment = {
+			file,
+			name,
+			textName,
+			...(file.sentAt !== undefined ? { sentAt: file.sentAt } : {}),
+		};
+		seen.set(identity, entry);
+		plan.push(entry);
 	}
 	return plan;
 }
