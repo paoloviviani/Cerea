@@ -47,6 +47,10 @@ encryption) has no tool and is always done in the sandbox.
      `look_doc`, which draws filled fields; flatten is never a way to look. When the user does ask, `flatten: true`
      saves a separate file, `<name>-flattened.pdf`, and the fillable file stays as it was (`flatten_in_place`
      only if the user asked to replace it).
+   - The values are drawn as **vector text** (Helvetica), not an image: the file itself is sharp. macOS
+     **Preview** shows filled fields soft until the field is clicked — a viewer quirk, not the file. If the
+     filled file will be sent or printed and must look the same everywhere, offer the flattened copy; flatten
+     only when the user takes the offer.
 4. **After filling, look at the page with `look_doc`** (when it is offered) and check that every value is in its
    box and fully visible; fix what is not and fill again. Report what was filled, from the result: the fields set,
    the fields left empty (`skipped`), the **required fields still empty** (`required_missing`: tell the user), and

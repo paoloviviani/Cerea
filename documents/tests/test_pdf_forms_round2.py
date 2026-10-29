@@ -25,7 +25,7 @@ from cerea_documents.errors import PatchError
 from cerea_documents.pdfform import _text_width
 from cerea_documents.render import render_pages
 
-from .pdf_fixtures import make_form_pdf
+from .pdf_fixtures import make_flatten_check_pdf, make_form_pdf
 
 LIMITS = Limits()
 ISEE = Path(__file__).parent / "data" / "isee-prospetto-blank.pdf"
@@ -314,6 +314,46 @@ def test_a_flatten_is_saved_as_a_new_file_unless_in_place_is_asked_for() -> None
 
 def fields_by_name_or_none(data: bytes) -> dict[str, Any]:
     return fields_by_name(data)
+
+
+# 6 -- the flattened copy reports its values where their fields are ------------------------------------------
+
+
+def _inside(rect: dict[str, Any], x: float, y: float, slack: float = 1.0) -> bool:
+    return (
+        rect["x"] - slack <= x <= rect["x"] + rect["w"] + slack
+        and rect["y"] - slack <= y <= rect["y"] + rect["h"] + slack
+    )
+
+
+def test_the_flattened_values_are_reported_where_their_fields_are() -> None:
+    form = make_flatten_check_pdf()
+    rects = fields_by_name(form)
+    values = {"who": "Mario Rossi", "sum": "47.000,00", "turned": "2025"}  # `turned` has /MK /R 90, so its
+    _, flat = edit(form, {"op": "fill_form", "values": values, "flatten": True})  # appearance carries a /Matrix
+    lines = outline(flat)["pages"][0]["lines"]
+    for name, value in values.items():
+        rect = rects[name]["rect"]
+        found = [ln for ln in lines if value in ln["text"] and _inside(rect, ln["x"], ln["y"])]
+        assert found, (name, value, rect, [ln for ln in lines if value in ln["text"]])
+
+
+def test_the_flattened_values_of_the_form_fixture_are_reported_in_their_boxes() -> None:
+    from collections import defaultdict
+
+    from cerea_documents.pdflayout import _fragments
+
+    form = make_form_pdf()
+    rects = fields_by_name(form)
+    values = {"full_name": "Ada Lovelace", "code": "X24", "email": "ada@example.com"}
+    _, flat = edit(form, {"op": "fill_form", "values": values, "flatten": True})
+    page = PdfReader(io.BytesIO(flat)).pages[0]
+    at: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for fragment in _fragments(page):
+        at[fragment.raw].append((fragment.x0, fragment.y))
+    for name, value in values.items():
+        rect = rects[name]["rect"]
+        assert any(_inside(rect, x, y, 2.0) for x, y in at[value]), (name, rect, at[value])
 
 
 # -- review round: budgets, flat outlines, crop and rotation, escaping, control characters ---------------------
