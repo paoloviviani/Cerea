@@ -97,6 +97,12 @@ describe.sequential("POST /conversation/[id]/code-execution", () => {
 			{ name: "kept.csv", size: kept.size, sha256: kept.sha256, uploaded: true },
 			{ name: "sub/lost.pdf", size: 9, sha256: lost, uploaded: false },
 		]);
+		// The run's stored file counts on the branch of the message that parked.
+		const row = await collections.codeExecutionOutputs.findOne({
+			conversationId: conv._id,
+			sha256: kept.sha256,
+		});
+		expect(row?.messageIds).toEqual(["msg-1"]);
 		// And it rides on the resolved update the reload replays.
 		expect(buildCodeExecutionResolvedUpdate(park!).files).toEqual(park?.outcome?.fileRefs);
 	});

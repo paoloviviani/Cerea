@@ -15,10 +15,12 @@ read it as it really looks (a form with no fields, a scan, a drawing): a few pag
 
 ## One rule for forms
 
-**When `doc_edit` is in your tool list, a PDF form is filled ONLY with
-`doc_outline` and `doc_edit`.** Do not fill a form in the sandbox, and do not
-use the helper's `form_fields` or `fill_form` below. If the tools are not in
-your tool list, jump to the last section, "Fallback: forms in the sandbox".
+**When `doc_edit` is in your tool list, form fields are filled ONLY with
+`fill_form`, and text on a PDF is placed with `place_text`.** The sandbox is only
+the overlay fallback in step 7, for what those tools cannot do; do not use the
+helper's `form_fields` or `fill_form` below. If the tools are not in your tool
+list, jump to the last section, "Fallback: forms in the sandbox without the
+document tools".
 Everything else in this skill (merge, split, rotate, reorder, text, metadata,
 encryption) has no tool and is always done in the sandbox.
 
@@ -34,6 +36,9 @@ encryption) has no tool and is always done in the sandbox.
    form's fields have no label, look at the page with `look_doc` and compare the positions. When a match is
    ambiguous (two fields that could hold the same thing, a value that fits none of a list's options), ask the user
    before filling. Do not invent values the user did not give, and leave the other fields as they are.
+   When asked to fill a form with test or dummy data, fill **one consistent case**: pick one of mutually exclusive
+   options (such as "individual" or "company") and the section that goes with it, not every field, unless the user asks
+   to exercise them all; say which branch you left empty.
 3. `doc_edit` with one operation, `fill_form({values, flatten?})`:
    - text field: the text; checkbox: `true`, `false` or its on-state name (the
      name is not always "Yes"); radio group: one of its `allowed` names; list
@@ -41,8 +46,8 @@ encryption) has no tool and is always done in the sandbox.
      multi-select list);
    - every value is checked first, and a bad one is refused with what the field
      takes, so nothing is half-filled: read the message and correct it;
-   - text wider than its box is shrunk to fit (to 6 pt); `clipped` lists a value that still does not fit: shorten
-     it or tell the user.
+   - text is fitted to its box, in width and in height (down to 6 pt); `clipped` lists a value that still does not
+     fit: shorten it or tell the user.
    - **Never flatten unless the user asks for it.** A flattened PDF is no longer a form. To see the values, use
      `look_doc`, which draws filled fields; flatten is never a way to look. When the user does ask, `flatten: true`
      saves a separate file, `<name>-flattened.pdf`, and the fillable file stays as it was (`flatten_in_place`
@@ -71,6 +76,12 @@ encryption) has no tool and is always done in the sandbox.
      value next to its label: `x` a little past the label's `x + w` (or on the blank line), `y` the label's `y` plus
      about 1 point; size 9 to 11 unless the blank is small. Look at the form with `look_doc` first when the blanks
      are not obvious from the text;
+   - **never estimate positions by eye from `look_doc`.** On a **scan** (a page that is only an image),
+     `doc_outline` gives `skew_deg` (the tilt, counter-clockwise) and `rules` (the blank lines, `x1, y1` to
+     `x2, y2` in points): write each value with `along: [x1, y1, x2, y2]` on its rule (add `fit: true` to shrink
+     a long value to the line), or `rotate` set to `skew_deg` where there is no rule, one item per value, so the
+     text follows the printed line instead of stepping across it. Check one blank at a time with `look_doc`
+     and `region: {x, y, width, height}` (a zoomed area), or `grid: true` to read positions in points;
    - call `place_text` once with all the items (it cannot be combined with `fill_form` and is refused on a PDF
      that has fields, unless `allow_on_form: true` is given to add text the fields do not cover);
    - **check with `look_doc`** and adjust. To correct misplaced text, do not place more text on top of it: call
@@ -82,8 +93,14 @@ encryption) has no tool and is always done in the sandbox.
      cropped says where it starts (`origin_x`, `origin_y`); `place_text` refuses a rotated page's item that is not
      next to a listed line;
    - text is limited to Western European characters, as above;
-   - the sandbox route (`reportlab` and `pypdf`: install them with `micropip`, find the label positions with a
-     pypdf text visitor, draw an overlay and merge it) is only for when `doc_edit` is not in your tool list.
+   - **doc tools first, the sandbox only for what they cannot do.** `fill_form` and `place_text` (with `along` or
+     `rotate`) are always the first choice. Only for what they cannot do (a tick or mark in a printed box, an
+     image or signature picture, shapes, non-Western-European text, or an item `place_text` refuses for a reason
+     other than safety) draw an overlay with `reportlab`, merge it with `pypdf` onto the **current version** and
+     save it as `/mnt/output/<the same name>` (only `/mnt/output` is stored): it becomes the next version, and the original stays. Install them with
+     `micropip`. Check the result with `look_doc` (`region` or `grid`). **Never in the sandbox:** a signed PDF
+     (the tools refuse it, and the sandbox is not a way around that), filling real form fields by drawing over
+     them, rebuilding the form, or flattening unasked.
 8. **Never rebuild an official or third-party form as a substitute** (not with `doc_create`, not in the sandbox):
    a lookalike is not the form the user has to submit. If the original is damaged or lost, restore the earlier
    version (`doc_edit` with `version` set to a version that is still the original; `file_versions` in `doc_outline`
@@ -144,11 +161,12 @@ pdf_tools.decrypt_pdf("locked.pdf", "secret", "open.pdf")
   shown. Only describe files you actually produced. Verify by re-opening the output with pypdf and
   reporting page counts or extracted values.
 
-## Fallback: forms in the sandbox
+## Fallback: forms in the sandbox without the document tools
 
 **Read this section only if `doc_edit` is NOT in your tool list.** If it is,
 stop reading here: this is the in-sandbox method for deployments without the
-document service, and it must not be mixed with the tools.
+document service, and it must not be mixed with the tools. (The overlay of step 7,
+for what the tools cannot do, is separate and allowed.)
 
 ```python
 listing = pdf_tools.form_fields("/mnt/data/form.pdf")     # always first

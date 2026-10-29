@@ -466,3 +466,59 @@ describe("slidesTouched", () => {
 		expect(slidesTouched([])).toEqual([]);
 	});
 });
+
+describe("look_doc grid and region", () => {
+	const pdfFile = () => {
+		const bytes = Buffer.from("%PDF-1.7\ngrid");
+		return { ok: true, name: "form.pdf", bytes, sha256: sourceSha256(bytes), origin: "output" };
+	};
+
+	it("sends neither by default, so the picture is as before", async () => {
+		files.find.mockResolvedValue(pdfFile());
+		await tool().execute({ file: "form.pdf" }, ctx() as never);
+		const request = service.render.mock.calls[0][1];
+		expect(request).toEqual({ width_px: 1000 });
+	});
+
+	it("passes grid and a region (drawn wide) to the service, and says what the picture shows", async () => {
+		files.find.mockResolvedValue(pdfFile());
+		const region = { x: 100, y: 200, width: 150, height: 40 };
+		const out = await tool().execute({ file: "form.pdf", grid: true, region }, ctx() as never);
+		expect(service.render.mock.calls[0][1]).toEqual({ width_px: 900, grid: true, region });
+		expect((out as { resultText: string }).resultText).toContain(
+			"PDF points from the page's bottom left"
+		);
+		expect((out as { resultText: string }).resultText).toContain("x 100, y 200, 150 x 40 points");
+	});
+
+	it("says the area the service really drew, not the one asked for", async () => {
+		files.find.mockResolvedValue(pdfFile());
+		service.render.mockResolvedValue({
+			page_count: 1,
+			pages: [
+				{
+					...rendered([1], 1).pages[0],
+					region: { x: 100, y: 200, width: 100, height: 40 },
+				},
+			],
+		});
+		const out = await tool().execute(
+			{ file: "form.pdf", region: { x: 100, y: 200, width: 400, height: 40 } },
+			ctx() as never
+		);
+		expect((out as { resultText: string }).resultText).toContain("x 100, y 200, 100 x 40 points");
+		expect((out as { resultText: string }).resultText).not.toContain("400 x 40");
+	});
+
+	it("refuses a bad region and refuses both on a file that is not a PDF", async () => {
+		files.find.mockResolvedValue(pdfFile());
+		expect(
+			await tool().execute({ file: "form.pdf", region: { x: 1, y: 2 } }, ctx() as never)
+		).toMatchObject({ error: expect.stringContaining("`region` is {x, y, width, height}") });
+		files.find.mockResolvedValue(pptx());
+		expect(await tool().execute({ file: "deck.pptx", grid: true }, ctx() as never)).toMatchObject({
+			error: expect.stringContaining("work on PDF files"),
+		});
+		expect(service.render).not.toHaveBeenCalled();
+	});
+});

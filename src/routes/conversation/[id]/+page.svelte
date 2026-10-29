@@ -708,14 +708,6 @@
 		}
 	});
 
-	// The sandbox is session-global, so the open conversation's attachments are
-	// offered to it from here and taken back on leaving: never another
-	// conversation's files.
-	// Mounting itself waits for the first code run (attachmentMounts.svelte.ts).
-	// Registered while the page is created (`trackAttachmentSource`), so a code card
-	// already on screen finds the files when it starts its first run.
-	trackAttachmentSource(() => (convId ? { conversationId: convId, messages } : null));
-
 	$effect(() => {
 		// No staleness heuristic: the reaper marks a dead run terminal, flipping this false.
 		const streaming = isConversationGenerationActive(messages);
@@ -738,6 +730,20 @@
 
 	// create a linear list of `messagesPath` from `messages` that is a tree of threaded messages
 	let messagesPath = $derived(createMessagesPath(messages));
+
+	// The sandbox is session-global, so the open conversation's attachments are
+	// offered to it from here and taken back on leaving: never another
+	// conversation's files.
+	// Mounting itself waits for the first code run (attachmentMounts.svelte.ts).
+	// Registered while the page is created (`trackAttachmentSource`), so a code card
+	// already on screen finds the files when it starts its first run.
+	// It reads `messagesPath` (the branch on screen, not the whole tree: another branch's files are not
+	// here), so it comes after it.
+	trackAttachmentSource(() =>
+		convId
+			? { conversationId: convId, messages: messagesPath, generationId: activeGenerationId }
+			: null
+	);
 	let messagesAlternatives = $derived(createMessagesAlternatives(messages));
 
 	$effect(() => {

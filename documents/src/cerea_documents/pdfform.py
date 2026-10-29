@@ -665,13 +665,38 @@ AUTO_MAX = 12.0  # the size an auto-sized field starts from
 AUTO_MIN = 6.0  # and the smallest it is shrunk to; text that still does not fit is clipped and reported
 
 
+ASCENT = 0.718  # Helvetica: the height of its capitals, digits and ascenders, in em
+DESCENT = 0.207  # and how far g, j, p, q, y and the like reach below the baseline
+
+
+def _fit_height(size: float, window: float) -> tuple[float, bool]:
+    """(font size, whether its glyphs fit the window's height) for one line. The field's own /DA size is kept
+    when it fits; otherwise the size is the largest, up to AUTO_MAX, whose ascenders and descenders fit the
+    window, never below AUTO_MIN (a window lower than that is reported, not drawn smaller)."""
+    room = window / (ASCENT + DESCENT)
+    if size > 0 and size <= room + 0.01:
+        return size, True
+    fs = min(AUTO_MAX, room)
+    floor = min(AUTO_MIN, size) if size > 0 else AUTO_MIN
+    if fs < floor:
+        fs = floor
+    return fs, fs <= room + 0.01
+
+
+def _baseline(fs: float, inset: float, height: float) -> float:
+    """The baseline that centres the glyph box (descent to ascent) in the clip window."""
+    window = max(height - 2 * inset, 1.0)
+    return inset + (window - (ASCENT + DESCENT) * fs) / 2 + DESCENT * fs
+
+
 def _draw_text(
     field: Field, text: str, width: float, height: float, inset: float, size: float, colour: str
 ) -> tuple[bytes, bool]:
     """The text of a text field or a combo box: /Q alignment, multiline wrapping, comb cells, password dots.
     A field whose /DA size is 0 is auto-sized: it starts from AUTO_MAX (less when the box is low) and shrinks
     until the text fits the width (a comb field: its cells; a multiline field: its height), down to AUTO_MIN.
-    A single-line field with a fixed size is shrunk the same way when the text would be cut off.
+    A single-line field with a fixed size keeps it when its glyphs fit the box's height, and is shrunk the same
+    way when they do not or the text would be cut off sideways. A box too low for AUTO_MIN is reported as clipped.
     Returns (the drawing operators, whether the text fits)."""
     flags = field.flags if field.kind == "text" else 0
     quad = field.inherited("/Q")
@@ -680,6 +705,7 @@ def _draw_text(
         text = "*" * len(text)
     room = max(width - 2 * inset - 2, 1.0)
     tall = max(height - 2 * inset - 1, 1.0)
+    window = max(height - 2 * inset, 1.0)  # the clip window the glyphs must stay inside
 
     def at(fs: float, x: float, y: float, line: str) -> bytes:
         head = f"BT\n/Helv {fs:.2f} Tf {colour}\n{x:.2f} {y:.2f} Td\n".encode()
@@ -691,16 +717,17 @@ def _draw_text(
 
     if flags & F_COMB and field.max_length:
         cell = (width - 2 * (inset - 1)) / field.max_length
-        fs = size if size > 0 else max(min(AUTO_MAX, tall), 4.0)
+        fs, tall_enough = _fit_height(size, window)
         widest = max((_text_width(c, 1.0) for c in text), default=0.0)
         fit = fs
         if size <= 0 and widest > 0 and widest * fs > cell - 1:
             fit = max(min(fs, (cell - 1) / widest), AUTO_MIN)
+            tall_enough = fit * (ASCENT + DESCENT) <= window + 0.01
         out = b""
         for i, char in enumerate(text[: field.max_length]):
             x = (inset - 1) + i * cell + (cell - _text_width(char, fit)) / 2
-            out += at(fit, x, (height - fit) / 2 + fit * 0.22, char)
-        return out, widest * fit <= cell + 0.01
+            out += at(fit, x, _baseline(fit, inset, height), char)
+        return out, (widest * fit <= cell + 0.01 and tall_enough) or not text
     if flags & F_MULTILINE:
         fs = size if size > 0 else AUTO_MAX
         lines = _wrap(text, fs, room)
@@ -711,13 +738,13 @@ def _draw_text(
         for number, line in enumerate(lines):
             out += at(fs, left(line, fs), height - inset - fs * (1 + 1.15 * number) + fs * 0.1, line)
         return out, len(lines) * 1.15 * fs <= tall + 0.15 * fs
-    fs = size if size > 0 else max(min(AUTO_MAX, tall), 4.0)
-    fits = True
+    fs, fits = _fit_height(size, window)
     if text and _text_width(text, fs) > room:
         floor = min(AUTO_MIN, fs)
         fs = max(min(fs, room / _text_width(text, 1.0)), floor)
-        fits = _text_width(text, fs) <= room + 0.01
-    return at(fs, left(text, fs), (height - fs) / 2 + fs * 0.22, text), fits
+        fits = _text_width(text, fs) <= room + 0.01 and fs * (ASCENT + DESCENT) <= window + 0.01
+    # no text, nothing to cut off, however low the box
+    return at(fs, left(text, fs), _baseline(fs, inset, height), text), fits or not text
 
 
 def _draw_list(

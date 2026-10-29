@@ -196,6 +196,35 @@ describe("AttachmentMounter", () => {
 	});
 });
 
+describe("AttachmentMounter: the open branch changes", () => {
+	it("needs a sync when a name holds other content, and swaps the file", async () => {
+		const { mounter, loaded, removed } = setup({
+			"/conversation/conv1/output/h1": () => body("BLANK"),
+			"/conversation/conv1/output/h2": () => body("OTHER"),
+		});
+		await mounter.sync([pdf("h1", "form.pdf")]);
+		expect(mounter.needsSync([pdf("h1", "form.pdf")])).toBe(false);
+		expect(mounter.needsSync([pdf("h2", "form.pdf")])).toBe(true);
+		await mounter.sync([pdf("h2", "form.pdf")]);
+		expect(removed).toEqual(["/mnt/data/form.pdf"]);
+		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("OTHER");
+		expect(mounter.needsSync([pdf("h2", "form.pdf")])).toBe(false);
+	});
+
+	it("releases the attachments the new branch does not have", async () => {
+		const { mounter, removed } = setup({
+			"/conversation/conv1/output/h1": () => body("A"),
+			"/conversation/conv1/output/h2": () => body("B"),
+			"/conversation/conv1/output/t1": () => body("text"),
+		});
+		await mounter.sync([pdf("h1", "old.pdf", "t1"), pdf("h2", "keep.pdf")]);
+		expect(mounter.needsSync([pdf("h2", "keep.pdf")])).toBe(true);
+		await mounter.sync([pdf("h2", "keep.pdf")]);
+		expect(removed.sort()).toEqual(["/mnt/data/old.pdf", "/mnt/data/old.pdf.md"]);
+		expect(mounter.needsSync([pdf("h2", "keep.pdf")])).toBe(false);
+	});
+});
+
 describe("AttachmentMounter: produced files", () => {
 	const MB = 1024 * 1024;
 	const big = (mb: number) =>
@@ -247,6 +276,47 @@ describe("AttachmentMounter: produced files", () => {
 			row("report.docx", "p3", 11, { version: 4, createdAt: "2026-10-28T12:00:00Z" }),
 		]);
 		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("EDITED AGAIN");
+	});
+
+	it("keeps a file attached again mounted over an older produced version, by when it was sent", async () => {
+		const { mounter, loaded } = setup({
+			"/conversation/conv1/output/h1": () => body("BLANK"),
+			[out("p1")]: () => body("FILLED"),
+		});
+		const filled = row("form.pdf", "p1", 6, { version: 2, createdAt: "2026-10-28T11:00:00Z" });
+		// The original (number 1) was sent before the fill: the fill is newer content.
+		await mounter.sync([{ ...pdf("h1", "form.pdf"), sentAt: Date.parse("2026-10-28T10:00:00Z") }]);
+		await mounter.syncProduced([filled]);
+		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("FILLED");
+		// Sent again afterwards (the same content, so the same number): it is the newest again.
+		const again = setup({
+			"/conversation/conv1/output/h1": () => body("BLANK"),
+			[out("p1")]: () => body("FILLED"),
+		});
+		await again.mounter.sync([
+			{ ...pdf("h1", "form.pdf"), sentAt: Date.parse("2026-10-28T12:00:00Z") },
+		]);
+		await again.mounter.syncProduced([filled]);
+		expect(new TextDecoder().decode(again.loaded.at(-1)?.data as ArrayBuffer)).toBe("BLANK");
+		expect(again.loaded).toHaveLength(1);
+	});
+
+	it("takes a produced file out when the list no longer holds it (another branch), and swaps a changed attachment", async () => {
+		const { mounter, loaded, removed } = setup({
+			"/conversation/conv1/output/h1": () => body("BLANK"),
+			"/conversation/conv1/output/h2": () => body("OTHER"),
+			[out("p1")]: () => body("FILLED"),
+		});
+		await mounter.syncProduced([row("filled.pdf", "p1", 6)]);
+		expect(loaded.map((f) => f.name)).toEqual(["filled.pdf"]);
+		// The open branch changed: its list has no such file.
+		await mounter.syncProduced([]);
+		expect(removed).toEqual(["/mnt/data/filled.pdf"]);
+
+		await mounter.sync([pdf("h1", "form.pdf")]);
+		await mounter.sync([pdf("h2", "form.pdf")]);
+		expect(removed.at(-1)).toBe("/mnt/data/form.pdf");
+		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("OTHER");
 	});
 
 	it("takes the attachment's extracted text out when a produced file replaces the attachment, and fetches it no more", async () => {
