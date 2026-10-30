@@ -82,7 +82,6 @@ test("schedule a chat from its menu, run it now, and read the answer in the same
 	// The list names the chat it posts into.
 	const schedule = page.getByTestId("schedule-row").filter({ hasText: "Weekly news" });
 	await expect(schedule).toBeVisible();
-	await expect(schedule.getByTestId("schedule-kind")).toHaveText("Chat");
 	await expect(schedule.getByTestId("schedule-target")).toContainText("Chat ›");
 
 	await mockOpenAI.reset();

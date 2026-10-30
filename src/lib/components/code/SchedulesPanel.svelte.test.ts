@@ -59,4 +59,26 @@ describe("SchedulesPanel list rows", () => {
 		const screen = renderWithApp(SchedulesPanel);
 		await expect.element(screen.getByTestId("run-progress")).toHaveTextContent("0/12 run");
 	});
+
+	it("lists only its own area's kind: agent schedules in /code, chat schedules at /schedules", async () => {
+		const chat = row({
+			id: "c1",
+			kind: "chat",
+			name: "Weekly news",
+			target: { mode: "continue", conversationId: "x", permissionMode: "ask" },
+			targetLabel: "Chat › News",
+		});
+		api.listSchedules.mockResolvedValue({ schedules: [row(), chat], limit: 20 });
+		const inCode = renderWithApp(SchedulesPanel);
+		await expect.element(inCode.getByText("Nightly check")).toBeVisible();
+		expect(inCode.getByText("Weekly news").elements()).toHaveLength(0);
+		inCode.unmount();
+
+		const inChat = renderWithApp(SchedulesPanel, { standalone: true });
+		await expect.element(inChat.getByText("Weekly news")).toBeVisible();
+		expect(inChat.getByText("Nightly check").elements()).toHaveLength(0);
+		await expect
+			.element(inChat.getByText("Prompts sent to your chats on a timetable."))
+			.toBeVisible();
+	});
 });

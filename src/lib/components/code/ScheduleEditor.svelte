@@ -67,11 +67,13 @@
 			/** A conversation's "Schedule…": the chat to continue, or to copy the model and project from. */
 			conversationId?: string;
 		};
+		/** The area it was opened from decides the kind: chat schedules in chat, agent ones in /code. */
+		kind?: "agent" | "chat";
 		onsaved: (schedule: ScheduleView) => void;
 		oncancel: () => void;
 	}
 
-	let { editing, prefill, onsaved, oncancel }: Props = $props();
+	let { editing, prefill, kind: fixedKind, onsaved, oncancel }: Props = $props();
 
 	const NEW = "__new__";
 	type Target = {
@@ -93,7 +95,8 @@
 	// a chat (everyone). An existing schedule keeps its kind.
 	const agentsAllowed = page.data.codeSchedulesEnabled !== false;
 	let kind = $state<"agent" | "chat">(
-		untrack(() => editing?.kind) ?? (initial.conversationId || !agentsAllowed ? "chat" : "agent")
+		untrack(() => editing?.kind ?? fixedKind) ??
+			(initial.conversationId || !agentsAllowed ? "chat" : "agent")
 	);
 	type ChatTarget = {
 		permissionMode?: "ask" | "allow";
@@ -472,7 +475,7 @@
 				disabled={busy}
 			/>
 
-			{#if !editing && agentsAllowed}
+			{#if !editing && !fixedKind && agentsAllowed}
 				<div class="mt-6" role="radiogroup" aria-label={m["code.schedule_editor.kind"]()}>
 					<span class={s.LABEL}>{m["code.schedule_editor.kind"]()}</span>
 					<div class="mt-1 flex flex-wrap gap-4 text-sm text-ink">
