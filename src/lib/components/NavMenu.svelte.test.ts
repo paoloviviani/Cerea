@@ -43,19 +43,52 @@ describe("NavMenu's foot", () => {
 		host.remove();
 	});
 
-	function mount(user: object | null, gatewayIsAdmin = false, data: Record<string, unknown> = {}) {
+	function mount(
+		user: object | null,
+		gatewayIsAdmin = false,
+		data: Record<string, unknown> = {},
+		url?: URL
+	) {
 		return renderWithApp(NavMenu, { conversations: [], user, gatewayIsAdmin } as never, {
-			page: { data: { models: [], ...data } },
+			page: { data: { models: [], ...data }, ...(url ? { url } : {}) },
 			baseElement: host,
 		});
 	}
 
-	it("has a Schedules row for a signed-in person when scheduled actions are on, and not otherwise", () => {
+	it("has a Schedules row at the top of the tree for a signed-in person when scheduled actions are on, and not otherwise", () => {
 		mount({ username: "ada" }, false, { chatSchedulesEnabled: true });
-		expect(host.querySelector('a[href="/schedules"]')).not.toBeNull();
+		const row = host.querySelector('[data-testid="schedules-link"]');
+		expect(row?.getAttribute("href")).toBe("/schedules");
+		// The first thing in the tree, above Projects and Chats, and not among the foot rows.
+		const links = [...host.querySelectorAll("a")];
+		const rowIndex = links.findIndex((a) => a === row);
+		const projects = links.findIndex((a) => a.getAttribute("href") === "/projects");
+		const chats = links.findIndex((a) => a.getAttribute("href") === "/chats");
+		expect(rowIndex).toBeGreaterThanOrEqual(0);
+		expect(rowIndex).toBeLessThan(projects);
+		expect(rowIndex).toBeLessThan(chats);
+		expect(host.querySelectorAll('a[href="/schedules"]')).toHaveLength(1);
 		host.innerHTML = "";
 		mount({ username: "ada" }, false, { chatSchedulesEnabled: false });
-		expect(host.querySelector('a[href="/schedules"]')).toBeNull();
+		expect(host.querySelector('[data-testid="schedules-link"]')).toBeNull();
+		host.innerHTML = "";
+		mount(null, false, { chatSchedulesEnabled: true });
+		expect(host.querySelector('[data-testid="schedules-link"]')).toBeNull();
+	});
+
+	it("marks the Schedules row active on the schedules page, with the agents tree's own classes", async () => {
+		const { SIDEBAR_ITEM, SIDEBAR_ITEM_ACTIVE } = await import("./nav/sidebarItem");
+		mount(
+			{ username: "ada" },
+			false,
+			{ chatSchedulesEnabled: true },
+			new URL("http://localhost/schedules")
+		);
+		const active = host.querySelector('[data-testid="schedules-link"]');
+		expect(active?.className).toContain("mb-1.5");
+		expect(active?.className).toContain(SIDEBAR_ITEM_ACTIVE);
+		expect(active?.className).not.toContain("hover:bg-gray-100");
+		expect(SIDEBAR_ITEM).toContain("hover:bg-gray-100");
 	});
 
 	it("rows point at the workspace and the settings, and no manager rows remain", () => {
