@@ -714,7 +714,7 @@ describe("a run that outlives its window", () => {
 });
 
 describe("a new chat in a project", () => {
-	async function projectFor(owner: Person, shares: unknown[] = []) {
+	async function projectFor(owner: typeof person, shares: unknown[] = []) {
 		const _id = new ObjectId();
 		await collections.projects.insertOne({
 			_id,
