@@ -5,6 +5,16 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.34.1 — 2026-10-30
+
+Pins: Cerea `0.34.1` (chat and `cerea-documents`), Pystino `0.20.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required.
+
+- **Each area shows its own schedules.** The Schedules row in the chat sidebar lists and
+  creates chat schedules only, and the one in the agents tree lists and creates agent schedules
+  only; the editor no longer offers a switch between the two kinds.
+
 ## v0.34.0 — 2026-10-30
 
 Pins: Cerea `0.34.0` (chat and `cerea-documents`), Pystino `0.20.0`.
