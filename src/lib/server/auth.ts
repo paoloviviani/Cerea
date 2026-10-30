@@ -325,23 +325,6 @@ export function tokenSetToSessionOauth(tokenSet: TokenSet): Session["oauth"] {
 }
 
 /**
- * Whether this process has learned that the issuer refuses `offline_access` for the chat's client
- * (an `invalid_scope` answer to a login that asked for it). It then stops asking until restart, so a
- * client that was not updated costs one retried sign-in, not a broken one.
- */
-let offlineAccessRefused = false;
-export function markOfflineAccessRefused(): void {
-	offlineAccessRefused = true;
-}
-export function offlineAccessWasRefused(): boolean {
-	return offlineAccessRefused;
-}
-/** For tests. */
-export function _resetOfflineAccessRefused(): void {
-	offlineAccessRefused = false;
-}
-
-/**
  * How a sign-in treats `offline_access`: `auto` asks for it when the issuer lists it, `skip` never does
  * (the person already has a background grant, and an IdP such as Authelia cannot remember consent for a
  * request that includes it, so asking at every sign-in would show a consent screen every time), `force`
@@ -355,7 +338,8 @@ export const BACKGROUND_COOKIE = "hfChat-bgAccess";
 export function setBackgroundCookie(cookies: Cookies, issued: boolean) {
 	cookies.set(BACKGROUND_COOKIE, issued ? "1" : "0", {
 		path: "/",
-		sameSite,
+		// `strict` would keep it off the cross-site return from the IdP, as for the login retry cookie.
+		sameSite: sameSite === "strict" ? "lax" : sameSite,
 		secure,
 		httpOnly: true,
 		maxAge: 60 * 60 * 24 * (issued ? 365 : 30),
@@ -367,9 +351,8 @@ export function setBackgroundCookie(cookies: Cookies, issued: boolean) {
  * it (`OPENID_OFFLINE_ACCESS=off` never adds it) and the mode allows. That is what makes the IdP
  * issue a refresh token, which the per-user background grant (`schedules/grants.ts`) keeps so
  * sessions and scheduled chats can refresh while nobody is signed in. Asking for a scope the client is
- * not allowed is `invalid_scope`, so the login is retried once without it when that happens (and not
- * asked again by this process). `offline` says whether it was added, so the callback can tell which
- * scope an `invalid_scope` was about.
+ * not allowed is `invalid_scope`, so an error on a sign-in that asked for it falls back, once per
+ * browser, to a sign-in without it (`offline` says whether it was added, so the callback can tell).
  */
 export function loginScopes(
 	offered?: unknown,
@@ -380,7 +363,6 @@ export function loginScopes(
 	const wanted =
 		mode !== "skip" &&
 		config.OPENID_OFFLINE_ACCESS !== "off" &&
-		!offlineAccessRefused &&
 		!scopes.includes("offline_access") &&
 		Boolean(listed?.includes("offline_access"));
 	if (wanted) scopes.push("offline_access");

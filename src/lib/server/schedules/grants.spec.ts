@@ -456,11 +456,14 @@ describe("signing out", () => {
 		const { user, sessions } = await login({ refresh: "rt-1" });
 		await login({ refresh: "rt-2" });
 
+		const deleted: string[] = [];
 		await POST({
 			locals: { sessionId: sessions[0].sessionId, isAdmin: false },
-			cookies,
+			cookies: { ...cookies, delete: (name: string) => void deleted.push(name) },
 			url,
 		} as never).catch(() => undefined);
+		// What this browser learned about background access goes with the person who signed out.
+		expect(deleted).toContain("hfChat-bgAccess");
 
 		expect(await collections.sessions.countDocuments({ sessionId: sessions[0].sessionId })).toBe(0);
 		expect(await hasGrant(user._id)).toBe(true);

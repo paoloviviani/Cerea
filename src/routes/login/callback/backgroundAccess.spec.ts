@@ -25,11 +25,7 @@ vi.mock("./updateUser.js", async (original) => ({
 	updateUser: vi.fn(),
 }));
 
-import {
-	_resetOfflineAccessRefused,
-	BACKGROUND_COOKIE,
-	offlineAccessWasRefused,
-} from "$lib/server/auth";
+import { BACKGROUND_COOKIE } from "$lib/server/auth";
 import { saveGrant } from "$lib/server/schedules/grants";
 import { GET } from "./+server";
 
@@ -69,7 +65,6 @@ const state = Buffer.from("{}").toString("base64");
 
 beforeEach(async () => {
 	vi.clearAllMocks();
-	_resetOfflineAccessRefused();
 	await collections.sessions.deleteMany({});
 	await collections.scheduleGrants.deleteMany({});
 	mocks.validate.mockResolvedValue({
@@ -97,27 +92,53 @@ async function signedIn(withGrant: boolean) {
 	return userId;
 }
 
-describe("a client that does not allow offline_access", () => {
-	it("signs in again without it, once, remembering that this issuer refuses it", async () => {
+describe("an error on a sign-in that asked for offline_access", () => {
+	const offlineState = () =>
 		mocks.validate.mockResolvedValue({
 			redirectUrl: "http://localhost/login/callback",
 			next: "/chats",
 			offline: true,
 		});
-		const first = await call(`error=invalid_scope&state=${state}`);
-		expect(first.redirectedTo).toBe("/login?next=%2Fchats");
-		expect(offlineAccessWasRefused()).toBe(true);
 
-		// Refused already: a second invalid_scope is a real error, not a loop.
-		const second = await call(`error=invalid_scope&state=${state}`);
-		expect(second.failed?.status).toBe(400);
+	it.each(["invalid_scope", "access_denied", "server_error"])(
+		"%s falls back to a plain sign-in, once, marking the browser so it is not asked again",
+		async (error) => {
+			offlineState();
+			const { jar, redirectedTo, failed } = await call(`error=${error}&state=${state}`);
+			expect(failed).toBeUndefined();
+			expect(redirectedTo).toBe("/login?next=%2Fchats");
+			expect(jar.get(BACKGROUND_COOKIE)).toBe("0");
+		}
+	);
+
+	it("repeated errors cannot loop: the browser's cookie makes the next sign-in plain", async () => {
+		offlineState();
+		const first = await call(`error=server_error&state=${state}`);
+		expect(first.jar.get(BACKGROUND_COOKIE)).toBe("0");
+		// A plain sign-in carries no offline flag: a repeat gets the one ordinary retry, then it is an error.
+		mocks.validate.mockResolvedValue({ redirectUrl: "http://localhost/login/callback" });
+		const again = await call(`error=server_error&state=${state}`, first.jar);
+		expect(again.redirectedTo).toBe("/login");
+		const last = await call(`error=server_error&state=${state}`, again.jar);
+		expect(last.failed?.status).toBe(400);
 	});
 
-	it("is a plain error when offline_access was not what was asked", async () => {
+	it("during the extra round for a missing grant, a person already signed in goes back where they were", async () => {
+		offlineState();
+		await signedIn(false);
+		const { jar, redirectedTo } = await call(`error=access_denied&state=${state}`);
+		expect(redirectedTo).toBe("/chats");
+		expect(jar.get(BACKGROUND_COOKIE)).toBe("0");
+	});
+
+	it("a crafted error on someone's own plain state changes nothing for anyone else", async () => {
 		mocks.validate.mockResolvedValue({ redirectUrl: "http://localhost/login/callback" });
-		const result = await call(`error=invalid_scope&state=${state}`);
-		expect(result.failed?.status).toBe(400);
-		expect(offlineAccessWasRefused()).toBe(false);
+		const { jar, failed } = await call(`error=invalid_scope&state=${state}`);
+		expect(failed?.status).toBe(400);
+		expect(jar.get(BACKGROUND_COOKIE)).toBeUndefined();
+		// And nothing process-wide was learned: another browser still asks for offline_access.
+		const { loginScopes } = await import("$lib/server/auth");
+		expect(loginScopes(["openid", "offline_access"]).offline).toBe(true);
 	});
 });
 

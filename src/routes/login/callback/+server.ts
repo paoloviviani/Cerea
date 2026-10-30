@@ -6,8 +6,6 @@ import {
 	hasLoginRetryCookie,
 	offlineAccessAvailable,
 	setBackgroundCookie,
-	markOfflineAccessRefused,
-	offlineAccessWasRefused,
 	sanitizeReturnPath,
 	setLoginRetryCookie,
 	validateAndParseCsrfToken,
@@ -60,43 +58,45 @@ export async function GET({ url, locals, cookies, request, getClientAddress }) {
 		})
 		.parse(Object.fromEntries(url.searchParams.entries()));
 
-	if (errorName === "invalid_scope") {
-		// The sign-in asked for `offline_access` and the issuer's client for the chat does not allow it
-		// (an Authelia whose chat client predates it): remember that, and sign in again without it, once.
-		const state = url.searchParams.get("state");
-		const validated = state
-			? await validateAndParseCsrfToken(
-					Buffer.from(state, "base64").toString("utf-8"),
-					locals.sessionId
-				)
-			: null;
-		if (validated?.offline && !offlineAccessWasRefused()) {
-			markOfflineAccessRefused();
-			const retry = new URLSearchParams();
-			if (validated.next) retry.set("next", validated.next);
-			return redirect(302, `${base}/login${retry.size ? `?${retry}` : ""}`);
-		}
-	}
-
-	if (errorName === "server_error" && !hasLoginRetryCookie(cookies)) {
-		// Authelia 4.39 answers the first authorization after a remembered consent was saved with a
-		// `server_error` ("could not save the consent session"), though the consent is kept and the next
-		// attempt goes straight through: sign in again, once.
-		setLoginRetryCookie(cookies);
-		const state = url.searchParams.get("state");
-		const validated = state
-			? await validateAndParseCsrfToken(
-					Buffer.from(state, "base64").toString("utf-8"),
-					locals.sessionId
-				)
-			: null;
-		return redirect(
-			302,
-			`${base}/login${validated?.next ? `?next=${encodeURIComponent(validated.next)}` : ""}`
-		);
-	}
-
 	if (errorName) {
+		const stateParam = url.searchParams.get("state");
+		const failed = stateParam
+			? await validateAndParseCsrfToken(
+					Buffer.from(stateParam, "base64").toString("utf-8"),
+					locals.sessionId
+				)
+			: null;
+
+		if (failed?.offline) {
+			// The sign-in (or the extra round) asked for `offline_access` and the IdP said no: the client
+			// does not allow it (`invalid_scope`), the person declined the consent (`access_denied`), or
+			// the IdP failed (`server_error`). Whatever it was, background access is given up on for this
+			// browser (the "0" cookie, so the next sign-in does not ask) and the person goes on without it:
+			// back where they were if they are already signed in (the extra round), else a plain sign-in.
+			// One fallback per browser, so no error on an offline-flagged state can loop or lock anyone out.
+			setBackgroundCookie(cookies, false);
+			const signedIn = await collections.sessions
+				.findOne({ sessionId: locals.sessionId, userId: { $exists: true } })
+				.then(Boolean)
+				.catch(() => false);
+			if (signedIn) return redirect(302, failed.next ?? `${base}/`);
+			return redirect(
+				302,
+				`${base}/login${failed.next ? `?next=${encodeURIComponent(failed.next)}` : ""}`
+			);
+		}
+
+		if (errorName === "server_error" && !hasLoginRetryCookie(cookies)) {
+			// Authelia 4.39 answers the first authorization after a remembered consent was saved with a
+			// `server_error` ("could not save the consent session"), though the consent is kept and the next
+			// attempt goes straight through: sign in again, once.
+			setLoginRetryCookie(cookies);
+			return redirect(
+				302,
+				`${base}/login${failed?.next ? `?next=${encodeURIComponent(failed.next)}` : ""}`
+			);
+		}
+
 		throw error(400, errorName + (errorDescription ? ": " + errorDescription : ""));
 	}
 

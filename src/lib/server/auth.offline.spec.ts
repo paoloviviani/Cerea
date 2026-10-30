@@ -1,9 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { _resetOfflineAccessRefused, loginScopes, markOfflineAccessRefused } from "./auth";
+import { describe, expect, it } from "vitest";
+import { loginScopes } from "./auth";
 
 const listed = ["openid", "profile", "email", "groups", "offline_access"];
-
-afterEach(() => _resetOfflineAccessRefused());
 
 describe("loginScopes", () => {
 	it("adds offline_access when the issuer lists it, and says so", () => {
@@ -21,12 +19,6 @@ describe("loginScopes", () => {
 	it("skips it for a browser whose background access is settled, and asks again when told to force it", () => {
 		expect(loginScopes(listed, "skip").offline).toBe(false);
 		expect(loginScopes(listed, "force").offline).toBe(true);
-	});
-
-	it("stops asking once this process has seen the issuer refuse it, even when forced", () => {
-		markOfflineAccessRefused();
-		expect(loginScopes(listed).offline).toBe(false);
-		expect(loginScopes(listed, "force").offline).toBe(false);
 	});
 });
 
@@ -50,6 +42,34 @@ describe("OPENID_OFFLINE_ACCESS=off", () => {
 			scope: expect.not.stringContaining("offline_access"),
 			offline: false,
 		});
+		vi.doUnmock("$lib/server/config");
+		vi.resetModules();
+	});
+});
+
+describe("the background-access cookie", () => {
+	it("is lax under COOKIE_SAMESITE=strict: a strict cookie would stay off the cross-site return from the IdP", async () => {
+		const { vi } = await import("vitest");
+		vi.resetModules();
+		vi.doMock("$lib/server/config", async (original) => {
+			const actual = await original<typeof import("$lib/server/config")>();
+			return {
+				...actual,
+				config: new Proxy(actual.config, {
+					get(target, prop, receiver) {
+						return prop === "COOKIE_SAMESITE" ? "strict" : Reflect.get(target, prop, receiver);
+					},
+				}),
+			};
+		});
+		const fresh = await import("./auth");
+		const set = vi.fn();
+		fresh.setBackgroundCookie({ set } as never, true);
+		expect(set).toHaveBeenCalledWith(
+			fresh.BACKGROUND_COOKIE,
+			"1",
+			expect.objectContaining({ sameSite: "lax", httpOnly: true })
+		);
 		vi.doUnmock("$lib/server/config");
 		vi.resetModules();
 	});
