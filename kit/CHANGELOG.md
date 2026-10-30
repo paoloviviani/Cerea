@@ -5,7 +5,21 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.34.0 — 2026-10-30
+
+Pins: Cerea `0.34.0` (chat and `cerea-documents`), Pystino `0.20.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`, then
+`docker compose up -d --force-recreate authelia` (see below).
+
+- **Scheduled chats.** Any chat can run on a schedule: from a conversation's menu ("Schedule…")
+  or the new Schedules row at the top of the sidebar, or by asking the assistant ("every Monday,
+  summarise…"), which proposes the schedule on a confirmation card. Each schedule continues the
+  same chat (default) or starts a new chat each time, and has its own Ask/Allow setting, never
+  looser than your own approval setting: Ask refuses tools that need approval, Allow uses them as
+  you would. Scheduled runs have no Python sandbox. A finished run marks the chat unread and
+  can send a push notification. Schedules run as you, with your quota, model access and
+  redaction rules, through the background access below.
 
 - **Scheduled chats need background access.** The chat now asks the identity provider for
   `offline_access` on a browser's first sign-in (when the issuer lists it) and keeps one refresh
