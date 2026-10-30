@@ -87,13 +87,14 @@ describe("the tool itself", () => {
 
 	it("never creates anything: a valid call is told to wait for the card, an invalid one why not", async () => {
 		const ctx = { uuid: "u", toolCallId: "c" };
+		const before = await collections.schedules.countDocuments({});
 		expect(await tool.execute(proposal, ctx)).toMatchObject({
 			error: expect.stringContaining("confirms it"),
 		});
 		expect(
 			await tool.execute({ ...proposal, recurrence: { type: "hours", every: 0 } }, ctx)
 		).toMatchObject({ error: expect.stringContaining("Every N hours") });
-		expect(await collections.schedules.countDocuments({})).toBe(0);
+		expect(await collections.schedules.countDocuments({})).toBe(before);
 	});
 
 	it("names itself and asks for the person's timezone", () => {

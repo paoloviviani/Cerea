@@ -66,11 +66,12 @@ const KEY = "sk-test-secret";
 
 /** A turn's wire answer: JSON lines, as the conversation route writes them. */
 function turnResponse(events: object[], delayMs = 0): Response {
-	const body = new ReadableStream<Uint8Array>({
+	// Strings, as the route enqueues them (`controller.enqueue(JSON.stringify(event) + "\n")`).
+	const body = new ReadableStream<string>({
 		async start(controller) {
 			if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
 			for (const event of events) {
-				controller.enqueue(new TextEncoder().encode(JSON.stringify(event) + "\n"));
+				controller.enqueue(JSON.stringify(event) + "\n");
 			}
 			controller.close();
 		},

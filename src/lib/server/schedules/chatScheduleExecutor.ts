@@ -170,7 +170,8 @@ async function readTurn(response: Response): Promise<TurnReport> {
 		for (;;) {
 			const { value, done } = await reader.read();
 			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
+			// The route enqueues strings, not bytes: a body made of either reads the same here.
+			buffer += typeof value === "string" ? value : decoder.decode(value, { stream: true });
 			const lines = buffer.split("\n");
 			buffer = lines.pop() ?? "";
 			lines.forEach(take);
@@ -178,7 +179,9 @@ async function readTurn(response: Response): Promise<TurnReport> {
 		take(buffer);
 	} catch (err) {
 		logger.warn({ err }, "scheduled_chat_stream_failed");
-		report.error ??= { message: "The turn's stream broke off." };
+		report.error ??= {
+			message: `The turn's stream broke off${err instanceof Error ? `: ${err.message}` : "."}`,
+		};
 	}
 	return report;
 }

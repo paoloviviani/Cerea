@@ -36,11 +36,9 @@ vi.mock("$lib/server/models", () => ({
 }));
 vi.mock("../../../../conversation/[id]/+server", () => ({
 	POST: async () => {
-		const body = new ReadableStream<Uint8Array>({
+		const body = new ReadableStream<string>({
 			start(controller) {
-				controller.enqueue(
-					new TextEncoder().encode(JSON.stringify({ type: "status", status: "finished" }) + "\n")
-				);
+				controller.enqueue(JSON.stringify({ type: "status", status: "finished" }) + "\n");
 				controller.close();
 			},
 		});

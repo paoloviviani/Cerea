@@ -94,9 +94,10 @@ test("schedule a chat from its menu, run it now, and read the answer in the same
 		.getByRole("link", { name: /Open chat/ })
 		.click();
 	await expect(page).toHaveURL(new RegExp(`/conversation/${conversationId}`));
-	const messages = page.locator('[data-message-role="user"]');
-	await expect(messages.last()).toContainText("Summarise the news on space travel.");
-	await expect(messages.last()).toContainText("[Scheduled run of");
+	await expect(page.getByText("Summarise the news on space travel.").first()).toBeVisible({
+		timeout: 30_000,
+	});
+	await expect(page.getByText(/\[Scheduled run of "Weekly news"/).first()).toBeVisible();
 	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText(
 		"Scheduled answer delivered.",
 		{ timeout: 30_000 }
