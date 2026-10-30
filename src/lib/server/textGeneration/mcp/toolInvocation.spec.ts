@@ -890,3 +890,116 @@ describe("pictures a builtin returns", () => {
 		expect(text).not.toContain("image_url");
 	});
 });
+
+describe("executeToolCalls in a run nobody is watching (a scheduled chat)", () => {
+	const unattended = {
+		policy: "manual" as const,
+		approvedTools: new Set<string>(),
+		webFetchAllowedUrls: new Set<string>(),
+		unattended: true,
+	};
+
+	it("refuses a call that needs approval, in words the model can act on, and never parks", async () => {
+		await ready;
+		const conversationId = new ObjectId();
+		const before = await collections.mcpElicitations.countDocuments({ conversationId });
+		const events = await drain(
+			[CALL],
+			{ conversationId, generationId: "gen-1", messageId: "m1" },
+			undefined,
+			undefined,
+			unattended
+		);
+
+		expect(mcpMock.callMcpTool).not.toHaveBeenCalled();
+		expect(summaryOf(events).awaitingInput).toBeUndefined();
+		expect(await collections.mcpElicitations.countDocuments({ conversationId })).toBe(before);
+		const [refusal] = toolUpdatesOf(events).filter(
+			(u) => u.subtype === MessageToolUpdateType.Error
+		);
+		expect(refusal).toMatchObject({
+			message: expect.stringContaining("needs the person's approval (hf:do_thing)"),
+		});
+		expect(refusal).toMatchObject({ message: expect.stringContaining("nobody to ask") });
+	});
+
+	it("still runs a tool the conversation already approved", async () => {
+		await drain([CALL], undefined, undefined, undefined, {
+			...unattended,
+			approvedTools: new Set(["hf:do_thing"]),
+		});
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(1);
+	});
+
+	it("runs everything under always-allow: the person's own policy says nothing needs approval", async () => {
+		await drain([CALL], undefined, undefined, undefined, { ...unattended, policy: "always-allow" });
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("executeToolCalls over the schedule tool", () => {
+	const execute = vi.fn<BuiltinTool["execute"]>(async () => ({ resultText: "must not run" }));
+	const scheduleBuiltin: BuiltinTool = {
+		name: "schedule",
+		definition: { type: "function", function: { name: "schedule" } },
+		execute,
+	};
+	const valid = JSON.stringify({
+		name: "Friday report",
+		prompt: "remind me to send the report",
+		recurrence: { type: "weekly", day: 5, at: "16:00" },
+		timezone: "Europe/Rome",
+	});
+	const call = (args: string): NormalizedToolCall => ({
+		id: "c",
+		name: "schedule",
+		arguments: args,
+	});
+
+	beforeEach(() => execute.mockClear());
+
+	it("asks on the card whatever the policy and whatever was granted, and creates nothing itself", async () => {
+		await ready;
+		for (const toolApproval of [
+			{ policy: "always-allow" as const, approvedTools: new Set<string>() },
+			{ policy: "manual" as const, approvedTools: new Set(["schedule"]) },
+		]) {
+			const conversationId = new ObjectId();
+			const events = await drain(
+				[call(valid)],
+				{ conversationId, generationId: "g", messageId: "m1" },
+				[scheduleBuiltin],
+				undefined,
+				{ ...toolApproval, webFetchAllowedUrls: new Set() }
+			);
+			expect(execute).not.toHaveBeenCalled();
+			expect(summaryOf(events).awaitingInput).toBe(true);
+			const request = events.flatMap((e) =>
+				e.type === "update" &&
+				e.update.type === MessageUpdateType.Elicitation &&
+				e.update.subtype === "request"
+					? [e.update]
+					: []
+			)[0];
+			expect(request?.request.toolApproval?.tool).toBe("schedule");
+			expect(request?.request.toolApproval?.args).toMatchObject({ name: "Friday report" });
+		}
+	});
+
+	it("answers an invalid proposal with the reason, without opening a card", async () => {
+		const events = await drain(
+			[call(JSON.stringify({ name: "x", prompt: "y", recurrence: { type: "hours", every: 0 } }))],
+			{ conversationId: new ObjectId(), generationId: "g", messageId: "m1" },
+			[
+				{
+					...scheduleBuiltin,
+					execute: async () => ({ error: "Every N hours needs N from 1 to 720." }),
+				},
+			],
+			undefined,
+			{ policy: "always-allow", approvedTools: new Set(), webFetchAllowedUrls: new Set() }
+		);
+		expect(summaryOf(events).awaitingInput).toBeUndefined();
+		expect(toolUpdatesOf(events).some((u) => u.subtype === MessageToolUpdateType.Error)).toBe(true);
+	});
+});

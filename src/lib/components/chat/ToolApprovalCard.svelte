@@ -10,6 +10,8 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import { sendElicitationAnswer } from "$lib/utils/sendElicitationAnswer";
+	import { recurrenceText } from "$lib/utils/scheduleFormat";
+	import type { Recurrence } from "$lib/types/Schedule";
 	import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
 	import {
 		ALWAYS_ASKS_KEYS,
@@ -250,6 +252,42 @@
 		return facts.filter((fact) => fact.value !== "");
 	});
 
+	/**
+	 * The assistant's `schedule` proposal, on the same card: what will be made, in
+	 * words, before the person says yes. Chat only (`onanswer` is the agent path), and
+	 * no "for this conversation" button: a schedule is confirmed one at a time.
+	 */
+	const proposesSchedule = $derived(onanswer === undefined && toolApproval?.tool === "schedule");
+	const scheduleFacts = $derived.by((): Fact[] => {
+		const args = toolApproval?.args;
+		if (!proposesSchedule || !args) return [];
+		const text = (value: unknown) => (typeof value === "string" ? value : "");
+		const recurrence = args.recurrence as Recurrence | undefined;
+		const facts: Fact[] = [
+			{ label: m["chat.approval.schedule.name"](), value: text(args.name) },
+			{
+				label: m["chat.approval.schedule.repeats"](),
+				value: recurrence ? `${recurrenceText(recurrence)} (${text(args.timezone) || "UTC"})` : "",
+			},
+			{
+				label: m["chat.approval.schedule.where"](),
+				value:
+					args.mode === "new"
+						? m["chat.approval.schedule.where_new"]()
+						: m["chat.approval.schedule.where_continue"](),
+			},
+			{ label: m["chat.approval.schedule.prompt"](), value: text(args.prompt), long: true },
+		];
+		if (typeof args.maxOccurrences === "number") {
+			facts.push({
+				label: m["chat.approval.schedule.stops"](),
+				value: m["chat.approval.schedule.stops_value"]({ count: args.maxOccurrences }),
+			});
+		}
+		return facts.filter((fact) => fact.value !== "");
+	});
+	const shownFacts = $derived(galopin ? galopinFacts : scheduleFacts);
+
 	const argsJson = $derived.by(() => {
 		if (!toolApproval) return "";
 		try {
@@ -324,7 +362,9 @@
 					>{#if subagentLabel}{subagentLabel} ·
 					{/if}{galopin
 						? m["chat.approval.agent_action"]()
-						: m["chat.approval.tool_approval"]()}</span
+						: proposesSchedule
+							? m["chat.approval.schedule.title"]()
+							: m["chat.approval.tool_approval"]()}</span
 				>
 				<span class="text-xs text-gray-500 dark:text-gray-400">
 					<Rich
@@ -346,9 +386,12 @@
 				{/if}
 			</div>
 
-			{#if galopin && galopinFacts.length > 0}
-				<dl class="mt-3 space-y-2 text-sm" data-testid="galopin-approval">
-					{#each galopinFacts as fact (fact.label)}
+			{#if (galopin || proposesSchedule) && shownFacts.length > 0}
+				<dl
+					class="mt-3 space-y-2 text-sm"
+					data-testid={proposesSchedule ? "schedule-approval" : "galopin-approval"}
+				>
+					{#each shownFacts as fact (fact.label)}
 						<div class={fact.long ? "" : "flex flex-wrap gap-x-2"}>
 							<dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{fact.label}</dt>
 							<dd class="min-w-0 text-gray-800 dark:text-gray-100">
@@ -379,9 +422,9 @@
 					class="rounded-lg bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
 				>
 					<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
-					{approveLabel}
+					{proposesSchedule ? m["chat.approval.schedule.create"]() : approveLabel}
 				</button>
-				{#if !galopin && !capped}
+				{#if !galopin && !capped && !proposesSchedule}
 					<button
 						type="button"
 						onclick={() => send("accept", onanswer ? "always" : "conversation")}

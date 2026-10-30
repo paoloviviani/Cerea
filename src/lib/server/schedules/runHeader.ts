@@ -52,3 +52,39 @@ export function scheduledRunHeader(input: {
 function lowerFirst(text: string): string {
 	return text.charAt(0).toLowerCase() + text.slice(1);
 }
+
+/** "2026-10-08 09:00" in the schedule's own zone. */
+export function runStamp(at: Date, timezone: string): string {
+	const parts = new Intl.DateTimeFormat("en-CA", {
+		timeZone: timezone,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23",
+	}).formatToParts(at);
+	const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+	return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
+}
+
+/**
+ * The same line for a scheduled chat run, which says what an unattended turn
+ * cannot do instead of what a coding session was granted:
+ *
+ *   [Scheduled run of "Weekly news", every monday at 08:00 (Europe/Rome); previous run 7 days ago; unattended: no Python sandbox, tools that need approval are refused]
+ */
+export function scheduledChatHeader(input: {
+	name: string;
+	recurrence: Recurrence;
+	timezone: string;
+	previousRunAt: Date | null | undefined;
+	now: Date;
+}): string {
+	return (
+		`[Scheduled run of "${headerName(input.name)}", ${lowerFirst(recurrenceText(input.recurrence))} ` +
+		`(${headerName(input.timezone)}); previous run ${relativeAgo(input.previousRunAt, input.now)}; ` +
+		"unattended: nobody is watching, so there is no Python sandbox and no question can be asked, " +
+		"and any tool that needs approval is refused]"
+	);
+}

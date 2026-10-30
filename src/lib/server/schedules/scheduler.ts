@@ -175,7 +175,10 @@ async function record(
 		set.nextRunAt = null;
 		set.disabledReason = disableReason;
 	}
-	await collections.schedules.updateOne({ _id: schedule._id }, { $set: set });
+	await collections.schedules.updateOne(
+		{ _id: schedule._id },
+		{ $set: set, ...(outcome.dropCredential ? { $unset: { credential: "" as const } } : {}) }
+	);
 	return run;
 }
 

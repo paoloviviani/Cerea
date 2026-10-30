@@ -33,13 +33,13 @@ notifications for the site in the browser's own site settings, then come back.
 
 ## What you can be told about
 
-| Event                           | When                                                                                                            | Default |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------- |
-| **An agent needs you**          | A coding agent asks for an approval or has a question. The same cards as the _Needs you_ inbox.                 | on      |
-| **A long agent turn finishes**  | A coding agent worked for more than a minute and a half and stopped (with an error, if it failed).              | on      |
-| **A scheduled run finishes**    | A [scheduled action](code-panel.md) ran to its end, failed, or could not start because the machine was offline. | on      |
-| **A background task fails**     | A task an agent started in the background ended with an error.                                                  | on      |
-| **A long chat answer is ready** | A chat reply that took more than a minute and a half completed.                                                 | off     |
+| Event                           | When                                                                                                                                                                                    | Default |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| **An agent needs you**          | A coding agent asks for an approval or has a question. The same cards as the _Needs you_ inbox.                                                                                         | on      |
+| **A long agent turn finishes**  | A coding agent worked for more than a minute and a half and stopped (with an error, if it failed).                                                                                      | on      |
+| **A scheduled run finishes**    | A [scheduled action](code-panel.md) ran to its end, failed, or could not start because the machine was offline. A [scheduled chat](chat.md#scheduled-chats) says it answered or failed. | on      |
+| **A background task fails**     | A task an agent started in the background ended with an error.                                                                                                                          | on      |
+| **A long chat answer is ready** | A chat reply that took more than a minute and a half completed.                                                                                                                         | off     |
 
 The switches apply to all your devices.
 

@@ -47,6 +47,9 @@
 
 	function sessionHref(run: ScheduleRunView): string | null {
 		const ids = run.result?.ids;
+		if (run.result?.type === "chat" && ids?.conversationId) {
+			return `${base}/conversation/${ids.conversationId}`;
+		}
 		if (run.result?.type !== "agent-session" || !ids?.deviceId || !ids.sessionId) return null;
 		return `${base}/code?device=${ids.deviceId}&ws=${ids.workspaceId}&agent=${ids.sessionId}`;
 	}
@@ -107,9 +110,15 @@
 									{href}
 									class="mt-1.5 inline-block max-w-full truncate text-xs text-accent hover:underline"
 								>
-									{run.result?.label
-										? m["code.schedule_history.open_session_label"]({ label: run.result.label })
-										: m["code.schedule_history.open_session"]()}
+									{#if run.result?.type === "chat"}
+										{run.result.label
+											? m["code.schedule_history.open_chat_label"]({ label: run.result.label })
+											: m["code.schedule_history.open_chat"]()}
+									{:else}
+										{run.result?.label
+											? m["code.schedule_history.open_session_label"]({ label: run.result.label })
+											: m["code.schedule_history.open_session"]()}
+									{/if}
 								</a>
 							{/if}
 						</li>

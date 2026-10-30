@@ -24,6 +24,16 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 
 	const conversation = await resolveConversation(params.id ?? "", locals);
 
+	// Opening a conversation a scheduled run answered in reads it.
+	if (locals.user && "scheduledUnread" in conversation) {
+		await collections.conversations
+			.updateOne(
+				{ _id: new ObjectId(conversation._id), userId: locals.user._id },
+				{ $unset: { scheduledUnread: "" } }
+			)
+			.catch(() => undefined);
+	}
+
 	// The last assistant message's authoritative liveness, alongside the
 	// snapshot it describes. `serverNow` lets the client correct clock skew so
 	// a waiting turn's countdown renders true remaining time on load.

@@ -10,13 +10,15 @@
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
-import { getExecutor } from "./executors";
+import { logger } from "$lib/server/logger";
+import { CredentialError, getExecutor, type ScheduleExecutor } from "./executors";
 import { maxSchedulesPerUser } from "./limits";
 import { isValidTimezone, nextOccurrence, validateRecurrence } from "./recurrence";
 import {
 	SCHEDULE_KINDS,
 	type Schedule,
 	type ScheduleCreator,
+	type ScheduleCredential,
 	type ScheduleRun,
 	type ScheduleRunView,
 	type ScheduleView,
@@ -24,7 +26,7 @@ import {
 
 export class ScheduleError extends Error {
 	constructor(
-		readonly status: 400 | 404 | 409,
+		readonly status: 400 | 403 | 404 | 409 | 502,
 		message: string
 	) {
 		super(message);
@@ -118,12 +120,37 @@ async function checkTarget(
 	return result.target;
 }
 
+/** Mint a kind's credential with the person's session; its refusal is the person's to read. */
+async function mintFor(
+	executor: ScheduleExecutor | null,
+	request: Parameters<NonNullable<ScheduleExecutor["mintCredential"]>>[0]
+): Promise<ScheduleCredential | undefined> {
+	if (!executor?.mintCredential) return undefined;
+	try {
+		return await executor.mintCredential(request);
+	} catch (err) {
+		if (err instanceof CredentialError) throw new ScheduleError(err.status, err.message);
+		throw err;
+	}
+}
+
+/** Best-effort: a credential that cannot be released must not keep a schedule alive. */
+async function releaseQuietly(schedule: Schedule, token: string | undefined): Promise<void> {
+	const executor = getExecutor(schedule.kind);
+	if (!executor?.releaseCredential || !schedule.credential) return;
+	try {
+		await executor.releaseCredential(schedule, { token });
+	} catch (err) {
+		logger.warn({ err, scheduleId: schedule._id.toString() }, "schedule_credential_release_failed");
+	}
+}
+
 /** `createdBy` comes from the caller, never from the body: the person's API
  * cannot claim an agent made a schedule, nor the reverse. */
 export async function createSchedule(
 	userId: ObjectId,
 	body: unknown,
-	options: { createdBy?: ScheduleCreator } = {}
+	options: { createdBy?: ScheduleCreator; token?: string } = {}
 ): Promise<Schedule> {
 	const parsed = createSchema.safeParse(body);
 	if (!parsed.success) throw new ScheduleError(400, "The schedule is missing a field.");
@@ -140,6 +167,11 @@ export async function createSchedule(
 
 	const now = new Date();
 	const enabled = input.enabled ?? true;
+	const executor = getExecutor(input.kind);
+	// With the person's session in hand: the only moment a chat schedule can be given its key.
+	const credential = enabled
+		? await mintFor(executor, { userId, name, target, token: options.token })
+		: undefined;
 	const schedule: Schedule = {
 		_id: new ObjectId(),
 		userId,
@@ -158,14 +190,21 @@ export async function createSchedule(
 		updatedAt: now,
 		...(input.maxOccurrences != null ? { maxOccurrences: input.maxOccurrences } : {}),
 		...(options.createdBy ? { createdBy: options.createdBy } : {}),
+		...(credential ? { credential } : {}),
 	};
-	await collections.schedules.insertOne(schedule);
+	try {
+		await collections.schedules.insertOne(schedule);
+	} catch (err) {
+		await releaseQuietly(schedule, options.token);
+		throw err;
+	}
 	// Two creates racing past the check above would both land: settle it
 	// after the fact, so the cap is a cap and not a suggestion. A row keeps its
 	// place only if no more than `cap` of the person's rows are at or before
 	// its id, so of any racing set the earliest ids stay and the rest withdraw.
 	if ((await collections.schedules.countDocuments({ userId, _id: { $lte: schedule._id } })) > cap) {
 		await collections.schedules.deleteOne({ _id: schedule._id });
+		await releaseQuietly(schedule, options.token);
 		throw new ScheduleError(409, `You can have at most ${cap} schedules. Delete one first.`);
 	}
 	return schedule;
@@ -184,7 +223,8 @@ export async function listSchedules(userId: ObjectId): Promise<Schedule[]> {
 export async function updateSchedule(
 	userId: ObjectId,
 	id: string,
-	body: unknown
+	body: unknown,
+	options: { token?: string } = {}
 ): Promise<Schedule> {
 	const parsed = updateSchema.safeParse(body);
 	if (!parsed.success) throw new ScheduleError(400, "The change is not valid.");
@@ -242,19 +282,47 @@ export async function updateSchedule(
 		set.disabledReason = capReachedReason(cap);
 	}
 
+	// A schedule that will run needs its credential: one it never had (made
+	// switched off, or its key stopped working), or one its edit made stale.
+	const executor = getExecutor(existing.kind);
+	const willRun = (set.enabled ?? enabled) === true;
+	const replaced =
+		set.target !== undefined && executor?.credentialStale?.(existing.target, set.target) === true;
+	let minted: ScheduleCredential | undefined;
+	if (willRun && (!existing.credential || replaced)) {
+		minted = await mintFor(executor, {
+			userId,
+			name: set.name ?? existing.name,
+			target: set.target ?? existing.target,
+			token: options.token,
+		});
+		if (minted) set.credential = minted;
+	}
+
 	const updated = await collections.schedules.findOneAndUpdate(
 		{ _id: existing._id, userId },
 		{ $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
 		{ returnDocument: "after" }
 	);
-	if (!updated?.value) throw new ScheduleError(404, "No such schedule.");
+	if (!updated?.value) {
+		if (minted) await releaseQuietly({ ...existing, credential: minted }, options.token);
+		throw new ScheduleError(404, "No such schedule.");
+	}
+	// The key it replaced is no longer anything's.
+	if (minted && existing.credential) await releaseQuietly(existing, options.token);
 	return updated.value;
 }
 
 /** Remove the schedule. Its run rows stay: they are the record of what ran. */
-export async function deleteSchedule(userId: ObjectId, id: string): Promise<void> {
-	const { deletedCount } = await collections.schedules.deleteOne({ _id: parseId(id), userId });
-	if (!deletedCount) throw new ScheduleError(404, "No such schedule.");
+export async function deleteSchedule(
+	userId: ObjectId,
+	id: string,
+	options: { token?: string } = {}
+): Promise<void> {
+	const removed = await collections.schedules.findOneAndDelete({ _id: parseId(id), userId });
+	if (!removed?.value) throw new ScheduleError(404, "No such schedule.");
+	// Deleting revokes what the schedule held; turning it off never did.
+	await releaseQuietly(removed.value, options.token);
 }
 
 export async function listRuns(userId: ObjectId, id: string, limit = 50): Promise<ScheduleRun[]> {
@@ -292,7 +360,9 @@ export async function scheduleView(schedule: Schedule): Promise<ScheduleView> {
 		firedCount: schedule.firedCount ?? 0,
 		...(schedule.lastRunAt ? { lastRunAt: schedule.lastRunAt } : {}),
 		...(schedule.lastStatus ? { lastStatus: schedule.lastStatus } : {}),
-		...(schedule.createdBy?.kind === "agent" ? { createdBy: schedule.createdBy } : {}),
+		...(schedule.createdBy && schedule.createdBy.kind !== "person"
+			? { createdBy: schedule.createdBy }
+			: {}),
 		createdAt: schedule.createdAt,
 		updatedAt: schedule.updatedAt,
 	};

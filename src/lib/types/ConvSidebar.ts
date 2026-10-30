@@ -12,4 +12,6 @@ export interface ConvSidebar {
 	 * without it every project conversation would appear in both places.
 	 */
 	projectId?: string;
+	/** A scheduled run answered in it and it has not been opened since. */
+	unread?: true;
 }

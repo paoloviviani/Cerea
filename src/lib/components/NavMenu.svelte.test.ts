@@ -43,12 +43,20 @@ describe("NavMenu's foot", () => {
 		host.remove();
 	});
 
-	function mount(user: object | null, gatewayIsAdmin = false) {
+	function mount(user: object | null, gatewayIsAdmin = false, data: Record<string, unknown> = {}) {
 		return renderWithApp(NavMenu, { conversations: [], user, gatewayIsAdmin } as never, {
-			page: { data: { models: [] } },
+			page: { data: { models: [], ...data } },
 			baseElement: host,
 		});
 	}
+
+	it("has a Schedules row for a signed-in person when scheduled actions are on, and not otherwise", () => {
+		mount({ username: "ada" }, false, { chatSchedulesEnabled: true });
+		expect(host.querySelector('a[href="/schedules"]')).not.toBeNull();
+		host.innerHTML = "";
+		mount({ username: "ada" }, false, { chatSchedulesEnabled: false });
+		expect(host.querySelector('a[href="/schedules"]')).toBeNull();
+	});
 
 	it("rows point at the workspace and the settings, and no manager rows remain", () => {
 		mount({ username: "ada" });

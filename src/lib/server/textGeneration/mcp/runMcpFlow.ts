@@ -70,6 +70,7 @@ import { billToHeader } from "$lib/server/billTo";
 import { configuredBackend } from "$lib/server/fetching";
 import { getCapabilities as getDocumentCapabilities } from "$lib/server/documents/client";
 import { resolveToolApprovalPolicy } from "../toolApprovalPolicy";
+import { schedulesEnabled } from "$lib/server/schedules/limits";
 import { toPrimitive } from "./toolParams";
 
 export type RunMcpFlowContext = Pick<
@@ -390,6 +391,10 @@ export async function* runMcpFlow({
 		toolsEnabled: artifactToolsEnabled,
 		artifactTurnBlocks,
 		...(delegation ? { delegation } : {}),
+		// A scheduled run has nobody to park on: its sandbox and questions are withheld, and
+		// it never proposes a schedule of its own.
+		...(locals?.scheduledRun ? { unattended: true } : {}),
+		...(locals?.user && schedulesEnabled() ? { scheduling: { timezone: locals.timezone } } : {}),
 	});
 	// Skills (Phase 1, ADR 0072): the `load_skill` builtin joins when the
 	// turn has any enabled skill, so the model loads a body mid-turn through
@@ -1422,6 +1427,8 @@ export async function* runMcpFlow({
 						policy: toolApprovalPolicy,
 						approvedTools,
 						webFetchAllowedUrls: allowedFetchUrls,
+						// Nobody to ask: a call that needs approval is refused, as a sub-agent's is.
+						...(locals?.scheduledRun ? { unattended: true } : {}),
 					},
 				});
 				let toolMsgCount = 0;

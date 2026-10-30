@@ -52,7 +52,7 @@ import { collections } from "$lib/server/database";
 import { codeAgentsEnabled } from "$lib/server/codeEnabled";
 import { isMachineOnline, MachineLink } from "$lib/server/code/machines";
 import { allowsModel } from "$lib/server/code/modelPolicy";
-import { scheduledRunHeader } from "$lib/server/schedules/runHeader";
+import { runStamp, scheduledRunHeader } from "$lib/server/schedules/runHeader";
 import { registerExecutor, type ExecutorOutcome } from "$lib/server/schedules/executors";
 import { OpError, type Session } from "$lib/types/machineProtocol";
 import { coordinationKeys, coordinationSupport, TOO_OLD_DETAIL } from "$lib/utils/coordination";
@@ -127,20 +127,7 @@ async function ownedDevice(userId: ObjectId, deviceId: string): Promise<CodeDevi
 	return collections.codeDevices.findOne({ _id, userId });
 }
 
-/** "2026-10-08 09:00" in the schedule's own zone. */
-export function runStamp(at: Date, timezone: string): string {
-	const parts = new Intl.DateTimeFormat("en-CA", {
-		timeZone: timezone,
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-		hourCycle: "h23",
-	}).formatToParts(at);
-	const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-	return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
-}
+export { runStamp };
 
 function sessionTitle(schedule: Schedule, at: Date): string {
 	return `${schedule.name} · ${runStamp(at, schedule.timezone)}`.slice(0, 120);

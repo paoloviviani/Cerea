@@ -19,7 +19,8 @@ import { cleanupTestData, createTestUser } from "$lib/server/api/__tests__/testH
 import { testRequest } from "$lib/server/__tests__/testRequest";
 import { forgetGatewaySession } from "$lib/server/gatewaySession";
 import { GET as devicesGET, PATCH as devicesPATCH } from "../devices/+server";
-import { GET as schedulesGET } from "../schedules/+server";
+import { GET as schedulesGET, POST as schedulesPOST } from "../schedules/+server";
+import { GET as scheduleGET } from "../schedules/[id]/+server";
 import { GET as conversationsGET } from "../../conversations/+server";
 import { load as codeLoad } from "../../../../code/+page.server";
 
@@ -48,7 +49,7 @@ async function call(
 	handler: Handler,
 	path: string,
 	cookie: string,
-	options: { method?: string; json?: unknown } = {}
+	options: { method?: string; json?: unknown; params?: Record<string, string> } = {}
 ) {
 	const res = await testRequest(handler, {
 		method: options.method ?? "GET",
@@ -58,6 +59,7 @@ async function call(
 			cookie,
 		},
 		...(options.json !== undefined ? { body: JSON.stringify(options.json) } : {}),
+		...(options.params ? { params: options.params } : {}),
 	});
 	const text = await res.text();
 	let data: Record<string, unknown> = {};
@@ -158,14 +160,55 @@ describe("a chat-only person's /code", () => {
 		forgetGatewaySession(person.session.sessionId);
 	});
 
-	it("refuses the /code schedules with 404", async () => {
+	it("shows the /code schedules only their chat ones: agent schedules are not theirs to see or make", async () => {
 		env.preset = true;
 		const { person } = await gatewayPerson(false);
+		const now = new Date();
+		const row = (kind: "agent" | "chat") => ({
+			_id: new ObjectId(),
+			userId: person.user._id,
+			kind,
+			name: `a ${kind} schedule`,
+			target: {},
+			prompt: "p",
+			recurrence: { type: "daily", at: "09:00" },
+			timezone: "UTC",
+			anchorAt: now,
+			enabled: false,
+			nextRunAt: null,
+			consecutiveFailures: 0,
+			firedCount: 0,
+			createdAt: now,
+			updatedAt: now,
+		});
+		const agent = row("agent");
+		await collections.schedules.insertMany([agent, row("chat")] as never);
 
-		const res = await call(schedulesGET, "/api/v2/code/schedules", person.cookie);
+		const list = await call(schedulesGET, "/api/v2/code/schedules", person.cookie);
+		expect(list.status).toBe(200);
+		expect((list.data.schedules as { name: string }[]).map((x) => x.name)).toEqual([
+			"a chat schedule",
+		]);
 
-		expect(res.status).toBe(404);
-		expect(res.text).toContain("not available for your account");
+		const one = await call(
+			scheduleGET,
+			`/api/v2/code/schedules/${agent._id.toString()}`,
+			person.cookie,
+			{ params: { id: agent._id.toString() } }
+		);
+		expect(one.status).toBe(404);
+
+		const made = await call(schedulesPOST, "/api/v2/code/schedules", person.cookie, {
+			method: "POST",
+			json: {
+				name: "n",
+				prompt: "p",
+				recurrence: { type: "daily", at: "09:00" },
+				timezone: "UTC",
+				target: {},
+			},
+		});
+		expect(made.status).toBe(404);
 		forgetGatewaySession(person.session.sessionId);
 	});
 

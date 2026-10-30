@@ -325,6 +325,11 @@
 	     servers, knowledge bases), which are no longer dialogs opened from
 	     here. -->
 	<a href="{base}/workspace" class="{ROW} no-underline"> {m["app.nav.workspace"]()} </a>
+	{#if signedIn && page.data.chatSchedulesEnabled === true}
+		<a href="{base}/schedules" class="{ROW} no-underline" data-testid="nav-schedules">
+			{m["app.nav.schedules"]()}
+		</a>
+	{/if}
 	<a href="{base}/settings/application" class="{ROW} no-underline"> {m["app.nav.settings"]()} </a>
 
 	{#if gatewayIsAdmin}

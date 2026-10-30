@@ -1076,9 +1076,8 @@ before?}` ahead of `historyDone`; without the capability (an older galopin,
 ## Scheduled actions: the framework and the executor contract
 
 A schedule is a row someone owns that says "at these times, do this". **The core
-is kind-agnostic** (`src/lib/server/schedules/`); only `kind: "agent"` exists,
-and **a "chat" runner must be one new file plus its registration, with no change
-to the core.** The pieces:
+is kind-agnostic** (`src/lib/server/schedules/`); two kinds exist, `"agent"` and
+`"chat"`, each **one executor file plus its registration**. The pieces:
 
 - `recurrence.ts`: presets (every N hours, daily, weekdays, weekly) and a cron
   expression, validated and iterated with **croner** (MIT, no dependencies;
@@ -1113,6 +1112,12 @@ registerExecutor({
   run({ schedule, scheduledFor, trigger, previousRun, now }), // -> { status, detail?, result?, disable? }
 });
 ```
+
+Optional credential hooks (`mintCredential`, `credentialStale`, `releaseCredential`,
+and `dropCredential` on an outcome) let a kind that runs with no signed-in session hold
+a sealed credential on the row (`Schedule.credential`, never sent to a browser); the
+store calls them on create, re-enable, a stale edit and delete, with the caller's
+session token, and the agent executor sets none.
 
 `target` is opaque to the core. `run` returns what happened (`sent`,
 `skipped-still-running` after looking at `previousRun`'s output, `missed-offline`,
@@ -1167,6 +1172,41 @@ caller's own, paired. Things that bite:
   galopin's `delegation` skill (`agent/internal/backend/opencode/skill.go`) has
   a "When you run on a schedule" and a "Scheduling work" section that read it;
   change the header and the skill together;
+  **The chat executor** (`schedules/chatScheduleExecutor.ts`; spec beside it). Target
+  `{ mode: "continue" | "new", conversationId?, model?, projectId?, billingGroupId?, labels }`;
+  "new" copies model and project from the chat it was made from and then does not
+  hang on it. Things that bite:
+
+- **A run is the conversation route's own turn**: it builds a request and calls
+  `routes/conversation/[id]` `POST` (and `routes/conversation` `POST` for a new chat) with a
+  `locals` whose `token` is the schedule's unsealed key and `scheduledRun: true`; do
+  not write a second pipeline. `locals.scheduledRun` is what the pipeline reads: the
+  prompt says Python cannot run (`preprompt.executionAvailable`), `getEnabledBuiltinTools`
+  drops every `mayPark` tool (the sandbox, questions) and the `schedule` tool, and
+  `executeToolCalls({ toolApproval.unattended })` refuses what would open an approval card
+  in the sub-agent's words. Anything new that parks the turn must set `mayPark`.
+- **The run returns once the turn ends or after `chatRunConfig.earlyWindowMs` (25 s)**,
+  so a long turn is not held against the 2-minute lease. A gateway refusal is fast, so it
+  lands in the window and disables the schedule (`disable` + `dropCredential`); one that
+  ends later is announced (unread mark `Conversation.scheduledUnread`, push) and disables
+  the row directly. The unread mark is cleared by `GET /api/v2/conversations/[id]`.
+- **The key** (`gatewayKeys.ts`: `POST /v1/me/keys` with the user's session, `DELETE
+/v1/me/keys/{id}`) is minted before the row is inserted and released if the insert or
+  the cap check then fails; deleting revokes (session token, else the key itself), a
+  failed revoke is logged and never blocks the delete. Off a gateway preset
+  (`isGatewayPreset()` false) there is no key and the deployment's own credential serves.
+  An account erasure deletes rows without revoking: the gateway's account removal does.
+- **The `schedule` tool** (`builtinTools/scheduleTool.ts`) never creates anything itself.
+  `toolInvocation` gates it on the approval card whatever the policy and whatever was
+  granted (`alwaysConfirm`; a proposal `parseScheduleToolArgs` refuses never opens a card),
+  and only the click runs `createScheduleFromApproval` from `mcp/resumeElicitation.ts`,
+  with the approving request's token. `ToolApprovalCard` draws it from the args; no
+  "for the conversation" button.
+- **Access**: `requireSchedulesAccess` (`schedules/api.ts`) lets every signed-in user in;
+  agent schedules also need the /code panel for them (`agents`), and the routes answer 404
+  for the other kind. The page is `/schedules`, the same `SchedulesPanel` as `/code?view=schedules`;
+  the editor's chat half is in `ScheduleEditor.svelte` (`kind`).
+
 - API: `/api/v2/code/schedules` (+ `/[id]`, `/[id]/run`, `/[id]/runs`, `/preview`).
   It is under `/api/v2/code/`, so the 7-day sign-in guard covers it by prefix;
   `stale-guard.spec.ts` lists every route file and fails on a new one.

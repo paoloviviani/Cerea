@@ -2,6 +2,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
+	import { goto } from "$app/navigation";
 	import { tick } from "svelte";
 	import { DropdownMenu } from "bits-ui";
 
@@ -9,6 +10,7 @@
 	import CarbonEdit from "~icons/carbon/edit";
 	import LucideEllipsis from "~icons/lucide/ellipsis";
 	import LucideFolderInput from "~icons/lucide/folder-input";
+	import CarbonTime from "~icons/carbon/time";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
 
 	import EditConversationModal from "$lib/components/EditConversationModal.svelte";
@@ -87,6 +89,14 @@
 			aria-label={m["app.nav_item.generating_label"]()}
 		></span>
 	{/if}
+	{#if conv.unread && conv.id !== page.params.id}
+		<span
+			class="size-1.5 flex-none rounded-full bg-accent-solid"
+			title={m["app.nav_item.unread"]()}
+			aria-label={m["app.nav_item.unread"]()}
+			data-testid="unread-dot"
+		></span>
+	{/if}
 	{#if inlineEditing}
 		<input
 			bind:this={inputEl}
@@ -156,6 +166,16 @@
 							<CarbonEdit class="size-4 opacity-90 dark:opacity-80" />
 							{m["app.nav_item.rename"]()}
 						</DropdownMenu.Item>
+						{#if page.data.chatSchedulesEnabled === true}
+							<DropdownMenu.Item
+								class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+								onSelect={() => void goto(`${base}/schedules?new=1&conversation=${conv.id}`)}
+								data-testid="conv-schedule"
+							>
+								<CarbonTime class="size-4 opacity-90 dark:opacity-80" />
+								{m["app.nav_item.schedule"]()}
+							</DropdownMenu.Item>
+						{/if}
 						<DropdownMenu.Item
 							class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
 							onSelect={() => (moveOpen = true)}

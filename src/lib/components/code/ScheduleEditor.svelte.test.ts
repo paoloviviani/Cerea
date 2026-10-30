@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
+import { renderWithApp, setPage } from "$lib/components/__tests__/renderWithApp";
 import ScheduleEditor from "./ScheduleEditor.svelte";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 
@@ -156,8 +156,8 @@ describe("ScheduleEditor target picker", () => {
 		await expect.element(screen.getByLabelText("2. Workspace")).toHaveValue("w1");
 		await expect.element(screen.getByLabelText("3. Session")).toHaveValue("s2");
 
-		await screen.getByLabelText("Name").fill("Docs nightly");
-		await screen.getByLabelText("Prompt").fill("tidy the docs");
+		await screen.getByLabelText("Name", { exact: true }).fill("Docs nightly");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("tidy the docs");
 		await screen.getByRole("button", { name: "Create schedule" }).click();
 		await vi.waitFor(() => expect(onsaved).toHaveBeenCalled());
 		expect(api.createSchedule.mock.calls[0][0]).toMatchObject({
@@ -177,8 +177,8 @@ describe("ScheduleEditor target picker", () => {
 	it("sends 'a new session each run' with no session id", async () => {
 		const { screen, onsaved } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
 		await expect.element(screen.getByLabelText("3. Session")).toHaveValue("__new__");
-		await screen.getByLabelText("Name").fill("Nightly");
-		await screen.getByLabelText("Prompt").fill("go");
+		await screen.getByLabelText("Name", { exact: true }).fill("Nightly");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("go");
 		await screen.getByRole("radio", { name: "Allow" }).click();
 		await screen.getByRole("button", { name: "Create schedule" }).click();
 		await vi.waitFor(() => expect(onsaved).toHaveBeenCalled());
@@ -195,8 +195,8 @@ describe("ScheduleEditor new workspace", () => {
 			.element(screen.getByLabelText("2. Workspace").getByRole("option", { name: "repo" }))
 			.toBeInTheDocument();
 		await screen.getByLabelText("2. Workspace").selectOptions("__new__");
-		await screen.getByLabelText("Name").fill("Fresh");
-		await screen.getByLabelText("Prompt").fill("build it");
+		await screen.getByLabelText("Name", { exact: true }).fill("Fresh");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("build it");
 		await screen.getByLabelText("Directory on the machine").fill("/work/fresh");
 		await screen.getByLabelText("Title (optional)").fill("fresh");
 	}
@@ -281,8 +281,8 @@ describe("ScheduleEditor timetable", () => {
 	it("sends the preset the person picked, in the zone they typed", async () => {
 		const { screen, onsaved } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
 		await expect.element(screen.getByLabelText("2. Workspace")).toHaveValue("w1");
-		await screen.getByLabelText("Name").fill("Weekly");
-		await screen.getByLabelText("Prompt").fill("go");
+		await screen.getByLabelText("Name", { exact: true }).fill("Weekly");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("go");
 		await screen.getByLabelText("Repeats").selectOptions("weekly");
 		await screen.getByLabelText("On", { exact: true }).selectOptions("3");
 		await screen.getByLabelText("Timezone").fill("Europe/Rome");
@@ -307,8 +307,8 @@ describe("ScheduleEditor stopping criterion", () => {
 	};
 
 	async function fillAndSave(screen: ReturnType<typeof mount>["screen"], onsaved: unknown) {
-		await screen.getByLabelText("Name").fill("Twice");
-		await screen.getByLabelText("Prompt").fill("go");
+		await screen.getByLabelText("Name", { exact: true }).fill("Twice");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("go");
 		await screen.getByRole("button", { name: "Create schedule" }).click();
 		await vi.waitFor(() => expect(onsaved).toHaveBeenCalled());
 		const calls = api.createSchedule.mock.calls;
@@ -339,8 +339,8 @@ describe("ScheduleEditor stopping criterion", () => {
 
 	it("sends nothing when the cap is below 1: the field itself refuses it", async () => {
 		const { screen, onsaved } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
-		await screen.getByLabelText("Name").fill("Twice");
-		await screen.getByLabelText("Prompt").fill("go");
+		await screen.getByLabelText("Name", { exact: true }).fill("Twice");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("go");
 		await screen.getByLabelText("Stop after (runs)").fill("0");
 		await screen.getByRole("button", { name: "Create schedule" }).click();
 		expect(api.createSchedule).not.toHaveBeenCalled();
@@ -363,8 +363,8 @@ describe("ScheduleEditor coordination options", () => {
 	const spawn = "Can start new sessions";
 
 	async function fillAndSave(screen: ReturnType<typeof mount>["screen"], onsaved: unknown) {
-		await screen.getByLabelText("Name").fill("Orchestrate");
-		await screen.getByLabelText("Prompt").fill("check on the other sessions");
+		await screen.getByLabelText("Name", { exact: true }).fill("Orchestrate");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("check on the other sessions");
 		await screen.getByRole("button", { name: "Create schedule" }).click();
 		await vi.waitFor(() => expect(onsaved).toHaveBeenCalled());
 		return api.createSchedule.mock.calls[0][0].target;
@@ -491,7 +491,116 @@ describe("ScheduleEditor coordination options", () => {
 		screen.unmount();
 
 		const person = mount({ editing: base });
-		await expect.element(person.screen.getByLabelText("Name")).toHaveValue("Check CI");
+		await expect
+			.element(person.screen.getByLabelText("Name", { exact: true }))
+			.toHaveValue("Check CI");
 		expect(person.screen.getByTestId("schedule-created-by").elements()).toHaveLength(0);
+	});
+});
+
+describe("ScheduleEditor for a chat", () => {
+	beforeEach(() => {
+		setPage({
+			data: {
+				codeSchedulesEnabled: false,
+				conversations: [
+					{ id: "c1", title: "Weekly notes" },
+					{ id: "c2", title: "Trip planning" },
+				],
+				models: [
+					{ id: "m1", displayName: "Fast model" },
+					{ id: "m2", displayName: "Big model" },
+				],
+			},
+		});
+	});
+
+	it("opens from a conversation on continuing that chat, with no machine to choose", async () => {
+		const { screen } = mount({ prefill: { conversationId: "c1" } });
+
+		await expect.element(screen.getByTestId("mode-continue")).toBeChecked();
+		await expect.element(screen.getByLabelText("Chat", { exact: true })).toHaveValue("c1");
+		expect(screen.getByLabelText("1. Machine").elements()).toHaveLength(0);
+		await expect
+			.element(screen.getByTestId("chat-unattended-hint"))
+			.toHaveTextContent("cannot run Python");
+	});
+
+	it("saves a chat schedule with its mode and target, the default being the same chat", async () => {
+		const { screen, onsaved } = mount({ prefill: { conversationId: "c1" } });
+		await screen.getByLabelText("Name", { exact: true }).fill("Weekly news");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("Summarise the news on X");
+		await screen.getByRole("button", { name: "Create schedule" }).click();
+
+		expect(api.createSchedule).toHaveBeenCalledWith(
+			expect.objectContaining({
+				kind: "chat",
+				name: "Weekly news",
+				prompt: "Summarise the news on X",
+				target: { mode: "continue", conversationId: "c1" },
+			})
+		);
+		await vi.waitFor(() => expect(onsaved).toHaveBeenCalled());
+	});
+
+	it("starts a new chat each time with the model of the chat it was opened from", async () => {
+		const { screen } = mount({ prefill: { conversationId: "c2" } });
+		await screen.getByTestId("mode-new").click();
+		await expect
+			.element(screen.getByText(/same model and project as “Trip planning”/))
+			.toBeVisible();
+		await screen.getByLabelText("Name", { exact: true }).fill("Trips");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("Any new ideas?");
+		await screen.getByRole("button", { name: "Create schedule" }).click();
+
+		expect(api.createSchedule).toHaveBeenCalledWith(
+			expect.objectContaining({ kind: "chat", target: { mode: "new", conversationId: "c2" } })
+		);
+	});
+
+	it("asks for a model when opened from the list, and for a chat to continue", async () => {
+		const { screen } = mount();
+		await screen.getByLabelText("Name", { exact: true }).fill("Digest");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("Digest please");
+		await screen.getByRole("button", { name: "Create schedule" }).click();
+		await expect.element(screen.getByText("Choose the chat to continue.")).toBeVisible();
+
+		await screen.getByTestId("mode-new").click();
+		await screen.getByRole("button", { name: "Create schedule" }).click();
+		await expect.element(screen.getByText("Choose a model for the new chats.")).toBeVisible();
+		await screen.getByLabelText("Model", { exact: true }).selectOptions("m2");
+		await screen.getByRole("button", { name: "Create schedule" }).click();
+		expect(api.createSchedule).toHaveBeenCalledWith(
+			expect.objectContaining({ kind: "chat", target: { mode: "new", model: "m2" } })
+		);
+		expect(api.createSchedule).toHaveBeenCalledTimes(1);
+	});
+
+	it("lets a person with coding agents choose which kind to make", async () => {
+		setPage({ data: { codeSchedulesEnabled: true, conversations: [], models: [] } });
+		const { screen } = mount();
+		await expect.element(screen.getByTestId("kind-agent")).toBeChecked();
+		await screen.getByTestId("kind-chat").click();
+		expect(screen.getByLabelText("1. Machine").elements()).toHaveLength(0);
+	});
+
+	it("keeps the kind of the schedule it edits and shows its stored target", async () => {
+		const { screen } = mount({
+			editing: {
+				id: "s1",
+				kind: "chat",
+				name: "Weekly news",
+				prompt: "p",
+				recurrence: { type: "daily", at: "09:00" },
+				timezone: "UTC",
+				enabled: true,
+				target: { mode: "new", model: "m1" },
+				targetLabel: "New chat each time",
+				firedCount: 0,
+			},
+		});
+		await expect.element(screen.getByTestId("mode-new")).toBeChecked();
+		await expect.element(screen.getByLabelText("Model", { exact: true })).toHaveValue("m1");
+		expect(screen.getByTestId("kind-chat").elements()).toHaveLength(0);
 	});
 });

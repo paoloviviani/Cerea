@@ -12,6 +12,7 @@ interface ConversationListItem {
 	updatedAt: Date | string;
 	model?: string;
 	projectId?: string;
+	unread?: boolean;
 }
 
 interface UserInfo {
@@ -100,6 +101,7 @@ export const load = async ({ fetch, url, data }) => {
 			model: conv.model ?? defaultModel?.id,
 			updatedAt: new Date(conv.updatedAt),
 			...(conv.projectId ? { projectId: conv.projectId } : {}),
+			...(conv.unread ? { unread: true as const } : {}),
 		} satisfies ConvSidebar;
 	});
 
@@ -116,6 +118,7 @@ export const load = async ({ fetch, url, data }) => {
 		codeFilesEnabled: data.codeFilesEnabled,
 		codeTerminalEnabled: data.codeTerminalEnabled,
 		codeSchedulesEnabled: data.codeSchedulesEnabled,
+		chatSchedulesEnabled: data.chatSchedulesEnabled,
 		officePreviewEnabled: data.officePreviewEnabled,
 		localConnectorsEnabled: data.localConnectorsEnabled,
 		localConnectorsDenied: data.localConnectorsDenied,

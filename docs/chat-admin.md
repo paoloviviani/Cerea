@@ -146,6 +146,42 @@ the chat's configuration (changing it is logged with who made the change) and
 overrides `CHAT_DELEGATION`; with `ENABLE_CONFIG_MANAGER` off it can only be
 set in the environment. It applies to the next message anyone sends.
 
+## Scheduled chats
+
+Every signed-in user can put a prompt of theirs on a timetable and have the
+assistant answer it in their chat ([what users see](chat.md#scheduled-chats)). It
+needs nothing to be set up beyond the gateway, and it is not tied to the Agents
+panel.
+
+- **The switch.** `CHAT_SCHEDULES_ENABLED`: on unless exactly `false`. Off stops the
+  scheduler for every kind of schedule, answers the schedules API 404 and hides
+  the **Schedules** row and the **Schedule…** menu item; schedules and their
+  keys are kept.
+- **The limit.** `CHAT_SCHEDULES_MAX_PER_USER` (default 20) caps a person's schedules of
+  every kind together (chat and coding-agent ones count alike). The scheduler
+  never starts a run faster than every 15 minutes per schedule.
+- **Whose keys.** A scheduled run is a normal chat turn made with a gateway key in
+  the user's own name, made with their session when they create or switch on the
+  schedule (`POST /v1/me/keys`) and named `Cerea schedule: <name>`. Their quota, model
+  access, redaction rule and billing apply and usage is attributed to them. In
+  the gateway's console the keys appear with the user's other keys, where an
+  administrator can see (and revoke) them like any other. Deleting a schedule
+  revokes its key (`DELETE /v1/me/keys/{id}`); turning it off keeps it; a key the
+  gateway refuses switches the schedule off with "Sign in again and turn it back
+  on". The secret is sealed with the deployment's `CHAT_SECRET_KEY`
+  (as connector tokens are) and is never sent to a browser. There is no
+  refresh token and no deployment-wide credential acting for users.
+- **Who may.** The user needs the gateway's **API keys** capability and a billing
+  group (a default one, or the one named in their settings); without them
+  creating a schedule is refused with the gateway's own words.
+- **What runs.** The conversation's ordinary turn on the server, so the
+  deployment's models, connectors and tool policies apply. The browser Python
+  sandbox, questions and tools needing approval are unavailable, and the
+  assistant is told so in the prompt. A turn is bounded by `CHAT_TURN_MAX_MINUTES`.
+- **Deleting a user.** Erasing an account deletes its schedules but does not
+  call the gateway: revoke the account's keys there (the gateway's own account
+  removal does).
+
 ## Assistant instructions
 
 One text for the whole deployment, added to **every chat's instructions, before

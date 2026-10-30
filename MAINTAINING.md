@@ -66,18 +66,18 @@ drives `opencode` and connects to Cerea over WSS.
 
 ## 3. Where things are
 
-| You are changing…                                          | Look at                                                                                                                                                         | Docs to update                                                                        |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Chat streaming, final answers, message content             | `src/lib/server/textGeneration/`, `src/lib/server/generation/applyUpdate.ts`, `src/lib/utils/mergeFinalAnswer.ts`, `src/lib/components/chat/ChatMessage.svelte` | `docs/chat.md`                                                                        |
-| Models, custom models, global prompt                       | `src/lib/server/models.ts`, AGENTS.md "Models"                                                                                                                  | `docs/chat.md`, `docs/configuration.md`                                               |
-| Projects, knowledge, attachments                           | AGENTS.md "Projects and knowledge bases"                                                                                                                        | `docs/knowledge.md`                                                                   |
-| Look and feel (fonts, colours, density)                    | `src/styles/tokens.css`, `src/styles/main.css`, palettes (`scripts/generate-palettes.mjs`)                                                                      | screenshots (section 4)                                                               |
-| The /code panel (browser side)                             | `src/lib/components/code/`, `src/routes/code/`, `src/lib/server/code/`                                                                                          | `docs/code-panel.md`                                                                  |
-| The machine link, ops, events                              | `src/lib/server/code/machines.ts` (Cerea), `agent/PROTOCOL.md` (the contract), `agent/*.go`                                                                     | `agent/PROTOCOL.md` first, then `agent/README.md`, `docs/agent-machines-reference.md` |
-| galopin permissions (Deny/Ask/Allow, ceiling, agent tools) | `agent/internal/permrules/`, `agent/permissions.go`, `agent/agenttools*.go`                                                                                     | `agent/README.md`, `docs/agent-machines-reference.md`                                 |
-| Scheduled actions                                          | `src/lib/server/schedules/`, `src/lib/server/code/scheduleAgentExecutor.ts`, `src/lib/server/code/machineCalls.ts`                                              | `docs/code-panel.md`, AGENTS.md "Scheduled actions"                                   |
-| The deploy kit                                             | `kit/` (`configure`, `compose.yaml`, `get-kit.sh`, `tools/pin`)                                                                                                 | `kit/README.md`, `docs/deploy*.md`, `kit/CHANGELOG.md`                                |
-| Release machinery                                          | `scripts/release/`, `.github/workflows/`                                                                                                                        | AGENTS.md "Releasing"                                                                 |
+| You are changing…                                          | Look at                                                                                                                                                                | Docs to update                                                                        |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Chat streaming, final answers, message content             | `src/lib/server/textGeneration/`, `src/lib/server/generation/applyUpdate.ts`, `src/lib/utils/mergeFinalAnswer.ts`, `src/lib/components/chat/ChatMessage.svelte`        | `docs/chat.md`                                                                        |
+| Models, custom models, global prompt                       | `src/lib/server/models.ts`, AGENTS.md "Models"                                                                                                                         | `docs/chat.md`, `docs/configuration.md`                                               |
+| Projects, knowledge, attachments                           | AGENTS.md "Projects and knowledge bases"                                                                                                                               | `docs/knowledge.md`                                                                   |
+| Look and feel (fonts, colours, density)                    | `src/styles/tokens.css`, `src/styles/main.css`, palettes (`scripts/generate-palettes.mjs`)                                                                             | screenshots (section 4)                                                               |
+| The /code panel (browser side)                             | `src/lib/components/code/`, `src/routes/code/`, `src/lib/server/code/`                                                                                                 | `docs/code-panel.md`                                                                  |
+| The machine link, ops, events                              | `src/lib/server/code/machines.ts` (Cerea), `agent/PROTOCOL.md` (the contract), `agent/*.go`                                                                            | `agent/PROTOCOL.md` first, then `agent/README.md`, `docs/agent-machines-reference.md` |
+| galopin permissions (Deny/Ask/Allow, ceiling, agent tools) | `agent/internal/permrules/`, `agent/permissions.go`, `agent/agenttools*.go`                                                                                            | `agent/README.md`, `docs/agent-machines-reference.md`                                 |
+| Scheduled actions                                          | `src/lib/server/schedules/` (incl. `chatScheduleExecutor.ts`, `gatewayKeys.ts`), `src/lib/server/code/scheduleAgentExecutor.ts`, `src/lib/server/code/machineCalls.ts` | `docs/code-panel.md`, AGENTS.md "Scheduled actions"                                   |
+| The deploy kit                                             | `kit/` (`configure`, `compose.yaml`, `get-kit.sh`, `tools/pin`)                                                                                                        | `kit/README.md`, `docs/deploy*.md`, `kit/CHANGELOG.md`                                |
+| Release machinery                                          | `scripts/release/`, `.github/workflows/`                                                                                                                               | AGENTS.md "Releasing"                                                                 |
 
 Workflows: `ci.yml` (lint, check, server/ssr tests and galopin's Go checks on
 every push to `main` and every PR; the Svelte `client` tests on pushes,
@@ -287,10 +287,16 @@ serve` holds hundreds of MB of RSS and the extraction lands in RAM.
 - Offered to the owner, not decided: a drag-to-resize sidebar; running each
   scheduled run in its own git worktree (galopin already has
   `workspace.create {worktree}` and `workspace.archive {removeWorktree}`).
-- Deferred: scheduled actions for **chat** (not agents). The schedules
-  framework is kind-agnostic (`src/lib/server/schedules/executors.ts`); the
-  open question is which gateway credential a chat run uses when nobody is
-  signed in.
+- Scheduled actions for **chat** (issue #51) are built: a `"chat"` executor on
+  the kind-agnostic framework (`src/lib/server/schedules/chatScheduleExecutor.ts`).
+  A run is the conversation route's own turn, authenticated with a per-schedule
+  gateway key minted in the user's name (`POST /v1/me/keys`) when the schedule is
+  created or switched on, sealed like connector tokens, revoked on delete; no
+  refresh tokens and no deployment-wide credential. The assistant proposes
+  schedules through the `schedule` tool, created only by a click on the approval
+  card. Open: nothing revokes a user's keys when an account is erased from Cerea
+  (the gateway's account removal does), and the real gateway's key endpoints were
+  read from its source, not run against it in CI (the e2e stack has no gateway).
 - Specified, not built: `PROTOCOL.md` §9's file search, watching and writing
   (section 6 above).
 - Pystino's own open items are listed at the end of its `AGENTS.md`.

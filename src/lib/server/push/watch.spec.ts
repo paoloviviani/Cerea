@@ -178,6 +178,18 @@ describe("a scheduled run", () => {
 		expect(notify.mock.calls.every((c) => c[1] === "scheduleRun")).toBe(true);
 		expect(firstCall()[2].path).toBe("/code?view=schedules");
 	});
+
+	it("sends a failed chat run to its conversation, not to the machines' list, and says nothing for a sent one", () => {
+		const chat = {
+			...sent(),
+			result: { type: "chat", ids: { conversationId: "c0ffee" }, label: "Weekly" },
+		};
+		afterScheduleRun({ ...chat, status: "failed" }, deps);
+		expect(firstCall()[2].path).toBe("/conversation/c0ffee");
+		notify.mockClear();
+		afterScheduleRun({ ...chat, status: "sent" }, deps);
+		expect(notify).not.toHaveBeenCalled();
+	});
 });
 
 describe("a chat turn", () => {

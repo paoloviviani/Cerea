@@ -370,6 +370,72 @@ assistant is then not offered `delegate` or `research`. Coding agents on your ow
 machines have their own, separate kind of delegation: see
 [Delegating work](agent-machines-reference.md#delegating-work).
 
+## Scheduled chats
+
+A **scheduled chat** sends a prompt of yours again on a timetable and lets the
+assistant answer, with nobody at the screen: "every Monday at 08:00, summarise
+the news on space travel", "every Friday, remind me to send the report". Every
+signed-in user has them; they are not part of the coding agents.
+
+**Making one.** Three ways:
+
+- Open a conversation's **⋯** menu in the sidebar and choose **Schedule…**. The
+  editor opens on that chat.
+- Open **Schedules** in the sidebar and choose **New schedule**.
+- Ask the assistant: "remind me every Friday at 4 pm to send the weekly report".
+  It proposes the schedule on a card, with its name, timetable, where it runs
+  and the prompt it will send, and the schedule exists only if you press
+  **Create schedule**. There is no "allow for this conversation" on that card:
+  each schedule is confirmed by you, one at a time.
+
+In the editor you give a name, the prompt, how often (every N hours, daily,
+weekdays, weekly, or a cron expression; at least 15 minutes apart; read in the
+timezone you choose), and where it runs:
+
+- **Continue this chat** (the default): each run posts the prompt into the chat
+  and the assistant answers there, with the chat's earlier messages as context.
+- **New chat each time**: each run starts a new chat, titled with the schedule's
+  name and the time, on the same model (and project, when it was made from a
+  chat in one).
+
+You can also set it to stop after a number of runs (one run makes a one-time
+reminder), switch it off and on, edit it, or press **Run now** to try it.
+
+**What a scheduled run can do.** It runs as you, on the server, in the same way as
+a message you send: your model access, quota, billing group and instructions
+apply, and your connectors that run on the server, web search and fetching, and
+the document tools work. Two things do not, because nobody is there:
+
+- **No Python.** The sandbox runs in your browser, so a scheduled run cannot run
+  code. The assistant is told so; it can still write code for you to read.
+- **No approvals and no questions.** A tool that needs your approval is refused,
+  the way a sub-agent's is, and the assistant says that step needs you. Tools
+  you already approved for that chat, and tools under your "always allow"
+  setting, run as usual.
+
+Every scheduled prompt starts with one line you did not write, naming the
+schedule, its timetable, when it last ran and the two limits above; the prompt
+follows as you wrote it.
+
+**Where the answer is.** In the chat. A chat a scheduled run answered in has a dot
+in the sidebar until you open it, and, if you turned on **A scheduled run
+finishes** under [Notifications](notifications.md), a notification says it
+answered (or failed). Each schedule's **History** lists every run, fired or
+not, and links to the chat. A run is **sent**, **skipped** (the previous turn in
+that chat was still generating, so the next waits for its time), or **failed**;
+three failures in a row switch the schedule off, with the reason shown on it.
+
+**Its key.** A run has no sign-in of yours to use, so when you create a schedule
+(or switch one back on) Cerea asks the gateway for a key in your name, called
+`Cerea schedule: <name>`, and keeps it sealed for that schedule only. The key
+is yours: runs use your quota and appear in your usage like any other
+request, and the key is listed with your other keys in the gateway's console,
+where you can revoke it. Turning a schedule off keeps its key; **deleting the
+schedule revokes it**. If the key stops working (the account was disabled, or
+you revoked it), the schedule switches itself off and says "Sign in again and turn
+it back on"; turning it on makes a new key. You may have up to 20 schedules by
+default; your administrator can change that.
+
 ## Notifications
 
 Cerea can send a notification to your phone or desktop when a long chat answer is

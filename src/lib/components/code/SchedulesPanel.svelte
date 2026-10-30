@@ -54,7 +54,17 @@
 	let notice = $state<{ id: string; run: ScheduleRunView } | null>(null);
 	let confirmDelete = $state<ScheduleView | null>(null);
 
+	// The same pane lives in the /code panel (`?view=schedules`) and, for everyone, at /schedules.
+	interface Props {
+		standalone?: boolean;
+	}
+	let { standalone = false }: Props = $props();
+
 	const address = (extra: Record<string, string> = {}) => {
+		if (standalone) {
+			const query = new URLSearchParams(extra).toString();
+			return `${base}/schedules${query ? `?${query}` : ""}`;
+		}
 		const query = new URLSearchParams({ view: "schedules", ...extra });
 		return `${base}/code?${query}`;
 	};
@@ -122,6 +132,8 @@
 	}
 
 	const deviceOnline = (schedule: ScheduleView) => {
+		// Only an agent schedule has a machine to be offline.
+		if (schedule.kind !== "agent") return true;
 		const id = schedule.target.deviceId;
 		return codeDeviceList.devices.find((d) => d.id === id)?.online === true;
 	};
@@ -130,6 +142,7 @@
 		deviceId: params.get("device") ?? undefined,
 		workspaceId: params.get("ws") ?? undefined,
 		sessionId: params.get("agent") ?? undefined,
+		conversationId: params.get("conversation") ?? undefined,
 	});
 	const edited = $derived(schedules.find((x) => x.id === scheduleId));
 </script>
@@ -214,6 +227,11 @@
 												{schedule.targetLabel}
 											</p>
 											<ScheduleCreatedBy createdBy={schedule.createdBy} class="mt-0.5" />
+											{#if schedule.kind === "chat"}
+												<p class="text-xs text-ink-faint" data-testid="schedule-kind">
+													{m["code.schedules.kind_chat"]()}
+												</p>
+											{/if}
 										</div>
 										<button
 											type="button"
@@ -348,6 +366,7 @@
 						<li>{m["code.schedules.tips.offline"]()}</li>
 						<li>{m["code.schedules.tips.skipped"]()}</li>
 						<li>{m["code.schedules.tips.failures"]()}</li>
+						<li>{m["code.schedules.tips.chat"]()}</li>
 					</ul>
 				</div>
 			</div>

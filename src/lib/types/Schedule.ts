@@ -9,7 +9,8 @@ import type { User } from "./User";
  * run means (`server/schedules/executors.ts`), and `target` is that
  * executor's own business — the core never looks inside it. Only `"agent"`
  * exists today: a prompt sent to a coding session on one of the person's
- * paired machines. `"chat"` is reserved for a runner that will plug in later.
+ * paired machines. `"chat"` posts the prompt into a conversation (or a new one
+ * each time) and runs a server-side turn (`schedules/chatScheduleExecutor.ts`).
  *
  * **Owner-only.** A row belongs to `userId` (the /code panel has no anonymous
  * sessions, like `codeDevices`), is erased with the account and moved on a
@@ -44,6 +45,13 @@ export const SCHEDULE_RUN_STATUSES: ScheduleRunStatus[] = [
  * the list can link back to it. */
 export type ScheduleCreator =
 	| { kind: "person" }
+	| {
+			/** The chat assistant proposed it and the person confirmed on the approval card. */
+			kind: "chat";
+			conversationId: string;
+			/** The conversation's title when it made the schedule. */
+			title: string;
+	  }
 	| {
 			kind: "agent";
 			deviceId: string;
@@ -83,11 +91,27 @@ export interface Schedule extends Timestamps {
 	leaseUntil?: Date | null;
 	leaseOwner?: string | null;
 	createdBy?: ScheduleCreator;
+	/**
+	 * What an executor needs to act as the person without a session (chat:
+	 * a gateway key, sealed). Opaque to the core, never sent to the browser.
+	 * `executors.ts` says when it is minted, kept, and dropped.
+	 */
+	credential?: ScheduleCredential;
+}
+
+export interface ScheduleCredential {
+	/** The gateway's id for the key, so it can be revoked. */
+	keyId: string;
+	/** The key's secret, sealed (`secretBox.ts`). */
+	sealed: string;
+	/** The billing group the key was minted for, when the person chose one. */
+	billingGroupId?: string;
+	mintedAt: Date;
 }
 
 /** The result link of a run: where the executor put its output. */
 export interface ScheduleRunResult {
-	/** What `kind` it points into, e.g. "agent-session". */
+	/** What `kind` it points into, e.g. "agent-session" or "chat" (ids: conversationId). */
 	type: string;
 	/** Executor-defined ids (agent: deviceId, workspaceId, sessionId). */
 	ids: Record<string, string>;
@@ -130,8 +154,8 @@ export interface ScheduleView {
 	/** The optional stopping criterion, and how far it has got. */
 	maxOccurrences?: number;
 	firedCount: number;
-	/** Only for an agent-created schedule; a person's has none. */
-	createdBy?: Extract<ScheduleCreator, { kind: "agent" }>;
+	/** Only for a schedule an assistant created; a person's has none. */
+	createdBy?: Exclude<ScheduleCreator, { kind: "person" }>;
 	createdAt: Date;
 	updatedAt: Date;
 }

@@ -3,6 +3,11 @@ import { artifactsEnabledForTurn, artifactsModeForTurn, injectArtifactsPrompt } 
 import type { ArtifactsMode } from "./artifacts";
 import { injectExecutionPrompt } from "./executionPrompt";
 
+/** A scheduled run has no browser to run Python in: say so, so the model neither tries nor promises it. */
+const NO_EXECUTION_PROMPT = `## Code execution
+
+Python cannot be run in this scheduled run: the sandbox lives in the person's browser and nobody has it open. Do not call execute_code or promise a computed result or file. Use the other tools, or write code in a fenced code block for the person to read.`;
+
 export interface PrepromptInput {
 	/**
 	 * The administrator's instructions for the whole deployment, as the
@@ -21,6 +26,11 @@ export interface PrepromptInput {
 	locationLine?: string;
 	/** The prompt of the custom model the conversation is on, if any. */
 	customModelPrompt?: string;
+	/**
+	 * False on a scheduled run: the Python sandbox runs in the person's browser and
+	 * nobody is there, so the prompt says it is unavailable instead of teaching it.
+	 */
+	executionAvailable?: boolean;
 	/** Per-model user override for artifacts, from the model settings page. */
 	artifactsOverride?: boolean;
 	/** Whether the model advertises artifact support (supportsArtifacts). */
@@ -100,6 +110,7 @@ export function resolvePreprompt({
 	timezone,
 	now,
 	skillsPreprompt,
+	executionAvailable,
 }: PrepromptInput): string | undefined {
 	const base = composeUserPrompt({
 		adminInstructions,
@@ -127,7 +138,10 @@ export function resolvePreprompt({
 	// Execution is a client capability, so the prompt is unconditional: models
 	// must know python blocks auto-run in the browser and that they never see
 	// the output themselves.
-	const resolved = injectExecutionPrompt(withArtifacts);
+	const resolved =
+		executionAvailable === false
+			? [withArtifacts, NO_EXECUTION_PROMPT].filter(Boolean).join("\n\n")
+			: injectExecutionPrompt(withArtifacts);
 	// Skills ride on top of the execution contract: a skill body is a
 	// procedure the model carries out through those same channels, never
 	// execution of its own.

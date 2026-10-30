@@ -38,3 +38,26 @@ describe("scheduledRunHeader", () => {
 		);
 	});
 });
+
+describe("scheduledChatHeader", () => {
+	it("says what an unattended chat run cannot do", async () => {
+		const { scheduledChatHeader } = await import("./runHeader");
+		const header = scheduledChatHeader({
+			name: 'Weekly "news"',
+			recurrence: { type: "weekly", day: 1, at: "08:00" },
+			timezone: "Europe/Rome",
+			previousRunAt: null,
+			now: new Date("2026-10-26T08:00:00Z"),
+		});
+		expect(header).toBe(
+			'[Scheduled run of "Weekly news", every Monday at 08:00 (Europe/Rome); previous run none; ' +
+				"unattended: nobody is watching, so there is no Python sandbox and no question can be asked, " +
+				"and any tool that needs approval is refused]"
+		);
+	});
+
+	it("stamps a run in the schedule's own zone", async () => {
+		const { runStamp } = await import("./runHeader");
+		expect(runStamp(new Date("2026-10-08T07:00:00Z"), "Europe/Rome")).toBe("2026-10-08 09:00");
+	});
+});
