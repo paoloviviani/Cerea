@@ -17,6 +17,9 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   for `offline_access` before that gets `invalid_scope` once and signs in again without it. An
   external IdP must allow refresh tokens for the chat client (as galopin's already does);
   `OIDC_CHAT_OFFLINE_ACCESS=off` stops the chat asking.
+  **Every user sees one extra consent screen at their first chat sign-in after the upgrade** (and once on each
+  new browser): Authelia asks for consent whenever `offline_access` is requested and cannot remember it.
+  A sign-in that is refused or fails while asking for it falls back to a plain sign-in, once per browser.
 
 ## v0.33.0 — 2026-10-30
 

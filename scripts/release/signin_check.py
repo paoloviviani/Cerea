@@ -229,6 +229,17 @@ if chat:
         assert consents[mark:] == [], f"a consent screen on the third sign-in: {consents[mark:]}"
         assert grant_state().get("granted") is True
 
+        # 3b. a refresh of the stored grant: EXPIRE_CMD (a shell command the caller supplies, since only it
+        #     can reach the chat's database) makes the person's access token run out; the next request must
+        #     refresh it through the grant, and the person stays signed in with their background access.
+        if os.environ.get("EXPIRE_CMD"):
+            import subprocess
+
+            subprocess.run(os.environ["EXPIRE_CMD"], shell=True, check=True)
+            check_user()
+            assert grant_state().get("granted") is True
+            print("   the access token was refreshed through the grant")
+
         for path in ("/chat/", "/chat/code"):
             r = step("GET", f"{origin}{path}")
             print("CHAT PAGE:", path, r.status_code)

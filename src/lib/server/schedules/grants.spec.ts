@@ -459,7 +459,7 @@ describe("signing out", () => {
 		const deleted: string[] = [];
 		await POST({
 			locals: { sessionId: sessions[0].sessionId, isAdmin: false },
-			cookies: { ...cookies, delete: (name: string) => void deleted.push(name) },
+			cookies: { set: vi.fn(), get: vi.fn(), delete: (name: string) => void deleted.push(name) },
 			url,
 		} as never).catch(() => undefined);
 		// What this browser learned about background access goes with the person who signed out.
