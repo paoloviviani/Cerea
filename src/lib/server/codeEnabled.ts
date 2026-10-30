@@ -106,6 +106,25 @@ export async function localConnectorsAccessFor(
 }
 
 /**
+ * Whether the gateway says this person may hold API keys, which a scheduled chat needs.
+ * Only a plain "no" from a gateway that speaks capabilities is a no: no gateway, an older
+ * one, an unreachable one and a missing token all read as allowed, so the editor never
+ * blocks on a guess (the mint itself still refuses, with the gateway's own words).
+ */
+export async function apiKeysAllowedFor(locals: App.Locals): Promise<boolean> {
+	if (!isGatewayPreset() || !locals.token) return true;
+	const outcome = await gatewaySessionCheck(locals.sessionId, locals.token);
+	const answer =
+		outcome?.kind === "valid"
+			? outcome
+			: outcome && outcome.kind !== "ended"
+				? recentValidGatewayOutcome(locals.sessionId)
+				: null;
+	if (!answer || answer.capabilities === "absent") return true;
+	return answer.capabilities.api_keys !== false;
+}
+
+/**
  * The /code file explorer (ADR 0090): on with the code panel, unless the
  * deployment switches it off. Each machine can still veto it (--no-files).
  */

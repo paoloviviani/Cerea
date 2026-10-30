@@ -45,7 +45,7 @@ async function messageOf(response: Response, fallback: string): Promise<string> 
 }
 
 export async function mintKey(
-	input: { token: string; name: string; billingGroupId?: string },
+	input: { token: string; name: string; billingGroupId?: string; expiresInDays?: number },
 	options: KeyCallOptions = {}
 ): Promise<MintedKey> {
 	const url = base(options);
@@ -59,6 +59,7 @@ export async function mintKey(
 			body: JSON.stringify({
 				name: input.name.slice(0, 120),
 				...(input.billingGroupId ? { billing_group_id: input.billingGroupId } : {}),
+				...(input.expiresInDays ? { expires_in_days: input.expiresInDays } : {}),
 			}),
 			signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
 		});
@@ -74,13 +75,19 @@ export async function mintKey(
 	if (response.status === 403) {
 		throw new CredentialError(
 			403,
-			await messageOf(response, "Your account may not create the key a scheduled chat needs.")
+			`Scheduled chats need an API key and your account may not create one: ${await messageOf(
+				response,
+				"ask an administrator to grant API keys."
+			)}`
 		);
 	}
 	if (response.status === 400 || response.status === 422) {
 		throw new CredentialError(
 			400,
-			await messageOf(response, "The gateway refused to make the schedule's key.")
+			`The gateway would not make the schedule's key: ${await messageOf(
+				response,
+				"set a default billing group in your settings, or choose one."
+			)}`
 		);
 	}
 	if (!response.ok) {

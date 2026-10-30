@@ -40,21 +40,32 @@ import { isGatewayPreset } from "$lib/server/identity/gatewayLogin";
 import { validateModel, models } from "$lib/server/models";
 import { isSelectableModel } from "$lib/server/customModels";
 import { open, seal, sealingAvailable } from "$lib/server/mcp/secretBox";
-import { projectAccess } from "$lib/server/projects";
+import { projectAccess, viewerPrincipals } from "$lib/server/projects";
 import { notifyUser } from "$lib/server/push/notify";
 import { turnMaxMinutes } from "$lib/server/generation/turnCap";
 import { MessageUpdateStatus, MessageUpdateType } from "$lib/types/MessageUpdate";
 import type { Schedule } from "$lib/types/Schedule";
 import type { User } from "$lib/types/User";
-import { CredentialError, registerExecutor, type ExecutorOutcome } from "./executors";
-import { mintKey, revokeKey } from "./gatewayKeys";
+import { CredentialError, getExecutor, registerExecutor, type ExecutorOutcome } from "./executors";
+import { mintKey } from "./gatewayKeys";
+import { retryRevocations, revokeOrQueue, SIGN_IN_AGAIN, sessionTokenFor } from "./credentials";
 import { runStamp, scheduledChatHeader } from "./runHeader";
 
 /** How long a run waits for its turn before it reports `sent` and lets the turn carry on. */
-export const chatRunConfig = { earlyWindowMs: 25_000 };
+export const chatRunConfig = {
+	earlyWindowMs: 25_000,
+	/** Scheduled turns running in this process at once; a tick cannot start more. */
+	maxConcurrent: 4,
+};
 
-export const SIGN_IN_AGAIN =
-	"Sign in again and turn it back on: the key this schedule runs with stopped working.";
+/** A key lives this long; the scheduler renews it `RENEW_BEFORE_DAYS` before it ends. */
+export const KEY_LIFETIME_DAYS = 180;
+export const RENEW_BEFORE_DAYS = 14;
+const DAY_MS = 24 * 3600_000;
+
+let runningTurns = 0;
+
+export { SIGN_IN_AGAIN };
 
 const label = z.string().trim().max(160);
 
@@ -109,10 +120,15 @@ async function ownedConversation(userId: ObjectId, id: string | undefined) {
 	);
 }
 
-async function projectLabel(userId: ObjectId, projectId: string): Promise<string | null> {
+/** The project's name if this person may still use it (owned, or shared with them or a group of theirs). */
+async function projectLabel(
+	userId: ObjectId,
+	projectId: string,
+	token: string | undefined
+): Promise<string | null> {
 	const user = await collections.users.findOne({ _id: userId });
-	const principals = { groups: [], ...(user?.email ? { email: user.email.toLowerCase() } : {}) };
-	const access = await projectAccess(projectId, userId, principals);
+	if (!user) return null;
+	const access = await projectAccess(projectId, userId, await viewerPrincipals(user, token));
 	return access ? access.project.name || "Project" : null;
 }
 
@@ -186,10 +202,14 @@ async function readTurn(response: Response): Promise<TurnReport> {
 	return report;
 }
 
+/**
+ * Only a 401 says the key is dead (the gateway's `invalid_api_key`). A 403 is a refusal of
+ * this request or this account for now (a redaction block, a model access group, a missing
+ * capability that a group flag restores), so it is an ordinary failed run with the gateway's words.
+ */
 const refusedByGateway = (report: TurnReport) =>
 	report.error?.statusCode === 401 ||
-	report.error?.statusCode === 403 ||
-	(report.error?.statusCode === undefined && /\b(401|403)\b/.test(report.error?.message ?? ""));
+	(report.error?.statusCode === undefined && /\b401\b/.test(report.error?.message ?? ""));
 
 /** What a turn that outlived the run (or any turn) leaves behind: the unread mark and the push. */
 async function announce(
@@ -210,24 +230,6 @@ async function announce(
 		path: `/conversation/${conversationId.toString()}`,
 		tag: `schedule-${schedule._id.toString()}`,
 	}).catch(() => undefined);
-}
-
-/** A turn that ended after its run returned and found the key dead: switch the schedule off. */
-async function disableLate(schedule: Schedule): Promise<void> {
-	await collections.schedules
-		.updateOne(
-			{ _id: schedule._id },
-			{
-				$set: {
-					enabled: false,
-					nextRunAt: null,
-					disabledReason: SIGN_IN_AGAIN,
-					updatedAt: new Date(),
-				},
-				$unset: { credential: "" },
-			}
-		)
-		.catch((err) => logger.warn({ err }, "scheduled_chat_disable_failed"));
 }
 
 /** Drive the conversation route as the schedule's owner. */
@@ -317,7 +319,7 @@ function httpMessage(err: unknown): { status?: number; message: string } {
 registerExecutor({
 	kind: "chat",
 
-	async validateTarget(input, { userId }) {
+	async validateTarget(input, { userId, token }) {
 		const target = parseChatTarget(input);
 		if (!target) {
 			return {
@@ -347,7 +349,7 @@ registerExecutor({
 				return { ok: false, error: "That model is not available." };
 			}
 			if (target.projectId) {
-				const name = await projectLabel(userId, target.projectId);
+				const name = await projectLabel(userId, target.projectId, token);
 				if (name === null) return { ok: false, error: "That project is not available to you." };
 				target.labels.project = name;
 			}
@@ -396,12 +398,15 @@ registerExecutor({
 			token,
 			name: `Cerea schedule: ${name}`,
 			...(billingGroupId ? { billingGroupId } : {}),
+			expiresInDays: KEY_LIFETIME_DAYS,
 		});
+		const mintedAt = new Date();
 		return {
 			keyId: key.id,
 			sealed: seal(key.secret),
 			...(billingGroupId ? { billingGroupId } : {}),
-			mintedAt: new Date(),
+			mintedAt,
+			expiresAt: new Date(mintedAt.getTime() + KEY_LIFETIME_DAYS * DAY_MS),
 		};
 	},
 
@@ -410,21 +415,14 @@ registerExecutor({
 	},
 
 	async releaseCredential(schedule, { token }) {
-		const credential = schedule.credential;
-		if (!credential) return;
-		// The person's session when there is one, else the key itself.
-		let bearer = token;
-		if (!bearer) {
-			try {
-				bearer = open(credential.sealed);
-			} catch {
-				bearer = undefined;
-			}
-		}
-		if (!bearer) throw new Error("no way to authenticate the revoke");
-		if (!(await revokeKey({ token: bearer, keyId: credential.keyId }))) {
-			throw new Error("the gateway did not confirm the revoke");
-		}
+		// Revokes with the person's session when there is one, else the key itself; what
+		// cannot be confirmed is queued and retried (`credentials.ts`), never lost.
+		if (schedule.credential) await revokeOrQueue(schedule.credential, schedule.userId, token);
+	},
+
+	async maintain(now) {
+		await retryRevocations(now);
+		await renewKeys(now);
 	},
 
 	async run({ schedule, now, previousRun }): Promise<ExecutorOutcome> {
@@ -492,6 +490,15 @@ registerExecutor({
 
 		if (target.mode === "new") {
 			if (!target.model) return { status: "failed", detail: "The schedule's target is not valid." };
+			if (target.projectId) {
+				// Access is the person's as of now, not as of when the schedule was made.
+				const still = await projectLabel(schedule.userId, target.projectId, token);
+				if (still === null) {
+					const lost =
+						"You no longer have access to this schedule's project, so it was switched off.";
+					return { status: "failed", detail: lost, disable: lost };
+				}
+			}
 			try {
 				conversationTitle = `${schedule.name} · ${runStamp(now, schedule.timezone)}`.slice(0, 100);
 				conversationId = await createChatFor({
@@ -539,7 +546,15 @@ registerExecutor({
 			now,
 		})}\n\n${schedule.prompt}`;
 
+		if (runningTurns >= chatRunConfig.maxConcurrent) {
+			return {
+				status: "skipped-still-running",
+				detail: "Too many scheduled chats were running at once, so this run was skipped.",
+				result,
+			};
+		}
 		let response: Response;
+		runningTurns += 1;
 		try {
 			response = await driveTurn({
 				user,
@@ -551,8 +566,9 @@ registerExecutor({
 				timezone: schedule.timezone,
 			});
 		} catch (err) {
+			runningTurns -= 1;
 			const { status, message } = httpMessage(err);
-			if (status === 401 || status === 403) {
+			if (status === 401) {
 				return {
 					status: "failed",
 					detail: SIGN_IN_AGAIN,
@@ -564,7 +580,9 @@ registerExecutor({
 			return { status: "failed", detail: message, result };
 		}
 
-		const turn = readTurn(response);
+		const turn = readTurn(response).finally(() => {
+			runningTurns -= 1;
+		});
 		const early = await Promise.race([
 			turn,
 			new Promise<null>((resolve) => {
@@ -574,14 +592,24 @@ registerExecutor({
 		]);
 
 		if (early === null) {
-			// Still generating: this run is sent, and the turn's end is announced when it comes.
-			void turn.then(async (report) => {
-				await announce(schedule, conversationId, report, { push: true });
-				if (refusedByGateway(report)) await disableLate(schedule);
+			// Still generating: this run is sent. If the turn then fails, the core rewrites the run
+			// and counts it (`settled`); either way its end is announced (unread mark, push).
+			const settled = turn.then(async (report) => {
+				await announce(schedule, conversationId, report, { push: !report.error });
+				if (!report.error) return undefined;
+				return refusedByGateway(report)
+					? {
+							status: "failed" as const,
+							detail: SIGN_IN_AGAIN,
+							disable: SIGN_IN_AGAIN,
+							dropCredential: true,
+						}
+					: { status: "failed" as const, detail: report.error.message };
 			});
 			return {
 				status: "sent",
 				result,
+				settled,
 				detail: `Posted to "${conversationTitle}"; the answer is still coming.`,
 			};
 		}
@@ -602,3 +630,46 @@ registerExecutor({
 		return { status: "sent", result, detail: `Answered in "${conversationTitle}".` };
 	},
 });
+
+/** Renew keys that end within `RENEW_BEFORE_DAYS`, with the person's latest session when one is still good. */
+export async function renewKeys(now: Date = new Date()): Promise<number> {
+	const horizon = new Date(now.getTime() + RENEW_BEFORE_DAYS * DAY_MS);
+	const due = await collections.schedules
+		.find({ kind: "chat", enabled: true, "credential.expiresAt": { $lte: horizon } })
+		.limit(20)
+		.toArray();
+	const executor = getExecutor("chat");
+	let renewed = 0;
+	for (const schedule of due) {
+		const old = schedule.credential;
+		if (!old || !executor?.mintCredential) continue;
+		const token = await sessionTokenFor(schedule.userId);
+		// Nobody signed in who could make a key: the run that finds this one dead says to sign in again.
+		if (!token) continue;
+		let fresh;
+		try {
+			fresh = await executor.mintCredential({
+				userId: schedule.userId,
+				name: schedule.name,
+				target: schedule.target,
+				token,
+			});
+		} catch (err) {
+			logger.warn({ err, scheduleId: schedule._id.toString() }, "scheduled_chat_key_renew_failed");
+			continue;
+		}
+		if (!fresh) continue;
+		const swapped = await collections.schedules.updateOne(
+			{ _id: schedule._id, "credential.keyId": old.keyId },
+			{ $set: { credential: fresh, updatedAt: new Date() } }
+		);
+		if (swapped.matchedCount === 0) {
+			// The row changed under us: the key just made is nobody's.
+			await revokeOrQueue(fresh, schedule.userId, token);
+			continue;
+		}
+		await revokeOrQueue(old, schedule.userId, token);
+		renewed += 1;
+	}
+	return renewed;
+}

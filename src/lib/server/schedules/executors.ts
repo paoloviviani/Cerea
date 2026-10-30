@@ -61,6 +61,8 @@ import type { ObjectId } from "mongodb";
 
 export interface ExecutorCaller {
 	userId: ObjectId;
+	/** The caller's own session token, when this call has one (an API request does, a scheduler tick does not). */
+	token?: string;
 }
 
 export type TargetCheck =
@@ -104,6 +106,14 @@ export interface ExecutorOutcome {
 	disable?: string;
 	/** The schedule's credential no longer works: forget it (with `disable`). */
 	dropCredential?: boolean;
+	/**
+	 * For a run that returned before its work ended: settles with what happened at the
+	 * end. Only a failure matters, and the core then corrects the run row, feeds the
+	 * consecutive-failure count and applies `disable` / `dropCredential`; undefined is fine.
+	 */
+	settled?: Promise<
+		Pick<ExecutorOutcome, "status" | "detail" | "disable" | "dropCredential"> | undefined
+	>;
 }
 
 export interface ScheduleExecutor {
@@ -116,6 +126,8 @@ export interface ScheduleExecutor {
 	/** Whether editing the target from `before` to `after` needs a new credential. */
 	credentialStale?(before: Record<string, unknown>, after: Record<string, unknown>): boolean;
 	releaseCredential?(schedule: Schedule, caller: { token?: string }): Promise<void>;
+	/** Housekeeping the scheduler calls every few minutes (renew keys, retry revocations). Never throws into the loop. */
+	maintain?(now: Date): Promise<void>;
 }
 
 const executors = new Map<ScheduleKind, ScheduleExecutor>();
@@ -127,6 +139,10 @@ export function registerExecutor(executor: ScheduleExecutor): void {
 /** The executor for a kind, or null: an unknown kind is refused, never guessed. */
 export function getExecutor(kind: string): ScheduleExecutor | null {
 	return executors.get(kind as ScheduleKind) ?? null;
+}
+
+export function registeredExecutors(): ScheduleExecutor[] {
+	return [...executors.values()];
 }
 
 /** The kinds the scheduler may fire right now. */

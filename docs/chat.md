@@ -408,10 +408,12 @@ the document tools work. Two things do not, because nobody is there:
 
 - **No Python.** The sandbox runs in your browser, so a scheduled run cannot run
   code. The assistant is told so; it can still write code for you to read.
-- **No approvals and no questions.** A tool that needs your approval is refused,
-  the way a sub-agent's is, and the assistant says that step needs you. Tools
-  you already approved for that chat, and tools under your "always allow"
-  setting, run as usual.
+- **No approvals and no questions.** A scheduled run never uses a tool that needs
+  approval: it is refused, the way a sub-agent's is, and the assistant says that
+  step needs you. That holds whatever your approval setting is, and a tool you
+  allowed earlier "for this conversation" is not allowed for a scheduled run
+  either, because nobody is there to notice what a page or connector it read
+  told it to do.
 
 Every scheduled prompt starts with one line you did not write, naming the
 schedule, its timetable, when it last ran and the two limits above; the prompt
@@ -430,8 +432,10 @@ three failures in a row switch the schedule off, with the reason shown on it.
 `Cerea schedule: <name>`, and keeps it sealed for that schedule only. The key
 is yours: runs use your quota and appear in your usage like any other
 request, and the key is listed with your other keys in the gateway's console,
-where you can revoke it. Turning a schedule off keeps its key; **deleting the
-schedule revokes it**. If the key stops working (the account was disabled, or
+where you can revoke it. It is valid for 180 days and renewed automatically
+before then while you are signed in. Turning a schedule off keeps its key;
+**deleting the schedule revokes it** (if the gateway cannot be reached then,
+Cerea keeps trying), and so does deleting your account. If the key stops working (the account was disabled, or
 you revoked it), the schedule switches itself off and says "Sign in again and turn
 it back on"; turning it on makes a new key. You may have up to 20 schedules by
 default; your administrator can change that.

@@ -557,6 +557,15 @@
 				<p class={s.HINT} data-testid="chat-unattended-hint">
 					{m["code.schedule_editor.chat_unattended"]()}
 				</p>
+				{#if page.data.chatSchedulesKeysAllowed === false}
+					<p class="{s.NOTICE} mt-2" data-testid="chat-keys-not-allowed">
+						{m["code.schedule_editor.keys_not_allowed"]()}
+					</p>
+				{:else}
+					<p class={s.HINT} data-testid="chat-key-hint">
+						{m["code.schedule_editor.chat_key_hint"]()}
+					</p>
+				{/if}
 			{:else}
 				<h3 class="{s.SECTION_TITLE} mt-6">{m["code.schedule_editor.where"]()}</h3>
 				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">

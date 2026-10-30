@@ -304,8 +304,12 @@ export async function* runMcpFlow({
 	// Chat override, then the user's setting, then `manual` (ADR 0075) — the
 	// same defaults-vs-state split `webSearch` already uses. Resolved once so
 	// the builtin's gate and the MCP pre-call checkpoint below agree.
-	const toolApprovalPolicy = resolveToolApprovalPolicy(conv, serverSettings);
-	const approvedTools = new Set(conv.approvedTools ?? []);
+	// A scheduled run has nobody to approve anything: whatever the user's policy or earlier grants
+	// say, every tool that needs approval is refused (the web_fetch URL gate stays as it is).
+	const toolApprovalPolicy = locals?.scheduledRun
+		? "manual"
+		: resolveToolApprovalPolicy(conv, serverSettings);
+	const approvedTools = new Set(locals?.scheduledRun ? [] : (conv.approvedTools ?? []));
 	// Resolved here, not inside getEnabledBuiltinTools: an async network probe
 	// has no business in that otherwise-synchronous decision function, the
 	// same reason searchModelIds is resolved by this caller too. Only probed

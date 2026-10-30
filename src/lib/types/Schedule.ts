@@ -107,6 +107,21 @@ export interface ScheduleCredential {
 	/** The billing group the key was minted for, when the person chose one. */
 	billingGroupId?: string;
 	mintedAt: Date;
+	/** When the gateway stops honouring it; the scheduler renews it before then. */
+	expiresAt?: Date;
+}
+
+/** A key that could not be revoked when its schedule went away: retried until the gateway says it is gone. */
+export interface ScheduleKeyRevocation {
+	_id: ObjectId;
+	keyId: string;
+	/** The key's own secret, sealed: the last credential left to revoke it with. */
+	sealed: string;
+	/** Whose key it was, to find a session to revoke it with. Not an owner field: the row outlives the account. */
+	forUser: ObjectId;
+	createdAt: Date;
+	attempts: number;
+	nextAttemptAt: Date;
 }
 
 /** The result link of a run: where the executor put its output. */

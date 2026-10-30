@@ -1190,6 +1190,17 @@ caller's own, paired. Things that bite:
   lands in the window and disables the schedule (`disable` + `dropCredential`); one that
   ends later is announced (unread mark `Conversation.scheduledUnread`, push) and disables
   the row directly. The unread mark is cleared by `GET /api/v2/conversations/[id]`.
+- **Unattended means manual.** `runMcpFlow` forces policy `manual` and an empty
+  `approvedTools` when `locals.scheduledRun`, and `executeToolCalls` refuses every gated
+  call, so "always allow" and "allowed for this chat" do not apply to a scheduled run.
+- **Keys** expire (180 days) and `maintain()` (scheduler housekeeping, every 10 min)
+  renews them 14 days early with the user's latest session and retries queued
+  revocations (`credentials.ts`, `scheduleKeyRevocations`, deliberately not owner-keyed).
+  Credential writes are conditional on the keyId read; erasure and merge revoke
+  (`revokeAllFor`). Only a 401 means the key is dead.
+- **A run that returns `sent` early** carries `outcome.settled`; the core rewrites the run
+  to `failed` and counts it when the late result fails. At most `chatRunConfig.maxConcurrent`
+  scheduled turns run in a process; more are skipped.
 - **The key** (`gatewayKeys.ts`: `POST /v1/me/keys` with the user's session, `DELETE
 /v1/me/keys/{id}`) is minted before the row is inserted and released if the insert or
   the cap check then fails; deleting revokes (session token, else the key itself), a

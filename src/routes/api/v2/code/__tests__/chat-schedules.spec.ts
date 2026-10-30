@@ -156,6 +156,7 @@ describe("making a chat schedule", () => {
 		expect(flags.mint).toHaveBeenCalledWith({
 			token: "session-token",
 			name: "Cerea schedule: Weekly news",
+			expiresInDays: 180,
 		});
 		expect(res.text).not.toContain("sk-secret");
 		expect(res.text).not.toContain("credential");

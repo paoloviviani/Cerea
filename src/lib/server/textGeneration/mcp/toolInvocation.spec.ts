@@ -923,17 +923,21 @@ describe("executeToolCalls in a run nobody is watching (a scheduled chat)", () =
 		expect(refusal).toMatchObject({ message: expect.stringContaining("nobody to ask") });
 	});
 
-	it("still runs a tool the conversation already approved", async () => {
+	it("refuses even a tool the conversation already approved: no grant covers an unattended run", async () => {
 		await drain([CALL], undefined, undefined, undefined, {
 			...unattended,
 			approvedTools: new Set(["hf:do_thing"]),
 		});
-		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(1);
+		expect(mcpMock.callMcpTool).not.toHaveBeenCalled();
 	});
 
-	it("runs everything under always-allow: the person's own policy says nothing needs approval", async () => {
-		await drain([CALL], undefined, undefined, undefined, { ...unattended, policy: "always-allow" });
-		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(1);
+	it("refuses under always-allow too: the user's policy is not an approval for a run nobody watches", async () => {
+		const events = await drain([CALL], undefined, undefined, undefined, {
+			...unattended,
+			policy: "always-allow",
+		});
+		expect(mcpMock.callMcpTool).not.toHaveBeenCalled();
+		expect(toolUpdatesOf(events).some((u) => u.subtype === MessageToolUpdateType.Error)).toBe(true);
 	});
 });
 

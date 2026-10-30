@@ -25,6 +25,29 @@ describe("mintKey", () => {
 		});
 	});
 
+	it("asks for a key that expires, when told how long", async () => {
+		const fetchImpl = reply(201, { id: "k1", secret: "s" });
+		await mintKey({ token: "t", name: "n", expiresInDays: 180 }, { baseUrl: BASE, fetchImpl });
+		expect(
+			JSON.parse(String((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body))
+		).toEqual({ name: "n", expires_in_days: 180 });
+	});
+
+	it("explains a refusal for want of API keys or a billing group, keeping the gateway's own text", async () => {
+		const keys = await mintKey(
+			{ token: "t", name: "n" },
+			{ baseUrl: BASE, fetchImpl: reply(403, { error: { message: "No API keys for you." } }) }
+		).catch((e) => e);
+		expect(keys.message).toContain("may not create one");
+		expect(keys.message).toContain("No API keys for you.");
+		const billing = await mintKey(
+			{ token: "t", name: "n" },
+			{ baseUrl: BASE, fetchImpl: reply(400, { detail: "Set a default billing group." }) }
+		).catch((e) => e);
+		expect(billing.message).toContain("would not make the schedule's key");
+		expect(billing.message).toContain("Set a default billing group.");
+	});
+
 	it("leaves the billing group out when there is none", async () => {
 		const fetchImpl = reply(201, { id: "k1", secret: "s" });
 		await mintKey({ token: "t", name: "n" }, { baseUrl: BASE, fetchImpl });
@@ -37,7 +60,7 @@ describe("mintKey", () => {
 
 	it.each([
 		[401, 403, /Sign in again/],
-		[403, 403, /not use API keys|may not/],
+		[403, 403, /may not create one/],
 		[400, 400, /billing group/],
 		[500, 502, /could not make/],
 	])("turns a %i into a readable %i", async (status, mapped, words) => {

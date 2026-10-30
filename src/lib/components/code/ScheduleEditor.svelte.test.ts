@@ -576,6 +576,29 @@ describe("ScheduleEditor for a chat", () => {
 		expect(api.createSchedule).toHaveBeenCalledTimes(1);
 	});
 
+	it("says up front when the gateway will not let the account hold the key a chat schedule runs on", async () => {
+		setPage({
+			data: {
+				codeSchedulesEnabled: false,
+				chatSchedulesKeysAllowed: false,
+				conversations: [{ id: "c1", title: "Weekly notes" }],
+				models: [],
+			},
+		});
+		const { screen } = mount({ prefill: { conversationId: "c1" } });
+		await expect
+			.element(screen.getByTestId("chat-keys-not-allowed"))
+			.toHaveTextContent("may not create API keys");
+	});
+
+	it("tells everyone else what the key needs, and that scheduled runs never use approval tools", async () => {
+		const { screen } = mount({ prefill: { conversationId: "c1" } });
+		await expect.element(screen.getByTestId("chat-key-hint")).toHaveTextContent("billing group");
+		await expect
+			.element(screen.getByTestId("chat-unattended-hint"))
+			.toHaveTextContent("never uses a tool that needs approval");
+	});
+
 	it("lets a person with coding agents choose which kind to make", async () => {
 		setPage({ data: { codeSchedulesEnabled: true, conversations: [], models: [] } });
 		const { screen } = mount();

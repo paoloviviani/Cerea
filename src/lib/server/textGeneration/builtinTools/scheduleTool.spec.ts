@@ -16,9 +16,10 @@ vi.mock("$lib/server/schedules/gatewayKeys", () => ({
 	mintKey: (...args: unknown[]) => flags.mint(...args),
 	revokeKey: async () => true,
 }));
+const limits = vi.hoisted(() => ({ enabled: true }));
 vi.mock("$lib/server/schedules/limits", async (original) => ({
 	...(await original<typeof import("$lib/server/schedules/limits")>()),
-	schedulesEnabled: () => true,
+	schedulesEnabled: () => limits.enabled,
 }));
 vi.mock("$lib/server/models", () => ({
 	models: [{ id: "test-model" }],
@@ -30,6 +31,8 @@ import {
 	createScheduleFromApproval,
 	createScheduleTool,
 	parseScheduleToolArgs,
+	MAX_ACTIVE_PER_CONVERSATION,
+	MAX_ASSISTANT_SCHEDULES_PER_HOUR,
 	SCHEDULE_TOOL_NAME,
 } from "./scheduleTool";
 import { resumeParkedToolCall } from "$lib/server/mcp/resumeElicitation";
@@ -114,7 +117,12 @@ describe("confirming the card", () => {
 		await collections.mcpElicitations.deleteMany({});
 		flags.mint.mockReset();
 		flags.mint.mockResolvedValue({ id: "key-9", secret: "sk-9" });
+		limits.enabled = true;
 		person = await createTestUser();
+		await collections.sessions.updateOne(
+			{ sessionId: person.session.sessionId },
+			{ $set: { authTime: new Date() } }
+		);
 		conversationId = new ObjectId();
 		await collections.conversations.insertOne({
 			_id: conversationId,
@@ -227,8 +235,88 @@ describe("confirming the card", () => {
 		});
 	});
 
+	it("applies the API's gates: the switch, and a sign-in within 7 days", async () => {
+		limits.enabled = false;
+		expect(
+			await createScheduleFromApproval({
+				args: proposal,
+				conversationId,
+				userId: person.user._id,
+				token: "t",
+			})
+		).toMatchObject({ error: expect.stringContaining("switched off") });
+		limits.enabled = true;
+
+		await collections.sessions.updateOne(
+			{ sessionId: person.session.sessionId },
+			{ $set: { authTime: new Date(Date.now() - 8 * 24 * 3600_000) } }
+		);
+		expect(
+			await createScheduleFromApproval({
+				args: proposal,
+				conversationId,
+				userId: person.user._id,
+				token: "t",
+			})
+		).toMatchObject({ error: expect.stringContaining("older than 7 days") });
+		expect(await collections.schedules.countDocuments({})).toBe(0);
+		expect(flags.mint).not.toHaveBeenCalled();
+	});
+
+	it("makes at most three running schedules per conversation", async () => {
+		const make = () =>
+			createScheduleFromApproval({
+				args: proposal,
+				conversationId,
+				userId: person.user._id,
+				token: "t",
+			});
+		for (let i = 0; i < MAX_ACTIVE_PER_CONVERSATION; i++)
+			expect(await make()).toHaveProperty("text");
+		expect(await make()).toMatchObject({ error: expect.stringContaining("already has 3 running") });
+		// Switching one off makes room.
+		await collections.schedules.updateOne({}, { $set: { enabled: false } });
+		expect(await make()).toHaveProperty("text");
+	});
+
+	it("makes at most ten in an hour for one person, across conversations", async () => {
+		for (let i = 0; i < MAX_ASSISTANT_SCHEDULES_PER_HOUR; i++) {
+			const c = new ObjectId();
+			await collections.conversations.insertOne({
+				_id: c,
+				userId: person.user._id,
+				title: `c${i}`,
+				model: "test-model",
+				rootMessageId: "r",
+				messages: [],
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as never);
+			expect(
+				await createScheduleFromApproval({
+					args: proposal,
+					conversationId: c,
+					userId: person.user._id,
+					token: "t",
+				})
+			).toHaveProperty("text");
+		}
+		expect(
+			await createScheduleFromApproval({
+				args: proposal,
+				conversationId,
+				userId: person.user._id,
+				token: "t",
+			})
+		).toMatchObject({ error: expect.stringContaining("last hour") });
+	});
+
 	it("refuses a conversation that is not the person's", async () => {
 		const other = await createTestUser();
+		await collections.sessions.updateOne(
+			{ sessionId: other.session.sessionId },
+			{ $set: { authTime: new Date() } }
+		);
 		expect(
 			await createScheduleFromApproval({
 				args: proposal,

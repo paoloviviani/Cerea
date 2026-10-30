@@ -168,7 +168,15 @@ panel.
   administrator can see (and revoke) them like any other. Deleting a schedule
   revokes its key (`DELETE /v1/me/keys/{id}`); turning it off keeps it; a key the
   gateway refuses switches the schedule off with "Sign in again and turn it back
-  on". The secret is sealed with the deployment's `CHAT_SECRET_KEY`
+  on". Keys are made with `expires_in_days: 180` and renewed (and the old one
+  revoked) when within 14 days of the end, using the user's latest session;
+  deleting a schedule whose revoke the gateway cannot confirm queues it for retry
+  (`scheduleKeyRevocations`, backing off, about 20 tries), and expiry is the
+  backstop. Erasing an account revokes its schedules' keys first; merging accounts
+  revokes the merged-away account's keys and switches its chat schedules off. Only
+  a 401 (`invalid_api_key`) means a key is dead: a 403 (a redaction block, a model
+  access group, a capability) is an ordinary failed run with the gateway's message.
+  The secret is sealed with the deployment's `CHAT_SECRET_KEY`
   (as connector tokens are) and is never sent to a browser. There is no
   refresh token and no deployment-wide credential acting for users.
 - **Who may.** The user needs the gateway's **API keys** capability and a billing
@@ -178,9 +186,12 @@ panel.
   deployment's models, connectors and tool policies apply. The browser Python
   sandbox, questions and tools needing approval are unavailable, and the
   assistant is told so in the prompt. A turn is bounded by `CHAT_TURN_MAX_MINUTES`.
-- **Deleting a user.** Erasing an account deletes its schedules but does not
-  call the gateway: revoke the account's keys there (the gateway's own account
-  removal does).
+- **Approvals.** A scheduled run treats every approval policy as "manual" and
+  honours no earlier grant, so every tool that needs approval is refused, including
+  under a user's "always allow".
+- **Assistant-made schedules.** The assistant may have at most 3 running schedules
+  per conversation and make at most 10 in an hour per user, and only for a sign-in
+  within 7 days.
 
 ## Assistant instructions
 

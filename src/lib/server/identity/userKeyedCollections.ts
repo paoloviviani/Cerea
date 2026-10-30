@@ -49,6 +49,7 @@
  * at all, so this only matters for the (not yet built) erasure endpoint.
  */
 
+import { revokeAllFor } from "$lib/server/schedules/credentials";
 import type { Collection, Document, ObjectId } from "mongodb";
 
 import { collections, Database } from "$lib/server/database";
@@ -655,8 +656,17 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		ownerField: "userId",
 		// No unique index on a person's schedules (a name may repeat), so a merge
 		// is a plain move; their devices move with them, so the targets still resolve.
-		merge: (stray, target) => reassignSimple(collections.schedules, "userId", stray, target),
-		erase: (userId) => eraseByField(collections.schedules, "userId", userId),
+		// A chat schedule runs on a gateway key in the stray's name: it is revoked, and the schedule
+		// switched off to be turned on again by the target (who mints their own).
+		merge: async (stray, target) => {
+			await revokeAllFor(stray, { disable: true });
+			return reassignSimple(collections.schedules, "userId", stray, target);
+		},
+		// Keys are revoked (or queued for retry) before the rows that hold them are deleted.
+		erase: async (userId) => {
+			await revokeAllFor(userId, { disable: false });
+			return eraseByField(collections.schedules, "userId", userId);
+		},
 	},
 	{
 		name: "pushSubscriptions",

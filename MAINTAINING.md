@@ -294,9 +294,12 @@ serve` holds hundreds of MB of RSS and the extraction lands in RAM.
   created or switched on, sealed like connector tokens, revoked on delete; no
   refresh tokens and no deployment-wide credential. The assistant proposes
   schedules through the `schedule` tool, created only by a click on the approval
-  card. Open: nothing revokes a user's keys when an account is erased from Cerea
-  (the gateway's account removal does), and the real gateway's key endpoints were
-  read from its source, not run against it in CI (the e2e stack has no gateway).
+  card. Open: the real gateway's key endpoints were read from its source, not
+  run against it in CI (the e2e stack has no gateway), and whether they should
+  accept the key's own secret or need a different path is an owner decision on the
+  Pystino side (the client is isolated in `gatewayKeys.ts`). Scheduled runs refuse
+  every tool that needs approval; a per-schedule tool allow-list the user sets in the
+  editor is the way to let chosen tools run unattended, if that is ever wanted.
 - Specified, not built: `PROTOCOL.md` §9's file search, watching and writing
   (section 6 above).
 - Pystino's own open items are listed at the end of its `AGENTS.md`.

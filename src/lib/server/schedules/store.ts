@@ -111,11 +111,12 @@ function checkRecurrence(input: unknown, timezone: string): Schedule["recurrence
 async function checkTarget(
 	kind: Schedule["kind"],
 	target: unknown,
-	userId: ObjectId
+	userId: ObjectId,
+	token?: string
 ): Promise<Record<string, unknown>> {
 	const executor = getExecutor(kind);
 	if (!executor) throw new ScheduleError(400, `Nothing here can run "${kind}" schedules.`);
-	const result = await executor.validateTarget(target, { userId });
+	const result = await executor.validateTarget(target, { userId, token });
 	if (!result.ok) throw new ScheduleError(400, result.error);
 	return result.target;
 }
@@ -163,7 +164,7 @@ export async function createSchedule(
 	const prompt = checkPrompt(input.prompt);
 	const timezone = checkTimezone(input.timezone);
 	const recurrence = checkRecurrence(input.recurrence, timezone);
-	const target = await checkTarget(input.kind, input.target, userId);
+	const target = await checkTarget(input.kind, input.target, userId, options.token);
 
 	const now = new Date();
 	const enabled = input.enabled ?? true;
@@ -246,7 +247,7 @@ export async function updateSchedule(
 		checkRecurrence(existing.recurrence, timezone);
 	}
 	if (patch.target !== undefined) {
-		set.target = await checkTarget(existing.kind, patch.target, userId);
+		set.target = await checkTarget(existing.kind, patch.target, userId, options.token);
 		set.consecutiveFailures = 0;
 	}
 
@@ -299,14 +300,24 @@ export async function updateSchedule(
 		if (minted) set.credential = minted;
 	}
 
+	// A credential is written only over the one this edit read (or over none): two edits that
+	// both minted cannot both win, and the loser's key is revoked rather than left behind.
+	const credentialGuard = minted
+		? existing.credential
+			? { "credential.keyId": existing.credential.keyId }
+			: { credential: { $exists: false } }
+		: {};
 	const updated = await collections.schedules.findOneAndUpdate(
-		{ _id: existing._id, userId },
+		{ _id: existing._id, userId, ...credentialGuard },
 		{ $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
 		{ returnDocument: "after" }
 	);
 	if (!updated?.value) {
 		if (minted) await releaseQuietly({ ...existing, credential: minted }, options.token);
-		throw new ScheduleError(404, "No such schedule.");
+		const stillThere = await collections.schedules.countDocuments({ _id: existing._id, userId });
+		throw stillThere
+			? new ScheduleError(409, "The schedule changed while you were saving it. Try again.")
+			: new ScheduleError(404, "No such schedule.");
 	}
 	// The key it replaced is no longer anything's.
 	if (minted && existing.credential) await releaseQuietly(existing, options.token);

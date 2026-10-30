@@ -10,6 +10,8 @@ import {
 	MAX_PROMPT_LENGTH,
 	ScheduleError,
 } from "$lib/server/schedules/store";
+import { authTimeFresh } from "$lib/server/code/stepUp";
+import { schedulesEnabled } from "$lib/server/schedules/limits";
 import type { Recurrence } from "$lib/types/Schedule";
 import { recurrenceText } from "$lib/utils/scheduleFormat";
 import type { BuiltinTool } from "./types";
@@ -24,6 +26,10 @@ import type { BuiltinTool } from "./types";
  * was not valid, and says why; or, should the gate ever be bypassed, refuses.
  */
 export const SCHEDULE_TOOL_NAME = "schedule";
+
+/** What the assistant may make on a person's behalf: a confirmed click is not a licence to fill their list. */
+export const MAX_ACTIVE_PER_CONVERSATION = 3;
+export const MAX_ASSISTANT_SCHEDULES_PER_HOUR = 10;
 
 const inputSchema = z.object({
 	name: z.string().trim().min(1).max(MAX_NAME_LENGTH),
@@ -149,6 +155,18 @@ export async function createScheduleFromApproval(input: {
 	token: string | undefined;
 }): Promise<{ text: string } | { error: string }> {
 	if (!input.userId) return { error: "Scheduling needs a signed-in account." };
+	// The same gates as the schedules API: the switch, and a sign-in within the 7-day window.
+	if (!schedulesEnabled()) return { error: "Scheduled actions are switched off here." };
+	const session = await collections.sessions
+		.find({ userId: input.userId })
+		.sort({ updatedAt: -1 })
+		.next();
+	if (!authTimeFresh(session?.authTime)) {
+		return {
+			error:
+				"The person's sign-in is older than 7 days: they need to sign in again before a schedule can be made.",
+		};
+	}
 	const proposal = parseScheduleToolArgs(input.args, {});
 	if (!proposal.ok) return { error: proposal.error };
 	const { value } = proposal;
@@ -158,6 +176,25 @@ export async function createScheduleFromApproval(input: {
 	);
 	if (!conversation) return { error: "The conversation this was proposed in is gone." };
 
+	const active = await collections.schedules.countDocuments({
+		userId: input.userId,
+		enabled: true,
+		"createdBy.kind": "chat",
+		"createdBy.conversationId": input.conversationId.toString(),
+	});
+	if (active >= MAX_ACTIVE_PER_CONVERSATION) {
+		return {
+			error: `This conversation already has ${MAX_ACTIVE_PER_CONVERSATION} running schedules made by the assistant. Ask the person to delete or switch one off under Schedules first.`,
+		};
+	}
+	const lately = await collections.schedules.countDocuments({
+		userId: input.userId,
+		"createdBy.kind": "chat",
+		createdAt: { $gte: new Date(Date.now() - 3600_000) },
+	});
+	if (lately >= MAX_ASSISTANT_SCHEDULES_PER_HOUR) {
+		return { error: "The assistant has made many schedules in the last hour. Try again later." };
+	}
 	try {
 		const schedule = await createSchedule(
 			input.userId,

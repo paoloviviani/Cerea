@@ -407,10 +407,12 @@ export async function* executeToolCalls({
 					const target = approvalTargetFor(p);
 					if (!target) return [];
 					if (target.alwaysConfirm) return [{ p, target }];
-					return toolApproval.policy === "manual" &&
-						!toolApproval.approvedTools.has(target.qualifiedName)
-						? [{ p, target }]
-						: [];
+					// Nobody to ask: an unattended run treats every policy as manual and no grant
+					// (the user's "always allow", "allowed for this chat") as covering it.
+					const manual = toolApproval.unattended || toolApproval.policy === "manual";
+					const granted =
+						!toolApproval.unattended && toolApproval.approvedTools.has(target.qualifiedName);
+					return manual && !granted ? [{ p, target }] : [];
 				})
 			: [];
 	// Nobody to ask in a scheduled run: what would open a card is refused, and the model is
