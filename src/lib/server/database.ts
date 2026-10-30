@@ -1,3 +1,7 @@
+import {
+	CONVERSATION_TEXT_INDEX_KEYS,
+	CONVERSATION_TEXT_INDEX_OPTIONS,
+} from "./conversationTextIndex";
 import { GridFSBucket, MongoClient, ReadPreference, type Collection, type Document } from "mongodb";
 import type { Conversation } from "$lib/types/Conversation";
 import type {
@@ -433,6 +437,13 @@ export class Database {
 			.catch((e) =>
 				logger.error(e, "Error creating index for conversations by userId, updatedAt and title")
 			);
+		// Message-content search on /chats (`$text`). Built once at startup, in
+		// the background (MongoDB 4.2+ builds without blocking reads and writes):
+		// minutes on a large install, and until it finishes the search answers
+		// from titles alone. See `conversationTextIndex.ts`.
+		conversations
+			.createIndex(CONVERSATION_TEXT_INDEX_KEYS, CONVERSATION_TEXT_INDEX_OPTIONS)
+			.catch((e) => logger.error(e, "Error creating the text index for conversations"));
 		conversations
 			.createIndex(
 				{ "message.id": 1, "message.ancestors": 1 },
