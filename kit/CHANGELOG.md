@@ -5,6 +5,44 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.33.0 — 2026-10-30
+
+Pins: Cerea `0.33.0` (chat and `cerea-documents`), Pystino `0.20.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required. On
+first start the chat builds a text index over conversations in the background
+(minutes on a large install); until it is ready, chat search matches titles
+only.
+
+- **Redaction keeps working through tools and reasoning (Pystino 0.20.0).**
+  With "anonymise and restore", the real values now come back in the
+  assistant's thinking and inside tool-call arguments, so a form filled through
+  the document tools gets the real fiscal code instead of a placeholder. What
+  a follow-up request sends back (tool arguments, reasoning, tool results) is
+  screened again on the way out, and a value caught once is replaced
+  everywhere in the request. A short system note, identical on every turn so
+  prompt caching keeps working, tells the model what the placeholders are and
+  to use them as real values. Entity types can now use **same-length
+  placeholders** (`#K3QF…#`) for fixed-width form fields.
+- **File versions follow the conversation branch.** Editing an earlier prompt
+  or regenerating a reply no longer shows files produced on the other branch,
+  and re-sending an attachment makes it current again.
+- **Scanned PDFs.** The document outline measures a scan's tilt and finds its
+  blank lines, `place_text` can write along a sloping line (`along`,
+  `rotate`), and `look_doc` can zoom into a region with a coordinate grid, so a
+  scanned form is filled in a handful of steps with text that follows the
+  printed lines.
+- **Form text fits its field.** Filled values are sized to the field's height
+  and a value that cannot fit is reported. When the document tools cannot do
+  something (a tick in a printed box, an image), the assistant may draw an
+  overlay in the sandbox, saved as the next version of the same file.
+- **Search chat content.** `/chats` searches message text as well as titles
+  (whole words, quoted phrases), with highlighted snippets; the search box
+  stays pinned while the list scrolls.
+- **Projects.** The project settings page is one column grouped in the order
+  the assistant reads it, with a section index on wide screens; clicking a
+  project in the sidebar opens its chats.
+
 ## v0.32.6 — 2026-10-29
 
 Pins: Cerea `0.32.6` (chat and `cerea-documents`), Pystino `0.19.0`.
