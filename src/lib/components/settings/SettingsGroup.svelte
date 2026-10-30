@@ -17,7 +17,7 @@
 	let { id, title, note, children }: Props = $props();
 </script>
 
-<section {id} aria-labelledby="{id}-title" class="scroll-mt-2">
+<section {id} aria-labelledby="{id}-title" class="scroll-mt-2 outline-none">
 	<h2 id="{id}-title" class="text-base font-semibold text-ink">{title}</h2>
 	{#if note}<p class="mt-0.5 text-xs text-ink-muted">{note}</p>{/if}
 	<div class="mt-3 flex flex-col gap-4">

@@ -803,6 +803,7 @@
 								<label class="flex items-start gap-2 text-sm">
 									<input
 										type="checkbox"
+										form="project-form"
 										bind:checked={indexPastChats}
 										disabled={busy || !owned}
 										class="mt-0.5 accent-blue-600"
@@ -820,6 +821,7 @@
 									>
 									<input
 										id="project-limit"
+										form="project-form"
 										type="number"
 										min="1"
 										max="20"

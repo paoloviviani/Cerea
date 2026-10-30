@@ -37,7 +37,11 @@
 		const target = document.getElementById(id);
 		if (!target) return;
 		event.preventDefault();
-		target.scrollIntoView({ behavior: "smooth", block: "start" });
+		const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+		target.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+		// Move keyboard focus with the view, so the next Tab lands inside the section.
+		if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+		target.focus({ preventScroll: true });
 	}
 </script>
 
