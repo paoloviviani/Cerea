@@ -1217,6 +1217,21 @@ class TestScopes(Deploy):
         self.assertIn("GATEWAY_OIDC__SCOPES: ${OIDC_SCOPES_JSON:-", compose)
         self.assertIn("OPENID_SCOPES: ${OIDC_SCOPES:-", compose)
 
+    def test_the_bundled_authelia_chat_client_allows_refresh_tokens(self):
+        """Scheduled chats refresh a background grant: the chat client needs offline_access and the
+        refresh_token grant (and a refresh lifetime that outlasts a week)."""
+        text = (ROOT / "authelia" / "configuration.yml").read_text(encoding="utf-8")
+        block = text.split("client_id: 'cerea'", 1)[1].split("client_id:", 1)[0]
+        self.assertIn("'offline_access'", block)
+        self.assertIn("'refresh_token'", block)
+        self.assertIn("lifespan: 'chat_background'", block)
+        # Consent for the ordinary sign-in is remembered; offline_access is asked for rarely, since
+        # Authelia cannot remember a consent that includes it.
+        self.assertIn("consent_mode: 'pre-configured'", block)
+        self.assertIn("pre_configured_consent_duration:", block)
+        lifespans = text.split("chat_background:", 1)[1].split("clients:", 1)[0]
+        self.assertIn("refresh_token: '90d'", lifespans)
+
     def test_compose_passes_the_group_settings_and_chat_secret_to_the_gateway(self):
         compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
         self.assertIn("GATEWAY_OIDC__GROUP_IMPORT: ${OIDC_GROUP_IMPORT:-manual}", compose)

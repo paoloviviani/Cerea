@@ -523,6 +523,8 @@
 	"code.schedule.weekday.thursday": "[Ťȟúŕśďáý]",
 	"code.schedule.weekday.tuesday": "[Ťúéśďáý]",
 	"code.schedule.weekday.wednesday": "[Ŵéďńéśďáý]",
+	"code.schedule_created_by.chat": "[Ćŕéáťéď ƀý ťȟé áśśíśťáńť íń]",
+	"code.schedule_created_by.fallback_chat": "[á ćȟáť]",
 	"code.schedule_created_by.fallback_title": "[á śéśśíóń]",
 	"code.schedule_created_by.text": "[Ćŕéáťéď ƀý áń áǧéńť íń]",
 	"code.schedule_editor.allow_hint": "[Ŕúńś ŵíťȟóúť áśķíńǧ, ƀúť ńéǚéŕ þáśť ťȟé ḿáćȟíńé'ś óŵń ćéíľíńǧ: ŵȟáť ťȟáť ḿáćȟíńé ćáþś áť Áśķ śťíľľ áśķś.]",
@@ -530,7 +532,11 @@
 	"code.schedule_editor.at": "[Áť]",
 	"code.schedule_editor.can_message": "[Ćáń ƒíńď, ŕéáď áńď ḿéśśáǧé óťȟéŕ śéśśíóńś]",
 	"code.schedule_editor.can_spawn": "[Ćáń śťáŕť ńéŵ śéśśíóńś]",
+	"code.schedule_editor.chat": "[Ćȟáť]",
+	"code.schedule_editor.chat_unattended": "[Ńóƀóďý íś ŵáťćȟíńǧ á śćȟéďúľéď ŕúń. Íť ćáń śéáŕćȟ ťȟé ŵéƀ, ƒéťćȟ þáǧéś áńď ŵóŕķ ŵíťȟ ďóćúḿéńťś, ƀúť íť ćáńńóť ŕúń Þýťȟóń óŕ áśķ ýóú á ǫúéśťíóń.]",
+	"code.schedule_editor.choose_chat": "[Ćȟóóśé á ćȟáť]",
 	"code.schedule_editor.choose_machine": "[Ćȟóóśé á ḿáćȟíńé]",
+	"code.schedule_editor.choose_model": "[Ćȟóóśé á ḿóďéľ]",
 	"code.schedule_editor.choose_workspace": "[Ćȟóóśé á ŵóŕķśþáćé]",
 	"code.schedule_editor.could_not_read": "[Ćóúľď ńóť ŕéáď ťȟíś ḿáćȟíńé.]",
 	"code.schedule_editor.could_not_save": "[Ćóúľď ńóť śáǚé ťȟé śćȟéďúľé.]",
@@ -538,7 +544,10 @@
 	"code.schedule_editor.cron": "[Ćŕóń éẋþŕéśśíóń]",
 	"code.schedule_editor.cron_hint": "[Ƒíǚé ƒíéľďś: ḿíńúťé ȟóúŕ ďáý-óƒ-ḿóńťȟ ḿóńťȟ ďáý-óƒ-ŵééķ. Áť ľéáśť 15 ḿíńúťéś ƀéťŵééń ŕúńś.]",
 	"code.schedule_editor.enabled": "[Éńáƀľéď]",
+	"code.schedule_editor.err_chat": "[Ćȟóóśé ťȟé ćȟáť ťó ćóńťíńúé.]",
+	"code.schedule_editor.err_grant": "[Ɓáćķǧŕóúńď áććéśś íś ḿíśśíńǧ: śíǧń íń áǧáíń ƒíŕśť, śó ťȟé śćȟéďúľé ćáń ŕúń ŵȟíľé ýóú áŕé áŵáý.]",
 	"code.schedule_editor.err_machine": "[Ćȟóóśé ťȟé ḿáćȟíńé íť ŕúńś óń.]",
+	"code.schedule_editor.err_model": "[Ćȟóóśé á ḿóďéľ ƒóŕ ťȟé ńéŵ ćȟáťś.]",
 	"code.schedule_editor.err_name": "[Ǧíǚé ťȟé śćȟéďúľé á ńáḿé.]",
 	"code.schedule_editor.err_new_dir": "[Éńťéŕ ťȟé ńéŵ ŵóŕķśþáćé'ś ďíŕéćťóŕý.]",
 	"code.schedule_editor.err_prompt": "[Ŵŕíťé ťȟé þŕóḿþť íť śéńďś.]",
@@ -546,14 +555,23 @@
 	"code.schedule_editor.err_workspace": "[Ćȟóóśé á ŵóŕķśþáćé.]",
 	"code.schedule_editor.every_hours": "[Éǚéŕý ȟóŵ ḿáńý ȟóúŕś]",
 	"code.schedule_editor.for_ever": "[Ƒóŕ éǚéŕ]",
+	"code.schedule_editor.grant_text": "[Á śćȟéďúľéď ćȟáť ŕúńś ŵȟéń ýóú áŕé ńóť śíǧńéď íń, śó íť ńééďś ťȟé ƀáćķǧŕóúńď áććéśś ýóúŕ śíǧń-íń ǧíǚéś. Śíǧń íń áǧáíń ťó ǧéť íť. Íƒ íť íś śťíľľ ḿíśśíńǧ áƒťéŕŵáŕďś, ýóúŕ áďḿíńíśťŕáťóŕ ȟáś ťó áľľóŵ ŕéƒŕéśȟ ťóķéńś (ťȟé óƒƒľíńé_áććéśś śćóþé) ƒóŕ ťȟé ćȟáť'ś ćľíéńť.]",
+	"code.schedule_editor.grant_sign_in": "[Śíǧń íń áǧáíń]",
+	"code.schedule_editor.grant_title": "[Ɓáćķǧŕóúńď áććéśś íś ńóť áǚáíľáƀľé]",
 	"code.schedule_editor.how": "[Ȟóŵ ťȟé áǧéńť ŕúńś]",
+	"code.schedule_editor.kind": "[Ŵȟáť íť ŕúńś]",
+	"code.schedule_editor.kind_agent": "[Á ćóďíńǧ áǧéńť]",
+	"code.schedule_editor.kind_chat": "[Á ćȟáť]",
 	"code.schedule_editor.loading": "[Ĺóáďíńǧ…]",
 	"code.schedule_editor.machine": "[1. Ḿáćȟíńé]",
 	"code.schedule_editor.machine_fallback": "[Ťȟíś ḿáćȟíńé]",
 	"code.schedule_editor.machine_option": "[{name} · {state}]",
 	"code.schedule_editor.matching_dirs": "[Ḿáťćȟíńǧ ďíŕéćťóŕíéś]",
 	"code.schedule_editor.mode": "[Áǧéńť ḿóďé]",
+	"code.schedule_editor.mode_continue_hint": "[Éáćȟ ŕúń þóśťś ťȟé þŕóḿþť íńťó ťȟé ćȟáť áńď ťȟé áśśíśťáńť áńśŵéŕś ťȟéŕé.]",
 	"code.schedule_editor.mode_default": "[Ďéƒáúľť (þľáń)]",
+	"code.schedule_editor.mode_new": "[Á ńéŵ ćȟáť éáćȟ ťíḿé]",
+	"code.schedule_editor.mode_new_hint": "[Éáćȟ ŕúń śťáŕťś á ƒŕéśȟ ćȟáť ŵíťȟ ťȟé śáḿé þŕóḿþť áńď ḿóďéľ.]",
 	"code.schedule_editor.model": "[Ḿóďéľ]",
 	"code.schedule_editor.model_default": "[Ťȟé ḿáćȟíńé'ś ďéƒáúľť]",
 	"code.schedule_editor.name": "[Ńáḿé]",
@@ -571,6 +589,9 @@
 	"code.schedule_editor.others": "[Óťȟéŕ śéśśíóńś óń ťȟíś ḿáćȟíńé]",
 	"code.schedule_editor.others_hint": "[Ĺéťś á ŕúń óŕćȟéśťŕáťé ťȟé ḿáćȟíńé'ś óťȟéŕ śéśśíóńś ŵíťȟóúť śťóþþíńǧ áť áń áþþŕóǚáľ ćáŕď. Ńéǚéŕ þáśť ťȟé ḿáćȟíńé'ś óŵń ľíḿíťś: á śéśśíóń íń áńóťȟéŕ ŵóŕķśþáćé, á ľóńǧ ćȟáíń óƒ áǧéńť ḿéśśáǧéś áńď áńýťȟíńǧ ťȟé ḿáćȟíńé ćáþś áť Áśķ śťíľľ áśķ.]",
 	"code.schedule_editor.permission": "[Þéŕḿíśśíóń ḿóďé]",
+	"code.schedule_editor.permission_allow_blocked": "[Ýóúŕ áþþŕóǚáľ śéťťíńǧ íś ḿáńúáľ, śó á śćȟéďúľé ćáńńóť ƀé śéť ťó Áľľóŵ. Ťúŕń óń áľŵáýś áľľóŵ íń ýóúŕ śéťťíńǧś ƒíŕśť.]",
+	"code.schedule_editor.permission_allow_hint": "[Śúćȟ ťóóľś ŕúń áś ťȟéý ŵóúľď ƒóŕ ýóú úńďéŕ ýóúŕ áþþŕóǚáľ śéťťíńǧ. Ćóńťéńť ťȟé ŕúń ŕéáďś (á ŵéƀ þáǧé, á ďóćúḿéńť, á ćóńńéćťóŕ'ś áńśŵéŕ) ćáń ťŕý ťó śťééŕ ťȟéḿ, śó ćȟóóśé ťȟíś óńľý ƒóŕ ŵóŕķ ýóú ťŕúśť.]",
+	"code.schedule_editor.permission_ask_hint": "[Ťóóľś ťȟáť ńééď ýóúŕ áþþŕóǚáľ áŕé ŕéƒúśéď: ńóƀóďý íś ťȟéŕé ťó áþþŕóǚé ťȟéḿ.]",
 	"code.schedule_editor.plan_hint": "[Ťȟé áǧéńť ćáń ŕéáď ƀúť íś ŕéƒúśéď áńýťȟíńǧ ťȟáť ćȟáńǧéś óŕ ŕúńś.]",
 	"code.schedule_editor.preset_cron": "[Áďǚáńćéď (ćŕóń éẋþŕéśśíóń)]",
 	"code.schedule_editor.preset_daily": "[Éǚéŕý ďáý]",
@@ -580,6 +601,7 @@
 	"code.schedule_editor.prompt": "[Þŕóḿþť]",
 	"code.schedule_editor.prompt_placeholder": "[Ŕúń ťȟé ťéśť śúíťé áńď śúḿḿáŕíśé áńý ƒáíľúŕéś.]",
 	"code.schedule_editor.repeats": "[Ŕéþéáťś]",
+	"code.schedule_editor.same_as_chat": "[Ťȟé ńéŵ ćȟáťś úśé ťȟé śáḿé ḿóďéľ áńď þŕóĵéćť áś “{title}”.]",
 	"code.schedule_editor.save_changes": "[Śáǚé ćȟáńǧéś]",
 	"code.schedule_editor.save_failed": "[Ćóúľď ńóť śáǚé]",
 	"code.schedule_editor.saving": "[Śáǚíńǧ…]",
@@ -620,6 +642,8 @@
 	"code.schedule_history.empty_title": "[Ńó ŕúńś ýéť]",
 	"code.schedule_history.heading": "[Ȟíśťóŕý]",
 	"code.schedule_history.loading": "[Ĺóáďíńǧ…]",
+	"code.schedule_history.open_chat": "[Óþéń ćȟáť]",
+	"code.schedule_history.open_chat_label": "[Óþéń ćȟáť: {label}]",
 	"code.schedule_history.open_session": "[Óþéń śéśśíóń]",
 	"code.schedule_history.open_session_label": "[Óþéń śéśśíóń: {label}]",
 	"code.schedule_history.run_now": "[Ŕúń ńóŵ]",
@@ -649,6 +673,7 @@
 	"code.schedules.empty_detail": "[Ḿáķé óńé ȟéŕé, óŕ ćȟóóśé “Śćȟéďúľé ťȟíś…” íń á śéśśíóń'ś ḿéńú ťó śťáŕť ƒŕóḿ íť.]",
 	"code.schedules.empty_title": "[Ńó śćȟéďúľéś ýéť]",
 	"code.schedules.history": "[Ȟíśťóŕý]",
+	"code.schedules.kind_chat": "[Ćȟáť]",
 	"code.schedules.last_run": "[Ĺáśť ŕúń]",
 	"code.schedules.loading": "[Ĺóáďíńǧ…]",
 	"code.schedules.never": "[Ńéǚéŕ]",
@@ -664,6 +689,7 @@
 	"code.schedules.run_progress": "[{fired}/{max} ŕúń]",
 	"code.schedules.runs": "[Ŕúńś]",
 	"code.schedules.subtitle": "[Þŕóḿþťś śéńť ťó ýóúŕ ćóďíńǧ śéśśíóńś óń á ťíḿéťáƀľé.]",
+	"code.schedules.tips.chat": "[Á ćȟáť śćȟéďúľé ŕúńś óń ťȟé ƀáćķǧŕóúńď áććéśś ýóúŕ śíǧń-íń ǧíǚéś. Íƒ ťȟáť áććéśś śťóþś ŵóŕķíńǧ ýóúŕ ćȟáť śćȟéďúľéś śŵíťćȟ ťȟéḿśéľǚéś óƒƒ: śíǧń íń áǧáíń áńď ťúŕń ťȟéḿ ƀáćķ óń. Ýóú ćáń śťóþ íť úńďéŕ Śéťťíńǧś; ťȟáť ďóéś ńóť śíǧń ýóú óúť.]",
 	"code.schedules.tips.failures": "[Ťȟŕéé ƒáíľéď ŕúńś íń á ŕóŵ śŵíťćȟ á śćȟéďúľé óƒƒ.]",
 	"code.schedules.tips.offline": "[Á ŕúń óń á ḿáćȟíńé ťȟáť íś óƒƒľíńé íś ŕéćóŕďéď áś ḿíśśéď, ńéǚéŕ ǫúéúéď. Ḿáćȟíńéś þáý ƒóŕ ťȟéíŕ óŵń ŕúńś ŵíťȟ ťȟéíŕ óŵń ćŕéďéńťíáľ.]",
 	"code.schedules.tips.skipped": "[Íƒ ťȟé þŕéǚíóúś ŕúń'ś śéśśíóń íś śťíľľ ŵóŕķíńǧ, ťȟé ńéẋť óńé íś śķíþþéď. Íƒ Ćéŕéá ŵáś ďóŵń, áť ḿóśť óńé ľáťé ŕúń íś ḿáďé úþ, áńď óńľý ŵȟéń íť íś ńóť ǚéŕý ľáťé.]",
@@ -946,6 +972,7 @@
 	"app.nav.new_chat": "[Ńéŵ ćȟáť]",
 	"app.nav.new_chat_shortcut": "[Ćťŕľ/Ćḿď + Śȟíƒť + Ó]",
 	"app.nav.no_chats": "[Ńó ćȟáťś ýéť]",
+	"app.nav.schedules": "[Śćȟéďúľéś]",
 	"app.nav.settings": "[Śéťťíńǧś]",
 	"app.nav.workspace": "[Ŵóŕķśþáćé]",
 	"app.nav_item.actions": "[Ćȟáť áćťíóńś]",
@@ -955,6 +982,8 @@
 	"app.nav_item.more_options": "[Ḿóŕé óþťíóńś]",
 	"app.nav_item.move": "[Ḿóǚé ťó þŕóĵéćť…]",
 	"app.nav_item.rename": "[Ŕéńáḿé]",
+	"app.nav_item.schedule": "[Śćȟéďúľé…]",
+	"app.nav_item.unread": "[Á śćȟéďúľéď ŕúń áńśŵéŕéď ȟéŕé]",
 	"app.notification.completed": "[Ŕéśþóńśé ŕéáďý]",
 	"app.notification.failed": "[Ǧéńéŕáťíóń ƒáíľéď]",
 	"app.notification.interrupted": "[Ǧéńéŕáťíóń śťóþþéď]",
@@ -1027,6 +1056,33 @@
 	"chat.approval.hours_left": "[{count}ȟ ľéƒť]",
 	"chat.approval.minutes_left": "[{count}ḿ ľéƒť]",
 	"chat.approval.no_answer": "[Ťȟé áńśŵéŕ ďíď ńóť ǧó ťȟŕóúǧȟ.]",
+	"chat.approval.schedule.create": "[Ćŕéáťé śćȟéďúľé]",
+	"chat.approval.schedule.name": "[Ńáḿé]",
+	"chat.approval.schedule.permission": "[Ťóóľś ńééďíńǧ áþþŕóǚáľ]",
+	"chat.approval.schedule.permission_allow": "[Ŕúń áś ƒóŕ ýóú, úńďéŕ ýóúŕ áþþŕóǚáľ śéťťíńǧ]",
+	"chat.approval.schedule.permission_ask": "[Ŕéƒúśéď: ńóƀóďý íś ťȟéŕé ťó áþþŕóǚé ťȟéḿ]",
+	"chat.approval.schedule.prompt": "[Śéńďś]",
+	"chat.approval.schedule.repeats": "[Ŕéþéáťś]",
+	"chat.approval.schedule.stops": "[Śťóþś]",
+	"chat.approval.schedule.stops_value": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[Áƒťéŕ {count} ŕúń]",
+				"countPlural=other": "[Áƒťéŕ {count} ŕúńś]"
+			}
+		}
+	],
+	"chat.approval.schedule.title": "[Śćȟéďúľé]",
+	"chat.approval.schedule.where": "[Ŵȟéŕé]",
+	"chat.approval.schedule.where_continue": "[Íń ťȟíś ćȟáť]",
+	"chat.approval.schedule.where_new": "[Íń á ńéŵ ćȟáť éáćȟ ťíḿé]",
 	"chat.approval.seconds_left": "[{count}ś ľéƒť]",
 	"chat.approval.subagent": "[Śúƀáǧéńť]",
 	"chat.approval.subagent_named": "[Śúƀáǧéńť {title}]",
@@ -2551,6 +2607,42 @@
 	"projects.page.tab.conversations": "[Ćóńǚéŕśáťíóńś]",
 	"projects.page.tab.settings": "[Śéťťíńǧś]",
 	"projects.page.unsaved": "[Úńśáǚéď ćȟáńǧéś]",
+	"settings.schedule_access.granted": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[Śćȟéďúľéď ćȟáťś ćáń ŕúń ŵȟíľé ýóú áŕé áŵáý. {count} ćȟáť śćȟéďúľé úśéś íť.]",
+				"countPlural=other": "[Śćȟéďúľéď ćȟáťś ćáń ŕúń ŵȟíľé ýóú áŕé áŵáý. {count} ćȟáť śćȟéďúľéś úśé íť.]"
+			}
+		}
+	],
+	"settings.schedule_access.not_granted": "[Ńóť áǚáíľáƀľé. Íť ćóḿéś ƒŕóḿ śíǧńíńǧ íń; íƒ íť íś śťíľľ ḿíśśíńǧ áƒťéŕ ýóú śíǧń íń áǧáíń, ýóúŕ áďḿíńíśťŕáťóŕ ȟáś ťó áľľóŵ ŕéƒŕéśȟ ťóķéńś (óƒƒľíńé_áććéśś) ƒóŕ ťȟé ćȟáť'ś ćľíéńť.]",
+	"settings.schedule_access.stop": "[Śťóþ ƀáćķǧŕóúńď áććéśś ƒóŕ śćȟéďúľéś]",
+	"settings.schedule_access.stop_hint": "[Ýóúŕ ćȟáť śćȟéďúľéś śŵíťćȟ óƒƒ áńď śťóþ úśíńǧ íť. Íť ďóéś ńóť śíǧń ýóú óúť: ýóúŕ śíǧń-íń ķééþś ŵóŕķíńǧ. Ťúŕńíńǧ á ćȟáť śćȟéďúľé óń áǧáíń, óŕ śíǧńíńǧ íń áǧáíń, ǧíǚéś íť ƀáćķ.]",
+	"settings.schedule_access.stopped": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[Śťóþþéď. {count} ćȟáť śćȟéďúľé ŵáś śŵíťćȟéď óƒƒ.]",
+				"countPlural=other": "[Śťóþþéď. {count} ćȟáť śćȟéďúľéś ŵéŕé śŵíťćȟéď óƒƒ.]"
+			}
+		}
+	],
+	"settings.schedule_access.stopped_state": "[Śťóþþéď. Ťúŕńíńǧ á ćȟáť śćȟéďúľé óń áǧáíń, óŕ śíǧńíńǧ íń áǧáíń, ǧíǚéś śćȟéďúľéď ćȟáťś ťȟé ƀáćķǧŕóúńď áććéśś ƀáćķ.]",
+	"settings.schedule_access.could_not_stop": "[Ćóúľď ńóť śťóþ ťȟé ƀáćķǧŕóúńď áććéśś.]",
+	"settings.schedule_access.title": "[Ɓáćķǧŕóúńď áććéśś ƒóŕ śćȟéďúľéś]",
 	"settings.title": "[Śéťťíńǧś]",
 	"settings.sections_label": "[Śéťťíńǧś śéćťíóńś]",
 	"settings.tabs.application": "[Áþþľíćáťíóń śéťťíńǧś]",

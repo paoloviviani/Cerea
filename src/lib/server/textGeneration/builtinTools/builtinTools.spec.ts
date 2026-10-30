@@ -339,3 +339,37 @@ describe("look_doc", () => {
 		);
 	});
 });
+
+describe("a scheduled run's tools", () => {
+	const conv = { _id: new ObjectId() };
+	const names = (extra: Partial<Parameters<typeof getEnabledBuiltinTools>[0]> = {}) =>
+		getEnabledBuiltinTools({ conv, toolsEnabled: true, ...extra }).map((tool) => tool.name);
+
+	it("withholds what parks the turn on a person: questions, and with them the browser sandbox", () => {
+		expect(names({ askUserQuestionEnabled: true })).toContain("ask_user_question");
+		expect(names({ askUserQuestionEnabled: true, unattended: true })).not.toContain(
+			"ask_user_question"
+		);
+		// Everything else a chat has stays: the plan, and server-side tools.
+		expect(names({ unattended: true })).toContain("update_plan");
+	});
+
+	it("never carries any tool that can park, whatever it is", () => {
+		const tools = getEnabledBuiltinTools({
+			conv,
+			toolsEnabled: true,
+			askUserQuestionEnabled: true,
+			unattended: true,
+		});
+		expect(tools.filter((tool) => tool.mayPark)).toEqual([]);
+	});
+
+	it("offers the schedule tool to a signed-in person's chat, never to a run nobody watches", () => {
+		expect(names()).not.toContain("schedule");
+		expect(names({ scheduling: { timezone: "Europe/Rome" } })).toContain("schedule");
+		expect(names({ scheduling: {}, unattended: true })).not.toContain("schedule");
+		expect(getEnabledBuiltinTools({ conv, scheduling: {} }).map((tool) => tool.name)).not.toContain(
+			"schedule"
+		);
+	});
+});

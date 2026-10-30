@@ -10,6 +10,7 @@
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
+import { logger } from "$lib/server/logger";
 import { getExecutor } from "./executors";
 import { maxSchedulesPerUser } from "./limits";
 import { isValidTimezone, nextOccurrence, validateRecurrence } from "./recurrence";
@@ -24,7 +25,7 @@ import {
 
 export class ScheduleError extends Error {
 	constructor(
-		readonly status: 400 | 404 | 409,
+		readonly status: 400 | 403 | 404 | 409,
 		message: string
 	) {
 		super(message);
@@ -109,13 +110,21 @@ function checkRecurrence(input: unknown, timezone: string): Schedule["recurrence
 async function checkTarget(
 	kind: Schedule["kind"],
 	target: unknown,
-	userId: ObjectId
+	userId: ObjectId,
+	token?: string,
+	current?: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
 	const executor = getExecutor(kind);
 	if (!executor) throw new ScheduleError(400, `Nothing here can run "${kind}" schedules.`);
-	const result = await executor.validateTarget(target, { userId });
+	const result = await executor.validateTarget(target, { userId, token, current });
 	if (!result.ok) throw new ScheduleError(400, result.error);
 	return result.target;
+}
+
+/** What stops this person having a schedule of the kind running yet (chat: no background grant), or nothing. */
+async function checkPrecondition(kind: Schedule["kind"], userId: ObjectId): Promise<void> {
+	const reason = await getExecutor(kind)?.precondition?.(userId);
+	if (reason) throw new ScheduleError(409, reason);
 }
 
 /** `createdBy` comes from the caller, never from the body: the person's API
@@ -123,7 +132,7 @@ async function checkTarget(
 export async function createSchedule(
 	userId: ObjectId,
 	body: unknown,
-	options: { createdBy?: ScheduleCreator } = {}
+	options: { createdBy?: ScheduleCreator; token?: string } = {}
 ): Promise<Schedule> {
 	const parsed = createSchema.safeParse(body);
 	if (!parsed.success) throw new ScheduleError(400, "The schedule is missing a field.");
@@ -136,10 +145,11 @@ export async function createSchedule(
 	const prompt = checkPrompt(input.prompt);
 	const timezone = checkTimezone(input.timezone);
 	const recurrence = checkRecurrence(input.recurrence, timezone);
-	const target = await checkTarget(input.kind, input.target, userId);
+	const target = await checkTarget(input.kind, input.target, userId, options.token);
 
 	const now = new Date();
 	const enabled = input.enabled ?? true;
+	if (enabled) await checkPrecondition(input.kind, userId);
 	const schedule: Schedule = {
 		_id: new ObjectId(),
 		userId,
@@ -184,7 +194,8 @@ export async function listSchedules(userId: ObjectId): Promise<Schedule[]> {
 export async function updateSchedule(
 	userId: ObjectId,
 	id: string,
-	body: unknown
+	body: unknown,
+	options: { token?: string } = {}
 ): Promise<Schedule> {
 	const parsed = updateSchema.safeParse(body);
 	if (!parsed.success) throw new ScheduleError(400, "The change is not valid.");
@@ -206,7 +217,13 @@ export async function updateSchedule(
 		checkRecurrence(existing.recurrence, timezone);
 	}
 	if (patch.target !== undefined) {
-		set.target = await checkTarget(existing.kind, patch.target, userId);
+		set.target = await checkTarget(
+			existing.kind,
+			patch.target,
+			userId,
+			options.token,
+			existing.target
+		);
 		set.consecutiveFailures = 0;
 	}
 
@@ -242,6 +259,11 @@ export async function updateSchedule(
 		set.disabledReason = capReachedReason(cap);
 	}
 
+	// Switching a schedule on (or making it run again) needs what the kind needs of the person.
+	if ((set.enabled ?? enabled) === true && (revived || patch.target !== undefined)) {
+		await checkPrecondition(existing.kind, userId);
+	}
+
 	const updated = await collections.schedules.findOneAndUpdate(
 		{ _id: existing._id, userId },
 		{ $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
@@ -252,9 +274,20 @@ export async function updateSchedule(
 }
 
 /** Remove the schedule. Its run rows stay: they are the record of what ran. */
-export async function deleteSchedule(userId: ObjectId, id: string): Promise<void> {
-	const { deletedCount } = await collections.schedules.deleteOne({ _id: parseId(id), userId });
-	if (!deletedCount) throw new ScheduleError(404, "No such schedule.");
+export async function deleteSchedule(
+	userId: ObjectId,
+	id: string,
+	options: { token?: string } = {}
+): Promise<void> {
+	void options;
+	const removed = await collections.schedules.findOneAndDelete({ _id: parseId(id), userId });
+	if (!removed?.value) throw new ScheduleError(404, "No such schedule.");
+	// Whatever the kind kept for it (chat: the grant, when it was the last) goes with it.
+	try {
+		await getExecutor(removed.value.kind)?.afterDelete?.(removed.value);
+	} catch (err) {
+		logger.warn({ err, scheduleId: id }, "schedule_after_delete_failed");
+	}
 }
 
 export async function listRuns(userId: ObjectId, id: string, limit = 50): Promise<ScheduleRun[]> {
@@ -292,7 +325,9 @@ export async function scheduleView(schedule: Schedule): Promise<ScheduleView> {
 		firedCount: schedule.firedCount ?? 0,
 		...(schedule.lastRunAt ? { lastRunAt: schedule.lastRunAt } : {}),
 		...(schedule.lastStatus ? { lastStatus: schedule.lastStatus } : {}),
-		...(schedule.createdBy?.kind === "agent" ? { createdBy: schedule.createdBy } : {}),
+		...(schedule.createdBy && schedule.createdBy.kind !== "person"
+			? { createdBy: schedule.createdBy }
+			: {}),
 		createdAt: schedule.createdAt,
 		updatedAt: schedule.updatedAt,
 	};

@@ -370,6 +370,85 @@ assistant is then not offered `delegate` or `research`. Coding agents on your ow
 machines have their own, separate kind of delegation: see
 [Delegating work](agent-machines-reference.md#delegating-work).
 
+## Scheduled chats
+
+A **scheduled chat** sends a prompt of yours again on a timetable and lets the
+assistant answer, with nobody at the screen: "every Monday at 08:00, summarise
+the news on space travel", "every Friday, remind me to send the report". Every
+signed-in user has them; they are not part of the coding agents.
+
+**Making one.** Three ways:
+
+- Open a conversation's **⋯** menu in the sidebar and choose **Schedule…**. The
+  editor opens on that chat.
+- Open **Schedules** in the sidebar and choose **New schedule**.
+- Ask the assistant: "remind me every Friday at 4 pm to send the weekly report".
+  It proposes the schedule on a card, with its name, timetable, where it runs
+  and the prompt it will send, and the schedule exists only if you press
+  **Create schedule**. There is no "allow for this conversation" on that card:
+  each schedule is confirmed by you, one at a time.
+
+In the editor you give a name, the prompt, how often (every N hours, daily,
+weekdays, weekly, or a cron expression; at least 15 minutes apart; read in the
+timezone you choose), and where it runs:
+
+- **Continue this chat** (the default): each run posts the prompt into the chat
+  and the assistant answers there, with the chat's earlier messages as context.
+- **New chat each time**: each run starts a new chat, titled with the schedule's
+  name and the time, on the same model (and project, when it was made from a
+  chat in one).
+
+You can also set it to stop after a number of runs (one run makes a one-time
+reminder), switch it off and on, edit it, or press **Run now** to try it.
+
+**What a scheduled run can do.** It runs as you, on the server, in the same way as
+a message you send: your model access, quota, billing group and instructions
+apply, and your connectors that run on the server, web search and fetching, and
+the document tools work. Two things do not, because nobody is there:
+
+- **No Python.** The sandbox runs in your browser, so a scheduled run cannot run
+  code. The assistant is told so; it can still write code for you to read.
+- **Tools that need approval depend on the schedule's permission mode**, which you
+  set in the editor like a coding agent's: **Ask** (the default for a person on the
+  manual approval setting) refuses every such tool, the way a sub-agent's are, and the
+  assistant says that step needs you, whatever else you approved before. **Allow** (only
+  for a person whose approval setting is "always allow") runs them as they would for
+  you, under that setting and what the chat already approved. Content a run reads (a
+  web page, a document, a connector's answer) can try to steer a tool, so choose Allow
+  only for work you trust. A schedule is never looser than your own setting, and the
+  assistant's own proposals are never looser than the conversation's. Nobody can answer
+  a question or a card in a scheduled run, so nothing waits for you.
+
+Every scheduled prompt starts with one line you did not write, naming the
+schedule, its timetable, when it last ran and the two limits above; the prompt
+follows as you wrote it.
+
+**Where the answer is.** In the chat. A chat a scheduled run answered in has a dot
+in the sidebar until you open it, and, if you turned on **A scheduled run
+finishes** under [Notifications](notifications.md), a notification says it
+answered (or failed). Each schedule's **History** lists every run, fired or
+not, and links to the chat. A run is **sent**, **skipped** (the previous turn in
+that chat was still generating, so the next waits for its time), or **failed**;
+three failures in a row switch the schedule off, with the reason shown on it.
+
+**Background access.** A run has no signed-in session of yours, so it uses the
+background access your sign-in leaves behind: your identity provider issues a refresh
+token (the first sign-in on a browser asks for it, and your provider may show a consent
+screen for it, once per browser), and Cerea keeps one per person, sealed, shared by your
+browser sessions and your scheduled runs (the newest sign-in replaces the older). Runs
+refresh an access token from it and call the models as you, so your quota, billing
+group, redaction rules and model access apply and usage is yours. Signing out of one
+device keeps it. If your identity provider refuses it (you were deprovisioned, or
+revoked it), you are signed out and your chat schedules switch themselves off with
+"Sign in again and turn it back on"; signing in again restores the access and you turn
+the schedules on. **Settings → Application → Background access for schedules → Stop**
+switches your chat schedules off and stops them using it; it does not sign you out
+(your sessions keep refreshing through it), and turning a chat schedule on again, or
+signing in again, gives it back. Deleting your account removes it. If your identity
+provider issues no refresh token, chat works as always but schedules explain that your
+administrator has to allow refresh tokens. You may have up to 20 schedules by default;
+your administrator can change that.
+
 ## Notifications
 
 Cerea can send a notification to your phone or desktop when a long chat answer is

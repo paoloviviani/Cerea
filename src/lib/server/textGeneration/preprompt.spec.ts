@@ -238,3 +238,23 @@ describe("the administrator's instructions", () => {
 		expect(composeUserPrompt({ adminInstructions: "ADMIN" })).toBe("ADMIN");
 	});
 });
+
+describe("resolvePreprompt in a scheduled run", () => {
+	it("says Python cannot run instead of teaching the sandbox", () => {
+		const prompt = resolvePreprompt({
+			conversationPreprompt: "Be brief.",
+			executionAvailable: false,
+		});
+		expect(prompt).toContain("Be brief.");
+		expect(prompt).toContain("Python cannot be run in this scheduled run");
+		expect(prompt).not.toContain("The execute_code tool");
+		expect(prompt).not.toContain("Pyodide");
+	});
+
+	it("keeps the execution prompt for every other turn", () => {
+		expect(resolvePreprompt({ conversationPreprompt: "x" })).toBe(
+			resolvePreprompt({ conversationPreprompt: "x", executionAvailable: true })
+		);
+		expect(resolvePreprompt({ conversationPreprompt: "x" })).toContain("Pyodide");
+	});
+});

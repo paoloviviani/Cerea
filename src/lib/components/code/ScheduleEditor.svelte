@@ -22,6 +22,10 @@
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
 	import { onMount, untrack } from "svelte";
+	import { page } from "$app/state";
+	import { base } from "$app/paths";
+	import { useSettingsStore } from "$lib/stores/settings";
+	import { getScheduleGrant, type ScheduleGrantStatus } from "$lib/scheduleGrantApi";
 	import ScheduleCreatedBy from "./ScheduleCreatedBy.svelte";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import IconTime from "~icons/carbon/time";
@@ -56,7 +60,13 @@
 		/** The schedule being edited; absent for a new one. */
 		editing?: ScheduleView;
 		/** Where "Schedule this…" came from. */
-		prefill?: { deviceId?: string; workspaceId?: string; sessionId?: string };
+		prefill?: {
+			deviceId?: string;
+			workspaceId?: string;
+			sessionId?: string;
+			/** A conversation's "Schedule…": the chat to continue, or to copy the model and project from. */
+			conversationId?: string;
+		};
 		onsaved: (schedule: ScheduleView) => void;
 		oncancel: () => void;
 	}
@@ -78,6 +88,50 @@
 	};
 	const stored = (untrack(() => editing?.target) ?? {}) as Target;
 	const initial = untrack(() => prefill) ?? {};
+
+	// What it runs: a coding agent on a paired machine (people the /code panel is on for), or
+	// a chat (everyone). An existing schedule keeps its kind.
+	const agentsAllowed = page.data.codeSchedulesEnabled !== false;
+	let kind = $state<"agent" | "chat">(
+		untrack(() => editing?.kind) ?? (initial.conversationId || !agentsAllowed ? "chat" : "agent")
+	);
+	type ChatTarget = {
+		permissionMode?: "ask" | "allow";
+		mode?: "continue" | "new";
+		conversationId?: string;
+		model?: string;
+		projectId?: string;
+		billingGroupId?: string;
+	};
+	const chatStored = (untrack(() => (editing?.kind === "chat" ? editing.target : {})) ??
+		{}) as ChatTarget;
+	// The chat picker's "a new chat each time" choice, like the agent picker's "a new session each run".
+	const NEW_CHAT = "__new__";
+	let chatMode = $state<"continue" | "new">(chatStored.mode ?? "continue");
+	let chatConversationId = $state(chatStored.conversationId ?? initial.conversationId ?? "");
+	let chatModel = $state(chatStored.model ?? "");
+	// The person's own approval setting: a schedule is never looser than it, and starts at it.
+	let approvalPolicy = $state<"always-allow" | "manual">("manual");
+	const settingsStore = useSettingsStore();
+	let chatPermission = $state<"ask" | "allow">(
+		(chatStored as { permissionMode?: "ask" | "allow" }).permissionMode ?? "ask"
+	);
+	// Background access comes from signing in (`schedules/grants.ts`); this says when it is missing.
+	let grant = $state<ScheduleGrantStatus | null>(null);
+	const chatConversations = $derived(
+		(page.data.conversations ?? []) as { id: string | { toString(): string }; title: string }[]
+	);
+	const chatModels = $derived(
+		(page.data.models ?? []) as {
+			id: string;
+			displayName?: string;
+			name?: string;
+			unlisted?: boolean;
+		}[]
+	);
+	const templateChat = $derived(
+		chatConversations.find((c) => String(c.id) === initial.conversationId)
+	);
 
 	let name = $state(untrack(() => editing?.name) ?? "");
 	let prompt = $state(untrack(() => editing?.prompt) ?? "");
@@ -200,6 +254,19 @@
 	}
 
 	onMount(() => {
+		const unsubscribe = settingsStore?.subscribe((value) => {
+			approvalPolicy = value.toolApprovalPolicy ?? "manual";
+			// A new schedule starts at the person's own policy.
+			if (!editing && value.toolApprovalPolicy === "always-allow") chatPermission = "allow";
+			if (approvalPolicy !== "always-allow") chatPermission = "ask";
+		});
+		void getScheduleGrant()
+			.then((status) => (grant = status))
+			.catch(() => (grant = null));
+		return () => unsubscribe?.();
+	});
+
+	onMount(() => {
 		if (!deviceId && pairedDevices.length === 1) deviceId = pairedDevices[0].id;
 	});
 
@@ -266,10 +333,19 @@
 		if (busy) return;
 		failure = null;
 		if (!name.trim()) return (failure = m["code.schedule_editor.err_name"]());
-		if (!deviceId) return (failure = m["code.schedule_editor.err_machine"]());
-		if (!workspaceChoice) return (failure = m["code.schedule_editor.err_workspace"]());
-		if (makingWorkspace && !newPath.trim())
-			return (failure = m["code.schedule_editor.err_new_dir"]());
+		if (kind === "chat") {
+			if (enabled && grant?.required && !grant.granted)
+				return (failure = m["code.schedule_editor.err_grant"]());
+			if (chatMode === "continue" && !chatConversationId)
+				return (failure = m["code.schedule_editor.err_chat"]());
+			if (chatMode === "new" && !chatModel && !initial.conversationId)
+				return (failure = m["code.schedule_editor.err_model"]());
+		} else if (!deviceId) return (failure = m["code.schedule_editor.err_machine"]());
+		if (kind === "agent") {
+			if (!workspaceChoice) return (failure = m["code.schedule_editor.err_workspace"]());
+			if (makingWorkspace && !newPath.trim())
+				return (failure = m["code.schedule_editor.err_new_dir"]());
+		}
 		if (!prompt.trim()) return (failure = m["code.schedule_editor.err_prompt"]());
 		// Empty = no stopping criterion; `null` clears one on an edit.
 		const capRaw = stopAfter == null ? "" : String(stopAfter).trim();
@@ -278,6 +354,38 @@
 		}
 		busy = true;
 		try {
+			if (kind === "chat") {
+				const target =
+					chatMode === "continue"
+						? {
+								mode: "continue",
+								conversationId: chatConversationId,
+								permissionMode: chatPermission,
+							}
+						: {
+								mode: "new",
+								permissionMode: chatPermission,
+								...(initial.conversationId ? { conversationId: initial.conversationId } : {}),
+								...(chatModel ? { model: chatModel } : {}),
+								...(chatStored.projectId && !initial.conversationId
+									? { projectId: chatStored.projectId }
+									: {}),
+							};
+				const input = {
+					name: name.trim(),
+					prompt: prompt.trim(),
+					recurrence,
+					timezone,
+					enabled,
+					maxOccurrences: capRaw === "" ? null : Number(capRaw),
+					target,
+				};
+				const saved = editing
+					? await updateSchedule(editing.id, input)
+					: await createSchedule({ ...input, kind: "chat" });
+				onsaved(saved.schedule);
+				return;
+			}
 			let workspaceId = workspaceChoice;
 			let workspaceName = knownWorkspace?.name ?? stored.labels?.workspace;
 			if (makingWorkspace) {
@@ -364,236 +472,379 @@
 				disabled={busy}
 			/>
 
-			<h3 class="{s.SECTION_TITLE} mt-6">{m["code.schedule_editor.where"]()}</h3>
-			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-device">{m["code.schedule_editor.machine"]()}</label>
-					<select
-						id="sched-device"
-						class={s.INPUT}
-						style="font-size: 16px;"
-						bind:value={deviceId}
-						onchange={onDeviceChange}
-						disabled={busy}
-					>
-						<option value="" disabled>{m["code.schedule_editor.choose_machine"]()}</option>
-						{#each pairedDevices as d (d.id)}
-							<option value={d.id}
-								>{m["code.schedule_editor.machine_option"]({
-									name: d.name,
-									state: d.online
-										? m["code.schedule_editor.online"]()
-										: m["code.schedule_editor.offline_state"](),
-								})}</option
-							>
-						{/each}
-					</select>
+			{#if !editing && agentsAllowed}
+				<div class="mt-6" role="radiogroup" aria-label={m["code.schedule_editor.kind"]()}>
+					<span class={s.LABEL}>{m["code.schedule_editor.kind"]()}</span>
+					<div class="mt-1 flex flex-wrap gap-4 text-sm text-ink">
+						<label class="flex items-center gap-2">
+							<input
+								type="radio"
+								name="sched-kind"
+								value="chat"
+								bind:group={kind}
+								disabled={busy}
+								data-testid="kind-chat"
+							/>
+							{m["code.schedule_editor.kind_chat"]()}
+						</label>
+						<label class="flex items-center gap-2">
+							<input
+								type="radio"
+								name="sched-kind"
+								value="agent"
+								bind:group={kind}
+								disabled={busy}
+								data-testid="kind-agent"
+							/>
+							{m["code.schedule_editor.kind_agent"]()}
+						</label>
+					</div>
 				</div>
-				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-workspace"
-						>{m["code.schedule_editor.workspace"]()}</label
-					>
-					<select
-						id="sched-workspace"
-						class={s.INPUT}
-						style="font-size: 16px;"
-						bind:value={workspaceChoice}
-						onchange={onWorkspaceChange}
-						disabled={busy || !deviceId}
-					>
-						<option value="" disabled>
-							{loadingMachine
-								? m["code.schedule_editor.loading"]()
-								: m["code.schedule_editor.choose_workspace"]()}
-						</option>
-						{#each workspaces as w (w.id)}
-							<option value={w.id}>{w.name}</option>
-						{/each}
-						{#if workspaceChoice && workspaceChoice !== NEW && !knownWorkspace}
-							<option value={workspaceChoice}>{stored.labels?.workspace ?? workspaceChoice}</option>
-						{/if}
-						{#if online}
-							<option value={NEW}>{m["code.schedule_editor.new_workspace"]()}</option>
-						{/if}
-					</select>
-				</div>
-			</div>
-			{#if machineNote}
-				<p class="{s.NOTICE} mt-3" data-testid="machine-offline-note">{machineNote}</p>
 			{/if}
 
-			{#if makingWorkspace}
-				<div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2" data-testid="new-workspace">
-					<div class="relative min-w-0">
-						<label class={s.LABEL} for="sched-newpath">{m["code.schedule_editor.new_dir"]()}</label>
-						<input
-							id="sched-newpath"
+			{#if kind === "chat"}
+				<h3 class="{s.SECTION_TITLE} mt-6">{m["code.schedule_editor.where"]()}</h3>
+				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+					<div class="min-w-0">
+						<label class={s.LABEL} for="sched-chat">{m["code.schedule_editor.chat"]()}</label>
+						<select
+							id="sched-chat"
 							class={s.INPUT}
 							style="font-size: 16px;"
-							placeholder={m["code.schedule_editor.new_dir_placeholder"]()}
-							maxlength={1024}
-							autocomplete="off"
-							bind:value={newPath}
-							oninput={() => scheduleSuggest(newPath)}
+							value={chatMode === "new" ? NEW_CHAT : chatConversationId}
+							onchange={(e) => {
+								const value = e.currentTarget.value;
+								chatMode = value === NEW_CHAT ? "new" : "continue";
+								if (value !== NEW_CHAT) chatConversationId = value;
+							}}
 							disabled={busy}
-						/>
-						{#if suggestions.length > 0}
-							<div
-								role="listbox"
-								aria-label={m["code.schedule_editor.matching_dirs"]()}
-								class="absolute z-20 mt-1 scrollbar-custom max-h-48 w-full overflow-y-auto rounded-lg border border-line bg-surface py-1 text-sm shadow-lg"
+						>
+							<option value="" disabled>{m["code.schedule_editor.choose_chat"]()}</option>
+							<option value={NEW_CHAT}>{m["code.schedule_editor.mode_new"]()}</option>
+							{#each chatConversations as c (String(c.id))}
+								<option value={String(c.id)}>{c.title}</option>
+							{/each}
+							{#if chatMode === "continue" && chatConversationId && !chatConversations.some((c) => String(c.id) === chatConversationId)}
+								<option value={chatConversationId}>
+									{editing?.targetLabel.replace(/^[^›]*›\s*/, "") ?? chatConversationId}
+								</option>
+							{/if}
+						</select>
+					</div>
+					{#if chatMode === "new"}
+						<div class="min-w-0">
+							{#if templateChat}
+								<span class={s.LABEL}>{m["code.schedule_editor.model"]()}</span>
+								<p class="py-2 text-sm text-ink-muted">
+									{m["code.schedule_editor.same_as_chat"]({ title: templateChat.title })}
+								</p>
+							{:else}
+								<label class={s.LABEL} for="sched-model">{m["code.schedule_editor.model"]()}</label>
+								<select
+									id="sched-model"
+									class={s.INPUT}
+									style="font-size: 16px;"
+									bind:value={chatModel}
+									disabled={busy}
+								>
+									<option value="" disabled>{m["code.schedule_editor.choose_model"]()}</option>
+									{#each chatModels.filter((x) => !x.unlisted) as model (model.id)}
+										<option value={model.id}>{model.displayName ?? model.name ?? model.id}</option>
+									{/each}
+								</select>
+							{/if}
+						</div>
+					{/if}
+				</div>
+				<p class={s.HINT}>
+					{chatMode === "new"
+						? m["code.schedule_editor.mode_new_hint"]()
+						: m["code.schedule_editor.mode_continue_hint"]()}
+				</p>
+
+				<div class="mt-4">
+					<span class={s.LABEL} id="sched-perm-label">{m["code.schedule_editor.permission"]()}</span
+					>
+					<div class="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="sched-perm-label">
+						{#each [["ask", m["code.permission_mode.ask"]()], ["allow", m["code.permission_mode.allow"]()]] as const as [value, label] (value)}
+							<button
+								type="button"
+								role="radio"
+								aria-checked={chatPermission === value}
+								class={chatPermission === value ? s.PRIMARY : s.SECONDARY}
+								onclick={() => (chatPermission = value)}
+								disabled={busy || (value === "allow" && approvalPolicy !== "always-allow")}
+								data-testid={`perm-${value}`}
 							>
-								{#each suggestions as dir (dir.path)}
-									<button
-										type="button"
-										role="option"
-										aria-selected="false"
-										class="block w-full truncate px-3 py-1.5 text-left text-ink hover:bg-sunken"
-										onpointerdown={(e) => {
-											e.preventDefault();
-											newPath = dir.path;
-											suggestions = [];
-										}}
-									>
-										{dir.path}
-									</button>
-								{/each}
-							</div>
-						{/if}
+								{label}
+							</button>
+						{/each}
+					</div>
+					{#if chatPermission === "allow"}
+						<p class={s.HINT}>{m["code.schedule_editor.permission_allow_hint"]()}</p>
+					{:else}
+						<p class={s.HINT}>{m["code.schedule_editor.permission_ask_hint"]()}</p>
+					{/if}
+					{#if approvalPolicy !== "always-allow"}
+						<p class={s.HINT}>{m["code.schedule_editor.permission_allow_blocked"]()}</p>
+					{/if}
+				</div>
+				<p class={s.HINT} data-testid="chat-unattended-hint">
+					{m["code.schedule_editor.chat_unattended"]()}
+				</p>
+
+				{#if grant?.required && !grant.granted}
+					<div class="{s.NOTICE} mt-4" data-testid="grant-card">
+						<p class="font-medium">{m["code.schedule_editor.grant_title"]()}</p>
+						<p class="mt-1 text-xs">{m["code.schedule_editor.grant_text"]()}</p>
+						<a
+							href="{base}/login?next={encodeURIComponent(
+								`${page.url.pathname}${page.url.search}`
+							)}"
+							class="{s.PRIMARY} mt-3 inline-flex"
+							data-testid="grant-sign-in"
+						>
+							{m["code.schedule_editor.grant_sign_in"]()}
+						</a>
+					</div>
+				{/if}
+			{:else}
+				<h3 class="{s.SECTION_TITLE} mt-6">{m["code.schedule_editor.where"]()}</h3>
+				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+					<div class="min-w-0">
+						<label class={s.LABEL} for="sched-device">{m["code.schedule_editor.machine"]()}</label>
+						<select
+							id="sched-device"
+							class={s.INPUT}
+							style="font-size: 16px;"
+							bind:value={deviceId}
+							onchange={onDeviceChange}
+							disabled={busy}
+						>
+							<option value="" disabled>{m["code.schedule_editor.choose_machine"]()}</option>
+							{#each pairedDevices as d (d.id)}
+								<option value={d.id}
+									>{m["code.schedule_editor.machine_option"]({
+										name: d.name,
+										state: d.online
+											? m["code.schedule_editor.online"]()
+											: m["code.schedule_editor.offline_state"](),
+									})}</option
+								>
+							{/each}
+						</select>
 					</div>
 					<div class="min-w-0">
-						<label class={s.LABEL} for="sched-newtitle"
-							>{m["code.schedule_editor.new_title"]()}</label
+						<label class={s.LABEL} for="sched-workspace"
+							>{m["code.schedule_editor.workspace"]()}</label
 						>
-						<input
-							id="sched-newtitle"
+						<select
+							id="sched-workspace"
 							class={s.INPUT}
 							style="font-size: 16px;"
-							maxlength={120}
-							bind:value={newTitle}
-							disabled={busy}
-						/>
+							bind:value={workspaceChoice}
+							onchange={onWorkspaceChange}
+							disabled={busy || !deviceId}
+						>
+							<option value="" disabled>
+								{loadingMachine
+									? m["code.schedule_editor.loading"]()
+									: m["code.schedule_editor.choose_workspace"]()}
+							</option>
+							{#each workspaces as w (w.id)}
+								<option value={w.id}>{w.name}</option>
+							{/each}
+							{#if workspaceChoice && workspaceChoice !== NEW && !knownWorkspace}
+								<option value={workspaceChoice}
+									>{stored.labels?.workspace ?? workspaceChoice}</option
+								>
+							{/if}
+							{#if online}
+								<option value={NEW}>{m["code.schedule_editor.new_workspace"]()}</option>
+							{/if}
+						</select>
 					</div>
-					<p class="{s.HINT} sm:col-span-2">
-						{m["code.schedule_editor.new_hint"]()}
+				</div>
+				{#if machineNote}
+					<p class="{s.NOTICE} mt-3" data-testid="machine-offline-note">{machineNote}</p>
+				{/if}
+
+				{#if makingWorkspace}
+					<div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2" data-testid="new-workspace">
+						<div class="relative min-w-0">
+							<label class={s.LABEL} for="sched-newpath"
+								>{m["code.schedule_editor.new_dir"]()}</label
+							>
+							<input
+								id="sched-newpath"
+								class={s.INPUT}
+								style="font-size: 16px;"
+								placeholder={m["code.schedule_editor.new_dir_placeholder"]()}
+								maxlength={1024}
+								autocomplete="off"
+								bind:value={newPath}
+								oninput={() => scheduleSuggest(newPath)}
+								disabled={busy}
+							/>
+							{#if suggestions.length > 0}
+								<div
+									role="listbox"
+									aria-label={m["code.schedule_editor.matching_dirs"]()}
+									class="absolute z-20 mt-1 scrollbar-custom max-h-48 w-full overflow-y-auto rounded-lg border border-line bg-surface py-1 text-sm shadow-lg"
+								>
+									{#each suggestions as dir (dir.path)}
+										<button
+											type="button"
+											role="option"
+											aria-selected="false"
+											class="block w-full truncate px-3 py-1.5 text-left text-ink hover:bg-sunken"
+											onpointerdown={(e) => {
+												e.preventDefault();
+												newPath = dir.path;
+												suggestions = [];
+											}}
+										>
+											{dir.path}
+										</button>
+									{/each}
+								</div>
+							{/if}
+						</div>
+						<div class="min-w-0">
+							<label class={s.LABEL} for="sched-newtitle"
+								>{m["code.schedule_editor.new_title"]()}</label
+							>
+							<input
+								id="sched-newtitle"
+								class={s.INPUT}
+								style="font-size: 16px;"
+								maxlength={120}
+								bind:value={newTitle}
+								disabled={busy}
+							/>
+						</div>
+						<p class="{s.HINT} sm:col-span-2">
+							{m["code.schedule_editor.new_hint"]()}
+						</p>
+					</div>
+				{/if}
+
+				<div class="mt-4 min-w-0">
+					<label class={s.LABEL} for="sched-session">{m["code.schedule_editor.session"]()}</label>
+					<select
+						id="sched-session"
+						class={s.INPUT}
+						style="font-size: 16px;"
+						bind:value={sessionChoice}
+						disabled={busy || makingWorkspace || !workspaceChoice}
+					>
+						<option value={NEW}>{m["code.schedule_editor.session_new"]()}</option>
+						{#each sessions as session (session.id)}
+							<option value={session.id}>{session.title}</option>
+						{/each}
+						{#if sessionChoice !== NEW && !sessions.some((x) => x.id === sessionChoice)}
+							<option value={sessionChoice}>{stored.labels?.session ?? sessionChoice}</option>
+						{/if}
+					</select>
+					<p class={s.HINT}>
+						{sessionChoice === NEW
+							? m["code.schedule_editor.session_new_hint"]()
+							: m["code.schedule_editor.session_existing_hint"]()}
 					</p>
+				</div>
+
+				<h3 class="{s.SECTION_TITLE} mt-6">{m["code.schedule_editor.how"]()}</h3>
+				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+					<div class="min-w-0">
+						<label class={s.LABEL} for="sched-mode">{m["code.schedule_editor.mode"]()}</label>
+						<select
+							id="sched-mode"
+							class={s.INPUT}
+							style="font-size: 16px;"
+							bind:value={modeId}
+							disabled={busy || !deviceId}
+						>
+							<option value="">{m["code.schedule_editor.mode_default"]()}</option>
+							{#each modes as mode (mode.id)}
+								<option value={mode.id}>{mode.label}</option>
+							{/each}
+							{#if modeId && !modes.some((x) => x.id === modeId)}
+								<option value={modeId}>{modeId}</option>
+							{/if}
+						</select>
+					</div>
+					<div class="min-w-0">
+						<label class={s.LABEL} for="sched-model">{m["code.schedule_editor.model"]()}</label>
+						<select
+							id="sched-model"
+							class={s.INPUT}
+							style="font-size: 16px;"
+							bind:value={modelId}
+							disabled={busy || !deviceId}
+						>
+							<option value="">{m["code.schedule_editor.model_default"]()}</option>
+							{#each models as model (model.id)}
+								<option value={model.id}>{model.label}</option>
+							{/each}
+							{#if modelId && !models.some((x) => x.id === modelId)}
+								<option value={modelId}>{modelId}</option>
+							{/if}
+						</select>
+					</div>
+				</div>
+
+				<div class="mt-4">
+					<span class={s.LABEL} id="sched-perm-label">{m["code.schedule_editor.permission"]()}</span
+					>
+					<div class="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="sched-perm-label">
+						{#each [["deny", m["code.permission_mode.plan"]()], ["ask", m["code.permission_mode.ask"]()], ["allow", m["code.permission_mode.allow"]()]] as const as [value, label] (value)}
+							<button
+								type="button"
+								role="radio"
+								aria-checked={permissionMode === value}
+								class={permissionMode === value ? s.PRIMARY : s.SECONDARY}
+								onclick={() => (permissionMode = value)}
+								disabled={busy}
+							>
+								{label}
+							</button>
+						{/each}
+					</div>
+					{#if permissionMode === "ask"}
+						<p class="{s.NOTICE} mt-2" data-testid="ask-warning">
+							{m["code.schedule_editor.ask_warning"]()}
+						</p>
+					{:else if permissionMode === "allow"}
+						<p class={s.HINT}>{m["code.schedule_editor.allow_hint"]()}</p>
+					{:else}
+						<p class={s.HINT}>{m["code.schedule_editor.plan_hint"]()}</p>
+					{/if}
+				</div>
+
+				<div class="mt-4" data-testid="coordination-options">
+					<span class={s.LABEL} id="sched-coord-label">{m["code.schedule_editor.others"]()}</span>
+					<div class="space-y-2" role="group" aria-labelledby="sched-coord-label">
+						<label class="flex items-start gap-2 text-sm text-ink">
+							<input type="checkbox" class="mt-1" bind:checked={canMessage} disabled={busy} />
+							<span>{m["code.schedule_editor.can_message"]()}</span>
+						</label>
+						<label class="flex items-start gap-2 text-sm text-ink">
+							<input type="checkbox" class="mt-1" bind:checked={canSpawn} disabled={busy} />
+							<span>{m["code.schedule_editor.can_spawn"]()}</span>
+						</label>
+					</div>
+					<p class={s.HINT}>{m["code.schedule_editor.others_hint"]()}</p>
+					{#if coordination && !coordination.ok}
+						<p class="{s.NOTICE} mt-2" data-testid="coordination-unsupported">
+							{coordination.reason === "too-old"
+								? m["code.schedule_editor.too_old"]()
+								: m["code.schedule_editor.tools_off"]()}
+						</p>
+					{:else if coordinationCeiling}
+						<p class="{s.NOTICE} mt-2" data-testid="coordination-ceiling">{coordinationCeiling}</p>
+					{/if}
 				</div>
 			{/if}
-
-			<div class="mt-4 min-w-0">
-				<label class={s.LABEL} for="sched-session">{m["code.schedule_editor.session"]()}</label>
-				<select
-					id="sched-session"
-					class={s.INPUT}
-					style="font-size: 16px;"
-					bind:value={sessionChoice}
-					disabled={busy || makingWorkspace || !workspaceChoice}
-				>
-					<option value={NEW}>{m["code.schedule_editor.session_new"]()}</option>
-					{#each sessions as session (session.id)}
-						<option value={session.id}>{session.title}</option>
-					{/each}
-					{#if sessionChoice !== NEW && !sessions.some((x) => x.id === sessionChoice)}
-						<option value={sessionChoice}>{stored.labels?.session ?? sessionChoice}</option>
-					{/if}
-				</select>
-				<p class={s.HINT}>
-					{sessionChoice === NEW
-						? m["code.schedule_editor.session_new_hint"]()
-						: m["code.schedule_editor.session_existing_hint"]()}
-				</p>
-			</div>
-
-			<h3 class="{s.SECTION_TITLE} mt-6">{m["code.schedule_editor.how"]()}</h3>
-			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-mode">{m["code.schedule_editor.mode"]()}</label>
-					<select
-						id="sched-mode"
-						class={s.INPUT}
-						style="font-size: 16px;"
-						bind:value={modeId}
-						disabled={busy || !deviceId}
-					>
-						<option value="">{m["code.schedule_editor.mode_default"]()}</option>
-						{#each modes as mode (mode.id)}
-							<option value={mode.id}>{mode.label}</option>
-						{/each}
-						{#if modeId && !modes.some((x) => x.id === modeId)}
-							<option value={modeId}>{modeId}</option>
-						{/if}
-					</select>
-				</div>
-				<div class="min-w-0">
-					<label class={s.LABEL} for="sched-model">{m["code.schedule_editor.model"]()}</label>
-					<select
-						id="sched-model"
-						class={s.INPUT}
-						style="font-size: 16px;"
-						bind:value={modelId}
-						disabled={busy || !deviceId}
-					>
-						<option value="">{m["code.schedule_editor.model_default"]()}</option>
-						{#each models as model (model.id)}
-							<option value={model.id}>{model.label}</option>
-						{/each}
-						{#if modelId && !models.some((x) => x.id === modelId)}
-							<option value={modelId}>{modelId}</option>
-						{/if}
-					</select>
-				</div>
-			</div>
-
-			<div class="mt-4">
-				<span class={s.LABEL} id="sched-perm-label">{m["code.schedule_editor.permission"]()}</span>
-				<div class="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="sched-perm-label">
-					{#each [["deny", m["code.permission_mode.plan"]()], ["ask", m["code.permission_mode.ask"]()], ["allow", m["code.permission_mode.allow"]()]] as const as [value, label] (value)}
-						<button
-							type="button"
-							role="radio"
-							aria-checked={permissionMode === value}
-							class={permissionMode === value ? s.PRIMARY : s.SECONDARY}
-							onclick={() => (permissionMode = value)}
-							disabled={busy}
-						>
-							{label}
-						</button>
-					{/each}
-				</div>
-				{#if permissionMode === "ask"}
-					<p class="{s.NOTICE} mt-2" data-testid="ask-warning">
-						{m["code.schedule_editor.ask_warning"]()}
-					</p>
-				{:else if permissionMode === "allow"}
-					<p class={s.HINT}>{m["code.schedule_editor.allow_hint"]()}</p>
-				{:else}
-					<p class={s.HINT}>{m["code.schedule_editor.plan_hint"]()}</p>
-				{/if}
-			</div>
-
-			<div class="mt-4" data-testid="coordination-options">
-				<span class={s.LABEL} id="sched-coord-label">{m["code.schedule_editor.others"]()}</span>
-				<div class="space-y-2" role="group" aria-labelledby="sched-coord-label">
-					<label class="flex items-start gap-2 text-sm text-ink">
-						<input type="checkbox" class="mt-1" bind:checked={canMessage} disabled={busy} />
-						<span>{m["code.schedule_editor.can_message"]()}</span>
-					</label>
-					<label class="flex items-start gap-2 text-sm text-ink">
-						<input type="checkbox" class="mt-1" bind:checked={canSpawn} disabled={busy} />
-						<span>{m["code.schedule_editor.can_spawn"]()}</span>
-					</label>
-				</div>
-				<p class={s.HINT}>{m["code.schedule_editor.others_hint"]()}</p>
-				{#if coordination && !coordination.ok}
-					<p class="{s.NOTICE} mt-2" data-testid="coordination-unsupported">
-						{coordination.reason === "too-old"
-							? m["code.schedule_editor.too_old"]()
-							: m["code.schedule_editor.tools_off"]()}
-					</p>
-				{:else if coordinationCeiling}
-					<p class="{s.NOTICE} mt-2" data-testid="coordination-ceiling">{coordinationCeiling}</p>
-				{/if}
-			</div>
 
 			<label class="{s.LABEL} mt-6" for="sched-prompt">{m["code.schedule_editor.prompt"]()}</label>
 			<textarea

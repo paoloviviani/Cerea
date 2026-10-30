@@ -1076,9 +1076,8 @@ before?}` ahead of `historyDone`; without the capability (an older galopin,
 ## Scheduled actions: the framework and the executor contract
 
 A schedule is a row someone owns that says "at these times, do this". **The core
-is kind-agnostic** (`src/lib/server/schedules/`); only `kind: "agent"` exists,
-and **a "chat" runner must be one new file plus its registration, with no change
-to the core.** The pieces:
+is kind-agnostic** (`src/lib/server/schedules/`); two kinds exist, `"agent"` and
+`"chat"`, each **one executor file plus its registration**. The pieces:
 
 - `recurrence.ts`: presets (every N hours, daily, weekdays, weekly) and a cron
   expression, validated and iterated with **croner** (MIT, no dependencies;
@@ -1113,6 +1112,11 @@ registerExecutor({
   run({ schedule, scheduledFor, trigger, previousRun, now }), // -> { status, detail?, result?, disable? }
 });
 ```
+
+Optional hooks `precondition(userId)` (a reason the person cannot have a schedule of the kind
+running yet, checked on create-enabled and on switch-on) and `afterDelete(schedule)` let a kind
+that runs with no signed-in session depend on something of the person's (chat: the background
+grant); the agent executor sets none.
 
 `target` is opaque to the core. `run` returns what happened (`sent`,
 `skipped-still-running` after looking at `previousRun`'s output, `missed-offline`,
@@ -1167,6 +1171,59 @@ caller's own, paired. Things that bite:
   galopin's `delegation` skill (`agent/internal/backend/opencode/skill.go`) has
   a "When you run on a schedule" and a "Scheduling work" section that read it;
   change the header and the skill together;
+  **The chat executor** (`schedules/chatScheduleExecutor.ts`; spec beside it). Target
+  `{ mode: "continue" | "new", conversationId?, model?, projectId?, billingGroupId?, labels }`;
+  "new" copies model and project from the chat it was made from and then does not
+  hang on it. Things that bite:
+
+- **A run is the conversation route's own turn**: it builds a request and calls
+  `routes/conversation/[id]` `POST` (and `routes/conversation` `POST` for a new chat) with a
+  `locals` whose `token` is the schedule's unsealed key and `scheduledRun: true`; do
+  not write a second pipeline. `locals.scheduledRun` is what the pipeline reads: the
+  prompt says Python cannot run (`preprompt.executionAvailable`), `getEnabledBuiltinTools`
+  drops every `mayPark` tool (the sandbox, questions) and the `schedule` tool, and
+  `executeToolCalls({ toolApproval.unattended })` refuses what would open an approval card
+  in the sub-agent's words. Anything new that parks the turn must set `mayPark`.
+- **The run returns once the turn ends or after `chatRunConfig.earlyWindowMs` (25 s)**,
+  so a long turn is not held against the 2-minute lease. A gateway refusal is fast, so it
+  lands in the window; one that ends later is announced (unread mark
+  `Conversation.scheduledUnread`, push) and, if it failed, is settled by the core (`settled`). The unread mark is cleared by `GET /api/v2/conversations/[id]`.
+- **Unattended.** `locals.scheduledRun = { permissionMode }`; `executeToolCalls({ toolApproval.unattended })`
+  refuses whatever would open a card, and an Ask run is given manual policy and no grants first.
+- **The background grant** (`schedules/grants.ts`, collection `scheduleGrants`): one sealed OIDC
+  refresh token per person, written by `updateUser` on every login (which then strips the
+  session's own copy: IdPs rotate refresh tokens, so every holder would go stale). Everything
+  that needs an access token (a browser session in `auth.ts` `findUser`, a scheduled run)
+  calls `accessTokenFor`, which serialises per person with a DB lock, writes the rotated token
+  guarded on the one it replaced, and caches the access token. Any OAuth error response from the token
+  endpoint (or a changed subject) drops the grant and switches the person's chat schedules off;
+  logout keeps it; erase and merge drop it (IdP revocation best effort); the settings "Stop"
+  (`/api/v2/user/schedule-grant`) and deleting the last chat schedule only clear `scheduleUse`, because the
+  grant is the sessions' refresh credential (dropping it would sign everyone out within the hour);
+  a login or turning a chat schedule on sets it back. No refresh token
+  or no `CHAT_SECRET_KEY` leaves the session path exactly as before. `grants.ts` loads `auth.ts`
+  lazily (and `auth.ts` loads it lazily): they reach each other through the identity code.
+- **Asking for `offline_access`** (`auth.ts` `loginScopes`, `OfflineMode`): Authelia cannot remember a consent
+  that includes it, so the first sign-in on a browser asks, then the `hfChat-bgAccess` cookie says "settled" and
+  later sign-ins skip it; the callback asks once more (`/login?offline=1`) when the person has no grant. An
+  `invalid_scope` for it retries without and remembers per process; `OPENID_OFFLINE_ACCESS=off` disables it.
+- **Permission mode** (`schedules/permission.ts`): `ask` | `allow` in the target, never looser than
+  the user's approval setting (checked on create, edit and again at run); `approvalStateFor`
+  gives an Ask run manual policy and nothing pre-approved.
+- **A run that returns `sent` early** carries `outcome.settled`; the core rewrites the run
+  to `failed` and counts it when the late result fails. At most `chatRunConfig.maxConcurrent`
+  scheduled turns run in a process; more are skipped.
+- **The `schedule` tool** (`builtinTools/scheduleTool.ts`) never creates anything itself.
+  `toolInvocation` gates it on the approval card whatever the policy and whatever was
+  granted (`alwaysConfirm`; a proposal `parseScheduleToolArgs` refuses never opens a card),
+  and only the click runs `createScheduleFromApproval` from `mcp/resumeElicitation.ts`,
+  with the approving request's token. `ToolApprovalCard` draws it from the args; no
+  "for the conversation" button.
+- **Access**: `requireSchedulesAccess` (`schedules/api.ts`) lets every signed-in user in;
+  agent schedules also need the /code panel for them (`agents`), and the routes answer 404
+  for the other kind. The page is `/schedules`, the same `SchedulesPanel` as `/code?view=schedules`;
+  the editor's chat half is in `ScheduleEditor.svelte` (`kind`).
+
 - API: `/api/v2/code/schedules` (+ `/[id]`, `/[id]/run`, `/[id]/runs`, `/preview`).
   It is under `/api/v2/code/`, so the 7-day sign-in guard covers it by prefix;
   `stale-guard.spec.ts` lists every route file and fails on a new one.

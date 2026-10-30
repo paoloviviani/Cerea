@@ -56,6 +56,13 @@ export interface Conversation extends Timestamps {
 
 	userAgent?: string;
 
+	/**
+	 * Set when a scheduled run answered in this conversation (`schedules/
+	 * chatScheduleExecutor.ts`) and cleared when its owner opens it: the
+	 * sidebar's unread dot.
+	 */
+	scheduledUnread?: true;
+
 	/** The user's web-search consent for this conversation (ADR 0058's plan). */
 	webSearch?: boolean;
 

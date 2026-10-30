@@ -19,6 +19,7 @@ import {
 	localConnectorsAccessFor,
 	localConnectorsEnabled,
 } from "$lib/server/codeEnabled";
+import { schedulesEnabled } from "$lib/server/schedules/limits";
 import { isGotenbergEnabled } from "$lib/server/office/gotenberg";
 import { resolveWebSearchFor } from "$lib/server/webSearch/config";
 import { pseudoLocaleEnabled } from "$lib/server/localeSettings";
@@ -63,6 +64,9 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		// Scheduled actions (the kill switch is `CHAT_SCHEDULES_ENABLED=false`): the
 		// sidebar's Schedules row reads it, and the API answers 404 when it is off.
 		codeSchedulesEnabled: codeAllowed && codeSchedulesEnabled(),
+		// Scheduled chats are for everyone signed in (the same kill switch): the sidebar's
+		// Schedules row and a conversation's "Schedule…" read it.
+		chatSchedulesEnabled: Boolean(locals.user) && schedulesEnabled(),
 		// Local MCP connectors (ADR 0102): the workspace's Local connectors tab. A deployment
 		// switch of its own, independent of the Agents panel's per-person one.
 		localConnectorsEnabled: localConnectorsEnabled(),

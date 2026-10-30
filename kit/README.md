@@ -754,7 +754,9 @@ any OIDC issuer. Register three clients there, then pass their details:
 | chat (`cerea`) | confidential | `https://<origin>/chat/login/callback` |
 | galopin (`opencode-enrollment`) | public | the device flow, and loopback `http://localhost/callback` |
 
-The machine client needs the device-flow and refresh-token grants and
+The chat client needs the refresh-token grant and `offline_access` among its allowed
+scopes too (the chat asks for it at sign-in when the issuer lists it, and keeps the refresh
+token for scheduled chats; the bundled Authelia client has both). The machine client needs the device-flow and refresh-token grants and
 `offline_access` in its scopes (galopin asks for it only when the issuer lists
 it; see below); the other two take the scopes `openid profile email groups`,
 less what the issuer does not offer. Map the groups claim the IdP sends

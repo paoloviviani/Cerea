@@ -138,6 +138,40 @@ export function refreshSessionCookie(cookies: Cookies, sessionId: string) {
 	});
 }
 
+/**
+ * The session's new oauth through the person's grant: undefined when they have none (the session's
+ * own refresh token, or none, applies as it always did), `"refused"` when the IdP refused the grant
+ * (the session ends, as a refused refresh always did), else the oauth with the shared access token.
+ * Loaded lazily: the grant module itself calls back into this one for the IdP's refresh and revoke.
+ */
+async function refreshSessionViaGrant(
+	userId: Session["userId"],
+	current: NonNullable<Session["oauth"]>
+): Promise<Session["oauth"] | "refused" | undefined> {
+	if (!userId) return undefined;
+	const grants = await import("$lib/server/schedules/grants");
+	if (!(await grants.hasGrant(userId))) return undefined;
+	try {
+		const access = await grants.accessTokenFor(userId, {
+			leewayMs: 5 * 60_000,
+			// A request does not wait long for another refresh in flight.
+			lockWaitMs: grants.SESSION_LOCK_WAIT_MS,
+		});
+		if (access.value === current.token.value) return undefined;
+		return {
+			...current,
+			token: { value: access.value, expiresAt: subMinutes(access.expiresAt, 1) },
+		};
+	} catch (err) {
+		if (err instanceof grants.GrantMissingError) return undefined;
+		if (err instanceof grants.GrantRefusedError) return "refused";
+		// Anything else (another refresh holding the lock, the IdP unreachable or failing) is not a
+		// verdict on the grant: the session keeps the token it has for as long as that is good.
+		logger.warn({ err }, "Session token refresh failed; keeping the current token while it lasts");
+		return current.token.expiresAt.getTime() > Date.now() ? undefined : "refused";
+	}
+}
+
 export async function findUser(
 	sessionId: string,
 	coupledCookieHash: string | undefined,
@@ -160,8 +194,31 @@ export async function findUser(
 		return { user: null, invalidateSession: true };
 	}
 
+	// A person with a background grant (every login writes one when the IdP issues a refresh
+	// token) is refreshed through it, never with a copy of the session's own: IdPs rotate refresh
+	// tokens, so sessions and scheduled runs must share one serialised, rotating token.
+	if (
+		session.oauth?.token &&
+		session.userId &&
+		differenceInMinutes(session.oauth.token.expiresAt, new Date()) < 5
+	) {
+		const viaGrant = await refreshSessionViaGrant(session.userId, session.oauth);
+		if (viaGrant === "refused") return { user: null, invalidateSession: true };
+		if (viaGrant) {
+			await collections.sessions.updateOne(
+				{ sessionId },
+				{ $set: { oauth: viaGrant, updatedAt: new Date() } }
+			);
+			session.oauth = viaGrant;
+		}
+	}
+
 	// Check if OAuth token needs refresh
-	if (session.oauth?.token && session.oauth.refreshToken) {
+	if (
+		session.oauth?.token &&
+		session.oauth.refreshToken &&
+		differenceInMinutes(session.oauth.token.expiresAt, new Date()) < 5
+	) {
 		// If token expires in less than 5 minutes, refresh it
 		if (differenceInMinutes(session.oauth.token.expiresAt, new Date()) < 5) {
 			const lockKey = `${Semaphores.OAUTH_TOKEN_REFRESH}:${sessionId}`;
@@ -268,22 +325,80 @@ export function tokenSetToSessionOauth(tokenSet: TokenSet): Session["oauth"] {
 }
 
 /**
+ * How a sign-in treats `offline_access`: `auto` asks for it when the issuer lists it, `skip` never does
+ * (the person already has a background grant, and an IdP such as Authelia cannot remember consent for a
+ * request that includes it, so asking at every sign-in would show a consent screen every time), `force`
+ * asks even so (the one extra round that restores a grant that is missing).
+ */
+export type OfflineMode = "auto" | "skip" | "force";
+
+/** Set once a sign-in has settled whether this browser's person has background access: `1` they do, `0` the issuer issued none. */
+export const BACKGROUND_COOKIE = "hfChat-bgAccess";
+
+export function setBackgroundCookie(cookies: Cookies, issued: boolean) {
+	cookies.set(BACKGROUND_COOKIE, issued ? "1" : "0", {
+		path: "/",
+		// `strict` would keep it off the cross-site return from the IdP, as for the login retry cookie.
+		sameSite: sameSite === "strict" ? "lax" : sameSite,
+		secure,
+		httpOnly: true,
+		maxAge: 60 * 60 * 24 * (issued ? 365 : 30),
+	});
+}
+
+/**
+ * The scopes the login asks for: the configured ones, plus `offline_access` when the issuer lists
+ * it (`OPENID_OFFLINE_ACCESS=off` never adds it) and the mode allows. That is what makes the IdP
+ * issue a refresh token, which the per-user background grant (`schedules/grants.ts`) keeps so
+ * sessions and scheduled chats can refresh while nobody is signed in. Asking for a scope the client is
+ * not allowed is `invalid_scope`, so an error on a sign-in that asked for it falls back, once per
+ * browser, to a sign-in without it (`offline` says whether it was added, so the callback can tell).
+ */
+export function loginScopes(
+	offered?: unknown,
+	mode: OfflineMode = "auto"
+): { scope: string; offline: boolean } {
+	const scopes = OIDConfig.SCOPES.split(/\s+/).filter(Boolean);
+	const listed = Array.isArray(offered) ? offered.map(String) : undefined;
+	const wanted =
+		mode !== "skip" &&
+		config.OPENID_OFFLINE_ACCESS !== "off" &&
+		!scopes.includes("offline_access") &&
+		Boolean(listed?.includes("offline_access"));
+	if (wanted) scopes.push("offline_access");
+	return { scope: scopes.join(" "), offline: wanted };
+}
+
+/** Whether a sign-in could ask for `offline_access` at all (the issuer lists it, and nothing turns it off). */
+export async function offlineAccessAvailable(settings: OIDCSettings, url: URL): Promise<boolean> {
+	try {
+		const client = await getOIDCClient(settings, url);
+		return loginScopes(client.issuer.metadata.scopes_supported, "force").offline;
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Generates a CSRF token using the user sessionId. Note that we don't need a secret because sessionId is enough.
  */
 async function generateCsrfToken(
 	sessionId: string,
 	redirectUrl: string,
-	next?: string
+	next?: string,
+	offline?: boolean
 ): Promise<string> {
 	const sanitizedNext = sanitizeReturnPath(next);
 	const data = {
 		expiration: addHours(new Date(), 1).getTime(),
 		redirectUrl,
 		...(sanitizedNext ? { next: sanitizedNext } : {}),
+		...(offline ? { offline: true } : {}),
 	} as {
 		expiration: number;
 		redirectUrl: string;
 		next?: string;
+		offline?: boolean;
 	};
 
 	return Buffer.from(
@@ -399,13 +514,17 @@ export async function getOIDCAuthorizationUrl(
 		 * satisfied once the login is newer than the request.
 		 */
 		reauth?: boolean;
+		/** How this sign-in treats `offline_access` (default `auto`). */
+		offline?: OfflineMode;
 	}
 ): Promise<string> {
 	const client = await getOIDCClient(settings, params.url);
+	const { scope, offline } = loginScopes(client.issuer.metadata.scopes_supported, params.offline);
 	const csrfToken = await generateCsrfToken(
 		params.sessionId,
 		settings.redirectURI,
-		sanitizeReturnPath(params.next)
+		sanitizeReturnPath(params.next),
+		offline
 	);
 
 	const codeVerifier = generators.codeVerifier();
@@ -422,7 +541,7 @@ export async function getOIDCAuthorizationUrl(
 	return client.authorizationUrl({
 		code_challenge_method: "S256",
 		code_challenge: codeChallenge,
-		scope: OIDConfig.SCOPES,
+		scope,
 		state: csrfToken,
 		resource: OIDConfig.RESOURCE || undefined,
 		...(params.reauth ? { prompt: "login" } : {}),
@@ -523,6 +642,27 @@ export async function refreshOAuthToken(
 	return tokenSet;
 }
 
+/**
+ * Revokes a token at the provider, when it publishes a revocation endpoint. Best effort: false
+ * when it cannot be asked or declines, never a throw (a revoke is housekeeping, not a gate).
+ */
+export async function revokeOAuthToken(
+	settings: OIDCSettings,
+	token: string,
+	url: URL,
+	hint: "refresh_token" | "access_token" = "refresh_token"
+): Promise<boolean> {
+	try {
+		const client = await getOIDCClient(settings, url);
+		if (!client.issuer.metadata.revocation_endpoint) return false;
+		await client.revoke(token, hint);
+		return true;
+	} catch (err) {
+		logger.info({ err }, "oidc_revoke_unavailable");
+		return false;
+	}
+}
+
 export async function validateAndParseCsrfToken(
 	token: string,
 	sessionId: string
@@ -531,6 +671,8 @@ export async function validateAndParseCsrfToken(
 	redirectUrl: string;
 	/** Relative path (within this app) to return to after login */
 	next?: string;
+	/** The login also asked for `offline_access` (so an `invalid_scope` may be about it). */
+	offline?: boolean;
 } | null> {
 	try {
 		const { data, signature } = z
@@ -539,6 +681,7 @@ export async function validateAndParseCsrfToken(
 					expiration: z.number().int(),
 					redirectUrl: z.string().url(),
 					next: z.string().optional(),
+					offline: z.boolean().optional(),
 				}),
 				signature: z.string().length(64),
 			})
@@ -547,7 +690,11 @@ export async function validateAndParseCsrfToken(
 		const reconstructSign = await sha256(JSON.stringify(data) + "##" + sessionId);
 
 		if (data.expiration > Date.now() && signature === reconstructSign) {
-			return { redirectUrl: data.redirectUrl, next: sanitizeReturnPath(data.next) };
+			return {
+				redirectUrl: data.redirectUrl,
+				next: sanitizeReturnPath(data.next),
+				...(data.offline ? { offline: true } : {}),
+			};
 		}
 	} catch (e) {
 		logger.error(e, "Error validating and parsing CSRF token");
@@ -678,9 +825,18 @@ export async function triggerOauthFlow({ url, locals, cookies }: RequestEvent): 
 	// is the only way a stale `auth_time` ever becomes fresh again.
 	const reauth = url.searchParams.get("reauth") === "1";
 
+	// Background access is asked for with the first sign-in, or when it is found missing afterwards
+	// (`?offline=1`); a browser that has settled it does not ask again (see `OfflineMode`).
+	const offline: OfflineMode =
+		url.searchParams.get("offline") === "1"
+			? "force"
+			: cookies.get(BACKGROUND_COOKIE)
+				? "skip"
+				: "auto";
+
 	const authorizationUrl = await getOIDCAuthorizationUrl(
 		{ redirectURI },
-		{ sessionId: locals.sessionId, next, url, cookies, reauth }
+		{ sessionId: locals.sessionId, next, url, cookies, reauth, offline }
 	);
 
 	throw redirect(302, authorizationUrl);

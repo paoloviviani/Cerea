@@ -463,3 +463,43 @@ describe("ToolApprovalCard, a settled subagent row", () => {
 		expect(screen.getByText("PermissionNotFoundError").elements()).toHaveLength(0);
 	});
 });
+
+describe("ToolApprovalCard, the assistant's schedule proposal", () => {
+	const proposal = request("schedule", {
+		name: "Friday report",
+		prompt: "Remind me to send the weekly report.",
+		mode: "continue",
+		recurrence: { type: "weekly", day: 5, at: "16:00" },
+		timezone: "Europe/Rome",
+		maxOccurrences: 4,
+	});
+
+	it("says what will be made, in words, and offers one click to create it", async () => {
+		const screen = render(ToolApprovalCard, { conversationId: "c1", request: proposal });
+		const facts = screen.getByTestId("schedule-approval");
+		await expect.element(facts).toHaveTextContent("Friday report");
+		await expect.element(facts).toHaveTextContent("Every Friday at 16:00 (Europe/Rome)");
+		await expect.element(facts).toHaveTextContent("In this chat");
+		await expect.element(facts).toHaveTextContent("Remind me to send the weekly report.");
+		await expect.element(facts).toHaveTextContent("After 4 runs");
+		await expect.element(screen.getByRole("button", { name: "Create schedule" })).toBeVisible();
+	});
+
+	it("has no way to allow it for the whole conversation", async () => {
+		const screen = render(ToolApprovalCard, { conversationId: "c1", request: proposal });
+		await expect.element(screen.getByRole("button", { name: "Deny" })).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Allow for this conversation" }).elements()
+		).toHaveLength(0);
+	});
+
+	it("reads a new chat each time as such", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: request("schedule", { ...proposal.toolApproval?.args, mode: "new" }),
+		});
+		await expect
+			.element(screen.getByTestId("schedule-approval"))
+			.toHaveTextContent("In a new chat each time");
+	});
+});

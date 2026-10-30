@@ -454,9 +454,16 @@ agent in ‹session›** linking to it, and each change is a `schedule.create` /
 `schedule.update` / `schedule.delete` row in `codeAudit` with the session id
 (refusals as `<op>.refused` with the code). A person's schedules look as before.
 
+**Scheduled chats share all of this.** The same list, switch, limit, timetable and
+history also run prompts in the chat itself, for every signed-in user, whether or
+not the Agents panel is on for them: see [Scheduled chats](chat-admin.md#scheduled-chats).
+They are listed here marked **Chat**, and a person without the Agents panel sees
+only those (at `/schedules`).
+
 **Limits and the switch.** `CHAT_SCHEDULES_MAX_PER_USER` (default 20) caps a
-person's schedules. `CHAT_SCHEDULES_ENABLED` is on unless exactly `false`, and
-only matters where `CODE_AGENTS_ENABLED=true`: a deployment that has turned on
+person's schedules, of every kind. `CHAT_SCHEDULES_ENABLED` is on unless exactly
+`false`. For coding-agent schedules it only matters where `CODE_AGENTS_ENABLED=true`:
+a deployment that has turned on
 remote agents has already accepted what agents can do, each schedule is
 something a person built, and the default permission word is Ask. Off stops the
 loop, answers the API 404 and hides the sidebar entry; schedules are kept, and

@@ -1,17 +1,24 @@
-import { error, redirect } from "@sveltejs/kit";
+import { error, isRedirect, redirect } from "@sveltejs/kit";
 import {
 	clearLoginRetryCookie,
 	getOIDCUserData,
+	BACKGROUND_COOKIE,
 	hasLoginRetryCookie,
+	offlineAccessAvailable,
+	setBackgroundCookie,
 	sanitizeReturnPath,
 	setLoginRetryCookie,
 	validateAndParseCsrfToken,
 } from "$lib/server/auth";
 import { z } from "zod";
+import { logger } from "$lib/server/logger";
 import { base } from "$app/paths";
 import { config } from "$lib/server/config";
 import JSON5 from "json5";
 import { updateUser, issuerEmailSchema } from "./updateUser.js";
+import { collections } from "$lib/server/database";
+import { hasGrant } from "$lib/server/schedules/grants";
+import { sealingAvailable } from "$lib/server/mcp/secretBox";
 
 const sanitizeJSONEnv = (val: string, fallback: string) => {
 	const raw = (val ?? "").trim();
@@ -52,6 +59,44 @@ export async function GET({ url, locals, cookies, request, getClientAddress }) {
 		.parse(Object.fromEntries(url.searchParams.entries()));
 
 	if (errorName) {
+		const stateParam = url.searchParams.get("state");
+		const failed = stateParam
+			? await validateAndParseCsrfToken(
+					Buffer.from(stateParam, "base64").toString("utf-8"),
+					locals.sessionId
+				)
+			: null;
+
+		if (failed?.offline) {
+			// The sign-in (or the extra round) asked for `offline_access` and the IdP said no: the client
+			// does not allow it (`invalid_scope`), the person declined the consent (`access_denied`), or
+			// the IdP failed (`server_error`). Whatever it was, background access is given up on for this
+			// browser (the "0" cookie, so the next sign-in does not ask) and the person goes on without it:
+			// back where they were if they are already signed in (the extra round), else a plain sign-in.
+			// One fallback per browser, so no error on an offline-flagged state can loop or lock anyone out.
+			setBackgroundCookie(cookies, false);
+			const signedIn = await collections.sessions
+				.findOne({ sessionId: locals.sessionId, userId: { $exists: true } })
+				.then(Boolean)
+				.catch(() => false);
+			if (signedIn) return redirect(302, failed.next ?? `${base}/`);
+			return redirect(
+				302,
+				`${base}/login${failed.next ? `?next=${encodeURIComponent(failed.next)}` : ""}`
+			);
+		}
+
+		if (errorName === "server_error" && !hasLoginRetryCookie(cookies)) {
+			// Authelia 4.39 answers the first authorization after a remembered consent was saved with a
+			// `server_error` ("could not save the consent session"), though the consent is kept and the next
+			// attempt goes straight through: sign in again, once.
+			setLoginRetryCookie(cookies);
+			return redirect(
+				302,
+				`${base}/login${failed?.next ? `?next=${encodeURIComponent(failed.next)}` : ""}`
+			);
+		}
+
 		throw error(400, errorName + (errorDescription ? ": " + errorDescription : ""));
 	}
 
@@ -143,6 +188,34 @@ export async function GET({ url, locals, cookies, request, getClientAddress }) {
 	});
 
 	clearLoginRetryCookie(cookies);
+
+	// Background access (the refresh token behind sessions and scheduled chats): settled for this browser,
+	// or asked for once more when the person turns out to have none (a dropped grant, a first sign-in
+	// that did not ask). The extra round signs nobody in again: the IdP's session answers it.
+	try {
+		const session = await collections.sessions.findOne({ sessionId: locals.sessionId });
+		if (session?.userId) {
+			const settings = { redirectURI: validatedToken.redirectUrl };
+			if (await hasGrant(session.userId)) {
+				setBackgroundCookie(cookies, true);
+			} else if (validatedToken.offline) {
+				// Asked, and nothing came back: not asked again for a while.
+				setBackgroundCookie(cookies, false);
+			} else if (
+				cookies.get(BACKGROUND_COOKIE) !== "0" &&
+				sealingAvailable() &&
+				(await offlineAccessAvailable(settings, url))
+			) {
+				const retry = new URLSearchParams({ offline: "1" });
+				if (validatedToken.next) retry.set("next", validatedToken.next);
+				return redirect(302, `${base}/login?${retry}`);
+			}
+		}
+	} catch (err) {
+		// Bookkeeping about background access must never stand between a person and their sign-in.
+		if (isRedirect(err)) throw err;
+		logger.warn({ err }, "background_access_check_failed");
+	}
 
 	// Prefer returning the user to their original in-app path when provided.
 	// `validatedToken.next` is sanitized server-side to avoid protocol-relative redirects.

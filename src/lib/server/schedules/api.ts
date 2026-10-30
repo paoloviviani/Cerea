@@ -8,16 +8,39 @@
 
 import { error } from "@sveltejs/kit";
 import type { ObjectId } from "mongodb";
-import { requireCodeAgents } from "$lib/server/codeDevices";
-import { codeSchedulesEnabled } from "$lib/server/codeEnabled";
+import { requireAuth } from "$lib/server/api/utils/requireAuth";
+import { codeAgentsAllowedFor, codeSchedulesEnabled } from "$lib/server/codeEnabled";
+import type { Schedule } from "$lib/types/Schedule";
+import { schedulesEnabled } from "./limits";
 import { ScheduleError } from "./store";
 
-/** Signed in, /code on for this person, schedules not switched off; returns the owner. */
-export async function requireSchedules(locals: App.Locals): Promise<ObjectId> {
-	await requireCodeAgents(locals);
-	if (!codeSchedulesEnabled()) error(404, "Scheduled actions are switched off here.");
+export interface SchedulesAccess {
+	userId: ObjectId;
+	/** May this person use agent schedules (the /code panel is on for them)? Chat schedules need only the switch. */
+	agents: boolean;
+}
+
+/**
+ * Signed in and scheduled actions not switched off. Chat schedules are for every
+ * signed-in user; agent schedules also need the /code panel to be on for this
+ * person, which `agents` says, and the routes use to keep the two kinds apart.
+ */
+export async function requireSchedulesAccess(locals: App.Locals): Promise<SchedulesAccess> {
+	requireAuth(locals);
 	if (!locals.user) error(401, "Login required");
-	return locals.user._id;
+	if (!schedulesEnabled()) error(404, "Scheduled actions are switched off here.");
+	const agents = codeSchedulesEnabled() && (await codeAgentsAllowedFor(locals));
+	return { userId: locals.user._id, agents };
+}
+
+/** `requireSchedulesAccess` for a route that has no use for the split. */
+export async function requireSchedules(locals: App.Locals): Promise<ObjectId> {
+	return (await requireSchedulesAccess(locals)).userId;
+}
+
+/** A person without the /code panel cannot see or touch an agent schedule: it is a 404, as any other person's. */
+export function assertKindVisible(schedule: Pick<Schedule, "kind">, access: SchedulesAccess): void {
+	if (schedule.kind === "agent" && !access.agents) error(404, "No such schedule.");
 }
 
 export function requireJsonBody(request: Request): void {

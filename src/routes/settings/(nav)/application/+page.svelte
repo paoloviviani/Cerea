@@ -37,6 +37,7 @@
 	import { getThemePreference, setTheme, type ThemePreference } from "$lib/switchTheme";
 	import { supportsHaptics } from "$lib/utils/haptics";
 	import DeleteAllConversationsModal from "$lib/components/DeleteAllConversationsModal.svelte";
+	import ScheduleAccessSettings from "$lib/components/settings/ScheduleAccessSettings.svelte";
 
 	const publicConfig = usePublicConfig();
 
@@ -459,6 +460,10 @@
 				{/if}
 			</div>
 		</div>
+
+		{#if page.data.user && page.data.chatSchedulesEnabled === true}
+			<ScheduleAccessSettings />
+		{/if}
 
 		<div class="mt-6 flex flex-col gap-2 self-start text-[13px]">
 			<button

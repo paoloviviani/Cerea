@@ -1029,6 +1029,8 @@ export function terminalSocketUrl(ticket: string, from?: number): string {
 
 /** What the editor sends; the server validates all of it again. */
 export interface ScheduleInput {
+	/** What runs it; absent means a coding agent (every body before chat had none). */
+	kind?: "agent" | "chat";
 	name: string;
 	prompt: string;
 	recurrence: Recurrence;

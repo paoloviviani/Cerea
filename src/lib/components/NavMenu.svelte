@@ -61,6 +61,8 @@
 	import TreeBranch from "./nav/TreeBranch.svelte";
 	import TreeLeaf from "./nav/TreeLeaf.svelte";
 	import ProjectsBranch from "./nav/ProjectsBranch.svelte";
+	import { SIDEBAR_ITEM, SIDEBAR_ITEM_ACTIVE } from "./nav/sidebarItem";
+	import IconTime from "~icons/carbon/time";
 	import NavFooter from "./nav/NavFooter.svelte";
 	import type { LayoutData } from "../../routes/$types";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
@@ -200,6 +202,7 @@
 		if (codeAgentsEnabled) void loadCodeStatus();
 	});
 
+	const schedulesActive = $derived(page.url.pathname === `${base}/schedules`);
 	const effectiveView = $derived(
 		codeNav.view === "auto" ? (page.route.id === "/code" ? "agents" : "chats") : codeNav.view
 	);
@@ -242,6 +245,17 @@
 			<CodeNavTree />
 		{/if}
 	{:else}
+		{#if signedIn && page.data.chatSchedulesEnabled === true}
+			<!-- The top of the tree: one address, not a branch, the same row the agents tree has. -->
+			<a
+				href="{base}/schedules"
+				class="mb-1.5 {schedulesActive ? SIDEBAR_ITEM_ACTIVE : SIDEBAR_ITEM}"
+				data-testid="schedules-link"
+			>
+				<IconTime class="size-3.5 shrink-0" />
+				{m["app.nav.schedules"]()}
+			</a>
+		{/if}
 		{#if signedIn}
 			<ProjectsBranch />
 		{/if}

@@ -3,6 +3,7 @@ import { logger } from "$lib/server/logger";
 import { registerMachineUpgrade } from "$lib/server/code/machineServer";
 import { startMachineRevalidationLoop } from "$lib/server/code/machines";
 import "$lib/server/code/scheduleAgentExecutor";
+import "$lib/server/schedules/chatScheduleExecutor";
 import { ScheduleRunner } from "$lib/server/schedules/scheduler";
 import { initExitHandler } from "$lib/server/exitHandler";
 import { assertModelModeValid } from "$lib/server/modelMode";

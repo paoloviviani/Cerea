@@ -144,7 +144,8 @@ async function record(
 	const failures =
 		outcome.status === "failed"
 			? schedule.consecutiveFailures + 1
-			: outcome.status === "sent"
+			: // A run that returned before its work ended settles the count when it does (`settleLate`).
+				outcome.status === "sent" && !outcome.settled
 				? 0
 				: schedule.consecutiveFailures;
 	// `firedCount` counts scheduled fires only, and moves only here, under the
@@ -176,7 +177,56 @@ async function record(
 		set.disabledReason = disableReason;
 	}
 	await collections.schedules.updateOne({ _id: schedule._id }, { $set: set });
+	if (outcome.settled) {
+		void outcome.settled
+			.then((late) => settleLate(run, schedule, late))
+			.catch((err) => logger.warn({ err }, "schedule_late_settle_failed"));
+	}
 	return run;
+}
+
+/**
+ * What a run that returned `sent` before its work ended turns out to have been. A success
+ * clears the failure count; a failure rewrites the run row, counts against the schedule like
+ * any failed run (three in a row switch it off) and tells the person.
+ */
+async function settleLate(
+	run: ScheduleRun,
+	schedule: Schedule,
+	late: Awaited<NonNullable<ExecutorOutcome["settled"]>>
+): Promise<void> {
+	if (!late || late.status !== "failed") {
+		await collections.schedules.updateOne(
+			{ _id: schedule._id },
+			{ $set: { consecutiveFailures: 0 } }
+		);
+		return;
+	}
+	await collections.scheduleRuns.updateOne(
+		{ _id: run._id },
+		{ $set: { status: "failed", ...(late.detail ? { detail: late.detail.slice(0, 500) } : {}) } }
+	);
+	const after = await collections.schedules.findOneAndUpdate(
+		{ _id: schedule._id },
+		{ $inc: { consecutiveFailures: 1 }, $set: { lastStatus: "failed", updatedAt: new Date() } },
+		{ returnDocument: "after" }
+	);
+	const row = after?.value;
+	if (!row) return;
+	const reason =
+		late.disable ??
+		(row.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
+			? `Switched off after ${MAX_CONSECUTIVE_FAILURES} failed runs in a row. Last: ${late.detail ?? "failed"}`
+			: null);
+	if (reason) {
+		await collections.schedules.updateOne(
+			{ _id: row._id },
+			{ $set: { enabled: false, nextRunAt: null, disabledReason: reason } }
+		);
+	}
+	safely(() =>
+		afterScheduleRun({ ...run, status: "failed", ...(late.detail ? { detail: late.detail } : {}) })
+	);
 }
 
 /** Run the executor for one claimed occurrence, never throwing. */

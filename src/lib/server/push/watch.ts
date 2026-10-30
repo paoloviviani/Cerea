@@ -202,7 +202,11 @@ export function afterScheduleRun(
 				run.status === "failed"
 					? `"${run.scheduleName}" could not run.`
 					: `"${run.scheduleName}" did not run: the machine was offline.`,
-			path: "/code?view=schedules",
+			// A chat schedule's own answer lives in its conversation; a machine's in the list.
+			path:
+				run.result?.type === "chat" && run.result.ids["conversationId"]
+					? `/conversation/${run.result.ids["conversationId"]}`
+					: "/code?view=schedules",
 			tag: `schedule-${run.scheduleId.toString()}`,
 		});
 		return;

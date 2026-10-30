@@ -20,7 +20,7 @@ import { base } from "$app/paths";
 import { collections } from "$lib/server/database";
 import { redirect } from "@sveltejs/kit";
 import { config } from "$lib/server/config";
-import { sameSite, secure, getOIDCLogoutUrl } from "$lib/server/auth";
+import { BACKGROUND_COOKIE, sameSite, secure, getOIDCLogoutUrl } from "$lib/server/auth";
 import { cookiesToClear } from "$lib/server/oidcLogout";
 
 export async function POST({ locals, cookies, url }) {
@@ -38,6 +38,9 @@ export async function POST({ locals, cookies, url }) {
 		secure,
 		httpOnly: true,
 	});
+	// What this browser learned about background access belongs to whoever just signed out: a "0" left
+	// behind must not stop the next person here from getting a grant.
+	cookies.delete(BACKGROUND_COOKIE, { path: "/" });
 	// The other applications on this origin (the Pystino console): one
 	// sign-out, not a chat signed out beside a console still signed in.
 	for (const cookie of cookiesToClear(config.LOGOUT_ALSO_CLEAR_COOKIES ?? "")) {

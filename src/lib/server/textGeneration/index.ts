@@ -110,6 +110,7 @@ async function* textGenerationWithoutTitle(
 		artifactsMode: ctx.model.artifactsMode,
 		timezone: ctx.locals?.timezone,
 		skillsPreprompt,
+		executionAvailable: ctx.locals?.scheduledRun === undefined,
 	});
 
 	// Standing facts about this person, carried in from earlier conversations

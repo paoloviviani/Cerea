@@ -15,9 +15,18 @@ import {
 	SNIPPET_MESSAGE_CHARS,
 } from "$lib/server/contentSearch";
 
-type Row = Pick<Conversation, "_id" | "title" | "updatedAt" | "model" | "projectId">;
+type Row = Pick<
+	Conversation,
+	"_id" | "title" | "updatedAt" | "model" | "projectId" | "scheduledUnread"
+>;
 
-const LIST_FIELDS = { title: 1, updatedAt: 1, model: 1, projectId: 1 } as const;
+const LIST_FIELDS = {
+	title: 1,
+	updatedAt: 1,
+	model: 1,
+	projectId: 1,
+	scheduledUnread: 1,
+} as const;
 
 /** MongoDB's "no text index" (still building, or never built): content search is skipped. */
 const isMissingTextIndex = (err: unknown) =>
@@ -139,6 +148,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 			// A string, not an ObjectId: the sidebar compares it against ids the
 			// projects API returns, and those are strings.
 			...(conv.projectId ? { projectId: conv.projectId.toString() } : {}),
+			// A scheduled run answered here and its owner has not opened it since.
+			...(conv.scheduledUnread ? { unread: true } : {}),
 			...(snippet ? { snippet } : {}),
 		};
 	});

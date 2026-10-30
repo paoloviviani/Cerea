@@ -42,6 +42,7 @@
 	import IconClose from "~icons/carbon/close";
 	import IconChevronRight from "~icons/carbon/chevron-right";
 	import IconTime from "~icons/carbon/time";
+	import { SIDEBAR_ITEM, SIDEBAR_ITEM_ACTIVE } from "$lib/components/nav/sidebarItem";
 	import IconPermissions from "~icons/carbon/security";
 	import {
 		bindCodeCacheOwner,
@@ -101,17 +102,6 @@
 		writeTreeCollapse,
 		workspaceKey,
 	} from "$lib/utils/codeTreeCollapse";
-
-	/**
-	 * The stand-alone rows beside the device tree (Schedules, at the top):
-	 * one address, same shape as the branch, so the two can never drift. A
-	 * button uses the same classes; block layout comes from the caller
-	 * (`w-full` for a full-width row).
-	 */
-	const SIDEBAR_ITEM =
-		"flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700";
-	const SIDEBAR_ITEM_ACTIVE =
-		"flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm bg-gray-100 font-semibold text-gray-900 dark:bg-gray-700 dark:text-white";
 
 	// The subtrees live in a module cache, not here: this component mounts and
 	// unmounts as the person moves between chats and /code, and rows held in

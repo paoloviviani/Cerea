@@ -17,13 +17,15 @@
 	let { createdBy, class: className = "" }: Props = $props();
 
 	const href = $derived(
-		createdBy
-			? `${base}/code?${new URLSearchParams({
-					device: createdBy.deviceId,
-					ws: createdBy.workspaceId,
-					agent: createdBy.sessionId,
-				}).toString()}`
-			: ""
+		createdBy?.kind === "chat"
+			? `${base}/conversation/${createdBy.conversationId}`
+			: createdBy?.kind === "agent"
+				? `${base}/code?${new URLSearchParams({
+						device: createdBy.deviceId,
+						ws: createdBy.workspaceId,
+						agent: createdBy.sessionId,
+					}).toString()}`
+				: ""
 	);
 </script>
 
@@ -34,11 +36,16 @@
 	>
 		<IconBot class="mt-px size-3.5 shrink-0" aria-hidden="true" />
 		<span class="min-w-0 break-words">
-			{m["code.schedule_created_by.text"]()}
+			{createdBy.kind === "chat"
+				? m["code.schedule_created_by.chat"]()
+				: m["code.schedule_created_by.text"]()}
 			<a
 				{href}
 				class="font-medium text-ink underline decoration-line-strong underline-offset-2 hover:decoration-ink"
-				>{createdBy.title || m["code.schedule_created_by.fallback_title"]()}</a
+				>{createdBy.title ||
+					(createdBy.kind === "chat"
+						? m["code.schedule_created_by.fallback_chat"]()
+						: m["code.schedule_created_by.fallback_title"]())}</a
 			>
 		</span>
 	</p>

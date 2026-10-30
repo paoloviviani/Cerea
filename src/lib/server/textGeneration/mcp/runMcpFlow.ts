@@ -69,7 +69,8 @@ import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
 import { billToHeader } from "$lib/server/billTo";
 import { configuredBackend } from "$lib/server/fetching";
 import { getCapabilities as getDocumentCapabilities } from "$lib/server/documents/client";
-import { resolveToolApprovalPolicy } from "../toolApprovalPolicy";
+import { approvalStateFor, resolveToolApprovalPolicy } from "../toolApprovalPolicy";
+import { schedulesEnabled } from "$lib/server/schedules/limits";
 import { toPrimitive } from "./toolParams";
 
 export type RunMcpFlowContext = Pick<
@@ -303,8 +304,13 @@ export async function* runMcpFlow({
 	// Chat override, then the user's setting, then `manual` (ADR 0075) — the
 	// same defaults-vs-state split `webSearch` already uses. Resolved once so
 	// the builtin's gate and the MCP pre-call checkpoint below agree.
-	const toolApprovalPolicy = resolveToolApprovalPolicy(conv, serverSettings);
-	const approvedTools = new Set(conv.approvedTools ?? []);
+	// A scheduled run has nobody to approve anything: whatever the user's policy or earlier grants
+	// say, every tool that needs approval is refused (the web_fetch URL gate stays as it is).
+	const { policy: toolApprovalPolicy, approvedTools } = approvalStateFor({
+		scheduledRun: locals?.scheduledRun,
+		policy: resolveToolApprovalPolicy(conv, serverSettings),
+		approvedTools: conv.approvedTools ?? [],
+	});
 	// Resolved here, not inside getEnabledBuiltinTools: an async network probe
 	// has no business in that otherwise-synchronous decision function, the
 	// same reason searchModelIds is resolved by this caller too. Only probed
@@ -390,6 +396,10 @@ export async function* runMcpFlow({
 		toolsEnabled: artifactToolsEnabled,
 		artifactTurnBlocks,
 		...(delegation ? { delegation } : {}),
+		// A scheduled run has nobody to park on: its sandbox and questions are withheld, and
+		// it never proposes a schedule of its own.
+		...(locals?.scheduledRun ? { unattended: true } : {}),
+		...(locals?.user && schedulesEnabled() ? { scheduling: { timezone: locals.timezone } } : {}),
 	});
 	// Skills (Phase 1, ADR 0072): the `load_skill` builtin joins when the
 	// turn has any enabled skill, so the model loads a body mid-turn through
@@ -1422,6 +1432,8 @@ export async function* runMcpFlow({
 						policy: toolApprovalPolicy,
 						approvedTools,
 						webFetchAllowedUrls: allowedFetchUrls,
+						// Nobody to ask: a call that needs approval is refused, as a sub-agent's is.
+						...(locals?.scheduledRun ? { unattended: true } : {}),
 					},
 				});
 				let toolMsgCount = 0;

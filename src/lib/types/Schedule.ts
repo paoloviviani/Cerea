@@ -9,7 +9,8 @@ import type { User } from "./User";
  * run means (`server/schedules/executors.ts`), and `target` is that
  * executor's own business — the core never looks inside it. Only `"agent"`
  * exists today: a prompt sent to a coding session on one of the person's
- * paired machines. `"chat"` is reserved for a runner that will plug in later.
+ * paired machines. `"chat"` posts the prompt into a conversation (or a new one
+ * each time) and runs a server-side turn (`schedules/chatScheduleExecutor.ts`).
  *
  * **Owner-only.** A row belongs to `userId` (the /code panel has no anonymous
  * sessions, like `codeDevices`), is erased with the account and moved on a
@@ -44,6 +45,13 @@ export const SCHEDULE_RUN_STATUSES: ScheduleRunStatus[] = [
  * the list can link back to it. */
 export type ScheduleCreator =
 	| { kind: "person" }
+	| {
+			/** The chat assistant proposed it and the person confirmed on the approval card. */
+			kind: "chat";
+			conversationId: string;
+			/** The conversation's title when it made the schedule. */
+			title: string;
+	  }
 	| {
 			kind: "agent";
 			deviceId: string;
@@ -87,7 +95,7 @@ export interface Schedule extends Timestamps {
 
 /** The result link of a run: where the executor put its output. */
 export interface ScheduleRunResult {
-	/** What `kind` it points into, e.g. "agent-session". */
+	/** What `kind` it points into, e.g. "agent-session" or "chat" (ids: conversationId). */
 	type: string;
 	/** Executor-defined ids (agent: deviceId, workspaceId, sessionId). */
 	ids: Record<string, string>;
@@ -130,8 +138,8 @@ export interface ScheduleView {
 	/** The optional stopping criterion, and how far it has got. */
 	maxOccurrences?: number;
 	firedCount: number;
-	/** Only for an agent-created schedule; a person's has none. */
-	createdBy?: Extract<ScheduleCreator, { kind: "agent" }>;
+	/** Only for a schedule an assistant created; a person's has none. */
+	createdBy?: Exclude<ScheduleCreator, { kind: "person" }>;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -145,4 +153,35 @@ export interface ScheduleRunView {
 	trigger: "schedule" | "manual";
 	detail?: string;
 	result?: ScheduleRunResult;
+}
+
+/**
+ * A person's background grant: the OIDC refresh token every login writes (the newest replaces the
+ * older), which browser sessions and scheduled chat runs both refresh through (`schedules/grants.ts`),
+ * so a rotation by one can never leave another holding a stale copy. One per person, sealed.
+ */
+export interface ScheduleGrant {
+	_id: ObjectId;
+	userId: User["_id"];
+	/** The refresh token, sealed (`secretBox.ts`). */
+	refreshSealed: string;
+	/** The last access token it produced, sealed, kept until shortly before it ends. */
+	accessSealed?: string;
+	accessExpiresAt?: Date;
+	/** What the IdP says was granted. */
+	scope?: string;
+	/**
+	 * Whether scheduled chats may use it. The grant is also the sessions' refresh credential, so
+	 * stopping background access only switches this off (and it comes back on with a new login or
+	 * when a chat schedule is turned on); the token itself is dropped only when it is refused, or
+	 * the account goes.
+	 */
+	scheduleUse?: boolean;
+	/** How long the cached access token lives, to size the refresh leeway for short-lived IdP tokens. */
+	accessLifetimeMs?: number;
+	/** The IdP's subject the login authenticated, and when that login happened (the newest login's token is the one kept). */
+	sub?: string;
+	issuedAt: Date;
+	createdAt: Date;
+	updatedAt: Date;
 }

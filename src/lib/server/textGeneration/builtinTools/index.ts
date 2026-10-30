@@ -8,6 +8,7 @@ import { createPlanTool } from "./planTool";
 import { createDelegateTools, type DelegateModel } from "./delegateTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
 import { createExecuteCodeBuiltin } from "./executeCodeTool";
+import { createScheduleTool } from "./scheduleTool";
 import { createConvertDocumentBuiltin } from "./convertDocumentTool";
 import { createDocumentBuiltins, type DocumentTurnState } from "./documentTools";
 import { createLookDocBuiltins } from "./lookDocTool";
@@ -32,6 +33,7 @@ export { isNestedAgentTool } from "./nestedAgent";
 export { DELEGATE_TOOL_NAME, RESEARCH_TOOL_NAME } from "./delegateTool";
 export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
 export { LOOK_DOC_TOOL_NAME } from "./lookDocTool";
+export { SCHEDULE_TOOL_NAME } from "./scheduleTool";
 export {
 	DOC_OUTLINE_TOOL_NAME,
 	DOC_READ_TOOL_NAME,
@@ -157,6 +159,16 @@ export function getEnabledBuiltinTools(params: {
 	modelSeesImages?: boolean;
 	/** Whether pictures have been refused by this turn's model, shared with the request loop (`pictureMessages.ts`). */
 	pictureState?: PictureState;
+	/**
+	 * A scheduled run, with nobody watching: tools that park the turn for a person
+	 * (the browser sandbox, questions) and the `schedule` tool are left out.
+	 */
+	unattended?: boolean;
+	/**
+	 * Who the `schedule` tool may create schedules for: present only for a signed-in
+	 * person on a deployment with scheduled chats on; absent means no tool.
+	 */
+	scheduling?: { timezone?: string };
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
@@ -314,6 +326,12 @@ export function getEnabledBuiltinTools(params: {
 		);
 	}
 
+	// The assistant may propose a schedule; it exists only once the person confirms it on the
+	// approval card (`scheduleTool.ts`). Never in a run nobody is watching.
+	if (params.scheduling && params.toolsEnabled && !params.unattended) {
+		tools.push(createScheduleTool({ timezone: params.scheduling.timezone }));
+	}
+
 	// External tools carry the guard sentence in their description (untrusted.ts).
 	for (const tool of tools) {
 		if (!EXTERNAL_BUILTIN_TOOLS.has(tool.name)) continue;
@@ -324,7 +342,8 @@ export function getEnabledBuiltinTools(params: {
 		};
 	}
 
-	return tools;
+	// A run nobody watches cannot park on a person: whatever would is withheld.
+	return params.unattended ? tools.filter((tool) => !tool.mayPark) : tools;
 }
 
 /**

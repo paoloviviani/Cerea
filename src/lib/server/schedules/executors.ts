@@ -32,6 +32,12 @@
  *   `nextRunAt`.
  * - `result` is the link the history shows from the run (agent: the session).
  *
+ * **Preconditions and cleanup (optional).** A kind whose runs need something of the person
+ * that only they can give (chat: a background grant, because a run has no signed-in session)
+ * sets `precondition(userId)`: the store calls it before a schedule is created enabled or
+ * switched on, and a message back refuses that with those words. `afterDelete(schedule)` runs
+ * once a schedule has been deleted (chat: drop the grant when it was the person's last).
+ *
  * The core never imports an executor. A new kind is **one new file that calls
  * `registerExecutor` plus its import in `hooks/init.ts`**: a "chat" runner
  * needs nothing else (`ScheduleKind` already reserves the word).
@@ -48,6 +54,10 @@ import type { ObjectId } from "mongodb";
 
 export interface ExecutorCaller {
 	userId: ObjectId;
+	/** The caller's own session token, when this call has one (an API request does, a scheduler tick does not). */
+	token?: string;
+	/** The stored target an edit replaces, so what the edit leaves out can stay as it was. */
+	current?: Record<string, unknown>;
 }
 
 export type TargetCheck =
@@ -69,6 +79,12 @@ export interface ExecutorOutcome {
 	result?: ScheduleRunResult;
 	/** Switch the schedule off, with a reason the person will read. */
 	disable?: string;
+	/**
+	 * For a run that returned before its work ended: settles with what happened at the
+	 * end. Only a failure matters, and the core then corrects the run row, feeds the
+	 * consecutive-failure count and applies `disable` / `dropCredential`; undefined is fine.
+	 */
+	settled?: Promise<Pick<ExecutorOutcome, "status" | "detail" | "disable"> | undefined>;
 }
 
 export interface ScheduleExecutor {
@@ -77,6 +93,10 @@ export interface ScheduleExecutor {
 	validateTarget(target: unknown, caller: ExecutorCaller): Promise<TargetCheck>;
 	describeTarget(target: Record<string, unknown>, caller: ExecutorCaller): Promise<string>;
 	run(context: ExecutorRunContext): Promise<ExecutorOutcome>;
+	/** A reason the person cannot have a schedule of this kind running yet, in words they read; null when they can. */
+	precondition?(userId: ObjectId): Promise<string | null>;
+	/** Called after a schedule of this kind was deleted. Never throws into the caller. */
+	afterDelete?(schedule: Schedule): Promise<void>;
 }
 
 const executors = new Map<ScheduleKind, ScheduleExecutor>();

@@ -27,6 +27,10 @@ import {
 } from "$lib/server/textGeneration/builtinTools/toolApproval";
 import type { PendingToolApprovalCall, QueuedApprovalCall } from "$lib/types/McpElicitation";
 import { collections } from "$lib/server/database";
+import {
+	SCHEDULE_TOOL_NAME,
+	createScheduleFromApproval,
+} from "$lib/server/textGeneration/builtinTools/scheduleTool";
 
 /** One queued (or originally parked) tool-approval call, ready to run or to be denied. */
 type ApprovableCall = Pick<QueuedApprovalCall, "tool" | "args" | "mcp">;
@@ -98,8 +102,39 @@ async function runApprovedCall(
 	toolUuid: string,
 	extraServers: McpServerConfig[],
 	signal?: AbortSignal,
-	token?: string
+	token?: string,
+	owner?: { conversationId: ObjectId; userId?: ObjectId }
 ): Promise<MessageUpdate> {
+	if (!call.mcp && call.tool === SCHEDULE_TOOL_NAME) {
+		// The person's click on the schedule card is the only thing that makes one.
+		const made = owner
+			? await createScheduleFromApproval({
+					args: call.args,
+					conversationId: owner.conversationId,
+					userId: owner.userId,
+					token,
+				}).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }))
+			: { error: "There is no conversation to schedule from." };
+		return "error" in made
+			? {
+					type: MessageUpdateType.Tool,
+					subtype: MessageToolUpdateType.Error,
+					uuid: toolUuid,
+					message: made.error,
+				}
+			: {
+					type: MessageUpdateType.Tool,
+					subtype: MessageToolUpdateType.Result,
+					uuid: toolUuid,
+					result: {
+						status: ToolResultStatus.Success,
+						call: { name: SCHEDULE_TOOL_NAME, parameters: {} },
+						outputs: [{ text: made.text }],
+						display: true,
+						external: false,
+					},
+				};
+	}
 	if (!call.mcp) {
 		const url = typeof call.args.url === "string" ? call.args.url : "";
 		const runner = NON_MCP_GATED_TOOLS[call.tool];
@@ -297,7 +332,8 @@ export async function resumeParkedToolCall({
 		const scope = taken.row.content?.[TOOL_APPROVAL_SCOPE_FIELD];
 		const grantedTools: string[] = [];
 
-		if (accepted && scope === TOOL_APPROVAL_CONVERSATION) {
+		// A schedule is confirmed one at a time: no click grants the next.
+		if (accepted && scope === TOOL_APPROVAL_CONVERSATION && pending.tool !== SCHEDULE_TOOL_NAME) {
 			await collections.conversations.updateOne(
 				{ _id: conversationId },
 				{ $addToSet: { approvedTools: pending.tool } }
@@ -308,7 +344,10 @@ export async function resumeParkedToolCall({
 		const updates: MessageUpdate[] = [settled];
 		updates.push(
 			accepted
-				? await runApprovedCall(pending, pending.toolUuid, extraServers, signal, token)
+				? await runApprovedCall(pending, pending.toolUuid, extraServers, signal, token, {
+						conversationId,
+						userId: pending.userId,
+					})
 				: toolApprovalDenied(pending.toolUuid, pending.tool)
 		);
 
@@ -321,7 +360,12 @@ export async function resumeParkedToolCall({
 		while (queue.length > 0) {
 			const [next, ...rest] = queue;
 			if (grantedNow.has(next.tool)) {
-				updates.push(await runApprovedCall(next, next.toolUuid, extraServers, signal, token));
+				updates.push(
+					await runApprovedCall(next, next.toolUuid, extraServers, signal, token, {
+						conversationId,
+						userId: pending.userId,
+					})
+				);
 				queue = rest;
 				continue;
 			}

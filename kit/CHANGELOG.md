@@ -5,6 +5,22 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Scheduled chats need background access.** The chat now asks the identity provider for
+  `offline_access` on a browser's first sign-in (when the issuer lists it) and keeps one refresh
+  token per person, which browser sessions and scheduled chats refresh through. The bundled Authelia
+  chat client allows `offline_access`, the refresh-token grant and a 90-day refresh lifetime, and
+  remembers the ordinary sign-in's consent for 90 days (Authelia cannot remember a consent that
+  includes `offline_access`, so that one is asked once per browser). **To update**, after pulling:
+  `docker compose up -d --force-recreate authelia` (the config is a mounted file); a chat that asks
+  for `offline_access` before that gets `invalid_scope` once and signs in again without it. An
+  external IdP must allow refresh tokens for the chat client (as galopin's already does);
+  `OIDC_CHAT_OFFLINE_ACCESS=off` stops the chat asking.
+  **Every user sees one extra consent screen at their first chat sign-in after the upgrade** (and once on each
+  new browser): Authelia asks for consent whenever `offline_access` is requested and cannot remember it.
+  A sign-in that is refused or fails while asking for it falls back to a plain sign-in, once per browser.
+
 ## v0.33.0 — 2026-10-30
 
 Pins: Cerea `0.33.0` (chat and `cerea-documents`), Pystino `0.20.0`.
