@@ -646,12 +646,17 @@ describe("ScheduleEditor for a chat", () => {
 			.toHaveTextContent("cannot run Python");
 	});
 
-	it("lets a person with coding agents choose which kind to make", async () => {
+	it("makes the kind of the area it was opened from, with no kind switch", async () => {
 		setPage({ data: { codeSchedulesEnabled: true, conversations: [], models: [] } });
-		const { screen } = mount();
-		await expect.element(screen.getByTestId("kind-agent")).toBeChecked();
-		await screen.getByTestId("kind-chat").click();
-		expect(screen.getByLabelText("1. Machine").elements()).toHaveLength(0);
+		const chat = mount({ kind: "chat" });
+		expect(chat.screen.getByTestId("kind-chat").elements()).toHaveLength(0);
+		expect(chat.screen.getByLabelText("1. Machine").elements()).toHaveLength(0);
+		await expect.element(chat.screen.getByTestId("chat-unattended-hint")).toBeVisible();
+		chat.screen.unmount();
+
+		const agent = mount({ kind: "agent" });
+		expect(agent.screen.getByTestId("kind-agent").elements()).toHaveLength(0);
+		await expect.element(agent.screen.getByLabelText("1. Machine")).toBeVisible();
 	});
 
 	it("keeps the kind of the schedule it edits and shows its stored target", async () => {

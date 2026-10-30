@@ -59,6 +59,9 @@
 		standalone?: boolean;
 	}
 	let { standalone = false }: Props = $props();
+	// Each area lists and makes its own kind: /schedules the chat ones, /code the agent ones.
+	const kind = $derived<"agent" | "chat">(standalone ? "chat" : "agent");
+	const shown = $derived(schedules.filter((x) => x.kind === kind));
 
 	const address = (extra: Record<string, string> = {}) => {
 		if (standalone) {
@@ -144,15 +147,15 @@
 		sessionId: params.get("agent") ?? undefined,
 		conversationId: params.get("conversation") ?? undefined,
 	});
-	const edited = $derived(schedules.find((x) => x.id === scheduleId));
+	const edited = $derived(shown.find((x) => x.id === scheduleId));
 </script>
 
 {#if creating}
-	<ScheduleEditor {prefill} onsaved={toList} oncancel={toList} />
+	<ScheduleEditor {prefill} {kind} onsaved={toList} oncancel={toList} />
 {:else if scheduleId && editing}
 	{#if edited}
 		{#key edited.id}
-			<ScheduleEditor editing={edited} onsaved={toList} oncancel={toList} />
+			<ScheduleEditor editing={edited} {kind} onsaved={toList} oncancel={toList} />
 		{/key}
 	{:else if loading}
 		<p class="p-6 text-sm text-ink-muted">{m["code.schedules.loading"]()}</p>
@@ -167,21 +170,23 @@
 			<div class="p-4 sm:p-6">
 				<div class={s.HEADER}>
 					<h2 class={s.TITLE}>{m["code.schedules.title"]()}</h2>
-					<p class={s.SUBTITLE}>{m["code.schedules.subtitle"]()}</p>
+					<p class={s.SUBTITLE}>
+						{kind === "chat" ? m["code.schedules.subtitle_chat"]() : m["code.schedules.subtitle"]()}
+					</p>
 				</div>
 
-				<div class="{s.STRIP} {schedules.length ? s.STRIP_ACTIVE : s.STRIP_IDLE}">
+				<div class="{s.STRIP} {shown.length ? s.STRIP_ACTIVE : s.STRIP_IDLE}">
 					<div class="flex items-center gap-3">
-						<div class="{s.STRIP_TILE} {schedules.length ? '' : 'grayscale'} shrink-0">
+						<div class="{s.STRIP_TILE} {shown.length ? '' : 'grayscale'} shrink-0">
 							<IconTime class="size-5 text-accent" />
 						</div>
 						<div class="min-w-0">
 							<p class={s.STRIP_HEADLINE}>
-								{m["code.schedules.count"]({ count: schedules.length })}
+								{m["code.schedules.count"]({ count: shown.length })}
 							</p>
 							<p class={s.STRIP_DETAIL}>
 								{m["code.schedules.on_up_to"]({
-									on: schedules.filter((x) => x.enabled).length,
+									on: shown.filter((x) => x.enabled).length,
 									limit,
 								})}
 							</p>
@@ -199,12 +204,14 @@
 
 				{#if loading}
 					<p class="text-sm text-ink-muted">{m["code.schedules.loading"]()}</p>
-				{:else if schedules.length === 0}
+				{:else if shown.length === 0}
 					<div class={s.EMPTY}>
 						<IconTime class={s.EMPTY_ICON} />
 						<p class={s.EMPTY_TITLE}>{m["code.schedules.empty_title"]()}</p>
 						<p class="{s.EMPTY_DETAIL} text-center">
-							{m["code.schedules.empty_detail"]()}
+							{kind === "chat"
+								? m["code.schedules.empty_detail_chat"]()
+								: m["code.schedules.empty_detail"]()}
 						</p>
 						<a href={address({ new: "1" })} class={s.PRIMARY}>
 							<IconAdd class="size-4" />
@@ -213,7 +220,7 @@
 					</div>
 				{:else}
 					<ul class="space-y-3">
-						{#each schedules as schedule (schedule.id)}
+						{#each shown as schedule (schedule.id)}
 							<li
 								class={s.card(schedule.enabled)}
 								data-testid="schedule-row"
@@ -227,11 +234,6 @@
 												{schedule.targetLabel}
 											</p>
 											<ScheduleCreatedBy createdBy={schedule.createdBy} class="mt-0.5" />
-											{#if schedule.kind === "chat"}
-												<p class="text-xs text-ink-faint" data-testid="schedule-kind">
-													{m["code.schedules.kind_chat"]()}
-												</p>
-											{/if}
 										</div>
 										<button
 											type="button"
