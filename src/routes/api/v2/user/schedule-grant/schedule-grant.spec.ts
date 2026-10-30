@@ -23,7 +23,12 @@ vi.mock("openid-client", async (original) => {
 });
 
 import { DELETE, GET } from "./+server";
-import { hasGrant, saveGrant, SIGN_IN_AGAIN } from "$lib/server/schedules/grants";
+import {
+	hasGrant,
+	saveGrant,
+	scheduleGrantUsable,
+	SIGN_IN_AGAIN,
+} from "$lib/server/schedules/grants";
 
 await ready;
 
@@ -76,7 +81,7 @@ describe("background access for schedules", () => {
 		});
 		await saveGrant(person.user._id, { refresh_token: "rt", access_token: "at" } as never);
 		await chatSchedule();
-		expect((await call(GET)).data).toMatchObject({ granted: true, chatSchedules: 1 });
+		expect((await call(GET)).data).toMatchObject({ granted: true, active: true, chatSchedules: 1 });
 	});
 
 	it("is not required off a gateway", async () => {
@@ -84,7 +89,7 @@ describe("background access for schedules", () => {
 		expect((await call(GET)).data).toMatchObject({ required: false });
 	});
 
-	it("revoking drops it (revoked at the IdP) and switches the chat schedules off, with a reason", async () => {
+	it("stopping keeps the grant (it keeps their sessions signed in), is not revoked at the IdP, and switches the chat schedules off with a reason", async () => {
 		await saveGrant(person.user._id, { refresh_token: "rt", access_token: "at" } as never);
 		await chatSchedule(true);
 		await chatSchedule(false);
@@ -92,13 +97,15 @@ describe("background access for schedules", () => {
 		const res = await call(DELETE, "DELETE");
 
 		expect(res.data).toMatchObject({ revoked: true, disabled: 1 });
-		expect(await hasGrant(person.user._id)).toBe(false);
-		expect(flags.revoked).toEqual(["rt"]);
+		expect(await hasGrant(person.user._id)).toBe(true);
+		expect(await scheduleGrantUsable(person.user._id)).toBe(false);
+		expect(flags.revoked).toEqual([]);
 		const rows = await collections.schedules.find({ userId: person.user._id }).toArray();
 		expect(rows.every((r) => !r.enabled)).toBe(true);
-		expect(rows.some((r) => r.disabledReason?.includes("Background access was revoked"))).toBe(
+		expect(rows.some((r) => r.disabledReason?.includes("Background access was stopped"))).toBe(
 			true
 		);
+		expect((await call(GET)).data).toMatchObject({ granted: true, active: false });
 		expect(SIGN_IN_AGAIN).toContain("Sign in again");
 	});
 

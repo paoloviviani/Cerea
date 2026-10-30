@@ -299,8 +299,8 @@ serve` holds hundreds of MB of RSS and the extraction lands in RAM.
   refuses every tool that needs approval. The assistant proposes schedules through the
   `schedule` tool, created only by a click on the approval card. Open: the refresh path
   is unit-tested against a faked `openid-client`, not run against a live Authelia (the kit's
-  Authelia config is validated by the kit tests, but whether implicit consent issues a
-  refresh token for `offline_access` was not run); a per-schedule tool allow-list is the way to
+  Authelia config is validated by the kit tests, and a flow against Authelia 4.39.22 was run live; whether implicit consent issues a
+  refresh token for `offline_access` was run live since: with `offline_access` Authelia always shows consent and never remembers it, so the chat asks for it once per browser and settles it with a cookie; the ordinary sign-in uses pre-configured consent, whose first save answers `server_error` once, which the callback retries); a per-schedule tool allow-list is the way to
   let chosen tools run unattended if that is ever wanted.
 - Specified, not built: `PROTOCOL.md` §9's file search, watching and writing
   (section 6 above).

@@ -10,7 +10,7 @@ import superjson from "superjson";
 import { collections, ready } from "$lib/server/database";
 import { cleanupTestData, createTestUser } from "$lib/server/api/__tests__/testHelpers";
 import { testRequest } from "$lib/server/__tests__/testRequest";
-import { hasGrant, saveGrant } from "$lib/server/schedules/grants";
+import { hasGrant, saveGrant, scheduleGrantUsable } from "$lib/server/schedules/grants";
 
 const flags = vi.hoisted(() => ({
 	enabled: true,
@@ -256,7 +256,7 @@ describe("managing one", () => {
 		expect(flags.revoke).not.toHaveBeenCalled();
 	});
 
-	it("keeps the grant while it is off, and drops it (revoked at the IdP) with the last chat schedule", async () => {
+	it("keeps the grant while it is off, and stops using it (never revoking it: it keeps their sessions signed in) with the last chat schedule", async () => {
 		const id = await create();
 		const off = await call(onePATCH, `/api/v2/code/schedules/${id}`, {
 			method: "PATCH",
@@ -272,8 +272,9 @@ describe("managing one", () => {
 			params: { id },
 		});
 		expect(gone.status).toBe(200);
-		expect(flags.revoke).toHaveBeenCalledWith("rt");
-		expect(await hasGrant(person.user._id)).toBe(false);
+		expect(flags.revoke).not.toHaveBeenCalled();
+		expect(await hasGrant(person.user._id)).toBe(true);
+		expect(await scheduleGrantUsable(person.user._id)).toBe(false);
 		expect(await collections.schedules.countDocuments({})).toBe(0);
 	});
 

@@ -160,21 +160,32 @@ panel.
   every kind together (chat and coding-agent ones count alike). The scheduler
   never starts a run faster than every 15 minutes per schedule.
 - **Background access.** A scheduled run is a normal chat turn made with an access
-  token for the user. The chat asks the identity provider for `offline_access` at every
-  sign-in (when the issuer lists it) and keeps **one refresh token per person**, sealed with
-  `CHAT_SECRET_KEY` as connector tokens are; the newest sign-in replaces the older. Because
-  IdPs rotate refresh tokens, browser sessions no longer refresh with a copy of their own:
-  sessions and scheduled runs refresh through one per-person, serialised function that saves
-  the rotated token and caches the current access token for all of them. An IdP that issues no
-  refresh token leaves today's behaviour for sessions and no schedules. **The IdP's client for
-  the chat must allow refresh tokens and `offline_access`** (as galopin's client already does);
-  the kit's bundled Authelia chat client does, with a 90-day refresh lifetime, and an external
-  IdP needs the same. If the IdP refuses a refresh (`invalid_grant`) the grant is dropped, the
-  user's session ends and their chat schedules switch off. Users can revoke it in Settings;
-  deleting an account revokes it at the IdP's revocation endpoint when the discovery document
-  has one, and a merge drops the merged-away account's and switches its chat schedules off.
-  The gateway sees the user's own token: nothing is added to the gateway's key list, and there
-  is no deployment-wide credential.
+  token for the user. The chat asks the identity provider for `offline_access` on a
+  browser's first sign-in (when the issuer lists it; `OPENID_OFFLINE_ACCESS=off` never
+  asks) and keeps **one refresh token per person**, sealed with `CHAT_SECRET_KEY` as
+  connector tokens are; the newest sign-in replaces the older (the replaced one is revoked
+  at the IdP, after the person's other sessions were moved to the new access token).
+  Because IdPs rotate refresh tokens, browser sessions no longer refresh with a copy of
+  their own: sessions and scheduled runs refresh through one per-person, serialised function
+  that saves the rotated token and caches the access token (a session request waits at most
+  a few seconds for another refresh, then keeps its current token while it lasts). An IdP
+  that issues no refresh token leaves today's behaviour for sessions and no schedules.
+  **The IdP's client for the chat must allow refresh tokens and `offline_access`** (as
+  galopin's already does); the kit's bundled Authelia chat client does, with a 90-day refresh
+  lifetime, and an external IdP needs the same. A client that does not allow the scope answers
+  `invalid_scope`: the chat then signs in again without it and stops asking until restart.
+  Authelia cannot remember a consent that includes `offline_access`, so each browser's first
+  sign-in shows one extra consent screen and later ones do not (the browser remembers that
+  background access is settled; the ordinary sign-in's consent is remembered for 90 days).
+  If the IdP answers a refresh with any OAuth error (`invalid_grant`, or the `server_error`
+  Authelia gives the newest token of a chain it revoked after a rotated token was reused),
+  or with a different subject, the grant is dropped, the user's session ends and their chat
+  schedules switch off; the next sign-in asks for background access again. A user's Stop in
+  Settings only switches schedules off and stops them using the grant (their sessions keep
+  using it); deleting an account revokes it at the IdP's revocation endpoint when the
+  discovery document has one, and a merge drops the merged-away account's and switches its
+  chat schedules off. The gateway sees the user's own token: nothing is added to the gateway's
+  key list, and there is no deployment-wide credential.
 - **What runs.** The conversation's ordinary turn on the server, so the
   deployment's models, connectors and tool policies apply. The browser Python
   sandbox, questions and tools needing approval are unavailable, and the

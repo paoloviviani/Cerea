@@ -16,6 +16,10 @@ const idp = vi.hoisted(() => ({
 	n: 0,
 	calls: [] as string[],
 	refuse: false,
+	/** The OAuth error the IdP answers a refresh with when `refuse` is set. */
+	refuseWith: "invalid_grant",
+	/** The subject an id_token on a refresh carries (undefined: none). */
+	sub: undefined as string | undefined,
 	revoked: [] as string[],
 }));
 
@@ -29,7 +33,10 @@ vi.mock("openid-client", async (original) => {
 			idp.calls.push(presented);
 			await new Promise((r) => setTimeout(r, 40));
 			if (idp.refuse || presented !== idp.current) {
-				throw Object.assign(new Error("invalid_grant"), { error: "invalid_grant" });
+				throw Object.assign(new Error(idp.refuseWith), {
+					name: "OPError",
+					error: idp.refuseWith,
+				});
 			}
 			idp.n += 1;
 			idp.current = `rt-${idp.n + 1}`;
@@ -37,6 +44,7 @@ vi.mock("openid-client", async (original) => {
 				access_token: `at-${idp.n}`,
 				refresh_token: idp.current,
 				expires_at: Math.floor((Date.now() + 3600_000) / 1000),
+				...(idp.sub ? { id_token: "x.y.z", claims: () => ({ sub: idp.sub }) } : {}),
 			};
 		}
 		async revoke(token: string) {
@@ -52,7 +60,14 @@ vi.mock("openid-client", async (original) => {
 
 import { findUser } from "$lib/server/auth";
 import { updateUser } from "../../../routes/login/callback/updateUser";
-import { accessTokenFor, hasGrant, SIGN_IN_AGAIN } from "./grants";
+import {
+	accessTokenFor,
+	hasGrant,
+	leewayFor,
+	scheduleGrantUsable,
+	SIGN_IN_AGAIN,
+	stopScheduleUse,
+} from "./grants";
 
 await ready;
 
@@ -94,6 +109,8 @@ beforeEach(async () => {
 	idp.n = 0;
 	idp.calls = [];
 	idp.refuse = false;
+	idp.refuseWith = "invalid_grant";
+	idp.sub = undefined;
 	idp.revoked = [];
 });
 
@@ -143,6 +160,22 @@ describe("what a login writes", () => {
 		expect(open(grant?.accessSealed ?? "")).toBe("at-9");
 		expect(sessions).toHaveLength(2);
 		expect(sessions.every((s) => s.oauth?.refreshToken === undefined)).toBe(true);
+		// The older chain is revoked at the IdP, after the person's other sessions were moved onto the
+		// newer access token (revoking a refresh token kills the access token issued from it).
+		expect(idp.revoked).toEqual(["rt-1"]);
+		const first = await collections.sessions.findOne({
+			_id: sessions.find((x) => x.oauth?.token.value === "at-9")?._id,
+		});
+		expect(first).toBeTruthy();
+		expect(sessions.every((x) => x.oauth?.token?.value === "at-9")).toBe(true);
+	});
+
+	it("a login gives scheduled chats the grant again after they were stopped", async () => {
+		const { user } = await login({ refresh: "rt-1" });
+		await stopScheduleUse(user._id);
+		expect(await scheduleGrantUsable(user._id)).toBe(false);
+		await login({ refresh: "rt-2" });
+		expect(await scheduleGrantUsable(user._id)).toBe(true);
 	});
 
 	it("an IdP that issues no refresh token leaves no grant, and the session is exactly what it was", async () => {
@@ -187,7 +220,7 @@ describe("refreshing without a stale token", () => {
 		const { user, sessions } = await twoSessionsNearExpiry();
 		await collections.scheduleGrants.updateOne(
 			{ userId: user._id },
-			{ $set: { accessExpiresAt: new Date(Date.now() + 60_000) } }
+			{ $set: { accessExpiresAt: new Date(Date.now() - 1000) } }
 		);
 
 		const [a, b, run] = await Promise.all([
@@ -290,6 +323,130 @@ describe("a refused grant", () => {
 		spy.mockRestore();
 		expect(await hasGrant(user._id)).toBe(true);
 		expect((await collections.schedules.findOne({ _id }))?.enabled).toBe(true);
+	});
+});
+
+describe("a dead chain, a changed subject, a busy lock and short-lived tokens", () => {
+	async function nearExpiry(refresh = "rt-1") {
+		const { user, sessions } = await login({ refresh, ageMs: 120_000 });
+		await collections.scheduleGrants.updateOne(
+			{ userId: user._id },
+			{ $set: { accessExpiresAt: new Date(Date.now() - 1000) } }
+		);
+		return { user, sessions };
+	}
+
+	it.each(["server_error", "invalid_client", "temporarily_unavailable"])(
+		"any OAuth error response (%s) from the token endpoint means the chain is dead: dropped, schedules off",
+		async (error) => {
+			const { user, sessions } = await nearExpiry();
+			const _id = await chatSchedule(user._id);
+			idp.refuse = true;
+			idp.refuseWith = error;
+
+			const found = await findUser(sessions[0].sessionId, undefined, url);
+
+			expect(found.invalidateSession).toBe(true);
+			expect(await hasGrant(user._id)).toBe(false);
+			expect((await collections.schedules.findOne({ _id }))?.enabled).toBe(false);
+		}
+	);
+
+	it("a refresh that names another subject than the login did drops the grant", async () => {
+		const { user } = await nearExpiry();
+		const _id = await chatSchedule(user._id);
+		idp.sub = "someone-else";
+
+		await expect(accessTokenFor(user._id)).rejects.toThrow(SIGN_IN_AGAIN);
+
+		expect(await hasGrant(user._id)).toBe(false);
+		expect((await collections.schedules.findOne({ _id }))?.enabled).toBe(false);
+	});
+
+	it("the same subject is fine", async () => {
+		const { user } = await nearExpiry();
+		idp.sub = "sub-ada";
+		expect((await accessTokenFor(user._id)).value).toBe("at-1");
+		expect(await hasGrant(user._id)).toBe(true);
+	});
+
+	it("a busy lock does not end a session whose token is still good, and waits only briefly", async () => {
+		const { user, sessions } = await login({ refresh: "rt-1", ageMs: 4 * 60_000 });
+		await collections.scheduleGrants.updateOne(
+			{ userId: user._id },
+			{ $set: { accessExpiresAt: new Date(Date.now() - 1000) } }
+		);
+		const key = `schedule.grant.refresh:${user._id.toString()}`;
+		await collections.semaphores.insertOne({
+			_id: new ObjectId(),
+			key,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			deleteAt: new Date(Date.now() + 60_000),
+		} as never);
+
+		const started = Date.now();
+		const found = await findUser(sessions[0].sessionId, undefined, url);
+
+		expect(found.invalidateSession).toBe(false);
+		expect(found.user?._id.equals(user._id)).toBe(true);
+		expect(Date.now() - started).toBeLessThan(8_000);
+		expect(idp.calls).toEqual([]);
+		expect(await hasGrant(user._id)).toBe(true);
+
+		// Once the token has run out there is nothing left to keep.
+		await collections.sessions.updateOne(
+			{ _id: sessions[0]._id },
+			{ $set: { "oauth.token.expiresAt": new Date(Date.now() - 1000) } }
+		);
+		expect((await findUser(sessions[0].sessionId, undefined, url)).invalidateSession).toBe(true);
+		expect(await hasGrant(user._id)).toBe(true);
+		await collections.semaphores.deleteMany({ key });
+	}, 30_000);
+
+	it("an IdP that fails to answer keeps a session's good token, and does not touch the grant", async () => {
+		const { user, sessions } = await login({ refresh: "rt-1", ageMs: 4 * 60_000 });
+		await collections.scheduleGrants.updateOne(
+			{ userId: user._id },
+			{ $set: { accessExpiresAt: new Date(Date.now() - 1000) } }
+		);
+		const client = await import("$lib/server/auth");
+		const spy = vi.spyOn(client, "refreshOAuthToken").mockRejectedValue(new Error("ECONNRESET"));
+		const found = await findUser(sessions[0].sessionId, undefined, url);
+		spy.mockRestore();
+		expect(found.invalidateSession).toBe(false);
+		expect(await hasGrant(user._id)).toBe(true);
+	});
+
+	it("sizes the leeway to the token's life: never more than half of it", () => {
+		expect(leewayFor(5 * 60_000, 3600_000)).toBe(5 * 60_000);
+		expect(leewayFor(5 * 60_000, 300_000)).toBe(150_000);
+		expect(leewayFor(60_000, 90_000)).toBe(45_000);
+		expect(leewayFor(60_000, undefined)).toBe(60_000);
+	});
+
+	it("a short-lived token with time to spare is reused, not refreshed on every request", async () => {
+		const { user, sessions } = await login({ refresh: "rt-1", ageMs: 300_000 });
+		// Four minutes of a five-minute life left: the session's own check (under 5 minutes) fires...
+		await collections.scheduleGrants.updateOne(
+			{ userId: user._id },
+			{ $set: { accessExpiresAt: new Date(Date.now() + 240_000) } }
+		);
+		await collections.sessions.updateOne(
+			{ _id: sessions[0]._id },
+			{ $set: { "oauth.token.expiresAt": new Date(Date.now() + 240_000) } }
+		);
+		await findUser(sessions[0].sessionId, undefined, url);
+		await findUser(sessions[0].sessionId, undefined, url);
+		// ... but the grant's cache is good for another two and a half minutes: the IdP is not asked.
+		expect(idp.calls).toEqual([]);
+		// With two minutes left it is time.
+		await collections.scheduleGrants.updateOne(
+			{ userId: user._id },
+			{ $set: { accessExpiresAt: new Date(Date.now() + 120_000) } }
+		);
+		await findUser(sessions[0].sessionId, undefined, url);
+		expect(idp.calls).toEqual(["rt-1"]);
 	});
 });
 

@@ -521,10 +521,9 @@ services:
       OPENID_INTERNAL_URL: ${OIDC_INTERNAL_BASE_URL:-}
       OPENID_CLIENT_ID: ${OIDC_CHAT_CLIENT_ID:-cerea}
       OPENID_CLIENT_SECRET: ${OIDC_CHAT_CLIENT_SECRET:-}
-      # The chat adds `offline_access` itself when the issuer lists it (that is what makes the IdP
-      # issue the refresh token behind scheduled chats and background token refresh), so the list
-      # needs no change here; the bundled Authelia client allows it.
-      OPENID_SCOPES: ${OIDC_SCOPES:-${OIDC_CHAT_SCOPES:-openid profile email groups offline_access}}
+      # The chat adds `offline_access` itself when the issuer lists it (OPENID_OFFLINE_ACCESS=off stops it).
+      OPENID_OFFLINE_ACCESS: ${OIDC_CHAT_OFFLINE_ACCESS:-auto}
+      OPENID_SCOPES: ${OIDC_SCOPES:-${OIDC_CHAT_SCOPES:-openid profile email groups}}
       # Signing out of the chat ends the IdP's session through this URL when
       # the IdP publishes no end_session_endpoint (the bundled Authelia);
       # `{redirect}` is where to land. And it expires the console's cookies on

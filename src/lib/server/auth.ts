@@ -152,16 +152,23 @@ async function refreshSessionViaGrant(
 	const grants = await import("$lib/server/schedules/grants");
 	if (!(await grants.hasGrant(userId))) return undefined;
 	try {
-		const access = await grants.accessTokenFor(userId, { leewayMs: 5 * 60_000 });
+		const access = await grants.accessTokenFor(userId, {
+			leewayMs: 5 * 60_000,
+			// A request does not wait long for another refresh in flight.
+			lockWaitMs: grants.SESSION_LOCK_WAIT_MS,
+		});
+		if (access.value === current.token.value) return undefined;
 		return {
 			...current,
 			token: { value: access.value, expiresAt: subMinutes(access.expiresAt, 1) },
 		};
 	} catch (err) {
 		if (err instanceof grants.GrantMissingError) return undefined;
-		if (!(err instanceof grants.GrantRefusedError))
-			logger.error(err, "Error during token refresh:");
-		return "refused";
+		if (err instanceof grants.GrantRefusedError) return "refused";
+		// Anything else (another refresh holding the lock, the IdP unreachable or failing) is not a
+		// verdict on the grant: the session keeps the token it has for as long as that is good.
+		logger.warn({ err }, "Session token refresh failed; keeping the current token while it lasts");
+		return current.token.expiresAt.getTime() > Date.now() ? undefined : "refused";
 	}
 }
 
@@ -318,19 +325,76 @@ export function tokenSetToSessionOauth(tokenSet: TokenSet): Session["oauth"] {
 }
 
 /**
- * The scopes the login asks for: the configured ones, plus `offline_access` when the issuer lists
- * it. That is what makes the IdP issue a refresh token, which the per-user background grant
- * (`schedules/grants.ts`) keeps so scheduled chats can run while nobody is signed in. Asking for a
- * scope an IdP does not offer is `invalid_scope`, so it is added only when discovery lists it; an
- * IdP that issues a refresh token without it still gets one grant from the login.
+ * Whether this process has learned that the issuer refuses `offline_access` for the chat's client
+ * (an `invalid_scope` answer to a login that asked for it). It then stops asking until restart, so a
+ * client that was not updated costs one retried sign-in, not a broken one.
  */
-export function loginScopes(offered?: unknown): string {
+let offlineAccessRefused = false;
+export function markOfflineAccessRefused(): void {
+	offlineAccessRefused = true;
+}
+export function offlineAccessWasRefused(): boolean {
+	return offlineAccessRefused;
+}
+/** For tests. */
+export function _resetOfflineAccessRefused(): void {
+	offlineAccessRefused = false;
+}
+
+/**
+ * How a sign-in treats `offline_access`: `auto` asks for it when the issuer lists it, `skip` never does
+ * (the person already has a background grant, and an IdP such as Authelia cannot remember consent for a
+ * request that includes it, so asking at every sign-in would show a consent screen every time), `force`
+ * asks even so (the one extra round that restores a grant that is missing).
+ */
+export type OfflineMode = "auto" | "skip" | "force";
+
+/** Set once a sign-in has settled whether this browser's person has background access: `1` they do, `0` the issuer issued none. */
+export const BACKGROUND_COOKIE = "hfChat-bgAccess";
+
+export function setBackgroundCookie(cookies: Cookies, issued: boolean) {
+	cookies.set(BACKGROUND_COOKIE, issued ? "1" : "0", {
+		path: "/",
+		sameSite,
+		secure,
+		httpOnly: true,
+		maxAge: 60 * 60 * 24 * (issued ? 365 : 30),
+	});
+}
+
+/**
+ * The scopes the login asks for: the configured ones, plus `offline_access` when the issuer lists
+ * it (`OPENID_OFFLINE_ACCESS=off` never adds it) and the mode allows. That is what makes the IdP
+ * issue a refresh token, which the per-user background grant (`schedules/grants.ts`) keeps so
+ * sessions and scheduled chats can refresh while nobody is signed in. Asking for a scope the client is
+ * not allowed is `invalid_scope`, so the login is retried once without it when that happens (and not
+ * asked again by this process). `offline` says whether it was added, so the callback can tell which
+ * scope an `invalid_scope` was about.
+ */
+export function loginScopes(
+	offered?: unknown,
+	mode: OfflineMode = "auto"
+): { scope: string; offline: boolean } {
 	const scopes = OIDConfig.SCOPES.split(/\s+/).filter(Boolean);
 	const listed = Array.isArray(offered) ? offered.map(String) : undefined;
-	if (!scopes.includes("offline_access") && listed?.includes("offline_access")) {
-		scopes.push("offline_access");
+	const wanted =
+		mode !== "skip" &&
+		config.OPENID_OFFLINE_ACCESS !== "off" &&
+		!offlineAccessRefused &&
+		!scopes.includes("offline_access") &&
+		Boolean(listed?.includes("offline_access"));
+	if (wanted) scopes.push("offline_access");
+	return { scope: scopes.join(" "), offline: wanted };
+}
+
+/** Whether a sign-in could ask for `offline_access` at all (the issuer lists it, and nothing turns it off). */
+export async function offlineAccessAvailable(settings: OIDCSettings, url: URL): Promise<boolean> {
+	try {
+		const client = await getOIDCClient(settings, url);
+		return loginScopes(client.issuer.metadata.scopes_supported, "force").offline;
+	} catch {
+		return false;
 	}
-	return scopes.join(" ");
 }
 
 /**
@@ -339,17 +403,20 @@ export function loginScopes(offered?: unknown): string {
 async function generateCsrfToken(
 	sessionId: string,
 	redirectUrl: string,
-	next?: string
+	next?: string,
+	offline?: boolean
 ): Promise<string> {
 	const sanitizedNext = sanitizeReturnPath(next);
 	const data = {
 		expiration: addHours(new Date(), 1).getTime(),
 		redirectUrl,
 		...(sanitizedNext ? { next: sanitizedNext } : {}),
+		...(offline ? { offline: true } : {}),
 	} as {
 		expiration: number;
 		redirectUrl: string;
 		next?: string;
+		offline?: boolean;
 	};
 
 	return Buffer.from(
@@ -465,13 +532,17 @@ export async function getOIDCAuthorizationUrl(
 		 * satisfied once the login is newer than the request.
 		 */
 		reauth?: boolean;
+		/** How this sign-in treats `offline_access` (default `auto`). */
+		offline?: OfflineMode;
 	}
 ): Promise<string> {
 	const client = await getOIDCClient(settings, params.url);
+	const { scope, offline } = loginScopes(client.issuer.metadata.scopes_supported, params.offline);
 	const csrfToken = await generateCsrfToken(
 		params.sessionId,
 		settings.redirectURI,
-		sanitizeReturnPath(params.next)
+		sanitizeReturnPath(params.next),
+		offline
 	);
 
 	const codeVerifier = generators.codeVerifier();
@@ -488,7 +559,7 @@ export async function getOIDCAuthorizationUrl(
 	return client.authorizationUrl({
 		code_challenge_method: "S256",
 		code_challenge: codeChallenge,
-		scope: loginScopes(client.issuer.metadata.scopes_supported),
+		scope,
 		state: csrfToken,
 		resource: OIDConfig.RESOURCE || undefined,
 		...(params.reauth ? { prompt: "login" } : {}),
@@ -618,6 +689,8 @@ export async function validateAndParseCsrfToken(
 	redirectUrl: string;
 	/** Relative path (within this app) to return to after login */
 	next?: string;
+	/** The login also asked for `offline_access` (so an `invalid_scope` may be about it). */
+	offline?: boolean;
 } | null> {
 	try {
 		const { data, signature } = z
@@ -626,6 +699,7 @@ export async function validateAndParseCsrfToken(
 					expiration: z.number().int(),
 					redirectUrl: z.string().url(),
 					next: z.string().optional(),
+					offline: z.boolean().optional(),
 				}),
 				signature: z.string().length(64),
 			})
@@ -634,7 +708,11 @@ export async function validateAndParseCsrfToken(
 		const reconstructSign = await sha256(JSON.stringify(data) + "##" + sessionId);
 
 		if (data.expiration > Date.now() && signature === reconstructSign) {
-			return { redirectUrl: data.redirectUrl, next: sanitizeReturnPath(data.next) };
+			return {
+				redirectUrl: data.redirectUrl,
+				next: sanitizeReturnPath(data.next),
+				...(data.offline ? { offline: true } : {}),
+			};
 		}
 	} catch (e) {
 		logger.error(e, "Error validating and parsing CSRF token");
@@ -765,9 +843,18 @@ export async function triggerOauthFlow({ url, locals, cookies }: RequestEvent): 
 	// is the only way a stale `auth_time` ever becomes fresh again.
 	const reauth = url.searchParams.get("reauth") === "1";
 
+	// Background access is asked for with the first sign-in, or when it is found missing afterwards
+	// (`?offline=1`); a browser that has settled it does not ask again (see `OfflineMode`).
+	const offline: OfflineMode =
+		url.searchParams.get("offline") === "1"
+			? "force"
+			: cookies.get(BACKGROUND_COOKIE)
+				? "skip"
+				: "auto";
+
 	const authorizationUrl = await getOIDCAuthorizationUrl(
 		{ redirectURI },
-		{ sessionId: locals.sessionId, next, url, cookies, reauth }
+		{ sessionId: locals.sessionId, next, url, cookies, reauth, offline }
 	);
 
 	throw redirect(302, authorizationUrl);

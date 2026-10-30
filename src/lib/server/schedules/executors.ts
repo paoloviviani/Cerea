@@ -56,6 +56,8 @@ export interface ExecutorCaller {
 	userId: ObjectId;
 	/** The caller's own session token, when this call has one (an API request does, a scheduler tick does not). */
 	token?: string;
+	/** The stored target an edit replaces, so what the edit leaves out can stay as it was. */
+	current?: Record<string, unknown>;
 }
 
 export type TargetCheck =

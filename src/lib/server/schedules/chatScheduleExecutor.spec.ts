@@ -53,7 +53,15 @@ vi.mock("./limits", async (original) => ({
 
 import "./chatScheduleExecutor";
 import { chatRunConfig, conversationBusy, parseChatTarget } from "./chatScheduleExecutor";
-import { accessTokenFor, hasGrant, NEEDS_GRANT, saveGrant, SIGN_IN_AGAIN } from "./grants";
+import {
+	accessTokenFor,
+	hasGrant,
+	NEEDS_GRANT,
+	saveGrant,
+	scheduleGrantUsable,
+	SIGN_IN_AGAIN,
+	stopScheduleUse,
+} from "./grants";
 import { getExecutor } from "./executors";
 import { runNow } from "./scheduler";
 import { createSchedule, deleteSchedule, getSchedule, updateSchedule } from "./store";
@@ -76,6 +84,13 @@ async function giveGrant(
 		access_token: tokens.access ?? ACCESS,
 		expires_at: Math.floor((Date.now() + (tokens.expiresInMs ?? 3600_000)) / 1000),
 	} as never);
+	// A short life is a token that has run out: the refresh leeway is a share of the lifetime now.
+	if (tokens.expiresInMs !== undefined && tokens.expiresInMs < 60_000) {
+		await collections.scheduleGrants.updateOne(
+			{ userId: user.user._id },
+			{ $set: { accessExpiresAt: new Date(Date.now() - 1000) } }
+		);
+	}
 }
 
 /** A turn's wire answer: JSON lines, as the conversation route writes them. */
@@ -226,6 +241,19 @@ describe("the permission mode", () => {
 		expect((flags.turn.mock.calls[1][0] as { locals: App.Locals }).locals.scheduledRun).toEqual({
 			permissionMode: "ask",
 		});
+	});
+
+	it("an edit that leaves the mode out keeps the stored one, not the policy's ceiling", async () => {
+		await setPolicy("always-allow");
+		const schedule = await make({ ...asks(), permissionMode: "ask" });
+		const edited = await updateSchedule(person.user._id, schedule._id.toString(), {
+			target: asks(),
+		});
+		expect(edited.target.permissionMode).toBe("ask");
+		const loosened = await updateSchedule(person.user._id, schedule._id.toString(), {
+			target: { ...asks(), permissionMode: "allow" },
+		});
+		expect(loosened.target.permissionMode).toBe("allow");
 	});
 
 	it("reads a target stored before the mode existed as Ask", () => {
@@ -768,19 +796,35 @@ describe("the background grant", () => {
 		expect((await getSchedule(person.user._id, schedule._id.toString())).enabled).toBe(false);
 	});
 
-	it("goes with the last chat schedule, not before", async () => {
+	it("stops being used by schedules with the last chat schedule, but stays: it keeps the sessions signed in", async () => {
 		const a = await make(continueTarget());
 		const b = await make(
 			{ mode: "continue", conversationId: (await seedConversation()).toString() },
 			{ name: "Second" }
 		);
 		await deleteSchedule(person.user._id, a._id.toString());
+		expect(await scheduleGrantUsable(person.user._id)).toBe(true);
+		await deleteSchedule(person.user._id, b._id.toString());
+		expect(await scheduleGrantUsable(person.user._id)).toBe(false);
 		expect(await hasGrant(person.user._id)).toBe(true);
 		expect(flags.revoke).not.toHaveBeenCalled();
-		await deleteSchedule(person.user._id, b._id.toString());
-		expect(await hasGrant(person.user._id)).toBe(false);
-		expect(flags.revoke).toHaveBeenCalledTimes(1);
-		expect(flags.revoke.mock.calls[0][1]).toBe("rt-1");
+		// Turning a chat schedule on again gives it back.
+		await make(continueTarget());
+		expect(await scheduleGrantUsable(person.user._id)).toBe(true);
+	});
+
+	it("while stopped a run cannot use it, though sessions still refresh through it", async () => {
+		await make(continueTarget());
+		await stopScheduleUse(person.user._id);
+		await collections.scheduleGrants.updateOne(
+			{ userId: person.user._id },
+			{ $set: { accessExpiresAt: new Date(Date.now() - 1000) } }
+		);
+		await expect(accessTokenFor(person.user._id, { forSchedule: true })).rejects.toThrow(
+			/background access/
+		);
+		expect(flags.refresh).not.toHaveBeenCalled();
+		expect((await accessTokenFor(person.user._id)).value).toBe("at-fresh");
 	});
 
 	it("is not touched by deleting a schedule of another kind", async () => {

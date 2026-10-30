@@ -432,19 +432,22 @@ that chat was still generating, so the next waits for its time), or **failed**;
 three failures in a row switch the schedule off, with the reason shown on it.
 
 **Background access.** A run has no signed-in session of yours, so it uses the
-background access your sign-in leaves behind: when you sign in, Cerea asks your
-identity provider for a refresh token and keeps one per person, sealed, shared by your
+background access your sign-in leaves behind: your identity provider issues a refresh
+token (the first sign-in on a browser asks for it, and your provider may show a consent
+screen for it, once per browser), and Cerea keeps one per person, sealed, shared by your
 browser sessions and your scheduled runs (the newest sign-in replaces the older). Runs
 refresh an access token from it and call the models as you, so your quota, billing
 group, redaction rules and model access apply and usage is yours. Signing out of one
 device keeps it. If your identity provider refuses it (you were deprovisioned, or
-revoked it), your chat schedules switch themselves off with "Sign in again and turn
-it back on"; signing in again restores the access and you turn the schedules on. You
-can revoke it any time under **Settings → Application → Background access for
-schedules**, which also switches your chat schedules off, and deleting your account
-removes it. If your identity provider issues no refresh token, chat works as always but
-schedules explain that your administrator has to allow refresh tokens. You may have up
-to 20 schedules by default; your administrator can change that.
+revoked it), you are signed out and your chat schedules switch themselves off with
+"Sign in again and turn it back on"; signing in again restores the access and you turn
+the schedules on. **Settings → Application → Background access for schedules → Stop**
+switches your chat schedules off and stops them using it; it does not sign you out
+(your sessions keep refreshing through it), and turning a chat schedule on again, or
+signing in again, gives it back. Deleting your account removes it. If your identity
+provider issues no refresh token, chat works as always but schedules explain that your
+administrator has to allow refresh tokens. You may have up to 20 schedules by default;
+your administrator can change that.
 
 ## Notifications
 

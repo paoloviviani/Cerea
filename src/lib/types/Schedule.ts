@@ -170,6 +170,15 @@ export interface ScheduleGrant {
 	accessExpiresAt?: Date;
 	/** What the IdP says was granted. */
 	scope?: string;
+	/**
+	 * Whether scheduled chats may use it. The grant is also the sessions' refresh credential, so
+	 * stopping background access only switches this off (and it comes back on with a new login or
+	 * when a chat schedule is turned on); the token itself is dropped only when it is refused, or
+	 * the account goes.
+	 */
+	scheduleUse?: boolean;
+	/** How long the cached access token lives, to size the refresh leeway for short-lived IdP tokens. */
+	accessLifetimeMs?: number;
 	/** The IdP's subject the login authenticated, and when that login happened (the newest login's token is the one kept). */
 	sub?: string;
 	issuedAt: Date;

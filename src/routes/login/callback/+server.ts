@@ -1,17 +1,26 @@
-import { error, redirect } from "@sveltejs/kit";
+import { error, isRedirect, redirect } from "@sveltejs/kit";
 import {
 	clearLoginRetryCookie,
 	getOIDCUserData,
+	BACKGROUND_COOKIE,
 	hasLoginRetryCookie,
+	offlineAccessAvailable,
+	setBackgroundCookie,
+	markOfflineAccessRefused,
+	offlineAccessWasRefused,
 	sanitizeReturnPath,
 	setLoginRetryCookie,
 	validateAndParseCsrfToken,
 } from "$lib/server/auth";
 import { z } from "zod";
+import { logger } from "$lib/server/logger";
 import { base } from "$app/paths";
 import { config } from "$lib/server/config";
 import JSON5 from "json5";
 import { updateUser, issuerEmailSchema } from "./updateUser.js";
+import { collections } from "$lib/server/database";
+import { hasGrant } from "$lib/server/schedules/grants";
+import { sealingAvailable } from "$lib/server/mcp/secretBox";
 
 const sanitizeJSONEnv = (val: string, fallback: string) => {
 	const raw = (val ?? "").trim();
@@ -50,6 +59,42 @@ export async function GET({ url, locals, cookies, request, getClientAddress }) {
 			error_description: z.string().optional(),
 		})
 		.parse(Object.fromEntries(url.searchParams.entries()));
+
+	if (errorName === "invalid_scope") {
+		// The sign-in asked for `offline_access` and the issuer's client for the chat does not allow it
+		// (an Authelia whose chat client predates it): remember that, and sign in again without it, once.
+		const state = url.searchParams.get("state");
+		const validated = state
+			? await validateAndParseCsrfToken(
+					Buffer.from(state, "base64").toString("utf-8"),
+					locals.sessionId
+				)
+			: null;
+		if (validated?.offline && !offlineAccessWasRefused()) {
+			markOfflineAccessRefused();
+			const retry = new URLSearchParams();
+			if (validated.next) retry.set("next", validated.next);
+			return redirect(302, `${base}/login${retry.size ? `?${retry}` : ""}`);
+		}
+	}
+
+	if (errorName === "server_error" && !hasLoginRetryCookie(cookies)) {
+		// Authelia 4.39 answers the first authorization after a remembered consent was saved with a
+		// `server_error` ("could not save the consent session"), though the consent is kept and the next
+		// attempt goes straight through: sign in again, once.
+		setLoginRetryCookie(cookies);
+		const state = url.searchParams.get("state");
+		const validated = state
+			? await validateAndParseCsrfToken(
+					Buffer.from(state, "base64").toString("utf-8"),
+					locals.sessionId
+				)
+			: null;
+		return redirect(
+			302,
+			`${base}/login${validated?.next ? `?next=${encodeURIComponent(validated.next)}` : ""}`
+		);
+	}
 
 	if (errorName) {
 		throw error(400, errorName + (errorDescription ? ": " + errorDescription : ""));
@@ -143,6 +188,34 @@ export async function GET({ url, locals, cookies, request, getClientAddress }) {
 	});
 
 	clearLoginRetryCookie(cookies);
+
+	// Background access (the refresh token behind sessions and scheduled chats): settled for this browser,
+	// or asked for once more when the person turns out to have none (a dropped grant, a first sign-in
+	// that did not ask). The extra round signs nobody in again: the IdP's session answers it.
+	try {
+		const session = await collections.sessions.findOne({ sessionId: locals.sessionId });
+		if (session?.userId) {
+			const settings = { redirectURI: validatedToken.redirectUrl };
+			if (await hasGrant(session.userId)) {
+				setBackgroundCookie(cookies, true);
+			} else if (validatedToken.offline) {
+				// Asked, and nothing came back: not asked again for a while.
+				setBackgroundCookie(cookies, false);
+			} else if (
+				cookies.get(BACKGROUND_COOKIE) !== "0" &&
+				sealingAvailable() &&
+				(await offlineAccessAvailable(settings, url))
+			) {
+				const retry = new URLSearchParams({ offline: "1" });
+				if (validatedToken.next) retry.set("next", validatedToken.next);
+				return redirect(302, `${base}/login?${retry}`);
+			}
+		}
+	} catch (err) {
+		// Bookkeeping about background access must never stand between a person and their sign-in.
+		if (isRedirect(err)) throw err;
+		logger.warn({ err }, "background_access_check_failed");
+	}
 
 	// Prefer returning the user to their original in-app path when provided.
 	// `validatedToken.next` is sanitized server-side to avoid protocol-relative redirects.

@@ -43,7 +43,14 @@ export class GrantMissingError extends Error {
 		this.name = "GrantMissingError";
 	}
 }
-/** The IdP answered `invalid_grant`: the grant is over. */
+/** Another refresh of the same grant is still in flight: not the grant's fault, try again. */
+export class GrantBusyError extends Error {
+	constructor() {
+		super("Another refresh of the background access is in progress; try again.");
+		this.name = "GrantBusyError";
+	}
+}
+/** The IdP refused the grant (an OAuth error response), or it is not this person's: the grant is over. */
 export class GrantRefusedError extends Error {
 	constructor() {
 		super(SIGN_IN_AGAIN);
@@ -51,6 +58,20 @@ export class GrantRefusedError extends Error {
 	}
 }
 const DEFAULT_LEEWAY_MS = 60_000;
+/** The longest a session request waits for another refresh in flight before keeping the token it has. */
+export const SESSION_LOCK_WAIT_MS = 3_000;
+const RUN_LOCK_WAIT_MS = 30_000;
+
+/** `base`, but never more than half the token's lifetime: a short-lived token must not be refreshed on every request. */
+export function leewayFor(baseMs: number, lifetimeMs: number | undefined): number {
+	return lifetimeMs && lifetimeMs > 0 ? Math.min(baseMs, Math.floor(lifetimeMs / 2)) : baseMs;
+}
+
+/** An OAuth error response from the token endpoint (`invalid_grant`, `server_error` from a revoked chain, ...), as opposed to the endpoint being unreachable. */
+function isOAuthErrorResponse(err: unknown): boolean {
+	const e = err as { name?: string; error?: unknown } | null;
+	return e?.name === "OPError" || typeof e?.error === "string";
+}
 
 function oidcSettings() {
 	return { redirectURI: `${config.PUBLIC_ORIGIN}${base}/login/callback` };
@@ -59,8 +80,34 @@ function oidcUrl(): URL {
 	return new URL(config.PUBLIC_ORIGIN || "http://localhost");
 }
 
+/** Whether there is a grant at all: the sessions' refresh credential, used or not by schedules. */
 export async function hasGrant(userId: ObjectId): Promise<boolean> {
 	return (await collections.scheduleGrants.countDocuments({ userId })) > 0;
+}
+
+/** Whether scheduled chats may use the person's grant right now. */
+export async function scheduleGrantUsable(userId: ObjectId): Promise<boolean> {
+	return (
+		(await collections.scheduleGrants.countDocuments({ userId, scheduleUse: { $ne: false } })) > 0
+	);
+}
+
+/** Stop scheduled chats using the grant. The token stays: sessions refresh through it. */
+export async function stopScheduleUse(userId: ObjectId): Promise<boolean> {
+	const { modifiedCount } = await collections.scheduleGrants.updateOne(
+		{ userId },
+		{ $set: { scheduleUse: false, updatedAt: new Date() } }
+	);
+	return modifiedCount > 0;
+}
+
+/** Let scheduled chats use the grant again (a new login does this itself, as does turning a chat schedule on). Returns false when there is no grant. */
+export async function enableScheduleUse(userId: ObjectId): Promise<boolean> {
+	const { matchedCount } = await collections.scheduleGrants.updateOne(
+		{ userId },
+		{ $set: { scheduleUse: true, updatedAt: new Date() } }
+	);
+	return matchedCount > 0;
 }
 
 /**
@@ -79,37 +126,71 @@ export async function saveGrant(
 		return false;
 	}
 	const now = new Date();
+	const expiresAt = tokens.expires_at
+		? new Date(tokens.expires_at * 1000)
+		: new Date(now.getTime() + 5 * 60_000);
+	let replaced: string | undefined;
 	await withUserLock(userId, async () => {
+		replaced = (await collections.scheduleGrants.findOne({ userId }))?.refreshSealed;
 		await collections.scheduleGrants.updateOne(
 			{ userId },
 			{
 				$set: {
 					refreshSealed: seal(tokens.refresh_token as string),
 					issuedAt: now,
+					// A login gives scheduled chats the grant again.
+					scheduleUse: true,
 					...(options.sub ? { sub: options.sub } : {}),
 					...(tokens.access_token
 						? {
 								accessSealed: seal(tokens.access_token),
-								accessExpiresAt: tokens.expires_at
-									? new Date(tokens.expires_at * 1000)
-									: new Date(now.getTime() + 5 * 60_000),
+								accessExpiresAt: expiresAt,
+								accessLifetimeMs: Math.max(0, expiresAt.getTime() - now.getTime()),
 							}
 						: {}),
 					...(tokens.scope ? { scope: tokens.scope } : {}),
 					updatedAt: now,
 				},
-				...(tokens.access_token ? {} : { $unset: { accessSealed: "", accessExpiresAt: "" } }),
+				...(tokens.access_token
+					? {}
+					: { $unset: { accessSealed: "", accessExpiresAt: "", accessLifetimeMs: "" } }),
 				$setOnInsert: { userId, createdAt: now },
 			},
 			{ upsert: true }
 		);
 	});
+	// The older chain is no use to anyone now: every session refreshes through this one. Revoking it
+	// kills its access token at once, so first move the person's other sessions onto the new one.
+	if (replaced && tokens.access_token) {
+		await collections.sessions
+			.updateMany(
+				{ userId, "oauth.token": { $exists: true } },
+				{
+					$set: {
+						"oauth.token": {
+							value: tokens.access_token,
+							expiresAt: new Date(expiresAt.getTime() - 60_000),
+						},
+					},
+				}
+			)
+			.catch((err) => logger.warn({ err }, "schedule_grant_session_move_failed"));
+		try {
+			await (await oidc()).revokeOAuthToken(oidcSettings(), open(replaced), oidcUrl());
+		} catch (err) {
+			logger.info({ err }, "schedule_grant_revoke_replaced_failed");
+		}
+	}
 	return true;
 }
 
-async function withUserLock<T>(userId: ObjectId, fn: () => Promise<T>): Promise<T> {
+async function withUserLock<T>(
+	userId: ObjectId,
+	fn: () => Promise<T>,
+	waitMs = RUN_LOCK_WAIT_MS
+): Promise<T> {
 	const key = `schedule.grant.refresh:${userId.toString()}`;
-	const deadline = Date.now() + 30_000;
+	const deadline = Date.now() + waitMs;
 	for (;;) {
 		const lock = await acquireLock(key);
 		if (lock) {
@@ -119,8 +200,7 @@ async function withUserLock<T>(userId: ObjectId, fn: () => Promise<T>): Promise<
 				await releaseLock(key, lock);
 			}
 		}
-		if (Date.now() > deadline)
-			throw new Error("Another scheduled run is refreshing the access; try again.");
+		if (Date.now() > deadline) throw new GrantBusyError();
 		await new Promise((r) => setTimeout(r, 150));
 	}
 }
@@ -132,62 +212,88 @@ export interface GrantAccess {
 
 /**
  * An access token for the person, refreshed from their grant when the cached one has less than
- * `leewayMs` left. Serialised per person, so a browser session and a scheduled run asking at once
- * share one refresh and never present a stale refresh token. Throws `GrantMissingError`,
- * `GrantRefusedError` (the grant is then already dropped and their chat schedules switched off) or
- * an ordinary error for a refresh that failed for any other reason.
+ * `leewayMs` (never more than half its lifetime) left. Serialised per person, so a browser session and
+ * a scheduled run asking at once share one refresh and never present a rotated refresh token. Throws
+ * `GrantMissingError` (no grant, or `forSchedule` and background access is stopped), `GrantRefusedError`
+ * (the IdP answered the refresh with an OAuth error, or the subject changed: the grant is then already
+ * dropped and their chat schedules switched off), `GrantBusyError` (another refresh holds the lock) or
+ * an ordinary error for a refresh that could not reach the IdP.
  */
 export async function accessTokenFor(
 	userId: ObjectId,
-	options: { now?: Date; leewayMs?: number } = {}
+	options: { now?: Date; leewayMs?: number; forSchedule?: boolean; lockWaitMs?: number } = {}
 ): Promise<GrantAccess> {
 	const now = options.now ?? new Date();
-	const leewayMs = options.leewayMs ?? DEFAULT_LEEWAY_MS;
-	return withUserLock(userId, async () => {
-		const grant = await collections.scheduleGrants.findOne({ userId });
-		if (!grant) throw new GrantMissingError();
-		if (
-			grant.accessSealed &&
-			grant.accessExpiresAt &&
-			grant.accessExpiresAt.getTime() - now.getTime() > leewayMs
-		) {
-			return { value: open(grant.accessSealed), expiresAt: grant.accessExpiresAt };
-		}
-		let tokens: TokenSet | null;
-		try {
-			tokens = await (
-				await oidc()
-			).refreshOAuthToken(oidcSettings(), open(grant.refreshSealed), oidcUrl());
-		} catch (err) {
-			if ((err as { error?: string })?.error === "invalid_grant") {
-				await dropGrantAndDisable(userId, SIGN_IN_AGAIN);
-				throw new GrantRefusedError();
+	const baseLeeway = options.leewayMs ?? DEFAULT_LEEWAY_MS;
+	return withUserLock(
+		userId,
+		async () => {
+			const grant = await collections.scheduleGrants.findOne({ userId });
+			if (!grant || (options.forSchedule && grant.scheduleUse === false)) {
+				throw new GrantMissingError();
 			}
-			throw err;
-		}
-		if (!tokens?.access_token) throw new Error("The identity provider returned no access token.");
-		// Rotated when the IdP rotates; kept when it does not. Written only over the token it replaced:
-		// a login that landed meanwhile keeps its newer one.
-		const refreshSealed = tokens.refresh_token ? seal(tokens.refresh_token) : grant.refreshSealed;
-		const accessExpiresAt = tokens.expires_at
-			? new Date(tokens.expires_at * 1000)
-			: new Date(now.getTime() + 5 * 60_000);
-		const written = await collections.scheduleGrants.updateOne(
-			{ _id: grant._id, refreshSealed: grant.refreshSealed },
-			{
-				$set: {
-					refreshSealed,
-					accessSealed: seal(tokens.access_token),
-					accessExpiresAt,
-					updatedAt: new Date(),
-				},
+			if (
+				grant.accessSealed &&
+				grant.accessExpiresAt &&
+				grant.accessExpiresAt.getTime() - now.getTime() >
+					leewayFor(baseLeeway, grant.accessLifetimeMs)
+			) {
+				return { value: open(grant.accessSealed), expiresAt: grant.accessExpiresAt };
 			}
-		);
-		if (written.matchedCount === 0) {
-			logger.warn({ userId: userId.toString() }, "schedule_grant_changed_during_refresh");
-		}
-		return { value: tokens.access_token, expiresAt: accessExpiresAt };
-	});
+			let tokens: TokenSet | null;
+			try {
+				tokens = await (
+					await oidc()
+				).refreshOAuthToken(oidcSettings(), open(grant.refreshSealed), oidcUrl());
+			} catch (err) {
+				// An OAuth error response means the chain is dead: `invalid_grant`, or the `server_error`
+				// an IdP answers for the newest token of a chain it revoked after a rotated token was reused.
+				if (isOAuthErrorResponse(err)) {
+					await dropGrantAndDisable(userId, SIGN_IN_AGAIN);
+					throw new GrantRefusedError();
+				}
+				throw err;
+			}
+			if (!tokens?.access_token) throw new Error("The identity provider returned no access token.");
+			// A refresh that names a different subject than the login did is not this person's grant.
+			if (grant.sub) {
+				let sub: string | undefined;
+				try {
+					sub = tokens.id_token ? tokens.claims().sub : undefined;
+				} catch {
+					sub = undefined;
+				}
+				if (sub && sub !== grant.sub) {
+					logger.warn({ userId: userId.toString() }, "schedule_grant_subject_mismatch");
+					await dropGrantAndDisable(userId, SIGN_IN_AGAIN);
+					throw new GrantRefusedError();
+				}
+			}
+			// Rotated when the IdP rotates; kept when it does not. Written only over the token it replaced:
+			// a login that landed meanwhile keeps its newer one.
+			const refreshSealed = tokens.refresh_token ? seal(tokens.refresh_token) : grant.refreshSealed;
+			const accessExpiresAt = tokens.expires_at
+				? new Date(tokens.expires_at * 1000)
+				: new Date(now.getTime() + 5 * 60_000);
+			const written = await collections.scheduleGrants.updateOne(
+				{ _id: grant._id, refreshSealed: grant.refreshSealed },
+				{
+					$set: {
+						refreshSealed,
+						accessSealed: seal(tokens.access_token),
+						accessExpiresAt,
+						accessLifetimeMs: Math.max(0, accessExpiresAt.getTime() - now.getTime()),
+						updatedAt: new Date(),
+					},
+				}
+			);
+			if (written.matchedCount === 0) {
+				logger.warn({ userId: userId.toString() }, "schedule_grant_changed_during_refresh");
+			}
+			return { value: tokens.access_token, expiresAt: accessExpiresAt };
+		},
+		options.lockWaitMs
+	);
 }
 
 /** Switch off every chat schedule of the person, with the reason they will read. */

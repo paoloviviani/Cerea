@@ -111,11 +111,12 @@ async function checkTarget(
 	kind: Schedule["kind"],
 	target: unknown,
 	userId: ObjectId,
-	token?: string
+	token?: string,
+	current?: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
 	const executor = getExecutor(kind);
 	if (!executor) throw new ScheduleError(400, `Nothing here can run "${kind}" schedules.`);
-	const result = await executor.validateTarget(target, { userId, token });
+	const result = await executor.validateTarget(target, { userId, token, current });
 	if (!result.ok) throw new ScheduleError(400, result.error);
 	return result.target;
 }
@@ -216,7 +217,13 @@ export async function updateSchedule(
 		checkRecurrence(existing.recurrence, timezone);
 	}
 	if (patch.target !== undefined) {
-		set.target = await checkTarget(existing.kind, patch.target, userId, options.token);
+		set.target = await checkTarget(
+			existing.kind,
+			patch.target,
+			userId,
+			options.token,
+			existing.target
+		);
 		set.consecutiveFailures = 0;
 	}
 

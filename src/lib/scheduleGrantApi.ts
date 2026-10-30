@@ -6,6 +6,8 @@ export interface ScheduleGrantStatus {
 	/** False off a gateway: nothing to grant. */
 	required: boolean;
 	granted: boolean;
+	/** Whether scheduled chats are using it now (stopped in Settings: false until a schedule is turned on again). */
+	active: boolean;
 	chatSchedules: number;
 }
 
@@ -15,8 +17,8 @@ export async function getScheduleGrant(): Promise<ScheduleGrantStatus> {
 	return superjson.parse<ScheduleGrantStatus>(await res.text());
 }
 
-export async function revokeScheduleGrant(): Promise<{ disabled: number }> {
+export async function stopScheduleGrant(): Promise<{ disabled: number }> {
 	const res = await fetch(`${base}/api/v2/user/schedule-grant`, { method: "DELETE" });
-	if (!res.ok) throw new Error("Could not revoke the background access.");
+	if (!res.ok) throw new Error("Could not stop the background access.");
 	return superjson.parse<{ disabled: number }>(await res.text());
 }

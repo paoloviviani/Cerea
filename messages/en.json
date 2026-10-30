@@ -659,7 +659,7 @@
 	"code.schedules.run_progress": "{fired}/{max} run",
 	"code.schedules.runs": "Runs",
 	"code.schedules.subtitle": "Prompts sent to your coding sessions on a timetable.",
-	"code.schedules.tips.chat": "A chat schedule runs on the background access your sign-in gives. If that access stops working your chat schedules switch themselves off: sign in again and turn them back on. You can revoke it under Settings.",
+	"code.schedules.tips.chat": "A chat schedule runs on the background access your sign-in gives. If that access stops working your chat schedules switch themselves off: sign in again and turn them back on. You can stop it under Settings; that does not sign you out.",
 	"code.schedules.tips.failures": "Three failed runs in a row switch a schedule off.",
 	"code.schedules.tips.offline": "A run on a machine that is offline is recorded as missed, never queued. Machines pay for their own runs with their own credential.",
 	"code.schedules.tips.skipped": "If the previous run's session is still working, the next one is skipped. If Cerea was down, at most one late run is made up, and only when it is not very late.",
@@ -2403,7 +2403,6 @@
 	"projects.page.tab.conversations": "Conversations",
 	"projects.page.tab.settings": "Settings",
 	"projects.page.unsaved": "Unsaved changes",
-	"settings.schedule_access.could_not_revoke": "Could not revoke the background access.",
 	"settings.schedule_access.granted": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
@@ -2415,18 +2414,20 @@
 		}
 	],
 	"settings.schedule_access.not_granted": "Not available. It comes from signing in; if it is still missing after you sign in again, your administrator has to allow refresh tokens (offline_access) for the chat's client.",
-	"settings.schedule_access.revoke": "Revoke",
-	"settings.schedule_access.revoke_hint": "Revoking switches your chat schedules off and ends the background access. Your sign-in carries on until its current access ends; signing in again brings background access back.",
-	"settings.schedule_access.revoked": [
+	"settings.schedule_access.stop": "Stop background access for schedules",
+	"settings.schedule_access.stop_hint": "Your chat schedules switch off and stop using it. It does not sign you out: your sign-in keeps working. Turning a chat schedule on again, or signing in again, gives it back.",
+	"settings.schedule_access.stopped": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
 			"match": {
-				"countPlural=one": "Revoked. {count} chat schedule was switched off.",
-				"countPlural=other": "Revoked. {count} chat schedules were switched off."
+				"countPlural=one": "Stopped. {count} chat schedule was switched off.",
+				"countPlural=other": "Stopped. {count} chat schedules were switched off."
 			}
 		}
 	],
+	"settings.schedule_access.stopped_state": "Stopped. Turning a chat schedule on again, or signing in again, gives scheduled chats the background access back.",
+	"settings.schedule_access.could_not_stop": "Could not stop the background access.",
 	"settings.schedule_access.title": "Background access for schedules",
 	"settings.title": "Settings",
 	"settings.sections_label": "Settings sections",

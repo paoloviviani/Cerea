@@ -11,14 +11,14 @@
 	import { m } from "$lib/paraglide/messages";
 	import {
 		getScheduleGrant,
-		revokeScheduleGrant,
+		stopScheduleGrant,
 		type ScheduleGrantStatus,
 	} from "$lib/scheduleGrantApi";
 
 	let status = $state<ScheduleGrantStatus | null>(null);
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
-	let revokedNote = $state<number | null>(null);
+	let stoppedNote = $state<number | null>(null);
 
 	async function load() {
 		try {
@@ -29,16 +29,15 @@
 	}
 	onMount(() => void load());
 
-	async function revoke() {
+	async function stop() {
 		busy = true;
 		failure = null;
 		try {
-			const { disabled } = await revokeScheduleGrant();
-			revokedNote = disabled;
+			const { disabled } = await stopScheduleGrant();
+			stoppedNote = disabled;
 			await load();
 		} catch (err) {
-			failure =
-				err instanceof Error ? err.message : m["settings.schedule_access.could_not_revoke"]();
+			failure = err instanceof Error ? err.message : m["settings.schedule_access.could_not_stop"]();
 		} finally {
 			busy = false;
 		}
@@ -51,27 +50,29 @@
 			{m["settings.schedule_access.title"]()}
 		</h2>
 		<p class="text-xs text-gray-500 dark:text-gray-400">
-			{status.granted
+			{status.active
 				? m["settings.schedule_access.granted"]({ count: status.chatSchedules })
-				: m["settings.schedule_access.not_granted"]()}
+				: status.granted
+					? m["settings.schedule_access.stopped_state"]()
+					: m["settings.schedule_access.not_granted"]()}
 		</p>
-		{#if status.granted}
+		{#if status.active}
 			<button
 				type="button"
 				class="self-start rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
 				disabled={busy}
-				onclick={revoke}
-				data-testid="schedule-access-revoke"
+				onclick={stop}
+				data-testid="schedule-access-stop"
 			>
-				{m["settings.schedule_access.revoke"]()}
+				{m["settings.schedule_access.stop"]()}
 			</button>
 			<p class="text-xs text-gray-500 dark:text-gray-400">
-				{m["settings.schedule_access.revoke_hint"]()}
+				{m["settings.schedule_access.stop_hint"]()}
 			</p>
 		{/if}
-		{#if revokedNote !== null && !status.granted}
-			<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="schedule-access-revoked">
-				{m["settings.schedule_access.revoked"]({ count: revokedNote })}
+		{#if stoppedNote !== null && !status.active}
+			<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="schedule-access-stopped">
+				{m["settings.schedule_access.stopped"]({ count: stoppedNote })}
 			</p>
 		{/if}
 		{#if failure}

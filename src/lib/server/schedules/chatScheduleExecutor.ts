@@ -54,12 +54,12 @@ import type { User } from "$lib/types/User";
 import { registerExecutor, type ExecutorOutcome } from "./executors";
 import {
 	accessTokenFor,
-	dropGrant,
 	GrantMissingError,
 	GrantRefusedError,
-	hasGrant,
+	enableScheduleUse,
 	NEEDS_GRANT,
 	SIGN_IN_AGAIN,
+	stopScheduleUse,
 } from "./grants";
 import { clampPermission, userApprovalPolicy, type SchedulePermission } from "./permission";
 import { runStamp, scheduledChatHeader } from "./runHeader";
@@ -318,7 +318,7 @@ function httpMessage(err: unknown): { status?: number; message: string } {
 registerExecutor({
 	kind: "chat",
 
-	async validateTarget(input, { userId, token }) {
+	async validateTarget(input, { userId, token, current }) {
 		const target = parseChatTarget(input);
 		if (!target) {
 			return {
@@ -370,8 +370,10 @@ registerExecutor({
 					"Turn on always allow in your settings first, or choose Ask.",
 			};
 		}
+		// An edit that leaves the mode out keeps the one it had; a new schedule takes the policy's.
+		const kept = current ? parseChatTarget(current)?.permissionMode : undefined;
 		target.permissionMode = clampPermission(
-			requested === "allow" || requested === "ask" ? requested : undefined,
+			requested === "allow" || requested === "ask" ? requested : kept,
 			policy
 		);
 		return { ok: true, target };
@@ -390,7 +392,9 @@ registerExecutor({
 	async precondition(userId) {
 		// Off a gateway there is no per-person token to hold a grant for.
 		if (!isGatewayPreset()) return null;
-		return (await hasGrant(userId)) ? null : NEEDS_GRANT;
+		// Turning a chat schedule on is the person asking for background access again: a grant whose
+		// schedule use was stopped (it stays, the sessions refresh through it) is switched back on.
+		return (await enableScheduleUse(userId)) ? null : NEEDS_GRANT;
 	},
 
 	async afterDelete(schedule) {
@@ -399,7 +403,8 @@ registerExecutor({
 			userId: schedule.userId,
 			kind: "chat",
 		});
-		if (remaining === 0) await dropGrant(schedule.userId);
+		// The grant also keeps their sessions signed in: only schedules stop using it.
+		if (remaining === 0) await stopScheduleUse(schedule.userId);
 	},
 
 	async run({ schedule, now, previousRun }): Promise<ExecutorOutcome> {
@@ -419,7 +424,7 @@ registerExecutor({
 		let token: string | undefined;
 		if (isGatewayPreset()) {
 			try {
-				token = (await accessTokenFor(schedule.userId)).value;
+				token = (await accessTokenFor(schedule.userId, { forSchedule: true })).value;
 			} catch (err) {
 				if (err instanceof GrantMissingError) {
 					return { status: "failed", detail: NEEDS_GRANT, disable: SIGN_IN_AGAIN };

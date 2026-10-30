@@ -1225,6 +1225,10 @@ class TestScopes(Deploy):
         self.assertIn("'offline_access'", block)
         self.assertIn("'refresh_token'", block)
         self.assertIn("lifespan: 'chat_background'", block)
+        # Consent for the ordinary sign-in is remembered; offline_access is asked for rarely, since
+        # Authelia cannot remember a consent that includes it.
+        self.assertIn("consent_mode: 'pre-configured'", block)
+        self.assertIn("pre_configured_consent_duration:", block)
         lifespans = text.split("chat_background:", 1)[1].split("clients:", 1)[0]
         self.assertIn("refresh_token: '90d'", lifespans)
 

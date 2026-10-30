@@ -1195,11 +1195,18 @@ caller's own, paired. Things that bite:
   session's own copy: IdPs rotate refresh tokens, so every holder would go stale). Everything
   that needs an access token (a browser session in `auth.ts` `findUser`, a scheduled run)
   calls `accessTokenFor`, which serialises per person with a DB lock, writes the rotated token
-  guarded on the one it replaced, and caches the access token. `invalid_grant` drops the grant
-  and switches the person's chat schedules off; logout keeps it; erase, merge and the settings
-  "Revoke" (`/api/v2/user/schedule-grant`) drop it (IdP revocation best effort). No refresh token
+  guarded on the one it replaced, and caches the access token. Any OAuth error response from the token
+  endpoint (or a changed subject) drops the grant and switches the person's chat schedules off;
+  logout keeps it; erase and merge drop it (IdP revocation best effort); the settings "Stop"
+  (`/api/v2/user/schedule-grant`) and deleting the last chat schedule only clear `scheduleUse`, because the
+  grant is the sessions' refresh credential (dropping it would sign everyone out within the hour);
+  a login or turning a chat schedule on sets it back. No refresh token
   or no `CHAT_SECRET_KEY` leaves the session path exactly as before. `grants.ts` loads `auth.ts`
   lazily (and `auth.ts` loads it lazily): they reach each other through the identity code.
+- **Asking for `offline_access`** (`auth.ts` `loginScopes`, `OfflineMode`): Authelia cannot remember a consent
+  that includes it, so the first sign-in on a browser asks, then the `hfChat-bgAccess` cookie says "settled" and
+  later sign-ins skip it; the callback asks once more (`/login?offline=1`) when the person has no grant. An
+  `invalid_scope` for it retries without and remembers per process; `OPENID_OFFLINE_ACCESS=off` disables it.
 - **Permission mode** (`schedules/permission.ts`): `ask` | `allow` in the target, never looser than
   the user's approval setting (checked on create, edit and again at run); `approvalStateFor`
   gives an Ask run manual policy and nothing pre-approved.
