@@ -15,7 +15,6 @@ import {
 	codeAgentsAllowedFor,
 	codeFilesEnabled,
 	codeSchedulesEnabled,
-	apiKeysAllowedFor,
 	codeTerminalEnabled,
 	localConnectorsAccessFor,
 	localConnectorsEnabled,
@@ -68,8 +67,6 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		// Scheduled chats are for everyone signed in (the same kill switch): the sidebar's
 		// Schedules row and a conversation's "Schedule…" read it.
 		chatSchedulesEnabled: Boolean(locals.user) && schedulesEnabled(),
-		// False only when the gateway says this person may not hold API keys, which a chat schedule runs on.
-		chatSchedulesKeysAllowed: locals.user ? await apiKeysAllowedFor(locals) : true,
 		// Local MCP connectors (ADR 0102): the workspace's Local connectors tab. A deployment
 		// switch of its own, independent of the Agents panel's per-person one.
 		localConnectorsEnabled: localConnectorsEnabled(),

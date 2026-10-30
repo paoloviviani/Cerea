@@ -10,11 +10,11 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { collections, ready } from "$lib/server/database";
 import { cleanupTestData, createTestUser } from "$lib/server/api/__tests__/testHelpers";
-import { open, seal } from "$lib/server/mcp/secretBox";
+import { open } from "$lib/server/mcp/secretBox";
 
 const flags = vi.hoisted(() => ({
 	gateway: true,
-	mint: vi.fn(),
+	refresh: vi.fn(),
 	revoke: vi.fn(),
 	turn: vi.fn(),
 	create: vi.fn(),
@@ -30,9 +30,10 @@ vi.mock("$lib/server/identity/gatewayLogin", async (original) => ({
 	...(await original<typeof import("$lib/server/identity/gatewayLogin")>()),
 	isGatewayPreset: () => flags.gateway,
 }));
-vi.mock("./gatewayKeys", () => ({
-	mintKey: (...args: unknown[]) => flags.mint(...args),
-	revokeKey: (...args: unknown[]) => flags.revoke(...args),
+vi.mock("$lib/server/auth", async (original) => ({
+	...(await original<typeof import("$lib/server/auth")>()),
+	refreshOAuthToken: (...args: unknown[]) => flags.refresh(...args),
+	revokeOAuthToken: (...args: unknown[]) => flags.revoke(...args),
 }));
 vi.mock("$lib/server/models", () => ({
 	models: [{ id: "test-model" }, { id: "other-model" }],
@@ -51,16 +52,10 @@ vi.mock("./limits", async (original) => ({
 }));
 
 import "./chatScheduleExecutor";
-import {
-	chatRunConfig,
-	conversationBusy,
-	parseChatTarget,
-	SIGN_IN_AGAIN,
-} from "./chatScheduleExecutor";
+import { chatRunConfig, conversationBusy, parseChatTarget } from "./chatScheduleExecutor";
+import { accessTokenFor, hasGrant, NEEDS_GRANT, saveGrant, SIGN_IN_AGAIN } from "./grants";
 import { getExecutor } from "./executors";
 import { runNow } from "./scheduler";
-import { renewKeys, KEY_LIFETIME_DAYS } from "./chatScheduleExecutor";
-import { retryRevocations, revokeAllFor } from "./credentials";
 import { createSchedule, deleteSchedule, getSchedule, updateSchedule } from "./store";
 import type { Schedule } from "$lib/types/Schedule";
 
@@ -69,7 +64,19 @@ await ready;
 const executor = getExecutor("chat");
 if (!executor) throw new Error("the chat executor did not register");
 
-const KEY = "sk-test-secret";
+const ACCESS = "at-1";
+
+/** Give the person a background grant, as the authorization callback would. */
+async function giveGrant(
+	user = person,
+	tokens: { refresh?: string; access?: string; expiresInMs?: number } = {}
+) {
+	await saveGrant(user.user._id, {
+		refresh_token: tokens.refresh ?? "rt-1",
+		access_token: tokens.access ?? ACCESS,
+		expires_at: Math.floor((Date.now() + (tokens.expiresInMs ?? 3600_000)) / 1000),
+	} as never);
+}
 
 /** A turn's wire answer: JSON lines, as the conversation route writes them. */
 function turnResponse(events: object[], delayMs = 0): Response {
@@ -144,7 +151,8 @@ beforeEach(async () => {
 	await collections.schedules.deleteMany({});
 	await collections.scheduleRuns.deleteMany({});
 	await collections.turnStates.deleteMany({});
-	await collections.scheduleKeyRevocations.deleteMany({});
+	await collections.scheduleGrants.deleteMany({});
+	await collections.settings.deleteMany({});
 	await collections.projects.deleteMany({});
 	flags.groups = [];
 	chatRunConfig.maxConcurrent = 4;
@@ -152,11 +160,79 @@ beforeEach(async () => {
 	createdWith.length = 0;
 	flags.gateway = true;
 	chatRunConfig.earlyWindowMs = 5_000;
-	flags.mint.mockResolvedValue({ id: "key-1", secret: KEY });
+	flags.refresh.mockResolvedValue({
+		access_token: "at-fresh",
+		refresh_token: "rt-rotated",
+		expires_at: Math.floor((Date.now() + 3600_000) / 1000),
+	});
 	flags.revoke.mockResolvedValue(true);
 	flags.turn.mockImplementation(async () => turnResponse([finished]));
 	person = await createTestUser();
+	await giveGrant();
 	conversationId = await seedConversation();
+});
+
+describe("the permission mode", () => {
+	const caller = () => ({ userId: person.user._id });
+	const asks = () => ({ mode: "continue", conversationId: conversationId.toString() });
+	const setPolicy = (policy: "always-allow" | "manual") =>
+		collections.settings.updateOne(
+			{ userId: person.user._id },
+			{ $set: { toolApprovalPolicy: policy, createdAt: new Date(), updatedAt: new Date() } },
+			{ upsert: true }
+		);
+
+	it("defaults to the person's policy: Ask on manual, Allow on always-allow", async () => {
+		const manual = await executor.validateTarget(asks(), caller());
+		expect(manual).toMatchObject({ ok: true, target: { permissionMode: "ask" } });
+		await setPolicy("always-allow");
+		const open = await executor.validateTarget(asks(), caller());
+		expect(open).toMatchObject({ ok: true, target: { permissionMode: "allow" } });
+	});
+
+	it("refuses Allow for a person on the manual policy, and accepts it on always-allow", async () => {
+		const refused = await executor.validateTarget({ ...asks(), permissionMode: "allow" }, caller());
+		expect(refused).toMatchObject({ ok: false, error: expect.stringContaining("manual") });
+		await setPolicy("always-allow");
+		const granted = await executor.validateTarget({ ...asks(), permissionMode: "allow" }, caller());
+		expect(granted).toMatchObject({ ok: true, target: { permissionMode: "allow" } });
+		// Ask is always allowed.
+		expect(
+			await executor.validateTarget({ ...asks(), permissionMode: "ask" }, caller())
+		).toMatchObject({ ok: true, target: { permissionMode: "ask" } });
+	});
+
+	it("is checked again on an edit: switching an Allow schedule's policy off makes it refuse", async () => {
+		await setPolicy("always-allow");
+		const schedule = await make({ ...asks(), permissionMode: "allow" });
+		await setPolicy("manual");
+		await expect(
+			updateSchedule(person.user._id, schedule._id.toString(), {
+				target: { ...asks(), permissionMode: "allow" },
+			})
+		).rejects.toMatchObject({ status: 400 });
+	});
+
+	it("runs in the stored mode, but never looser than the person's policy now", async () => {
+		await setPolicy("always-allow");
+		const schedule = await make({ ...asks(), permissionMode: "allow" });
+		await runNow(person.user._id, schedule._id.toString());
+		expect((flags.turn.mock.calls[0][0] as { locals: App.Locals }).locals.scheduledRun).toEqual({
+			permissionMode: "allow",
+		});
+
+		await setPolicy("manual");
+		await runNow(person.user._id, schedule._id.toString());
+		expect((flags.turn.mock.calls[1][0] as { locals: App.Locals }).locals.scheduledRun).toEqual({
+			permissionMode: "ask",
+		});
+	});
+
+	it("reads a target stored before the mode existed as Ask", () => {
+		expect(parseChatTarget({ mode: "continue", conversationId: "abc" })?.permissionMode).toBe(
+			"ask"
+		);
+	});
 });
 
 describe("the target", () => {
@@ -234,8 +310,9 @@ describe("a run in the same chat", () => {
 			params: { id: string };
 		};
 		expect(event.params.id).toBe(conversationId.toString());
-		expect(event.locals.scheduledRun).toBe(true);
-		expect(event.locals.token).toBe(KEY);
+
+		expect(event.locals.token).toBe(ACCESS);
+		expect(event.locals.scheduledRun).toEqual({ permissionMode: "ask" });
 		expect(event.locals.user?._id.equals(person.user._id)).toBe(true);
 		const data = JSON.parse(String((await event.request.formData()).get("data")));
 		expect(data.id).toBe("a1");
@@ -336,7 +413,7 @@ describe("a run in a new chat", () => {
 
 		expect(run).toMatchObject({ status: "sent" });
 		const created = flags.create.mock.calls[0][0] as { request: Request; locals: App.Locals };
-		expect(created.locals.token).toBe(KEY);
+		expect(created.locals.token).toBe(ACCESS);
 		expect(createdWith).toEqual([{ model: "other-model" }]);
 		const id = new ObjectId(run.result?.ids.conversationId);
 		const conv = await collections.conversations.findOne({ _id: id });
@@ -367,67 +444,23 @@ describe("a run in a new chat", () => {
 });
 
 describe("when the turn goes wrong", () => {
-	it("a refusal by the gateway disables the schedule with a reason and forgets the key", async () => {
+	it("a 401 from the gateway is an ordinary failed run now: the access is the grant's to lose, not the run's", async () => {
 		flags.turn.mockImplementation(async () => turnResponse([failedWith(401, "Unauthorized")]));
 		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		expect(schedule.credential).toBeDefined();
 		const run = await runNow(person.user._id, schedule._id.toString());
-
-		expect(run.status).toBe("failed");
-		const after = await getSchedule(person.user._id, schedule._id.toString());
-		expect(after.enabled).toBe(false);
-		expect(after.disabledReason).toBe(SIGN_IN_AGAIN);
-		expect(after.credential).toBeUndefined();
+		expect(run).toMatchObject({ status: "failed", detail: "Unauthorized" });
+		expect((await getSchedule(person.user._id, schedule._id.toString())).enabled).toBe(true);
+		expect(await hasGrant(person.user._id)).toBe(true);
 	});
 
-	it("a 403 is not a dead key: it is an ordinary failed run with the gateway's words, and the key stays", async () => {
+	it("a 403 is an ordinary failed run with the gateway's words", async () => {
 		flags.turn.mockImplementation(async () =>
 			turnResponse([failedWith(403, "Blocked by a redaction policy")])
 		);
 		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
 		const run = await runNow(person.user._id, schedule._id.toString());
-
 		expect(run).toMatchObject({ status: "failed", detail: "Blocked by a redaction policy" });
-		const after = await getSchedule(person.user._id, schedule._id.toString());
-		expect(after.enabled).toBe(true);
-		expect(after.credential?.keyId).toBe("key-1");
-		expect(flags.revoke).not.toHaveBeenCalled();
-	});
-
-	it("a message that merely mentions 403 is not a refusal of the key either", async () => {
-		flags.turn.mockImplementation(async () =>
-			turnResponse([failedWith(undefined, "model 403 returned")])
-		);
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		await runNow(person.user._id, schedule._id.toString());
 		expect((await getSchedule(person.user._id, schedule._id.toString())).enabled).toBe(true);
-	});
-
-	it("a dead key is revoked (or queued for revoking) before it is forgotten", async () => {
-		flags.revoke.mockResolvedValue(false);
-		flags.turn.mockImplementation(async () => turnResponse([failedWith(401)]));
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		await runNow(person.user._id, schedule._id.toString());
-
-		expect(flags.revoke).toHaveBeenCalled();
-		expect(await collections.scheduleKeyRevocations.countDocuments({ keyId: "key-1" })).toBe(1);
-	});
-
-	it("does not switch off a schedule whose key was replaced while the run was going", async () => {
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		flags.turn.mockImplementation(async () => {
-			// An edit mints a fresh key while this run's request is out.
-			await collections.schedules.updateOne(
-				{ _id: schedule._id },
-				{ $set: { "credential.keyId": "key-NEW" } }
-			);
-			return turnResponse([failedWith(401)]);
-		});
-		await runNow(person.user._id, schedule._id.toString());
-
-		const after = await getSchedule(person.user._id, schedule._id.toString());
-		expect(after.enabled).toBe(true);
-		expect(after.credential?.keyId).toBe("key-NEW");
 	});
 
 	it("an ordinary error is a failed run, and three in a row switch the schedule off", async () => {
@@ -443,7 +476,6 @@ describe("when the turn goes wrong", () => {
 		const after = await getSchedule(person.user._id, id);
 		expect(after.enabled).toBe(false);
 		expect(after.disabledReason).toMatch(/Switched off after 3 failed runs/);
-		expect(after.credential).toBeDefined();
 	});
 
 	it("an error thrown by the route (rate limit) is a failed run with its words", async () => {
@@ -453,178 +485,13 @@ describe("when the turn goes wrong", () => {
 		expect(run).toMatchObject({ status: "failed", detail: "Too many messages" });
 	});
 
-	it("a schedule with no key on a gateway is switched off without posting anything", async () => {
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		await collections.schedules.updateOne({ _id: schedule._id }, { $unset: { credential: "" } });
-		const run = await runNow(person.user._id, schedule._id.toString());
-
-		expect(run.status).toBe("failed");
-		expect(flags.turn).not.toHaveBeenCalled();
-		expect((await getSchedule(person.user._id, schedule._id.toString())).disabledReason).toBe(
-			SIGN_IN_AGAIN
-		);
-	});
-
-	it("runs with no key at all off a gateway", async () => {
+	it("runs with no access token at all off a gateway", async () => {
 		flags.gateway = false;
+		await collections.scheduleGrants.deleteMany({});
 		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		expect(schedule.credential).toBeUndefined();
-		expect(flags.mint).not.toHaveBeenCalled();
 		const run = await runNow(person.user._id, schedule._id.toString());
 		expect(run.status).toBe("sent");
 		expect((flags.turn.mock.calls[0][0] as { locals: App.Locals }).locals.token).toBeUndefined();
-	});
-});
-
-describe("the key lifecycle", () => {
-	it("is minted with the person's session on create, named for the schedule, and sealed", async () => {
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-
-		// Valid for 180 days, so a forgotten key cannot live for ever.
-		expect(flags.mint).toHaveBeenCalledWith({
-			token: "session-token",
-			name: "Cerea schedule: Weekly news",
-			expiresInDays: 180,
-		});
-		const stored = await collections.schedules.findOne({ _id: schedule._id });
-		expect(stored?.credential?.keyId).toBe("key-1");
-		expect(stored?.credential?.sealed).not.toContain(KEY);
-		expect(open(stored?.credential?.sealed ?? "")).toBe(KEY);
-	});
-
-	it("uses the billing group the person's settings name, when it is one", async () => {
-		const group = "8f0f3c5e-1111-4222-8333-944455556666";
-		await collections.settings.insertOne({
-			_id: new ObjectId(),
-			userId: person.user._id,
-			billingOrganization: group,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		} as never);
-		await make({ mode: "continue", conversationId: conversationId.toString() });
-		expect(flags.mint).toHaveBeenCalledWith(expect.objectContaining({ billingGroupId: group }));
-	});
-
-	it("is not minted for a schedule made switched off, and is minted when it is switched on", async () => {
-		const { updateSchedule } = await import("./store");
-		const schedule = await make(
-			{ mode: "continue", conversationId: conversationId.toString() },
-			{ enabled: false }
-		);
-		expect(flags.mint).not.toHaveBeenCalled();
-		const on = await updateSchedule(
-			person.user._id,
-			schedule._id.toString(),
-			{ enabled: true },
-			{
-				token: "session-token",
-			}
-		);
-		expect(flags.mint).toHaveBeenCalledTimes(1);
-		expect(on.credential?.keyId).toBe("key-1");
-	});
-
-	it("keeps the key when the schedule is turned off and on again", async () => {
-		const { updateSchedule } = await import("./store");
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		const id = schedule._id.toString();
-		await updateSchedule(person.user._id, id, { enabled: false }, { token: "session-token" });
-		await updateSchedule(person.user._id, id, { enabled: true }, { token: "session-token" });
-
-		expect(flags.mint).toHaveBeenCalledTimes(1);
-		expect(flags.revoke).not.toHaveBeenCalled();
-	});
-
-	it("mints a fresh key when a dead one was forgotten, and revokes the one it replaces", async () => {
-		const { updateSchedule } = await import("./store");
-		flags.turn.mockImplementation(async () => turnResponse([failedWith(401)]));
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		const id = schedule._id.toString();
-		await runNow(person.user._id, id);
-		// The dead key was revoked when it was dropped (and is not revoked a second time).
-		expect(flags.revoke).toHaveBeenCalledTimes(1);
-		flags.revoke.mockClear();
-		flags.mint.mockResolvedValue({ id: "key-2", secret: "sk-second" });
-		const again = await updateSchedule(
-			person.user._id,
-			id,
-			{ enabled: true },
-			{
-				token: "fresh-session",
-			}
-		);
-
-		expect(flags.mint).toHaveBeenLastCalledWith(
-			expect.objectContaining({ token: "fresh-session" })
-		);
-		expect(again.credential?.keyId).toBe("key-2");
-		expect(again.disabledReason).toBeUndefined();
-		// The dropped key was already dealt with, so there is nothing left to revoke.
-		expect(flags.revoke).not.toHaveBeenCalled();
-	});
-
-	it("is revoked, with the person's session, when the schedule is deleted", async () => {
-		const { deleteSchedule } = await import("./store");
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		await deleteSchedule(person.user._id, schedule._id.toString(), { token: "session-token" });
-
-		expect(flags.revoke).toHaveBeenCalledWith({ token: "session-token", keyId: "key-1" });
-		expect(await collections.schedules.countDocuments({ _id: schedule._id })).toBe(0);
-	});
-
-	it("is revoked with the key itself when there is no session, and a failed revoke does not keep the schedule", async () => {
-		const { deleteSchedule } = await import("./store");
-		flags.revoke.mockResolvedValue(false);
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		await deleteSchedule(person.user._id, schedule._id.toString());
-
-		expect(flags.revoke).toHaveBeenCalledWith({ token: KEY, keyId: "key-1" });
-		expect(await collections.schedules.countDocuments({ _id: schedule._id })).toBe(0);
-	});
-
-	it("a refused mint creates nothing and says why", async () => {
-		const { CredentialError } = await import("./executors");
-		flags.mint.mockRejectedValue(new CredentialError(403, "Your account may not create keys."));
-		await expect(
-			make({ mode: "continue", conversationId: conversationId.toString() })
-		).rejects.toMatchObject({ status: 403, message: "Your account may not create keys." });
-		expect(await collections.schedules.countDocuments({ userId: person.user._id })).toBe(0);
-	});
-
-	it("without a session there is no key to make", async () => {
-		const real = await vi.importActual<typeof import("./gatewayKeys")>("./gatewayKeys");
-		expect(real.mintKey).toBeTypeOf("function");
-		flags.mint.mockImplementation(async () => {
-			throw new Error("mintKey must not be called without a token");
-		});
-		await expect(
-			createSchedule(person.user._id, {
-				name: "No session",
-				kind: "chat",
-				prompt: "p",
-				recurrence: { type: "daily", at: "09:00" },
-				timezone: "UTC",
-				target: { mode: "continue", conversationId: conversationId.toString() },
-			})
-		).rejects.toMatchObject({ status: 403 });
-		expect(flags.mint).not.toHaveBeenCalled();
-	});
-
-	it("makes no key at the gateway when the deployment cannot seal one", async () => {
-		const saved = process.env.CHAT_SECRET_KEY;
-		delete process.env.CHAT_SECRET_KEY;
-		try {
-			await expect(
-				make({ mode: "continue", conversationId: conversationId.toString() })
-			).rejects.toMatchObject({ status: 400, message: expect.stringContaining("CHAT_SECRET_KEY") });
-			expect(flags.mint).not.toHaveBeenCalled();
-		} finally {
-			process.env.CHAT_SECRET_KEY = saved;
-		}
-	});
-
-	it("seals what it stores so the secret is not readable in the row", () => {
-		expect(seal(KEY)).not.toContain(KEY);
 	});
 });
 
@@ -678,17 +545,17 @@ describe("a run that outlives its window", () => {
 		});
 	});
 
-	it("a late 401 switches the schedule off and revokes the key", async () => {
-		flags.turn.mockImplementation(async () => turnResponse([failedWith(401)], 100));
+	it("a late 401 is an ordinary late failure too", async () => {
+		flags.turn.mockImplementation(async () => turnResponse([failedWith(401, "nope")], 100));
 		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		await runNow(person.user._id, schedule._id.toString());
+		const run = await runNow(person.user._id, schedule._id.toString());
 		await vi.waitFor(async () => {
-			expect((await getSchedule(person.user._id, schedule._id.toString())).enabled).toBe(false);
+			expect(await collections.scheduleRuns.findOne({ _id: run._id })).toMatchObject({
+				status: "failed",
+				detail: "nope",
+			});
 		});
-		const after = await getSchedule(person.user._id, schedule._id.toString());
-		expect(after.credential).toBeUndefined();
-		expect(after.disabledReason).toBe(SIGN_IN_AGAIN);
-		expect(flags.revoke).toHaveBeenCalled();
+		expect((await getSchedule(person.user._id, schedule._id.toString())).enabled).toBe(true);
 	});
 
 	it("never has more scheduled turns running than the cap, and recovers when they end", async () => {
@@ -771,136 +638,194 @@ describe("a new chat in a project", () => {
 	});
 });
 
-describe("renewing, queueing and racing keys", () => {
-	const DAY = 24 * 3600_000;
+describe("the background grant", () => {
+	const continueTarget = () => ({ mode: "continue", conversationId: conversationId.toString() });
 
-	async function withSession(token: string | null) {
-		await collections.sessions.updateOne(
-			{ sessionId: person.session.sessionId },
-			{
-				$set: token
-					? { oauth: { token: { value: token, expiresAt: new Date(Date.now() + DAY) } } }
-					: {},
-			}
-		);
-	}
-
-	it("sends the key's lifetime and records when it ends", async () => {
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		const end = schedule.credential?.expiresAt?.getTime() ?? 0;
-		expect(Math.abs(end - (Date.now() + KEY_LIFETIME_DAYS * DAY))).toBeLessThan(60_000);
+	it("is needed to create or switch on a chat schedule, and asked for in the person's words", async () => {
+		await collections.scheduleGrants.deleteMany({});
+		await expect(make(continueTarget())).rejects.toMatchObject({
+			status: 409,
+			message: NEEDS_GRANT,
+		});
+		// Made switched off it needs nothing yet; switching it on does.
+		const off = await make(continueTarget(), { enabled: false });
+		await expect(
+			updateSchedule(person.user._id, off._id.toString(), { enabled: true })
+		).rejects.toMatchObject({ status: 409, message: NEEDS_GRANT });
+		await giveGrant();
+		expect(
+			(await updateSchedule(person.user._id, off._id.toString(), { enabled: true })).enabled
+		).toBe(true);
 	});
 
-	it("renews a key within 14 days of its end with the person's session, and revokes the old one", async () => {
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		await collections.schedules.updateOne(
-			{ _id: schedule._id },
-			{ $set: { "credential.expiresAt": new Date(Date.now() + 5 * DAY) } }
-		);
-		await withSession("fresh-session-token");
-		flags.mint.mockResolvedValue({ id: "key-2", secret: "sk-second" });
-
-		expect(await renewKeys(new Date())).toBe(1);
-		const after = await getSchedule(person.user._id, schedule._id.toString());
-		expect(after.credential?.keyId).toBe("key-2");
-		expect(open(after.credential?.sealed ?? "")).toBe("sk-second");
-		expect(flags.mint).toHaveBeenLastCalledWith(
-			expect.objectContaining({ token: "fresh-session-token", expiresInDays: 180 })
-		);
-		expect(flags.revoke).toHaveBeenCalledWith({ token: "fresh-session-token", keyId: "key-1" });
+	it("is not needed off a gateway", async () => {
+		flags.gateway = false;
+		await collections.scheduleGrants.deleteMany({});
+		expect((await make(continueTarget())).enabled).toBe(true);
 	});
 
-	it("leaves a key alone that has time left, or when nobody's session can make a new one", async () => {
-		const young = await make({ mode: "continue", conversationId: conversationId.toString() });
-		expect(await renewKeys(new Date())).toBe(0);
-		await collections.schedules.updateOne(
-			{ _id: young._id },
-			{ $set: { "credential.expiresAt": new Date(Date.now() + 2 * DAY) } }
-		);
-		await withSession(null);
-		expect(await renewKeys(new Date())).toBe(0);
-		expect((await getSchedule(person.user._id, young._id.toString())).credential?.keyId).toBe(
-			"key-1"
-		);
+	it("runs with an access token refreshed from the grant, reusing it while it lasts", async () => {
+		await collections.scheduleGrants.deleteMany({});
+		await giveGrant(person, { access: "stale", expiresInMs: 10_000 });
+		const schedule = await make(continueTarget());
+		await runNow(person.user._id, schedule._id.toString());
+		await runNow(person.user._id, schedule._id.toString());
+
+		expect(flags.refresh).toHaveBeenCalledTimes(1);
+		expect(flags.refresh.mock.calls[0][1]).toBe("rt-1");
+		for (const call of flags.turn.mock.calls) {
+			expect((call[0] as { locals: App.Locals }).locals.token).toBe("at-fresh");
+		}
 	});
 
-	it("queues a revoke the gateway could not confirm, and retries it until it is gone", async () => {
-		flags.revoke.mockResolvedValue(false);
-		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		await deleteSchedule(person.user._id, schedule._id.toString(), { token: "session-token" });
+	it("keeps the rotated refresh token, sealed, and keeps the old one when the IdP does not rotate", async () => {
+		await collections.scheduleGrants.deleteMany({});
+		await giveGrant(person, { expiresInMs: 1000 });
+		await accessTokenFor(person.user._id);
+		let row = await collections.scheduleGrants.findOne({ userId: person.user._id });
+		expect(open(row?.refreshSealed ?? "")).toBe("rt-rotated");
+		expect(row?.refreshSealed).not.toContain("rt-rotated");
 
-		const queued = await collections.scheduleKeyRevocations.find({}).toArray();
-		expect(queued).toHaveLength(1);
-		expect(queued[0]).toMatchObject({ keyId: "key-1", attempts: 1 });
-		expect(queued[0].sealed).not.toContain(KEY);
+		flags.refresh.mockResolvedValue({
+			access_token: "at-2",
+			expires_at: Math.floor((Date.now() + 3600_000) / 1000),
+		});
+		await collections.scheduleGrants.updateOne(
+			{ userId: person.user._id },
+			{ $set: { accessExpiresAt: new Date(Date.now() - 1000) } }
+		);
+		expect((await accessTokenFor(person.user._id)).value).toBe("at-2");
+		row = await collections.scheduleGrants.findOne({ userId: person.user._id });
+		expect(open(row?.refreshSealed ?? "")).toBe("rt-rotated");
+	});
 
-		// Not due yet: nothing is tried.
-		flags.revoke.mockClear();
-		expect(await retryRevocations(new Date())).toBe(0);
+	it("serialises concurrent runs per person: one refresh, every run gets a token", async () => {
+		await collections.scheduleGrants.deleteMany({});
+		await giveGrant(person, { expiresInMs: 1000 });
+		flags.refresh.mockImplementation(async () => {
+			await new Promise((r) => setTimeout(r, 80));
+			return {
+				access_token: "at-once",
+				refresh_token: "rt-once",
+				expires_at: Math.floor((Date.now() + 3600_000) / 1000),
+			};
+		});
+		const tokens = (await Promise.all([1, 2, 3].map(() => accessTokenFor(person.user._id)))).map(
+			(t) => t.value
+		);
+		expect(tokens).toEqual(["at-once", "at-once", "at-once"]);
+		expect(flags.refresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("invalid_grant drops the grant and switches every chat schedule of theirs off", async () => {
+		const a = await make(continueTarget());
+		const b = await make(
+			{ mode: "continue", conversationId: (await seedConversation()).toString() },
+			{ name: "Second" }
+		);
+		await collections.scheduleGrants.updateOne(
+			{ userId: person.user._id },
+			{ $set: { accessExpiresAt: new Date(Date.now() - 1000) } }
+		);
+		flags.refresh.mockRejectedValue(
+			Object.assign(new Error("invalid_grant"), { error: "invalid_grant" })
+		);
+		const run = await runNow(person.user._id, a._id.toString());
+
+		expect(run.status).toBe("failed");
+		expect(run.detail).toBe(SIGN_IN_AGAIN);
+		expect(await hasGrant(person.user._id)).toBe(false);
+		for (const schedule of [a, b]) {
+			const after = await getSchedule(person.user._id, schedule._id.toString());
+			expect(after).toMatchObject({ enabled: false, disabledReason: SIGN_IN_AGAIN });
+		}
+		expect(flags.turn).not.toHaveBeenCalled();
+		// The refresh token is revoked at the IdP, best effort.
+		expect(flags.revoke).toHaveBeenCalled();
+	});
+
+	it("an IdP that cannot be reached is an ordinary failed run: the grant and the schedule stay", async () => {
+		const schedule = await make(continueTarget());
+		await collections.scheduleGrants.updateOne(
+			{ userId: person.user._id },
+			{ $set: { accessExpiresAt: new Date(Date.now() - 1000) } }
+		);
+		flags.refresh.mockRejectedValue(new Error("connect ECONNREFUSED"));
+		const run = await runNow(person.user._id, schedule._id.toString());
+
+		expect(run.status).toBe("failed");
+		expect(run.detail).toContain("ECONNREFUSED");
+		expect(await hasGrant(person.user._id)).toBe(true);
+		expect((await getSchedule(person.user._id, schedule._id.toString())).enabled).toBe(true);
+	});
+
+	it("a grant that went missing switches the schedule off without posting anything", async () => {
+		const schedule = await make(continueTarget());
+		await collections.scheduleGrants.deleteMany({});
+		const run = await runNow(person.user._id, schedule._id.toString());
+		expect(run.status).toBe("failed");
+		expect(flags.turn).not.toHaveBeenCalled();
+		expect((await getSchedule(person.user._id, schedule._id.toString())).enabled).toBe(false);
+	});
+
+	it("goes with the last chat schedule, not before", async () => {
+		const a = await make(continueTarget());
+		const b = await make(
+			{ mode: "continue", conversationId: (await seedConversation()).toString() },
+			{ name: "Second" }
+		);
+		await deleteSchedule(person.user._id, a._id.toString());
+		expect(await hasGrant(person.user._id)).toBe(true);
 		expect(flags.revoke).not.toHaveBeenCalled();
-
-		// Still down: it backs off and stays.
-		const later = new Date(Date.now() + 2 * 3600_000);
-		expect(await retryRevocations(later)).toBe(0);
-		expect(await collections.scheduleKeyRevocations.countDocuments({})).toBe(1);
-		expect((await collections.scheduleKeyRevocations.findOne({}))?.attempts).toBe(2);
-
-		// Back up: it is revoked with the key's own secret and the row goes.
-		flags.revoke.mockResolvedValue(true);
-		const muchLater = new Date(Date.now() + 3 * 24 * 3600_000);
-		expect(await retryRevocations(muchLater)).toBe(1);
-		expect(flags.revoke).toHaveBeenLastCalledWith({ token: KEY, keyId: "key-1" });
-		expect(await collections.scheduleKeyRevocations.countDocuments({})).toBe(0);
+		await deleteSchedule(person.user._id, b._id.toString());
+		expect(await hasGrant(person.user._id)).toBe(false);
+		expect(flags.revoke).toHaveBeenCalledTimes(1);
+		expect(flags.revoke.mock.calls[0][1]).toBe("rt-1");
 	});
 
-	it("two edits that both mint cannot both win: the loser's key is revoked", async () => {
-		const schedule = await make(
-			{ mode: "continue", conversationId: conversationId.toString() },
-			{ enabled: false }
-		);
-		let n = 0;
-		flags.mint.mockImplementation(async () => {
-			const mine = ++n;
-			await new Promise((r) => setTimeout(r, 30));
-			return { id: `race-${mine}`, secret: `sk-race-${mine}` };
-		});
-		const id = schedule._id.toString();
-		const results = await Promise.allSettled([
-			updateSchedule(person.user._id, id, { enabled: true }, { token: "t1" }),
-			updateSchedule(person.user._id, id, { enabled: true }, { token: "t2" }),
-		]);
-
-		expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-		expect(results.find((r) => r.status === "rejected")).toMatchObject({
-			reason: { status: 409 },
-		});
-		const kept = (await getSchedule(person.user._id, id)).credential?.keyId;
-		const revoked = flags.revoke.mock.calls.map((c) => (c[0] as { keyId: string }).keyId);
-		expect(revoked).toHaveLength(1);
-		expect(revoked).not.toContain(kept);
+	it("is not touched by deleting a schedule of another kind", async () => {
+		const _id = new ObjectId();
+		await collections.schedules.insertOne({
+			_id,
+			userId: person.user._id,
+			kind: "agent",
+			name: "agent",
+			target: {},
+			prompt: "p",
+			recurrence: { type: "daily", at: "09:00" },
+			timezone: "UTC",
+			anchorAt: new Date(),
+			enabled: false,
+			nextRunAt: null,
+			consecutiveFailures: 0,
+			firedCount: 0,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+		await deleteSchedule(person.user._id, _id.toString());
+		expect(await hasGrant(person.user._id)).toBe(true);
+		expect(flags.revoke).not.toHaveBeenCalled();
 	});
 });
 
 describe("when an account goes", () => {
-	it("erasing revokes each schedule's key before the rows are deleted", async () => {
-		const { erase } = await import("$lib/server/identity/userKeyedCollections").then((m) => ({
-			erase: m.USER_KEYED_COLLECTIONS.find((e) => e.name === "schedules")?.erase,
-		}));
+	it("erasing drops the grant (revoked at the IdP) and deletes the schedules", async () => {
 		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		await erase?.(person.user._id, { conversationIds: [] });
+		const entries = (await import("$lib/server/identity/userKeyedCollections"))
+			.USER_KEYED_COLLECTIONS;
+		await entries
+			.find((e) => e.name === "scheduleGrants")
+			?.erase(person.user._id, { conversationIds: [] });
+		await entries
+			.find((e) => e.name === "schedules")
+			?.erase(person.user._id, { conversationIds: [] });
 
-		expect(flags.revoke).toHaveBeenCalledWith(expect.objectContaining({ keyId: "key-1" }));
+		expect(await hasGrant(person.user._id)).toBe(false);
+		expect(flags.revoke).toHaveBeenCalledTimes(1);
 		expect(await collections.schedules.countDocuments({ _id: schedule._id })).toBe(0);
 	});
 
-	it("a key that cannot be revoked on erasure is queued: the queue outlives the account", async () => {
-		flags.revoke.mockResolvedValue(false);
-		await make({ mode: "continue", conversationId: conversationId.toString() });
-		await revokeAllFor(person.user._id, { disable: false });
-		expect(await collections.scheduleKeyRevocations.countDocuments({ keyId: "key-1" })).toBe(1);
-	});
-
-	it("merging revokes the stray's keys and switches its chat schedules off, for the target to turn on", async () => {
+	it("merging drops the stray's grant and switches its chat schedules off, for the target to turn on", async () => {
 		const target = await createTestUser();
 		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
 		const merge = (
@@ -908,10 +833,9 @@ describe("when an account goes", () => {
 		).USER_KEYED_COLLECTIONS.find((e) => e.name === "schedules")?.merge;
 		await merge?.(person.user._id, target.user._id);
 
-		expect(flags.revoke).toHaveBeenCalledWith(expect.objectContaining({ keyId: "key-1" }));
+		expect(await hasGrant(person.user._id)).toBe(false);
 		const row = await collections.schedules.findOne({ _id: schedule._id });
 		expect(row?.userId.equals(target.user._id)).toBe(true);
 		expect(row).toMatchObject({ enabled: false, disabledReason: SIGN_IN_AGAIN });
-		expect(row?.credential).toBeUndefined();
 	});
 });

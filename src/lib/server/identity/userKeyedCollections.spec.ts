@@ -43,7 +43,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	codeAudit: true,
 	schedules: true, // a person's scheduled actions; owner-keyed, erased and merged with the account
 	scheduleRuns: true, // one row per occurrence considered: the record of what a schedule did
-	scheduleKeyRevocations: false, // a gateway key still to revoke; deliberately outlives the account, holds no content
+	scheduleGrants: true, // a person's background OIDC grant for scheduled chats; owner-keyed, dropped on merge, revoked and erased with the account
 	pushSubscriptions: true, // the browsers a person turned Web Push on for; owner-keyed
 	conversationStats: false,
 	abortedGenerations: true, // conversation-keyed, no owner field of its own

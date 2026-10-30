@@ -50,7 +50,7 @@ import type { ConfigKey } from "$lib/types/ConfigKey";
 import type { Skill } from "$lib/types/Skill";
 import type { Memory } from "$lib/types/Memory";
 import { dropPerModelPrompts } from "$lib/server/dropPerModelPrompts";
-import type { Schedule, ScheduleKeyRevocation, ScheduleRun } from "$lib/types/Schedule";
+import type { Schedule, ScheduleGrant, ScheduleRun } from "$lib/types/Schedule";
 import type { PushSubscriptionRow } from "$lib/types/PushSubscription";
 import type { CustomModel } from "$lib/types/CustomModel";
 import type { ProjectMemory } from "$lib/types/ProjectMemory";
@@ -289,8 +289,8 @@ export class Database {
 		// one row per occurrence considered — fired or not — which is the record.
 		const schedules = db.collection<Schedule>("schedules");
 		const scheduleRuns = db.collection<ScheduleRun>("scheduleRuns");
-		// Gateway keys a deleted schedule could not revoke yet (`schedules/credentials.ts`).
-		const scheduleKeyRevocations = db.collection<ScheduleKeyRevocation>("scheduleKeyRevocations");
+		// Each person's background grant for scheduled chats (`schedules/grants.ts`).
+		const scheduleGrants = db.collection<ScheduleGrant>("scheduleGrants");
 		// Browsers a person turned Web Push on for (`server/push/`).
 		const pushSubscriptions = db.collection<PushSubscriptionRow>("pushSubscriptions");
 		const bucket = new GridFSBucket(db, { bucketName: "files" });
@@ -336,7 +336,7 @@ export class Database {
 			codeAudit,
 			schedules,
 			scheduleRuns,
-			scheduleKeyRevocations,
+			scheduleGrants,
 			pushSubscriptions,
 			conversationStats,
 			abortedGenerations,
@@ -387,7 +387,7 @@ export class Database {
 			codeAudit,
 			schedules,
 			scheduleRuns,
-			scheduleKeyRevocations,
+			scheduleGrants,
 			pushSubscriptions,
 			conversationStats,
 			abortedGenerations,
@@ -975,9 +975,9 @@ export class Database {
 		scheduleRuns
 			.createIndex({ userId: 1 })
 			.catch((e) => logger.error(e, "Error creating index for scheduleRuns by userId"));
-		scheduleKeyRevocations
-			.createIndex({ nextAttemptAt: 1 })
-			.catch((e) => logger.error(e, "Error creating index for scheduleKeyRevocations"));
+		scheduleGrants
+			.createIndex({ userId: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating unique index for scheduleGrants by userId"));
 		// Run rows are the audit record, kept 90 days like codeAudit.
 		scheduleRuns
 			.createIndex({ firedAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 })

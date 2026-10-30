@@ -91,7 +91,9 @@ export interface ExecuteToolCallsParams {
 		webFetchAllowedUrls: Set<string>;
 		/**
 		 * A run nobody is watching (a scheduled chat): a call that would open an approval card is
-		 * refused instead, in the words a sub-agent's refusal uses, and the turn never parks.
+		 * refused instead, in the words a sub-agent's refusal uses, and the turn never parks. (What
+		 * counts as needing approval is the policy and grants passed in: a scheduled run in `ask`
+		 * mode is given manual and none, see `approvalStateFor`.)
 		 */
 		unattended?: boolean;
 	};
@@ -143,6 +145,8 @@ type ApprovalTarget = {
 	mcp?: { server: string; toolName: string };
 	/** Asks whatever the policy says, and a standing grant never covers it (`schedule`). */
 	alwaysConfirm?: boolean;
+	/** The arguments the card shows and the resume re-issues, when they differ from the call's (a clamped schedule mode). */
+	args?: Record<string, unknown>;
 };
 
 export interface ToolCallExecutionResult {
@@ -391,7 +395,17 @@ export async function* executeToolCalls({
 			builtinByName.has(SCHEDULE_TOOL_NAME) &&
 			parseScheduleToolArgs(p.argsObj, {}).ok
 		) {
-			return { qualifiedName: SCHEDULE_TOOL_NAME, alwaysConfirm: true };
+			// The mode is never looser than this conversation's own policy: what the card shows is what is made.
+			const proposed = (p.argsObj as { permissionMode?: unknown }).permissionMode;
+			return {
+				qualifiedName: SCHEDULE_TOOL_NAME,
+				alwaysConfirm: true,
+				args: {
+					...p.argsObj,
+					permissionMode:
+						proposed === "allow" && toolApproval?.policy === "always-allow" ? "allow" : "ask",
+				},
+			};
 		}
 		return null;
 	}
@@ -407,11 +421,8 @@ export async function* executeToolCalls({
 					const target = approvalTargetFor(p);
 					if (!target) return [];
 					if (target.alwaysConfirm) return [{ p, target }];
-					// Nobody to ask: an unattended run treats every policy as manual and no grant
-					// (the user's "always allow", "allowed for this chat") as covering it.
-					const manual = toolApproval.unattended || toolApproval.policy === "manual";
-					const granted =
-						!toolApproval.unattended && toolApproval.approvedTools.has(target.qualifiedName);
+					const manual = toolApproval.policy === "manual";
+					const granted = toolApproval.approvedTools.has(target.qualifiedName);
 					return manual && !granted ? [{ p, target }] : [];
 				})
 			: [];
@@ -512,7 +523,7 @@ export async function* executeToolCalls({
 					toolUuid: queued.uuid,
 					toolCallId: queued.call.id,
 					tool: t.qualifiedName,
-					args: queued.argsObj ?? {},
+					args: t.args ?? queued.argsObj ?? {},
 					...(t.mcp ? { mcp: t.mcp } : {}),
 				}));
 
@@ -523,7 +534,7 @@ export async function* executeToolCalls({
 						toolCallId: p.call.id,
 						messageId: elicitation?.messageId ?? "",
 						tool: target.qualifiedName,
-						args: argsObj,
+						args: target.args ?? argsObj,
 						...(target.mcp ? { mcp: target.mcp } : {}),
 						queue,
 						userId: owner?.userId,

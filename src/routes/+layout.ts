@@ -119,7 +119,6 @@ export const load = async ({ fetch, url, data }) => {
 		codeTerminalEnabled: data.codeTerminalEnabled,
 		codeSchedulesEnabled: data.codeSchedulesEnabled,
 		chatSchedulesEnabled: data.chatSchedulesEnabled,
-		chatSchedulesKeysAllowed: data.chatSchedulesKeysAllowed,
 		officePreviewEnabled: data.officePreviewEnabled,
 		localConnectorsEnabled: data.localConnectorsEnabled,
 		localConnectorsDenied: data.localConnectorsDenied,

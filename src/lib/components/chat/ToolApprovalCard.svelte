@@ -276,6 +276,13 @@
 						? m["chat.approval.schedule.where_new"]()
 						: m["chat.approval.schedule.where_continue"](),
 			},
+			{
+				label: m["chat.approval.schedule.permission"](),
+				value:
+					args.permissionMode === "allow"
+						? m["chat.approval.schedule.permission_allow"]()
+						: m["chat.approval.schedule.permission_ask"](),
+			},
 			{ label: m["chat.approval.schedule.prompt"](), value: text(args.prompt), long: true },
 		];
 		if (typeof args.maxOccurrences === "number") {

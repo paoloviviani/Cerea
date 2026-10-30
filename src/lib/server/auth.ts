@@ -138,6 +138,33 @@ export function refreshSessionCookie(cookies: Cookies, sessionId: string) {
 	});
 }
 
+/**
+ * The session's new oauth through the person's grant: undefined when they have none (the session's
+ * own refresh token, or none, applies as it always did), `"refused"` when the IdP refused the grant
+ * (the session ends, as a refused refresh always did), else the oauth with the shared access token.
+ * Loaded lazily: the grant module itself calls back into this one for the IdP's refresh and revoke.
+ */
+async function refreshSessionViaGrant(
+	userId: Session["userId"],
+	current: NonNullable<Session["oauth"]>
+): Promise<Session["oauth"] | "refused" | undefined> {
+	if (!userId) return undefined;
+	const grants = await import("$lib/server/schedules/grants");
+	if (!(await grants.hasGrant(userId))) return undefined;
+	try {
+		const access = await grants.accessTokenFor(userId, { leewayMs: 5 * 60_000 });
+		return {
+			...current,
+			token: { value: access.value, expiresAt: subMinutes(access.expiresAt, 1) },
+		};
+	} catch (err) {
+		if (err instanceof grants.GrantMissingError) return undefined;
+		if (!(err instanceof grants.GrantRefusedError))
+			logger.error(err, "Error during token refresh:");
+		return "refused";
+	}
+}
+
 export async function findUser(
 	sessionId: string,
 	coupledCookieHash: string | undefined,
@@ -160,8 +187,31 @@ export async function findUser(
 		return { user: null, invalidateSession: true };
 	}
 
+	// A person with a background grant (every login writes one when the IdP issues a refresh
+	// token) is refreshed through it, never with a copy of the session's own: IdPs rotate refresh
+	// tokens, so sessions and scheduled runs must share one serialised, rotating token.
+	if (
+		session.oauth?.token &&
+		session.userId &&
+		differenceInMinutes(session.oauth.token.expiresAt, new Date()) < 5
+	) {
+		const viaGrant = await refreshSessionViaGrant(session.userId, session.oauth);
+		if (viaGrant === "refused") return { user: null, invalidateSession: true };
+		if (viaGrant) {
+			await collections.sessions.updateOne(
+				{ sessionId },
+				{ $set: { oauth: viaGrant, updatedAt: new Date() } }
+			);
+			session.oauth = viaGrant;
+		}
+	}
+
 	// Check if OAuth token needs refresh
-	if (session.oauth?.token && session.oauth.refreshToken) {
+	if (
+		session.oauth?.token &&
+		session.oauth.refreshToken &&
+		differenceInMinutes(session.oauth.token.expiresAt, new Date()) < 5
+	) {
 		// If token expires in less than 5 minutes, refresh it
 		if (differenceInMinutes(session.oauth.token.expiresAt, new Date()) < 5) {
 			const lockKey = `${Semaphores.OAUTH_TOKEN_REFRESH}:${sessionId}`;
@@ -265,6 +315,22 @@ export function tokenSetToSessionOauth(tokenSet: TokenSet): Session["oauth"] {
 		// Kept for `id_token_hint` on logout, and for nothing else.
 		idToken: tokenSet.id_token || undefined,
 	};
+}
+
+/**
+ * The scopes the login asks for: the configured ones, plus `offline_access` when the issuer lists
+ * it. That is what makes the IdP issue a refresh token, which the per-user background grant
+ * (`schedules/grants.ts`) keeps so scheduled chats can run while nobody is signed in. Asking for a
+ * scope an IdP does not offer is `invalid_scope`, so it is added only when discovery lists it; an
+ * IdP that issues a refresh token without it still gets one grant from the login.
+ */
+export function loginScopes(offered?: unknown): string {
+	const scopes = OIDConfig.SCOPES.split(/\s+/).filter(Boolean);
+	const listed = Array.isArray(offered) ? offered.map(String) : undefined;
+	if (!scopes.includes("offline_access") && listed?.includes("offline_access")) {
+		scopes.push("offline_access");
+	}
+	return scopes.join(" ");
 }
 
 /**
@@ -422,7 +488,7 @@ export async function getOIDCAuthorizationUrl(
 	return client.authorizationUrl({
 		code_challenge_method: "S256",
 		code_challenge: codeChallenge,
-		scope: OIDConfig.SCOPES,
+		scope: loginScopes(client.issuer.metadata.scopes_supported),
 		state: csrfToken,
 		resource: OIDConfig.RESOURCE || undefined,
 		...(params.reauth ? { prompt: "login" } : {}),
@@ -521,6 +587,27 @@ export async function refreshOAuthToken(
 	const client = await getOIDCClient(settings, url);
 	const tokenSet = await client.refresh(refreshToken);
 	return tokenSet;
+}
+
+/**
+ * Revokes a token at the provider, when it publishes a revocation endpoint. Best effort: false
+ * when it cannot be asked or declines, never a throw (a revoke is housekeeping, not a gate).
+ */
+export async function revokeOAuthToken(
+	settings: OIDCSettings,
+	token: string,
+	url: URL,
+	hint: "refresh_token" | "access_token" = "refresh_token"
+): Promise<boolean> {
+	try {
+		const client = await getOIDCClient(settings, url);
+		if (!client.issuer.metadata.revocation_endpoint) return false;
+		await client.revoke(token, hint);
+		return true;
+	} catch (err) {
+		logger.info({ err }, "oidc_revoke_unavailable");
+		return false;
+	}
 }
 
 export async function validateAndParseCsrfToken(

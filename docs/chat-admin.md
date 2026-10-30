@@ -155,40 +155,35 @@ panel.
 
 - **The switch.** `CHAT_SCHEDULES_ENABLED`: on unless exactly `false`. Off stops the
   scheduler for every kind of schedule, answers the schedules API 404 and hides
-  the **Schedules** row and the **Schedule…** menu item; schedules and their
-  keys are kept.
+  the **Schedules** row and the **Schedule…** menu item; schedules are kept.
 - **The limit.** `CHAT_SCHEDULES_MAX_PER_USER` (default 20) caps a person's schedules of
   every kind together (chat and coding-agent ones count alike). The scheduler
   never starts a run faster than every 15 minutes per schedule.
-- **Whose keys.** A scheduled run is a normal chat turn made with a gateway key in
-  the user's own name, made with their session when they create or switch on the
-  schedule (`POST /v1/me/keys`) and named `Cerea schedule: <name>`. Their quota, model
-  access, redaction rule and billing apply and usage is attributed to them. In
-  the gateway's console the keys appear with the user's other keys, where an
-  administrator can see (and revoke) them like any other. Deleting a schedule
-  revokes its key (`DELETE /v1/me/keys/{id}`); turning it off keeps it; a key the
-  gateway refuses switches the schedule off with "Sign in again and turn it back
-  on". Keys are made with `expires_in_days: 180` and renewed (and the old one
-  revoked) when within 14 days of the end, using the user's latest session;
-  deleting a schedule whose revoke the gateway cannot confirm queues it for retry
-  (`scheduleKeyRevocations`, backing off, about 20 tries), and expiry is the
-  backstop. Erasing an account revokes its schedules' keys first; merging accounts
-  revokes the merged-away account's keys and switches its chat schedules off. Only
-  a 401 (`invalid_api_key`) means a key is dead: a 403 (a redaction block, a model
-  access group, a capability) is an ordinary failed run with the gateway's message.
-  The secret is sealed with the deployment's `CHAT_SECRET_KEY`
-  (as connector tokens are) and is never sent to a browser. There is no
-  refresh token and no deployment-wide credential acting for users.
-- **Who may.** The user needs the gateway's **API keys** capability and a billing
-  group (a default one, or the one named in their settings); without them
-  creating a schedule is refused with the gateway's own words.
+- **Background access.** A scheduled run is a normal chat turn made with an access
+  token for the user. The chat asks the identity provider for `offline_access` at every
+  sign-in (when the issuer lists it) and keeps **one refresh token per person**, sealed with
+  `CHAT_SECRET_KEY` as connector tokens are; the newest sign-in replaces the older. Because
+  IdPs rotate refresh tokens, browser sessions no longer refresh with a copy of their own:
+  sessions and scheduled runs refresh through one per-person, serialised function that saves
+  the rotated token and caches the current access token for all of them. An IdP that issues no
+  refresh token leaves today's behaviour for sessions and no schedules. **The IdP's client for
+  the chat must allow refresh tokens and `offline_access`** (as galopin's client already does);
+  the kit's bundled Authelia chat client does, with a 90-day refresh lifetime, and an external
+  IdP needs the same. If the IdP refuses a refresh (`invalid_grant`) the grant is dropped, the
+  user's session ends and their chat schedules switch off. Users can revoke it in Settings;
+  deleting an account revokes it at the IdP's revocation endpoint when the discovery document
+  has one, and a merge drops the merged-away account's and switches its chat schedules off.
+  The gateway sees the user's own token: nothing is added to the gateway's key list, and there
+  is no deployment-wide credential.
 - **What runs.** The conversation's ordinary turn on the server, so the
   deployment's models, connectors and tool policies apply. The browser Python
   sandbox, questions and tools needing approval are unavailable, and the
   assistant is told so in the prompt. A turn is bounded by `CHAT_TURN_MAX_MINUTES`.
-- **Approvals.** A scheduled run treats every approval policy as "manual" and
-  honours no earlier grant, so every tool that needs approval is refused, including
-  under a user's "always allow".
+- **Approvals.** Each chat schedule has a permission mode, **Ask** or **Allow**. Ask
+  refuses every tool that needs approval (policy manual, nothing pre-approved); Allow runs
+  them as for the user (their "always allow" setting and what the chat approved), and only
+  what would still need a click is refused. A mode is never looser than the user's own
+  setting. The sandbox, questions and the `schedule` tool are never offered to a run.
 - **Assistant-made schedules.** The assistant may have at most 3 running schedules
   per conversation and make at most 10 in an hour per user, and only for a sign-in
   within 7 days.

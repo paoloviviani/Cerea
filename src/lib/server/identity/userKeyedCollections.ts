@@ -49,7 +49,7 @@
  * at all, so this only matters for the (not yet built) erasure endpoint.
  */
 
-import { revokeAllFor } from "$lib/server/schedules/credentials";
+import { disableChatSchedules, dropGrant, SIGN_IN_AGAIN } from "$lib/server/schedules/grants";
 import type { Collection, Document, ObjectId } from "mongodb";
 
 import { collections, Database } from "$lib/server/database";
@@ -656,17 +656,25 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		ownerField: "userId",
 		// No unique index on a person's schedules (a name may repeat), so a merge
 		// is a plain move; their devices move with them, so the targets still resolve.
-		// A chat schedule runs on a gateway key in the stray's name: it is revoked, and the schedule
-		// switched off to be turned on again by the target (who mints their own).
+		// A merge moves the rows, not the stray's background grant (it is the stray identity's
+		// authorization): the grant is dropped and its chat schedules switched off, to be turned
+		// on again once the target has given their own.
 		merge: async (stray, target) => {
-			await revokeAllFor(stray, { disable: true });
+			await dropGrant(stray);
+			await disableChatSchedules(stray, SIGN_IN_AGAIN);
 			return reassignSimple(collections.schedules, "userId", stray, target);
 		},
-		// Keys are revoked (or queued for retry) before the rows that hold them are deleted.
-		erase: async (userId) => {
-			await revokeAllFor(userId, { disable: false });
-			return eraseByField(collections.schedules, "userId", userId);
-		},
+		erase: (userId) => eraseByField(collections.schedules, "userId", userId),
+	},
+	{
+		name: "scheduleGrants",
+		owner: "userId",
+		mergeRule: "delete-stray",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// The grant is revoked at the identity provider (best effort) before the row goes.
+		merge: async (stray) => ((await dropGrant(stray)) ? 1 : 0),
+		erase: async (userId) => ((await dropGrant(userId)) ? 1 : 0),
 	},
 	{
 		name: "pushSubscriptions",

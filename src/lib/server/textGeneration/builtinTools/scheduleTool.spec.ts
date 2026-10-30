@@ -7,14 +7,10 @@ import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import { cleanupTestData, createTestUser } from "$lib/server/api/__tests__/testHelpers";
 
-const flags = vi.hoisted(() => ({ mint: vi.fn() }));
+const gateway = vi.hoisted(() => ({ on: true }));
 vi.mock("$lib/server/identity/gatewayLogin", async (original) => ({
 	...(await original<typeof import("$lib/server/identity/gatewayLogin")>()),
-	isGatewayPreset: () => true,
-}));
-vi.mock("$lib/server/schedules/gatewayKeys", () => ({
-	mintKey: (...args: unknown[]) => flags.mint(...args),
-	revokeKey: async () => true,
+	isGatewayPreset: () => gateway.on,
 }));
 const limits = vi.hoisted(() => ({ enabled: true }));
 vi.mock("$lib/server/schedules/limits", async (original) => ({
@@ -35,6 +31,7 @@ import {
 	MAX_ASSISTANT_SCHEDULES_PER_HOUR,
 	SCHEDULE_TOOL_NAME,
 } from "./scheduleTool";
+import { saveGrant } from "$lib/server/schedules/grants";
 import { resumeParkedToolCall } from "$lib/server/mcp/resumeElicitation";
 
 await ready;
@@ -115,10 +112,13 @@ describe("confirming the card", () => {
 		await cleanupTestData();
 		await collections.schedules.deleteMany({});
 		await collections.mcpElicitations.deleteMany({});
-		flags.mint.mockReset();
-		flags.mint.mockResolvedValue({ id: "key-9", secret: "sk-9" });
+		await collections.scheduleGrants.deleteMany({});
+		await collections.settings.deleteMany({});
+		gateway.on = true;
 		limits.enabled = true;
 		person = await createTestUser();
+		// Background access, as the authorization callback would have saved it.
+		await saveGrant(person.user._id, { refresh_token: "rt", access_token: "at" } as never);
 		await collections.sessions.updateOne(
 			{ sessionId: person.session.sessionId },
 			{ $set: { authTime: new Date() } }
@@ -188,9 +188,8 @@ describe("confirming the card", () => {
 			createdBy: { kind: "chat", conversationId: conversationId.toString(), title: "Planning" },
 		});
 		expect(rows[0].userId.equals(person.user._id)).toBe(true);
-		expect(flags.mint).toHaveBeenCalledWith(
-			expect.objectContaining({ token: "session-token", name: "Cerea schedule: Friday report" })
-		);
+		// Ask: this person is on the manual approval policy, so nothing looser is made.
+		expect(rows[0].target).toMatchObject({ permissionMode: "ask" });
 		const result = outcome.updates.find((u) => "subtype" in u && u.subtype === "result");
 		expect(JSON.stringify(result)).toContain("Created the schedule");
 	});
@@ -200,7 +199,6 @@ describe("confirming the card", () => {
 		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
 
 		expect(await collections.schedules.countDocuments({})).toBe(0);
-		expect(flags.mint).not.toHaveBeenCalled();
 		expect(outcome.updates.find((u) => "subtype" in u && u.subtype === "error")).toMatchObject({
 			message: expect.stringContaining("declined"),
 		});
@@ -220,8 +218,7 @@ describe("confirming the card", () => {
 	});
 
 	it("tells the model why when the schedule cannot be made, and makes nothing", async () => {
-		const { CredentialError } = await import("$lib/server/schedules/executors");
-		flags.mint.mockRejectedValue(new CredentialError(403, "Your account may not create keys."));
+		await collections.scheduleGrants.deleteMany({});
 		const id = await parkProposal("accept", "once");
 		const outcome = await resumeParkedToolCall({
 			conversationId,
@@ -231,7 +228,46 @@ describe("confirming the card", () => {
 
 		expect(await collections.schedules.countDocuments({})).toBe(0);
 		expect(outcome.updates.find((u) => "subtype" in u && u.subtype === "error")).toMatchObject({
-			message: "Your account may not create keys.",
+			message: expect.stringContaining("background access"),
+		});
+	});
+
+	describe("the permission mode on the card", () => {
+		const withMode = (mode: string) => ({ ...proposal, permissionMode: mode });
+		const makeWith = async (args: Record<string, unknown>, conversation: object = {}) => {
+			await collections.conversations.updateOne({ _id: conversationId }, { $set: conversation });
+			const made = await createScheduleFromApproval({
+				args,
+				conversationId,
+				userId: person.user._id,
+				token: "t",
+			});
+			expect(made).toHaveProperty("text");
+			return (await collections.schedules.findOne({}))?.target.permissionMode;
+		};
+		const setPolicy = (policy: "always-allow" | "manual") =>
+			collections.settings.updateOne(
+				{ userId: person.user._id },
+				{ $set: { toolApprovalPolicy: policy, createdAt: new Date(), updatedAt: new Date() } },
+				{ upsert: true }
+			);
+
+		it("is Ask by default, and a proposed Allow is made Ask for a person on manual", async () => {
+			expect(await makeWith(proposal)).toBe("ask");
+			await collections.schedules.deleteMany({});
+			expect(await makeWith(withMode("allow"))).toBe("ask");
+		});
+
+		it("is Allow only when the person's setting and the conversation both are always-allow", async () => {
+			await setPolicy("always-allow");
+			expect(await makeWith(withMode("allow"), { toolApprovalOverride: "always-allow" })).toBe(
+				"allow"
+			);
+			await collections.schedules.deleteMany({});
+			// This chat is on manual: no looser than the conversation's.
+			expect(await makeWith(withMode("allow"), { toolApprovalOverride: "manual" })).toBe("ask");
+			await collections.schedules.deleteMany({});
+			expect(await makeWith(withMode("ask"), { toolApprovalOverride: "always-allow" })).toBe("ask");
 		});
 	});
 
@@ -260,7 +296,6 @@ describe("confirming the card", () => {
 			})
 		).toMatchObject({ error: expect.stringContaining("older than 7 days") });
 		expect(await collections.schedules.countDocuments({})).toBe(0);
-		expect(flags.mint).not.toHaveBeenCalled();
 	});
 
 	it("makes at most three running schedules per conversation", async () => {

@@ -4,7 +4,7 @@
  * server-side turn.
  *
  * **Target** (stored, validated by `validateTarget`):
- * `{ mode: "continue" | "new", conversationId?, model?, projectId?, billingGroupId?, labels }`.
+ * `{ mode: "continue" | "new", conversationId?, model?, projectId?, permissionMode, labels }`.
  * "continue" posts into `conversationId`, which the person owns. "new" starts a
  * conversation each run with `model` and `projectId` (copied from
  * `conversationId` when none is named, so a conversation can be the template).
@@ -25,11 +25,17 @@
  * A first call refused by the gateway (401/403) is fast, so it lands in the window
  * and disables the schedule.
  *
- * **The key.** Minted with the person's session on create and re-enable
- * (`gatewayKeys.ts`), sealed like connector tokens, revoked on delete. A key the
- * gateway refuses disables the schedule with a reason the person can act on and
- * is forgotten; re-enabling mints a fresh one. Off a gateway preset there is
- * no per-person key: the deployment's own endpoint credential serves the turn.
+ * **Access.** The run's token is an access token refreshed from the person's background grant
+ * (`grants.ts`), obtained once by its own authorization when they first create or switch on a chat
+ * schedule. A grant the IdP refuses switches their chat schedules off ("Sign in again and turn it
+ * back on"). Off a gateway preset there is no per-person token: the deployment's own credential
+ * serves the turn.
+ *
+ * **Permission mode.** `ask` (default for a user on the manual approval policy): every tool that
+ * needs approval is refused. `allow`: such tools run as they would for the user (their "always
+ * allow" policy and what the chat already approved), and only what would still need a click is
+ * refused. A user on manual cannot make an `allow` schedule. The sandbox, questions and the
+ * `schedule` tool are never available.
  */
 
 import { ObjectId } from "mongodb";
@@ -39,16 +45,23 @@ import { logger } from "$lib/server/logger";
 import { isGatewayPreset } from "$lib/server/identity/gatewayLogin";
 import { validateModel, models } from "$lib/server/models";
 import { isSelectableModel } from "$lib/server/customModels";
-import { open, seal, sealingAvailable } from "$lib/server/mcp/secretBox";
 import { projectAccess, viewerPrincipals } from "$lib/server/projects";
 import { notifyUser } from "$lib/server/push/notify";
 import { turnMaxMinutes } from "$lib/server/generation/turnCap";
 import { MessageUpdateStatus, MessageUpdateType } from "$lib/types/MessageUpdate";
 import type { Schedule } from "$lib/types/Schedule";
 import type { User } from "$lib/types/User";
-import { CredentialError, getExecutor, registerExecutor, type ExecutorOutcome } from "./executors";
-import { mintKey } from "./gatewayKeys";
-import { retryRevocations, revokeOrQueue, SIGN_IN_AGAIN, sessionTokenFor } from "./credentials";
+import { registerExecutor, type ExecutorOutcome } from "./executors";
+import {
+	accessTokenFor,
+	dropGrant,
+	GrantMissingError,
+	GrantRefusedError,
+	hasGrant,
+	NEEDS_GRANT,
+	SIGN_IN_AGAIN,
+} from "./grants";
+import { clampPermission, userApprovalPolicy, type SchedulePermission } from "./permission";
 import { runStamp, scheduledChatHeader } from "./runHeader";
 
 /** How long a run waits for its turn before it reports `sent` and lets the turn carry on. */
@@ -57,11 +70,6 @@ export const chatRunConfig = {
 	/** Scheduled turns running in this process at once; a tick cannot start more. */
 	maxConcurrent: 4,
 };
-
-/** A key lives this long; the scheduler renews it `RENEW_BEFORE_DAYS` before it ends. */
-export const KEY_LIFETIME_DAYS = 180;
-export const RENEW_BEFORE_DAYS = 14;
-const DAY_MS = 24 * 3600_000;
 
 let runningTurns = 0;
 
@@ -74,7 +82,7 @@ const targetSchema = z.object({
 	conversationId: z.string().min(1).max(64).nullish(),
 	model: z.string().min(1).max(256).nullish(),
 	projectId: z.string().min(1).max(64).nullish(),
-	billingGroupId: z.string().min(1).max(64).nullish(),
+	permissionMode: z.enum(["ask", "allow"]).nullish(),
 	labels: z.object({ conversation: label.optional(), project: label.optional() }).optional(),
 });
 
@@ -83,7 +91,7 @@ export type ChatTarget = {
 	conversationId?: string;
 	model?: string;
 	projectId?: string;
-	billingGroupId?: string;
+	permissionMode: SchedulePermission;
 	labels: { conversation?: string; project?: string };
 };
 
@@ -98,7 +106,8 @@ export function parseChatTarget(input: unknown): ChatTarget | null {
 		...(t.conversationId ? { conversationId: t.conversationId } : {}),
 		...(t.model ? { model: t.model } : {}),
 		...(t.projectId ? { projectId: t.projectId } : {}),
-		...(t.billingGroupId ? { billingGroupId: t.billingGroupId } : {}),
+		// Absent on a target stored before the mode existed: those ran refusing everything.
+		permissionMode: t.permissionMode ?? "ask",
 		labels: {
 			...(t.labels?.conversation ? { conversation: t.labels.conversation } : {}),
 			...(t.labels?.project ? { project: t.labels.project } : {}),
@@ -131,8 +140,6 @@ async function projectLabel(
 	const access = await projectAccess(projectId, userId, await viewerPrincipals(user, token));
 	return access ? access.project.name || "Project" : null;
 }
-
-const UUIDISH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** True while a turn of this conversation is generating or parked on a person. */
 export async function conversationBusy(conversationId: ObjectId, now: Date): Promise<boolean> {
@@ -202,15 +209,6 @@ async function readTurn(response: Response): Promise<TurnReport> {
 	return report;
 }
 
-/**
- * Only a 401 says the key is dead (the gateway's `invalid_api_key`). A 403 is a refusal of
- * this request or this account for now (a redaction block, a model access group, a missing
- * capability that a group flag restores), so it is an ordinary failed run with the gateway's words.
- */
-const refusedByGateway = (report: TurnReport) =>
-	report.error?.statusCode === 401 ||
-	(report.error?.statusCode === undefined && /\b401\b/.test(report.error?.message ?? ""));
-
 /** What a turn that outlived the run (or any turn) leaves behind: the unread mark and the push. */
 async function announce(
 	schedule: Schedule,
@@ -241,6 +239,7 @@ async function driveTurn(input: {
 	parentMessageId: string | undefined;
 	text: string;
 	timezone: string;
+	permissionMode: SchedulePermission;
 }): Promise<Response> {
 	const { POST } = await import("../../../routes/conversation/[id]/+server");
 	const form = new FormData();
@@ -258,7 +257,7 @@ async function driveTurn(input: {
 		isAdmin: false,
 		...(input.token ? { token: input.token } : {}),
 		timezone: input.timezone,
-		scheduledRun: true,
+		scheduledRun: { permissionMode: input.permissionMode },
 	};
 	const request = new Request(`http://localhost/conversation/${input.conversationId}`, {
 		method: "POST",
@@ -360,9 +359,21 @@ registerExecutor({
 			delete target.model;
 			delete target.projectId;
 		}
-		if (target.billingGroupId && !UUIDISH.test(target.billingGroupId)) {
-			return { ok: false, error: "That is not a billing group id." };
+		// Never looser than the person's own policy; absent takes it.
+		const policy = await userApprovalPolicy(userId);
+		const requested = (input as { permissionMode?: string } | null)?.permissionMode;
+		if (requested === "allow" && policy !== "always-allow") {
+			return {
+				ok: false,
+				error:
+					"Your tool approval setting is manual, so a schedule cannot be set to Allow. " +
+					"Turn on always allow in your settings first, or choose Ask.",
+			};
 		}
+		target.permissionMode = clampPermission(
+			requested === "allow" || requested === "ask" ? requested : undefined,
+			policy
+		);
 		return { ok: true, target };
 	},
 
@@ -376,53 +387,19 @@ registerExecutor({
 		return ["New chat each time", target.labels.project].filter(Boolean).join(" › ");
 	},
 
-	async mintCredential({ userId, name, target, token }) {
-		// Off a gateway there is no per-person key to make: the deployment's credential serves the turn.
-		if (!isGatewayPreset()) return undefined;
-		if (!token) throw new CredentialError(403, "Sign in again, then turn the schedule on.");
-		// Before the gateway makes a key there would be nowhere safe to keep.
-		if (!sealingAvailable()) {
-			throw new CredentialError(
-				400,
-				"This deployment cannot keep the schedule's key safe: its administrator has to set CHAT_SECRET_KEY."
-			);
-		}
-		const parsed = parseChatTarget(target);
-		let billingGroupId = parsed?.billingGroupId;
-		if (!billingGroupId) {
-			const settings = await collections.settings.findOne({ userId });
-			const preferred = settings?.billingOrganization?.trim();
-			if (preferred && UUIDISH.test(preferred)) billingGroupId = preferred;
-		}
-		const key = await mintKey({
-			token,
-			name: `Cerea schedule: ${name}`,
-			...(billingGroupId ? { billingGroupId } : {}),
-			expiresInDays: KEY_LIFETIME_DAYS,
+	async precondition(userId) {
+		// Off a gateway there is no per-person token to hold a grant for.
+		if (!isGatewayPreset()) return null;
+		return (await hasGrant(userId)) ? null : NEEDS_GRANT;
+	},
+
+	async afterDelete(schedule) {
+		// The grant is the person's, not the schedule's: it goes with their last chat schedule.
+		const remaining = await collections.schedules.countDocuments({
+			userId: schedule.userId,
+			kind: "chat",
 		});
-		const mintedAt = new Date();
-		return {
-			keyId: key.id,
-			sealed: seal(key.secret),
-			...(billingGroupId ? { billingGroupId } : {}),
-			mintedAt,
-			expiresAt: new Date(mintedAt.getTime() + KEY_LIFETIME_DAYS * DAY_MS),
-		};
-	},
-
-	credentialStale(before, after) {
-		return parseChatTarget(before)?.billingGroupId !== parseChatTarget(after)?.billingGroupId;
-	},
-
-	async releaseCredential(schedule, { token }) {
-		// Revokes with the person's session when there is one, else the key itself; what
-		// cannot be confirmed is queued and retried (`credentials.ts`), never lost.
-		if (schedule.credential) await revokeOrQueue(schedule.credential, schedule.userId, token);
-	},
-
-	async maintain(now) {
-		await retryRevocations(now);
-		await renewKeys(now);
+		if (remaining === 0) await dropGrant(schedule.userId);
 	},
 
 	async run({ schedule, now, previousRun }): Promise<ExecutorOutcome> {
@@ -438,20 +415,22 @@ registerExecutor({
 			};
 		}
 
+		// The person's own access token, from their background grant.
 		let token: string | undefined;
 		if (isGatewayPreset()) {
-			if (!schedule.credential) {
-				return { status: "failed", detail: SIGN_IN_AGAIN, disable: SIGN_IN_AGAIN };
-			}
 			try {
-				token = open(schedule.credential.sealed);
+				token = (await accessTokenFor(schedule.userId)).value;
 			} catch (err) {
-				logger.warn({ err }, "scheduled_chat_key_unreadable");
+				if (err instanceof GrantMissingError) {
+					return { status: "failed", detail: NEEDS_GRANT, disable: SIGN_IN_AGAIN };
+				}
+				if (err instanceof GrantRefusedError) {
+					// The grant is already dropped and every chat schedule of theirs switched off.
+					return { status: "failed", detail: SIGN_IN_AGAIN, disable: SIGN_IN_AGAIN };
+				}
 				return {
 					status: "failed",
-					detail: SIGN_IN_AGAIN,
-					disable: SIGN_IN_AGAIN,
-					dropCredential: true,
+					detail: `Could not get access for the run: ${err instanceof Error ? err.message : String(err)}`,
 				};
 			}
 		}
@@ -510,18 +489,7 @@ registerExecutor({
 					title: conversationTitle,
 				});
 			} catch (err) {
-				const { status, message } = httpMessage(err);
-				if (status === 401 || status === 403) {
-					if (status === 403 && /project/i.test(message)) {
-						return { status: "failed", detail: message };
-					}
-					return {
-						status: "failed",
-						detail: SIGN_IN_AGAIN,
-						disable: SIGN_IN_AGAIN,
-						dropCredential: true,
-					};
-				}
+				const { message } = httpMessage(err);
 				return { status: "failed", detail: `Starting the chat: ${message}` };
 			}
 			parentMessageId = undefined;
@@ -564,20 +532,15 @@ registerExecutor({
 				parentMessageId,
 				text,
 				timezone: schedule.timezone,
+				// Never looser than the person's policy as it is now, whatever was stored.
+				permissionMode: clampPermission(
+					target.permissionMode,
+					await userApprovalPolicy(schedule.userId)
+				),
 			});
 		} catch (err) {
 			runningTurns -= 1;
-			const { status, message } = httpMessage(err);
-			if (status === 401) {
-				return {
-					status: "failed",
-					detail: SIGN_IN_AGAIN,
-					disable: SIGN_IN_AGAIN,
-					dropCredential: true,
-					result,
-				};
-			}
-			return { status: "failed", detail: message, result };
+			return { status: "failed", detail: httpMessage(err).message, result };
 		}
 
 		const turn = readTurn(response).finally(() => {
@@ -597,14 +560,7 @@ registerExecutor({
 			const settled = turn.then(async (report) => {
 				await announce(schedule, conversationId, report, { push: !report.error });
 				if (!report.error) return undefined;
-				return refusedByGateway(report)
-					? {
-							status: "failed" as const,
-							detail: SIGN_IN_AGAIN,
-							disable: SIGN_IN_AGAIN,
-							dropCredential: true,
-						}
-					: { status: "failed" as const, detail: report.error.message };
+				return { status: "failed" as const, detail: report.error.message };
 			});
 			return {
 				status: "sent",
@@ -615,61 +571,9 @@ registerExecutor({
 		}
 		if (early.error) {
 			await announce(schedule, conversationId, early, { push: false });
-			if (refusedByGateway(early)) {
-				return {
-					status: "failed",
-					detail: SIGN_IN_AGAIN,
-					disable: SIGN_IN_AGAIN,
-					dropCredential: true,
-					result,
-				};
-			}
 			return { status: "failed", detail: early.error.message, result };
 		}
 		await announce(schedule, conversationId, early, { push: true });
 		return { status: "sent", result, detail: `Answered in "${conversationTitle}".` };
 	},
 });
-
-/** Renew keys that end within `RENEW_BEFORE_DAYS`, with the person's latest session when one is still good. */
-export async function renewKeys(now: Date = new Date()): Promise<number> {
-	const horizon = new Date(now.getTime() + RENEW_BEFORE_DAYS * DAY_MS);
-	const due = await collections.schedules
-		.find({ kind: "chat", enabled: true, "credential.expiresAt": { $lte: horizon } })
-		.limit(20)
-		.toArray();
-	const executor = getExecutor("chat");
-	let renewed = 0;
-	for (const schedule of due) {
-		const old = schedule.credential;
-		if (!old || !executor?.mintCredential) continue;
-		const token = await sessionTokenFor(schedule.userId);
-		// Nobody signed in who could make a key: the run that finds this one dead says to sign in again.
-		if (!token) continue;
-		let fresh;
-		try {
-			fresh = await executor.mintCredential({
-				userId: schedule.userId,
-				name: schedule.name,
-				target: schedule.target,
-				token,
-			});
-		} catch (err) {
-			logger.warn({ err, scheduleId: schedule._id.toString() }, "scheduled_chat_key_renew_failed");
-			continue;
-		}
-		if (!fresh) continue;
-		const swapped = await collections.schedules.updateOne(
-			{ _id: schedule._id, "credential.keyId": old.keyId },
-			{ $set: { credential: fresh, updatedAt: new Date() } }
-		);
-		if (swapped.matchedCount === 0) {
-			// The row changed under us: the key just made is nobody's.
-			await revokeOrQueue(fresh, schedule.userId, token);
-			continue;
-		}
-		await revokeOrQueue(old, schedule.userId, token);
-		renewed += 1;
-	}
-	return renewed;
-}

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import superjson from "superjson";
 import { renderWithApp, setPage } from "$lib/components/__tests__/renderWithApp";
 import ScheduleEditor from "./ScheduleEditor.svelte";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
@@ -518,7 +519,6 @@ describe("ScheduleEditor for a chat", () => {
 	it("opens from a conversation on continuing that chat, with no machine to choose", async () => {
 		const { screen } = mount({ prefill: { conversationId: "c1" } });
 
-		await expect.element(screen.getByTestId("mode-continue")).toBeChecked();
 		await expect.element(screen.getByLabelText("Chat", { exact: true })).toHaveValue("c1");
 		expect(screen.getByLabelText("1. Machine").elements()).toHaveLength(0);
 		await expect
@@ -537,7 +537,7 @@ describe("ScheduleEditor for a chat", () => {
 				kind: "chat",
 				name: "Weekly news",
 				prompt: "Summarise the news on X",
-				target: { mode: "continue", conversationId: "c1" },
+				target: { mode: "continue", conversationId: "c1", permissionMode: "ask" },
 			})
 		);
 		await vi.waitFor(() => expect(onsaved).toHaveBeenCalled());
@@ -545,7 +545,7 @@ describe("ScheduleEditor for a chat", () => {
 
 	it("starts a new chat each time with the model of the chat it was opened from", async () => {
 		const { screen } = mount({ prefill: { conversationId: "c2" } });
-		await screen.getByTestId("mode-new").click();
+		await screen.getByLabelText("Chat", { exact: true }).selectOptions("__new__");
 		await expect
 			.element(screen.getByText(/same model and project as “Trip planning”/))
 			.toBeVisible();
@@ -554,7 +554,10 @@ describe("ScheduleEditor for a chat", () => {
 		await screen.getByRole("button", { name: "Create schedule" }).click();
 
 		expect(api.createSchedule).toHaveBeenCalledWith(
-			expect.objectContaining({ kind: "chat", target: { mode: "new", conversationId: "c2" } })
+			expect.objectContaining({
+				kind: "chat",
+				target: { mode: "new", conversationId: "c2", permissionMode: "ask" },
+			})
 		);
 	});
 
@@ -565,38 +568,82 @@ describe("ScheduleEditor for a chat", () => {
 		await screen.getByRole("button", { name: "Create schedule" }).click();
 		await expect.element(screen.getByText("Choose the chat to continue.")).toBeVisible();
 
-		await screen.getByTestId("mode-new").click();
+		await screen.getByLabelText("Chat", { exact: true }).selectOptions("__new__");
 		await screen.getByRole("button", { name: "Create schedule" }).click();
 		await expect.element(screen.getByText("Choose a model for the new chats.")).toBeVisible();
 		await screen.getByLabelText("Model", { exact: true }).selectOptions("m2");
 		await screen.getByRole("button", { name: "Create schedule" }).click();
 		expect(api.createSchedule).toHaveBeenCalledWith(
-			expect.objectContaining({ kind: "chat", target: { mode: "new", model: "m2" } })
+			expect.objectContaining({
+				kind: "chat",
+				target: { mode: "new", model: "m2", permissionMode: "ask" },
+			})
 		);
 		expect(api.createSchedule).toHaveBeenCalledTimes(1);
 	});
 
-	it("says up front when the gateway will not let the account hold the key a chat schedule runs on", async () => {
-		setPage({
-			data: {
-				codeSchedulesEnabled: false,
-				chatSchedulesKeysAllowed: false,
-				conversations: [{ id: "c1", title: "Weekly notes" }],
-				models: [],
-			},
-		});
-		const { screen } = mount({ prefill: { conversationId: "c1" } });
-		await expect
-			.element(screen.getByTestId("chat-keys-not-allowed"))
-			.toHaveTextContent("may not create API keys");
+	it("says up front when the sign-in gave no background access, and how to get it", async () => {
+		const stub = vi.fn(
+			async () =>
+				new Response(superjson.stringify({ required: true, granted: false, chatSchedules: 0 }))
+		);
+		vi.stubGlobal("fetch", stub);
+		try {
+			const { screen } = mount({ prefill: { conversationId: "c1" } });
+			await expect.element(screen.getByTestId("grant-card")).toHaveTextContent("offline_access");
+			await expect
+				.element(screen.getByTestId("grant-sign-in"))
+				.toHaveAttribute("href", expect.stringContaining("/login?next="));
+			// Saving without it says why instead of failing at the server.
+			await screen.getByLabelText("Name", { exact: true }).fill("Weekly news");
+			await screen.getByLabelText("Prompt", { exact: true }).fill("Summarise");
+			await screen.getByRole("button", { name: "Create schedule" }).click();
+			await expect.element(screen.getByText(/Background access is missing/)).toBeVisible();
+			expect(api.createSchedule).not.toHaveBeenCalled();
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 
-	it("tells everyone else what the key needs, and that scheduled runs never use approval tools", async () => {
+	it("says nothing about background access when it is there, or not needed", async () => {
+		const stub = vi.fn(
+			async () =>
+				new Response(superjson.stringify({ required: true, granted: true, chatSchedules: 1 }))
+		);
+		vi.stubGlobal("fetch", stub);
+		try {
+			const { screen } = mount({ prefill: { conversationId: "c1" } });
+			await expect.element(screen.getByTestId("chat-unattended-hint")).toBeVisible();
+			expect(screen.getByTestId("grant-card").elements()).toHaveLength(0);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("offers Ask and Allow, Allow only for a person on always-allow, with the risk in a line", async () => {
 		const { screen } = mount({ prefill: { conversationId: "c1" } });
-		await expect.element(screen.getByTestId("chat-key-hint")).toHaveTextContent("billing group");
+		await expect.element(screen.getByTestId("perm-ask")).toHaveAttribute("aria-checked", "true");
+		await expect.element(screen.getByTestId("perm-allow")).toBeDisabled();
+		await expect.element(screen.getByText(/cannot be set to Allow/)).toBeVisible();
+	});
+
+	it("saves the permission mode with the target", async () => {
+		const { screen } = mount({ prefill: { conversationId: "c1" } });
+		await screen.getByLabelText("Name", { exact: true }).fill("n");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("p");
+		await screen.getByRole("button", { name: "Create schedule" }).click();
+		expect(api.createSchedule).toHaveBeenCalledWith(
+			expect.objectContaining({
+				target: { mode: "continue", conversationId: "c1", permissionMode: "ask" },
+			})
+		);
+	});
+
+	it("tells everyone what scheduled runs cannot do", async () => {
+		const { screen } = mount({ prefill: { conversationId: "c1" } });
 		await expect
 			.element(screen.getByTestId("chat-unattended-hint"))
-			.toHaveTextContent("never uses a tool that needs approval");
+			.toHaveTextContent("cannot run Python");
 	});
 
 	it("lets a person with coding agents choose which kind to make", async () => {
@@ -622,7 +669,7 @@ describe("ScheduleEditor for a chat", () => {
 				firedCount: 0,
 			},
 		});
-		await expect.element(screen.getByTestId("mode-new")).toBeChecked();
+		await expect.element(screen.getByLabelText("Chat", { exact: true })).toHaveValue("__new__");
 		await expect.element(screen.getByLabelText("Model", { exact: true })).toHaveValue("m1");
 		expect(screen.getByTestId("kind-chat").elements()).toHaveLength(0);
 	});

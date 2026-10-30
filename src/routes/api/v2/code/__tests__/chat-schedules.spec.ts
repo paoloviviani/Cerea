@@ -10,10 +10,10 @@ import superjson from "superjson";
 import { collections, ready } from "$lib/server/database";
 import { cleanupTestData, createTestUser } from "$lib/server/api/__tests__/testHelpers";
 import { testRequest } from "$lib/server/__tests__/testRequest";
+import { hasGrant, saveGrant } from "$lib/server/schedules/grants";
 
 const flags = vi.hoisted(() => ({
 	enabled: true,
-	mint: vi.fn(),
 	revoke: vi.fn(),
 	cap: 20,
 }));
@@ -21,10 +21,18 @@ vi.mock("$lib/server/identity/gatewayLogin", async (original) => ({
 	...(await original<typeof import("$lib/server/identity/gatewayLogin")>()),
 	isGatewayPreset: () => true,
 }));
-vi.mock("$lib/server/schedules/gatewayKeys", () => ({
-	mintKey: (...args: unknown[]) => flags.mint(...args),
-	revokeKey: (...args: unknown[]) => flags.revoke(...args),
-}));
+// The IdP is only asked to revoke here: a grant's cached access token is good for the hour.
+vi.mock("openid-client", async (original) => {
+	const real = await original<typeof import("openid-client")>();
+	class FakeClient {
+		issuer = { metadata: { revocation_endpoint: "https://idp.invalid/revoke" } };
+		async revoke(token: string) {
+			flags.revoke(token);
+		}
+	}
+	const issuer = { metadata: {}, Client: FakeClient };
+	return { ...real, Issuer: Object.assign(function () {}, { discover: async () => issuer }) };
+});
 vi.mock("$lib/server/schedules/limits", async (original) => ({
 	...(await original<typeof import("$lib/server/schedules/limits")>()),
 	schedulesEnabled: () => flags.enabled,
@@ -111,6 +119,12 @@ async function signedIn() {
 		{ sessionId: p.session.sessionId },
 		{ $set: { authTime: new Date() } }
 	);
+	// What their login wrote: the background grant a chat schedule runs on.
+	await saveGrant(p.user._id, {
+		refresh_token: "rt",
+		access_token: "at",
+		expires_at: Math.floor((Date.now() + 3600_000) / 1000),
+	} as never);
 	return p;
 }
 
@@ -136,14 +150,12 @@ beforeEach(async () => {
 	vi.clearAllMocks();
 	flags.enabled = true;
 	flags.cap = 20;
-	flags.mint.mockResolvedValue({ id: "key-1", secret: "sk-secret" });
-	flags.revoke.mockResolvedValue(true);
 	person = await signedIn();
 	conversationId = await seedChat(person);
 });
 
 describe("making a chat schedule", () => {
-	it("works for a person without the /code panel, mints their key with their session, and never shows it", async () => {
+	it("works for a person without the /code panel, and never shows the grant", async () => {
 		const res = await call(listPOST, "/api/v2/code/schedules", { method: "POST", json: body() });
 
 		expect(res.status).toBe(201);
@@ -152,24 +164,35 @@ describe("making a chat schedule", () => {
 			name: "Weekly news",
 			targetLabel: "Chat › Planning",
 			enabled: true,
+			target: { permissionMode: "ask" },
 		});
-		expect(flags.mint).toHaveBeenCalledWith({
-			token: "session-token",
-			name: "Cerea schedule: Weekly news",
-			expiresInDays: 180,
-		});
-		expect(res.text).not.toContain("sk-secret");
-		expect(res.text).not.toContain("credential");
-		expect(res.text).not.toContain("sealed");
+		expect(res.text).not.toContain("rt");
+		expect(res.text).not.toContain("refreshSealed");
 	});
 
-	it("is refused, readably, when the gateway will not make the key", async () => {
-		const { CredentialError } = await import("$lib/server/schedules/executors");
-		flags.mint.mockRejectedValue(new CredentialError(403, "This account may not use API keys."));
+	it("is refused, in words, when the person has no background access", async () => {
+		await collections.scheduleGrants.deleteMany({});
 		const res = await call(listPOST, "/api/v2/code/schedules", { method: "POST", json: body() });
 
-		expect(res.status).toBe(403);
-		expect(res.text).toContain("may not use API keys");
+		expect(res.status).toBe(409);
+		expect(res.text).toContain("background access");
+		expect(res.text).toContain("offline_access");
+		expect(await collections.schedules.countDocuments({})).toBe(0);
+	});
+
+	it("takes Allow from a person on the manual policy as a refusal, and makes no schedule", async () => {
+		const res = await call(listPOST, "/api/v2/code/schedules", {
+			method: "POST",
+			json: body({
+				target: {
+					mode: "continue",
+					conversationId: conversationId.toString(),
+					permissionMode: "allow",
+				},
+			}),
+		});
+		expect(res.status).toBe(400);
+		expect(res.text).toContain("manual");
 		expect(await collections.schedules.countDocuments({})).toBe(0);
 	});
 
@@ -193,13 +216,17 @@ describe("making a chat schedule", () => {
 			json: body({ name: "Second" }),
 		});
 		expect(res.status).toBe(409);
-		// The key made for the refused one is not left behind.
-		expect(flags.mint).toHaveBeenCalledTimes(1);
 	});
 
-	it("does not touch the gateway for one made switched off", async () => {
-		await create({ enabled: false });
-		expect(flags.mint).not.toHaveBeenCalled();
+	it("can be made switched off without background access, and refuses to be switched on without it", async () => {
+		await collections.scheduleGrants.deleteMany({});
+		const id = await create({ enabled: false });
+		const on = await call(onePATCH, `/api/v2/code/schedules/${id}`, {
+			method: "PATCH",
+			params: { id },
+			json: { enabled: true },
+		});
+		expect(on.status).toBe(409);
 	});
 });
 
@@ -229,7 +256,7 @@ describe("managing one", () => {
 		expect(flags.revoke).not.toHaveBeenCalled();
 	});
 
-	it("keeps the key while it is off, and revokes it, as them, when it is deleted", async () => {
+	it("keeps the grant while it is off, and drops it (revoked at the IdP) with the last chat schedule", async () => {
 		const id = await create();
 		const off = await call(onePATCH, `/api/v2/code/schedules/${id}`, {
 			method: "PATCH",
@@ -238,13 +265,15 @@ describe("managing one", () => {
 		});
 		expect(off.status).toBe(200);
 		expect(flags.revoke).not.toHaveBeenCalled();
+		expect(await hasGrant(person.user._id)).toBe(true);
 
 		const gone = await call(oneDELETE, `/api/v2/code/schedules/${id}`, {
 			method: "DELETE",
 			params: { id },
 		});
 		expect(gone.status).toBe(200);
-		expect(flags.revoke).toHaveBeenCalledWith({ token: "session-token", keyId: "key-1" });
+		expect(flags.revoke).toHaveBeenCalledWith("rt");
+		expect(await hasGrant(person.user._id)).toBe(false);
 		expect(await collections.schedules.countDocuments({})).toBe(0);
 	});
 

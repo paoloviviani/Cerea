@@ -133,6 +133,11 @@ identity_providers:
         agent_machine:
           access_token: '1h'
           refresh_token: '90d'
+        # The chat's background grant for scheduled chats: each run refreshes (and
+        # rotates) it, so it only lapses after 90 idle days.
+        chat_background:
+          access_token: '1h'
+          refresh_token: '90d'
     clients:
       - client_id: 'pystino-console'
         client_name: 'Pystino Console'
@@ -163,9 +168,12 @@ identity_providers:
         pkce_challenge_method: 'S256'
         redirect_uris:
           - '{{ env "X_PYSTINO_PUBLIC_ORIGIN" }}/chat/login/callback'
-        scopes: ['openid', 'profile', 'email', 'groups']
+        # `offline_access` and the refresh-token grant are for scheduled chats: the sign-in
+        # never asks for them, a person's separate "let schedules run while I'm away"
+        # authorization does.
+        scopes: ['openid', 'profile', 'email', 'groups', 'offline_access']
         response_types: ['code']
-        grant_types: ['authorization_code']
+        grant_types: ['authorization_code', 'refresh_token']
         access_token_signed_response_alg: 'RS256'
         token_endpoint_auth_method: 'client_secret_basic'
         audience: ['pystino-api']
@@ -173,6 +181,7 @@ identity_providers:
         claims_policy: 'pystino'
         # First-party: auto-approved, no consent screen.
         consent_mode: 'implicit'
+        lifespan: 'chat_background'
       # galopin's public client (agent machines). Kept under this id so
       # machines enrolled before the move keep refreshing.
       - client_id: 'opencode-enrollment'

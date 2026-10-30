@@ -513,9 +513,7 @@
 	"code.schedule_editor.can_message": "Can find, read and message other sessions",
 	"code.schedule_editor.can_spawn": "Can start new sessions",
 	"code.schedule_editor.chat": "Chat",
-	"code.schedule_editor.chat_unattended": "Nobody is watching a scheduled run. It can search the web, fetch pages and work with documents, but it cannot run Python, and it never uses a tool that needs approval, whatever your approval setting.",
-	"code.schedule_editor.chat_key_hint": "When you save, Cerea asks the gateway for an API key in your name to run this schedule with. That needs an API-keys permission and a billing group: a default one in your gateway account, or one named in your settings.",
-	"code.schedule_editor.keys_not_allowed": "Your account may not create API keys, which a scheduled chat runs on, so a chat schedule cannot be switched on. Ask an administrator to grant them.",
+	"code.schedule_editor.chat_unattended": "Nobody is watching a scheduled run. It can search the web, fetch pages and work with documents, but it cannot run Python or ask you a question.",
 	"code.schedule_editor.choose_chat": "Choose a chat",
 	"code.schedule_editor.choose_machine": "Choose a machine",
 	"code.schedule_editor.choose_model": "Choose a model",
@@ -527,6 +525,7 @@
 	"code.schedule_editor.cron_hint": "Five fields: minute hour day-of-month month day-of-week. At least 15 minutes between runs.",
 	"code.schedule_editor.enabled": "Enabled",
 	"code.schedule_editor.err_chat": "Choose the chat to continue.",
+	"code.schedule_editor.err_grant": "Background access is missing: sign in again first, so the schedule can run while you are away.",
 	"code.schedule_editor.err_machine": "Choose the machine it runs on.",
 	"code.schedule_editor.err_model": "Choose a model for the new chats.",
 	"code.schedule_editor.err_name": "Give the schedule a name.",
@@ -536,6 +535,9 @@
 	"code.schedule_editor.err_workspace": "Choose a workspace.",
 	"code.schedule_editor.every_hours": "Every how many hours",
 	"code.schedule_editor.for_ever": "For ever",
+	"code.schedule_editor.grant_text": "A scheduled chat runs when you are not signed in, so it needs the background access your sign-in gives. Sign in again to get it. If it is still missing afterwards, your administrator has to allow refresh tokens (the offline_access scope) for the chat's client.",
+	"code.schedule_editor.grant_sign_in": "Sign in again",
+	"code.schedule_editor.grant_title": "Background access is not available",
 	"code.schedule_editor.how": "How the agent runs",
 	"code.schedule_editor.kind": "What it runs",
 	"code.schedule_editor.kind_agent": "A coding agent",
@@ -546,10 +548,9 @@
 	"code.schedule_editor.machine_option": "{name} · {state}",
 	"code.schedule_editor.matching_dirs": "Matching directories",
 	"code.schedule_editor.mode": "Agent mode",
-	"code.schedule_editor.mode_continue": "Continue this chat",
 	"code.schedule_editor.mode_continue_hint": "Each run posts the prompt into the chat and the assistant answers there.",
 	"code.schedule_editor.mode_default": "Default (plan)",
-	"code.schedule_editor.mode_new": "New chat each time",
+	"code.schedule_editor.mode_new": "A new chat each time",
 	"code.schedule_editor.mode_new_hint": "Each run starts a fresh chat with the same prompt and model.",
 	"code.schedule_editor.model": "Model",
 	"code.schedule_editor.model_default": "The machine's default",
@@ -568,6 +569,9 @@
 	"code.schedule_editor.others": "Other sessions on this machine",
 	"code.schedule_editor.others_hint": "Lets a run orchestrate the machine's other sessions without stopping at an approval card. Never past the machine's own limits: a session in another workspace, a long chain of agent messages and anything the machine caps at Ask still ask.",
 	"code.schedule_editor.permission": "Permission mode",
+	"code.schedule_editor.permission_allow_blocked": "Your approval setting is manual, so a schedule cannot be set to Allow. Turn on always allow in your settings first.",
+	"code.schedule_editor.permission_allow_hint": "Such tools run as they would for you under your approval setting. Content the run reads (a web page, a document, a connector's answer) can try to steer them, so choose this only for work you trust.",
+	"code.schedule_editor.permission_ask_hint": "Tools that need your approval are refused: nobody is there to approve them.",
 	"code.schedule_editor.plan_hint": "The agent can read but is refused anything that changes or runs.",
 	"code.schedule_editor.preset_cron": "Advanced (cron expression)",
 	"code.schedule_editor.preset_daily": "Every day",
@@ -655,7 +659,7 @@
 	"code.schedules.run_progress": "{fired}/{max} run",
 	"code.schedules.runs": "Runs",
 	"code.schedules.subtitle": "Prompts sent to your coding sessions on a timetable.",
-	"code.schedules.tips.chat": "A chat schedule runs with its own key, made when you create it or turn it on. If the key stops working the schedule switches itself off: sign in again and turn it back on. Deleting the schedule revokes the key.",
+	"code.schedules.tips.chat": "A chat schedule runs on the background access your sign-in gives. If that access stops working your chat schedules switch themselves off: sign in again and turn them back on. You can revoke it under Settings.",
 	"code.schedules.tips.failures": "Three failed runs in a row switch a schedule off.",
 	"code.schedules.tips.offline": "A run on a machine that is offline is recorded as missed, never queued. Machines pay for their own runs with their own credential.",
 	"code.schedules.tips.skipped": "If the previous run's session is still working, the next one is skipped. If Cerea was down, at most one late run is made up, and only when it is not very late.",
@@ -1009,6 +1013,9 @@
 	"chat.approval.no_answer": "The answer did not go through.",
 	"chat.approval.schedule.create": "Create schedule",
 	"chat.approval.schedule.name": "Name",
+	"chat.approval.schedule.permission": "Tools needing approval",
+	"chat.approval.schedule.permission_allow": "Run as for you, under your approval setting",
+	"chat.approval.schedule.permission_ask": "Refused: nobody is there to approve them",
 	"chat.approval.schedule.prompt": "Sends",
 	"chat.approval.schedule.repeats": "Repeats",
 	"chat.approval.schedule.stops": "Stops",
@@ -2396,6 +2403,31 @@
 	"projects.page.tab.conversations": "Conversations",
 	"projects.page.tab.settings": "Settings",
 	"projects.page.unsaved": "Unsaved changes",
+	"settings.schedule_access.could_not_revoke": "Could not revoke the background access.",
+	"settings.schedule_access.granted": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Scheduled chats can run while you are away. {count} chat schedule uses it.",
+				"countPlural=other": "Scheduled chats can run while you are away. {count} chat schedules use it."
+			}
+		}
+	],
+	"settings.schedule_access.not_granted": "Not available. It comes from signing in; if it is still missing after you sign in again, your administrator has to allow refresh tokens (offline_access) for the chat's client.",
+	"settings.schedule_access.revoke": "Revoke",
+	"settings.schedule_access.revoke_hint": "Revoking switches your chat schedules off and ends the background access. Your sign-in carries on until its current access ends; signing in again brings background access back.",
+	"settings.schedule_access.revoked": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Revoked. {count} chat schedule was switched off.",
+				"countPlural=other": "Revoked. {count} chat schedules were switched off."
+			}
+		}
+	],
+	"settings.schedule_access.title": "Background access for schedules",
 	"settings.title": "Settings",
 	"settings.sections_label": "Settings sections",
 	"settings.tabs.application": "Application settings",

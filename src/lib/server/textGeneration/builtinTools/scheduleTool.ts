@@ -11,6 +11,7 @@ import {
 	ScheduleError,
 } from "$lib/server/schedules/store";
 import { authTimeFresh } from "$lib/server/code/stepUp";
+import { userApprovalPolicy } from "$lib/server/schedules/permission";
 import { schedulesEnabled } from "$lib/server/schedules/limits";
 import type { Recurrence } from "$lib/types/Schedule";
 import { recurrenceText } from "$lib/utils/scheduleFormat";
@@ -35,6 +36,7 @@ const inputSchema = z.object({
 	name: z.string().trim().min(1).max(MAX_NAME_LENGTH),
 	prompt: z.string().trim().min(1).max(MAX_PROMPT_LENGTH),
 	mode: z.enum(["continue", "new"]).default("continue"),
+	permissionMode: z.enum(["ask", "allow"]).default("ask"),
 	recurrence: z.unknown(),
 	timezone: z.string().trim().optional(),
 	maxOccurrences: z.number().int().min(1).max(MAX_OCCURRENCES).nullish(),
@@ -44,6 +46,8 @@ export interface ScheduleProposal {
 	name: string;
 	prompt: string;
 	mode: "continue" | "new";
+	/** What a run may do about tools that need approval; never looser than the conversation's policy. */
+	permissionMode: "ask" | "allow";
 	recurrence: Recurrence;
 	timezone: string;
 	maxOccurrences?: number;
@@ -75,6 +79,7 @@ export function parseScheduleToolArgs(
 			name: input.name,
 			prompt: input.prompt,
 			mode: input.mode,
+			permissionMode: input.permissionMode,
 			recurrence: recurrence.recurrence,
 			timezone,
 			...(input.maxOccurrences != null ? { maxOccurrences: input.maxOccurrences } : {}),
@@ -109,6 +114,13 @@ export function createScheduleTool(defaults: { timezone?: string }): BuiltinTool
 							enum: ["continue", "new"],
 							description:
 								"continue: post into this conversation (default). new: a new conversation each run.",
+						},
+						permissionMode: {
+							type: "string",
+							enum: ["ask", "allow"],
+							description:
+								"ask (default): a scheduled run refuses every tool that needs approval. allow: such tools " +
+								"run as they would for the person, only if their approval setting is always allow.",
 						},
 						recurrence: {
 							type: "object",
@@ -172,10 +184,19 @@ export async function createScheduleFromApproval(input: {
 	const { value } = proposal;
 	const conversation = await collections.conversations.findOne(
 		{ _id: input.conversationId, userId: input.userId },
-		{ projection: { title: 1 } }
+		{ projection: { title: 1, toolApprovalOverride: 1 } }
 	);
 	if (!conversation) return { error: "The conversation this was proposed in is gone." };
 
+	// Never looser than the person's setting, nor than this conversation's own policy.
+	const userPolicy = await userApprovalPolicy(input.userId);
+	const conversationPolicy = conversation.toolApprovalOverride ?? userPolicy;
+	const permissionMode =
+		value.permissionMode === "allow" &&
+		userPolicy === "always-allow" &&
+		conversationPolicy === "always-allow"
+			? "allow"
+			: "ask";
 	const active = await collections.schedules.countDocuments({
 		userId: input.userId,
 		enabled: true,
@@ -204,7 +225,11 @@ export async function createScheduleFromApproval(input: {
 				prompt: value.prompt,
 				recurrence: value.recurrence,
 				timezone: value.timezone,
-				target: { mode: value.mode, conversationId: input.conversationId.toString() },
+				target: {
+					mode: value.mode,
+					conversationId: input.conversationId.toString(),
+					permissionMode,
+				},
 				...(value.maxOccurrences !== undefined ? { maxOccurrences: value.maxOccurrences } : {}),
 			},
 			{

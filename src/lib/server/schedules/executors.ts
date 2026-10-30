@@ -32,17 +32,11 @@
  *   `nextRunAt`.
  * - `result` is the link the history shows from the run (agent: the session).
  *
- * **Credentials (optional).** A kind whose runs have no signed-in session
- * (chat: a turn must reach the gateway as the person) sets three more hooks.
- * `mintCredential` runs with the person's session on create, on re-enable
- * when the schedule holds none, and when `credentialStale` says an edit
- * changed what the credential was for; the core stores what it returns
- * (never sends it to a browser) and hands it back in `run` as
- * `schedule.credential`. `releaseCredential` runs when the schedule is
- * deleted or its credential is replaced, best-effort: a failure is logged,
- * never blocks the delete. Turning a schedule off keeps its credential. A run
- * that finds the credential dead returns `dropCredential` with `disable`, and
- * the core forgets it, so the next re-enable mints a fresh one.
+ * **Preconditions and cleanup (optional).** A kind whose runs need something of the person
+ * that only they can give (chat: a background grant, because a run has no signed-in session)
+ * sets `precondition(userId)`: the store calls it before a schedule is created enabled or
+ * switched on, and a message back refuses that with those words. `afterDelete(schedule)` runs
+ * once a schedule has been deleted (chat: drop the grant when it was the person's last).
  *
  * The core never imports an executor. A new kind is **one new file that calls
  * `registerExecutor` plus its import in `hooks/init.ts`**: a "chat" runner
@@ -51,7 +45,6 @@
 
 import type {
 	Schedule,
-	ScheduleCredential,
 	ScheduleKind,
 	ScheduleRun,
 	ScheduleRunResult,
@@ -78,42 +71,18 @@ export interface ExecutorRunContext {
 	now: Date;
 }
 
-/** A credential hook's refusal, in words the person reads (the store maps it onto an HTTP status). */
-export class CredentialError extends Error {
-	constructor(
-		readonly status: 400 | 403 | 502,
-		message: string
-	) {
-		super(message);
-		this.name = "CredentialError";
-	}
-}
-
-export interface CredentialRequest {
-	userId: ObjectId;
-	/** The schedule's name, for the key's label. */
-	name: string;
-	target: Record<string, unknown>;
-	/** The person's own session token; absent when the caller has no session. */
-	token?: string;
-}
-
 export interface ExecutorOutcome {
 	status: ScheduleRunStatus;
 	detail?: string;
 	result?: ScheduleRunResult;
 	/** Switch the schedule off, with a reason the person will read. */
 	disable?: string;
-	/** The schedule's credential no longer works: forget it (with `disable`). */
-	dropCredential?: boolean;
 	/**
 	 * For a run that returned before its work ended: settles with what happened at the
 	 * end. Only a failure matters, and the core then corrects the run row, feeds the
 	 * consecutive-failure count and applies `disable` / `dropCredential`; undefined is fine.
 	 */
-	settled?: Promise<
-		Pick<ExecutorOutcome, "status" | "detail" | "disable" | "dropCredential"> | undefined
-	>;
+	settled?: Promise<Pick<ExecutorOutcome, "status" | "detail" | "disable"> | undefined>;
 }
 
 export interface ScheduleExecutor {
@@ -122,12 +91,10 @@ export interface ScheduleExecutor {
 	validateTarget(target: unknown, caller: ExecutorCaller): Promise<TargetCheck>;
 	describeTarget(target: Record<string, unknown>, caller: ExecutorCaller): Promise<string>;
 	run(context: ExecutorRunContext): Promise<ExecutorOutcome>;
-	mintCredential?(request: CredentialRequest): Promise<ScheduleCredential | undefined>;
-	/** Whether editing the target from `before` to `after` needs a new credential. */
-	credentialStale?(before: Record<string, unknown>, after: Record<string, unknown>): boolean;
-	releaseCredential?(schedule: Schedule, caller: { token?: string }): Promise<void>;
-	/** Housekeeping the scheduler calls every few minutes (renew keys, retry revocations). Never throws into the loop. */
-	maintain?(now: Date): Promise<void>;
+	/** A reason the person cannot have a schedule of this kind running yet, in words they read; null when they can. */
+	precondition?(userId: ObjectId): Promise<string | null>;
+	/** Called after a schedule of this kind was deleted. Never throws into the caller. */
+	afterDelete?(schedule: Schedule): Promise<void>;
 }
 
 const executors = new Map<ScheduleKind, ScheduleExecutor>();
@@ -139,10 +106,6 @@ export function registerExecutor(executor: ScheduleExecutor): void {
 /** The executor for a kind, or null: an unknown kind is refused, never guessed. */
 export function getExecutor(kind: string): ScheduleExecutor | null {
 	return executors.get(kind as ScheduleKind) ?? null;
-}
-
-export function registeredExecutors(): ScheduleExecutor[] {
-	return [...executors.values()];
 }
 
 /** The kinds the scheduler may fire right now. */

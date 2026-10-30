@@ -408,12 +408,16 @@ the document tools work. Two things do not, because nobody is there:
 
 - **No Python.** The sandbox runs in your browser, so a scheduled run cannot run
   code. The assistant is told so; it can still write code for you to read.
-- **No approvals and no questions.** A scheduled run never uses a tool that needs
-  approval: it is refused, the way a sub-agent's is, and the assistant says that
-  step needs you. That holds whatever your approval setting is, and a tool you
-  allowed earlier "for this conversation" is not allowed for a scheduled run
-  either, because nobody is there to notice what a page or connector it read
-  told it to do.
+- **Tools that need approval depend on the schedule's permission mode**, which you
+  set in the editor like a coding agent's: **Ask** (the default for a person on the
+  manual approval setting) refuses every such tool, the way a sub-agent's are, and the
+  assistant says that step needs you, whatever else you approved before. **Allow** (only
+  for a person whose approval setting is "always allow") runs them as they would for
+  you, under that setting and what the chat already approved. Content a run reads (a
+  web page, a document, a connector's answer) can try to steer a tool, so choose Allow
+  only for work you trust. A schedule is never looser than your own setting, and the
+  assistant's own proposals are never looser than the conversation's. Nobody can answer
+  a question or a card in a scheduled run, so nothing waits for you.
 
 Every scheduled prompt starts with one line you did not write, naming the
 schedule, its timetable, when it last ran and the two limits above; the prompt
@@ -427,18 +431,20 @@ not, and links to the chat. A run is **sent**, **skipped** (the previous turn in
 that chat was still generating, so the next waits for its time), or **failed**;
 three failures in a row switch the schedule off, with the reason shown on it.
 
-**Its key.** A run has no sign-in of yours to use, so when you create a schedule
-(or switch one back on) Cerea asks the gateway for a key in your name, called
-`Cerea schedule: <name>`, and keeps it sealed for that schedule only. The key
-is yours: runs use your quota and appear in your usage like any other
-request, and the key is listed with your other keys in the gateway's console,
-where you can revoke it. It is valid for 180 days and renewed automatically
-before then while you are signed in. Turning a schedule off keeps its key;
-**deleting the schedule revokes it** (if the gateway cannot be reached then,
-Cerea keeps trying), and so does deleting your account. If the key stops working (the account was disabled, or
-you revoked it), the schedule switches itself off and says "Sign in again and turn
-it back on"; turning it on makes a new key. You may have up to 20 schedules by
-default; your administrator can change that.
+**Background access.** A run has no signed-in session of yours, so it uses the
+background access your sign-in leaves behind: when you sign in, Cerea asks your
+identity provider for a refresh token and keeps one per person, sealed, shared by your
+browser sessions and your scheduled runs (the newest sign-in replaces the older). Runs
+refresh an access token from it and call the models as you, so your quota, billing
+group, redaction rules and model access apply and usage is yours. Signing out of one
+device keeps it. If your identity provider refuses it (you were deprovisioned, or
+revoked it), your chat schedules switch themselves off with "Sign in again and turn
+it back on"; signing in again restores the access and you turn the schedules on. You
+can revoke it any time under **Settings → Application → Background access for
+schedules**, which also switches your chat schedules off, and deleting your account
+removes it. If your identity provider issues no refresh token, chat works as always but
+schedules explain that your administrator has to allow refresh tokens. You may have up
+to 20 schedules by default; your administrator can change that.
 
 ## Notifications
 

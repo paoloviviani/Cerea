@@ -10,8 +10,21 @@
  * gateway is in `src/routes/api/v2/code/__tests__/chat-schedules.spec.ts`.
  */
 import { randomUUID } from "node:crypto";
+import type { Page } from "playwright/test";
 import { test, expect, E2E_APP_BASE } from "./fixtures";
 import { seedUser } from "./machineHarness";
+
+async function horizontalOverflow(page: Page): Promise<string[]> {
+	return page.evaluate(() =>
+		[document.documentElement, ...document.querySelectorAll<HTMLElement>("body *")]
+			.filter((el) => {
+				const style = getComputedStyle(el);
+				const scrolls = el === document.documentElement || /auto|scroll/.test(style.overflowX);
+				return scrolls && el.scrollWidth > el.clientWidth + 1;
+			})
+			.map((el) => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 60)}`)
+	);
+}
 
 test("schedule a chat from its menu, run it now, and read the answer in the same chat", async ({
 	page,
@@ -30,6 +43,18 @@ test("schedule a chat from its menu, run it now, and read the answer in the same
 	const { conversationId, rootMessageId } = await api.createConversation();
 	await api.sendMessage({ conversationId, parentId: rootMessageId, content: "hello there" });
 
+	// The Schedules row is the first thing in the chat tree, above Projects and Chats.
+	await page.goto(`${E2E_APP_BASE}/`);
+	const nav = page.getByRole("navigation").first();
+	const link = nav.getByTestId("schedules-link");
+	await expect(link).toBeVisible();
+	const order = await nav
+		.locator("a")
+		.evaluateAll((els) => els.map((el) => el.getAttribute("href") ?? ""));
+	expect(order.findIndex((h) => h.endsWith("/schedules"))).toBeLessThan(
+		order.findIndex((h) => h.endsWith("/projects"))
+	);
+
 	// The sidebar row's menu offers "Schedule…" and opens the editor on this chat.
 	await page.goto(`${E2E_APP_BASE}/conversation/${conversationId}`);
 	const row = page.locator(`a[href$="/conversation/${conversationId}"]`).locator("xpath=..");
@@ -40,11 +65,15 @@ test("schedule a chat from its menu, run it now, and read the answer in the same
 	const editor = page.getByTestId("schedule-editor");
 	await expect(editor).toBeVisible();
 	await expect(page).toHaveURL(/\/schedules\?new=1&conversation=/);
-	await expect(editor.getByTestId("mode-continue")).toBeChecked();
 	await expect(editor.getByLabel("Chat", { exact: true })).toHaveValue(conversationId);
 	// A chat schedule has no machine to pick, and says what an unattended run cannot do.
 	await expect(editor.getByLabel("1. Machine")).toHaveCount(0);
 	await expect(editor.getByTestId("chat-unattended-hint")).toContainText("cannot run Python");
+
+	// Phone width: the editor and the list do not scroll sideways.
+	await page.setViewportSize({ width: 390, height: 844 });
+	expect(await horizontalOverflow(page)).toEqual([]);
+	await page.setViewportSize({ width: 1280, height: 800 });
 
 	await editor.getByLabel("Name", { exact: true }).fill("Weekly news");
 	await editor.getByLabel("Prompt", { exact: true }).fill("Summarise the news on space travel.");

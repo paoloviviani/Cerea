@@ -69,7 +69,7 @@ import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
 import { billToHeader } from "$lib/server/billTo";
 import { configuredBackend } from "$lib/server/fetching";
 import { getCapabilities as getDocumentCapabilities } from "$lib/server/documents/client";
-import { resolveToolApprovalPolicy } from "../toolApprovalPolicy";
+import { approvalStateFor, resolveToolApprovalPolicy } from "../toolApprovalPolicy";
 import { schedulesEnabled } from "$lib/server/schedules/limits";
 import { toPrimitive } from "./toolParams";
 
@@ -306,10 +306,11 @@ export async function* runMcpFlow({
 	// the builtin's gate and the MCP pre-call checkpoint below agree.
 	// A scheduled run has nobody to approve anything: whatever the user's policy or earlier grants
 	// say, every tool that needs approval is refused (the web_fetch URL gate stays as it is).
-	const toolApprovalPolicy = locals?.scheduledRun
-		? "manual"
-		: resolveToolApprovalPolicy(conv, serverSettings);
-	const approvedTools = new Set(locals?.scheduledRun ? [] : (conv.approvedTools ?? []));
+	const { policy: toolApprovalPolicy, approvedTools } = approvalStateFor({
+		scheduledRun: locals?.scheduledRun,
+		policy: resolveToolApprovalPolicy(conv, serverSettings),
+		approvedTools: conv.approvedTools ?? [],
+	});
 	// Resolved here, not inside getEnabledBuiltinTools: an async network probe
 	// has no business in that otherwise-synchronous decision function, the
 	// same reason searchModelIds is resolved by this caller too. Only probed

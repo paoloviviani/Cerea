@@ -1113,11 +1113,10 @@ registerExecutor({
 });
 ```
 
-Optional credential hooks (`mintCredential`, `credentialStale`, `releaseCredential`,
-and `dropCredential` on an outcome) let a kind that runs with no signed-in session hold
-a sealed credential on the row (`Schedule.credential`, never sent to a browser); the
-store calls them on create, re-enable, a stale edit and delete, with the caller's
-session token, and the agent executor sets none.
+Optional hooks `precondition(userId)` (a reason the person cannot have a schedule of the kind
+running yet, checked on create-enabled and on switch-on) and `afterDelete(schedule)` let a kind
+that runs with no signed-in session depend on something of the person's (chat: the background
+grant); the agent executor sets none.
 
 `target` is opaque to the core. `run` returns what happened (`sent`,
 `skipped-still-running` after looking at `previousRun`'s output, `missed-offline`,
@@ -1187,26 +1186,26 @@ caller's own, paired. Things that bite:
   in the sub-agent's words. Anything new that parks the turn must set `mayPark`.
 - **The run returns once the turn ends or after `chatRunConfig.earlyWindowMs` (25 s)**,
   so a long turn is not held against the 2-minute lease. A gateway refusal is fast, so it
-  lands in the window and disables the schedule (`disable` + `dropCredential`); one that
-  ends later is announced (unread mark `Conversation.scheduledUnread`, push) and disables
-  the row directly. The unread mark is cleared by `GET /api/v2/conversations/[id]`.
-- **Unattended means manual.** `runMcpFlow` forces policy `manual` and an empty
-  `approvedTools` when `locals.scheduledRun`, and `executeToolCalls` refuses every gated
-  call, so "always allow" and "allowed for this chat" do not apply to a scheduled run.
-- **Keys** expire (180 days) and `maintain()` (scheduler housekeeping, every 10 min)
-  renews them 14 days early with the user's latest session and retries queued
-  revocations (`credentials.ts`, `scheduleKeyRevocations`, deliberately not owner-keyed).
-  Credential writes are conditional on the keyId read; erasure and merge revoke
-  (`revokeAllFor`). Only a 401 means the key is dead.
+  lands in the window; one that ends later is announced (unread mark
+  `Conversation.scheduledUnread`, push) and, if it failed, is settled by the core (`settled`). The unread mark is cleared by `GET /api/v2/conversations/[id]`.
+- **Unattended.** `locals.scheduledRun = { permissionMode }`; `executeToolCalls({ toolApproval.unattended })`
+  refuses whatever would open a card, and an Ask run is given manual policy and no grants first.
+- **The background grant** (`schedules/grants.ts`, collection `scheduleGrants`): one sealed OIDC
+  refresh token per person, written by `updateUser` on every login (which then strips the
+  session's own copy: IdPs rotate refresh tokens, so every holder would go stale). Everything
+  that needs an access token (a browser session in `auth.ts` `findUser`, a scheduled run)
+  calls `accessTokenFor`, which serialises per person with a DB lock, writes the rotated token
+  guarded on the one it replaced, and caches the access token. `invalid_grant` drops the grant
+  and switches the person's chat schedules off; logout keeps it; erase, merge and the settings
+  "Revoke" (`/api/v2/user/schedule-grant`) drop it (IdP revocation best effort). No refresh token
+  or no `CHAT_SECRET_KEY` leaves the session path exactly as before. `grants.ts` loads `auth.ts`
+  lazily (and `auth.ts` loads it lazily): they reach each other through the identity code.
+- **Permission mode** (`schedules/permission.ts`): `ask` | `allow` in the target, never looser than
+  the user's approval setting (checked on create, edit and again at run); `approvalStateFor`
+  gives an Ask run manual policy and nothing pre-approved.
 - **A run that returns `sent` early** carries `outcome.settled`; the core rewrites the run
   to `failed` and counts it when the late result fails. At most `chatRunConfig.maxConcurrent`
   scheduled turns run in a process; more are skipped.
-- **The key** (`gatewayKeys.ts`: `POST /v1/me/keys` with the user's session, `DELETE
-/v1/me/keys/{id}`) is minted before the row is inserted and released if the insert or
-  the cap check then fails; deleting revokes (session token, else the key itself), a
-  failed revoke is logged and never blocks the delete. Off a gateway preset
-  (`isGatewayPreset()` false) there is no key and the deployment's own credential serves.
-  An account erasure deletes rows without revoking: the gateway's account removal does.
 - **The `schedule` tool** (`builtinTools/scheduleTool.ts`) never creates anything itself.
   `toolInvocation` gates it on the approval card whatever the policy and whatever was
   granted (`alwaysConfirm`; a proposal `parseScheduleToolArgs` refuses never opens a card),

@@ -36,12 +36,7 @@ import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { onExit } from "$lib/server/exitHandler";
-import {
-	availableKinds,
-	getExecutor,
-	registeredExecutors,
-	type ExecutorOutcome,
-} from "./executors";
+import { availableKinds, getExecutor, type ExecutorOutcome } from "./executors";
 import { schedulesEnabled } from "./limits";
 import { intervalAfter, nextOccurrence } from "./recurrence";
 import { ScheduleError, capReachedReason } from "./store";
@@ -181,38 +176,13 @@ async function record(
 		set.nextRunAt = null;
 		set.disabledReason = disableReason;
 	}
-	const dead = outcome.dropCredential ? schedule.credential : undefined;
-	if (dead) await releaseDead(schedule, dead.keyId);
-	// A dead credential is forgotten only if it is still the one the row holds: an edit may
-	// have minted a fresh one since this run started, and that one must not be switched off.
-	const matched = await collections.schedules.updateOne(
-		{ _id: schedule._id, ...(dead ? { "credential.keyId": dead.keyId } : {}) },
-		{ $set: set, ...(dead ? { $unset: { credential: "" as const } } : {}) }
-	);
-	if (dead && matched.matchedCount === 0) {
-		const counters = { ...set };
-		delete counters.enabled;
-		delete counters.nextRunAt;
-		delete counters.disabledReason;
-		await collections.schedules.updateOne({ _id: schedule._id }, { $set: counters });
-	}
+	await collections.schedules.updateOne({ _id: schedule._id }, { $set: set });
 	if (outcome.settled) {
 		void outcome.settled
 			.then((late) => settleLate(run, schedule, late))
 			.catch((err) => logger.warn({ err }, "schedule_late_settle_failed"));
 	}
 	return run;
-}
-
-/** Revoke (or queue the revoke of) a credential the gateway has stopped honouring. */
-async function releaseDead(schedule: Schedule, keyId: string): Promise<void> {
-	const credential = schedule.credential;
-	if (!credential || credential.keyId !== keyId) return;
-	try {
-		await getExecutor(schedule.kind)?.releaseCredential?.(schedule, {});
-	} catch (err) {
-		logger.warn({ err }, "schedule_credential_release_failed");
-	}
 }
 
 /**
@@ -243,50 +213,20 @@ async function settleLate(
 	);
 	const row = after?.value;
 	if (!row) return;
-	const dead = late.dropCredential ? row.credential : undefined;
-	if (dead) await releaseDead(row, dead.keyId);
 	const reason =
 		late.disable ??
 		(row.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
 			? `Switched off after ${MAX_CONSECUTIVE_FAILURES} failed runs in a row. Last: ${late.detail ?? "failed"}`
 			: null);
-	if (reason || dead) {
+	if (reason) {
 		await collections.schedules.updateOne(
-			{ _id: row._id, ...(dead ? { "credential.keyId": dead.keyId } : {}) },
-			{
-				$set: {
-					enabled: false,
-					nextRunAt: null,
-					disabledReason: reason ?? late.disable ?? "Switched off.",
-				},
-				...(dead ? { $unset: { credential: "" as const } } : {}),
-			}
+			{ _id: row._id },
+			{ $set: { enabled: false, nextRunAt: null, disabledReason: reason } }
 		);
 	}
 	safely(() =>
 		afterScheduleRun({ ...run, status: "failed", ...(late.detail ? { detail: late.detail } : {}) })
 	);
-}
-
-let lastMaintenance = 0;
-const MAINTENANCE_EVERY_MS = 10 * 60_000;
-
-/** Housekeeping each executor asks for (renew keys, retry revocations), every few minutes. */
-export async function runMaintenance(now: Date = new Date(), force = false): Promise<void> {
-	if (!force && now.getTime() - lastMaintenance < MAINTENANCE_EVERY_MS) return;
-	lastMaintenance = now.getTime();
-	for (const executor of registeredExecutors()) {
-		try {
-			await executor.maintain?.(now);
-		} catch (err) {
-			logger.warn({ err, kind: executor.kind }, "schedule_maintenance_failed");
-		}
-	}
-}
-
-/** For tests. */
-export function _resetMaintenance(): void {
-	lastMaintenance = 0;
 }
 
 /** Run the executor for one claimed occurrence, never throwing. */
@@ -373,7 +313,6 @@ export async function runDue(now: Date = new Date(), owner: string = instanceId)
 			if (!claim) break;
 			claims.push(claim);
 		}
-		void runMaintenance(now).catch((err) => logger.warn({ err }, "schedule_maintenance_failed"));
 		await Promise.all(
 			claims.map((claim) =>
 				fireClaim(claim, now, owner).catch((err) =>

@@ -1,3 +1,4 @@
+import { saveGrant } from "$lib/server/schedules/grants";
 import { findLoginUser, IssuerMismatchError, normalizeIssuer } from "$lib/server/loginIdentity";
 import {
 	getCoupledCookieHash,
@@ -339,6 +340,24 @@ export async function updateUser(params: {
 				createdAt: new Date(),
 				...DEFAULT_SETTINGS,
 			});
+		}
+	}
+
+	// The IdP issued a refresh token: it becomes the person's one background grant (replacing the
+	// older), and no session keeps a copy of its own, because IdPs rotate refresh tokens and every
+	// holder would otherwise go stale as soon as another refreshed (`schedules/grants.ts`). Without
+	// one (no `offline_access`, or no `CHAT_SECRET_KEY` to seal it) the session keeps its own, as
+	// it always did.
+	if (token.refresh_token && userId) {
+		const kept = await saveGrant(userId, token, { sub: hfUserId }).catch((err) => {
+			logger.error(err, "Could not keep the background grant; the session keeps its own token");
+			return false;
+		});
+		if (kept) {
+			await collections.sessions.updateOne(
+				{ sessionId: locals.sessionId },
+				{ $unset: { "oauth.refreshToken": "" } }
+			);
 		}
 	}
 

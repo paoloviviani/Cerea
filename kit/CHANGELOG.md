@@ -5,6 +5,14 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Scheduled chats need background access.** The chat now asks the identity provider for
+  `offline_access` at sign-in (when the issuer lists it) and keeps one refresh token per person,
+  which browser sessions and scheduled chats refresh through. The bundled Authelia chat client allows
+  `offline_access`, the refresh-token grant and a 90-day refresh lifetime; an external IdP must allow
+  refresh tokens for the chat client (as galopin's already does). No new settings.
+
 ## v0.33.0 — 2026-10-30
 
 Pins: Cerea `0.33.0` (chat and `cerea-documents`), Pystino `0.20.0`.

@@ -923,21 +923,17 @@ describe("executeToolCalls in a run nobody is watching (a scheduled chat)", () =
 		expect(refusal).toMatchObject({ message: expect.stringContaining("nobody to ask") });
 	});
 
-	it("refuses even a tool the conversation already approved: no grant covers an unattended run", async () => {
+	it("still runs a tool the policy and the conversation already approve: what counts as approved is decided before (`approvalStateFor`)", async () => {
 		await drain([CALL], undefined, undefined, undefined, {
 			...unattended,
 			approvedTools: new Set(["hf:do_thing"]),
 		});
-		expect(mcpMock.callMcpTool).not.toHaveBeenCalled();
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(1);
 	});
 
-	it("refuses under always-allow too: the user's policy is not an approval for a run nobody watches", async () => {
-		const events = await drain([CALL], undefined, undefined, undefined, {
-			...unattended,
-			policy: "always-allow",
-		});
-		expect(mcpMock.callMcpTool).not.toHaveBeenCalled();
-		expect(toolUpdatesOf(events).some((u) => u.subtype === MessageToolUpdateType.Error)).toBe(true);
+	it("runs everything under always-allow, which only an Allow schedule is given", async () => {
+		await drain([CALL], undefined, undefined, undefined, { ...unattended, policy: "always-allow" });
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(1);
 	});
 });
 
@@ -988,6 +984,31 @@ describe("executeToolCalls over the schedule tool", () => {
 			expect(request?.request.toolApproval?.tool).toBe("schedule");
 			expect(request?.request.toolApproval?.args).toMatchObject({ name: "Friday report" });
 		}
+	});
+
+	it("shows the mode that will be made, never looser than the conversation's policy", async () => {
+		const withMode = (mode: string) =>
+			JSON.stringify({ ...JSON.parse(valid), permissionMode: mode });
+		const cardMode = async (policy: "manual" | "always-allow", mode: string) => {
+			const events = await drain(
+				[call(withMode(mode))],
+				{ conversationId: new ObjectId(), generationId: "g", messageId: "m1" },
+				[scheduleBuiltin],
+				undefined,
+				{ policy, approvedTools: new Set(), webFetchAllowedUrls: new Set() }
+			);
+			const request = events.flatMap((e) =>
+				e.type === "update" &&
+				e.update.type === MessageUpdateType.Elicitation &&
+				e.update.subtype === "request"
+					? [e.update]
+					: []
+			)[0];
+			return (request?.request.toolApproval?.args as { permissionMode?: string }).permissionMode;
+		};
+		expect(await cardMode("manual", "allow")).toBe("ask");
+		expect(await cardMode("always-allow", "allow")).toBe("allow");
+		expect(await cardMode("always-allow", "ask")).toBe("ask");
 	});
 
 	it("answers an invalid proposal with the reason, without opening a card", async () => {

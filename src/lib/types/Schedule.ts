@@ -91,37 +91,6 @@ export interface Schedule extends Timestamps {
 	leaseUntil?: Date | null;
 	leaseOwner?: string | null;
 	createdBy?: ScheduleCreator;
-	/**
-	 * What an executor needs to act as the person without a session (chat:
-	 * a gateway key, sealed). Opaque to the core, never sent to the browser.
-	 * `executors.ts` says when it is minted, kept, and dropped.
-	 */
-	credential?: ScheduleCredential;
-}
-
-export interface ScheduleCredential {
-	/** The gateway's id for the key, so it can be revoked. */
-	keyId: string;
-	/** The key's secret, sealed (`secretBox.ts`). */
-	sealed: string;
-	/** The billing group the key was minted for, when the person chose one. */
-	billingGroupId?: string;
-	mintedAt: Date;
-	/** When the gateway stops honouring it; the scheduler renews it before then. */
-	expiresAt?: Date;
-}
-
-/** A key that could not be revoked when its schedule went away: retried until the gateway says it is gone. */
-export interface ScheduleKeyRevocation {
-	_id: ObjectId;
-	keyId: string;
-	/** The key's own secret, sealed: the last credential left to revoke it with. */
-	sealed: string;
-	/** Whose key it was, to find a session to revoke it with. Not an owner field: the row outlives the account. */
-	forUser: ObjectId;
-	createdAt: Date;
-	attempts: number;
-	nextAttemptAt: Date;
 }
 
 /** The result link of a run: where the executor put its output. */
@@ -184,4 +153,26 @@ export interface ScheduleRunView {
 	trigger: "schedule" | "manual";
 	detail?: string;
 	result?: ScheduleRunResult;
+}
+
+/**
+ * A person's background grant: the OIDC refresh token every login writes (the newest replaces the
+ * older), which browser sessions and scheduled chat runs both refresh through (`schedules/grants.ts`),
+ * so a rotation by one can never leave another holding a stale copy. One per person, sealed.
+ */
+export interface ScheduleGrant {
+	_id: ObjectId;
+	userId: User["_id"];
+	/** The refresh token, sealed (`secretBox.ts`). */
+	refreshSealed: string;
+	/** The last access token it produced, sealed, kept until shortly before it ends. */
+	accessSealed?: string;
+	accessExpiresAt?: Date;
+	/** What the IdP says was granted. */
+	scope?: string;
+	/** The IdP's subject the login authenticated, and when that login happened (the newest login's token is the one kept). */
+	sub?: string;
+	issuedAt: Date;
+	createdAt: Date;
+	updatedAt: Date;
 }

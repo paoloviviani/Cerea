@@ -27,7 +27,7 @@ declare global {
 			 * Set only on a turn the scheduler runs (`schedules/chatScheduleExecutor.ts`):
 			 * nobody is watching, so no browser sandbox, no approval cards, no questions.
 			 */
-			scheduledRun?: true;
+			scheduledRun?: { permissionMode: "ask" | "allow" };
 			/** The MCP servers this turn runs with (`mcpLocalsFor`). */
 			mcp?: McpLocals;
 			/** The language this request is rendered in (`$lib/i18n/resolve`); set for page requests. */
