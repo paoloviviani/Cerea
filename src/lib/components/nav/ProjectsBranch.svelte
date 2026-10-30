@@ -365,6 +365,7 @@
 		{#each projects as project (project.id)}
 			<TreeBranch
 				label={project.name}
+				href="{base}/projects/{project.id}"
 				depth={1}
 				badge={project.conversationCount || undefined}
 				open={expanded[project.id] ?? false}

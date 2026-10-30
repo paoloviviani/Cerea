@@ -52,6 +52,9 @@
 	import { useMoveConversation } from "$lib/utils/useMoveConversation";
 	import { projectTitle } from "$lib/stores/projectTitle";
 	import { GatewayError, gwGet, type BillableGroup, type VectorStore } from "$lib/gateway";
+	import SettingsShell from "$lib/components/settings/SettingsShell.svelte";
+	import SettingsGroup from "$lib/components/settings/SettingsGroup.svelte";
+	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
 	import ProjectMemorySection from "./ProjectMemorySection.svelte";
 	import ProjectDocumentsSection from "./ProjectDocumentsSection.svelte";
 	import type { ProjectView } from "$lib/types/Project";
@@ -455,13 +458,65 @@
 		}
 	}
 
-	const LEVELS = [
-		{ title: m["projects.page.level.instructions"], how: "full" },
-		{ title: m["projects.page.level.files"], how: "full" },
-		{ title: m["projects.page.level.notes"], how: "full" },
-		{ title: m["projects.page.level.knowledge"], how: "searched" },
-		{ title: m["projects.page.level.past_chats"], how: "searched" },
-	] as const;
+	/** The settings tab's index: the groups, and the numbered levels under them. */
+	const settingsIndex = $derived([
+		{ id: "project-group-full", label: m["projects.page.group.full"]() },
+		{
+			id: "project-level-1",
+			label: m["projects.page.index.level"]({
+				n: 1,
+				title: m["projects.page.level.instructions"](),
+			}),
+			nested: true,
+		},
+		...(!creating && project
+			? [
+					{
+						id: "project-level-2",
+						label: m["projects.page.index.level"]({
+							n: 2,
+							title: m["projects.page.level.files"](),
+						}),
+						nested: true,
+					},
+					...(memoryOn
+						? [
+								{
+									id: "project-level-3",
+									label: m["projects.page.index.level"]({
+										n: 3,
+										title: m["projects.page.level.notes"](),
+									}),
+									nested: true,
+								},
+							]
+						: []),
+				]
+			: []),
+		...(knowledgeOn
+			? [
+					{ id: "project-group-searched", label: m["projects.page.group.searched"]() },
+					{
+						id: "project-level-4",
+						label: m["projects.page.index.level"]({
+							n: 4,
+							title: m["projects.page.level.knowledge"](),
+						}),
+						nested: true,
+					},
+					{
+						id: "project-level-5",
+						label: m["projects.page.index.level"]({
+							n: 5,
+							title: m["projects.page.level.past_chats"](),
+						}),
+						nested: true,
+					},
+				]
+			: []),
+		{ id: "project-group-new", label: m["projects.page.group.new_chats"]() },
+		...(project?.owned ? [{ id: "project-danger", label: m["projects.page.danger.title"]() }] : []),
+	]);
 </script>
 
 {#snippet strong(text: string)}<strong>{text}</strong>{/snippet}
@@ -558,73 +613,57 @@
 		{:else if creating || tab === "settings"}
 			<!--
 				The settings tab (and the whole of /projects/new, which has no
-				conversations to tab between yet): the five context levels, the
-				fields, and the Save bar.
+				conversations to tab between yet): one column in the order the
+				prompt is built, the Save bar, then the danger zone. The text
+				fields belong to the form below by its id rather than by nesting,
+				because the share form sits beside the defaults, in the same
+				column, and forms do not nest.
 			-->
-			<form
-				class="grid grid-cols-1 items-start gap-5 pb-6 lg:grid-cols-2 [&>*]:min-w-0"
-				onsubmit={save}
-			>
-				<section class="{s.TIPS} lg:col-span-2" aria-labelledby="project-levels">
-					<h2 id="project-levels" class={s.TIPS_TITLE}>{m["projects.page.levels.title"]()}</h2>
-					<ol class="space-y-1 text-xs text-ink-muted">
-						{#each LEVELS as level, index (level.title)}
-							<li>
-								<Rich
-									parts={(level.how === "full"
-										? m["projects.page.levels.line_full"]
-										: m["projects.page.levels.line_searched"]
-									).parts({ n: index + 1, title: level.title() })}
-									tags={{ strong }}
-								/>
-							</li>
-						{/each}
-					</ol>
-					<p class="mt-2 text-xs text-ink-muted">
-						{m["projects.page.levels.note"]()}
-					</p>
-				</section>
-
-				<section class={s.card(false)}>
-					<div class="space-y-4 p-4">
-						<div>
-							<label for="project-name" class={s.LABEL}>{m["projects.page.name.label"]()}</label>
-							<input
-								id="project-name"
-								class={s.INPUT}
-								placeholder={m["projects.page.name.placeholder"]()}
-								maxlength="128"
-								bind:value={name}
-								required
-								disabled={busy || !owned}
-							/>
-						</div>
-						<div>
-							<label for="project-description" class={s.LABEL}>
-								{m["projects.page.description.label"]()}
-								<span class="font-normal text-ink-faint">{m["projects.page.optional"]()}</span>
-							</label>
-							<input
-								id="project-description"
-								class={s.INPUT}
-								maxlength="500"
-								bind:value={description}
-								disabled={busy || !owned}
-							/>
-						</div>
+			<form id="project-form" onsubmit={save}></form>
+			<SettingsShell index={settingsIndex} indexLabel={m["projects.page.index.label"]()}>
+				<div class="space-y-4">
+					<div>
+						<label for="project-name" class={s.LABEL}>{m["projects.page.name.label"]()}</label>
+						<input
+							id="project-name"
+							form="project-form"
+							class={s.INPUT}
+							placeholder={m["projects.page.name.placeholder"]()}
+							maxlength="128"
+							bind:value={name}
+							required
+							disabled={busy || !owned}
+						/>
 					</div>
-				</section>
+					<div>
+						<label for="project-description" class={s.LABEL}>
+							{m["projects.page.description.label"]()}
+							<span class="font-normal text-ink-faint">{m["projects.page.optional"]()}</span>
+						</label>
+						<input
+							id="project-description"
+							form="project-form"
+							class={s.INPUT}
+							maxlength="500"
+							bind:value={description}
+							disabled={busy || !owned}
+						/>
+					</div>
+				</div>
 
-				<section class={s.card(false)}>
-					<div class="p-4">
-						<h2 class="{s.SECTION_TITLE} mb-1">
-							<span class="{s.PILL} {s.PILL_TONES.busy}"
-								>{m["projects.page.pill.full"]({ n: 1 })}</span
-							>
-							{m["projects.page.level.instructions"]()}
-						</h2>
+				<SettingsGroup
+					id="project-group-full"
+					title={m["projects.page.group.full"]()}
+					note={m["projects.page.group.full_note"]()}
+				>
+					<SettingsSection
+						id="project-level-1"
+						pill={m["projects.page.pill.full"]({ n: 1 })}
+						title={m["projects.page.level.instructions"]()}
+					>
 						<textarea
 							id="project-instructions"
+							form="project-form"
 							aria-label={m["projects.page.level.instructions"]()}
 							class="{s.INPUT} min-h-28"
 							placeholder={m["projects.page.instructions.placeholder"]()}
@@ -632,50 +671,43 @@
 							disabled={busy || !owned}
 						></textarea>
 						<p class={s.HINT}>{m["projects.page.instructions.hint"]()}</p>
-					</div>
-				</section>
+					</SettingsSection>
 
-				{#if !creating && project}
-					<section class={s.card(false)}>
-						<div class="p-4">
-							<span class="{s.PILL} {s.PILL_TONES.busy} mb-2">
-								{m["projects.page.pill.full"]({ n: 2 })}
-							</span>
+					{#if !creating && project}
+						<SettingsSection id="project-level-2" pill={m["projects.page.pill.full"]({ n: 2 })}>
 							{#key project.id}
 								<ProjectDocumentsSection projectId={project.id} />
 							{/key}
-						</div>
-					</section>
+						</SettingsSection>
 
-					{#if memoryOn}
-						<section class={s.card(false)}>
-							<div class="p-4">
-								<span class="{s.PILL} {s.PILL_TONES.busy} mb-2">
-									{m["projects.page.pill.full"]({ n: 3 })}
-								</span>
+						{#if memoryOn}
+							<SettingsSection id="project-level-3" pill={m["projects.page.pill.full"]({ n: 3 })}>
 								{#key project.id}
 									<ProjectMemorySection projectId={project.id} />
 								{/key}
-							</div>
-						</section>
+							</SettingsSection>
+						{/if}
 					{/if}
-				{/if}
+				</SettingsGroup>
 
 				{#if knowledgeOn}
-					<section class={s.card(attached.length > 0)} data-testid="project-knowledge">
-						<div class="p-4">
-							<div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-								<h2 class="{s.SECTION_TITLE} mb-0">
-									<span class="{s.PILL} {s.PILL_TONES.busy}">
-										{m["projects.page.pill.searched"]({ n: 4 })}
-									</span>
-									{m["projects.page.kb.title"]({ count: attached.length })}
-								</h2>
+					<SettingsGroup
+						id="project-group-searched"
+						title={m["projects.page.group.searched"]()}
+						note={m["projects.page.group.searched_note"]()}
+					>
+						<SettingsSection
+							id="project-level-4"
+							testid="project-knowledge"
+							active={attached.length > 0}
+							pill={m["projects.page.pill.searched"]({ n: 4 })}
+							title={m["projects.page.kb.title"]({ count: attached.length })}
+						>
+							{#snippet actions()}
 								<a href="{base}/workspace?tab=kb" class="text-xs text-accent">
 									{m["projects.page.kb.create"]()}
 								</a>
-							</div>
-
+							{/snippet}
 							{#if attachedRows.length === 0}
 								<div class={s.EMPTY}>
 									<LucideLibrary class={s.EMPTY_ICON} />
@@ -759,69 +791,155 @@
 							<p class={s.HINT}>
 								<Rich parts={m["projects.page.kb.sharing_note"].parts({})} tags={{ strong }} />
 							</p>
-						</div>
-					</section>
+						</SettingsSection>
 
-					<section class={s.card(indexPastChats)}>
-						<div class="space-y-3 p-4">
-							<h2 class="{s.SECTION_TITLE} mb-0">
-								<span class="{s.PILL} {s.PILL_TONES.busy}">
-									{m["projects.page.pill.searched"]({ n: 5 })}
-								</span>
-								{m["projects.page.level.past_chats"]()}
-							</h2>
-							<label class="flex items-start gap-2 text-sm">
-								<input
-									type="checkbox"
-									bind:checked={indexPastChats}
-									disabled={busy || !owned}
-									class="mt-0.5 accent-blue-600"
-								/>
-								<span>
-									{m["projects.page.past.label"]()}
-									<span class="block text-xs text-ink-muted">
-										{m["projects.page.past.detail"]()}
+						<SettingsSection
+							id="project-level-5"
+							active={indexPastChats}
+							pill={m["projects.page.pill.searched"]({ n: 5 })}
+							title={m["projects.page.level.past_chats"]()}
+						>
+							<div class="space-y-3">
+								<label class="flex items-start gap-2 text-sm">
+									<input
+										type="checkbox"
+										form="project-form"
+										bind:checked={indexPastChats}
+										disabled={busy || !owned}
+										class="mt-0.5 accent-blue-600"
+									/>
+									<span>
+										{m["projects.page.past.label"]()}
+										<span class="block text-xs text-ink-muted">
+											{m["projects.page.past.detail"]()}
+										</span>
 									</span>
-								</span>
-							</label>
-							<div>
-								<label for="project-limit" class={s.LABEL}>{m["projects.page.limit.label"]()}</label
-								>
-								<input
-									id="project-limit"
-									type="number"
-									min="1"
-									max="20"
-									class="{s.INPUT} w-32"
-									bind:value={retrievalLimit}
-									disabled={busy || !owned}
-								/>
-								<p class={s.HINT}>{m["projects.page.limit.hint"]()}</p>
+								</label>
+								<div>
+									<label for="project-limit" class={s.LABEL}
+										>{m["projects.page.limit.label"]()}</label
+									>
+									<input
+										id="project-limit"
+										form="project-form"
+										type="number"
+										min="1"
+										max="20"
+										class="{s.INPUT} w-32"
+										bind:value={retrievalLimit}
+										disabled={busy || !owned}
+									/>
+									<p class={s.HINT}>{m["projects.page.limit.hint"]()}</p>
+								</div>
 							</div>
-						</div>
-					</section>
+						</SettingsSection>
+					</SettingsGroup>
 				{/if}
 
-				<section class={s.card(false)}>
-					<div class="p-4">
-						<h2 class={s.SECTION_TITLE}>{m["projects.page.defaults.title"]()}</h2>
-						<div class="flex items-center gap-2">
-							<Switch
-								name="project-default-websearch"
-								bind:checked={defaultWebSearch}
-								disabled={busy || !owned || !!webSearchUnavailable}
-							/>
-							<span class="text-sm text-ink">{m["projects.page.defaults.web_search"]()}</span>
-						</div>
-						{#if webSearchUnavailable}
-							<p class="mt-1 text-xs text-amber-700 dark:text-amber-400">{webSearchUnavailable}</p>
+				<SettingsGroup id="project-group-new" title={m["projects.page.group.new_chats"]()}>
+					<div class="grid items-start gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+						<SettingsSection title={m["projects.page.defaults.title"]()}>
+							<div class="flex items-center gap-2">
+								<Switch
+									name="project-default-websearch"
+									bind:checked={defaultWebSearch}
+									disabled={busy || !owned || !!webSearchUnavailable}
+								/>
+								<span class="text-sm text-ink">{m["projects.page.defaults.web_search"]()}</span>
+							</div>
+							{#if webSearchUnavailable}
+								<p class="mt-1 text-xs text-amber-700 dark:text-amber-400">
+									{webSearchUnavailable}
+								</p>
+							{/if}
+						</SettingsSection>
+
+						{#if project?.owned}
+							<SettingsSection id="project-share" title={m["projects.page.share.title"]()}>
+								<form class="flex flex-wrap items-end gap-2" onsubmit={share}>
+									<div>
+										<label for="project-share-kind" class={s.LABEL}
+											>{m["projects.page.share.with"]()}</label
+										>
+										<select id="project-share-kind" class={s.INPUT} bind:value={shareKind}>
+											<option value="user">{m["projects.page.share.person"]()}</option>
+											<option value="group">{m["projects.page.share.group"]()}</option>
+										</select>
+									</div>
+									<div class="min-w-48 flex-1">
+										<label for="project-share-who" class={s.LABEL}>
+											{shareKind === "user"
+												? m["projects.page.share.email"]()
+												: m["projects.page.share.group_name"]()}
+										</label>
+										{#if shareKind === "group" && groups.length > 0}
+											<select id="project-share-who" class={s.INPUT} bind:value={shareWith}>
+												<option value="">{m["projects.page.share.choose"]()}</option>
+												{#each groups as group (group.id)}
+													<option value={group.name}>{group.name}</option>
+												{/each}
+											</select>
+										{:else}
+											<input
+												id="project-share-who"
+												class={s.INPUT}
+												placeholder={shareKind === "user"
+													? m["projects.page.share.email_placeholder"]()
+													: m["projects.page.share.group_placeholder"]()}
+												bind:value={shareWith}
+											/>
+										{/if}
+									</div>
+									<button type="submit" disabled={busy || !shareWith.trim()} class={s.PRIMARY}>
+										<IconShare class="size-4" />
+										{m["projects.page.share.button"]()}
+									</button>
+								</form>
+
+								{#if project.shares.length > 0}
+									<ul class="mt-3 space-y-1">
+										{#each project.shares as entry (entry.kind + entry.principal)}
+											<li class="flex items-center justify-between gap-2 text-sm">
+												<span class="min-w-0 truncate">
+													{entry.principal}
+													<span class="text-xs text-ink-faint">
+														{entry.kind === "user"
+															? m["projects.page.share.kind_user"]()
+															: m["projects.page.share.kind_group"]()}
+													</span>
+												</span>
+												<button
+													type="button"
+													onclick={() => unshare(entry.kind, entry.principal)}
+													disabled={busy}
+													class={s.CARD_DESTRUCTIVE}
+												>
+													<IconTrash class="size-3" />
+													{m["projects.page.share.remove"]()}
+												</button>
+											</li>
+										{/each}
+									</ul>
+								{/if}
+
+								{#if notice}
+									<p class="{s.NOTICE} mt-2">{notice}</p>
+								{/if}
+								<p class={s.HINT}>
+									<Rich parts={m["projects.page.share.note"].parts({})} tags={{ strong }} />
+								</p>
+							</SettingsSection>
+						{:else if project}
+							<p class="{s.HINT} mb-6">
+								{m["projects.page.shared_note"]()}
+							</p>
 						{/if}
 					</div>
-				</section>
+				</SettingsGroup>
 
 				{#if owned}
 					<div
-						class="sticky bottom-0 flex items-center justify-end gap-3 rounded-lg border border-line bg-surface px-3 py-2 lg:col-span-2"
+						class="sticky bottom-0 -mt-4 flex items-center justify-end gap-3 rounded-lg border border-line bg-surface px-3 py-2"
 					>
 						{#if saved && !dirty}
 							<span class="text-xs text-ok" role="status">{m["projects.page.saved"]()}</span>
@@ -830,6 +948,7 @@
 						{/if}
 						<button
 							type="submit"
+							form="project-form"
 							disabled={busy || !name.trim() || (!creating && !dirty)}
 							class={s.PRIMARY}
 						>
@@ -841,97 +960,26 @@
 						</button>
 					</div>
 				{/if}
-			</form>
 
-			{#if project?.owned}
-				<section class="{s.card(false)} mb-6">
-					<div class="p-4">
-						<h2 class={s.SECTION_TITLE}>{m["projects.page.share.title"]()}</h2>
-						<form class="flex flex-wrap items-end gap-2" onsubmit={share}>
-							<div>
-								<label for="project-share-kind" class={s.LABEL}
-									>{m["projects.page.share.with"]()}</label
-								>
-								<select id="project-share-kind" class={s.INPUT} bind:value={shareKind}>
-									<option value="user">{m["projects.page.share.person"]()}</option>
-									<option value="group">{m["projects.page.share.group"]()}</option>
-								</select>
-							</div>
-							<div class="min-w-48 flex-1">
-								<label for="project-share-who" class={s.LABEL}>
-									{shareKind === "user"
-										? m["projects.page.share.email"]()
-										: m["projects.page.share.group_name"]()}
-								</label>
-								{#if shareKind === "group" && groups.length > 0}
-									<select id="project-share-who" class={s.INPUT} bind:value={shareWith}>
-										<option value="">{m["projects.page.share.choose"]()}</option>
-										{#each groups as group (group.id)}
-											<option value={group.name}>{group.name}</option>
-										{/each}
-									</select>
-								{:else}
-									<input
-										id="project-share-who"
-										class={s.INPUT}
-										placeholder={shareKind === "user"
-											? m["projects.page.share.email_placeholder"]()
-											: m["projects.page.share.group_placeholder"]()}
-										bind:value={shareWith}
-									/>
-								{/if}
-							</div>
-							<button type="submit" disabled={busy || !shareWith.trim()} class={s.PRIMARY}>
-								<IconShare class="size-4" />
-								{m["projects.page.share.button"]()}
-							</button>
-						</form>
-
-						{#if project.shares.length > 0}
-							<ul class="mt-3 space-y-1">
-								{#each project.shares as entry (entry.kind + entry.principal)}
-									<li class="flex items-center justify-between gap-2 text-sm">
-										<span class="min-w-0 truncate">
-											{entry.principal}
-											<span class="text-xs text-ink-faint">
-												{entry.kind === "user"
-													? m["projects.page.share.kind_user"]()
-													: m["projects.page.share.kind_group"]()}
-											</span>
-										</span>
-										<button
-											type="button"
-											onclick={() => unshare(entry.kind, entry.principal)}
-											disabled={busy}
-											class={s.CARD_DESTRUCTIVE}
-										>
-											<IconTrash class="size-3" />
-											{m["projects.page.share.remove"]()}
-										</button>
-									</li>
-								{/each}
-							</ul>
-						{/if}
-
-						{#if notice}
-							<p class="{s.NOTICE} mt-2">{notice}</p>
-						{/if}
-						<p class={s.HINT}>
-							<Rich parts={m["projects.page.share.note"].parts({})} tags={{ strong }} />
-						</p>
-						<div class="mt-4 flex justify-end">
-							<button type="button" onclick={destroy} disabled={busy} class={s.CARD_DESTRUCTIVE}>
-								<IconTrash class="size-3" />
-								{m["projects.page.delete.button"]()}
-							</button>
-						</div>
-					</div>
-				</section>
-			{:else if project}
-				<p class="{s.HINT} mb-6">
-					{m["projects.page.shared_note"]()}
-				</p>
-			{/if}
+				{#if project?.owned}
+					<section
+						id="project-danger"
+						aria-labelledby="project-danger-title"
+						class="scroll-mt-2 rounded-lg border border-red-300 p-4 pb-4 dark:border-red-900/60"
+					>
+						<h2
+							id="project-danger-title"
+							class="mb-3 text-base font-semibold text-red-700 dark:text-red-400"
+						>
+							{m["projects.page.danger.title"]()}
+						</h2>
+						<button type="button" onclick={destroy} disabled={busy} class={s.CARD_DESTRUCTIVE}>
+							<IconTrash class="size-3" />
+							{m["projects.page.delete.button"]()}
+						</button>
+					</section>
+				{/if}
+			</SettingsShell>
 		{:else}
 			<!--
 				The conversations tab: the strip with the count and the New chat

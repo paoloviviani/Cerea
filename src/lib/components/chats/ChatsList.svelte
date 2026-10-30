@@ -240,7 +240,7 @@
 		<p class={s.SUBTITLE}>{m["chat.list.subtitle"]()}</p>
 	</header>
 
-	<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto">
+	<div class="scrollbar-custom min-h-0 flex-1 scroll-pt-24 overflow-x-hidden overflow-y-auto">
 		<div class="{s.STRIP} {rows.length > 0 ? s.STRIP_ACTIVE : s.STRIP_IDLE}">
 			<div class="flex items-center gap-3">
 				<div class={s.STRIP_TILE} class:grayscale={rows.length === 0}>
@@ -269,51 +269,54 @@
 			</a>
 		</div>
 
-		<div class="relative mb-5">
-			<IconSearch
-				class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint"
-			/>
-			<input
-				bind:this={searchEl}
-				bind:value={input}
-				oninput={onInput}
-				onkeydown={(event) => {
-					if (event.key === "Enter") {
-						clearTimeout(debounce);
-						clearTimeout(idle);
-						run(true);
-					}
-					if (event.key === "Escape" && input) {
-						event.preventDefault();
-						void clear();
-					}
-				}}
-				type="search"
-				name="chat-search"
-				data-testid="chats-search"
-				aria-label={m["chat.list.search"]()}
-				placeholder={m["chat.list.search"]()}
-				maxlength={MAX_TITLE_QUERY_LENGTH}
-				autocomplete="off"
-				spellcheck="false"
-				aria-describedby="chats-search-hint"
-				class="{s.SEARCH} pr-9 pl-9 [&::-webkit-search-cancel-button]:hidden"
-			/>
-			{#if input}
-				<button
-					type="button"
-					onclick={clear}
-					aria-label={m["chat.list.clear_search"]()}
-					class="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-ink-faint hover:bg-sunken hover:text-ink"
-				>
-					<IconClose class="size-4" />
-				</button>
-			{/if}
+		<!-- Pinned to the top of the scrolling area, on the page's own
+		     background so the rows pass behind it rather than through it. -->
+		<div class="sticky top-0 z-10 mb-4 bg-page pt-1 pb-2" data-testid="chats-search-bar">
+			<div class="relative">
+				<IconSearch
+					class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint"
+				/>
+				<input
+					bind:this={searchEl}
+					bind:value={input}
+					oninput={onInput}
+					onkeydown={(event) => {
+						if (event.key === "Enter") {
+							clearTimeout(debounce);
+							clearTimeout(idle);
+							run(true);
+						}
+						if (event.key === "Escape" && input) {
+							event.preventDefault();
+							void clear();
+						}
+					}}
+					type="search"
+					name="chat-search"
+					data-testid="chats-search"
+					aria-label={m["chat.list.search"]()}
+					placeholder={m["chat.list.search"]()}
+					maxlength={MAX_TITLE_QUERY_LENGTH}
+					autocomplete="off"
+					spellcheck="false"
+					aria-describedby="chats-search-hint"
+					class="{s.SEARCH} pr-9 pl-9 [&::-webkit-search-cancel-button]:hidden"
+				/>
+				{#if input}
+					<button
+						type="button"
+						onclick={clear}
+						aria-label={m["chat.list.clear_search"]()}
+						class="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-ink-faint hover:bg-sunken hover:text-ink"
+					>
+						<IconClose class="size-4" />
+					</button>
+				{/if}
+			</div>
+			<p id="chats-search-hint" class="mt-1.5 text-xs text-ink-faint">
+				{m["chat.list.search_hint"]()}
+			</p>
 		</div>
-
-		<p id="chats-search-hint" class="-mt-3 mb-5 text-xs text-ink-faint">
-			{m["chat.list.search_hint"]()}
-		</p>
 
 		{#if failure}
 			<p class="{s.ERROR} mb-4">{failure}</p>

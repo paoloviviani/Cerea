@@ -143,6 +143,12 @@ afterEach(() => {
 	document.getElementById("app")?.remove();
 });
 
+/** The project row's chevron: the row's label is a link now, so the button has no text. */
+const folderToggle = (container: HTMLElement) =>
+	[...container.querySelectorAll("button")].find((b) =>
+		/^(Expand|Collapse) Mortgage$/.test(b.getAttribute("aria-label") ?? "")
+	);
+
 const openBranch = async (container: HTMLElement) => {
 	find(container, "button").click();
 	await vi.waitFor(() => expect(container.textContent).toContain("Mortgage"));
@@ -153,9 +159,7 @@ describe("ProjectsBranch: dropping a sidebar chat on a project", () => {
 		stubFetch(undefined, [existingChat]);
 		const { container } = await renderBranch("model-a");
 		await openBranch(container);
-		const folder = [...container.querySelectorAll("button")].find((b) =>
-			b.textContent?.includes("Mortgage")
-		);
+		const folder = folderToggle(container);
 		const row = folder?.parentElement;
 		if (!row) throw new Error("no folder row for the project");
 
@@ -176,9 +180,7 @@ describe("ProjectsBranch: dropping a sidebar chat on a project", () => {
 		stubFetch(undefined, [existingChat]);
 		const { container } = await renderBranch("model-a");
 		await openBranch(container);
-		const folder = [...container.querySelectorAll("button")].find((b) =>
-			b.textContent?.includes("Mortgage")
-		);
+		const folder = folderToggle(container);
 		const row = folder?.parentElement;
 		if (!row) throw new Error("no folder row for the project");
 
@@ -191,8 +193,7 @@ describe("ProjectsBranch: dropping a sidebar chat on a project", () => {
 });
 
 describe("ProjectsBranch: a folder never shows what is older than the last change", () => {
-	const folderButton = (container: HTMLElement) =>
-		[...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Mortgage"));
+	const folderButton = (container: HTMLElement) => folderToggle(container);
 
 	it("keeps the newer list when an older read of the folder lands after it", async () => {
 		// The folder is opened (read 1, slow), then a move bumps the revision and
@@ -288,9 +289,7 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 		await openBranch(container);
 
 		// opening the folder lists nothing
-		const folder = [...container.querySelectorAll("button")].find((b) =>
-			b.textContent?.includes("Mortgage")
-		);
+		const folder = folderToggle(container);
 		if (!folder) throw new Error("no folder row for the project");
 		folder.click();
 		const empty = await vi.waitFor(
@@ -322,9 +321,7 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 		stubFetch(undefined, [{ ...existingChat, title: "New chat" }]);
 		const { container } = await renderBranch("model-a");
 		await openBranch(container);
-		const folder = [...container.querySelectorAll("button")].find((b) =>
-			b.textContent?.includes("Mortgage")
-		);
+		const folder = folderToggle(container);
 		if (!folder) throw new Error("no folder row for the project");
 		folder.click();
 		const rail = await vi.waitFor(() => {
@@ -345,9 +342,7 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 		await openBranch(container);
 
 		// open the folder, the chat row appears with its `⋯`
-		const folder = [...container.querySelectorAll("button")].find((b) =>
-			b.textContent?.includes("Mortgage")
-		);
+		const folder = folderToggle(container);
 		if (!folder) throw new Error("no folder row for the project");
 		folder.click();
 		const rail = await vi.waitFor(() => {
@@ -400,9 +395,7 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 		const { container } = await renderBranch("model-a");
 		await openBranch(container);
 
-		const folder = [...container.querySelectorAll("button")].find((b) =>
-			b.textContent?.includes("Mortgage")
-		);
+		const folder = folderToggle(container);
 		if (!folder) throw new Error("no folder row for the project");
 		folder.click();
 		const menu = await vi.waitFor(() => find(container, 'button[title="More options"]'));
@@ -501,6 +494,30 @@ describe("ProjectsBranch: the header opens the list, the chevron opens the branc
 		expect(
 			find(container, 'button[aria-label="Expand Projects"]').getAttribute("aria-expanded")
 		).toBe("false");
+		expect(appNavigation().goto).not.toHaveBeenCalled();
+	});
+
+	it("a project row's label links to the project, and the chevron alone folds it", async () => {
+		stubFetch(undefined, [existingChat]);
+		const { container } = await renderBranch("model-a");
+		await openBranch(container);
+
+		const link = find(container, `a[href="/projects/${project.id}"]`);
+		expect(link.textContent?.trim()).toBe("Mortgage");
+		let followed = false;
+		link.addEventListener("click", (event) => {
+			followed = !event.defaultPrevented;
+			event.preventDefault();
+		});
+		link.click();
+		expect(followed).toBe(true);
+		expect(folderToggle(container)?.getAttribute("aria-expanded")).toBe("false");
+
+		folderToggle(container)?.click();
+		await vi.waitFor(() =>
+			expect(folderToggle(container)?.getAttribute("aria-label")).toBe("Collapse Mortgage")
+		);
+		expect(folderToggle(container)?.getAttribute("aria-expanded")).toBe("true");
 		expect(appNavigation().goto).not.toHaveBeenCalled();
 	});
 

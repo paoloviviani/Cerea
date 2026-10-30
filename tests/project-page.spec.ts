@@ -62,10 +62,11 @@ test("create a project on its page, attach a base afterwards, add a document, re
 	// knowledge bases and the documents are on the settings tab.
 	await page.goto(`${E2E_APP_BASE}/projects/${projectId}?tab=settings`);
 
-	// The five levels are explained, in order.
-	const levels = page.locator("[aria-labelledby='project-levels'] li");
+	// The five levels are the index's numbered links, in order, under the two group headings.
+	const levels = page.getByTestId("settings-index").locator("a[href^='#project-level-']");
 	await expect(levels).toHaveCount(5);
 	await expect(levels.nth(1)).toContainText("Project files");
+	await expect(page.getByRole("heading", { name: "Read in full on every message" })).toBeVisible();
 
 	// Attach a knowledge base that exists only now.
 	const now = new Date();
@@ -134,7 +135,7 @@ test("the project page is one column on a phone", async ({ page, db, session }) 
 	expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(390);
 });
 
-test("@smoke the project page is two columns on a desktop, with nothing scrolling sideways", async ({
+test("@smoke the project page is one column with a section index on a desktop, with nothing scrolling sideways", async ({
 	page,
 	db,
 	session,
@@ -144,12 +145,15 @@ test("@smoke the project page is two columns on a desktop, with nothing scrollin
 	await page.goto(`${E2E_APP_BASE}/projects/new`);
 	await expect(page.getByLabel("Name")).toBeVisible();
 	expect(await horizontalOverflow(page)).toEqual([]);
-	// The name card and the instructions card sit side by side.
+	// One column in prompt order (name above instructions), with the index to its left.
 	const name = await page.getByLabel("Name").boundingBox();
 	const instructions = await page.getByLabel("Instructions", { exact: true }).boundingBox();
 	expect(name && instructions).toBeTruthy();
-	expect(Math.abs((name?.y ?? 0) - (instructions?.y ?? 0))).toBeLessThan(200);
-	expect(instructions?.x ?? 0).toBeGreaterThan((name?.x ?? 0) + (name?.width ?? 0));
+	expect(instructions?.y ?? 0).toBeGreaterThan((name?.y ?? 0) + (name?.height ?? 0));
+	// The instructions sit inside a card, so they start one card padding in.
+	expect(Math.abs((instructions?.x ?? 0) - (name?.x ?? 1))).toBeLessThan(24);
+	const index = await page.getByTestId("settings-index").boundingBox();
+	expect((index?.x ?? 9999) + (index?.width ?? 0)).toBeLessThanOrEqual(name?.x ?? 0);
 	await page.screenshot({ path: test.info().outputPath("desktop.png"), fullPage: true });
 });
 
