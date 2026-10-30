@@ -33,16 +33,16 @@ drives `opencode` and connects to Cerea over WSS.
 
 ## 2. Rules that are not negotiable
 
-1. **No AI attribution in commits.** No `Co-Authored-By: Claude` (or any AI)
-   trailer, no session links, no "Generated with" lines, and never
-   `--author`. The tracked `.husky/commit-msg` hook rejects them (hooks are
+1. **AI attribution in commits: Claude only.** A `Co-Authored-By: Claude …`
+   trailer and a Claude session link are allowed (the owner's decision,
+   2026-10-30); any other AI or tool attribution is not, and never
+   `--author`. The tracked `.husky/commit-msg` hook enforces it (hooks are
    installed by `npm ci`; in a fresh clone or worktree run it first — a
    worktree without the install has `core.hooksPath` pointing at a `.husky/_`
    that does not exist, and git silently runs no hook). Do not bypass it with
    `--no-verify`. CI enforces the same rule on every push and pull request
-   (`commit-messages.yml`, which shares the hook's script), so a leak is
-   caught however the local hook state looks. The commit identity is the
-   owner's git config.
+   (`commit-messages.yml`, which shares the hook's script). The commit
+   identity is the owner's git config.
 2. **Licences.** All first-party code is Apache-2.0. Describe the policy as
    "OSI-approved licences". Dependencies: permissive is fine; MPL unmodified is
    fine; GPL/AGPL only as a separate process; anything non-OSI needs the

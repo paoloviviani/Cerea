@@ -1,6 +1,6 @@
 #!/bin/sh
-# Rejects a commit (or merge) message that carries AI attribution: this
-# repository's history names its human authors only (MAINTAINING.md, rule 1).
+# Rejects a commit (or merge) message that carries AI attribution other than
+# Claude's (MAINTAINING.md, rule 1).
 # The check itself is the one shared script, also called by CI's backstop:
 "$(dirname "$0")/../scripts/check_no_ai_trailers.sh" "$1" || exit 1
 # A maintainer's own extra checks, kept out of the repository.

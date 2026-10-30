@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - name: Commit messages carry no AI attribution
+      - name: Commit messages carry no AI attribution other than Claude's
         env:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
