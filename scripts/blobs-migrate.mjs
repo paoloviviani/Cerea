@@ -77,9 +77,9 @@ async function sha256Of(stream) {
 }
 
 /**
- * @param {any} options `{ db, target, client?, buckets?, dryRun?, verify?, deleteSource?, concurrency?, log? }`:
+ * @param {any} options `{ db, target, client?, buckets?, dryRun?, verify?, deleteSource?, concurrency?, activeStore?, log? }`:
  *   `db` a mongodb `Db`, `target` the `readBlobConfig` result for s3.
- * @returns {Promise<{ migrated: number, skipped: number, failed: number, deleted: number, bytes: number, wouldCopy: number }>}
+ * @returns {Promise<{ migrated: number, skipped: number, failed: number, deleted: number, bytes: number, wouldCopy: number, refreshed: number, pruned: number, wouldPrune: number, notCopied: number }>}
  */
 export async function migrate({
 	db,
