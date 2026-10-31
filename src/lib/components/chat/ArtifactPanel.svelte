@@ -577,7 +577,9 @@
 		const normalized = normalizePreviewError(data.detail);
 		if (!previewedComplete) {
 			const buffer: { srcdoc: string | undefined; errors: PreviewError[] } =
-				bufferedErrors?.srcdoc === srcdoc ? bufferedErrors : { srcdoc, errors: [] };
+				bufferedErrors && bufferedErrors.srcdoc === srcdoc
+					? bufferedErrors
+					: { srcdoc, errors: [] };
 			bufferedErrors = buffer;
 			if (buffer.errors.length < 100) buffer.errors.push(normalized);
 			return;
