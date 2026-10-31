@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Readable } from "node:stream";
 import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
@@ -189,18 +190,16 @@ export async function storeDeliverable({
 	}
 
 	const gridFsId = new ObjectId();
-	const upload = collections.codeOutputBucket.openUploadStreamWithId(
-		gridFsId,
-		`${conversationId.toString()}-${sha256}`,
-		{ metadata: { conversation: conversationId.toString(), mime } }
+	await collections.blobStore.put(
+		"codeOutputs",
+		{
+			id: gridFsId,
+			filename: `${conversationId.toString()}-${sha256}`,
+			contentType: mime,
+			metadata: { conversation: conversationId.toString(), mime },
+		},
+		bytes
 	);
-	upload.write(bytes);
-	upload.end();
-	await new Promise<void>((resolve, reject) => {
-		upload.once("finish", () => resolve());
-		upload.once("error", reject);
-		setTimeout(() => reject(new Error("Deliverable upload timed out")), 20_000);
-	});
 
 	let version = await nextVersionNumber(conversationId, name);
 	// A save racing this one can take the same version number between the read
@@ -305,33 +304,41 @@ export async function downloadDeliverable(
 	const meta = await collections.codeExecutionOutputs.findOne({ conversationId, sha256 });
 	if (!meta) return undefined;
 
-	const stream = collections.codeOutputBucket.openDownloadStream(meta.gridFsId);
-	const buffer = await new Promise<Buffer>((resolve, reject) => {
-		const chunks: Uint8Array[] = [];
-		stream.on("data", (chunk) => chunks.push(chunk));
-		stream.on("error", reject);
-		stream.on("end", () => resolve(Buffer.concat(chunks)));
-	});
+	const buffer = await collections.blobStore.read("codeOutputs", meta.gridFsId);
 
 	return { buffer, name: meta.name, mime: meta.mime };
+}
+
+/** One deliverable as a stream, for the download route; undefined when there is none. */
+export async function openDeliverable(
+	conversationId: Conversation["_id"],
+	sha256: string
+): Promise<{ stream: Readable; name: string; mime: string; size: number } | undefined> {
+	const meta = await collections.codeExecutionOutputs.findOne({ conversationId, sha256 });
+	if (!meta) return undefined;
+	return {
+		stream: await collections.blobStore.open("codeOutputs", meta.gridFsId),
+		name: meta.name,
+		mime: meta.mime,
+		size: meta.size,
+	};
 }
 
 async function deleteRows(
 	rows: Array<{ _id: ObjectId; gridFsId: ObjectId; conversationId?: ObjectId; sha256?: string }>
 ): Promise<void> {
 	if (rows.length === 0) return;
-	await Promise.all(
-		rows.map((row) =>
-			collections.codeOutputBucket
-				.delete(row.gridFsId)
-				.catch((err) =>
-					logger.error(
-						{ err, id: row._id.toString() },
-						"[code-execution] failed to delete deliverable bytes"
-					)
-				)
-		)
+	const byBlob = new Map(rows.map((row) => [row.gridFsId.toString(), row]));
+	const { failed } = await collections.blobStore.deleteMany(
+		"codeOutputs",
+		rows.map((row) => row.gridFsId)
 	);
+	for (const { id, error } of failed) {
+		logger.error(
+			{ err: error, id: byBlob.get(id.toString())?._id.toString() },
+			"[code-execution] failed to delete deliverable bytes"
+		);
+	}
 	await collections.codeExecutionOutputs.deleteMany({ _id: { $in: rows.map((row) => row._id) } });
 	// Their Office previews are derived from them (`office/previewStore.ts`).
 	await releasePreviewOwnerStrings(
@@ -410,7 +417,7 @@ export async function sweepExpiredDeliverables(
 }
 
 /**
- * GridFS files in the deliverables bucket that no metadata row names: what
+ * Blobs in the deliverables bucket that no metadata row names: what
  * the old TTL index left behind (see `sweepExpiredDeliverables`), or a
  * crash between the upload and the row's insert. Nothing can ever read
  * them — downloads go through the row — so they are deleted, bytes and
@@ -421,36 +428,33 @@ export async function sweepOrphanedDeliverableBytes(now = Date.now()): Promise<n
 	let removed = 0;
 	let after: ObjectId | null = null;
 	for (;;) {
-		const page: Array<{ _id: ObjectId }> = await collections.codeOutputBucket
-			.find(
-				after
-					? { uploadDate: { $lt: before }, _id: { $gt: after } }
-					: { uploadDate: { $lt: before } }
-			)
-			.project<{ _id: ObjectId }>({ _id: 1 })
-			.sort({ _id: 1 })
-			.limit(SWEEP_BATCH)
-			.toArray();
+		const page = await collections.blobStore.find(
+			"codeOutputs",
+			after
+				? { uploadDate: { $lt: before }, _id: { $gt: after } }
+				: { uploadDate: { $lt: before } },
+			{ sort: { _id: 1 }, limit: SWEEP_BATCH }
+		);
 		if (page.length === 0) break;
-		after = page[page.length - 1]._id;
+		after = page[page.length - 1].id;
 		const named = new Set(
 			(
 				await collections.codeExecutionOutputs
-					.find({ gridFsId: { $in: page.map((o) => o._id) } })
+					.find({ gridFsId: { $in: page.map((o) => o.id) } })
 					.project<{ gridFsId: ObjectId }>({ gridFsId: 1 })
 					.toArray()
 			).map((row) => row.gridFsId.toString())
 		);
 		for (const file of page) {
-			if (named.has(file._id.toString())) continue;
-			await collections.codeOutputBucket
-				.delete(file._id)
+			if (named.has(file.id.toString())) continue;
+			await collections.blobStore
+				.delete("codeOutputs", file.id)
 				.then(() => {
 					removed += 1;
 				})
 				.catch((err) =>
 					logger.error(
-						{ err, id: file._id.toString() },
+						{ err, id: file.id.toString() },
 						"[code-execution] failed to delete orphaned deliverable bytes"
 					)
 				);

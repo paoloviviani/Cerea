@@ -4,6 +4,8 @@ import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import { mergeChatUsers } from "./mergeChatUsers";
 import { USER_KEYED_COLLECTIONS } from "./userKeyedCollections";
+import { removeBlobs } from "$lib/server/blobs/testing";
+import { findBlobs, putBlob } from "$lib/server/blobs/testing";
 
 async function insertUser() {
 	const doc = {
@@ -89,14 +91,11 @@ describe("mergeChatUsers (ADR 0093 §7.2)", () => {
 		} as never);
 
 		// ...a knowledge blob tagged by the stray's own id directly...
-		const blobUpload = collections.bucket.openUploadStream(`blob-${stray.toString()}`, {
-			metadata: { mime: "text/plain", owner: stray.toString() },
-		});
-		blobUpload.end(Buffer.from("hello"));
-		await new Promise((resolve, reject) => {
-			blobUpload.on("finish", resolve);
-			blobUpload.on("error", reject);
-		});
+		await putBlob(
+			`blob-${stray.toString()}`,
+			{ mime: "text/plain", owner: stray.toString() },
+			"hello"
+		);
 
 		// ...a settings row and a session, which have their own rules...
 		await collections.settings.insertOne({
@@ -159,9 +158,9 @@ describe("mergeChatUsers (ADR 0093 §7.2)", () => {
 			(await collections.codeDevices.findOne({ _id: strayDevice }))?.userId?.equals(target)
 		).toBe(true);
 
-		const blobs = await collections.bucketFiles
-			.find({ "metadata.owner": { $in: [stray.toString(), target.toString()] } })
-			.toArray();
+		const blobs = await findBlobs({
+			"metadata.owner": { $in: [stray.toString(), target.toString()] },
+		});
 		expect(blobs).toHaveLength(1);
 		expect(blobs[0].metadata?.owner).toBe(target.toString());
 
@@ -185,8 +184,7 @@ describe("mergeChatUsers (ADR 0093 §7.2)", () => {
 		await collections.vectorStores.deleteOne({ _id: strayStore });
 		await collections.knowledgeDocuments.deleteOne({ _id: strayDoc });
 		await collections.codeDevices.deleteOne({ _id: strayDevice });
-		await collections.bucketFiles.deleteMany({ "metadata.owner": target.toString() });
-		for (const file of blobs) await collections.bucket.delete(file._id).catch(() => undefined);
+		await removeBlobs({ "metadata.owner": target.toString() });
 		await collections.settings.deleteMany({ userId: { $in: [stray, target] } });
 		await collections.users.deleteOne({ _id: target });
 	});

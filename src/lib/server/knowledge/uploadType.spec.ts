@@ -4,6 +4,7 @@
  */
 import { describe, expect, it, afterEach } from "vitest";
 import { ObjectId } from "mongodb";
+import { putBlob } from "$lib/server/blobs/testing";
 import { collections, ready } from "$lib/server/database";
 import { ingestDocument, storeUpload } from "./service";
 import { decodeText } from "$lib/server/files/knowledgeUpload";
@@ -26,12 +27,13 @@ async function put(name: string, bytes: Buffer, mime = "application/octet-stream
 }
 
 async function storedMime(id: string) {
-	const file = await collections.bucket.find({ _id: new ObjectId(id) }).next();
-	return file?.metadata?.mime as string;
+	const file = await collections.blobStore.stat("files", new ObjectId(id));
+	return file?.metadata.mime as string;
 }
 
 afterEach(async () => {
-	for (const id of stored.splice(0)) await collections.bucket.delete(id).catch(() => undefined);
+	for (const id of stored.splice(0))
+		await collections.blobStore.delete("files", id).catch(() => undefined);
 	await collections.vectorStores.deleteMany({});
 	await collections.knowledgeDocuments.deleteMany({});
 });
@@ -109,14 +111,7 @@ describe("text encodings", () => {
 
 async function ingestStored(name: string, bytes: Buffer) {
 	const id = new ObjectId();
-	await new Promise<void>((resolve, reject) => {
-		const up = collections.bucket.openUploadStreamWithId(id, name, {
-			metadata: { mime: "text/csv", owner: owner.toString() },
-		});
-		up.once("finish", () => resolve());
-		up.once("error", reject);
-		up.end(bytes);
-	});
+	await putBlob(name, { mime: "text/csv", owner: owner.toString() }, bytes, "files", id);
 	stored.push(id);
 	const storeId = new ObjectId();
 	await collections.vectorStores.insertOne({
@@ -156,14 +151,13 @@ describe("ingest of a stored binary", () => {
 	it("fails that document with the reason, without throwing", async () => {
 		// Written straight to GridFS, as an older upload would have been.
 		const id = new ObjectId();
-		await new Promise<void>((resolve, reject) => {
-			const up = collections.bucket.openUploadStreamWithId(id, "old.bin", {
-				metadata: { mime: "application/octet-stream", owner: owner.toString() },
-			});
-			up.once("finish", () => resolve());
-			up.once("error", reject);
-			up.end(ELF);
-		});
+		await putBlob(
+			"old.bin",
+			{ mime: "application/octet-stream", owner: owner.toString() },
+			ELF,
+			"files",
+			id
+		);
 		stored.push(id);
 		const storeId = new ObjectId();
 		await collections.vectorStores.insertOne({

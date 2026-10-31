@@ -1,7 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ObjectId } from "mongodb";
-import { collections, ready } from "$lib/server/database";
-import { attachmentResponse, storedSizes } from "./downloadFile";
+import { ready } from "$lib/server/database";
+import {
+	attachmentResponse,
+	attachmentStreamResponse,
+	downloadFile,
+	openFile,
+	storedSizes,
+} from "./downloadFile";
+import { putBlob, removeBlobs } from "$lib/server/blobs/testing";
 
 /**
  * The download response's hardening headers: `conversation/[id]/output/[sha256]`
@@ -41,14 +48,11 @@ describe("storedSizes", () => {
 	const other = new ObjectId();
 
 	async function put(conv: ObjectId, hash: string, bytes: Buffer) {
-		const upload = collections.bucket.openUploadStream(`${conv.toString()}-${hash}`, {
-			metadata: { conversation: conv.toString(), mime: "text/plain" },
-		});
-		await new Promise<void>((resolve, reject) => {
-			upload.on("error", reject);
-			upload.on("finish", () => resolve());
-			upload.end(bytes);
-		});
+		await putBlob(
+			`${conv.toString()}-${hash}`,
+			{ conversation: conv.toString(), mime: "text/plain" },
+			bytes
+		);
 	}
 
 	beforeAll(async () => {
@@ -59,11 +63,7 @@ describe("storedSizes", () => {
 
 	afterAll(async () => {
 		for (const id of [convId, other]) {
-			for (const file of await collections.bucket
-				.find({ "metadata.conversation": id.toString() })
-				.toArray()) {
-				await collections.bucket.delete(file._id);
-			}
+			await removeBlobs({ "metadata.conversation": id.toString() });
 		}
 	});
 
@@ -74,5 +74,43 @@ describe("storedSizes", () => {
 
 	it("answers an empty list without a query", async () => {
 		expect((await storedSizes([], convId)).size).toBe(0);
+	});
+});
+
+describe("openFile", () => {
+	const conv = new ObjectId();
+	const sha = "c".repeat(64);
+	const bytes = Buffer.from("streamed, not collected");
+
+	beforeAll(async () => {
+		await ready;
+		await putBlob(
+			`${conv.toString()}-${sha}`,
+			{ conversation: conv.toString(), mime: "text/plain" },
+			bytes
+		);
+	});
+
+	afterAll(async () => {
+		await removeBlobs({ "metadata.conversation": conv.toString() });
+	});
+
+	it("answers the same bytes and headers as the buffered path, from a stream", async () => {
+		const streamed = attachmentStreamResponse(sha, await openFile(sha, conv));
+		const buffered = attachmentResponse(sha, await downloadFile(sha, conv));
+		expect(Buffer.from(await streamed.arrayBuffer())).toEqual(bytes);
+		for (const header of [
+			"content-type",
+			"content-disposition",
+			"content-security-policy",
+			"x-content-type-options",
+			"content-length",
+		]) {
+			expect(streamed.headers.get(header)).toBe(buffered.headers.get(header));
+		}
+	});
+
+	it("keeps the same refusals: 404 for a missing file", async () => {
+		await expect(openFile("d".repeat(64), conv)).rejects.toMatchObject({ status: 404 });
 	});
 });

@@ -1,9 +1,10 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ObjectId } from "mongodb";
 
-import { collections, ready } from "$lib/server/database";
+import { ready } from "$lib/server/database";
 import { sourceSha256 } from "$lib/server/office/previewStore";
 import type { DocumentCapabilities } from "$lib/server/documents/client";
+import { removeBlobs } from "$lib/server/blobs/testing";
 
 // The two services are the things replaced: Gotenberg (the office -> PDF conversion) and the document
 // service's /v1/render. The preview store, its bucket and Mongo are real, so "a file already previewed costs
@@ -105,8 +106,7 @@ beforeEach(() => {
 
 afterEach(async () => {
 	for (const sha of cleanup) {
-		const rows = await collections.bucketFiles.find({ filename: previewFilename(sha) }).toArray();
-		await Promise.all(rows.map((row) => collections.bucket.delete(row._id)));
+		await removeBlobs({ filename: previewFilename(sha) });
 	}
 	cleanup = [];
 });

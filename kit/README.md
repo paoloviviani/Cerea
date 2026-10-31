@@ -177,6 +177,7 @@ again. Keep the old directory until the new stack works.
 | `extractor` | `documents`, `redaction` | the local document reader (Word, Excel, PowerPoint and old `.doc` files, scanned-PDF pages as images); `homelab` runs it through `documents`, without redaction |
 | `playwright` | `fetch` | a headless browser for the chat's web fetch. On in the `enterprise` preset; on any other preset, add it later with `./configure --fetch && docker compose up -d`, and remove it with `./configure --no-fetch` |
 | `gotenberg` | `office` | Office files as PDF previews in the chat, and the `convert_document` tool for models (Gotenberg: LibreOffice and Chromium). Off in every preset; add it with `./configure --office-preview && docker compose up -d`, remove it with `--no-office-preview` |
+| `rustfs` | `rustfs` | RustFS, an S3-compatible object store that holds the chat's files (attachments, generated files, uploads, previews) instead of MongoDB. Off in every preset; add it with `./configure --object-store && docker compose up -d`. A fresh install uses it at once; an existing one keeps its files in MongoDB until they are copied ([Storage](https://paoloviviani.github.io/Cerea/storage/)). Your own S3 works without the profile |
 
 Every service names an image and nothing builds on `up`. `COMPOSE_PROFILES`
 in `.env` chooses the add-ons.
@@ -207,6 +208,35 @@ the root filesystem read-only), no capabilities, CPU and memory limits
 timeout (`GOTENBERG_API_TIMEOUT`, 60s), short queues, no JavaScript in
 Chromium, and refuses non-public addresses and `downloadFrom`. Pin another
 image with `GOTENBERG_IMAGE`.
+
+### Object storage for files (`rustfs` profile)
+
+By default the chat keeps files (attachments, generated files, knowledge-base
+uploads, Office previews) inside MongoDB. `./configure --object-store && docker compose up -d`
+adds RustFS (Apache-2.0), an S3-compatible object store, and on a **fresh**
+install makes the chat use it. `./configure` mints the access keys
+(`CHAT_S3_ACCESS_KEY_ID`, `CHAT_S3_SECRET_ACCESS_KEY`), sets
+`CHAT_S3_ENDPOINT=http://rustfs:9000`, the bucket `cerea` and path-style
+addressing, and has the chat create the bucket on first start.
+
+On an **existing** install the profile starts RustFS but the chat keeps using
+MongoDB: switching the store under existing files would hide every one of
+them. Copy them first with `scripts/blobs-migrate.mjs`, then set
+`CHAT_BLOB_STORE='s3'`; the procedure, with a dry run and verification, is in
+[Storage](https://paoloviviani.github.io/Cerea/storage/). `./configure --no-object-store` refuses while the
+chat is using the bundled store, for the same reason.
+
+RustFS sits alone with the chat on an `internal` Docker network (no route out, no
+published port, no web console), with its data in the `rustfs-data` volume, a
+read-only root filesystem, no capabilities, and memory and CPU limits
+(`RUSTFS_MEM_LIMIT` 1g, `RUSTFS_CPUS` 2). The image is pinned by version and
+digest in `compose.yaml` (`RUSTFS_IMAGE` replaces it). **Back up the
+`rustfs-data` volume with the rest** (see Backup and restore): the Mongo backup
+holds only the index of the files, not their bytes.
+
+Any other S3-compatible store (AWS S3, Cloudflare R2, Backblaze B2, MinIO,
+Ceph) works without the profile: set `CHAT_BLOB_STORE='s3'` and the `CHAT_S3_*`
+variables in `.env` (see `.env.example` and [Storage](https://paoloviviani.github.io/Cerea/storage/)).
 
 ### Creating and editing Word, Excel, PowerPoint and PDF files (`documents` service)
 
@@ -1117,6 +1147,7 @@ What to keep:
 - **`.env`**. It holds every secret. `GATEWAY_SECRET_KEY` decrypts the provider keys stored in the database. `AUTHELIA_STORAGE_KEY` decrypts every user's identifier. Without them a database backup is only partly usable.
 - **Postgres**: everything the gateway (Pystino) keeps (users and groups, API keys, quotas and the ledger, providers and models, identity-provider settings) and the chat's knowledge store. `pg_dumpall` takes every database in the cluster at once.
 - **Mongo**: conversations.
+- **The `rustfs-data` volume**, only when the `rustfs` profile holds the chat's files: the files' bytes. The Mongo backup then holds just their index, so restore both from the same moment. (With your own S3, the bucket is yours to back up.)
 - **The Authelia volumes**: the signing key, the users file, and the subject store. Only with the bundled Authelia; with an external identity provider the accounts live there, and these volumes hold nothing to keep.
 
 Not kept, on purpose: Valkey (rate-limit counters and caches, rebuilt as requests arrive) and Caddy's volumes (certificates, fetched again).

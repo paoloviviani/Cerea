@@ -17,7 +17,7 @@ vi.mock("$lib/server/files/extractDocument", async (importOriginal) => {
 	};
 });
 
-import { collections, ready } from "$lib/server/database";
+import { ready } from "$lib/server/database";
 import {
 	deleteAttachments,
 	deleteAttachmentsByPrefix,
@@ -29,6 +29,7 @@ import {
 import { uploadFile } from "./uploadFile";
 import { deleteConversationAttachments } from "./deleteConversationAttachments";
 import type { Conversation } from "$lib/types/Conversation";
+import { findBlobs } from "$lib/server/blobs/testing";
 
 beforeAll(async () => {
 	await ready;
@@ -50,7 +51,7 @@ afterEach(async () => {
 });
 
 function rowsFor(owner: string) {
-	return collections.bucket.find({ "metadata.conversation": owner }).toArray();
+	return findBlobs({ "metadata.conversation": owner });
 }
 
 const png = () =>

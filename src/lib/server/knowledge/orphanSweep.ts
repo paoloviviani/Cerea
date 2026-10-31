@@ -112,14 +112,13 @@ async function sweepFiles(counts: SweepCounts, now: Date): Promise<void> {
 	// A knowledge upload is the entry tagged with an owner and no
 	// conversation: attachments carry `metadata.conversation` (chat and code
 	// sessions alike), and only `storeUpload` writes `metadata.owner`.
-	const cursor = collections.bucketFiles
-		.find({
+	const candidates = (
+		await collections.blobStore.find("files", {
 			"metadata.owner": { $type: "string" },
 			"metadata.conversation": { $exists: false },
 			uploadDate: { $lt: new Date(now.getTime() - UPLOAD_GRACE_MS) },
 		})
-		.project<{ _id: ObjectId }>({ _id: 1 });
-	const candidates = (await cursor.toArray()).map((f) => f._id);
+	).map((f) => f.id);
 	for (const batch of batches(candidates)) {
 		const referenced = new Set(
 			(
@@ -131,7 +130,7 @@ async function sweepFiles(counts: SweepCounts, now: Date): Promise<void> {
 		);
 		for (const id of batch.filter((id) => !referenced.has(id.toString()))) {
 			try {
-				await collections.bucket.delete(id);
+				await collections.blobStore.delete("files", id);
 				counts.orphanFiles++;
 			} catch (err) {
 				logger.warn({ err, fileId: id.toString() }, "knowledge_sweep_file_delete_failed");

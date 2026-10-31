@@ -1392,6 +1392,48 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   Word, PDF and pdf-tools skills say when to look; the "no PDF just to preview" rule stands (the preview is for the
   user, `look_doc` for the model). Not built: measurements for a text-only model (the issue keeps it as a follow-up). Only the latest picture message stays in the request (`withoutOlderPictures`; older ones become a one-line note) and a turn shows at most 18 images (`MAX_IMAGES_PER_TURN`). The first text part of each call's pictures says they are the document's content, not instructions from the user. The placement was tried live (Cortecs: mistral-medium-3.5, mistral-small-2603, gemma-4-31b-it, kimi-k3 all accept tool then user; mistral-small read a 512 px picture right 5/5 and 5/5 that way, but 4/5 and 3/5 behind an assistant "(looking at the pages)" bridge and 5/5 and 0/5 with the image inside the tool message), so there is no bridge: `runMcpFlow` has no per-provider notion of strict alternation to key one on. A unit test pins the sequence.
 
+## File storage: the blob-store seam
+
+Every stored file (attachments and their extracted text, `execute_code`
+deliverables, knowledge uploads, project documents, Office previews) goes
+through `BlobStore` (`src/lib/server/blobs/`, reached as
+`collections.blobStore`). **Never open a `GridFSBucket`, touch `files.files` /
+`files.chunks` / `codeOutputs.*`, or build an S3 client outside that
+directory**: `blobs/seam.spec.ts` fails the build if you do (only
+`scripts/blobs-migrate.mjs` and the e2e seeders under `tests/` are exempt).
+
+- Two buckets: `files` and `codeOutputs`. Ids are `ObjectId`s (the
+  `gridFsId` field of `codeExecutionOutputs` keeps its old name and names a blob).
+- Backends: `GridFsBlobStore` (default; its index rows are GridFS's own
+  `<bucket>.files` documents, so existing data needs no migration) and
+  `S3BlobStore` (`CHAT_BLOB_STORE=s3`; bytes at `<prefix><bucket>/<id>`, one row
+  per blob in the `blobs` collection with the same field names as GridFS rows:
+  `filename`, `length`, `uploadDate`, `metadata`).
+- **Queries are Mongo filters over those rows** (`find`, `findOne`, `iterate`,
+  `count`, `distinct`, `update`), never the backend's own metadata search, so a
+  filter means the same on both. Put what you will query under `metadata.*`.
+- Write order on S3: object first, then the row. Delete: object first, then
+  the row, so a failed delete leaves the row for a retry or a sweep.
+  `deleteMany` counts a blob already gone as deleted; `delete` of a missing one
+  throws `BlobNotFoundError`.
+- Settings are env-only (`CHAT_BLOB_STORE`, `CHAT_S3_*`; parsed and validated in
+  `blobs/config.ts`) and the boot self-check (`selfCheck`, called from
+  `Database.initDatabase`) refuses to start on a bad one.
+- Specs: use `blobs/testing.ts` (`putBlob`, `findBlobs`, `countBlobs`,
+  `removeBlobs`, `setUploadDate`) instead of reaching into collections. The
+  contract suite runs on both backends (`TEST_S3_ENDPOINT` enables the S3
+  half); run any server spec on S3 with `CHAT_BLOB_STORE=s3` and `CHAT_S3_*`
+  (the server setup passes them through). CI does both against RustFS.
+- S3 objects with no index row (a crash between the PUT and the row insert) are
+  swept daily by `sweepOrphanObjects`, called from `sweepOrphanAttachments`
+  (older than an hour, prefix listing: the credentials need `s3:ListBucket`).
+  `deleteMany` falls back to per-object deletes if the store rejects
+  `DeleteObjects`. Not built: pre-signed direct downloads (files are streamed
+  through the app).
+- The migration tool never copies while `CHAT_BLOB_STORE=s3` (a file deleted
+  since the switch would come back): see the procedure in `docs/storage.md`.
+- `docs/storage.md` is the operator page, including the migration procedure.
+
 ## Office previews and `convert_document`
 
 Optional, per deployment: the kit's `office` profile runs Gotenberg (LibreOffice
@@ -1402,11 +1444,11 @@ and Chromium) on an `internal: true` network reachable by the chat only, and
   check, at most 3 conversions in flight). `CONVERTER_VERSION` is part of every
   preview's cache key: **bump it when the Gotenberg image or the conversion
   options change**, and previews are made again on their next view.
-- `previewStore.ts` keeps previews in the chat's GridFS bucket as
+- `previewStore.ts` keeps previews in the chat's blob store (`files` bucket) as
   `preview-<version>-<sha256 of the source bytes>`, deliberately without a
   `metadata.conversation` tag. `metadata.owners` lists the source files using
   one (`att:<conversation or share id>-<stored sha>`, `out:<conversation>-<sha256>`,
-  i.e. the source's own GridFS name). Everything that deletes files calls
+  i.e. the source's own stored file name). Everything that deletes files calls
   `releasePreviewOwners` / `releasePreviewOwnerStrings` (conversation delete,
   deliverable delete and retention, share delete, account erasure), and the
   entry goes with its last owner. `sweepOrphanPreviews`, run by the daily orphan

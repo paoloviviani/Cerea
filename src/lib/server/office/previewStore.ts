@@ -2,7 +2,7 @@
  * Previews of Office files, kept in the chat's own file store.
  *
  * A preview is the PDF Gotenberg made from a file's bytes. It is stored in the
- * same GridFS bucket as attachments and extracted text (`files/uploadFile.ts`),
+ * same blob store (`files` bucket) as attachments and extracted text (`files/uploadFile.ts`),
  * named by what it was made from and how:
  *
  *     preview-<CONVERTER_VERSION>-<sha256 of the source bytes>
@@ -39,6 +39,7 @@ import { ObjectId } from "mongodb";
 
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
+import type { BlobInfo } from "$lib/server/blobs";
 import {
 	CONVERTER_VERSION,
 	MAX_SOURCE_BYTES,
@@ -69,21 +70,26 @@ interface PreviewRow {
 	metadata?: { preview?: boolean; owners?: string[] };
 }
 
-async function findRows(filename: string): Promise<PreviewRow[]> {
-	return (await collections.bucketFiles
-		.find({ filename, "metadata.preview": true })
-		.sort({ _id: 1 })
-		.toArray()) as PreviewRow[];
+function toRow(info: BlobInfo): PreviewRow {
+	return {
+		_id: info.id,
+		filename: info.filename,
+		metadata: info.metadata as PreviewRow["metadata"],
+	};
 }
 
-async function readBytes(id: ObjectId): Promise<Buffer> {
-	const stream = collections.bucket.openDownloadStream(id);
-	const chunks: Uint8Array[] = [];
-	return new Promise<Buffer>((resolve, reject) => {
-		stream.on("data", (chunk) => chunks.push(chunk));
-		stream.on("error", reject);
-		stream.on("end", () => resolve(Buffer.concat(chunks)));
-	});
+async function findRows(filename: string): Promise<PreviewRow[]> {
+	return (
+		await collections.blobStore.find(
+			"files",
+			{ filename, "metadata.preview": true },
+			{ sort: { _id: 1 } }
+		)
+	).map(toRow);
+}
+
+function readBytes(id: ObjectId): Promise<Buffer> {
+	return collections.blobStore.read("files", id);
 }
 
 async function writePreview(
@@ -93,16 +99,16 @@ async function writePreview(
 	owner: string
 ): Promise<ObjectId> {
 	const id = new ObjectId();
-	const upload = collections.bucket.openUploadStreamWithId(id, filename, {
-		metadata: { preview: true, version: CONVERTER_VERSION, sha256: sha, owners: [owner] },
-	});
-	upload.write(pdf);
-	upload.end();
-	await new Promise<void>((resolve, reject) => {
-		upload.once("finish", () => resolve());
-		upload.once("error", reject);
-		setTimeout(() => reject(new Error("Preview upload timed out")), 20_000);
-	});
+	await collections.blobStore.put(
+		"files",
+		{
+			id,
+			filename,
+			contentType: "application/pdf",
+			metadata: { preview: true, version: CONVERTER_VERSION, sha256: sha, owners: [owner] },
+		},
+		pdf
+	);
 	return id;
 }
 
@@ -117,12 +123,16 @@ async function collapseDuplicates(filename: string): Promise<void> {
 	const [keep, ...extra] = rows;
 	const owners = [...new Set(extra.flatMap((row) => row.metadata?.owners ?? []))];
 	if (owners.length > 0) {
-		await collections.bucketFiles.updateOne(
+		await collections.blobStore.update(
+			"files",
 			{ _id: keep._id },
 			{ $addToSet: { "metadata.owners": { $each: owners } } }
 		);
 	}
-	await Promise.all(extra.map((row) => collections.bucket.delete(row._id).catch(() => undefined)));
+	await collections.blobStore.deleteMany(
+		"files",
+		extra.map((row) => row._id)
+	);
 }
 
 const making = new Map<string, Promise<void>>();
@@ -184,7 +194,8 @@ async function readStored(filename: string, owner: string): Promise<Buffer | und
 		const pdf = await readBytes(row._id);
 		if (pdf.byteLength === 0) return undefined;
 		if (!row.metadata?.owners?.includes(owner)) {
-			await collections.bucketFiles.updateOne(
+			await collections.blobStore.update(
+				"files",
 				{ _id: row._id },
 				{ $addToSet: { "metadata.owners": owner } }
 			);
@@ -224,17 +235,17 @@ function escapeRegExp(text: string): string {
 
 /** Delete the entries that no source file uses any more. */
 async function deleteUnowned(): Promise<number> {
-	const rows = await collections.bucketFiles
-		.find({ "metadata.preview": true, "metadata.owners": { $size: 0 } })
-		.project<{ _id: ObjectId }>({ _id: 1 })
-		.toArray();
+	const rows = await collections.blobStore.find("files", {
+		"metadata.preview": true,
+		"metadata.owners": { $size: 0 },
+	});
 	let removed = 0;
 	for (const row of rows) {
 		try {
-			await collections.bucket.delete(row._id);
+			await collections.blobStore.delete("files", row.id);
 			removed += 1;
 		} catch (err) {
-			logger.warn({ err, fileId: row._id.toString() }, "office_preview_delete_failed");
+			logger.warn({ err, fileId: row.id.toString() }, "office_preview_delete_failed");
 		}
 	}
 	return removed;
@@ -252,9 +263,10 @@ export async function releasePreviewOwners(
 ): Promise<number> {
 	if (ownerTags.length === 0) return 0;
 	const patterns = ownerTags.map((tag) => new RegExp(`^${escapeRegExp(`${kind}:${tag}-`)}`));
-	await collections.bucketFiles.updateMany(
+	await collections.blobStore.update(
+		"files",
 		{ "metadata.preview": true, "metadata.owners": { $in: patterns } },
-		{ $pull: { "metadata.owners": { $in: patterns } } } as never
+		{ $pull: { "metadata.owners": { $in: patterns } } }
 	);
 	return deleteUnowned();
 }
@@ -262,9 +274,10 @@ export async function releasePreviewOwners(
 /** The same for individual source files, named by their owner strings. */
 export async function releasePreviewOwnerStrings(owners: readonly string[]): Promise<number> {
 	if (owners.length === 0) return 0;
-	await collections.bucketFiles.updateMany(
+	await collections.blobStore.update(
+		"files",
 		{ "metadata.preview": true, "metadata.owners": { $in: [...owners] } },
-		{ $pull: { "metadata.owners": { $in: [...owners] } } } as never
+		{ $pull: { "metadata.owners": { $in: [...owners] } } }
 	);
 	return deleteUnowned();
 }
@@ -276,10 +289,7 @@ async function sourceExists(owner: string): Promise<boolean> {
 	const kind = owner.slice(0, sep);
 	const name = owner.slice(sep + 1);
 	if (kind === "att") {
-		return (
-			(await collections.bucketFiles.findOne({ filename: name }, { projection: { _id: 1 } })) !==
-			null
-		);
+		return (await collections.blobStore.findOne("files", { filename: name })) !== null;
 	}
 	if (kind === "out") {
 		const dash = name.indexOf("-");
@@ -308,13 +318,13 @@ export async function sweepOrphanPreviews(): Promise<number> {
 	let removed = 0;
 	let after: ObjectId | null = null;
 	for (;;) {
-		const page = (await collections.bucketFiles
-			.find(
-				after ? { "metadata.preview": true, _id: { $gt: after } } : { "metadata.preview": true }
+		const page: PreviewRow[] = (
+			await collections.blobStore.find(
+				"files",
+				after ? { "metadata.preview": true, _id: { $gt: after } } : { "metadata.preview": true },
+				{ sort: { _id: 1 }, limit: SWEEP_BATCH }
 			)
-			.sort({ _id: 1 })
-			.limit(SWEEP_BATCH)
-			.toArray()) as PreviewRow[];
+		).map(toRow);
 		if (page.length === 0) break;
 		after = page[page.length - 1]._id;
 		for (const row of page) {
@@ -322,22 +332,24 @@ export async function sweepOrphanPreviews(): Promise<number> {
 			const dead: string[] = [];
 			for (const owner of owners) if (!(await sourceExists(owner))) dead.push(owner);
 			if (dead.length === 0) continue;
-			await collections.bucketFiles.updateOne({ _id: row._id }, {
-				$pull: { "metadata.owners": { $in: dead } },
-			} as never);
+			await collections.blobStore.update(
+				"files",
+				{ _id: row._id },
+				{ $pull: { "metadata.owners": { $in: dead } } }
+			);
 		}
 		if (page.length < SWEEP_BATCH) break;
 	}
-	const stale = await collections.bucketFiles
-		.find({ "metadata.preview": true, "metadata.version": { $ne: CONVERTER_VERSION } })
-		.project<{ _id: ObjectId }>({ _id: 1 })
-		.toArray();
+	const stale = await collections.blobStore.find("files", {
+		"metadata.preview": true,
+		"metadata.version": { $ne: CONVERTER_VERSION },
+	});
 	for (const row of stale) {
-		await collections.bucket.delete(row._id).then(
+		await collections.blobStore.delete("files", row.id).then(
 			() => {
 				removed += 1;
 			},
-			(err) => logger.warn({ err, fileId: row._id.toString() }, "office_preview_delete_failed")
+			(err) => logger.warn({ err, fileId: row.id.toString() }, "office_preview_delete_failed")
 		);
 	}
 	removed += await deleteUnowned();

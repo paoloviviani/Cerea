@@ -12,6 +12,7 @@ import {
 	storeDeliverable,
 	sweepExpiredDeliverables,
 } from "$lib/server/execution/deliverables";
+import { putBlob } from "$lib/server/blobs/testing";
 
 const service = vi.hoisted(() => ({
 	outlined: [] as string[],
@@ -86,11 +87,11 @@ async function setup(attachment?: { name: string; bytes: string }) {
 	conversations.push(conversationId);
 	const sha = attachment ? createHash("sha256").update(attachment.bytes).digest("hex") : undefined;
 	if (attachment && sha) {
-		const upload = collections.bucket.openUploadStream(`${conversationId}-${sha}`, {
-			metadata: { conversation: conversationId.toString(), mime: "application/pdf" },
-		});
-		upload.end(Buffer.from(attachment.bytes));
-		await new Promise((resolve) => upload.once("finish", resolve));
+		await putBlob(
+			`${conversationId}-${sha}`,
+			{ conversation: conversationId.toString(), mime: "application/pdf" },
+			attachment.bytes
+		);
 	}
 	await collections.conversations.insertOne({
 		_id: conversationId,
@@ -344,11 +345,11 @@ describe("versions of a file", () => {
 		const bytes = "the re-uploaded report";
 		const sha = createHash("sha256").update(bytes).digest("hex");
 		const sentAt = new Date(Date.now() + 60_000);
-		const upload = collections.bucket.openUploadStream(`${conversationId}-${sha}`, {
-			metadata: { conversation: conversationId.toString(), mime: "application/octet-stream" },
-		});
-		upload.end(Buffer.from(bytes));
-		await new Promise((resolve) => upload.once("finish", resolve));
+		await putBlob(
+			`${conversationId}-${sha}`,
+			{ conversation: conversationId.toString(), mime: "application/octet-stream" },
+			bytes
+		);
 		await collections.conversations.updateOne(
 			{ _id: conversationId },
 			{
@@ -405,11 +406,11 @@ describe("versions of a file", () => {
 		const bytes = "the new report";
 		const sha = createHash("sha256").update(bytes).digest("hex");
 		const sentAt = new Date(Date.now() + 60_000);
-		const upload = collections.bucket.openUploadStream(`${conversationId}-${sha}`, {
-			metadata: { conversation: conversationId.toString(), mime: "application/pdf" },
-		});
-		upload.end(Buffer.from(bytes));
-		await new Promise((resolve) => upload.once("finish", resolve));
+		await putBlob(
+			`${conversationId}-${sha}`,
+			{ conversation: conversationId.toString(), mime: "application/pdf" },
+			bytes
+		);
 		await collections.conversations.updateOne(
 			{ _id: conversationId },
 			{

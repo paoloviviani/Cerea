@@ -8,6 +8,7 @@ import { ObjectId } from "mongodb";
 import { Pool } from "pg";
 import { collections, ready } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
+import { removeBlobs } from "$lib/server/blobs/testing";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
@@ -113,7 +114,7 @@ describe.skipIf(!TEST_DATABASE_URL)("wide embeddings", () => {
 	}, 60_000);
 
 	afterAll(async () => {
-		await collections.bucket.drop().catch(() => undefined);
+		await removeBlobs({});
 		for (const name of ["vectorStores", "knowledgeDocuments", "knowledgeConfig"] as const) {
 			await collections[name].deleteMany({});
 		}
@@ -129,8 +130,8 @@ describe.skipIf(!TEST_DATABASE_URL)("wide embeddings", () => {
 		embedMock.mockReset();
 		await collections.vectorStores.deleteMany({});
 		await collections.knowledgeDocuments.deleteMany({});
-		await collections.bucketFiles.deleteMany({});
-		await collections.bucket.drop().catch(() => undefined);
+		await removeBlobs({});
+		await removeBlobs({});
 		await pg.query("DELETE FROM knowledge_chunks");
 	});
 

@@ -28,6 +28,7 @@ and Caddy: Apache-2.0; PostgreSQL with pgvector: PostgreSQL Licence; Valkey:
 BSD-3-Clause; MongoDB 4.4: SSPL-1.0, run as Cerea's internal database and not
 offered as a service; Gotenberg, the optional office profile: MIT, with
 LibreOffice inside it under MPL-2.0 among others, run as a separate unmodified
+container; RustFS, the optional rustfs profile: Apache-2.0, run as a separate unmodified
 container); kit/README.md lists them, with the tools its optional
 backup sidecar installs.
 

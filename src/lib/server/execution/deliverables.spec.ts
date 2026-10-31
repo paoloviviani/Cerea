@@ -15,6 +15,7 @@ import {
 	sweepExpiredDeliverables,
 	sweepOrphanedDeliverableBytes,
 } from "./deliverables";
+import { findBlobs } from "$lib/server/blobs/testing";
 
 // The number `nextVersionNumber` returns is left real; the race tests below
 // override it once each, for the moment when a concurrent save's row has landed
@@ -521,20 +522,14 @@ describe("orphaned deliverable bytes", () => {
 		if (!row) throw new Error("no row");
 		// What the old TTL index did: the row goes, the bytes stay.
 		await collections.codeExecutionOutputs.deleteOne({ _id: row._id });
-		expect(await collections.codeOutputBucket.find({ _id: row.gridFsId }).toArray()).toHaveLength(
-			1
-		);
+		expect(await findBlobs({ _id: row.gridFsId }, "codeOutputs")).toHaveLength(1);
 
 		// Inside the grace period an upload may still be waiting for its row.
 		await sweepOrphanedDeliverableBytes(Date.now());
-		expect(await collections.codeOutputBucket.find({ _id: row.gridFsId }).toArray()).toHaveLength(
-			1
-		);
+		expect(await findBlobs({ _id: row.gridFsId }, "codeOutputs")).toHaveLength(1);
 
 		await sweepOrphanedDeliverableBytes(Date.now() + 2 * 60 * 60 * 1000);
-		expect(await collections.codeOutputBucket.find({ _id: row.gridFsId }).toArray()).toHaveLength(
-			0
-		);
+		expect(await findBlobs({ _id: row.gridFsId }, "codeOutputs")).toHaveLength(0);
 	});
 
 	it("never frees bytes a row still names", async () => {

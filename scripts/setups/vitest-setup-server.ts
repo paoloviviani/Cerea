@@ -41,6 +41,14 @@ for (const [key, value] of Object.entries(envVars)) {
 	}
 }
 
+// The blob store backend under test: `CHAT_BLOB_STORE=s3` plus `CHAT_S3_*` in the
+// shell run the same specs against an S3-compatible server (see docs/storage.md).
+for (const [key, value] of Object.entries(process.env)) {
+	if ((key === "CHAT_BLOB_STORE" || key.startsWith("CHAT_S3_")) && value !== undefined) {
+		privateEnv[key] = value;
+	}
+}
+
 // The OAuth redirect URI for MCP connectors is built from this, and there is
 // no request to infer it from, so a connector test without it fails on the
 // origin rather than on what it is testing. `.env` ships it empty; the value

@@ -9,13 +9,17 @@ vi.mock("$lib/server/database", () => ({
 		conversations: { findOne: vi.fn(async () => (found.conversation ? { _id: 1 } : null)) },
 	},
 }));
-vi.mock("$lib/server/execution/deliverables", () => ({
-	downloadDeliverable: vi.fn(async () => ({
-		buffer: Buffer.from("<svg onload=alert(1)/>"),
-		mime: "image/png",
-		name: 'fig"ure-1.png',
-	})),
-}));
+vi.mock("$lib/server/execution/deliverables", async () => {
+	const { Readable } = await import("node:stream");
+	return {
+		openDeliverable: vi.fn(async () => ({
+			stream: Readable.from([Buffer.from("<svg onload=alert(1)/>")]),
+			size: 22,
+			mime: "image/png",
+			name: 'fig"ure-1.png',
+		})),
+	};
+});
 
 import { GET } from "./+server";
 
@@ -38,6 +42,8 @@ describe("code-execution output route headers", () => {
 		expect(res.headers.get("content-disposition")).toMatch(/^attachment; filename="/);
 		expect(res.headers.get("content-disposition")).not.toContain('"fig"');
 		expect(res.headers.get("content-type")).toBe("image/png");
+		expect(res.headers.get("content-length")).toBe("22");
+		expect(await res.text()).toBe("<svg onload=alert(1)/>");
 	});
 
 	it("refuses a conversation the caller does not own", async () => {

@@ -33,6 +33,7 @@ vi.mock("$lib/server/knowledgeEnabled", () => ({
 
 import { projectContext, DEFAULT_RETRIEVAL_LIMIT } from "$lib/server/projects";
 import type { Project } from "$lib/types/Project";
+import { removeBlobs } from "$lib/server/blobs/testing";
 
 beforeAll(async () => {
 	const { ready } = await import("$lib/server/database");
@@ -245,7 +246,7 @@ describe("projectContext: the five levels, in order", () => {
 		await collections.projects.deleteMany({ _id: projectId });
 		await collections.projectMemories.deleteMany({ projectId });
 		await collections.projectDocuments.deleteMany({ projectId });
-		await collections.bucketFiles.deleteMany({ "metadata.conversation": `project:${projectId}` });
+		await removeBlobs({ "metadata.conversation": `project:${projectId}` });
 		const now = new Date();
 		await collections.projects.insertOne({
 			_id: projectId,

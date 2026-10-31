@@ -9,7 +9,6 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { ObjectId } from "bson";
-import type { GridFSBucket } from "mongodb";
 
 import { collections } from "$lib/server/database";
 import { config } from "$lib/server/config";
@@ -915,22 +914,13 @@ export async function ingestDocument(
 	return finished;
 }
 
-function bucket(): GridFSBucket {
-	return collections.bucket;
-}
-
-async function readStoredFile(fileId: ObjectId): Promise<Buffer> {
-	const chunks: Buffer[] = [];
-	const stream = bucket().openDownloadStream(fileId);
-	for await (const chunk of stream) {
-		chunks.push(chunk as Buffer);
-	}
-	return Buffer.concat(chunks);
+function readStoredFile(fileId: ObjectId): Promise<Buffer> {
+	return collections.blobStore.read("files", fileId);
 }
 
 async function storedFileMime(fileId: ObjectId): Promise<string> {
-	const file = await bucket().find({ _id: fileId }).next();
-	return (file?.metadata?.mime as string | undefined) ?? "application/octet-stream";
+	const file = await collections.blobStore.stat("files", fileId);
+	return (file?.metadata.mime as string | undefined) ?? "application/octet-stream";
 }
 
 /**
@@ -954,8 +944,11 @@ export async function storeUpload(
 	const mime = await knowledgeUploadMime(file.bytes, file.name);
 	if (!mime) throw new KnowledgeError(415, refusalMessage(file.bytes));
 	const id = new ObjectId();
-	return new Promise((resolve, reject) => {
-		const upload = bucket().openUploadStreamWithId(id, file.name, {
+	await collections.blobStore.put(
+		"files",
+		{
+			id,
+			filename: file.name,
 			// The digest is what attachFile compares to tell a re-upload of the
 			// same file from a new one.
 			metadata: {
@@ -963,27 +956,20 @@ export async function storeUpload(
 				owner: ownerId.toString(),
 				sha256: createHash("sha256").update(file.bytes).digest("hex"),
 			},
-		});
-		upload.write(file.bytes);
-		upload.end();
-		upload.once("finish", () =>
-			resolve({ id: id.toString(), filename: file.name, bytes: file.bytes.length })
-		);
-		upload.once("error", reject);
-		setTimeout(() => reject(new KnowledgeError(504, "Upload timed out")), 60_000);
-	});
+		},
+		file.bytes
+	);
+	return { id: id.toString(), filename: file.name, bytes: file.bytes.length };
 }
 
 /** Delete an upload that was never attached, or no longer needed. */
 export async function deleteUpload(fileId: string, caller: Caller): Promise<void> {
-	const file = await bucket()
-		.find({ _id: new ObjectId(fileId) })
-		.next();
+	const file = await collections.blobStore.stat("files", new ObjectId(fileId));
 	if (!file) throw new KnowledgeError(404, `No such file: ${fileId}`);
 	if (file.metadata?.owner !== caller.userId.toString()) {
 		throw new KnowledgeError(404, `No such file: ${fileId}`);
 	}
-	await bucket().delete(new ObjectId(fileId));
+	await collections.blobStore.delete("files", new ObjectId(fileId));
 }
 
 // -- the API surface ----------------------------------------------------------
@@ -1013,7 +999,7 @@ export async function attachFile(
 		throw new KnowledgeError(503, NO_READER_MESSAGE);
 	}
 	const fileId = new ObjectId(body.file_id);
-	const stored = await bucket().find({ _id: fileId }).next();
+	const stored = await collections.blobStore.stat("files", fileId);
 	// A file belongs to one person: indexing somebody else's upload into a
 	// base you happen to be able to edit would read their document through
 	// search.
@@ -1031,14 +1017,11 @@ export async function attachFile(
 	const sameBytes = sha
 		? new Set(
 				(
-					await collections.bucketFiles
-						.find({
-							_id: { $in: inStore.flatMap((d) => (d.fileId ? [d.fileId] : [])) },
-							"metadata.sha256": sha,
-						})
-						.project<{ _id: ObjectId }>({ _id: 1 })
-						.toArray()
-				).map((f) => f._id.toString())
+					await collections.blobStore.find("files", {
+						_id: { $in: inStore.flatMap((d) => (d.fileId ? [d.fileId] : [])) },
+						"metadata.sha256": sha,
+					})
+				).map((f) => f.id.toString())
 			)
 		: new Set<string>();
 	const twin = inStore.find(
@@ -1046,9 +1029,7 @@ export async function attachFile(
 	);
 	if (twin) {
 		if (!twin.fileId?.equals(fileId)) {
-			await bucket()
-				.delete(fileId)
-				.catch(() => undefined);
+			await collections.blobStore.delete("files", fileId).catch(() => undefined);
 		}
 		if (opts?.background) {
 			if (twin.status === "failed") {
@@ -1323,7 +1304,7 @@ export async function readDocumentDownload(
 	if (!document.fileId) {
 		throw new KnowledgeError(404, `"${document.title}" has no original file to download.`);
 	}
-	const stored = await bucket().find({ _id: document.fileId }).next();
+	const stored = await collections.blobStore.stat("files", document.fileId);
 	if (!stored) throw new KnowledgeError(404, "No such document.");
 	// The declared length first: refusing before the body is read, the same
 	// boundary the upload and execution paths enforce, rather than streaming

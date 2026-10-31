@@ -22,6 +22,8 @@ import { buildProjectDocumentsBlock, projectOwnerKey } from "$lib/server/project
 import { DELETE as deleteProject } from "../+server";
 import { DELETE } from "./[docId]/+server";
 import { GET, POST } from "./+server";
+import { removeBlobs } from "$lib/server/blobs/testing";
+import { findBlobs } from "$lib/server/blobs/testing";
 
 beforeAll(async () => {
 	await ready;
@@ -33,7 +35,7 @@ afterEach(async () => {
 	await cleanupTestData();
 	await collections.projects.deleteMany({});
 	await collections.projectDocuments.deleteMany({});
-	await collections.bucketFiles.deleteMany({ "metadata.conversation": /^project:/ });
+	await removeBlobs({ "metadata.conversation": /^project:/ });
 });
 
 async function setup() {
@@ -101,9 +103,7 @@ describe("/api/v2/projects/[id]/documents", () => {
 			mine: true,
 			addedBy: "Test User",
 		});
-		const files = await collections.bucketFiles
-			.find({ "metadata.conversation": projectOwnerKey(projectId) })
-			.toArray();
+		const files = await findBlobs({ "metadata.conversation": projectOwnerKey(projectId) });
 		// The original and the extracted text, both tagged with the document.
 		expect(files).toHaveLength(2);
 		expect(files.every((f) => f.metadata?.messageId === data.document.id)).toBe(true);
@@ -169,7 +169,7 @@ describe("/api/v2/projects/[id]/documents", () => {
 		expect((await res.json()).message).toMatch(/slower and more expensive/);
 		expect(await collections.projectDocuments.countDocuments({ projectId })).toBe(1);
 		expect(
-			await collections.bucketFiles.countDocuments({
+			await collections.blobStore.count("files", {
 				"metadata.conversation": projectOwnerKey(projectId),
 			})
 		).toBe(2);
@@ -264,7 +264,7 @@ describe("/api/v2/projects/[id]/documents", () => {
 		const one = await (await upload(projectId, ownerLocals, "one.txt", "first")).json();
 		await upload(projectId, ownerLocals, "two.txt", "second");
 		const stored = () =>
-			collections.bucketFiles.countDocuments({
+			collections.blobStore.count("files", {
 				"metadata.conversation": projectOwnerKey(projectId),
 			});
 		expect(await stored()).toBe(4);

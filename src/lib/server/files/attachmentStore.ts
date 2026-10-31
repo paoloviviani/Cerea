@@ -4,7 +4,7 @@
  *
  * A coding-agent session (or any other surface) that wants what a person
  * sent it to still render after a reload stores it here. There is no second
- * store — this is the same GridFS bucket, the same writer (`writeAttachment`,
+ * store — this is the same blob store, the same writer (`writeAttachment`,
  * which `uploadFile` also goes through), the same `<owner>-<sha>` naming and
  * the same `metadata.conversation` ownership tag that `downloadFile` checks.
  * The only difference is what goes in the tag: a namespaced **owner key**
@@ -21,12 +21,10 @@
  * caller is the surface's job (`codeAttachments.ts` for `/code`).
  */
 
-import { ObjectId } from "mongodb";
-
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import type { ExtractionFailureKind, MessageFile } from "$lib/types/Message";
-import { downloadFile } from "./downloadFile";
+import { downloadFile, openFile } from "./downloadFile";
 import { writeAttachment } from "./uploadFile";
 
 /** `<surface>:<rest>`, where the surface is a lowercase word and the rest is id-safe. */
@@ -78,21 +76,22 @@ interface StoredMetadata {
 
 /**
  * The `MessageFile`s sent with one message, in the order they were stored —
- * what `storeAttachment` returned for them, rebuilt from the bucket alone.
+ * what `storeAttachment` returned for them, rebuilt from the store alone.
  * An extracted-text entry is folded into its document's `extracted` rather
  * than listed on its own, as it is in chat's messages.
  */
 export async function findAttachments(ownerKey: string, messageId: string): Promise<MessageFile[]> {
 	assertOwnerKey(ownerKey);
 	assertMessageId(messageId);
-	const rows = await collections.bucket
-		.find({ "metadata.conversation": ownerKey, "metadata.messageId": messageId })
-		.sort({ uploadDate: 1, _id: 1 })
-		.toArray();
+	const rows = await collections.blobStore.find(
+		"files",
+		{ "metadata.conversation": ownerKey, "metadata.messageId": messageId },
+		{ sort: { uploadDate: 1, _id: 1 } }
+	);
 
 	const texts = new Map<string, { value: string; pages: number }>();
 	for (const row of rows) {
-		const meta = row.metadata as StoredMetadata | undefined;
+		const meta = row.metadata as unknown as StoredMetadata | undefined;
 		if (meta?.extractedFrom && meta.sha) {
 			texts.set(meta.extractedFrom, { value: meta.sha, pages: meta.pages ?? 0 });
 		}
@@ -101,7 +100,7 @@ export async function findAttachments(ownerKey: string, messageId: string): Prom
 	const files: MessageFile[] = [];
 	const seen = new Set<string>();
 	for (const row of rows) {
-		const meta = row.metadata as StoredMetadata | undefined;
+		const meta = row.metadata as unknown as StoredMetadata | undefined;
 		if (!meta?.sha || meta.extractedFrom) continue;
 		// The same file attached twice to one message is one attachment.
 		if (seen.has(meta.sha)) continue;
@@ -131,28 +130,26 @@ export async function readAttachment(sha256: string, ownerKey: string) {
 	return downloadFile(sha256, ownerKey);
 }
 
+/** The same, as a stream: what a route answers with. */
+export async function openAttachment(sha256: string, ownerKey: string) {
+	assertOwnerKey(ownerKey);
+	return openFile(sha256, ownerKey);
+}
+
 async function deleteMatching(filter: Record<string, unknown>): Promise<number> {
-	const files = await collections.bucket
-		.find(filter)
-		.project<{ _id: ObjectId }>({ _id: 1 })
-		.toArray();
-	// As `deleteConversationAttachments`: `bucket.delete` removes chunks too,
-	// and one failure must not strand the rest.
-	const results = await Promise.all(
-		files.map((file) =>
-			collections.bucket.delete(file._id).then(
-				() => true,
-				(err) => {
-					logger.error(
-						{ err, fileId: file._id.toString() },
-						"failed to delete owner-keyed attachment bytes"
-					);
-					return false;
-				}
-			)
-		)
+	const files = await collections.blobStore.find("files", filter);
+	// As `deleteConversationAttachments`: one failure must not strand the rest.
+	const { deleted, failed } = await collections.blobStore.deleteMany(
+		"files",
+		files.map((file) => file.id)
 	);
-	return results.filter(Boolean).length;
+	for (const { id, error } of failed) {
+		logger.error(
+			{ err: error, fileId: id.toString() },
+			"failed to delete owner-keyed attachment bytes"
+		);
+	}
+	return deleted;
 }
 
 /** Delete every file stored under one owner key (one agent session). */

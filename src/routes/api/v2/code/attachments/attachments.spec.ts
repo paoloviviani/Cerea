@@ -149,7 +149,7 @@ describe("ownership", () => {
 		expect(await status(list(listEvent(bob, key, "m")))).toBe(404);
 		expect(await status(serve(serveEvent(bob, key, file.value)))).toBe(404);
 		// Nothing was written under alice's key by bob's attempt.
-		expect(await collections.bucketFiles.countDocuments({ "metadata.conversation": key })).toBe(1);
+		expect(await collections.blobStore.count("files", { "metadata.conversation": key })).toBe(1);
 	});
 
 	it("does not serve a file under a different session's key on the same device", async () => {
@@ -195,7 +195,7 @@ describe("limits", () => {
 		expect(await status(upload(uploadEvent(alice, key, formWith("m", exe))))).toBe(400);
 		expect(await status(upload(uploadEvent(alice, key, formWith(null, png()))))).toBe(400);
 		expect(await status(upload(uploadEvent(alice, key, formWith("m"))))).toBe(400);
-		expect(await collections.bucketFiles.countDocuments({ "metadata.conversation": key })).toBe(0);
+		expect(await collections.blobStore.count("files", { "metadata.conversation": key })).toBe(0);
 	});
 });
 
@@ -214,9 +214,9 @@ describe("revoke", () => {
 		const prefix = (id: string) => ({ "metadata.conversation": { $regex: `^code:${id}:` } });
 		// The revocation answers first; its GridFS clean-up runs behind the response.
 		await vi.waitFor(async () => {
-			expect(await collections.bucketFiles.countDocuments(prefix(device))).toBe(0);
+			expect(await collections.blobStore.count("files", prefix(device))).toBe(0);
 		});
-		expect(await collections.bucketFiles.countDocuments(prefix(other))).toBe(1);
+		expect(await collections.blobStore.count("files", prefix(other))).toBe(1);
 	});
 
 	it("does not delete anything when somebody else tries to revoke the device", async () => {
@@ -225,7 +225,7 @@ describe("revoke", () => {
 		const url = new URL(`http://localhost/api/v2/code/devices?id=${device}`);
 		expect(await status(revoke({ locals: bob, url } as unknown as Event<typeof revoke>))).toBe(404);
 		expect(
-			await collections.bucketFiles.countDocuments({
+			await collections.blobStore.count("files", {
 				"metadata.conversation": `code:${device}:ses_1`,
 			})
 		).toBe(1);

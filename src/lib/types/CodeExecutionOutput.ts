@@ -8,7 +8,7 @@ import type { User } from "./User";
  * survives a reload and works from another device — the same trust model as
  * a message attachment, not a new one.
  *
- * Bytes live in the `codeOutputs` GridFS bucket (`collections.codeOutputBucket`),
+ * Bytes live in the blob store's `codeOutputs` bucket (`collections.blobStore`),
  * keyed by `gridFsId`; this row is the access-checked index over them (by
  * conversation + content hash, for dedup and lookup) and the TTL anchor.
  * Deleting a conversation deletes its rows and bytes together
@@ -25,7 +25,7 @@ export interface CodeExecutionOutput {
 	name: string;
 	mime: string;
 	size: number;
-	/** Id of the GridFS file in the `codeOutputs` bucket carrying the bytes. */
+	/** Id of the blob in the `codeOutputs` bucket carrying the bytes (the name predates the blob store). */
 	gridFsId: ObjectId;
 	/**
 	 * Set when a tool made this file from another one of the conversation (a

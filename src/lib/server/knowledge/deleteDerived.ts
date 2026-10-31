@@ -56,11 +56,6 @@ function list<T>(value: One<T> | undefined): T[] {
 	return Array.isArray(value) ? value : [value];
 }
 
-/** GridFS's "no such file": already deleted, which is what idempotent means. */
-function isFileNotFound(err: unknown): boolean {
-	return err instanceof Error && /FileNotFound|File not found/i.test(err.message);
-}
-
 export async function deleteDerived(target: DerivedTarget): Promise<DerivedCounts> {
 	const conversationRefs = list(target.conversationId).map(conversationSourceRef);
 	const documentIds = list(target.documentIds);
@@ -99,7 +94,7 @@ export async function deleteDerived(target: DerivedTarget): Promise<DerivedCount
 		});
 	}
 
-	// 2. GridFS: the uploaded bytes — unless a document that is staying still
+	// 2. Blob store: the uploaded bytes — unless a document that is staying still
 	// points at the same file.
 	const fileIds = docs.flatMap((doc) => (doc.fileId ? [doc.fileId] : []));
 	let files = 0;
@@ -115,15 +110,13 @@ export async function deleteDerived(target: DerivedTarget): Promise<DerivedCount
 		const doomed = [...new Set(fileIds.map((id) => id.toString()))]
 			.filter((id) => !stillUsed.has(id))
 			.map((id) => new ObjectId(id));
-		const results = await Promise.allSettled(doomed.map((id) => collections.bucket.delete(id)));
-		const failed = results.filter(
-			(r): r is PromiseRejectedResult => r.status === "rejected" && !isFileNotFound(r.reason)
-		);
-		files = results.length - failed.length;
-		if (failed.length > 0) {
+		// A blob already gone counts as deleted: that is what idempotent means.
+		const result = await collections.blobStore.deleteMany("files", doomed);
+		files = result.deleted;
+		if (result.failed.length > 0) {
 			// Thrown before the Mongo rows go: the rows are what a retry finds.
-			logger.error({ failed: failed.length }, "knowledge_derived_file_delete_failed");
-			throw failed[0].reason;
+			logger.error({ failed: result.failed.length }, "knowledge_derived_file_delete_failed");
+			throw result.failed[0].error;
 		}
 	}
 

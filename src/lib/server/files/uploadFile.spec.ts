@@ -30,6 +30,7 @@ import {
 	storeDeliverable,
 } from "$lib/server/execution/deliverables";
 import { listFileVersions } from "$lib/server/textGeneration/builtinTools/conversationFiles";
+import { findBlobs } from "$lib/server/blobs/testing";
 
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -151,9 +152,7 @@ describe("uploadFile: a failure keeps its reason", () => {
 			kind: "refused",
 			reason: "this is a legacy .doc and antiword is not installed",
 		});
-		const rows = await collections.bucket
-			.find({ "metadata.conversation": conv._id.toString() })
-			.toArray();
+		const rows = await findBlobs({ "metadata.conversation": conv._id.toString() });
 		expect(rows).toHaveLength(1);
 	});
 
@@ -207,9 +206,10 @@ describe("uploadFile: pages rendered to page images", () => {
 		expect(stored.extracted).toBeDefined();
 		expect(stored.pageImages).toMatchObject({ pageCount: 3, scannedTotal: 9, truncated: true });
 		expect(stored.pageImages?.files.map((f) => f.page)).toEqual([2, 3]);
-		const rows = await collections.bucket
-			.find({ "metadata.conversation": conv._id.toString(), "metadata.mime": "image/jpeg" })
-			.toArray();
+		const rows = await findBlobs({
+			"metadata.conversation": conv._id.toString(),
+			"metadata.mime": "image/jpeg",
+		});
 		expect(rows).toHaveLength(2);
 		for (const file of stored.pageImages?.files ?? []) {
 			expect(rows.some((row) => row.filename === `${conv._id}-${file.value}`)).toBe(true);
@@ -218,7 +218,7 @@ describe("uploadFile: pages rendered to page images", () => {
 		// They go with the conversation, like any attachment.
 		await deleteConversationStorage(conv._id);
 		expect(
-			await collections.bucketFiles.countDocuments({ "metadata.conversation": conv._id.toString() })
+			await collections.blobStore.count("files", { "metadata.conversation": conv._id.toString() })
 		).toBe(0);
 	});
 
@@ -230,7 +230,7 @@ describe("uploadFile: pages rendered to page images", () => {
 
 		expect(stored.pageImages?.files).toHaveLength(2);
 		expect(
-			await collections.bucketFiles.countDocuments({
+			await collections.blobStore.count("files", {
 				"metadata.conversation": conv._id.toString(),
 				"metadata.mime": "image/jpeg",
 			})

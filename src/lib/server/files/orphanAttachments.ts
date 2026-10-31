@@ -45,6 +45,8 @@ export interface OrphanAttachmentCounts {
 	shares: number;
 	/** Office previews whose source files are all gone (`office/previewStore.ts`). */
 	previews: number;
+	/** S3 objects no index row names (a crash between the write and the row). */
+	objects: number;
 }
 
 const OBJECT_ID = /^[0-9a-f]{24}$/;
@@ -146,30 +148,30 @@ async function sweepOrphanShares(): Promise<number> {
 
 /** One pass. Throws only on a database failure; the caller logs and moves on. */
 export async function sweepOrphanAttachments(now = new Date()): Promise<OrphanAttachmentCounts> {
-	const counts: OrphanAttachmentCounts = { files: 0, shares: 0, previews: 0 };
+	const counts: OrphanAttachmentCounts = { files: 0, shares: 0, previews: 0, objects: 0 };
 	// Shares first, so the copies they leave are found as dead tags below at
 	// the latest, and the ones they delete here are not counted twice.
 	counts.shares = await sweepOrphanShares();
 
 	const cutoff = new Date(now.getTime() - ATTACHMENT_GRACE_MS);
-	const tags = (await collections.bucketFiles.distinct("metadata.conversation", {
+	const tags = (await collections.blobStore.distinct("files", "metadata.conversation", {
 		"metadata.conversation": { $type: "string" },
 		uploadDate: { $lt: cutoff },
 	})) as string[];
 
 	for (const batch of batches(tags)) {
 		for (const tag of await deadTags(batch)) {
-			const files = await collections.bucketFiles
-				.find({ "metadata.conversation": tag, uploadDate: { $lt: cutoff } })
-				.project<{ _id: ObjectId }>({ _id: 1 })
-				.toArray();
+			const files = await collections.blobStore.find("files", {
+				"metadata.conversation": tag,
+				uploadDate: { $lt: cutoff },
+			});
 			for (const file of files) {
 				try {
-					await collections.bucket.delete(file._id);
+					await collections.blobStore.delete("files", file.id);
 					counts.files++;
 				} catch (err) {
 					logger.warn(
-						{ err, fileId: file._id.toString(), owner: tag },
+						{ err, fileId: file.id.toString(), owner: tag },
 						"orphan_attachment_delete_failed"
 					);
 				}
@@ -179,5 +181,7 @@ export async function sweepOrphanAttachments(now = new Date()): Promise<OrphanAt
 	// Last, so the previews of the files deleted just above are already
 	// without a source.
 	counts.previews = await sweepOrphanPreviews();
+	// S3 only: objects written right before a crash have no row to find them by.
+	counts.objects = (await collections.blobStore.sweepOrphanObjects?.()) ?? 0;
 	return counts;
 }

@@ -2,7 +2,7 @@ import {
 	CONVERSATION_TEXT_INDEX_KEYS,
 	CONVERSATION_TEXT_INDEX_OPTIONS,
 } from "./conversationTextIndex";
-import { GridFSBucket, MongoClient, ReadPreference, type Collection, type Document } from "mongodb";
+import { MongoClient, ReadPreference, type Collection, type Document } from "mongodb";
 import type { Conversation } from "$lib/types/Conversation";
 import type {
 	KnowledgeConfig,
@@ -39,6 +39,8 @@ import type { WebFetchCacheEntry } from "$lib/types/WebFetchCache";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { mongoMemoryVersion } from "./mongoMemoryVersion";
 import { ensureLegacyOpenssl } from "./legacyOpenssl";
+import { env as privateEnv } from "$env/dynamic/private";
+import { blobStoreFromEnv } from "./blobs";
 import { logger } from "$lib/server/logger";
 import { building } from "$app/environment";
 import { onExit } from "./exitHandler";
@@ -293,16 +295,22 @@ export class Database {
 		const scheduleGrants = db.collection<ScheduleGrant>("scheduleGrants");
 		// Browsers a person turned Web Push on for (`server/push/`).
 		const pushSubscriptions = db.collection<PushSubscriptionRow>("pushSubscriptions");
-		const bucket = new GridFSBucket(db, { bucketName: "files" });
-		// The bucket's own file documents, for indexing only — reads and
-		// deletes go through `bucket`, which also handles the chunks.
-		const bucketFiles = db.collection("files.files");
+		// Every stored file (attachments, deliverables, knowledge uploads,
+		// previews) goes through the blob store: GridFS by default, an
+		// S3-compatible bucket when CHAT_BLOB_STORE=s3. See `blobs/types.ts`.
+		const blobStore = (() => {
+			try {
+				return blobStoreFromEnv(db, (key) => privateEnv[key]);
+			} catch (err) {
+				logger.error(err, "[blobs] Invalid blob store configuration; refusing to start");
+				throw err;
+			}
+		})();
 		// Computed `execute_code` deliverables (ADR 0073's amendment): a separate
 		// bucket from message attachments so a conversation's deliverables can be
 		// listed and wiped as a unit (deletion, TTL sweep) without a collection
 		// scan over unrelated attachment bytes.
 		const codeExecutionOutputs = db.collection<CodeExecutionOutput>("codeExecutionOutputs");
-		const codeOutputBucket = new GridFSBucket(db, { bucketName: "codeOutputs" });
 		// Which message a code block's or an artifact cell's stored files belong
 		// to (see CodeRunFiles.ts); the bytes stay in `codeOutputs`.
 		const codeRunFiles = db.collection<CodeRunFiles>("codeRunFiles");
@@ -350,10 +358,8 @@ export class Database {
 			users,
 			sessions,
 			messageEvents,
-			bucket,
-			bucketFiles,
+			blobStore,
 			codeExecutionOutputs,
-			codeOutputBucket,
 			codeRunFiles,
 			webFetchCache,
 			migrationResults,
@@ -406,9 +412,18 @@ export class Database {
 			codeExecutionOutputs,
 			codeRunFiles,
 			webFetchCache,
-			bucketFiles,
+			blobStore,
 			erasures,
 		} = this.getCollections();
+
+		// Refuse to boot on an unusable blob store, with the reason in the log.
+		try {
+			await blobStore.selfCheck();
+		} catch (err) {
+			logger.error(err, "[blobs] The blob store is not usable; refusing to start");
+			throw err;
+		}
+		logger.info({ backend: blobStore.kind }, "[blobs] Blob store ready");
 
 		conversations
 			.createIndex(
@@ -994,23 +1009,7 @@ export class Database {
 			.createIndex({ userId: 1, machineId: 1 }, { unique: true })
 			.catch((e) => logger.error(e, "Error creating unique index for codeDevices by machineId"));
 
-		// Attachments by owner tag (and, for owner-keyed surfaces, the message
-		// they were sent with): `attachmentStore.findAttachments` runs once per
-		// user message on every transcript load, and both it and the deletions
-		// by owner — chat's `deleteConversationAttachments`, a device revoke's
-		// anchored-prefix delete — would otherwise scan the whole bucket.
-		bucketFiles
-			.createIndex({ "metadata.conversation": 1, "metadata.messageId": 1 })
-			.catch((e) => logger.error(e, "Error creating index for attachment owner tags"));
-		// Office previews (`office/previewStore.ts`) name the source files that use
-		// them in `metadata.owners`; releasing a deleted conversation's files
-		// matches those by prefix.
-		bucketFiles
-			.createIndex(
-				{ "metadata.owners": 1 },
-				{ partialFilterExpression: { "metadata.preview": true } }
-			)
-			.catch((e) => logger.error(e, "Error creating index for office preview owners"));
+		await blobStore.ensureIndexes();
 	}
 }
 

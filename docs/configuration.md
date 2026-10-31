@@ -123,6 +123,22 @@ chat against Pystino and for a chat against any other endpoint.
 | `CHAT_USAGE_ENABLED`             | `true` shows the "Usage & billing" settings tab: the person's quotas and spend read from the gateway. Needs `OPENAI_BASE_URL`; without a gateway the tab stays hidden                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `CHAT_CONSOLE_ENABLED`           | `true` when this origin serves the Pystino console at `/console`, so the admin panel links to it. Leave empty for a satellite or generic deployment                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
+## File storage
+
+Where the chat keeps files: [File storage](storage.md) explains the backends, bring-your-own S3 examples and the migration.
+
+| Variable                                             | What                                                                                                                                                              |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CHAT_BLOB_STORE`                                    | `gridfs` (default: files inside MongoDB) or `s3` (an S3-compatible bucket). Do not change it on a deployment that holds files without running the migration first |
+| `CHAT_S3_ENDPOINT`                                   | The S3-compatible store's URL. Empty means AWS S3                                                                                                                 |
+| `CHAT_S3_REGION`                                     | The region; required on AWS, `us-east-1` by default elsewhere                                                                                                     |
+| `CHAT_S3_BUCKET`                                     | The bucket (required with `s3`)                                                                                                                                   |
+| `CHAT_S3_ACCESS_KEY_ID`, `CHAT_S3_SECRET_ACCESS_KEY` | The keys, both or neither; neither uses the standard AWS credential chain                                                                                         |
+| `CHAT_S3_FORCE_PATH_STYLE`                           | `true` for `host/bucket/key` addressing (default with an endpoint), `false` for `bucket.host` (default on AWS)                                                    |
+| `CHAT_S3_PREFIX`                                     | A key prefix, to share a bucket between deployments                                                                                                               |
+| `CHAT_S3_SSE`, `CHAT_S3_SSE_KMS_KEY_ID`              | Server-side encryption: `AES256` or `aws:kms` with a key                                                                                                          |
+| `CHAT_S3_CREATE_BUCKET`                              | `true` creates a missing bucket at start                                                                                                                          |
+
 ## Web fetch
 
 | Variable                             | What                                                                                                                                                                                                                                                                                                                                                                                                                               |

@@ -13,20 +13,13 @@ import {
 	type Extraction,
 } from "./extractDocument";
 
-/** One GridFS entry, resolved when the write has actually landed. */
+/** One blob-store entry, resolved when the write has actually landed. */
 export async function store(
 	name: string,
 	bytes: Buffer,
 	metadata: Record<string, string | number>
 ): Promise<void> {
-	const upload = collections.bucket.openUploadStream(name, { metadata });
-	upload.write(bytes);
-	upload.end();
-	await new Promise<void>((resolve, reject) => {
-		upload.once("finish", () => resolve());
-		upload.once("error", reject);
-		setTimeout(() => reject(new Error("Upload timed out")), 20_000);
-	});
+	await collections.blobStore.put("files", { filename: name, metadata }, bytes);
 }
 
 /**

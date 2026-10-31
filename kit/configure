@@ -52,6 +52,10 @@ AUTHELIA_INTERNAL = "http://authelia:9091/authelia"
 PLAYWRIGHT_ENDPOINT = "ws://playwright:3000/"
 #: Where the chat reaches Gotenberg, on the office profile's internal network.
 GOTENBERG_ENDPOINT = "http://gotenberg:3000"
+#: Where the chat reaches the bundled object store (the rustfs profile), on its
+#: internal network, and the bucket it keeps files in.
+RUSTFS_ENDPOINT = "http://rustfs:9000"
+RUSTFS_BUCKET = "cerea"
 DEFAULT_UPSTREAM = "https://api.cortecs.ai/v1"
 FIRST_SIGN_IN = "first-sign-in.txt"
 TLS_MODES = ("acme", "internal", "upstream")
@@ -176,7 +180,7 @@ PRESETS = {
         ),
     )
 }
-PROFILES = ("gateway", "chat", "authelia", "redaction", "documents", "fetch", "office")
+PROFILES = ("gateway", "chat", "authelia", "redaction", "documents", "fetch", "office", "rustfs")
 
 #: configuration.yml's template quotes these with Authelia's own `msquote`,
 #: which does not escape an embedded quote (an unescaped `'` still ends a
@@ -940,6 +944,9 @@ class Answers:
     # Office previews and the convert_document tool (the office profile:
     # Gotenberg). Off unless asked for; None leaves it as it is.
     office: bool | None = None
+    # The bundled S3-compatible object store for the chat's files (the rustfs
+    # profile: RustFS). Off unless asked for; None leaves it as it is.
+    rustfs: bool | None = None
     project: str | None = None
     http_port: int | None = None
     https_port: int | None = None
@@ -1011,6 +1018,7 @@ def answers_from(values: dict) -> Answers:
         agents=values.get("CODE_AGENTS_ENABLED", "") == "true",
         terminal=values.get("CODE_TERMINAL_ENABLED", "") == "true",
         office="office" in profiles,
+        rustfs="rustfs" in profiles,
     )
 
 
@@ -1089,6 +1097,17 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         profiles.append("office")
     elif answers.office is False:
         profiles = [p for p in profiles if p != "office"]
+    if answers.rustfs is True and "rustfs" not in profiles:
+        profiles.append("rustfs")
+    elif answers.rustfs is False:
+        if values.get("CHAT_BLOB_STORE") == "s3" and values.get("CHAT_S3_ENDPOINT") == RUSTFS_ENDPOINT:
+            raise ConfigError(
+                "the chat keeps its files in the bundled object store (CHAT_BLOB_STORE=s3 at "
+                f"{RUSTFS_ENDPOINT}): removing the rustfs profile would make them unreachable. "
+                "Copy them elsewhere first (docs/storage.md), then set CHAT_BLOB_STORE and CHAT_S3_* "
+                "to the new store and remove the profile by hand"
+            )
+        profiles = [p for p in profiles if p != "rustfs"]
     profiles = [p for p in PROFILES if p in profiles] + [p for p in profiles if p not in PROFILES]
     values["COMPOSE_PROFILES"] = ",".join(dict.fromkeys(profiles))
     # The chat's renderer address follows the fetch profile. An address that
@@ -1114,6 +1133,39 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
             f"office previews off, but CHAT_GOTENBERG_URL points at a converter elsewhere "
             f"({values['CHAT_GOTENBERG_URL']}): left as it is"
         )
+    # The chat's file store follows the rustfs profile. The profile always gets
+    # its address, bucket and keys (minted once, never re-minted: they are what
+    # the stored files are reachable with). Whether the chat *uses* it is a
+    # separate switch, CHAT_BLOB_STORE: a fresh install gets s3, but an existing
+    # install keeps GridFS until the operator has copied its files across
+    # (docs/storage.md), because flipping the store under existing files would
+    # hide every one of them. A store that is not ours (BYO S3) is left alone.
+    if "rustfs" in profiles:
+        foreign = values.get("CHAT_S3_ENDPOINT") not in (None, "", RUSTFS_ENDPOINT)
+        if foreign:
+            notes.append(
+                f"object store profile on, but CHAT_S3_ENDPOINT points at a store elsewhere "
+                f"({values['CHAT_S3_ENDPOINT']}): left as it is"
+            )
+        else:
+            values["CHAT_S3_ENDPOINT"] = RUSTFS_ENDPOINT
+            values["CHAT_S3_REGION"] = values.get("CHAT_S3_REGION") or "us-east-1"
+            values["CHAT_S3_BUCKET"] = values.get("CHAT_S3_BUCKET") or RUSTFS_BUCKET
+            values["CHAT_S3_FORCE_PATH_STYLE"] = "true"
+            values["CHAT_S3_CREATE_BUCKET"] = "true"
+            if not values.get("CHAT_S3_ACCESS_KEY_ID"):
+                values["CHAT_S3_ACCESS_KEY_ID"] = mint(10)
+            if not values.get("CHAT_S3_SECRET_ACCESS_KEY"):
+                values["CHAT_S3_SECRET_ACCESS_KEY"] = mint(32)
+            if fresh and "CHAT_BLOB_STORE" not in existing:
+                values["CHAT_BLOB_STORE"] = "s3"
+            elif values.get("CHAT_BLOB_STORE") != "s3":
+                notes.append(
+                    "the object store (RustFS) is running, but the chat still keeps its files in "
+                    "MongoDB. To move them: scripts/blobs-migrate.mjs, then CHAT_BLOB_STORE='s3' "
+                    "(docs/storage.md)"
+                )
+
     # --- MongoDB ------------------------------------------------------------------
     # Chosen once, for a fresh install, and then the operator's. An existing
     # .env without the key now means compose's default, MongoDB 8, which cannot
@@ -1710,6 +1762,22 @@ def check_values(values: dict, report: Report) -> None:
             f"CHAT_GOTENBERG_URL points at {GOTENBERG_ENDPOINT} but the office profile is off: "
             "every preview and conversion will fail. Unset it, or add office to COMPOSE_PROFILES"
         )
+    store = values.get("CHAT_BLOB_STORE", "")
+    if store not in ("", "gridfs", "s3"):
+        report.errors.append(f"CHAT_BLOB_STORE='{store}' is not 'gridfs' or 's3'")
+    if store == "s3" and not values.get("CHAT_S3_BUCKET"):
+        report.errors.append("CHAT_BLOB_STORE='s3' needs CHAT_S3_BUCKET (and, outside AWS, CHAT_S3_ENDPOINT)")
+    if "rustfs" in profiles:
+        if not (values.get("CHAT_S3_ACCESS_KEY_ID") and values.get("CHAT_S3_SECRET_ACCESS_KEY")):
+            report.errors.append(
+                "the rustfs profile is on but CHAT_S3_ACCESS_KEY_ID / CHAT_S3_SECRET_ACCESS_KEY are empty: "
+                "run ./configure --object-store to mint them"
+            )
+    elif store == "s3" and values.get("CHAT_S3_ENDPOINT") == RUSTFS_ENDPOINT:
+        report.warnings.append(
+            f"CHAT_S3_ENDPOINT points at {RUSTFS_ENDPOINT} but the rustfs profile is off: every file "
+            "will fail to load. Add rustfs to COMPOSE_PROFILES, or point the chat at another store"
+        )
     if values.get("FETCH_BACKEND") == "playwright" and not endpoint:
         report.warnings.append(
             "FETCH_BACKEND=playwright with no renderer (PLAYWRIGHT_WS_ENDPOINT empty): web fetch "
@@ -2040,6 +2108,15 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
             },
             "yes" if answers.office else "no",
         ) == "yes"
+    if "rustfs" not in given and not existing:
+        answers.rustfs = choose(
+            "File storage (attachments, generated files, uploads):",
+            {
+                "no": "MongoDB (GridFS), as before (recommended unless you want an S3-compatible store)",
+                "yes": "RustFS, a bundled S3-compatible object store (or set CHAT_S3_* afterwards for your own S3)",
+            },
+            "yes" if answers.rustfs else "no",
+        ) == "yes"
     if answers.preset == "generic" and "upstream_api_key" not in given:
         answers.upstream_base_url = ask(
             "OpenAI-compatible endpoint", existing.get("CHAT_OPENAI_BASE_URL", DEFAULT_UPSTREAM)
@@ -2202,6 +2279,9 @@ def cmd_configure(args, root: Path) -> int:
     print(f"  browser   {'on (fetch profile)' if fetch_on else 'off'}")
     office_on = "office" in values["COMPOSE_PROFILES"].split(",")
     print(f"  office    {'on (Gotenberg previews and convert_document)' if office_on else 'off'}")
+    rustfs_on = "rustfs" in values["COMPOSE_PROFILES"].split(",")
+    store = "s3" if values.get("CHAT_BLOB_STORE") == "s3" else "MongoDB (GridFS)"
+    print(f"  files     {store}{'  (bundled RustFS)' if rustfs_on else ''}")
     print(f"  identity  {values['OIDC_ISSUER']}   (scopes: {values['OIDC_SCOPES']})")
     print()
     print("next:  ./configure --check  &&  docker compose up -d --wait")
@@ -2401,6 +2481,10 @@ def parser() -> argparse.ArgumentParser:
     o.add_argument("--office-preview", dest="office", action=argparse.BooleanOptionalAction, default=None,
                    help="Office documents as PDF previews, and the convert_document tool, through Gotenberg "
                         "(the office profile; off by default); --no-office-preview removes it")
+    o.add_argument("--object-store", dest="rustfs", action=argparse.BooleanOptionalAction, default=None,
+                   help="a bundled S3-compatible object store (RustFS, the rustfs profile; off by default) for "
+                        "the chat's files. A fresh install uses it at once; an existing one keeps MongoDB until "
+                        "its files are copied (docs/storage.md). --no-object-store removes it")
     o.add_argument("--project", help="compose project name (default cerea)")
     o.add_argument("--http-port", type=int, help="host port for HTTP (upstream mode: what the front forwards to)")
     o.add_argument("--https-port", type=int, help="host port for HTTPS")
