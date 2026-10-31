@@ -7,7 +7,7 @@ const { state, transcribeMock, fetchMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("$lib/server/dictation", () => ({ dictationMode: () => state.mode }));
-vi.mock("$lib/server/apiToken", () => ({ getApiToken: () => state.token }));
+vi.mock("$lib/server/apiToken", () => ({ getApiToken: () => "deployment-key" }));
 vi.mock("$lib/server/config", () => ({
 	config: {
 		get: (key: string) => (key === "TRANSCRIPTION_MODEL" ? "legacy-whisper" : ""),
@@ -100,13 +100,16 @@ describe("POST /api/transcribe through the gateway", () => {
 describe("POST /api/transcribe with the deprecated direct endpoint", () => {
 	it("still goes direct when it is set, without touching the gateway path", async () => {
 		state.legacy = true;
+		const calls = fetchMock.mock.calls;
 		fetchMock.mockResolvedValue(
 			new Response(JSON.stringify({ text: " legacy text " }), { status: 200 })
 		);
 		const res = await post(new Uint8Array([1, 2]));
 
 		expect(await res.json()).toEqual({ text: "legacy text" });
-		expect(fetchMock.mock.calls[0][0]).toBe("https://stt.example.org/models/legacy-whisper");
+		expect(calls[0][0]).toBe("https://stt.example.org/models/legacy-whisper");
+		// The credential it always had, as before.
+		expect(calls[0][1].headers.Authorization).toBe("Bearer deployment-key");
 		expect(transcribeMock).not.toHaveBeenCalled();
 	});
 });

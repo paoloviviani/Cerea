@@ -118,7 +118,8 @@ test("an attached audio file is transcribed once and the model reads the transcr
 	await expect(page.locator("audio[controls]")).toHaveAttribute("src", /\/output\/[a-f0-9]{64}$/);
 
 	// A second question is not another transcription.
-	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Close" }).click();
+	await expect(page.getByTestId("audio-panel")).toBeHidden();
 	await page.getByPlaceholder("Ask anything").fill("and then?");
 	await page.getByRole("button", { name: "Send message" }).click();
 	await expect(page.locator('[data-message-role="assistant"]')).toHaveCount(2);
@@ -138,7 +139,18 @@ test("dictation by the transcription model puts the transcript in the message bo
 		Object.defineProperty(navigator, "mediaDevices", {
 			configurable: true,
 			value: {
-				getUserMedia: async () => new AudioContext().createMediaStreamDestination().stream,
+				getUserMedia: async () => {
+					// A quiet tone: a context with nothing playing into it records no chunks.
+					const context = new AudioContext();
+					await context.resume();
+					const tone = context.createOscillator();
+					const gain = context.createGain();
+					gain.gain.value = 0.001;
+					const destination = context.createMediaStreamDestination();
+					tone.connect(gain).connect(destination);
+					tone.start();
+					return destination.stream;
+				},
 			},
 		});
 	});

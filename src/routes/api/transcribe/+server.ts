@@ -41,7 +41,9 @@ export async function POST({ request, locals }) {
 	if (dictationMode() !== "model") {
 		throw error(403, "Dictation by a transcription model is not turned on.");
 	}
-	const token = getApiToken(locals);
+	// Through the gateway it is always the user's own token (metering, groups,
+	// bill-to); the deprecated direct endpoint keeps the credential it always had.
+	const token = legacyTranscriptionConfigured() ? getApiToken(locals) : locals.token;
 
 	if (!token) {
 		throw error(401, "Authentication required");
