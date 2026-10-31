@@ -117,7 +117,7 @@ describe.skipIf(!(mongoUrl && endpoint))("blobs-migrate", () => {
 			})
 		);
 
-		const result = await migrate({ ...options(), deleteSource: true });
+		const result = await migrate({ ...options(), deleteSource: true, activeStore: "s3" });
 		expect(result.failed).toBe(1);
 		expect(await source.stat("files", bad.id)).not.toBeNull();
 		expect(await source.stat("files", fine.id)).toBeNull();
@@ -125,5 +125,92 @@ describe.skipIf(!(mongoUrl && endpoint))("blobs-migrate", () => {
 		expect(
 			await new GridFSBucket(db, { bucketName: "files" }).find({ _id: bad.id }).hasNext()
 		).toBe(true);
+	}, 120_000);
+
+	/** A database and store of its own, so a case sees only what it seeds. */
+	async function fresh() {
+		const own = client.db(`blobs-migrate-${new ObjectId().toHexString()}`);
+		const config = { ...s3, prefix: `migrate-${randomBytes(3).toString("hex")}/` };
+		const store = new S3BlobStore(own, config, target.client);
+		const run = (extra: Record<string, unknown> = {}) =>
+			migrate({
+				db: own,
+				target: { kind: "s3", s3: config },
+				client: target.client,
+				log: quiet,
+				...extra,
+			});
+		return { own, store, source: new GridFsBlobStore(own), run };
+	}
+
+	it("never resurrects a file deleted after the switch, and leaves unverified GridFS files alone", async () => {
+		const { store, source, run } = await fresh();
+		const gone = await source.put("files", { filename: "gone", metadata: {} }, Buffer.from("gone"));
+		const kept = await source.put("files", { filename: "kept", metadata: {} }, Buffer.from("kept"));
+		await run();
+		// The chat is on s3 now and a user deletes one file there.
+		await store.delete("files", gone.id);
+
+		const catchUp = await run({ activeStore: "s3" });
+		expect(catchUp).toMatchObject({ migrated: 0, notCopied: 1, failed: 0 });
+		expect(await store.stat("files", gone.id)).toBeNull();
+		await expect(store.open("files", gone.id)).rejects.toThrow();
+
+		const cleanup = await run({ activeStore: "s3", deleteSource: true });
+		expect(cleanup).toMatchObject({ deleted: 1, notCopied: 1, failed: 0 });
+		expect(await source.stat("files", kept.id)).toBeNull();
+		// The unverified one stays in GridFS: nothing proved it safe to drop.
+		expect(await source.stat("files", gone.id)).not.toBeNull();
+		expect(await store.stat("files", gone.id)).toBeNull();
+		expect((await store.read("files", kept.id)).toString()).toBe("kept");
+	}, 120_000);
+
+	it("removes from S3 what was deleted in GridFS before the switch", async () => {
+		const { store, source, run } = await fresh();
+		const doomed = await source.put("files", { filename: "d", metadata: {} }, Buffer.from("d"));
+		await run();
+		await source.delete("files", doomed.id);
+
+		const dry = await run({ dryRun: true });
+		expect(dry.wouldPrune).toBe(1);
+		expect(await store.stat("files", doomed.id)).not.toBeNull();
+
+		expect(await run()).toMatchObject({ pruned: 1, failed: 0 });
+		expect(await store.stat("files", doomed.id)).toBeNull();
+		await expect(store.open("files", doomed.id)).rejects.toThrow();
+	}, 120_000);
+
+	it("refreshes the metadata of files already copied", async () => {
+		const { store, source, run } = await fresh();
+		const file = await source.put(
+			"files",
+			{ filename: "m", metadata: { owner: "old", owners: ["a"] } },
+			Buffer.from("m")
+		);
+		await run();
+		// An owner merge and a preview owner list change in GridFS after the copy.
+		await source.update("files", { _id: file.id }, { $set: { "metadata.owner": "new" } });
+		await source.update("files", { _id: file.id }, { $addToSet: { "metadata.owners": "b" } });
+
+		expect(await run()).toMatchObject({ migrated: 0, refreshed: 1 });
+		expect((await store.stat("files", file.id))?.metadata).toMatchObject({
+			owner: "new",
+			owners: ["a", "b"],
+		});
+		expect(await run()).toMatchObject({ refreshed: 0 });
+	}, 120_000);
+
+	it("refuses --delete-source while the chat is still on GridFS, and never prunes what it deleted itself", async () => {
+		const { store, source, run } = await fresh();
+		const file = await source.put("files", { filename: "x", metadata: {} }, Buffer.from("x"));
+		await run();
+		await expect(run({ deleteSource: true })).rejects.toThrow(/CHAT_BLOB_STORE=s3/);
+		expect(await source.stat("files", file.id)).not.toBeNull();
+
+		await run({ activeStore: "s3", deleteSource: true });
+		expect(await source.stat("files", file.id)).toBeNull();
+		// A mistaken re-run on the GridFS setting must not treat the deleted source as a deletion.
+		expect(await run()).toMatchObject({ pruned: 0 });
+		expect((await store.read("files", file.id)).toString()).toBe("x");
 	}, 120_000);
 });

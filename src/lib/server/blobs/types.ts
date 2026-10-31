@@ -122,6 +122,13 @@ export interface BlobStore {
 		ids: readonly ObjectId[]
 	): Promise<{ deleted: number; failed: { id: ObjectId; error: unknown }[] }>;
 
+	/**
+	 * Backends whose bytes live outside the index (S3): delete objects no row
+	 * names, once older than `olderThanMs` (default an hour, so an upload in
+	 * flight is safe). Returns how many were deleted.
+	 */
+	sweepOrphanObjects?(options?: { olderThanMs?: number; now?: number }): Promise<number>;
+
 	ensureIndexes(): Promise<void>;
 	/** Boot check: throws with a clear message when the store cannot be used. */
 	selfCheck(): Promise<void>;

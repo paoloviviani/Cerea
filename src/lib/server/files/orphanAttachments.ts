@@ -45,6 +45,8 @@ export interface OrphanAttachmentCounts {
 	shares: number;
 	/** Office previews whose source files are all gone (`office/previewStore.ts`). */
 	previews: number;
+	/** S3 objects no index row names (a crash between the write and the row). */
+	objects: number;
 }
 
 const OBJECT_ID = /^[0-9a-f]{24}$/;
@@ -146,7 +148,7 @@ async function sweepOrphanShares(): Promise<number> {
 
 /** One pass. Throws only on a database failure; the caller logs and moves on. */
 export async function sweepOrphanAttachments(now = new Date()): Promise<OrphanAttachmentCounts> {
-	const counts: OrphanAttachmentCounts = { files: 0, shares: 0, previews: 0 };
+	const counts: OrphanAttachmentCounts = { files: 0, shares: 0, previews: 0, objects: 0 };
 	// Shares first, so the copies they leave are found as dead tags below at
 	// the latest, and the ones they delete here are not counted twice.
 	counts.shares = await sweepOrphanShares();
@@ -179,5 +181,7 @@ export async function sweepOrphanAttachments(now = new Date()): Promise<OrphanAt
 	// Last, so the previews of the files deleted just above are already
 	// without a source.
 	counts.previews = await sweepOrphanPreviews();
+	// S3 only: objects written right before a crash have no row to find them by.
+	counts.objects = (await collections.blobStore.sweepOrphanObjects?.()) ?? 0;
 	return counts;
 }

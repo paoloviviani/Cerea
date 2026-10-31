@@ -57,8 +57,34 @@ All are environment variables of the chat (in the kit, `.env`).
 | `CHAT_S3_SSE`                                        | Server-side encryption: `AES256`, or `aws:kms` (with `CHAT_S3_SSE_KMS_KEY_ID` to name the key). Empty leaves it to the bucket's default.                                               |
 | `CHAT_S3_CREATE_BUCKET`                              | `true` creates the bucket at start when it does not exist. The kit sets it for its own RustFS.                                                                                         |
 
-The credentials need to put, get, head and delete objects under the prefix,
-and, with `CHAT_S3_CREATE_BUCKET`, to create the bucket. Listing is not needed.
+The credentials need, on AWS S3 and most other stores, `s3:ListBucket` on the
+bucket (the start-up check heads the bucket with it, the daily sweep lists the
+prefix for objects no record names, and without it a missing object answers
+403 instead of 404) and `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject` on
+the objects under the prefix. With `CHAT_S3_CREATE_BUCKET`, also
+`s3:CreateBucket`. A least-privilege AWS policy for prefix `prod/`:
+
+```json
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Action": "s3:ListBucket",
+			"Resource": "arn:aws:s3:::example-cerea-files",
+			"Condition": { "StringLike": { "s3:prefix": ["prod/*"] } }
+		},
+		{
+			"Effect": "Allow",
+			"Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+			"Resource": "arn:aws:s3:::example-cerea-files/prod/*"
+		}
+	]
+}
+```
+
+Bulk deletes use `DeleteObjects`; a store that rejects it is handled (the chat
+falls back to one request per object and says so at start).
 
 ### Examples
 
@@ -134,37 +160,49 @@ idempotent and resumable, and it never deletes anything unless you ask.
    docker compose exec chat node scripts/blobs-migrate.mjs --dry-run
    ```
 
-4. **Copy.** Users can keep working; the chat is still on GridFS:
+4. **First copy.** Users can keep working; the chat is still on GridFS:
 
    ```sh
    docker compose exec chat node scripts/blobs-migrate.mjs --verify
    ```
 
-   It prints progress, and a summary: copied, already there, failed. A file
-   that fails is reported with its id and the reason; the exit status is 1.
-   Fix the cause and run it again: files already copied are skipped.
+   It prints progress and a summary: copied, already there, failed. A file that
+   fails is reported with its id and the reason (exit status 1): fix the cause
+   and run it again, files already copied are skipped. Each re-run also
+   refreshes the metadata of files copied earlier and removes from the bucket
+   files that were deleted in GridFS since.
 
-5. **Switch.** Set `CHAT_BLOB_STORE=s3` and restart the chat (in the kit:
-   `docker compose up -d`). The start-up check must pass.
-6. **Catch up.** Files uploaded between step 4 and the restart are still only in
-   GridFS. Run the copy once more; it copies just those:
+5. **Final copy, with the chat stopped.** Stop the chat so nothing changes
+   while the last differences are copied, then run the tool in a one-off
+   container:
 
    ```sh
-   docker compose exec chat node scripts/blobs-migrate.mjs --verify
+   docker compose stop chat
+   docker compose run --rm chat node scripts/blobs-migrate.mjs --verify
    ```
 
+6. **Switch and start.** Set `CHAT_BLOB_STORE=s3` and start the chat
+   (`docker compose up -d`). The start-up check must pass.
 7. **Verify** in the app: open an old conversation with an attachment, download a
    generated file, open a knowledge-base document. Nothing should be missing.
-8. **Clean up**, once you are satisfied and have a backup of the bucket. This
-   reads both copies back, compares size and sha256, and deletes each GridFS
-   copy only after its own comparison succeeded:
+8. **Clean up**, once you are satisfied and have a backup of the bucket. With the
+   chat on s3 the tool copies nothing: it reads both copies back, compares size
+   and sha256, and deletes a GridFS copy only when its bucket copy verified.
+   GridFS files with no verified copy (deleted since the switch) are left alone
+   and reported:
 
    ```sh
    docker compose exec chat node scripts/blobs-migrate.mjs --delete-source
    ```
 
-   MongoDB then keeps the index and nothing else. Its disk space comes back
-   after a compaction or an initial sync of a replica; plan for that.
+   It refuses to run unless `CHAT_BLOB_STORE=s3`. MongoDB then keeps the index
+   and nothing else; its disk space comes back after a compaction or an initial
+   sync of a replica.
+
+**Never run the copy (steps 4 and 5) after the switch**, and do not switch back
+to GridFS on a deployment that has run on s3: the tool refuses to copy while
+`CHAT_BLOB_STORE=s3`, because a file a user deleted since the switch would
+otherwise come back from the old GridFS copy.
 
 Options: `--bucket files|codeOutputs|all` (default all), `--concurrency N`
 (default 4), `--verify` (compare sha256 of both copies; implied by

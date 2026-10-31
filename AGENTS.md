@@ -1424,9 +1424,14 @@ directory**: `blobs/seam.spec.ts` fails the build if you do (only
   contract suite runs on both backends (`TEST_S3_ENDPOINT` enables the S3
   half); run any server spec on S3 with `CHAT_BLOB_STORE=s3` and `CHAT_S3_*`
   (the server setup passes them through). CI does both against RustFS.
-- Not built: pre-signed direct downloads (files are streamed through the app),
-  and a sweep for S3 objects with no index row (a crash between the PUT and the
-  row insert leaves one).
+- S3 objects with no index row (a crash between the PUT and the row insert) are
+  swept daily by `sweepOrphanObjects`, called from `sweepOrphanAttachments`
+  (older than an hour, prefix listing: the credentials need `s3:ListBucket`).
+  `deleteMany` falls back to per-object deletes if the store rejects
+  `DeleteObjects`. Not built: pre-signed direct downloads (files are streamed
+  through the app).
+- The migration tool never copies while `CHAT_BLOB_STORE=s3` (a file deleted
+  since the switch would come back): see the procedure in `docs/storage.md`.
 - `docs/storage.md` is the operator page, including the migration procedure.
 
 ## Office previews and `convert_document`

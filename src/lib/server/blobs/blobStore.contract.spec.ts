@@ -6,6 +6,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -317,5 +318,57 @@ describe.skipIf(!(mongoUrl && s3Endpoint))("S3 store specifics", () => {
 		// attempt used the same key, so the original must still be readable if the store kept it.
 		expect(await store.stat("files", id)).not.toBeNull();
 		await store.deleteMany("files", [id]);
+	});
+
+	/** A client that fails the commands named, otherwise the real thing. */
+	function failing(...commands: string[]) {
+		const real = new S3BlobStore(db, s3Config()).client;
+		const wrapped = Object.create(real);
+		wrapped.send = (command: { constructor: { name: string } }) =>
+			commands.includes(command.constructor.name)
+				? Promise.reject(Object.assign(new Error("MissingContentMD5"), { name: "InvalidRequest" }))
+				: real.send(command as never);
+		return wrapped;
+	}
+
+	it("falls back to one request per object when the store rejects DeleteObjects", async () => {
+		const store = new S3BlobStore(db, s3Config(), failing("DeleteObjectsCommand"));
+		const a = await store.put("files", { filename: "f1" }, Buffer.from("1"));
+		const b = await store.put("files", { filename: "f2" }, Buffer.from("2"));
+		expect(await store.deleteMany("files", [a.id, b.id])).toEqual({ deleted: 2, failed: [] });
+		expect(await store.count("files", { _id: { $in: [a.id, b.id] } })).toBe(0);
+		await expect(store.open("files", a.id)).rejects.toBeInstanceOf(BlobNotFoundError);
+		// The boot probe tolerates it too.
+		await store.selfCheck();
+	});
+
+	it("destroys the caller's stream when the upload fails", async () => {
+		const store = new S3BlobStore(db, s3Config(), failing("PutObjectCommand"));
+		const source = Readable.from([Buffer.from("never stored")]);
+		await expect(store.put("files", { filename: "bad" }, source)).rejects.toThrow();
+		expect(source.destroyed).toBe(true);
+		expect(await store.count("files", { filename: "bad" })).toBe(0);
+	});
+
+	it("sweeps objects no row names, once they are old enough", async () => {
+		const config = s3Config({ prefix: `sweep-${randomBytes(3).toString("hex")}/` });
+		const store = new S3BlobStore(db, config);
+		const named = await store.put("files", { filename: "named" }, Buffer.from("n"));
+		const orphan = new ObjectId();
+		await store.client.send(
+			new PutObjectCommand({
+				Bucket: config.bucket,
+				Key: store.key("files", orphan),
+				Body: Buffer.from("o"),
+			})
+		);
+		// Too recent: an upload may still be waiting for its row.
+		expect(await store.sweepOrphanObjects()).toBe(0);
+		const later = { now: Date.now() + 2 * 3600 * 1000 };
+		expect(await store.sweepOrphanObjects(later)).toBe(1);
+		await expect(store.open("files", orphan)).rejects.toBeInstanceOf(BlobNotFoundError);
+		expect((await store.read("files", named.id)).toString()).toBe("n");
+		expect(await store.sweepOrphanObjects(later)).toBe(0);
+		await store.delete("files", named.id);
 	});
 });

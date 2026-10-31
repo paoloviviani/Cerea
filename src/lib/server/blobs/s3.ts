@@ -7,6 +7,7 @@ import {
 	GetObjectCommand,
 	HeadBucketCommand,
 	HeadObjectCommand,
+	ListObjectsV2Command,
 	S3Client,
 	type ServerSideEncryption,
 } from "@aws-sdk/client-s3";
@@ -132,7 +133,13 @@ export class S3BlobStore extends IndexedBlobStore {
 			queueSize: 4,
 			leavePartsOnError: false,
 		});
-		await upload.done();
+		try {
+			await upload.done();
+		} catch (err) {
+			// A failed upload must not leave the caller's stream open and flowing.
+			source.destroy(err instanceof Error ? err : new Error(String(err)));
+			throw err;
+		}
 
 		const row = {
 			_id: id,
@@ -194,6 +201,7 @@ export class S3BlobStore extends IndexedBlobStore {
 		let deleted = 0;
 		for (let i = 0; i < ids.length; i += 1000) {
 			const batch = ids.slice(i, i + 1000);
+			const done: ObjectId[] = [];
 			try {
 				const out = await this.client.send(
 					new DeleteObjectsCommand({
@@ -204,19 +212,75 @@ export class S3BlobStore extends IndexedBlobStore {
 				const errors = new Map(
 					(out.Errors ?? []).map((e) => [e.Key ?? "", e.Message ?? e.Code ?? "delete failed"])
 				);
-				const done: ObjectId[] = [];
 				for (const id of batch) {
 					const message = errors.get(this.key(bucket, id));
 					if (message) failed.push({ id, error: new Error(message) });
 					else done.push(id);
 				}
-				await this.index.deleteMany({ _id: { $in: done }, bucket });
-				deleted += done.length;
-			} catch (error) {
-				for (const id of batch) failed.push({ id, error });
+			} catch (batchError) {
+				// Some S3-compatible stores reject the bulk call outright (a checksum
+				// header they do not know, a missing Content-MD5): fall back to one
+				// DeleteObject per blob, which every store takes.
+				logger.warn({ err: batchError }, "[blobs] DeleteObjects failed; deleting one by one");
+				for (const id of batch) {
+					try {
+						await this.deleteObject(this.key(bucket, id));
+						done.push(id);
+					} catch (error) {
+						failed.push({ id, error });
+					}
+				}
 			}
+			await this.index.deleteMany({ _id: { $in: done }, bucket });
+			deleted += done.length;
 		}
 		return { deleted, failed };
+	}
+
+	async sweepOrphanObjects(options?: { olderThanMs?: number; now?: number }): Promise<number> {
+		const cutoff = (options?.now ?? Date.now()) - (options?.olderThanMs ?? 60 * 60 * 1000);
+		let removed = 0;
+		for (const bucket of ["files", "codeOutputs"] as const) {
+			const prefix = `${this.config.prefix}${bucket}/`;
+			let token: string | undefined;
+			do {
+				const page = await this.client.send(
+					new ListObjectsV2Command({
+						Bucket: this.config.bucket,
+						Prefix: prefix,
+						ContinuationToken: token,
+					})
+				);
+				token = page.IsTruncated ? page.NextContinuationToken : undefined;
+				const old = (page.Contents ?? []).filter(
+					(o) => o.Key && o.LastModified && o.LastModified.getTime() < cutoff
+				);
+				const candidates = old.flatMap((o) => {
+					const id = (o.Key as string).slice(prefix.length);
+					return /^[0-9a-f]{24}$/.test(id) ? [{ key: o.Key as string, id: new ObjectId(id) }] : [];
+				});
+				if (candidates.length === 0) continue;
+				const named = new Set(
+					(
+						await this.index
+							.find({ bucket, _id: { $in: candidates.map((c) => c.id) } })
+							.project<{ _id: ObjectId }>({ _id: 1 })
+							.toArray()
+					).map((r) => r._id.toString())
+				);
+				for (const c of candidates) {
+					if (named.has(c.id.toString())) continue;
+					try {
+						await this.deleteObject(c.key);
+						removed += 1;
+					} catch (err) {
+						logger.warn({ err, key: c.key }, "[blobs] could not delete an orphaned object");
+					}
+				}
+			} while (token);
+		}
+		if (removed > 0) logger.info({ count: removed }, "[blobs] freed S3 objects no row names");
+		return removed;
 	}
 
 	async ensureIndexes(): Promise<void> {
@@ -273,6 +337,24 @@ export class S3BlobStore extends IndexedBlobStore {
 				params: { Bucket, Key, Body: payload, ...this.sse() },
 			}).done();
 			await this.client.send(new HeadObjectCommand({ Bucket, Key }));
+			// The bulk delete is what erasure uses; some stores reject it, which
+			// `deleteMany` survives, but say so at boot rather than first in a log.
+			const bulk = `${this.config.prefix}.cerea-probe/${randomUUID()}`;
+			await new Upload({
+				client: this.client,
+				params: { Bucket, Key: bulk, Body: payload, ...this.sse() },
+			}).done();
+			await this.client
+				.send(
+					new DeleteObjectsCommand({ Bucket, Delete: { Objects: [{ Key: bulk }], Quiet: true } })
+				)
+				.catch(async (err) => {
+					logger.warn(
+						{ err },
+						"[blobs] This store rejects DeleteObjects; bulk deletes fall back to one request each"
+					);
+					await this.deleteObject(bulk);
+				});
 			const out = await this.client.send(new GetObjectCommand({ Bucket, Key }));
 			const back = Buffer.from((await out.Body?.transformToByteArray()) ?? []);
 			if (!back.equals(payload)) throw new Error("the probe object read back different bytes");

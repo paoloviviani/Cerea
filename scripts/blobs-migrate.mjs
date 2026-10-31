@@ -37,6 +37,7 @@ import { parseArgs } from "node:util";
 
 import {
 	CreateBucketCommand,
+	DeleteObjectCommand,
 	GetObjectCommand,
 	HeadBucketCommand,
 	HeadObjectCommand,
@@ -89,11 +90,31 @@ export async function migrate({
 	verify = false,
 	deleteSource = false,
 	concurrency = 4,
+	activeStore = "gridfs",
 	log = console.log,
 }) {
 	const s3 = target.s3;
+	// While the chat runs on s3 the bucket is the truth: files deleted since the
+	// switch must not come back, so nothing is copied, refreshed or pruned then.
+	const copying = activeStore !== "s3";
+	if (deleteSource && copying) {
+		throw new Error(
+			"--delete-source needs CHAT_BLOB_STORE=s3: delete the GridFS copies only after the chat has switched"
+		);
+	}
 	if (deleteSource) verify = true;
-	const totals = { migrated: 0, skipped: 0, failed: 0, deleted: 0, bytes: 0, wouldCopy: 0 };
+	const totals = {
+		migrated: 0,
+		skipped: 0,
+		failed: 0,
+		deleted: 0,
+		bytes: 0,
+		wouldCopy: 0,
+		refreshed: 0,
+		pruned: 0,
+		wouldPrune: 0,
+		notCopied: 0,
+	};
 	const index = db.collection(INDEX);
 	const sse = s3.sse
 		? { ServerSideEncryption: s3.sse, ...(s3.kmsKeyId ? { SSEKMSKeyId: s3.kmsKeyId } : {}) }
@@ -150,12 +171,35 @@ export async function migrate({
 			const Key = keyOf(row._id);
 			const existing = await index.findOne({ _id: row._id });
 			let copied = false;
-			if (
+			if (!copying) {
+				// s3 is live. A GridFS file with no row here was deleted since the
+				// switch (or never copied): report it, never resurrect it.
+				if (!existing || existing.sourceDeleted) {
+					totals.notCopied += 1;
+					log(`[${name}] skipped ${row._id} (${row.filename}): no verified copy in S3`);
+					return;
+				}
+				totals.skipped += 1;
+			} else if (
 				existing &&
 				existing.length === row.length &&
 				(await head(Key))?.ContentLength === row.length
 			) {
 				totals.skipped += 1;
+				// Metadata changes made in GridFS since the copy (an owner merge, preview owners).
+				const fresh = {
+					filename: row.filename,
+					uploadDate: row.uploadDate,
+					metadata: row.metadata ?? {},
+				};
+				const same =
+					existing.filename === fresh.filename &&
+					+existing.uploadDate === +fresh.uploadDate &&
+					JSON.stringify(existing.metadata ?? {}) === JSON.stringify(fresh.metadata);
+				if (!same) {
+					if (!dryRun) await index.updateOne({ _id: row._id }, { $set: fresh });
+					totals.refreshed += 1;
+				}
 			} else if (dryRun) {
 				totals.wouldCopy += 1;
 				totals.bytes += row.length;
@@ -215,6 +259,7 @@ export async function migrate({
 			}
 			if (deleteSource && !dryRun) {
 				await gridfs.delete(row._id);
+				await index.updateOne({ _id: row._id }, { $set: { sourceDeleted: true } });
 				totals.deleted += 1;
 			}
 			return copied;
@@ -245,12 +290,36 @@ export async function migrate({
 			if (running.size >= concurrency) await Promise.race(running);
 		}
 		await Promise.all(running);
+
+		// Copied files whose GridFS source has since been deleted (by a user, an
+		// erasure, a sweep) go too, so the bucket does not keep what the chat dropped.
+		if (copying) {
+			for await (const row of index.find({
+				bucket: name,
+				migratedFrom: "gridfs",
+				sourceDeleted: { $ne: true },
+			})) {
+				if (await files.countDocuments({ _id: row._id }, { limit: 1 })) continue;
+				if (dryRun) {
+					totals.wouldPrune += 1;
+					continue;
+				}
+				try {
+					await client.send(new DeleteObjectCommand({ Bucket: s3.bucket, Key: keyOf(row._id) }));
+					await index.deleteOne({ _id: row._id });
+					totals.pruned += 1;
+				} catch (err) {
+					totals.failed += 1;
+					log(`[${name}] FAILED to prune ${row._id}: ${err?.message ?? err}`);
+				}
+			}
+		}
 	}
 
 	log(
 		dryRun
-			? `Dry run: ${totals.wouldCopy} file(s), ${totals.bytes} byte(s) to copy; ${totals.skipped} already in S3.`
-			: `Done: ${totals.migrated} copied (${totals.bytes} bytes), ${totals.skipped} already there, ${totals.deleted} GridFS copies deleted, ${totals.failed} failed.`
+			? `Dry run: ${totals.wouldCopy} file(s), ${totals.bytes} byte(s) to copy; ${totals.skipped} already in S3 (${totals.refreshed} with changed metadata); ${totals.wouldPrune} to remove from S3 (deleted in GridFS).`
+			: `Done: ${totals.migrated} copied (${totals.bytes} bytes), ${totals.skipped} already there (${totals.refreshed} metadata refreshed), ${totals.pruned} removed from S3 (deleted in GridFS), ${totals.deleted} GridFS copies deleted, ${totals.notCopied} GridFS files with no verified copy left alone, ${totals.failed} failed.`
 	);
 	return totals;
 }
@@ -279,6 +348,13 @@ async function main() {
 	// The target is described by the same settings the app reads, with the
 	// backend forced to s3: the copy runs before CHAT_BLOB_STORE is switched.
 	const target = readBlobConfig((key) => (key === "CHAT_BLOB_STORE" ? "s3" : process.env[key]));
+	const activeStore = (process.env.CHAT_BLOB_STORE || "gridfs").trim().toLowerCase();
+	if (values["delete-source"] && activeStore !== "s3") {
+		console.error(
+			"--delete-source needs CHAT_BLOB_STORE=s3: switch the chat first (docs/storage.md), then delete the GridFS copies."
+		);
+		return 2;
+	}
 	const url = process.env.MONGODB_URL;
 	if (!url) {
 		console.error("MONGODB_URL is not set.");
@@ -295,6 +371,7 @@ async function main() {
 			verify: values.verify,
 			deleteSource: values["delete-source"],
 			concurrency: Math.max(1, Number(values.concurrency) || 4),
+			activeStore,
 		});
 		return totals.failed > 0 ? 1 : 0;
 	} finally {
