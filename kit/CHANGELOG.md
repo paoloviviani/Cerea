@@ -5,6 +5,30 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.34.2 — 2026-10-31
+
+Pins: Cerea `0.34.2` (chat and `cerea-documents`), Pystino `0.20.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required.
+
+- **Code runs survive the phone being locked.** When the page goes to the background while
+  the assistant's Python is starting or running, the turn waits for it (up to 15 minutes,
+  `CODE_PAUSED_WAIT_MS`) instead of giving up after a couple of minutes; a warm-up cut off by
+  the lock starts again when the page is back, and the assistant gets the real output. The code
+  card says "Runs in this browser — keep the page open until it finishes" on longer runs, and
+  the screen stays on while code runs.
+- **New admin setting `CHAT_CODE_EXECUTION`** (`browser`, the default, or `off`). `off` turns
+  off every way the assistant runs code. It prepares a server-side sandbox, which is not
+  available yet (`server` currently behaves as `off` and logs a warning). The older
+  `CHAT_CODE_TOOL_ENABLED` keeps its meaning under `browser`.
+- **Installing packages from PyPI is on by default.** Code may now fetch pure-Python packages
+  from the public PyPI index unless a user turns it off in Settings, so users who never touched
+  the setting get it on. The administrator switch `CHAT_PYODIDE_PYPI_DISABLED=true` still turns it
+  off for everyone, and then the setting is no longer shown.
+- **The files pane states the real retention.** It said files are kept for 30 days whatever
+  Administration → Storage was set to; it now shows the configured period, or nothing when files
+  never expire, and the assistant is told the same.
+
 ## v0.34.1 — 2026-10-30
 
 Pins: Cerea `0.34.1` (chat and `cerea-documents`), Pystino `0.20.0`.
