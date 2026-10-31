@@ -42,6 +42,9 @@ jobs:
           # The example leaves every secret empty, which compose refuses: fill them.
           sed -E "s/^([A-Z_]*(PASSWORD|SECRET|KEY|DIGEST)[A-Z_]*)=''$/\\1='ci-placeholder'/" .env.example > .env
           COMPOSE_PROFILES=gateway,chat,authelia,redaction,fetch docker compose config -q
+          # The bundled object store needs its keys: ./configure --object-store mints them.
+          CHAT_S3_ACCESS_KEY_ID=ci-access CHAT_S3_SECRET_ACCESS_KEY=ci-placeholder-secret \
+            COMPOSE_PROFILES=gateway,chat,authelia,redaction,fetch,office,rustfs docker compose config -q
           PYSTINO_REGISTRY=local PYSTINO_VERSION=ci docker compose -f compose.yaml -f dev/smoke.yaml config -q
       - name: the Caddyfile is valid in all three TLS modes
         run: |

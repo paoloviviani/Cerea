@@ -81,10 +81,29 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
+      # A real S3-compatible server (RustFS, the kit's bundled store) for the
+      # blob-store contract and migration specs, and for a run of the specs
+      # that touch files with CHAT_BLOB_STORE=s3. Not a mock: the point is the
+      # real multipart, range and error behaviour.
+      rustfs:
+        image: rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2
+        env:
+          RUSTFS_ACCESS_KEY: ci-access-key
+          RUSTFS_SECRET_KEY: ci-secret-key-0123456789
+        ports: ["9000:9000"]
+        options: >-
+          --health-cmd "curl -fsS http://127.0.0.1:9000/health"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       # mongodb-memory-server needs AVX, which hosted runners do not reliably
       # have; the suite uses the service container instead (see AGENTS.md).
       TEST_MONGODB_URL: mongodb://127.0.0.1:27017/
+      # Turns on the S3 halves of src/lib/server/blobs/*.spec.ts.
+      TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      TEST_S3_ACCESS_KEY: ci-access-key
+      TEST_S3_SECRET_KEY: ci-secret-key-0123456789
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -98,6 +117,18 @@ jobs:
       # known pre-existing failure even with it — tracked in
       # reports/2026-09-24-thin-agent-progress.md ("Known CI exclusions").
       - run: npx vitest run --project=server --project=ssr --no-file-parallelism
+      # The specs that store, read or delete files, again on the S3 backend.
+      - name: File specs on S3 (RustFS)
+        env:
+          CHAT_BLOB_STORE: s3
+          CHAT_S3_ENDPOINT: http://127.0.0.1:9000
+          CHAT_S3_BUCKET: cerea-ci
+          CHAT_S3_ACCESS_KEY_ID: ci-access-key
+          CHAT_S3_SECRET_ACCESS_KEY: ci-secret-key-0123456789
+          CHAT_S3_CREATE_BUCKET: "true"
+        run: |
+          files="$(grep -rlE 'blobs/testing|blobStore' src --include='*.spec.ts' | grep -v 'src/lib/server/blobs/' | sort)"
+          npx vitest run --project=server --project=ssr --no-file-parallelism $files
 
   go:
     if: github.event_name != 'schedule'
@@ -293,6 +324,19 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble
       options: --user root
+    # RustFS for the blob-store spec's second run (the files on S3). Reached by
+    # its service name, since this job runs in a container.
+    services:
+      rustfs:
+        image: rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2
+        env:
+          RUSTFS_ACCESS_KEY: ci-access-key
+          RUSTFS_SECRET_KEY: ci-secret-key-0123456789
+        options: >-
+          --health-cmd "curl -fsS http://127.0.0.1:9000/health"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       HOME: /root
       CI: "true"
@@ -316,6 +360,17 @@ jobs:
       - run: npx playwright test --project=chromium --grep @smoke
         env:
           E2E_SKIP_BUILD: "1"
+      # The same upload, download and delete flow with the files in a bucket.
+      - name: Blob store on S3 (RustFS)
+        run: npx playwright test --project=chromium --grep @blob-store
+        env:
+          E2E_SKIP_BUILD: "1"
+          CHAT_BLOB_STORE: s3
+          CHAT_S3_ENDPOINT: http://rustfs:9000
+          CHAT_S3_BUCKET: cerea-e2e
+          CHAT_S3_ACCESS_KEY_ID: ci-access-key
+          CHAT_S3_SECRET_ACCESS_KEY: ci-secret-key-0123456789
+          CHAT_S3_CREATE_BUCKET: "true"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -335,6 +390,17 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble
       options: --user root
+    services:
+      rustfs:
+        image: rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2
+        env:
+          RUSTFS_ACCESS_KEY: ci-access-key
+          RUSTFS_SECRET_KEY: ci-secret-key-0123456789
+        options: >-
+          --health-cmd "curl -fsS http://127.0.0.1:9000/health"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       HOME: /root
       CI: "true"
@@ -368,6 +434,16 @@ jobs:
       - run: npx playwright test --project=chromium
         env:
           E2E_SKIP_BUILD: "1"
+      - name: Blob store on S3 (RustFS)
+        run: npx playwright test --project=chromium --grep @blob-store
+        env:
+          E2E_SKIP_BUILD: "1"
+          CHAT_BLOB_STORE: s3
+          CHAT_S3_ENDPOINT: http://rustfs:9000
+          CHAT_S3_BUCKET: cerea-e2e
+          CHAT_S3_ACCESS_KEY_ID: ci-access-key
+          CHAT_S3_SECRET_ACCESS_KEY: ci-secret-key-0123456789
+          CHAT_S3_CREATE_BUCKET: "true"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

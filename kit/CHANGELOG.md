@@ -5,6 +5,16 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Files can live in an S3-compatible store.** `CHAT_BLOB_STORE=s3` with `CHAT_S3_*` keeps
+  attachments, generated files, knowledge uploads and previews in a bucket (AWS S3, Cloudflare R2,
+  Backblaze B2, MinIO, Ceph) instead of MongoDB; MongoDB (GridFS) stays the default and nothing
+  changes unless you opt in. New optional `rustfs` profile with a bundled RustFS
+  (`./configure --object-store`), pinned by version and digest, on an internal-only network. An
+  existing install keeps MongoDB until its files are copied with `scripts/blobs-migrate.mjs`
+  (dry run, verification, optional deletion of the MongoDB copy); see `docs/storage.md`.
+
 ## v0.34.2 — 2026-10-31
 
 Pins: Cerea `0.34.2` (chat and `cerea-documents`), Pystino `0.20.0`.

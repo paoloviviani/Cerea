@@ -318,6 +318,9 @@ spreadsheets, PDFs, charts from the [Python sandbox](pyodide.md)) are kept:
 conversation is deleted. Text artifacts and uploaded attachments are not
 affected: they live with their conversation and never expire.
 
+Where the bytes live (MongoDB, or an S3-compatible bucket) is not set here: it
+is deployment configuration, described in [File storage](storage.md).
+
 The screen shows how many produced files are stored and their size. Before a
 shorter period is saved it says how many files it would delete, because those
 go at the next sweep (within the hour) and cannot be recovered. A longer

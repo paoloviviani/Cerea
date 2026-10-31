@@ -135,6 +135,11 @@ ENV BODY_SIZE_LIMIT=15728640
 COPY --from=builder --chown=1000 /app/build /app/build
 COPY --from=prod-deps --chown=1000 /app/node_modules /app/node_modules
 COPY --from=builder --chown=1000 /app/server.js /app/server.js
+# The GridFS -> S3 migration tool (docs/storage.md): a plain Node script that
+# needs only the runtime dependencies above and the settings parser it shares
+# with the app (type-stripped by Node at run time).
+COPY --from=builder --chown=1000 /app/scripts/blobs-migrate.mjs /app/scripts/blobs-migrate.mjs
+COPY --from=builder --chown=1000 /app/src/lib/server/blobs/config.ts /app/src/lib/server/blobs/config.ts
 COPY --from=galopin --chown=1000 /out /app/galopin-dist
 
 CMD ["/bin/bash", "-c", "/app/entrypoint.sh"]

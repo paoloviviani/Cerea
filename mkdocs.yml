@@ -120,6 +120,7 @@ nav:
       - Deploying: deploy.md
       - "The deploy kit": deploy-kit.md
       - Configuration: configuration.md
+      - "File storage": storage.md
       - "Administering the chat": chat-admin.md
       - "The /code panel": code-panel.md
   - Reference:

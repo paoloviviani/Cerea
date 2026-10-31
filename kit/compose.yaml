@@ -454,6 +454,23 @@ services:
       # two in step). Empty: no Office previews through LibreOffice and no
       # convert_document tool; PowerPoint previews fall back to the browser.
       CHAT_GOTENBERG_URL: ${CHAT_GOTENBERG_URL:-}
+      # Where the chat keeps files (attachments, deliverables, uploads,
+      # previews): MongoDB's GridFS (the default) or an S3-compatible bucket,
+      # the bundled `rustfs` profile's or your own (docs/storage.md). Empty is
+      # GridFS. ./configure fills these in for the rustfs profile; set them by
+      # hand for any other S3. Never switch an install that holds files without
+      # copying them first (scripts/blobs-migrate.mjs).
+      CHAT_BLOB_STORE: ${CHAT_BLOB_STORE:-}
+      CHAT_S3_ENDPOINT: ${CHAT_S3_ENDPOINT:-}
+      CHAT_S3_REGION: ${CHAT_S3_REGION:-}
+      CHAT_S3_BUCKET: ${CHAT_S3_BUCKET:-}
+      CHAT_S3_ACCESS_KEY_ID: ${CHAT_S3_ACCESS_KEY_ID:-}
+      CHAT_S3_SECRET_ACCESS_KEY: ${CHAT_S3_SECRET_ACCESS_KEY:-}
+      CHAT_S3_FORCE_PATH_STYLE: ${CHAT_S3_FORCE_PATH_STYLE:-}
+      CHAT_S3_PREFIX: ${CHAT_S3_PREFIX:-}
+      CHAT_S3_SSE: ${CHAT_S3_SSE:-}
+      CHAT_S3_SSE_KMS_KEY_ID: ${CHAT_S3_SSE_KMS_KEY_ID:-}
+      CHAT_S3_CREATE_BUCKET: ${CHAT_S3_CREATE_BUCKET:-}
       # The document service (the `documents` service below, on the chat
       # profile): typed tools that read and edit the person's Word, Excel and
       # PowerPoint files. The URL defaults to the bundled service; set it
@@ -551,14 +568,17 @@ services:
       PROTOCOL_HEADER: X-Forwarded-Proto
       HOST_HEADER: X-Forwarded-Host
       NODE_OPTIONS: --dns-result-order=ipv4first
-    # `default` is the stack's network; `office` and `docs` are the
-    # internal-only ones the document converter and the document service live
-    # on (see below). Listing a network replaces the implicit default, so all
+    # `default` is the stack's network; `office`, `docs` and `objects` are the
+    # internal-only ones the document converter, the document service and the
+    # bundled object store live on (see below). Listing a network replaces the implicit default, so all
     # are named.
-    networks: [default, office, docs]
+    networks: [default, office, docs, objects]
     depends_on:
       chat-mongo:
         condition: service_healthy
+      rustfs:
+        condition: service_healthy
+        required: false
       bootstrap:
         condition: service_completed_successfully
       gateway:
@@ -715,6 +735,50 @@ services:
       retries: 5
       start_period: 30s
 
+  # --- profile: rustfs (an S3-compatible object store for the chat's files) ---
+  #
+  # RustFS (Apache-2.0) as the chat's blob store, instead of files inside
+  # MongoDB (docs/storage.md). Optional: any other S3-compatible store works by
+  # setting CHAT_S3_* in .env without this profile. Boxed in:
+  #   - only the `objects` network, which is `internal: true` (no route out, no
+  #     published port, no console): the chat reaches it, nothing else does;
+  #   - one named volume for the data, a read-only root filesystem, tmpfs for
+  #     logs, no capabilities, no privilege escalation, limits;
+  #   - the access keys are the chat's CHAT_S3_ACCESS_KEY_ID and
+  #     CHAT_S3_SECRET_ACCESS_KEY, which ./configure --object-store mints
+  #     (./configure --check refuses the profile without them).
+  # The image is pinned by version and digest: a floating tag would change the
+  # store under your files. Upgrade by editing RUSTFS_IMAGE after reading
+  # RustFS's release notes, and back the volume up first.
+
+  rustfs:
+    profiles: [rustfs]
+    image: ${RUSTFS_IMAGE:-rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2}
+    environment:
+      RUSTFS_ACCESS_KEY: ${CHAT_S3_ACCESS_KEY_ID:-}
+      RUSTFS_SECRET_KEY: ${CHAT_S3_SECRET_ACCESS_KEY:-}
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_OBS_LOGGER_LEVEL: ${RUSTFS_LOG_LEVEL:-warn}
+    networks: [objects]
+    volumes:
+      - rustfs-data:/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /logs:uid=10001,gid=10001
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${RUSTFS_MEM_LIMIT:-1g}
+    cpus: ${RUSTFS_CPUS:-2}
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
 # The names are the ones every existing install already has, so adopting an
 # install under its old project name mounts the same data.
 volumes:
@@ -725,6 +789,7 @@ volumes:
   authelia-data:
   caddy-data:
   caddy-config:
+  rustfs-data:
 
 networks:
   # No route out: Docker gives an internal network no gateway and publishes no
@@ -734,4 +799,8 @@ networks:
   # The document service's own, the same shape: the chat and the service are
   # the only members.
   docs:
+    internal: true
+  # The bundled object store's own (rustfs profile), the same shape: the chat
+  # and RustFS are the only members.
+  objects:
     internal: true
