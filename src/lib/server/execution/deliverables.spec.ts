@@ -565,3 +565,12 @@ describe("the createdAt indexes are plain, not TTL", () => {
 		expect(index && "expireAfterSeconds" in index).toBe(false);
 	});
 });
+
+describe("retentionPhrase", () => {
+	it("names the configured period, and says when files never expire", async () => {
+		const { retentionPhrase } = await import("./deliverables");
+		expect(retentionPhrase(30)).toBe("for 30 days");
+		expect(retentionPhrase(1)).toBe("for 1 day");
+		expect(retentionPhrase(0)).toBe("with the conversation, without expiry");
+	});
+});

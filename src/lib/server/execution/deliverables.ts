@@ -91,6 +91,12 @@ export function parseRetentionDays(value: string | undefined): number {
 	return days <= MAX_RETENTION_DAYS ? days : DEFAULT_RETENTION_DAYS;
 }
 
+/** How long produced files are kept, as the model is told it: "for 30 days", or "with the conversation". */
+export function retentionPhrase(days = fileRetentionDays()): string {
+	if (days === 0) return "with the conversation, without expiry";
+	return days === 1 ? "for 1 day" : `for ${days} days`;
+}
+
 /** The instant before which a produced file has expired, or null when files never expire. */
 export function retentionCutoff(days = fileRetentionDays(), now = Date.now()): Date | null {
 	return days === 0 ? null : new Date(now - days * 24 * 60 * 60 * 1000);

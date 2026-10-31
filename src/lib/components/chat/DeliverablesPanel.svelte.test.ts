@@ -12,10 +12,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 const listResponse = (files: unknown[]) =>
 	vi.fn(async () => new Response(JSON.stringify({ files }), { status: 200 }));
 
-const mountOpen = (props?: { items?: PaneItem[]; registry?: ArtifactRegistry }) => {
+const mountOpen = (
+	props?: { items?: PaneItem[]; registry?: ArtifactRegistry },
+	data: Record<string, unknown> = {}
+) => {
 	sidePane.openLibrary();
 	return renderWithApp(DeliverablesPanel, props, {
-		page: { route: { id: "/conversation/[id]" }, params: { id: "conv123456" }, data: {} },
+		page: { route: { id: "/conversation/[id]" }, params: { id: "conv123456" }, data },
 	});
 };
 
@@ -63,6 +66,20 @@ describe("DeliverablesPanel", () => {
 		await expect.element(screen.getByRole("heading", { name: "Files" })).toBeVisible();
 		await expect.element(screen.getByText("No files yet")).toBeVisible();
 		screen.unmount();
+	});
+
+	it("says how long files are kept from the deployment's setting, and nothing when they never expire", async () => {
+		vi.stubGlobal("fetch", listResponse([]));
+		const week = await mountOpen(undefined, { fileRetentionDays: 7 });
+		await expect.element(week.getByText(/Files are kept for 7 days\./)).toBeVisible();
+		week.unmount();
+
+		vi.stubGlobal("fetch", listResponse([]));
+		const forever = await mountOpen(undefined, { fileRetentionDays: 0 });
+		await expect.element(forever.getByText("No files yet")).toBeVisible();
+		expect(forever.getByText(/kept for/).elements()).toHaveLength(0);
+		expect(forever.getByText(/30 days/).elements()).toHaveLength(0);
+		forever.unmount();
 	});
 
 	it("lists persisted files with kind, size, date and download/open", async () => {

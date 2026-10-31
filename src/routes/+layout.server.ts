@@ -20,6 +20,7 @@ import {
 	localConnectorsEnabled,
 } from "$lib/server/codeEnabled";
 import { schedulesEnabled } from "$lib/server/schedules/limits";
+import { fileRetentionDays } from "$lib/server/execution/deliverables";
 import { isGotenbergEnabled } from "$lib/server/office/gotenberg";
 import { resolveWebSearchFor } from "$lib/server/webSearch/config";
 import { pseudoLocaleEnabled } from "$lib/server/localeSettings";
@@ -67,6 +68,9 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		// Scheduled chats are for everyone signed in (the same kill switch): the sidebar's
 		// Schedules row and a conversation's "Schedule…" read it.
 		chatSchedulesEnabled: Boolean(locals.user) && schedulesEnabled(),
+		// How long files the assistant produces are kept (Administration → Storage), 0 for no
+		// expiry: the files pane says it rather than a fixed number.
+		fileRetentionDays: fileRetentionDays(),
 		// Local MCP connectors (ADR 0102): the workspace's Local connectors tab. A deployment
 		// switch of its own, independent of the Agents panel's per-person one.
 		localConnectorsEnabled: localConnectorsEnabled(),
