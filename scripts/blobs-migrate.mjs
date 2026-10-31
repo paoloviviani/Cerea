@@ -116,6 +116,18 @@ export async function migrate({
 		notCopied: 0,
 	};
 	const index = db.collection(INDEX);
+	// The data says whether the chat already writes to the bucket: a row the
+	// migration did not make (no `migratedFrom`) can only come from the app on
+	// s3. Copying then would bring back files deleted since the switch, so an
+	// unset or stale CHAT_BLOB_STORE is not trusted on its own.
+	if (
+		copying &&
+		(await index.findOne({ migratedFrom: { $exists: false } }, { projection: { _id: 1 } }))
+	) {
+		throw new Error(
+			"the chat already stores files in the bucket (CHAT_BLOB_STORE=s3 is live): run this with CHAT_BLOB_STORE=s3, which only verifies and cleans up"
+		);
+	}
 	const sse = s3.sse
 		? { ServerSideEncryption: s3.sse, ...(s3.kmsKeyId ? { SSEKMSKeyId: s3.kmsKeyId } : {}) }
 		: {};
@@ -258,8 +270,10 @@ export async function migrate({
 				if (indexed?.sha256 && indexed.sha256 !== sha) throw new Error("index row sha256 differs");
 			}
 			if (deleteSource && !dryRun) {
-				await gridfs.delete(row._id);
+				// Marked first: a crash between the two must never leave a row a later
+				// prune could take for "source gone" and delete, the only copy left.
 				await index.updateOne({ _id: row._id }, { $set: { sourceDeleted: true } });
+				await gridfs.delete(row._id);
 				totals.deleted += 1;
 			}
 			return copied;

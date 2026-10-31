@@ -165,6 +165,18 @@ describe.skipIf(!(mongoUrl && endpoint))("blobs-migrate", () => {
 		expect((await store.read("files", kept.id)).toString()).toBe("kept");
 	}, 120_000);
 
+	it("refuses to copy once the chat writes to the bucket, whatever CHAT_BLOB_STORE says", async () => {
+		const { store, source, run } = await fresh();
+		const gone = await source.put("files", { filename: "gone", metadata: {} }, Buffer.from("gone"));
+		await run();
+		// Switched: the chat writes a new file to s3 and a user deletes an old one.
+		await store.put("files", { filename: "new", metadata: {} }, Buffer.from("new"));
+		await store.delete("files", gone.id);
+		// A stale shell without CHAT_BLOB_STORE runs the tool as if still on GridFS.
+		await expect(run()).rejects.toThrow(/already stores files in the bucket/);
+		expect(await store.stat("files", gone.id)).toBeNull();
+	}, 120_000);
+
 	it("removes from S3 what was deleted in GridFS before the switch", async () => {
 		const { store, source, run } = await fresh();
 		const doomed = await source.put("files", { filename: "d", metadata: {} }, Buffer.from("d"));
