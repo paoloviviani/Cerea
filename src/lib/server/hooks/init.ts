@@ -23,6 +23,7 @@ import { ToolApprovalSweeper } from "$lib/server/generation/toolApprovalSweeper"
 import { DeliverableReaper } from "$lib/server/execution/deliverables";
 import { adminTokenManager } from "$lib/server/adminToken";
 import { MetricsServer } from "$lib/server/metrics";
+import { logExecutionBackendAtBoot } from "$lib/server/codeExecution/backend";
 
 export async function initServer(): Promise<void> {
 	// Wait for config to be fully loaded
@@ -37,6 +38,7 @@ export async function initServer(): Promise<void> {
 	// shared key to one endpoint. Refuses to boot on a mix, naming the setting.
 	const mode = assertModelModeValid(config);
 	logger.info({ mode }, "[models] Model mode");
+	logExecutionBackendAtBoot();
 
 	logger.info("Starting server...");
 	initExitHandler();

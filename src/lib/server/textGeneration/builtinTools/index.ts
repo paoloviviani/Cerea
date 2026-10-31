@@ -7,7 +7,8 @@ import { createGatewaySearchBuiltins, WEB_SEARCH_TOOL_NAME } from "./gatewaySear
 import { createPlanTool } from "./planTool";
 import { createDelegateTools, type DelegateModel } from "./delegateTool";
 import { createWebFetchBuiltin } from "./webFetchTool";
-import { createExecuteCodeBuiltin } from "./executeCodeTool";
+import { createExecuteCodeBuiltin, EXECUTE_CODE_TOOL_NAME } from "./executeCodeTool";
+import { executionBackend } from "$lib/server/codeExecution/backend";
 import { createScheduleTool } from "./scheduleTool";
 import { createConvertDocumentBuiltin } from "./convertDocumentTool";
 import { createDocumentBuiltins, type DocumentTurnState } from "./documentTools";
@@ -343,7 +344,15 @@ export function getEnabledBuiltinTools(params: {
 	}
 
 	// A run nobody watches cannot park on a person: whatever would is withheld.
-	return params.unattended ? tools.filter((tool) => !tool.mayPark) : tools;
+	// `execute_code` is held to the backend's answer rather than to `mayPark`: a
+	// browser sandbox needs somebody's open page, so it is withheld here, while a
+	// backend that runs without one (a server sandbox) would keep the tool.
+	const unattendedCode = executionBackend().supportsUnattended;
+	return params.unattended
+		? tools.filter((tool) =>
+				tool.name === EXECUTE_CODE_TOOL_NAME ? unattendedCode : !tool.mayPark
+			)
+		: tools;
 }
 
 /**

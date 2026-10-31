@@ -101,7 +101,7 @@
 		settings.update((s) => ({ ...s, webSearchEnabled: v }));
 	}
 	function getPyodidePyPiInstallEnabled() {
-		return $settings.pyodidePyPiInstallEnabled === true;
+		return $settings.pyodidePyPiInstallEnabled !== false;
 	}
 	function setPyodidePyPiInstallEnabled(v: boolean) {
 		settings.update((s) => ({ ...s, pyodidePyPiInstallEnabled: v }));
@@ -435,25 +435,22 @@
 					</select>
 				</div>
 
-				<div class="flex items-start justify-between py-3">
-					<div>
-						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
-							{m["settings.application.pypi.title"]()}
-						</div>
-						<p class="text-[12px] text-gray-500 dark:text-gray-400">
-							{#if page.data.pyodidePyPiInstallAllowed}
+				{#if page.data.pyodidePyPiInstallAllowed}
+					<div class="flex items-start justify-between py-3">
+						<div>
+							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+								{m["settings.application.pypi.title"]()}
+							</div>
+							<p class="text-[12px] text-gray-500 dark:text-gray-400">
 								{m["settings.application.pypi.description_allowed"]()}
-							{:else}
-								{m["settings.application.pypi.description_disabled"]()}
-							{/if}
-						</p>
+							</p>
+						</div>
+						<Switch
+							name="pyodidePyPiInstallEnabled"
+							bind:checked={getPyodidePyPiInstallEnabled, setPyodidePyPiInstallEnabled}
+						/>
 					</div>
-					<Switch
-						name="pyodidePyPiInstallEnabled"
-						disabled={!page.data.pyodidePyPiInstallAllowed}
-						bind:checked={getPyodidePyPiInstallEnabled, setPyodidePyPiInstallEnabled}
-					/>
-				</div>
+				{/if}
 
 				{#if taskModelId}
 					{@render taskModelRow()}

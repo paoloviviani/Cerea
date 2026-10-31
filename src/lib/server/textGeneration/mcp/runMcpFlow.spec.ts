@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { ObjectId } from "mongodb";
-import { collections } from "$lib/server/database";
+import { collections, ready } from "$lib/server/database";
 import { rememberTools, resetCatalogCache } from "$lib/server/mcp/catalogCache";
 import {
 	MessageToolUpdateType,
@@ -320,6 +320,11 @@ function finalAnswer(updates: MessageUpdate[]) {
 	const answer = updates.find((u) => u.type === MessageUpdateType.FinalAnswer);
 	return answer?.type === MessageUpdateType.FinalAnswer ? answer.text : undefined;
 }
+
+// `collections` exists once the database is up; the spec must not depend on the imports being slow enough.
+beforeAll(async () => {
+	await ready;
+});
 
 beforeEach(async () => {
 	mocks.create.mockReset();

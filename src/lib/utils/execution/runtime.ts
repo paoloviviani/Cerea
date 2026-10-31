@@ -7,6 +7,7 @@ import {
 	type RunOutcome,
 	type WorkerToHost,
 } from "./protocol";
+import { browserExecutionEnabled } from "./backend.svelte";
 
 /**
  * Host side of the execution runtime: owns the single worker, serializes
@@ -360,6 +361,8 @@ let browserSession: ExecutionSession | null = null;
  */
 export function getExecutionSession(): ExecutionSession | undefined {
 	if (typeof window === "undefined") return undefined;
+	// Code runs elsewhere (or nowhere) on this deployment: no sandbox here.
+	if (!browserExecutionEnabled()) return undefined;
 	browserSession ??= new ExecutionSession();
 	return browserSession;
 }

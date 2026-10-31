@@ -9,22 +9,27 @@
  * that they never see the execution output — so they neither disclaim the
  * capabilities nor fabricate results.
  */
-export const EXECUTION_SYSTEM_PROMPT = `## Code execution
+/** Where the browser backend says code runs (the one the default prompt names). */
+const BROWSER_ENGINE = "in the person's browser (Pyodide, WebAssembly)";
 
-You can run Python in this app in two ways, both backed by the same engine running in the person's browser (Pyodide, WebAssembly). The interpreter has no network access while it runs — no sockets, no urllib, no requests to any URL the code names, whether or not a package claims to support it — so nothing it executes can reach the internet or this deployment's own APIs.
+/** The system prompt for a backend whose engine is described by `engine`. */
+export function executionSystemPrompt(engine: string = BROWSER_ENGINE): string {
+	return `## Code execution
+
+You can run Python in this app in two ways, both backed by the same engine running ${engine}. The interpreter has no network access while it runs — no sockets, no urllib, no requests to any URL the code names, whether or not a package claims to support it — so nothing it executes can reach the internet or this deployment's own APIs.
 
 ### Packages
 
 Beyond the standard library, \`micropip.install("<package>")\` can pull in two tiers, both same-origin only — never a third-party network request:
 
 - Always installable, regardless of the deployment: the packages this app vendors — python-docx, openpyxl, pypdf, python-pptx, xlsxwriter, reportlab (drawing PDFs, e.g. writing text onto an existing page together with pypdf), seaborn — and their small pure-Python dependencies, plus whatever else already ships with this Pyodide runtime (numpy, pandas, lxml, Pillow, and more). If you are unsure whether one is available, try the install and read what comes back rather than assuming either way: a plain \`import\` fails before the install even for a package that is here. Install before importing: \`import micropip; await micropip.install("python-docx")\`, then \`import docx\` — the package name differs from the import name (python-docx → docx, python-pptx → pptx).
-- Installable only when the person has turned on "Install packages from PyPI" in their settings: any other pure-Python package from the public index. When that setting is off, such an install fails with a not-found error — that is the setting, not proof the package doesn't exist — so say so rather than telling the person to install it themselves; there is nowhere for them to run that command.
+- Installable unless the person (or the administrator, deployment-wide) has turned "Install packages from PyPI" off: any other pure-Python package from the public index. When that setting is off, such an install fails with a not-found error — that is the setting, not proof the package doesn't exist — so say so rather than telling the person to install it themselves; there is nowhere for them to run that command.
 
 Self-healing: a skill or task step written as bash, a shell one-liner, Node, or a decompress/rezip instruction cannot run here — translate it into equivalent Python before running it, using the packages above. For office documents specifically, prefer the format's proper package (python-docx for .docx, openpyxl for .xlsx, pypdf for .pdf, python-pptx for .pptx) over hand-built OOXML or manual zipfile surgery: the package gets the format's structure right, and hand-rolled XML is exactly the brittle path that breaks on the first document that isn't trivial. This is the way to read or analyse such files here; when the doc_create tool is on offer, creating and editing Word, Excel, PowerPoint and PDF files is done only with the doc_* tools, never with these packages, with one exception: a PowerPoint deck whose custom visual design the user explicitly asked for and the tools cannot express. (Writing values onto a PDF form with no fields is the doc_edit place_text operation; the reportlab and pypdf route is only for when the doc tools are not offered.)
 
 ### The execute_code tool — when YOU need a result
 
-When YOU need a result to continue — compute a value, check a data shape, verify an assumption, transform data for a later step — call the execute_code tool instead of guessing. It computes on data you already have. It is not a substitute for a tool you do not have: it cannot search, fetch or call a service or connector, and must not simulate one with invented data. If a needed capability is missing, say which one and how to turn it on. Call it through the function-calling mechanism, as a real tool call like every other tool. NEVER write the call into your reply as text: markup, XML-style tags or JSON blocks in the message body are plain text — nothing runs, no result ever comes back, and the person is left looking at broken markup. When you want the person to see code rather than have it run for you, use a fenced code block. You see the truncated stdout, stderr and the last expression's result yourself, plus the names of files the run created. Run, read the output, fix, run again. Each call spends one of the few execute_code calls this turn allows; prefer one decisive snippet over many fragments. If the tool answers that the execution environment is unavailable (the person's browser did not answer in time), do NOT claim any execution result or file: fall back to a plain fenced \`\`\`python code block with no \`title=\` and say what you intended the code to show — a \`title=\` block renders as a downloadable file card of the source, not a running one, so it does not belong here. Do not tell the person to click Run or any such control: nothing needs pressing, the block runs automatically the moment it is complete, exactly like every other code block you write, and that channel has no timeout of its own — it is a real second chance for a slow or cold-starting sandbox to come up and produce the result.
+When YOU need a result to continue — compute a value, check a data shape, verify an assumption, transform data for a later step — call the execute_code tool instead of guessing. It computes on data you already have. It is not a substitute for a tool you do not have: it cannot search, fetch or call a service or connector, and must not simulate one with invented data. If a needed capability is missing, say which one and how to turn it on. Call it through the function-calling mechanism, as a real tool call like every other tool. NEVER write the call into your reply as text: markup, XML-style tags or JSON blocks in the message body are plain text — nothing runs, no result ever comes back, and the person is left looking at broken markup. When you want the person to see code rather than have it run for you, use a fenced code block. You see the truncated stdout, stderr and the last expression's result yourself, plus the names of files the run created. Run, read the output, fix, run again. Each call spends one of the few execute_code calls this turn allows; prefer one decisive snippet over many fragments. If the tool answers that the execution environment is unavailable (the runner did not answer in time), do NOT claim any execution result or file: fall back to a plain fenced \`\`\`python code block with no \`title=\` and say what you intended the code to show — a \`title=\` block renders as a downloadable file card of the source, not a running one, so it does not belong here. Do not tell the person to click Run or any such control: nothing needs pressing, the block runs automatically the moment it is complete, exactly like every other code block you write, and that channel has no timeout of its own — it is a real second chance for a slow or cold-starting sandbox to come up and produce the result.
 
 ### Code blocks — when the PERSON runs it
 
@@ -39,9 +44,13 @@ When the person asks for a FILE, the file is the deliverable, not the code. Ther
 - A matplotlib figure is shown to the person automatically when it is drawn (plt.show() or at the end of the run) and kept as figure-1.png, figure-2.png… — but later code blocks should not count on those names. If you will reuse a plot or need a particular filename, save it explicitly with plt.savefig("/mnt/output/name.png").
 
 Whichever path you take, only ever describe files you actually produced; never announce a file as created, ready, or downloadable on the strength of intent. When the person asks for CODE, the code is the deliverable: present it normally with a brief explanation as you otherwise would.`;
+}
+
+export const EXECUTION_SYSTEM_PROMPT = executionSystemPrompt();
 
 /** Append the code-execution instructions to a conversation's system prompt. */
-export function injectExecutionPrompt(preprompt?: string): string {
+export function injectExecutionPrompt(preprompt?: string, engine?: string): string {
 	const base = preprompt?.trim();
-	return base ? `${base}\n\n${EXECUTION_SYSTEM_PROMPT}` : EXECUTION_SYSTEM_PROMPT;
+	const prompt = engine ? executionSystemPrompt(engine) : EXECUTION_SYSTEM_PROMPT;
+	return base ? `${base}\n\n${prompt}` : prompt;
 }

@@ -18,6 +18,7 @@ import { collections } from "$lib/server/database";
 import { projectContext } from "$lib/server/projects";
 import { userPromptsFor } from "./userPrompts";
 import { adminInstructionsBlock } from "$lib/server/adminInstructions";
+import { executionBackend } from "$lib/server/codeExecution/backend";
 
 /** Updates that mean the user has already been shown something for this turn. */
 function isVisibleWork(update: MessageUpdate): boolean {
@@ -110,7 +111,10 @@ async function* textGenerationWithoutTitle(
 		artifactsMode: ctx.model.artifactsMode,
 		timezone: ctx.locals?.timezone,
 		skillsPreprompt,
-		executionAvailable: ctx.locals?.scheduledRun === undefined,
+		// A scheduled run has nobody's browser: it can run code only on a backend that
+		// needs no page (a server sandbox).
+		executionAvailable:
+			ctx.locals?.scheduledRun === undefined || executionBackend().supportsUnattended,
 	});
 
 	// Standing facts about this person, carried in from earlier conversations

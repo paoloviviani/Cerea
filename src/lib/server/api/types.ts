@@ -53,7 +53,7 @@ export interface FeatureFlags {
 	 * sandbox setting at all — false when the admin kill-switch
 	 * (`CHAT_PYODIDE_PYPI_DISABLED`) is set, regardless of what any user has
 	 * stored. The user's own `pyodidePyPiInstallEnabled` setting is the
-	 * separate opt-in; both must be true for the sandbox to actually reach
+	 * separate choice (on unless stored `false`); both must allow for the sandbox to actually reach
 	 * PyPI.
 	 */
 	pyodidePyPiInstallAllowed: boolean;
@@ -63,6 +63,13 @@ export interface FeatureFlags {
 	 * ceiling 300).
 	 */
 	codeRunTimeoutSeconds: number;
+	/**
+	 * Where code runs (`CHAT_CODE_EXECUTION`): `browser` is the person's own
+	 * sandbox, `off` switches every execution feature off (a configured `server`
+	 * backend has no implementation yet and reads as `off`). The client decides
+	 * whether to run, resume and show hints from this alone.
+	 */
+	codeExecution: "browser" | "off";
 	/**
 	 * Whether the deployment exposes the Usage & billing settings tab
 	 * (`CHAT_USAGE_ENABLED`). Off by default: a deployment without Pystino has

@@ -103,6 +103,13 @@ export const MAX_RUN_TIMEOUT_MS = 300_000;
 export const MIN_RUN_TIMEOUT_MS = 5_000;
 
 /**
+ * The error a resolved `execute_code` update carries when the call ended with no
+ * outcome recorded (the deadline passed before any answer). The card reads it to
+ * say the run did not finish, rather than showing a bare failure.
+ */
+export const NO_OUTCOME_RECORDED = "no outcome was recorded for this execution";
+
+/**
  * The run limit in milliseconds for a configured number of seconds: the
  * default when the value is absent or not a positive number, otherwise
  * clamped between the floor and the hard ceiling.

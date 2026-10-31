@@ -14,6 +14,8 @@
 	import { setHapticsEnabled } from "$lib/utils/haptics";
 	import { initWithServers } from "$lib/stores/mcpServers";
 	import { getExecutionSession } from "$lib/utils/execution/runtime";
+	import { pypiInstallEffective } from "$lib/utils/execution/pypiInstall";
+	import { setClientExecutionBackend } from "$lib/utils/execution/backend.svelte";
 	import { runTimeoutMsFromSeconds } from "$lib/utils/execution/protocol";
 
 	import Toast from "$lib/components/Toast.svelte";
@@ -154,6 +156,12 @@
 		if ($error) onError();
 	});
 
+	// Where code runs, before any child decides whether to run, resume or hint.
+	setClientExecutionBackend(data.codeExecution);
+	$effect(() => {
+		setClientExecutionBackend(data.codeExecution);
+	});
+
 	const settings = createSettingsStore(data.settings);
 
 	$effect(() => {
@@ -166,14 +174,14 @@
 		applyPalette(document.documentElement, $settings);
 	});
 
-	// The effective PyPI-install flag is the user's own opt-in AND the
+	// The effective PyPI-install flag is on unless the user turned it off AND the
 	// deployment not having killed it (data.pyodidePyPiInstallAllowed, from
 	// FeatureFlags — computed server-side from CHAT_PYODIDE_PYPI_DISABLED).
 	// Re-evaluated on every relevant change so toggling the setting takes
 	// effect immediately, without a page reload or a fresh sandbox session.
 	$effect(() => {
 		getExecutionSession()?.configure(
-			!!(data.pyodidePyPiInstallAllowed && $settings.pyodidePyPiInstallEnabled),
+			pypiInstallEffective(data.pyodidePyPiInstallAllowed, $settings.pyodidePyPiInstallEnabled),
 			runTimeoutMsFromSeconds(data.codeRunTimeoutSeconds)
 		);
 	});

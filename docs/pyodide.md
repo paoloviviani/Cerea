@@ -136,8 +136,10 @@ version of the same artifact, not a new one.
 before the code runs: Pyodide's own packages and the office libraries the
 deployment ships load by themselves. If the answer shows `ModuleNotFoundError`,
 the package isn't available here. For a **pure-Python** package from the public
-PyPI index, you can turn on **install packages from PyPI** in your settings (off
-by default; it sends no credentials), then ask again. Packages with compiled
+PyPI index, the **install packages from PyPI** setting (on by default; it sends
+no credentials) lets the code fetch it. If you or your administrator turned it
+off, turn it back on in your settings (when the administrator has switched it
+off for the whole deployment, the option is not shown), then ask again. Packages with compiled
 code that Pyodide does not ship cannot be installed.
 
 ## What rendered artifacts can do
@@ -170,8 +172,17 @@ knowledge base therefore cannot turn an artifact into a way to send data out.
   effort: an import it cannot resolve raises its ordinary `ModuleNotFoundError`,
   and a package is installed once per interpreter. `micropip.install(...)` works
   for everything shipped with the deployment.
-- **PyPI access.** Operators can force the per-person PyPI setting off for
-  everyone with `CHAT_PYODIDE_PYPI_DISABLED=true`.
+- **PyPI access.** By default code may fetch pure-Python packages from the
+  public PyPI index (`pypi.org`, `files.pythonhosted.org`): that is outbound
+  traffic from the user's browser, and each user can turn it off in their
+  settings. Operators can switch it off for everyone with
+  `CHAT_PYODIDE_PYPI_DISABLED=true`, which also hides the user's option.
+- **Where code runs.** `CHAT_CODE_EXECUTION` (`browser` by default, `off` to
+  disable every code feature; `server` is reserved) is set by the operator
+  only. See [configuration](configuration.md). On a phone, a run keeps going
+  only while the page is open: the card says so, the screen is kept awake while
+  it runs, and a page that goes to the background asks the server to keep the
+  turn waiting (`CODE_PAUSED_WAIT_MS`) and restarts the run when it returns.
 - One residual path, for the record: code in the worker can start a dynamic
   `import()` of a remote URL. That is a one-way signal: no cookies travel, and
   nothing can be read back.

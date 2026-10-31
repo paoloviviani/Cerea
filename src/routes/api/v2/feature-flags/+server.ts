@@ -11,6 +11,7 @@ import { machineClientId } from "$lib/server/code/machineAuth";
 import type { FeatureFlags } from "$lib/server/api/types";
 import { dictationMode } from "$lib/server/dictation";
 import { codeRunTimeoutMs } from "$lib/server/codeRunLimit";
+import { executionBackend } from "$lib/server/codeExecution/backend";
 
 export const GET: RequestHandler = async ({ locals }) => {
 	// Mirror the title-generation resolution (generateFromDefaultEndpoint): the
@@ -36,6 +37,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		taskModelId,
 		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",
 		codeRunTimeoutSeconds: Math.round(codeRunTimeoutMs() / 1000),
+		codeExecution: executionBackend().kind,
 		// Also requires a configured gateway (mirrored in pystinoProvider.ts's
 		// own isEnabled): a flag with no OPENAI_BASE_URL would show a tab whose
 		// only provider can never answer.
