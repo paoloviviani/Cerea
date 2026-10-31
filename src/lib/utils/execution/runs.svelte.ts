@@ -86,6 +86,12 @@ class RunsStore {
 	 * firing.
 	 */
 	#seenStreaming = new Set<string>();
+	/**
+	 * Which run of a key is current. A forced re-run (a run restarted after the
+	 * page was in the background) supersedes the one before it, whose late
+	 * settlement must not overwrite the new state.
+	 */
+	#generation = new Map<string, number>();
 
 	get status(): ExecutionStatus {
 		return this.#runtimeStatus;
@@ -103,6 +109,17 @@ class RunsStore {
 	/** Whether `key` was ever seen streaming in this tab (never true for a history block). */
 	hasSeenStreaming(key: string): boolean {
 		return this.#seenStreaming.has(key);
+	}
+
+	/**
+	 * Run `key`'s code again from the start on a fresh sandbox. For a run whose
+	 * page was in the background: the worker may be frozen or gone, so it is
+	 * dropped (anything it still owes is superseded, never applied) rather than
+	 * waited on. Whatever the code wrote lives in the sandbox only.
+	 */
+	restart(key: string, code: string): RunState | undefined {
+		getExecutionSession()?.terminate();
+		return this.run(key, code, { force: true });
 	}
 
 	/**
@@ -130,6 +147,10 @@ class RunsStore {
 			});
 		}
 
+		const generation = (this.#generation.get(key) ?? 0) + 1;
+		this.#generation.set(key, generation);
+		const current = () => this.#generation.get(key) === generation;
+
 		const state: RunState = {
 			status: this.#runtimeStatus === "ready" ? "running" : "loading",
 			startedAt: Date.now(),
@@ -138,6 +159,7 @@ class RunsStore {
 
 		withAttachmentMounts(() => session.run(code), code)
 			.then((outcome) => {
+				if (!current()) return;
 				const settled: RunState = {
 					...state,
 					status: outcome.ok ? "done" : "error",
@@ -151,10 +173,12 @@ class RunsStore {
 				// never rejects), so a waiter on the flag can never hang.
 				this.#runs[key] = settled;
 				void collectOutputFiles(session).then((outputFiles) => {
+					if (!current()) return;
 					this.#runs[key] = { ...settled, outputFiles: outputFiles ?? [], outputsCollected: true };
 				});
 			})
 			.catch((error: unknown) => {
+				if (!current()) return;
 				this.#runs[key] = {
 					...state,
 					status: "error",

@@ -188,6 +188,25 @@ afterwards pin it in the kit with `kit/tools/pin --pystino` and release Cerea.
 
 ## 6. Traps that have already cost time
 
+- **The code-execution backend seam.** Where model code runs is decided in one
+  place: `src/lib/server/codeExecution/backend.ts` (`executionBackend()`, from
+  `CHAT_CODE_EXECUTION` = `browser` | `server` | `off`; `server` has no
+  implementation and logs a warning, then behaves as `off`; admin-only
+  deployment configuration, never a user or request value). `execute_code`, the
+  scheduled-run exclusion, the system prompt wording, the pause endpoint and
+  the client (`codeExecution` in the layout data, `backend.svelte.ts`, which
+  gates the sandbox session, auto-run fences, the pause/resume, the wake lock
+  and the "keep the page open" hint) all go through it. A server backend must
+  implement `ExecutionBackend`: `startRun` (park the call and start the run
+  with the conversation's files and the run/deadline limits), `pause`,
+  `resolve`, plus the capability fields (`supportsUnattended`, `supportsPause`,
+  `toolOffered`, `promptEngine`); then the client reads `server` as a mode that
+  does not run in the page. The browser backend parks the turn on the page
+  (`parkedCalls`, kind `code`); a page that hides while a run is pending sends
+  a beacon to `code-execution/paused`, which extends the parked deadline (never
+  shortening it, capped from the first pause by `CODE_PAUSED_WAIT_MS`), and
+  restarts the run from the start when it returns.
+
 - **Two copies that must stay in sync.** Final-answer merging exists in
   `src/lib/server/generation/applyUpdate.ts` (stored content) and
   `src/lib/utils/mergeFinalAnswer.ts` (client), and `ChatMessage.svelte`

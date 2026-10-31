@@ -55,8 +55,12 @@ Two things the gateway does on the way:
 ### What does not leave your browser
 
 - **Code execution.** Model-written Python runs in your own browser in a
-  WebAssembly sandbox with no network access. Nothing is uploaded, and the
-  deployment spends no compute on it.
+  WebAssembly sandbox with no network access while it runs. Nothing is
+  uploaded, and the deployment spends no compute on it. One exception, on by
+  default: when code installs a package that is not bundled, your browser
+  fetches it from the public PyPI index (`pypi.org`, `files.pythonhosted.org`).
+  You can turn that off in your settings, and the operator can turn it off for
+  everyone.
 - **Coding agents**, if this deployment offers the `/code` panel. The agent
   runs on your own machine, which connects to this server over TLS with its
   own sign-in; the chat relays your prompts and the agent's answers. Your code, your

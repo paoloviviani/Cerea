@@ -1,4 +1,5 @@
 import { getContext, setContext } from "svelte";
+import { browserExecutionEnabled } from "./backend.svelte";
 
 /**
  * Whether Python fences on this surface may execute in the browser sandbox.
@@ -24,7 +25,12 @@ export function setCodeExecutionDisabled(): void {
 	setContext(CODE_EXECUTION_DISABLED, true);
 }
 
-/** True only under a provider above (the agent transcript). */
+/**
+ * True under a provider above (the agent transcript), and everywhere when the
+ * deployment's execution backend does not run code in this browser.
+ */
 export function isCodeExecutionDisabled(): boolean {
-	return getContext<boolean | undefined>(CODE_EXECUTION_DISABLED) === true;
+	return (
+		getContext<boolean | undefined>(CODE_EXECUTION_DISABLED) === true || !browserExecutionEnabled()
+	);
 }

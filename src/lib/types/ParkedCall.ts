@@ -84,6 +84,12 @@ export interface ParkedCall extends Timestamps {
 	 * to fall back to a fence on.
 	 */
 	outcome?: CodeExecutionOutcome;
+	/**
+	 * `kind: "code"`: when the page first reported going to the background while
+	 * the run was pending. The extended deadline is capped relative to this, so
+	 * repeated signals cannot hold the turn forever.
+	 */
+	pausedAt?: Date;
 
 	/**
 	 * Whose turn this is. The sweeper has no request to read an identity from, so it
