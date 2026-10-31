@@ -944,7 +944,6 @@
 					{modelIsMultimodal}
 					onPaste={handlePaste}
 					chatTools={false}
-					voiceRecorder={false}
 					bind:files
 					onsubmit={submit}
 					bind:focused

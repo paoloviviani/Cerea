@@ -115,23 +115,27 @@ connector's tool asks first, whatever its mode.
 
 ## Voice
 
-**Enable browser dictation** decides whether the composer shows a microphone
-button that types what a person says, using the speech recognition built into
-their browser (see [Dictation](chat.md#dictation)). Three values:
+**Dictation** decides how the composer's microphone works. Three values:
 
-- **Yes**: always offered, in browsers that support it.
-- **No**: never offered.
-- **Only when no voice model is available** (the default): offered only when
-  the deployment has no server-side transcription model (`TRANSCRIPTION_MODEL`),
-  so the recorder button and the dictation button are never shown together.
+- **Browser**: the speech recognition built into the user's browser (see
+  [Dictation](chat.md#dictation)). Chrome, Edge and Safari may send the audio to
+  their vendor's cloud; this deployment never receives it. Firefox has no
+  recognition and shows no button.
+- **Transcription model**: the microphone records (with a timer, up to five
+  minutes) and the recording is transcribed by the transcription model through
+  the gateway, as the user. The audio goes to the provider that serves the
+  model, is metered per user, and is not screened by redaction. Works in
+  Firefox. The model is the one chosen on the Knowledge screen (the same model
+  that transcribes [audio attachments](chat.md#attachments)), else
+  `CHAT_TRANSCRIPTION_MODEL`, else the first one available.
+- **Off**: no microphone button.
 
-It is a deployment decision, and not each person's, because Chrome, Edge and
-Safari may send the audio to their vendor's cloud for recognition; this
-deployment never receives it. Firefox has no recognition and shows no button
-whatever the setting. The value is stored in the chat's configuration (changing
-it is logged with who made the change) and overrides `CHAT_DICTATION`; with
-`ENABLE_CONFIG_MANAGER` off it can only be set in the environment. People see
-a change the next time the page loads.
+It is a deployment decision, and not each user's. The value is stored in the
+chat's configuration (changing it is logged with who made the change) and
+overrides `CHAT_DICTATION`; with `ENABLE_CONFIG_MANAGER` off it can only be set
+in the environment. Users see a change the next time the page loads. With no
+choice made, a deployment that still has the deprecated `TRANSCRIPTION_*` pair
+keeps its recorder, and any other uses browser dictation.
 
 ## Sub-agents
 

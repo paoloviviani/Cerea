@@ -55,7 +55,13 @@ function base(): string {
 async function call<T>(
 	token: string,
 	path: string,
-	init: { method: "GET" | "POST" | "DELETE"; body?: unknown },
+	init: {
+		method: "GET" | "POST" | "DELETE";
+		body?: unknown;
+		/** A multipart body (audio upload); the runtime sets the boundary header. */
+		form?: FormData;
+		headers?: Record<string, string>;
+	},
 	options: CallOptions = {}
 ): Promise<T> {
 	const started = Date.now();
@@ -66,8 +72,13 @@ async function call<T>(
 			headers: {
 				Authorization: `Bearer ${token}`,
 				...(init.body === undefined ? {} : { "content-type": "application/json" }),
+				...init.headers,
 			},
-			...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+			...(init.form
+				? { body: init.form }
+				: init.body === undefined
+					? {}
+					: { body: JSON.stringify(init.body) }),
 			...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
 		});
 	} catch (err) {
@@ -103,6 +114,13 @@ export const gateway = {
 	get: <T>(token: string, path: string) => call<T>(token, path, { method: "GET" }),
 	post: <T>(token: string, path: string, body?: unknown, options?: CallOptions) =>
 		call<T>(token, path, { method: "POST", body: body ?? {} }, options),
+	/** A multipart POST: the one audio route takes a file, not JSON. */
+	postForm: <T>(
+		token: string,
+		path: string,
+		form: FormData,
+		options?: CallOptions & { headers?: Record<string, string> }
+	) => call<T>(token, path, { method: "POST", form, headers: options?.headers }, options),
 	del: <T>(token: string, path: string) => call<T>(token, path, { method: "DELETE" }),
 };
 

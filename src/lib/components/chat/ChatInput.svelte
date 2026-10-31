@@ -108,11 +108,6 @@
 		 * empty, saved debounced while typing, dropped the moment the value
 		 * empties (a landed send clears it; a refused one never does). */
 		draftKey?: string | null;
-		/** Whether this composer has the server-side voice recorder beside it
-		 * (the chat does when a transcription model is configured; an agent
-		 * composer never does). Only matters when the deployment offers
-		 * dictation "only when no voice model is available". */
-		voiceRecorder?: boolean;
 	}
 
 	let {
@@ -136,7 +131,6 @@
 		slashCommands = null,
 		onslashcommand,
 		draftKey = null,
-		voiceRecorder = true,
 	}: Props = $props();
 
 	// Per caller, from the root layout: no granted search backend means the
@@ -566,13 +560,12 @@
 	onMount(() => {
 		dictationSupported = getSpeechRecognition() !== null;
 	});
-	// The administrator's switch, with the support check and, for "fallback",
-	// whether the server-side recorder is already offered here.
+	// The administrator's choice ("browser"), with the support check. With
+	// "model" the chat window's recorder is the microphone instead.
 	const showDictation = $derived(
 		dictationOffered(
 			parseDictationMode((page.data as { dictationMode?: string }).dictationMode),
-			dictationSupported,
-			voiceRecorder && !!(page.data as { transcriptionEnabled?: boolean }).transcriptionEnabled
+			dictationSupported
 		)
 	);
 

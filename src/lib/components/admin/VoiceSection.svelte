@@ -1,7 +1,7 @@
 <!--
-	Whether the composer offers dictation with the browser's own speech
-	recognition. Sits beside the server-side recorder (the transcription model),
-	and the default keeps the two from showing together.
+	How the composer does dictation: the browser's own speech recognition, a
+	recording transcribed by the transcription model through the gateway, or
+	nothing. One choice, so the two microphones never show together.
 
 	A section of the Assistant tab (`/admin/assistant#voice`).
 -->
@@ -11,29 +11,31 @@
 	import { m } from "$lib/paraglide/messages";
 	import Rich from "$lib/i18n/Rich.svelte";
 
-	type Mode = "yes" | "no" | "fallback";
+	type Mode = "browser" | "model" | "off";
 
 	const OPTIONS: { value: Mode; title: () => string; detail: () => string }[] = [
 		{
-			value: "yes",
-			title: m["admin.voice.option.yes.title"],
-			detail: m["admin.voice.option.yes.detail"],
+			value: "browser",
+			title: m["admin.voice.option.browser.title"],
+			detail: m["admin.voice.option.browser.detail"],
 		},
 		{
-			value: "no",
-			title: m["admin.voice.option.no.title"],
-			detail: m["admin.voice.option.no.detail"],
+			value: "model",
+			title: m["admin.voice.option.model.title"],
+			detail: m["admin.voice.option.model.detail"],
 		},
 		{
-			value: "fallback",
-			title: m["admin.voice.option.fallback.title"],
-			detail: m["admin.voice.option.fallback.detail"],
+			value: "off",
+			title: m["admin.voice.option.off.title"],
+			detail: m["admin.voice.option.off.detail"],
 		},
 	];
 
-	let mode = $state<Mode>("fallback");
-	let saved = $state<Mode>("fallback");
-	let transcriptionEnabled = $state(false);
+	let mode = $state<Mode>("browser");
+	let saved = $state<Mode>("browser");
+	let transcriptionModel = $state<string | null>(null);
+	let transcriptionSource = $state<"stored" | "env" | "first-available" | "none">("none");
+	let legacy = $state(false);
 	let configurable = $state(true);
 	let loading = $state(true);
 	let busy = $state(false);
@@ -54,7 +56,9 @@
 			const data = await response.json();
 			mode = data.mode;
 			saved = data.mode;
-			transcriptionEnabled = data.transcriptionEnabled;
+			transcriptionModel = data.transcriptionModel ?? null;
+			transcriptionSource = data.transcriptionSource ?? "none";
+			legacy = Boolean(data.legacyTranscription);
 			configurable = data.configurable;
 		} catch (err) {
 			failure = err instanceof Error ? err.message : m["admin.common.read_failed"]();
@@ -151,9 +155,21 @@
 		</fieldset>
 
 		<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="voice-model-state">
-			{transcriptionEnabled
-				? m["admin.voice.model_state.with_model"]()
-				: m["admin.voice.model_state.without_model"]()}
+			{#if legacy}
+				{m["admin.voice.model_state.legacy"]()}
+			{:else if transcriptionModel}
+				{m["admin.voice.model_state.resolved"]({
+					model: transcriptionModel,
+					source:
+						transcriptionSource === "stored"
+							? m["admin.voice.model_state.source.stored"]()
+							: transcriptionSource === "env"
+								? m["admin.voice.model_state.source.env"]()
+								: m["admin.voice.model_state.source.first"](),
+				})}
+			{:else}
+				{m["admin.voice.model_state.none"]()}
+			{/if}
 		</p>
 
 		<div class="flex items-center justify-between gap-3">

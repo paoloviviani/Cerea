@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { state } = vi.hoisted(() => ({
-	state: { stored: "" as string, managerOn: "true", transcription: "", admin: true },
+const { state, resolveMock } = vi.hoisted(() => ({
+	state: { stored: "" as string, managerOn: "true", legacy: false, admin: true },
+	resolveMock: vi.fn(),
 }));
 const setMock = vi.hoisted(() => vi.fn());
 
@@ -11,6 +12,10 @@ vi.mock("$lib/server/admin", () => ({
 		return { email: "admin@example.org", isAdmin: true };
 	}),
 }));
+vi.mock("$lib/server/transcription", () => ({
+	legacyTranscriptionConfigured: () => state.legacy,
+	resolveTranscriptionModel: resolveMock,
+}));
 vi.mock("$lib/server/config", () => ({
 	config: new Proxy(
 		{
@@ -18,16 +23,10 @@ vi.mock("$lib/server/config", () => ({
 				setMock(key, value);
 				if (key === "CHAT_DICTATION") state.stored = value;
 			},
-			get: (key: string) =>
-				key === "TRANSCRIPTION_MODEL"
-					? state.transcription
-					: key === "TRANSCRIPTION_BASE_URL"
-						? "https://stt.example.org/models"
-						: "",
 		} as Record<string, unknown>,
 		{
 			get(target, key: string) {
-				if (key === "set" || key === "get") return target[key];
+				if (key === "set") return target[key];
 				if (key === "ENABLE_CONFIG_MANAGER") return state.managerOn;
 				if (key === "CHAT_DICTATION") return state.stored;
 				return undefined;
@@ -52,31 +51,42 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	state.stored = "";
 	state.managerOn = "true";
-	state.transcription = "";
+	state.legacy = false;
 	state.admin = true;
+	resolveMock.mockResolvedValue({ model: null, source: "none" });
 });
 
 describe("admin dictation", () => {
-	it("defaults to 'only when no voice model is available' when unset", async () => {
+	it("defaults to the browser when unset", async () => {
+		const body = await (await GET(get())).json();
+		expect(body).toMatchObject({ mode: "browser", transcriptionModel: null, configurable: true });
+	});
+
+	it("defaults to the model where the deprecated direct pair is set", async () => {
+		state.legacy = true;
+		const body = await (await GET(get())).json();
+		expect(body).toMatchObject({ mode: "model", legacyTranscription: true });
+	});
+
+	it("reads the old words as the new ones, and an unknown value as the default", async () => {
+		state.stored = "no";
+		expect((await (await GET(get())).json()).mode).toBe("off");
+		state.stored = "yes";
+		expect((await (await GET(get())).json()).mode).toBe("browser");
+		state.stored = "banana";
+		expect((await (await GET(get())).json()).mode).toBe("browser");
+	});
+
+	it("reports the model the option would use, and where it came from", async () => {
+		resolveMock.mockResolvedValue({ model: "whisper-large-v3-turbo", source: "stored" });
 		const body = await (await GET(get())).json();
 		expect(body).toMatchObject({
-			mode: "fallback",
-			transcriptionEnabled: false,
-			configurable: true,
+			transcriptionModel: "whisper-large-v3-turbo",
+			transcriptionSource: "stored",
 		});
 	});
 
-	it("reads an unknown stored value as the default", async () => {
-		state.stored = "banana";
-		expect((await (await GET(get())).json()).mode).toBe("fallback");
-	});
-
-	it("reports whether a voice model exists", async () => {
-		state.transcription = "whisper";
-		expect((await (await GET(get())).json()).transcriptionEnabled).toBe(true);
-	});
-
-	it.each(["yes", "no", "fallback"])("stores %s", async (mode) => {
+	it.each(["browser", "model", "off"])("stores %s", async (mode) => {
 		const body = await (await PATCH(patch({ mode }))).json();
 		expect(setMock).toHaveBeenCalledWith("CHAT_DICTATION", mode);
 		expect(body).toEqual({ mode });
@@ -84,19 +94,20 @@ describe("admin dictation", () => {
 
 	it("refuses a value that is not one of the three", async () => {
 		await expect(PATCH(patch({ mode: "maybe" }))).rejects.toMatchObject({ status: 400 });
+		await expect(PATCH(patch({ mode: "yes" }))).rejects.toMatchObject({ status: 400 });
 		expect(setMock).not.toHaveBeenCalled();
 	});
 
 	it("refuses a write from somebody who is not an administrator", async () => {
 		state.admin = false;
-		await expect(PATCH(patch({ mode: "yes" }))).rejects.toMatchObject({ status: 403 });
+		await expect(PATCH(patch({ mode: "model" }))).rejects.toMatchObject({ status: 403 });
 		await expect(GET(get())).rejects.toMatchObject({ status: 403 });
 		expect(setMock).not.toHaveBeenCalled();
 	});
 
 	it("says so when configuration is environment-only", async () => {
 		state.managerOn = "false";
-		await expect(PATCH(patch({ mode: "yes" }))).rejects.toMatchObject({ status: 409 });
+		await expect(PATCH(patch({ mode: "model" }))).rejects.toMatchObject({ status: 409 });
 		expect(setMock).not.toHaveBeenCalled();
 	});
 });

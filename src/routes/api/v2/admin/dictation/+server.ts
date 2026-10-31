@@ -1,12 +1,16 @@
 /**
- * Whether the composer offers browser dictation. Site-wide, administrator only.
+ * How the composer does dictation: browser, transcription model or off.
+ * Site-wide, administrator only.
  *
  * Stored in the chat's own `config` collection like the fetch backend: what
  * the composer offers is a product decision. Who may change it is the
  * gateway's answer (`requireAdmin`).
  */
 
-import { transcriptionEnabled } from "$lib/server/transcription";
+import {
+	legacyTranscriptionConfigured,
+	resolveTranscriptionModel,
+} from "$lib/server/transcription";
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { config } from "$lib/server/config";
@@ -18,11 +22,17 @@ const body = z.object({ mode: z.enum(DICTATION_MODES) });
 
 export const GET: RequestHandler = async ({ locals }) => {
 	await requireAdmin(locals);
+	const resolved = locals.token
+		? await resolveTranscriptionModel(locals.token)
+		: { model: null, source: "none" as const };
 	return json({
 		mode: dictationMode(),
 		available: DICTATION_MODES,
-		// Said so the screen can explain "only when no voice model is available".
-		transcriptionEnabled: transcriptionEnabled(),
+		// Said so the screen can show which model "Transcription model" would use.
+		transcriptionModel: resolved.model,
+		transcriptionSource: resolved.source,
+		// The deprecated direct endpoint is set: the model option uses it.
+		legacyTranscription: legacyTranscriptionConfigured(),
 		configurable: config.ENABLE_CONFIG_MANAGER === "true",
 	});
 };
@@ -42,8 +52,8 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 	}
 	const before = dictationMode();
 	await config.set("CHAT_DICTATION", parsed.data.mode);
-	// Logged with who and from what: "yes" lets people's browsers send audio to
-	// their vendor, which somebody will want to date.
+	// Logged with who and from what: "browser" lets users' browsers send audio to
+	// their vendor and "model" sends it to the provider, which somebody will want to date.
 	logger.info({ from: before, to: parsed.data.mode, admin: admin.email }, "dictation_mode_changed");
 	return json({ mode: dictationMode() });
 };

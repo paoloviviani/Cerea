@@ -388,30 +388,30 @@ describe("ChatInput dictation", () => {
 	});
 });
 
-describe("ChatInput dictation, the administrator's switch", () => {
-	const cases: [string | undefined, boolean, boolean][] = [
-		[undefined, false, true],
-		[undefined, true, false],
-		["fallback", false, true],
-		["fallback", true, false],
-		["yes", false, true],
-		["yes", true, true],
-		["no", false, false],
-		["no", true, false],
+describe("ChatInput dictation, the administrator's choice", () => {
+	const cases: [string | undefined, boolean][] = [
+		[undefined, true],
+		["browser", true],
+		["model", false],
+		["off", false],
+		// The old words still read.
+		["yes", true],
+		["no", false],
+		["fallback", true],
 	];
-	for (const [dictationMode, transcriptionEnabled, shown] of cases) {
-		it(`mode ${dictationMode ?? "unset"}, transcription ${transcriptionEnabled ? "on" : "off"}: ${shown ? "shown" : "hidden"}`, async () => {
+	for (const [dictationMode, shown] of cases) {
+		it(`mode ${dictationMode ?? "unset"}: ${shown ? "shown" : "hidden"}`, async () => {
 			w.SpeechRecognition = FakeRecognition;
-			mount({}, { dictationMode, transcriptionEnabled });
+			mount({}, { dictationMode });
 			await tick();
 			expect(maybeMic() !== null).toBe(shown);
 		});
 	}
 
-	it("an agent composer has no recorder, so fallback still offers dictation", async () => {
+	it("the transcription-model option leaves the microphone to the chat window's recorder", async () => {
 		w.SpeechRecognition = FakeRecognition;
-		mount({ voiceRecorder: false }, { dictationMode: "fallback", transcriptionEnabled: true });
+		mount({}, { dictationMode: "model", transcriptionEnabled: true });
 		await tick();
-		expect(maybeMic()).not.toBeNull();
+		expect(maybeMic()).toBeNull();
 	});
 });

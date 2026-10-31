@@ -57,12 +57,15 @@ If not set, the current conversation model is used.
 
 ## Voice Transcription
 
-Enable voice input with Whisper:
+Voice input and audio attachments use the gateway's transcription model:
 
 ```ini
-TRANSCRIPTION_MODEL=openai/whisper-large-v3-turbo
-TRANSCRIPTION_BASE_URL=https://router.huggingface.co/hf-inference/models
+CHAT_TRANSCRIPTION_MODEL=whisper-large-v3-turbo
+CHAT_DICTATION=model
 ```
+
+`TRANSCRIPTION_MODEL` with `TRANSCRIPTION_BASE_URL` (a direct endpoint) is
+deprecated but still serves dictation.
 
 ## Feature Flags
 

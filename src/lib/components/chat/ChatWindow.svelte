@@ -467,6 +467,7 @@
 		TEXT_MIME_ALLOWLIST,
 		IMAGE_MIME_ALLOWLIST_DEFAULT,
 		DOCUMENT_MIME_ALLOWLIST,
+		AUDIO_MIME_ALLOWLIST,
 	} from "$lib/constants/mime";
 
 	let activeMimeTypes = $derived(
@@ -476,6 +477,11 @@
 				// Documents whatever the model is: it never sees the bytes, only
 				// the text the gateway's extractor read out of them.
 				...DOCUMENT_MIME_ALLOWLIST,
+				// Audio when a transcription model is there for this user: the
+				// model reads the transcript made at upload, never the sound.
+				...((page.data as { audioAttachments?: boolean }).audioAttachments
+					? AUDIO_MIME_ALLOWLIST
+					: []),
 				...(modelIsMultimodal
 					? (currentModel.multimodalAcceptedMimetypes ?? [...IMAGE_MIME_ALLOWLIST_DEFAULT])
 					: []),
@@ -807,6 +813,7 @@
 								onconfirm={handleRecordingConfirm}
 								onsend={handleRecordingSend}
 								onerror={handleRecordingError}
+								onnotice={(message) => ($error = message)}
 							/>
 						{:else if drag.active && isFileUploadEnabled}
 							<FileDropzone bind:files bind:onDrag={drag.active} mimeTypes={activeMimeTypes} />

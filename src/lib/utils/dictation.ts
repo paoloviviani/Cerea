@@ -141,24 +141,47 @@ export function joinTranscript(results: ArrayLike<SpeechRecognitionResultLike>):
 	return out;
 }
 
-/** The deployment-wide switch (Administration -> Voice). */
-export const DICTATION_MODES = ["yes", "no", "fallback"] as const;
+/**
+ * The deployment-wide choice (Administration -> Voice): how dictation works.
+ *
+ * - `browser`: the browser's own speech recognition (Web Speech API). May send
+ *   the audio to the browser vendor.
+ * - `model`: the composer microphone records and the audio is transcribed by
+ *   the transcription model, through the gateway.
+ * - `off`: no dictation button.
+ */
+export const DICTATION_MODES = ["browser", "model", "off"] as const;
 export type DictationMode = (typeof DICTATION_MODES)[number];
 
-/** A stored or env value, read leniently; anything unknown is the default. */
-export function parseDictationMode(value: string | undefined | null): DictationMode {
+/**
+ * A stored or env value, read leniently. The old words still work: `yes` is
+ * `browser`, `no` is `off`, and `fallback` (also the unset default) was "browser
+ * unless a server-side recorder exists" — `model` when `serverModel` says the
+ * deployment has one, `browser` otherwise.
+ */
+export function parseDictationMode(
+	value: string | undefined | null,
+	serverModel = false
+): DictationMode {
 	const raw = (value ?? "").trim().toLowerCase();
-	return (DICTATION_MODES as readonly string[]).includes(raw) ? (raw as DictationMode) : "fallback";
+	if ((DICTATION_MODES as readonly string[]).includes(raw)) return raw as DictationMode;
+	if (raw === "yes") return "browser";
+	if (raw === "no") return "off";
+	return serverModel ? "model" : "browser";
 }
 
-/** Whether the composer shows the dictation button: the deployment allows it,
- * the browser can do it, and (in `fallback`) no server-side recorder is
- * already there. */
-export function dictationOffered(
-	mode: DictationMode,
-	browserSupported: boolean,
-	serverTranscription: boolean
-): boolean {
-	if (!browserSupported || mode === "no") return false;
-	return mode === "yes" || !serverTranscription;
+/** Whether the composer shows the browser dictation button. */
+export function dictationOffered(mode: DictationMode, browserSupported: boolean): boolean {
+	return mode === "browser" && browserSupported;
+}
+
+/** The longest one dictation recording runs, in seconds; then it is stopped and transcribed. */
+export const MAX_RECORDING_SECONDS = 300;
+/** The gateway refuses audio past this (its default 25 MB cap). */
+export const MAX_RECORDING_BYTES = 25 * 1024 * 1024;
+
+/** `0:07`, the recording timer. */
+export function formatRecordingTime(seconds: number): string {
+	const total = Math.max(0, Math.floor(seconds));
+	return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }

@@ -1,11 +1,20 @@
-import { transcriptionBaseUrl } from "$lib/server/transcription";
+import {
+	legacyTranscriptionConfigured,
+	transcribeAudio,
+	transcriptionBaseUrl,
+	TRANSCRIPTION_MAX_BYTES,
+	TRANSCRIPTION_CAP_MINUTES,
+	warnLegacyTranscription,
+} from "$lib/server/transcription";
+import { dictationMode } from "$lib/server/dictation";
 import { error, json } from "@sveltejs/kit";
 import { config } from "$lib/server/config";
 import { getApiToken } from "$lib/server/apiToken";
 import { billToHeader } from "$lib/server/billTo";
 import { logger } from "$lib/server/logger";
 
-const MAX_AUDIO_SIZE = 25 * 1024 * 1024; // 25MB
+const MAX_AUDIO_SIZE = TRANSCRIPTION_MAX_BYTES; // the gateway's own cap
+const TOO_LONG = `This recording is too long to transcribe (up to about ${TRANSCRIPTION_CAP_MINUTES} minutes). Record a shorter one.`;
 const TRANSCRIPTION_TIMEOUT = 60000; // 60 seconds
 
 const ALLOWED_CONTENT_TYPES = [
@@ -18,14 +27,20 @@ const ALLOWED_CONTENT_TYPES = [
 	"audio/x-wav",
 ];
 
+/**
+ * Dictation by a transcription model: the composer sends one recording, this
+ * sends it on as the signed-in user, through the gateway's
+ * `/v1/audio/transcriptions` (metered with their token, their groups, their
+ * bill-to). Only when the administrator chose "Transcription model" under
+ * Administration -> Voice.
+ *
+ * The deprecated `TRANSCRIPTION_BASE_URL` + `TRANSCRIPTION_MODEL` pair, when
+ * set, still takes precedence and goes direct (one deprecation line is logged).
+ */
 export async function POST({ request, locals }) {
-	const transcriptionModel = config.get("TRANSCRIPTION_MODEL");
-	const baseUrl = transcriptionBaseUrl();
-
-	if (!transcriptionModel || !baseUrl) {
-		throw error(503, "Transcription is not configured");
+	if (dictationMode() !== "model") {
+		throw error(403, "Dictation by a transcription model is not turned on.");
 	}
-
 	const token = getApiToken(locals);
 
 	if (!token) {
@@ -45,14 +60,33 @@ export async function POST({ request, locals }) {
 
 	const contentLength = parseInt(request.headers.get("content-length") || "0");
 	if (contentLength > MAX_AUDIO_SIZE) {
-		throw error(413, "Audio file too large (max 25MB)");
+		throw error(413, TOO_LONG);
 	}
+
+	if (!legacyTranscriptionConfigured()) {
+		const audioBuffer = await request.arrayBuffer();
+		if (audioBuffer.byteLength > MAX_AUDIO_SIZE) throw error(413, TOO_LONG);
+		const extension = contentType.match(/audio\/(?:x-)?([a-z0-9]+)/)?.[1] ?? "webm";
+		const heard = await transcribeAudio({
+			bytes: audioBuffer,
+			mime: contentType.split(";")[0],
+			filename: `dictation.${extension}`,
+			token,
+			billHeaders: billToHeader(locals?.billingOrganization),
+		});
+		if (!heard.ok) throw error(heard.status === 401 ? 401 : heard.status, heard.reason);
+		return json({ text: heard.text });
+	}
+
+	warnLegacyTranscription();
+	const transcriptionModel = config.get("TRANSCRIPTION_MODEL");
+	const baseUrl = transcriptionBaseUrl() as string;
 
 	try {
 		const audioBuffer = await request.arrayBuffer();
 
 		if (audioBuffer.byteLength > MAX_AUDIO_SIZE) {
-			throw error(413, "Audio file too large (max 25MB)");
+			throw error(413, TOO_LONG);
 		}
 
 		const apiUrl = `${baseUrl}/${transcriptionModel}`;

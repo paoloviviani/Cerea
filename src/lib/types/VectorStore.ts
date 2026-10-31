@@ -88,6 +88,13 @@ export interface KnowledgeConfig extends Timestamps {
 	 * `null` or absent means the caller's billing-group search policy decides.
 	 */
 	webSearchModel?: string | null;
+	/**
+	 * Which gateway model transcribes attached audio, as the Knowledge screen
+	 * chose. `null` or absent: `CHAT_TRANSCRIPTION_MODEL`, else the first
+	 * `kind: transcription` model the user may use. Written with a targeted
+	 * `$set` (like `webSearchModel`), not part of the pipeline's history.
+	 */
+	transcriptionModel?: string | null;
 	chunkChars: number;
 	chunkOverlap: number;
 }

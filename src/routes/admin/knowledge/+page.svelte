@@ -83,6 +83,9 @@
 		detail: string | null;
 		available_embedding_models: string[];
 		available_extractor_models: ExtractorCandidate[];
+		transcription_model: string | null;
+		transcription_source: "stored" | "env" | "first-available" | "none";
+		available_transcription_models: string[];
 		bases: BaseSummary[];
 		stale_base_count: number;
 		history: ConfigEntry[];
@@ -101,6 +104,8 @@
 
 	let embedding = $state("");
 	let extractor = $state("");
+	/** "" is Automatic: no stored choice, the environment or the first model decides. */
+	let transcription = $state("");
 	let chunkChars = $state("1200");
 	let chunkOverlap = $state("150");
 
@@ -114,6 +119,7 @@
 		// stored value that may be null.
 		embedding = next.embedding_model ?? next.available_embedding_models[0] ?? "";
 		extractor = next.extractor_model ?? "";
+		transcription = next.transcription_source === "stored" ? (next.transcription_model ?? "") : "";
 		chunkChars = String(next.chunk_chars);
 		chunkOverlap = String(next.chunk_overlap);
 	}
@@ -139,6 +145,7 @@
 	// made Save answer "Nothing to change" and store nothing — knowledge then
 	// stayed "no embedding model" with one visibly selected.
 	const embeddingDefault = $derived(status ? (status.embedding_model ?? "") : "");
+	const transcriptionModels = $derived(status?.available_transcription_models ?? []);
 	const extractorDefault = $derived(status ? (status.extractor_model ?? "") : "");
 
 	async function save(event: SubmitEvent) {
@@ -156,6 +163,12 @@
 		}
 		if (status.extractor_source !== "env" && extractor !== extractorDefault) {
 			body.extractor_model = extractor;
+		}
+		const transcriptionStored =
+			status.transcription_source === "stored" ? (status.transcription_model ?? "") : "";
+		if (transcription !== transcriptionStored) {
+			if (transcription) body.transcription_model = transcription;
+			else body.clear_transcription = true;
 		}
 		if (Number(chunkChars) !== status.chunk_chars) body.chunk_chars = Number(chunkChars);
 		if (Number(chunkOverlap) !== status.chunk_overlap) {
@@ -318,6 +331,30 @@
 						/>
 					{:else}
 						{m["admin.knowledge.extractor.hint"]()}
+					{/if}
+				</span>
+			</label>
+
+			<label class="flex flex-col gap-1">
+				<span class="text-sm font-medium">{m["admin.knowledge.transcription.label"]()}</span>
+				<select
+					class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+					bind:value={transcription}
+					data-testid="transcription-model"
+				>
+					<option value="">{m["admin.knowledge.transcription.automatic"]()}</option>
+					{#each transcriptionModels as name (name)}
+						<option value={name}>{name}</option>
+					{/each}
+				</select>
+				<span class="text-xs text-gray-500 dark:text-gray-400">
+					{#if transcriptionModels.length === 0}
+						{m["admin.knowledge.transcription.none"]()}
+					{:else}
+						{m["admin.knowledge.transcription.hint"]()}
+						{#if status.transcription_model}
+							{m["admin.knowledge.transcription.current"]({ model: status.transcription_model })}
+						{/if}
 					{/if}
 				</span>
 			</label>

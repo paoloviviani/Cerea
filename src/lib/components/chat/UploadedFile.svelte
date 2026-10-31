@@ -8,7 +8,7 @@
 	import CarbonDownload from "~icons/carbon/download";
 	import CarbonDocument from "~icons/carbon/document";
 	import Modal from "../Modal.svelte";
-	import AudioPlayer from "../players/AudioPlayer.svelte";
+	import IconMic from "~icons/lucide/mic";
 	import EosIconsLoading from "~icons/eos-icons/loading";
 	import { base } from "$app/paths";
 	import { TEXT_MIME_ALLOWLIST } from "$lib/constants/mime";
@@ -117,12 +117,82 @@
 		}
 	}
 
-	let isClickable = $derived(isImage(file.mime) || isPlainText(file.mime) || officeMode !== null);
+	// Audio: a chip with a badge and the duration when it is known; a stored
+	// one opens a panel with the player and the transcript made at upload.
+	const audioSrc = $derived(
+		file.type === "base64"
+			? `data:${file.mime};base64,${file.value}`
+			: outputBase + "/" + file.value
+	);
+	let measured = $state<number | null>(null);
+	const audioSeconds = $derived(file.audio?.durationSeconds ?? measured);
+
+	function formatDuration(seconds: number): string {
+		const total = Math.max(0, Math.round(seconds));
+		const h = Math.floor(total / 3600);
+		const mm = Math.floor((total % 3600) / 60);
+		const ss = String(total % 60).padStart(2, "0");
+		return h > 0 ? `${h}:${String(mm).padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
+	}
+
+	// Without a recorded duration (a file still in the composer), ask the
+	// browser for the file's own metadata. Best effort: no duration is fine.
+	$effect(() => {
+		if (!isAudio(file.mime) || file.audio?.durationSeconds || typeof Audio === "undefined") return;
+		let probe: HTMLAudioElement | null = null;
+		try {
+			probe = new Audio();
+			probe.preload = "metadata";
+			probe.onloadedmetadata = () => {
+				if (probe && Number.isFinite(probe.duration) && probe.duration > 0) {
+					measured = probe.duration;
+				}
+			};
+			probe.src = audioSrc;
+		} catch {
+			/* no metadata, no duration */
+		}
+		return () => {
+			if (probe) {
+				probe.onloadedmetadata = null;
+				probe.removeAttribute("src");
+			}
+		};
+	});
+
+	let transcript = $state<{ state: "loading" | "ready" | "none" | "failed"; text: string }>({
+		state: "loading",
+		text: "",
+	});
+
+	async function loadTranscript(): Promise<void> {
+		if (file.type !== "hash" || !file.extracted) {
+			transcript = { state: "none", text: "" };
+			return;
+		}
+		transcript = { state: "loading", text: "" };
+		try {
+			const res = await fetch(outputBase + "/" + file.extracted.value);
+			if (!res.ok) throw new Error(String(res.status));
+			transcript = { state: "ready", text: await res.text() };
+		} catch {
+			transcript = { state: "failed", text: "" };
+		}
+	}
+
+	const audioPanel = $derived(isAudio(file.mime) && file.type === "hash");
+
+	let isClickable = $derived(
+		isImage(file.mime) || isPlainText(file.mime) || officeMode !== null || audioPanel
+	);
 
 	function activate(): void {
 		if (!isClickable) return;
 		if (officeMode !== null) void openOfficePreview();
-		else showModal = true;
+		else {
+			if (audioPanel) void loadTranscript();
+			showModal = true;
+		}
 	}
 </script>
 
@@ -131,7 +201,41 @@
 {#if showModal && isClickable}
 	<!-- show the image file full screen, click outside to exit -->
 	<Modal width="xl:max-w-[75dvw]" onclose={() => (showModal = false)}>
-		{#if isImage(file.mime)}
+		{#if audioPanel}
+			<div class="flex w-full flex-col gap-3 p-4" data-testid="audio-panel">
+				<div class="flex items-center gap-2">
+					<IconMic class="flex-none text-gray-600 dark:text-gray-300" />
+					<h3 class="truncate text-lg font-semibold">{file.name}</h3>
+					{#if audioSeconds}
+						<span class="text-sm text-gray-500 tabular-nums">{formatDuration(audioSeconds)}</span>
+					{/if}
+					<button
+						class="ml-auto text-xl text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white"
+						aria-label={m["chat.uploaded.close_audio"]()}
+						onclick={() => (showModal = false)}
+					>
+						<CarbonClose class="text-xl" />
+					</button>
+				</div>
+				<audio controls preload="metadata" src={audioSrc} class="w-full"></audio>
+				<h4 class="text-sm font-medium">{m["chat.uploaded.transcript"]()}</h4>
+				{#if transcript.state === "loading"}
+					<p class="text-sm text-gray-500">{m["chat.uploaded.transcript_loading"]()}</p>
+				{:else if transcript.state === "ready"}
+					<pre
+						class="max-h-[50dvh] overflow-y-auto font-sans text-sm wrap-break-word whitespace-pre-wrap"
+						data-testid="audio-transcript">{transcript.text}</pre>
+				{:else if transcript.state === "failed"}
+					<p class="text-sm text-amber-700 dark:text-amber-400">
+						{m["chat.uploaded.transcript_failed"]()}
+					</p>
+				{:else}
+					<p class="text-sm text-gray-500">
+						{file.extractionError?.reason ?? m["chat.uploaded.transcript_none"]()}
+					</p>
+				{/if}
+			</div>
+		{:else if isImage(file.mime)}
 			{#if file.type === "hash"}
 				<img
 					src={outputBase + "/" + file.value}
@@ -215,12 +319,32 @@
 				/>
 			</div>
 		{:else if isAudio(file.mime)}
-			<AudioPlayer
-				src={file.type === "base64"
-					? `data:${file.mime};base64,${file.value}`
-					: outputBase + "/" + file.value}
-				name={truncateMiddle(file.name, 28)}
-			/>
+			<div
+				class="flex h-14 w-72 items-center gap-2 overflow-hidden rounded-xl border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-900"
+				class:file-hoverable={isClickable}
+				data-testid="audio-chip"
+				aria-label={audioPanel ? m["chat.uploaded.audio_open"]({ name: file.name }) : undefined}
+			>
+				<div
+					class="grid size-10 flex-none place-items-center rounded-lg bg-gray-100 dark:bg-gray-800"
+				>
+					<IconMic class="text-base text-gray-700 dark:text-gray-300" />
+				</div>
+				<dl class="flex flex-col items-start truncate leading-tight">
+					<dd class="text-sm">{truncateMiddle(file.name, 28)}</dd>
+					<dt class="flex items-center gap-1.5 text-xs text-gray-400">
+						<span
+							class="rounded bg-gray-100 px-1 text-[10px] font-medium tracking-wide text-gray-600 uppercase dark:bg-gray-800 dark:text-gray-300"
+							data-testid="audio-badge">{m["chat.uploaded.audio_badge"]()}</span
+						>
+						{#if audioSeconds}
+							<span data-testid="audio-duration" class="tabular-nums"
+								>{formatDuration(audioSeconds)}</span
+							>
+						{/if}
+					</dt>
+				</dl>
+			</div>
 		{:else if isVideo(file.mime)}
 			<div
 				class="w-72 overflow-clip rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"

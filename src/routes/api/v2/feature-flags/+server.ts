@@ -1,4 +1,4 @@
-import { transcriptionEnabled } from "$lib/server/transcription";
+import { resolveTranscriptionModel } from "$lib/server/transcription";
 import type { RequestHandler } from "@sveltejs/kit";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { loginEnabled, OIDConfig } from "$lib/server/auth";
@@ -9,7 +9,7 @@ import { delegationEnabled } from "$lib/server/delegation";
 import { codeAgentsAllowedFor } from "$lib/server/codeEnabled";
 import { machineClientId } from "$lib/server/code/machineAuth";
 import type { FeatureFlags } from "$lib/server/api/types";
-import { dictationMode } from "$lib/server/dictation";
+import { dictationMode, modelDictationAvailable } from "$lib/server/dictation";
 import { codeRunTimeoutMs } from "$lib/server/codeRunLimit";
 import { executionBackend } from "$lib/server/codeExecution/backend";
 
@@ -32,8 +32,13 @@ export const GET: RequestHandler = async ({ locals }) => {
 	return superjsonResponse({
 		loginEnabled,
 		isAdmin: locals.isAdmin,
-		transcriptionEnabled: transcriptionEnabled(),
+		// Per user: the mode is `model` and a model they may use exists.
+		transcriptionEnabled: await modelDictationAvailable(locals.token),
 		dictationMode: dictationMode(),
+		// Per user: audio files are offered when a transcription model resolves.
+		audioAttachments: locals.token
+			? Boolean((await resolveTranscriptionModel(locals.token)).model)
+			: false,
 		taskModelId,
 		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",
 		codeRunTimeoutSeconds: Math.round(codeRunTimeoutMs() / 1000),

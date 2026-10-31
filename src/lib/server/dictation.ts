@@ -1,23 +1,36 @@
 /**
- * Whether the composer offers browser dictation (the Web Speech API). A
- * deployment-wide choice an administrator makes under Administration -> Voice.
+ * How the composer does dictation, a deployment-wide choice an administrator
+ * makes under Administration -> Voice: `browser` (the Web Speech API), `model`
+ * (record, then transcribe through the gateway) or `off`.
  *
- * - `yes`: always offered, where the browser supports it.
- * - `no`: never.
- * - `fallback` (the default): offered only when the deployment has no
- *   server-side transcription (`TRANSCRIPTION_MODEL` and `TRANSCRIPTION_BASE_URL`), so the recorder
- *   button and the dictation button are never both there.
+ * Browser dictation may send the audio to the browser vendor's cloud, and the
+ * model option sends it to the chosen provider through the gateway, which is
+ * why an administrator, and not each user, decides.
  *
- * Browser dictation may send the audio to the browser vendor's cloud, which is
- * why an administrator, and not each person, decides whether it is offered.
+ * An unset value (or the old `fallback`) means `model` where the deprecated
+ * `TRANSCRIPTION_BASE_URL` + `TRANSCRIPTION_MODEL` pair is set, `browser`
+ * otherwise, so an existing deployment keeps what it had. `yes` and `no` are
+ * still read as `browser` and `off`.
  */
 
 import { config } from "$lib/server/config";
 import { DICTATION_MODES, parseDictationMode, type DictationMode } from "$lib/utils/dictation";
+import { legacyTranscriptionConfigured, resolveTranscriptionModel } from "./transcription";
 
 export { DICTATION_MODES, parseDictationMode, type DictationMode };
 
-/** The mode in force: stored value, else the environment, else `fallback`. */
+/** The mode in force: stored value, else the environment, else the default. */
 export function dictationMode(): DictationMode {
-	return parseDictationMode(config.CHAT_DICTATION);
+	return parseDictationMode(config.CHAT_DICTATION, legacyTranscriptionConfigured());
+}
+
+/**
+ * Whether the microphone-and-model recorder works for this user: the mode is
+ * `model` and there is something to transcribe with (a gateway model they may
+ * use, or the deprecated direct endpoint).
+ */
+export async function modelDictationAvailable(token: string | undefined): Promise<boolean> {
+	if (dictationMode() !== "model") return false;
+	if (legacyTranscriptionConfigured()) return true;
+	return Boolean(token && (await resolveTranscriptionModel(token)).model);
 }

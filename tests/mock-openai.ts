@@ -28,8 +28,12 @@ export const KNOWLEDGE_MODELS_FIXTURE = {
 		{ id: "test-embedding", kind: "embedding" },
 		{ id: "mistral-ocr-4.1", kind: "ocr" },
 		{ id: "markitdown", kind: "ocr", local: true },
+		{ id: "mock-whisper", kind: "transcription" },
 	],
 };
+
+/** What the mock transcription model hears, whatever the audio. */
+export const MOCK_TRANSCRIPT = "The launch is on Tuesday, said the mock voice.";
 
 /** An 8x8 red JPEG: what the mock extractor renders a scanned page as. */
 const SCAN_PAGE_JPEG =
@@ -334,6 +338,32 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 				page_images: [2, 3].map((page) => ({ page, mime: "image/jpeg", data: SCAN_PAGE_JPEG })),
 				page_count: 3,
 				truncated: false,
+			});
+			return;
+		}
+
+		// ── Speech to text — Pystino's `POST /v1/audio/transcriptions` (multipart:
+		// file, model, response_format). One fixed transcript, with the usage block
+		// the gateway returns. The recorded body carries what a test asserts on:
+		// the model, the file's size, and the bearer token the call was made with.
+		if (url.pathname === "/v1/audio/transcriptions" && req.method === "POST") {
+			const raw = await readBody(req);
+			recorded.push({
+				method: "POST",
+				path: url.pathname,
+				conversationId,
+				stream: false,
+				body: {
+					model: /name="model"\r\n\r\n([^\r]*)/.exec(raw)?.[1] ?? null,
+					bytes: raw.length,
+					authorization: req.headers.authorization ?? null,
+				},
+				at: Date.now(),
+			});
+			json(res, 200, {
+				text: MOCK_TRANSCRIPT,
+				language: "en",
+				usage: { audio_duration_seconds: 7 },
 			});
 			return;
 		}

@@ -178,6 +178,9 @@ export default defineConfig({
 				// Deterministic surface: no DB-driven config, no router, no ambient MCP servers.
 				ENABLE_CONFIG_MANAGER: "false",
 				MCP_SERVERS: "[]",
+				// Dictation by the transcription model (the mock gateway has one), so the
+				// composer's recorder is what a spec finds, not the browser's recognition.
+				CHAT_DICTATION: "model",
 				// Artifact surfaces for the tool-based artifacts spec: the tool
 				// model gets the `artifact` tool (tools + artifacts), the tags
 				// model keeps inline `<artifact>` tags (artifacts without

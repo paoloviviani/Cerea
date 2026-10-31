@@ -8,6 +8,7 @@ import {
 	parseDictationMode,
 	getSpeechRecognition,
 	joinTranscript,
+	formatRecordingTime,
 } from "./dictation";
 
 const result = (transcript: string, isFinal = true) => ({ isFinal, 0: { transcript } });
@@ -82,28 +83,34 @@ describe("dictation helpers", () => {
 });
 
 describe("the deployment switch", () => {
-	it("defaults to fallback for anything unset or unknown", () => {
-		for (const v of [undefined, null, "", "  ", "maybe"]) {
-			expect(parseDictationMode(v)).toBe("fallback");
-		}
-		expect(parseDictationMode(" YES ")).toBe("yes");
-		expect(parseDictationMode("no")).toBe("no");
+	it("reads the three modes, and the old words", () => {
+		expect(parseDictationMode("browser")).toBe("browser");
+		expect(parseDictationMode(" MODEL ")).toBe("model");
+		expect(parseDictationMode("off")).toBe("off");
+		expect(parseDictationMode("yes")).toBe("browser");
+		expect(parseDictationMode("no")).toBe("off");
 	});
 
-	it("offers the button per mode, browser support and server transcription", () => {
-		// [mode, browser supports, server transcription] -> shown
-		const table: [Parameters<typeof dictationOffered>[0], boolean, boolean, boolean][] = [
-			["yes", true, false, true],
-			["yes", true, true, true],
-			["no", true, false, false],
-			["no", true, true, false],
-			["fallback", true, false, true],
-			["fallback", true, true, false],
-			["yes", false, false, false],
-			["fallback", false, false, false],
-		];
-		for (const [mode, supported, transcription, shown] of table) {
-			expect(dictationOffered(mode, supported, transcription)).toBe(shown);
+	it("defaults to browser, or the model where a server recorder is configured", () => {
+		for (const v of [undefined, null, "", "  ", "maybe", "fallback"]) {
+			expect(parseDictationMode(v)).toBe("browser");
+			expect(parseDictationMode(v, true)).toBe("model");
 		}
+		// An explicit choice beats the legacy default.
+		expect(parseDictationMode("off", true)).toBe("off");
+		expect(parseDictationMode("browser", true)).toBe("browser");
+	});
+
+	it("offers the browser button only for the browser mode, where supported", () => {
+		expect(dictationOffered("browser", true)).toBe(true);
+		expect(dictationOffered("browser", false)).toBe(false);
+		expect(dictationOffered("model", true)).toBe(false);
+		expect(dictationOffered("off", true)).toBe(false);
+	});
+
+	it("formats the recording timer", () => {
+		expect(formatRecordingTime(0)).toBe("0:00");
+		expect(formatRecordingTime(7.9)).toBe("0:07");
+		expect(formatRecordingTime(125)).toBe("2:05");
 	});
 });
