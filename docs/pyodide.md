@@ -172,6 +172,12 @@ knowledge base therefore cannot turn an artifact into a way to send data out.
   for everything shipped with the deployment.
 - **PyPI access.** Operators can force the per-person PyPI setting off for
   everyone with `CHAT_PYODIDE_PYPI_DISABLED=true`.
+- **Where code runs.** `CHAT_CODE_EXECUTION` (`browser` by default, `off` to
+  disable every code feature; `server` is reserved) is set by the operator
+  only. See [configuration](configuration.md). On a phone, a run keeps going
+  only while the page is open: the card says so, the screen is kept awake while
+  it runs, and a page that goes to the background asks the server to keep the
+  turn waiting (`CODE_PAUSED_WAIT_MS`) and restarts the run when it returns.
 - One residual path, for the record: code in the worker can start a dynamic
   `import()` of a remote URL. That is a one-way signal: no cookies travel, and
   nothing can be read back.

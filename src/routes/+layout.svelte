@@ -14,6 +14,7 @@
 	import { setHapticsEnabled } from "$lib/utils/haptics";
 	import { initWithServers } from "$lib/stores/mcpServers";
 	import { getExecutionSession } from "$lib/utils/execution/runtime";
+	import { setClientExecutionBackend } from "$lib/utils/execution/backend.svelte";
 	import { runTimeoutMsFromSeconds } from "$lib/utils/execution/protocol";
 
 	import Toast from "$lib/components/Toast.svelte";
@@ -152,6 +153,12 @@
 
 	$effect(() => {
 		if ($error) onError();
+	});
+
+	// Where code runs, before any child decides whether to run, resume or hint.
+	setClientExecutionBackend(data.codeExecution);
+	$effect(() => {
+		setClientExecutionBackend(data.codeExecution);
 	});
 
 	const settings = createSettingsStore(data.settings);

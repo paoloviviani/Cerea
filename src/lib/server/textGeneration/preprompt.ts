@@ -2,11 +2,17 @@ import { currentTimeLine } from "./utils/clock";
 import { artifactsEnabledForTurn, artifactsModeForTurn, injectArtifactsPrompt } from "./artifacts";
 import type { ArtifactsMode } from "./artifacts";
 import { injectExecutionPrompt } from "./executionPrompt";
+import { executionBackend } from "$lib/server/codeExecution/backend";
 
 /** A scheduled run has no browser to run Python in: say so, so the model neither tries nor promises it. */
 const NO_EXECUTION_PROMPT = `## Code execution
 
 Python cannot be run in this scheduled run: the sandbox lives in the person's browser and nobody has it open. Do not call execute_code or promise a computed result or file. Use the other tools, or write code in a fenced code block for the person to read.`;
+
+/** Code execution is switched off for the deployment (`CHAT_CODE_EXECUTION=off`): nothing runs, say so. */
+const EXECUTION_OFF_PROMPT = `## Code execution
+
+Python cannot be run in this app: code you write is shown, never executed. Do not call execute_code, and do not claim a computed result or a produced file. Write code in a fenced code block for the person to read, and say plainly that you could not run it.`;
 
 export interface PrepromptInput {
 	/**
@@ -138,10 +144,12 @@ export function resolvePreprompt({
 	// Execution is a client capability, so the prompt is unconditional: models
 	// must know python blocks auto-run in the browser and that they never see
 	// the output themselves.
-	const resolved =
-		executionAvailable === false
+	const backend = executionBackend();
+	const resolved = !backend.enabled
+		? [withArtifacts, EXECUTION_OFF_PROMPT].filter(Boolean).join("\n\n")
+		: executionAvailable === false
 			? [withArtifacts, NO_EXECUTION_PROMPT].filter(Boolean).join("\n\n")
-			: injectExecutionPrompt(withArtifacts);
+			: injectExecutionPrompt(withArtifacts, backend.promptEngine);
 	// Skills ride on top of the execution contract: a skill body is a
 	// procedure the model carries out through those same channels, never
 	// execution of its own.

@@ -1,10 +1,13 @@
-import { randomUUID } from "crypto";
-import { ObjectId } from "mongodb";
-import { config } from "$lib/server/config";
+import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
-import { LOAD_TIMEOUT_MS, OUTPUT_ROOT, RUN_TIMEOUT_MS } from "$lib/utils/execution/protocol";
+import { NO_OUTCOME_RECORDED, OUTPUT_ROOT } from "$lib/utils/execution/protocol";
 import { codeRunTimeoutMs } from "$lib/server/codeRunLimit";
+import { executionBackend } from "$lib/server/codeExecution/backend";
+import {
+	CODE_EXECUTION_DEADLINE_MS,
+	codeExecutionDeadlineMs,
+} from "$lib/server/codeExecution/deadlines";
 import { turnAwaitingInput } from "$lib/server/generation/turnState";
 import {
 	MessageCodeExecutionUpdateType,
@@ -69,19 +72,9 @@ const EXECUTE_REFUSAL_MESSAGE =
 	"Do not call it again: summarize what you have, tell the person what you tried and " +
 	"what stopped, and let them decide whether to continue in a new turn.";
 
-/**
- * How long the parked row waits for the browser's answer before the sweeper
- * gives up. One run costs the run limit; a cold worker adds its whole load
- * budget (wasm + stdlib + bootstrap); the remainder is sweep-interval grace.
- * A closed tab or a gone user is the sweeper's backstop, not the timer.
- * The constant is the deadline at the default run limit; the tool uses
- * `codeExecutionDeadlineMs()`, which follows the configured limit.
- */
-export const CODE_EXECUTION_DEADLINE_MS = LOAD_TIMEOUT_MS + RUN_TIMEOUT_MS + 10_000;
-
-export function codeExecutionDeadlineMs(): number {
-	return LOAD_TIMEOUT_MS + codeRunTimeoutMs() + 10_000;
-}
+// The deadline the parked row waits for the browser's answer lives with the
+// backend (`$lib/server/codeExecution/deadlines`); re-exported for callers.
+export { CODE_EXECUTION_DEADLINE_MS, codeExecutionDeadlineMs };
 
 // Same shape as the sandbox's truncation, for the same reason: a run's output
 // ends with the traceback and the result, which is the part worth keeping.
@@ -93,12 +86,13 @@ const OUTPUT_TAIL = 4200;
 export const truncateExecuteCodeOutput = makeTruncator(OUTPUT_MAX_CHARS, OUTPUT_HEAD, OUTPUT_TAIL);
 
 /**
- * The tool is offered only where the deployment turns it on: the flag is the
- * feature switch in one. Without it nothing registers and the prompt keeps
+ * The tool is offered only where the deployment's execution backend offers it
+ * (`CHAT_CODE_EXECUTION`, with `CHAT_CODE_TOOL_ENABLED` gating the tool inside
+ * the browser backend). Without it nothing registers and the prompt keeps
  * today's fence-only contract.
  */
 export function isExecuteCodeEnabled(): boolean {
-	return config.CHAT_CODE_TOOL_ENABLED === "true";
+	return executionBackend().toolOffered();
 }
 
 export function createExecuteCodeBuiltin(): BuiltinTool[] {
@@ -208,51 +202,35 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 				}
 				callsThisTurn += 1;
 
-				const parkedCallId = randomUUID();
-				const now = new Date();
+				const backend = executionBackend();
 				const deadlineMs = codeExecutionDeadlineMs();
-				const resumeAt = new Date(now.getTime() + deadlineMs);
-				await collections.parkedCalls.insertOne({
-					_id: new ObjectId(),
-					parkedCallId,
-					conversationId: ctx.conversationId,
-					...(ctx.generationId ? { generationId: ctx.generationId } : {}),
-					messageId: ctx.messageId,
-					toolCallId: ctx.toolCallId,
-					toolUuid: ctx.uuid,
-					kind: "code",
-					status: "waiting",
-					resumeAt,
-					reason: "code execution in the person's browser",
-					code,
-					...(ctx.userId ? { userId: ctx.userId } : {}),
-					...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
-					attempts: 0,
-					createdAt: now,
-					updatedAt: now,
-				});
+				const { executionId: parkedCallId } = await backend.startRun(
+					{
+						call: {
+							conversationId: ctx.conversationId,
+							messageId: ctx.messageId,
+							toolCallId: ctx.toolCallId,
+							toolUuid: ctx.uuid,
+							...(ctx.generationId ? { generationId: ctx.generationId } : {}),
+							...(ctx.userId ? { userId: ctx.userId } : {}),
+							...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+						},
+						code,
+						limits: { runTimeoutMs: codeRunTimeoutMs(), deadlineMs },
+					},
+					(update) => ctx.elicitationSink?.emit(update)
+				);
 
 				logger.info(
 					{
 						parkedCallId,
 						conversationId: ctx.conversationId.toString(),
+						backend: backend.kind,
 						deadlineMs,
 						codeLength: code.length,
 					},
-					"[execute_code] turn parked on the browser sandbox"
+					"[execute_code] turn parked on the code runner"
 				);
-
-				// The code streams to the person's browser over the same channel
-				// elicitation uses; their ExecutionSession runs it and posts the
-				// outcome back to the resolve endpoint, which wakes the parked row.
-				ctx.elicitationSink.emit({
-					type: MessageUpdateType.CodeExecution,
-					subtype: MessageCodeExecutionUpdateType.Request,
-					executionId: parkedCallId,
-					code,
-					toolUuid: ctx.uuid,
-					expiresAt: resumeAt.getTime(),
-				});
 
 				// The park is a lifecycle transition: record it on the turn state and
 				// send it in-band, so every subscriber learns the turn is parked from
@@ -377,7 +355,7 @@ export function buildCodeExecutionResolvedUpdate(
 					ok: false,
 					stdout: "",
 					stderr: "",
-					error: "no outcome was recorded for this execution",
+					error: NO_OUTCOME_RECORDED,
 				},
 		...(outcome?.fileRefs?.length ? { files: outcome.fileRefs } : {}),
 	};

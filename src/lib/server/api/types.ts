@@ -64,6 +64,13 @@ export interface FeatureFlags {
 	 */
 	codeRunTimeoutSeconds: number;
 	/**
+	 * Where code runs (`CHAT_CODE_EXECUTION`): `browser` is the person's own
+	 * sandbox, `off` switches every execution feature off (a configured `server`
+	 * backend has no implementation yet and reads as `off`). The client decides
+	 * whether to run, resume and show hints from this alone.
+	 */
+	codeExecution: "browser" | "off";
+	/**
 	 * Whether the deployment exposes the Usage & billing settings tab
 	 * (`CHAT_USAGE_ENABLED`). Off by default: a deployment without Pystino has
 	 * no gateway to read quotas or spend from, and this flag is what keeps it

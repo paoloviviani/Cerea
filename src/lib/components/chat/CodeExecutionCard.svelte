@@ -12,12 +12,22 @@
 	import RunFiles from "./RunFiles.svelte";
 	import { getRunsStore } from "$lib/utils/execution/runs.svelte";
 	import { isCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
+	import { browserExecutionEnabled } from "$lib/utils/execution/backend.svelte";
 	import {
 		describeRunFiles,
 		noteLiveRunFiles,
 		uploadAndDescribe,
 	} from "$lib/utils/execution/runFiles";
 	import { getMessageRunContext } from "$lib/utils/execution/messageContext";
+	import {
+		clearRunPause,
+		createWakeLock,
+		readRunPause,
+		reportPaused,
+		storeRunPause,
+	} from "$lib/utils/execution/pauseResume";
+	import { NO_OUTCOME_RECORDED } from "$lib/utils/execution/protocol";
+	import { untrack } from "svelte";
 	import { chatRunKey } from "$lib/utils/execution/keys";
 	import type { MessageCodeExecutionRequestUpdate } from "$lib/types/MessageUpdate";
 	import type { MessageCodeExecutionResolvedUpdate } from "$lib/types/MessageUpdate";
@@ -63,6 +73,92 @@
 
 	const messageRun = getMessageRunContext();
 
+	// --- Pause and resume (browser backend) -------------------------------
+	// While the page is hidden its sandbox may be frozen or killed, and the
+	// parked turn would expire waiting for it. `pausedWhilePending` is set when
+	// the page hid with the run unfinished; on return the run restarts from the
+	// start. A sandbox-level failure that lands in that window (a timer that
+	// fired late on thaw) is the freeze, not the code, so it is never posted.
+	const MAX_RESUME_RESTARTS = 3;
+	let pageVisible = $state(
+		typeof document === "undefined" || document.visibilityState !== "hidden"
+	);
+	let pausedWhilePending = false;
+	let restarts = 0;
+	let resumedNote = $state(false);
+	let deadlineMissed = $state(false);
+	let showKeepOpen = $state(false);
+	let posted = false;
+
+	function runUnfinished(): boolean {
+		if (!runsStore || !runKey || posted) return false;
+		const st = runsStore.get(runKey);
+		if (!st) return false;
+		return (
+			st.status === "loading" ||
+			st.status === "running" ||
+			st.status === "queued" ||
+			Boolean(st.sandboxError)
+		);
+	}
+
+	function onHidden() {
+		pageVisible = false;
+		if (pausedWhilePending || !runUnfinished()) return;
+		pausedWhilePending = true;
+		storeRunPause({
+			conversationId,
+			executionId: request.executionId,
+			code: request.code,
+			pausedAt: Date.now(),
+		});
+		reportPaused(conversationId, request.executionId);
+	}
+
+	function onVisible() {
+		pageVisible = true;
+		if (!pausedWhilePending) return;
+		if (!runUnfinished() || !runsStore || restarts >= MAX_RESUME_RESTARTS) {
+			// Finished while hidden (or out of restarts): nothing to resume.
+			pausedWhilePending = false;
+			return;
+		}
+		restarts += 1;
+		pausedWhilePending = false;
+		resumedNote = true;
+		// Restarting takes a warm-up of its own: ask for the longer wait again.
+		reportPaused(conversationId, request.executionId);
+		runsStore.restart(runKey, request.code);
+	}
+
+	$effect(() => {
+		if (resolved || codeExecutionDisabled || !runsStore || !pausable) return;
+		const onVisibility = () => (document.visibilityState === "hidden" ? onHidden() : onVisible());
+		const onPageShow = () => onVisible();
+		document.addEventListener("visibilitychange", onVisibility);
+		window.addEventListener("pagehide", onHidden);
+		window.addEventListener("pageshow", onPageShow);
+		return () => {
+			document.removeEventListener("visibilitychange", onVisibility);
+			window.removeEventListener("pagehide", onHidden);
+			window.removeEventListener("pageshow", onPageShow);
+		};
+	});
+
+	// The page was discarded while this run was pending and has been reloaded:
+	// this mount is the resume. It runs the call once (the kick above) and asks
+	// the server for the longer wait, since a reload takes a while.
+	let reloadedFromPause = false;
+	$effect(() => {
+		if (resolved || codeExecutionDisabled || !runsStore || !pausable) return;
+		untrack(() => {
+			if (!readRunPause(request.executionId)) return;
+			reloadedFromPause = true;
+			resumedNote = true;
+			reportPaused(conversationId, request.executionId);
+		});
+	});
+
 	// Live feed: the run's files are in this message's registry the moment they
 	// are listed and fingerprinted, so the card is the artifact card now and
 	// after a reload alike.
@@ -86,11 +182,13 @@
 	// it into the generic "browser did not answer" fallback, indistinguishable
 	// from a tab that was simply backgrounded. Posting it as a failed outcome
 	// keeps the actual reason in the model's tool result.
-	let posted = false;
 	$effect(() => {
 		const state = runState;
 		if (resolved || posted || !state) return;
 		if (state.status !== "done" && state.status !== "error") return;
+		// A sandbox failure while the page was away is the freeze, not the code:
+		// the restart on return replaces it.
+		if (pausedWhilePending && state.sandboxError) return;
 		// Wait for the async file listing before the one-shot POST: posting
 		// on `status` alone races the listing, uploads nothing, and wins the
 		// endpoint's CAS with `files: []` — the later upload's bytes then land
@@ -116,7 +214,7 @@
 			// failed save is recorded `uploaded: false`, never silently absent.
 			const fileRefs = await uploadAndDescribe(conversationId, state.outputFiles ?? []);
 			if (messageRun?.messageId) noteLiveRunFiles(messageRun.messageId, runKey, fileRefs);
-			await fetch(`${base}/conversation/${conversationId}/code-execution`, {
+			const response = await fetch(`${base}/conversation/${conversationId}/code-execution`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json", Accept: "application/json" },
 				body: JSON.stringify({
@@ -136,7 +234,12 @@
 				// Nothing is waiting on the POST response: the sweeper's deadline is
 				// the backstop, and a failed POST means the turn falls back the same
 				// way an absent browser would.
+				return undefined;
 			});
+			clearRunPause(request.executionId);
+			// Refused as already answered after the page was away: the deadline passed
+			// and the turn went on without this run.
+			if (response?.status === 409 && (resumedNote || reloadedFromPause)) deadlineMissed = true;
 		})();
 	});
 
@@ -219,6 +322,35 @@
 					})
 				: m["chat.run.seconds"]({ value: formatNumber(Math.round(ms / 1000)) });
 	});
+	let pausable = $derived(browserExecutionEnabled());
+	// The server gave up on this run while the page was away: the resolved
+	// update carries no outcome.
+	let missed = $derived(
+		deadlineMissed ||
+			(!!resolved &&
+				resolved.outcome.error === NO_OUTCOME_RECORDED &&
+				(resumedNote || !!readRunPause(request.executionId)))
+	);
+
+	// Said once a run has taken a moment: the run lives in this page.
+	$effect(() => {
+		if (!isRunning || !pausable) {
+			showKeepOpen = false;
+			return;
+		}
+		const timer = setTimeout(() => (showKeepOpen = true), 2000);
+		return () => clearTimeout(timer);
+	});
+
+	// Keep the screen on while the run is going (best effort). The browser drops
+	// the lock when the page hides, so it is taken again on return.
+	$effect(() => {
+		if (!pausable || !isRunning || !pageVisible) return;
+		const lock = createWakeLock();
+		void lock.acquire();
+		return () => lock.release();
+	});
+
 	let startingPython = $derived(runState?.status === "loading" && !resolved);
 	let wasRunning = $state(false);
 	let initialized = $state(false);
@@ -277,6 +409,19 @@
 					: ''}"
 			/>
 		</button>
+		{#if missed}
+			<p class="px-4 pb-3 text-xs text-gray-500 dark:text-gray-400" data-testid="code-card-hint">
+				{m["chat.code_card.missed"]()}
+			</p>
+		{:else if resumedNote}
+			<p class="px-4 pb-3 text-xs text-gray-500 dark:text-gray-400" data-testid="code-card-hint">
+				{m["chat.code_card.resumed"]()}
+			</p>
+		{:else if isRunning && showKeepOpen}
+			<p class="px-4 pb-3 text-xs text-gray-500 dark:text-gray-400" data-testid="code-card-hint">
+				{m["chat.code_card.keep_open"]()}
+			</p>
+		{/if}
 		{#if isOpen}
 			<div class="space-y-2 border-t border-gray-300/50 px-4 py-3 dark:border-gray-600/40">
 				<pre
