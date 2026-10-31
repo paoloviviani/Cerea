@@ -88,6 +88,12 @@ export interface KnowledgeConfig extends Timestamps {
 	 * `null` or absent means the caller's billing-group search policy decides.
 	 */
 	webSearchModel?: string | null;
+	/**
+	 * Legacy home of the transcription model choice, from the one release that
+	 * kept it here. Read only, when `voiceConfig` holds no choice; the Voice &
+	 * audio screen writes `voiceConfig` and unsets this.
+	 */
+	transcriptionModel?: string | null;
 	chunkChars: number;
 	chunkOverlap: number;
 }

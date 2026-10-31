@@ -17,7 +17,7 @@ import { requireCodeAgents } from "$lib/server/codeDevices";
 import { openAttachment } from "$lib/server/files/attachmentStore";
 import { attachmentStreamResponse } from "$lib/server/files/downloadFile";
 
-export const GET: RequestHandler = async ({ locals, params }) => {
+export const GET: RequestHandler = async ({ locals, params, request }) => {
 	await requireCodeAgents(locals);
 	const sha256 = z
 		.string()
@@ -27,5 +27,8 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	const key = params.key ?? "";
 	await authorizeCodeAttachmentKey(locals, key);
 
-	return attachmentStreamResponse(sha256.data, await openAttachment(sha256.data, key));
+	return attachmentStreamResponse(
+		sha256.data,
+		await openAttachment(sha256.data, key, request.headers.get("range"))
+	);
 };

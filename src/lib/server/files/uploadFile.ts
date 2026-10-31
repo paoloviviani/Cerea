@@ -6,6 +6,9 @@ import { fileTypeFromBuffer } from "file-type";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { nextVersionNumber } from "$lib/server/execution/fileVersions";
+import { transcribeAudio } from "$lib/server/transcription";
+import { audioMime } from "./audioAttachment";
+import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 import {
 	documentMime,
 	extractDocument,
@@ -96,11 +99,51 @@ export async function writeAttachment(
 	// compound file (`application/x-cfb`) while the browser says "docx"; the
 	// two used to disagree, and extraction followed the one the allowlist did
 	// not know.
-	const sniffed = await fileTypeFromBuffer(buffer).then((fileType) => fileType?.mime ?? file.type);
-	const mime = documentMime(sniffed, file.name);
+	const sniffedOnly = (await fileTypeFromBuffer(buffer))?.mime;
+	const sniffed = sniffedOnly ?? file.type;
+	const audio = audioMime(sniffedOnly, new Uint8Array(buffer));
+	// A claim of `audio/*` the bytes do not bear out is not stored as audio, so
+	// nothing downstream (the prompt, the player) takes the file for sound.
+	const spoofedAudio = !audio && sniffed.startsWith("audio/");
+	const mime =
+		audio ?? (spoofedAudio ? "application/octet-stream" : documentMime(sniffed, file.name));
 
 	let extracted: Extraction | undefined;
-	if (isExtractableDocument(mime)) {
+	let audioFacts: MessageFile["audio"];
+	if (audio) {
+		// Transcribed here, once, as the user: `/v1/audio/transcriptions` is
+		// priced per minute, so reading it again each turn would pay again.
+		const heard = await transcribeAudio({
+			bytes: buffer,
+			mime: audio,
+			filename: file.name,
+			token,
+			// An attachment is capped at 10 MB, so that is what "too long" means here.
+			maxBytes: MAX_ATTACHMENT_BYTES,
+		});
+		if (!heard.ok) {
+			extracted = { ok: false, kind: heard.kind, reason: heard.reason, status: heard.status };
+		} else if (!heard.text) {
+			extracted = {
+				ok: false,
+				kind: "empty",
+				status: 422,
+				reason: "The transcription model found no speech in this recording.",
+			};
+		} else {
+			extracted = { ok: true, text: heard.text, pages: 0 };
+			audioFacts = {
+				...(heard.durationSeconds ? { durationSeconds: heard.durationSeconds } : {}),
+				...(heard.language ? { language: heard.language } : {}),
+			};
+		}
+		if (!extracted.ok) {
+			logger.warn(
+				{ filename: file.name, mime, kind: extracted.kind, status: extracted.status },
+				"attachment_transcript_unavailable: stored without a transcript"
+			);
+		}
+	} else if (isExtractableDocument(mime)) {
 		extracted = await extractDocument({
 			bytes: buffer,
 			mime,
@@ -162,10 +205,21 @@ export async function writeAttachment(
 		conversation: ownerKey,
 		mime: "text/markdown",
 		...(tag
-			? { messageId: tag.messageId, sha: textSha, extractedFrom: sha, pages: extracted.pages }
+			? {
+					messageId: tag.messageId,
+					sha: textSha,
+					extractedFrom: sha,
+					pages: extracted.pages,
+					...(audioFacts?.durationSeconds ? { audioSeconds: audioFacts.durationSeconds } : {}),
+					...(audioFacts?.language ? { language: audioFacts.language } : {}),
+				}
 			: {}),
 	});
-	const withText = { ...stored, extracted: { value: textSha, pages: extracted.pages } };
+	const withText: MessageFile = {
+		...stored,
+		extracted: { value: textSha, pages: extracted.pages },
+		...(audioFacts && Object.keys(audioFacts).length ? { audio: audioFacts } : {}),
+	};
 	if (!extracted.scan) return withText;
 
 	// Pages without text, rendered as images. Each is an attachment of the

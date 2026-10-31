@@ -141,24 +141,86 @@ export function joinTranscript(results: ArrayLike<SpeechRecognitionResultLike>):
 	return out;
 }
 
-/** The deployment-wide switch (Administration -> Voice). */
-export const DICTATION_MODES = ["yes", "no", "fallback"] as const;
+/**
+ * The deployment-wide choice (Administration -> Voice): how dictation works.
+ *
+ * - `browser`: the browser's own speech recognition (Web Speech API). May send
+ *   the audio to the browser vendor.
+ * - `model`: the composer microphone records and the audio is transcribed by
+ *   the transcription model, through the gateway.
+ * - `off`: no dictation button.
+ */
+export const DICTATION_MODES = ["browser", "model", "off"] as const;
 export type DictationMode = (typeof DICTATION_MODES)[number];
 
-/** A stored or env value, read leniently; anything unknown is the default. */
-export function parseDictationMode(value: string | undefined | null): DictationMode {
+const isMode = (raw: string): raw is DictationMode =>
+	(DICTATION_MODES as readonly string[]).includes(raw);
+
+/**
+ * A stored or env value, read leniently, as the one mode the admin screen
+ * shows. `legacyPair` is the deprecated `TRANSCRIPTION_BASE_URL` +
+ * `TRANSCRIPTION_MODEL` pair being set.
+ *
+ * The old words (`yes`, `no`, `fallback`, unset) keep exactly the behaviour
+ * they had (`dictationOffers` decides it; this is only the screen's label):
+ *
+ * | old value        | pair unset | pair set                                  |
+ * | ---------------- | ---------- | ----------------------------------------- |
+ * | unset / fallback | browser    | model (the recorder, no browser button)   |
+ * | yes              | browser    | model, plus the browser button            |
+ * | no               | off        | model (the recorder was never switched off) |
+ */
+export function parseDictationMode(
+	value: string | undefined | null,
+	legacyPair = false
+): DictationMode {
 	const raw = (value ?? "").trim().toLowerCase();
-	return (DICTATION_MODES as readonly string[]).includes(raw) ? (raw as DictationMode) : "fallback";
+	if (isMode(raw)) return raw;
+	if (legacyPair) return "model";
+	return raw === "no" ? "off" : "browser";
 }
 
-/** Whether the composer shows the dictation button: the deployment allows it,
- * the browser can do it, and (in `fallback`) no server-side recorder is
- * already there. */
-export function dictationOffered(
-	mode: DictationMode,
-	browserSupported: boolean,
-	serverTranscription: boolean
-): boolean {
-	if (!browserSupported || mode === "no") return false;
-	return mode === "yes" || !serverTranscription;
+/** What the composers offer for a stored value: the browser's button, the recorder. */
+export interface DictationOffers {
+	/** The browser dictation button (Web Speech), where the browser supports it. */
+	browser: boolean;
+	/** The record-then-transcribe microphone (needs a model, or the legacy pair). */
+	recorder: boolean;
+}
+
+/**
+ * Exactly what each stored value offers. A new value (`browser`, `model`,
+ * `off`) is one thing. An old one reproduces the old behaviour: with the
+ * legacy pair set the recorder was always there whatever the value said, and
+ * the browser button showed only for `yes` (`fallback`/unset hid it so the
+ * two never showed together, `no` hid it); with the pair unset there was no
+ * recorder and the browser button showed unless `no`.
+ */
+export function dictationOffers(
+	value: string | undefined | null,
+	legacyPair: boolean,
+	modelUsable: boolean
+): DictationOffers {
+	const raw = (value ?? "").trim().toLowerCase();
+	if (isMode(raw)) {
+		return { browser: raw === "browser", recorder: raw === "model" && (legacyPair || modelUsable) };
+	}
+	if (legacyPair) return { browser: raw === "yes", recorder: true };
+	return { browser: raw !== "no", recorder: false };
+}
+
+/** Whether the composer shows the browser dictation button. */
+export function dictationOffered(offersBrowser: boolean, browserSupported: boolean): boolean {
+	return offersBrowser && browserSupported;
+}
+
+/** The longest one dictation recording runs, in seconds; then it is stopped and transcribed. */
+export const MAX_RECORDING_SECONDS = 300;
+/** The gateway refuses audio past this (its default 25 MB cap). */
+export const MAX_RECORDING_BYTES = 25 * 1024 * 1024;
+
+/** `0:07`, the recording timer. */
+export function formatRecordingTime(seconds: number): string {
+	const total = Math.max(0, Math.floor(seconds));
+	return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }

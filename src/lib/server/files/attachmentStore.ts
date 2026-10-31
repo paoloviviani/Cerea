@@ -70,6 +70,8 @@ interface StoredMetadata {
 	declaredMime?: string;
 	extractedFrom?: string;
 	pages?: number;
+	audioSeconds?: number;
+	language?: string;
 	extractionKind?: ExtractionFailureKind;
 	extractionReason?: string;
 }
@@ -89,11 +91,22 @@ export async function findAttachments(ownerKey: string, messageId: string): Prom
 		{ sort: { uploadDate: 1, _id: 1 } }
 	);
 
-	const texts = new Map<string, { value: string; pages: number }>();
+	const texts = new Map<
+		string,
+		{ value: string; pages: number; audio?: NonNullable<MessageFile["audio"]> }
+	>();
 	for (const row of rows) {
 		const meta = row.metadata as unknown as StoredMetadata | undefined;
 		if (meta?.extractedFrom && meta.sha) {
-			texts.set(meta.extractedFrom, { value: meta.sha, pages: meta.pages ?? 0 });
+			const audio = {
+				...(meta.audioSeconds ? { durationSeconds: meta.audioSeconds } : {}),
+				...(meta.language ? { language: meta.language } : {}),
+			};
+			texts.set(meta.extractedFrom, {
+				value: meta.sha,
+				pages: meta.pages ?? 0,
+				...(Object.keys(audio).length ? { audio } : {}),
+			});
 		}
 	}
 
@@ -111,7 +124,8 @@ export async function findAttachments(ownerKey: string, messageId: string): Prom
 			value: meta.sha,
 			mime: meta.mime ?? meta.declaredMime ?? "application/octet-stream",
 			name: meta.name ?? meta.sha,
-			...(extracted ? { extracted } : {}),
+			...(extracted ? { extracted: { value: extracted.value, pages: extracted.pages } } : {}),
+			...(extracted?.audio ? { audio: extracted.audio } : {}),
 			...(!extracted && meta.extractionKind && meta.extractionReason
 				? { extractionError: { kind: meta.extractionKind, reason: meta.extractionReason } }
 				: {}),
@@ -131,9 +145,13 @@ export async function readAttachment(sha256: string, ownerKey: string) {
 }
 
 /** The same, as a stream: what a route answers with. */
-export async function openAttachment(sha256: string, ownerKey: string) {
+export async function openAttachment(
+	sha256: string,
+	ownerKey: string,
+	rangeHeader?: string | null
+) {
 	assertOwnerKey(ownerKey);
-	return openFile(sha256, ownerKey);
+	return openFile(sha256, ownerKey, rangeHeader);
 }
 
 async function deleteMatching(filter: Record<string, unknown>): Promise<number> {

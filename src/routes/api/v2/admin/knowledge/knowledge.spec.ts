@@ -6,13 +6,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * when there is none.
  */
 
-const { writeConfigMock, adminStatusMock } = vi.hoisted(() => ({
+const { writeConfigMock, adminStatusMock, adminState } = vi.hoisted(() => ({
 	writeConfigMock: vi.fn(),
 	adminStatusMock: vi.fn(),
+	adminState: { admin: true },
 }));
 
 vi.mock("$lib/server/admin", () => ({
-	requireAdmin: vi.fn(async () => ({ email: "admin@example.org", isAdmin: true })),
+	requireAdmin: vi.fn(async () => {
+		if (!adminState.admin) throw Object.assign(new Error("forbidden"), { status: 403 });
+		return { email: "admin@example.org", isAdmin: true };
+	}),
 }));
 vi.mock("$lib/server/knowledgeEnabled", () => ({ knowledgeEnabled: () => true }));
 vi.mock("$lib/server/knowledge/service", () => ({
@@ -34,6 +38,7 @@ function put(body: unknown) {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	adminState.admin = true;
 	writeConfigMock.mockResolvedValue({ enabled: true, embeddingModel: null });
 	adminStatusMock.mockResolvedValue({ extractor_model: "mistral-ocr-4.1" });
 });
@@ -54,5 +59,11 @@ describe("PUT /api/v2/admin/knowledge", () => {
 
 		expect(res.status).toBe(200);
 		expect(writeConfigMock.mock.calls[0][1]).toMatchObject({ reason: "EU provider" });
+	});
+
+	it("refuses a change from somebody who is not an administrator", async () => {
+		adminState.admin = false;
+		await expect(put({ extractor_model: "x" })).rejects.toMatchObject({ status: 403 });
+		expect(writeConfigMock).not.toHaveBeenCalled();
 	});
 });

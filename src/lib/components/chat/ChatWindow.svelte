@@ -27,6 +27,7 @@
 	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
 	import VoiceRecorder from "./VoiceRecorder.svelte";
+	import { appendTranscript, transcribeRecording } from "$lib/utils/transcribeRecording";
 	import StopGeneratingBtn from "../StopGeneratingBtn.svelte";
 	import type { Model } from "$lib/types/Model";
 	import FileDropzone from "./FileDropzone.svelte";
@@ -467,6 +468,7 @@
 		TEXT_MIME_ALLOWLIST,
 		IMAGE_MIME_ALLOWLIST_DEFAULT,
 		DOCUMENT_MIME_ALLOWLIST,
+		AUDIO_MIME_ALLOWLIST,
 	} from "$lib/constants/mime";
 
 	let activeMimeTypes = $derived(
@@ -476,6 +478,11 @@
 				// Documents whatever the model is: it never sees the bytes, only
 				// the text the gateway's extractor read out of them.
 				...DOCUMENT_MIME_ALLOWLIST,
+				// Audio when a transcription model is there for this user: the
+				// model reads the transcript made at upload, never the sound.
+				...((page.data as { audioAttachments?: boolean }).audioAttachments
+					? AUDIO_MIME_ALLOWLIST
+					: []),
 				...(modelIsMultimodal
 					? (currentModel.multimodalAcceptedMimetypes ?? [...IMAGE_MIME_ALLOWLIST_DEFAULT])
 					: []),
@@ -598,22 +605,8 @@
 		isTranscribing = true;
 
 		try {
-			const response = await fetch(`${base}/api/transcribe`, {
-				method: "POST",
-				headers: { "Content-Type": audioBlob.type },
-				body: audioBlob,
-			});
-
-			if (!response.ok) {
-				throw new Error(await response.text());
-			}
-
-			const { text } = await response.json();
-			const trimmedText = text?.trim();
-			if (trimmedText) {
-				// Append transcribed text to draft
-				draft = draft.trim() ? `${draft.trim()} ${trimmedText}` : trimmedText;
-			}
+			const text = await transcribeRecording(audioBlob);
+			if (text) draft = appendTranscript(draft, text);
 		} catch (err) {
 			console.error("Could not turn your voice into text:", err);
 			$error = m["chat.window.voice_failed"]();
@@ -627,21 +620,10 @@
 		isTranscribing = true;
 
 		try {
-			const response = await fetch(`${base}/api/transcribe`, {
-				method: "POST",
-				headers: { "Content-Type": audioBlob.type },
-				body: audioBlob,
-			});
-
-			if (!response.ok) {
-				throw new Error(await response.text());
-			}
-
-			const { text } = await response.json();
-			const trimmedText = text?.trim();
-			if (trimmedText) {
+			const text = await transcribeRecording(audioBlob);
+			if (text) {
 				// Set draft and send immediately
-				draft = draft.trim() ? `${draft.trim()} ${trimmedText}` : trimmedText;
+				draft = appendTranscript(draft, text);
 				handleSubmit();
 			}
 		} catch (err) {
@@ -807,6 +789,7 @@
 								onconfirm={handleRecordingConfirm}
 								onsend={handleRecordingSend}
 								onerror={handleRecordingError}
+								onnotice={(message) => ($error = message)}
 							/>
 						{:else if drag.active && isFileUploadEnabled}
 							<FileDropzone bind:files bind:onDrag={drag.active} mimeTypes={activeMimeTypes} />

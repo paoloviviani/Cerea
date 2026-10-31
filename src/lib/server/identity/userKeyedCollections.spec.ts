@@ -34,6 +34,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	knowledgeDocuments: true, // indirect: via storeId -> vectorStores.ownerId
 	knowledgeConfig: false,
 	knowledgeConfigHistory: false,
+	voiceConfig: false, // the deployment's transcription model choice, not user content
 	mcpConnectors: true,
 	connectorSwitches: true, // a person's own connector on/off switches; owner-keyed, one row each
 	connectorModes: false, // the deployment's own connector modes, not user content

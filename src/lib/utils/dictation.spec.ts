@@ -5,9 +5,11 @@ import {
 	dictationErrorMessage,
 	dictationLanguage,
 	dictationOffered,
+	dictationOffers,
 	parseDictationMode,
 	getSpeechRecognition,
 	joinTranscript,
+	formatRecordingTime,
 } from "./dictation";
 
 const result = (transcript: string, isFinal = true) => ({ isFinal, 0: { transcript } });
@@ -82,28 +84,66 @@ describe("dictation helpers", () => {
 });
 
 describe("the deployment switch", () => {
-	it("defaults to fallback for anything unset or unknown", () => {
-		for (const v of [undefined, null, "", "  ", "maybe"]) {
-			expect(parseDictationMode(v)).toBe("fallback");
+	it("reads the three modes, and the old words", () => {
+		expect(parseDictationMode("browser")).toBe("browser");
+		expect(parseDictationMode(" MODEL ")).toBe("model");
+		expect(parseDictationMode("off")).toBe("off");
+		expect(parseDictationMode("yes")).toBe("browser");
+		expect(parseDictationMode("no")).toBe("off");
+		for (const v of [undefined, null, "", "  ", "maybe", "fallback"]) {
+			expect(parseDictationMode(v)).toBe("browser");
 		}
-		expect(parseDictationMode(" YES ")).toBe("yes");
-		expect(parseDictationMode("no")).toBe("no");
 	});
 
-	it("offers the button per mode, browser support and server transcription", () => {
-		// [mode, browser supports, server transcription] -> shown
-		const table: [Parameters<typeof dictationOffered>[0], boolean, boolean, boolean][] = [
-			["yes", true, false, true],
-			["yes", true, true, true],
-			["no", true, false, false],
-			["no", true, true, false],
-			["fallback", true, false, true],
-			["fallback", true, true, false],
-			["yes", false, false, false],
-			["fallback", false, false, false],
-		];
-		for (const [mode, supported, transcription, shown] of table) {
-			expect(dictationOffered(mode, supported, transcription)).toBe(shown);
+	it("shows the old words as the model when the legacy pair is set, an explicit choice as itself", () => {
+		for (const v of [undefined, "", "yes", "no", "fallback"]) {
+			expect(parseDictationMode(v, true)).toBe("model");
 		}
+		expect(parseDictationMode("off", true)).toBe("off");
+		expect(parseDictationMode("browser", true)).toBe("browser");
+	});
+
+	// [stored value, legacy pair, browser button, recorder] — what main did before the
+	// three-way choice: the pair always put the recorder in chat, and `yes` was the
+	// only value that kept the browser button beside it.
+	const OLD: [string | undefined, boolean, boolean, boolean][] = [
+		[undefined, false, true, false],
+		["fallback", false, true, false],
+		["yes", false, true, false],
+		["no", false, false, false],
+		[undefined, true, false, true],
+		["fallback", true, false, true],
+		["yes", true, true, true],
+		["no", true, false, true],
+	];
+	for (const [value, pair, browser, recorder] of OLD) {
+		it(`old value ${value ?? "unset"}, pair ${pair ? "set" : "unset"}: browser ${browser}, recorder ${recorder}`, () => {
+			expect(dictationOffers(value, pair, true)).toEqual({ browser, recorder });
+		});
+	}
+
+	it("makes the new values exact, with or without the pair", () => {
+		for (const pair of [false, true]) {
+			expect(dictationOffers("browser", pair, true)).toEqual({ browser: true, recorder: false });
+			expect(dictationOffers("model", pair, true)).toEqual({ browser: false, recorder: true });
+			expect(dictationOffers("off", pair, true)).toEqual({ browser: false, recorder: false });
+		}
+	});
+
+	it("needs a usable model for the recorder through the gateway, not for the legacy pair", () => {
+		expect(dictationOffers("model", false, false).recorder).toBe(false);
+		expect(dictationOffers("model", true, false).recorder).toBe(true);
+	});
+
+	it("offers the browser button only where the browser can", () => {
+		expect(dictationOffered(true, true)).toBe(true);
+		expect(dictationOffered(true, false)).toBe(false);
+		expect(dictationOffered(false, true)).toBe(false);
+	});
+
+	it("formats the recording timer", () => {
+		expect(formatRecordingTime(0)).toBe("0:00");
+		expect(formatRecordingTime(7.9)).toBe("0:07");
+		expect(formatRecordingTime(125)).toBe("2:05");
 	});
 });

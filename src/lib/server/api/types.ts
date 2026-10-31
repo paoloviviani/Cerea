@@ -43,9 +43,14 @@ export type GETOldModelsResponse = Array<{
 export interface FeatureFlags {
 	loginEnabled: boolean;
 	isAdmin: boolean;
+	/** The composer shows the record-and-transcribe microphone: the Voice mode is "model" and this user can use a transcription model. */
 	transcriptionEnabled: boolean;
-	/** Whether the composer offers browser dictation: "yes", "no", or "fallback" (only without a server-side transcription model). Administration -> Voice. */
-	dictationMode: "yes" | "no" | "fallback";
+	/** How dictation works: "browser" (Web Speech), "model" (record, then transcribe through the gateway) or "off". Administration -> Voice. */
+	dictationMode: "browser" | "model" | "off";
+	/** The composers show the browser's dictation button (where supported). Differs from `dictationMode === "browser"` only for the old values with the deprecated pair set. */
+	dictationBrowser: boolean;
+	/** This user can attach audio: a transcription model resolves for them. */
+	audioAttachments: boolean;
 	/** Fixed model used for background tasks (e.g. conversation titles); null when tasks follow the conversation's model */
 	taskModelId: string | null;
 	/**

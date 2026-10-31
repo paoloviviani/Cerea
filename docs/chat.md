@@ -90,10 +90,9 @@ grace period.
 
 ## Dictation
 
-Where your browser offers speech recognition (Chrome, Edge and Safari, including
-Safari on iOS) and your administrator has left it on (see
-[Voice](chat-admin.md#voice): by default it is offered only when the deployment
-has no voice-recording model of its own), a **microphone button** sits at the right of the message box,
+Where your administrator has chosen **Browser** dictation (see
+[Voice](chat-admin.md#voice)) and your browser offers speech recognition
+(Chrome, Edge and Safari, including Safari on iOS), a **microphone button** sits at the right of the message box,
 here and in the agent composer. Click it (or Tab to it and press Enter) to
 start dictating and click it again to stop; its label reads **Start dictation**
 or **Stop dictation**, and while it listens it turns red and pulses.
@@ -108,6 +107,12 @@ or **Stop dictation**, and while it listens it turns red and pulses.
 - A short message appears if it cannot run: microphone access blocked, no
   microphone, no speech heard, or no connection to the browser's speech
   service.
+
+With **Transcription model** dictation instead, the microphone records (a timer
+shows how long, up to five minutes; it works in Firefox too), and when you
+confirm, the recording is transcribed through the gateway as you and the text
+is added to your message. That audio goes to the provider that serves the
+transcription model, not to your browser's vendor.
 
 !!! warning "Your browser may send the audio to its vendor"
 
@@ -233,6 +238,16 @@ limited to **10 MB** each.
   remote OCR model is the PDF reader, it reads the scan itself and no pages are
   rendered. Whether a model sees images is its **vision** switch under
   Workspace → Models.
+- **Audio** (mp3, m4a, wav, ogg/opus, webm, flac) is transcribed by the
+  deployment's transcription model, **once, when you attach the file**, as you
+  (it is metered per audio minute with your account), and the transcript is
+  stored beside the file. The assistant reads the transcript, labelled with the
+  file name and duration, never the sound. Click the file in the conversation to
+  play it and read the transcript. The 10 MB limit applies (roughly ten minutes
+  of ordinary audio); a recording the transcription service cannot take is kept
+  and the assistant is told it has no transcript. The audio goes to the provider
+  that serves the model and is not screened by redaction. Audio is not
+  offered when no transcription model is available to you.
 - **A document with no readable text** (a scan the reader could not make sense of) is not skipped silently. The assistant is told the file had no readable text, and why when the reader said, so it says so rather than answering as if nothing were attached.
 - **Code the assistant runs** finds the conversation's attachments at
   `/mnt/data/<name>`, with the text read from each beside it as `<name>.md`

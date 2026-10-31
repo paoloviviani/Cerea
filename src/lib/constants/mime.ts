@@ -35,6 +35,27 @@ export const DOCUMENT_MIME_ALLOWLIST = [
 ] as const;
 
 /**
+ * Audio the gateway's transcription route reads (`POST /v1/audio/transcriptions`).
+ * Offered in the composer when the user can use a transcription model; the
+ * model never sees the bytes, only the transcript made at upload. Browsers
+ * declare m4a as `audio/mp4`, `audio/x-m4a` or `audio/m4a`, so those are all here.
+ */
+export const AUDIO_MIME_ALLOWLIST = [
+	"audio/mpeg",
+	"audio/mp3",
+	"audio/mp4",
+	"audio/x-m4a",
+	"audio/m4a",
+	"audio/wav",
+	"audio/x-wav",
+	"audio/ogg",
+	"audio/opus",
+	"audio/webm",
+	"audio/flac",
+	"audio/x-flac",
+] as const;
+
+/**
  * What a knowledge base accepts, as an `accept` attribute: the extractable
  * documents and plain text. A convenience for the pickers; the server decides
  * from the bytes (`files/knowledgeUpload.ts`) and answers 415 for the rest.

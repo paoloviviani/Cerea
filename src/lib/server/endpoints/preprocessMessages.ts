@@ -4,6 +4,7 @@ import { downloadFile, storedSizes } from "../files/downloadFile";
 import { documentMime, isExtractableDocument } from "../files/extractDocument";
 import { missingTextNotice } from "../files/missingTextNotice";
 import { scanNotice, wordScanMarkers } from "../files/scanNotice";
+import { isAudioFile, labelledTranscript, missingTranscriptNotice } from "../files/audioAttachment";
 import { mountNamesByHash } from "$lib/utils/execution/attachmentNames";
 import type { ObjectId } from "mongodb";
 
@@ -110,6 +111,22 @@ async function resolveOne(
 	file: Message["files"] extends (infer F)[] | undefined ? F : never,
 	convId: ObjectId
 ) {
+	// Audio is never sent as bytes: the model reads the transcript made at
+	// upload, labelled, or a sentence saying there is none.
+	if (isAudioFile(file)) {
+		const markdown = (body: string) => ({
+			type: "base64" as const,
+			name: file.name,
+			mime: "text/markdown",
+			value: Buffer.from(body, "utf-8").toString("base64"),
+		});
+		if (!file.extracted) {
+			return markdown(missingTranscriptNotice(file.name, file.extractionError));
+		}
+		const stored = await downloadFile(file.extracted.value, convId);
+		const transcript = Buffer.from(stored.value, "base64").toString("utf-8");
+		return markdown(labelledTranscript(file.name, transcript, file.audio));
+	}
 	if (!file.extracted) {
 		const downloaded = await downloadFile(file.value, convId);
 		if (!isExtractableDocument(documentMime(file.mime, file.name))) return downloaded;

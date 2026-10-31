@@ -7,6 +7,11 @@
 	import EosIconsLoading from "~icons/eos-icons/loading";
 	import IconLoading from "$lib/components/icons/IconLoading.svelte";
 	import AudioWaveform from "$lib/components/voice/AudioWaveform.svelte";
+	import {
+		MAX_RECORDING_BYTES,
+		MAX_RECORDING_SECONDS,
+		formatRecordingTime,
+	} from "$lib/utils/dictation";
 
 	interface Props {
 		isTranscribing: boolean;
@@ -15,9 +20,34 @@
 		onconfirm: (audioBlob: Blob) => void;
 		onsend: (audioBlob: Blob) => void;
 		onerror: (message: string) => void;
+		/** A message that is not a failure: the recording was ended at the time limit. */
+		onnotice?: (message: string) => void;
 	}
 
-	let { isTranscribing, isTouchDevice, oncancel, onconfirm, onsend, onerror }: Props = $props();
+	let { isTranscribing, isTouchDevice, oncancel, onconfirm, onsend, onerror, onnotice }: Props =
+		$props();
+
+	let elapsed = $state(0);
+	let timer: ReturnType<typeof setInterval> | null = null;
+	let startedAt = 0;
+
+	function startTimer() {
+		startedAt = Date.now();
+		elapsed = 0;
+		timer = setInterval(() => {
+			elapsed = Math.floor((Date.now() - startedAt) / 1000);
+			// Past the limit the recording is ended and what there is gets transcribed.
+			if (elapsed >= MAX_RECORDING_SECONDS) {
+				onnotice?.(m["chat.voice.limit"]({ minutes: Math.round(MAX_RECORDING_SECONDS / 60) }));
+				void handleConfirm();
+			}
+		}, 250);
+	}
+
+	function stopTimer() {
+		if (timer !== null) clearInterval(timer);
+		timer = null;
+	}
 
 	let mediaRecorder: MediaRecorder | null = $state(null);
 	let audioChunks: Blob[] = $state([]);
@@ -86,6 +116,7 @@
 
 			mediaRecorder.start(100); // Collect data every 100ms
 			startVisualization();
+			startTimer();
 		} catch (err) {
 			if (err instanceof DOMException) {
 				if (err.name === "NotAllowedError") {
@@ -104,6 +135,7 @@
 	function stopRecording(): Promise<Blob | null> {
 		return new Promise((resolve) => {
 			stopVisualization();
+			stopTimer();
 
 			// Stop all audio tracks
 			if (mediaStream) {
@@ -147,7 +179,9 @@
 
 	async function handleConfirm() {
 		const audioBlob = await stopRecording();
-		if (audioBlob && audioBlob.size > 0) {
+		if (audioBlob && audioBlob.size > MAX_RECORDING_BYTES) {
+			onerror(m["chat.voice.too_long"]({ minutes: Math.round(MAX_RECORDING_SECONDS / 60) }));
+		} else if (audioBlob && audioBlob.size > 0) {
 			if (isTouchDevice) {
 				onsend(audioBlob);
 			} else {
@@ -189,6 +223,16 @@
 			<AudioWaveform {frequencyData} minHeight={4} maxHeight={40} />
 		{/if}
 	</div>
+
+	{#if !isTranscribing}
+		<span
+			class="mr-2 text-sm text-gray-600 tabular-nums dark:text-gray-300"
+			role="timer"
+			data-testid="recording-timer"
+			aria-label={m["chat.voice.recording_time"]({ time: formatRecordingTime(elapsed) })}
+			>{formatRecordingTime(elapsed)}</span
+		>
+	{/if}
 
 	<!-- Confirm/Send button -->
 	<button

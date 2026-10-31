@@ -35,20 +35,53 @@ export interface StoredFileStream {
 	stream: Readable;
 	name: string;
 	mime?: string;
+	/** The whole file's size, always. */
 	length: number;
+	/** Set when only this slice (inclusive) was opened: the response is a 206. */
+	range?: { start: number; end: number };
+}
+
+/**
+ * One `Range: bytes=…` header against a file of `length` bytes: the slice to
+ * serve, null for no (or an unusable) header, and a 416 for a range outside the
+ * file. Only a single range is served; a list is answered as the whole file.
+ */
+export function parseRange(
+	header: string | null | undefined,
+	length: number
+): { start: number; end: number } | null {
+	const match = /^bytes=(\d*)-(\d*)$/.exec((header ?? "").trim());
+	if (!match || (match[1] === "" && match[2] === "")) return null;
+	let start: number;
+	let end: number;
+	if (match[1] === "") {
+		// The last N bytes.
+		const suffix = Number(match[2]);
+		if (suffix === 0) error(416, "Range not satisfiable");
+		start = Math.max(0, length - suffix);
+		end = length - 1;
+	} else {
+		start = Number(match[1]);
+		end = match[2] === "" ? length - 1 : Math.min(Number(match[2]), length - 1);
+	}
+	if (start >= length || start > end) error(416, "Range not satisfiable");
+	return { start, end };
 }
 
 /** The same lookup and access checks as `downloadFile`, answering with a stream. */
 export async function openFile(
 	sha256: string,
-	convId: Conversation["_id"] | string
+	convId: Conversation["_id"] | string,
+	rangeHeader?: string | null
 ): Promise<StoredFileStream> {
 	const file = await lookup(sha256, convId);
+	const range = parseRange(rangeHeader, file.length);
 	return {
-		stream: await collections.blobStore.open("files", file.id),
+		stream: await collections.blobStore.open("files", file.id, range ? { range } : undefined),
 		name: file.filename,
 		mime: file.metadata.mime as string | undefined,
 		length: file.length,
+		...(range ? { range } : {}),
 	};
 }
 
@@ -90,8 +123,17 @@ export function attachmentResponse(
 
 /** `attachmentResponse`, for a stream: same headers, the body is never held whole. */
 export function attachmentStreamResponse(sha256: string, file: StoredFileStream): Response {
+	const headers: Record<string, string> = attachmentHeaders(
+		sha256,
+		file.mime,
+		file.range ? file.range.end - file.range.start + 1 : file.length
+	);
+	if (file.range) {
+		headers["Content-Range"] = `bytes ${file.range.start}-${file.range.end}/${file.length}`;
+	}
 	return new Response(Readable.toWeb(file.stream) as ReadableStream, {
-		headers: attachmentHeaders(sha256, file.mime, file.length),
+		status: file.range ? 206 : 200,
+		headers,
 	});
 }
 
@@ -104,6 +146,6 @@ function attachmentHeaders(sha256: string, mime: string | undefined, length: num
 			mime ? mimeTypes.extension(mime) || "bin" : "bin"
 		}"`,
 		"Content-Length": length.toString(),
-		"Accept-Range": "bytes",
+		"Accept-Ranges": "bytes",
 	};
 }
