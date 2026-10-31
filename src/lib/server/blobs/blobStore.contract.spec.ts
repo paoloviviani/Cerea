@@ -284,10 +284,11 @@ describe.skipIf(!(mongoUrl && s3Endpoint))("S3 store specifics", () => {
 		const store = new S3BlobStore(db, s3Config());
 		const info = await store.put(
 			"files",
-			{ filename: "secret-owner-name", metadata: { conversation: "c9" } },
+			{ filename: "secret-owner-name", metadata: { conversation: "conversation-of-someone" } },
 			Buffer.from("k")
 		);
-		expect(store.key("files", info.id)).not.toMatch(/secret|c9/);
+		// Words no hex id can contain: a short tag like "c9" turns up in a random id now and then.
+		expect(store.key("files", info.id)).not.toMatch(/secret|owner|someone/);
 		await store.delete("files", info.id);
 	});
 
