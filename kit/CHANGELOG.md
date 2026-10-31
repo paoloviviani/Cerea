@@ -5,7 +5,24 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.35.0 — 2026-10-31
+
+Pins: Cerea `0.35.0` (chat and `cerea-documents`), Pystino `0.21.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required.
+
+- **Audio files in the chat.** Attach a recording (mp3, m4a, wav, ogg, webm, flac) and it is
+  transcribed once, when it is uploaded, through the gateway with your own access and quota; the
+  assistant reads the transcript, and the file's chip opens a player with the transcript. It needs
+  a transcription model (Pystino 0.21.0 adds the kind; on Cortecs pick the "Transcription" type in
+  Discover): choose it in Administration → Assistant → Voice & audio, or set
+  `CHAT_TRANSCRIPTION_MODEL`. Recordings up to the 10 MB attachment limit (about 10 minutes).
+- **Dictation with a transcription model.** Voice & audio now offers Browser, Transcription model
+  or Off; with the model the microphone records (in every browser, Firefox included) and sends the
+  audio through the gateway with the user's access. Existing `CHAT_DICTATION` values and the older
+  `TRANSCRIPTION_BASE_URL`/`TRANSCRIPTION_MODEL` pair keep working as before (the pair still uses
+  the deployment's key; it is deprecated).
+- **An HTML artifact keeps its errors** when its live preview loaded before the reply finished.
 
 - **Files can live in an S3-compatible store.** `CHAT_BLOB_STORE=s3` with `CHAT_S3_*` keeps
   attachments, generated files, knowledge uploads and previews in a bucket (AWS S3, Cloudflare R2,
