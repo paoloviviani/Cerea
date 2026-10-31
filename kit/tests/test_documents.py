@@ -95,7 +95,7 @@ class ChatSide(unittest.TestCase):
         self.assertIn("CHAT_DOCUMENTS_URL: ${CHAT_DOCUMENTS_URL-http://documents:8090}", CHAT)
 
     def test_the_chat_is_on_the_internal_network_and_does_not_wait_for_the_service(self):
-        self.assertRegex(CHAT, r"networks: \[default, office, docs\]")
+        self.assertRegex(CHAT, r"networks: \[default, office, docs, objects\]")
         depends = CHAT.split("depends_on:")[1]
         self.assertNotIn("documents", depends)
 

@@ -529,7 +529,7 @@ class TestFreshInstall(unittest.TestCase):
 
         a = answers(**self._EXTERNAL)
         given = {"origin", "admin_email", "preset", "tls", "idp", "oidc_issuer",
-                 "oidc_console_client_secret", "oidc_chat_client_secret", "office"}
+                 "oidc_console_client_secret", "oidc_chat_client_secret", "office", "rustfs"}
         with mock.patch("builtins.input", side_effect=fake_input), \
                 mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
             result = cfg.interview(a, given, {})
