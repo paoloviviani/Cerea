@@ -5,13 +5,13 @@
  * restarts the run and the turn finishes with the model having SEEN the output,
  * not the "execution environment unavailable" fallback.
  *
- * The ordinary deadline is shortened for the suite (`CHAT_CODE_EXECUTION_DEADLINE_SECONDS`
- * in playwright.config.ts); the warm-up is held by delaying the Pyodide runtime request.
+ * The warm-up is held by delaying the Pyodide runtime request. The ordinary deadline
+ * passing is simulated by moving the parked row's `resumeAt` into the past just before
+ * the page hides, as the sweeper would see it after the wait ran out.
  */
 import { test, expect, E2E_APP_BASE, waitForHydration } from "./fixtures.ts";
 
 const CODE = "print('RESUME' + 'OUT:' + str(6 * 7))";
-const DEADLINE_SECONDS = 30;
 
 test("a run paused in the background past the original deadline resumes and the model sees its output", async ({
 	page,
@@ -52,7 +52,14 @@ test("a run paused in the background past the original deadline resumes and the 
 	const card = page.getByTestId("code-execution-card");
 	await expect(card).toBeVisible({ timeout: 60_000 });
 
-	// The page goes to the background.
+	// The ordinary deadline has run out as far as the row is concerned...
+	await db
+		.collection("parkedCalls")
+		.updateOne(
+			{ kind: "code", status: "waiting" },
+			{ $set: { resumeAt: new Date(Date.now() - 1000) } }
+		);
+	// ...and the page goes to the background right then.
 	await page.evaluate(() => {
 		Object.defineProperty(document, "visibilityState", {
 			configurable: true,
@@ -61,7 +68,7 @@ test("a run paused in the background past the original deadline resumes and the 
 		document.dispatchEvent(new Event("visibilitychange"));
 	});
 
-	// The parked call is extended well past its ordinary deadline.
+	// The pause signal pushes the deadline well past its ordinary length.
 	await expect
 		.poll(
 			async () => {
@@ -72,8 +79,8 @@ test("a run paused in the background past the original deadline resumes and the 
 		)
 		.toBeGreaterThan(5 * 60_000);
 
-	// Let the ordinary deadline (and a sweep) pass: the turn is still waiting.
-	await page.waitForTimeout((DEADLINE_SECONDS + 14) * 1000);
+	// A sweep passes: the turn is still waiting.
+	await page.waitForTimeout(13_000);
 	const waiting = await db.collection("parkedCalls").findOne({ kind: "code" });
 	expect(waiting?.status).toBe("waiting");
 

@@ -17,10 +17,16 @@ import { base } from "$app/paths";
 export function reportPaused(conversationId: string, executionId: string): void {
 	const url = `${base}/conversation/${conversationId}/code-execution/paused`;
 	const body = JSON.stringify({ executionId });
+	// A beacon that is refused (`false`) or throws (older engines reject a Blob
+	// type outside the safelist) falls through to a keepalive fetch.
 	try {
 		if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
 			if (navigator.sendBeacon(url, new Blob([body], { type: "application/json" }))) return;
 		}
+	} catch {
+		// Fall through to fetch.
+	}
+	try {
 		void fetch(url, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },

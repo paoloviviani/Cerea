@@ -15,7 +15,12 @@ const session = vi.hoisted(() => ({
 	terminate: vi.fn(),
 	listFiles: vi.fn(async () => []),
 	readFile: vi.fn(),
-	onStatus: vi.fn(),
+	onStatus: vi.fn((listener: (status: string) => void) => {
+		session.listener = listener;
+		listener(session.status);
+	}),
+	status: "unloaded",
+	listener: undefined as undefined | ((status: string) => void),
 }));
 vi.mock("$lib/utils/execution/runtime", () => ({ getExecutionSession: () => session }));
 
@@ -25,6 +30,12 @@ vi.mock("$lib/utils/execution/pauseResume", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("$lib/utils/execution/pauseResume")>();
 	return { ...actual, createWakeLock: () => lock, reportPaused: paused };
 });
+
+/** The sandbox's own state, as the runs store hears it: "ready" starts runs as `running`, otherwise `loading`. */
+function setRuntime(status: "unloaded" | "ready") {
+	session.status = status;
+	session.listener?.(status);
+}
 
 let visibility: "visible" | "hidden" = "visible";
 function setVisibility(next: "visible" | "hidden") {
@@ -51,6 +62,7 @@ const posts = () =>
 
 beforeEach(() => {
 	visibility = "visible";
+	setRuntime("unloaded");
 	Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
 	vi.stubGlobal(
 		"fetch",
@@ -185,5 +197,68 @@ describe("CodeExecutionCard pause and resume", () => {
 		expect(lock.acquire).not.toHaveBeenCalled();
 		setVisibility("hidden");
 		expect(paused).not.toHaveBeenCalled();
+	});
+
+	it("leaves a run that is already running alone when the page returns", async () => {
+		setRuntime("ready");
+		const req = request("print('running-case')");
+		let finish: (v: unknown) => void = () => undefined;
+		session.run.mockImplementationOnce(() => new Promise((r) => (finish = r)));
+		mount(req);
+		await vi.waitFor(() => expect(session.run).toHaveBeenCalledTimes(1));
+		setVisibility("hidden");
+		expect(paused).toHaveBeenCalledTimes(1);
+		setVisibility("visible");
+		await new Promise((r) => setTimeout(r, 50));
+		// The sandbox keeps its state: no terminate, no second run.
+		expect(session.terminate).not.toHaveBeenCalled();
+		expect(session.run).toHaveBeenCalledTimes(1);
+		finish({ ok: true, stdout: "kept\n", stderr: "" });
+		await vi.waitFor(() => expect(posts()).toHaveLength(1));
+		expect(JSON.parse(posts()[0][1].body).outcome.stdout).toBe("kept\n");
+	});
+
+	it("restarts a sandbox failure that landed while the page was away, once", async () => {
+		setRuntime("ready");
+		const req = request("print('failed-hidden')");
+		let fail: (e: Error) => void = () => undefined;
+		session.run
+			.mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)))
+			.mockResolvedValueOnce({ ok: true, stdout: "again\n", stderr: "" });
+		mount(req);
+		await vi.waitFor(() => expect(session.run).toHaveBeenCalledTimes(1));
+		setVisibility("hidden");
+		fail(new Error("timed out"));
+		await new Promise((r) => setTimeout(r, 50));
+		expect(posts()).toHaveLength(0);
+		setVisibility("visible");
+		await vi.waitFor(() => expect(posts()).toHaveLength(1));
+		expect(session.run).toHaveBeenCalledTimes(2);
+		expect(session.terminate).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(posts()[0][1].body).outcome.ok).toBe(true);
+	});
+
+	it("posts the failure after the restart cap instead of waiting out the deadline", async () => {
+		const req = request("print('cap-case')");
+		let fail: (e: Error) => void = () => undefined;
+		session.run
+			.mockImplementationOnce(() => new Promise(() => undefined))
+			.mockImplementationOnce(() => new Promise(() => undefined))
+			.mockImplementationOnce(() => new Promise(() => undefined))
+			.mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)));
+		mount(req);
+		await vi.waitFor(() => expect(session.run).toHaveBeenCalledTimes(1));
+		// Three warm-ups that never got going: three restarts.
+		for (let i = 2; i <= 4; i++) {
+			setVisibility("hidden");
+			setVisibility("visible");
+			await vi.waitFor(() => expect(session.run).toHaveBeenCalledTimes(i));
+		}
+		setVisibility("hidden");
+		fail(new Error("sandbox died"));
+		// Past the cap nothing restarts it and nothing holds it back.
+		await vi.waitFor(() => expect(posts()).toHaveLength(1));
+		expect(session.run).toHaveBeenCalledTimes(4);
+		expect(JSON.parse(posts()[0][1].body).outcome.ok).toBe(false);
 	});
 });

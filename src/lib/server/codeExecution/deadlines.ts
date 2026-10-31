@@ -13,12 +13,14 @@ export const CODE_EXECUTION_DEADLINE_MS = LOAD_TIMEOUT_MS + RUN_TIMEOUT_MS + 10_
 
 /**
  * The deadline at the configured run limit. `CHAT_CODE_EXECUTION_DEADLINE_SECONDS`
- * replaces it outright (at least one second); it exists so a test can see a
- * deadline pass in seconds, not minutes, and is not meant for deployments.
+ * replaces it outright (held between 1 second and 1 hour). It is test-only: it
+ * exists so a spec can shorten the wait, and is not meant for deployments.
  */
 export function codeExecutionDeadlineMs(): number {
 	const override = Number(config.CHAT_CODE_EXECUTION_DEADLINE_SECONDS);
-	if (Number.isFinite(override) && override > 0) return Math.max(1000, Math.round(override * 1000));
+	if (Number.isFinite(override) && override > 0) {
+		return Math.min(3_600_000, Math.max(1000, Math.round(override * 1000)));
+	}
 	return LOAD_TIMEOUT_MS + codeRunTimeoutMs() + 10_000;
 }
 

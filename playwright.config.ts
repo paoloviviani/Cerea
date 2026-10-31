@@ -195,9 +195,6 @@ export default defineConfig({
 				CHAT_DOCUMENTS_SECRET: MOCK_DOCUMENTS_SECRET,
 				// The execute_code tool runs live in the sandbox specs.
 				CHAT_CODE_TOOL_ENABLED: "true",
-				// Shortened (production: about 160 s) so the pause spec sees the ordinary
-				// deadline pass; a cold sandbox still starts well inside it.
-				CHAT_CODE_EXECUTION_DEADLINE_SECONDS: "30",
 				// Scaled down together (production is 60000 / 90000 / 10000) so a reaper
 				// test sees a dead run finalized within its lifetime, while a live run
 				// heartbeating every second stays comfortably under the 5s stale threshold.

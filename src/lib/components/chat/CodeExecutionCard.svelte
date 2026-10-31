@@ -84,6 +84,7 @@
 		typeof document === "undefined" || document.visibilityState !== "hidden"
 	);
 	let pausedWhilePending = false;
+	let pausedEver = false;
 	let restarts = 0;
 	let resumedNote = $state(false);
 	let deadlineMissed = $state(false);
@@ -106,6 +107,7 @@
 		pageVisible = false;
 		if (pausedWhilePending || !runUnfinished()) return;
 		pausedWhilePending = true;
+		pausedEver = true;
 		storeRunPause({
 			conversationId,
 			executionId: request.executionId,
@@ -115,20 +117,26 @@
 		reportPaused(conversationId, request.executionId);
 	}
 
+	// Restart the run from the start on a fresh sandbox, and ask the server for the
+	// longer wait again since the new warm-up takes a while.
+	function doRestart() {
+		if (!runsStore) return;
+		restarts += 1;
+		resumedNote = true;
+		reportPaused(conversationId, request.executionId);
+		runsStore.restart(runKey, request.code);
+	}
+
+	// On return only a run that never got going is restarted: a warm-up still
+	// `loading`. A `running` run is left alone (its worker is still working and
+	// its variables and files matter to later calls); one that failed while the
+	// page was away is restarted by the post effect below.
 	function onVisible() {
 		pageVisible = true;
 		if (!pausedWhilePending) return;
-		if (!runUnfinished() || !runsStore || restarts >= MAX_RESUME_RESTARTS) {
-			// Finished while hidden (or out of restarts): nothing to resume.
-			pausedWhilePending = false;
-			return;
-		}
-		restarts += 1;
 		pausedWhilePending = false;
-		resumedNote = true;
-		// Restarting takes a warm-up of its own: ask for the longer wait again.
-		reportPaused(conversationId, request.executionId);
-		runsStore.restart(runKey, request.code);
+		if (!runsStore || restarts >= MAX_RESUME_RESTARTS || posted) return;
+		if (runsStore.get(runKey)?.status === "loading") doRestart();
 	}
 
 	$effect(() => {
@@ -186,9 +194,13 @@
 		const state = runState;
 		if (resolved || posted || !state) return;
 		if (state.status !== "done" && state.status !== "error") return;
-		// A sandbox failure while the page was away is the freeze, not the code:
-		// the restart on return replaces it.
-		if (pausedWhilePending && state.sandboxError) return;
+		// A sandbox failure after the page was away is the freeze, not the code
+		// (a timer that fired late on thaw): wait for the page to be back, then
+		// restart instead of posting it. Past the restart cap it is posted.
+		if (pausedEver && state.sandboxError && restarts < MAX_RESUME_RESTARTS) {
+			if (pageVisible) untrack(doRestart);
+			return;
+		}
 		// Wait for the async file listing before the one-shot POST: posting
 		// on `status` alone races the listing, uploads nothing, and wins the
 		// endpoint's CAS with `files: []` — the later upload's bytes then land
