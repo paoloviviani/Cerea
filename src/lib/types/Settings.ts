@@ -74,14 +74,15 @@ export interface Settings extends Timestamps {
 	toolApprovalPolicy?: "always-allow" | "manual";
 
 	/**
-	 * User opt-in (default off) to let the code sandbox's micropip fetch
+	 * User choice (default ON: unset means on, a stored `false` is off) to let the code sandbox's micropip fetch
 	 * arbitrary pure-Python packages from the public PyPI index, in addition
 	 * to the vendored wheels every deployment serves same-origin. Off means
-	 * micropip never reaches beyond this origin — no third-party egress. An
+	 * micropip never reaches beyond this origin — no third-party egress; on, code
+	 * may fetch packages from the public PyPI index. An
 	 * admin kill-switch (`CHAT_PYODIDE_PYPI_DISABLED`) can force this off
 	 * deployment-wide regardless of the stored value; see
 	 * `FeatureFlags.pyodidePyPiInstallAllowed`, which reports whether the
-	 * switch is even available to opt into.
+	 * switch leaves the option available at all.
 	 */
 	pyodidePyPiInstallEnabled?: boolean;
 

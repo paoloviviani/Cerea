@@ -53,7 +53,7 @@ export interface FeatureFlags {
 	 * sandbox setting at all — false when the admin kill-switch
 	 * (`CHAT_PYODIDE_PYPI_DISABLED`) is set, regardless of what any user has
 	 * stored. The user's own `pyodidePyPiInstallEnabled` setting is the
-	 * separate opt-in; both must be true for the sandbox to actually reach
+	 * separate choice (on unless stored `false`); both must allow for the sandbox to actually reach
 	 * PyPI.
 	 */
 	pyodidePyPiInstallAllowed: boolean;

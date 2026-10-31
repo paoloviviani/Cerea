@@ -82,3 +82,37 @@ describe("Settings > Application, in the pseudo-locale", () => {
 		expect(options()).toEqual(["en", "en-XA"]);
 	});
 });
+
+describe("Settings > Application, the PyPI install option", () => {
+	const row = () =>
+		document.querySelector<HTMLInputElement>('input[name="pyodidePyPiInstallEnabled"]');
+
+	it("shows the option, on by default, when the deployment allows it", async () => {
+		page.data = { pyodidePyPiInstallAllowed: true };
+		const screen = renderWithApp(ApplicationPage, {}, { context: stores(), page });
+		await expect.element(screen.getByText("Let code install extra Python packages")).toBeVisible();
+		expect(row()?.checked).toBe(true);
+	});
+
+	it("shows it off when the user stored false", async () => {
+		page.data = { pyodidePyPiInstallAllowed: true };
+		const store = writable({ activeModel: "", pyodidePyPiInstallEnabled: false });
+		const context = new Map<unknown, unknown>([
+			[
+				"settings",
+				{ subscribe: store.subscribe, update: vi.fn(), instantSet: vi.fn(), set: vi.fn() },
+			],
+		]);
+		const screen = renderWithApp(ApplicationPage, {}, { context, page });
+		await expect.element(screen.getByText("Let code install extra Python packages")).toBeVisible();
+		expect(row()?.checked).toBe(false);
+	});
+
+	it("hides the whole row when the administrator switched it off", async () => {
+		page.data = { pyodidePyPiInstallAllowed: false };
+		const screen = renderWithApp(ApplicationPage, {}, { context: stores(), page });
+		await expect.element(screen.getByText("Appearance")).toBeVisible();
+		expect(row()).toBeNull();
+		expect(document.body.textContent).not.toContain("Let code install extra Python packages");
+	});
+});

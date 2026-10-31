@@ -122,8 +122,8 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 						"reportlab, seaborn; install first, a plain import fails until then) " +
 						"and whatever else this runtime already bundles (numpy, pandas, lxml, " +
 						"Pillow, ...) — same-origin only, never a third-party request. Any other " +
-						"PyPI package installs only if the person has turned that on in their " +
-						"settings; if it fails as not-found, say the setting controls it rather " +
+						"PyPI package installs unless the person or the administrator has turned " +
+						"that off in the settings; if it fails as not-found, say the setting controls it rather " +
 						"than telling them to install it themselves.\n\n" +
 						"You see the truncated stdout, stderr and the last expression's result " +
 						"yourself, plus the names of files the run saved to the output folder.\n\n" +
