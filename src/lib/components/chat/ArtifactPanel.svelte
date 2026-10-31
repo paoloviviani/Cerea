@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
-	import { onDestroy } from "svelte";
+	import { onDestroy, untrack } from "svelte";
 	import DOMPurify from "isomorphic-dompurify";
 
 	import type { ArtifactKind, ArtifactRegistry, ArtifactVersion } from "$lib/utils/artifacts";
@@ -35,6 +35,7 @@
 		PREVIEW_ALLOW,
 		PREVIEW_SANDBOX,
 		type CapturedPreviewError,
+		type PreviewError,
 	} from "$lib/utils/previewSrcdoc";
 	import { captureArtifactScreenshot, pngDataUrlToFile } from "$lib/utils/artifactCapture";
 	import { parseExternalUrl } from "$lib/utils/externalLink";
@@ -510,10 +511,30 @@
 		}, delay);
 	});
 
-	// Reset captured errors whenever the previewed document changes
+	// Errors the iframe reported while its version was still incomplete, tied to
+	// the srcdoc that produced them. An HTML preview can load the full content
+	// during a stall before the closing tag; when the version then completes
+	// with identical content the iframe does not reload, so these load-time
+	// errors are the only record of that document's problems.
+	let bufferedErrors: { srcdoc: string | undefined; errors: PreviewError[] } | undefined;
+	let errorsSrcdoc: string | undefined;
+
+	// Reset captured errors whenever the previewed document changes; promote the
+	// buffered ones when the same document turns complete.
 	$effect(() => {
-		void srcdoc;
-		errors = [];
+		const current = srcdoc;
+		const complete = previewedComplete;
+		untrack(() => {
+			if (current !== errorsSrcdoc) {
+				errorsSrcdoc = current;
+				errors = [];
+			}
+			if (bufferedErrors && bufferedErrors.srcdoc !== current) bufferedErrors = undefined;
+			if (complete && bufferedErrors) {
+				for (const e of bufferedErrors.errors) errors = capturePreviewError(errors, e);
+				bufferedErrors = undefined;
+			}
+		});
 	});
 
 	// True once the iframe finished loading the current srcdoc. srcdoc
@@ -551,9 +572,19 @@
 		if (data.type !== "chatui.preview.error") return;
 		// While the previewed content streams, half-written code throws by
 		// design (and a partial diagram fails to parse); only a completed
-		// document's errors count toward the problems pill.
-		if (!previewedComplete) return;
-		errors = capturePreviewError(errors, normalizePreviewError(data.detail));
+		// document's errors count toward the problems pill. Hold the earlier ones
+		// until (and unless) this same document completes.
+		const normalized = normalizePreviewError(data.detail);
+		if (!previewedComplete) {
+			const buffer: { srcdoc: string | undefined; errors: PreviewError[] } =
+				bufferedErrors && bufferedErrors.srcdoc === srcdoc
+					? bufferedErrors
+					: { srcdoc, errors: [] };
+			bufferedErrors = buffer;
+			if (buffer.errors.length < 100) buffer.errors.push(normalized);
+			return;
+		}
+		errors = capturePreviewError(errors, normalized);
 	}
 
 	// Sends the fix request as a chat message right away. On mobile the panel

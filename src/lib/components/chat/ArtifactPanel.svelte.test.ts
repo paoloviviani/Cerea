@@ -479,3 +479,69 @@ describe("interrupted artifacts", () => {
 		await expect.element(screen.getByText("Interrupted · Document")).toBeVisible();
 	});
 });
+
+describe("html preview: errors reported while the version streams", () => {
+	const HTML = '<h1>Hi</h1><script>throw new Error("boom at load");</script>';
+
+	function htmlProps(content: string, complete: boolean) {
+		return {
+			registry: registryWith(version({ identifier: "page", type: "html", content, complete })),
+			fileRegistry: emptyFileRegistry,
+			items: [],
+			loading: !complete,
+			drafts: [],
+			onsend: () => true,
+		};
+	}
+
+	/** Post an error the way the preview iframe does: from its window, on the
+	 * panel's channel (read back from the srcdoc that carries it). */
+	function postIframeError(root: HTMLElement, message: string) {
+		const iframe = root.querySelector("iframe")!;
+		const channel = /artifact_[a-z0-9]+/.exec(iframe.getAttribute("srcdoc") ?? "")![0];
+		window.dispatchEvent(
+			new MessageEvent("message", {
+				data: { type: "chatui.preview.error", channel, detail: { message } },
+				source: iframe.contentWindow,
+			})
+		);
+	}
+
+	const hasProblems = (root: HTMLElement) => /problem/i.test(root.textContent ?? "");
+
+	it("promotes load errors received while incomplete when the same document completes", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+		sidePane.openArtifact("page");
+		const screen = renderWithApp(ArtifactPanel, htmlProps(HTML, false), { page: pageOverrides });
+		await advance(0);
+		const before = previewSrcdoc(body(screen));
+		expect(before).toContain("boom at load");
+
+		postIframeError(body(screen), "boom at load");
+		await advance(0);
+		expect(hasProblems(body(screen))).toBe(false);
+
+		await screen.rerender(htmlProps(HTML, true));
+		await advance(0);
+		// Identical content: the iframe did not reload...
+		expect(previewSrcdoc(body(screen))).toBe(before);
+		// ...so the buffered load error is what feeds the problems pill.
+		expect(hasProblems(body(screen))).toBe(true);
+	});
+
+	it("drops buffered errors from an earlier, different srcdoc", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+		sidePane.openArtifact("page");
+		const screen = renderWithApp(ArtifactPanel, htmlProps(HTML, false), { page: pageOverrides });
+		await advance(0);
+		postIframeError(body(screen), "boom at load");
+		await advance(0);
+
+		// The stream continues and completes with different content.
+		const final = "<h1>Fixed</h1>";
+		await screen.rerender(htmlProps(final, true));
+		await advance(0);
+		expect(previewSrcdoc(body(screen))).toContain("Fixed");
+		expect(hasProblems(body(screen))).toBe(false);
+	});
+});
