@@ -79,6 +79,8 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@aws-sdk/client-s3": "^3.1161.0",
+		"@aws-sdk/lib-storage": "^3.1161.0",
 		"@codemirror/language": "^6.12.4",
 		"@codemirror/language-data": "^6.5.2",
 		"@codemirror/state": "^6.7.6",

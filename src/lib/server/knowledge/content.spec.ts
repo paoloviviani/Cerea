@@ -65,7 +65,7 @@ afterEach(async () => {
 	await collections.vectorStores.deleteMany({});
 	await collections.knowledgeDocuments.deleteMany({});
 	for (const id of uploadedFileIds.splice(0)) {
-		await collections.bucket.delete(id).catch(() => undefined);
+		await collections.blobStore.delete("files", id).catch(() => undefined);
 	}
 });
 
@@ -246,7 +246,7 @@ describe("readDocumentDownload", () => {
 			filename: "gone.txt",
 			fileId: new ObjectId(stored.id),
 		});
-		await collections.bucket.delete(new ObjectId(stored.id));
+		await collections.blobStore.delete("files", new ObjectId(stored.id));
 		uploadedFileIds.pop();
 		await expect(
 			readDocumentDownload(storeId.toString(), doc.insertedId.toString(), owner)
@@ -263,12 +263,10 @@ describe("readDocumentDownload", () => {
 		// The cap guards what the download returns, not how the bytes got
 		// there: a stubbed directory entry is enough to prove the refusal
 		// lands before the stream is opened.
-		const find = vi.spyOn(collections.bucket, "find").mockReturnValue({
-			next: async () => ({
-				length: MAX_DOWNLOAD_BYTES + 1,
-				filename: "big.bin",
-				metadata: { mime: "application/octet-stream" },
-			}),
+		const find = vi.spyOn(collections.blobStore, "stat").mockResolvedValue({
+			length: MAX_DOWNLOAD_BYTES + 1,
+			filename: "big.bin",
+			metadata: { mime: "application/octet-stream" },
 		} as never);
 		try {
 			await expect(

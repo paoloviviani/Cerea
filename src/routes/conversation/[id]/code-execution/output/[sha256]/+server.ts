@@ -1,7 +1,8 @@
 import type { RequestHandler } from "./$types";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
-import { downloadDeliverable } from "$lib/server/execution/deliverables";
+import { openDeliverable } from "$lib/server/execution/deliverables";
+import { Readable } from "node:stream";
 import { error } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
@@ -25,17 +26,17 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	);
 	if (!conversation) error(404, "Conversation not found");
 
-	const file = await downloadDeliverable(conversationId, sha256);
+	const file = await openDeliverable(conversationId, sha256);
 	if (!file) error(404, "File not found");
 
-	return new Response(new Uint8Array(file.buffer), {
+	return new Response(Readable.toWeb(file.stream) as ReadableStream, {
 		headers: {
 			"Content-Type": file.mime || "application/octet-stream",
 			"Content-Security-Policy":
 				"default-src 'none'; script-src 'none'; style-src 'none'; sandbox;",
 			"X-Content-Type-Options": "nosniff",
 			"Content-Disposition": `attachment; filename="${file.name.replace(/[\r\n"]/g, "")}"`,
-			"Content-Length": file.buffer.length.toString(),
+			"Content-Length": file.size.toString(),
 			"Accept-Ranges": "bytes",
 		},
 	});

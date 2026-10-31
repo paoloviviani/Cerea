@@ -10,6 +10,7 @@ import {
 } from "./testHelpers";
 
 import { GET, DELETE, PATCH } from "../../../../routes/api/v2/conversations/[id]/+server";
+import { findBlobs, putBlob } from "$lib/server/blobs/testing";
 
 async function parseResponse<T = unknown>(res: Response): Promise<T> {
 	return superjson.parse(await res.text()) as T;
@@ -155,26 +156,15 @@ describe.sequential("DELETE /api/v2/conversations/[id]", () => {
 			[`${conv._id}-bytes`, "application/pdf"],
 			[`${conv._id}-text`, "text/markdown"],
 		]) {
-			const upload = collections.bucket.openUploadStream(name, {
-				metadata: { conversation: conv._id.toString(), mime },
-			});
-			await new Promise<void>((resolve, reject) => {
-				upload.on("error", reject);
-				upload.on("finish", () => resolve());
-				upload.end(Buffer.from("payload"));
-			});
+			await putBlob(name, { conversation: conv._id.toString(), mime }, "payload");
 		}
 
-		const before = await collections.bucket
-			.find({ "metadata.conversation": conv._id.toString() })
-			.toArray();
+		const before = await findBlobs({ "metadata.conversation": conv._id.toString() });
 		expect(before).toHaveLength(2);
 
 		await DELETE({ locals, params: { id: conv._id.toString() } } as never);
 
-		const after = await collections.bucket
-			.find({ "metadata.conversation": conv._id.toString() })
-			.toArray();
+		const after = await findBlobs({ "metadata.conversation": conv._id.toString() });
 		expect(after).toHaveLength(0);
 	});
 

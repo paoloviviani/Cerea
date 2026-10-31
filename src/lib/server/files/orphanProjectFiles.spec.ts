@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import { sweepOrphanAttachments } from "./orphanAttachments";
+import { putBlob, removeBlobs } from "$lib/server/blobs/testing";
 
 beforeAll(async () => {
 	await ready;
@@ -10,16 +11,12 @@ beforeAll(async () => {
 const owners: string[] = [];
 afterEach(async () => {
 	await collections.projects.deleteMany({});
-	await collections.bucketFiles.deleteMany({ "metadata.conversation": { $in: owners.splice(0) } });
+	await removeBlobs({ "metadata.conversation": { $in: owners.splice(0) } });
 });
 
 async function put(owner: string) {
 	owners.push(owner);
-	const upload = collections.bucket.openUploadStream(`${owner}-x`, {
-		metadata: { conversation: owner },
-	});
-	upload.end(Buffer.from("b"));
-	await new Promise((resolve) => upload.once("finish", resolve));
+	await putBlob(`${owner}-x`, { conversation: owner }, "b");
 }
 
 describe("the orphan sweep and `project:<id>` keys", () => {
@@ -40,10 +37,10 @@ describe("the orphan sweep and `project:<id>` keys", () => {
 		await sweepOrphanAttachments(new Date(Date.now() + 48 * 60 * 60 * 1000));
 
 		expect(
-			await collections.bucketFiles.countDocuments({ "metadata.conversation": `project:${live}` })
+			await collections.blobStore.count("files", { "metadata.conversation": `project:${live}` })
 		).toBe(1);
 		expect(
-			await collections.bucketFiles.countDocuments({ "metadata.conversation": `project:${gone}` })
+			await collections.blobStore.count("files", { "metadata.conversation": `project:${gone}` })
 		).toBe(0);
 	});
 });

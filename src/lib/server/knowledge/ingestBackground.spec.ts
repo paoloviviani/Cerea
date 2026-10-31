@@ -16,6 +16,7 @@ import { ObjectId } from "mongodb";
 import { Pool } from "pg";
 import { collections, ready } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
+import { removeBlobs } from "$lib/server/blobs/testing";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
@@ -134,7 +135,7 @@ describe.skipIf(!TEST_DATABASE_URL)("background ingestion", () => {
 	}, 60_000);
 
 	afterAll(async () => {
-		await collections.bucket.drop().catch(() => undefined);
+		await removeBlobs({});
 		for (const name of [
 			"vectorStores",
 			"knowledgeDocuments",
@@ -169,8 +170,8 @@ describe.skipIf(!TEST_DATABASE_URL)("background ingestion", () => {
 		await collections.conversations.deleteMany({});
 		await collections.users.deleteMany({});
 		await collections.erasures.deleteMany({});
-		await collections.bucketFiles.deleteMany({});
-		await collections.bucket.drop().catch(() => undefined);
+		await removeBlobs({});
+		await removeBlobs({});
 		await collections.knowledgeConfig.insertOne({
 			enabled: true,
 			embeddingModel: "embed-test",
@@ -246,7 +247,7 @@ describe.skipIf(!TEST_DATABASE_URL)("background ingestion", () => {
 			await waitFor(backgroundFailed);
 			expect(await collections.knowledgeDocuments.countDocuments({ _id: docId })).toBe(0);
 			expect(await chunksOfStores([store])).toBe(0);
-			expect(await collections.bucketFiles.countDocuments({ _id: new ObjectId(up.id) })).toBe(0);
+			expect(await collections.blobStore.count("files", { _id: new ObjectId(up.id) })).toBe(0);
 			await new Promise((r) => setTimeout(r, 500));
 			expect(rejections).toEqual([]);
 		} finally {

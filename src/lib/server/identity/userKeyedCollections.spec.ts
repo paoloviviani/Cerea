@@ -7,6 +7,7 @@ import {
 	previewErasureCounts,
 	USER_KEYED_COLLECTIONS,
 } from "./userKeyedCollections";
+import { findBlobs, putBlob, removeBlobs } from "$lib/server/blobs/testing";
 
 const NO_CONVERSATIONS: EraseContext = { conversationIds: [] };
 
@@ -57,7 +58,6 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	users: false, // the account itself, not user-keyed content
 	sessions: true,
 	messageEvents: true,
-	bucketFiles: false, // covered by the bucket: entries above
 	codeExecutionOutputs: true,
 	codeRunFiles: true, // conversation-keyed, no owner field of its own
 	webFetchCache: true, // text web_fetch extracted; userId and conversationId
@@ -74,7 +74,7 @@ describe("USER_KEYED_COLLECTIONS guard", () => {
 
 	it("has no name known to database.ts left unaccounted for", () => {
 		const runtimeNames = Object.keys(collections).filter(
-			(name) => name !== "bucket" && name !== "codeOutputBucket"
+			(name) => name !== "blobStore" // files: the bucket: entries above cover them
 		);
 		const missing = runtimeNames.filter((name) => !(name in ALL_COLLECTIONS));
 		expect(missing, "a collection in database.ts has no roster entry here").toEqual([]);
@@ -716,15 +716,7 @@ describe("the conversationFiles bucket entry", () => {
 			updatedAt: new Date(),
 		} as never);
 
-		const upload = (name: string, conversation: string) => {
-			const stream = collections.bucket.openUploadStream(name, { metadata: { conversation } });
-			const done = new Promise((resolve, reject) => {
-				stream.on("finish", resolve);
-				stream.on("error", reject);
-			});
-			stream.end(Buffer.from("hello"));
-			return done;
-		};
+		const upload = (name: string, conversation: string) => putBlob(name, { conversation }, "hello");
 		await Promise.all([
 			upload(`${conversationId}-file`, conversationId.toString()),
 			upload(`${sharedId}-file`, sharedId),
@@ -735,9 +727,9 @@ describe("the conversationFiles bucket entry", () => {
 		const erased = await entry.erase(userId, { conversationIds: [conversationId] });
 		expect(erased).toBe(2);
 
-		const remaining = await collections.bucketFiles
-			.find({ "metadata.conversation": { $in: [conversationId.toString(), sharedId] } })
-			.toArray();
+		const remaining = await findBlobs({
+			"metadata.conversation": { $in: [conversationId.toString(), sharedId] },
+		});
 		expect(remaining).toHaveLength(0);
 
 		await collections.conversations.deleteOne({ _id: conversationId });
@@ -902,11 +894,11 @@ describe("projectDocuments erasure (documents follow the project, not the upload
 		}));
 		await collections.projectDocuments.insertMany(docs);
 		for (const projectId of [mine, theirs]) {
-			const upload = collections.bucket.openUploadStream(`project:${projectId}-x`, {
-				metadata: { conversation: `project:${projectId}`, messageId: "m" },
-			});
-			upload.end(Buffer.from("b"));
-			await new Promise((resolve) => upload.once("finish", resolve));
+			await putBlob(
+				`project:${projectId}-x`,
+				{ conversation: `project:${projectId}`, messageId: "m" },
+				"b"
+			);
 		}
 
 		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "projectDocuments");
@@ -920,10 +912,10 @@ describe("projectDocuments erasure (documents follow the project, not the upload
 			.toArray();
 		expect(left.map((r) => r.name).sort()).toEqual(["d2", "d3"]);
 		expect(
-			await collections.bucketFiles.countDocuments({ "metadata.conversation": `project:${mine}` })
+			await collections.blobStore.count("files", { "metadata.conversation": `project:${mine}` })
 		).toBe(0);
 		expect(
-			await collections.bucketFiles.countDocuments({ "metadata.conversation": `project:${theirs}` })
+			await collections.blobStore.count("files", { "metadata.conversation": `project:${theirs}` })
 		).toBe(1);
 
 		const names = USER_KEYED_COLLECTIONS.map((e) => e.name);
@@ -931,7 +923,7 @@ describe("projectDocuments erasure (documents follow the project, not the upload
 
 		const target = new ObjectId();
 		expect(await entry.merge(erased, target)).toBe(1);
-		await collections.bucketFiles.deleteMany({ "metadata.conversation": `project:${theirs}` });
+		await removeBlobs({ "metadata.conversation": `project:${theirs}` });
 	});
 });
 

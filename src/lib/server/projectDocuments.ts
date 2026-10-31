@@ -123,17 +123,13 @@ function overBudget(total: number, adding?: number): ProjectDocumentError {
 /** The extracted text of one stored document; empty when there is none. */
 async function readExtractedText(doc: ProjectDocument): Promise<string> {
 	if (!doc.extractedSha) return "";
-	const file = await collections.bucket
-		.find({
-			"metadata.conversation": projectOwnerKey(doc.projectId),
-			"metadata.messageId": doc._id.toString(),
-			"metadata.extractedFrom": doc.sha,
-		})
-		.next();
+	const file = await collections.blobStore.findOne("files", {
+		"metadata.conversation": projectOwnerKey(doc.projectId),
+		"metadata.messageId": doc._id.toString(),
+		"metadata.extractedFrom": doc.sha,
+	});
 	if (!file) return "";
-	const chunks: Uint8Array[] = [];
-	for await (const chunk of collections.bucket.openDownloadStream(file._id)) chunks.push(chunk);
-	return Buffer.concat(chunks).toString("utf-8");
+	return (await collections.blobStore.read("files", file.id)).toString("utf-8");
 }
 
 /**

@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import { deleteConversationDeliverables } from "$lib/server/execution/deliverables";
+import { putBlob } from "$lib/server/blobs/testing";
 
 const service = vi.hoisted(() => ({ outlined: [] as string[], edited: [] as string[] }));
 vi.mock("$lib/server/documents/client", async (importOriginal) => ({
@@ -87,11 +88,11 @@ async function setup() {
 	const conversationId = new ObjectId();
 	conversations.push(conversationId);
 	const sha = createHash("sha256").update(ORIGINAL).digest("hex");
-	const upload = collections.bucket.openUploadStream(`${conversationId}-${sha}`, {
-		metadata: { conversation: conversationId.toString(), mime: "application/octet-stream" },
-	});
-	upload.end(Buffer.from(ORIGINAL));
-	await new Promise((resolve) => upload.once("finish", resolve));
+	await putBlob(
+		`${conversationId}-${sha}`,
+		{ conversation: conversationId.toString(), mime: "application/octet-stream" },
+		ORIGINAL
+	);
 	const file = { type: "hash", name: NAME, value: sha, mime: "application/octet-stream" };
 	await collections.conversations.insertOne({
 		_id: conversationId,

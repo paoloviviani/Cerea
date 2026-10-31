@@ -12,6 +12,7 @@ import { collections, ready, Database } from "$lib/server/database";
 import { cleanupTestData } from "$lib/server/api/__tests__/testHelpers";
 import { deleteConversationStorage } from "./conversationStorage";
 import { ATTACHMENT_GRACE_MS, sweepOrphanAttachments } from "./files/orphanAttachments";
+import { putBlob, setUploadDate } from "$lib/server/blobs/testing";
 
 beforeAll(async () => {
 	await ready;
@@ -26,16 +27,13 @@ afterEach(async () => {
 });
 
 async function storeFile(owner: string, name = `${owner}-sha`, uploadDate?: Date) {
-	const upload = collections.bucket.openUploadStream(name, { metadata: { conversation: owner } });
-	upload.end(Buffer.from("bytes"));
-	await new Promise((resolve) => upload.once("finish", resolve));
-	const id = upload.id as ObjectId;
-	if (uploadDate) await collections.bucketFiles.updateOne({ _id: id }, { $set: { uploadDate } });
+	const id = await putBlob(name, { conversation: owner });
+	if (uploadDate) await setUploadDate(id, uploadDate);
 	return id;
 }
 
 const filesOf = (owner: string) =>
-	collections.bucketFiles.countDocuments({ "metadata.conversation": owner });
+	collections.blobStore.count("files", { "metadata.conversation": owner });
 
 function share(id: string, over: Record<string, unknown> = {}) {
 	return {
@@ -167,18 +165,12 @@ describe("sweepOrphanAttachments", () => {
 
 	it("never touches a tag it does not recognise, or a knowledge upload", async () => {
 		await storeFile("some-other-tag", "a", old());
-		const upload = collections.bucket.openUploadStream("kb.pdf", { metadata: { owner: "u1" } });
-		upload.end(Buffer.from("kb"));
-		await new Promise((resolve) => upload.once("finish", resolve));
-		await collections.bucketFiles.updateOne(
-			{ _id: upload.id as ObjectId },
-			{ $set: { uploadDate: old() } }
-		);
+		await setUploadDate(await putBlob("kb.pdf", { owner: "u1" }, "kb"), old());
 
 		const counts = await sweepOrphanAttachments();
 
 		expect(counts.files).toBe(0);
 		expect(await filesOf("some-other-tag")).toBe(1);
-		expect(await collections.bucketFiles.countDocuments({ "metadata.owner": "u1" })).toBe(1);
+		expect(await collections.blobStore.count("files", { "metadata.owner": "u1" })).toBe(1);
 	});
 });

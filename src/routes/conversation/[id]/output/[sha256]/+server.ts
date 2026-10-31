@@ -4,7 +4,7 @@ import { error } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import type { RequestHandler } from "./$types";
-import { attachmentResponse, downloadFile } from "$lib/server/files/downloadFile";
+import { attachmentStreamResponse, openFile } from "$lib/server/files/downloadFile";
 
 export const GET: RequestHandler = async ({ locals, params }) => {
 	const sha256 = z.string().parse(params.sha256);
@@ -28,5 +28,5 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 		error(404, "Conversation not found");
 	}
 
-	return attachmentResponse(sha256, await downloadFile(sha256, params.id));
+	return attachmentStreamResponse(sha256, await openFile(sha256, params.id));
 };

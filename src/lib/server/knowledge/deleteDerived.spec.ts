@@ -20,6 +20,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { ObjectId } from "mongodb";
 import { Pool } from "pg";
 import { collections, ready } from "$lib/server/database";
+import { putBlob, removeBlobs } from "$lib/server/blobs/testing";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
@@ -118,7 +119,7 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 
 	afterAll(async () => {
 		// The Mongo is shared with every other spec file: leave nothing of ours.
-		await collections.bucket.drop().catch(() => undefined);
+		await removeBlobs({});
 		for (const name of [
 			"vectorStores",
 			"knowledgeDocuments",
@@ -150,8 +151,8 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 		await collections.conversations.deleteMany({});
 		await collections.users.deleteMany({});
 		await collections.erasures.deleteMany({});
-		await collections.bucketFiles.deleteMany({});
-		await collections.bucket.drop().catch(() => undefined);
+		await removeBlobs({});
+		await removeBlobs({});
 		await collections.knowledgeConfig.insertOne({
 			enabled: true,
 			embeddingModel: "embed-test",
@@ -268,12 +269,15 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			const conv = new ObjectId();
 			await indexTranscript(store, owner, conv, "y");
 			const doc = need(await docFor(store, conv));
-			const spy = vi.spyOn(collections.bucket, "delete");
+			const spy = vi.spyOn(collections.blobStore, "deleteMany");
 			await collections.knowledgeDocuments.updateOne(
 				{ _id: doc._id },
 				{ $set: { fileId: new ObjectId() } }
 			);
-			spy.mockRejectedValueOnce(new Error("disk on fire"));
+			spy.mockResolvedValueOnce({
+				deleted: 0,
+				failed: [{ id: new ObjectId(), error: new Error("disk on fire") }],
+			});
 			await expect(derived.deleteDerived({ documentIds: doc._id })).rejects.toThrow("disk on fire");
 			spy.mockRestore();
 			// The passages are gone (nothing retrievable), the row remains (findable).
@@ -298,7 +302,7 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			const d1 = await svc.attachFile(store.toString(), caller(owner), "tok", { file_id: up1.id });
 			await svc.attachFile(store.toString(), caller(owner), "tok", { file_id: up2.id });
 			expect(d1.status).toBe("ready");
-			const fileCount = () => collections.bucketFiles.countDocuments({});
+			const fileCount = () => collections.blobStore.count("files", {});
 			expect(await fileCount()).toBe(2);
 
 			await svc.deleteDocument(store.toString(), d1.id, caller(owner));
@@ -336,7 +340,7 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 				updatedAt: now,
 			});
 			await derived.deleteDerived({ documentIds: new ObjectId(d.id) });
-			expect(await collections.bucketFiles.countDocuments({ _id: new ObjectId(up.id) })).toBe(1);
+			expect(await collections.blobStore.count("files", { _id: new ObjectId(up.id) })).toBe(1);
 		});
 	});
 
@@ -376,7 +380,7 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 				await collections.knowledgeDocuments.countDocuments({ storeId: { $in: [mine1, mine2] } })
 			).toBe(0);
 			expect(await collections.vectorStores.countDocuments({ ownerId: person })).toBe(0);
-			expect(await collections.bucketFiles.countDocuments({})).toBe(0);
+			expect(await collections.blobStore.count("files", {})).toBe(0);
 			expect(await chunksOfStores([theirs])).toBeGreaterThan(0);
 			// The registry's own counts still say what went.
 			expect(result.counts.vectorStores).toBe(2);
@@ -525,7 +529,7 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			expect(again.id).toBe(first.id);
 			expect(await collections.knowledgeDocuments.countDocuments({ storeId: storeA })).toBe(1);
 			// The redundant upload did not linger.
-			expect(await collections.bucketFiles.countDocuments({})).toBe(1);
+			expect(await collections.blobStore.count("files", {})).toBe(1);
 			const inB = await svc.attachFile(storeB.toString(), caller(owner), "tok", {
 				file_id: (await upload()).id,
 			});
@@ -580,14 +584,13 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			);
 			await svc.attachFile(store.toString(), caller(owner), "tok", { file_id: liveUp.id });
 			const attachment = new ObjectId();
-			await new Promise<void>((resolve, reject) => {
-				const up = collections.bucket.openUploadStreamWithId(attachment, "conv-abc", {
-					metadata: { conversation: liveConv.toString() },
-				});
-				up.once("finish", () => resolve());
-				up.once("error", reject);
-				up.end(Buffer.from("attachment"));
-			});
+			await putBlob(
+				"conv-abc",
+				{ conversation: liveConv.toString() },
+				Buffer.from("attachment"),
+				"files",
+				attachment
+			);
 
 			// Inside the grace period nothing is an orphan upload yet.
 			const early = await sweep.sweepKnowledgeOrphans();
@@ -596,19 +599,17 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			// The ghost store's chunk names a document that does not exist either.
 			expect(early.orphanChunkDocuments).toBe(2);
 			expect(early.orphanChunkStores).toBe(1);
-			expect(await collections.bucketFiles.countDocuments({ _id: new ObjectId(orphanUp.id) })).toBe(
+			expect(await collections.blobStore.count("files", { _id: new ObjectId(orphanUp.id) })).toBe(
 				1
 			);
 
 			const late = await sweep.sweepKnowledgeOrphans(new Date(Date.now() + 3 * 86_400_000));
 			expect(late.orphanFiles).toBe(1);
-			expect(await collections.bucketFiles.countDocuments({ _id: new ObjectId(orphanUp.id) })).toBe(
+			expect(await collections.blobStore.count("files", { _id: new ObjectId(orphanUp.id) })).toBe(
 				0
 			);
-			expect(await collections.bucketFiles.countDocuments({ _id: new ObjectId(liveUp.id) })).toBe(
-				1
-			);
-			expect(await collections.bucketFiles.countDocuments({ _id: attachment })).toBe(1);
+			expect(await collections.blobStore.count("files", { _id: new ObjectId(liveUp.id) })).toBe(1);
+			expect(await collections.blobStore.count("files", { _id: attachment })).toBe(1);
 
 			expect(await collections.knowledgeDocuments.countDocuments({ _id: deadDoc._id })).toBe(0);
 			expect(await chunksOfDocs([deadDoc._id, ghostDoc])).toBe(0);

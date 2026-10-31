@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 
 import { collections, ready } from "$lib/server/database";
 import { deleteConversationAttachments } from "./deleteConversationAttachments";
+import { countBlobs, findBlobs, putBlob } from "$lib/server/blobs/testing";
 
 beforeAll(async () => {
 	await ready;
@@ -25,19 +26,11 @@ async function store(
 	bytes: Buffer,
 	metadata: Record<string, unknown>
 ): Promise<void> {
-	const upload = collections.bucket.openUploadStream(filename, { metadata });
-	await new Promise<void>((resolve, reject) => {
-		upload.on("error", reject);
-		upload.on("finish", () => resolve());
-		upload.end(bytes);
-	});
+	await putBlob(filename, metadata, bytes);
 }
 
 function countFor(conversationId: ObjectId): Promise<number> {
-	return collections.bucket
-		.find({ "metadata.conversation": conversationId.toString() })
-		.toArray()
-		.then((rows) => rows.length);
+	return countBlobs({ "metadata.conversation": conversationId.toString() });
 }
 
 describe("deleteConversationAttachments", () => {
@@ -66,7 +59,7 @@ describe("deleteConversationAttachments", () => {
 		const convId = new ObjectId();
 		created.push(convId);
 		// Deliberately larger than one 255KB GridFS chunk, so the file spans
-		// several: a `deleteMany` on `files.files` alone would drop the entry
+		// several: deleting the index row alone would drop the entry
 		// and leave these behind, which is the orphaning this exists to end.
 		// Asserted by reading rather than by counting chunk documents — the
 		// chunks collection has no typed handle on the bucket, and "can the
@@ -75,29 +68,21 @@ describe("deleteConversationAttachments", () => {
 			conversation: convId.toString(),
 			mime: "application/pdf",
 		});
-		const [file] = await collections.bucket
-			.find({ "metadata.conversation": convId.toString() })
-			.toArray();
+		const [file] = await findBlobs({ "metadata.conversation": convId.toString() });
 
 		const readBack = await new Promise<number>((resolve, reject) => {
 			let bytes = 0;
-			const stream = collections.bucket.openDownloadStream(file._id);
-			stream.on("data", (chunk: Buffer) => (bytes += chunk.length));
-			stream.on("error", reject);
-			stream.on("end", () => resolve(bytes));
+			collections.blobStore.open("files", file.id).then((stream) => {
+				stream.on("data", (chunk: Buffer) => (bytes += chunk.length));
+				stream.on("error", reject);
+				stream.on("end", () => resolve(bytes));
+			}, reject);
 		});
 		expect(readBack).toBe(700 * 1024);
 
 		await deleteConversationAttachments(convId);
 
-		await expect(
-			new Promise((resolve, reject) => {
-				const stream = collections.bucket.openDownloadStream(file._id);
-				stream.on("data", () => {});
-				stream.on("error", reject);
-				stream.on("end", () => resolve(null));
-			})
-		).rejects.toThrow();
+		await expect(collections.blobStore.read("files", file.id)).rejects.toThrow();
 	});
 
 	it("touches nothing belonging to another conversation", async () => {
@@ -138,9 +123,9 @@ describe("deleteConversationAttachments", () => {
 		await deleteConversationAttachments(convId);
 
 		expect(await countFor(convId)).toBe(0);
-		const kb = await collections.bucket.find({ "metadata.owner": owner.toString() }).toArray();
+		const kb = await findBlobs({ "metadata.owner": owner.toString() });
 		expect(kb).toHaveLength(1);
-		await collections.bucket.delete(kb[0]._id);
+		await collections.blobStore.delete("files", kb[0].id);
 	});
 
 	it("accepts a batch, for the bulk delete routes", async () => {

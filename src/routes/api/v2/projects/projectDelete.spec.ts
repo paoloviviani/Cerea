@@ -9,6 +9,7 @@ import {
 } from "$lib/server/api/__tests__/testHelpers";
 import { testRequest } from "$lib/server/__tests__/testRequest";
 import { DELETE } from "./[id]/+server";
+import { putBlob } from "$lib/server/blobs/testing";
 
 beforeAll(async () => {
 	await ready;
@@ -34,11 +35,7 @@ describe("DELETE /api/v2/projects/[id]", () => {
 		const inside = await createTestConversation(locals, { projectId });
 		const loose = await createTestConversation(locals);
 		for (const owner of [inside._id.toString(), loose._id.toString()]) {
-			const upload = collections.bucket.openUploadStream(`${owner}-x`, {
-				metadata: { conversation: owner },
-			});
-			upload.end(Buffer.from("b"));
-			await new Promise((resolve) => upload.once("finish", resolve));
+			await putBlob(`${owner}-x`, { conversation: owner }, "b");
 		}
 		const res = await testRequest(DELETE, {
 			path: `/api/v2/projects/${projectId}`,
@@ -53,6 +50,11 @@ describe("DELETE /api/v2/projects/[id]", () => {
 		expect(kept).not.toBeNull();
 		expect(kept?.projectId).toBeUndefined();
 		expect(await collections.conversations.countDocuments({ _id: loose._id })).toBe(1);
-		expect(await collections.bucketFiles.countDocuments({})).toBe(2);
+		// Only this test's own files: other specs may still be tidying theirs.
+		expect(
+			await collections.blobStore.count("files", {
+				"metadata.conversation": { $in: [inside._id.toString(), loose._id.toString()] },
+			})
+		).toBe(2);
 	});
 });

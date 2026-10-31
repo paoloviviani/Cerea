@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { ObjectId } from "mongodb";
 
 import { collections, ready } from "$lib/server/database";
+import { findBlobs, putBlob, removeBlobs } from "$lib/server/blobs/testing";
 
 // Gotenberg is the one thing replaced: the store, the bucket and Mongo are real.
 const convert = vi.hoisted(() => vi.fn());
@@ -64,10 +65,7 @@ afterEach(async () => {
 	// Whatever a failed assertion left: precisely this test's previews.
 	for (const sha of shas) {
 		for (const version of [CONVERTER_VERSION, "gotenberg-old"]) {
-			const rows = await collections.bucketFiles
-				.find({ filename: previewFilename(sha, version) })
-				.toArray();
-			await Promise.all(rows.map((row) => collections.bucket.delete(row._id)));
+			await removeBlobs({ filename: previewFilename(sha, version) });
 		}
 	}
 	conversations = [];
@@ -75,19 +73,20 @@ afterEach(async () => {
 });
 
 async function rowsFor(sha: string, version = CONVERTER_VERSION) {
-	return collections.bucketFiles.find({ filename: previewFilename(sha, version) }).toArray();
+	return (await findBlobs({ filename: previewFilename(sha, version) })).map((row) => ({
+		...row,
+		_id: row.id,
+		metadata: row.metadata as { owners?: string[]; conversation?: string },
+	}));
 }
 
 /** A stored attachment as `writeAttachment` leaves it (the source a preview's owner names). */
 async function storeAttachment(conversation: ObjectId, storedSha: string, bytes: Buffer) {
-	const upload = collections.bucket.openUploadStream(`${conversation}-${storedSha}`, {
-		metadata: { conversation: conversation.toString(), mime: "application/octet-stream" },
-	});
-	await new Promise<void>((resolve, reject) => {
-		upload.once("finish", () => resolve());
-		upload.once("error", reject);
-		upload.end(bytes);
-	});
+	await putBlob(
+		`${conversation}-${storedSha}`,
+		{ conversation: conversation.toString(), mime: "application/octet-stream" },
+		bytes
+	);
 }
 
 describe("cache keying", () => {
@@ -140,10 +139,11 @@ describe("cache keying", () => {
 		const owner = previewOwner("att", conversation.toString(), "stored-sha");
 		await storeAttachment(conversation, "stored-sha", bytes);
 		// A preview an earlier release made: same bytes, an older converter version.
-		const upload = collections.bucket.openUploadStream(previewFilename(sha, "gotenberg-old"), {
-			metadata: { preview: true, version: "gotenberg-old", sha256: sha, owners: [owner] },
-		});
-		await new Promise<void>((resolve) => upload.end(pdfOf("stale"), () => resolve()));
+		await putBlob(
+			previewFilename(sha, "gotenberg-old"),
+			{ preview: true, version: "gotenberg-old", sha256: sha, owners: [owner] },
+			pdfOf("stale")
+		);
 
 		const result = await getOrCreatePreview({ bytes, name: "a.docx", owner });
 		expect(result.cached).toBe(false);
@@ -282,7 +282,7 @@ describe("cleanup", () => {
 		await releasePreviewOwners("att", [second.toString()]);
 		expect(await rowsFor(sha)).toHaveLength(0);
 		// ...chunks and all.
-		expect(await collections.bucketFiles.countDocuments({ _id: rows[0]._id })).toBe(0);
+		expect(await collections.blobStore.count("files", { _id: rows[0]._id })).toBe(0);
 	});
 
 	it("does not confuse one conversation with another that shares a prefix", async () => {

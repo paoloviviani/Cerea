@@ -119,16 +119,21 @@ export async function cleanupTestData() {
  * with it and rejects outright when the namespace was never created.
  */
 async function cleanupGridFS() {
-	const files = await collections.bucket.find({}).toArray();
-	await Promise.all(files.map((file) => collections.bucket.delete(file._id)));
+	const files = await collections.blobStore.find("files", {});
+	await collections.blobStore.deleteMany(
+		"files",
+		files.map((file) => file.id)
+	);
 }
 
 async function cleanupCodeOutputBucket() {
-	const files = await collections.codeOutputBucket.find({}).toArray();
-	// Swallow "file not found": test files run concurrently against the same
-	// shared Mongo (TEST_MONGODB_URL), and another file's cleanup racing this
-	// one to the same bucket is a benign double-delete, not a real failure.
-	await Promise.all(
-		files.map((file) => collections.codeOutputBucket.delete(file._id).catch(() => undefined))
+	const files = await collections.blobStore.find("codeOutputs", {});
+	// `deleteMany` counts a blob already gone as deleted: test files run
+	// concurrently against the same shared Mongo (TEST_MONGODB_URL), and
+	// another file's cleanup racing this one to the same bucket is a benign
+	// double-delete, not a real failure.
+	await collections.blobStore.deleteMany(
+		"codeOutputs",
+		files.map((file) => file.id)
 	);
 }

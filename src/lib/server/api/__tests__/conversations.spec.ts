@@ -12,15 +12,14 @@ import {
 import { testRequest } from "$lib/server/__tests__/testRequest";
 
 import { GET, DELETE } from "../../../../routes/api/v2/conversations/+server";
+import { putBlob } from "$lib/server/blobs/testing";
 
 async function parseResponse<T = unknown>(res: Response): Promise<T> {
 	return superjson.parse(await res.text()) as T;
 }
 
 async function storeFile(name: string, conversation: string) {
-	const upload = collections.bucket.openUploadStream(name, { metadata: { conversation } });
-	upload.end(Buffer.from("bytes"));
-	await new Promise((resolve) => upload.once("finish", resolve));
+	await putBlob(name, { conversation }, "bytes");
 }
 
 function conversationsPath(params?: Record<string, string>): string {
@@ -365,7 +364,7 @@ describe.sequential("DELETE /api/v2/conversations", () => {
 		expect(data).toBe(4);
 		expect(await collections.conversations.countDocuments()).toBe(0);
 		expect(
-			await collections.bucketFiles.countDocuments({ "metadata.conversation": projectChat })
+			await collections.blobStore.count("files", { "metadata.conversation": projectChat })
 		).toBe(0);
 	});
 

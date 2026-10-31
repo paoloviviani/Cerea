@@ -280,24 +280,17 @@ async function eraseByOwnerOrConversation<T extends Document>(
 	return deletedCount;
 }
 
-/** Delete every GridFS file (and its chunks) matching a bucket filter, one
+/** Delete every stored file (bytes and index row) matching a bucket filter, one
  * at a time so a single failure doesn't strand the rest — the same
  * discipline `attachmentStore.ts`'s `deleteMatching` and
  * `deleteConversationAttachments` use. */
 async function eraseBucketMatching(filter: Record<string, unknown>): Promise<number> {
-	const files = await collections.bucketFiles
-		.find(filter)
-		.project<{ _id: ObjectId }>({ _id: 1 })
-		.toArray();
-	const results = await Promise.all(
-		files.map((file) =>
-			collections.bucket.delete(file._id).then(
-				() => true,
-				() => false
-			)
-		)
+	const files = await collections.blobStore.find("files", filter);
+	const { deleted } = await collections.blobStore.deleteMany(
+		"files",
+		files.map((file) => file.id)
 	);
-	return results.filter(Boolean).length;
+	return deleted;
 }
 
 /**
@@ -360,7 +353,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			const sharedIds = await legacyShareIds(userId);
 			const tags = [...ctx.conversationIds.map((id) => id.toString()), ...sharedIds];
 			if (tags.length === 0) return 0;
-			const count = await collections.bucketFiles.countDocuments({
+			const count = await collections.blobStore.count("files", {
 				"metadata.conversation": { $in: tags },
 			});
 			await deleteConversationAttachments(ctx.conversationIds);
@@ -374,7 +367,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			const sharedIds = await legacyShareIds(userId);
 			const tags = [...ctx.conversationIds.map((id) => id.toString()), ...sharedIds];
 			if (tags.length === 0) return 0;
-			return collections.bucketFiles.countDocuments({ "metadata.conversation": { $in: tags } });
+			return collections.blobStore.count("files", { "metadata.conversation": { $in: tags } });
 		},
 	},
 	{
@@ -383,15 +376,15 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		mergeRule: "reassign",
 		eraseRule: "custom",
 		merge: async (stray, target) => {
-			const { modifiedCount } = await collections.bucketFiles.updateMany(
+			return collections.blobStore.update(
+				"files",
 				{ "metadata.owner": stray.toString() },
 				{ $set: { "metadata.owner": target.toString() } }
 			);
-			return modifiedCount;
 		},
 		erase: async (userId) => eraseBucketMatching({ "metadata.owner": userId.toString() }),
 		count: async (userId) =>
-			collections.bucketFiles.countDocuments({ "metadata.owner": userId.toString() }),
+			collections.blobStore.count("files", { "metadata.owner": userId.toString() }),
 	},
 	{
 		name: "bucket:codeAttachmentKeys",
@@ -422,7 +415,7 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			let count = 0;
 			for (const deviceId of deviceIds) {
 				const prefix = `code:${deviceId}:`;
-				count += await collections.bucketFiles.countDocuments({
+				count += await collections.blobStore.count("files", {
 					"metadata.conversation": { $regex: `^${escapeRegExp(prefix)}` },
 				});
 			}
@@ -708,8 +701,9 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 			reassignSimple(collections.codeExecutionOutputs, "userId", stray, target),
 		erase: async (userId) => {
 			const docs = await collections.codeExecutionOutputs.find({ userId }).toArray();
-			await Promise.all(
-				docs.map((doc) => collections.codeOutputBucket.delete(doc.gridFsId).catch(() => undefined))
+			await collections.blobStore.deleteMany(
+				"codeOutputs",
+				docs.map((doc) => doc.gridFsId)
 			);
 			const { deletedCount } = await collections.codeExecutionOutputs.deleteMany({ userId });
 			// The Office previews made from those files go too, unless another

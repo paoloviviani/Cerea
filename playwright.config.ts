@@ -230,6 +230,14 @@ export default defineConfig({
 				// galopin's public downloads (`{base}/galopin/*`), filled by galopin-dist.spec.ts.
 				GALOPIN_DIST_DIR: E2E_GALOPIN_DIST_DIR,
 				ALLOW_IFRAME: "true",
+				// The blob store backend under test (default GridFS): CI runs
+				// tests/blob-store.spec.ts again with these pointing at an S3 server.
+				...Object.fromEntries(
+					Object.entries(process.env).filter(
+						([key, value]) =>
+							(key === "CHAT_BLOB_STORE" || key.startsWith("CHAT_S3_")) && value !== undefined
+					) as [string, string][]
+				),
 				NODE_ENV: "production",
 			},
 		},
