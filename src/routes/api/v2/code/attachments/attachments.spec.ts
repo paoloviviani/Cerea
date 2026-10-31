@@ -111,7 +111,11 @@ function listEvent(locals: App.Locals, key: string, messageId: string) {
 }
 
 function serveEvent(locals: App.Locals, key: string, sha256: string) {
-	return { locals, params: { key, sha256 } } as unknown as Event<typeof serve>;
+	return {
+		locals,
+		params: { key, sha256 },
+		request: new Request("http://localhost/"),
+	} as unknown as Event<typeof serve>;
 }
 
 describe("upload, list and serve", () => {

@@ -18,9 +18,10 @@ vi.mock("$lib/server/config", () => ({
 }));
 vi.mock("$lib/server/database", () => ({
 	collections: {
-		knowledgeConfig: {
+		voiceConfig: {
 			findOne: vi.fn(async () => (state.stored ? { transcriptionModel: state.stored } : null)),
 		},
+		knowledgeConfig: { findOne: vi.fn(async () => null) },
 	},
 }));
 vi.mock("$lib/server/gatewayServer", async () => {
@@ -90,7 +91,9 @@ describe("model resolution", () => {
 			model: "whisper-large-v3-turbo",
 			source: "first-available",
 		});
-		expect(get).toHaveBeenCalledWith("tok", "models?include=transcription");
+		expect(get).toHaveBeenCalledWith("tok", "models?include=transcription", {
+			timeoutMs: 2000,
+		});
 	});
 
 	it("does not ask the catalogue when a model is named", async () => {
@@ -111,7 +114,52 @@ describe("model resolution", () => {
 	});
 });
 
+describe("the catalogue probe", () => {
+	it("gives up quickly and fails closed: no model, so the audio features stay off", async () => {
+		get.mockRejectedValueOnce(new GatewayTimeout(2000, 2000));
+		expect(await resolveTranscriptionModel("slow")).toEqual({ model: null, source: "none" });
+		expect(get.mock.calls[0][2]).toEqual({ timeoutMs: 2000 });
+	});
+
+	it("is asked once for a burst of resolutions, a failure included", async () => {
+		get.mockRejectedValueOnce(new Error("down"));
+		await Promise.all([
+			resolveTranscriptionModel("burst"),
+			resolveTranscriptionModel("burst"),
+			resolveTranscriptionModel("burst"),
+		]);
+		expect(get).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe("transcribeAudio", () => {
+	it("clamps a language to a code's length", async () => {
+		postForm.mockResolvedValue({ text: "x" });
+		await transcribeAudio({
+			bytes: new Uint8Array([1]),
+			mime: "audio/wav",
+			filename: "a.wav",
+			token: "t",
+			model: "m",
+			language: "x".repeat(200),
+		});
+		expect((postForm.mock.calls[0][2] as FormData).get("language")).toBe("x".repeat(16));
+	});
+
+	it("says the cap of a caller that has a lower one, in its own minutes", async () => {
+		const result = await transcribeAudio({
+			bytes: new Uint8Array(10 * 1024 * 1024 + 1),
+			mime: "audio/wav",
+			filename: "a.wav",
+			token: "t",
+			model: "m",
+			maxBytes: 10 * 1024 * 1024,
+		});
+		expect(result).toMatchObject({ ok: false, status: 413 });
+		expect((result as { reason: string }).reason).toContain("about 10 minutes");
+		expect(postForm).not.toHaveBeenCalled();
+	});
+
 	const audio = new Uint8Array([1, 2, 3, 4]);
 
 	it("sends one multipart call with the user's token and returns text, duration and language", async () => {

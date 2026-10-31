@@ -8,6 +8,7 @@ import { logger } from "$lib/server/logger";
 import { nextVersionNumber } from "$lib/server/execution/fileVersions";
 import { transcribeAudio } from "$lib/server/transcription";
 import { audioMime } from "./audioAttachment";
+import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 import {
 	documentMime,
 	extractDocument,
@@ -98,9 +99,14 @@ export async function writeAttachment(
 	// compound file (`application/x-cfb`) while the browser says "docx"; the
 	// two used to disagree, and extraction followed the one the allowlist did
 	// not know.
-	const sniffed = await fileTypeFromBuffer(buffer).then((fileType) => fileType?.mime ?? file.type);
-	const audio = audioMime(sniffed, file.type, file.name);
-	const mime = audio ?? documentMime(sniffed, file.name);
+	const sniffedOnly = (await fileTypeFromBuffer(buffer))?.mime;
+	const sniffed = sniffedOnly ?? file.type;
+	const audio = audioMime(sniffedOnly, new Uint8Array(buffer));
+	// A claim of `audio/*` the bytes do not bear out is not stored as audio, so
+	// nothing downstream (the prompt, the player) takes the file for sound.
+	const spoofedAudio = !audio && sniffed.startsWith("audio/");
+	const mime =
+		audio ?? (spoofedAudio ? "application/octet-stream" : documentMime(sniffed, file.name));
 
 	let extracted: Extraction | undefined;
 	let audioFacts: MessageFile["audio"];
@@ -112,6 +118,8 @@ export async function writeAttachment(
 			mime: audio,
 			filename: file.name,
 			token,
+			// An attachment is capped at 10 MB, so that is what "too long" means here.
+			maxBytes: MAX_ATTACHMENT_BYTES,
 		});
 		if (!heard.ok) {
 			extracted = { ok: false, kind: heard.kind, reason: heard.reason, status: heard.status };

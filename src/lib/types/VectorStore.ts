@@ -89,10 +89,9 @@ export interface KnowledgeConfig extends Timestamps {
 	 */
 	webSearchModel?: string | null;
 	/**
-	 * Which gateway model transcribes attached audio, as the Knowledge screen
-	 * chose. `null` or absent: `CHAT_TRANSCRIPTION_MODEL`, else the first
-	 * `kind: transcription` model the user may use. Written with a targeted
-	 * `$set` (like `webSearchModel`), not part of the pipeline's history.
+	 * Legacy home of the transcription model choice, from the one release that
+	 * kept it here. Read only, when `voiceConfig` holds no choice; the Voice &
+	 * audio screen writes `voiceConfig` and unsets this.
 	 */
 	transcriptionModel?: string | null;
 	chunkChars: number;

@@ -26,10 +26,7 @@ import type { ExtractionFailureKind } from "$lib/types/Message";
 
 /** The gateway's own upload cap (`GATEWAY_TRANSCRIPTION__MAX_UPLOAD_BYTES`, 25 MB by default). */
 export const TRANSCRIPTION_MAX_BYTES = 25 * 1024 * 1024;
-/**
- * What that cap means in minutes, for the message: ordinary 128 kbit/s audio
- * is about a megabyte a minute, so "about 25 minutes". An estimate, said as one.
- */
+/** The gateway cap in minutes of ordinary (128 kbit/s, about 1 MB a minute) audio. */
 export const TRANSCRIPTION_CAP_MINUTES = 25;
 const TRANSCRIPTION_TIMEOUT_MS = 180_000;
 
@@ -54,9 +51,10 @@ export function warnLegacyTranscription(): void {
 	if (warnedLegacy) return;
 	warnedLegacy = true;
 	logger.warn(
-		"transcription_legacy_config: TRANSCRIPTION_BASE_URL/TRANSCRIPTION_MODEL are deprecated. " +
-			"Dictation now goes through the gateway's /v1/audio/transcriptions; set CHAT_TRANSCRIPTION_MODEL " +
-			"(or choose a model on the Knowledge screen) and remove the old pair."
+		"transcription_legacy_config: TRANSCRIPTION_BASE_URL/TRANSCRIPTION_MODEL are deprecated and " +
+			"still take precedence for dictation (sent direct, with the deployment's key, never the gateway) " +
+			"even when CHAT_TRANSCRIPTION_MODEL is set. Remove the pair to use the gateway's " +
+			"/v1/audio/transcriptions with each user's own token."
 	);
 }
 
@@ -90,40 +88,58 @@ export function envTranscriptionModel(): string | null {
 	return config.CHAT_TRANSCRIPTION_MODEL?.trim() || null;
 }
 
+/**
+ * The administrator's choice: the Voice & audio screen's document, else the
+ * Knowledge screen's field from the release that kept it there (the new one
+ * wins; saving on the new screen unsets the old).
+ */
 export async function storedTranscriptionModel(): Promise<string | null> {
-	const row = await collections.knowledgeConfig.findOne({});
-	return row?.transcriptionModel?.trim() || null;
+	const voice = await collections.voiceConfig.findOne({});
+	const chosen = voice?.transcriptionModel?.trim();
+	if (chosen) return chosen;
+	const legacy = await collections.knowledgeConfig.findOne({});
+	return legacy?.transcriptionModel?.trim() || null;
 }
 
 export async function writeTranscriptionModel(model: string | null): Promise<void> {
-	await collections.knowledgeConfig.updateOne(
+	await collections.voiceConfig.updateOne(
 		{},
-		{
-			$set: { transcriptionModel: model, updatedAt: new Date() },
-			$setOnInsert: { createdAt: new Date() },
-		},
+		{ $set: { transcriptionModel: model, updatedAt: new Date() } },
 		{ upsert: true }
 	);
+	// The old home would otherwise bring back a choice that was just cleared.
+	await collections.knowledgeConfig.updateMany({}, { $unset: { transcriptionModel: "" } });
+}
+
+/** Past this the catalogue probe gives up: the audio features stay off, the page does not wait. */
+export const CATALOGUE_TIMEOUT_MS = 2000;
+
+/** The `kind: transcription` models this token may use, straight from the gateway (empty on failure). */
+export async function listTranscriptionModels(token: string): Promise<string[]> {
+	// No gateway, no catalogue: nothing to ask (and nothing to warn about).
+	if (!config.OPENAI_BASE_URL) return [];
+	try {
+		const answer = await gateway.get<{ data: { id: string; kind?: string }[] }>(
+			token,
+			"models?include=transcription",
+			{ timeoutMs: CATALOGUE_TIMEOUT_MS }
+		);
+		return answer.data.filter((card) => card.kind === "transcription").map((card) => card.id);
+	} catch (err) {
+		logger.warn({ err }, "transcription_unavailable: could not list models");
+		return [];
+	}
 }
 
 const CACHE_MS = 30_000;
 const listed = new Map<string, { at: number; ids: Promise<string[]> }>();
 
-/** The `kind: transcription` models this token may use, remembered briefly per token. */
+/** The same, remembered briefly per token — a failure too, so a slow gateway costs one wait, not one per page. */
 export function transcriptionModelsFor(token: string, now = Date.now()): Promise<string[]> {
-	// No gateway, no catalogue: nothing to ask (and nothing to warn about).
-	if (!config.OPENAI_BASE_URL) return Promise.resolve([]);
 	const key = createHash("sha256").update(token).digest("hex");
 	const hit = listed.get(key);
 	if (hit && now - hit.at < CACHE_MS) return hit.ids;
-	const ids = gateway
-		.get<{ data: { id: string; kind?: string }[] }>(token, "models?include=transcription")
-		.then((answer) => answer.data.filter((card) => card.kind === "transcription").map((c) => c.id))
-		.catch((err) => {
-			logger.warn({ err }, "transcription_unavailable: could not list models");
-			listed.delete(key);
-			return [] as string[];
-		});
+	const ids = listTranscriptionModels(token);
 	listed.set(key, { at: now, ids });
 	if (listed.size > 500) {
 		for (const [k, v] of listed) if (now - v.at >= CACHE_MS) listed.delete(k);
@@ -162,6 +178,8 @@ export interface TranscribeOptions {
 	/** `billTo` header value passthrough (the group that pays, when chosen). */
 	billHeaders?: Record<string, string>;
 	language?: string;
+	/** A cap below the gateway's: what the caller itself accepts (an attachment is 10 MB). */
+	maxBytes?: number;
 }
 
 export type Transcription =
@@ -181,13 +199,19 @@ function cleanText(text: string | undefined): string {
 	return /^\.+$/.test(trimmed) ? "" : trimmed;
 }
 
-/** `ok: false` result for a file past the gateway's cap, before anything is sent. */
-export function tooLongFailure(): Extract<Transcription, { ok: false }> {
+/**
+ * `ok: false` result for a file past the cap, before anything is sent. The
+ * minutes are the cap's, at about a megabyte a minute (an estimate, said as one).
+ */
+export function tooLongFailure(
+	maxBytes = TRANSCRIPTION_MAX_BYTES
+): Extract<Transcription, { ok: false }> {
+	const mb = Math.floor(maxBytes / 1024 / 1024);
 	return {
 		ok: false,
 		kind: "unsupported",
 		status: 413,
-		reason: `This recording is too long to transcribe here; up to about ${TRANSCRIPTION_CAP_MINUTES} minutes (${TRANSCRIPTION_MAX_BYTES / 1024 / 1024} MB) can be transcribed at once.`,
+		reason: `This recording is too long to transcribe here; up to about ${mb} minutes (${mb} MB) can be transcribed at once.`,
 	};
 }
 
@@ -206,7 +230,8 @@ export async function transcribeAudio(options: TranscribeOptions): Promise<Trans
 				"The audio cannot be transcribed because your sign-in is incomplete. Sign out and back in.",
 		};
 	}
-	if (bytes.byteLength > TRANSCRIPTION_MAX_BYTES) return tooLongFailure();
+	const cap = Math.min(options.maxBytes ?? TRANSCRIPTION_MAX_BYTES, TRANSCRIPTION_MAX_BYTES);
+	if (bytes.byteLength > cap) return tooLongFailure(cap);
 
 	const model = options.model ?? (await resolveTranscriptionModel(token)).model;
 	if (!model) {
@@ -224,7 +249,8 @@ export async function transcribeAudio(options: TranscribeOptions): Promise<Trans
 	form.set("model", model);
 	// `verbose_json` carries the language and duration where the provider has them.
 	form.set("response_format", "verbose_json");
-	if (options.language) form.set("language", options.language);
+	// A language code ("en", "pt-BR"); anything longer is not one.
+	if (options.language) form.set("language", options.language.trim().slice(0, 16));
 
 	try {
 		const answer = await gateway.postForm<TranscriptionAnswer>(
@@ -243,7 +269,7 @@ export async function transcribeAudio(options: TranscribeOptions): Promise<Trans
 			text,
 			model,
 			...(Number.isFinite(seconds) && seconds > 0 ? { durationSeconds: seconds } : {}),
-			...(answer.language ? { language: String(answer.language) } : {}),
+			...(answer.language ? { language: String(answer.language).slice(0, 16) } : {}),
 		};
 	} catch (err) {
 		if (err instanceof GatewayTimeout) {
@@ -258,7 +284,7 @@ export async function transcribeAudio(options: TranscribeOptions): Promise<Trans
 		const status = err instanceof GatewayCallFailed ? err.status : 502;
 		let kind: ExtractionFailureKind = "unreachable";
 		let reason = "The transcription service could not be reached.";
-		if (status === 413) return tooLongFailure();
+		if (status === 413) return tooLongFailure(cap);
 		if (status === 403) {
 			kind = "refused";
 			reason = `The transcription model ${model} isn't available to your groups.`;

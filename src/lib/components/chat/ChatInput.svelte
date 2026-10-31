@@ -564,7 +564,8 @@
 	// "model" the chat window's recorder is the microphone instead.
 	const showDictation = $derived(
 		dictationOffered(
-			parseDictationMode((page.data as { dictationMode?: string }).dictationMode),
+			(page.data as { dictationBrowser?: boolean }).dictationBrowser ??
+				parseDictationMode((page.data as { dictationMode?: string }).dictationMode) === "browser",
 			dictationSupported
 		)
 	);

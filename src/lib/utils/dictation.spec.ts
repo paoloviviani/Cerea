@@ -5,6 +5,7 @@ import {
 	dictationErrorMessage,
 	dictationLanguage,
 	dictationOffered,
+	dictationOffers,
 	parseDictationMode,
 	getSpeechRecognition,
 	joinTranscript,
@@ -89,23 +90,55 @@ describe("the deployment switch", () => {
 		expect(parseDictationMode("off")).toBe("off");
 		expect(parseDictationMode("yes")).toBe("browser");
 		expect(parseDictationMode("no")).toBe("off");
-	});
-
-	it("defaults to browser, or the model where a server recorder is configured", () => {
 		for (const v of [undefined, null, "", "  ", "maybe", "fallback"]) {
 			expect(parseDictationMode(v)).toBe("browser");
+		}
+	});
+
+	it("shows the old words as the model when the legacy pair is set, an explicit choice as itself", () => {
+		for (const v of [undefined, "", "yes", "no", "fallback"]) {
 			expect(parseDictationMode(v, true)).toBe("model");
 		}
-		// An explicit choice beats the legacy default.
 		expect(parseDictationMode("off", true)).toBe("off");
 		expect(parseDictationMode("browser", true)).toBe("browser");
 	});
 
-	it("offers the browser button only for the browser mode, where supported", () => {
-		expect(dictationOffered("browser", true)).toBe(true);
-		expect(dictationOffered("browser", false)).toBe(false);
-		expect(dictationOffered("model", true)).toBe(false);
-		expect(dictationOffered("off", true)).toBe(false);
+	// [stored value, legacy pair, browser button, recorder] — what main did before the
+	// three-way choice: the pair always put the recorder in chat, and `yes` was the
+	// only value that kept the browser button beside it.
+	const OLD: [string | undefined, boolean, boolean, boolean][] = [
+		[undefined, false, true, false],
+		["fallback", false, true, false],
+		["yes", false, true, false],
+		["no", false, false, false],
+		[undefined, true, false, true],
+		["fallback", true, false, true],
+		["yes", true, true, true],
+		["no", true, false, true],
+	];
+	for (const [value, pair, browser, recorder] of OLD) {
+		it(`old value ${value ?? "unset"}, pair ${pair ? "set" : "unset"}: browser ${browser}, recorder ${recorder}`, () => {
+			expect(dictationOffers(value, pair, true)).toEqual({ browser, recorder });
+		});
+	}
+
+	it("makes the new values exact, with or without the pair", () => {
+		for (const pair of [false, true]) {
+			expect(dictationOffers("browser", pair, true)).toEqual({ browser: true, recorder: false });
+			expect(dictationOffers("model", pair, true)).toEqual({ browser: false, recorder: true });
+			expect(dictationOffers("off", pair, true)).toEqual({ browser: false, recorder: false });
+		}
+	});
+
+	it("needs a usable model for the recorder through the gateway, not for the legacy pair", () => {
+		expect(dictationOffers("model", false, false).recorder).toBe(false);
+		expect(dictationOffers("model", true, false).recorder).toBe(true);
+	});
+
+	it("offers the browser button only where the browser can", () => {
+		expect(dictationOffered(true, true)).toBe(true);
+		expect(dictationOffered(true, false)).toBe(false);
+		expect(dictationOffered(false, true)).toBe(false);
 	});
 
 	it("formats the recording timer", () => {

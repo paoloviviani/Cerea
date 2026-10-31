@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { RequestHandler } from "./$types";
 import { attachmentStreamResponse, openFile } from "$lib/server/files/downloadFile";
 
-export const GET: RequestHandler = async ({ locals, params }) => {
+export const GET: RequestHandler = async ({ locals, params, request }) => {
 	const sha256 = z.string().parse(params.sha256);
 
 	const userId = locals.user?._id ?? locals.sessionId;
@@ -28,5 +28,8 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 		error(404, "Conversation not found");
 	}
 
-	return attachmentStreamResponse(sha256, await openFile(sha256, params.id));
+	return attachmentStreamResponse(
+		sha256,
+		await openFile(sha256, params.id, request.headers.get("range"))
+	);
 };

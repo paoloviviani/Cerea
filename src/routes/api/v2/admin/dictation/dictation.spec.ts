@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { state, resolveMock } = vi.hoisted(() => ({
+const { state } = vi.hoisted(() => ({
 	state: { stored: "" as string, managerOn: "true", legacy: false, admin: true },
-	resolveMock: vi.fn(),
 }));
 const setMock = vi.hoisted(() => vi.fn());
 
@@ -14,7 +13,6 @@ vi.mock("$lib/server/admin", () => ({
 }));
 vi.mock("$lib/server/transcription", () => ({
 	legacyTranscriptionConfigured: () => state.legacy,
-	resolveTranscriptionModel: resolveMock,
 }));
 vi.mock("$lib/server/config", () => ({
 	config: new Proxy(
@@ -53,19 +51,26 @@ beforeEach(() => {
 	state.managerOn = "true";
 	state.legacy = false;
 	state.admin = true;
-	resolveMock.mockResolvedValue({ model: null, source: "none" });
 });
 
 describe("admin dictation", () => {
 	it("defaults to the browser when unset", async () => {
 		const body = await (await GET(get())).json();
-		expect(body).toMatchObject({ mode: "browser", transcriptionModel: null, configurable: true });
+		expect(body).toMatchObject({ mode: "browser", configurable: true });
 	});
 
 	it("defaults to the model where the deprecated direct pair is set", async () => {
 		state.legacy = true;
 		const body = await (await GET(get())).json();
 		expect(body).toMatchObject({ mode: "model", legacyTranscription: true });
+	});
+
+	it("shows every old word as the model while the legacy pair is set", async () => {
+		state.legacy = true;
+		for (const stored of ["no", "yes", "fallback", ""]) {
+			state.stored = stored;
+			expect((await (await GET(get())).json()).mode).toBe("model");
+		}
 	});
 
 	it("reads the old words as the new ones, and an unknown value as the default", async () => {
@@ -75,15 +80,6 @@ describe("admin dictation", () => {
 		expect((await (await GET(get())).json()).mode).toBe("browser");
 		state.stored = "banana";
 		expect((await (await GET(get())).json()).mode).toBe("browser");
-	});
-
-	it("reports the model the option would use, and where it came from", async () => {
-		resolveMock.mockResolvedValue({ model: "whisper-large-v3-turbo", source: "stored" });
-		const body = await (await GET(get())).json();
-		expect(body).toMatchObject({
-			transcriptionModel: "whisper-large-v3-turbo",
-			transcriptionSource: "stored",
-		});
 	});
 
 	it.each(["browser", "model", "off"])("stores %s", async (mode) => {

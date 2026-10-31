@@ -408,6 +408,20 @@ describe("ChatInput dictation, the administrator's choice", () => {
 		});
 	}
 
+	it("follows the server's own answer when it gives one (old yes with the legacy pair: both)", async () => {
+		w.SpeechRecognition = FakeRecognition;
+		mount({}, { dictationMode: "model", dictationBrowser: true });
+		await tick();
+		expect(maybeMic()).not.toBeNull();
+	});
+
+	it("hides the browser button when the server says so, whatever the mode reads as", async () => {
+		w.SpeechRecognition = FakeRecognition;
+		mount({}, { dictationMode: "browser", dictationBrowser: false });
+		await tick();
+		expect(maybeMic()).toBeNull();
+	});
+
 	it("the transcription-model option leaves the microphone to the chat window's recorder", async () => {
 		w.SpeechRecognition = FakeRecognition;
 		mount({}, { dictationMode: "model", transcriptionEnabled: true });

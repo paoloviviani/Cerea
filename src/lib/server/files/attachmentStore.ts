@@ -145,9 +145,13 @@ export async function readAttachment(sha256: string, ownerKey: string) {
 }
 
 /** The same, as a stream: what a route answers with. */
-export async function openAttachment(sha256: string, ownerKey: string) {
+export async function openAttachment(
+	sha256: string,
+	ownerKey: string,
+	rangeHeader?: string | null
+) {
 	assertOwnerKey(ownerKey);
-	return openFile(sha256, ownerKey);
+	return openFile(sha256, ownerKey, rangeHeader);
 }
 
 async function deleteMatching(filter: Record<string, unknown>): Promise<number> {

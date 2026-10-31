@@ -6,43 +6,77 @@
  */
 import type { MessageFile } from "$lib/types/Message";
 
-/** What `file-type` calls a container that may hold only sound. */
-const AMBIGUOUS_CONTAINERS = new Set([
-	"video/mp4",
-	"video/webm",
-	"video/ogg",
-	"application/ogg",
-	"video/x-m4v",
-]);
-
-const EXTENSION_MIME: Record<string, string> = {
-	mp3: "audio/mpeg",
-	m4a: "audio/mp4",
-	mp4: "audio/mp4",
-	wav: "audio/wav",
-	ogg: "audio/ogg",
-	oga: "audio/ogg",
-	opus: "audio/ogg",
-	webm: "audio/webm",
-	flac: "audio/flac",
+/**
+ * What the bytes sniff as, mapped to the one type stored and sent on: only
+ * these, never what the browser said. (`file-type` names the same audio
+ * several ways.)
+ */
+const SNIFFED_AUDIO: Record<string, string> = {
+	"audio/mpeg": "audio/mpeg",
+	"audio/mp4": "audio/mp4",
+	"audio/x-m4a": "audio/mp4",
+	"audio/m4a": "audio/mp4",
+	"audio/wav": "audio/wav",
+	"audio/vnd.wave": "audio/wav",
+	"audio/x-wav": "audio/wav",
+	"audio/ogg": "audio/ogg",
+	"audio/opus": "audio/ogg",
+	"audio/flac": "audio/flac",
+	"audio/x-flac": "audio/flac",
+	"audio/webm": "audio/webm",
 };
+
+/** Containers that hold sound or picture; audio only when no video track is in them. */
+const CONTAINERS: Record<string, string> = {
+	"video/mp4": "audio/mp4",
+	"video/webm": "audio/webm",
+};
+
+/** Whether `needle` occurs in `bytes` (ASCII). */
+function contains(bytes: Uint8Array, needle: string): boolean {
+	return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).includes(
+		needle,
+		0,
+		"latin1"
+	);
+}
+
+/**
+ * Whether a container has a video track, as far as it can be told cheaply:
+ * an MP4/MOV declares each track's kind in an `hdlr` box ("vide" or "soun"),
+ * a WebM/Matroska file names each track's codec ("V_VP9", "A_OPUS"). Either
+ * marker found means video.
+ */
+function hasVideoTrack(sniffed: string, bytes: Uint8Array): boolean {
+	if (sniffed === "video/webm") return contains(bytes, "V_");
+	const buffer = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	for (
+		let at = buffer.indexOf("hdlr", 0, "latin1");
+		at !== -1;
+		at = buffer.indexOf("hdlr", at + 4, "latin1")
+	) {
+		// hdlr: version/flags (4), pre_defined (4), then the handler type.
+		if (buffer.toString("latin1", at + 12, at + 16) === "vide") return true;
+	}
+	return false;
+}
 
 /**
  * The audio type to treat an upload as, or null when it is not audio.
  *
- * The bytes decide first: anything `file-type` sniffs as `audio/*`. An mp4,
- * webm or ogg container (which it calls `video/*`) is audio only when the
- * browser said `audio/*` or the name is an audio extension; a `.mp4` with
- * video in it, declared `video/mp4`, is not sent to a transcription model.
+ * Decided by the bytes alone, never the browser's `file.type` or the name: a
+ * spoofed type cannot send a file to a transcription model. Anything `file-type`
+ * sniffs as an allowed audio format is audio; an MP4 or WebM container is audio
+ * only when its tracks say there is no video in it. A file we cannot tell (no
+ * signature, an unrecognised container) stays a plain file.
  */
-export function audioMime(sniffed: string, declared: string, filename: string): string | null {
-	if (sniffed.startsWith("audio/")) return sniffed;
-	if (!AMBIGUOUS_CONTAINERS.has(sniffed)) return null;
-	const ext = filename.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
-	if (declared.startsWith("audio/")) return declared;
-	// `video/*` declared with a plain `.mp4` name is a video.
-	if (declared.startsWith("video/") && ext === "mp4") return null;
-	return EXTENSION_MIME[ext] && ext !== "mp4" ? EXTENSION_MIME[ext] : null;
+export function audioMime(sniffed: string | undefined, bytes: Uint8Array): string | null {
+	if (!sniffed) return null;
+	const direct = SNIFFED_AUDIO[sniffed];
+	if (direct) return direct;
+	const container = CONTAINERS[sniffed];
+	if (container && !hasVideoTrack(sniffed, bytes)) return container;
+	return null;
 }
 
 export function isAudioFile(file: Pick<MessageFile, "mime">): boolean {

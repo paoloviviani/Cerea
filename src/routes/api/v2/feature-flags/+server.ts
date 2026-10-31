@@ -9,7 +9,7 @@ import { delegationEnabled } from "$lib/server/delegation";
 import { codeAgentsAllowedFor } from "$lib/server/codeEnabled";
 import { machineClientId } from "$lib/server/code/machineAuth";
 import type { FeatureFlags } from "$lib/server/api/types";
-import { dictationMode, modelDictationAvailable } from "$lib/server/dictation";
+import { dictationMode, dictationOffersFor } from "$lib/server/dictation";
 import { codeRunTimeoutMs } from "$lib/server/codeRunLimit";
 import { executionBackend } from "$lib/server/codeExecution/backend";
 
@@ -29,16 +29,24 @@ export const GET: RequestHandler = async ({ locals }) => {
 		}
 	}
 
+	// One catalogue probe per request, with a short deadline; a slow or failing
+	// gateway means "no model", so the audio features stay off rather than the
+	// page waiting on them.
+	const transcriptionModel = locals.token
+		? (await resolveTranscriptionModel(locals.token)).model
+		: null;
+	const offers = dictationOffersFor(Boolean(transcriptionModel));
+
 	return superjsonResponse({
 		loginEnabled,
 		isAdmin: locals.isAdmin,
-		// Per user: the mode is `model` and a model they may use exists.
-		transcriptionEnabled: await modelDictationAvailable(locals.token),
+		// Per user: the recorder is on offer and there is something to transcribe with.
+		transcriptionEnabled: offers.recorder,
 		dictationMode: dictationMode(),
+		// The browser's dictation button (old values keep their old behaviour).
+		dictationBrowser: offers.browser,
 		// Per user: audio files are offered when a transcription model resolves.
-		audioAttachments: locals.token
-			? Boolean((await resolveTranscriptionModel(locals.token)).model)
-			: false,
+		audioAttachments: Boolean(transcriptionModel),
 		taskModelId,
 		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",
 		codeRunTimeoutSeconds: Math.round(codeRunTimeoutMs() / 1000),

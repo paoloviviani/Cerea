@@ -115,7 +115,7 @@ connector's tool asks first, whatever its mode.
 
 ## Voice
 
-**Dictation** decides how the composer's microphone works. Three values:
+The section is called **Voice & audio**. **Dictation** decides how the composer's microphone works. Three values:
 
 - **Browser**: the speech recognition built into the user's browser (see
   [Dictation](chat.md#dictation)). Chrome, Edge and Safari may send the audio to
@@ -125,17 +125,21 @@ connector's tool asks first, whatever its mode.
   minutes) and the recording is transcribed by the transcription model through
   the gateway, as the user. The audio goes to the provider that serves the
   model, is metered per user, and is not screened by redaction. Works in
-  Firefox. The model is the one chosen on the Knowledge screen (the same model
-  that transcribes [audio attachments](chat.md#attachments)), else
-  `CHAT_TRANSCRIPTION_MODEL`, else the first one available.
+  Firefox. The model is the one chosen in the same section under
+  **Transcription model** (the model that also transcribes [audio
+  attachments](chat.md#attachments)), else `CHAT_TRANSCRIPTION_MODEL`, else the
+  first one available. This choice does not depend on knowledge bases being
+  enabled.
 - **Off**: no microphone button.
 
 It is a deployment decision, and not each user's. The value is stored in the
 chat's configuration (changing it is logged with who made the change) and
 overrides `CHAT_DICTATION`; with `ENABLE_CONFIG_MANAGER` off it can only be set
-in the environment. Users see a change the next time the page loads. With no
-choice made, a deployment that still has the deprecated `TRANSCRIPTION_*` pair
-keeps its recorder, and any other uses browser dictation.
+in the environment. Users see a change the next time the page loads. A
+deployment that still has the deprecated `TRANSCRIPTION_*` pair keeps exactly
+what it had (the old `CHAT_DICTATION` words with the pair: see the table under
+[Transcription](configuration.md#transcription)); the pair sends dictation with
+the deployment's key, not the user's token, and keeps doing so while it is set.
 
 ## Sub-agents
 

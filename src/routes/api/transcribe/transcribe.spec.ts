@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { state, transcribeMock, fetchMock } = vi.hoisted(() => ({
-	state: { mode: "model", legacy: false, token: "user-token" as string | undefined },
+	state: { allowed: true, legacy: false, token: "user-token" as string | undefined },
 	transcribeMock: vi.fn(),
 	fetchMock: vi.fn(),
 }));
 
-vi.mock("$lib/server/dictation", () => ({ dictationMode: () => state.mode }));
+vi.mock("$lib/server/dictation", () => ({ recorderAllowed: () => state.allowed }));
 vi.mock("$lib/server/apiToken", () => ({ getApiToken: () => "deployment-key" }));
 vi.mock("$lib/server/config", () => ({
 	config: {
@@ -37,7 +37,7 @@ function post(body: BodyInit | null, type = "audio/webm;codecs=opus") {
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	state.mode = "model";
+	state.allowed = true;
 	state.legacy = false;
 	state.token = "user-token";
 	vi.stubGlobal("fetch", fetchMock);
@@ -59,10 +59,8 @@ describe("POST /api/transcribe through the gateway", () => {
 	});
 
 	it("is closed unless the administrator chose the transcription model", async () => {
-		for (const mode of ["browser", "off"]) {
-			state.mode = mode;
-			await expect(post(new Uint8Array([1]))).rejects.toMatchObject({ status: 403 });
-		}
+		state.allowed = false;
+		await expect(post(new Uint8Array([1]))).rejects.toMatchObject({ status: 403 });
 		expect(transcribeMock).not.toHaveBeenCalled();
 	});
 

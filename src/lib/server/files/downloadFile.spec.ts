@@ -110,6 +110,38 @@ describe("openFile", () => {
 		}
 	});
 
+	it("advertises byte ranges", async () => {
+		const res = attachmentStreamResponse(sha, await openFile(sha, conv));
+		expect(res.status).toBe(200);
+		expect(res.headers.get("accept-ranges")).toBe("bytes");
+	});
+
+	it("answers a Range with a 206, the slice and its Content-Range", async () => {
+		const res = attachmentStreamResponse(sha, await openFile(sha, conv, "bytes=2-6"));
+		expect(res.status).toBe(206);
+		expect(res.headers.get("content-range")).toBe(`bytes 2-6/${bytes.length}`);
+		expect(res.headers.get("content-length")).toBe("5");
+		expect(Buffer.from(await res.arrayBuffer())).toEqual(bytes.subarray(2, 7));
+	});
+
+	it("serves an open-ended and a suffix range, and clamps the end", async () => {
+		const open = attachmentStreamResponse(sha, await openFile(sha, conv, "bytes=10-"));
+		expect(Buffer.from(await open.arrayBuffer())).toEqual(bytes.subarray(10));
+		const suffix = attachmentStreamResponse(sha, await openFile(sha, conv, "bytes=-4"));
+		expect(Buffer.from(await suffix.arrayBuffer())).toEqual(bytes.subarray(bytes.length - 4));
+		const clamped = attachmentStreamResponse(sha, await openFile(sha, conv, "bytes=0-9999"));
+		expect(clamped.status).toBe(206);
+		expect(Buffer.from(await clamped.arrayBuffer())).toEqual(bytes);
+	});
+
+	it("refuses a range outside the file with 416, and ignores a header it cannot read", async () => {
+		await expect(openFile(sha, conv, `bytes=${bytes.length + 5}-`)).rejects.toMatchObject({
+			status: 416,
+		});
+		const whole = attachmentStreamResponse(sha, await openFile(sha, conv, "items=1-2"));
+		expect(whole.status).toBe(200);
+	});
+
 	it("keeps the same refusals: 404 for a missing file", async () => {
 		await expect(openFile("d".repeat(64), conv)).rejects.toMatchObject({ status: 404 });
 	});

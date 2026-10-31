@@ -74,6 +74,13 @@ describe("Administration, in the pseudo-locale", () => {
 		stub({
 			"/admin/delegation": { enabled: true, configurable: false },
 			"/admin/instructions": { instructions: "", visible: true, max: 4000, configurable: false },
+			"/admin/transcription": {
+				model: "whisper",
+				source: "stored",
+				stored_model: "whisper",
+				env_model: null,
+				available_models: ["whisper"],
+			},
 			"/admin/dictation": {
 				mode: "browser",
 				transcriptionModel: "whisper",
@@ -90,6 +97,8 @@ describe("Administration, in the pseudo-locale", () => {
 				"ADMIN_INSTRUCTIONS",
 				"CHAT_DELEGATION",
 				"CHAT_DICTATION",
+				"CHAT_TRANSCRIPTION_MODEL",
+				"whisper",
 				"research",
 				"delegate",
 			])

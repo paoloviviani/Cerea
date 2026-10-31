@@ -27,6 +27,7 @@
 	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
 	import VoiceRecorder from "./VoiceRecorder.svelte";
+	import { appendTranscript, transcribeRecording } from "$lib/utils/transcribeRecording";
 	import StopGeneratingBtn from "../StopGeneratingBtn.svelte";
 	import type { Model } from "$lib/types/Model";
 	import FileDropzone from "./FileDropzone.svelte";
@@ -604,22 +605,8 @@
 		isTranscribing = true;
 
 		try {
-			const response = await fetch(`${base}/api/transcribe`, {
-				method: "POST",
-				headers: { "Content-Type": audioBlob.type },
-				body: audioBlob,
-			});
-
-			if (!response.ok) {
-				throw new Error(await response.text());
-			}
-
-			const { text } = await response.json();
-			const trimmedText = text?.trim();
-			if (trimmedText) {
-				// Append transcribed text to draft
-				draft = draft.trim() ? `${draft.trim()} ${trimmedText}` : trimmedText;
-			}
+			const text = await transcribeRecording(audioBlob);
+			if (text) draft = appendTranscript(draft, text);
 		} catch (err) {
 			console.error("Could not turn your voice into text:", err);
 			$error = m["chat.window.voice_failed"]();
@@ -633,21 +620,10 @@
 		isTranscribing = true;
 
 		try {
-			const response = await fetch(`${base}/api/transcribe`, {
-				method: "POST",
-				headers: { "Content-Type": audioBlob.type },
-				body: audioBlob,
-			});
-
-			if (!response.ok) {
-				throw new Error(await response.text());
-			}
-
-			const { text } = await response.json();
-			const trimmedText = text?.trim();
-			if (trimmedText) {
+			const text = await transcribeRecording(audioBlob);
+			if (text) {
 				// Set draft and send immediately
-				draft = draft.trim() ? `${draft.trim()} ${trimmedText}` : trimmedText;
+				draft = appendTranscript(draft, text);
 				handleSubmit();
 			}
 		} catch (err) {

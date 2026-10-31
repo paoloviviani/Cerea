@@ -117,6 +117,14 @@ test("an attached audio file is transcribed once and the model reads the transcr
 	await expect(page.getByTestId("audio-transcript")).toHaveText(MOCK_TRANSCRIPT);
 	await expect(page.locator("audio[controls]")).toHaveAttribute("src", /\/output\/[a-f0-9]{64}$/);
 
+	// The player can seek: the stored file answers a Range with a 206.
+	const src = (await page.locator("audio[controls]").getAttribute("src")) ?? "";
+	const ranged = await page.request.get(src, { headers: { range: "bytes=0-9" } });
+	expect(ranged.status()).toBe(206);
+	expect(ranged.headers()["content-range"]).toMatch(/^bytes 0-9\/\d+$/);
+	expect(ranged.headers()["accept-ranges"]).toBe("bytes");
+	expect((await ranged.body()).length).toBe(10);
+
 	// A second question is not another transcription.
 	await page.getByRole("button", { name: "Close" }).click();
 	await expect(page.getByTestId("audio-panel")).toBeHidden();

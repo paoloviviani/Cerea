@@ -140,13 +140,13 @@ describe("uploadFile: audio", () => {
 		expect(stored.extractionError?.reason).toMatch(/No transcription model/);
 	});
 
-	it("says the recording is too long over the gateway's cap, without sending it", async () => {
+	it("says the recording is too long over the attachment cap, without sending it", async () => {
 		get.mockResolvedValue(models);
 		const big = wav(TRANSCRIPTION_MAX_BYTES);
 		const stored = await uploadFile(audioFile("long.wav", "audio/wav", big), conversation(), "tok");
 		expect(postForm).not.toHaveBeenCalled();
 		expect(stored.extractionError?.reason).toMatch(
-			/too long to transcribe here; up to about 25 minutes/
+			/too long to transcribe here; up to about 10 minutes/
 		);
 	});
 
@@ -157,19 +157,49 @@ describe("uploadFile: audio", () => {
 		expect(stored.extractionError?.kind).toBe("empty");
 	});
 
-	it("does not take a video for audio", async () => {
-		const mp4 = Buffer.concat([
+	it("does not transcribe a file only the client calls audio, and stores no audio type for it", async () => {
+		get.mockResolvedValue(models);
+		const text = new File([Buffer.from("just some words, no sound at all")], "words.mp3", {
+			type: "audio/mpeg",
+		});
+		const stored = await uploadFile(text, conversation(), "tok");
+		expect(postForm).not.toHaveBeenCalled();
+		expect(stored.mime).toBe("application/octet-stream");
+		expect(stored.audio).toBeUndefined();
+	});
+
+	it("does not transcribe a video declared audio/mp4, and keeps its real type", async () => {
+		get.mockResolvedValue(models);
+		const video = Buffer.concat([
 			Buffer.from([0, 0, 0, 0x18]),
 			Buffer.from("ftypisom"),
-			Buffer.alloc(40),
+			Buffer.alloc(8),
+			// An hdlr box for a video track.
+			Buffer.from([0, 0, 0, 0x20]),
+			Buffer.from("hdlr"),
+			Buffer.alloc(8),
+			Buffer.from("vide"),
+			Buffer.alloc(16),
 		]);
 		const stored = await uploadFile(
-			new File([mp4 as BlobPart], "clip.mp4", { type: "video/mp4" }),
+			new File([video as BlobPart], "clip.m4a", { type: "audio/mp4" }),
 			conversation(),
 			"tok"
 		);
 		expect(postForm).not.toHaveBeenCalled();
-		expect(stored.audio).toBeUndefined();
+		expect(stored.mime).not.toMatch(/^audio\//);
+	});
+
+	it("stores the sniffed audio type, not the client's string", async () => {
+		get.mockResolvedValue(models);
+		postForm.mockResolvedValue({ text: "hello" });
+		const stored = await uploadFile(
+			audioFile("memo.wav", "audio/x-made-up"),
+			conversation(),
+			"tok"
+		);
+		expect(stored.mime).toBe("audio/wav");
+		expect((postForm.mock.calls[0][2] as FormData).get("file")).toHaveProperty("type", "audio/wav");
 	});
 
 	it("survives the owner-keyed store's rebuild from the bucket, duration and language included", async () => {

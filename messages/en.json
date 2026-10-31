@@ -1870,9 +1870,7 @@
 			}
 		}
 	],
-	"admin.voice.description": "How the microphone in the composer turns speech into text. Pick where the audio goes: the user's browser, or the transcription model behind the gateway.",
 	"admin.voice.saved": "Saved. Users see it the next time the page loads.",
-	"admin.voice.title": "Dictation",
 	"admin.web_search.backend.from_env": "set in the environment",
 	"admin.web_search.backend.label": "Search backend",
 	"admin.web_search.backend.not_offered": "(not offered to you)",
@@ -2946,17 +2944,6 @@
 	"admin.voice.option.model.detail": "The microphone records, and the recording is transcribed by the transcription model through the gateway, as the user. The audio goes to the provider that serves the model, is metered per user, and is not screened by redaction. Works in Firefox.",
 	"admin.voice.option.off.title": "Off",
 	"admin.voice.option.off.detail": "No microphone button.",
-	"admin.voice.model_state.resolved": "The transcription model is {model}, {source}. Change it on the Knowledge screen.",
-	"admin.voice.model_state.source.stored": "chosen on the Knowledge screen",
-	"admin.voice.model_state.source.env": "set in the environment",
-	"admin.voice.model_state.source.first": "the first one available",
-	"admin.voice.model_state.none": "No transcription model is available yet: the microphone stays hidden in the \"Transcription model\" option. Choose one on the Knowledge screen, or add one in the gateway.",
-	"admin.voice.model_state.legacy": "The deprecated direct transcription endpoint (TRANSCRIPTION_BASE_URL) is set and serves dictation. Move to a gateway transcription model and remove it.",
-	"admin.knowledge.transcription.label": "Transcription (audio attachments and dictation)",
-	"admin.knowledge.transcription.automatic": "Deployment default",
-	"admin.knowledge.transcription.hint": "Transcribes audio files attached in chats, once at upload, and dictation when it is set to the transcription model. The audio goes to the provider that serves the model and is metered per user. The deployment default is the environment's model, else the first one available.",
-	"admin.knowledge.transcription.current": "Used now: {model}",
-	"admin.knowledge.transcription.none": "The gateway has no transcription model in its catalogue, so audio cannot be transcribed.",
 	"chat.voice.limit": "Recording stopped at {minutes} minutes. Transcribing what was recorded.",
 	"chat.voice.too_long": "That recording is too long to transcribe (up to about {minutes} minutes). Record a shorter one.",
 	"chat.voice.recording_time": "Recording, {time}",
@@ -2966,5 +2953,14 @@
 	"chat.uploaded.transcript_loading": "Loading the transcript…",
 	"chat.uploaded.transcript_none": "There is no transcript for this recording.",
 	"chat.uploaded.transcript_failed": "The transcript could not be loaded.",
-	"chat.uploaded.close_audio": "Close"
+	"chat.uploaded.close_audio": "Close",
+	"admin.voice.title": "Voice & audio",
+	"admin.voice.description": "How the composer's microphone turns speech into text, and the model that transcribes dictation and attached audio files. Pick where the audio goes: the user's browser, or the transcription model behind the gateway.",
+	"admin.voice.model_state.legacy": "The deprecated direct transcription endpoint (TRANSCRIPTION_BASE_URL) is set. It serves dictation with this deployment's own key, not each user's token, and keeps doing so even when a model is chosen below; audio attachments use the model below. Remove it to send dictation through the gateway as the user.",
+	"admin.voice.transcription.label": "Transcription model (dictation and audio attachments)",
+	"admin.voice.transcription.default": "Deployment default",
+	"admin.voice.transcription.hint": "Transcribes audio files attached in chats, once at upload, and dictation when it is set to the transcription model. The audio goes to the provider that serves the model and is metered per user. The deployment default is CHAT_TRANSCRIPTION_MODEL, else the first model available.",
+	"admin.voice.transcription.current": "Used now: {model}.",
+	"admin.voice.transcription.none": "The gateway has no transcription model in its catalogue, so audio cannot be transcribed.",
+	"admin.voice.transcription.saved": "Transcription model saved."
 }

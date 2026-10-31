@@ -7,30 +7,47 @@
  * model option sends it to the chosen provider through the gateway, which is
  * why an administrator, and not each user, decides.
  *
- * An unset value (or the old `fallback`) means `model` where the deprecated
- * `TRANSCRIPTION_BASE_URL` + `TRANSCRIPTION_MODEL` pair is set, `browser`
- * otherwise, so an existing deployment keeps what it had. `yes` and `no` are
- * still read as `browser` and `off`.
+ * The old words (`yes`, `no`, `fallback`, unset) keep exactly the behaviour
+ * they had: see the table at `parseDictationMode` and `dictationOffers`, which
+ * differ with the deprecated `TRANSCRIPTION_BASE_URL` + `TRANSCRIPTION_MODEL`
+ * pair set (the recorder was then always there, whatever the value).
  */
 
 import { config } from "$lib/server/config";
-import { DICTATION_MODES, parseDictationMode, type DictationMode } from "$lib/utils/dictation";
-import { legacyTranscriptionConfigured, resolveTranscriptionModel } from "./transcription";
+import {
+	DICTATION_MODES,
+	dictationOffers,
+	parseDictationMode,
+	type DictationMode,
+	type DictationOffers,
+} from "$lib/utils/dictation";
+import { legacyTranscriptionConfigured } from "./transcription";
 
 export { DICTATION_MODES, parseDictationMode, type DictationMode };
 
-/** The mode in force: stored value, else the environment, else the default. */
+/** The stored value as it is: the raw word, new or old. */
+export function dictationSetting(): string {
+	return String(config.CHAT_DICTATION ?? "");
+}
+
+/** The mode the admin screen shows. */
 export function dictationMode(): DictationMode {
-	return parseDictationMode(config.CHAT_DICTATION, legacyTranscriptionConfigured());
+	return parseDictationMode(dictationSetting(), legacyTranscriptionConfigured());
 }
 
 /**
- * Whether the microphone-and-model recorder works for this user: the mode is
- * `model` and there is something to transcribe with (a gateway model they may
- * use, or the deprecated direct endpoint).
+ * What the composers offer this user. `modelUsable` is "a gateway transcription
+ * model resolves for them", resolved once per request by the caller.
  */
-export async function modelDictationAvailable(token: string | undefined): Promise<boolean> {
-	if (dictationMode() !== "model") return false;
-	if (legacyTranscriptionConfigured()) return true;
-	return Boolean(token && (await resolveTranscriptionModel(token)).model);
+export function dictationOffersFor(modelUsable: boolean): DictationOffers {
+	return dictationOffers(dictationSetting(), legacyTranscriptionConfigured(), modelUsable);
+}
+
+/**
+ * Whether `/api/transcribe` may be used at all: the recorder is on offer. With
+ * the legacy pair that is whatever the value says (as it always was); through
+ * the gateway only for `model`.
+ */
+export function recorderAllowed(): boolean {
+	return dictationOffers(dictationSetting(), legacyTranscriptionConfigured(), true).recorder;
 }

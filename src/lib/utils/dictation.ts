@@ -153,26 +153,65 @@ export function joinTranscript(results: ArrayLike<SpeechRecognitionResultLike>):
 export const DICTATION_MODES = ["browser", "model", "off"] as const;
 export type DictationMode = (typeof DICTATION_MODES)[number];
 
+const isMode = (raw: string): raw is DictationMode =>
+	(DICTATION_MODES as readonly string[]).includes(raw);
+
 /**
- * A stored or env value, read leniently. The old words still work: `yes` is
- * `browser`, `no` is `off`, and `fallback` (also the unset default) was "browser
- * unless a server-side recorder exists" — `model` when `serverModel` says the
- * deployment has one, `browser` otherwise.
+ * A stored or env value, read leniently, as the one mode the admin screen
+ * shows. `legacyPair` is the deprecated `TRANSCRIPTION_BASE_URL` +
+ * `TRANSCRIPTION_MODEL` pair being set.
+ *
+ * The old words (`yes`, `no`, `fallback`, unset) keep exactly the behaviour
+ * they had (`dictationOffers` decides it; this is only the screen's label):
+ *
+ * | old value        | pair unset | pair set                                  |
+ * | ---------------- | ---------- | ----------------------------------------- |
+ * | unset / fallback | browser    | model (the recorder, no browser button)   |
+ * | yes              | browser    | model, plus the browser button            |
+ * | no               | off        | model (the recorder was never switched off) |
  */
 export function parseDictationMode(
 	value: string | undefined | null,
-	serverModel = false
+	legacyPair = false
 ): DictationMode {
 	const raw = (value ?? "").trim().toLowerCase();
-	if ((DICTATION_MODES as readonly string[]).includes(raw)) return raw as DictationMode;
-	if (raw === "yes") return "browser";
-	if (raw === "no") return "off";
-	return serverModel ? "model" : "browser";
+	if (isMode(raw)) return raw;
+	if (legacyPair) return "model";
+	return raw === "no" ? "off" : "browser";
+}
+
+/** What the composers offer for a stored value: the browser's button, the recorder. */
+export interface DictationOffers {
+	/** The browser dictation button (Web Speech), where the browser supports it. */
+	browser: boolean;
+	/** The record-then-transcribe microphone (needs a model, or the legacy pair). */
+	recorder: boolean;
+}
+
+/**
+ * Exactly what each stored value offers. A new value (`browser`, `model`,
+ * `off`) is one thing. An old one reproduces the old behaviour: with the
+ * legacy pair set the recorder was always there whatever the value said, and
+ * the browser button showed only for `yes` (`fallback`/unset hid it so the
+ * two never showed together, `no` hid it); with the pair unset there was no
+ * recorder and the browser button showed unless `no`.
+ */
+export function dictationOffers(
+	value: string | undefined | null,
+	legacyPair: boolean,
+	modelUsable: boolean
+): DictationOffers {
+	const raw = (value ?? "").trim().toLowerCase();
+	if (isMode(raw)) {
+		return { browser: raw === "browser", recorder: raw === "model" && (legacyPair || modelUsable) };
+	}
+	if (legacyPair) return { browser: raw === "yes", recorder: true };
+	return { browser: raw !== "no", recorder: false };
 }
 
 /** Whether the composer shows the browser dictation button. */
-export function dictationOffered(mode: DictationMode, browserSupported: boolean): boolean {
-	return mode === "browser" && browserSupported;
+export function dictationOffered(offersBrowser: boolean, browserSupported: boolean): boolean {
+	return offersBrowser && browserSupported;
 }
 
 /** The longest one dictation recording runs, in seconds; then it is stopped and transcribed. */

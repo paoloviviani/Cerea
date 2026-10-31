@@ -6,7 +6,7 @@ import {
 	TRANSCRIPTION_CAP_MINUTES,
 	warnLegacyTranscription,
 } from "$lib/server/transcription";
-import { dictationMode } from "$lib/server/dictation";
+import { recorderAllowed } from "$lib/server/dictation";
 import { error, json } from "@sveltejs/kit";
 import { config } from "$lib/server/config";
 import { getApiToken } from "$lib/server/apiToken";
@@ -38,7 +38,7 @@ const ALLOWED_CONTENT_TYPES = [
  * set, still takes precedence and goes direct (one deprecation line is logged).
  */
 export async function POST({ request, locals }) {
-	if (dictationMode() !== "model") {
+	if (!recorderAllowed()) {
 		throw error(403, "Dictation by a transcription model is not turned on.");
 	}
 	// Through the gateway it is always the user's own token (metering, groups,

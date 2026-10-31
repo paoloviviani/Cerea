@@ -47,6 +47,8 @@ export interface FeatureFlags {
 	transcriptionEnabled: boolean;
 	/** How dictation works: "browser" (Web Speech), "model" (record, then transcribe through the gateway) or "off". Administration -> Voice. */
 	dictationMode: "browser" | "model" | "off";
+	/** The composers show the browser's dictation button (where supported). Differs from `dictationMode === "browser"` only for the old values with the deprecated pair set. */
+	dictationBrowser: boolean;
 	/** This user can attach audio: a transcription model resolves for them. */
 	audioAttachments: boolean;
 	/** Fixed model used for background tasks (e.g. conversation titles); null when tasks follow the conversation's model */

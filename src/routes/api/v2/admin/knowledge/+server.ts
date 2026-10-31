@@ -23,7 +23,6 @@ import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { requireAdmin } from "$lib/server/admin";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { logger } from "$lib/server/logger";
-import { writeTranscriptionModel } from "$lib/server/transcription";
 import type { KnowledgeConfig } from "$lib/types/VectorStore";
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -45,9 +44,6 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 		embedding_model?: string | null;
 		extractor_model?: string | null;
 		clear_extractor?: boolean;
-		/** The model attached audio is transcribed with; `clear_transcription` returns to the default. */
-		transcription_model?: string | null;
-		clear_transcription?: boolean;
 		chunk_chars?: number;
 		chunk_overlap?: number;
 		/** Accepted for compatibility with older clients; no change requires one. */
@@ -83,13 +79,6 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	if (body.chunk_chars !== undefined) patch.chunkChars = Math.floor(Number(body.chunk_chars));
 	if (body.chunk_overlap !== undefined) {
 		patch.chunkOverlap = Math.floor(Number(body.chunk_overlap));
-	}
-
-	// Targeted write, before the pipeline's whole-document one reads the row.
-	if (body.clear_transcription) {
-		await writeTranscriptionModel(null);
-	} else if (body.transcription_model !== undefined) {
-		await writeTranscriptionModel(body.transcription_model?.trim() || null);
 	}
 
 	const { writeConfig, adminStatus } = await import("$lib/server/knowledge/service");

@@ -112,8 +112,8 @@ chat against Pystino and for a chat against any other endpoint.
 | `CHAT_STREAM_IDLE_TIMEOUT_MS`    | How long a model's answer may go without sending anything before the turn is stopped with "The model stopped responding". Default 300000 (5 minutes), at least 30000; the wait before the first chunk counts, so slow reasoning models need the room                                                                                                                                                                                                                                                                                                                                             |
 | `CHAT_TURN_MAX_MINUTES`          | The longest one turn may run, whatever it is doing. Default 30, at least 1. Past it the turn ends as an error ("This answer took longer than N minutes and was stopped."), keeping what was streamed. A turn parked on an approval or a question ends there, and its resume gets a fresh allowance                                                                                                                                                                                                                                                                                               |
 | `CHAT_PYODIDE_PYPI_DISABLED`     | `true` forces off the sandbox's "install packages from PyPI" setting for everyone and hides the user's option. Without it the setting is on by default, so code may fetch packages from the public PyPI index (each user can turn it off). The vendored wheels stay installable                                                                                                                                                                                                                                                                                                                  |
-| `CHAT_DICTATION`                 | How the composer does [dictation](chat.md#dictation): `browser` (the browser's speech recognition), `model` (record, then transcribe with the [transcription model](#transcription) through the gateway) or `off`. Unset: `model` where the deprecated `TRANSCRIPTION_*` pair is set, else `browser`; the old `yes`, `no` and `fallback` still read. Settable from [Administration → Assistant → Voice](chat-admin.md#voice), which overrides this                                                                                                                                               |
-| `CHAT_TRANSCRIPTION_MODEL`       | The model that transcribes [attached audio](chat.md#attachments) and dictation through the gateway's `/v1/audio/transcriptions`. Unset: the choice on the Knowledge screen, else the first `kind: transcription` model the user may use. The Knowledge screen's choice wins over this value. See [Transcription](#transcription)                                                                                                                                                                                                                                                                 |
+| `CHAT_DICTATION`                 | How the composer does [dictation](chat.md#dictation): `browser` (the browser's speech recognition), `model` (record, then transcribe with the [transcription model](#transcription) through the gateway) or `off`. The old `yes`, `no`, `fallback` and unset keep exactly their old behaviour, which depends on the deprecated `TRANSCRIPTION_*` pair ([table](#transcription)). Settable from [Administration → Assistant → Voice](chat-admin.md#voice), which overrides this                                                                                                                   |
+| `CHAT_TRANSCRIPTION_MODEL`       | The model that transcribes [attached audio](chat.md#attachments) and dictation through the gateway's `/v1/audio/transcriptions`. Unset: the first `kind: transcription` model the user may use. The choice on Administration → Assistant → Voice & audio wins over this value. See [Transcription](#transcription)                                                                                                                                                                                                                                                                               |
 | `CHAT_DELEGATION`                | `false` removes the `delegate` and `research` [sub-agent tools](chat.md#plans-and-sub-agents) from every chat; anything else, or unset, leaves them on. Settable from [Administration → Assistant → Sub-agents](chat-admin.md#sub-agents), which overrides this                                                                                                                                                                                                                                                                                                                                  |
 | `ADMIN_INSTRUCTIONS`             | The [instructions added to every chat](chat-admin.md#assistant-instructions), up to 4,000 characters. Set under Administration; with `ENABLE_CONFIG_MANAGER` off, set here.                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `ADMIN_INSTRUCTIONS_VISIBLE`     | `false` hides them from users in Settings; they still apply. Anything else shows them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -181,15 +181,34 @@ gateway refuses files over 25 MB. Two features use it:
 - **Audio attachments** are transcribed once, at upload, and the transcript is
   kept beside the file (never re-transcribed per turn). Chat attachments stay at
   10 MB, which is roughly ten minutes of ordinary audio.
-- **Dictation** with the microphone, when Administration → Voice is set to
-  "Transcription model".
+- **Dictation** with the microphone, when Administration → Assistant → Voice &
+  audio is set to "Transcription model".
 
-Which model: the administrator's choice on the Knowledge screen (next to the
-document reader), else `CHAT_TRANSCRIPTION_MODEL`, else the first
-`kind: transcription` model the user may use. Audio is not screened by the
-gateway's redaction.
+Which model: the administrator's choice under Administration → Assistant →
+Voice & audio (it works whether or not knowledge bases are enabled), else
+`CHAT_TRANSCRIPTION_MODEL`, else the first `kind: transcription` model the user
+may use. A choice saved on the Knowledge screen by the one release that kept it
+there is still read until one is saved on the new screen. Audio is not screened
+by the gateway's redaction.
 
-**Deprecated:** `TRANSCRIPTION_BASE_URL` with `TRANSCRIPTION_MODEL` (the audio
-goes to `${TRANSCRIPTION_BASE_URL}/${TRANSCRIPTION_MODEL}` with the user's
-token) still serves dictation when both are set, and logs one deprecation line.
-Attachments never use it. Move to `CHAT_TRANSCRIPTION_MODEL` and remove the pair.
+**Deprecated direct endpoint.** `TRANSCRIPTION_BASE_URL` with
+`TRANSCRIPTION_MODEL` sends dictation straight to
+`${TRANSCRIPTION_BASE_URL}/${TRANSCRIPTION_MODEL}` with the **deployment's own
+key** (`OPENAI_API_KEY`, or the user's token only when `USE_USER_TOKEN` is
+`true`), not through the gateway and not metered per user. While the pair is
+set it keeps serving dictation even when `CHAT_TRANSCRIPTION_MODEL` or a model
+chosen in the admin screen exists; those apply to audio attachments, which never
+use the direct endpoint. One deprecation line is logged. Remove the pair to send
+dictation through the gateway as the user.
+
+What the old `CHAT_DICTATION` words do (unchanged from before):
+
+| `CHAT_DICTATION`   | pair unset     | pair set                                 |
+| ------------------ | -------------- | ---------------------------------------- |
+| unset / `fallback` | browser button | the recorder, no browser button          |
+| `yes`              | browser button | the recorder and the browser button      |
+| `no`               | nothing        | the recorder (it was never switched off) |
+
+The new values are exact: `browser` is the browser button only, `model` is the
+recorder only, `off` is nothing, with or without the pair. The admin screen shows
+an old value with the pair set as "Transcription model".

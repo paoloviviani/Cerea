@@ -7,10 +7,7 @@
  * gateway's answer (`requireAdmin`).
  */
 
-import {
-	legacyTranscriptionConfigured,
-	resolveTranscriptionModel,
-} from "$lib/server/transcription";
+import { legacyTranscriptionConfigured } from "$lib/server/transcription";
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { config } from "$lib/server/config";
@@ -22,15 +19,9 @@ const body = z.object({ mode: z.enum(DICTATION_MODES) });
 
 export const GET: RequestHandler = async ({ locals }) => {
 	await requireAdmin(locals);
-	const resolved = locals.token
-		? await resolveTranscriptionModel(locals.token)
-		: { model: null, source: "none" as const };
 	return json({
 		mode: dictationMode(),
 		available: DICTATION_MODES,
-		// Said so the screen can show which model "Transcription model" would use.
-		transcriptionModel: resolved.model,
-		transcriptionSource: resolved.source,
 		// The deprecated direct endpoint is set: the model option uses it.
 		legacyTranscription: legacyTranscriptionConfigured(),
 		configurable: config.ENABLE_CONFIG_MANAGER === "true",

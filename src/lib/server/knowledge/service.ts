@@ -14,7 +14,6 @@ import { collections } from "$lib/server/database";
 import { config } from "$lib/server/config";
 import { gateway, GatewayCallFailed } from "$lib/server/gatewayServer";
 import { logger } from "$lib/server/logger";
-import { envTranscriptionModel, resolveTranscription } from "$lib/server/transcription";
 import { chunkMarkdown } from "./chunking";
 import { INDEXED_DIMENSIONS, toUuid, withClient } from "./db";
 import { isMrlModel, tooWideMessage, truncateRenormalise } from "./mrl";
@@ -374,9 +373,6 @@ export async function adminStatus(token: string | undefined): Promise<{
 	detail: string | null;
 	available_embedding_models: string[];
 	available_extractor_models: ExtractorCandidate[];
-	transcription_model: string | null;
-	transcription_source: "stored" | "env" | "first-available" | "none";
-	available_transcription_models: string[];
 	bases: {
 		id: string;
 		name: string;
@@ -418,7 +414,6 @@ export async function adminStatus(token: string | undefined): Promise<{
 	let detail: string | null = null;
 	let embeddingModels: string[] = [];
 	let extractorCandidates: ExtractorCandidate[] = [];
-	let transcriptionModels: string[] = [];
 	if (!pipeline.embeddingModel) {
 		detail =
 			"No embedding model has been chosen. An administrator sets one on the Knowledge screen.";
@@ -428,7 +423,7 @@ export async function adminStatus(token: string | undefined): Promise<{
 		try {
 			const models = await gateway.get<{
 				data: { id: string; kind?: string; local?: boolean }[];
-			}>(token, "models?include=chat,embedding,image,ocr,transcription");
+			}>(token, "models?include=chat,embedding,image,ocr");
 			const ids = models.data.map((model) => model.id);
 			embeddingModels = models.data
 				.filter((model) => model.kind === "embedding")
@@ -436,9 +431,6 @@ export async function adminStatus(token: string | undefined): Promise<{
 			extractorCandidates = models.data
 				.filter((model) => model.kind === "ocr")
 				.map((model) => ({ id: model.id, local: model.local === true }));
-			transcriptionModels = models.data
-				.filter((model) => model.kind === "transcription")
-				.map((model) => model.id);
 			if (pipeline.embeddingModel && !ids.includes(pipeline.embeddingModel)) {
 				detail = `The configured embedding model “${pipeline.embeddingModel}” is not in this deployment's catalogue.`;
 			}
@@ -452,14 +444,6 @@ export async function adminStatus(token: string | undefined): Promise<{
 		envModel: envExtractorModel,
 		storedModel: pipeline.extractorModel?.trim() || null,
 		candidates: extractorCandidates,
-	});
-
-	// Transcription of attached audio: the stored choice, then the env value,
-	// then the first model (`resolveTranscription`, the order the upload uses).
-	const transcriptionResolution = resolveTranscription({
-		storedModel: pipeline.transcriptionModel?.trim() || null,
-		envModel: envTranscriptionModel(),
-		candidates: transcriptionModels,
 	});
 
 	// Every base, not the caller's: this is the deployment's administrator
@@ -537,9 +521,6 @@ export async function adminStatus(token: string | undefined): Promise<{
 		// is not what an upload would actually be sent to.
 		extractor_model: extractorResolution.model,
 		extractor_source: extractorResolution.source,
-		transcription_model: transcriptionResolution.model,
-		transcription_source: transcriptionResolution.source,
-		available_transcription_models: transcriptionModels,
 		vector_store: "pgvector — this deployment's own Postgres (ADR 0070)",
 		chunk_chars: pipeline.chunkChars,
 		chunk_overlap: pipeline.chunkOverlap,

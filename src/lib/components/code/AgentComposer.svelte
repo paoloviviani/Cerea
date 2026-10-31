@@ -43,6 +43,11 @@
 	import ComposerFileChips from "$lib/components/chat/ComposerFileChips.svelte";
 	import ChatInput from "$lib/components/chat/ChatInput.svelte";
 	import FileDropzone from "$lib/components/chat/FileDropzone.svelte";
+	import VoiceRecorder from "$lib/components/chat/VoiceRecorder.svelte";
+	import IconMic from "~icons/lucide/mic";
+	import { page } from "$app/state";
+	import { browser } from "$app/environment";
+	import { appendTranscript, transcribeRecording } from "$lib/utils/transcribeRecording";
 	import { pastedAttachments } from "$lib/utils/composerFiles";
 	import { FileDrag } from "$lib/utils/fileDrag.svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
@@ -245,6 +250,35 @@
 	}: Props = $props();
 
 	let draft = $state("");
+
+	// Dictation by the transcription model: the same recorder chat has, so a
+	// deployment whose administrator chose it keeps its microphone here too.
+	// (The browser's own dictation is ChatInput's, for every composer.)
+	let isRecording = $state(false);
+	let isTranscribing = $state(false);
+	const recorderEnabled = $derived(
+		!!(page.data as { transcriptionEnabled?: boolean }).transcriptionEnabled
+	);
+	const isTouchDevice = $derived(browser && navigator.maxTouchPoints > 0);
+
+	async function transcribeInto(audio: Blob, send: boolean) {
+		isRecording = false;
+		isTranscribing = true;
+		try {
+			const text = await transcribeRecording(audio);
+			if (text) {
+				draft = appendTranscript(draft, text);
+				if (send) void submit();
+			}
+		} catch (err) {
+			console.error("Could not turn your voice into text:", err);
+			errorToast.set(m["chat.window.voice_failed"]());
+		} finally {
+			isTranscribing = false;
+		}
+	}
+	const recordingConfirm = (audio: Blob) => transcribeInto(audio, false);
+	const recordingSend = (audio: Blob) => transcribeInto(audio, true);
 	let files = $state<File[]>([]);
 	let focused = $state(false);
 	let busy = $state(false);
@@ -923,7 +957,20 @@
 		<ComposerFileChips bind:files compact />
 	</div>
 	<div class="flex w-full items-center">
-		{#if drag.active && fileUploadEnabled}
+		{#if isRecording || isTranscribing}
+			<VoiceRecorder
+				{isTranscribing}
+				{isTouchDevice}
+				oncancel={() => (isRecording = false)}
+				onconfirm={recordingConfirm}
+				onsend={recordingSend}
+				onerror={(message) => {
+					isRecording = false;
+					errorToast.set(message);
+				}}
+				onnotice={(message) => errorToast.set(message)}
+			/>
+		{:else if drag.active && fileUploadEnabled}
 			<!-- Files are being dragged over the window: the input gives its
 			     row to the dropzone, exactly as the chat composer does. The
 			     mobile send control goes with it — there is nothing to send
@@ -1133,6 +1180,9 @@
 					     snippet's comment for why. The usage ring moved to the
 					     mode/model/effort row below the form, trailing it right
 					     the way chat's trailing actions clear its model line. -->
+						{#if recorderEnabled && !narrowViewport.current}
+							{@render micButton(false)}
+						{/if}
 						{#if !narrowViewport.current}
 							{@render sendControl(false)}
 						{/if}
@@ -1152,6 +1202,9 @@
 			     the two: never both, so there is only ever one "Send
 			     message"/stop control in the accessibility tree. -->
 				{#if narrowViewport.current}
+					{#if recorderEnabled}
+						{@render micButton(true)}
+					{/if}
 					{@render sendControl(true)}
 				{/if}
 			</div>
@@ -1279,6 +1332,19 @@
 		onclose={() => (permissionDetailsOpen = false)}
 	/>
 {/if}
+
+{#snippet micButton(pinned: boolean)}
+	<button
+		type="button"
+		class="{pinned
+			? 'absolute right-12 bottom-2 size-8'
+			: 'size-7'} btn self-end rounded-full border bg-white/50 text-gray-500 transition-none hover:bg-gray-50 hover:text-gray-700 dark:border-transparent dark:bg-gray-600/50 dark:text-gray-300 dark:hover:bg-gray-500 dark:hover:text-white"
+		onclick={() => (isRecording = true)}
+		aria-label={m["chat.window.record"]()}
+	>
+		<IconMic class="size-4" />
+	</button>
+{/snippet}
 
 {#snippet sendControl(pinned: boolean)}
 	<!-- One cluster, pinned or inline: while a turn runs it is stop, then

@@ -111,7 +111,8 @@ async function call<T>(
 }
 
 export const gateway = {
-	get: <T>(token: string, path: string) => call<T>(token, path, { method: "GET" }),
+	get: <T>(token: string, path: string, options?: CallOptions) =>
+		call<T>(token, path, { method: "GET" }, options),
 	post: <T>(token: string, path: string, body?: unknown, options?: CallOptions) =>
 		call<T>(token, path, { method: "POST", body: body ?? {} }, options),
 	/** A multipart POST: the one audio route takes a file, not JSON. */
