@@ -1107,13 +1107,31 @@
 	"chat.deliverables.download": "Download",
 	"chat.deliverables.download_named": "Download {name}",
 	"chat.deliverables.empty": "No files yet",
-	"chat.deliverables.empty_detail": "Reports, tables and images the assistant makes in this chat show up here. They stay available for 30 days.",
-	"chat.deliverables.empty_detail_unified": "Documents, diagrams, tables, reports and images the assistant makes in this chat show up here. They stay available for 30 days.",
+	"chat.deliverables.empty_detail": "Reports, tables and images the assistant makes in this chat show up here.",
+	"chat.deliverables.empty_detail_unified": "Documents, diagrams, tables, reports and images the assistant makes in this chat show up here.",
 	"chat.deliverables.file": "File",
 	"chat.deliverables.from_chat": "Files from this chat",
 	"chat.deliverables.in_chat": "In this chat",
-	"chat.deliverables.kept": "· kept 30 days",
-	"chat.deliverables.kept_note": "Files are kept for 30 days.",
+	"chat.deliverables.kept": [
+		{
+			"declarations": ["input days", "local daysPlural = days: plural"],
+			"selectors": ["daysPlural"],
+			"match": {
+				"daysPlural=one": "· kept {days} day",
+				"daysPlural=other": "· kept {days} days"
+			}
+		}
+	],
+	"chat.deliverables.kept_note": [
+		{
+			"declarations": ["input days", "local daysPlural = days: plural"],
+			"selectors": ["daysPlural"],
+			"match": {
+				"daysPlural=one": "Files are kept for {days} day.",
+				"daysPlural=other": "Files are kept for {days} days."
+			}
+		}
+	],
 	"chat.deliverables.list_failed": "the list request failed ({status})",
 	"chat.deliverables.load_failed": "Could not load the list. Try again.",
 	"chat.deliverables.loading": "Loading files…",

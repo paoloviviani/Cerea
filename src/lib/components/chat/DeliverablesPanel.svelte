@@ -28,6 +28,11 @@
 	import LucideAppWindow from "~icons/lucide/app-window";
 	import LucideWorkflow from "~icons/lucide/workflow";
 
+	// How long produced files are kept (Administration → Storage), 0 when they never expire.
+	const retentionDays = $derived(
+		(page.data as { fileRetentionDays?: number }).fileRetentionDays ?? 30
+	);
+
 	/**
 	 * Everything this conversation produced, in the side pane — the one slot
 	 * beside the chat, so the list coexists with the conversation rather than
@@ -302,7 +307,9 @@
 						<!-- No pane entries but stored files exist: keep the files visible. -->
 						<p class="{styles.SECTION_TITLE} flex items-center gap-1.5">
 							{m["chat.deliverables.from_chat"]()}
-							<span class="font-normal">{m["chat.deliverables.kept"]()}</span>
+							{#if retentionDays > 0}<span class="font-normal"
+									>{m["chat.deliverables.kept"]({ days: retentionDays })}</span
+								>{/if}
 						</p>
 						<ul class="space-y-2">
 							{#each files as file (file.sha256)}
@@ -315,12 +322,17 @@
 							<p class={styles.EMPTY_TITLE}>{m["chat.deliverables.empty"]()}</p>
 							<p class={styles.EMPTY_DETAIL}>
 								{m["chat.deliverables.empty_detail_unified"]()}
+								{#if retentionDays > 0}{m["chat.deliverables.kept_note"]({
+										days: retentionDays,
+									})}{/if}
 							</p>
 						</div>
 					{:else}
 						<p class={styles.SECTION_TITLE}>{m["chat.deliverables.in_chat"]()}</p>
-						{#if hasFileRows}
-							<p class="mb-3 text-xs text-ink-muted">{m["chat.deliverables.kept_note"]()}</p>
+						{#if hasFileRows && retentionDays > 0}
+							<p class="mb-3 text-xs text-ink-muted">
+								{m["chat.deliverables.kept_note"]({ days: retentionDays })}
+							</p>
 						{/if}
 						<ul class="space-y-2">
 							{#each list as item (paneKey(item))}
@@ -431,12 +443,17 @@
 						<p class={styles.EMPTY_TITLE}>{m["chat.deliverables.empty"]()}</p>
 						<p class={styles.EMPTY_DETAIL}>
 							{m["chat.deliverables.empty_detail"]()}
+							{#if retentionDays > 0}{m["chat.deliverables.kept_note"]({
+									days: retentionDays,
+								})}{/if}
 						</p>
 					</div>
 				{:else}
 					<p class="{styles.SECTION_TITLE} flex items-center gap-1.5">
 						{m["chat.deliverables.from_chat"]()}
-						<span class="font-normal">{m["chat.deliverables.kept"]()}</span>
+						{#if retentionDays > 0}<span class="font-normal"
+								>{m["chat.deliverables.kept"]({ days: retentionDays })}</span
+							>{/if}
 					</p>
 					<ul class="space-y-2">
 						{#each files as file (file.sha256)}

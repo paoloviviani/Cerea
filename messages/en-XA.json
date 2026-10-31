@@ -1163,13 +1163,41 @@
 	"chat.deliverables.download": "[Ďóŵńľóáď]",
 	"chat.deliverables.download_named": "[Ďóŵńľóáď {name}]",
 	"chat.deliverables.empty": "[Ńó ƒíľéś ýéť]",
-	"chat.deliverables.empty_detail": "[Ŕéþóŕťś, ťáƀľéś áńď íḿáǧéś ťȟé áśśíśťáńť ḿáķéś íń ťȟíś ćȟáť śȟóŵ úþ ȟéŕé. Ťȟéý śťáý áǚáíľáƀľé ƒóŕ 30 ďáýś.]",
-	"chat.deliverables.empty_detail_unified": "[Ďóćúḿéńťś, ďíáǧŕáḿś, ťáƀľéś, ŕéþóŕťś áńď íḿáǧéś ťȟé áśśíśťáńť ḿáķéś íń ťȟíś ćȟáť śȟóŵ úþ ȟéŕé. Ťȟéý śťáý áǚáíľáƀľé ƒóŕ 30 ďáýś.]",
+	"chat.deliverables.empty_detail": "[Ŕéþóŕťś, ťáƀľéś áńď íḿáǧéś ťȟé áśśíśťáńť ḿáķéś íń ťȟíś ćȟáť śȟóŵ úþ ȟéŕé.]",
+	"chat.deliverables.empty_detail_unified": "[Ďóćúḿéńťś, ďíáǧŕáḿś, ťáƀľéś, ŕéþóŕťś áńď íḿáǧéś ťȟé áśśíśťáńť ḿáķéś íń ťȟíś ćȟáť śȟóŵ úþ ȟéŕé.]",
 	"chat.deliverables.file": "[Ƒíľé]",
 	"chat.deliverables.from_chat": "[Ƒíľéś ƒŕóḿ ťȟíś ćȟáť]",
 	"chat.deliverables.in_chat": "[Íń ťȟíś ćȟáť]",
-	"chat.deliverables.kept": "[· ķéþť 30 ďáýś]",
-	"chat.deliverables.kept_note": "[Ƒíľéś áŕé ķéþť ƒóŕ 30 ďáýś.]",
+	"chat.deliverables.kept": [
+		{
+			"declarations": [
+				"input days",
+				"local daysPlural = days: plural"
+			],
+			"selectors": [
+				"daysPlural"
+			],
+			"match": {
+				"daysPlural=one": "[· ķéþť {days} ďáý]",
+				"daysPlural=other": "[· ķéþť {days} ďáýś]"
+			}
+		}
+	],
+	"chat.deliverables.kept_note": [
+		{
+			"declarations": [
+				"input days",
+				"local daysPlural = days: plural"
+			],
+			"selectors": [
+				"daysPlural"
+			],
+			"match": {
+				"daysPlural=one": "[Ƒíľéś áŕé ķéþť ƒóŕ {days} ďáý.]",
+				"daysPlural=other": "[Ƒíľéś áŕé ķéþť ƒóŕ {days} ďáýś.]"
+			}
+		}
+	],
 	"chat.deliverables.list_failed": "[ťȟé ľíśť ŕéǫúéśť ƒáíľéď ({status})]",
 	"chat.deliverables.load_failed": "[Ćóúľď ńóť ľóáď ťȟé ľíśť. Ťŕý áǧáíń.]",
 	"chat.deliverables.loading": "[Ĺóáďíńǧ ƒíľéś…]",

@@ -5,6 +5,7 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { LOAD_TIMEOUT_MS, OUTPUT_ROOT, RUN_TIMEOUT_MS } from "$lib/utils/execution/protocol";
 import { codeRunTimeoutMs } from "$lib/server/codeRunLimit";
+import { retentionPhrase } from "$lib/server/execution/deliverables";
 import { turnAwaitingInput } from "$lib/server/generation/turnState";
 import {
 	MessageCodeExecutionUpdateType,
@@ -135,7 +136,7 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 						"yourself, plus the names of files the run saved to the output folder.\n\n" +
 						`Where files go: only files written under ${OUTPUT_ROOT}/ (for example ` +
 						`${OUTPUT_ROOT}/report.xlsx) are offered to the person as download cards ` +
-						"(kept for 30 days). Anything else you write, in the working directory " +
+						`(kept ${retentionPhrase()}). Anything else you write, in the working directory ` +
 						"or /tmp, is scratch: it stays in the sandbox and is never shown, so " +
 						"save a deliverable only once, in its final form, to the output folder " +
 						"and keep test or round-trip copies elsewhere. Files the person " +
@@ -340,8 +341,8 @@ export function codeResumeResultText(park: ParkedCall, tokenExpired: boolean): s
 	}
 	if (outcome.files?.length) {
 		parts.push(
-			`Files the run saved to ${OUTPUT_ROOT} (shown to the person as download cards, kept for ` +
-				"30 days so they still work after a reload or from another device): " +
+			`Files the run saved to ${OUTPUT_ROOT} (shown to the person as download cards, kept ` +
+				`${retentionPhrase()}, so they still work after a reload or from another device): ` +
 				outcome.files.map((file) => file.path).join(", ")
 		);
 	}
