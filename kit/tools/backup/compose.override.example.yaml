@@ -20,6 +20,9 @@ services:
       - authelia-config:/authelia-config:ro
       - authelia-data:/authelia-data:ro
       - backup-state:/state              # restic's cache and the last-run state; no secrets
+      # The chat's files, when they are in S3 (CHAT_BLOB_STORE=s3): a second copy of
+      # the bucket, kept in sync each run. Size the disk for it. Harmless otherwise.
+      - backup-objects:/objects
       # A local repository (RESTIC_REPOSITORY=/repo):
       #- /srv/backups/cerea:/repo
       # An rclone.conf instead of RCLONE_CONFIG_* variables (RCLONE_CONFIG=/rclone.conf):
@@ -31,6 +34,9 @@ services:
     cap_drop: [ALL]
     cap_add: [DAC_OVERRIDE]              # read Authelia's 0600 files, write a repository that is not root's
     security_opt: ["no-new-privileges:true"]
+    # `objects` is the bundled RustFS's internal network: only needed with the
+    # `rustfs` profile. With your own S3, drop it (and `default` is all it needs).
+    networks: [default, objects]
     depends_on:
       postgres:
         condition: service_healthy
@@ -46,3 +52,4 @@ services:
 
 volumes:
   backup-state:
+  backup-objects:
