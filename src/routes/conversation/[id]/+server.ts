@@ -20,7 +20,7 @@ import {
 	MessageElicitationUpdateType,
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
-import { uploadFile } from "$lib/server/files/uploadFile";
+import { AttachmentTooLargeError, uploadFile } from "$lib/server/files/uploadFile";
 import { resolveHashFiles } from "$lib/server/files/resolveHashFiles";
 import { attachmentSizeRefusal } from "$lib/constants/mime";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
@@ -248,7 +248,8 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				// grow by a third as base64); the others carry text.
 				return {
 					type: kind,
-					bytes: kind === "binary" ? Buffer.from(await file.arrayBuffer()) : undefined,
+					// The part itself, never read here: the one read is the upload's own.
+					blob: kind === "binary" ? file : undefined,
 					value: kind === "binary" ? "" : await file.text(),
 					mime: file.type,
 					name: name.join(";"),
@@ -271,8 +272,9 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		inputFiles
 			?.filter((file) => file.type !== "hash")
 			.map((file) => {
-				const blob = file.bytes ?? Buffer.from(file.value, "base64");
-				return new File([blob], file.name, { type: file.mime });
+				return new File([file.blob ?? Buffer.from(file.value, "base64")], file.name, {
+					type: file.mime,
+				});
 			}) ?? [];
 
 	// check sizes
@@ -288,7 +290,13 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// document is a model they are allowed to use and the page is billed to
 	// them rather than to the deployment.
 	const uploadedFiles = await Promise.all([
-		Promise.all(b64Files.map((file) => uploadFile(file, conv, locals.token, { pageImages: true }))),
+		Promise.all(
+			b64Files.map((file) => uploadFile(file, conv, locals.token, { pageImages: true }))
+		).catch((err) => {
+			// Past its limit once the bytes say what it is (not what was declared).
+			if (err instanceof AttachmentTooLargeError) error(413, err.message);
+			throw err;
+		}),
 		// A file sent back by reference takes what the server recorded for it.
 		resolveHashFiles(hashFiles, conv, locals.token),
 	]).then(([uploaded, resolved]) => [...uploaded, ...resolved]);

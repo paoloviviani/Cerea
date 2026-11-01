@@ -396,8 +396,11 @@
 	}
 
 	const audioAccept = AUDIO_MIME_ALLOWLIST.join(",");
+	// Offered only where this composer accepts audio: the flag says a model is
+	// there, `mimeTypes` says this surface takes it (the agent composer does not).
 	let audioAttachmentsOn = $derived(
-		Boolean((page.data as { audioAttachments?: boolean }).audioAttachments)
+		Boolean((page.data as { audioAttachments?: boolean }).audioAttachments) &&
+			mimeTypes.some((mime) => mime.startsWith("audio/"))
 	);
 
 	function openFilePickerAudio() {

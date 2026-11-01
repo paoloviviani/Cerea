@@ -122,11 +122,13 @@
 	}
 
 	const accountReasonText = $derived(
-		accountReason === "gateway_unreachable"
-			? m["admin.voice.transcription.account_unreachable"]()
-			: accountReason === "not_granted"
-				? m["admin.voice.transcription.account_not_granted"]()
-				: m["admin.voice.transcription.account_no_model"]()
+		accountReason === "no_gateway"
+			? m["admin.voice.transcription.account_no_gateway"]()
+			: accountReason === "gateway_unreachable"
+				? m["admin.voice.transcription.account_unreachable"]()
+				: accountReason === "not_granted"
+					? m["admin.voice.transcription.account_not_granted"]()
+					: m["admin.voice.transcription.account_no_model"]()
 	);
 
 	onMount(load);

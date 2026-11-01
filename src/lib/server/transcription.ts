@@ -121,9 +121,9 @@ export const CATALOGUE_TIMEOUT_MS = 2000;
  */
 export async function probeTranscriptionModels(
 	token: string
-): Promise<{ models: string[]; reachable: boolean }> {
+): Promise<{ models: string[]; reachable: boolean; configured: boolean }> {
 	// No gateway, no catalogue: nothing to ask (and nothing to warn about).
-	if (!config.OPENAI_BASE_URL) return { models: [], reachable: false };
+	if (!config.OPENAI_BASE_URL) return { models: [], reachable: false, configured: false };
 	try {
 		const answer = await gateway.get<{ data: { id: string; kind?: string }[] }>(
 			token,
@@ -133,10 +133,11 @@ export async function probeTranscriptionModels(
 		return {
 			models: answer.data.filter((card) => card.kind === "transcription").map((card) => card.id),
 			reachable: true,
+			configured: true,
 		};
 	} catch (err) {
 		logger.warn({ err }, "transcription_unavailable: could not list models");
-		return { models: [], reachable: false };
+		return { models: [], reachable: false, configured: true };
 	}
 }
 

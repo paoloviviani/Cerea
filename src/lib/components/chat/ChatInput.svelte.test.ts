@@ -244,11 +244,25 @@ describe("ChatInput: attaching knowledge bases", () => {
 		expect(container.querySelector('input[aria-label="Upload audio"]')).toBeNull();
 	});
 
-	it("Add audio is a top-level item whose input accepts audio only", async () => {
+	it("a composer whose mimeTypes take no audio (the agent's) never shows Add audio", async () => {
 		stubFetch();
 		const { container } = await renderComposer({ id: CONV_ID }, [], false, {
 			audioAttachments: true,
 		});
+		await openMenu(container);
+		expect(document.body.textContent).not.toContain("Add audio");
+		expect(container.querySelector('input[aria-label="Upload audio"]')).toBeNull();
+	});
+
+	it("Add audio is a top-level item whose input accepts audio only", async () => {
+		stubFetch();
+		const { container } = await renderComposer(
+			{ id: CONV_ID },
+			[],
+			false,
+			{ audioAttachments: true },
+			{ mimeTypes: ["text/plain", "audio/mpeg", "audio/wav"] }
+		);
 		await openMenu(container);
 		expect(document.body.textContent).toContain("Add audio");
 		expect(document.body.textContent).toContain("Transcribed for the chat");

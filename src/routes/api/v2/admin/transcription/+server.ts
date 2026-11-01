@@ -20,7 +20,7 @@ import {
 async function status(token: string | undefined) {
 	const probe = token
 		? await probeTranscriptionModels(token)
-		: { models: [] as string[], reachable: false };
+		: { models: [] as string[], reachable: false, configured: false };
 	const available = probe.models;
 	const stored = await storedTranscriptionModel().catch(() => null);
 	const resolved = resolveTranscription({
@@ -33,17 +33,20 @@ async function status(token: string | undefined) {
 	// grants models per user).
 	const account: {
 		available: boolean;
-		reason: "gateway_unreachable" | "no_model" | "not_granted" | null;
-	} = !probe.reachable
-		? { available: false, reason: "gateway_unreachable" }
-		: !resolved.model
-			? { available: false, reason: "no_model" }
-			: !available.includes(resolved.model)
-				? { available: false, reason: "not_granted" }
-				: { available: true, reason: null };
+		reason: "no_gateway" | "gateway_unreachable" | "no_model" | "not_granted" | null;
+	} =
+		!token || !probe.configured
+			? { available: false, reason: "no_gateway" }
+			: !probe.reachable
+				? { available: false, reason: "gateway_unreachable" }
+				: !resolved.model
+					? { available: false, reason: "no_model" }
+					: !available.includes(resolved.model)
+						? { available: false, reason: "not_granted" }
+						: { available: true, reason: null };
 	return {
 		account_available: account.available,
-		/** Why not, when not: gateway_unreachable, no_model or not_granted. */
+		/** Why not, when not: no_gateway, gateway_unreachable, no_model or not_granted. */
 		account_reason: account.reason,
 		/** What would transcribe now, and why. */
 		model: resolved.model,

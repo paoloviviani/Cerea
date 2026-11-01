@@ -2970,6 +2970,7 @@
 	"admin.voice.transcription.account_no": "Available to your account: no — {reason}",
 	"admin.voice.transcription.account_no_model": "no model is chosen and none is in your catalogue",
 	"admin.voice.transcription.account_not_granted": "the chosen model is not in your catalogue (it is not granted to you in the gateway console)",
+	"admin.voice.transcription.account_no_gateway": "no gateway is configured for this deployment",
 	"admin.voice.transcription.account_unreachable": "the gateway could not be reached",
 	"admin.voice.transcription.grant_hint": "Users need the model granted to them in the gateway console. Pages that are already open pick up a change after a reload.",
 	"admin.voice.transcription.saved": "Transcription model saved."

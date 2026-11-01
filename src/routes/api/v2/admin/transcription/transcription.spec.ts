@@ -7,6 +7,7 @@ const { state, writeMock, listMock } = vi.hoisted(() => ({
 		stored: null as string | null,
 		env: null as string | null,
 		reachable: true,
+		configured: true,
 	},
 	writeMock: vi.fn(),
 	listMock: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("$lib/server/transcription", () => ({
 	probeTranscriptionModels: async (t: string) => ({
 		models: await listMock(t),
 		reachable: state.reachable,
+		configured: state.configured,
 	}),
 }));
 
@@ -61,6 +63,7 @@ beforeEach(() => {
 	state.stored = null;
 	state.env = null;
 	state.reachable = true;
+	state.configured = true;
 	listMock.mockResolvedValue(["whisper-large-v3", "voxtral-mini"]);
 });
 
@@ -97,6 +100,12 @@ describe("GET /api/v2/admin/transcription", () => {
 		expect(await (await GET(get())).json()).toMatchObject({
 			account_available: false,
 			account_reason: "gateway_unreachable",
+		});
+
+		state.configured = false;
+		expect(await (await GET(get())).json()).toMatchObject({
+			account_available: false,
+			account_reason: "no_gateway",
 		});
 	});
 

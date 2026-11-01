@@ -119,10 +119,25 @@
 
 	// Audio: a chip with a badge and the duration when it is known; a stored
 	// one opens a panel with the player and the transcript made at upload.
+	// A recording sent in this turn carries the file itself (`binary`), not
+	// base64: play it through an object URL, revoked when the chip goes away.
+	let objectUrl = $state<string | null>(null);
+	$effect(() => {
+		const blob = file.binary;
+		if (!blob || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") return;
+		const url = URL.createObjectURL(blob);
+		objectUrl = url;
+		return () => {
+			URL.revokeObjectURL(url);
+			objectUrl = null;
+		};
+	});
 	const audioSrc = $derived(
-		file.type === "base64"
-			? `data:${file.mime};base64,${file.value}`
-			: outputBase + "/" + file.value
+		file.binary
+			? (objectUrl ?? "")
+			: file.type === "base64"
+				? `data:${file.mime};base64,${file.value}`
+				: outputBase + "/" + file.value
 	);
 	let measured = $state<number | null>(null);
 	const audioSeconds = $derived(file.audio?.durationSeconds ?? measured);
@@ -138,7 +153,13 @@
 	// Without a recorded duration (a file still in the composer), ask the
 	// browser for the file's own metadata. Best effort: no duration is fine.
 	$effect(() => {
-		if (!isAudio(file.mime) || file.audio?.durationSeconds || typeof Audio === "undefined") return;
+		if (
+			!isAudio(file.mime) ||
+			!audioSrc ||
+			file.audio?.durationSeconds ||
+			typeof Audio === "undefined"
+		)
+			return;
 		let probe: HTMLAudioElement | null = null;
 		try {
 			probe = new Audio();

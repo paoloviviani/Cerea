@@ -3229,6 +3229,7 @@
 	"admin.voice.transcription.account_no": "[Áǚáíľáƀľé ťó ýóúŕ áććóúńť: ńó — {reason}]",
 	"admin.voice.transcription.account_no_model": "[ńó ḿóďéľ íś ćȟóśéń áńď ńóńé íś íń ýóúŕ ćáťáľóǧúé]",
 	"admin.voice.transcription.account_not_granted": "[ťȟé ćȟóśéń ḿóďéľ íś ńóť íń ýóúŕ ćáťáľóǧúé (íť íś ńóť ǧŕáńťéď ťó ýóú íń ťȟé ǧáťéŵáý ćóńśóľé)]",
+	"admin.voice.transcription.account_no_gateway": "[ńó ǧáťéŵáý íś ćóńƒíǧúŕéď ƒóŕ ťȟíś ďéþľóýḿéńť]",
 	"admin.voice.transcription.account_unreachable": "[ťȟé ǧáťéŵáý ćóúľď ńóť ƀé ŕéáćȟéď]",
 	"admin.voice.transcription.grant_hint": "[Úśéŕś ńééď ťȟé ḿóďéľ ǧŕáńťéď ťó ťȟéḿ íń ťȟé ǧáťéŵáý ćóńśóľé. Þáǧéś ťȟáť áŕé áľŕéáďý óþéń þíćķ úþ á ćȟáńǧé áƒťéŕ á ŕéľóáď.]",
 	"admin.voice.transcription.saved": "[Ťŕáńśćŕíþťíóń ḿóďéľ śáǚéď.]"
