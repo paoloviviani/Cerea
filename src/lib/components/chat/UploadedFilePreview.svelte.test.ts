@@ -60,6 +60,26 @@ describe("a PDF attachment", () => {
 		await vi.waitFor(() => expect(sidePane.preview?.kind).toBe("pdf"));
 		expect(fetched).toEqual([]);
 	});
+
+	it("falls back to the download panel when the file cannot be fetched", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("gone", { status: 404 }))
+		);
+		const file: MessageFile = {
+			type: "hash",
+			value: "gonesha",
+			mime: "application/pdf",
+			name: "lost.pdf",
+		};
+		render(UploadedFile, { file, canClose: false });
+		await browserPage.getByRole("button").first().click();
+		await expect.element(browserPage.getByTestId("file-details")).toBeVisible();
+		await expect
+			.element(browserPage.getByTestId("file-download"))
+			.toHaveAttribute("href", "/conversation/c1/output/gonesha");
+		expect(sidePane.preview).toBeNull();
+	});
 });
 
 describe("a file with no preview", () => {
@@ -79,7 +99,6 @@ describe("a file with no preview", () => {
 		await expect
 			.element(browserPage.getByTestId("file-download"))
 			.toHaveAttribute("href", "/conversation/c1/output/zipsha");
-		await expect.element(browserPage.getByTestId("file-open-tab")).toBeVisible();
 		expect(sidePane.preview).toBeNull();
 	});
 });

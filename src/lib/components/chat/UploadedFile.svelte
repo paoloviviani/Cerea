@@ -101,10 +101,14 @@
 	let officeBusy = $state(false);
 	let officeError = $state<string | null>(null);
 
+	// A PDF that cannot be shown (too large, gone) falls back to the details panel.
+	let pdfFailed = $state(false);
+
 	async function openPdfPreview(): Promise<void> {
 		if (officeBusy) return;
 		officeBusy = true;
 		officeError = null;
+		pdfFailed = false;
 		try {
 			let source: string | Blob;
 			if (file.binary) source = file.binary;
@@ -118,6 +122,8 @@
 			sidePane.openPreview(await pdfPayloadFromSource(file.name, source));
 		} catch (err) {
 			officeError = err instanceof Error ? err.message : m["chat.uploaded.preview_unavailable"]();
+			pdfFailed = true;
+			showModal = true;
 		} finally {
 			officeBusy = false;
 		}
@@ -236,7 +242,9 @@
 	const hasPreview = $derived(
 		isImage(file.mime) || isPlainText(file.mime) || officeMode !== null || audioPanel || isPdf
 	);
-	const detailsPanel = $derived(!hasPreview && !isVideo(file.mime) && !isAudio(file.mime));
+	const detailsPanel = $derived(
+		pdfFailed || (!hasPreview && !isVideo(file.mime) && !isAudio(file.mime))
+	);
 	let isClickable = $derived(hasPreview || detailsPanel);
 
 	const fileUrl = $derived(
@@ -282,7 +290,7 @@
 					<h3 class="truncate text-lg font-semibold">{file.name}</h3>
 					<button
 						class="ml-auto text-xl text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white"
-						aria-label={m["chat.uploaded.close_audio"]()}
+						aria-label={m["app.close"]()}
 						onclick={() => (showModal = false)}
 					>
 						<CarbonClose class="text-xl" />
@@ -292,7 +300,9 @@
 					{file.mime || m["chat.uploaded.unknown_kind"]()}{#if fileBytes !== null}
 						· {formatSize(fileBytes)}{/if}
 				</p>
-				<p class="text-sm text-gray-500">{m["chat.uploaded.no_preview"]()}</p>
+				<p class="text-sm text-gray-500">
+					{pdfFailed && officeError ? officeError : m["chat.uploaded.no_preview"]()}
+				</p>
 				<div class="flex flex-wrap gap-2">
 					<a
 						href={fileUrl}
@@ -303,17 +313,6 @@
 						<CarbonDownload />
 						{m["chat.uploaded.download"]()}
 					</a>
-					{#if file.type === "hash" && !file.binary}
-						<a
-							href={fileUrl}
-							target="_blank"
-							rel="noopener noreferrer"
-							class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600"
-							data-testid="file-open-tab"
-						>
-							{m["chat.uploaded.open_tab"]()}
-						</a>
-					{/if}
 				</div>
 			</div>
 		{:else if audioPanel}

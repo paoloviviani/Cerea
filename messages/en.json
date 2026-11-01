@@ -2959,7 +2959,6 @@
 	"chat.uploaded.transcript_failed": "The transcript could not be loaded.",
 	"chat.uploaded.close_audio": "Close",
 	"chat.uploaded.download": "Download",
-	"chat.uploaded.open_tab": "Open in new tab",
 	"chat.uploaded.no_preview": "This file cannot be previewed here. You can download it and open it on your device.",
 	"chat.uploaded.too_large": "too large to preview: download it to read the whole file",
 	"admin.voice.title": "Voice & audio",
