@@ -5,6 +5,19 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Pages are read directly first; the browser is the fallback.** With the headless browser on
+  (`FETCH_BACKEND=playwright`), `web_fetch` now fetches a page directly and renders it only when
+  that comes back thin, is a consent notice or an empty JavaScript shell, or fails (a 403, a
+  timeout). Most pages no longer cost a browser. The assistant can force the browser with a new
+  `render` option, offered only while the renderer answers.
+- **Cookie notices are rejected in the browser.** The renderer now rejects consent banners
+  (DuckDuckGo's autoconsent rules, reject first), pre-sets Google's consent cookie, and removes
+  an overlay that is still in the way before reading the page. When a page still shows only a
+  consent or "pay or accept" wall, the assistant is told so, instead of being handed the banner
+  as if it were the article. No new settings. See `docs/browser.md`.
+
 ## v0.36.0 — 2026-11-01
 
 Pins: Cerea `0.36.0` (chat and `cerea-documents`), Pystino `0.22.1`.

@@ -293,6 +293,8 @@ export function getEnabledBuiltinTools(params: {
 				toolApprovalPolicy: params.toolApprovalPolicy,
 				approvedTools: params.approvedTools,
 				token: params.token,
+				renderAvailable:
+					configuredBackend() === "playwright" && params.playwrightReachable === true,
 				persist: params.webFetchCache
 					? { conversationId: params.conv._id, userId: params.webFetchCache.userId }
 					: undefined,

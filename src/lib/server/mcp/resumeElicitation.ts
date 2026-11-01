@@ -74,7 +74,7 @@ const NON_MCP_GATED_TOOLS: Record<
 	// runs without a request (the sweeper) there is none, and a document fetch
 	// says to approve it again from the conversation rather than returning bytes.
 	[WEB_FETCH_TOOL_NAME]: (url, args, token) =>
-		performFetch(url, { offset: args.offset as number, token }),
+		performFetch(url, { offset: args.offset as number, token, render: args.render === true }),
 	[WEB_FETCH_STRUCTURED_TOOL_NAME]: (url) => performAccessibilitySnapshot(url),
 };
 

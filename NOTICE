@@ -39,6 +39,11 @@ and are not modified.
   libvips source: https://github.com/libvips/libvips
   binary packaging: https://github.com/lovell/sharp-libvips
 
+@duckduckgo/autoconsent (DuckDuckGo, Inc.), MPL-2.0, used unmodified as an
+installed dependency: its content script and rule set are injected as shipped
+into pages the web fetch renderer reads, to reject cookie-consent notices.
+  source: https://github.com/duckduckgo/autoconsent
+
 The fonts in static/fonts/office/ are loaded by the browser only when a
 PowerPoint deck is previewed without a converter (pptx-glimpse, MIT, needs
 fonts it can measure and outline): Carlito (Copyright 2010-2013 tyPoland

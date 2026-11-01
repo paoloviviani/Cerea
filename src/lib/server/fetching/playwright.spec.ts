@@ -6,6 +6,19 @@ vi.mock("$lib/server/logger", () => ({ logger }));
 const config = { PLAYWRIGHT_WS_ENDPOINT: "ws://playwright:3000/" };
 vi.mock("$lib/server/config", () => ({ config }));
 
+// The consent step has its own tests (consent.spec.ts, consent.browser.spec.ts);
+// here only that it runs around navigation, in order.
+const order: string[] = [];
+const prepareConsent = vi.fn(async () => {
+	order.push("prepare");
+	return { ready: true, messages: [], cookies: [] };
+});
+const handleConsent = vi.fn(async () => {
+	order.push("handle");
+	return { acted: "none", overlaysRemoved: 0, cookies: [] };
+});
+vi.mock("./consent", () => ({ prepareConsent, handleConsent }));
+
 const connect = vi.fn();
 vi.mock("playwright", () => ({ chromium: { connect } }));
 
@@ -68,6 +81,21 @@ function makeHarness({
 describe("renderWithPlaywright", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+	});
+
+	it("sets up consent before navigating and handles it before extracting", async () => {
+		const { page } = makeHarness();
+		order.length = 0;
+		page.goto.mockImplementation(async () => {
+			order.push("goto");
+			return { ok: () => true, status: () => 200 };
+		});
+		page.evaluate.mockImplementation(async () => {
+			order.push("extract");
+			return null;
+		});
+		await renderWithPlaywright("https://example.test/");
+		expect(order.slice(0, 4)).toEqual(["prepare", "goto", "handle", "extract"]);
 	});
 
 	it("creates the browser context without Brotli in Accept-Encoding (CVE-2026-111497)", async () => {
@@ -164,6 +192,19 @@ describe("renderWithPlaywright", () => {
 		page.waitForLoadState.mockRejectedValue(new Error("Timeout waiting for networkidle"));
 		const result = await renderWithPlaywright("https://example.test/");
 		expect(result.content).toContain("raw page");
+	});
+
+	it("uses the whole page when Readability keeps only a fragment of it (a homepage)", async () => {
+		const { page } = makeHarness();
+		const headlines = Array.from(
+			{ length: 40 },
+			(_, i) => `<li>Headline ${i} of the day today</li>`
+		).join("");
+		page.evaluate.mockResolvedValue({ title: "Home", content: "<p>One fragment</p>" });
+		page.content.mockResolvedValue(`<html><body><ul>${headlines}</ul></body></html>`);
+		const result = await renderWithPlaywright("https://example.test/");
+		expect(result.extracted).toBe(false);
+		expect(result.content).toContain("Headline 39");
 	});
 
 	it("uses the Readability extraction when it finds something, and marks the result as extracted", async () => {

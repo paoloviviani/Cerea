@@ -62,12 +62,71 @@ export function configuredBackend(): FetchBackend {
 
 export class FetchBackendUnavailable extends Error {}
 
-export async function fetchPage(url: string): Promise<FetchedPage> {
+export interface FetchOptions {
+	/**
+	 * Skip the direct attempt and read the page in the browser. Only means
+	 * something with the `playwright` backend; the other backends ignore it.
+	 */
+	render?: boolean;
+}
+
+/**
+ * With `playwright`, a page is read directly first, through the same SSRF guard
+ * and document handling, and the browser is the fallback: it costs a browser
+ * context and seconds, and most pages do not need it. The direct result is used
+ * when it is a real page (`looksLikeRealPage`: enough readable text, not a
+ * consent notice, not an empty JavaScript shell); otherwise, and when the
+ * direct fetch fails outright (a 403 bot wall, a timeout), the page is rendered.
+ * `FetchedPage.backend` says which produced the result.
+ */
+async function fetchDirectFirst(url: string): Promise<FetchedPage> {
+	const { fetchDirectDetailed } = await import("./direct");
+	const { renderWithPlaywright } = await import("./playwright");
+	const { looksLikeRealPage } = await import("./pageQuality");
+	const { readablePageText } = await import("./readable");
+	let direct: FetchedPage | null = null;
+	try {
+		const { page, raw } = await fetchDirectDetailed(url);
+		direct = page;
+		const isHtml = !page.document && /html/i.test(page.contentType);
+		// A document, or text that is not a page (JSON, plain text), has nothing a browser would add.
+		if (!isHtml) return page;
+		// Judge the whole page's readable text, not only Readability's article: a
+		// homepage is a list of headlines, yet is a real page.
+		const full = readablePageText(raw.content);
+		if (looksLikeRealPage(full, raw.url, raw.content)) {
+			// Readability keeping only a fragment of a text-rich page (a list of
+			// headlines has no article) would hand the model a fragment of it.
+			if (page.extracted && readablePageText(page.content).length < full.length * 0.3) {
+				return raw;
+			}
+			return page;
+		}
+		logger.debug({ url }, "fetch_direct_thin_rendering");
+	} catch (err) {
+		logger.debug({ url, err: String(err) }, "fetch_direct_failed_rendering");
+	}
+	try {
+		return await renderWithPlaywright(url);
+	} catch (err) {
+		// A thin direct page beats no answer when the renderer is down.
+		if (direct) {
+			logger.warn({ url, err: String(err) }, "fetch_render_failed_using_direct");
+			return direct;
+		}
+		throw err;
+	}
+}
+
+export async function fetchPage(url: string, options: FetchOptions = {}): Promise<FetchedPage> {
 	const backend = configuredBackend();
 	switch (backend) {
 		case "playwright": {
-			const { renderWithPlaywright } = await import("./playwright");
-			return renderWithPlaywright(url);
+			if (options.render) {
+				const { renderWithPlaywright } = await import("./playwright");
+				return renderWithPlaywright(url);
+			}
+			return fetchDirectFirst(url);
 		}
 		case "pystino": {
 			// Deliberately not a silent fall back to `direct`. An administrator
