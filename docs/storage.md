@@ -215,8 +215,14 @@ hand or restore the backup from step 1.
 
 With S3, the bytes live in the bucket and MongoDB holds their index: back up
 **both** from the same moment, or use the store's own replication and
-versioning for the bucket. With the kit's bundled RustFS, add the `rustfs-data`
-volume to your backup. A restored MongoDB whose index names files the bucket no
+versioning for the bucket. The deploy kit's backup does this for you: its
+[restic sidecar](https://github.com/paoloviviani/Cerea/blob/main/kit/README.md#example-backups-with-restic)
+syncs the bucket (the bundled RustFS or your own S3) through the S3 API after
+the Mongo dump and stores both in one snapshot, at the price of a second copy of
+the bucket on the host (`BACKUP_OBJECTS=no` turns it off), and the manual
+procedure in the kit's "Backup and restore" copies the bucket out and back with
+rclone. Copying the `rustfs-data` volume of a running store is not a safe
+backup. A restored MongoDB whose index names files the bucket no
 longer has shows those files as missing; a bucket with objects the index does
 not know is harmless but wastes space.
 
