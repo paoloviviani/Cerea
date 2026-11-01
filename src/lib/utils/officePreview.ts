@@ -76,6 +76,33 @@ export async function fetchPreviewPdfDataUrl(previewUrl: string): Promise<string
 	return dataUrlOf(new Blob([blob], { type: "application/pdf" }));
 }
 
+/**
+ * A PDF's own bytes as a side-pane payload: a stored file is fetched from its
+ * URL, a file still in the composer comes as a Blob. Same size ceiling and
+ * `data:` URL as the converted ones.
+ */
+export async function pdfPayloadFromSource(
+	name: string,
+	source: string | Blob
+): Promise<FencePreview> {
+	let blob: Blob;
+	if (typeof source === "string") {
+		const res = await fetch(source);
+		if (!res.ok) throw new Error(m["chat.uploaded.gone"]());
+		blob = await res.blob();
+	} else {
+		blob = source;
+	}
+	if (blob.size > FILE_PREVIEW_MAX_BYTES) {
+		throw new Error(m["chat.uploaded.too_large"]());
+	}
+	return {
+		kind: "pdf",
+		title: name,
+		content: await dataUrlOf(new Blob([blob], { type: "application/pdf" })),
+	};
+}
+
 /** The side-pane payload for a converted file. */
 export async function pdfPayloadFor(name: string, previewUrl: string): Promise<FencePreview> {
 	return { kind: "pdf", title: name, content: await fetchPreviewPdfDataUrl(previewUrl) };

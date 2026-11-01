@@ -21,6 +21,10 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   (`docker compose up -d --build backup`, after adding the `backup-objects` volume and the `objects`
   network as in `tools/backup/compose.override.example.yaml`); until then a run with
   `CHAT_BLOB_STORE=s3` fails at step `objects`, saying what is missing.
+- **Uploaded files can be opened.** Clicking a PDF in a chat shows it in the side pane. Any other
+  file without a preview (a zip, a spreadsheet, an unknown type) opens a small panel with its
+  name, type and size, and a Download button; a PDF that cannot be shown falls back to it. No
+  file card is a dead click any more.
 
 ## v0.35.1 — 2026-11-01
 
