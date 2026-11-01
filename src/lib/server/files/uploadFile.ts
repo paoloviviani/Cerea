@@ -103,7 +103,7 @@ export class AttachmentTooLargeError extends Error {
  * hashed as bytes, where hashing the lossy decoding would make different
  * files share a key.
  */
-async function contentHash(bytes: ArrayBuffer): Promise<string> {
+export async function contentHash(bytes: ArrayBuffer): Promise<string> {
 	try {
 		return await sha256(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
 	} catch {

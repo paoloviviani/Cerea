@@ -191,7 +191,10 @@
 			hasMore = false;
 		}
 
-		conversations = [...conversations, ...newConvs];
+		// A list that shifted between pages can hand back a chat already shown:
+		// keep one row per id (the keyed list would throw on a duplicate).
+		const seen = new Set(conversations.map((c) => c.id));
+		conversations = [...conversations, ...newConvs.filter((c: ConvSidebar) => !seen.has(c.id))];
 	}
 
 	$effect(() => {

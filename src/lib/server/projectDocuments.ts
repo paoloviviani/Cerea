@@ -36,7 +36,7 @@ import type { ProjectDocument, ProjectDocumentView } from "$lib/types/ProjectDoc
 import type { User } from "$lib/types/User";
 import { documentMime, isExtractableDocument } from "$lib/server/files/extractDocument";
 import { deleteAttachments, deleteAttachmentsForMessage } from "$lib/server/files/attachmentStore";
-import { store, writeAttachment } from "$lib/server/files/uploadFile";
+import { contentHash, store, writeAttachment } from "$lib/server/files/uploadFile";
 
 export const DELETED_UPLOADER = "deleted user";
 
@@ -173,9 +173,12 @@ export async function addProjectDocument(options: {
 	}
 
 	// The writer names an entry by this hash, so a second copy of one file is
-	// known before anything is extracted (and billed).
-	const earlySha = await sha256(await file.text());
-	if (existing.some((doc) => doc.sha === earlySha)) {
+	// known before anything is extracted (and billed). Documents stored before
+	// binary files were hashed as bytes carry the hash of their decoded text,
+	// so both keys are checked.
+	const earlySha = await contentHash(await file.arrayBuffer());
+	const legacySha = await sha256(await file.text());
+	if (existing.some((doc) => doc.sha === earlySha || doc.sha === legacySha)) {
 		throw new ProjectDocumentError(`${file.name} is already one of this project's documents.`, 409);
 	}
 
