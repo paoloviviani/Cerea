@@ -7,6 +7,9 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Schedules can have a dedicated chat.** A chat schedule can now post every run into one chat
+  made for it, named after the schedule, instead of continuing an existing chat or starting a new
+  one each time. The assistant can pick it too. No new settings.
 - **The reference backup now covers the chat's files in S3.** Since 0.35.0 the files' bytes can live
   in a bucket (the bundled RustFS or your own S3) with only their index in MongoDB, and the backup
   did not take them: a restored stack had conversations with every file missing. The restic sidecar

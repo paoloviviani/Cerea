@@ -412,6 +412,10 @@ timezone you choose), and where it runs:
 - **New chat each time**: each run starts a new chat, titled with the schedule's
   name and the time, on the same model (and project, when it was made from a
   chat in one).
+- **A dedicated chat for this schedule**: the first run creates a chat named after
+  the schedule, on the same model (and project) as a new chat would have, and every
+  later run posts into that same chat. Editing the schedule keeps the chat. If you
+  delete the chat, the next run makes a new one; the schedule stays on.
 
 You can also set it to stop after a number of runs (one run makes a one-time
 reminder), switch it off and on, edit it, or press **Run now** to try it.

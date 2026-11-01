@@ -35,7 +35,7 @@ export const MAX_ASSISTANT_SCHEDULES_PER_HOUR = 10;
 const inputSchema = z.object({
 	name: z.string().trim().min(1).max(MAX_NAME_LENGTH),
 	prompt: z.string().trim().min(1).max(MAX_PROMPT_LENGTH),
-	mode: z.enum(["continue", "new"]).default("continue"),
+	mode: z.enum(["continue", "new", "dedicated"]).default("continue"),
 	permissionMode: z.enum(["ask", "allow"]).default("ask"),
 	recurrence: z.unknown(),
 	timezone: z.string().trim().optional(),
@@ -45,7 +45,7 @@ const inputSchema = z.object({
 export interface ScheduleProposal {
 	name: string;
 	prompt: string;
-	mode: "continue" | "new";
+	mode: "continue" | "new" | "dedicated";
 	/** What a run may do about tools that need approval; never looser than the conversation's policy. */
 	permissionMode: "ask" | "allow";
 	recurrence: Recurrence;
@@ -103,7 +103,8 @@ export function createScheduleTool(defaults: { timezone?: string }): BuiltinTool
 					"it can use web search, fetching and documents, but no Python sandbox, and any tool " +
 					"that needs approval is refused. Write `prompt` as the instruction to carry out at " +
 					"each run, self-contained. It posts into this conversation by default (`mode: " +
-					"continue`); `mode: new` starts a new conversation each run.",
+					"continue`); `mode: new` starts a new conversation each run; `mode: dedicated` makes one conversation " +
+					"for the schedule, named after it, and every run posts into that.",
 				parameters: {
 					type: "object",
 					properties: {
@@ -111,9 +112,9 @@ export function createScheduleTool(defaults: { timezone?: string }): BuiltinTool
 						prompt: { type: "string", description: "What to send at each run." },
 						mode: {
 							type: "string",
-							enum: ["continue", "new"],
+							enum: ["continue", "new", "dedicated"],
 							description:
-								"continue: post into this conversation (default). new: a new conversation each run.",
+								"continue: post into this conversation (default). new: a new conversation each run. dedicated: one conversation of its own for this schedule, reused every run.",
 						},
 						permissionMode: {
 							type: "string",
