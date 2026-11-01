@@ -5,7 +5,17 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.35.1 — 2026-11-01
+
+Pins: Cerea `0.35.1` (chat and `cerea-documents`), Pystino `0.21.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required.
+
+- **Deleting a chat from the sidebar deletes the chat you chose.** After chatting in a chat low
+  in the list, its row moved to the top while its menu was open, and Delete could act on the chat
+  that took its place. The menu now keeps the chat it was opened on, and the confirmation names it.
+- **The migration tool says when no object store is set up in the container** (run
+  `docker compose up -d` after `./configure --object-store`) instead of asking for an AWS region.
 
 - **Audio attachments up to 25 MB** (about 25 minutes), the gateway's own limit; every other
   attachment stays at 10 MB. Audio now travels as binary form data, and the app's request limit
