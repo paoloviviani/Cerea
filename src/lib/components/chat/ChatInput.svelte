@@ -22,6 +22,8 @@
 	import TogglePill from "$lib/components/TogglePill.svelte";
 	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
 	import {
+		isAudioAttachmentMime,
+		maxAttachmentBytesFor,
 		TEXT_MIME_ALLOWLIST,
 		IMAGE_MIME_ALLOWLIST_DEFAULT,
 		AUDIO_MIME_ALLOWLIST,
@@ -219,7 +221,19 @@
 		// Cleared so the same file, or a second photo, fires change again.
 		target.value = "";
 		if (selected.length === 0) return;
-		files = [...files, ...selected];
+		// The same limits the server enforces, said before anything is uploaded.
+		const accepted: File[] = [];
+		for (const file of selected) {
+			if (file.size <= maxAttachmentBytesFor(file.type)) {
+				accepted.push(file);
+			} else if (isAudioAttachmentMime(file.type)) {
+				errorToast.set(m["chat.audio.too_long"]({ name: file.name }));
+			} else {
+				errorToast.set(m["chat.dropzone.too_big"]());
+			}
+		}
+		if (accepted.length === 0) return;
+		files = [...files, ...accepted];
 		await tick();
 		void focusTextarea();
 	};

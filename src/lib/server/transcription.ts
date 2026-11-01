@@ -225,7 +225,7 @@ export function tooLongFailure(
 		ok: false,
 		kind: "unsupported",
 		status: 413,
-		reason: `This recording is too long to transcribe here; up to about ${mb} minutes (${mb} MB) can be transcribed at once.`,
+		reason: `This recording is too long to transcribe here: up to ${mb} MB (about ${mb} minutes).`,
 	};
 }
 

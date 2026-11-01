@@ -30,7 +30,8 @@
 
 	let sources = $derived(
 		files?.map<Promise<MessageFile>>((file) =>
-			file2base64(file).then((value) => ({
+			// Only an image tile shows the bytes; a recording up to 25 MB is not read for a chip.
+			(file.type.startsWith("image/") ? file2base64(file) : Promise.resolve("")).then((value) => ({
 				type: "base64",
 				value,
 				mime: file.type,

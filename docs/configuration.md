@@ -179,8 +179,9 @@ audio minute with their token, their model access groups and bill-to. The
 gateway refuses files over 25 MB. Two features use it:
 
 - **Audio attachments** are transcribed once, at upload, and the transcript is
-  kept beside the file (never re-transcribed per turn). Chat attachments stay at
-  10 MB, which is roughly ten minutes of ordinary audio.
+  kept beside the file (never re-transcribed per turn). Audio attachments may be up to
+  25 MB (about 25 minutes of ordinary audio); every other attachment stays at 10 MB.
+  The app's `BODY_SIZE_LIMIT` is 40 MB to carry them.
 - **Dictation** with the microphone, when Administration → Assistant → Voice &
   audio is set to "Transcription model".
 

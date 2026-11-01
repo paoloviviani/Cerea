@@ -8,7 +8,7 @@ import { logger } from "$lib/server/logger";
 import { nextVersionNumber } from "$lib/server/execution/fileVersions";
 import { transcribeAudio } from "$lib/server/transcription";
 import { audioMime } from "./audioAttachment";
-import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
+import { MAX_AUDIO_ATTACHMENT_BYTES } from "$lib/constants/mime";
 import {
 	documentMime,
 	extractDocument,
@@ -118,8 +118,8 @@ export async function writeAttachment(
 			mime: audio,
 			filename: file.name,
 			token,
-			// An attachment is capped at 10 MB, so that is what "too long" means here.
-			maxBytes: MAX_ATTACHMENT_BYTES,
+			// The gateway's own cap: audio attachments go up to 25 MB.
+			maxBytes: MAX_AUDIO_ATTACHMENT_BYTES,
 		});
 		if (!heard.ok) {
 			extracted = { ok: false, kind: heard.kind, reason: heard.reason, status: heard.status };

@@ -1227,6 +1227,7 @@
 	"chat.dictation.unexpected": "[Ďíćťáťíóń śťóþþéď úńéẋþéćťéďľý.]",
 	"chat.dropzone.bad_type": "[Śóḿé ƒíľé ťýþé ńóť śúþþóŕťéď. Óńľý áľľóŵéď: {allowed}. Úþľóáďéď ďóćúḿéńť íś óƒ ťýþé {type}]",
 	"chat.dropzone.label": "[Ďŕóþ á ƒíľé ťó áďď íť ťó ťȟé ćȟáť]",
+	"chat.audio.too_long": "[{name} íś ťóó ľóńǧ ťó ťŕáńśćŕíƀé ȟéŕé: úþ ťó 25 ḾƁ (áƀóúť 25 ḿíńúťéś)]",
 	"chat.dropzone.too_big": "[Á ƒíľé íś ťóó ƀíǧ (10 ḾƁ áť ḿóśť).]",
 	"chat.effort.default": "[Ďéƒáúľť]",
 	"chat.effort_picker.custom": "[ćúśťóḿ]",

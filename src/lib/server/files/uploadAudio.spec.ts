@@ -96,6 +96,19 @@ describe("uploadFile: audio", () => {
 		expect(await findBlobs({ "metadata.conversation": conv._id.toString() })).toHaveLength(2);
 	});
 
+	it("accepts and transcribes a 17 MB recording", async () => {
+		get.mockResolvedValue(models);
+		postForm.mockResolvedValue({ text: "A long talk.", language: "en" });
+		const stored = await uploadFile(
+			audioFile("talk.wav", "audio/wav", wav(17 * 1024 * 1024)),
+			conversation(),
+			"tok"
+		);
+		expect(postForm).toHaveBeenCalledTimes(1);
+		expect(stored.extractionError).toBeUndefined();
+		expect(stored.extracted).toMatchObject({ pages: 0 });
+	});
+
 	it("gives the turn the labelled transcript as the attachment's content", async () => {
 		get.mockResolvedValue(models);
 		postForm.mockResolvedValue({ text: "Buy milk.", usage: { audio_duration_seconds: 65 } });
@@ -146,7 +159,7 @@ describe("uploadFile: audio", () => {
 		const stored = await uploadFile(audioFile("long.wav", "audio/wav", big), conversation(), "tok");
 		expect(postForm).not.toHaveBeenCalled();
 		expect(stored.extractionError?.reason).toMatch(
-			/too long to transcribe here; up to about 10 minutes/
+			/too long to transcribe here: up to 25 MB \(about 25 minutes\)/
 		);
 	});
 

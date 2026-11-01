@@ -22,7 +22,7 @@ import {
 } from "$lib/types/MessageUpdate";
 import { uploadFile } from "$lib/server/files/uploadFile";
 import { resolveHashFiles } from "$lib/server/files/resolveHashFiles";
-import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
+import { attachmentSizeRefusal } from "$lib/constants/mime";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import { convertLegacyConversation } from "$lib/utils/tree/convertLegacyConversation";
 import { isMessageId } from "$lib/utils/tree/isMessageId";
@@ -243,9 +243,13 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			.map(async (file) => {
 				const [type, ...name] = file.name.split(";");
 
+				const kind = z.enum(["base64", "hash", "binary"]).parse(type);
+				// "binary": the part carries the file's own bytes (audio, which would
+				// grow by a third as base64); the others carry text.
 				return {
-					type: z.literal("base64").or(z.literal("hash")).parse(type),
-					value: await file.text(),
+					type: kind,
+					bytes: kind === "binary" ? Buffer.from(await file.arrayBuffer()) : undefined,
+					value: kind === "binary" ? "" : await file.text(),
 					mime: file.type,
 					name: name.join(";"),
 				};
@@ -259,19 +263,24 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// each file is either:
 	// base64 string requiring upload to the server
 	// hash pointing to an existing file
-	const hashFiles = inputFiles?.filter((file) => file.type === "hash") ?? [];
+	const hashFiles =
+		inputFiles?.flatMap((file) =>
+			file.type === "hash" ? [{ ...file, type: "hash" as const }] : []
+		) ?? [];
 	const b64Files =
 		inputFiles
 			?.filter((file) => file.type !== "hash")
 			.map((file) => {
-				const blob = Buffer.from(file.value, "base64");
+				const blob = file.bytes ?? Buffer.from(file.value, "base64");
 				return new File([blob], file.name, { type: file.mime });
 			}) ?? [];
 
 	// check sizes
 	// todo: make configurable
-	if (b64Files.some((file) => file.size > MAX_ATTACHMENT_BYTES)) {
-		error(413, "File too large, should be <10MB");
+	// 10 MB for every type but audio, which may be what the gateway transcribes (25 MB).
+	for (const file of b64Files) {
+		const refusal = attachmentSizeRefusal(file);
+		if (refusal) error(413, refusal);
 	}
 
 	// The token goes with it: a document attachment is extracted through the

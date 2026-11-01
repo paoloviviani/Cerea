@@ -1161,6 +1161,7 @@
 	"chat.dictation.unexpected": "Dictation stopped unexpectedly.",
 	"chat.dropzone.bad_type": "Some file type not supported. Only allowed: {allowed}. Uploaded document is of type {type}",
 	"chat.dropzone.label": "Drop a file to add it to the chat",
+	"chat.audio.too_long": "{name} is too long to transcribe here: up to 25 MB (about 25 minutes)",
 	"chat.dropzone.too_big": "A file is too big (10 MB at most).",
 	"chat.effort.default": "Default",
 	"chat.effort_picker.custom": "custom",
