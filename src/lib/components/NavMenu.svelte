@@ -161,6 +161,20 @@
 		older: loose.filter(({ updatedAt }) => updatedAt.getTime() < dateRanges[2]),
 	});
 
+	// One flat list, keyed by id: a chat that moves to another date group (its
+	// updatedAt changed) keeps its component, so an open row menu or delete
+	// confirmation stays attached to that chat instead of being rebuilt.
+	const listRows = $derived(
+		Object.entries(groupedConversations).flatMap(([group, convs]) =>
+			convs.length
+				? [
+						{ key: `group:${group}`, group, conv: null as ConvSidebar | null },
+						...convs.map((conv) => ({ key: `conv:${String(conv.id)}`, group, conv })),
+					]
+				: []
+		)
+	);
+
 	async function handleVisible() {
 		p++;
 		const newConvs = await client.conversations
@@ -271,16 +285,15 @@
 			{#snippet icon()}
 				<CarbonChat class="size-3.5 shrink-0" />
 			{/snippet}
-			{#each Object.entries(groupedConversations) as [group, convs]}
-				{#if convs.length}
+			{#each listRows as row (row.key)}
+				{#if row.conv}
+					<div class="pl-3">
+						<NavConversationItem conv={row.conv} {oneditConversationTitle} {ondeleteConversation} />
+					</div>
+				{:else}
 					<h4 class="mt-2 mb-1 pl-6 text-xs text-ink-faint first:mt-0.5">
-						{titles[group]}
+						{titles[row.group]}
 					</h4>
-					{#each convs as conv (String(conv.id))}
-						<div class="pl-3">
-							<NavConversationItem {conv} {oneditConversationTitle} {ondeleteConversation} />
-						</div>
-					{/each}
 				{/if}
 			{/each}
 			{#if loose.length === 0}

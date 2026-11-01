@@ -374,7 +374,7 @@
 												projectNames[row.projectId as string]
 											).then((ok) => ok && moved(row, null))
 									: undefined}
-								ondelete={() => (deleting = row)}
+								ondelete={() => (deleting = $state.snapshot(row) as ChatRow)}
 							/>
 						</div>
 					</li>

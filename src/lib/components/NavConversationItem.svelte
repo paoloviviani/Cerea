@@ -31,6 +31,30 @@
 
 	let { conv, readOnly, ondeleteConversation, oneditConversationTitle }: Props = $props();
 
+	/**
+	 * The chat the row's menu was opened on, captured when it opens: every
+	 * action (rename, move, schedule, delete) and the delete confirmation act
+	 * on this id and show this title, never on whatever `conv` is by the time
+	 * the click lands (the list can re-sort under an open menu).
+	 */
+	let target = $state<{
+		id: string;
+		title: string;
+		model: ConvSidebar["model"];
+		updatedAt: ConvSidebar["updatedAt"];
+		projectId: ConvSidebar["projectId"];
+	} | null>(null);
+
+	function captureTarget() {
+		target = {
+			id: conv.id.toString(),
+			title: conv.title,
+			model: conv.model,
+			updatedAt: conv.updatedAt,
+			projectId: conv.projectId,
+		};
+	}
+
 	let deleteOpen = $state(false);
 	let renameOpen = $state(false);
 	let moveOpen = $state(false);
@@ -139,6 +163,7 @@
 						isMenuOpen = false;
 						return;
 					}
+					if (open) captureTarget();
 					isMenuOpen = open;
 				}}
 			>
@@ -161,7 +186,10 @@
 					>
 						<DropdownMenu.Item
 							class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-							onSelect={() => (renameOpen = true)}
+							onSelect={() => {
+								if (!target) captureTarget();
+								renameOpen = true;
+							}}
 						>
 							<CarbonEdit class="size-4 opacity-90 dark:opacity-80" />
 							{m["app.nav_item.rename"]()}
@@ -169,7 +197,8 @@
 						{#if page.data.chatSchedulesEnabled === true}
 							<DropdownMenu.Item
 								class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-								onSelect={() => void goto(`${base}/schedules?new=1&conversation=${conv.id}`)}
+								onSelect={() =>
+									void goto(`${base}/schedules?new=1&conversation=${target?.id ?? conv.id}`)}
 								data-testid="conv-schedule"
 							>
 								<CarbonTime class="size-4 opacity-90 dark:opacity-80" />
@@ -178,14 +207,20 @@
 						{/if}
 						<DropdownMenu.Item
 							class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-							onSelect={() => (moveOpen = true)}
+							onSelect={() => {
+								if (!target) captureTarget();
+								moveOpen = true;
+							}}
 						>
 							<LucideFolderInput class="size-4 opacity-90 dark:opacity-80" />
 							{m["app.nav_item.move"]()}
 						</DropdownMenu.Item>
 						<DropdownMenu.Item
 							class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-red-500 select-none focus-visible:outline-hidden data-highlighted:bg-red-50 data-highlighted:text-red-600 sm:h-8 dark:text-red-400 dark:data-highlighted:bg-red-500/10 dark:data-highlighted:text-red-400"
-							onSelect={() => (deleteOpen = true)}
+							onSelect={() => {
+								if (!target) captureTarget();
+								deleteOpen = true;
+							}}
 						>
 							<CarbonTrashCan class="size-4 opacity-90 dark:opacity-80" />
 							{m["app.nav_item.delete"]()}
@@ -198,41 +233,41 @@
 </div>
 
 <!-- Edit title modal -->
-{#if renameOpen}
+{#if renameOpen && target}
 	<EditConversationModal
 		open={renameOpen}
-		title={conv.title}
+		title={target.title}
 		onclose={() => (renameOpen = false)}
 		onsave={(payload) => {
 			renameOpen = false;
-			oneditConversationTitle?.({ id: conv.id.toString(), title: payload.title });
+			if (target) oneditConversationTitle?.({ id: target.id, title: payload.title });
 		}}
 	/>
 {/if}
 
 <!-- Move to project picker -->
-{#if moveOpen}
+{#if moveOpen && target}
 	<MoveToProjectModal
 		chat={{
-			id: conv.id.toString(),
-			title: conv.title,
-			model: conv.model,
-			updatedAt: conv.updatedAt,
-			projectId: conv.projectId,
+			id: target.id,
+			title: target.title,
+			model: target.model,
+			updatedAt: target.updatedAt,
+			projectId: target.projectId,
 		}}
 		onclose={() => (moveOpen = false)}
 	/>
 {/if}
 
-<!-- Delete confirmation modal -->
-{#if deleteOpen}
+<!-- Delete confirmation modal: the chat the menu was opened on, by id and title. -->
+{#if deleteOpen && target}
 	<DeleteConversationModal
 		open={deleteOpen}
-		title={conv.title}
+		title={target.title}
 		onclose={() => (deleteOpen = false)}
 		ondelete={() => {
 			deleteOpen = false;
-			ondeleteConversation?.(conv.id.toString());
+			if (target) ondeleteConversation?.(target.id);
 		}}
 	/>
 {/if}
