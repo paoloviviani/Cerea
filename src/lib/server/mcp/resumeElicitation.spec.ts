@@ -805,6 +805,42 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 		]);
 	});
 
+	it("holds the turn's cap of four images across queued generate_image calls cleared by one click", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		generateImagesMock.mockReset();
+		generateImagesMock.mockResolvedValue({
+			ok: true,
+			model: "m",
+			size: "1024x1024",
+			notes: [],
+			files: [
+				{
+					ref: { name: "image-x.png", size: 1, sha256: "d".repeat(64) },
+					bytes: Buffer.from("x"),
+					mime: "image/png",
+				},
+			],
+		});
+		const queued = (n: number): QueuedApprovalCall => ({
+			toolUuid: `q${n}`,
+			toolCallId: `c${n}`,
+			tool: "generate_image",
+			args: { prompt: `fox ${n}`, n: 4 },
+		});
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "generate_image",
+			args: { prompt: "fox 0", n: 4 },
+			scope: "conversation",
+			queue: [queued(1), queued(2)],
+		});
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id, token: "tok" });
+		expect(generateImagesMock).toHaveBeenCalledTimes(1);
+		const errors = outcome.updates.filter((u) => "subtype" in u && u.subtype === "error");
+		expect(errors).toHaveLength(2);
+		expect(JSON.stringify(errors)).toContain("limit");
+	});
+
 	it("does not generate an approved image when there is no sign-in to meter it to", async () => {
 		const conversationId = new ObjectId();
 		await seedConversation(conversationId);

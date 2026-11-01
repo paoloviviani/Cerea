@@ -13,7 +13,12 @@ import {
 import type { MessageUpdate } from "$lib/types/MessageUpdate";
 import type { McpServerConfig } from "./httpClient";
 import { billToHeader } from "$lib/server/billTo";
-import { generateImages, imageResultText, parseImageArgs } from "$lib/server/imageGeneration";
+import {
+	generateImages,
+	imageCapError,
+	imageResultText,
+	parseImageArgs,
+} from "$lib/server/imageGeneration";
 import { ASK_USER_QUESTION_TOOL_NAME, answerToToolResult } from "$lib/server/askUserQuestion";
 import {
 	WEB_FETCH_TOOL_NAME,
@@ -79,11 +84,24 @@ const NON_MCP_GATED_TOOLS: Record<
  */
 async function generateApprovedImages(
 	args: Record<string, unknown>,
-	owner: { conversationId: ObjectId; userId?: ObjectId; messageId?: string },
-	token: string | undefined
+	owner: {
+		conversationId: ObjectId;
+		userId?: ObjectId;
+		messageId?: string;
+		/** Images made so far by the calls this one click clears: the turn's cap holds across them. */
+		imageBudget?: { made: number };
+	},
+	token: string | undefined,
+	signal?: AbortSignal
 ): Promise<{ text: string; extraUpdates: MessageUpdate[] } | { error: string }> {
 	const parsed = parseImageArgs(args);
 	if (!parsed.ok) return { error: parsed.error };
+	if (owner.imageBudget) {
+		const capped = imageCapError(owner.imageBudget.made, parsed.n);
+		if (capped) return { error: capped };
+		// Counted before the call, as in the tool: a failed attempt may still have been billed.
+		owner.imageBudget.made += parsed.n;
+	}
 	if (!token) {
 		return {
 			error:
@@ -104,6 +122,7 @@ async function generateApprovedImages(
 		userId: owner.userId,
 		messageId: owner.messageId,
 		billHeaders: billToHeader(settings?.billingOrganization),
+		signal,
 	});
 	if (!result.ok) return { error: result.error };
 	return {
@@ -155,13 +174,18 @@ async function runApprovedCall(
 	extraServers: McpServerConfig[],
 	signal?: AbortSignal,
 	token?: string,
-	owner?: { conversationId: ObjectId; userId?: ObjectId; messageId?: string },
+	owner?: {
+		conversationId: ObjectId;
+		userId?: ObjectId;
+		messageId?: string;
+		imageBudget?: { made: number };
+	},
 	/** Updates that belong next to the result (a generated image's file listing). */
 	sideUpdates?: MessageUpdate[]
 ): Promise<MessageUpdate> {
 	if (!call.mcp && call.tool === GENERATE_IMAGE_TOOL_NAME) {
 		const made = owner
-			? await generateApprovedImages(call.args, owner, token)
+			? await generateApprovedImages(call.args, owner, token, signal)
 			: ({ error: "There is no conversation to keep the image in." } as const);
 		if ("error" in made) {
 			return {
@@ -421,6 +445,7 @@ export async function resumeParkedToolCall({
 			grantedTools.push(pending.tool);
 		}
 
+		const imageBudget = { made: 0 };
 		const updates: MessageUpdate[] = [settled];
 		const side: MessageUpdate[] = [];
 		updates.push(
@@ -431,7 +456,7 @@ export async function resumeParkedToolCall({
 						extraServers,
 						signal,
 						token,
-						{ conversationId, userId: pending.userId, messageId: pending.messageId },
+						{ conversationId, userId: pending.userId, messageId: pending.messageId, imageBudget },
 						side
 					)
 				: toolApprovalDenied(pending.toolUuid, pending.tool)
@@ -455,7 +480,7 @@ export async function resumeParkedToolCall({
 						extraServers,
 						signal,
 						token,
-						{ conversationId, userId: pending.userId, messageId: pending.messageId },
+						{ conversationId, userId: pending.userId, messageId: pending.messageId, imageBudget },
 						queuedSide
 					),
 					...queuedSide

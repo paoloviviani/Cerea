@@ -5,6 +5,7 @@ import {
 	IMAGE_SIZES,
 	MAX_IMAGES_GENERATED_PER_TURN,
 	generateImages,
+	imageCapError,
 	imageResultText,
 	imagesForModel,
 	parseImageArgs,
@@ -87,15 +88,8 @@ export function createGenerateImageBuiltin(params: GenerateImageParams): Builtin
 				if (!ctx.conversationId) return { error: "There is no conversation to keep the image in." };
 				const parsed = parseImageArgs(args);
 				if (!parsed.ok) return { error: parsed.error };
-				const remaining = MAX_IMAGES_GENERATED_PER_TURN - made;
-				if (parsed.n > remaining) {
-					return {
-						error:
-							remaining <= 0
-								? `generate_image has already made ${made} images this turn, which is the limit. Tell the person what you made and let them ask for more.`
-								: `Only ${remaining} more image${remaining === 1 ? "" : "s"} can be made this turn (the limit is ${MAX_IMAGES_GENERATED_PER_TURN}); ${parsed.n} were asked for.`,
-					};
-				}
+				const capped = imageCapError(made, parsed.n);
+				if (capped) return { error: capped };
 				// Counted before the call: a failed attempt may still have been billed.
 				made += parsed.n;
 

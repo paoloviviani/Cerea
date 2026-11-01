@@ -160,8 +160,9 @@ prompt passes through the gateway's redaction.
 - **Ask before generating images.** Off by default: images are cheap and a turn
   makes at most four. On, every call opens the approval card (the same
   mechanism as [tool approvals](chat.md#tool-approvals)), whatever the user's own
-  policy; a grant "for the rest of the conversation" lifts it for that
-  conversation. A scheduled run has nobody to ask, so with the switch on it
+  policy; a user can allow it for the rest of a conversation, which lifts
+  the card for that conversation, and the cap of four images a turn still holds
+  however many calls one click covers. A scheduled run has nobody to ask, so with the switch on it
   cannot generate images.
 - **Limits.** 4 images per turn across calls; sizes from a fixed list of about one megapixel (providers such as Cortecs deliver at most that and may return JPEG; files are named and stored by their real format, and the delivered size is reported); a prompt up to 4,000 characters; up to 20 MB per image.
 - **Storage.** Each image is a produced file in the conversation, so

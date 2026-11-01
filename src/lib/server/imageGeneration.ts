@@ -237,6 +237,15 @@ export function parseImageArgs(args: Record<string, unknown>): ParsedImageArgs {
 	return { ok: true, prompt, size, n };
 }
 
+/** The refusal for a call that would pass the turn's cap, given the images already made this turn. */
+export function imageCapError(made: number, wanted: number): string | null {
+	const remaining = MAX_IMAGES_GENERATED_PER_TURN - made;
+	if (wanted <= remaining) return null;
+	return remaining <= 0
+		? `generate_image has already made ${made} images this turn, which is the limit. Tell the person what you made and let them ask for more.`
+		: `Only ${remaining} more image${remaining === 1 ? "" : "s"} can be made this turn (the limit is ${MAX_IMAGES_GENERATED_PER_TURN}); ${wanted} were asked for.`;
+}
+
 // -- bytes --------------------------------------------------------------------
 
 /** The raster format of these bytes, from their magic number, or null. SVG and the rest are refused. */
@@ -530,7 +539,7 @@ export async function generateImages(options: {
 export function imageResultText(result: Extract<ImageGeneration, { ok: true }>, seen: boolean) {
 	const lines = result.files.map((file) => {
 		const kb = Math.max(1, Math.round(file.ref.size / 1024));
-		return `- ${file.ref.name} (${file.width && file.height ? `${file.width}x${file.height} px, ` : ""}${kb} KB)${file.revisedPrompt ? `; the model's revised prompt: ${file.revisedPrompt}` : ""}`;
+		return `- ${file.ref.name} (${file.width && file.height ? `${file.width}x${file.height} px, ` : ""}${kb} KB)${file.revisedPrompt ? `; the image model's own rewrite of the prompt (written by the provider, not the user): ${JSON.stringify(file.revisedPrompt)}` : ""}`;
 	});
 	return (
 		`Made ${result.files.length} image${result.files.length === 1 ? "" : "s"} with ${result.model} (asked for ${result.size}; the sizes listed are what was delivered, and providers may deliver less than asked); ` +

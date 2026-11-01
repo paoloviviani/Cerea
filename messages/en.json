@@ -2994,6 +2994,6 @@
 	"admin.images.account_unreachable": "the gateway could not be reached",
 	"admin.images.grant_hint": "Users need the model granted to them in the gateway console. Pages that are already open pick up a change after a reload.",
 	"admin.images.ask_first.label": "Ask before generating images",
-	"admin.images.ask_first.detail": "Off by default: images are cheap and a turn makes at most four. On, the assistant shows an approval card before each generation, and scheduled runs, which have nobody to ask, cannot generate images.",
+	"admin.images.ask_first.detail": "Off by default: images are cheap and a turn makes at most four. On, the assistant asks before generating images, and scheduled runs, which have nobody to ask, cannot generate them. A user can allow it for the rest of a conversation.",
 	"admin.images.saved": "Image settings saved."
 }

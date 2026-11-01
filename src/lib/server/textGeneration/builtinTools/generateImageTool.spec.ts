@@ -75,6 +75,7 @@ describe("generate_image", () => {
 		);
 		expect(result.resultText).toContain("image-a-red-fox.png");
 		expect(result.resultText).toContain("a red fox in the snow");
+		expect(result.resultText).toContain("written by the provider");
 		expect(result.resultText).toContain("cannot see images");
 		expect(result.images).toBeUndefined();
 		expect(result.extraUpdates).toHaveLength(1);

@@ -338,6 +338,28 @@ export async function* runMcpFlow({
 	const artifactTurnBlocks: string[] = [];
 	// Tool mode needs tools on; the per-model override wins in both directions.
 	const artifactToolsEnabled = (forceTools ?? modelSupportsTools) as boolean;
+	// Image generation: a model resolved for this person (a catalogue probe with a short
+	// deadline, remembered 30s) and the administrator's approval switch. Started here and
+	// awaited where the tool list is built, so a cache miss overlaps the rest of the turn's setup.
+	const imageGenerationPromise = (async () => {
+		if (!(turnToken && artifactToolsEnabled)) return undefined;
+		try {
+			const { resolveImageModel, imageAskFirst } = await import("$lib/server/imageGeneration");
+			const image = await resolveImageModel(turnToken);
+			if (!image.model) return undefined;
+			return {
+				model: image.model,
+				askFirst: await imageAskFirst(),
+				billHeaders: billToHeader(locals?.billingOrganization),
+			};
+		} catch (err) {
+			logger.warn(
+				{ err: String(err) },
+				"[images] could not resolve an image model; none this turn"
+			);
+			return undefined;
+		}
+	})();
 	const artifactsEnabled = artifactsEnabledForTurn({
 		artifactsOverride,
 		supportsArtifacts: model.supportsArtifacts,
@@ -362,29 +384,7 @@ export async function* runMcpFlow({
 	const documentCapabilities = await getDocumentCapabilities();
 	// Set when the endpoint rejects a request carrying look_doc pictures: no more pictures this turn.
 	const pictureState: PictureState = { unavailable: false };
-	// Image generation: a model resolved for this person (a catalogue probe with a short
-	// deadline, remembered 30s) and the administrator's approval switch. Resolved here for the
-	// same reason as the search grants: a network read has no place in the synchronous list.
-	let imageGeneration:
-		{ model: string; askFirst: boolean; billHeaders: Record<string, string> } | undefined;
-	if (turnToken && artifactToolsEnabled) {
-		try {
-			const { resolveImageModel, imageAskFirst } = await import("$lib/server/imageGeneration");
-			const image = await resolveImageModel(turnToken);
-			if (image.model) {
-				imageGeneration = {
-					model: image.model,
-					askFirst: await imageAskFirst(),
-					billHeaders: billToHeader(locals?.billingOrganization),
-				};
-			}
-		} catch (err) {
-			logger.warn(
-				{ err: String(err) },
-				"[images] could not resolve an image model; none this turn"
-			);
-		}
-	}
+	const imageGeneration = await imageGenerationPromise;
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		...(imageGeneration ? { imageGeneration } : {}),

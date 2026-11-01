@@ -10,6 +10,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { pathToFileURL } from "node:url";
+import { UNTRUSTED_PICTURE_INTRO_START } from "../src/lib/server/textGeneration/untrusted.ts";
 import { MODELS_FIXTURE } from "../src/lib/server/__fixtures__/models.ts";
 
 export const MOCK_OPENAI_PORT = Number(process.env.MOCK_OPENAI_PORT ?? 8788);
@@ -505,7 +506,8 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 					const first = Array.isArray(content)
 						? (content[0] as { text?: string })?.text
 						: undefined;
-					if (typeof first === "string" && first.startsWith("Images returned by ")) continue;
+					if (typeof first === "string" && first.startsWith(UNTRUSTED_PICTURE_INTRO_START))
+						continue;
 					lastUserIdx = i;
 				}
 			}

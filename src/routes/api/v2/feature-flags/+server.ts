@@ -33,11 +33,13 @@ export const GET: RequestHandler = async ({ locals }) => {
 	// One catalogue probe per request, with a short deadline; a slow or failing
 	// gateway means "no model", so the audio features stay off rather than the
 	// page waiting on them.
-	const transcriptionModel = locals.token
-		? (await resolveTranscriptionModel(locals.token)).model
-		: null;
-	// The same for images: the "Create an image" item shows only when a model resolves.
-	const imageModel = locals.token ? (await resolveImageModel(locals.token)).model : null;
+	// The two catalogue probes run side by side; the image one backs the "Create an image" item.
+	const [transcriptionModel, imageModel] = locals.token
+		? await Promise.all([
+				resolveTranscriptionModel(locals.token).then((r) => r.model),
+				resolveImageModel(locals.token).then((r) => r.model),
+			])
+		: [null, null];
 	const offers = dictationOffersFor(Boolean(transcriptionModel));
 
 	return superjsonResponse({
