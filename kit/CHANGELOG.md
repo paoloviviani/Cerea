@@ -5,6 +5,15 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Audio attachments up to 25 MB** (about 25 minutes), the gateway's own limit; every other
+  attachment stays at 10 MB. Audio now travels as binary form data, and the app's request limit
+  (`BODY_SIZE_LIMIT`) is 40 MB. A file over its limit is refused before upload, with the limit named.
+- **The composer's + menu offers "Add audio"** when a transcription model is available to the user
+  ("Add text file" is now "Add file"), and Voice & audio shows whether audio works for your own
+  account.
+
 ## v0.35.0 — 2026-10-31
 
 Pins: Cerea `0.35.0` (chat and `cerea-documents`), Pystino `0.21.0`.

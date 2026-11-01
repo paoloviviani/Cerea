@@ -143,6 +143,19 @@ describe("/api/v2/projects/[id]/documents", () => {
 		expect(listed.data.documents).toHaveLength(1);
 	});
 
+	it("refuses a second copy of a binary document before extracting it again", async () => {
+		const { ownerLocals, projectId } = await setup();
+		extractMock.mockResolvedValue({ ok: true, text: "Extracted body.", pages: 1 });
+		// Real PDFs carry bytes that are not valid UTF-8 (the binary comment line).
+		const head = new TextEncoder().encode("%PDF-1.7\n%");
+		const bytes = new Uint8Array([...head, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a, 0xff, 0xfe, 0x00, 0x81]);
+		expect((await upload(projectId, ownerLocals, "a.pdf", bytes, PDF)).status).toBe(201);
+		const again = await upload(projectId, ownerLocals, "copy.pdf", bytes, PDF);
+		expect(again.status).toBe(409);
+		expect(extractMock).toHaveBeenCalledTimes(1);
+		expect(await collections.projectDocuments.countDocuments({ projectId })).toBe(1);
+	});
+
 	it("refuses what it cannot read, and a second copy of a file", async () => {
 		const { ownerLocals, projectId } = await setup();
 		const png = await upload(

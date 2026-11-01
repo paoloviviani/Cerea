@@ -213,7 +213,7 @@ chat-only: the Agents panel ignores them.
 ## Attachments
 
 Attach a file with the composer's **+** (on a phone, it opens the file and photo picker), by dragging it onto the window, or by pasting: a long paste becomes a chip rather than flooding the box. Files are
-limited to **10 MB** each.
+limited to **10 MB** each, except audio (up to **25 MB**).
 
 - **Images** go to a model that can see them.
 - **PDFs and Office documents** are bytes no model reads, so the gateway's
@@ -243,8 +243,8 @@ limited to **10 MB** each.
   (it is metered per audio minute with your account), and the transcript is
   stored beside the file. The assistant reads the transcript, labelled with the
   file name and duration, never the sound. Click the file in the conversation to
-  play it and read the transcript. The 10 MB limit applies (roughly ten minutes
-  of ordinary audio); a recording the transcription service cannot take is kept
+  play it and read the transcript. Audio may be up to 25 MB (about 25
+  minutes of ordinary audio, the gateway's own limit); a recording the transcription service cannot take is kept
   and the assistant is told it has no transcript. The audio goes to the provider
   that serves the model and is not screened by redaction. Audio is not
   offered when no transcription model is available to you.

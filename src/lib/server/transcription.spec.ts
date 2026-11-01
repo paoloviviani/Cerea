@@ -233,7 +233,7 @@ describe("transcribeAudio", () => {
 		});
 		expect(result).toMatchObject({ ok: false, status: 413 });
 		expect((result as { reason: string }).reason).toMatch(
-			/too long to transcribe here; up to about 25 minutes/
+			/too long to transcribe here: up to 25 MB \(about 25 minutes\)/
 		);
 		expect(postForm).not.toHaveBeenCalled();
 	});

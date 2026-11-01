@@ -90,4 +90,24 @@ describe("an audio attachment in the conversation", () => {
 		await browserPage.getByRole("button").first().click();
 		expect(document.querySelector("[data-testid=audio-panel]")).toBeNull();
 	});
+
+	it("measures a recording sent in this turn from an object URL of the file itself, and revokes it", async () => {
+		const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fake-1");
+		const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+		const binary = new File([new Uint8Array(8)], "memo.wav", { type: "audio/wav" });
+		const sent: MessageFile = {
+			type: "base64",
+			value: "",
+			mime: "audio/wav",
+			name: "memo.wav",
+			binary,
+		};
+		const view = render(UploadedFile, { file: sent, canClose: false });
+		await expect.element(browserPage.getByTestId("audio-badge")).toBeVisible();
+		await vi.waitFor(() => expect(create).toHaveBeenCalledWith(binary));
+		view.unmount();
+		expect(revoke).toHaveBeenCalledWith("blob:fake-1");
+		create.mockRestore();
+		revoke.mockRestore();
+	});
 });

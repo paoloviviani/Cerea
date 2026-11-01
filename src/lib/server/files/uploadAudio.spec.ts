@@ -17,7 +17,7 @@ import { collections, ready } from "$lib/server/database";
 import { GatewayCallFailed } from "$lib/server/gatewayServer";
 import type { Conversation } from "$lib/types/Conversation";
 import type { Message } from "$lib/types/Message";
-import { uploadFile } from "./uploadFile";
+import { AttachmentTooLargeError, uploadFile } from "./uploadFile";
 import { storeAttachment, findAttachments, deleteAttachmentsByPrefix } from "./attachmentStore";
 import { deleteConversationAttachments } from "./deleteConversationAttachments";
 import { downloadFile } from "./downloadFile";
@@ -96,6 +96,19 @@ describe("uploadFile: audio", () => {
 		expect(await findBlobs({ "metadata.conversation": conv._id.toString() })).toHaveLength(2);
 	});
 
+	it("accepts and transcribes a 17 MB recording", async () => {
+		get.mockResolvedValue(models);
+		postForm.mockResolvedValue({ text: "A long talk.", language: "en" });
+		const stored = await uploadFile(
+			audioFile("talk.wav", "audio/wav", wav(17 * 1024 * 1024)),
+			conversation(),
+			"tok"
+		);
+		expect(postForm).toHaveBeenCalledTimes(1);
+		expect(stored.extractionError).toBeUndefined();
+		expect(stored.extracted).toMatchObject({ pages: 0 });
+	});
+
 	it("gives the turn the labelled transcript as the attachment's content", async () => {
 		get.mockResolvedValue(models);
 		postForm.mockResolvedValue({ text: "Buy milk.", usage: { audio_duration_seconds: 65 } });
@@ -146,7 +159,7 @@ describe("uploadFile: audio", () => {
 		const stored = await uploadFile(audioFile("long.wav", "audio/wav", big), conversation(), "tok");
 		expect(postForm).not.toHaveBeenCalled();
 		expect(stored.extractionError?.reason).toMatch(
-			/too long to transcribe here; up to about 10 minutes/
+			/too long to transcribe here: up to 25 MB \(about 25 minutes\)/
 		);
 	});
 
@@ -155,6 +168,31 @@ describe("uploadFile: audio", () => {
 		postForm.mockResolvedValue({ text: "" });
 		const stored = await uploadFile(audioFile(), conversation(), "tok");
 		expect(stored.extractionError?.kind).toBe("empty");
+	});
+
+	it("caps by what the bytes are: a 12 MB PDF declared audio/mpeg is refused", async () => {
+		get.mockResolvedValue(models);
+		const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(12 * 1024 * 1024)]);
+		await expect(
+			uploadFile(audioFile("scan.mp3", "audio/mpeg", pdf), conversation(), "tok")
+		).rejects.toBeInstanceOf(AttachmentTooLargeError);
+		expect(postForm).not.toHaveBeenCalled();
+	});
+
+	it("keys different binary files differently, and text by its text as before", async () => {
+		get.mockResolvedValue(models);
+		const conv = conversation();
+		// Both decode to the same replacement characters, so hashing the decoded text would collide.
+		const a = new File([Buffer.from([0xff, 0xfe, 0x01])], "a.bin", {
+			type: "application/octet-stream",
+		});
+		const b = new File([Buffer.from([0xfd, 0xfc, 0x02])], "b.bin", {
+			type: "application/octet-stream",
+		});
+		const [fa, fb] = [await uploadFile(a, conv, "tok"), await uploadFile(b, conv, "tok")];
+		expect(fa.value).not.toBe(fb.value);
+		const t = await uploadFile(new File(["hello"], "h.txt", { type: "text/plain" }), conv, "tok");
+		expect(t.value).toBe("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
 	});
 
 	it("does not transcribe a file only the client calls audio, and stores no audio type for it", async () => {

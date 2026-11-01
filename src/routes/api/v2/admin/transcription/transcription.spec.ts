@@ -2,7 +2,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { state, writeMock, listMock } = vi.hoisted(() => ({
-	state: { admin: true, stored: null as string | null, env: null as string | null },
+	state: {
+		admin: true,
+		stored: null as string | null,
+		env: null as string | null,
+		reachable: true,
+		configured: true,
+	},
 	writeMock: vi.fn(),
 	listMock: vi.fn(),
 }));
@@ -32,6 +38,11 @@ vi.mock("$lib/server/transcription", () => ({
 	storedTranscriptionModel: async () => state.stored,
 	writeTranscriptionModel: writeMock,
 	listTranscriptionModels: listMock,
+	probeTranscriptionModels: async (t: string) => ({
+		models: await listMock(t),
+		reachable: state.reachable,
+		configured: state.configured,
+	}),
 }));
 
 import { GET, PUT } from "./+server";
@@ -51,6 +62,8 @@ beforeEach(() => {
 	state.admin = true;
 	state.stored = null;
 	state.env = null;
+	state.reachable = true;
+	state.configured = true;
 	listMock.mockResolvedValue(["whisper-large-v3", "voxtral-mini"]);
 });
 
@@ -63,6 +76,36 @@ describe("GET /api/v2/admin/transcription", () => {
 			stored_model: null,
 			env_model: null,
 			available_models: ["whisper-large-v3", "voxtral-mini"],
+			account_available: true,
+			account_reason: null,
+		});
+	});
+
+	it("says whether the administrator's own account can use the model, and why not", async () => {
+		state.stored = "voxtral-mini";
+		listMock.mockResolvedValue(["whisper-large-v3"]);
+		expect(await (await GET(get())).json()).toMatchObject({
+			account_available: false,
+			account_reason: "not_granted",
+		});
+
+		state.stored = null;
+		listMock.mockResolvedValue([]);
+		expect(await (await GET(get())).json()).toMatchObject({
+			account_available: false,
+			account_reason: "no_model",
+		});
+
+		state.reachable = false;
+		expect(await (await GET(get())).json()).toMatchObject({
+			account_available: false,
+			account_reason: "gateway_unreachable",
+		});
+
+		state.configured = false;
+		expect(await (await GET(get())).json()).toMatchObject({
+			account_available: false,
+			account_reason: "no_gateway",
 		});
 	});
 

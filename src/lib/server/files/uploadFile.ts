@@ -8,7 +8,11 @@ import { logger } from "$lib/server/logger";
 import { nextVersionNumber } from "$lib/server/execution/fileVersions";
 import { transcribeAudio } from "$lib/server/transcription";
 import { audioMime } from "./audioAttachment";
-import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
+import {
+	MAX_ATTACHMENT_BYTES,
+	MAX_AUDIO_ATTACHMENT_BYTES,
+	maxAttachmentBytesFor,
+} from "$lib/constants/mime";
 import {
 	documentMime,
 	extractDocument,
@@ -83,6 +87,30 @@ export interface AttachmentTag {
  * Chat passes no `tag`, so a conversation's entries stay `{conversation,
  * mime}`, byte for byte.
  */
+/** A file whose bytes are past the limit of what they turned out to be (the route answers 413). */
+export class AttachmentTooLargeError extends Error {
+	readonly status = 413;
+	constructor(message: string) {
+		super(message);
+		this.name = "AttachmentTooLargeError";
+	}
+}
+
+/**
+ * The key a file is stored under. Text that decodes cleanly keeps the hash of
+ * its decoded text, as before, so a file stored earlier is still found under
+ * the same key; bytes that are not valid UTF-8 (images, PDFs, audio) are
+ * hashed as bytes, where hashing the lossy decoding would make different
+ * files share a key.
+ */
+export async function contentHash(bytes: ArrayBuffer): Promise<string> {
+	try {
+		return await sha256(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+	} catch {
+		return createHash("sha256").update(new Uint8Array(bytes)).digest("hex");
+	}
+}
+
 export async function writeAttachment(
 	file: File,
 	ownerKey: string,
@@ -91,7 +119,6 @@ export async function writeAttachment(
 	options?: UploadOptions
 ): Promise<MessageFile> {
 	const buffer = await file.arrayBuffer();
-	const sha = await sha256(await file.text());
 
 	// The type is the one the bytes sniff as, falling back to what the browser
 	// said — and that one type is used for the deciding, the stored entry and
@@ -99,6 +126,7 @@ export async function writeAttachment(
 	// compound file (`application/x-cfb`) while the browser says "docx"; the
 	// two used to disagree, and extraction followed the one the allowlist did
 	// not know.
+	const sha = await contentHash(buffer);
 	const sniffedOnly = (await fileTypeFromBuffer(buffer))?.mime;
 	const sniffed = sniffedOnly ?? file.type;
 	const audio = audioMime(sniffedOnly, new Uint8Array(buffer));
@@ -107,6 +135,14 @@ export async function writeAttachment(
 	const spoofedAudio = !audio && sniffed.startsWith("audio/");
 	const mime =
 		audio ?? (spoofedAudio ? "application/octet-stream" : documentMime(sniffed, file.name));
+
+	// The size limit follows what the bytes are, not what the client declared:
+	// a 24 MB PDF sent as `audio/mpeg` is a PDF, and a PDF is capped at 10 MB.
+	if (!audio && buffer.byteLength > maxAttachmentBytesFor(mime)) {
+		throw new AttachmentTooLargeError(
+			`${file.name} is too large: files are limited to ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB.`
+		);
+	}
 
 	let extracted: Extraction | undefined;
 	let audioFacts: MessageFile["audio"];
@@ -118,8 +154,8 @@ export async function writeAttachment(
 			mime: audio,
 			filename: file.name,
 			token,
-			// An attachment is capped at 10 MB, so that is what "too long" means here.
-			maxBytes: MAX_ATTACHMENT_BYTES,
+			// The gateway's own cap: audio attachments go up to 25 MB.
+			maxBytes: MAX_AUDIO_ATTACHMENT_BYTES,
 		});
 		if (!heard.ok) {
 			extracted = { ok: false, kind: heard.kind, reason: heard.reason, status: heard.status };

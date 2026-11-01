@@ -82,6 +82,35 @@ const INTERNAL_SERVICE_ROUTES = new Set(["/internal/erasure", "/internal/erasure
  * gateway's service routes are exempt from the wall for every method and are
  * handled below, not listed.
  */
+/**
+ * What a request body may weigh. The server's `BODY_SIZE_LIMIT` is 40 MB so a
+ * 25 MB recording (binary multipart) fits, but only the routes that take
+ * audio need that: every other upload route (agent attachments, project
+ * documents, skills, code-execution outputs, the gateway proxy, JSON) keeps
+ * the old 15 MB. A request without a Content-Length is left to
+ * `BODY_SIZE_LIMIT`, which stops it at 40 MB.
+ */
+export const DEFAULT_BODY_LIMIT_BYTES = 15 * 1024 * 1024;
+
+export function bodyTooLarge(options: {
+	method: string;
+	pathname: string;
+	contentLength: string | null;
+	base?: string;
+}): boolean {
+	if (["GET", "HEAD", "OPTIONS"].includes(options.method)) return false;
+	const length = Number(options.contentLength);
+	if (!options.contentLength || !Number.isFinite(length)) return false;
+	if (length <= DEFAULT_BODY_LIMIT_BYTES) return false;
+	const base = options.base ?? "";
+	const rest = options.pathname.startsWith(base) ? options.pathname.slice(base.length) : "";
+	const parts = rest.split("/").filter(Boolean);
+	const audioRoute =
+		(options.method === "POST" && parts.length === 2 && parts[0] === "conversation") ||
+		rest === "/api/transcribe";
+	return !audioRoute;
+}
+
 export const SIGNED_OUT_GET_ROUTES: ReadonlyMap<string, string> = new Map([
 	// Pages and page-like endpoints.
 	["/", "landing page: renders the sign-in prompt and starts the sign-in redirect"],
@@ -302,6 +331,17 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				!event.url.pathname.startsWith(`${base}/.well-known/`)
 			) {
 				return errorResponse(503, "can't verify your account; the gateway is unreachable");
+			}
+
+			if (
+				bodyTooLarge({
+					method: event.request.method,
+					pathname: event.url.pathname,
+					contentLength: event.request.headers.get("content-length"),
+					base,
+				})
+			) {
+				return errorResponse(413, "The request is too large: up to 15 MB here.");
 			}
 
 			// CSRF protection

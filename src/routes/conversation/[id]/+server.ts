@@ -20,9 +20,9 @@ import {
 	MessageElicitationUpdateType,
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
-import { uploadFile } from "$lib/server/files/uploadFile";
+import { AttachmentTooLargeError, uploadFile } from "$lib/server/files/uploadFile";
 import { resolveHashFiles } from "$lib/server/files/resolveHashFiles";
-import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
+import { attachmentSizeRefusal } from "$lib/constants/mime";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import { convertLegacyConversation } from "$lib/utils/tree/convertLegacyConversation";
 import { isMessageId } from "$lib/utils/tree/isMessageId";
@@ -243,9 +243,14 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			.map(async (file) => {
 				const [type, ...name] = file.name.split(";");
 
+				const kind = z.enum(["base64", "hash", "binary"]).parse(type);
+				// "binary": the part carries the file's own bytes (audio, which would
+				// grow by a third as base64); the others carry text.
 				return {
-					type: z.literal("base64").or(z.literal("hash")).parse(type),
-					value: await file.text(),
+					type: kind,
+					// The part itself, never read here: the one read is the upload's own.
+					blob: kind === "binary" ? file : undefined,
+					value: kind === "binary" ? "" : await file.text(),
 					mime: file.type,
 					name: name.join(";"),
 				};
@@ -259,19 +264,25 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// each file is either:
 	// base64 string requiring upload to the server
 	// hash pointing to an existing file
-	const hashFiles = inputFiles?.filter((file) => file.type === "hash") ?? [];
+	const hashFiles =
+		inputFiles?.flatMap((file) =>
+			file.type === "hash" ? [{ ...file, type: "hash" as const }] : []
+		) ?? [];
 	const b64Files =
 		inputFiles
 			?.filter((file) => file.type !== "hash")
 			.map((file) => {
-				const blob = Buffer.from(file.value, "base64");
-				return new File([blob], file.name, { type: file.mime });
+				return new File([file.blob ?? Buffer.from(file.value, "base64")], file.name, {
+					type: file.mime,
+				});
 			}) ?? [];
 
 	// check sizes
 	// todo: make configurable
-	if (b64Files.some((file) => file.size > MAX_ATTACHMENT_BYTES)) {
-		error(413, "File too large, should be <10MB");
+	// 10 MB for every type but audio, which may be what the gateway transcribes (25 MB).
+	for (const file of b64Files) {
+		const refusal = attachmentSizeRefusal(file);
+		if (refusal) error(413, refusal);
 	}
 
 	// The token goes with it: a document attachment is extracted through the
@@ -279,7 +290,13 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// document is a model they are allowed to use and the page is billed to
 	// them rather than to the deployment.
 	const uploadedFiles = await Promise.all([
-		Promise.all(b64Files.map((file) => uploadFile(file, conv, locals.token, { pageImages: true }))),
+		Promise.all(
+			b64Files.map((file) => uploadFile(file, conv, locals.token, { pageImages: true }))
+		).catch((err) => {
+			// Past its limit once the bytes say what it is (not what was declared).
+			if (err instanceof AttachmentTooLargeError) error(413, err.message);
+			throw err;
+		}),
 		// A file sent back by reference takes what the server recorded for it.
 		resolveHashFiles(hashFiles, conv, locals.token),
 	]).then(([uploaded, resolved]) => [...uploaded, ...resolved]);

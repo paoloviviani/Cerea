@@ -81,6 +81,10 @@ export async function fetchMessageUpdates(
 	});
 
 	opts.files?.forEach((file) => {
+		if (file.binary) {
+			form.append("files", new File([file.binary], "binary;" + file.name, { type: file.mime }));
+			return;
+		}
 		const name = file.type + ";" + file.name;
 
 		form.append("files", new File([file.value], name, { type: file.mime }));

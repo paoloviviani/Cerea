@@ -1055,7 +1055,10 @@
 													label={conversation.title}
 													onmove={conversation.mine ? () => (moving = conversation) : undefined}
 													onremove={() => removeChat(conversation)}
-													ondelete={conversation.mine ? () => (deleting = conversation) : undefined}
+													ondelete={conversation.mine
+														? () =>
+																(deleting = $state.snapshot(conversation) as ProjectConversation)
+														: undefined}
 												/>
 											{/if}
 										</li>

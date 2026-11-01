@@ -15,6 +15,7 @@
 	import { cubicInOut } from "svelte/easing";
 	import type { MessageFile } from "$lib/types/Message";
 	import file2base64 from "$lib/utils/file2base64";
+	import { isAudioAttachmentMime } from "$lib/constants/mime";
 	import UploadedFile from "./UploadedFile.svelte";
 	import IconClose from "~icons/carbon/close";
 
@@ -30,12 +31,15 @@
 
 	let sources = $derived(
 		files?.map<Promise<MessageFile>>((file) =>
-			file2base64(file).then((value) => ({
-				type: "base64",
-				value,
-				mime: file.type,
-				name: file.name,
-			}))
+			// A recording up to 25 MB is not read for its chip: it is sent as binary.
+			(isAudioAttachmentMime(file.type) ? Promise.resolve("") : file2base64(file)).then(
+				(value) => ({
+					type: "base64",
+					value,
+					mime: file.type,
+					name: file.name,
+				})
+			)
 		)
 	);
 

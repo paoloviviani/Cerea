@@ -54,6 +54,13 @@ export function readBlobConfig(get: Getter): BlobConfig {
 	const value = (key: string) => get(key)?.trim() || undefined;
 
 	const endpoint = value("CHAT_S3_ENDPOINT");
+	if (!endpoint && !value("CHAT_S3_BUCKET")) {
+		// Almost always a container started before `./configure --object-store`:
+		// say so first, instead of the AWS region message that would follow.
+		throw new BlobConfigError(
+			"No object store is configured in this container (CHAT_S3_ENDPOINT / CHAT_S3_BUCKET are not set). If you just ran ./configure --object-store, recreate the containers with `docker compose up -d` and run this again."
+		);
+	}
 	if (endpoint) {
 		let url: URL;
 		try {

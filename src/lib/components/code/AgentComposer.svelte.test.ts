@@ -183,14 +183,14 @@ describe("AgentComposer image attachments", () => {
 		const screen = mount(true, true, { modelIsMultimodal: true });
 		await screen.getByRole("button", { name: "Add attachment" }).click();
 		await expect.element(screen.getByRole("menuitem", { name: "Add image(s)" })).toBeVisible();
-		await expect.element(screen.getByRole("menuitem", { name: "Add text file" })).toBeVisible();
+		await expect.element(screen.getByRole("menuitem", { name: "Add file" })).toBeVisible();
 	});
 
 	it("hides Add image(s) for a model that says nothing about images", async () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount(true, true, { modelIsMultimodal: false });
 		await screen.getByRole("button", { name: "Add attachment" }).click();
-		await expect.element(screen.getByRole("menuitem", { name: "Add text file" })).toBeVisible();
+		await expect.element(screen.getByRole("menuitem", { name: "Add file" })).toBeVisible();
 		expect(screen.getByRole("menuitem", { name: "Add image(s)" }).elements()).toHaveLength(0);
 	});
 

@@ -74,6 +74,34 @@ export const KNOWLEDGE_ACCEPT = [
  */
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
+/** The gateway's own cap on one transcription: what an audio attachment may be. */
+export const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+/** What the server says (and the client says before uploading) for audio past the cap. */
+export const AUDIO_TOO_LONG_TEXT = "too long to transcribe here: up to 25 MB (about 25 minutes)";
+
+/** Whether a declared type is one of the audio types an attachment may be. */
+export function isAudioAttachmentMime(mime: string): boolean {
+	return (AUDIO_MIME_ALLOWLIST as readonly string[]).includes(mime.toLowerCase());
+}
+
+/** Why one attachment is refused for its size, or null when it fits. */
+export function attachmentSizeRefusal(file: {
+	name: string;
+	size: number;
+	type: string;
+}): string | null {
+	if (file.size <= maxAttachmentBytesFor(file.type)) return null;
+	return isAudioAttachmentMime(file.type)
+		? `${file.name} is ${AUDIO_TOO_LONG_TEXT}.`
+		: `${file.name} is too large: files are limited to 10 MB.`;
+}
+
+/** The size limit of one attachment: 25 MB for audio, 10 MB for everything else. */
+export function maxAttachmentBytesFor(mime: string): number {
+	return isAudioAttachmentMime(mime) ? MAX_AUDIO_ATTACHMENT_BYTES : MAX_ATTACHMENT_BYTES;
+}
+
 /**
  * What a person may attach to a coding-agent message — the ceiling the
  * `/code` upload route enforces; a composer may offer a subset. Chat's text

@@ -48,7 +48,7 @@ COPY --link --chown=1000 package-lock.json package.json ./
 
 ARG APP_BASE=
 ARG PUBLIC_APP_COLOR=
-ENV BODY_SIZE_LIMIT=15728640
+ENV BODY_SIZE_LIMIT=41943040
 
 RUN --mount=type=cache,target=/app/.npm \
     npm set cache /app/.npm && \
@@ -129,7 +129,7 @@ ARG APP_BASE=
 ARG PUBLIC_APP_COLOR=
 ARG PUBLIC_COMMIT_SHA=
 ENV PUBLIC_COMMIT_SHA=${PUBLIC_COMMIT_SHA}
-ENV BODY_SIZE_LIMIT=15728640
+ENV BODY_SIZE_LIMIT=41943040
 
 #import the build & dependencies
 COPY --from=builder --chown=1000 /app/build /app/build

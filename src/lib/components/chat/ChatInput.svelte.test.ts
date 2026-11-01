@@ -235,6 +235,48 @@ describe("ChatInput: attaching knowledge bases", () => {
 		expect(calls.filter((call) => call.method === "PATCH")).toEqual([]);
 	});
 
+	it("the menu has no Add audio item when audio is not accepted", async () => {
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		await openMenu(container);
+		expect(document.body.textContent).toContain("Add file");
+		expect(document.body.textContent).not.toContain("Add audio");
+		expect(container.querySelector('input[aria-label="Upload audio"]')).toBeNull();
+	});
+
+	it("a composer whose mimeTypes take no audio (the agent's) never shows Add audio", async () => {
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID }, [], false, {
+			audioAttachments: true,
+		});
+		await openMenu(container);
+		expect(document.body.textContent).not.toContain("Add audio");
+		expect(container.querySelector('input[aria-label="Upload audio"]')).toBeNull();
+	});
+
+	it("Add audio is a top-level item whose input accepts audio only", async () => {
+		stubFetch();
+		const { container } = await renderComposer(
+			{ id: CONV_ID },
+			[],
+			false,
+			{ audioAttachments: true },
+			{ mimeTypes: ["text/plain", "audio/mpeg", "audio/wav"] }
+		);
+		await openMenu(container);
+		expect(document.body.textContent).toContain("Add audio");
+		expect(document.body.textContent).toContain("Transcribed for the chat");
+		const item = [...document.querySelectorAll('[role="menuitem"]')].find((el) =>
+			el.textContent?.includes("Add audio")
+		);
+		expect(item).toBeTruthy();
+		const input = container.querySelector('input[aria-label="Upload audio"]') as HTMLInputElement;
+		expect(input).toBeTruthy();
+		const accept = input.getAttribute("accept")?.split(",") ?? [];
+		expect(accept.length).toBeGreaterThan(0);
+		expect(accept.every((t) => t.startsWith("audio/"))).toBe(true);
+	});
+
 	it("an anonymous composer never reaches the knowledge submenu", async () => {
 		stubFetch();
 		let host = document.getElementById("app");
@@ -255,7 +297,7 @@ describe("ChatInput: attaching knowledge bases", () => {
 		// requireAuthUser() closes the dropdown outright for an anonymous
 		// session — the menu itself never opens, so no submenu inside it either.
 		fireTap(find(host, 'button[aria-label="Add attachment"]'));
-		await waitSlow(() => expect(document.body.textContent).not.toContain("Add text file"));
+		await waitSlow(() => expect(document.body.textContent).not.toContain("Add file"));
 		expect(document.body.textContent).not.toContain("Knowledge bases");
 	});
 });
@@ -377,7 +419,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			await openSubmenu("Knowledge bases", "Specs");
 			expectPanelsInViewport();
 
-			await openSubmenu("Add text file", "Upload from this device");
+			await openSubmenu("Add file", "Upload from this device");
 			expectPanelsInViewport();
 		} finally {
 			await page.viewport(restoreWidth, restoreHeight);

@@ -19,6 +19,7 @@
 	import type { Message } from "$lib/types/Message";
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
 	import file2base64 from "$lib/utils/file2base64";
+	import { isAudioAttachmentMime } from "$lib/constants/mime";
 	import { addChildren } from "$lib/utils/tree/addChildren";
 	import { addSibling } from "$lib/utils/tree/addSibling";
 	import {
@@ -223,12 +224,22 @@
 			activeGenerationId = v4();
 			const base64Files = await Promise.all(
 				(files ?? []).map((file) =>
-					file2base64(file).then((value) => ({
-						type: "base64" as const,
-						value,
-						mime: file.type,
-						name: file.name,
-					}))
+					// Audio travels as binary form data: base64 would add a third, and
+					// a 25 MB recording would no longer fit the request.
+					isAudioAttachmentMime(file.type)
+						? Promise.resolve({
+								type: "base64" as const,
+								value: "",
+								mime: file.type,
+								name: file.name,
+								binary: file,
+							})
+						: file2base64(file).then((value) => ({
+								type: "base64" as const,
+								value,
+								mime: file.type,
+								name: file.name,
+							}))
 				)
 			);
 

@@ -79,6 +79,12 @@ export type Message = Partial<Timestamps> & {
 export type MessageFile = {
 	type: "hash" | "base64";
 	name: string;
+	/**
+	 * Client only, never stored: the file itself, for an attachment sent as
+	 * binary form data rather than base64 text (audio, up to 25 MB). `value`
+	 * is empty then.
+	 */
+	binary?: File;
 	value: string;
 	mime: string;
 	/**

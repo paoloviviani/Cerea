@@ -2,7 +2,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
-	import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
+	import { isAudioAttachmentMime, maxAttachmentBytesFor } from "$lib/constants/mime";
 	import CarbonImage from "~icons/carbon/image";
 
 	interface Props {
@@ -46,9 +46,13 @@
 							return;
 						}
 
-						// if file is bigger than 10MB abort
-						if (file.size > MAX_ATTACHMENT_BYTES) {
-							setErrorMsg(m["chat.dropzone.too_big"]());
+						// if the file is past its limit (25 MB audio, 10 MB the rest) abort
+						if (file.size > maxAttachmentBytesFor(file.type)) {
+							setErrorMsg(
+								isAudioAttachmentMime(file.type)
+									? m["chat.audio.too_long"]({ name: file.name })
+									: m["chat.dropzone.too_big"]()
+							);
 							files = [];
 							return;
 						}

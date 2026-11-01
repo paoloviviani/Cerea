@@ -114,21 +114,36 @@ export async function writeTranscriptionModel(model: string | null): Promise<voi
 /** Past this the catalogue probe gives up: the audio features stay off, the page does not wait. */
 export const CATALOGUE_TIMEOUT_MS = 2000;
 
-/** The `kind: transcription` models this token may use, straight from the gateway (empty on failure). */
-export async function listTranscriptionModels(token: string): Promise<string[]> {
+/**
+ * The `kind: transcription` models this token may use, straight from the
+ * gateway, and whether the gateway answered (an empty list with `reachable`
+ * true means "none granted to you", not "could not ask").
+ */
+export async function probeTranscriptionModels(
+	token: string
+): Promise<{ models: string[]; reachable: boolean; configured: boolean }> {
 	// No gateway, no catalogue: nothing to ask (and nothing to warn about).
-	if (!config.OPENAI_BASE_URL) return [];
+	if (!config.OPENAI_BASE_URL) return { models: [], reachable: false, configured: false };
 	try {
 		const answer = await gateway.get<{ data: { id: string; kind?: string }[] }>(
 			token,
 			"models?include=transcription",
 			{ timeoutMs: CATALOGUE_TIMEOUT_MS }
 		);
-		return answer.data.filter((card) => card.kind === "transcription").map((card) => card.id);
+		return {
+			models: answer.data.filter((card) => card.kind === "transcription").map((card) => card.id),
+			reachable: true,
+			configured: true,
+		};
 	} catch (err) {
 		logger.warn({ err }, "transcription_unavailable: could not list models");
-		return [];
+		return { models: [], reachable: false, configured: true };
 	}
+}
+
+/** The `kind: transcription` models this token may use, straight from the gateway (empty on failure). */
+export async function listTranscriptionModels(token: string): Promise<string[]> {
+	return (await probeTranscriptionModels(token)).models;
 }
 
 const CACHE_MS = 30_000;
@@ -211,7 +226,7 @@ export function tooLongFailure(
 		ok: false,
 		kind: "unsupported",
 		status: 413,
-		reason: `This recording is too long to transcribe here; up to about ${mb} minutes (${mb} MB) can be transcribed at once.`,
+		reason: `This recording is too long to transcribe here: up to ${mb} MB (about ${mb} minutes).`,
 	};
 }
 

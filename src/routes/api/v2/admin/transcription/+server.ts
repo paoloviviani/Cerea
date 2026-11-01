@@ -11,20 +11,43 @@ import { logger } from "$lib/server/logger";
 import {
 	envTranscriptionModel,
 	listTranscriptionModels,
+	probeTranscriptionModels,
 	resolveTranscription,
 	storedTranscriptionModel,
 	writeTranscriptionModel,
 } from "$lib/server/transcription";
 
 async function status(token: string | undefined) {
-	const available = token ? await listTranscriptionModels(token) : [];
+	const probe = token
+		? await probeTranscriptionModels(token)
+		: { models: [] as string[], reachable: false, configured: false };
+	const available = probe.models;
 	const stored = await storedTranscriptionModel().catch(() => null);
 	const resolved = resolveTranscription({
 		storedModel: stored,
 		envModel: envTranscriptionModel(),
 		candidates: available,
 	});
+	// Whether audio works for the administrator's own account: the resolved
+	// model must be in the catalogue this token sees (the gateway console
+	// grants models per user).
+	const account: {
+		available: boolean;
+		reason: "no_gateway" | "gateway_unreachable" | "no_model" | "not_granted" | null;
+	} =
+		!token || !probe.configured
+			? { available: false, reason: "no_gateway" }
+			: !probe.reachable
+				? { available: false, reason: "gateway_unreachable" }
+				: !resolved.model
+					? { available: false, reason: "no_model" }
+					: !available.includes(resolved.model)
+						? { available: false, reason: "not_granted" }
+						: { available: true, reason: null };
 	return {
+		account_available: account.available,
+		/** Why not, when not: no_gateway, gateway_unreachable, no_model or not_granted. */
+		account_reason: account.reason,
 		/** What would transcribe now, and why. */
 		model: resolved.model,
 		source: resolved.source,
