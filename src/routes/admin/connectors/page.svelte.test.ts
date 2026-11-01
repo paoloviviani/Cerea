@@ -93,6 +93,19 @@ let extraServers = 0;
 
 const rows = (root: HTMLElement) => [...root.querySelectorAll('[data-testid="env-server"]')];
 
+/** Resolves once `el`'s scroll height and scroll position have held for 5 frames (max ~2 s). */
+async function settleLayout(el: HTMLElement): Promise<void> {
+	const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+	let last = "";
+	let still = 0;
+	for (let i = 0; i < 120 && still < 5; i++) {
+		await frame();
+		const now = `${el.scrollHeight}:${el.scrollTop}`;
+		still = now === last ? still + 1 : 0;
+		last = now;
+	}
+}
+
 describe("admin MCP page", () => {
 	it("lists .env servers read-only next to the deployment connectors, off ones included", async () => {
 		const screen = renderWithApp(Page, {} as never);
@@ -193,8 +206,14 @@ describe("admin MCP page", () => {
 			const screen = renderWithApp(Page, {} as never, { baseElement: scroller });
 			await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
 			const card = rows(screen.baseElement).at(-3) as HTMLElement;
+			// Rows above the card finish rendering after "Notion" shows; a snapshot taken
+			// before that sees the browser's scroll anchoring move scrollTop to keep the card
+			// in place (CI: +34px), which is the page settling, not the tap. Wait until the
+			// layout holds still for a few frames.
+			await settleLayout(scroller);
 			expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight + 300);
 			scroller.scrollTop = card.offsetTop - 200;
+			await settleLayout(scroller);
 			const scrollables = [scroller, shell, document.documentElement, document.body];
 			const snapshot = () => ({
 				scrolls: scrollables.map((el) => [el.scrollTop, el.scrollLeft]),
