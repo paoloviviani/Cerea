@@ -5,6 +5,20 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **The reference backup now covers the chat's files in S3.** Since 0.35.0 the files' bytes can live
+  in a bucket (the bundled RustFS or your own S3) with only their index in MongoDB, and the backup
+  did not take them: a restored stack had conversations with every file missing. The restic sidecar
+  now syncs the bucket through the S3 API with rclone (after the Mongo dump), keeps the copy in a new
+  `backup-objects` volume and stores it in the same snapshot; `restore` returns it as `objects/`. It
+  is on when `CHAT_BLOB_STORE=s3` (`BACKUP_OBJECTS=auto|yes|no`) and costs a second copy of the bucket
+  on the host. The manual "Backup and restore" procedure copies the bucket out and back with a
+  pinned rclone container. **Existing sidecar users must rebuild and update their override**
+  (`docker compose up -d --build backup`, after adding the `backup-objects` volume and the `objects`
+  network as in `tools/backup/compose.override.example.yaml`); until then a run with
+  `CHAT_BLOB_STORE=s3` fails at step `objects`, saying what is missing.
+
 ## v0.35.1 — 2026-11-01
 
 Pins: Cerea `0.35.1` (chat and `cerea-documents`), Pystino `0.21.0`.

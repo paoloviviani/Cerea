@@ -11,13 +11,18 @@
 # in one pass, into a tmpfs directory:
 #   .env  postgres.sql  chat-mongo.archive.gz  authelia.tgz  (+ backup.info)
 # restic stores that directory as one snapshot, then the directory is deleted.
-# Nothing is written outside the tmpfs and the restic cache in /state.
+# With the chat's files in S3 (CHAT_BLOB_STORE=s3) the bucket's objects are
+# kept in sync, through the S3 API with rclone, into the persistent /objects
+# volume (a bucket can be larger than RAM), and the same snapshot stores that
+# directory too. Nothing else is written outside the tmpfs, /objects and the
+# restic cache in /state.
 set -eu
 umask 077
 
 WORK=/work
 STATE=${BACKUP_STATE_DIR:-/state}
 STACK_ENV=${BACKUP_ENV_FILE:-/stack/.env}
+OBJECTS_DIR=${BACKUP_OBJECTS_DIR:-/objects}   # a fixed path too, for the same reason
 RUN_DIR=$WORK/cerea            # a fixed path: restic matches parent snapshots by it,
                                # and `restore` addresses the snapshot by it
 TAG=cerea
@@ -95,6 +100,81 @@ dump_mongo() {
   gzip -t "$RUN_DIR/chat-mongo.archive.gz" || die "mongo: the archive is corrupt"
 }
 
+# --- the chat's files, when they are in S3 -----------------------------------------
+
+want_objects() {
+  case ${BACKUP_OBJECTS:-auto} in
+    yes|true|1) return 0 ;;
+    no|false|0) return 1 ;;
+  esac
+  [ "$(printf '%s' "${CHAT_BLOB_STORE:-}" | tr -d ' ' | tr 'A-Z' 'a-z')" = s3 ]
+}
+
+# The chat's bucket as an rclone remote, defined by variables only: the keys
+# never reach a command line or a file. Mirrors the chat's own reading of
+# CHAT_S3_*: no endpoint means AWS, with the region; an endpoint means another
+# store, addressed path-style unless CHAT_S3_FORCE_PATH_STYLE says otherwise.
+objects_remote() {
+  [ -n "${CHAT_S3_BUCKET:-}" ] || die "objects: CHAT_S3_BUCKET is not in the environment (is .env mounted as env_file?)"
+  export RCLONE_CONFIG_CHATOBJECTS_TYPE=s3
+  export RCLONE_CONFIG_CHATOBJECTS_NO_CHECK_BUCKET=true     # never create a bucket from a backup
+  if [ -n "${CHAT_S3_ENDPOINT:-}" ]; then
+    export RCLONE_CONFIG_CHATOBJECTS_PROVIDER=Other
+    export RCLONE_CONFIG_CHATOBJECTS_ENDPOINT=$CHAT_S3_ENDPOINT
+    case $(printf '%s' "${CHAT_S3_FORCE_PATH_STYLE:-true}" | tr 'A-Z' 'a-z') in
+      false|no|0) export RCLONE_CONFIG_CHATOBJECTS_FORCE_PATH_STYLE=false ;;
+      *) export RCLONE_CONFIG_CHATOBJECTS_FORCE_PATH_STYLE=true ;;
+    esac
+    export RCLONE_CONFIG_CHATOBJECTS_REGION=${CHAT_S3_REGION:-us-east-1}
+  else
+    export RCLONE_CONFIG_CHATOBJECTS_PROVIDER=AWS
+    export RCLONE_CONFIG_CHATOBJECTS_REGION=${CHAT_S3_REGION:-}
+  fi
+  if [ -n "${CHAT_S3_ACCESS_KEY_ID:-}" ]; then
+    export RCLONE_CONFIG_CHATOBJECTS_ENV_AUTH=false
+    export RCLONE_CONFIG_CHATOBJECTS_ACCESS_KEY_ID=$CHAT_S3_ACCESS_KEY_ID
+    export RCLONE_CONFIG_CHATOBJECTS_SECRET_ACCESS_KEY=${CHAT_S3_SECRET_ACCESS_KEY:-}
+  else
+    export RCLONE_CONFIG_CHATOBJECTS_ENV_AUTH=true            # the standard AWS credential chain
+  fi
+  # The chat stores everything under CHAT_S3_PREFIX; the probe objects it writes
+  # at start are not data.
+  OBJECTS_PREFIX=${CHAT_S3_PREFIX:-}
+  OBJECTS_SRC=CHATOBJECTS:$CHAT_S3_BUCKET
+}
+
+# Bring $OBJECTS_DIR to the bucket's state. Objects are immutable and keyed by
+# id, so a run copies only the new ones and removes what the chat deleted.
+sync_objects() {
+  [ -d "$OBJECTS_DIR" ] && [ -w "$OBJECTS_DIR" ] \
+    || die "objects: $OBJECTS_DIR is not a writable directory: add the backup-objects volume to the override (see the README)"
+  objects_remote
+  t=${BACKUP_OBJECTS_TIMEOUT:-60}
+  log "objects: syncing the bucket '$CHAT_S3_BUCKET'${CHAT_S3_ENDPOINT:+ at $(printf '%s' "$CHAT_S3_ENDPOINT" | mask)} into $OBJECTS_DIR"
+  # Bounded: rclone would retry an unreachable store for minutes. A listing of
+  # the top level proves the endpoint, the bucket and the keys before the copy.
+  rc=0
+  out=$(timeout "$t" rclone lsf --max-depth 1 --retries 1 --low-level-retries 1 --contimeout 10s --timeout 30s \
+        "$OBJECTS_SRC/" 2>&1 >/dev/null) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf '%s\n' "$out" | mask >&2
+    case $rc in
+      124|143) die "objects: no answer from the object store in ${t}s: unreachable? (set BACKUP_OBJECTS_TIMEOUT to wait longer)" ;;
+      *) die "objects: cannot list the bucket '$CHAT_S3_BUCKET' (exit $rc): wrong endpoint, bucket or keys?" ;;
+    esac
+  fi
+  set -- --filter "- ${OBJECTS_PREFIX}.cerea-probe/**"
+  [ -z "$OBJECTS_PREFIX" ] || set -- "$@" --filter "+ ${OBJECTS_PREFIX}**" --filter "- **"
+  rclone sync "$OBJECTS_SRC" "$OBJECTS_DIR" "$@" --retries 3 --contimeout 30s --timeout 5m \
+      --transfers "${BACKUP_OBJECTS_TRANSFERS:-4}" --stats-one-line --stats 60s --stats-log-level NOTICE \
+      || die "objects: rclone sync failed"
+  sz=$(rclone size --json "$OBJECTS_DIR") || die "objects: cannot read $OBJECTS_DIR"
+  OBJECTS_COUNT=$(printf '%s' "$sz" | sed -n 's/.*"count":\([0-9]*\).*/\1/p')
+  OBJECTS_BYTES=$(printf '%s' "$sz" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')
+  [ -n "$OBJECTS_COUNT" ] || die "objects: cannot count the copy"
+  log "objects: $OBJECTS_COUNT files, $OBJECTS_BYTES bytes in the copy"
+}
+
 # Authelia's two volumes, tarred with `authelia-config/` and `authelia-data/` at
 # the archive's root. The volumes are mounted read-only, and Authelia keeps
 # running: its files are small and replaced whole, except the SQLite store,
@@ -151,16 +231,30 @@ cmd_now() {
   STEP=postgres;  dump_postgres
   STEP=mongo;     dump_mongo
   STEP=authelia;  dump_authelia
+  # After the Mongo dump, never before: a file added in between is an extra the
+  # index does not know (harmless); the other order could leave index entries
+  # whose bytes are not in the copy.
+  OBJECTS_COUNT=; OBJECTS_BYTES=
+  if want_objects; then
+    STEP=objects; sync_objects
+  else
+    log "objects: skipped (CHAT_BLOB_STORE is not s3; BACKUP_OBJECTS=yes forces it)"
+  fi
   {
     echo "taken:    $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "project:  $HOST"
     echo "profiles: ${COMPOSE_PROFILES:-}"
     (cd "$RUN_DIR" && ls -l .env postgres.sql authelia.tgz chat-mongo.archive.gz 2>/dev/null | awk '{print "file:     " $9 " " $5 " bytes"}')
+    [ -z "$OBJECTS_COUNT" ] || echo "objects:  $OBJECTS_COUNT files, $OBJECTS_BYTES bytes (stored as objects/ beside these files)"
   } > "$RUN_DIR/backup.info"
 
   STEP=snapshot
   log "restic: storing the snapshot"
-  restic backup --host "$HOST" --tag "$TAG" "$RUN_DIR"
+  if [ -n "$OBJECTS_COUNT" ]; then
+    restic backup --host "$HOST" --tag "$TAG" "$RUN_DIR" "$OBJECTS_DIR"
+  else
+    restic backup --host "$HOST" --tag "$TAG" "$RUN_DIR"
+  fi
   cleanup
 
   forget=${RESTIC_FORGET_ARGS---keep-daily 7 --keep-weekly 4 --keep-monthly 6}
@@ -207,9 +301,25 @@ cmd_restore() {
   restic snapshots $filters
   log "restoring '$snap' into $target"
   # shellcheck disable=SC2086
-  restic restore "$snap:$RUN_DIR" $filters --target "$target"
+  # One call, so the files and the objects come from the same snapshot: they land
+  # at their full paths under a scratch directory, and the files move up.
+  mkdir "$target/.snap"
+  restic restore "$snap" $filters --target "$target/.snap" --include "$RUN_DIR" --include "$OBJECTS_DIR"
+  [ -d "$target/.snap$RUN_DIR" ] || die "the snapshot has no $RUN_DIR: not a cerea backup?"
+  mv "$target/.snap$RUN_DIR"/* "$target/.snap$RUN_DIR"/.[!.]* "$target/" 2>/dev/null || true
+  [ -d "$target/.snap$OBJECTS_DIR" ] && mv "$target/.snap$OBJECTS_DIR" "$target/objects"
+  rm -rf "$target/.snap"
   [ -f "$target/postgres.sql" ] || die "the snapshot has no postgres.sql: not a cerea backup?"
   [ -f "$target/chat-mongo.archive.gz" ] && { gzip -t "$target/chat-mongo.archive.gz" || die "chat-mongo.archive.gz is corrupt"; }
+  if [ -d "$target/objects" ]; then
+    want=$(sed -n 's/^objects: *\([0-9]*\) files.*/\1/p' "$target/backup.info" 2>/dev/null)
+    have=$(find "$target/objects" -type f | wc -l | tr -d ' ')
+    [ -z "$want" ] || [ "$want" = "$have" ] \
+      || die "objects: the snapshot lists $want files but $have were restored"
+    log "objects: $have files restored into $target/objects"
+  elif grep -q '^objects:' "$target/backup.info" 2>/dev/null; then
+    die "backup.info lists objects but the snapshot has none"
+  fi
   # The repository is root's, so this runs as root; hand the files to whoever asked.
   [ -z "${BACKUP_RESTORE_CHOWN:-}" ] || chown -R "$BACKUP_RESTORE_CHOWN" "$target"
   log "restored:"
