@@ -5,6 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Uploaded files can be opened.** Clicking a PDF in a chat shows it in the side pane. Any other
+  file without a preview (a zip, a spreadsheet, an unknown type) opens a small panel with its
+  name, type and size, a Download button and, for a stored file, Open in new tab. No file card is
+  a dead click any more.
+
 ## v0.35.1 — 2026-11-01
 
 Pins: Cerea `0.35.1` (chat and `cerea-documents`), Pystino `0.21.0`.

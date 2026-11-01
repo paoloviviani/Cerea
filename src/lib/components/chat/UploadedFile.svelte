@@ -17,6 +17,7 @@
 	import {
 		officePreviewEnabledIn,
 		pdfPayloadFor,
+		pdfPayloadFromSource,
 		previewUrlFor,
 		slidesPayloadFor,
 	} from "$lib/utils/officePreview";
@@ -92,8 +93,35 @@
 		if (officePreviewEnabledIn(page.data)) return "pdf" as const;
 		return file.name.toLowerCase().endsWith(".pptx") ? ("slides" as const) : null;
 	});
+	const isPdf = $derived(
+		file.mime.split(";")[0]?.trim().toLowerCase() === "application/pdf" ||
+			file.name.toLowerCase().endsWith(".pdf")
+	);
+	// Busy and error state of the side-pane previews (Office and PDF alike).
 	let officeBusy = $state(false);
 	let officeError = $state<string | null>(null);
+
+	async function openPdfPreview(): Promise<void> {
+		if (officeBusy) return;
+		officeBusy = true;
+		officeError = null;
+		try {
+			let source: string | Blob;
+			if (file.binary) source = file.binary;
+			else if (file.type === "hash") source = outputBase + "/" + file.value;
+			else {
+				const bin = atob(file.value);
+				const bytes = new Uint8Array(bin.length);
+				for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+				source = new Blob([bytes], { type: "application/pdf" });
+			}
+			sidePane.openPreview(await pdfPayloadFromSource(file.name, source));
+		} catch (err) {
+			officeError = err instanceof Error ? err.message : m["chat.uploaded.preview_unavailable"]();
+		} finally {
+			officeBusy = false;
+		}
+	}
 
 	async function openOfficePreview(): Promise<void> {
 		if (!officeMode || officeBusy) return;
@@ -203,13 +231,38 @@
 
 	const audioPanel = $derived(isAudio(file.mime) && file.type === "hash");
 
-	let isClickable = $derived(
-		isImage(file.mime) || isPlainText(file.mime) || officeMode !== null || audioPanel
+	// A file with no preview of its own still opens something: a small panel
+	// with its details and a download. Videos play in their chip, so they keep it.
+	const hasPreview = $derived(
+		isImage(file.mime) || isPlainText(file.mime) || officeMode !== null || audioPanel || isPdf
 	);
+	const detailsPanel = $derived(!hasPreview && !isVideo(file.mime) && !isAudio(file.mime));
+	let isClickable = $derived(hasPreview || detailsPanel);
+
+	const fileUrl = $derived(
+		file.binary
+			? (objectUrl ?? "")
+			: file.type === "base64"
+				? `data:${file.mime || "application/octet-stream"};base64,${file.value}`
+				: outputBase + "/" + file.value
+	);
+	const fileBytes = $derived(
+		file.binary
+			? file.binary.size
+			: file.type === "base64"
+				? Math.floor((file.value.length * 3) / 4)
+				: null
+	);
+	function formatSize(bytes: number): string {
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+	}
 
 	function activate(): void {
 		if (!isClickable) return;
-		if (officeMode !== null) void openOfficePreview();
+		if (isPdf && officeMode === null) void openPdfPreview();
+		else if (officeMode !== null) void openOfficePreview();
 		else {
 			if (audioPanel) void loadTranscript();
 			showModal = true;
@@ -222,7 +275,48 @@
 {#if showModal && isClickable}
 	<!-- show the image file full screen, click outside to exit -->
 	<Modal width="xl:max-w-[75dvw]" onclose={() => (showModal = false)}>
-		{#if audioPanel}
+		{#if detailsPanel}
+			<div class="flex w-full flex-col gap-3 p-4" data-testid="file-details">
+				<div class="flex items-center gap-2">
+					<CarbonDocumentBlank class="flex-none text-gray-600 dark:text-gray-300" />
+					<h3 class="truncate text-lg font-semibold">{file.name}</h3>
+					<button
+						class="ml-auto text-xl text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white"
+						aria-label={m["chat.uploaded.close_audio"]()}
+						onclick={() => (showModal = false)}
+					>
+						<CarbonClose class="text-xl" />
+					</button>
+				</div>
+				<p class="text-sm text-gray-500" data-testid="file-details-meta">
+					{file.mime || m["chat.uploaded.unknown_kind"]()}{#if fileBytes !== null}
+						· {formatSize(fileBytes)}{/if}
+				</p>
+				<p class="text-sm text-gray-500">{m["chat.uploaded.no_preview"]()}</p>
+				<div class="flex flex-wrap gap-2">
+					<a
+						href={fileUrl}
+						download={file.name}
+						class="flex items-center gap-1.5 rounded-lg bg-black px-3 py-1.5 text-sm text-white dark:bg-white dark:text-black"
+						data-testid="file-download"
+					>
+						<CarbonDownload />
+						{m["chat.uploaded.download"]()}
+					</a>
+					{#if file.type === "hash" && !file.binary}
+						<a
+							href={fileUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600"
+							data-testid="file-open-tab"
+						>
+							{m["chat.uploaded.open_tab"]()}
+						</a>
+					{/if}
+				</div>
+			</div>
+		{:else if audioPanel}
 			<div class="flex w-full flex-col gap-3 p-4" data-testid="audio-panel">
 				<div class="flex items-center gap-2">
 					<IconMic class="flex-none text-gray-600 dark:text-gray-300" />
@@ -421,6 +515,7 @@
 						: outputBase + "/" + file.value}
 					download={file.name}
 					class="ml-auto flex-none"
+					onclick={(e) => e.stopPropagation()}
 				>
 					<CarbonDownload class="text-base text-gray-700 dark:text-gray-300" />
 				</a>
