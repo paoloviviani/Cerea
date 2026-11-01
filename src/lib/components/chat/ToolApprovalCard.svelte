@@ -274,7 +274,9 @@
 				value:
 					args.mode === "new"
 						? m["chat.approval.schedule.where_new"]()
-						: m["chat.approval.schedule.where_continue"](),
+						: args.mode === "dedicated"
+							? m["chat.approval.schedule.where_dedicated"]()
+							: m["chat.approval.schedule.where_continue"](),
 			},
 			{
 				label: m["chat.approval.schedule.permission"](),

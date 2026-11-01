@@ -52,6 +52,16 @@ describe("parseScheduleToolArgs", () => {
 		});
 	});
 
+	it("accepts the dedicated mode and refuses an unknown one", () => {
+		expect(parseScheduleToolArgs({ ...proposal, mode: "dedicated" }, {})).toMatchObject({
+			ok: true,
+			value: { mode: "dedicated" },
+		});
+		expect(parseScheduleToolArgs({ ...proposal, mode: "elsewhere" }, {})).toMatchObject({
+			ok: false,
+		});
+	});
+
 	it("takes the person's timezone when the model leaves it out, and UTC when nobody knows it", () => {
 		const bare: Partial<typeof proposal> = { ...proposal };
 		delete bare.timezone;

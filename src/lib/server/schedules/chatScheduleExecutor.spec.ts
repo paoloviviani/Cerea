@@ -471,6 +471,137 @@ describe("a run in a new chat", () => {
 	});
 });
 
+describe("a run in a dedicated chat", () => {
+	beforeEach(() => {
+		flags.create.mockImplementation(async (event: { request: Request }) => {
+			const body = (await event.request.json()) as { model: string };
+			createdWith.push(body);
+			const _id = await seedConversation({ model: body.model, title: "New Chat" });
+			return new Response(JSON.stringify({ conversationId: _id.toString() }));
+		});
+	});
+
+	it("the first run creates the chat, named after the schedule, and stores it on the schedule", async () => {
+		const schedule = await make({ mode: "dedicated", model: "test-model" });
+		const run = await runNow(person.user._id, schedule._id.toString());
+
+		expect(run.status).toBe("sent");
+		const id = run.result?.ids.conversationId as string;
+		expect((await collections.conversations.findOne({ _id: new ObjectId(id) }))?.title).toBe(
+			"Weekly news"
+		);
+		const stored = await getSchedule(person.user._id, schedule._id.toString());
+		expect(stored.target).toMatchObject({
+			mode: "dedicated",
+			dedicatedConversationId: id,
+			labels: { conversation: "Weekly news" },
+		});
+		expect(await executor.describeTarget(stored.target, { userId: person.user._id })).toBe(
+			"Dedicated chat › Weekly news"
+		);
+	});
+
+	it("later runs post into the same chat and make no new one", async () => {
+		const schedule = await make({ mode: "dedicated", model: "test-model" });
+		const first = await runNow(person.user._id, schedule._id.toString());
+		flags.create.mockClear();
+		const second = await runNow(person.user._id, schedule._id.toString());
+
+		expect(second.status).toBe("sent");
+		expect(flags.create).not.toHaveBeenCalled();
+		expect(second.result?.ids.conversationId).toBe(first.result?.ids.conversationId);
+		const turn = flags.turn.mock.calls[1][0] as { params: { id: string } };
+		expect(turn.params.id).toBe(first.result?.ids.conversationId);
+	});
+
+	it("skips while the dedicated chat is still generating", async () => {
+		const schedule = await make({ mode: "dedicated", model: "test-model" });
+		const first = await runNow(person.user._id, schedule._id.toString());
+		await collections.turnStates.insertOne({
+			_id: new ObjectId(),
+			conversationId: new ObjectId(first.result?.ids.conversationId),
+			messageId: "a1",
+			status: "running",
+			producerId: "g",
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		flags.create.mockClear();
+		const second = await runNow(person.user._id, schedule._id.toString());
+		expect(second.status).toBe("skipped-still-running");
+		expect(flags.create).not.toHaveBeenCalled();
+	});
+
+	it("makes the chat again when it was deleted, and does not switch the schedule off", async () => {
+		const schedule = await make({ mode: "dedicated", model: "test-model" });
+		const first = await runNow(person.user._id, schedule._id.toString());
+		await collections.conversations.deleteOne({
+			_id: new ObjectId(first.result?.ids.conversationId),
+		});
+		const second = await runNow(person.user._id, schedule._id.toString());
+
+		expect(second.status).toBe("sent");
+		expect(second.result?.ids.conversationId).not.toBe(first.result?.ids.conversationId);
+		const stored = await getSchedule(person.user._id, schedule._id.toString());
+		expect(stored.enabled).toBe(true);
+		expect(stored.target).toMatchObject({
+			dedicatedConversationId: second.result?.ids.conversationId,
+		});
+	});
+
+	it("an edit keeps the chat; switching away drops it; a client cannot set it", async () => {
+		const schedule = await make({ mode: "dedicated", model: "test-model" });
+		const first = await runNow(person.user._id, schedule._id.toString());
+		const id = first.result?.ids.conversationId as string;
+
+		const edited = await updateSchedule(person.user._id, schedule._id.toString(), {
+			prompt: "something else",
+			target: { mode: "dedicated", model: "other-model", dedicatedConversationId: "x".repeat(24) },
+		});
+		expect(edited.target).toMatchObject({
+			mode: "dedicated",
+			model: "other-model",
+			dedicatedConversationId: id,
+			labels: { conversation: "Weekly news" },
+		});
+
+		const away = await updateSchedule(person.user._id, schedule._id.toString(), {
+			target: { mode: "new", model: "test-model", dedicatedConversationId: id },
+		});
+		expect(away.target).not.toHaveProperty("dedicatedConversationId");
+	});
+
+	it("ignores a dedicatedConversationId from a client on a new schedule", async () => {
+		const check = await executor.validateTarget(
+			{
+				mode: "dedicated",
+				model: "test-model",
+				dedicatedConversationId: conversationId.toString(),
+			},
+			{ userId: person.user._id }
+		);
+		expect(check).toMatchObject({ ok: true, target: { mode: "dedicated" } });
+		expect(
+			(check as { target: Record<string, unknown> }).target.dedicatedConversationId
+		).toBeUndefined();
+	});
+
+	it("keeps parsing old targets unchanged and describes a dedicated chat not yet made", async () => {
+		expect(parseChatTarget({ mode: "new", model: "m", dedicatedConversationId: "abc" })).toEqual({
+			mode: "new",
+			model: "m",
+			permissionMode: "ask",
+			labels: {},
+		});
+		expect(
+			await executor.describeTarget(
+				{ mode: "dedicated", model: "m", labels: { project: "Docs" } },
+				{ userId: person.user._id }
+			)
+		).toBe("Dedicated chat › Docs");
+	});
+});
+
 describe("when the turn goes wrong", () => {
 	it("a 401 from the gateway is an ordinary failed run now: the access is the grant's to lose, not the run's", async () => {
 		flags.turn.mockImplementation(async () => turnResponse([failedWith(401, "Unauthorized")]));
