@@ -6,13 +6,12 @@
  * its instructions and its knowledge bases are the owner's, and a shared
  * editor would be able to redirect every future conversation in it.
  *
- * Deleting a project does **not** delete its conversations, and does not delete
- * its knowledge bases (its notes and context documents go with it: they belong to the
- * project and nothing else lists them). The conversations keep their `projectId`, pointing at
- * nothing, and appear in the ordinary chat list again; the bases are gateway
- * resources with their own owner and their own lifecycle. Cascading either
- * would make "delete this project" a destructive act somebody performs to tidy
- * a sidebar.
+ * Deleting a project deletes the owner's chats in it (everything a deleted
+ * conversation leaves behind goes too), its past-chats knowledge base, notes and
+ * context documents. `?keepChats=1` detaches the chats instead: they keep
+ * existing and appear in the ordinary chat list. Other members' chats in a
+ * shared project are always detached, never deleted. Attached knowledge bases
+ * are gateway resources with their own owner and are never touched.
  */
 
 import { error, json, type RequestHandler } from "@sveltejs/kit";
@@ -22,6 +21,7 @@ import { collections } from "$lib/server/database";
 import type { Conversation } from "$lib/types/Conversation";
 import { logger } from "$lib/server/logger";
 import { rejectMemoryBases } from "$lib/server/knowledge/memoryBases";
+import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import { deleteProjectDocuments } from "$lib/server/projectDocuments";
 import {
@@ -79,44 +79,58 @@ export const DELETE: RequestHandler = async ({ locals, params, url }) => {
 	const access = await projectAccess(params.id as string, user._id, principals);
 	if (!access) error(404, "No such project.");
 	if (!access.owned) error(403, "Only the person who created a project can delete it.");
-	// Off by default: the past-chats memory is an ordinary knowledge base that
-	// outlives its project unless the person says otherwise (`?memory=delete`).
-	// Only a base the project's owner owns is theirs to drop; one made by a
-	// member before the base belonged to the project is left alone.
-	const memoryId = access.project.memoryBaseId;
-	if (url.searchParams.get("memory") === "delete" && memoryId && ObjectId.isValid(memoryId)) {
-		const base = await collections.vectorStores.findOne({ _id: new ObjectId(memoryId) });
-		if (base?.ownerId.equals(access.project.userId)) {
-			await deleteDerived({ storeIds: base._id, dropStores: true });
-		}
+	const keepChats = ["1", "true"].includes(url.searchParams.get("keepChats") ?? "");
+	// `?memory=delete` is accepted and ignored: the past-chats base is always
+	// deleted now, and an older client may still send it.
+	const project = access.project;
+
+	// Chats first, then the memory, then notes and documents, and the project
+	// row last: a failure midway leaves a project that still exists, never one
+	// pointing at deleted things.
+	const rows = await collections.conversations
+		.find({ projectId: project._id })
+		.project<{ _id: Conversation["_id"]; userId?: Conversation["userId"] }>({ _id: 1, userId: 1 })
+		.toArray();
+	// Only the owner's own chats are the owner's to delete. A member's chat in a
+	// shared project is theirs: it is detached and goes back to their list.
+	const ownedIds = keepChats
+		? []
+		: rows.filter((row) => row.userId?.equals(project.userId)).map((row) => row._id);
+	const owned = new Set(ownedIds.map(String));
+	const detachIds = rows.map((row) => row._id).filter((id) => !owned.has(String(id)));
+
+	if (ownedIds.length > 0) {
+		await collections.conversations.deleteMany({ _id: { $in: ownedIds } });
+		await deleteConversationStorage(ownedIds);
 	}
-	// Its chats are kept, and go back to the ordinary list, as the dialog says:
-	// without this they kept a `projectId` naming nothing, which no list shows.
-	// Their transcripts leave the project's memory, though — a chat that is no
-	// longer in the project must stop surfacing in its retrieval
-	// (`conversationStorage.ts`'s note on moving a conversation out).
-	const conversationIds = await collections.conversations
-		.find({ projectId: access.project._id })
-		.project<{ _id: Conversation["_id"] }>({ _id: 1 })
-		.toArray()
-		.then((rows) => rows.map((row) => row._id));
-	if (conversationIds.length > 0) {
+	if (detachIds.length > 0) {
 		await collections.conversations.updateMany(
-			{ _id: { $in: conversationIds } },
+			{ _id: { $in: detachIds } },
 			{ $unset: { projectId: "" } }
 		);
-		for (const conversationId of conversationIds) {
+		// A chat no longer in the project must stop surfacing in its retrieval
+		// (`conversationStorage.ts`'s note on moving a conversation out).
+		for (const conversationId of detachIds) {
 			await deleteDerived({ conversationId }).catch((err) =>
 				logger.warn({ err, conversationId }, "project_delete_transcript_cleanup_failed")
 			);
 		}
 	}
-	// Its notes are the project's and go with it (they would otherwise be
-	// unreachable rows no screen lists), unlike its chats, which are kept.
-	await collections.projectMemories.deleteMany({ projectId: access.project._id });
-	// Likewise its context documents, rows and stored files — the one thing a
-	// project holds in the bucket (`projectDocuments.ts`).
-	await deleteProjectDocuments(access.project._id);
-	await collections.projects.deleteOne({ _id: access.project._id });
+
+	// The past-chats base is always deleted, but only when the project's owner
+	// owns it: one made by a member before the base belonged to the project is
+	// theirs, and is left alone. Attached knowledge bases are never touched.
+	const memoryId = project.memoryBaseId;
+	if (memoryId && ObjectId.isValid(memoryId)) {
+		const base = await collections.vectorStores.findOne({ _id: new ObjectId(memoryId) });
+		if (base?.ownerId.equals(project.userId)) {
+			await deleteDerived({ storeIds: base._id, dropStores: true });
+		}
+	}
+	// Its notes and context documents (rows and stored files) are the
+	// project's and go with it: no screen would list them otherwise.
+	await collections.projectMemories.deleteMany({ projectId: project._id });
+	await deleteProjectDocuments(project._id);
+	await collections.projects.deleteOne({ _id: project._id });
 	return new Response(null, { status: 204 });
 };

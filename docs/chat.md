@@ -83,8 +83,9 @@ only: it is never saved and never shown in the transcript.
 **Deleting.** Deleting a conversation removes everything it stored: attachments
 and the text read from them, code-run files, its indexed transcript, and
 anything a long-retired version copied for sharing it. **Delete all
-conversations** includes chats inside projects. Deleting a **project** keeps its
-chats and returns them to your ordinary list. A daily sweep removes files
+conversations** includes chats inside projects. Deleting a **project** deletes the chats
+you started in it, unless you tick **Keep the project's chats as regular chats**,
+which returns them to your ordinary list. A daily sweep removes files
 left behind by anything that failed or by older versions, after a 24-hour
 grace period.
 

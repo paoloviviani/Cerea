@@ -5,6 +5,15 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Deleting a project deletes its chats.** One confirmation replaces the two
+  chained prompts: it lists what goes (the chats, notes, files and the
+  past-chats knowledge base, which is now always deleted) and what stays
+  (attached knowledge bases; other users' chats in a shared project, which
+  return to their own lists). **Keep the project's chats as regular chats**
+  restores the old behaviour for your chats.
+
 ## v0.36.0 — 2026-11-01
 
 Pins: Cerea `0.36.0` (chat and `cerea-documents`), Pystino `0.22.1`.

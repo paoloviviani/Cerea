@@ -55,6 +55,7 @@
 	import SettingsShell from "$lib/components/settings/SettingsShell.svelte";
 	import SettingsGroup from "$lib/components/settings/SettingsGroup.svelte";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
+	import DeleteProjectModal from "./DeleteProjectModal.svelte";
 	import ProjectMemorySection from "./ProjectMemorySection.svelte";
 	import ProjectDocumentsSection from "./ProjectDocumentsSection.svelte";
 	import type { ProjectView } from "$lib/types/Project";
@@ -439,23 +440,19 @@
 		}
 	}
 
-	async function destroy() {
+	let deletingProject = $state(false);
+
+	async function destroy(keepChats: boolean) {
 		if (!project) return;
-		if (!confirm(m["projects.page.delete.confirm"]({ name: project.name }))) return;
-		const withMemory =
-			project.hasMemory &&
-			confirm(m["projects.page.delete.confirm_memory"]({ name: project.name }));
-		busy = true;
 		try {
-			await api(`/projects/${project.id}${withMemory ? "?memory=delete" : ""}`, {
+			await api(`/projects/${project.id}${keepChats ? "?keepChats=1" : ""}`, {
 				method: "DELETE",
 			});
-			projectsChanged();
-			await goto(`${base}/projects`);
 		} catch (err) {
-			failure = err instanceof Error ? err.message : m["projects.page.delete.failed"]();
-			busy = false;
+			throw new Error(err instanceof Error ? err.message : m["projects.page.delete.failed"]());
 		}
+		projectsChanged();
+		await goto(`${base}/projects`);
 	}
 
 	/** The settings tab's index: the groups, and the numbered levels under them. */
@@ -973,13 +970,25 @@
 						>
 							{m["projects.page.danger.title"]()}
 						</h2>
-						<button type="button" onclick={destroy} disabled={busy} class={s.CARD_DESTRUCTIVE}>
+						<button
+							type="button"
+							onclick={() => (deletingProject = true)}
+							disabled={busy}
+							class={s.CARD_DESTRUCTIVE}
+						>
 							<IconTrash class="size-3" />
 							{m["projects.page.delete.button"]()}
 						</button>
 					</section>
 				{/if}
 			</SettingsShell>
+			{#if deletingProject && project}
+				<DeleteProjectModal
+					{project}
+					onclose={() => (deletingProject = false)}
+					ondelete={destroy}
+				/>
+			{/if}
 		{:else}
 			<!--
 				The conversations tab: the strip with the count and the New chat

@@ -48,6 +48,7 @@
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
 	import type { ProjectView } from "$lib/types/Project";
+	import DeleteProjectModal from "../projects/DeleteProjectModal.svelte";
 	import CarbonFolder from "~icons/carbon/folder";
 	import CarbonSettings from "~icons/carbon/settings";
 	import CarbonTrash from "~icons/carbon/trash-can";
@@ -281,25 +282,17 @@
 	}
 
 	/**
-	 * Delete one project from its own row.
-	 * The confirmation says what is *kept*, because the surprising part is that
-	 * nothing else goes: the conversations return to the ordinary Chats list and
-	 * the knowledge bases are gateway resources with their own owner. Somebody
-	 * tidying a sidebar should not have to guess whether they are about to lose
-	 * a month of chats.
+	 * Delete one project from its own row, through the shared modal, which says
+	 * what goes (its chats unless kept, notes, files, past-chats base) and what
+	 * is kept (attached knowledge bases, other members' chats).
 	 */
-	async function destroy(project: ProjectView) {
-		if (!confirm(m["nav.projects.confirm_delete"]({ name: project.name }))) return;
-		// The memory is the one thing that would otherwise stay behind holding
-		// what was said: a second question, so "no" still deletes the project.
-		const withMemory =
-			project.owned &&
-			project.hasMemory &&
-			confirm(m["nav.projects.confirm_delete_memory"]({ name: project.name }));
+	let deleting = $state<ProjectView | null>(null);
+
+	async function destroy(project: ProjectView, keepChats: boolean) {
 		busy = true;
 		try {
 			const response = await fetch(
-				`${base}/api/v2/projects/${project.id}${withMemory ? "?memory=delete" : ""}`,
+				`${base}/api/v2/projects/${project.id}${keepChats ? "?keepChats=1" : ""}`,
 				{ method: "DELETE" }
 			);
 			if (!response.ok) throw new Error(String(response.status));
@@ -307,7 +300,7 @@
 			delete expanded[project.id];
 			await loadProjects();
 		} catch {
-			failed = true;
+			throw new Error(m["projects.page.delete.failed"]());
 		} finally {
 			busy = false;
 		}
@@ -401,7 +394,7 @@
 									disabled={busy}
 									onclick={() => {
 										close();
-										void destroy(project);
+										deleting = project;
 									}}
 									class="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-900/20"
 								>
@@ -457,3 +450,12 @@
 		{/each}
 	{/if}
 </TreeBranch>
+
+{#if deleting}
+	{@const target = deleting}
+	<DeleteProjectModal
+		project={target}
+		onclose={() => (deleting = null)}
+		ondelete={(keepChats) => destroy(target, keepChats)}
+	/>
+{/if}
