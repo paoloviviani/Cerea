@@ -502,4 +502,14 @@ describe("ToolApprovalCard, the assistant's schedule proposal", () => {
 			.element(screen.getByTestId("schedule-approval"))
 			.toHaveTextContent("In a new chat each time");
 	});
+
+	it("reads a dedicated chat as a chat of its own, reused every run", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: request("schedule", { ...proposal.toolApproval?.args, mode: "dedicated" }),
+		});
+		await expect
+			.element(screen.getByTestId("schedule-approval"))
+			.toHaveTextContent("In a chat of its own, reused every run");
+	});
 });

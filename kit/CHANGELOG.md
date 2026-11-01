@@ -7,9 +7,13 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Schedules can have a dedicated chat.** A chat schedule can now post every run into one chat
+  made for it, named after the schedule, instead of continuing an existing chat or starting a new
+  one each time. The assistant can pick it too. No new settings.
 - **Uploaded files can be opened.** Clicking a PDF in a chat shows it in the side pane. Any other
   file without a preview (a zip, a spreadsheet, an unknown type) opens a small panel with its
-  name, type and size, a Download button and, for a stored file, Open in new tab. No file card is
+  name, type and size, and a Download button;
+  a PDF that cannot be shown falls back to it. No file card is
   a dead click any more.
 
 ## v0.35.1 — 2026-11-01

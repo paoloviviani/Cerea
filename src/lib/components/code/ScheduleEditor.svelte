@@ -100,7 +100,7 @@
 	);
 	type ChatTarget = {
 		permissionMode?: "ask" | "allow";
-		mode?: "continue" | "new";
+		mode?: "continue" | "new" | "dedicated";
 		conversationId?: string;
 		model?: string;
 		projectId?: string;
@@ -110,7 +110,8 @@
 		{}) as ChatTarget;
 	// The chat picker's "a new chat each time" choice, like the agent picker's "a new session each run".
 	const NEW_CHAT = "__new__";
-	let chatMode = $state<"continue" | "new">(chatStored.mode ?? "continue");
+	const DEDICATED_CHAT = "__dedicated__";
+	let chatMode = $state<"continue" | "new" | "dedicated">(chatStored.mode ?? "continue");
 	let chatConversationId = $state(chatStored.conversationId ?? initial.conversationId ?? "");
 	let chatModel = $state(chatStored.model ?? "");
 	// The person's own approval setting: a schedule is never looser than it, and starts at it.
@@ -341,7 +342,7 @@
 				return (failure = m["code.schedule_editor.err_grant"]());
 			if (chatMode === "continue" && !chatConversationId)
 				return (failure = m["code.schedule_editor.err_chat"]());
-			if (chatMode === "new" && !chatModel && !initial.conversationId)
+			if (chatMode !== "continue" && !chatModel && !initial.conversationId)
 				return (failure = m["code.schedule_editor.err_model"]());
 		} else if (!deviceId) return (failure = m["code.schedule_editor.err_machine"]());
 		if (kind === "agent") {
@@ -366,7 +367,7 @@
 								permissionMode: chatPermission,
 							}
 						: {
-								mode: "new",
+								mode: chatMode,
 								permissionMode: chatPermission,
 								...(initial.conversationId ? { conversationId: initial.conversationId } : {}),
 								...(chatModel ? { model: chatModel } : {}),
@@ -514,16 +515,22 @@
 							id="sched-chat"
 							class={s.INPUT}
 							style="font-size: 16px;"
-							value={chatMode === "new" ? NEW_CHAT : chatConversationId}
+							value={chatMode === "new"
+								? NEW_CHAT
+								: chatMode === "dedicated"
+									? DEDICATED_CHAT
+									: chatConversationId}
 							onchange={(e) => {
 								const value = e.currentTarget.value;
-								chatMode = value === NEW_CHAT ? "new" : "continue";
-								if (value !== NEW_CHAT) chatConversationId = value;
+								chatMode =
+									value === NEW_CHAT ? "new" : value === DEDICATED_CHAT ? "dedicated" : "continue";
+								if (value !== NEW_CHAT && value !== DEDICATED_CHAT) chatConversationId = value;
 							}}
 							disabled={busy}
 						>
 							<option value="" disabled>{m["code.schedule_editor.choose_chat"]()}</option>
 							<option value={NEW_CHAT}>{m["code.schedule_editor.mode_new"]()}</option>
+							<option value={DEDICATED_CHAT}>{m["code.schedule_editor.mode_dedicated"]()}</option>
 							{#each chatConversations as c (String(c.id))}
 								<option value={String(c.id)}>{c.title}</option>
 							{/each}
@@ -534,7 +541,7 @@
 							{/if}
 						</select>
 					</div>
-					{#if chatMode === "new"}
+					{#if chatMode !== "continue"}
 						<div class="min-w-0">
 							{#if templateChat}
 								<span class={s.LABEL}>{m["code.schedule_editor.model"]()}</span>
@@ -562,7 +569,9 @@
 				<p class={s.HINT}>
 					{chatMode === "new"
 						? m["code.schedule_editor.mode_new_hint"]()
-						: m["code.schedule_editor.mode_continue_hint"]()}
+						: chatMode === "dedicated"
+							? m["code.schedule_editor.mode_dedicated_hint"]()
+							: m["code.schedule_editor.mode_continue_hint"]()}
 				</p>
 
 				<div class="mt-4">
