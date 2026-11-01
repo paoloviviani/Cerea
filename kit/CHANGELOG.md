@@ -5,8 +5,18 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.36.0 — 2026-11-01
 
+Pins: Cerea `0.36.0` (chat and `cerea-documents`), Pystino `0.22.1`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required. If you run the restic
+backup sidecar and the chat keeps its files in S3, also update its override and rebuild it (see
+below).
+
+- **Image models are billed per image** (Pystino 0.22): Cortecs' per-image and per-extra-megapixel
+  rates are imported and charged on what the provider delivered. A model the catalogue lists as
+  free (stable-diffusion-xl-base-1.0) shows €0.00 per image rather than a dash; the console's
+  price dialog accepts a per-image rate.
 - **The assistant can make images.** With an image model granted (Admin → Images picks the
   default, `CHAT_IMAGE_MODEL` sets it from the environment), the chat offers a `generate_image`
   tool and a "Create an image" item in the "+" menu. Up to 4 images per turn; each is kept with the
