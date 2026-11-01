@@ -109,7 +109,7 @@ test("the assistant draws an image: a card with the prompts and a download, mete
 		model: "mock-image",
 		prompt: "a red fox on a hill",
 		n: 1,
-		size: "1536x1024",
+		size: "1344x768",
 		response_format: "b64_json",
 		authorization: `Bearer ${TOKEN}`,
 	});
@@ -188,7 +188,9 @@ test("with the administrator's switch on, the approval card comes first", async 
 
 	await ask(page, "draw a red fox on a hill");
 	const assistant = page.locator('[data-message-role="assistant"]').last();
-	await expect(assistant.getByText("generate_image")).toBeVisible({ timeout: 60_000 });
+	await expect(assistant.getByText("wants to call generate_image")).toBeVisible({
+		timeout: 60_000,
+	});
 	await expect(assistant.getByRole("button", { name: "Allow once" })).toBeVisible();
 	expect(imageRequests(await mockOpenAI.requests())).toHaveLength(0);
 
@@ -203,8 +205,14 @@ test("the + menu offers Create an image only while a model resolves, and starts 
 	request,
 	db,
 	session,
+	mockOpenAI,
 }) => {
+	await mockOpenAI.reset();
 	await signIn(db, session.sessionId);
+	// A token of its own: the catalogue is remembered 30 s per token.
+	await db
+		.collection("sessions")
+		.updateOne({ sessionId: session.sessionId }, { $set: { "oauth.token.value": `${TOKEN}-0` } });
 	await page.goto(`${E2E_APP_BASE}/`);
 	await waitForHydration(page);
 	await page.getByRole("button", { name: "Add attachment" }).click();

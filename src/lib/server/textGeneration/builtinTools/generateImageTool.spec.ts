@@ -135,7 +135,7 @@ describe("generate_image", () => {
 	it("maps an aspect to a size", async () => {
 		post.mockResolvedValue(answer(1));
 		await tool().execute({ prompt: "x", aspect: "landscape" }, ctx());
-		expect(post.mock.calls[0][2]).toMatchObject({ size: "1536x1024", n: 1 });
+		expect(post.mock.calls[0][2]).toMatchObject({ size: "1344x768", n: 1 });
 	});
 
 	it("reports the gateway's message and the refusal of a provider", async () => {

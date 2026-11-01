@@ -163,8 +163,7 @@ prompt passes through the gateway's redaction.
   policy; a grant "for the rest of the conversation" lifts it for that
   conversation. A scheduled run has nobody to ask, so with the switch on it
   cannot generate images.
-- **Limits.** 4 images per turn across calls; sizes from a fixed list (512 to
-  1792 pixels); a prompt up to 4,000 characters; up to 20 MB per image.
+- **Limits.** 4 images per turn across calls; sizes from a fixed list of about one megapixel (providers such as Cortecs deliver at most that and may return JPEG; files are named and stored by their real format, and the delivered size is reported); a prompt up to 4,000 characters; up to 20 MB per image.
 - **Storage.** Each image is a produced file in the conversation, so
   [retention](#storage) and the per-conversation file limits apply to it, and
   the code sandbox mounts it like any file the assistant made.

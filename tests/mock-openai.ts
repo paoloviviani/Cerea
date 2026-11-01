@@ -499,6 +499,13 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 			for (let i = 0; i < messages.length; i += 1) {
 				const m = messages[i];
 				if (typeof m === "object" && m !== null && (m as { role?: string }).role === "user") {
+					// The pictures a tool returned ride in a user message right after its result (look_doc,
+					// generate_image): not a new turn.
+					const content = (m as { content?: unknown }).content;
+					const first = Array.isArray(content)
+						? (content[0] as { text?: string })?.text
+						: undefined;
+					if (typeof first === "string" && first.startsWith("Images returned by ")) continue;
 					lastUserIdx = i;
 				}
 			}

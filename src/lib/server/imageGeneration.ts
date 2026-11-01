@@ -40,17 +40,17 @@ export const MAX_IMAGE_PROMPT_CHARS = 4000;
 export const IMAGE_SIZES = [
 	"512x512",
 	"1024x1024",
-	"1536x1024",
-	"1024x1536",
-	"1792x1024",
-	"1024x1792",
+	"1344x768",
+	"768x1344",
+	"1024x768",
+	"768x1024",
 ] as const;
 export type ImageSize = (typeof IMAGE_SIZES)[number];
 export const DEFAULT_IMAGE_SIZE: ImageSize = "1024x1024";
 export const IMAGE_ASPECTS = {
 	square: "1024x1024",
-	landscape: "1536x1024",
-	portrait: "1024x1536",
+	landscape: "1344x768",
+	portrait: "768x1344",
 } as const;
 
 // -- which model --------------------------------------------------------------
@@ -342,7 +342,47 @@ async function bytesOf(entry: NonNullable<GatewayImageAnswer["data"]>[number]): 
 
 // -- the call -----------------------------------------------------------------
 
+/** Width and height read from the image's header, or null when they cannot be. */
+export function imageDimensions(bytes: Buffer): { width: number; height: number } | null {
+	const kind = sniffImage(bytes)?.ext;
+	if (kind === "png" && bytes.length >= 24) {
+		return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+	}
+	if (kind === "jpg") {
+		let at = 2;
+		while (at + 9 < bytes.length) {
+			if (bytes[at] !== 0xff || bytes[at + 1] === 0xff) {
+				at += 1;
+				continue;
+			}
+			const marker = bytes[at + 1];
+			if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+				return { height: bytes.readUInt16BE(at + 5), width: bytes.readUInt16BE(at + 7) };
+			}
+			at += 2 + bytes.readUInt16BE(at + 2);
+		}
+		return null;
+	}
+	if (kind === "webp" && bytes.length >= 30) {
+		const chunk = bytes.subarray(12, 16).toString("ascii");
+		if (chunk === "VP8X") {
+			return { width: 1 + bytes.readUIntLE(24, 3), height: 1 + bytes.readUIntLE(27, 3) };
+		}
+		if (chunk === "VP8 ") {
+			return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff };
+		}
+		if (chunk === "VP8L") {
+			const bits = bytes.readUInt32LE(21);
+			return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+		}
+	}
+	return null;
+}
+
 export interface GeneratedImageFile {
+	/** The delivered pixels, from the header: a provider may return less than was asked for. */
+	width?: number;
+	height?: number;
 	ref: PersistedDeliverableRef;
 	bytes: Buffer;
 	mime: string;
@@ -469,6 +509,7 @@ export async function generateImages(options: {
 			continue;
 		}
 		files.push({
+			...(imageDimensions(fetched.bytes) ?? {}),
 			ref: {
 				...stored.ref,
 				prompt: options.prompt.slice(0, MAX_IMAGE_PROMPT_CHARS),
@@ -489,10 +530,10 @@ export async function generateImages(options: {
 export function imageResultText(result: Extract<ImageGeneration, { ok: true }>, seen: boolean) {
 	const lines = result.files.map((file) => {
 		const kb = Math.max(1, Math.round(file.ref.size / 1024));
-		return `- ${file.ref.name} (${kb} KB)${file.revisedPrompt ? `; the model's revised prompt: ${file.revisedPrompt}` : ""}`;
+		return `- ${file.ref.name} (${file.width && file.height ? `${file.width}x${file.height} px, ` : ""}${kb} KB)${file.revisedPrompt ? `; the model's revised prompt: ${file.revisedPrompt}` : ""}`;
 	});
 	return (
-		`Made ${result.files.length} image${result.files.length === 1 ? "" : "s"} with ${result.model} at ${result.size}; ` +
+		`Made ${result.files.length} image${result.files.length === 1 ? "" : "s"} with ${result.model} (asked for ${result.size}; the sizes listed are what was delivered, and providers may deliver less than asked); ` +
 		"the person sees each in the chat and can download it, and it is in this conversation's files (the sandbox mounts it like any file you made):\n" +
 		lines.join("\n") +
 		(result.notes.length > 0 ? `\nNot kept: ${result.notes.join(" ")}` : "") +

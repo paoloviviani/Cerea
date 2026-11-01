@@ -51,7 +51,7 @@ export function createGenerateImageBuiltin(params: GenerateImageParams): Builtin
 						"Write `prompt` as a full visual description in the language the image model reads best (usually English): subject, setting, style, lighting, composition. " +
 						"Any text you want drawn in the image must be quoted exactly, and image models spell poorly, so keep it short. " +
 						`Each image costs money, so make what was asked for and no more: at most ${MAX_IMAGES_GENERATED_PER_TURN} images per turn. ` +
-						"The result gives the file name(s) and the prompt the model actually used.",
+						"Image models deliver about one megapixel at most, so larger sizes are not guaranteed; the result gives the delivered pixel size, the file name(s) and the prompt the model used, when it says.",
 					parameters: {
 						type: "object",
 						properties: {
@@ -65,7 +65,7 @@ export function createGenerateImageBuiltin(params: GenerateImageParams): Builtin
 								type: "string",
 								enum: Object.keys(IMAGE_ASPECTS),
 								description:
-									"square (1024x1024), landscape (1536x1024) or portrait (1024x1536), instead of `size`.",
+									"square (1024x1024), landscape (1344x768) or portrait (768x1344), instead of `size`.",
 							},
 							n: {
 								type: "integer",

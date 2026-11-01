@@ -60,7 +60,9 @@ import {
 	clearImageModelCache,
 	generateImages,
 	imageAskFirst,
+	imageDimensions,
 	imageFileStem,
+	imageResultText,
 	parseImageArgs,
 	resolveImage,
 	resolveImageModel,
@@ -163,13 +165,13 @@ describe("parseImageArgs", () => {
 
 	it("maps an aspect to a size, and a size wins over it", () => {
 		expect(parseImageArgs({ prompt: "x", aspect: "landscape" })).toMatchObject({
-			size: "1536x1024",
+			size: "1344x768",
 		});
 		expect(parseImageArgs({ prompt: "x", aspect: "portrait" })).toMatchObject({
-			size: "1024x1536",
+			size: "768x1344",
 		});
-		expect(parseImageArgs({ prompt: "x", size: "1024x1536", aspect: "landscape" })).toMatchObject({
-			size: "1024x1536",
+		expect(parseImageArgs({ prompt: "x", size: "768x1344", aspect: "landscape" })).toMatchObject({
+			size: "768x1344",
 		});
 	});
 
@@ -204,6 +206,46 @@ describe("file names and formats", () => {
 		expect(sniffImage(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0]))?.ext).toBe("jpg");
 		expect(sniffImage(Buffer.from("RIFF1234WEBPVP8 "))?.ext).toBe("webp");
 		expect(sniffImage(Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>"))).toBeNull();
+	});
+});
+
+describe("delivered dimensions", () => {
+	it("reads them from the PNG and JPEG headers, not from the request", () => {
+		const png = Buffer.alloc(33);
+		Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
+		png.write("IHDR", 12);
+		png.writeUInt32BE(1024, 16);
+		png.writeUInt32BE(768, 20);
+		expect(imageDimensions(png)).toEqual({ width: 1024, height: 768 });
+		// SOI, an APP0 segment of length 4, then SOF0 (height 768, width 1024).
+		const jpeg = Buffer.from([
+			0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x03, 0x00,
+			0x04, 0x00, 0x03, 0x01, 0x11, 0x00,
+		]);
+		expect(imageDimensions(jpeg)).toEqual({ width: 1024, height: 768 });
+		expect(imageDimensions(Buffer.from("nope"))).toBeNull();
+	});
+
+	it("stores and names a JPEG answer by its real format and reports its size", async () => {
+		const jpeg = Buffer.from([
+			0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x03, 0x00,
+			0x04, 0x00, 0x03, 0x01, 0x11, 0x00,
+		]);
+		post.mockResolvedValue({
+			data: [{ b64_json: jpeg.toString("base64"), revised_prompt: null, url: null }],
+		});
+		const result = await generateImages({
+			token: "tok",
+			prompt: "a fox",
+			size: "1344x768",
+			n: 1,
+			conversationId: new ObjectId(),
+		});
+		if (!result.ok) throw new Error("expected ok");
+		expect(result.files[0]).toMatchObject({ width: 1024, height: 768, mime: "image/jpeg" });
+		expect(result.files[0].ref.name).toBe("image-a-fox.jpg");
+		expect(result.files[0].ref.revisedPrompt).toBeUndefined();
+		expect(imageResultText(result, false)).toContain("1024x768 px");
 	});
 });
 

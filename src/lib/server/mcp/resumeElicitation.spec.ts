@@ -766,7 +766,7 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 		generateImagesMock.mockResolvedValue({
 			ok: true,
 			model: "flux-2-klein-4b",
-			size: "1536x1024",
+			size: "1344x768",
 			notes: [],
 			files: [
 				{
@@ -788,7 +788,7 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			expect.objectContaining({
 				token: "tok",
 				prompt: "a fox",
-				size: "1536x1024",
+				size: "1344x768",
 				n: 1,
 				conversationId,
 				messageId: "m1",
