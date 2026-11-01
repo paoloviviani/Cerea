@@ -15,6 +15,16 @@ describe("readBlobConfig", () => {
 		expect(() => readBlobConfig(get({ CHAT_BLOB_STORE: "azure" }))).toThrow(/gridfs.*s3/);
 	});
 
+	it("says first that no object store is configured when neither endpoint nor bucket is set", () => {
+		const attempt = () => readBlobConfig(get({ CHAT_BLOB_STORE: "s3" }));
+		expect(attempt).toThrow(BlobConfigError);
+		expect(attempt).toThrow(/No object store is configured in this container/);
+		expect(attempt).toThrow(/docker compose up -d/);
+		expect(attempt).not.toThrow(/CHAT_S3_REGION/);
+		// A bucket on AWS with no region keeps its own message.
+		expect(() => readBlobConfig(get(S3))).toThrow(/CHAT_S3_REGION/);
+	});
+
 	it("reads an S3-compatible endpoint with path-style on by default", () => {
 		const config = readBlobConfig(
 			get({

@@ -85,6 +85,41 @@ describe("Administration -> Voice", () => {
 			.toHaveTextContent(/no transcription model in its catalogue/);
 	});
 
+	it("shows whether audio works for the admin's own account, with the reason, and the grant hint", async () => {
+		stub(base, {
+			model: "voxtral-mini",
+			source: "stored",
+			stored_model: "voxtral-mini",
+			env_model: null,
+			available_models: ["whisper-large-v3-turbo"],
+			account_available: false,
+			account_reason: "not_granted",
+		});
+		renderWithApp(VoiceSection, {});
+		await expect
+			.element(page.getByTestId("voice-account-state"))
+			.toHaveTextContent(
+				/Available to your account: no — .*not granted to you in the gateway console/
+			);
+		await expect.element(page.getByTestId("voice-grant-hint")).toHaveTextContent(/after a reload/);
+	});
+
+	it("says yes when the model is in the admin's catalogue", async () => {
+		stub(base, {
+			model: "whisper-large-v3-turbo",
+			source: "first-available",
+			stored_model: null,
+			env_model: null,
+			available_models: ["whisper-large-v3-turbo"],
+			account_available: true,
+			account_reason: null,
+		});
+		renderWithApp(VoiceSection, {});
+		await expect
+			.element(page.getByTestId("voice-account-state"))
+			.toHaveTextContent("Available to your account: yes");
+	});
+
 	it("is called Voice & audio and picks the transcription model, saved to its own route", async () => {
 		stub(base);
 		renderWithApp(VoiceSection, {});

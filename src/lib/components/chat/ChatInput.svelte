@@ -10,6 +10,7 @@
 	import CarbonImage from "~icons/carbon/image";
 	import CarbonCamera from "~icons/carbon/camera";
 	import CarbonDocument from "~icons/carbon/document";
+	import CarbonMicrophone from "~icons/carbon/microphone";
 	import CarbonUpload from "~icons/carbon/upload";
 	import CarbonLink from "~icons/carbon/link";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
@@ -20,7 +21,11 @@
 	import LucideMic from "~icons/lucide/mic";
 	import TogglePill from "$lib/components/TogglePill.svelte";
 	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
-	import { TEXT_MIME_ALLOWLIST, IMAGE_MIME_ALLOWLIST_DEFAULT } from "$lib/constants/mime";
+	import {
+		TEXT_MIME_ALLOWLIST,
+		IMAGE_MIME_ALLOWLIST_DEFAULT,
+		AUDIO_MIME_ALLOWLIST,
+	} from "$lib/constants/mime";
 
 	import {
 		composeDictation,
@@ -261,6 +266,7 @@
 	}
 
 	let fileInputEl: HTMLInputElement | undefined = $state();
+	let audioInputEl: HTMLInputElement | undefined = $state();
 	let cameraInputEl: HTMLInputElement | undefined = $state();
 	/**
 	 * A phone or tablet: offer "Take photo", which opens the camera directly.
@@ -373,6 +379,15 @@
 			mimeTypes.filter((mime) => !(mime === "image/*" || mime.startsWith("image/"))).join(",") ||
 			TEXT_MIME_ALLOWLIST.join(",");
 		openPickerWithAccept(textAccept);
+	}
+
+	const audioAccept = AUDIO_MIME_ALLOWLIST.join(",");
+	let audioAttachmentsOn = $derived(
+		Boolean((page.data as { audioAttachments?: boolean }).audioAttachments)
+	);
+
+	function openFilePickerAudio() {
+		audioInputEl?.click();
 	}
 
 	function openCamera() {
@@ -1025,6 +1040,23 @@
 							}}
 							accept={mimeTypes.join(",")}
 						/>
+						{#if audioAttachmentsOn}
+							<input
+								bind:this={audioInputEl}
+								disabled={loading}
+								class="absolute hidden size-0"
+								aria-label={m["chat.input.audio_label"]()}
+								type="file"
+								multiple
+								accept={audioAccept}
+								onchange={onFileChange}
+								onclick={(e) => {
+									if (requireAuthUser()) {
+										e.preventDefault();
+									}
+								}}
+							/>
+						{/if}
 						<input
 							bind:this={cameraInputEl}
 							disabled={loading}
@@ -1087,13 +1119,28 @@
 										{/if}
 									{/if}
 
+									{#if audioAttachmentsOn}
+										<DropdownMenu.Item
+											class="flex min-h-9 items-center gap-1 rounded-md px-2 py-1 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:min-h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+											onSelect={() => openFilePickerAudio()}
+										>
+											<CarbonMicrophone class="size-4 shrink-0 opacity-90 dark:opacity-80" />
+											<div class="flex flex-col leading-tight">
+												<span>{m["chat.input.add_audio"]()}</span>
+												<span class="text-xs text-gray-500 dark:text-gray-400"
+													>{m["chat.input.add_audio_hint"]()}</span
+												>
+											</div>
+										</DropdownMenu.Item>
+									{/if}
+
 									<DropdownMenu.Sub>
 										<DropdownMenu.SubTrigger
 											class="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 data-[state=open]:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10 dark:data-[state=open]:bg-white/10"
 										>
 											<div class="flex items-center gap-1">
 												<CarbonDocument class="size-4 opacity-90 dark:opacity-80" />
-												{m["chat.input.add_text_file"]()}
+												{m["chat.input.add_file"]()}
 											</div>
 											<div class="ml-auto flex items-center">
 												<CarbonChevronRight class="size-4 opacity-70 dark:opacity-80" />

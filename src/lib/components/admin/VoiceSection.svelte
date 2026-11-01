@@ -39,6 +39,8 @@
 	let savedModel = $state("");
 	let resolvedModel = $state<string | null>(null);
 	let available = $state<string[]>([]);
+	let accountAvailable = $state<boolean | null>(null);
+	let accountReason = $state<string | null>(null);
 	let modelBusy = $state(false);
 	let modelFailure = $state<string | null>(null);
 	let modelNote = $state<string | null>(null);
@@ -83,7 +85,11 @@
 		model: string | null;
 		stored_model: string | null;
 		available_models: string[];
+		account_available?: boolean;
+		account_reason?: string | null;
 	}) {
+		accountAvailable = data.account_available ?? null;
+		accountReason = data.account_reason ?? null;
 		resolvedModel = data.model;
 		available = data.available_models;
 		savedModel = data.stored_model ?? "";
@@ -114,6 +120,14 @@
 			modelBusy = false;
 		}
 	}
+
+	const accountReasonText = $derived(
+		accountReason === "gateway_unreachable"
+			? m["admin.voice.transcription.account_unreachable"]()
+			: accountReason === "not_granted"
+				? m["admin.voice.transcription.account_not_granted"]()
+				: m["admin.voice.transcription.account_no_model"]()
+	);
 
 	onMount(load);
 
@@ -246,6 +260,18 @@
 						{m["admin.voice.transcription.current"]({ model: resolvedModel })}
 					{/if}
 				{/if}
+			</p>
+			{#if accountAvailable !== null}
+				<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="voice-account-state">
+					{#if accountAvailable}
+						{m["admin.voice.transcription.account_yes"]()}
+					{:else}
+						{m["admin.voice.transcription.account_no"]({ reason: accountReasonText })}
+					{/if}
+				</p>
+			{/if}
+			<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="voice-grant-hint">
+				{m["admin.voice.transcription.grant_hint"]()}
 			</p>
 			{#if modelFailure}
 				<p class="text-xs text-red-700 dark:text-red-300">{modelFailure}</p>

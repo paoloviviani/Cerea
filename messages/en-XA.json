@@ -1333,7 +1333,10 @@
 	"chat.inline_image.loading": "[Ĺóáďíńǧ þŕéǚíéŵ…]",
 	"chat.inline_image.unavailable": "[ťȟé þŕéǚíéŵ íś úńáǚáíľáƀľé; ťȟé ďóŵńľóáď śťíľľ ŵóŕķś]",
 	"chat.input.add_images": "[Áďď íḿáǧé(ś)]",
-	"chat.input.add_text_file": "[Áďď ťéẋť ƒíľé]",
+	"chat.input.add_file": "[Áďď ƒíľé]",
+	"chat.input.add_audio": "[Áďď áúďíó]",
+	"chat.input.add_audio_hint": "[Ťŕáńśćŕíƀéď ƒóŕ ťȟé ćȟáť]",
+	"chat.input.audio_label": "[Úþľóáď áúďíó]",
 	"chat.input.add_url": "[Áďď ƒŕóḿ á ŵéƀ áďďŕéśś]",
 	"chat.input.asks": "[Áśķś ƒíŕśť]",
 	"chat.input.asks_hint": "[Ťȟé áśśíśťáńť áśķś ƀéƒóŕé óþéńíńǧ ŵéƀ þáǧéś óŕ úśíńǧ ćóńńéćťóŕś. Śéľéćť ťó ľéť íť ǧó áȟéáď ŵíťȟóúť áśķíńǧ, íń ťȟíś ćȟáť óńľý.]",
@@ -3221,5 +3224,11 @@
 	"admin.voice.transcription.hint": "[Ťŕáńśćŕíƀéś áúďíó ƒíľéś áťťáćȟéď íń ćȟáťś, óńćé áť úþľóáď, áńď ďíćťáťíóń ŵȟéń íť íś śéť ťó ťȟé ťŕáńśćŕíþťíóń ḿóďéľ. Ťȟé áúďíó ǧóéś ťó ťȟé þŕóǚíďéŕ ťȟáť śéŕǚéś ťȟé ḿóďéľ áńď íś ḿéťéŕéď þéŕ úśéŕ. Ťȟé ďéþľóýḿéńť ďéƒáúľť íś ĆȞÁŤ_ŤŔÁŃŚĆŔÍÞŤÍÓŃ_ḾÓĎÉĹ, éľśé ťȟé ƒíŕśť ḿóďéľ áǚáíľáƀľé.]",
 	"admin.voice.transcription.current": "[Úśéď ńóŵ: {model}.]",
 	"admin.voice.transcription.none": "[Ťȟé ǧáťéŵáý ȟáś ńó ťŕáńśćŕíþťíóń ḿóďéľ íń íťś ćáťáľóǧúé, śó áúďíó ćáńńóť ƀé ťŕáńśćŕíƀéď.]",
+	"admin.voice.transcription.account_yes": "[Áǚáíľáƀľé ťó ýóúŕ áććóúńť: ýéś]",
+	"admin.voice.transcription.account_no": "[Áǚáíľáƀľé ťó ýóúŕ áććóúńť: ńó — {reason}]",
+	"admin.voice.transcription.account_no_model": "[ńó ḿóďéľ íś ćȟóśéń áńď ńóńé íś íń ýóúŕ ćáťáľóǧúé]",
+	"admin.voice.transcription.account_not_granted": "[ťȟé ćȟóśéń ḿóďéľ íś ńóť íń ýóúŕ ćáťáľóǧúé (íť íś ńóť ǧŕáńťéď ťó ýóú íń ťȟé ǧáťéŵáý ćóńśóľé)]",
+	"admin.voice.transcription.account_unreachable": "[ťȟé ǧáťéŵáý ćóúľď ńóť ƀé ŕéáćȟéď]",
+	"admin.voice.transcription.grant_hint": "[Úśéŕś ńééď ťȟé ḿóďéľ ǧŕáńťéď ťó ťȟéḿ íń ťȟé ǧáťéŵáý ćóńśóľé. Þáǧéś ťȟáť áŕé áľŕéáďý óþéń þíćķ úþ á ćȟáńǧé áƒťéŕ á ŕéľóáď.]",
 	"admin.voice.transcription.saved": "[Ťŕáńśćŕíþťíóń ḿóďéľ śáǚéď.]"
 }
