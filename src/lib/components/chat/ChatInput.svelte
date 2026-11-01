@@ -11,6 +11,7 @@
 	import CarbonCamera from "~icons/carbon/camera";
 	import CarbonDocument from "~icons/carbon/document";
 	import CarbonMicrophone from "~icons/carbon/microphone";
+	import CarbonMagicWand from "~icons/carbon/magic-wand";
 	import CarbonUpload from "~icons/carbon/upload";
 	import CarbonLink from "~icons/carbon/link";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
@@ -402,6 +403,21 @@
 		Boolean((page.data as { audioAttachments?: boolean }).audioAttachments) &&
 			mimeTypes.some((mime) => mime.startsWith("audio/"))
 	);
+
+	// Offered only when an image model resolves for this user (the flag is per user).
+	let imageGenerationOn = $derived(
+		Boolean((page.data as { imageGeneration?: boolean }).imageGeneration)
+	);
+
+	/** Starts a request for a picture in the draft and puts the caret after it. */
+	async function startImageDraft() {
+		const starter = m["chat.input.create_image_starter"]();
+		value = value.trim() === "" ? starter : `${value.trimEnd()}\n\n${starter}`;
+		await tick();
+		textareaElement?.focus();
+		textareaElement?.setSelectionRange(value.length, value.length);
+		adjustTextareaHeight();
+	}
 
 	function openFilePickerAudio() {
 		audioInputEl?.click();
@@ -1146,6 +1162,21 @@
 												<span>{m["chat.input.add_audio"]()}</span>
 												<span class="text-xs text-gray-500 dark:text-gray-400"
 													>{m["chat.input.add_audio_hint"]()}</span
+												>
+											</div>
+										</DropdownMenu.Item>
+									{/if}
+
+									{#if imageGenerationOn}
+										<DropdownMenu.Item
+											class="flex min-h-9 items-center gap-1 rounded-md px-2 py-1 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:min-h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+											onSelect={() => startImageDraft()}
+										>
+											<CarbonMagicWand class="size-4 shrink-0 opacity-90 dark:opacity-80" />
+											<div class="flex flex-col leading-tight">
+												<span>{m["chat.input.create_image"]()}</span>
+												<span class="text-xs text-gray-500 dark:text-gray-400"
+													>{m["chat.input.create_image_hint"]()}</span
 												>
 											</div>
 										</DropdownMenu.Item>

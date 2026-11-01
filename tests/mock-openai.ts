@@ -32,6 +32,19 @@ export const KNOWLEDGE_MODELS_FIXTURE = {
 	],
 };
 
+/**
+ * The image model, offered in `?include=` catalogues only while a test has switched it on
+ * (`/__control/image` `{enabled: true}`), so no other spec sees an image tool it did not ask for.
+ */
+export const MOCK_IMAGE_MODEL = { id: "mock-image", kind: "image" };
+
+/** A real 1x1 PNG: what the mock image model draws, whatever the prompt. */
+export const MOCK_IMAGE_PNG_BASE64 =
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+/** What the mock image model says it drew, instead of the prompt it was given. */
+export const MOCK_REVISED_PROMPT = "a red fox on a green hill at golden hour, photographic";
+
 /** What the mock transcription model hears, whatever the audio. */
 export const MOCK_TRANSCRIPT = "The launch is on Tuesday, said the mock voice.";
 
@@ -229,6 +242,8 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 	/** conversation id (or "default") -> scenario */
 	const overrides = new Map<string, ScenarioScript>();
 	const recorded: RecordedRequest[] = [];
+	/** The image model in the catalogue, and how it answers: drawn, or refused by the provider. */
+	const image = { enabled: false, mode: "ok" as "ok" | "refuse" };
 
 	const scenarioFor = (conversationId: string | null): ScenarioScript => {
 		if (conversationId) {
@@ -265,7 +280,20 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 			return;
 		}
 
+		if (url.pathname === "/__control/image" && req.method === "POST") {
+			const parsed = JSON.parse((await readBody(req)) || "{}") as {
+				enabled?: boolean;
+				mode?: "ok" | "refuse";
+			};
+			if (typeof parsed.enabled === "boolean") image.enabled = parsed.enabled;
+			if (parsed.mode) image.mode = parsed.mode;
+			json(res, 200, { ok: true });
+			return;
+		}
+
 		if (url.pathname === "/__control/reset" && req.method === "POST") {
+			image.enabled = false;
+			image.mode = "ok";
 			overrides.clear();
 			recorded.length = 0;
 			json(res, 200, { ok: true });
@@ -284,7 +312,16 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 			// by the boot-time catalogue fetch, which takes the plain path and
 			// gets the OpenRouter-shaped `MODELS_FIXTURE` below unchanged.
 			if (url.searchParams.has("include")) {
-				json(res, 200, KNOWLEDGE_MODELS_FIXTURE);
+				json(
+					res,
+					200,
+					image.enabled
+						? {
+								...KNOWLEDGE_MODELS_FIXTURE,
+								data: [...KNOWLEDGE_MODELS_FIXTURE.data, MOCK_IMAGE_MODEL],
+							}
+						: KNOWLEDGE_MODELS_FIXTURE
+				);
 				return;
 			}
 			json(res, 200, MODELS_FIXTURE);
@@ -364,6 +401,40 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 				text: MOCK_TRANSCRIPT,
 				language: "en",
 				usage: { audio_duration_seconds: 7 },
+			});
+			return;
+		}
+
+		// ── Image generation — Pystino's `POST /v1/images/generations`. One fixed picture
+		// with the provider's rewritten prompt, or (mode "refuse") the gateway's 400 for a
+		// prompt the provider will not draw. The recorded body carries what a test asserts
+		// on: the request's own fields and the bearer token and bill-to the call was made with.
+		if (url.pathname === "/v1/images/generations" && req.method === "POST") {
+			const body = JSON.parse((await readBody(req)) || "{}") as Record<string, unknown>;
+			recorded.push({
+				method: "POST",
+				path: url.pathname,
+				conversationId,
+				stream: false,
+				body: {
+					...body,
+					authorization: req.headers.authorization ?? null,
+				},
+				at: Date.now(),
+			});
+			if (image.mode === "refuse") {
+				json(res, 400, {
+					error: { message: "The prompt was rejected by the provider's content policy." },
+				});
+				return;
+			}
+			const count = Math.max(1, Number(body.n) || 1);
+			json(res, 200, {
+				created: 0,
+				data: Array.from({ length: count }, () => ({
+					b64_json: MOCK_IMAGE_PNG_BASE64,
+					revised_prompt: MOCK_REVISED_PROMPT,
+				})),
 			});
 			return;
 		}

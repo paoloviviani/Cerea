@@ -362,8 +362,32 @@ export async function* runMcpFlow({
 	const documentCapabilities = await getDocumentCapabilities();
 	// Set when the endpoint rejects a request carrying look_doc pictures: no more pictures this turn.
 	const pictureState: PictureState = { unavailable: false };
+	// Image generation: a model resolved for this person (a catalogue probe with a short
+	// deadline, remembered 30s) and the administrator's approval switch. Resolved here for the
+	// same reason as the search grants: a network read has no place in the synchronous list.
+	let imageGeneration:
+		{ model: string; askFirst: boolean; billHeaders: Record<string, string> } | undefined;
+	if (turnToken && artifactToolsEnabled) {
+		try {
+			const { resolveImageModel, imageAskFirst } = await import("$lib/server/imageGeneration");
+			const image = await resolveImageModel(turnToken);
+			if (image.model) {
+				imageGeneration = {
+					model: image.model,
+					askFirst: await imageAskFirst(),
+					billHeaders: billToHeader(locals?.billingOrganization),
+				};
+			}
+		} catch (err) {
+			logger.warn(
+				{ err: String(err) },
+				"[images] could not resolve an image model; none this turn"
+			);
+		}
+	}
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
+		...(imageGeneration ? { imageGeneration } : {}),
 		documentCapabilities,
 		// The model sees images (or the user's switch says so) and its pictures-in-tool-turns capability is not off.
 		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && !model.toolImagesOff,
@@ -1432,6 +1456,7 @@ export async function* runMcpFlow({
 						policy: toolApprovalPolicy,
 						approvedTools,
 						webFetchAllowedUrls: allowedFetchUrls,
+						...(imageGeneration?.askFirst ? { askBeforeImages: true } : {}),
 						// Nobody to ask: a call that needs approval is refused, as a sub-agent's is.
 						...(locals?.scheduledRun ? { unattended: true } : {}),
 					},

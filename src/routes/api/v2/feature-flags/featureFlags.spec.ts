@@ -1,8 +1,9 @@
 /** The flags that depend on the transcription catalogue: one probe per request, and a slow gateway means off. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { resolveMock, state } = vi.hoisted(() => ({
+const { resolveMock, imageMock, state } = vi.hoisted(() => ({
 	resolveMock: vi.fn(),
+	imageMock: vi.fn(),
 	state: { value: "model", pair: false },
 }));
 
@@ -10,6 +11,7 @@ vi.mock("$lib/server/transcription", () => ({
 	resolveTranscriptionModel: resolveMock,
 	legacyTranscriptionConfigured: () => state.pair,
 }));
+vi.mock("$lib/server/imageGeneration", () => ({ resolveImageModel: imageMock }));
 vi.mock("$lib/server/config", () => ({
 	config: new Proxy(
 		{},
@@ -43,6 +45,20 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	state.value = "model";
 	state.pair = false;
+	imageMock.mockResolvedValue({ model: null, source: "none" });
+	resolveMock.mockResolvedValue({ model: null, source: "none" });
+});
+
+describe("feature flags: image generation", () => {
+	it("is on for a user an image model resolves for, off otherwise or without a token", async () => {
+		imageMock.mockResolvedValue({ model: "flux-2-klein-4b", source: "first-available" });
+		expect(await flags("tok")).toMatchObject({ imageGeneration: true });
+		imageMock.mockResolvedValue({ model: null, source: "none" });
+		expect(await flags("tok")).toMatchObject({ imageGeneration: false });
+		imageMock.mockClear();
+		expect(await flags(undefined)).toMatchObject({ imageGeneration: false });
+		expect(imageMock).not.toHaveBeenCalled();
+	});
 });
 
 describe("feature flags: transcription", () => {

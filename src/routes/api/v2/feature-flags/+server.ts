@@ -1,3 +1,4 @@
+import { resolveImageModel } from "$lib/server/imageGeneration";
 import { resolveTranscriptionModel } from "$lib/server/transcription";
 import type { RequestHandler } from "@sveltejs/kit";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
@@ -35,6 +36,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 	const transcriptionModel = locals.token
 		? (await resolveTranscriptionModel(locals.token)).model
 		: null;
+	// The same for images: the "Create an image" item shows only when a model resolves.
+	const imageModel = locals.token ? (await resolveImageModel(locals.token)).model : null;
 	const offers = dictationOffersFor(Boolean(transcriptionModel));
 
 	return superjsonResponse({
@@ -47,6 +50,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 		dictationBrowser: offers.browser,
 		// Per user: audio files are offered when a transcription model resolves.
 		audioAttachments: Boolean(transcriptionModel),
+		// Per user: image generation is offered when an image model resolves for them.
+		imageGeneration: Boolean(imageModel),
 		taskModelId,
 		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",
 		codeRunTimeoutSeconds: Math.round(codeRunTimeoutMs() / 1000),

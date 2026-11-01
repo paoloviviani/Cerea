@@ -1,15 +1,19 @@
+import { randomUUID } from "node:crypto";
 import type { ObjectId } from "mongodb";
 import { logger } from "$lib/server/logger";
 import { callMcpTool, getMcpToolTimeoutMs } from "./httpClient";
 import { openDurableElicitation, takeResumableElicitation } from "./elicitation";
 import { ToolResultStatus } from "$lib/types/Tool";
 import {
+	MessageCodeExecutionUpdateType,
 	MessageElicitationUpdateType,
 	MessageToolUpdateType,
 	MessageUpdateType,
 } from "$lib/types/MessageUpdate";
 import type { MessageUpdate } from "$lib/types/MessageUpdate";
 import type { McpServerConfig } from "./httpClient";
+import { billToHeader } from "$lib/server/billTo";
+import { generateImages, imageResultText, parseImageArgs } from "$lib/server/imageGeneration";
 import { ASK_USER_QUESTION_TOOL_NAME, answerToToolResult } from "$lib/server/askUserQuestion";
 import {
 	WEB_FETCH_TOOL_NAME,
@@ -27,6 +31,7 @@ import {
 } from "$lib/server/textGeneration/builtinTools/toolApproval";
 import type { PendingToolApprovalCall, QueuedApprovalCall } from "$lib/types/McpElicitation";
 import { collections } from "$lib/server/database";
+import { GENERATE_IMAGE_TOOL_NAME } from "$lib/server/textGeneration/builtinTools/generateImageTool";
 import {
 	SCHEDULE_TOOL_NAME,
 	createScheduleFromApproval,
@@ -68,6 +73,53 @@ const NON_MCP_GATED_TOOLS: Record<
 	[WEB_FETCH_STRUCTURED_TOOL_NAME]: (url) => performAccessibilitySnapshot(url),
 };
 
+/**
+ * An approved `generate_image` call: the person's click is the only thing that spends it, so it
+ * runs here (the model's own turn is over). Resolved as the approving person, with their bill-to.
+ */
+async function generateApprovedImages(
+	args: Record<string, unknown>,
+	owner: { conversationId: ObjectId; userId?: ObjectId; messageId?: string },
+	token: string | undefined
+): Promise<{ text: string; extraUpdates: MessageUpdate[] } | { error: string }> {
+	const parsed = parseImageArgs(args);
+	if (!parsed.ok) return { error: parsed.error };
+	if (!token) {
+		return {
+			error:
+				"The image was approved, but this answer arrived without the person's sign-in, so it was not made. Ask again.",
+		};
+	}
+	const settings = owner.userId
+		? await collections.settings
+				.findOne({ userId: owner.userId }, { projection: { billingOrganization: 1 } })
+				.catch(() => null)
+		: null;
+	const result = await generateImages({
+		token,
+		prompt: parsed.prompt,
+		size: parsed.size,
+		n: parsed.n,
+		conversationId: owner.conversationId,
+		userId: owner.userId,
+		messageId: owner.messageId,
+		billHeaders: billToHeader(settings?.billingOrganization),
+	});
+	if (!result.ok) return { error: result.error };
+	return {
+		// The resumed round does not show images back to the model: it was approved from a card.
+		text: imageResultText(result, false),
+		extraUpdates: [
+			{
+				type: MessageUpdateType.CodeExecution,
+				subtype: MessageCodeExecutionUpdateType.Outputs,
+				runKey: `${GENERATE_IMAGE_TOOL_NAME}:${randomUUID()}`,
+				files: result.files.map((file) => file.ref),
+			},
+		],
+	};
+}
+
 /** Refusal fed back to the model exactly like OpenWebUI's deny behavior. */
 function toolApprovalDenied(toolUuid: string, tool: string): MessageUpdate {
 	return {
@@ -103,8 +155,36 @@ async function runApprovedCall(
 	extraServers: McpServerConfig[],
 	signal?: AbortSignal,
 	token?: string,
-	owner?: { conversationId: ObjectId; userId?: ObjectId }
+	owner?: { conversationId: ObjectId; userId?: ObjectId; messageId?: string },
+	/** Updates that belong next to the result (a generated image's file listing). */
+	sideUpdates?: MessageUpdate[]
 ): Promise<MessageUpdate> {
+	if (!call.mcp && call.tool === GENERATE_IMAGE_TOOL_NAME) {
+		const made = owner
+			? await generateApprovedImages(call.args, owner, token)
+			: ({ error: "There is no conversation to keep the image in." } as const);
+		if ("error" in made) {
+			return {
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Error,
+				uuid: toolUuid,
+				message: made.error,
+			};
+		}
+		sideUpdates?.push(...made.extraUpdates);
+		return {
+			type: MessageUpdateType.Tool,
+			subtype: MessageToolUpdateType.Result,
+			uuid: toolUuid,
+			result: {
+				status: ToolResultStatus.Success,
+				call: { name: GENERATE_IMAGE_TOOL_NAME, parameters: {} },
+				outputs: [{ text: made.text }],
+				display: true,
+				external: false,
+			},
+		};
+	}
 	if (!call.mcp && call.tool === SCHEDULE_TOOL_NAME) {
 		// The person's click on the schedule card is the only thing that makes one.
 		const made = owner
@@ -342,14 +422,21 @@ export async function resumeParkedToolCall({
 		}
 
 		const updates: MessageUpdate[] = [settled];
+		const side: MessageUpdate[] = [];
 		updates.push(
 			accepted
-				? await runApprovedCall(pending, pending.toolUuid, extraServers, signal, token, {
-						conversationId,
-						userId: pending.userId,
-					})
+				? await runApprovedCall(
+						pending,
+						pending.toolUuid,
+						extraServers,
+						signal,
+						token,
+						{ conversationId, userId: pending.userId, messageId: pending.messageId },
+						side
+					)
 				: toolApprovalDenied(pending.toolUuid, pending.tool)
 		);
+		updates.push(...side);
 
 		// Grants made just now: a later queue entry for the SAME tool must see
 		// this click's grant without asking again, even though the database
@@ -360,11 +447,18 @@ export async function resumeParkedToolCall({
 		while (queue.length > 0) {
 			const [next, ...rest] = queue;
 			if (grantedNow.has(next.tool)) {
+				const queuedSide: MessageUpdate[] = [];
 				updates.push(
-					await runApprovedCall(next, next.toolUuid, extraServers, signal, token, {
-						conversationId,
-						userId: pending.userId,
-					})
+					await runApprovedCall(
+						next,
+						next.toolUuid,
+						extraServers,
+						signal,
+						token,
+						{ conversationId, userId: pending.userId, messageId: pending.messageId },
+						queuedSide
+					),
+					...queuedSide
 				);
 				queue = rest;
 				continue;

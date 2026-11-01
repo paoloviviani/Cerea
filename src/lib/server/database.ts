@@ -11,6 +11,7 @@ import type {
 	VectorStore,
 } from "$lib/types/VectorStore";
 import type { VoiceConfig } from "$lib/types/VoiceConfig";
+import type { ImageConfig } from "$lib/types/ImageConfig";
 import type { Project } from "$lib/types/Project";
 import type {
 	LocalConnectorOauth,
@@ -238,6 +239,7 @@ export class Database {
 		const knowledgeDocuments = db.collection<KnowledgeDocument>("knowledgeDocuments");
 		const knowledgeConfig = db.collection<KnowledgeConfig>("knowledgeConfig");
 		const voiceConfig = db.collection<VoiceConfig>("voiceConfig");
+		const imageConfig = db.collection<ImageConfig>("imageConfig");
 		// Append-only: every change to that configuration, kept because
 		// "which model was this base built with, and who moved the default"
 		// gets asked long after the change (ADR 0070).
@@ -336,6 +338,7 @@ export class Database {
 			knowledgeDocuments,
 			knowledgeConfig,
 			voiceConfig,
+			imageConfig,
 			knowledgeConfigHistory,
 			mcpConnectors,
 			connectorModes,

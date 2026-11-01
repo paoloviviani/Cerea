@@ -28,14 +28,14 @@ server; the page's gate is for navigation, never a permission.
 
 Six tabs. The old addresses of the sections that were folded into **Web** and **Assistant** (`/admin/web-search`, `/admin/fetch`, `/admin/instructions`, `/admin/delegation`, `/admin/voice`) redirect to the section's anchor on the new tab, for example `/admin/web#fetch`.
 
-| Section        | What you decide                                                                                                                                                                                                                                                                                                                                                                                                 |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Knowledge**  | Which embedding model the deployment uses and which model reads documents, on one screen with the consequences: see below. Hidden when the deployment turns the knowledge pipeline off (`CHAT_KNOWLEDGE_ENABLED=false`)                                                                                                                                                                                         |
-| **Web**        | Two sections. **Web search**: which search backend the composer's Web search pill uses, picked from the search backends the gateway offers (not hidden when knowledge is off). **Fetching**: which backend fetches a URL, a plain HTTPS request or the [headless browser](browser.md), with a live check of whether the renderer answers                                                                        |
-| **Connectors** | MCP servers offered to everybody, and how each is offered: see [Connectors for everybody](#connectors-for-everybody) below                                                                                                                                                                                                                                                                                      |
-| **Skills**     | Deployment-wide skills that every account sees; the bundled ones can be switched off by name (`CHAT_SKILLS_DISABLED`)                                                                                                                                                                                                                                                                                           |
-| **Assistant**  | Three sections. **Assistant instructions**: one text added to every chat's instructions, before each user's own, and whether users can read it in Settings. **Sub-agents**: whether the assistant may hand work to sub-agents (`delegate`, `research`), on by default. **Voice**: whether the composer offers browser dictation (yes, no, or only when no voice model is available, the default). Details below |
-| **Storage**    | How long files produced by code are kept: see below                                                                                                                                                                                                                                                                                                                                                             |
+| Section        | What you decide                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Knowledge**  | Which embedding model the deployment uses and which model reads documents, on one screen with the consequences: see below. Hidden when the deployment turns the knowledge pipeline off (`CHAT_KNOWLEDGE_ENABLED=false`)                                                                                                                                                                                                                                                                        |
+| **Web**        | Two sections. **Web search**: which search backend the composer's Web search pill uses, picked from the search backends the gateway offers (not hidden when knowledge is off). **Fetching**: which backend fetches a URL, a plain HTTPS request or the [headless browser](browser.md), with a live check of whether the renderer answers                                                                                                                                                       |
+| **Connectors** | MCP servers offered to everybody, and how each is offered: see [Connectors for everybody](#connectors-for-everybody) below                                                                                                                                                                                                                                                                                                                                                                     |
+| **Skills**     | Deployment-wide skills that every account sees; the bundled ones can be switched off by name (`CHAT_SKILLS_DISABLED`)                                                                                                                                                                                                                                                                                                                                                                          |
+| **Assistant**  | Four sections. **Assistant instructions**: one text added to every chat's instructions, before each user's own, and whether users can read it in Settings. **Sub-agents**: whether the assistant may hand work to sub-agents (`delegate`, `research`), on by default. **Voice**: whether the composer offers browser dictation (yes, no, or only when no voice model is available, the default). **Images**: the model that draws images and whether each generation asks first. Details below |
+| **Storage**    | How long files produced by code are kept: see below                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 **Knowledge** puts the configuration and its consequences together on purpose.
 Changing the embedding model touches **no existing base**: each pins the model
@@ -140,6 +140,43 @@ deployment that still has the deprecated `TRANSCRIPTION_*` pair keeps exactly
 what it had (the old `CHAT_DICTATION` words with the pair: see the table under
 [Transcription](configuration.md#transcription)); the pair sends dictation with
 the deployment's key, not the user's token, and keeps doing so while it is set.
+
+## Images
+
+Under Administration → Assistant → **Images**, you choose what the assistant's
+`generate_image` tool draws with. The tool calls the gateway's
+`POST /v1/images/generations` (OpenAI-compatible: `model`, `prompt`, `n`,
+`size`, `response_format`) as the signed-in user, so each image is metered
+**per image to that user**, with their model access groups and bill-to. The
+prompt passes through the gateway's redaction.
+
+- **Model.** The model chosen here, else `CHAT_IMAGE_MODEL`, else the first
+  `kind: image` model the user may use. A named model is used only for users who
+  have it granted; for everyone else the tool is simply not offered (and
+  neither is **+ → Create an image**). The picker lists the image models of
+  _your own_ catalogue, and the section says whether your account can use the
+  one that would be used ("Available to your account"). Grant models to groups
+  in the gateway console; open pages see a change after a reload.
+- **Ask before generating images.** Off by default: images are cheap and a turn
+  makes at most four. On, every call opens the approval card (the same
+  mechanism as [tool approvals](chat.md#tool-approvals)), whatever the user's own
+  policy; a grant "for the rest of the conversation" lifts it for that
+  conversation. A scheduled run has nobody to ask, so with the switch on it
+  cannot generate images.
+- **Limits.** 4 images per turn across calls; sizes from a fixed list (512 to
+  1792 pixels); a prompt up to 4,000 characters; up to 20 MB per image.
+- **Storage.** Each image is a produced file in the conversation, so
+  [retention](#storage) and the per-conversation file limits apply to it, and
+  the code sandbox mounts it like any file the assistant made.
+- **If a provider answers with a link.** The request asks for the image inline
+  (`b64_json`). When a model answers with a URL instead, the chat fetches it on
+  the server through the same guard as `web_fetch` (no private or internal
+  addresses), keeps it only if it is a PNG, JPEG or WebP under the size cap, and
+  otherwise drops it and tells the assistant why.
+
+The choice and the switch are stored in the chat's own database and changes are
+logged with who made them. With `ENABLE_CONFIG_MANAGER` off they are still
+saved here; only `CHAT_IMAGE_MODEL` is environment-only.
 
 ## Sub-agents
 

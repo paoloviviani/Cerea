@@ -456,4 +456,36 @@ describe("FileArtifactCard autoExpand (the chat figure capture)", () => {
 			vi.stubGlobal("fetch", realFetch);
 		}
 	});
+
+	it("shows a generated image's prompt and, when it differs, the revised prompt", async () => {
+		const screen = mountCard({
+			file: { path: "image-a-red-fox.png", size: 2048 },
+			sha256: "3".repeat(64),
+			prompt: "a red fox",
+			revisedPrompt: "a red fox sitting in snowy woods, golden light",
+		});
+		await expect.element(screen.getByText("Prompt: a red fox")).toBeVisible();
+		await expect
+			.element(
+				screen.getByText("The model drew it from: a red fox sitting in snowy woods, golden light")
+			)
+			.toBeVisible();
+		await expect
+			.element(screen.getByRole("button", { name: "Download image-a-red-fox.png" }))
+			.toBeVisible();
+	});
+
+	it("shows no revised prompt when the model kept the prompt, and no prompt for other files", async () => {
+		const same = mountCard({
+			file: { path: "image-a-red-fox.png", size: 2048 },
+			sha256: "3".repeat(64),
+			prompt: "a red fox",
+			revisedPrompt: "a red fox",
+		});
+		await expect.element(same.getByText("Prompt: a red fox")).toBeVisible();
+		expect(same.baseElement.querySelector('[data-testid="image-revised-prompt"]')).toBeNull();
+		same.unmount();
+		const plain = mountCard({ file: { path: "report.docx", size: 12 }, sha256: SHA_V2 });
+		expect(plain.baseElement.querySelector('[data-testid="image-prompt"]')).toBeNull();
+	});
 });

@@ -24,6 +24,8 @@
 			sha256={file.sha256}
 			uploaded={file.uploaded}
 			autoExpand
+			prompt={file.prompt}
+			revisedPrompt={file.revisedPrompt}
 		/>
 	{/each}
 </ul>

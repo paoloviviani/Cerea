@@ -67,6 +67,17 @@ CHAT_DICTATION=model
 `TRANSCRIPTION_MODEL` with `TRANSCRIPTION_BASE_URL` (a direct endpoint) is
 deprecated but still serves dictation.
 
+## Image Generation
+
+The assistant's image tool uses the gateway's image model:
+
+```ini
+CHAT_IMAGE_MODEL=flux-2-klein-4b
+```
+
+Unset, the first `kind: image` model the user may use is chosen. The choice on
+Administration → Assistant → Images wins.
+
 ## Feature Flags
 
 ```ini

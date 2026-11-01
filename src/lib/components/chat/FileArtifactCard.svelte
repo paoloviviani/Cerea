@@ -54,6 +54,10 @@
 		/** Show a raster image under the row without a click (a chat figure). */
 		autoExpand?: boolean;
 		variant?: "row" | "card";
+		/** A generated image: the prompt it was drawn from, shown under it. */
+		prompt?: string;
+		/** The prompt the image model says it used instead, when it rewrote the first. */
+		revisedPrompt?: string;
 	}
 
 	let {
@@ -65,6 +69,8 @@
 		inPanel = false,
 		autoExpand = false,
 		variant = "card",
+		prompt,
+		revisedPrompt,
 	}: Props = $props();
 
 	const ctx = getArtifactsContext();
@@ -256,6 +262,19 @@
 	{#if showsImage}
 		<div class="pt-3">
 			<InlineRasterImage name={baseName} {load} />
+		</div>
+	{/if}
+	{#if prompt}
+		<div
+			class="space-y-0.5 pt-2 text-xs text-gray-500 dark:text-gray-400"
+			data-testid="image-prompt"
+		>
+			<p>{m["chat.file_card.image_prompt"]({ prompt })}</p>
+			{#if revisedPrompt && revisedPrompt !== prompt}
+				<p data-testid="image-revised-prompt">
+					{m["chat.file_card.image_revised"]({ prompt: revisedPrompt })}
+				</p>
+			{/if}
 		</div>
 	{/if}
 	{#if downloadError}

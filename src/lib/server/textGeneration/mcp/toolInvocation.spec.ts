@@ -1028,3 +1028,113 @@ describe("executeToolCalls over the schedule tool", () => {
 		expect(toolUpdatesOf(events).some((u) => u.subtype === MessageToolUpdateType.Error)).toBe(true);
 	});
 });
+
+describe("executeToolCalls over generate_image and the administrator's approval switch", () => {
+	const execute = vi.fn<BuiltinTool["execute"]>(async () => ({ resultText: "made it" }));
+	const imageBuiltin: BuiltinTool = {
+		name: "generate_image",
+		definition: { type: "function", function: { name: "generate_image" } },
+		execute,
+	};
+	const call = (args: string): NormalizedToolCall => ({
+		id: "img",
+		name: "generate_image",
+		arguments: args,
+	});
+	const valid = '{"prompt":"a red fox","n":2}';
+	const approval = (over: Partial<NonNullable<ExecuteToolCallsParams["toolApproval"]>> = {}) => ({
+		policy: "always-allow" as const,
+		approvedTools: new Set<string>(),
+		webFetchAllowedUrls: new Set<string>(),
+		...over,
+	});
+
+	beforeEach(() => execute.mockClear());
+
+	it("runs straight through when the switch is off, whatever the policy", async () => {
+		for (const policy of ["always-allow", "manual"] as const) {
+			await drain([call(valid)], undefined, [imageBuiltin], undefined, approval({ policy }));
+		}
+		expect(execute).toHaveBeenCalledTimes(2);
+	});
+
+	it("opens the approval card with the arguments when the switch is on, even under always-allow", async () => {
+		await ready;
+		const events = await drain(
+			[call(valid)],
+			{ conversationId: new ObjectId(), generationId: "g", messageId: "m1" },
+			[imageBuiltin],
+			undefined,
+			approval({ askBeforeImages: true })
+		);
+		expect(execute).not.toHaveBeenCalled();
+		expect(summaryOf(events).awaitingInput).toBe(true);
+		const request = events.flatMap((e) =>
+			e.type === "update" &&
+			e.update.type === MessageUpdateType.Elicitation &&
+			e.update.subtype === "request"
+				? [e.update]
+				: []
+		)[0];
+		expect(request?.request.toolApproval).toMatchObject({
+			tool: "generate_image",
+			args: { prompt: "a red fox", n: 2 },
+		});
+	});
+
+	it("a grant for the conversation lifts the card", async () => {
+		await drain(
+			[call(valid)],
+			undefined,
+			[imageBuiltin],
+			undefined,
+			approval({ askBeforeImages: true, approvedTools: new Set(["generate_image"]) })
+		);
+		expect(execute).toHaveBeenCalledTimes(1);
+	});
+
+	it("never opens a card for a call the tool would refuse, so the model hears why at once", async () => {
+		const events = await drain(
+			[call('{"prompt":"x","n":9}')],
+			{ conversationId: new ObjectId(), generationId: "g", messageId: "m1" },
+			[imageBuiltin],
+			undefined,
+			approval({ askBeforeImages: true })
+		);
+		expect(summaryOf(events).awaitingInput).toBeUndefined();
+		expect(execute).toHaveBeenCalledTimes(1);
+	});
+
+	it("a scheduled run with the switch on is refused, and never parks", async () => {
+		await ready;
+		const conversationId = new ObjectId();
+		const before = await collections.mcpElicitations.countDocuments({ conversationId });
+		const events = await drain(
+			[call(valid)],
+			{ conversationId, generationId: "g", messageId: "m1" },
+			[imageBuiltin],
+			undefined,
+			approval({ askBeforeImages: true, unattended: true })
+		);
+		expect(execute).not.toHaveBeenCalled();
+		expect(summaryOf(events).awaitingInput).toBeUndefined();
+		expect(await collections.mcpElicitations.countDocuments({ conversationId })).toBe(before);
+		const [refusal] = toolUpdatesOf(events).filter(
+			(u) => u.subtype === MessageToolUpdateType.Error
+		);
+		expect(refusal).toMatchObject({
+			message: expect.stringContaining("needs the person's approval (generate_image)"),
+		});
+	});
+
+	it("a scheduled run with the switch off generates", async () => {
+		await drain(
+			[call(valid)],
+			undefined,
+			[imageBuiltin],
+			undefined,
+			approval({ unattended: true })
+		);
+		expect(execute).toHaveBeenCalledTimes(1);
+	});
+});

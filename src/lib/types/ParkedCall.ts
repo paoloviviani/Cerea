@@ -22,6 +22,10 @@ export interface PersistedDeliverableRef {
 	 * this field existed, which read as stored.
 	 */
 	uploaded?: boolean;
+	/** An image the assistant generated: the prompt it was drawn from, shown on its card. */
+	prompt?: string;
+	/** The prompt the image model says it actually used, when it rewrote the first. */
+	revisedPrompt?: string;
 }
 
 /**

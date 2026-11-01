@@ -373,3 +373,25 @@ describe("a scheduled run's tools", () => {
 		);
 	});
 });
+
+describe("generate_image", () => {
+	const conv = { _id: new ObjectId(), plan: undefined, webSearch: undefined };
+	const names = (extra: Partial<Parameters<typeof getEnabledBuiltinTools>[0]>) =>
+		getEnabledBuiltinTools({ conv, ...extra }).map((tool) => tool.name);
+	const imageGeneration = { model: "flux-2-klein-4b", askFirst: false };
+
+	it("is offered when an image model resolved for this person and the model calls tools", () => {
+		expect(names({ imageGeneration, toolsEnabled: true })).toContain("generate_image");
+	});
+
+	it("is absent without a resolved model, or for a model that does not call tools", () => {
+		expect(names({ toolsEnabled: true })).not.toContain("generate_image");
+		expect(names({ imageGeneration })).not.toContain("generate_image");
+	});
+
+	it("stays on offer in a scheduled run (the approval rule, not the list, refuses it there)", () => {
+		expect(names({ imageGeneration, toolsEnabled: true, unattended: true })).toContain(
+			"generate_image"
+		);
+	});
+});
