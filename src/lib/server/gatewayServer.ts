@@ -43,6 +43,8 @@ export interface CallOptions {
 	/** Give up after this long (the whole exchange, body included). Unset keeps
 	 * the runtime's own default, which is what short control calls want. */
 	timeoutMs?: number;
+	/** Cancelled when the caller gives up (the user stopped the turn). */
+	signal?: AbortSignal;
 }
 
 function base(): string {
@@ -79,7 +81,14 @@ async function call<T>(
 				: init.body === undefined
 					? {}
 					: { body: JSON.stringify(init.body) }),
-			...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
+			...(options.timeoutMs || options.signal
+				? {
+						signal: AbortSignal.any([
+							...(options.timeoutMs ? [AbortSignal.timeout(options.timeoutMs)] : []),
+							...(options.signal ? [options.signal] : []),
+						]),
+					}
+				: {}),
 		});
 	} catch (err) {
 		if (options.timeoutMs && err instanceof Error && err.name === "TimeoutError") {
@@ -113,8 +122,13 @@ async function call<T>(
 export const gateway = {
 	get: <T>(token: string, path: string, options?: CallOptions) =>
 		call<T>(token, path, { method: "GET" }, options),
-	post: <T>(token: string, path: string, body?: unknown, options?: CallOptions) =>
-		call<T>(token, path, { method: "POST", body: body ?? {} }, options),
+	post: <T>(
+		token: string,
+		path: string,
+		body?: unknown,
+		options?: CallOptions & { headers?: Record<string, string> }
+	) =>
+		call<T>(token, path, { method: "POST", body: body ?? {}, headers: options?.headers }, options),
 	/** A multipart POST: the one audio route takes a file, not JSON. */
 	postForm: <T>(
 		token: string,

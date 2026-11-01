@@ -114,6 +114,7 @@ chat against Pystino and for a chat against any other endpoint.
 | `CHAT_PYODIDE_PYPI_DISABLED`     | `true` forces off the sandbox's "install packages from PyPI" setting for everyone and hides the user's option. Without it the setting is on by default, so code may fetch packages from the public PyPI index (each user can turn it off). The vendored wheels stay installable                                                                                                                                                                                                                                                                                                                  |
 | `CHAT_DICTATION`                 | How the composer does [dictation](chat.md#dictation): `browser` (the browser's speech recognition), `model` (record, then transcribe with the [transcription model](#transcription) through the gateway) or `off`. The old `yes`, `no`, `fallback` and unset keep exactly their old behaviour, which depends on the deprecated `TRANSCRIPTION_*` pair ([table](#transcription)). Settable from [Administration → Assistant → Voice](chat-admin.md#voice), which overrides this                                                                                                                   |
 | `CHAT_TRANSCRIPTION_MODEL`       | The model that transcribes [attached audio](chat.md#attachments) and dictation through the gateway's `/v1/audio/transcriptions`. Unset: the first `kind: transcription` model the user may use. The choice on Administration → Assistant → Voice & audio wins over this value. See [Transcription](#transcription)                                                                                                                                                                                                                                                                               |
+| `CHAT_IMAGE_MODEL`               | The model that draws images for the assistant's `generate_image` tool, through the gateway's `/v1/images/generations` as the user. Unset: the first `kind: image` model the user may use. The choice on Administration → Assistant → Images wins over this value. See [Images](#images)                                                                                                                                                                                                                                                                                                          |
 | `CHAT_DELEGATION`                | `false` removes the `delegate` and `research` [sub-agent tools](chat.md#plans-and-sub-agents) from every chat; anything else, or unset, leaves them on. Settable from [Administration → Assistant → Sub-agents](chat-admin.md#sub-agents), which overrides this                                                                                                                                                                                                                                                                                                                                  |
 | `ADMIN_INSTRUCTIONS`             | The [instructions added to every chat](chat-admin.md#assistant-instructions), up to 4,000 characters. Set under Administration; with `ENABLE_CONFIG_MANAGER` off, set here.                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `ADMIN_INSTRUCTIONS_VISIBLE`     | `false` hides them from users in Settings; they still apply. Anything else shows them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -170,6 +171,24 @@ Where the chat keeps files: [File storage](storage.md) explains the backends, br
 
 The operator's view of these, and what each does to the panel, is in [The
 `/code` panel](code-panel.md).
+
+## Images
+
+The assistant's `generate_image` tool draws with a gateway model of
+`kind: image` (`POST /v1/images/generations`), as the signed-in user: metered
+per image with their token, with their model access groups and bill-to.
+
+```ini
+CHAT_IMAGE_MODEL=flux-2-klein-4b
+```
+
+Which model: the administrator's choice under Administration → Assistant →
+Images, else `CHAT_IMAGE_MODEL`, else the first `kind: image` model the user may
+use. The tool and the composer's "Create an image" item are offered only to a
+user for whom a model resolves; the catalogue is asked with a two-second
+deadline and a slow or failing gateway means no tool, not a slow page. Whether
+each generation asks first is the "Ask before generating images" switch on the
+same screen (no environment variable). See [Images](chat-admin.md#images).
 
 ## Transcription
 

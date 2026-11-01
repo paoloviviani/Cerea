@@ -266,6 +266,17 @@ administrator's choice, see [Administering the chat](chat-admin.md)); a
 deployment can also point extraction at a reader directly
 ([Configuration](configuration.md)).
 
+## Images
+
+When your account has an image model, the assistant can draw pictures: ask for one in the chat ("a watercolour of a lighthouse at dusk, portrait"), or choose **+ → Create an image**, which starts your message with "Create an image of " and puts the cursor after it. Each picture appears in the chat as a file card with a download button, with the prompt it was drawn from. Image models often rewrite the prompt first; when this one did, the card shows the rewritten prompt too.
+
+- **Cost.** Each image is metered to you, like any other model call, and billed to the [billing group](#your-billing-group) you have chosen. Images are cheap, but they are not free: ask for the variations you want and not many more.
+- **Limits.** At most **4 images per turn**, counted across the assistant's calls in that turn. Sizes are square (1024 x 1024), landscape (1344 x 768) and portrait (768 x 1344), about one megapixel: image models deliver roughly that at most, whatever is asked, and the assistant is told the size that came back. It picks from your words ("a wide banner"). Pictures are usually JPEG.
+- **Where they go.** The pictures are files in the conversation, kept like any file the assistant makes (see [Storage](chat-admin.md#storage)), so you can ask for code that reads them, or for them to be put into a document. A model that can see images is shown what it drew, for that turn.
+- **What leaves.** Your prompt goes to the provider that serves the image model; the gateway's redaction applies to it.
+- **Asking first.** An administrator can make the assistant ask before each generation: you then get an approval card, as for [other tools](#tool-approvals). A [scheduled chat](#scheduled-chats) cannot answer one, so it cannot make images then.
+- **When it is missing.** No "Create an image" item and no image tool means no image model is granted to your account. Ask an administrator.
+
 ## Web search and web fetch
 
 The **Web search** pill in the composer switches search on **for this

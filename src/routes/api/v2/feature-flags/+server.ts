@@ -1,3 +1,4 @@
+import { resolveImageModel } from "$lib/server/imageGeneration";
 import { resolveTranscriptionModel } from "$lib/server/transcription";
 import type { RequestHandler } from "@sveltejs/kit";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
@@ -32,9 +33,13 @@ export const GET: RequestHandler = async ({ locals }) => {
 	// One catalogue probe per request, with a short deadline; a slow or failing
 	// gateway means "no model", so the audio features stay off rather than the
 	// page waiting on them.
-	const transcriptionModel = locals.token
-		? (await resolveTranscriptionModel(locals.token)).model
-		: null;
+	// The two catalogue probes run side by side; the image one backs the "Create an image" item.
+	const [transcriptionModel, imageModel] = locals.token
+		? await Promise.all([
+				resolveTranscriptionModel(locals.token).then((r) => r.model),
+				resolveImageModel(locals.token).then((r) => r.model),
+			])
+		: [null, null];
 	const offers = dictationOffersFor(Boolean(transcriptionModel));
 
 	return superjsonResponse({
@@ -47,6 +52,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 		dictationBrowser: offers.browser,
 		// Per user: audio files are offered when a transcription model resolves.
 		audioAttachments: Boolean(transcriptionModel),
+		// Per user: image generation is offered when an image model resolves for them.
+		imageGeneration: Boolean(imageModel),
 		taskModelId,
 		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",
 		codeRunTimeoutSeconds: Math.round(codeRunTimeoutMs() / 1000),

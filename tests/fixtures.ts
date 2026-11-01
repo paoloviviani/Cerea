@@ -97,6 +97,7 @@ const MUTABLE_COLLECTIONS = [
 	"codeDevices",
 	"schedules",
 	"scheduleRuns",
+	"imageConfig",
 ];
 
 // ── Test database ─────────────────────────────────────────────────────────────

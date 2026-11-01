@@ -13,6 +13,7 @@ import { createScheduleTool } from "./scheduleTool";
 import { createConvertDocumentBuiltin } from "./convertDocumentTool";
 import { createDocumentBuiltins, type DocumentTurnState } from "./documentTools";
 import { createLookDocBuiltins } from "./lookDocTool";
+import { createGenerateImageBuiltin } from "./generateImageTool";
 import type { PictureState } from "../mcp/pictureMessages";
 import type { DocumentCapabilities } from "$lib/server/documents/client";
 import { createWebFetchStructuredBuiltin } from "./webFetchStructuredTool";
@@ -34,6 +35,7 @@ export { isNestedAgentTool } from "./nestedAgent";
 export { DELEGATE_TOOL_NAME, RESEARCH_TOOL_NAME } from "./delegateTool";
 export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
 export { LOOK_DOC_TOOL_NAME } from "./lookDocTool";
+export { GENERATE_IMAGE_TOOL_NAME } from "./generateImageTool";
 export { SCHEDULE_TOOL_NAME } from "./scheduleTool";
 export {
 	DOC_OUTLINE_TOOL_NAME,
@@ -161,6 +163,13 @@ export function getEnabledBuiltinTools(params: {
 	/** Whether pictures have been refused by this turn's model, shared with the request loop (`pictureMessages.ts`). */
 	pictureState?: PictureState;
 	/**
+	 * Image generation (`generate_image`): present only when an image model resolved for this
+	 * person (`resolveImageModel`, a network probe the caller makes, like `searchModelIds`).
+	 * Absent offers no tool. `askFirst` is the administrator's approval switch, which
+	 * `toolInvocation.ts` enforces; it does not change what is offered.
+	 */
+	imageGeneration?: { model: string; askFirst: boolean; billHeaders?: Record<string, string> };
+	/**
 	 * A scheduled run, with nobody watching: tools that park the turn for a person
 	 * (the browser sandbox, questions) and the `schedule` tool are left out.
 	 */
@@ -217,6 +226,19 @@ export function getEnabledBuiltinTools(params: {
 	if (params.modelSeesImages === true) {
 		tools.push(
 			...createLookDocBuiltins(params.documentCapabilities, documentTurn, params.pictureState)
+		);
+	}
+
+	// Drawing images: only for a person an image model resolved for, and a model that calls tools.
+	if (params.imageGeneration && params.toolsEnabled) {
+		tools.push(
+			...createGenerateImageBuiltin({
+				model: params.imageGeneration.model,
+				billHeaders: params.imageGeneration.billHeaders,
+				token: params.token,
+				modelSeesImages: params.modelSeesImages === true,
+				pictureState: params.pictureState,
+			})
 		);
 	}
 

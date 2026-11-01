@@ -51,6 +51,8 @@ export interface FeatureFlags {
 	dictationBrowser: boolean;
 	/** This user can attach audio: a transcription model resolves for them. */
 	audioAttachments: boolean;
+	/** This user can generate images: an image model resolves for them. */
+	imageGeneration: boolean;
 	/** Fixed model used for background tasks (e.g. conversation titles); null when tasks follow the conversation's model */
 	taskModelId: string | null;
 	/**

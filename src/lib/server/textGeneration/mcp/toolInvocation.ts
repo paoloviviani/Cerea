@@ -25,6 +25,8 @@ import type { ToolCallGuard } from "./toolGuard";
 import type { Client } from "@modelcontextprotocol/client";
 import type { ObjectId } from "mongodb";
 import { openToolApprovalPrompt } from "../builtinTools/toolApproval";
+import { GENERATE_IMAGE_TOOL_NAME } from "../builtinTools/generateImageTool";
+import { parseImageArgs } from "$lib/server/imageGeneration";
 import { WEB_FETCH_TOOL_NAME, webFetchNeedsApproval } from "../builtinTools/webFetchTool";
 import { WEB_FETCH_STRUCTURED_TOOL_NAME } from "../builtinTools/webFetchStructuredTool";
 import { SCHEDULE_TOOL_NAME, parseScheduleToolArgs } from "../builtinTools/scheduleTool";
@@ -96,6 +98,12 @@ export interface ExecuteToolCallsParams {
 		 * mode is given manual and none, see `approvalStateFor`.)
 		 */
 		unattended?: boolean;
+		/**
+		 * The administrator's "Ask before generating images" switch: `generate_image` opens the
+		 * approval card whatever the person's own policy is (a grant "for the conversation" still
+		 * covers it). Off or absent, image generation runs without asking.
+		 */
+		askBeforeImages?: boolean;
 	};
 	/**
 	 * The turn's blocker. Told about every failure that came from the tool
@@ -387,6 +395,18 @@ export async function* executeToolCalls({
 			toolApproval
 		) {
 			return { qualifiedName: WEB_FETCH_STRUCTURED_TOOL_NAME };
+		}
+		// The administrator can require a click for each image; a grant for the conversation lifts it.
+		if (
+			p.call.name === GENERATE_IMAGE_TOOL_NAME &&
+			builtinByName.has(GENERATE_IMAGE_TOOL_NAME) &&
+			toolApproval?.askBeforeImages &&
+			parseImageArgs(p.argsObj).ok
+		) {
+			return {
+				qualifiedName: GENERATE_IMAGE_TOOL_NAME,
+				alwaysConfirm: !toolApproval.approvedTools.has(GENERATE_IMAGE_TOOL_NAME),
+			};
 		}
 		// A schedule is only ever made by the person's click on the card: proposals the
 		// tool would refuse never open one, and no grant ("for this conversation") skips it.

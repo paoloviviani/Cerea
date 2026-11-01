@@ -81,6 +81,16 @@ describe("Administration, in the pseudo-locale", () => {
 				env_model: null,
 				available_models: ["whisper"],
 			},
+			"/admin/images": {
+				model: "flux-2-klein-4b",
+				source: "stored",
+				stored_model: "flux-2-klein-4b",
+				env_model: null,
+				available_models: ["flux-2-klein-4b"],
+				account_available: true,
+				account_reason: null,
+				ask_first: false,
+			},
 			"/admin/dictation": {
 				mode: "browser",
 				transcriptionModel: "whisper",
@@ -92,12 +102,16 @@ describe("Administration, in the pseudo-locale", () => {
 		await expect.element(page.getByText(en("admin.instructions.title"))).toBeVisible();
 		await expect.element(page.getByText(en("admin.delegation.title"))).toBeVisible();
 		await expect.element(page.getByText(en("admin.voice.option.browser.title"))).toBeVisible();
+		await expect.element(page.getByText(en("admin.images.label"))).toBeVisible();
 		expect(
 			unbracketedWords([
 				"ADMIN_INSTRUCTIONS",
 				"CHAT_DELEGATION",
 				"CHAT_DICTATION",
 				"CHAT_TRANSCRIPTION_MODEL",
+				"CHAT_IMAGE_MODEL",
+				"generate_image",
+				"flux-2-klein-4b",
 				"whisper",
 				"research",
 				"delegate",

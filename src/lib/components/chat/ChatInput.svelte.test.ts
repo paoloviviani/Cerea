@@ -277,6 +277,31 @@ describe("ChatInput: attaching knowledge bases", () => {
 		expect(accept.every((t) => t.startsWith("audio/"))).toBe(true);
 	});
 
+	it("the menu has no Create an image item unless an image model resolves for the user", async () => {
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		await openMenu(container);
+		expect(document.body.textContent).toContain("Add file");
+		expect(document.body.textContent).not.toContain("Create an image");
+	});
+
+	it("Create an image puts a starter in the draft and focuses it", async () => {
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID }, [], false, {
+			imageGeneration: true,
+		});
+		await openMenu(container);
+		const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) =>
+			el.textContent?.includes("Create an image")
+		);
+		if (!item) throw new Error("no Create an image item");
+		item.click();
+		const box = container.querySelector("textarea") as HTMLTextAreaElement;
+		await waitSlow(() => expect(box.value).toBe("Create an image of "));
+		await waitSlow(() => expect(document.activeElement).toBe(box));
+		expect(box.selectionStart).toBe(box.value.length);
+	});
+
 	it("an anonymous composer never reaches the knowledge submenu", async () => {
 		stubFetch();
 		let host = document.getElementById("app");

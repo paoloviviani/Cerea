@@ -338,6 +338,28 @@ export async function* runMcpFlow({
 	const artifactTurnBlocks: string[] = [];
 	// Tool mode needs tools on; the per-model override wins in both directions.
 	const artifactToolsEnabled = (forceTools ?? modelSupportsTools) as boolean;
+	// Image generation: a model resolved for this person (a catalogue probe with a short
+	// deadline, remembered 30s) and the administrator's approval switch. Started here and
+	// awaited where the tool list is built, so a cache miss overlaps the rest of the turn's setup.
+	const imageGenerationPromise = (async () => {
+		if (!(turnToken && artifactToolsEnabled)) return undefined;
+		try {
+			const { resolveImageModel, imageAskFirst } = await import("$lib/server/imageGeneration");
+			const image = await resolveImageModel(turnToken);
+			if (!image.model) return undefined;
+			return {
+				model: image.model,
+				askFirst: await imageAskFirst(),
+				billHeaders: billToHeader(locals?.billingOrganization),
+			};
+		} catch (err) {
+			logger.warn(
+				{ err: String(err) },
+				"[images] could not resolve an image model; none this turn"
+			);
+			return undefined;
+		}
+	})();
 	const artifactsEnabled = artifactsEnabledForTurn({
 		artifactsOverride,
 		supportsArtifacts: model.supportsArtifacts,
@@ -362,8 +384,10 @@ export async function* runMcpFlow({
 	const documentCapabilities = await getDocumentCapabilities();
 	// Set when the endpoint rejects a request carrying look_doc pictures: no more pictures this turn.
 	const pictureState: PictureState = { unavailable: false };
+	const imageGeneration = await imageGenerationPromise;
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
+		...(imageGeneration ? { imageGeneration } : {}),
 		documentCapabilities,
 		// The model sees images (or the user's switch says so) and its pictures-in-tool-turns capability is not off.
 		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && !model.toolImagesOff,
@@ -1432,6 +1456,7 @@ export async function* runMcpFlow({
 						policy: toolApprovalPolicy,
 						approvedTools,
 						webFetchAllowedUrls: allowedFetchUrls,
+						...(imageGeneration?.askFirst ? { askBeforeImages: true } : {}),
 						// Nobody to ask: a call that needs approval is refused, as a sub-agent's is.
 						...(locals?.scheduledRun ? { unattended: true } : {}),
 					},

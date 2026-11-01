@@ -40,6 +40,12 @@ vi.mock("$lib/server/files/extractDocument", () => ({ extractDocument: extractDo
 const accessibilitySnapshotWithPlaywright = vi.fn();
 vi.mock("$lib/server/fetching/playwright", () => ({ accessibilitySnapshotWithPlaywright }));
 
+const generateImagesMock = vi.fn();
+vi.mock("$lib/server/imageGeneration", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/server/imageGeneration")>()),
+	generateImages: generateImagesMock,
+}));
+
 await ready;
 
 const SERVERS = [{ name: "Mock", url: "http://mock.invalid/mcp" }];
@@ -751,6 +757,116 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			undefined | { result: { call: { name: string }; outputs: { text?: string }[] } };
 		expect(result?.result.call.name).toBe("web_fetch_structured");
 		expect(result?.result.outputs[0]?.text).toContain("ref=e1");
+	});
+
+	it("makes an approved generate_image call as the approving person, and lists the files beside the result", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		generateImagesMock.mockReset();
+		generateImagesMock.mockResolvedValue({
+			ok: true,
+			model: "flux-2-klein-4b",
+			size: "1344x768",
+			notes: [],
+			remarks: [],
+			files: [
+				{
+					ref: { name: "image-a-fox.png", size: 2048, sha256: "c".repeat(64), prompt: "a fox" },
+					bytes: Buffer.from("x"),
+					mime: "image/png",
+				},
+			],
+		});
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "generate_image",
+			args: { prompt: "a fox", aspect: "landscape" },
+			scope: "once",
+		});
+
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id, token: "tok" });
+
+		expect(generateImagesMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				token: "tok",
+				prompt: "a fox",
+				size: "1344x768",
+				n: 1,
+				conversationId,
+				messageId: "m1",
+			})
+		);
+		const result = outcome.updates.find((u) => "subtype" in u && u.subtype === "result") as
+			undefined | { result: { call: { name: string }; outputs: { text?: string }[] } };
+		expect(result?.result.call.name).toBe("generate_image");
+		expect(result?.result.outputs[0]?.text).toContain("image-a-fox.png");
+		const outputs = outcome.updates.find((u) => "subtype" in u && u.subtype === "outputs") as
+			undefined | { files: { name: string; prompt?: string }[] };
+		expect(outputs?.files).toEqual([
+			expect.objectContaining({ name: "image-a-fox.png", prompt: "a fox" }),
+		]);
+	});
+
+	it("holds the turn's cap of four images across queued generate_image calls cleared by one click", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		generateImagesMock.mockReset();
+		generateImagesMock.mockResolvedValue({
+			ok: true,
+			model: "m",
+			size: "1024x1024",
+			notes: [],
+			remarks: [],
+			files: [
+				{
+					ref: { name: "image-x.png", size: 1, sha256: "d".repeat(64) },
+					bytes: Buffer.from("x"),
+					mime: "image/png",
+				},
+			],
+		});
+		const queued = (n: number): QueuedApprovalCall => ({
+			toolUuid: `q${n}`,
+			toolCallId: `c${n}`,
+			tool: "generate_image",
+			args: { prompt: `fox ${n}`, n: 4 },
+		});
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "generate_image",
+			args: { prompt: "fox 0", n: 4 },
+			scope: "conversation",
+			queue: [queued(1), queued(2)],
+		});
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id, token: "tok" });
+		expect(generateImagesMock).toHaveBeenCalledTimes(1);
+		const errors = outcome.updates.filter((u) => "subtype" in u && u.subtype === "error");
+		expect(errors).toHaveLength(2);
+		expect(JSON.stringify(errors)).toContain("limit");
+	});
+
+	it("does not generate an approved image when there is no sign-in to meter it to", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		generateImagesMock.mockReset();
+		const id = await parkToolApproval(conversationId, "accept", {
+			tool: "generate_image",
+			args: { prompt: "a fox" },
+			scope: "once",
+		});
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		expect(generateImagesMock).not.toHaveBeenCalled();
+		expect(outcome.updates.some((u) => "subtype" in u && u.subtype === "error")).toBe(true);
+	});
+
+	it("never generates a declined image", async () => {
+		const conversationId = new ObjectId();
+		await seedConversation(conversationId);
+		generateImagesMock.mockReset();
+		const id = await parkToolApproval(conversationId, "decline", {
+			tool: "generate_image",
+			args: { prompt: "a fox" },
+		});
+		await resumeParkedToolCall({ conversationId, elicitationId: id, token: "tok" });
+		expect(generateImagesMock).not.toHaveBeenCalled();
 	});
 
 	it("denies an approval-queue tool name nothing recognizes, rather than mis-dispatching it", async () => {
