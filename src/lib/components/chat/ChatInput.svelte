@@ -967,7 +967,7 @@
 			aria-activedescendant={isSlashMenuOpen && slash.activeIndex >= 0
 				? `slash-command-option-${slash.activeIndex}`
 				: undefined}
-			class="scrollbar-custom max-h-[4lh] min-w-0 flex-1 resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent px-2.5 py-2.5 outline-hidden focus:ring-0 focus-visible:ring-0 sm:px-3 md:max-h-[8lh]"
+			class="scrollbar-custom max-h-[min(12lh,calc(var(--app-dvh,100dvh)*0.4))] min-w-0 flex-1 resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent px-2.5 py-2.5 outline-hidden focus:ring-0 focus-visible:ring-0 sm:px-3 md:max-h-[min(16lh,calc(var(--app-dvh,100dvh)*0.45))]"
 			class:text-ink-faint={disabled}
 			bind:value
 			bind:this={textareaElement}
