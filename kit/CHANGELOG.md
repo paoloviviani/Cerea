@@ -5,6 +5,12 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Schedules can have a dedicated chat.** A chat schedule can now post every run into one chat
+  made for it, named after the schedule, instead of continuing an existing chat or starting a new
+  one each time. The assistant can pick it too. No new settings.
+
 ## v0.35.1 — 2026-11-01
 
 Pins: Cerea `0.35.1` (chat and `cerea-documents`), Pystino `0.21.0`.
