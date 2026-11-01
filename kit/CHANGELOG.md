@@ -7,6 +7,12 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **The assistant can make images.** With an image model granted (Admin → Images picks the
+  default, `CHAT_IMAGE_MODEL` sets it from the environment), the chat offers a `generate_image`
+  tool and a "Create an image" item in the "+" menu. Up to 4 images per turn; each is kept with the
+  conversation's files and shown in the chat. "Ask before generating images" (on by default) has
+  the assistant ask first; a user can allow it for the rest of a conversation. A model that makes
+  only square images gets a square one, with a note. Billed per image by Pystino 0.22.
 - **Schedules can have a dedicated chat.** A chat schedule can now post every run into one chat
   made for it, named after the schedule, instead of continuing an existing chat or starting a new
   one each time. The assistant can pick it too. No new settings.
