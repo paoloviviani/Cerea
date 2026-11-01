@@ -351,6 +351,40 @@ describe("generateImages", () => {
 		expect(await failWith(new Error("ECONNREFUSED"))).toContain("could not be reached");
 	});
 
+	it("retries once at 1024x1024 when the model only makes that size, and says so", async () => {
+		post
+			.mockRejectedValueOnce(
+				new GatewayCallFailed(400, "Only 1024x1024 size is currently supported")
+			)
+			.mockResolvedValueOnce({ data: [{ b64_json: b64(PNG) }] });
+		const result = await generateImages({ ...base, size: "1344x768" });
+		expect(post).toHaveBeenCalledTimes(2);
+		expect(post.mock.calls[1][2]).toMatchObject({ size: "1024x1024" });
+		if (!result.ok) throw new Error("expected ok");
+		expect(result.size).toBe("1024x1024");
+		expect(imageResultText(result, false)).toContain(
+			"This model only makes 1024x1024 images; made a square one instead."
+		);
+	});
+
+	it("does not retry a size error at 1024x1024, a second failure, or other 400s", async () => {
+		post.mockRejectedValueOnce(new GatewayCallFailed(400, "size not supported"));
+		expect(await generateImages({ ...base, size: "1024x1024" })).toMatchObject({ ok: false });
+		expect(post).toHaveBeenCalledTimes(1);
+
+		post.mockReset();
+		post
+			.mockRejectedValueOnce(new GatewayCallFailed(400, "bad size"))
+			.mockRejectedValueOnce(new GatewayCallFailed(400, "bad size"));
+		expect(await generateImages({ ...base, size: "768x1344" })).toMatchObject({ ok: false });
+		expect(post).toHaveBeenCalledTimes(2);
+
+		post.mockReset();
+		post.mockRejectedValueOnce(new GatewayCallFailed(400, "prompt too long"));
+		await generateImages({ ...base, size: "768x1344" });
+		expect(post).toHaveBeenCalledTimes(1);
+	});
+
 	it("refuses with no credential and with no model, before any call", async () => {
 		expect(await generateImages({ ...base, token: undefined })).toMatchObject({ ok: false });
 		get.mockResolvedValue({ data: [] });

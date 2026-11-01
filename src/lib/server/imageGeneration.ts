@@ -399,7 +399,15 @@ export interface GeneratedImageFile {
 }
 
 export type ImageGeneration =
-	| { ok: true; model: string; size: ImageSize; files: GeneratedImageFile[]; notes: string[] }
+	| {
+			ok: true;
+			model: string;
+			size: ImageSize;
+			files: GeneratedImageFile[];
+			notes: string[];
+			/** What the caller should be told about how the request was met (a size changed). */
+			remarks: string[];
+	  }
 	| { ok: false; error: string };
 
 /** What a failed gateway call says to the model: the gateway's own words, with the cause named. */
@@ -462,20 +470,43 @@ export async function generateImages(options: {
 		};
 	}
 
-	let answer: GatewayImageAnswer;
-	try {
-		answer = await gateway.post<GatewayImageAnswer>(
+	const ask = (size: ImageSize) =>
+		gateway.post<GatewayImageAnswer>(
 			token,
 			"images/generations",
 			{
 				model,
 				prompt: options.prompt,
 				n: options.n,
-				size: options.size,
+				size,
 				response_format: "b64_json",
 			},
 			{ timeoutMs: IMAGE_TIMEOUT_MS, headers: options.billHeaders, signal: options.signal }
 		);
+	let answer: GatewayImageAnswer;
+	let size = options.size;
+	const remarks: string[] = [];
+	try {
+		try {
+			answer = await ask(size);
+		} catch (err) {
+			// Some models make one size only and say so with a 400 naming it: one retry, square.
+			if (
+				err instanceof GatewayCallFailed &&
+				err.status === 400 &&
+				/size/i.test(err.message) &&
+				size !== DEFAULT_IMAGE_SIZE &&
+				!options.signal?.aborted
+			) {
+				size = DEFAULT_IMAGE_SIZE;
+				remarks.push(
+					`This model only makes ${DEFAULT_IMAGE_SIZE} images; made a square one instead.`
+				);
+				answer = await ask(size);
+			} else {
+				throw err;
+			}
+		}
 	} catch (err) {
 		logger.warn({ model, err: String(err) }, "image_generation_failed");
 		return { ok: false, error: describeImageFailure(err, model) };
@@ -532,7 +563,7 @@ export async function generateImages(options: {
 	if (files.length === 0) {
 		return { ok: false, error: `No image could be kept. ${notes.join(" ")}`.trim() };
 	}
-	return { ok: true, model, size: options.size, files, notes };
+	return { ok: true, model, size, files, notes, remarks };
 }
 
 /** What the model reads after a generation: names, sizes, the revised prompt. */
@@ -545,6 +576,7 @@ export function imageResultText(result: Extract<ImageGeneration, { ok: true }>, 
 		`Made ${result.files.length} image${result.files.length === 1 ? "" : "s"} with ${result.model} (asked for ${result.size}; the sizes listed are what was delivered, and providers may deliver less than asked); ` +
 		"the person sees each in the chat and can download it, and it is in this conversation's files (the sandbox mounts it like any file you made):\n" +
 		lines.join("\n") +
+		(result.remarks.length > 0 ? `\n${result.remarks.join(" ")}` : "") +
 		(result.notes.length > 0 ? `\nNot kept: ${result.notes.join(" ")}` : "") +
 		(seen
 			? "\nThe images are shown to you next to this result for this turn only."

@@ -768,6 +768,7 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			model: "flux-2-klein-4b",
 			size: "1344x768",
 			notes: [],
+			remarks: [],
 			files: [
 				{
 					ref: { name: "image-a-fox.png", size: 2048, sha256: "c".repeat(64), prompt: "a fox" },
@@ -814,6 +815,7 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			model: "m",
 			size: "1024x1024",
 			notes: [],
+			remarks: [],
 			files: [
 				{
 					ref: { name: "image-x.png", size: 1, sha256: "d".repeat(64) },
