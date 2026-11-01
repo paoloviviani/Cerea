@@ -102,6 +102,21 @@ describe("initAppViewport", () => {
 		}
 	});
 
+	it("keeps the layout height while zoomed in", () => {
+		const stub = stubVisualViewport({ height: 300, offsetTop: 0, scale: 2 });
+		installStub(stub.target);
+		const cleanup = initAppViewport();
+		try {
+			expect(document.documentElement.style.getPropertyValue("--app-dvh")).toBe(
+				`${window.innerHeight}px`
+			);
+		} finally {
+			cleanup();
+			uninstallStub();
+			document.documentElement.style.removeProperty("--app-dvh");
+		}
+	});
+
 	it("falls back to innerHeight without a visual viewport", () => {
 		installStub(undefined as unknown as EventTarget);
 		const cleanup = initAppViewport();

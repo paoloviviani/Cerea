@@ -35,11 +35,11 @@ export function initAppViewport(): () => void {
 	const visual = window.visualViewport;
 	const apply = () => {
 		// The visual viewport shrinks with the keyboard where the layout
-		// viewport does not; at scale 1 the two agree.
-		root.style.setProperty(
-			"--app-dvh",
-			`${Math.round(visual ? visual.height : window.innerHeight)}px`
-		);
+		// viewport does not; at scale 1 the two agree. Zoomed in (iOS allows
+		// it whatever the meta says) it shrinks with the zoom instead, which
+		// is not a smaller window: keep the layout height then.
+		const height = visual && visual.scale === 1 ? visual.height : window.innerHeight;
+		root.style.setProperty("--app-dvh", `${Math.round(height)}px`);
 	};
 	const unpan = () => {
 		if (!visual || visual.offsetTop <= 0 || visual.scale !== 1) return;
