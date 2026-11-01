@@ -139,7 +139,9 @@ objects_remote() {
   fi
   # The chat stores everything under CHAT_S3_PREFIX; the probe objects it writes
   # at start are not data.
-  OBJECTS_PREFIX=${CHAT_S3_PREFIX:-}
+  # Read as the chat reads it: no leading slash, one trailing slash.
+  OBJECTS_PREFIX=$(printf '%s' "${CHAT_S3_PREFIX:-}" | sed 's#^/*##')
+  case $OBJECTS_PREFIX in ''|*/) ;; *) OBJECTS_PREFIX=$OBJECTS_PREFIX/ ;; esac
   OBJECTS_SRC=CHATOBJECTS:$CHAT_S3_BUCKET
 }
 
