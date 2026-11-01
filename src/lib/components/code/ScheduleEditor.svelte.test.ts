@@ -561,6 +561,26 @@ describe("ScheduleEditor for a chat", () => {
 		);
 	});
 
+	it("makes a dedicated chat for the schedule, with a model, and never sends a chat id for it", async () => {
+		const { screen } = mount();
+		await screen.getByLabelText("Chat", { exact: true }).selectOptions("__dedicated__");
+		await expect
+			.element(screen.getByText(/The first run creates a chat named after/))
+			.toBeVisible();
+		await screen.getByLabelText("Name", { exact: true }).fill("Digest");
+		await screen.getByLabelText("Prompt", { exact: true }).fill("Digest please");
+		await screen.getByRole("button", { name: "Create schedule" }).click();
+		await expect.element(screen.getByText("Choose a model for the new chats.")).toBeVisible();
+		await screen.getByLabelText("Model", { exact: true }).selectOptions("m2");
+		await screen.getByRole("button", { name: "Create schedule" }).click();
+		expect(api.createSchedule).toHaveBeenCalledWith(
+			expect.objectContaining({
+				kind: "chat",
+				target: { mode: "dedicated", model: "m2", permissionMode: "ask" },
+			})
+		);
+	});
+
 	it("asks for a model when opened from the list, and for a chat to continue", async () => {
 		const { screen } = mount();
 		await screen.getByLabelText("Name", { exact: true }).fill("Digest");
@@ -677,5 +697,34 @@ describe("ScheduleEditor for a chat", () => {
 		await expect.element(screen.getByLabelText("Chat", { exact: true })).toHaveValue("__new__");
 		await expect.element(screen.getByLabelText("Model", { exact: true })).toHaveValue("m1");
 		expect(screen.getByTestId("kind-chat").elements()).toHaveLength(0);
+	});
+
+	it("keeps the dedicated mode selected when editing, and saves it without the stored chat id", async () => {
+		api.updateSchedule.mockResolvedValue({ schedule: { id: "s2" } });
+		const { screen } = mount({
+			editing: {
+				id: "s2",
+				kind: "chat",
+				name: "Daily",
+				prompt: "p",
+				recurrence: { type: "daily", at: "09:00" },
+				timezone: "UTC",
+				enabled: true,
+				target: { mode: "dedicated", model: "m1", dedicatedConversationId: "c9" },
+				targetLabel: "Dedicated chat › Daily",
+				firedCount: 0,
+			},
+		});
+		await expect
+			.element(screen.getByLabelText("Chat", { exact: true }))
+			.toHaveValue("__dedicated__");
+		await expect.element(screen.getByLabelText("Model", { exact: true })).toHaveValue("m1");
+		await screen.getByRole("button", { name: "Save changes" }).click();
+		expect(api.updateSchedule).toHaveBeenCalledWith(
+			"s2",
+			expect.objectContaining({
+				target: { mode: "dedicated", model: "m1", permissionMode: "ask" },
+			})
+		);
 	});
 });

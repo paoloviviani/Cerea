@@ -142,9 +142,14 @@ describe("an attachment", () => {
 		mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	};
 
-	it("is not clickable without a converter (a Word file), and opens the PDF preview with one", async () => {
+	it("offers a download without a converter (a Word file), and opens the PDF preview with one", async () => {
 		const off = render(UploadedFile, { file: docx, canClose: false });
-		expect(off.baseElement.querySelector(".clickable")).toBeNull();
+		(off.baseElement.querySelector(".clickable") as HTMLElement).click();
+		await vi.waitFor(() =>
+			expect(off.baseElement.querySelector('[data-testid="file-download"]')).not.toBeNull()
+		);
+		expect(sidePane.preview).toBeNull();
+		expect(calls).toEqual([]);
 		off.unmount();
 
 		state.data = { officePreviewEnabled: true };

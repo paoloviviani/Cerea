@@ -24,8 +24,8 @@ read-on call does not count toward the per-turn limit of 20 fetches.
 ## Turning it on
 
 In the deploy kit, add the `fetch` profile. The `enterprise` preset includes it;
-for another preset run `./configure --set COMPOSE_PROFILES=…,fetch
-FETCH_BACKEND=playwright`, then `docker compose up -d`.
+for another preset run `./configure --fetch`, then `docker compose up -d`
+(`./configure --no-fetch` removes it again).
 
 That runs one more service, a Playwright `run-server` (Chromium, Firefox and
 WebKit) on port 3000 of the compose network. The chat reaches it at

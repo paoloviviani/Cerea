@@ -230,9 +230,9 @@ RustFS sits alone with the chat on an `internal` Docker network (no route out, n
 published port, no web console), with its data in the `rustfs-data` volume, a
 read-only root filesystem, no capabilities, and memory and CPU limits
 (`RUSTFS_MEM_LIMIT` 1g, `RUSTFS_CPUS` 2). The image is pinned by version and
-digest in `compose.yaml` (`RUSTFS_IMAGE` replaces it). **Back up the
-`rustfs-data` volume with the rest** (see Backup and restore): the Mongo backup
-holds only the index of the files, not their bytes.
+digest in `compose.yaml` (`RUSTFS_IMAGE` replaces it). **Back up the bucket
+with the rest** (see Backup and restore; the restic sidecar does it for you):
+the Mongo backup holds only the index of the files, not their bytes.
 
 Any other S3-compatible store (AWS S3, Cloudflare R2, Backblaze B2, MinIO,
 Ceph) works without the profile: set `CHAT_BLOB_STORE='s3'` and the `CHAT_S3_*`
@@ -465,9 +465,10 @@ builds every sign-in redirect from it.
 
 ### Example: backups with restic
 
-A `backup` service takes the four parts of [Backup and restore](#backup-and-restore)
-on a schedule — `.env`, the Postgres dump, the Mongo archive and the Authelia
-volumes — and stores them in a [restic](https://restic.net) repository:
+A `backup` service takes the parts of [Backup and restore](#backup-and-restore)
+on a schedule — `.env`, the Postgres dump, the Mongo archive, the Authelia
+volumes and, when the chat keeps its files in S3, the bucket's objects — and
+stores them in a [restic](https://restic.net) repository:
 encrypted, deduplicated, on any backend restic speaks (S3, B2, Azure, GCS,
 SFTP, a REST server, a local path) and on any of [rclone](https://rclone.org)'s
 (`rclone:<remote>:<path>`). It is configured by environment variables in `.env`.
@@ -515,6 +516,9 @@ All in `.env` (`./configure --set KEY=VALUE`); `docker compose up -d` applies a 
 | `BACKUP_REPO_TIMEOUT` | `120` | seconds to wait for the repository to answer before a run fails as unreachable |
 | `BACKUP_WORK_SIZE` | `2g` | size of the RAM disk the dumps are written to; at least the combined size of the dumps |
 | `BACKUP_MONGO` | `auto` | `auto` backs up Mongo when the `chat` profile is on; `yes` or `no` forces it |
+| `BACKUP_OBJECTS` | `auto` | `auto` backs up the chat's bucket when `CHAT_BLOB_STORE=s3`; `yes` or `no` forces it |
+| `BACKUP_OBJECTS_TIMEOUT` | `60` | seconds to wait for the object store to answer before a run fails as unreachable |
+| `BACKUP_OBJECTS_TRANSFERS` | `4` | files copied at once when syncing the bucket |
 
 **Repositories.**
 - **A local path.** Mount it in the override (`- /srv/backups/cerea:/repo`) and set `RESTIC_REPOSITORY=/repo`. Keep it on another disk, or it protects you from nothing.
@@ -527,8 +531,9 @@ All in `.env` (`./configure --set KEY=VALUE`); `docker compose up -d` applies a 
 
 1. Opens the repository, and runs `restic init` once, with a log line, if there is none. A wrong password or an unreachable backend stops here, with restic's own message.
 2. Writes, into a RAM disk inside the container: `.env`, `postgres.sql` (`pg_dumpall`, over the stack's network, as `POSTGRES_USER`), `chat-mongo.archive.gz` (`mongodump`), `authelia.tgz` (both Authelia volumes, mounted read-only) and a small `backup.info`. They are the files [Backup and restore](#backup-and-restore) names, taken one after the other in a few seconds, so they belong together. `.env` is never written to a disk; the RAM disk is deleted when the run ends, however it ends.
-3. `restic backup`s that directory as one snapshot, tagged `cerea`, host = the project name.
-4. `restic forget --prune` with `RESTIC_FORGET_ARGS`, and every `BACKUP_CHECK_EVERY`-th run a `restic check`.
+3. With `CHAT_BLOB_STORE=s3` (`BACKUP_OBJECTS=auto`), **after** the Mongo dump, brings the persistent `/objects` volume (`backup-objects`) in line with the chat's bucket, through the S3 API with rclone, configured from `CHAT_S3_*` in `.env` and nothing else. Objects never change once written, so a run copies only the new ones and removes the ones the chat deleted; the first run copies everything. The bucket is not copied through the RAM disk, because it can be far larger than memory. A file added between the dump and the sync is an extra the index does not know, which is harmless; the other order could leave index entries without their bytes. If the bucket cannot be reached, or the keys are wrong, the run fails at step `objects`.
+4. `restic backup`s the dump directory and `/objects` as one snapshot, tagged `cerea`, host = the project name. A restic repository deduplicates, so the objects are stored once however many snapshots hold them.
+5. `restic forget --prune` with `RESTIC_FORGET_ARGS`, and every `BACKUP_CHECK_EVERY`-th run a `restic check`.
 
 The stack keeps running throughout and nothing is stopped. `pg_dumpall` and
 `mongodump` read consistent data while the services write. Authelia's SQLite
@@ -542,6 +547,10 @@ The container is not root on the host. It has no Docker socket, a read-only
 root filesystem, `cap_drop: ALL` (plus `DAC_OVERRIDE`, for Authelia's 0600
 files and a repository directory that is not root's), and mounts `.env` and
 the Authelia volumes read-only.
+
+**The disk cost of the objects.** The `backup-objects` volume is a second copy of the whole bucket on this host, so it needs as much free space as the bucket holds (check where Docker keeps its volumes, `docker info | grep 'Docker Root Dir'`, or point the volume at a bigger disk in the override), and that is on top of what the repository stores. What it buys is that a run is fast and the snapshot is complete. If the bucket is already replicated or versioned by its provider (S3 with versioning and cross-region replication, say) and you do not want a copy, set `BACKUP_OBJECTS=no`: the snapshot then holds the other parts, and the bucket's own protection must be restorable to the same moment as the Mongo archive. With the bundled RustFS the sidecar reaches the bucket over the `objects` network, which the override joins (drop that network from the override with your own S3).
+
+**Upgrading a sidecar set up before objects were covered:** rebuild it and update the override (the `backup-objects` volume and the `objects` network, as in `tools/backup/compose.override.example.yaml`), then `docker compose up -d --build backup`. Without the volume a run with `CHAT_BLOB_STORE=s3` fails at step `objects` and says so.
 
 #### Failures
 
@@ -578,8 +587,11 @@ has its `.env` and override, `docker compose run --rm --no-deps --cap-add CHOWN 
 With restic installed on the host, `restic restore latest:/work/cerea --tag cerea --target restore` lands the same files.
 
 `restore` prints the repository's snapshots and fills `restore/` with the five
-files, newest snapshot by default (`BACKUP_RESTORE_CHOWN` hands them to you). Then follow the restore steps in
-[Backup and restore](#backup-and-restore) from `cp "$B/.env" .env`. Delete
+files, newest snapshot by default (`BACKUP_RESTORE_CHOWN` hands them to you), plus
+`restore/objects/`, the bucket's files, when the snapshot has them; it checks their count against
+`backup.info`. Then follow the restore steps in
+[Backup and restore](#backup-and-restore) from `cp "$B/.env" .env`, including
+the step that copies `$B/objects` back into the bucket. Delete
 `restore/` afterwards: it holds every secret in the clear.
 
 ### Server-side MCP servers
@@ -1147,7 +1159,7 @@ What to keep:
 - **`.env`**. It holds every secret. `GATEWAY_SECRET_KEY` decrypts the provider keys stored in the database. `AUTHELIA_STORAGE_KEY` decrypts every user's identifier. Without them a database backup is only partly usable.
 - **Postgres**: everything the gateway (Pystino) keeps (users and groups, API keys, quotas and the ledger, providers and models, identity-provider settings) and the chat's knowledge store. `pg_dumpall` takes every database in the cluster at once.
 - **Mongo**: conversations.
-- **The `rustfs-data` volume**, only when the `rustfs` profile holds the chat's files: the files' bytes. The Mongo backup then holds just their index, so restore both from the same moment. (With your own S3, the bucket is yours to back up.)
+- **The chat's bucket**, only when the chat keeps its files in S3 (`CHAT_BLOB_STORE=s3`, with the bundled RustFS or your own S3): the files' bytes. The Mongo backup then holds just their index, so restore both from the same moment. The commands below copy it out through the S3 API. (Copying the `rustfs-data` volume of a running RustFS is not a safe backup.)
 - **The Authelia volumes**: the signing key, the users file, and the subject store. Only with the bundled Authelia; with an external identity provider the accounts live there, and these volumes hold nothing to keep.
 
 Not kept, on purpose: Valkey (rate-limit counters and caches, rebuilt as requests arrive) and Caddy's volumes (certificates, fetched again).
@@ -1162,8 +1174,25 @@ docker run --rm -v ${P}_authelia-config:/authelia-config:ro -v ${P}_authelia-dat
   -v "$PWD/$B:/out" alpine tar czf /out/authelia.tgz -C / authelia-config authelia-data
 ```
 
+With the chat's files in S3, copy the bucket out **after** the Mongo dump (a file added in between is harmless; the other order is not). One `rc` helper serves the backup and the restore: [rclone](https://rclone.org), pinned, run in a container and configured from `.env` through variables, so the keys are not on a command line. It joins the `objects` network, which is how it reaches the bundled RustFS; with your own S3, leave `NET` empty:
+
+```sh
+set -a; . ./.env; set +a
+P=cerea    # COMPOSE_PROJECT_NAME
+NET="--network ${P}_objects"      # the bundled RustFS; with your own S3: NET=
+export RCLONE_CONFIG_CHAT_TYPE=s3 RCLONE_CONFIG_CHAT_PROVIDER=Other RCLONE_CONFIG_CHAT_NO_CHECK_BUCKET=true \
+  RCLONE_CONFIG_CHAT_ENDPOINT="$CHAT_S3_ENDPOINT" RCLONE_CONFIG_CHAT_FORCE_PATH_STYLE="${CHAT_S3_FORCE_PATH_STYLE:-true}" \
+  RCLONE_CONFIG_CHAT_REGION="${CHAT_S3_REGION:-us-east-1}" \
+  RCLONE_CONFIG_CHAT_ACCESS_KEY_ID="$CHAT_S3_ACCESS_KEY_ID" RCLONE_CONFIG_CHAT_SECRET_ACCESS_KEY="$CHAT_S3_SECRET_ACCESS_KEY"
+rc() { docker run --rm --user "$(id -u):$(id -g)" $NET $(env | sed -n 's/^\(RCLONE_CONFIG_CHAT_[A-Z_]*\)=.*/-e \1/p') \
+  -v "$PWD/$B:/data" rclone/rclone:1.73.0 "$@"; }
+rc sync "CHAT:$CHAT_S3_BUCKET" /data/objects      # after the mongodump above
+```
+
+(Your own S3 is the AWS S3 proper, with no `CHAT_S3_ENDPOINT`? Use `RCLONE_CONFIG_CHAT_PROVIDER=AWS`, leave the endpoint out, and set `CHAT_S3_REGION`. A `CHAT_S3_PREFIX` limits the chat to that part of the bucket: add `--include "$CHAT_S3_PREFIX**"` to copy only it. The `Config file ... not found` notice is harmless.)
+
 Prefer it automatic, scheduled and off the box? The [restic sidecar](#example-backups-with-restic)
-writes exactly these four files, encrypted, to a repository of your choice.
+writes exactly these files, and the bucket's objects, encrypted, to a repository of your choice.
 
 To restore into a fresh install with the same `.env`:
 
@@ -1180,13 +1209,25 @@ docker run --rm -v ${P}_authelia-config:/c -v ${P}_authelia-data:/d -v "$PWD/$B:
 docker compose up -d --wait
 ```
 
+If the backup has an `objects/` directory (the chat's files were in S3), put the files back into the bucket **before** the chat serves requests: start the object store alone first (with the bundled RustFS, `docker compose up -d --wait rustfs`; your own S3 needs nothing), copy, and only then bring the stack up. Replace the last line above with:
+
+```sh
+docker compose up -d --wait rustfs       # the bundled RustFS only; the bucket is empty
+set -a; . ./.env; set +a                 # then define NET and the `rc` helper as in the backup above
+rc mkdir "CHAT:$CHAT_S3_BUCKET"          # a new bucket; harmless when it exists
+rc copy /data/objects "CHAT:$CHAT_S3_BUCKET"
+rc check /data/objects "CHAT:$CHAT_S3_BUCKET"      # "0 differences found"
+docker compose up -d --wait
+```
+
 Restoring from the restic sidecar's repository? `$B` is the directory
 [its `restore` command](#restoring-from-the-repository) fills; the steps are the same.
 
 Take a backup before every upgrade: database migrations only go forward.
 
-Restore the four parts **from the same backup**: Postgres (accounts, keys,
-the ledger), Mongo (conversations), the `authelia-config` volume (the users
+Restore all the parts **from the same backup**: Postgres (accounts, keys,
+the ledger), Mongo (conversations), the bucket's objects (the conversations'
+files; Mongo holds only their index), the `authelia-config` volume (the users
 file) and `authelia-data` (every person's subject identifier and sessions)
 reference one another, and restoring one without the others leaves accounts
 pointing at logins or subjects that no longer exist. The bootstrap creates

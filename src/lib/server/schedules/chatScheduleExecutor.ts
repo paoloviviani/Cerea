@@ -4,10 +4,15 @@
  * server-side turn.
  *
  * **Target** (stored, validated by `validateTarget`):
- * `{ mode: "continue" | "new", conversationId?, model?, projectId?, permissionMode, labels }`.
+ * `{ mode: "continue" | "new" | "dedicated", conversationId?, dedicatedConversationId?, model?,
+ * projectId?, permissionMode, labels }`.
  * "continue" posts into `conversationId`, which the person owns. "new" starts a
  * conversation each run with `model` and `projectId` (copied from
  * `conversationId` when none is named, so a conversation can be the template).
+ * "dedicated" is "new" with one chat for every run: the first run creates it, titled with the
+ * schedule's name, and stores its id in `dedicatedConversationId` (never taken from a client;
+ * an edit keeps the one the schedule has); later runs post into it like "continue". A dedicated
+ * chat that was deleted is made again on the next run and does not switch the schedule off.
  *
  * **A run** is the conversation route's own turn (`routes/conversation/[id]`), driven
  * by a request this file builds: the same pipeline as a chat message, rate limits,
@@ -78,8 +83,9 @@ export { SIGN_IN_AGAIN };
 const label = z.string().trim().max(160);
 
 const targetSchema = z.object({
-	mode: z.enum(["continue", "new"]),
+	mode: z.enum(["continue", "new", "dedicated"]),
 	conversationId: z.string().min(1).max(64).nullish(),
+	dedicatedConversationId: z.string().min(1).max(64).nullish(),
 	model: z.string().min(1).max(256).nullish(),
 	projectId: z.string().min(1).max(64).nullish(),
 	permissionMode: z.enum(["ask", "allow"]).nullish(),
@@ -87,8 +93,9 @@ const targetSchema = z.object({
 });
 
 export type ChatTarget = {
-	mode: "continue" | "new";
+	mode: "continue" | "new" | "dedicated";
 	conversationId?: string;
+	dedicatedConversationId?: string;
 	model?: string;
 	projectId?: string;
 	permissionMode: SchedulePermission;
@@ -100,10 +107,13 @@ export function parseChatTarget(input: unknown): ChatTarget | null {
 	if (!parsed.success) return null;
 	const t = parsed.data;
 	if (t.mode === "continue" && !t.conversationId) return null;
-	if (t.mode === "new" && !t.conversationId && !t.model) return null;
+	if (t.mode !== "continue" && !t.conversationId && !t.model) return null;
 	return {
 		mode: t.mode,
 		...(t.conversationId ? { conversationId: t.conversationId } : {}),
+		...(t.mode === "dedicated" && t.dedicatedConversationId
+			? { dedicatedConversationId: t.dedicatedConversationId }
+			: {}),
 		...(t.model ? { model: t.model } : {}),
 		...(t.projectId ? { projectId: t.projectId } : {}),
 		// Absent on a target stored before the mode existed: those ran refusing everything.
@@ -326,13 +336,15 @@ registerExecutor({
 				error: "Choose a chat to continue, or a model for a new chat each time.",
 			};
 		}
+		// Only the schedule's own first run makes the dedicated chat: never a client's say-so.
+		delete target.dedicatedConversationId;
 		const conv = await ownedConversation(userId, target.conversationId);
 		if (target.conversationId && !conv)
 			return { ok: false, error: "That chat is not one of yours." };
 		target.labels = {};
 		if (conv) target.labels.conversation = conv.title;
 
-		if (target.mode === "new") {
+		if (target.mode !== "continue") {
 			// The chat is a template: the model and project it has are the defaults.
 			if (!target.model && conv?.model) target.model = conv.model;
 			if (!target.projectId && conv?.projectId) target.projectId = conv.projectId.toString();
@@ -355,6 +367,19 @@ registerExecutor({
 			// The conversation only seeded the defaults; the schedule does not hang on it.
 			delete target.conversationId;
 			delete target.labels.conversation;
+			// An edit of a dedicated schedule stays on its chat, if it is still the person's.
+			const before = current ? parseChatTarget(current) : null;
+			if (
+				target.mode === "dedicated" &&
+				before?.mode === "dedicated" &&
+				before.dedicatedConversationId
+			) {
+				const own = await ownedConversation(userId, before.dedicatedConversationId);
+				if (own) {
+					target.dedicatedConversationId = before.dedicatedConversationId;
+					target.labels.conversation = own.title;
+				}
+			}
 		} else {
 			delete target.model;
 			delete target.projectId;
@@ -385,6 +410,13 @@ registerExecutor({
 		if (target.mode === "continue") {
 			const conv = await ownedConversation(userId, target.conversationId);
 			return `Chat › ${conv?.title ?? target.labels.conversation ?? "chat"}`;
+		}
+		if (target.mode === "dedicated") {
+			const conv = await ownedConversation(userId, target.dedicatedConversationId);
+			const title = conv?.title ?? target.labels.conversation;
+			return [title ? `Dedicated chat › ${title}` : "Dedicated chat", target.labels.project]
+				.filter(Boolean)
+				.join(" › ");
 		}
 		return ["New chat each time", target.labels.project].filter(Boolean).join(" › ");
 	},
@@ -457,9 +489,20 @@ registerExecutor({
 			conversationId = conv._id;
 			conversationTitle = conv.title;
 			parentMessageId = conv.messages.at(-1)?.id;
+		} else if (target.mode === "dedicated") {
+			// Gone (or no longer theirs): made again below; that is not a reason to switch off.
+			const conv = await ownedConversation(schedule.userId, target.dedicatedConversationId);
+			if (conv) {
+				conversationId = conv._id;
+				conversationTitle = conv.title;
+				parentMessageId = conv.messages.at(-1)?.id;
+			}
 		}
 		const busyId =
-			conversationId ?? objectId(previousRun?.result?.ids["conversationId"]) ?? undefined;
+			conversationId ??
+			(target.mode === "new"
+				? (objectId(previousRun?.result?.ids["conversationId"]) ?? undefined)
+				: undefined);
 		if (busyId && (await conversationBusy(busyId, now))) {
 			return {
 				status: "skipped-still-running",
@@ -472,7 +515,7 @@ registerExecutor({
 			};
 		}
 
-		if (target.mode === "new") {
+		if (!conversationId && (target.mode === "new" || target.mode === "dedicated")) {
 			if (!target.model) return { status: "failed", detail: "The schedule's target is not valid." };
 			if (target.projectId) {
 				// Access is the person's as of now, not as of when the schedule was made.
@@ -484,7 +527,11 @@ registerExecutor({
 				}
 			}
 			try {
-				conversationTitle = `${schedule.name} · ${runStamp(now, schedule.timezone)}`.slice(0, 100);
+				conversationTitle = (
+					target.mode === "dedicated"
+						? schedule.name
+						: `${schedule.name} · ${runStamp(now, schedule.timezone)}`
+				).slice(0, 100);
 				conversationId = await createChatFor({
 					user,
 					token,
@@ -496,6 +543,17 @@ registerExecutor({
 			} catch (err) {
 				const { message } = httpMessage(err);
 				return { status: "failed", detail: `Starting the chat: ${message}` };
+			}
+			if (target.mode === "dedicated") {
+				await collections.schedules.updateOne(
+					{ _id: schedule._id },
+					{
+						$set: {
+							"target.dedicatedConversationId": conversationId.toString(),
+							"target.labels.conversation": conversationTitle,
+						},
+					}
+				);
 			}
 			parentMessageId = undefined;
 			const fresh = await collections.conversations.findOne(
