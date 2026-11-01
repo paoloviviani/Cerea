@@ -47,22 +47,29 @@ describe("initAppViewport", () => {
 	// Chromium owns visualViewport on Window.prototype; an own property shadows
 	// the accessor, so a stub can stand in for the browsers the meta key does
 	// not reach. Deleting the own property restores the real one.
-	type VisualViewportStub = EventTarget & { height: number; offsetTop: number };
+	type VisualViewportStub = EventTarget & {
+		height: number;
+		offsetTop: number;
+		scale: number;
+	};
 
-	function stubVisualViewport(initial: { height: number; offsetTop: number }): {
+	function stubVisualViewport(initial: { height: number; offsetTop: number; scale?: number }): {
 		target: VisualViewportStub;
-		set: (next: { height?: number; offsetTop?: number }) => void;
+		set: (next: { height?: number; offsetTop?: number; scale?: number }) => void;
 	} {
 		const target = new EventTarget() as VisualViewportStub;
 		let height = initial.height;
 		let offsetTop = initial.offsetTop;
+		let scale = initial.scale ?? 1;
 		Object.defineProperty(target, "height", { get: () => height, configurable: true });
 		Object.defineProperty(target, "offsetTop", { get: () => offsetTop, configurable: true });
+		Object.defineProperty(target, "scale", { get: () => scale, configurable: true });
 		return {
 			target,
 			set: (next) => {
 				if (next.height !== undefined) height = next.height;
 				if (next.offsetTop !== undefined) offsetTop = next.offsetTop;
+				if (next.scale !== undefined) scale = next.scale;
 			},
 		};
 	}
@@ -140,6 +147,17 @@ describe("initAppViewport", () => {
 			stub.set({ offsetTop: 0 });
 			stub.target.dispatchEvent(new Event("scroll"));
 			expect(scrollTo).not.toHaveBeenCalled();
+
+			// Zoomed in (iOS ignores user-scalable=no), the same pan is the
+			// user's own pinch: left alone even with the field still focused.
+			stub.set({ scale: 2, offsetTop: 150 });
+			stub.target.dispatchEvent(new Event("scroll"));
+			expect(scrollTo).not.toHaveBeenCalled();
+
+			// Back at scale 1 the keyboard's pan is countered again.
+			stub.set({ scale: 1 });
+			stub.target.dispatchEvent(new Event("scroll"));
+			expect(scrollTo).toHaveBeenCalledWith(0, 0);
 		} finally {
 			cleanup();
 			scrollTo.mockRestore();

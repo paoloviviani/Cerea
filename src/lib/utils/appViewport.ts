@@ -42,10 +42,11 @@ export function initAppViewport(): () => void {
 		);
 	};
 	const unpan = () => {
-		if (!visual || visual.offsetTop <= 0) return;
+		if (!visual || visual.offsetTop <= 0 || visual.scale !== 1) return;
 		// A field focused is the keyboard's own doing (the app's dialogs portal
 		// beside the shell, so any focused field in the document counts); a pan
-		// with nothing focused is the user's zoom and is left alone.
+		// with nothing focused — or while zoomed in, which iOS allows whatever
+		// the meta says — is the user's own gesture and is left alone.
 		const active = document.activeElement;
 		const isField =
 			active instanceof HTMLInputElement ||
