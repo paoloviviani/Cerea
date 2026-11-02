@@ -5,7 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.37.0 — 2026-11-02
+
+Pins: Cerea `0.37.0` (chat and `cerea-documents`), Pystino `0.22.1`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required. **Behaviour change:**
+deleting a project now deletes its chats unless users tick "Keep the project's chats as regular
+chats" in the confirmation.
 
 - **On a phone the on-screen keyboard no longer pushes the top bar off screen.** The keyboard now
   resizes the app's viewport (the `interactive-widget` viewport key, with a visual-viewport fallback
