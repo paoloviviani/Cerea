@@ -181,7 +181,7 @@ describe("renderWithPlaywright", () => {
 	it("throws when the page answers with a non-ok status, and still closes context and browser", async () => {
 		const { context, browser } = makeHarness({ responseOk: false, status: 404 });
 		await expect(renderWithPlaywright("https://example.test/missing")).rejects.toThrow(
-			"That URL answered 404."
+			"No page at this address (HTTP 404)"
 		);
 		expect(context.close).toHaveBeenCalled();
 		expect(browser.close).toHaveBeenCalled();

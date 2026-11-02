@@ -467,3 +467,58 @@ describe("web_fetch with the renderer", () => {
 		expect(result).toHaveProperty("resultText");
 	});
 });
+
+describe("web_fetch slash retry, feeds and approval", () => {
+	beforeEach(() => vi.resetAllMocks());
+
+	const page = (extra: Record<string, unknown>) => ({
+		url: "https://a.test/feed",
+		title: "T",
+		content: "plain body",
+		contentType: "text/plain",
+		backend: "direct",
+		extracted: false,
+		...extra,
+	});
+
+	it("tells the model which address answered, caches under both spellings and allows both", async () => {
+		const asked = "https://a.test/feed/";
+		const note = "Fetched https://a.test/feed — https://a.test/feed/ answered 403.";
+		fetchPage.mockResolvedValue(page({ note }));
+		const allowed = new Set([asked]);
+		const tool = createWebFetchBuiltin({ allowedUrls: allowed });
+		const result = (await tool.execute({ url: asked }, {} as never)) as { resultText: string };
+		expect(result.resultText.startsWith(note)).toBe(true);
+		// the toggled spelling of an approved URL is the same resource: no approval, no new fetch
+		expect(webFetchNeedsApproval({ url: "https://a.test/feed" }, allowed)).toBe(false);
+		await tool.execute({ url: "https://a.test/feed" }, {} as never);
+		expect(fetchPage).toHaveBeenCalledTimes(1);
+		expect(webFetchNeedsApproval({ url: "https://a.test/other" }, allowed)).toBe(true);
+	});
+
+	it("keeps a feed's list as lines and lists advertised feeds under a page", async () => {
+		const url = "https://a.test/feed";
+		fetchPage.mockResolvedValue(
+			page({ feed: true, extracted: true, content: "Feed: X — 2 items\n- a\n- b" })
+		);
+		const feed = (await createWebFetchBuiltin({ allowedUrls: new Set([url]) }).execute(
+			{ url },
+			{} as never
+		)) as {
+			resultText: string;
+		};
+		expect(feed.resultText).toContain("Feed: X — 2 items\n- a\n- b");
+		fetchPage.mockResolvedValue(
+			page({
+				url: "https://a.test/p",
+				content: "<p>hello</p>",
+				contentType: "text/html",
+				feeds: ["https://a.test/rss"],
+			})
+		);
+		const html = (await createWebFetchBuiltin({
+			allowedUrls: new Set(["https://a.test/p"]),
+		}).execute({ url: "https://a.test/p" }, {} as never)) as { resultText: string };
+		expect(html.resultText).toContain("Feeds this page advertises: https://a.test/rss");
+	});
+});

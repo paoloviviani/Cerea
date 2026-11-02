@@ -21,6 +21,8 @@
  * on no network but the compose one.
  */
 
+import { FetchStatusError } from "./status";
+import { discoverFeeds } from "./feed";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import http from "node:http";
@@ -270,7 +272,7 @@ async function withRenderedPage<T>(url: string, render: (page: Page) => Promise<
 				timeout: NAVIGATION_TIMEOUT_MS,
 			});
 			if (response && !response.ok()) {
-				throw new Error(`That URL answered ${response.status()}.`);
+				throw new FetchStatusError(response.status());
 			}
 
 			await pageHandle
@@ -344,9 +346,13 @@ async function renderPage(url: string): Promise<FetchedPage> {
 			extracted = false;
 		}
 
+		// Feed links live in the head, which an extracted article has dropped.
+		const whole = extracted ? await pageHandle.content().catch(() => "") : content;
+		const feeds = discoverFeeds(whole, pageHandle.url());
 		return {
 			url: pageHandle.url(),
 			title: title.trim() || null,
+			...(feeds.length > 0 ? { feeds } : {}),
 			// Truncated after extraction, not before: truncating the raw page
 			// first can cut the content off before the article even begins, and
 			// extraction is what makes the truncation land somewhere useful.

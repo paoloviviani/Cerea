@@ -5,6 +5,15 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Reading a site's feed works when the model guesses the slash.** `web_fetch` retries a 403, 404 or
+  410 once with the path's trailing slash toggled (`/feed/` and `/feed`) and says which address
+  answered; a failure now says what the status usually means and what to try next. RSS, Atom and
+  RDF feeds come back as a compact list (title, date, link and a short summary per item, up to 100)
+  instead of raw XML, and an HTML page that advertises a feed lists its address. Users get answers
+  from sites such as Il Post, whose `/feed/` refuses automated readers but whose `/feed` does not.
+
 ## v0.37.1 — 2026-11-02
 
 Pins: Cerea `0.37.1` (chat and `cerea-documents`), Pystino `0.22.1`.

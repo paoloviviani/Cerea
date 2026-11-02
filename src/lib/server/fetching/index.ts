@@ -26,6 +26,7 @@
 
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
+import { FetchStatusError, SLASH_RETRY_STATUSES, toggleTrailingSlash } from "./status";
 
 export const FETCH_BACKENDS = ["direct", "playwright", "pystino"] as const;
 export type FetchBackend = (typeof FETCH_BACKENDS)[number];
@@ -52,6 +53,12 @@ export interface FetchedPage {
 	 * `extractDocument`, the reader an attached file uses.
 	 */
 	document?: { bytes: ArrayBuffer; mime: string; filename: string };
+	/** `content` is already the compact list of an RSS/Atom feed: plain text, not markup to strip. */
+	feed?: boolean;
+	/** Absolute URLs of feeds the page advertises in its head (at most 3). */
+	feeds?: string[];
+	/** Said to the model above the content: which address actually answered, after a retry. */
+	note?: string;
 }
 
 /** The configured backend, defaulting to what this app has always done. */
@@ -85,6 +92,7 @@ async function fetchDirectFirst(url: string): Promise<FetchedPage> {
 	const { looksLikeRealPage } = await import("./pageQuality");
 	const { readablePageText } = await import("./readable");
 	let direct: FetchedPage | null = null;
+	let directError: unknown = null;
 	try {
 		const { page, raw } = await fetchDirectDetailed(url);
 		direct = page;
@@ -104,6 +112,7 @@ async function fetchDirectFirst(url: string): Promise<FetchedPage> {
 		}
 		logger.debug({ url }, "fetch_direct_thin_rendering");
 	} catch (err) {
+		directError = err;
 		logger.debug({ url, err: String(err) }, "fetch_direct_failed_rendering");
 	}
 	try {
@@ -114,11 +123,38 @@ async function fetchDirectFirst(url: string): Promise<FetchedPage> {
 			logger.warn({ url, err: String(err) }, "fetch_render_failed_using_direct");
 			return direct;
 		}
+		// The site's own answer (a 403) says more than a renderer that is down.
+		if (directError instanceof FetchStatusError && !(err instanceof FetchStatusError)) {
+			throw directError;
+		}
 		throw err;
 	}
 }
 
+/**
+ * A fetch that, on a 403, 404 or 410, tries once more with the path's trailing
+ * slash toggled (`/feed/` and `/feed`). One extra request at most; the toggled
+ * address goes through the same guard and checks as any other. When it
+ * answers, the page says which address did.
+ */
 export async function fetchPage(url: string, options: FetchOptions = {}): Promise<FetchedPage> {
+	try {
+		return await fetchPageOnce(url, options);
+	} catch (err) {
+		if (!(err instanceof FetchStatusError) || !SLASH_RETRY_STATUSES.has(err.status)) throw err;
+		const toggled = toggleTrailingSlash(url);
+		if (!toggled) throw err;
+		logger.debug({ url, toggled, status: err.status }, "fetch_retry_slash_toggled");
+		try {
+			const page = await fetchPageOnce(toggled, options);
+			return { ...page, note: `Fetched ${toggled} \u2014 ${url} answered ${err.status}.` };
+		} catch {
+			throw new FetchStatusError(err.status, true);
+		}
+	}
+}
+
+async function fetchPageOnce(url: string, options: FetchOptions = {}): Promise<FetchedPage> {
 	const backend = configuredBackend();
 	switch (backend) {
 		case "playwright": {
