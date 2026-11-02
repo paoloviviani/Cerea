@@ -5,7 +5,24 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.38.0 — 2026-11-02
+
+Pins: Cerea `0.38.0` (chat and `cerea-documents`), Pystino `0.23.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required.
+
+- **Anthropic models through your own Anthropic API key, with prompt caching** (Pystino 0.23).
+  Add a provider of type **Anthropic** in the gateway console with your key and import models
+  from its catalogue: the model list comes from Anthropic, priced from a built-in table (USD;
+  Haiku 5.5 at its higher tier). The chat's requests reach Anthropic's own Messages API: prompt
+  caching is automatic (up to four cache points; `GATEWAY_ANTHROPIC__PROMPT_CACHE=off` turns it
+  off, `GATEWAY_ANTHROPIC__PROMPT_CACHE_TTL=1h` for the one-hour cache), the reasoning setting
+  maps to Anthropic's thinking, and thinking carries across tool calls. Cache reads and writes are
+  billed at their own rates.
+- **Gateway console:** adding a provider is one **Provider** choice (a catalogue entry, or a generic
+  OpenAI-compatible or Anthropic endpoint) instead of two; the administration cards show the
+  sidebar's icons; quotas are reset in one place, **Quota usage**, including a user's own quota
+  and shared quotas.
 
 - **Connector scopes, and Google Workspace connectors.** A connector has an optional **Scopes** field
   (next to the client id and secret, for your own and the administrator's connectors): when set, sign-in and
