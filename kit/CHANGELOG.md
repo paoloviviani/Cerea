@@ -7,6 +7,12 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **On a phone the on-screen keyboard no longer pushes the top bar off screen.** The keyboard now
+  resizes the app's viewport (the `interactive-widget` viewport key, with a visual-viewport fallback
+  for iOS Safari and older Chrome), so the top bar, the newest message and the composer stay in
+  view while users type. The composer also grows taller with a long draft — up to about 12 lines on
+  a phone and 16 on wider screens, capped at 40% (45%) of the visible height, scrolling inside
+  beyond that. No new settings.
 - **Deleting a project deletes its chats.** One confirmation replaces the two
   chained prompts: it lists what goes (the chats, notes, files and the
   past-chats knowledge base, which is now always deleted) and what stays
