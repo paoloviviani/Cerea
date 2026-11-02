@@ -721,3 +721,39 @@ describe("ChatInput: taking a photo", () => {
 		expect(document.body.textContent).not.toContain("Take photo");
 	});
 });
+
+/**
+ * The composer grows with its draft, but never past the visible height: the
+ * cap is a fraction of `--app-dvh` (the shell's own measure, which follows
+ * the keyboard — see `appViewport.ts`), not a fixed line count.
+ */
+describe("ChatInput: the composer's height", () => {
+	it("a 40-line draft on a 400x700 phone caps at 40% of the height, past 4 lines", async () => {
+		stubFetch();
+		const restoreWidth = window.innerWidth;
+		const restoreHeight = window.innerHeight;
+		await page.viewport(400, 700);
+		document.documentElement.style.setProperty("--app-dvh", "700px");
+		try {
+			const { container } = await renderComposer({ id: CONV_ID });
+			const box = find(container, "textarea") as HTMLTextAreaElement;
+			const draft = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n");
+			box.value = draft;
+			box.dispatchEvent(new Event("input", { bubbles: true }));
+			await tick();
+
+			// The 40% cap (280px of the 700px --app-dvh), not 12 lines' worth of
+			// text pushing past it.
+			expect(box.getBoundingClientRect().height).toBeLessThanOrEqual(280);
+			const style = getComputedStyle(box);
+			const lineHeight = parseFloat(style.lineHeight);
+			const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+			expect((box.clientHeight - padding) / lineHeight).toBeGreaterThan(4);
+			// Beyond the cap the textarea scrolls inside instead of growing.
+			expect(box.scrollHeight).toBeGreaterThan(box.clientHeight);
+		} finally {
+			document.documentElement.style.removeProperty("--app-dvh");
+			await page.viewport(restoreWidth, restoreHeight);
+		}
+	});
+});

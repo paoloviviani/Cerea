@@ -7,6 +7,12 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **On a phone the on-screen keyboard no longer pushes the top bar off screen.** The keyboard now
+  resizes the app's viewport (the `interactive-widget` viewport key, with a visual-viewport fallback
+  for iOS Safari and older Chrome), so the top bar, the newest message and the composer stay in
+  view while users type. The composer also grows taller with a long draft — up to about 12 lines on
+  a phone and 16 on wider screens, capped at 40% (45%) of the visible height, scrolling inside
+  beyond that. No new settings.
 - **Pages are read directly first; the browser is the fallback.** With the headless browser on
   (`FETCH_BACKEND=playwright`), `web_fetch` now fetches a page directly and renders it only when
   that comes back thin, is a consent notice or an empty JavaScript shell, or fails (a 403, a
