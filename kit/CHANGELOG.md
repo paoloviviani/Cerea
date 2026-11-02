@@ -23,6 +23,12 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   an overlay that is still in the way before reading the page. When a page still shows only a
   consent or "pay or accept" wall, the assistant is told so, instead of being handed the banner
   as if it were the article. No new settings. See `docs/browser.md`.
+- **Deleting a project deletes its chats.** One confirmation replaces the two
+  chained prompts: it lists what goes (the chats, notes, files and the
+  past-chats knowledge base, which is now always deleted) and what stays
+  (attached knowledge bases; other users' chats in a shared project, which
+  return to their own lists). **Keep the project's chats as regular chats**
+  restores the old behaviour for your chats.
 
 ## v0.36.0 — 2026-11-01
 

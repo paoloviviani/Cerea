@@ -893,12 +893,9 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			return { project, locals, baseId: new ObjectId(stored.memoryBaseId) };
 		}
 
-		it("keeps the memory base by default and drops it, chunks and all, when asked", async () => {
+		it("always drops the memory base, chunks and all, with or without the old ?memory=delete", async () => {
 			const { DELETE } = await import("../../../routes/api/v2/projects/[id]/+server");
-			for (const [query, survives] of [
-				["", true],
-				["?memory=delete", false],
-			] as const) {
+			for (const query of ["", "?memory=delete"]) {
 				const { project, locals, baseId } = await projectWithMemory();
 				await DELETE({
 					locals,
@@ -906,10 +903,8 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 					url: new URL(`http://localhost/${query}`),
 				} as never);
 				expect(await collections.projects.countDocuments({ _id: project._id })).toBe(0);
-				expect(await collections.vectorStores.countDocuments({ _id: baseId })).toBe(
-					survives ? 1 : 0
-				);
-				expect((await chunksOfStores([baseId])) > 0).toBe(survives);
+				expect(await collections.vectorStores.countDocuments({ _id: baseId })).toBe(0);
+				expect(await chunksOfStores([baseId])).toBe(0);
 			}
 		});
 	});

@@ -70,10 +70,14 @@ off for you in Workspace → Connectors.
 project is created: search the list under **Knowledge bases** and press
 **Attach**. To make a base, use the link to the Workspace's Knowledge tab.
 
-**Deleting a project keeps its chats**: they return to your ordinary list. The
-knowledge bases are their own resources with their own owner, so they are kept
-too. The project's notes and context documents belong to it and are deleted
-with it.
+**Deleting a project deletes its chats** (the ones you started, with everything
+a deleted chat leaves behind), its notes, its context documents and its
+past-chats knowledge base, the one that lets the assistant remember the
+project's chats. Tick **Keep the project's chats as regular chats** in the
+confirmation to move your chats back to your ordinary list instead. Knowledge
+bases attached to the project are their own resources with their own owner, so
+they are kept. In a shared project, chats other users started are never
+deleted: they go back to those users' own lists.
 
 **Remove from project** does the same for one chat: the chat returns to your
 ordinary list and its transcript leaves the project's past-chats memory. You can
