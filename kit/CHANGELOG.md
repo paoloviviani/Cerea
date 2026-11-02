@@ -5,6 +5,14 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **galopin: an Anthropic model on the gateway no longer stops the coding agent.** Pystino 0.23
+  lists Anthropic models as accepting files, and galopin copied that into opencode's config, which
+  only accepts `text`, `audio`, `image`, `video` and `pdf`: opencode refused its config and did not
+  start, so the machine showed online with every workspace request failing. galopin now writes
+  only the values opencode accepts (`file` becomes `pdf`).
+
 ## v0.38.0 — 2026-11-02
 
 Pins: Cerea `0.38.0` (chat and `cerea-documents`), Pystino `0.23.0`.

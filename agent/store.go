@@ -242,6 +242,28 @@ type opencodeModalities struct {
 	Input []string `json:"input,omitempty"`
 }
 
+// opencodeInputModalities keeps the gateway's input modalities that opencode's
+// config schema accepts (text, audio, image, video, pdf) and drops the rest. The
+// schema is an enum and rejects the whole file on an unknown value, so opencode
+// does not start at all: Pystino's Anthropic discovery lists "file" (documents),
+// which made a machine whose gateway offered an Anthropic model read as online
+// with every workspace request failing. "file" is what opencode calls "pdf".
+func opencodeInputModalities(in []string) []string {
+	allowed := map[string]bool{"text": true, "audio": true, "image": true, "video": true, "pdf": true}
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, m := range in {
+		if m == "file" {
+			m = "pdf"
+		}
+		if allowed[m] && !seen[m] {
+			seen[m] = true
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // effortVariants are the levels a reasoning-capable gateway model gets.
 func effortVariants() map[string]map[string]string {
 	out := map[string]map[string]string{}
@@ -344,7 +366,7 @@ func modelEntries(models []gatewayModel) map[string]opencodeModel {
 		if hasFeature(m.InputModalities, "image") {
 			t := true
 			entry.Attachment = &t
-			entry.Modalities = &opencodeModalities{Input: m.InputModalities}
+			entry.Modalities = &opencodeModalities{Input: opencodeInputModalities(m.InputModalities)}
 		}
 		entries[m.ID] = entry
 	}
