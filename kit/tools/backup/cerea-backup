@@ -10,6 +10,7 @@
 # One backup run takes the four parts the README's restore procedure expects,
 # in one pass, into a tmpfs directory:
 #   .env  postgres.sql  chat-mongo.archive.gz  authelia.tgz  (+ backup.info)
+# plus extra/, a copy of whatever is mounted under /extra (your own files).
 # restic stores that directory as one snapshot, then the directory is deleted.
 # With the chat's files in S3 (CHAT_BLOB_STORE=s3) the bucket's objects are
 # kept in sync, through the S3 API with rclone, into the persistent /objects
@@ -23,6 +24,7 @@ WORK=/work
 STATE=${BACKUP_STATE_DIR:-/state}
 STACK_ENV=${BACKUP_ENV_FILE:-/stack/.env}
 OBJECTS_DIR=${BACKUP_OBJECTS_DIR:-/objects}   # a fixed path too, for the same reason
+EXTRA_DIR=${BACKUP_EXTRA_DIR:-/extra}          # files of your own, mounted read-only (see dump_extra)
 RUN_DIR=$WORK/cerea            # a fixed path: restic matches parent snapshots by it,
                                # and `restore` addresses the snapshot by it
 TAG=cerea
@@ -202,6 +204,21 @@ dump_authelia() {
     || log "authelia: note: no users_database.yml in the archive (an install with an external IdP has none)"
 }
 
+# Anything mounted under $EXTRA_DIR (your compose.override.yaml, an rclone.conf,
+# galopin's mcp.json...) is copied into the run as extra/, so it is in the same
+# snapshot and `restore` returns it as restore/extra/. Small files only: the run
+# directory is a RAM disk (BACKUP_WORK_SIZE). Nothing mounted there, nothing copied.
+dump_extra() {
+  [ -d "$EXTRA_DIR" ] || return 0
+  [ -n "$(ls -A "$EXTRA_DIR" 2>/dev/null)" ] || return 0
+  log "extra: copying $EXTRA_DIR into the snapshot as extra/"
+  mkdir -p "$RUN_DIR/extra"
+  # -L: a file mounted from the host may be a symlink there; keep its content.
+  cp -RL "$EXTRA_DIR"/. "$RUN_DIR/extra/" || die "extra: could not copy $EXTRA_DIR"
+  EXTRA_COUNT=$(find "$RUN_DIR/extra" -type f | wc -l | tr -d ' ')
+  log "extra: $EXTRA_COUNT files"
+}
+
 # --- one backup run -------------------------------------------------------------
 
 STEP=start
@@ -233,6 +250,8 @@ cmd_now() {
   STEP=postgres;  dump_postgres
   STEP=mongo;     dump_mongo
   STEP=authelia;  dump_authelia
+  EXTRA_COUNT=
+  STEP=extra;     dump_extra
   # After the Mongo dump, never before: a file added in between is an extra the
   # index does not know (harmless); the other order could leave index entries
   # whose bytes are not in the copy.
@@ -247,6 +266,7 @@ cmd_now() {
     echo "project:  $HOST"
     echo "profiles: ${COMPOSE_PROFILES:-}"
     (cd "$RUN_DIR" && ls -l .env postgres.sql authelia.tgz chat-mongo.archive.gz 2>/dev/null | awk '{print "file:     " $9 " " $5 " bytes"}')
+    [ -z "$EXTRA_COUNT" ] || echo "extra:    $EXTRA_COUNT files (from $EXTRA_DIR, stored as extra/)"
     [ -z "$OBJECTS_COUNT" ] || echo "objects:  $OBJECTS_COUNT files, $OBJECTS_BYTES bytes (stored as objects/ beside these files)"
   } > "$RUN_DIR/backup.info"
 

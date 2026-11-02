@@ -5,6 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **The backup can keep your own files too.** Mount files read-only under `/extra` in the backup
+  service (for example `- ./compose.override.yaml:/extra/compose.override.yaml:ro`) and each
+  snapshot keeps them as `extra/`; `restore` returns them beside the dumps. Rebuild the sidecar to
+  get it: `docker compose up -d --build backup`.
+
 ## v0.38.0 — 2026-11-02
 
 Pins: Cerea `0.38.0` (chat and `cerea-documents`), Pystino `0.23.0`.
