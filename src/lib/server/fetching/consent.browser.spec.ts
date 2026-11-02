@@ -18,7 +18,7 @@ import { chromium, type Browser, type BrowserServer } from "playwright";
 vi.mock("$lib/server/logger", () => ({
 	logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
-const { prepareConsent, handleConsent } = await import("./consent");
+const { prepareConsent, handleConsent, CONSENT_BUDGET_MS } = await import("./consent");
 
 const ARTICLE =
 	"The council met on Tuesday to discuss the new bridge, its cost and the schedule for works.";
@@ -134,6 +134,7 @@ describe.skipIf(!hasChromium)("consent step in a real browser, over a remote con
 		expect(r.report).toMatchObject({ acted: "none", overlaysRemoved: 0 });
 		expect(r.clicked).toBeNull();
 		expect(r.text).toContain(ARTICLE);
-		expect(r.ms).toBeLessThan(2_500);
+		// No CMP: the detection window (2.5 s), not the whole budget.
+		expect(r.ms).toBeLessThan(CONSENT_BUDGET_MS - 1_500);
 	});
 });

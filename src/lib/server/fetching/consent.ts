@@ -32,8 +32,12 @@ import { logger } from "$lib/server/logger";
 
 /** The most time the consent step may take, in all. */
 export const CONSENT_BUDGET_MS = 5_000;
-/** How long to wait for a CMP to be detected before deciding there is none. */
-const DETECT_WAIT_MS = 1_500;
+/**
+ * How long to wait for a CMP to be detected before deciding there is none. The
+ * script's own "nothingDetected" can end the wait sooner, but on a static page it
+ * may never come: after its second try each retry also waits for a DOM change.
+ */
+const DETECT_WAIT_MS = 2_500;
 const POLL_MS = 100;
 const SETTLE_MS = 1_500;
 
@@ -92,6 +96,9 @@ interface ContentMessage {
 	id?: string;
 	code?: string;
 	url?: string;
+	/** On `report`: whether it came from the top frame, and the script's state. */
+	mainFrame?: boolean;
+	state?: { lifecycle?: string };
 }
 
 export interface ConsentSession {
@@ -141,7 +148,10 @@ const AUTOCONSENT_CONFIG = {
 	enablePrehide: false,
 	enableCosmeticRules: false,
 	enableHeuristicDetection: true,
-	detectRetries: 20,
+	// 500 ms apart (sooner on DOM changes): about 4 s to report "nothingDetected",
+	// inside the step's budget. A CMP that loads late (iubenda) needs more than the
+	// first second or two.
+	detectRetries: 8,
 	visualTest: false,
 };
 
@@ -275,6 +285,15 @@ const OVERLAY_CLEANUP = `(arg) => {
  * autoconsent to act (or to find nothing), then cleans up what is left.
  * Bounded by `CONSENT_BUDGET_MS`; never throws.
  */
+/** The latest lifecycle the top frame's content script reported, if any. */
+function topLifecycle(session: ConsentSession): string | undefined {
+	for (let i = session.messages.length - 1; i >= 0; i--) {
+		const m = session.messages[i];
+		if (m.type === "report" && m.mainFrame && m.state?.lifecycle) return m.state.lifecycle;
+	}
+	return undefined;
+}
+
 export async function handleConsent(page: Page, session: ConsentSession): Promise<ConsentReport> {
 	const report: ConsentReport = { acted: "none", overlaysRemoved: 0, cookies: session.cookies };
 	const started = Date.now();
@@ -283,6 +302,9 @@ export async function handleConsent(page: Page, session: ConsentSession): Promis
 		if (session.ready) {
 			while (remaining() > 0) {
 				if (has(session, "autoconsentDone") || has(session, "optOutResult")) break;
+				// The top frame's own verdict ends the wait: nothing there, or done.
+				const lifecycle = topLifecycle(session);
+				if (lifecycle === "nothingDetected") break;
 				if (!has(session, "cmpDetected") && Date.now() - started > DETECT_WAIT_MS) break;
 				await new Promise((r) => setTimeout(r, POLL_MS));
 			}
