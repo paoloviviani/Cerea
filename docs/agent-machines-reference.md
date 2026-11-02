@@ -72,7 +72,7 @@ the printed line carries every changed value whether it is open or not):
 | **Workspace folders** (a list)                                | `--workspace-root PATH`, one per entry                                | anywhere                    | workspaces may only be created under these folders                                                                                                                                                            |
 | **No file explorer**                                          | `--no-files`                                                          | read-only browsing          | keeps the explorer out of the machine's files                                                                                                                                                                 |
 | **Hide files** (a list)                                       | `--file-deny GLOB`, one per entry                                     | the built-in secret list    | the explorer also redacts files matching these globs                                                                                                                                                          |
-| **Drop the built-in secret list** (amber)                     | `--no-default-file-deny`                                              | the secret list stays       | stops redacting `.env` files and private keys, keeping only your globs                                                                                                                                        |
+| **Drop the built-in secret list** (amber)                     | `--no-default-file-deny`                                              | the secret list stays       | stops redacting private keys and credential files, keeping only your globs                                                                                                                                        |
 | **Agents may work outside the project folder without asking** | `--permission-rule external_directory=allow`                          | off: the agent asks         | by default an agent asks before reading or writing files outside the workspace folder; ticked, it does not                                                                                                    |
 | **Agents may read secret files without asking** (amber)       | `--permission-rule read=allow`                                        | off: the agent asks         | by default an agent asks before reading `.env` and similar files; ticked, it reads them like any other file, so their contents reach the model                                                                |
 
@@ -210,9 +210,9 @@ guarantee**): a repo agent can name the repo's own provider.
 
 `run` lets the `/code` explorer browse each workspace, **read-only**, confined
 to the workspace directory (symlinks that leave it are listed, never
-followed), with secrets redacted: `.env` files (not `.env.example`), private
+followed), with secrets redacted: private
 keys, `.netrc`/`.npmrc`/`.pypirc`, cloud credentials files, `*.tfstate` and
-the like. Redaction keeps secrets off screens and out of logs; it is not a
+the like. `.env` files are shown (add `--file-deny '.env' --file-deny '.env.*'` at enroll to hide them). Redaction keeps secrets off screens and out of logs; it is not a
 boundary against the agent, which can read any file. The flags that turn it
 off or extend the list are in [The machine policy](#the-machine-policy).
 

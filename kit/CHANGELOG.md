@@ -7,6 +7,11 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **The code panel's file explorer shows `.env` files.** They were hidden by galopin's built-in
+  deny list; private keys and credential files still are. A slash command still cannot pull a
+  `.env` into a prompt, and the agent still asks before reading one. Hide them again on a machine
+  with `--file-deny '.env' --file-deny '.env.*'` at enroll. File contents are sent with `no-store`,
+  so the browser never caches them. Needs the galopin update.
 - **galopin: an Anthropic model on the gateway no longer stops the coding agent.** Pystino 0.23
   lists Anthropic models as accepting files, and galopin copied that into opencode's config, which
   only accepts `text`, `audio`, `image`, `video` and `pdf`: opencode refused its config and did not

@@ -332,8 +332,12 @@ const DefaultMaxTerminals = 8
 // DefaultFileDeny is the secret deny list (PROTOCOL.md §9.4). A "!" entry
 // exempts what the entries before it matched. It is not a boundary against
 // the agent or a terminal; it keeps secrets off screens and out of logs.
+//
+// `.env` files are not on it (owner's decision, 2026-11-03): reading and fixing
+// a project's settings is a normal thing to do from the explorer, and the owner
+// is the only one looking. `--file-deny '.env' --file-deny '.env.*'` puts them
+// back on a machine. The agent still asks before reading one (internal/decide).
 var DefaultFileDeny = []string{
-	".env", ".env.*", "!.env.example", "!.env.sample", "!.env.template", ".envrc",
 	"*.pem", "*.key", "*.p12", "*.pfx", "*.kdbx",
 	"id_rsa*", "id_ecdsa*", "id_ed25519*",
 	".netrc", ".npmrc", ".pypirc", ".git-credentials",
@@ -374,6 +378,21 @@ func (p Policy) EffectiveMaxTerminals() int {
 		return DefaultMaxTerminals
 	}
 	return p.MaxTerminals
+}
+
+// PromptSecretDeny is what a command's @file reference may never pull into a
+// prompt, on top of the explorer's list: the .env files the explorer shows. A
+// reference lands in the transcript and the gateway's logs with no ask, the
+// exact path the agent's own ask before reading a *.env file guards. It holds
+// whatever the owner does with the explorer list (--no-default-file-deny too).
+var PromptSecretDeny = []string{
+	".env", ".env.*", "!.env.example", "!.env.sample", "!.env.template", ".envrc",
+}
+
+// EffectivePromptFileDeny is the deny list for a command's @file references:
+// the .env patterns, then the explorer's list in force.
+func (p Policy) EffectivePromptFileDeny() []string {
+	return append(append([]string{}, PromptSecretDeny...), p.EffectiveFileDeny()...)
 }
 
 // EffectiveFileDeny is the deny list in force: the defaults (unless
