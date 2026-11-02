@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.37.2 — 2026-11-02
+
+Pins: Cerea `0.37.2` (chat and `cerea-documents`), Pystino `0.22.1`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No new settings required.
 
 - **Reading a site's feed works when the model guesses the slash.** `web_fetch` retries a 403, 404 or
   410 once with the path's trailing slash toggled (`/feed/` and `/feed`) and says which address
