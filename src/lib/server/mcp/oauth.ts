@@ -42,6 +42,7 @@ import { logger } from "$lib/server/logger";
 import { ssrfSafeFetch } from "$lib/server/urlSafety";
 import { open, seal } from "./secretBox";
 import type { McpConnector, McpRegistration } from "$lib/types/McpConnector";
+import { authorizationParams, requestedScopes, sendsResource } from "./providerQuirks";
 
 /** How long a person has to finish a consent screen before the state expires. */
 const PENDING_TTL_MINUTES = 15;
@@ -88,7 +89,7 @@ export async function register(connector: McpConnector): Promise<McpRegistration
 			// insists on a secret will say so in its response, and we store
 			// whatever it gives back.
 			token_endpoint_auth_method: "none",
-			scope: connector.oauth?.scopesSupported?.join(" "),
+			scope: requestedScopes(connector)?.join(" "),
 		}),
 		signal: AbortSignal.timeout(20_000),
 	});
@@ -193,9 +194,12 @@ export async function beginAuthorization(options: {
 	url.searchParams.set("state", state);
 	// RFC 8707. Required by the MCP spec, and what stops this token being
 	// replayed at a different MCP server.
-	url.searchParams.set("resource", oauth.resource);
-	if (oauth.scopesSupported?.length) {
-		url.searchParams.set("scope", oauth.scopesSupported.join(" "));
+	if (sendsResource(oauth)) url.searchParams.set("resource", oauth.resource);
+	const scopes = requestedScopes(connector);
+	if (scopes) url.searchParams.set("scope", scopes.join(" "));
+	// Provider quirks, e.g. Google's `access_type=offline` for a refresh token.
+	for (const [key, value] of Object.entries(authorizationParams(oauth))) {
+		url.searchParams.set(key, value);
 	}
 	return url.toString();
 }
@@ -253,8 +257,8 @@ export async function completeAuthorization(options: {
 		redirect_uri: redirectUri(),
 		client_id: connector.registration.clientId,
 		code_verifier: pending.verifier,
-		resource: connector.oauth.resource,
 	};
+	if (sendsResource(connector.oauth)) form.resource = connector.oauth.resource;
 	if (connector.registration.clientSecretSealed) {
 		form.client_secret = open(connector.registration.clientSecretSealed);
 	}
@@ -351,8 +355,8 @@ export async function bearerFor(options: {
 		grant_type: "refresh_token",
 		refresh_token: open(row.refreshTokenSealed),
 		client_id: connector.registration.clientId,
-		resource: connector.oauth.resource,
 	};
+	if (sendsResource(connector.oauth)) form.resource = connector.oauth.resource;
 	if (connector.registration.clientSecretSealed) {
 		form.client_secret = open(connector.registration.clientSecretSealed);
 	}

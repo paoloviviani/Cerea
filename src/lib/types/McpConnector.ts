@@ -150,6 +150,14 @@ export interface McpConnector extends Timestamps {
 	 */
 	registration?: McpRegistration;
 
+	/**
+	 * The scopes to ask for at sign-in, when the operator set them. Empty or
+	 * absent: everything the server advertises (`oauth.scopesSupported`).
+	 * Changing them signs everybody out, because a token holds the scopes it
+	 * was granted.
+	 */
+	scopes?: string[];
+
 	/** For `auth: "token"` — the static credential, sealed. */
 	tokenSealed?: string;
 	/**
@@ -265,6 +273,8 @@ export interface McpConnectorView {
 	clientId?: string;
 	registrationSource?: "dcr" | "static";
 	scopesSupported?: string[];
+	/** The scopes set on this connector, when any (sent instead of the advertised ones). */
+	scopes?: string[];
 	issuer?: string;
 	lastError?: string;
 	/** The administrator's one sentence on what it is for, when there is one. */

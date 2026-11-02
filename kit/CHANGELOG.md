@@ -5,6 +5,15 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Connector scopes, and Google Workspace connectors.** A connector has an optional **Scopes** field
+  (next to the client id and secret, for your own and the administrator's connectors): when set, sign-in and
+  dynamic registration ask for exactly those scopes instead of everything the server advertises. Changing
+  them signs everybody out of that connector. For Google, Cerea now sends `access_type=offline` and
+  `prompt=consent` so the connection no longer dies after an hour, and leaves out the `resource`
+  parameter Google does not use. New pages: Google Workspace and Microsoft 365 connectors (docs).
+
 ## v0.37.2 — 2026-11-02
 
 Pins: Cerea `0.37.2` (chat and `cerea-documents`), Pystino `0.22.1`.

@@ -13,6 +13,7 @@
 	it is a decision rather than an accident.
 -->
 <script lang="ts">
+	import ScopesField from "$lib/components/mcp/ScopesField.svelte";
 	import * as s from "$lib/components/overlay/styles";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
@@ -58,6 +59,8 @@
 	let checking = $state<string | null>(null);
 	/** Which OAuth connector has its app details (client id and secret) form open. */
 	let detailsFor = $state<string | null>(null);
+	let rowScopes = $state("");
+	let editScopes = $state("");
 	let rowClientId = $state("");
 	let rowClientSecret = $state("");
 	// Shown so somebody registering a client by hand can copy it: the same value the server derives.
@@ -247,6 +250,7 @@
 		editDescription = connector.description ?? "";
 		editToken = "";
 		editTokenHeader = connector.tokenHeader ?? "";
+		editScopes = (connector.scopes ?? []).join("\n");
 		clearEditToken = false;
 		failure = null;
 	}
@@ -286,6 +290,8 @@
 							}
 						: {}),
 					...(clearEditToken ? { clearToken: true } : {}),
+					// Empty clears them; the server signs everybody out only when they changed.
+					...(target.auth === "oauth" ? { scopes: editScopes.trim() } : {}),
 				}),
 			});
 			cancelEdit();
@@ -311,10 +317,12 @@
 					action: "update",
 					clientId: rowClientId.trim(),
 					...(rowClientSecret.trim() ? { clientSecret: rowClientSecret.trim() } : {}),
+					...(rowScopes.trim() ? { scopes: rowScopes.trim() } : {}),
 				}),
 			});
 			rowClientId = "";
 			rowClientSecret = "";
+			rowScopes = "";
 			detailsFor = null;
 			await load();
 		} catch (err) {
@@ -779,6 +787,7 @@
 								bind:value={rowClientSecret}
 								disabled={busy}
 							/>
+							<ScopesField bind:value={rowScopes} disabled={busy} />
 							<p class="text-xs text-gray-500 dark:text-gray-400">
 								{m["mcp.connectors.redirect_uri_row"]()}
 								<code class="rounded-sm bg-gray-100 px-1 py-0.5 break-all dark:bg-gray-800"
@@ -882,6 +891,9 @@
 										{m["admin.connectors.form.remove_key"]()}
 									</label>
 								{/if}
+							{/if}
+							{#if connector.auth === "oauth"}
+								<ScopesField bind:value={editScopes} disabled={busy} />
 							{/if}
 							<p class="text-xs text-gray-500 dark:text-gray-400">
 								{m["admin.connectors.form.edit_hint"]()}

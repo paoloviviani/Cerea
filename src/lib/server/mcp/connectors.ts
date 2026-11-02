@@ -88,6 +88,7 @@ export async function view(
 		clientId: connector.registration?.clientId,
 		registrationSource: connector.registration?.source,
 		scopesSupported: connector.oauth?.scopesSupported,
+		...(connector.scopes?.length ? { scopes: connector.scopes } : {}),
 		issuer: connector.oauth?.issuer,
 		lastError: seesDetail || !connector.lastError ? connector.lastError : GENERIC_ERROR,
 		description: connector.description,

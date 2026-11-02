@@ -19,7 +19,7 @@ it authenticates, so you never declare that yourself. There are three outcomes:
 
 - **OAuth.** The connector gets a **Sign in** button. Signing in leaves the page,
   because it is a consent screen on the provider's own site, and returns to the
-  chat with the result. Where the service doesn't let apps register themselves, sign-in needs a client id and secret from that service. Enter them when adding the connector, or ask whoever runs the service for them.
+  chat with the result. Where the service doesn't let apps register themselves, sign-in needs a client id and secret from that service. Enter them when adding the connector, or ask whoever runs the service for them. The optional **Scopes** field (space or one per line) narrows what Cerea asks for at sign-in; left empty, it asks for everything the server advertises, which for some providers is far more than you need. Changing a connector's scopes signs everybody out of it, so they approve the new ones. For Google, Cerea also asks for a refresh token by itself. Step-by-step: [Google Workspace](connectors-google-workspace.md) and [Microsoft 365 and Outlook](connectors-microsoft.md).
 - **A static token.** You paste an API token, and, if the server expects it under
   a particular header name, that header (for `Authorization` the value is sent
   as a bearer token).
