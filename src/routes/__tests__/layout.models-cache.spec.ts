@@ -100,3 +100,18 @@ describe("+layout.ts caches the model list per billing group", () => {
 		expect(modelsRequest?.url).not.toMatch(/bill-to=[^&]/);
 	});
 });
+
+// Every field +layout.server.ts returns must reach the page: the universal load
+// rebuilds the data field by field, and one it forgets reads as undefined. The
+// files pane then said "kept for 30 days" on a deployment that never expires them.
+describe("+layout.ts passes the server layout's fields through", () => {
+	it("keeps fileRetentionDays, including 0 (never expire)", async () => {
+		const { load } = await import("../+layout");
+		const params = loadParams(stubFor({}, []));
+		const out = (await load({
+			...params,
+			data: { ...params.data, fileRetentionDays: 0 },
+		} as unknown as Parameters<typeof load>[0])) as { fileRetentionDays?: number };
+		expect(out.fileRetentionDays).toBe(0);
+	});
+});

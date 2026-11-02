@@ -7,6 +7,9 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **The Files pane tells the truth about retention.** With "Never expire" ticked under
+  Administration → Storage it still said "Files are kept for 30 days": the setting did not reach
+  the page and the pane fell back to its default. Files were never deleted; only the label was wrong.
 - **galopin: an Anthropic model on the gateway no longer stops the coding agent.** Pystino 0.23
   lists Anthropic models as accepting files, and galopin copied that into opencode's config, which
   only accepts `text`, `audio`, `image`, `video` and `pdf`: opencode refused its config and did not
