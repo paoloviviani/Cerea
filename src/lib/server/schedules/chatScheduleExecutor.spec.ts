@@ -166,6 +166,7 @@ beforeEach(async () => {
 	await collections.schedules.deleteMany({});
 	await collections.scheduleRuns.deleteMany({});
 	await collections.turnStates.deleteMany({});
+	await collections.generations.deleteMany({});
 	await collections.scheduleGrants.deleteMany({});
 	await collections.settings.deleteMany({});
 	await collections.projects.deleteMany({});
@@ -186,6 +187,22 @@ beforeEach(async () => {
 	await giveGrant();
 	conversationId = await seedConversation();
 });
+
+/** A run generating now in that chat: what makes a schedule skip. */
+async function liveGeneration(conversationId: ObjectId, heartbeat = new Date()) {
+	await collections.generations.insertOne({
+		_id: new ObjectId(),
+		generationId: `g-${new ObjectId().toString()}`,
+		conversationId,
+		messageId: "a1",
+		status: "running",
+		seq: 1,
+		lastHeartbeatAt: heartbeat,
+		startedAt: heartbeat,
+		createdAt: heartbeat,
+		updatedAt: heartbeat,
+	});
+}
 
 describe("the permission mode", () => {
 	const caller = () => ({ userId: person.user._id });
@@ -368,15 +385,7 @@ describe("a run in the same chat", () => {
 
 	it("skips when a turn of that chat is still generating", async () => {
 		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
-		await collections.turnStates.insertOne({
-			_id: new ObjectId(),
-			conversationId,
-			messageId: "a1",
-			status: "running",
-			producerId: "g",
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		});
+		await liveGeneration(conversationId);
 		const run = await runNow(person.user._id, schedule._id.toString());
 
 		expect(run.status).toBe("skipped-still-running");
@@ -384,15 +393,38 @@ describe("a run in the same chat", () => {
 		expect(flags.turn).not.toHaveBeenCalled();
 	});
 
-	it("does not count a turn record left by a process that died", async () => {
-		await collections.turnStates.insertOne({
+	it("does not count a run whose heartbeat stopped (its process died)", async () => {
+		await liveGeneration(conversationId, new Date(Date.now() - 10 * 60_000));
+		expect(await conversationBusy(conversationId, new Date())).toBe(false);
+	});
+
+	it("does not count a turn the user stopped while it waited on them", async () => {
+		// A stop leaves a parked turn's state as it was; nothing is generating.
+		for (const status of ["running", "waiting", "awaiting_input"] as const) {
+			await collections.turnStates.deleteMany({});
+			await collections.turnStates.insertOne({
+				_id: new ObjectId(),
+				conversationId,
+				messageId: "a1",
+				status,
+				producerId: "g",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			});
+			expect(await conversationBusy(conversationId, new Date())).toBe(false);
+		}
+		await collections.generations.insertOne({
 			_id: new ObjectId(),
+			generationId: "stopped",
 			conversationId,
 			messageId: "a1",
-			status: "running",
-			producerId: "g",
-			createdAt: new Date(0),
-			updatedAt: new Date(Date.now() - 6 * 3600_000),
+			status: "interrupted",
+			seq: 3,
+			lastHeartbeatAt: new Date(),
+			startedAt: new Date(),
+			endedAt: new Date(),
+			createdAt: new Date(),
+			updatedAt: new Date(),
 		});
 		expect(await conversationBusy(conversationId, new Date())).toBe(false);
 	});
@@ -454,15 +486,7 @@ describe("a run in a new chat", () => {
 	it("skips while the previous run's chat is still generating, and makes no new chat", async () => {
 		const schedule = await make({ mode: "new", model: "test-model" });
 		const first = await runNow(person.user._id, schedule._id.toString());
-		await collections.turnStates.insertOne({
-			_id: new ObjectId(),
-			conversationId: new ObjectId(first.result?.ids.conversationId),
-			messageId: "a1",
-			status: "running",
-			producerId: "g",
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		});
+		await liveGeneration(new ObjectId(first.result?.ids.conversationId));
 		flags.create.mockClear();
 		const second = await runNow(person.user._id, schedule._id.toString());
 
@@ -517,15 +541,7 @@ describe("a run in a dedicated chat", () => {
 	it("skips while the dedicated chat is still generating", async () => {
 		const schedule = await make({ mode: "dedicated", model: "test-model" });
 		const first = await runNow(person.user._id, schedule._id.toString());
-		await collections.turnStates.insertOne({
-			_id: new ObjectId(),
-			conversationId: new ObjectId(first.result?.ids.conversationId),
-			messageId: "a1",
-			status: "running",
-			producerId: "g",
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		});
+		await liveGeneration(new ObjectId(first.result?.ids.conversationId));
 		flags.create.mockClear();
 		const second = await runNow(person.user._id, schedule._id.toString());
 		expect(second.status).toBe("skipped-still-running");

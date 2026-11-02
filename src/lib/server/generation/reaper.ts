@@ -18,7 +18,7 @@ function reapIntervalMs(): number {
 // Must stay well above the heartbeat interval (see writer.ts) or a live but jittery
 // pod is reaped between beats. The 90s default is ~9 missed 10s beats. Configurable
 // only so tests can scale both timers down together.
-function reapAfterMs(): number {
+export function reapAfterMs(): number {
 	const raw = config.GENERATION_REAP_AFTER_MS;
 	if (raw) {
 		const parsed = parseInt(raw, 10);
