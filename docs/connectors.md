@@ -53,6 +53,31 @@ pill changes that for the current chat. See [Tool approvals](chat.md#tool-approv
 A server may also ask _you_ for something mid-turn (a choice, a confirmation),
 which appears as a form in the conversation.
 
+## Files a connector returns
+
+When a connector's tool returns a file, Cerea keeps it as a file of the
+conversation instead of showing its contents to the model. It appears in the
+**Files** panel with a download card, the code sandbox has it at
+`/mnt/data/<name>` from the next run, and `doc_read`, `doc_edit`, `look_doc` and
+`convert_document` open it by name. The model reads a short note in place of the
+file, such as `[file saved to this conversation: report.xlsx (11.5 KB, Excel); ...]`.
+
+Cerea recognises a file in three forms:
+
+- an MCP **resource** with binary data (named from its address or title);
+- **image** and **audio** results (the model does not see an image a connector
+  returns; it is kept as a file);
+- **base64 text inside the result** (for example the `download-bytes` tool of the
+  Microsoft 365 server), when the value is at least 1 KB and decodes to a known
+  file type such as PDF, PNG, JPEG, Word, Excel or PowerPoint. The name comes
+  from a `name`, `fileName` or `title` next to it, or from the call's
+  `fileName` argument. Text that merely looks like base64 is left alone.
+
+A file over 50 MB is not kept, and the result says so. If a file cannot be
+saved, the result says that instead; the call itself still succeeds. A file
+with the same name and different content becomes a new version, as for any
+other file in the conversation.
+
 ## Connectors for everybody
 
 An administrator can provide connectors to the whole deployment (see

@@ -7,6 +7,11 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **A file a connector returns becomes a file of the conversation.** A tool result with an MCP
+  resource blob, image or audio content, or a base64 file inside its JSON (Microsoft 365
+  `download-bytes`, for one) is stored in Files, mounted at `/mnt/data/<name>` in code and opened
+  by the document tools by name. The model reads a short note instead of 15,000 characters of
+  base64, and the saved message carries the note too.
 - **galopin: an Anthropic model on the gateway no longer stops the coding agent.** Pystino 0.23
   lists Anthropic models as accepting files, and galopin copied that into opencode's config, which
   only accepts `text`, `audio`, `image`, `video` and `pdf`: opencode refused its config and did not
