@@ -325,7 +325,11 @@
 					...(clearEditToken ? { clearToken: true } : {}),
 					// Always sent for a sign-in connector: empty clears them, and the
 					// server signs everybody out only when they changed.
-					...(editing.auth === "oauth" ? { scopes: editScopes.trim() } : {}),
+					// Only a change is sent: a changed value signs everyone out of this
+					// connector, and an untouched field must not look like one.
+					...(editing.auth === "oauth" && editScopes.trim() !== (editing.scopes ?? []).join("\n")
+						? { scopes: editScopes.trim() }
+						: {}),
 				})
 			);
 			cancelEdit();

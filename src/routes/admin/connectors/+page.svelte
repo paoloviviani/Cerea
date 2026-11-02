@@ -291,7 +291,11 @@
 						: {}),
 					...(clearEditToken ? { clearToken: true } : {}),
 					// Empty clears them; the server signs everybody out only when they changed.
-					...(target.auth === "oauth" ? { scopes: editScopes.trim() } : {}),
+					// Only a change is sent: a changed value signs everyone out of this
+					// connector, and an untouched field must not look like one.
+					...(target.auth === "oauth" && editScopes.trim() !== (target.scopes ?? []).join("\n")
+						? { scopes: editScopes.trim() }
+						: {}),
 				}),
 			});
 			cancelEdit();
