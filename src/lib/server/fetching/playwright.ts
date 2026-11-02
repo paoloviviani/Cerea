@@ -30,6 +30,8 @@ import { logger } from "$lib/server/logger";
 import type { FetchedPage } from "./index";
 import { fetchBytes, isPageContentType, pageFromBytes, probeContentType } from "./bytes";
 import type { Page } from "playwright";
+import { readablePageText } from "./readable";
+import { handleConsent, prepareConsent } from "./consent";
 
 /**
  * Where the renderer listens, inside the compose network only. Empty means no
@@ -138,6 +140,7 @@ const NAVIGATION_TIMEOUT_MS = 30_000;
 // that goes idle sooner returns sooner, and one that never does still returns
 // at the ceiling with whatever it has rendered by then.
 const RENDER_SETTLE_TIMEOUT_MS = 4_000;
+const WHOLE_PAGE_COMPARE_MAX = 3_000_000;
 export const MAX_CHARS = 10 * 1024 * 1024;
 
 let readabilityScript: string | undefined;
@@ -258,6 +261,8 @@ async function withRenderedPage<T>(url: string, render: (page: Page) => Promise<
 			}
 			await route.continue().catch(() => {});
 		});
+		// Cookies and autoconsent go on the context before the first navigation.
+		const consent = await prepareConsent(context, url);
 		const pageHandle = await context.newPage();
 		try {
 			const response = await pageHandle.goto(url, {
@@ -271,6 +276,8 @@ async function withRenderedPage<T>(url: string, render: (page: Page) => Promise<
 			await pageHandle
 				.waitForLoadState("networkidle", { timeout: RENDER_SETTLE_TIMEOUT_MS })
 				.catch(() => {});
+
+			await handleConsent(pageHandle, consent);
 
 			return await render(pageHandle);
 		} finally {
@@ -312,6 +319,18 @@ async function renderPage(url: string): Promise<FetchedPage> {
 			if (article && article.content.trim()) {
 				content = article.content;
 				extracted = true;
+				// Readability is tuned for articles: on a homepage (a list of headlines)
+				// it keeps one fragment. When the article is a small part of the page's
+				// readable text, the page is the better answer.
+				const whole = await pageHandle.content();
+				// A very large page is not text-scanned twice for this: the article stands.
+				if (
+					whole.length <= WHOLE_PAGE_COMPARE_MAX &&
+					readablePageText(article.content).length < readablePageText(whole).length * 0.3
+				) {
+					content = whole;
+					extracted = false;
+				}
 			} else {
 				content = await pageHandle.content();
 				extracted = false;

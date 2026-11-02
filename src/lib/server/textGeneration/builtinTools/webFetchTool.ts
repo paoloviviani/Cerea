@@ -1,4 +1,6 @@
 import { fetchPage } from "$lib/server/fetching";
+import { readablePageText } from "$lib/server/fetching/readable";
+import { detectGate, type GateKind } from "$lib/server/fetching/pageQuality";
 import { extractDocument } from "$lib/server/files/extractDocument";
 import { logger } from "$lib/server/logger";
 import {
@@ -26,29 +28,40 @@ export function urlsInUserText(text: string): string[] {
 		.filter((value): value is string => value !== null);
 }
 
+export { readablePageText };
+
+/** The per-turn cache key: a forced render must not be answered from the direct result. */
+export function fetchCacheKey(url: string, render: boolean): string {
+	return render ? `${url}\u0000render` : url;
+}
+
 /**
- * Rendered pages arrive as HTML from the Playwright backend. The model needs
- * readable text, not scripts, styles, or a second HTML parser in its prompt.
+ * What the model is told when the text is a consent notice or a pay-or-accept
+ * wall rather than the page. It must not receive the banner as if it were the
+ * article.
  */
-export function readablePageText(html: string): string {
-	// Prefer the article when the page marks one: the navigation, sidebars and
-	// footers around it would otherwise eat the read budget. Otherwise drop the
-	// chrome elements that are never the content.
-	const main = /<(article|main)\b[^>]*>([\s\S]*)<\/\1>/i.exec(html);
-	const body = main
-		? main[2]
-		: html.replace(/<(nav|footer|aside|svg|form)\b[^>]*>[\s\S]*?<\/\1>/gi, " ");
-	return body
-		.replace(/<(script|style|noscript|template)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-		.replace(/<[^>]+>/g, " ")
-		.replace(/&nbsp;/gi, " ")
-		.replace(/&amp;/gi, "&")
-		.replace(/&lt;/gi, "<")
-		.replace(/&gt;/gi, ">")
-		.replace(/&quot;/gi, '"')
-		.replace(/&#39;|&apos;/gi, "'")
-		.replace(/\s+/g, " ")
-		.trim();
+export function gateFailureMessage(
+	kind: GateKind,
+	text: string,
+	opts: { canRender: boolean }
+): string {
+	const what =
+		kind === "paywall"
+			? "a wall that asks the reader to accept tracking or subscribe"
+			: "a cookie-consent notice";
+	const options = [
+		...(opts.canRender
+			? [`call ${WEB_FETCH_TOOL_NAME} again with render: true, to read it in a real browser`]
+			: []),
+		"search for another source for the same information (web_search)",
+		"ask the user to paste the text of the page",
+	];
+	const snippet = text.trim().slice(0, 500);
+	return (
+		`The page showed ${what} that could not be passed, so its content was not read. ` +
+		`Do not treat the text below as the article.\n` +
+		`Options: ${options.join("; or ")}.\n\nWhat the page showed:\n${snippet}`
+	);
 }
 
 /** Never `{awaitingInput}`: a real fetch always either succeeds or fails outright. */
@@ -84,6 +97,13 @@ export interface PerformFetchOptions {
 	 * Absent means no persistent cache (the approval-resume path, tests).
 	 */
 	persist?: CacheScope;
+	/** Read the page in the browser, skipping the direct attempt (only when the renderer is available). */
+	render?: boolean;
+	/**
+	 * Whether `render: true` is on offer. Only changes the wording of the
+	 * failure message when the page showed a consent wall.
+	 */
+	renderAvailable?: boolean;
 }
 
 /** A cache that is only an optimisation must never fail the fetch it serves. */
@@ -142,16 +162,21 @@ export async function performFetch(
 	const offset = parseOffset(options.offset);
 	if (typeof offset !== "number") return { result: offset };
 	try {
-		let page = options.cache?.get(url);
+		const render = options.render === true;
+		const cacheKey = fetchCacheKey(url, render);
+		let page = options.cache?.get(cacheKey);
 		if (!page) {
-			const stored = options.persist
-				? await quietly("read", getCachedFetch(options.persist, url))
-				: null;
+			// A forced render is asked for because what was read before was not
+			// enough: the stored text of the same URL is not the answer.
+			const stored =
+				options.persist && !render
+					? await quietly("read", getCachedFetch(options.persist, url))
+					: null;
 			if (stored && Date.now() - stored.fetchedAt.getTime() < freshWindowMs()) {
 				logger.debug({ url, hit: "fresh" }, "web_fetch_cache_hit");
 				page = { title: stored.title, finalUrl: stored.finalUrl, text: stored.text };
 			} else {
-				const fetched = await fetchPage(url);
+				const fetched = await fetchPage(url, { render });
 				const finalUrl = canonicalUrl(fetched.url) ?? url;
 				const contentHash = sha256Hex(fetched.document ? fetched.document.bytes : fetched.content);
 				if (stored && stored.contentHash === contentHash) {
@@ -188,6 +213,20 @@ export async function performFetch(
 						text = readablePageText(fetched.content);
 					}
 					if (!text) return { result: { error: "That page had no readable text." } };
+					// A wall is not the page: say so, and keep it out of the caches.
+					const gate = fetched.document ? null : detectGate(text, finalUrl);
+					if (gate) {
+						return {
+							result: {
+								error: gateFailureMessage(gate, text, {
+									canRender:
+										(options.renderAvailable ?? false) &&
+										!render &&
+										fetched.backend !== "playwright",
+								}),
+							},
+						};
+					}
 					page = { title, finalUrl, text };
 					if (options.persist) {
 						await quietly(
@@ -204,7 +243,7 @@ export async function performFetch(
 					}
 				}
 			}
-			options.cache?.set(url, page);
+			options.cache?.set(cacheKey, page);
 		}
 		return { result: chunkOf(page, offset), finalUrl: page.finalUrl };
 	} catch (error) {
@@ -241,44 +280,84 @@ export function webFetchNeedsApproval(
 	return requested === null || !allowedUrls.has(requested);
 }
 
+const WEB_FETCH_BASE_DESCRIPTION =
+	"Read a web page or a document (PDF, Word, Excel, PowerPoint, epub). Long content arrives in " +
+	"chunks: when the result ends with a note that more remains, call again with the same url and " +
+	"the offset it names to continue. The URL must have been provided by the user or returned by web_search.";
+
+const WEB_FETCH_BASE_PREPROMPT =
+	"WEB FETCH: Read one specific page only after the user supplied its URL or web_search returned it. " +
+	"Use web_search first to discover pages. PDFs and other documents can be read too. Long content arrives in chunks: " +
+	"read on by calling again with the same url and the offset the result names. Cite the URL you read.";
+
+/**
+ * The tool's definition and preprompt. They differ with the renderer: with it
+ * the model is told how pages are read and about `render`; without it nothing
+ * is said about rendering at all, as there is nothing it could do about it.
+ */
+export function webFetchDefinition(renderAvailable: boolean): {
+	definition: BuiltinTool["definition"];
+	preprompt: string;
+} {
+	const properties: Record<string, unknown> = {
+		url: {
+			type: "string",
+			description: "An HTTPS URL previously supplied by the user or web_search.",
+		},
+		offset: {
+			type: "integer",
+			description: "Character position to start from, to read on from a previous chunk. Default 0.",
+		},
+	};
+	if (renderAvailable) {
+		properties.render = {
+			type: "boolean",
+			description:
+				"Read the page in a real browser instead of fetching it directly. Use it only when a " +
+				"previous read looked incomplete, was a JavaScript shell, or was a consent or cookie notice. Default false.",
+		};
+	}
+	return {
+		definition: {
+			type: "function",
+			function: {
+				name: WEB_FETCH_TOOL_NAME,
+				description: renderAvailable
+					? WEB_FETCH_BASE_DESCRIPTION +
+						" Pages are read directly first, and a real browser is used when that comes back empty. " +
+						"Set render to true to re-read a page in a real browser when its content looks incomplete, " +
+						"is a JavaScript shell, or is a consent or cookie notice."
+					: WEB_FETCH_BASE_DESCRIPTION,
+				parameters: { type: "object", properties, required: ["url"] },
+			},
+		},
+		preprompt: renderAvailable
+			? WEB_FETCH_BASE_PREPROMPT +
+				" Pages are read directly first and in a browser when that comes back empty; " +
+				"if a result looks incomplete, is a JavaScript shell or a consent or cookie notice, " +
+				"call again with render: true."
+			: WEB_FETCH_BASE_PREPROMPT,
+	};
+}
+
 export function createWebFetchBuiltin(
-	params: { allowedUrls: Set<string>; persist?: CacheScope } & WebFetchApprovalParams
+	params: {
+		allowedUrls: Set<string>;
+		persist?: CacheScope;
+		/** The renderer is the configured backend and answers: `render` is offered. */
+		renderAvailable?: boolean;
+	} & WebFetchApprovalParams
 ): BuiltinTool {
 	let uses = 0;
 	// Per turn (the tool is built per turn): paging through one long page or
 	// document costs one fetch and one extraction, not one per chunk.
 	const cache = new Map<string, ReadablePage>();
+	const renderAvailable = params.renderAvailable === true;
+	const { definition, preprompt } = webFetchDefinition(renderAvailable);
 	return {
 		name: WEB_FETCH_TOOL_NAME,
-		definition: {
-			type: "function",
-			function: {
-				name: WEB_FETCH_TOOL_NAME,
-				description:
-					"Read a web page or a document (PDF, Word, Excel, PowerPoint, epub). Long content arrives in " +
-					"chunks: when the result ends with a note that more remains, call again with the same url and " +
-					"the offset it names to continue. The URL must have been provided by the user or returned by web_search.",
-				parameters: {
-					type: "object",
-					properties: {
-						url: {
-							type: "string",
-							description: "An HTTPS URL previously supplied by the user or web_search.",
-						},
-						offset: {
-							type: "integer",
-							description:
-								"Character position to start from, to read on from a previous chunk. Default 0.",
-						},
-					},
-					required: ["url"],
-				},
-			},
-		},
-		preprompt:
-			"WEB FETCH: Read one specific page only after the user supplied its URL or web_search returned it. " +
-			"Use web_search first to discover pages. PDFs and other documents can be read too. Long content arrives in chunks: " +
-			"read on by calling again with the same url and the offset the result names. Cite the URL you read.",
+		definition,
+		preprompt,
 		async execute(args, _ctx) {
 			const requested = typeof args.url === "string" ? canonicalUrl(args.url.trim()) : null;
 			if (!requested) return { error: "The page URL must be a valid HTTPS URL." };
@@ -304,17 +383,22 @@ export function createWebFetchBuiltin(
 			if (typeof offset !== "number") return offset;
 
 			// Reading on from a page already fetched this turn is not a new fetch.
-			if (!cache.has(requested) && uses >= MAX_FETCHES_PER_TURN) {
+			// Only honoured when it was offered.
+			const render = renderAvailable && args.render === true;
+			const key = fetchCacheKey(requested, render);
+			if (!cache.has(key) && uses >= MAX_FETCHES_PER_TURN) {
 				return { error: `This turn may read at most ${MAX_FETCHES_PER_TURN} web pages.` };
 			}
 			// Increment before I/O so parallel calls cannot race past the cap.
-			if (!cache.has(requested)) uses += 1;
+			if (!cache.has(key)) uses += 1;
 
 			const { result, finalUrl } = await performFetch(requested, {
 				offset,
 				token: params.token,
 				cache,
 				persist: params.persist,
+				render,
+				renderAvailable,
 			});
 			if ("resultText" in result) {
 				params.allowedUrls.add(finalUrl ?? requested);

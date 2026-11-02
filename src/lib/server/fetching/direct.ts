@@ -18,10 +18,23 @@ import { fetchBytes, pageFromBytes } from "./bytes";
 import { extractArticle } from "./readable";
 
 export async function fetchDirect(url: string): Promise<FetchedPage> {
-	const page = await pageFromBytes(await fetchBytes(url), "direct");
-	if (page.document || !/html/i.test(page.contentType)) return page;
-	const article = extractArticle(page.content, page.url);
-	return article
-		? { ...page, title: article.title ?? page.title, content: article.content, extracted: true }
-		: page;
+	return (await fetchDirectDetailed(url)).page;
+}
+
+/**
+ * The page as `fetchDirect` returns it, and the page as delivered, for a caller
+ * (fetch-first) that must judge the whole page and not only the part Readability
+ * kept: a homepage is a list of headlines, which Readability may cut to a
+ * fragment or to nothing.
+ */
+export async function fetchDirectDetailed(
+	url: string
+): Promise<{ page: FetchedPage; raw: FetchedPage }> {
+	const raw = await pageFromBytes(await fetchBytes(url), "direct");
+	if (raw.document || !/html/i.test(raw.contentType)) return { page: raw, raw };
+	const article = extractArticle(raw.content, raw.url);
+	const page = article
+		? { ...raw, title: article.title ?? raw.title, content: article.content, extracted: true }
+		: raw;
+	return { page, raw };
 }

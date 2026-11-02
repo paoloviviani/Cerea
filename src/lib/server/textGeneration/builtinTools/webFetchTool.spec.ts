@@ -18,6 +18,8 @@ const {
 	readablePageText,
 	urlsInUserText,
 	performFetch,
+	fetchCacheKey,
+	webFetchDefinition,
 } = await import("./webFetchTool");
 
 describe("web_fetch builtin", () => {
@@ -270,6 +272,12 @@ describe("web_fetch builtin", () => {
 		);
 	});
 
+	it("decodes numeric entities", () => {
+		expect(readablePageText("<p>Com&#x27;&egrave; l&#39;anno &#8212; 2026</p>")).toContain(
+			"Com'&egrave; l'anno \u2014 2026"
+		);
+	});
+
 	it("removes scripts and markup from rendered pages", () => {
 		expect(readablePageText("<main>one &amp; two<script>three</script></main>")).toBe("one & two");
 	});
@@ -355,5 +363,107 @@ describe("web_fetch: tool-approval gate (ADR 0075)", () => {
 
 		const result = await tool.execute({ url }, fakeContext());
 		expect(result).toEqual(expect.objectContaining({ resultText: expect.stringContaining("hi") }));
+	});
+});
+
+describe("web_fetch with the renderer", () => {
+	beforeEach(() => vi.resetAllMocks());
+	const url = "https://example.test/page";
+	const html = (text: string, backend = "direct") => ({
+		url,
+		title: "T",
+		content: `<p>${text}</p>`,
+		contentType: "text/html",
+		backend,
+	});
+	const prose = "The council met on Tuesday to discuss the bridge. ".repeat(20);
+	const banner =
+		"We and our partners use cookies and tracking. Accept all or reject all, manage your preferences and consent. Privacy policy.";
+
+	it("keys the cache on the url and whether it was rendered", () => {
+		expect(fetchCacheKey(url, false)).toBe(url);
+		expect(fetchCacheKey(url, true)).not.toBe(url);
+		expect(fetchCacheKey(url, true)).toBe(fetchCacheKey(url, true));
+	});
+
+	it("offers render, and describes direct-first reading, only with the renderer", () => {
+		const on = webFetchDefinition(true);
+		const off = webFetchDefinition(false);
+		expect(on.definition.function.parameters?.properties).toHaveProperty("render");
+		expect(on.definition.function.description).toMatch(/directly first/);
+		expect(on.preprompt).toMatch(/render: true/);
+		expect(off.definition.function.parameters?.properties).not.toHaveProperty("render");
+		const offText = JSON.stringify(off).toLowerCase();
+		expect(offText).not.toMatch(/render|browser|javascript/);
+	});
+
+	it("passes render to the fetch, and a forced render is not answered from the direct result", async () => {
+		fetchPage.mockImplementation(async (_u: string, o?: { render?: boolean }) =>
+			html(o?.render ? "from the browser " + prose : "from direct " + prose)
+		);
+		const tool = createWebFetchBuiltin({ allowedUrls: new Set([url]), renderAvailable: true });
+		const first = await tool.execute({ url }, {} as never);
+		const forced = await tool.execute({ url, render: true }, {} as never);
+		const again = await tool.execute({ url, render: true }, {} as never);
+		expect(fetchPage).toHaveBeenCalledTimes(2);
+		expect(fetchPage).toHaveBeenNthCalledWith(1, url, { render: false });
+		expect(fetchPage).toHaveBeenNthCalledWith(2, url, { render: true });
+		expect(JSON.stringify(first)).toContain("from direct");
+		expect(JSON.stringify(forced)).toContain("from the browser");
+		expect(again).toEqual(forced);
+	});
+
+	it("ignores render when it was not offered", async () => {
+		fetchPage.mockResolvedValue(html(prose));
+		const tool = createWebFetchBuiltin({ allowedUrls: new Set([url]) });
+		await tool.execute({ url, render: true }, {} as never);
+		expect(fetchPage).toHaveBeenCalledWith(url, { render: false });
+	});
+
+	it("says a consent wall could not be passed, and suggests render when it is on offer", async () => {
+		fetchPage.mockResolvedValue(html(banner, "direct"));
+		const tool = createWebFetchBuiltin({ allowedUrls: new Set([url]), renderAvailable: true });
+		const result = (await tool.execute({ url }, {} as never)) as { error: string };
+		expect(result.error).toMatch(/cookie-consent notice that could not be passed/);
+		expect(result.error).toMatch(/render: true/);
+		expect(result.error).toMatch(/another source/);
+		expect(result.error).toMatch(/paste/);
+		expect(result.error).toContain("reject all");
+	});
+
+	it("does not suggest render after the browser already read the wall, nor without a renderer", async () => {
+		fetchPage.mockResolvedValue(html(banner, "playwright"));
+		const rendered = (await createWebFetchBuiltin({
+			allowedUrls: new Set([url]),
+			renderAvailable: true,
+		}).execute({ url }, {} as never)) as { error: string };
+		expect(rendered.error).not.toMatch(/render: true/);
+
+		fetchPage.mockResolvedValue(html(banner, "direct"));
+		const direct = (await createWebFetchBuiltin({ allowedUrls: new Set([url]) }).execute(
+			{ url },
+			{} as never
+		)) as { error: string };
+		expect(direct.error).not.toMatch(/render|browser/i);
+	});
+
+	it("names a pay-or-accept wall as such", async () => {
+		fetchPage.mockResolvedValue(
+			html("Pay or accept: read on with tracking, or subscribe to read without ads.")
+		);
+		const result = (await createWebFetchBuiltin({ allowedUrls: new Set([url]) }).execute(
+			{ url },
+			{} as never
+		)) as { error: string };
+		expect(result.error).toMatch(/accept tracking or subscribe/);
+	});
+
+	it("does not take an article about cookies for a wall", async () => {
+		fetchPage.mockResolvedValue(html(prose + prose + prose + " Cookies and consent matter."));
+		const result = await createWebFetchBuiltin({ allowedUrls: new Set([url]) }).execute(
+			{ url },
+			{} as never
+		);
+		expect(result).toHaveProperty("resultText");
 	});
 });
