@@ -21,6 +21,75 @@ the assistant reads on by calling `web_fetch` again with an `offset`. The text
 is kept for the turn, so reading on does not fetch or extract again, and a
 read-on call does not count toward the per-turn limit of 20 fetches.
 
+## How a page is read
+
+With the headless browser turned on, a page is read in two steps:
+
+1. **Directly first.** The chat fetches the page over HTTPS, through the same
+   address checks and document handling as the direct backend. The result is
+   used when it is a real page: at least about 600 characters of readable text,
+   not made of cookie-notice wording, not a known consent redirect (such as
+   `consent.google.com` or `consent.yahoo.com`) and not an empty JavaScript
+   shell. The test looks at all the readable text of the page, not only the
+   part Readability picks as the article, so a homepage made of headlines
+   counts.
+2. **The browser as the fallback.** When the direct result is thin, is a
+   notice or a shell, or the fetch fails outright (a 403 from a bot wall, a
+   timeout), the page is rendered. If the renderer is down, a thin direct
+   result is returned rather than nothing.
+
+With `FETCH_BACKEND=direct`, nothing changes: there is no browser step.
+
+### The `render` option
+
+When the renderer is selected and answering, `web_fetch` takes an optional
+`render: true`. It skips the direct attempt and reads the page in the browser.
+The assistant is told to use it when a page looks incomplete, is a JavaScript
+shell, or is a consent or cookie notice. Without the renderer the option is not
+offered and the tool descriptions do not mention rendering. A forced render is
+kept apart from a direct read in the turn's cache and is never answered from
+the stored direct text.
+
+## Cookie notices
+
+A fresh browser has no consent cookie, so many sites put a notice in front of
+the page. Before the text is read, the renderer does the following, in at most
+about five seconds, and a failure at any point never fails the fetch:
+
+- **Reject first, with autoconsent.** DuckDuckGo's
+  [autoconsent](https://github.com/duckduckgo/autoconsent) (MPL-2.0, used
+  unmodified, pinned to an exact version) is injected into every frame with
+  Playwright's `addInitScript`, and its messages are answered through
+  `exposeBinding`. These are ordinary protocol calls, so it works over the
+  remote connection to the `run-server` container: no browser extension is
+  involved. It is set to opt out (reject), not accept, and its cosmetic
+  "hide the banner" rules are off, so hiding is never the only action. Its
+  rules cover the common consent platforms (iubenda, OneTrust, Cookiebot,
+  Didomi, Sourcepoint and many site-specific ones).
+- **Google and YouTube.** The `SOCS` cookie with the value `CAE=` is set on the
+  context before navigating to `.google.*` and `.youtube.com`. It is the
+  "rejected" state of Google's consent cookie (`CAI=` is "accepted"); the
+  legacy `CONSENT` cookie has no reject value, so it is not set.
+- **Overlays that remain.** A fixed or sticky layer with a very high `z-index`
+  that carries consent wording is removed, as is a fixed consent iframe, and a
+  scroll lock on the page is released. A layer that contains an `<article>` or
+  `<main>`, or a long text, is never removed.
+
+What is **not** handled: a notice no rule knows and that hides its content
+behind the click (an overlay is removed, but a page that only builds its article
+after the click stays empty), sites that need an account or a subscription, and
+CAPTCHAs. A generic "click any button called Reject" step was considered and
+left out; it can be added if a common case turns out to need it.
+
+When the final text still looks like a consent notice or a "pay or accept"
+wall, the assistant is not given it as the article. It is told that the page
+showed a wall that could not be passed, is shown the first few hundred
+characters, and is told its options: try `render: true` if that was not tried
+and is offered, search for another source, or ask the user to paste the text.
+
+The debug log line `fetch_consent_step` says what acted (the autoconsent rule,
+an overlay removal, or nothing).
+
 ## Turning it on
 
 In the deploy kit, add the `fetch` profile. The `enterprise` preset includes it;
