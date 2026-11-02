@@ -16,13 +16,13 @@ Microsoft has no single hosted MCP server for personal mail and files, and Micro
 | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------- |
 | [Softeria ms-365-mcp-server](#softeria-ms-365-mcp-server)                                   | Mail, calendar, OneDrive, contacts, To Do, OneNote, Excel; Teams and SharePoint (org mode) | Personal; work or school with `--org-mode`      | None for stdio (built-in client); your own Entra app for HTTP | Local connector (one user), or hosted HTTP connector (unverified)   |
 | [Microsoft 365 hosted servers](#work-and-school-microsofts-hosted-servers)                  | Mail, calendar, Teams, OneDrive and SharePoint, Word, and more                             | Work or school                                  | An Entra app and a tenant administrator                       | Remote connector by URL                                             |
-| [mpalermiti/outlook-mcp](#personal-accounts-mpalermitioutlook-mcp)                          | Outlook mail, calendar, contacts, tasks                                                    | Personal only                                   | Your own free Azure app                                       | Local connector (recommended); single-user HTTP with a static token |
+| [mpalermiti/outlook-mcp](#personal-accounts-mpalermitioutlook-mcp)                          | Outlook mail, calendar, contacts, tasks                                                    | Personal only                                   | Your own free Azure app                                       | Local connector; single-user HTTP with a static token |
 | [MrFixit96/onedrive-mcp-server](#onedrive-with-a-work-account-mrfixit96onedrive-mcp-server) | OneDrive files only                                                                        | Work or school (default tenant `organizations`) | None (borrows an Office client identity)                      | Local connector only                                                |
 | [Microsoft Learn](#microsoft-learn-documentation)                                           | Microsoft's documentation                                                                  | None                                            | None                                                          | Remote connector, no sign-in                                        |
 
 ## Softeria ms-365-mcp-server
 
-[`Softeria/ms-365-mcp-server`](https://github.com/Softeria/ms-365-mcp-server) (MIT license, Node) is the main recommendation when you want mail and files together, for a personal or a work account: 300+ Microsoft Graph tools covering Outlook mail and calendar, OneDrive, Excel, OneNote, To Do, Planner, contacts and search, and with `--org-mode` Teams, online meetings, SharePoint sites and lists, shared mailboxes and more.
+[`Softeria/ms-365-mcp-server`](https://github.com/Softeria/ms-365-mcp-server) (MIT license, Node) is one example of how to connect Microsoft tools, with mail, calendar and OneDrive in a single server, for a personal or a work account. It is a community project, so check that it fits your needs. It has 300+ Microsoft Graph tools covering Outlook mail and calendar, OneDrive, Excel, OneNote, To Do, Planner, contacts and search, and with `--org-mode` Teams, online meetings, SharePoint sites and lists, shared mailboxes and more.
 
 ```sh
 npx -y @softeria/ms-365-mcp-server
@@ -93,7 +93,7 @@ Add one by its URL under **Workspace → Connectors** or **Admin → Connectors*
 - **Sign in:** `outlook-mcp auth` (device code). Delegated scopes: `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, `Contacts.ReadWrite`, `Tasks.ReadWrite`, `MailboxSettings.Read`, `User.Read` and `offline_access`. Tokens go in the OS keyring.
 - **Safety:** `"read_only": true` blocks the write tools, and `read_only_consent: true` asks Microsoft for read permissions only. One mailbox per process.
 
-### In Cerea: a local connector (recommended)
+### In Cerea: a local connector
 
 Run it through galopin over stdio, so the tokens stay on your machine (after `outlook-mcp auth`):
 
@@ -136,7 +136,7 @@ The default tenant is `organizations`; personal accounts are not documented. Be 
 - It covers OneDrive only.
 - Its **HTTP mode does not avoid registration for Cerea.** "No app registration" there relies on the MCP client's own pre-approved Microsoft credentials (for example VS Code's), which Cerea does not have, so as a Cerea connector it would still need an Entra app.
 
-For OneDrive and mail together, or where this is not allowed, prefer Softeria's server or an Entra app of your own.
+Where this is not allowed, an Entra app of your own (for example with the Softeria server above) is the alternative.
 
 ## Microsoft Learn documentation
 
