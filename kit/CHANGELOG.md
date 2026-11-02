@@ -7,6 +7,11 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **galopin: an Anthropic model on the gateway no longer stops the coding agent.** Pystino 0.23
+  lists Anthropic models as accepting files, and galopin copied that into opencode's config, which
+  only accepts `text`, `audio`, `image`, `video` and `pdf`: opencode refused its config and did not
+  start, so the machine showed online with every workspace request failing. galopin now writes
+  only the values opencode accepts (`file` becomes `pdf`).
 - **The backup can keep your own files too.** Mount files read-only under `/extra` in the backup
   service (for example `- ./compose.override.yaml:/extra/compose.override.yaml:ro`) and each
   snapshot keeps them as `extra/`; `restore` returns them beside the dumps. Rebuild the sidecar to

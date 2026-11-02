@@ -205,3 +205,20 @@ func TestBuildOpencodeConfigMarksImageModels(t *testing.T) {
 		}
 	}
 }
+
+// opencode's config schema is an enum on modalities and rejects the whole file
+// on an unknown value, so opencode does not start: Pystino lists Anthropic
+// models with "file", which must become "pdf"; anything else unknown is dropped.
+func TestBuildOpencodeConfigKeepsOnlyModalitiesOpencodeAccepts(t *testing.T) {
+	cfg := buildOpencodeConfig("127.0.0.1:1", "s", []gatewayModel{
+		{ID: "claude", InputModalities: []string{"text", "image", "file"}},
+		{ID: "odd", InputModalities: []string{"text", "image", "hologram", "pdf", "file"}},
+	}, false, false)
+	models := cfg.Provider["pystino"].Models
+	if got := models["claude"].Modalities.Input; !reflect.DeepEqual(got, []string{"text", "image", "pdf"}) {
+		t.Errorf("claude modalities = %v, want [text image pdf]", got)
+	}
+	if got := models["odd"].Modalities.Input; !reflect.DeepEqual(got, []string{"text", "image", "pdf"}) {
+		t.Errorf("odd modalities = %v, want [text image pdf] (unknown dropped, pdf once)", got)
+	}
+}
