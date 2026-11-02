@@ -110,6 +110,8 @@ nav:
       - Notifications: notifications.md
       - "Knowledge and projects": knowledge.md
       - Connectors: connectors.md
+      - "Google Workspace connectors": connectors-google-workspace.md
+      - "Microsoft connectors": connectors-microsoft.md
       - "Agent machines":
           - "Getting started": agent-machines.md
           - "Reference": agent-machines-reference.md

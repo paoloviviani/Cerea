@@ -11,6 +11,7 @@ import { z } from "zod";
 import { collections } from "$lib/server/database";
 import { probe } from "$lib/server/mcp/discovery";
 import { beginAuthorization, staticRegistration } from "$lib/server/mcp/oauth";
+import { validateScopes } from "$lib/server/mcp/providerQuirks";
 import { ownedBy, usableBy, view } from "$lib/server/mcp/connectors";
 import { callerIdentity } from "$lib/server/admin";
 import { clearPolicy, connectorKey } from "$lib/server/mcp/deploymentModes";
@@ -49,6 +50,8 @@ const body = z.object({
 	 */
 	clientId: z.string().trim().min(1).max(512).optional(),
 	clientSecret: z.string().trim().min(1).max(2048).optional(),
+	/** The scopes to request at sign-in, space or newline separated. Empty clears them. */
+	scopes: z.string().max(4000).optional(),
 	/** One sentence the assistant reads in its list of connectors. Empty clears it. */
 	description: z.string().trim().max(300).optional(),
 });
@@ -216,6 +219,22 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 				} else if (result.auth === "unknown") {
 					set.lastError = result.reason;
 				}
+			}
+		}
+
+		if (parsed.data.scopes !== undefined) {
+			const checked = validateScopes(parsed.data.scopes);
+			if ("error" in checked) error(400, checked.error);
+			const before = (connector.scopes ?? []).join(" ");
+			if (checked.scopes.join(" ") !== before) {
+				if (checked.scopes.length) set.scopes = checked.scopes;
+				else unset.scopes = "";
+				// A token holds the scopes it was granted, so everybody signs in again
+				// under the new ones rather than finding calls refused later. A
+				// registration made by RFC 7591 named the old scopes too, so it is
+				// made again at the next sign-in; a pasted one is not ours to drop.
+				await collections.mcpTokens.deleteMany({ connectorId: connector._id });
+				if (connector.registration?.source === "dcr") unset.registration = "";
 			}
 		}
 

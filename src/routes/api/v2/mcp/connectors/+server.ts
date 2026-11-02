@@ -19,6 +19,7 @@ import { collections } from "$lib/server/database";
 import { probe } from "$lib/server/mcp/discovery";
 import { seal, sealingAvailable } from "$lib/server/mcp/secretBox";
 import { staticRegistration } from "$lib/server/mcp/oauth";
+import { validateScopes } from "$lib/server/mcp/providerQuirks";
 import { view, viewsFor } from "$lib/server/mcp/connectors";
 import { checkConnectorTools } from "$lib/server/mcp/check";
 import { localConnectorViews } from "$lib/server/mcp/local";
@@ -51,6 +52,11 @@ const create = z.object({
 	 */
 	clientId: z.string().trim().min(1).max(512).optional(),
 	clientSecret: z.string().trim().min(1).max(2048).optional(),
+	/**
+	 * The scopes to request at sign-in, space or newline separated. Empty: the
+	 * ones the server advertises.
+	 */
+	scopes: z.string().max(4000).optional(),
 	/** A static credential, for a server that takes one instead of OAuth. */
 	token: z.string().trim().min(1).optional(),
 	/** Which header carries it. `Authorization` unless said otherwise. */
@@ -121,6 +127,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		scope,
 		description,
 	} = parsed.data;
+	const scopeCheck = validateScopes(parsed.data.scopes ?? "");
+	if ("error" in scopeCheck) error(400, scopeCheck.error);
 
 	if (scope === "deployment") {
 		// Checked before the probe, so a non-administrator does not cause an
@@ -146,6 +154,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		createdAt: now,
 		updatedAt: now,
 		...(description ? { description } : {}),
+		...(scopeCheck.scopes.length ? { scopes: scopeCheck.scopes } : {}),
 	};
 
 	if (token) {

@@ -15,6 +15,7 @@
 	saying how it went.
 -->
 <script lang="ts">
+	import ScopesField from "./ScopesField.svelte";
 	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
@@ -101,6 +102,9 @@
 	let authMode = $state<"auto" | "none" | "token" | "oauth_static">("auto");
 	let clientId = $state("");
 	let clientSecret = $state("");
+	let scopesText = $state("");
+	let editScopes = $state("");
+	let rowScopes = $state("");
 	/** One existing connector can be changed without losing its id or sign-in. */
 	let editing = $state<McpConnectorView | null>(null);
 	let editName = $state("");
@@ -198,6 +202,9 @@
 								...(clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}),
 							}
 						: {}),
+					...(authMode === "oauth_static" && scopesText.trim()
+						? { scopes: scopesText.trim() }
+						: {}),
 				})
 			);
 			name = "";
@@ -206,6 +213,7 @@
 			tokenHeader = "";
 			clientId = "";
 			clientSecret = "";
+			scopesText = "";
 			authMode = "auto";
 			adding = false;
 			await load();
@@ -280,6 +288,7 @@
 		editUrl = connector.url;
 		editToken = "";
 		editTokenHeader = "";
+		editScopes = (connector.scopes ?? []).join("\n");
 		clearEditToken = false;
 		failure = null;
 	}
@@ -314,6 +323,13 @@
 							}
 						: {}),
 					...(clearEditToken ? { clearToken: true } : {}),
+					// Always sent for a sign-in connector: empty clears them, and the
+					// server signs everybody out only when they changed.
+					// Only a change is sent: a changed value signs everyone out of this
+					// connector, and an untouched field must not look like one.
+					...(editing.auth === "oauth" && editScopes.trim() !== (editing.scopes ?? []).join("\n")
+						? { scopes: editScopes.trim() }
+						: {}),
 				})
 			);
 			cancelEdit();
@@ -337,10 +353,12 @@
 					action: "update",
 					clientId: rowClientId.trim(),
 					...(rowClientSecret.trim() ? { clientSecret: rowClientSecret.trim() } : {}),
+					...(rowScopes.trim() ? { scopes: rowScopes.trim() } : {}),
 				})
 			);
 			rowClientId = "";
 			rowClientSecret = "";
+			rowScopes = "";
 			credentialsFor = null;
 			await load();
 		} catch (err) {
@@ -495,6 +513,7 @@
 						/>
 					</label>
 				</div>
+				<ScopesField bind:value={scopesText} disabled={busy} />
 				<p class="text-xs text-gray-500 dark:text-gray-400">
 					{m["mcp.connectors.redirect_uri_add"]()}
 					<code class="rounded-sm bg-gray-100 px-1 py-0.5 dark:bg-gray-800">{redirectUri}</code>
@@ -699,6 +718,7 @@
 						bind:value={rowClientSecret}
 						disabled={busy}
 					/>
+					<ScopesField bind:value={rowScopes} disabled={busy} />
 					<p class="text-xs text-gray-500 dark:text-gray-400">
 						{m["mcp.connectors.redirect_uri_row"]()}
 						<code class="rounded-sm bg-gray-100 px-1 py-0.5 dark:bg-gray-800">{redirectUri}</code>
@@ -787,6 +807,9 @@
 								{m["mcp.connectors.remove_saved_key"]()}
 							</label>
 						{/if}
+					{/if}
+					{#if connector.auth === "oauth"}
+						<ScopesField bind:value={editScopes} disabled={busy} />
 					{/if}
 					<p class="text-xs text-gray-500 dark:text-gray-400">
 						{m["mcp.connectors.address_change"]()}
