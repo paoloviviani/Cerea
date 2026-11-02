@@ -119,6 +119,9 @@ export const load = async ({ fetch, url, data }) => {
 		codeTerminalEnabled: data.codeTerminalEnabled,
 		codeSchedulesEnabled: data.codeSchedulesEnabled,
 		chatSchedulesEnabled: data.chatSchedulesEnabled,
+		// 0 = files never expire (Administration → Storage); without it the files pane fell
+		// back to its default and said "kept for 30 days" on a deployment that keeps them for ever.
+		fileRetentionDays: data.fileRetentionDays,
 		officePreviewEnabled: data.officePreviewEnabled,
 		localConnectorsEnabled: data.localConnectorsEnabled,
 		localConnectorsDenied: data.localConnectorsDenied,
