@@ -52,7 +52,7 @@ import { validateModel, models } from "$lib/server/models";
 import { isSelectableModel } from "$lib/server/customModels";
 import { projectAccess, viewerPrincipals } from "$lib/server/projects";
 import { notifyUser } from "$lib/server/push/notify";
-import { turnMaxMinutes } from "$lib/server/generation/turnCap";
+import { reapAfterMs } from "$lib/server/generation/reaper";
 import { MessageUpdateStatus, MessageUpdateType } from "$lib/types/MessageUpdate";
 import type { Schedule } from "$lib/types/Schedule";
 import type { User } from "$lib/types/User";
@@ -153,13 +153,16 @@ async function projectLabel(
 
 /** True while a turn of this conversation is generating or parked on a person. */
 export async function conversationBusy(conversationId: ObjectId, now: Date): Promise<boolean> {
-	// A record older than the turn cap belongs to a process that died: not busy.
-	const cutoff = new Date(now.getTime() - (turnMaxMinutes() + 5) * 60_000);
-	const row = await collections.turnStates.findOne({
-		conversationId,
-		status: { $in: ["running", "waiting", "awaiting_input"] },
-		updatedAt: { $gt: cutoff },
-	});
+	// Busy means a turn is generating right now: a run with a live heartbeat. Not
+	// the turn-state document, which a stop does not reliably settle (a turn parked
+	// on a card, a question or the wait tool keeps its state when the user presses
+	// Stop, and a run that died stays "running" until the turn cap). The heartbeat
+	// is the reaper's own test of a live run.
+	const live = new Date(now.getTime() - reapAfterMs());
+	const row = await collections.generations.findOne(
+		{ conversationId, status: "running", lastHeartbeatAt: { $gt: live } },
+		{ projection: { _id: 1 } }
+	);
 	return row !== null;
 }
 

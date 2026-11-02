@@ -5,6 +5,14 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **A schedule no longer skips a chat whose last turn was stopped.** The "still running" check
+  looked at a turn record that pressing Stop does not always settle (a turn waiting on an approval
+  card, a question or a timed wait, or one whose process died), so a stopped chat could skip its
+  scheduled runs for up to the turn time cap. It now counts only a turn that is generating right
+  now.
+
 ## v0.37.0 — 2026-11-02
 
 Pins: Cerea `0.37.0` (chat and `cerea-documents`), Pystino `0.22.1`.
