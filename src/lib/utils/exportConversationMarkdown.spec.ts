@@ -291,7 +291,7 @@ describe("exportConversationToMarkdown", () => {
 			],
 		});
 		expect(md).toContain("- Attachment: report.pdf");
-		expect(md).toContain("_Called 1 tool: `read_pdf`._");
+		expect(md).toContain("_Used 1 tool: `read_pdf`._");
 		expect(md).toContain("- Generated file: output.csv");
 		// No vote markers, no tool internals.
 		expect(md).not.toContain("score");
@@ -344,7 +344,7 @@ describe("exportConversationToMarkdown", () => {
 				}),
 			],
 		});
-		expect(md).toContain("_Called 5 tools: `ask_user_question` ×5._");
+		expect(md).toContain("_Used 5 tools: `ask_user_question` ×5._");
 	});
 
 	it("lists mixed tools in first-call order with their counts", () => {
@@ -365,7 +365,7 @@ describe("exportConversationToMarkdown", () => {
 				}),
 			],
 		});
-		expect(md).toContain("_Called 3 tools: `search` ×2, `fetch`._");
+		expect(md).toContain("_Used 3 tools: `search` ×2, `fetch`._");
 	});
 
 	it("skips system messages and keeps branch order", () => {

@@ -391,7 +391,7 @@ describe("between-session tools in an agent transcript", () => {
 		const view = withLinks(
 			tool("session_spawn", { title: "Docs", prompt: "x" }, "The person declined.")
 		);
-		await expect.element(view.getByText("Called tool")).toBeVisible();
+		await expect.element(view.getByText("Used tool")).toBeVisible();
 		expect(view.baseElement.querySelector("[data-testid='session-link']")).toBeNull();
 	});
 
@@ -399,7 +399,7 @@ describe("between-session tools in an agent transcript", () => {
 		const view = renderWithApp(ToolUpdate, {
 			tool: tool("session_send", { target: "ses_b", text: "hi" }, "{}"),
 		});
-		await expect.element(view.getByText("Called tool")).toBeVisible();
+		await expect.element(view.getByText("Used tool")).toBeVisible();
 		expect(view.baseElement.querySelector("[data-testid='session-link']")).toBeNull();
 	});
 });

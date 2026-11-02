@@ -53,9 +53,9 @@ describe("the coding agent's task plan inside a message", () => {
 			result("b"),
 		]);
 		const out = text(view);
-		// one summary for both calls, not "Called 1 tool" twice
-		expect(out).toContain("Called 2 tools");
-		expect(out).not.toContain("Called 1 tool");
+		// one summary for both calls, not "Used 1 tool" twice
+		expect(out).toContain("Used 2 tools");
+		expect(out).not.toContain("Used 1 tool");
 		expect(planCards(view)).toBe(0);
 		expect(out).not.toContain("Write the view");
 	});
@@ -87,7 +87,7 @@ describe("the coding agent's task plan inside a message", () => {
 		expect(text(view)).not.toContain("Second plan");
 		// the todowrite call stays in the process group: it is the record that
 		// the plan changed
-		expect(text(view)).toContain("Called tool todowrite");
+		expect(text(view)).toContain("Used tool todowrite");
 	});
 
 	it("leaves a chat plan (keyed by its call id) at its stream position", () => {
@@ -100,9 +100,9 @@ describe("the coding agent's task plan inside a message", () => {
 		]);
 		const out = text(view);
 		// two separate single-tool rows with the plan between them, as before
-		expect(out).not.toContain("Called 2 tools");
-		const first = out.indexOf("Called tool bash");
-		const second = out.lastIndexOf("Called tool bash");
+		expect(out).not.toContain("Used 2 tools");
+		const first = out.indexOf("Used tool bash");
+		const second = out.lastIndexOf("Used tool bash");
 		expect(first).toBeLessThan(out.indexOf("Chat plan"));
 		expect(out.indexOf("Chat plan")).toBeLessThan(second);
 	});

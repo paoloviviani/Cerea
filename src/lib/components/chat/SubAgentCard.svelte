@@ -1,7 +1,7 @@
 <!--
 	One sub-agent (`delegate` or the `research` preset), as a card of its own:
 	title, model, a live status line while it works, its answer, and the list of
-	steps it took. Never folded into the "Called N tools" summary: what a
+	steps it took. Never folded into the "Used N tools" summary: what a
 	sub-agent found is the content of the turn, not a detail of it.
 
 	The state comes from `MessageSubAgentUpdate` (re-sent whole as it works, so

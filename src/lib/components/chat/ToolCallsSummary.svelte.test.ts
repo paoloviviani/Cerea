@@ -23,14 +23,14 @@ describe("ToolCallsSummary", () => {
 	it("labels the header by tool count", async () => {
 		expect(
 			render(ToolCallsSummary, { blocks: [toolBlock("a")], toolCount: 1 }).baseElement.textContent
-		).toContain("Called 1 tool");
+		).toContain("Used 1 tool");
 
 		expect(
 			render(ToolCallsSummary, {
 				blocks: [toolBlock("a"), toolBlock("b")],
 				toolCount: 2,
 			}).baseElement.textContent
-		).toContain("Called 2 tools");
+		).toContain("Used 2 tools");
 	});
 
 	it("labels a tool-less run as 'Thought'", async () => {

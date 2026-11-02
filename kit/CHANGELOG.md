@@ -7,6 +7,9 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **"Used tool" instead of "Called tool"**, in the chat and in exported conversations.
+- **File and code cards fit the chat column** when the side pane is open: their minimum width
+  followed the window, so with a file preview open they ran under the pane.
 - **The Files pane tells the truth about retention.** With "Never expire" ticked under
   Administration → Storage it still said "Files are kept for 30 days": the setting did not reach
   the page and the pane fell back to its default. Files were never deleted; only the label was wrong.

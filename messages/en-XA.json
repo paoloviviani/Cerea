@@ -1674,7 +1674,7 @@
 	"chat.table.sorted_desc": "[Śóŕťéď ďéśćéńďíńǧ — áćťíǚáťé ťó ćľéáŕ śóŕťíńǧ]",
 	"chat.tool.auto_approved": "[áľľóŵéď ƀý ťȟíś ḿáćȟíńé'ś ŕúľéś]",
 	"chat.tool.auto_approved_title": "[Ťȟíś ḿáćȟíńé'ś óŵń þéŕḿíśśíóń ŕúľéś áľľóŵ ťȟíś, śó ńó áþþŕóǚáľ ŵáś áśķéď]",
-	"chat.tool.called": "[Ćáľľéď ťóóľ]",
+	"chat.tool.called": "[Úśéď ťóóľ]",
 	"chat.tool.load_failed": "[Ćóúľď ńóť ľóáď {names}]",
 	"chat.tool.loaded_connectors": "[Ĺóáďéď {names}]",
 	"chat.tool.loading_connectors": "[Ĺóáďíńǧ {names}]",
@@ -1738,8 +1738,8 @@
 				"countPlural"
 			],
 			"match": {
-				"countPlural=one": "[Ćáľľéď {count} ťóóľ]",
-				"countPlural=other": "[Ćáľľéď {count} ťóóľś]"
+				"countPlural=one": "[Úśéď {count} ťóóľ]",
+				"countPlural=other": "[Úśéď {count} ťóóľś]"
 			}
 		}
 	],
