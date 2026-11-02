@@ -20,6 +20,9 @@ services:
       - authelia-config:/authelia-config:ro
       - authelia-data:/authelia-data:ro
       - backup-state:/state              # restic's cache and the last-run state; no secrets
+      # Files of your own to keep in the same snapshot, mounted read-only under
+      # /extra (restore returns them as extra/). Small files only (a RAM disk):
+      #- ./compose.override.yaml:/extra/compose.override.yaml:ro
       # The chat's files, when they are in S3 (CHAT_BLOB_STORE=s3): a second copy of
       # the bucket, kept in sync each run. Size the disk for it. Harmless otherwise.
       - backup-objects:/objects

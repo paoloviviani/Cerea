@@ -116,7 +116,8 @@ class ObjectsStep(unittest.TestCase):
             "pg_dumpall": 'echo "-- PostgreSQL database cluster dump complete"',
             "mongodump": 'echo mongodump >> "$CALLS"; for a in "$@"; do case $a in --archive=*) echo m | gzip > "${a#--archive=}";; esac; done',
             "rclone": 'echo "rclone $1" >> "$CALLS"; case $1 in size) echo \'{"count":2,"bytes":9}\';; esac',
-            "restic": 'echo "restic $1 $*" >> "$CALLS"; case $1 in cat) exit 0;; esac',
+            # On backup, also record what the run directory held (it is deleted after).
+            "restic": 'echo "restic $1 $*" >> "$CALLS"; case $1 in cat) exit 0;; backup) find "$6" -type f | sed "s#^#file #" >> "$CALLS"; cat "$6/backup.info" >> "$CALLS";; esac',
             "sqlite3": "exit 0",
         }.items():
             f = stub / name
@@ -134,7 +135,8 @@ class ObjectsStep(unittest.TestCase):
         script.write_text(text)
         e = {"PATH": f"{stub}:{os.environ['PATH']}", "CALLS": str(log), "POSTGRES_PASSWORD": "x",
              "RESTIC_REPOSITORY": "/r", "RESTIC_PASSWORD": "p", "BACKUP_STATE_DIR": f"{tmp}/state",
-             "BACKUP_ENV_FILE": f"{tmp}/env", "BACKUP_OBJECTS_DIR": f"{tmp}/objects", "BACKUP_MONGO": "yes"}
+             "BACKUP_ENV_FILE": f"{tmp}/env", "BACKUP_OBJECTS_DIR": f"{tmp}/objects", "BACKUP_MONGO": "yes",
+             "BACKUP_EXTRA_DIR": f"{tmp}/extra"}
         e.update(env)
         done = subprocess.run(["sh", str(script), "now"], env=e, capture_output=True, text=True)
         return done, (log.read_text() if log.exists() else "")
@@ -157,6 +159,25 @@ class ObjectsStep(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             done, calls = self.run_now({**s3, "BACKUP_OBJECTS": "no"}, tmp)
             self.assertNotIn("rclone", calls)
+
+    def test_files_mounted_under_extra_are_in_the_snapshot(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            extra = Path(tmp) / "extra"
+            (extra / "conf").mkdir(parents=True)
+            (extra / "compose.override.yaml").write_text("services: {}\n")
+            (extra / "conf" / "rclone.conf").write_text("[x]\n")
+            done, calls = self.run_now({}, tmp)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn(f"file {tmp}/work/cerea/extra/compose.override.yaml", calls)
+            self.assertIn(f"file {tmp}/work/cerea/extra/conf/rclone.conf", calls)
+            self.assertRegex(calls, r"extra: +2 files")
+        with tempfile.TemporaryDirectory() as tmp:
+            # nothing mounted: no extra/ and no line in backup.info
+            done, calls = self.run_now({}, tmp)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertNotIn("/extra/", calls)
+            self.assertNotIn("extra:", calls)
 
     def test_a_failing_object_store_fails_the_run_at_step_objects(self):
         import tempfile

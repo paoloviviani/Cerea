@@ -519,6 +519,7 @@ All in `.env` (`./configure --set KEY=VALUE`); `docker compose up -d` applies a 
 | `BACKUP_OBJECTS` | `auto` | `auto` backs up the chat's bucket when `CHAT_BLOB_STORE=s3`; `yes` or `no` forces it |
 | `BACKUP_OBJECTS_TIMEOUT` | `60` | seconds to wait for the object store to answer before a run fails as unreachable |
 | `BACKUP_OBJECTS_TRANSFERS` | `4` | files copied at once when syncing the bucket |
+| `BACKUP_EXTRA_DIR` | `/extra` | where your own files are mounted in the service; copied into each snapshot as `extra/` |
 
 **Repositories.**
 - **A local path.** Mount it in the override (`- /srv/backups/cerea:/repo`) and set `RESTIC_REPOSITORY=/repo`. Keep it on another disk, or it protects you from nothing.
@@ -547,6 +548,16 @@ The container is not root on the host. It has no Docker socket, a read-only
 root filesystem, `cap_drop: ALL` (plus `DAC_OVERRIDE`, for Authelia's 0600
 files and a repository directory that is not root's), and mounts `.env` and
 the Authelia volumes read-only.
+
+**Files of your own.** Anything you mount under `/extra` in the backup service is copied into each snapshot as `extra/`, and `restore` returns it as `restore/extra/`. Use it for the files the kit does not create but you would want back after losing the machine, such as your `compose.override.yaml` (which holds the backup service itself), an `rclone.conf`, or a galopin `mcp.json`. Add one read-only line per file or directory to the override:
+
+```yaml
+    volumes:
+      - ./compose.override.yaml:/extra/compose.override.yaml:ro
+      - ./rclone.conf:/extra/rclone.conf:ro
+```
+
+then `docker compose up -d backup`. They go through the same RAM disk as the dumps (`BACKUP_WORK_SIZE`), so keep it to configuration-sized files; bulk data belongs in its own backup. A different mount point can be set with `BACKUP_EXTRA_DIR`.
 
 **The disk cost of the objects.** The `backup-objects` volume is a second copy of the whole bucket on this host, so it needs as much free space as the bucket holds (check where Docker keeps its volumes, `docker info | grep 'Docker Root Dir'`, or point the volume at a bigger disk in the override), and that is on top of what the repository stores. What it buys is that a run is fast and the snapshot is complete. If the bucket is already replicated or versioned by its provider (S3 with versioning and cross-region replication, say) and you do not want a copy, set `BACKUP_OBJECTS=no`: the snapshot then holds the other parts, and the bucket's own protection must be restorable to the same moment as the Mongo archive. With the bundled RustFS the sidecar reaches the bucket over the `objects` network, which the override joins (drop that network from the override with your own S3).
 
