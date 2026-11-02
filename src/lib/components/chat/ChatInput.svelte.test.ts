@@ -143,16 +143,30 @@ const submenuTrigger = (label: string): HTMLElement | undefined =>
 		.filter((el) => el.textContent?.trim().startsWith(label))
 		.sort((a, b) => (a.textContent?.trim().length ?? 0) - (b.textContent?.trim().length ?? 0))[0];
 
+/** Open the "+" menu and wait until it is interactive. bits-ui's focus scope
+ * moves focus into the root menu in a requestAnimationFrame after it mounts.
+ * A submenu opened before that frame loses: the late focus lands in the root
+ * menu, outside the submenu, and the submenu closes itself. The menu's text
+ * is there before the frame, so wait for focus to settle inside it. */
 const openMenu = async (container: HTMLElement) => {
 	fireTap(find(container, 'button[aria-label="Add attachment"]'));
-	await waitSlow(() => expect(document.body.textContent).toContain("Knowledge bases"));
+	await waitSlow(() => {
+		const menu = document.body.querySelector('[role="menu"]');
+		expect(menu?.textContent).toContain("Knowledge bases");
+		expect(menu?.contains(document.activeElement)).toBe(true);
+	});
 };
 
 const openKnowledgeSubmenu = async (_container: HTMLElement) => {
 	const trigger = submenuTrigger("Knowledge bases");
 	if (!trigger) throw new Error("no knowledge submenu trigger");
 	trigger.click();
-	await waitSlow(() => expect(document.body.textContent).toContain("Specs"));
+	// The submenu itself, then the list its opening fetches.
+	await waitSlow(() =>
+		expect(document.body.querySelector("[data-dropdown-menu-sub-content]")?.textContent).toContain(
+			"Specs"
+		)
+	);
 };
 
 describe("ChatInput: attaching knowledge bases", () => {
