@@ -40,6 +40,29 @@ With the headless browser turned on, a page is read in two steps:
 
 With `FETCH_BACKEND=direct`, nothing changes: there is no browser step.
 
+### Refused addresses, feeds and feed links
+
+These apply to every fetch backend.
+
+- **One retry with the slash toggled.** When an address answers 403, 404 or
+  410, the chat tries it once more with the path's trailing slash toggled
+  (`/feed/` and `/feed`), never on a bare site address and never more than one
+  extra request. The toggled address goes through the same address checks. When
+  it answers, the result says which address did ("Fetched
+  https://example.org/feed — https://example.org/feed/ answered 403."). An
+  address the user approved covers its toggled spelling too.
+- **A failure says what to try.** A 403 reads "the site refused this address",
+  a 404 or 410 reads "no page at this address", each with a short next step
+  instead of more guessing, and says when the slash variant was tried.
+- **RSS, Atom and RDF feeds come back as a list**: the feed title and link, then
+  one line per item with its date, title, link and up to about 200 characters of
+  plain-text summary, at most 100 items. A feed is never sent to the browser.
+  XML that is not a well-formed feed is returned as delivered.
+- **Feed links on pages.** When a page's head advertises a feed
+  (`<link rel="alternate" type="application/rss+xml">` or Atom), the result ends
+  with the absolute address of up to three, so the assistant can use the exact
+  address.
+
 ### The `render` option
 
 When the renderer is selected and answering, `web_fetch` takes an optional

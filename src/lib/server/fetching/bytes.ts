@@ -17,6 +17,7 @@ import { fileTypeFromBuffer } from "file-type";
 import { contentFetch, isValidUrl } from "$lib/server/urlSafety";
 import { documentMime, isExtractableDocument } from "$lib/server/files/extractDocument";
 import type { FetchBackend, FetchedPage } from "./index";
+import { FetchStatusError } from "./status";
 
 export const TIMEOUT_MS = 30_000;
 export const MAX_BYTES = 10 * 1024 * 1024;
@@ -45,7 +46,7 @@ export async function fetchBytes(url: string): Promise<FetchedBytes> {
 		signal: AbortSignal.timeout(TIMEOUT_MS),
 	});
 	if (!response.ok) {
-		throw new Error(`That URL answered ${response.status}.`);
+		throw new FetchStatusError(response.status);
 	}
 	const contentType = response.headers.get("content-type") ?? "application/octet-stream";
 	const whole = await response.arrayBuffer();

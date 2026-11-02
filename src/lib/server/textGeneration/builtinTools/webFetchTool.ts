@@ -11,7 +11,8 @@ import {
 	sha256Hex,
 	type CacheScope,
 } from "$lib/server/webFetchCache";
-import { canonicalUrl, WEB_FETCH_TOOL_NAME } from "./fetchUrlUtils";
+import { canonicalUrl, isAllowedUrl, WEB_FETCH_TOOL_NAME } from "./fetchUrlUtils";
+import { toggleTrailingSlash } from "$lib/server/fetching/status";
 import type { BuiltinTool } from "./types";
 
 // A page is useful only after its markup, navigation, and boilerplate have
@@ -78,6 +79,8 @@ export interface ReadablePage {
 	title: string | null;
 	finalUrl: string;
 	text: string;
+	/** Which address actually answered, when it was not the one asked for. */
+	note?: string;
 }
 
 export interface PerformFetchOptions {
@@ -140,6 +143,7 @@ export function chunkOf(page: ReadablePage, offset: number): FetchOutcome {
 			: "";
 	return {
 		resultText:
+			(page.note ? `${page.note}\n` : "") +
 			`Title: ${page.title ?? "Untitled"}\nURL: ${page.finalUrl}\n\n` +
 			page.text.slice(offset, end) +
 			footer,
@@ -210,11 +214,14 @@ export async function performFetch(
 						text = extraction.text.trim();
 						title = title ?? fetched.document.filename;
 					} else {
-						text = readablePageText(fetched.content);
+						text = fetched.feed ? fetched.content.trim() : readablePageText(fetched.content);
+						if (fetched.feeds?.length) {
+							text += `\n\nFeeds this page advertises: ${fetched.feeds.slice(0, 3).join(", ")}`;
+						}
 					}
 					if (!text) return { result: { error: "That page had no readable text." } };
 					// A wall is not the page: say so, and keep it out of the caches.
-					const gate = fetched.document ? null : detectGate(text, finalUrl);
+					const gate = fetched.document || fetched.feed ? null : detectGate(text, finalUrl);
 					if (gate) {
 						return {
 							result: {
@@ -227,7 +234,7 @@ export async function performFetch(
 							},
 						};
 					}
-					page = { title, finalUrl, text };
+					page = { title, finalUrl, text, ...(fetched.note ? { note: fetched.note } : {}) };
 					if (options.persist) {
 						await quietly(
 							"write",
@@ -244,6 +251,9 @@ export async function performFetch(
 				}
 			}
 			options.cache?.set(cacheKey, page);
+			// The same resource under its other spelling: reading on with it is no new fetch.
+			const other = page.note ? toggleTrailingSlash(url) : null;
+			if (other) options.cache?.set(fetchCacheKey(other, render), page);
 		}
 		return { result: chunkOf(page, offset), finalUrl: page.finalUrl };
 	} catch (error) {
@@ -277,7 +287,7 @@ export function webFetchNeedsApproval(
 	allowedUrls: Set<string>
 ): boolean {
 	const requested = typeof args.url === "string" ? canonicalUrl(args.url.trim()) : null;
-	return requested === null || !allowedUrls.has(requested);
+	return requested === null || !isAllowedUrl(allowedUrls, requested);
 }
 
 const WEB_FETCH_BASE_DESCRIPTION =
@@ -362,7 +372,7 @@ export function createWebFetchBuiltin(
 			const requested = typeof args.url === "string" ? canonicalUrl(args.url.trim()) : null;
 			if (!requested) return { error: "The page URL must be a valid HTTPS URL." };
 
-			if (!params.allowedUrls.has(requested)) {
+			if (!isAllowedUrl(params.allowedUrls, requested)) {
 				// The gate (toolInvocation.ts) only calls execute() for an untrusted
 				// URL once it has already cleared the tool-approval checkpoint —
 				// always-allow, or a standing "approve for the conversation" grant.
