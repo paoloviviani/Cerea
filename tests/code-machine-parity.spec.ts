@@ -641,7 +641,7 @@ test.describe("owned machine agent: parity", () => {
 		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
 	});
 
-	test("sidebar: a subagent is listed under its workspace, marked, and its wait shows on both rows", async ({
+	test("sidebar: a subagent is nested under its parent, and its wait shows on both rows", async ({
 		page,
 		db,
 		session,
@@ -654,37 +654,33 @@ test.describe("owned machine agent: parity", () => {
 			timeout: 60_000,
 		});
 
-		// The sidebar polls: the child shows up as its own row, badged, with
-		// where it came from, and waiting (the loud state) on it and its parent.
-		const badge = page.getByTestId("subagent-badge");
-		await expect(badge).toHaveCount(1, { timeout: 30_000 });
-		const from = page.getByTestId("subagent-from");
-		await expect(from).toContainText("↳ from");
+		// The sidebar polls: the child shows up nested under its parent, behind a
+		// connector, and waiting (the loud state) on it and on its parent.
+		const nested = page.locator('[data-testid="session-children"] [data-kind="subtask"]');
+		await expect(nested).toHaveCount(1, { timeout: 30_000 });
 		await expect(page.getByTestId("waiting-approval")).toHaveCount(2, { timeout: 30_000 });
-		await expect(page.getByTestId("subagent-count")).toContainText("1 subagent");
 
-		// The count's popover links to the child; its view says whose it is.
-		await page.getByTestId("subagent-count").click();
-		await page.getByRole("menuitem").first().click();
+		// Its link opens the child, whose view says whose it is.
+		await nested.getByRole("link").click();
 		await expect(page).toHaveURL(/agent=/);
 		await expect(page.getByTestId("subagent-of")).toContainText("Subagent of");
 
-		// "from" goes back to the parent, which is not a subagent.
-		await from.click();
+		// The parent's own row goes back to the parent, which is not a subagent.
+		await page.getByTestId("session-row").first().getByRole("link").click();
 		await expect(page.getByTestId("subagent-of")).toHaveCount(0);
 
 		// The filter hides subagent rows, and says so on reload.
 		await page.getByRole("button", { name: "Show subagents" }).click();
-		await expect(badge).toHaveCount(0);
+		await expect(nested).toHaveCount(0);
 		await page.reload();
 		await expect(page.getByRole("button", { name: "Show subagents" })).toHaveAttribute(
 			"aria-pressed",
 			"false",
 			{ timeout: 30_000 }
 		);
-		await expect(badge).toHaveCount(0);
+		await expect(nested).toHaveCount(0);
 		await page.getByRole("button", { name: "Show subagents" }).click();
-		await expect(badge).toHaveCount(1);
+		await expect(nested).toHaveCount(1);
 
 		// Unblock the child so the turn ends cleanly.
 		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
