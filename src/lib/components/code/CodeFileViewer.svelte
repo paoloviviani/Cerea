@@ -129,11 +129,12 @@
 		}
 		const mine = ++token;
 		void (async () => {
-			const [cmView, cmState, cmLanguage, cmData] = await Promise.all([
+			const [cmView, cmState, cmLanguage, cmData, cmCommands] = await Promise.all([
 				import("@codemirror/view"),
 				import("@codemirror/state"),
 				import("@codemirror/language"),
 				import("@codemirror/language-data"),
+				import("@codemirror/commands"),
 			]);
 			const description = cmLanguage.LanguageDescription.matchFilename(cmData.languages, name);
 			const language = description ? await description.load().catch(() => null) : null;
@@ -161,6 +162,16 @@
 												return true;
 											},
 										},
+									]),
+									// Undo/redo (Mod-z, Mod-Shift-z / Mod-y) and the standard
+									// editing keys (indent, line moves, selection): an editor
+									// without them is a trap. Discard stays the way back to the
+									// saved text.
+									cmCommands.history(),
+									cmView.keymap.of([
+										...cmCommands.defaultKeymap,
+										...cmCommands.historyKeymap,
+										cmCommands.indentWithTab,
 									]),
 									cmView.EditorView.updateListener.of((update) => {
 										if (update.docChanged) draft = update.state.doc.toString();

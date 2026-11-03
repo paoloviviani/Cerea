@@ -218,6 +218,18 @@ describe("CodeFiles editor (files.write)", () => {
 		]);
 	});
 
+	it("undoes and redoes edits with the standard keys", async () => {
+		apiMock.readWorkspaceFile.mockResolvedValue(textResult("notes.txt", "hello"));
+		const screen = mount(["notes.txt"], true);
+		await editNotes(screen, " world");
+		const text = () => screen.baseElement.querySelector(".cm-content")?.textContent;
+		await userEvent.keyboard("{Control>}z{/Control}");
+		await expect.poll(text).toBe("hello");
+		await userEvent.keyboard("{Control>}{Shift>}z{/Shift}{/Control}");
+		await expect.poll(text).toBe("hello world");
+		expect(apiMock.writeWorkspaceFile).not.toHaveBeenCalled();
+	});
+
 	it("Discard drops the edits and goes back to the file as read", async () => {
 		apiMock.readWorkspaceFile.mockResolvedValue(textResult("notes.txt", "hello"));
 		const screen = mount(["notes.txt"], true);
