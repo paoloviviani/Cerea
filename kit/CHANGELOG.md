@@ -5,6 +5,14 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- Chat: models a user added with their own key in the gateway (BYOK, ids `my/<name>`)
+  show a "Your key" badge in the model picker and in the Models tab, and the Models tab links
+  to "Your providers and models" in the gateway console for users whose group allows it.
+  Needs a Pystino that reports `byok` on `/v1/models` and `byok_allowed` on `/v1/me`; an older
+  gateway shows neither.
+
 ## v0.38.1 — 2026-11-02
 
 Pins: Cerea `0.38.1` (chat and `cerea-documents`), Pystino `0.23.0`.

@@ -17,6 +17,8 @@ export interface PickerModel {
 	 * row then reads "name · base" and carries a "custom" mark.
 	 */
 	baseName?: string;
+	/** A model on the user's own API key (gateway BYOK): the row carries a "Your key" badge. */
+	byok?: boolean;
 }
 
 export const SHORT_LIST_MAX = 6;

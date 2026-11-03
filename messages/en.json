@@ -14,6 +14,8 @@
 	"admin.layout.section.assistant": "Assistant",
 	"admin.layout.section.web": "Web",
 	"admin.web.page_title": "Web · administration",
+	"app.model_picker.byok_badge": "Your key",
+	"app.model_picker.byok_tooltip": "Uses your own API key. Not counted against your group's limits; usage is shown to you only.",
 	"code.agent_dialog.build": "Build",
 	"code.agent_dialog.build_hint": "Writes; still asks before anything destructive.",
 	"code.agent_dialog.could_not_create": "Could not create the agent.",
@@ -2166,6 +2168,7 @@
 		}
 	],
 	"models.manager.available_heading": "Available ({count})",
+	"models.manager.byok_link": "Your providers and models",
 	"models.manager.cap.artifacts.detail": "Show longer results in a side panel instead of in the chat.",
 	"models.manager.cap.artifacts.label": "Files in a side panel",
 	"models.manager.cap.multimodal.detail": "Let people attach images for the model to look at.",

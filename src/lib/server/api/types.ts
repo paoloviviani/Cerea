@@ -21,6 +21,8 @@ export type GETModelsResponse = Array<{
 	supportsReasoning: boolean;
 	supportsArtifacts: boolean;
 	unlisted: boolean;
+	/** A model on the user's own API key (gateway BYOK, id `my/<name>`). */
+	byok?: boolean;
 	/**
 	 * Present only on a person's own custom model (`custom:<id>`), which is
 	 * listed beside the catalogue and inherits everything else from this base.

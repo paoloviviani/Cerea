@@ -62,6 +62,8 @@ export type GatewaySessionOutcome =
 						/** Absent from the body (a gateway that predates the capability) reads as
 						 * allowed: local connectors were never gated before. */
 						local_connectors: boolean;
+						/** Bring your own key: absent from the body (an older gateway) reads as not allowed. */
+						byok_allowed: boolean;
 						/** Both reported null: the gateway is not configured for the chat. */
 						chat_unconfigured: boolean;
 				  }
@@ -218,6 +220,7 @@ export async function gatewaySessionCheck(
 								body.capabilities !== null &&
 								(body.capabilities.local_connectors === undefined ||
 									body.capabilities.local_connectors === true),
+							byok_allowed: body.capabilities?.byok_allowed === true,
 							chat_unconfigured:
 								body.capabilities !== null &&
 								body.capabilities.code_agents === null &&

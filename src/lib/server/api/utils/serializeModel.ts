@@ -30,6 +30,7 @@ export function serializeModelSummary(model: ProcessedModel): GETModelsResponse[
 		// "unset" read as off.
 		supportsArtifacts: model.supportsArtifacts ?? supportsTools,
 		unlisted: model.unlisted,
+		byok: model.byok === true,
 	};
 }
 

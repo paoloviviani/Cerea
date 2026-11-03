@@ -19,6 +19,8 @@
 	import { untrack } from "svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { base } from "$app/paths";
+	import { page } from "$app/state";
+	import { BYOK_CONSOLE_PATH } from "$lib/utils/byokConsole";
 	import { m } from "$lib/paraglide/messages";
 	import Rich from "$lib/i18n/Rich.svelte";
 	import { goto } from "$app/navigation";
@@ -26,6 +28,7 @@
 	import Switch from "$lib/components/Switch.svelte";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
 	import IconSearch from "~icons/carbon/search";
+	import IconLaunch from "~icons/carbon/launch";
 	import IconSettings from "~icons/carbon/settings";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
 	import LucideHammer from "~icons/lucide/hammer";
@@ -46,6 +49,8 @@
 		supportsTools?: boolean;
 		supportsReasoning?: boolean;
 		supportsArtifacts?: boolean;
+		/** A model on the user's own API key (gateway BYOK). */
+		byok?: boolean;
 		/** Set on a person's own custom model: the catalogue model it runs on. */
 		customBase?: { id: string; displayName: string };
 	}
@@ -241,6 +246,19 @@
 			</div>
 
 			<div class={s.STACK}>
+				{#if page.data.byokAllowed && page.data.consoleEnabled}
+					<!-- Gateway BYOK: the user's own providers and models are managed in the
+					     gateway console, same origin; a new tab like the other console links. -->
+					<a
+						href={BYOK_CONSOLE_PATH}
+						target="_blank"
+						rel="noopener noreferrer"
+						class="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline dark:text-blue-400"
+					>
+						{m["models.manager.byok_link"]()}
+						<IconLaunch class="size-4" />
+					</a>
+				{/if}
 				<div class="relative">
 					<IconSearch
 						class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-gray-400"
@@ -302,6 +320,13 @@
 											{#if model.customBase}
 												<span class="{s.PILL} {s.PILL_TONES.good}"
 													>{m["models.manager.pill.custom"]()}</span
+												>
+											{/if}
+											{#if model.byok}
+												<span
+													class="{s.PILL} {s.PILL_TONES.neutral}"
+													title={m["app.model_picker.byok_tooltip"]()}
+													>{m["app.model_picker.byok_badge"]()}</span
 												>
 											{/if}
 											{#if model.supportsTools}

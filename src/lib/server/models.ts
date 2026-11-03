@@ -99,6 +99,8 @@ const modelConfig = z.object({
 	 * Set per model via MODELS overrides; presets may override per turn.
 	 */
 	artifactsMode: z.enum(["tool", "tags"]).optional(),
+	/** A model the user added with their own key (gateway BYOK, id `my/<name>`). */
+	byok: z.boolean().optional(),
 	unlisted: z.boolean().default(false),
 	embeddingModel: z.never().optional(),
 	/** Used to enable/disable system prompt usage */
@@ -168,6 +170,9 @@ const listSchema = z
 				// whole listing, so the chat could not boot: 0.15.5 did exactly
 				// that on `null`.
 				display_name: z.string().nullish(),
+				// Gateway BYOK: true on a user's own-key model (id `my/<name>`); absent or
+				// null on deployment models. Nullish like every gateway field.
+				byok: z.boolean().nullish(),
 			})
 		),
 	})
@@ -387,6 +392,7 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 				// and what stored references key on.
 				displayName: m.display_name?.trim() || m.id,
 				description: m.description ?? undefined,
+				byok: m.byok === true ? true : undefined,
 				providers: m.providers ?? undefined,
 				contextLength,
 				// Derived, not opted into: see reasoningPolicy.ts. A MODELS override

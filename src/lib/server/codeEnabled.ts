@@ -106,6 +106,25 @@ export async function localConnectorsAccessFor(
 }
 
 /**
+ * Whether *this person* may add their own providers and models (gateway BYOK,
+ * `capabilities.byok_allowed`). Unlike the other capabilities an older gateway
+ * (no `capabilities` key, or no flag) reads as NOT allowed: it is a new grant,
+ * never an inherited one. False without a gateway.
+ */
+export async function byokAllowedFor(locals: App.Locals): Promise<boolean> {
+	if (!isGatewayPreset() || !locals.token) return false;
+	const outcome = await gatewaySessionCheck(locals.sessionId, locals.token);
+	const answer =
+		outcome?.kind === "valid"
+			? outcome
+			: outcome && outcome.kind !== "ended"
+				? recentValidGatewayOutcome(locals.sessionId)
+				: null;
+	if (!answer || answer.capabilities === "absent") return false;
+	return answer.capabilities.byok_allowed;
+}
+
+/**
  * The /code file explorer (ADR 0090): on with the code panel, unless the
  * deployment switches it off. Each machine can still veto it (--no-files).
  */
