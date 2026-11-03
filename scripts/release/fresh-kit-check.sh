@@ -7,15 +7,19 @@
 # console and the chat, and print E2E_OK. The stack and the scratch directory
 # are removed afterwards, pass or fail.
 #
-# Needs: docker with compose, curl, python3, uv, and ports 80/443 free.
-# Env: CEREA_REPO (owner/name, default paoloviviani/Cerea), KEEP=1 to leave the
-# stack up for inspection.
+# Needs: docker with compose, curl, python3, uv, and the host ports free: 80 and
+# 443 by default, or HTTP_PORT / HTTPS_PORT when set (to run beside a live stack).
+# Env: CEREA_REPO (owner/name, default paoloviviani/Cerea), HTTP_PORT and
+# HTTPS_PORT (host ports, default 80 and 443), KEEP=1 to leave the stack up for
+# inspection.
 set -euo pipefail
 TAG=${1:?usage: fresh-kit-check.sh vX.Y.Z}
 REPO=${CEREA_REPO:-paoloviviani/Cerea}
 HERE=$(cd "$(dirname "$0")" && pwd)
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/cerea-fresh-kit.XXXXXX")
-PROJECT=cerea-fresh-$$
+PROJECT=cerea-fresh-$$ # never `cerea`: teardown only ever targets this project
+HTTP_PORT=${HTTP_PORT:-80}
+HTTPS_PORT=${HTTPS_PORT:-443}
 KIT=$SCRATCH/checkout/kit
 cleanup() {
 	if [ "${KEEP:-0}" != 1 ] && [ -d "$KIT" ]; then
@@ -24,6 +28,15 @@ cleanup() {
 	fi
 }
 trap cleanup EXIT
+
+if command -v ss >/dev/null 2>&1; then
+	for port in "$HTTP_PORT" "$HTTPS_PORT"; do
+		if ss -ltnH "sport = :$port" | grep -q .; then
+			echo "port $port is in use; set HTTP_PORT / HTTPS_PORT to free ports" >&2
+			exit 1
+		fi
+	done
+fi
 
 curl -fsSL "https://raw.githubusercontent.com/$REPO/$TAG/kit/get-kit.sh" |
 	sh -s -- --version "$TAG" --dir "$SCRATCH/checkout" >"$SCRATCH/get-kit.log" 2>&1 ||
@@ -34,7 +47,9 @@ cerea_pin=$(python3 tools/pin --show | sed -n 's/^cerea=//p')
 pystino_pin=$(python3 tools/pin --show | sed -n 's/^pystino=//p')
 
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-./configure --non-interactive --origin "https://${IP:-127.0.0.1}" --admin-email admin@example.org \
+origin="https://${IP:-127.0.0.1}"
+[ "$HTTPS_PORT" = 443 ] || origin="$origin:$HTTPS_PORT"
+./configure --non-interactive --origin "$origin" --http-port "$HTTP_PORT" --https-port "$HTTPS_PORT" --admin-email admin@example.org \
 	--preset homelab --tls internal --idp authelia --agents --terminal --project "$PROJECT" \
 	>"$SCRATCH/configure.log" 2>&1 || { cat "$SCRATCH/configure.log"; exit 1; }
 
