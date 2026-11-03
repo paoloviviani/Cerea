@@ -1751,6 +1751,16 @@ def check_values(values: dict, report: Report) -> None:
             "the admin screen will report the renderer unreachable. Unset it, or add fetch to "
             "COMPOSE_PROFILES"
         )
+    sandbox = values.get("PLAYWRIGHT_SANDBOX", "")
+    if sandbox not in ("", "on", "off"):
+        # compose mounts playwright/sandbox-<value>.json; any other value names a file
+        # that does not exist, and Docker would mount an empty directory in its place.
+        report.errors.append(f"PLAYWRIGHT_SANDBOX must be on or off, got {sandbox!r}")
+    elif "fetch" in profiles and sandbox == "off":
+        report.warnings.append(
+            "PLAYWRIGHT_SANDBOX=off: the fetch browser runs Chromium without its sandbox. Use it "
+            "only on a host without user namespaces; its network and container limits still apply"
+        )
     gotenberg = values.get("CHAT_GOTENBERG_URL", "")
     if "office" in profiles and not gotenberg:
         report.warnings.append(
