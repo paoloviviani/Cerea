@@ -166,7 +166,7 @@ describe("collapsed process blocks during streaming", () => {
 
 	it("keeps the flat rows through mid-turn narration instead of regrouping them", async () => {
 		// Models narrate between tool rounds. That text must not collapse the
-		// previous rows into the "Called N tools" summary mid-turn: the next
+		// previous rows into the "Used N tools" summary mid-turn: the next
 		// round would explode the summary back into rows, which reads as the
 		// collapsed blocks re-expanding. Grouping belongs to the finished turn.
 		const steps = [
@@ -182,7 +182,7 @@ describe("collapsed process blocks during streaming", () => {
 		];
 		const summaries = (el: HTMLElement) =>
 			[...el.querySelectorAll("button")].filter((b) =>
-				/^Called \d+ tools?/.test(b.textContent?.trim() ?? "")
+				/^Used \d+ tools?/.test(b.textContent?.trim() ?? "")
 			);
 		const toolRows = (el: HTMLElement) => el.querySelectorAll("code").length;
 
@@ -364,7 +364,7 @@ describe("a tool call that took a screenshot", () => {
 		]);
 		const text = baseElement.textContent ?? "";
 		// The two plain calls fold around it; the screenshot call is its own card.
-		expect(text).not.toContain("Called 3 tools");
+		expect(text).not.toContain("Used 3 tools");
 		expect(text).toContain("browser_screenshot");
 		expect(baseElement.querySelector(`img[src="${SHOT}"]`)).not.toBeNull();
 	});
