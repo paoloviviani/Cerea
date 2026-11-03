@@ -104,7 +104,7 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 		forgetGatewaySession(sessionId);
 	});
 
-	it("reads byok_allowed only when the gateway says true", async () => {
+	it("reads capabilities.byok only when the gateway says true", async () => {
 		const { sessionId, gatewayUserId } = await makeSession("gw-byok");
 		const answer = await gatewaySessionCheck(sessionId, "tok", {
 			...base,
@@ -112,7 +112,7 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 				id: gatewayUserId,
 				is_admin: false,
 				groups: [],
-				capabilities: { code_agents: true, byok_allowed: true },
+				capabilities: { code_agents: true, byok: true },
 			}).impl,
 		});
 		expect(answer).toMatchObject({ capabilities: { byok_allowed: true } });

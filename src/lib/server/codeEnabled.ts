@@ -107,7 +107,7 @@ export async function localConnectorsAccessFor(
 
 /**
  * Whether *this person* may add their own providers and models (gateway BYOK,
- * `capabilities.byok_allowed`). Unlike the other capabilities an older gateway
+ * `capabilities.byok` on `/v1/me`). Unlike the other capabilities an older gateway
  * (no `capabilities` key, or no flag) reads as NOT allowed: it is a new grant,
  * never an inherited one. False without a gateway.
  */

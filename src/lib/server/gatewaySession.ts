@@ -220,7 +220,7 @@ export async function gatewaySessionCheck(
 								body.capabilities !== null &&
 								(body.capabilities.local_connectors === undefined ||
 									body.capabilities.local_connectors === true),
-							byok_allowed: body.capabilities?.byok_allowed === true,
+							byok_allowed: body.capabilities?.byok === true,
 							chat_unconfigured:
 								body.capabilities !== null &&
 								body.capabilities.code_agents === null &&
