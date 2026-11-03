@@ -490,7 +490,9 @@ you seeing and driving them from the browser.
 ### The Needs-you inbox
 
 The inbox lists, across all your machines, the approvals and questions that are
-waiting for you, each answerable in place and linked to its session. It is part
+waiting for you, each answerable in place and linked to its session. It starts
+as a one-line bar ("2 need you") that opens on a click, and it leaves out the
+session you have open, whose cards that view already shows. It is part
 of /code, so it **goes dark with the rest** when the sign-in is older than 7
 days. That is a trade: nothing in the browser will tell you that a session is
 waiting, and a session waiting for an approval waits (it does not proceed) until
@@ -787,9 +789,10 @@ never more (an Allow spawner makes a child that runs without a card; a
 read-only child comes from `mode: "plan"`) — still under the machine's ceiling,
 which caps the child exactly as it caps the caller. The exceptions are the
 "always" answers the person gave the spawner, copied as they are; removing one
-from the spawner later does not remove it from children already spawned. It
-appears as its own top-level row with a "spawned by" link, not inside the
-spawner's tree.
+from the spawner later does not remove it from children already spawned. In
+the sidebar it sits under its spawner, behind a thin connector (a spawned
+session whose spawner is in another workspace, or gone, stays a top-level row
+with a "spawned by" line).
 
 #### Scheduling work
 

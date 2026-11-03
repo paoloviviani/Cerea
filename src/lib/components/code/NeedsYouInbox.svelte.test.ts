@@ -4,6 +4,19 @@ import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import NeedsYouInbox from "./NeedsYouInbox.svelte";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 import { MessageElicitationUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
+import { livePage } from "./codeNavPage.svelte";
+import { flushSync } from "svelte";
+
+vi.mock("$app/state", async () => {
+	const { livePage } = await import("./codeNavPage.svelte");
+	return {
+		page: livePage,
+		navigating: { from: null, to: null, type: null, willUnload: false, delta: undefined },
+		updated: { current: false, check: async () => false },
+	};
+});
+
+const EXPANDED_KEY = "code.inbox.expanded";
 
 /**
  * The machines are fakes: `listPendingApprovals` answers per device from the
@@ -104,7 +117,13 @@ function question(sessionId = "a2", requestId = "que-1") {
 	};
 }
 
-function mount(device = { id: "d1", name: "Box", status: "paired", online: true }) {
+/** Mounted expanded unless a test says otherwise: most of these tests are about
+ * the cards, which the bar only shows once opened. */
+function mount(
+	device = { id: "d1", name: "Box", status: "paired", online: true },
+	expanded = true
+) {
+	if (expanded) sessionStorage.setItem(EXPANDED_KEY, "1");
 	codeDeviceList.devices = [device] as typeof codeDeviceList.devices;
 	codeDeviceList.loading = false;
 	return renderWithApp(NeedsYouInbox);
@@ -124,6 +143,8 @@ beforeEach(() => {
 	codeDeviceList.devices = [];
 	codeDeviceList.loading = false;
 	document.body.innerHTML = "";
+	sessionStorage.clear();
+	livePage.url = new URL("http://localhost:3000/code");
 });
 
 describe("NeedsYouInbox", () => {
@@ -259,6 +280,7 @@ describe("NeedsYouInbox Always allow", () => {
 			{ ...withPolicy({}), id: "d2", name: "Open box" },
 		] as unknown as typeof codeDeviceList.devices;
 		codeDeviceList.loading = false;
+		sessionStorage.setItem(EXPANDED_KEY, "1");
 		const screen = renderWithApp(NeedsYouInbox);
 		await expect.element(screen.getByTestId("needs-you-item").first()).toBeVisible();
 		await vi.waitFor(() => expect(screen.getByTestId("needs-you-item").elements()).toHaveLength(2));
@@ -347,5 +369,133 @@ describe("NeedsYouInbox a new subagent's first turn", () => {
 		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(screen.getByTestId("first-turn-chip").elements()).toHaveLength(0);
+	});
+});
+
+describe("NeedsYouInbox collapsed bar", () => {
+	it("starts as a one-line bar with the count, cards hidden", async () => {
+		fake.pendingByDevice = {
+			d1: { permissions: [permission("a1", "perm-1")], questions: [question("a2", "que-1")] },
+		};
+		await browserPage.viewport(1200, 800);
+		const screen = mount(undefined, false);
+		await expect.element(screen.getByTestId("needs-you-inbox")).toBeVisible();
+		const toggle = screen.getByRole("button", { name: "2 need you" });
+		await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+		expect(screen.getByTestId("needs-you-item").elements()).toHaveLength(0);
+		expect(screen.getByRole("button", { name: "Allow once" }).elements()).toHaveLength(0);
+	});
+
+	it("says '1 needs you' for one", async () => {
+		fake.pendingByDevice = { d1: { permissions: [permission()], questions: [] } };
+		await browserPage.viewport(1200, 800);
+		const screen = mount(undefined, false);
+		await expect.element(screen.getByRole("button", { name: "1 needs you" })).toBeVisible();
+	});
+
+	it("expands on a click, remembers it for the browser session, and collapses again", async () => {
+		fake.pendingByDevice = { d1: { permissions: [permission()], questions: [] } };
+		await browserPage.viewport(1200, 800);
+		const first = mount(undefined, false);
+		await first.getByRole("button", { name: "1 needs you" }).click();
+		await expect.element(first.getByTestId("needs-you-item")).toBeVisible();
+		expect(sessionStorage.getItem(EXPANDED_KEY)).toBe("1");
+		first.unmount();
+
+		// A later mount in the same browser session opens as the person left it.
+		const second = mount(undefined, false);
+		await expect.element(second.getByTestId("needs-you-item")).toBeVisible();
+		await second.getByRole("button", { name: "1 needs you" }).click();
+		expect(second.getByTestId("needs-you-item").elements()).toHaveLength(0);
+		expect(sessionStorage.getItem(EXPANDED_KEY)).toBeNull();
+		second.unmount();
+
+		const third = mount(undefined, false);
+		await expect
+			.element(third.getByRole("button", { name: "1 needs you" }))
+			.toHaveAttribute("aria-expanded", "false");
+	});
+
+	it("still starts collapsed when the browser will not give it storage", async () => {
+		fake.pendingByDevice = { d1: { permissions: [permission()], questions: [] } };
+		await browserPage.viewport(1200, 800);
+		const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+			throw new Error("blocked");
+		});
+		try {
+			const screen = mount(undefined, false);
+			await expect
+				.element(screen.getByRole("button", { name: "1 needs you" }))
+				.toHaveAttribute("aria-expanded", "false");
+		} finally {
+			spy.mockRestore();
+		}
+	});
+});
+
+describe("NeedsYouInbox and the session open in the agent view", () => {
+	it("leaves out the open session's ask, which the agent view already shows", async () => {
+		fake.pendingByDevice = {
+			d1: { permissions: [permission("a1", "perm-1")], questions: [question("a2", "que-1")] },
+		};
+		livePage.url = new URL("http://localhost:3000/code?device=d1&ws=w1&agent=a1");
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByTestId("needs-you-item")).toBeVisible();
+		expect(screen.getByTestId("needs-you-item").elements()).toHaveLength(1);
+		expect(inbox()?.textContent).toContain("Second");
+		expect(inbox()?.textContent).not.toContain("Build it");
+		await expect.element(screen.getByRole("button", { name: "1 needs you" })).toBeVisible();
+	});
+
+	it("draws no bar when the only pending asks belong to the open session", async () => {
+		fake.pendingByDevice = { d1: { permissions: [permission("a1", "perm-1")], questions: [] } };
+		livePage.url = new URL("http://localhost:3000/code?device=d1&ws=w1&agent=a1");
+		await browserPage.viewport(1200, 800);
+		mount();
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(inbox()).toBeNull();
+	});
+
+	it("lists them again when the person opens another session", async () => {
+		fake.pendingByDevice = { d1: { permissions: [permission("a1", "perm-1")], questions: [] } };
+		livePage.url = new URL("http://localhost:3000/code?device=d1&ws=w1&agent=a1");
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(inbox()).toBeNull();
+
+		livePage.url = new URL("http://localhost:3000/code?device=d1&ws=w1&agent=a9");
+		flushSync();
+		await expect.element(screen.getByTestId("needs-you-item")).toBeVisible();
+		expect(inbox()?.textContent).toContain("Build it");
+	});
+
+	it("matches the device too: the same session id on another machine is still listed", async () => {
+		fake.pendingByDevice = {
+			d2: { permissions: [permission("a1", "perm-1")], questions: [] },
+		};
+		livePage.url = new URL("http://localhost:3000/code?device=d1&ws=w1&agent=a1");
+		await browserPage.viewport(1200, 800);
+		codeDeviceList.devices = [
+			{ id: "d1", name: "Box", status: "paired", online: true },
+			{ id: "d2", name: "Other", status: "paired", online: true },
+		] as unknown as typeof codeDeviceList.devices;
+		codeDeviceList.loading = false;
+		sessionStorage.setItem(EXPANDED_KEY, "1");
+		const screen = renderWithApp(NeedsYouInbox);
+		await expect.element(screen.getByTestId("needs-you-item")).toBeVisible();
+	});
+
+	it("keeps answering converged: answering the listed ask clears the bar", async () => {
+		fake.pendingByDevice = {
+			d1: { permissions: [permission("a1", "perm-1")], questions: [question("a2", "que-1")] },
+		};
+		livePage.url = new URL("http://localhost:3000/code?device=d1&ws=w1&agent=a1");
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByTestId("needs-you-item")).toBeVisible();
+		await screen.getByRole("button", { name: "Skip" }).click();
+		await vi.waitFor(() => expect(inbox()).toBeNull());
 	});
 });

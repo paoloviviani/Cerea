@@ -17,6 +17,13 @@
 	approval. The context line above each card names the device and session
 	and deep-links to that agent card (`?device=&ws=&agent=`).
 
+	The bar starts collapsed — one line, "N need you" — and expands on a click
+	(the choice is remembered for the browser session). It leaves out the asks
+	of the session open in the agent view: that view already shows them inline,
+	so listing them here as well put the same question on screen twice. With
+	only those pending the bar is not drawn, and it lists them again the moment
+	the person opens another session.
+
 	Asks persist on the machine — there is deliberately no server-side queue
 	here, only a read of live state. An unattended run that stalls on an ask
 	is expected: the composer's Allow setting is the answer for those, not this
@@ -27,6 +34,7 @@
 	import { onMount, untrack } from "svelte";
 	import { replyOutcome } from "$lib/utils/permissionReply";
 	import { browser } from "$app/environment";
+	import { page } from "$app/state";
 	import IconChevronDown from "~icons/carbon/chevron-down";
 	import IconLaunch from "~icons/carbon/launch";
 	import ToolApprovalCard from "$lib/components/chat/ToolApprovalCard.svelte";
@@ -82,7 +90,26 @@
 
 	let items = $state<InboxItem[]>([]);
 	let loading = $state(true);
-	let collapsed = $state(false);
+
+	// Collapsed unless the person opened it earlier in this browser session.
+	const EXPANDED_KEY = "code.inbox.expanded";
+	function readExpanded(): boolean {
+		try {
+			return globalThis.sessionStorage?.getItem(EXPANDED_KEY) === "1";
+		} catch {
+			return false;
+		}
+	}
+	let collapsed = $state(!readExpanded());
+	function toggleCollapsed() {
+		collapsed = !collapsed;
+		try {
+			if (collapsed) globalThis.sessionStorage?.removeItem(EXPANDED_KEY);
+			else globalThis.sessionStorage?.setItem(EXPANDED_KEY, "1");
+		} catch {
+			// Storage can be blocked; the bar still works for this page view.
+		}
+	}
 
 	let fetchSeq = 0;
 	/** One tail stream per listed session (`device:session` → its abort). */
@@ -93,7 +120,13 @@
 		codeDeviceList.devices.filter((d) => d.status === "paired" && d.online !== false)
 	);
 
-	let count = $derived(items.length);
+	/** The session open in the agent view, whose asks it already shows inline. */
+	const openDeviceId = $derived(page.url.searchParams.get("device"));
+	const openAgentId = $derived(page.url.searchParams.get("agent"));
+	const listed = $derived(
+		items.filter((item) => !(item.deviceId === openDeviceId && item.sessionId === openAgentId))
+	);
+	let count = $derived(listed.length);
 
 	function toItems(
 		deviceId: string,
@@ -360,23 +393,20 @@
 		data-testid="needs-you-inbox"
 		class="pointer-events-auto border-b border-line bg-amber-50/60 dark:bg-amber-950/20"
 	>
-		<div class="mx-auto w-full max-w-4xl px-4 py-3">
+		<div class="mx-auto w-full max-w-4xl px-4 py-1.5">
 			<button
 				type="button"
 				class="flex min-h-11 w-full items-center gap-2 text-left"
 				aria-expanded={!collapsed}
-				onclick={() => (collapsed = !collapsed)}
+				onclick={toggleCollapsed}
 			>
-				<span
-					class="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-white"
-					aria-hidden="true"
-				>
-					{count}
-				</span>
-				<span class="text-sm font-semibold text-ink">{m["code.inbox.label"]()}</span>
-				<span class="hidden text-xs text-ink-muted sm:inline">
-					{m["code.inbox.hint"]()}
-				</span>
+				<span class="size-2.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true"></span>
+				<span class="text-sm font-semibold text-ink">{m["code.inbox.count"]({ count })}</span>
+				{#if !collapsed}
+					<span class="hidden text-xs text-ink-muted sm:inline">
+						{m["code.inbox.hint"]()}
+					</span>
+				{/if}
 				<IconChevronDown
 					class="ml-auto size-4 shrink-0 text-ink-muted transition-transform {collapsed
 						? '-rotate-90'
@@ -385,7 +415,7 @@
 			</button>
 			{#if !collapsed}
 				<ul class="mt-2 flex flex-col gap-4 pb-1">
-					{#each items as item (item.key)}
+					{#each listed as item (item.key)}
 						<li
 							class="rounded-xl border border-amber-200 bg-white p-3 shadow-sm dark:border-amber-900/50 dark:bg-gray-900"
 							data-testid="needs-you-item"

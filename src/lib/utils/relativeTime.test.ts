@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRelativeTime } from "./relativeTime";
+import { formatCompactAge, formatRelativeTime } from "./relativeTime";
 
 const now = new Date("2026-10-07T12:00:00Z");
 const ago = (seconds: number) => new Date(now.getTime() - seconds * 1000);
@@ -23,5 +23,20 @@ describe("formatRelativeTime", () => {
 	it("accepts strings and returns nothing for an unreadable date", () => {
 		expect(formatRelativeTime("2026-10-07T09:00:00Z", now, "en")).toBe("3 hours ago");
 		expect(formatRelativeTime("not a date", now, "en")).toBe("");
+	});
+});
+
+describe("formatCompactAge", () => {
+	it("is the narrow unit of the largest one that fits", () => {
+		expect(formatCompactAge(ago(5 * 60), now, "en")).toBe("5m");
+		expect(formatCompactAge(ago(3 * 3600 + 120), now, "en")).toBe("3h");
+		expect(formatCompactAge(ago(2 * 86400), now, "en")).toBe("2d");
+		expect(formatCompactAge(ago(15 * 86400), now, "en")).toBe("2w");
+	});
+
+	it("is empty under a minute, with no date, or with one that does not parse", () => {
+		expect(formatCompactAge(ago(20), now, "en")).toBe("");
+		expect(formatCompactAge(undefined, now, "en")).toBe("");
+		expect(formatCompactAge("nonsense", now, "en")).toBe("");
 	});
 });
