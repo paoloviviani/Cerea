@@ -22,6 +22,16 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   ("2 need you") that opens when you click it, and it remembers your choice for the browser session.
   The questions of the session you are looking at are left out, since that view already shows
   them; if they are the only ones pending, the bar is not drawn at all.
+- **The code panel's file explorer can edit and save text files** (issue #69), on a machine that
+  allows it. Saving is off on every machine until it is enrolled with `--allow-file-write` (the
+  Pair a machine dialog has it under Advanced); `galopin policy set --no-file-write` turns it off
+  again. The deployment switch `CODE_FILE_WRITE_ENABLED` is on by default; set it to `false` to
+  turn saving off everywhere. **Edit** opens the editor, with **Save** (Ctrl+S or ⌘S) and
+  **Discard**. A save replaces the file atomically and keeps its permissions, and only if the file
+  has not changed on disk since it was opened: otherwise the editor says **Changed on disk** and
+  offers **Reload** (drop the edits) or **Overwrite**. Files over 1 MiB, binary files, images and
+  files on the deny list stay read-only. Each save is audited with its path and size, never its
+  content. Needs the galopin update.
 
 ## v0.38.1 — 2026-11-02
 
