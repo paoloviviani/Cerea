@@ -534,10 +534,14 @@ func TestEnvFilesShownInTheExplorerButNeverPulledIntoAPrompt(t *testing.T) {
 			t.Errorf("DefaultFileDeny still holds %q", g)
 		}
 	}
-	for _, p := range []Policy{{}, {NoDefaultFileDeny: true}} {
-		got := p.EffectivePromptFileDeny()
-		if len(got) < 2 || got[0] != ".env" || got[1] != ".env.*" {
-			t.Errorf("EffectivePromptFileDeny(%+v) = %v, want the .env patterns first", p, got)
-		}
+	got := Policy{}.EffectivePromptFileDeny()
+	if len(got) < 2 || got[0] != ".env" || got[1] != ".env.*" {
+		t.Errorf("EffectivePromptFileDeny() = %v, want the .env patterns first", got)
+	}
+	// --no-default-file-deny drops the whole built-in secret list, prompts included
+	// (the owner's explicit, amber choice; as before .env left the explorer list).
+	dropped := Policy{NoDefaultFileDeny: true, FileDeny: []string{"*.secret"}}.EffectivePromptFileDeny()
+	if len(dropped) != 1 || dropped[0] != "*.secret" {
+		t.Errorf("EffectivePromptFileDeny(no defaults) = %v, want only the owner's globs", dropped)
 	}
 }

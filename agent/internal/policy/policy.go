@@ -383,15 +383,20 @@ func (p Policy) EffectiveMaxTerminals() int {
 // PromptSecretDeny is what a command's @file reference may never pull into a
 // prompt, on top of the explorer's list: the .env files the explorer shows. A
 // reference lands in the transcript and the gateway's logs with no ask, the
-// exact path the agent's own ask before reading a *.env file guards. It holds
-// whatever the owner does with the explorer list (--no-default-file-deny too).
+// exact path the agent's own ask before reading a *.env file guards. Like the
+// explorer's defaults it is part of the built-in secret list, so
+// --no-default-file-deny drops it too (as it did when .env was on one list).
 var PromptSecretDeny = []string{
 	".env", ".env.*", "!.env.example", "!.env.sample", "!.env.template", ".envrc",
 }
 
 // EffectivePromptFileDeny is the deny list for a command's @file references:
-// the .env patterns, then the explorer's list in force.
+// the .env patterns (unless the built-in list is dropped), then the explorer's
+// list in force.
 func (p Policy) EffectivePromptFileDeny() []string {
+	if p.NoDefaultFileDeny {
+		return p.EffectiveFileDeny()
+	}
 	return append(append([]string{}, PromptSecretDeny...), p.EffectiveFileDeny()...)
 }
 
