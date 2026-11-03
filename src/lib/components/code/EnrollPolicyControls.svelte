@@ -55,6 +55,7 @@
 		| "allowFreeModels"
 		| "allowOpencodeProvider"
 		| "noFiles"
+		| "allowFileWrite"
 		| "noDefaultFileDeny"
 		| "allowOutsideProject"
 		| "allowSecretReads"
@@ -353,6 +354,13 @@
 				"enroll-no-files",
 				m["code.enroll.no_files_label"](),
 				m["code.enroll.no_files_text"]()
+			)}
+			{@render flag(
+				"allowFileWrite",
+				"enroll-allow-file-write",
+				m["code.enroll.file_write_label"](),
+				m["code.enroll.file_write_text"](),
+				true
 			)}
 			{@render listField(
 				"enroll-file-deny",

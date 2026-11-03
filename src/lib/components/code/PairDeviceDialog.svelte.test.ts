@@ -156,6 +156,7 @@ describe("each control emits exactly its flag", () => {
 		["enroll-allow-free-models", "--allow-free-models", "free models", true],
 		["enroll-allow-opencode-provider", "--allow-opencode-provider", "opencode provider", true],
 		["enroll-no-files", "--no-files", "no files", true],
+		["enroll-allow-file-write", "--allow-file-write", "saving files", true],
 		["enroll-no-default-file-deny", "--no-default-file-deny", "no default deny", true],
 	];
 	for (const [testid, flag, label, advanced] of checkboxes) {
@@ -421,7 +422,7 @@ describe("quoting in the preview", () => {
 });
 
 describe("the risky ones read as risky", () => {
-	it("terminal, trusting repos, the command shell and dropping the secret list carry the warning tone", async () => {
+	it("terminal, trusting repos, the command shell, dropping the secret list and saving files carry the warning tone", async () => {
 		const screen = mount();
 		await openAdvanced(screen);
 		for (const testid of [
@@ -429,6 +430,7 @@ describe("the risky ones read as risky", () => {
 			"enroll-allow-project-config",
 			"enroll-allow-command-shell",
 			"enroll-no-default-file-deny",
+			"enroll-allow-file-write",
 		]) {
 			const label = screen.getByTestId(testid).element().closest("label");
 			expect(label?.querySelector('[data-risky="true"]'), testid).not.toBeNull();

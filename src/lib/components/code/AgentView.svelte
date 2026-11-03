@@ -286,6 +286,16 @@
 	let filesVetoed = $derived(
 		codeDeviceList.devices.find((d) => d.id === deviceId)?.policy?.files === "off"
 	);
+	/** The explorer's editor (files.write): the deployment's switch, this
+	 * galopin implementing it, and the machine's policy allowing it. */
+	let filesWritable = $derived.by(() => {
+		const device = codeDeviceList.devices.find((d) => d.id === deviceId);
+		return (
+			page.data.codeFileWriteEnabled === true &&
+			device?.machine?.capabilities.fileWrite === true &&
+			device?.policy?.fileWrite === "allowed"
+		);
+	});
 	/** Bumped when a turn settles, so the explorer re-reads what an agent wrote. */
 	let filesTurnKey = $state(0);
 	let lastTurnState: string | undefined;
@@ -1631,6 +1641,7 @@
 					{deviceId}
 					workspaceId={(workspace?.id ?? workspaceId) as string}
 					turnKey={filesTurnKey}
+					writable={filesWritable}
 				/>
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "terminal" && terminalOffered && !terminalVetoed && (workspace?.id ?? workspaceId)}

@@ -70,6 +70,7 @@ describe("the dialog's defaults", () => {
 			workspaceRoots: [],
 			allowFreeModels: false,
 			files: "read",
+			fileWrite: "denied",
 			fileDeny: [],
 			noDefaultFileDeny: false,
 			terminal: "allowed",
@@ -101,6 +102,12 @@ describe("each control emits exactly its flag", () => {
 			["--default-group", "--allow-opencode-provider"],
 		],
 		["no files", { noFiles: true }, ["--default-group", "--no-files"]],
+		["file writes", { allowFileWrite: true }, ["--default-group", "--allow-file-write"]],
+		[
+			"file writes with files off",
+			{ noFiles: true, allowFileWrite: true },
+			["--default-group", "--no-files"],
+		],
 		[
 			"no default file deny",
 			{ noDefaultFileDeny: true },
@@ -358,6 +365,9 @@ describe("the Advanced summary's count", () => {
 				choose({ allowCommandShell: false, workspaceRoots: ["/a", "/b"], noFiles: true })
 			)
 		).toBe(3);
+		// Saving files counts while files are on; with files off it emits nothing.
+		expect(advancedChangedCount(choose({ allowFileWrite: true }))).toBe(1);
+		expect(advancedChangedCount(choose({ allowFileWrite: true, noFiles: true }))).toBe(1);
 		// Terminals, the command shell and background subagents count when turned off.
 		expect(
 			advancedChangedCount(
@@ -408,6 +418,7 @@ describe("the promised policy.json", () => {
 				allowOpencodeProvider: true,
 				workspaceRoots: ["/a b"],
 				noFiles: true,
+				allowFileWrite: true,
 				fileDeny: ["*.x"],
 				noDefaultFileDeny: true,
 				allowOutsideProject: true,
@@ -422,6 +433,8 @@ describe("the promised policy.json", () => {
 			workspaceRoots: ["/a b"],
 			allowFreeModels: true,
 			files: "off",
+			// Asked for, but there is nothing to save from with files off.
+			fileWrite: "denied",
 			fileDeny: ["*.x"],
 			noDefaultFileDeny: true,
 			terminal: "allowed",

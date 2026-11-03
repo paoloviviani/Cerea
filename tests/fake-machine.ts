@@ -693,12 +693,13 @@ export class FakeMachine {
 			// command specs need to map (unsupported/conflict/forbidden);
 			// anything else is the generic invalid.
 			const code = err instanceof OpError ? err.code : "invalid";
+			const details = err instanceof OpError ? err.details : undefined;
 			this.ws.send(
 				JSON.stringify({
 					type: "res",
 					id: req.id,
 					ok: false,
-					error: { code, message },
+					error: { code, message, ...(details ? { details } : {}) },
 				})
 			);
 		}

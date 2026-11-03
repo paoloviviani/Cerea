@@ -160,6 +160,9 @@ export interface MachinePolicy {
 	/** The terminal veto (ADR 0090, default "denied"; `enroll --allow-terminal`). */
 	terminal?: "allowed" | "denied";
 	maxTerminals?: number;
+	/** The editor's save veto (`files.write`, default "denied";
+	 * `enroll --allow-file-write`). */
+	fileWrite?: "allowed" | "denied";
 	/** Safe external directories given relative to the machine's own isolated
 	 * home directory (joined at write time), so entries under the home display
 	 * as "~…" in the panel, the way a real enrollment's do. */
@@ -274,6 +277,7 @@ export async function startMachine(input: {
 			workspaceRoots: policy.workspaceRoots ?? [],
 			...(policy.terminal ? { terminal: policy.terminal } : {}),
 			...(policy.maxTerminals ? { maxTerminals: policy.maxTerminals } : {}),
+			...(policy.fileWrite ? { fileWrite: policy.fileWrite } : {}),
 		})
 	);
 	let output = "";

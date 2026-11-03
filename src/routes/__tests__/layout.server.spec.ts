@@ -98,6 +98,7 @@ afterEach(async () => {
 interface LayoutCodeFlags {
 	codeAgentsEnabled: boolean;
 	codeFilesEnabled: boolean;
+	codeFileWriteEnabled: boolean;
 	codeTerminalEnabled: boolean;
 	codeSchedulesEnabled: boolean;
 	localConnectorsDenied: "not_granted" | "not_configured" | null;
@@ -126,6 +127,23 @@ describe("the layout's per-person /code flags", () => {
 		forgetGatewaySession(sessionId);
 	});
 
+	it("saving files: on with the explorer, off with CODE_FILE_WRITE_ENABLED=false or the explorer", async () => {
+		const flagsWith = async (extra: Record<string, string>) => {
+			gatewayPreset();
+			env.values = { ...env.values, ...extra };
+			const { sessionId, body } = await makeSession({ code_agents: true });
+			stubMe({ status: 200, body });
+			const data = await layoutFor(createTestLocals({ sessionId, token: "tok" }));
+			forgetGatewaySession(sessionId);
+			return data;
+		};
+		expect((await flagsWith({})).codeFileWriteEnabled).toBe(true);
+		const off = await flagsWith({ CODE_FILE_WRITE_ENABLED: "false" });
+		expect([off.codeFilesEnabled, off.codeFileWriteEnabled]).toEqual([true, false]);
+		const noFiles = await flagsWith({ CODE_FILES_ENABLED: "false" });
+		expect([noFiles.codeFilesEnabled, noFiles.codeFileWriteEnabled]).toEqual([false, false]);
+	});
+
 	it("a person the gateway denies: the switch and everything derived from it fold", async () => {
 		gatewayPreset();
 		const { sessionId, body } = await makeSession({ code_agents: false });
@@ -134,6 +152,7 @@ describe("the layout's per-person /code flags", () => {
 		const data = await layoutFor(createTestLocals({ sessionId, token: "tok" }));
 		expect(data.codeAgentsEnabled).toBe(false);
 		expect(data.codeFilesEnabled).toBe(false);
+		expect(data.codeFileWriteEnabled).toBe(false);
 		expect(data.codeTerminalEnabled).toBe(false);
 		expect(data.codeSchedulesEnabled).toBe(false);
 		forgetGatewaySession(sessionId);

@@ -67,6 +67,7 @@ const loadParams = (fetchImpl: typeof fetch) => ({
 		gatewayIsAdmin: false,
 		webSearchAvailable: false,
 		codeFilesEnabled: false,
+		codeFileWriteEnabled: false,
 		codeTerminalEnabled: false,
 		codeSchedulesEnabled: false,
 	},

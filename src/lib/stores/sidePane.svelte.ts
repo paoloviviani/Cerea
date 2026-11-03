@@ -104,6 +104,19 @@ class SidePaneStore {
 		this.diffView = !this.diffView;
 	}
 
+	/**
+	 * Set by the /code file editor while it holds unsaved edits: switching the
+	 * pane away from Files, or closing it, asks it first, and stays put when it
+	 * answers false (the user chose to keep editing).
+	 */
+	filesLeaveGuard: (() => boolean) | null = null;
+
+	/** Whether the pane may leave the Files view now (see `filesLeaveGuard`). */
+	private mayLeaveFiles(next?: SidePaneView): boolean {
+		if (!this.open || this.view !== "files" || next === "files") return true;
+		return this.filesLeaveGuard?.() ?? true;
+	}
+
 	/** Versions we already auto-opened for, so closing the panel mid-stream sticks */
 	private autoOpenedKeys = new Set<string>();
 
@@ -164,6 +177,7 @@ class SidePaneStore {
 	 * itself (`getAgentDiff`), so there is no selection to hold.
 	 */
 	openDiff() {
+		if (!this.mayLeaveFiles("diff")) return;
 		this.view = "diff";
 		this.open = true;
 		this.revealNonce += 1;
@@ -189,6 +203,7 @@ class SidePaneStore {
 	 * double veto (ADR 0090). Like Files, this is per-workspace state the
 	 * panel itself (CodeTerminals.svelte) owns, not this store. */
 	openTerminal() {
+		if (!this.mayLeaveFiles("terminal")) return;
 		this.view = "terminal";
 		this.open = true;
 		this.revealNonce += 1;
@@ -206,6 +221,7 @@ class SidePaneStore {
 	/** The /code Tasks view: the session's current todo list. Like Changes it
 	 * holds no selection; the list is derived from the timeline by the caller. */
 	openTasks() {
+		if (!this.mayLeaveFiles("tasks")) return;
 		this.view = "tasks";
 		this.open = true;
 		this.revealNonce += 1;
@@ -286,6 +302,7 @@ class SidePaneStore {
 	}
 
 	close() {
+		if (!this.mayLeaveFiles()) return;
 		this.open = false;
 	}
 
