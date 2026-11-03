@@ -26,7 +26,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { recordCodeAudit } from "$lib/server/code/audit";
-import { codeFilesEnabled, codeTerminalEnabled } from "$lib/server/codeEnabled";
+import {
+	codeFileWriteEnabled,
+	codeFilesEnabled,
+	codeTerminalEnabled,
+} from "$lib/server/codeEnabled";
 import { MachineLink } from "$lib/server/code/machines";
 import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
 import { sessionAuthFresh } from "$lib/server/code/stepUp";
@@ -84,6 +88,9 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 		method: "GET",
 		pattern: new RegExp(`^v1/workspaces/${ID}/files(/(stat|content|raw|status))?$`),
 	},
+	// The editor's save (files.write, §9.3): behind the explorer's switch,
+	// the deployment's write switch, the machine's policy and its capability.
+	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/files/content$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/terminals$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/terminals$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/terminals/${ID}/name$`) },
@@ -287,6 +294,47 @@ async function requireTerminalAllowed(
 	if (device.policy?.terminal !== "allowed") {
 		await recordCodeAudit(event, { action: "terminal.refused", deviceId, ...scope });
 		error(403, TERMINAL_VETO_NOTE);
+	}
+}
+
+/** files.write's cap (§9.3), checked here too so an oversized save never
+ * crosses the machine link. */
+const MAX_FILE_WRITE_BYTES = 1024 * 1024;
+
+const FILE_WRITE_VETO_NOTE =
+	"This machine was enrolled without --allow-file-write: re-enroll it with that flag to save files here.";
+
+/**
+ * Saving a file (PROTOCOL.md §9.3 `files.write`) is live only when all three
+ * hold: the deployment switch (`CODE_FILE_WRITE_ENABLED`, on with the
+ * explorer unless set to `false`: 404 like the explorer's own), this galopin
+ * implementing it (`hello.machine.capabilities.fileWrite`), and the machine's
+ * policy (`fileWrite`, denied unless enrolled with `--allow-file-write`). The
+ * last two answer 403 with the fix and are audited as refusals; galopin
+ * checks its policy again on its side.
+ */
+async function requireFileWriteAllowed(
+	event: Parameters<typeof recordCodeAudit>[0],
+	device: CodeDevice,
+	deviceId: string,
+	workspaceId: string
+): Promise<void> {
+	if (!codeFilesEnabled()) error(404, "The file explorer is not turned on here.");
+	if (!codeFileWriteEnabled()) error(404, "Saving files is not turned on here.");
+	if (device.policy?.files === "off") {
+		await recordCodeAudit(event, { action: "files.write.refused", deviceId, workspaceId });
+		error(
+			403,
+			"This machine was enrolled with --no-files: re-enroll it without that flag, and with --allow-file-write, to save files here."
+		);
+	}
+	if (device.machine?.capabilities.fileWrite !== true) {
+		await recordCodeAudit(event, { action: "files.write.refused", deviceId, workspaceId });
+		error(403, "galopin on this machine cannot save files yet: update it to save files here.");
+	}
+	if (device.policy?.fileWrite !== "allowed") {
+		await recordCodeAudit(event, { action: "files.write.refused", deviceId, workspaceId });
+		error(403, FILE_WRITE_VETO_NOTE);
 	}
 }
 
@@ -848,6 +896,14 @@ const profilesSetSchema = z.object({
 
 const terminalNameSchema = z.object({ title: z.string().trim().min(1).max(120) });
 
+const fileWriteSchema = z.object({
+	path: z.string().min(1).max(4096),
+	// Base64 of 1 MiB is 1.4 MB; anything longer cannot be within the cap.
+	content: z.string().max(2 * MAX_FILE_WRITE_BYTES),
+	encoding: z.enum(["utf-8", "base64"]).default("utf-8"),
+	baseRevision: z.string().max(256).nullable(),
+});
+
 export const POST: RequestHandler = async (event) => {
 	await requireCodeAgents(event.locals);
 	requireJsonBody(event.request);
@@ -860,6 +916,61 @@ export const POST: RequestHandler = async (event) => {
 	const deviceId = device._id.toString();
 	const link = new MachineLink(deviceId);
 	const body = await readJson(event.request);
+
+	// The editor's save (§9.3). A conflict answers 409 with the revision now on
+	// disk, so the editor can offer to overwrite against it; the audit row has
+	// the path and the size, never the content.
+	const fileWriteMatch = new RegExp(`^v1/workspaces/(${ID})/files/content$`).exec(path);
+	if (fileWriteMatch) {
+		const workspaceId = decodeURIComponent(fileWriteMatch[1]);
+		await requireFileWriteAllowed(event, device, deviceId, workspaceId);
+		const parsed = fileWriteSchema.safeParse(body);
+		if (!parsed.success) error(400, "Expected { path, content, encoding?, baseRevision }.");
+		const { path: relPath, content, encoding, baseRevision } = parsed.data;
+		const bytes =
+			encoding === "base64"
+				? Buffer.from(content, "base64").length
+				: Buffer.byteLength(content, "utf8");
+		const audit = (outcome: string) =>
+			recordCodeAudit(event, {
+				action: "files.write",
+				deviceId,
+				workspaceId,
+				path: relPath,
+				bytes,
+				outcome,
+			});
+		if (bytes > MAX_FILE_WRITE_BYTES) {
+			await audit("too_large");
+			error(413, "A file can be saved here up to 1 MiB.");
+		}
+		try {
+			const { entry } = await link.filesWrite({
+				workspaceId,
+				path: relPath,
+				content,
+				encoding,
+				baseRevision,
+			});
+			await audit("ok");
+			return superjsonResponse({ entry }, { headers: { "Cache-Control": "private, no-store" } });
+		} catch (err) {
+			if (!(err instanceof OpError)) throw err;
+			await audit(err.code);
+			if (err.code === "conflict") {
+				const revision = err.details?.revision;
+				return superjsonResponse(
+					{
+						code: "conflict",
+						message: err.message,
+						revision: typeof revision === "string" ? revision : null,
+					},
+					{ status: 409 }
+				);
+			}
+			return callOp(() => Promise.reject(err));
+		}
+	}
 
 	const terminalOpenMatch = new RegExp(`^v1/workspaces/(${ID})/terminals$`).exec(path);
 	if (terminalOpenMatch) {

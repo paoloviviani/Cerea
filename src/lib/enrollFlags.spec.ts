@@ -69,8 +69,8 @@ describe("enrollFlags (the TypeScript copy)", () => {
 		// divergence, pinned here.
 		expect(policyFlagArgs(defaultPolicyChoices())).toEqual(["--default-group"]);
 		// And every flag the dialog can print is a known, exposed one. Terminals
-		// off and a terminal cap are exclusive, so it takes two dialogs to print
-		// them all.
+		// off and a terminal cap are exclusive, and so are no files and saving
+		// files, so it takes two dialogs to print them all.
 		const everything = [true, false].flatMap((allowTerminal) =>
 			policyFlagArgs({
 				...defaultPolicyChoices(),
@@ -83,7 +83,8 @@ describe("enrollFlags (the TypeScript copy)", () => {
 				allowFreeModels: true,
 				allowOpencodeProvider: true,
 				workspaceRoots: ["/a"],
-				noFiles: true,
+				noFiles: allowTerminal,
+				allowFileWrite: true,
 				fileDeny: ["x"],
 				noDefaultFileDeny: true,
 				allowOutsideProject: true,

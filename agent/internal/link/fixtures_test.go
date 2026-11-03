@@ -76,7 +76,7 @@ func withID(t *testing.T, raw []byte, id string) []byte {
 type fixtureHandler struct {
 	t      *testing.T
 	byOp   map[string]json.RawMessage // op -> the res fixture's result
-	errs   map[string]*OpError        // "err:<code>" -> the error fixture's error
+	errs   map[string]*OpError        // "err:<fixture file>" -> the error fixture's error
 	gotOps chan struct {
 		op   string
 		args json.RawMessage
@@ -129,12 +129,19 @@ func TestProtocolFixturesThroughTheLink(t *testing.T) {
 			handler.byOp[f.Meta.Op] = protofix.Field(f.Frame, "result")
 		case h.Type == "res" && h.OK != nil && !*h.OK:
 			var e struct {
-				Error struct{ Code, Message string } `json:"error"`
+				Error struct {
+					Code, Message string
+					Details       json.RawMessage `json:"details"`
+				} `json:"error"`
 			}
 			if err := json.Unmarshal(f.Frame, &e); err != nil {
 				t.Fatal(err)
 			}
-			handler.errs["err:"+e.Error.Code] = &OpError{Code: e.Error.Code, Message: e.Error.Message}
+			opErr := &OpError{Code: e.Error.Code, Message: e.Error.Message}
+			if len(e.Error.Details) > 0 {
+				opErr.Details = e.Error.Details
+			}
+			handler.errs["err:"+f.File] = opErr
 		}
 	}
 
@@ -295,7 +302,7 @@ func TestProtocolFixturesThroughTheLink(t *testing.T) {
 		if f.Meta.ErrorCode == "" || f.Head(t).Type != "res" {
 			continue
 		}
-		srv.send([]byte(fmt.Sprintf(`{"type":"req","id":"r1","op":"err:%s","args":{}}`, f.Meta.ErrorCode)))
+		srv.send([]byte(fmt.Sprintf(`{"type":"req","id":"r1","op":"err:%s","args":{}}`, f.File)))
 		<-handler.gotOps
 		if err := protofix.Same(f.Frame, next("res")); err != nil {
 			t.Errorf("%s: %v", f.File, err)

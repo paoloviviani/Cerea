@@ -100,3 +100,25 @@ func TestHelloAdvertisesEveryCapability(t *testing.T) {
 		t.Errorf("hello capabilities carry %d keys for %d capability fields", len(caps), typ.NumField())
 	}
 }
+
+// files.write is built in: the capability says so whatever the policy, and the
+// policy says separately whether the owner allows it (denied by default).
+func TestHelloReportsFileWriteCapabilityAndPolicy(t *testing.T) {
+	h := buildHello(allCapsBackend{}, policy.Default())
+	if !h.Machine.Capabilities["fileWrite"] {
+		t.Errorf("machine capabilities = %v, want fileWrite true", h.Machine.Capabilities)
+	}
+	if h.Policy.FileWrite != policy.FileWriteDenied {
+		t.Errorf("policy.fileWrite = %q, want denied by default", h.Policy.FileWrite)
+	}
+	pol := policy.Default()
+	pol.FileWrite = policy.FileWriteAllowed
+	if got := buildHello(allCapsBackend{}, pol).Policy.FileWrite; got != policy.FileWriteAllowed {
+		t.Errorf("policy.fileWrite = %q, want allowed", got)
+	}
+	// A connectors-only machine serves no files at all.
+	c := buildConnectorsHello(pol)
+	if c.Machine.Capabilities["fileWrite"] || c.Policy.FileWrite != policy.FileWriteDenied {
+		t.Errorf("connectors hello: capability %v, policy %q", c.Machine.Capabilities["fileWrite"], c.Policy.FileWrite)
+	}
+}

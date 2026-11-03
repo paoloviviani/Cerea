@@ -7,20 +7,31 @@
 	8 MB image cap gets a message, not a viewer), or as a note for
 	binaries. Refreshed by hand and at every turn boundary, when an agent
 	may have written.
+
+	When the machine allows saving (`writable`), a text file can be edited in
+	place (CodeFileViewer): each save carries the revision the file was read
+	at, so a change on disk since then (an agent's edit) is a conflict to
+	resolve, never silently overwritten. Leaving the file, the pane or the page
+	with unsaved edits asks first; a refresh keeps the edits and re-reads only
+	the tree.
 -->
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
-	import { untrack } from "svelte";
+	import { onDestroy, untrack } from "svelte";
+	import { beforeNavigate } from "$app/navigation";
+	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import IconRenew from "~icons/carbon/renew";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
 	import IconLocked from "~icons/carbon/locked";
 	import CodeFileTree from "./CodeFileTree.svelte";
-	import CodeFileViewer from "./CodeFileViewer.svelte";
+	import CodeFileViewer, { type SaveOutcome } from "./CodeFileViewer.svelte";
 	import {
 		CodeApiError,
+		FileConflictError,
 		readWorkspaceFile,
 		workspaceFileRawUrl,
 		workspaceFileStatus,
+		writeWorkspaceFile,
 	} from "$lib/codeApi";
 	import type { FileEntry, FilesReadResult } from "$lib/types/machineProtocol";
 	import { gitBadges, humanSize, type GitBadge } from "$lib/utils/codeFiles";
@@ -31,9 +42,15 @@
 		workspaceId: string;
 		/** Bumped by the view at each turn boundary. */
 		turnKey?: number;
+		/** Files may be saved here: the deployment's switch, the machine's
+		 * fileWrite policy and its galopin all allow it. */
+		writable?: boolean;
 	}
 
-	let { deviceId, workspaceId, turnKey = 0 }: Props = $props();
+	let { deviceId, workspaceId, turnKey = 0, writable = false }: Props = $props();
+
+	/** files.write's cap (§9.3): a larger text file stays read-only. */
+	const MAX_EDIT_BYTES = 1024 * 1024;
 
 	let refreshKey = $state(0);
 	let badges = $state<Map<string, GitBadge>>(new Map());
@@ -43,6 +60,72 @@
 	let text = $state("");
 	let loading = $state(false);
 	let failure = $state<string | null>(null);
+	/** The editor holds edits not saved yet. */
+	let dirty = $state(false);
+	/** What is on disk after a save answered "changed on disk": Overwrite saves
+	 * against it. */
+	let conflictRevision = $state<string | null>(null);
+
+	/** Why an open text file cannot be edited here, or null. */
+	let readOnlyReason = $derived(
+		!file
+			? null
+			: file.kind !== "text"
+				? m["code.files.edit.binary_read_only"]()
+				: file.size > MAX_EDIT_BYTES || file.offset !== 0 || !file.eof
+					? m["code.files.edit.too_large"]()
+					: null
+	);
+
+	/** Asks before unsaved edits are dropped; true when there are none. */
+	function mayLeave(): boolean {
+		return !dirty || confirm(m["code.files.edit.leave_confirm"]());
+	}
+
+	$effect(() => {
+		sidePane.filesLeaveGuard = mayLeave;
+	});
+	onDestroy(() => {
+		if (sidePane.filesLeaveGuard === mayLeave) sidePane.filesLeaveGuard = null;
+	});
+	beforeNavigate((navigation) => {
+		if (!dirty) return;
+		// A reload or a closed tab can only get the browser's own question.
+		if (navigation.willUnload) {
+			navigation.cancel();
+			return;
+		}
+		if (!mayLeave()) navigation.cancel();
+	});
+
+	async function saveFile(content: string, overwrite: boolean): Promise<SaveOutcome> {
+		if (!open || !file) return "conflict";
+		const entry = open;
+		const base = overwrite ? conflictRevision : file.revision;
+		try {
+			const res = await writeWorkspaceFile(deviceId, workspaceId, entry.path, content, base);
+			conflictRevision = null;
+			if (open === entry && file) {
+				const size = new TextEncoder().encode(content).length;
+				file = {
+					...file,
+					revision: res.entry.revision ?? file.revision,
+					size,
+					length: size,
+					eof: true,
+				};
+				text = content;
+			}
+			void loadStatus();
+			return "saved";
+		} catch (err) {
+			if (err instanceof FileConflictError) {
+				conflictRevision = err.revision;
+				return "conflict";
+			}
+			throw err;
+		}
+	}
 
 	async function loadStatus() {
 		try {
@@ -88,6 +171,9 @@
 	}
 
 	function select(entry: FileEntry) {
+		if (entry.path !== open?.path && !mayLeave()) return;
+		dirty = false;
+		conflictRevision = null;
 		open = entry;
 		file = null;
 		text = "";
@@ -98,7 +184,22 @@
 	function refresh() {
 		refreshKey += 1;
 		void loadStatus();
-		if (open && !open.redacted) void loadFile(open);
+		// Unsaved edits stay: the editor is not re-read under them. A save
+		// still finds out about a change on disk (the revision check).
+		if (open && !open.redacted && !dirty) void loadFile(open);
+	}
+
+	/** The conflict's Reload: the file as it is on disk now. */
+	async function reloadOpen() {
+		conflictRevision = null;
+		if (open) await loadFile(open);
+	}
+
+	function back() {
+		if (!mayLeave()) return;
+		dirty = false;
+		conflictRevision = null;
+		open = null;
 	}
 
 	// Only the turn key re-runs this: refresh() reads and bumps its own state.
@@ -117,7 +218,7 @@
 				type="button"
 				class="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
 				aria-label={m["code.files.back_label"]()}
-				onclick={() => (open = null)}
+				onclick={back}
 			>
 				<IconArrowLeft class="size-3.5" />
 				{m["code.files.back"]()}
@@ -176,12 +277,32 @@
 						class="max-w-full rounded-sm border border-gray-200 dark:border-gray-700"
 					/>
 				</div>
+				{#if writable}
+					<p class="px-4 text-center text-xs text-gray-500" data-testid="file-read-only">
+						{m["code.files.edit.image_read_only"]()}
+					</p>
+				{/if}
 			{:else if file.kind === "binary"}
 				<p class="p-4 text-sm text-gray-500">
 					{m["code.files.binary"]({ size: humanSize(file.size) })}
 				</p>
+				{#if writable}
+					<p class="px-4 text-xs text-gray-500" data-testid="file-read-only">
+						{m["code.files.edit.binary_read_only"]()}
+					</p>
+				{/if}
 			{:else}
-				<CodeFileViewer path={open.path} content={text} />
+				{#key open.path}
+					<CodeFileViewer
+						path={open.path}
+						content={text}
+						{writable}
+						{readOnlyReason}
+						onsave={saveFile}
+						onreload={reloadOpen}
+						bind:dirty
+					/>
+				{/key}
 				{#if !file.eof}
 					<div
 						class="flex items-center gap-2 border-t border-gray-200 p-2 text-xs dark:border-gray-700"

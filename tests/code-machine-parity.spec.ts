@@ -9,7 +9,7 @@
  * feat/permission-selector-agent. They need that galopin to pass, so OC's
  * end-to-end reconcile is where they are first run against the real thing.
  */
-import { existsSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -482,6 +482,8 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByTestId("file-viewer")).toContainText("export const a = 2;", {
 			timeout: 30_000,
 		});
+		// Saving is off unless the machine was enrolled with --allow-file-write.
+		await expect(page.getByTestId("file-edit")).toHaveCount(0);
 		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
 		await row(".env").click();
 		await expect(page.getByTestId("file-viewer")).toContainText("TOKEN=visible-value", {
@@ -525,6 +527,65 @@ test.describe("owned machine agent: parity", () => {
 			timeout: 60_000,
 		});
 		await expect(row("made-by-agent.txt")).toBeVisible({ timeout: 30_000 });
+	});
+
+	test("files: with --allow-file-write the editor saves to disk, and a change on disk is a conflict to resolve", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const m = await openSession(page, db, session.sessionId, { fileWrite: "allowed" });
+		const notes = join(m.workspace, "notes.txt");
+		writeFileSync(notes, "first line\n");
+		const files = page.getByTestId("code-files");
+		const editor = files.locator(".cm-content");
+
+		await page.getByRole("button", { name: "Files" }).click();
+		const tree = page.getByRole("tree", { name: "Workspace files" });
+		await expect(tree).toBeVisible({ timeout: 30_000 });
+		await tree.getByRole("button", { name: /^notes\.txt/ }).click();
+		await expect(page.getByTestId("file-viewer")).toContainText("first line", { timeout: 30_000 });
+
+		/** Type at the end of the file being edited. */
+		async function typeAtEnd(text: string) {
+			await expect(editor).toHaveAttribute("contenteditable", "true");
+			await editor.click();
+			await page.keyboard.press("ControlOrMeta+End");
+			await page.keyboard.type(text);
+			await expect(page.getByTestId("file-dirty")).toHaveText("Unsaved changes");
+		}
+
+		// Edit and save: the file on disk is what the editor holds.
+		await page.getByTestId("file-edit").click();
+		await typeAtEnd("second line");
+		await page.getByTestId("file-save").click();
+		await expect(page.getByTestId("file-dirty")).toHaveText("No changes", { timeout: 30_000 });
+		expect(readFileSync(notes, "utf8")).toBe("first line\nsecond line");
+
+		// The agent (here: the test) changes the file meanwhile: saving is a
+		// conflict, nothing is written, and Overwrite then saves over it.
+		writeFileSync(notes, "the agent's version\n");
+		await typeAtEnd(" (mine)");
+		await page.keyboard.press("ControlOrMeta+s");
+		await expect(page.getByTestId("file-conflict")).toContainText("Changed on disk.", {
+			timeout: 30_000,
+		});
+		expect(readFileSync(notes, "utf8")).toBe("the agent's version\n");
+		await page.getByTestId("file-conflict-overwrite").click();
+		await expect(page.getByTestId("file-conflict")).toHaveCount(0, { timeout: 30_000 });
+		expect(readFileSync(notes, "utf8")).toBe("first line\nsecond line (mine)");
+
+		// Again, but Reload: the edits go, and the editor shows the file on disk.
+		writeFileSync(notes, "changed again\n");
+		await typeAtEnd(" dropped");
+		await page.getByTestId("file-save").click();
+		await expect(page.getByTestId("file-conflict")).toBeVisible({ timeout: 30_000 });
+		await page.getByTestId("file-conflict-reload").click();
+		await expect(page.getByTestId("file-viewer")).toContainText("changed again", {
+			timeout: 30_000,
+		});
+		await expect(page.getByTestId("file-edit")).toBeVisible();
+		expect(readFileSync(notes, "utf8")).toBe("changed again\n");
 	});
 
 	test("effort: the pill names the real model, and a picked effort reaches the model as reasoning_effort", async ({

@@ -6,6 +6,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
 	github.com/modelcontextprotocol/go-sdk v1.2.0
+	golang.org/x/sys v0.30.0
 )
 
 require (

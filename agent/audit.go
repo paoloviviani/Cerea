@@ -91,6 +91,13 @@ func (a *auditLogger) terminalClose(id string) {
 	a.write(map[string]any{"action": "terminal.close", "id": id})
 }
 
+// fileWrite records one files.write: the workspace, the path, the size of
+// what was sent and how it ended ("ok", or the error code). Never a byte of
+// the content.
+func (a *auditLogger) fileWrite(workspace, path string, size int, outcome string) {
+	a.write(map[string]any{"action": "files.write", "workspace": workspace, "path": path, "bytes": size, "outcome": outcome})
+}
+
 // refusal records a policy veto: which op was refused and why, never the
 // arguments that op carried.
 func (a *auditLogger) refusal(op, reason string) {

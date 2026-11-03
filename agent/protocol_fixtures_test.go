@@ -628,7 +628,7 @@ func resultTarget(op string) any {
 		return &profileSet{}
 	case "files.list":
 		return &files.ListResult{}
-	case "files.stat":
+	case "files.stat", "files.write":
 		return &struct {
 			Entry files.Entry `json:"entry"`
 		}{}

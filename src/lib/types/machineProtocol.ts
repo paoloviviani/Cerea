@@ -668,6 +668,7 @@ export const OP_NAMES = [
 	"files.stat",
 	"files.read",
 	"files.status",
+	"files.write",
 	"session.setEffort",
 	"session.unrevert",
 	"backend.modes",
@@ -769,7 +770,10 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 export class OpError extends Error {
 	constructor(
 		readonly code: ErrorCode,
-		message: string
+		message: string,
+		/** The error's optional `details` (§5): `files.write`'s `conflict`
+		 * carries `{revision}`, what is on disk now. */
+		readonly details?: Record<string, unknown>
 	) {
 		super(message);
 		this.name = "OpError";
@@ -838,7 +842,12 @@ export interface ReqFrame {
 /** M→C, answering a `req` by id. */
 export type ResFrame =
 	| { type: "res"; id: string; ok: true; result: unknown }
-	| { type: "res"; id: string; ok: false; error: { code: ErrorCode; message: string } };
+	| {
+			type: "res";
+			id: string;
+			ok: false;
+			error: { code: ErrorCode; message: string; details?: Record<string, unknown> };
+	  };
 
 /** M→C, pushed for every session of the machine. */
 export interface EventFrame {
@@ -1033,6 +1042,7 @@ export const resFrameSchema = z.union([
 		error: z.object({
 			code: z.enum(ERROR_CODES),
 			message: z.string(),
+			details: z.record(z.string(), z.unknown()).optional(),
 		}),
 	}),
 ]);

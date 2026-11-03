@@ -619,6 +619,18 @@ export class MachineLink {
 	filesStatus(args: { workspaceId: string }): Promise<FilesStatusResult> {
 		return this.call("files.status", args);
 	}
+	/** The editor's save (§9.3): atomic, at most 1 MiB, and only while the file
+	 * is still at `baseRevision` (`null`: must not exist yet). A mismatch is a
+	 * `conflict` whose `details.revision` is what is on disk now. */
+	filesWrite(args: {
+		workspaceId: string;
+		path: string;
+		content: string;
+		encoding: "utf-8" | "base64";
+		baseRevision: string | null;
+	}): Promise<{ entry: FileEntry }> {
+		return this.call("files.write", args);
+	}
 	/** The terminal's machine ops (§9.3); like files.*, forbidden outright
 	 * when the machine's own policy denies terminals (checked machine-side
 	 * before any of these run — the forwarder checks first too, §6.1). */
@@ -1030,7 +1042,8 @@ export function acceptMachineConnection(
 				clearTimeout(pending.timer);
 				state.pending.delete(frame.id);
 				if (frame.ok) pending.resolve(frame.result);
-				else pending.reject(new OpError(frame.error.code, frame.error.message));
+				else
+					pending.reject(new OpError(frame.error.code, frame.error.message, frame.error.details));
 				return;
 			}
 			case "event": {
