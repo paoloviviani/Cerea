@@ -243,7 +243,7 @@ scripts/release/release.sh X.Y.Z
 It refuses unless `origin/main` carries `package.json` at X.Y.Z and a
 `## vX.Y.Z` changelog entry, waits for `ci` and `kit` on that commit, tags,
 dispatches `images` and waits for it, checks the anonymous pull, runs
-`scripts/release/fresh-kit-check.sh vX.Y.Z` (needs ports 80/443 free, or `HTTP_PORT`/`HTTPS_PORT` set to free ones, docker,
+`scripts/release/fresh-kit-check.sh vX.Y.Z` (needs ports 80/443 free, or `HTTP_PORT`/`HTTPS_PORT`/`GATEWAY_PORT` (8000) set to free ones, docker,
 `uv`; `KEEP=1` leaves the stack up), moves `stable`, and creates the GitHub
 release from the changelog entry. It stops at the first failed step and says
 which; a GitHub 5xx on the tag push falls back to the API. Each step's outcome

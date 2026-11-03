@@ -8,10 +8,11 @@
 # are removed afterwards, pass or fail.
 #
 # Needs: docker with compose, curl, python3, uv, and the host ports free: 80 and
-# 443 by default, or HTTP_PORT / HTTPS_PORT when set (to run beside a live stack).
+# 443 by default, or HTTP_PORT / HTTPS_PORT when set (to run beside a live stack),
+# and the gateway's loopback port 8000 or GATEWAY_PORT.
 # Env: CEREA_REPO (owner/name, default paoloviviani/Cerea), HTTP_PORT and
-# HTTPS_PORT (host ports, default 80 and 443), KEEP=1 to leave the stack up for
-# inspection.
+# HTTPS_PORT (host ports, default 80 and 443), GATEWAY_PORT (127.0.0.1, default
+# 8000), KEEP=1 to leave the stack up for inspection.
 set -euo pipefail
 TAG=${1:?usage: fresh-kit-check.sh vX.Y.Z}
 REPO=${CEREA_REPO:-paoloviviani/Cerea}
@@ -20,6 +21,7 @@ SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/cerea-fresh-kit.XXXXXX")
 PROJECT=cerea-fresh-$$ # never `cerea`: teardown only ever targets this project
 HTTP_PORT=${HTTP_PORT:-80}
 HTTPS_PORT=${HTTPS_PORT:-443}
+GATEWAY_PORT=${GATEWAY_PORT:-8000}
 KIT=$SCRATCH/checkout/kit
 cleanup() {
 	if [ "${KEEP:-0}" != 1 ] && [ -d "$KIT" ]; then
@@ -30,9 +32,9 @@ cleanup() {
 trap cleanup EXIT
 
 if command -v ss >/dev/null 2>&1; then
-	for port in "$HTTP_PORT" "$HTTPS_PORT"; do
+	for port in "$HTTP_PORT" "$HTTPS_PORT" "$GATEWAY_PORT"; do
 		if ss -ltnH "sport = :$port" | grep -q .; then
-			echo "port $port is in use; set HTTP_PORT / HTTPS_PORT to free ports" >&2
+			echo "port $port is in use; set HTTP_PORT / HTTPS_PORT / GATEWAY_PORT to free ports" >&2
 			exit 1
 		fi
 	done
@@ -52,6 +54,9 @@ origin="https://${IP:-127.0.0.1}"
 ./configure --non-interactive --origin "$origin" --http-port "$HTTP_PORT" --https-port "$HTTPS_PORT" --admin-email admin@example.org \
 	--preset homelab --tls internal --idp authelia --agents --terminal --project "$PROJECT" \
 	>"$SCRATCH/configure.log" 2>&1 || { cat "$SCRATCH/configure.log"; exit 1; }
+
+# The gateway's loopback publish is not a configure flag; compose reads it from .env.
+[ "$GATEWAY_PORT" = 8000 ] || echo "GATEWAY_PORT='$GATEWAY_PORT'" >>.env
 
 # A fresh install pins its MongoDB explicitly (4.4 on a host without AVX or on an
 # affected kernel, 8 otherwise); the run must not depend on compose's default.
