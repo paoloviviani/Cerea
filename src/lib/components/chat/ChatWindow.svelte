@@ -503,6 +503,7 @@
 				name: m.displayName ?? m.id,
 				description: m.description,
 				baseName: m.customBase?.displayName,
+				byok: m.byok,
 			}))
 	);
 	let recentIds = $state<string[]>([]);

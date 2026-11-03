@@ -22,6 +22,7 @@ export type Model = Pick<
 	| "supportsTools"
 	| "supportsReasoning"
 	| "supportsArtifacts"
+	| "byok"
 > & {
 	/** Set on a custom model: the catalogue model it runs on. */
 	customBase?: { id: string; displayName: string };

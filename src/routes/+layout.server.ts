@@ -12,6 +12,7 @@
  */
 import { callerIdentity } from "$lib/server/admin";
 import {
+	byokAllowedFor,
 	codeAgentsAllowedFor,
 	codeFilesEnabled,
 	codeFileWriteEnabled,
@@ -83,6 +84,8 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		localConnectorsDenied: await localConnectorsAccessFor(locals).then((a) =>
 			a === "ok" ? null : a
 		),
+		// Gateway BYOK: the person may add their own providers and models (links to the console).
+		byokAllowed: await byokAllowedFor(locals),
 		// Office files preview as PDF through Gotenberg (the kit's `office` profile); off, a
 		// PowerPoint deck previews in the browser and the rest keep today's behaviour.
 		officePreviewEnabled: isGotenbergEnabled(),

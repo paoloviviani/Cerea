@@ -93,6 +93,21 @@ describe("ModelPicker", () => {
 		document.body.innerHTML = "";
 	});
 
+	it('badges a BYOK model with "Your key" and no other', async () => {
+		setPage({});
+		const { context } = settingsContext();
+		const models = [...MODELS, { id: "my/home", name: "Home", displayName: "Home", byok: true }];
+		renderWithApp(ModelPicker, { models, currentModel: models[0], onclose: vi.fn() } as never, {
+			context: new Map<unknown, unknown>([
+				...context,
+				[CONVERSATIONS_CONTEXT_KEY, { refresh: vi.fn(async () => {}) }],
+			]),
+		});
+		await vi.waitFor(() => expect(rowNamed("Home")).not.toBeNull());
+		expect(rowNamed("Home")?.textContent).toContain("Your key");
+		expect(rowNamed("Soot")?.textContent).not.toContain("Your key");
+	});
+
 	it("lists every model, highlights the current one, and opens with the search focused", async () => {
 		const onclose = vi.fn();
 		setPage({});

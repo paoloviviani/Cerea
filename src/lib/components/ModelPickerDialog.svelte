@@ -113,6 +113,12 @@
 								<span class="ml-1 {s.PILL} {s.PILL_TONES.busy}"
 									>{m["app.model_picker.custom_badge"]()}</span
 								>{/if}
+							{#if model.byok}
+								<span
+									class="ml-1 {s.PILL} {s.PILL_TONES.neutral}"
+									title={m["app.model_picker.byok_tooltip"]()}
+									>{m["app.model_picker.byok_badge"]()}</span
+								>{/if}
 						</span>
 						<span class="block truncate text-xs text-gray-500 dark:text-gray-400"
 							>{model.baseName

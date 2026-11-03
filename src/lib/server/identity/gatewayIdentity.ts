@@ -49,6 +49,8 @@ export interface GatewayMe {
 		api_keys?: boolean;
 		/** Local connectors (ADR 0102). Absent on a gateway that predates the capability. */
 		local_connectors?: boolean | null;
+		/** Bring your own key (gateway BYOK). Absent on an older gateway: not allowed. */
+		byok_allowed?: boolean | null;
 	} | null;
 }
 

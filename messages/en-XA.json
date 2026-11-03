@@ -14,6 +14,8 @@
 	"admin.layout.section.assistant": "[Áśśíśťáńť]",
 	"admin.layout.section.web": "[Ŵéƀ]",
 	"admin.web.page_title": "[Ŵéƀ · áďḿíńíśťŕáťíóń]",
+	"app.model_picker.byok_badge": "[Ýóúŕ ķéý]",
+	"app.model_picker.byok_tooltip": "[Úśéś ýóúŕ óŵń ÁÞÍ ķéý. Ńóť ćóúńťéď áǧáíńśť ýóúŕ ǧŕóúþ'ś ľíḿíťś; úśáǧé íś śȟóŵń ťó ýóú óńľý.]",
 	"code.agent_dialog.build": "[Ɓúíľď]",
 	"code.agent_dialog.build_hint": "[Ŵŕíťéś; śťíľľ áśķś ƀéƒóŕé áńýťȟíńǧ ďéśťŕúćťíǚé.]",
 	"code.agent_dialog.could_not_create": "[Ćóúľď ńóť ćŕéáťé ťȟé áǧéńť.]",
@@ -2374,6 +2376,7 @@
 		}
 	],
 	"models.manager.available_heading": "[Áǚáíľáƀľé ({count})]",
+	"models.manager.byok_link": "[Ýóúŕ þŕóǚíďéŕś áńď ḿóďéľś]",
 	"models.manager.cap.artifacts.detail": "[Śȟóŵ ľóńǧéŕ ŕéśúľťś íń á śíďé þáńéľ íńśťéáď óƒ íń ťȟé ćȟáť.]",
 	"models.manager.cap.artifacts.label": "[Ƒíľéś íń á śíďé þáńéľ]",
 	"models.manager.cap.multimodal.detail": "[Ĺéť þéóþľé áťťáćȟ íḿáǧéś ƒóŕ ťȟé ḿóďéľ ťó ľóóķ áť.]",

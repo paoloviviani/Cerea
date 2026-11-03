@@ -64,6 +64,7 @@
 			description: model.description,
 			logoUrl: model.logoUrl,
 			baseName: model.customBase?.displayName,
+			byok: model.byok,
 		}))
 	);
 

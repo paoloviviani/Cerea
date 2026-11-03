@@ -131,6 +131,13 @@
 							{#if row.baseName}
 								<span class="{s.PILL} {s.PILL_TONES.busy}">{m["chat.effort_picker.custom"]()}</span>
 							{/if}
+							{#if row.byok}
+								<span
+									class="{s.PILL} {s.PILL_TONES.neutral}"
+									title={m["app.model_picker.byok_tooltip"]()}
+									>{m["app.model_picker.byok_badge"]()}</span
+								>
+							{/if}
 						</span>
 						{#if row.description}
 							<span class="block truncate text-xs text-gray-500 dark:text-gray-400"
