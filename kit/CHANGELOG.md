@@ -7,6 +7,25 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Security: the headless browser is now boxed in. If you run the `fetch` profile (the `enterprise`
+  preset, or `./configure --fetch`), update.** The browser that renders pages for web fetch uses a
+  Chromium that has known critical bugs (fixed in Chromium 156.0.8078.73) and no Playwright release
+  carries the fix yet. Until one does, the box has to hold: the browser now sits on its own `fetch`
+  network (shared only with the chat), so it can no longer reach or resolve PostgreSQL, Valkey, the
+  gateway, Authelia or MongoDB; Chromium's own sandbox is switched on (it was off), set by the
+  browser server itself so no client can turn it off; and the container runs with a read-only
+  filesystem, no privilege escalation, memory, CPU and process limits, and no capabilities except
+  `SYS_CHROOT`, which the sandbox needs inside its own user namespace. No change on the host is
+  needed, Ubuntu 23.10 and later included. On a host without user namespaces, where the browser
+  would not start, set `PLAYWRIGHT_SANDBOX=off` in `.env`. Update with `sh get-kit.sh --upgrade`,
+  then `docker compose pull && docker compose up -d --wait`; the kit now has a `playwright/` and a
+  `seccomp/` directory (Playwright's own seccomp profile, Apache-2.0) next to `compose.yaml`. Until you
+  update, run `./configure --no-fetch && docker compose up -d` to stop the browser: it removes the
+  `fetch` profile and sets `FETCH_BACKEND=direct`, so web fetch reads pages with plain HTTPS
+  requests, which works for most pages but not for pages that need JavaScript to show their text.
+  (Dropping `fetch` from `COMPOSE_PROFILES` alone is not enough: `FETCH_BACKEND=playwright` stays
+  set, the chat reads a page directly first and uses the browser only for pages that need it, and
+  those pages come back thin or fail.)
 - **The Agents panel is easier to read.** A machine shows a dot before its name (filled green when
   connected, hollow grey when not) instead of an "online" pill; a pill stays only for states that need
   words (pending approval, access revoked, credential expired). Machines that are offline sort to

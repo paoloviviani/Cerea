@@ -334,6 +334,15 @@ class TestFreshInstall(unittest.TestCase):
         remote = dict(build().values, PLAYWRIGHT_WS_ENDPOINT="ws://browser.internal:3000/")
         self.assertEqual(build(existing=remote).values["PLAYWRIGHT_WS_ENDPOINT"], "ws://browser.internal:3000/")
 
+    def test_the_browser_sandbox_switch_takes_on_or_off_only(self):
+        # compose mounts playwright/sandbox-<value>.json: another value names no file.
+        for value, errors, warned in (("", 0, False), ("on", 0, False), ("off", 0, True), ("yes", 1, False)):
+            values = dict(build(preset="enterprise").values, PLAYWRIGHT_SANDBOX=value)
+            report = cfg.Report()
+            cfg.check_values(values, report)
+            self.assertEqual(sum("PLAYWRIGHT_SANDBOX must be" in e for e in report.errors), errors, value)
+            self.assertEqual(any("without its sandbox" in w for w in report.warnings), warned, value)
+
     def test_check_warns_when_profile_and_address_disagree(self):
         values = dict(build().values, PLAYWRIGHT_WS_ENDPOINT=cfg.PLAYWRIGHT_ENDPOINT)
         report = cfg.Report()
