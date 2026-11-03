@@ -116,6 +116,7 @@ export const load = async ({ fetch, url, data }) => {
 		gatewayIsAdmin: data.gatewayIsAdmin,
 		webSearchAvailable: data.webSearchAvailable,
 		codeFilesEnabled: data.codeFilesEnabled,
+		codeFileWriteEnabled: data.codeFileWriteEnabled,
 		codeTerminalEnabled: data.codeTerminalEnabled,
 		codeSchedulesEnabled: data.codeSchedulesEnabled,
 		chatSchedulesEnabled: data.chatSchedulesEnabled,

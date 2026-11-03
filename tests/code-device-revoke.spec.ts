@@ -1,5 +1,5 @@
 /**
- * Removing a device's pairing from the sidebar — the trash button on a
+ * Removing a device's pairing from the sidebar — Remove in the ⋯ menu of a
  * paired row, and the reject button on a pending one — must send a real
  * DELETE to `/api/v2/code/devices?id=...` and drop the row from the tree.
  * This had never been exercised by any spec: `listDevices` returned every
@@ -58,7 +58,9 @@ test("removing a paired device sends a real DELETE and the row goes away", async
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
 	await expect(page.getByText("real e2e box")).toBeVisible();
 
-	await page.getByTitle("Remove this pairing").click();
+	// The machine's ⋯ menu holds the removal (no trash on the row any more).
+	await page.getByRole("button", { name: "Machine settings" }).click();
+	await page.getByRole("menuitem", { name: "Remove" }).click();
 	// Revoking is confirmed first: the dialog names the machine and says what ends.
 	await page.getByRole("dialog").getByRole("button", { name: "Revoke pairing" }).click();
 	await expect(page.getByText("real e2e box")).toHaveCount(0, { timeout: 10_000 });

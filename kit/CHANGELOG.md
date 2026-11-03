@@ -7,6 +7,31 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **The Agents panel is easier to read.** A machine shows a dot before its name (filled green when
+  connected, hollow grey when not) instead of an "online" pill; a pill stays only for states that need
+  words (pending approval, access revoked, credential expired). Machines that are offline sort to
+  the bottom, dimmed, with when they were last seen ("offline 3h"). Each machine has one ⋯ menu
+  (Add workspace, Profiles, and Remove last, in red, still confirming first) instead of a row of
+  icons and a trash can. A workspace shows its folder name; the full path is its tooltip and the first
+  line of its menu. A session shows a state icon in place of the dot (a spinner while it runs, an
+  amber "?" when it needs you, "!" on error, nothing when idle) and how long ago it was last active.
+  Delegates and subtasks sit under the session that started them, behind a thin connector, two at a
+  time with "+N more" for the rest. On a computer, ＋ and ⋯ appear when you hover a row or tab to it;
+  on a phone only ⋯ shows (a 44px target), and holding a row opens the same menu.
+- **The Needs-you bar starts collapsed and no longer repeats the open session.** It is one line
+  ("2 need you") that opens when you click it, and it remembers your choice for the browser session.
+  The questions of the session you are looking at are left out, since that view already shows
+  them; if they are the only ones pending, the bar is not drawn at all.
+- **The code panel's file explorer can edit and save text files** (issue #69), on a machine that
+  allows it. Saving is off on every machine until it is enrolled with `--allow-file-write` (the
+  Pair a machine dialog has it under Advanced); `galopin policy set --no-file-write` turns it off
+  again. The deployment switch `CODE_FILE_WRITE_ENABLED` is on by default; set it to `false` to
+  turn saving off everywhere. **Edit** opens the editor, with **Save** (Ctrl+S or ⌘S) and
+  **Discard**. A save replaces the file atomically and keeps its permissions, and only if the file
+  has not changed on disk since it was opened: otherwise the editor says **Changed on disk** and
+  offers **Reload** (drop the edits) or **Overwrite**. Files over 1 MiB, binary files, images and
+  files on the deny list stay read-only. Each save is audited with its path and size, never its
+  content. Needs the galopin update.
 - Chat: models a user added with their own key in the gateway (BYOK, ids `my/<name>`)
   show a "Your key" badge in the model picker and in the Models tab, and the Models tab links
   to "Your providers and models" in the gateway console for users whose group allows it.

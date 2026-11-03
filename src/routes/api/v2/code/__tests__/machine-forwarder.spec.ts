@@ -339,6 +339,167 @@ describe("the forwarder over a live machine link", () => {
 			expect(audited?.action).toBe("files.refused");
 			machine.close();
 		});
+
+		describe("saving a file (files.write, issue #69)", () => {
+			const WRITABLE = {
+				machine: { capabilities: { files: true, fileWrite: true } },
+				policy: { ...POLICY, files: "read" as const, fileWrite: "allowed" as const },
+			};
+			function save(deviceId: string, workspaceId: string, body: Record<string, unknown>) {
+				return forwarder(
+					forwarderPOST,
+					`/api/v2/code/v1/workspaces/${workspaceId}/files/content?device=${deviceId}`,
+					{ method: "POST", body: JSON.stringify(body), locals: user.locals }
+				);
+			}
+
+			it("forwards the save and audits the path and size, never the content", async () => {
+				const machine = await connectAndPair(WRITABLE);
+				const deviceId = machine.deviceId as string;
+				const { workspace } = await createWorkspace(machine, deviceId);
+				const writes: unknown[] = [];
+				machine.onOp("files.write", (args: unknown) => {
+					writes.push(args);
+					return {
+						entry: {
+							name: "a.txt",
+							path: "src/a.txt",
+							type: "file",
+							size: 14,
+							mtime: "2026-11-03T09:00:00Z",
+							revision: "1:2:14:5",
+							hidden: false,
+							ignored: false,
+							redacted: false,
+						},
+					};
+				});
+				const res = await save(deviceId, workspace.id, {
+					path: "src/a.txt",
+					content: "SENTINEL é text",
+					baseRevision: "1:2:3:4",
+				});
+				expect(res.status).toBe(200);
+				const { entry } = await parse<{ entry: { revision: string } }>(res);
+				expect(entry.revision).toBe("1:2:14:5");
+				expect(writes).toEqual([
+					{
+						workspaceId: workspace.id,
+						path: "src/a.txt",
+						content: "SENTINEL é text",
+						encoding: "utf-8",
+						baseRevision: "1:2:3:4",
+					},
+				]);
+				const audited = await collections.codeAudit
+					.find({ deviceId: new ObjectId(deviceId) })
+					.toArray();
+				expect(audited.map((a) => [a.action, a.path, a.bytes, a.outcome])).toEqual([
+					["files.write", "src/a.txt", 16, "ok"],
+				]);
+				expect(JSON.stringify(audited)).not.toContain("SENTINEL");
+				machine.close();
+			});
+
+			it("answers a conflict 409 with the revision on disk", async () => {
+				const machine = await connectAndPair(WRITABLE);
+				const deviceId = machine.deviceId as string;
+				const { workspace } = await createWorkspace(machine, deviceId);
+				machine.onOp("files.write", () => {
+					throw new OpError("conflict", "the file changed on disk since it was read", {
+						revision: "9:9:9:9",
+					});
+				});
+				const res = await save(deviceId, workspace.id, {
+					path: "a.txt",
+					content: "mine",
+					baseRevision: null,
+				});
+				expect(res.status).toBe(409);
+				expect(await parse<{ code: string; revision: string | null }>(res)).toMatchObject({
+					code: "conflict",
+					revision: "9:9:9:9",
+				});
+				const audited = await collections.codeAudit.findOne({ deviceId: new ObjectId(deviceId) });
+				expect([audited?.action, audited?.outcome]).toEqual(["files.write", "conflict"]);
+				machine.close();
+			});
+
+			it("refuses over 1 MiB before it reaches the machine, and maps the machine's own refusals", async () => {
+				const machine = await connectAndPair(WRITABLE);
+				const deviceId = machine.deviceId as string;
+				const { workspace } = await createWorkspace(machine, deviceId);
+				let forwarded = 0;
+				machine.onOp("files.write", () => {
+					forwarded += 1;
+					throw new OpError("forbidden", "hidden by this machine's policy");
+				});
+				const big = await save(deviceId, workspace.id, {
+					path: "big.txt",
+					content: "a".repeat(1024 * 1024 + 1),
+					baseRevision: null,
+				});
+				expect(big.status).toBe(413);
+				expect(forwarded).toBe(0);
+				const denied = await save(deviceId, workspace.id, {
+					path: "id_rsa",
+					content: "x",
+					baseRevision: null,
+				});
+				expect(denied.status).toBe(403);
+				expect(forwarded).toBe(1);
+				const bad = await save(deviceId, workspace.id, { path: "a.txt", content: 3 });
+				expect(bad.status).toBe(400);
+				machine.close();
+			});
+
+			for (const [label, options, flag] of [
+				[
+					"a machine enrolled without --allow-file-write",
+					{ ...WRITABLE, policy: { ...WRITABLE.policy, fileWrite: "denied" as const } },
+					"--allow-file-write",
+				],
+				[
+					"a machine whose policy predates fileWrite",
+					{ ...WRITABLE, policy: { ...POLICY, files: "read" as const } },
+					"--allow-file-write",
+				],
+				[
+					"a machine enrolled with --no-files",
+					{ ...WRITABLE, policy: { ...WRITABLE.policy, files: "off" as const } },
+					"--no-files",
+				],
+				[
+					"a galopin that cannot write files",
+					{ ...WRITABLE, machine: { capabilities: { files: true } } },
+					"update",
+				],
+			] as const) {
+				it(`refuses, naming the fix, on ${label}`, async () => {
+					const machine = await connectAndPair(options as FakeMachineOptions);
+					const deviceId = machine.deviceId as string;
+					const { workspace } = await createWorkspace(machine, deviceId);
+					let forwarded = false;
+					machine.onOp("files.write", () => {
+						forwarded = true;
+						return {};
+					});
+					const res = await save(deviceId, workspace.id, {
+						path: "a.txt",
+						content: "x",
+						baseRevision: null,
+					});
+					expect(res.status).toBe(403);
+					expect(await res.text()).toContain(flag);
+					expect(forwarded).toBe(false);
+					const audited = await collections.codeAudit.findOne({
+						deviceId: new ObjectId(deviceId),
+					});
+					expect(audited?.action).toBe("files.write.refused");
+					machine.close();
+				});
+			}
+		});
 	});
 
 	it("forwards /effort as session.setEffort, null clearing it, and refuses a malformed body", async () => {

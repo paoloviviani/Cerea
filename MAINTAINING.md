@@ -257,8 +257,8 @@ afterwards pin it in the kit with `kit/tools/pin --pystino` and release Cerea.
   `scripts/generate-palettes.mjs` (edit the tables there), and `static/pyodide/`
   from `npm run sync-pyodide` (git-ignored). Never edit either by hand.
 - **Not everything specified is built.** `agent/PROTOCOL.md` §9 specifies file
-  search, watching and writing (`files.find|grep|watch|write`, `fileWrite`,
-  `CODE_FILE_WRITE_ENABLED`); none of it exists, and building it is a new feature, so the owner's call.
+  search and watching (`files.find|grep|watch`); none of it exists, and building it is a new feature, so the owner's call.
+  (`files.write`, the editor's save, is built: issue #69.)
   Read §9's status line before assuming an op is there.
 - **The image build script for the kit is `kit/dev/build.sh`** (docs inside
   `kit/` call it `dev/build.sh`). With `BUILD_LOCK` set it takes that lock

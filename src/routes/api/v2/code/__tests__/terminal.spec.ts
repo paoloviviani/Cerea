@@ -48,6 +48,7 @@ vi.mock("$lib/server/codeEnabled", () => ({
 	codeAgentsEnabled: () => true,
 	codeAgentsAllowedFor: async () => true,
 	codeFilesEnabled: () => true,
+	codeFileWriteEnabled: () => true,
 	codeTerminalEnabled: () => terminalGate.enabled,
 }));
 

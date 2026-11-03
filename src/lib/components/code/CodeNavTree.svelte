@@ -26,19 +26,21 @@
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
 	import { DropdownMenu } from "bits-ui";
+	import RowMenu, { MENU_ITEM, MENU_ITEM_DANGER } from "./RowMenu.svelte";
+	import { longPress } from "$lib/utils/longPress";
+	import { formatCompactAge } from "$lib/utils/relativeTime";
 	import IconAdd from "~icons/carbon/add";
 	import IconLaptop from "~icons/carbon/laptop";
 	import IconFolder from "~icons/carbon/folder";
-	import IconCode from "~icons/carbon/code";
 	import IconBranch from "~icons/carbon/branch";
 	import IconFork from "~icons/carbon/fork";
 	import IconRenew from "~icons/carbon/renew";
 	import IconTrash from "~icons/carbon/trash-can";
-	import IconKebab from "~icons/lucide/ellipsis";
 	import IconEdit from "~icons/carbon/edit";
 	import IconUsers from "~icons/carbon/user-multiple";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import IconCheck from "~icons/carbon/checkmark";
+	import IconHelp from "~icons/carbon/help-filled";
 	import IconClose from "~icons/carbon/close";
 	import IconChevronRight from "~icons/carbon/chevron-right";
 	import IconTime from "~icons/carbon/time";
@@ -89,12 +91,12 @@
 	import {
 		SHOW_SUBAGENTS_KEY,
 		parentRow,
-		spawnerRow,
-		groupSpawned,
+		nestSessions,
 		readShowSubagents,
 		subagentRow,
 		spawnedRow,
 		visibleAgents,
+		workspaceLabel,
 	} from "$lib/utils/codeSubagents";
 	import {
 		pruneTreeCollapse,
@@ -114,14 +116,6 @@
 	let agentDialogFor = $state<CodeWorkspace | null>(null);
 	/** The workspace whose rename dialog is open, with its device. */
 	let renameFor = $state<{ device: CodeDeviceView; workspace: CodeWorkspace } | null>(null);
-	const STATE_LABELS: Record<CodeAgentSession["state"], () => string> = {
-		idle: m["code.view.state.idle"],
-		running: m["code.view.state.running"],
-		"waiting-permission": m["code.view.state.waiting_permission"],
-		done: m["code.view.state.done"],
-		error: m["code.view.state.error"],
-	};
-
 	/** The repo workspace a "New worktree…" dialog is open for, with its device. */
 	let worktreeFor = $state<{ device: CodeDeviceView; workspace: CodeWorkspace } | null>(null);
 	/** The machine whose delegate-profiles dialog is open. */
@@ -282,11 +276,43 @@
 	}
 
 	function agentsOf(tree: DeviceSubtree | undefined, workspaceId: string): CodeAgentSession[] {
-		return groupSpawned(
-			visibleAgents(tree?.agents ?? [], showSubagents).filter(
-				(agent) => agent.workspaceId === workspaceId
-			)
+		return visibleAgents(tree?.agents ?? [], showSubagents).filter(
+			(agent) => agent.workspaceId === workspaceId
 		);
+	}
+
+	// Machines that cannot answer sink to the bottom (the order is otherwise
+	// the list's own, so a poll never reshuffles the ones in use).
+	function isDimmed(device: CodeDeviceView): boolean {
+		return device.reenroll === "revoked" || (device.status === "paired" && device.online === false);
+	}
+	const sortedDevices = $derived(
+		[...codeDeviceList.devices].sort((a, b) => Number(isDimmed(a)) - Number(isDimmed(b)))
+	);
+
+	/** At most this many nested rows show under a session until it is opened. */
+	const CHILDREN_SHOWN = 2;
+	/** Parents whose nested rows are all shown (`deviceId:agentId`), in memory only. */
+	let expandedChildren = $state<Set<string>>(new Set());
+	function toggleChildren(key: string) {
+		const next = new Set(expandedChildren);
+		if (next.has(key)) next.delete(key);
+		else next.add(key);
+		expandedChildren = next;
+	}
+
+	/** The row whose ⋯ menu is open, by key: one menu at a time, and a touch
+	 * long-press on a row opens the same menu the ⋯ button does. */
+	let menuOpenKey = $state<string | null>(null);
+	const menuOpen = (key: string) => menuOpenKey === key;
+	const setMenuOpen = (key: string) => (open: boolean) => {
+		if (open) menuOpenKey = key;
+		else if (menuOpenKey === key) menuOpenKey = null;
+	};
+	const openMenu = (key: string) => () => (menuOpenKey = key);
+
+	function ageOf(date: Date | string | undefined | null): string {
+		return formatCompactAge(date);
 	}
 
 	// Subagents are listed under their own workspace, marked rather than
@@ -462,8 +488,8 @@
 		// `device`: a machine row, a touch taller and always bold — it is the
 		// group's heading now that the gutter under it is gone.
 		const emphasis = device
-			? "h-9 text-[0.95rem] font-semibold"
-			: `h-8 text-sm${holdsSelection ? " font-medium" : ""}`;
+			? "h-8 text-[0.95rem] font-semibold"
+			: `h-7 text-sm${holdsSelection ? " font-medium" : ""}`;
 		const wash = active
 			? "bg-gray-100 font-semibold text-gray-900 dark:bg-gray-700 dark:text-white"
 			: holdsSelection
@@ -547,15 +573,32 @@
 				{m["code.nav.show_subagents"]()}
 			</button>
 		{/if}
-		{#each codeDeviceList.devices as device (device.id)}
+		{#each sortedDevices as device (device.id)}
 			{@const tree = trees[device.id]}
 			{@const deviceActive = device.id === selectedDeviceId}
 			{@const deviceExpanded = isDeviceExpanded(device.id)}
 			{@const isDead = device.reenroll === "revoked"}
+			{@const online = device.online !== false}
+			{@const offline = device.status === "paired" && !isDead && !online}
+			{@const expired = device.credentialState === "expired"}
+			{@const deviceMenu = `d:${device.id}`}
+			{@const dotLabel = expired
+				? m["code.nav.credential_expired"]()
+				: online
+					? m["code.nav.connected"]()
+					: m["code.nav.not_connected"]()}
+			{@const offlineAge = formatCompactAge(device.lastSeenAt)}
 			<!-- The pb separates one machine's group from the next, now that
 			     the gutter under the machine row is gone. -->
 			<div class="pb-2">
-				<div class="group flex items-center gap-1 pr-1">
+				<!-- `nav-row`: the hover/focus scope of this row's `＋` and `⋯`
+				     (see the style block); `group` stays for callers that find
+				     the row by it. An offline machine is dimmed. -->
+				<div
+					class="nav-row group flex items-center gap-1 pr-1 {offline ? 'opacity-60' : ''}"
+					data-testid="device-row"
+					use:longPress={openMenu(deviceMenu)}
+				>
 					{#if device.status === "paired"}
 						<button
 							type="button"
@@ -572,13 +615,13 @@
 						</button>
 					{:else}
 						<!-- A pending device has no subtree to collapse — a fixed
-						     spacer keeps its row's icon aligned with every paired
+						     spacer keeps its row's name aligned with every paired
 						     device's, whose chevron takes this same slot. -->
 						<span class="size-6 shrink-0"></span>
 					{/if}
 					{#if device.status === "pending" || isDead}
 						<span class="min-w-0 {row(false, false, true)}">
-							<IconLaptop class="size-3.5 shrink-0" />
+							<span class="size-2 shrink-0"></span>
 							<span class="min-w-0 flex-1 truncate">{device.name}</span>
 						</span>
 					{:else}
@@ -594,19 +637,49 @@
 								: undefined}
 							title={device.name}
 						>
-							<IconLaptop class="size-3.5 shrink-0" />
+							<!-- The machine's state as a dot: filled green connected,
+							     hollow grey not. Words are kept for the states that
+							     need them (a pill, below). -->
+							<span
+								role="img"
+								aria-label={dotLabel}
+								title={dotLabel}
+								data-testid="device-status"
+								data-status={expired ? "expired" : online ? "online" : "offline"}
+								class="size-2 shrink-0 rounded-full {expired
+									? 'bg-red-500'
+									: online
+										? 'bg-green-500'
+										: 'border border-gray-400 dark:border-gray-500'}"
+							></span>
 							<span class="min-w-0 flex-1 truncate">{device.name}</span>
+							{#if offline}
+								<span
+									class="shrink-0 text-[11px] font-normal text-gray-500 dark:text-gray-400"
+									data-testid="offline-since"
+									>{offlineAge
+										? m["code.nav.offline_since"]({ age: offlineAge })
+										: m["code.nav.offline"]()}</span
+								>
+							{/if}
 						</a>
 					{/if}
 					{#if device.status === "pending"}
 						<!-- The fresh human approval review C2 calls for: a
 						     machine that connected with a valid bearer waits
 						     here until Confirm, and nothing is forwarded to
-						     it before that click. -->
+						     it before that click. These two stay on the row:
+						     they are the whole point of a pending machine. -->
+						<span
+							class="shrink-0 rounded-full bg-amber-100 px-1.5 text-[.65rem] text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"
+						>
+							{m["code.nav.pending"]()}
+						</span>
 						<button
 							type="button"
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30"
 							title={m["code.nav.confirm_title"]()}
+							aria-label={m["code.nav.confirm_title"]()}
 							onclick={() => void handleConfirm(device.id)}
 						>
 							<IconCheck class="size-3.5" />
@@ -615,52 +688,43 @@
 							type="button"
 							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
 							title={m["code.nav.reject_title"]()}
+							aria-label={m["code.nav.reject_title"]()}
 							onclick={() => (confirmRequest = { kind: "device", device })}
 						>
 							<IconClose class="size-3.5" />
 						</button>
 					{:else if isDead}
 						<!-- A revoked-by-the-gateway row is a tombstone (never
-						     reconnects under this machineId): no online pill, no
-						     "Add workspace", no "Remove this pairing" — there is
-						     nothing left to pair or unpair: the re-enroll banner
-						     below, and removal from the list. -->
+						     reconnects under this machineId): no "Add workspace",
+						     nothing to pair — the re-enroll banner below, and
+						     removal from the list, which is its menu's only item. -->
 						<span
 							class="shrink-0 rounded-full bg-red-100 px-1.5 text-[.65rem] text-red-800 dark:bg-red-900/60 dark:text-red-300"
 						>
 							{m["code.nav.revoked"]()}
 						</span>
-						<!-- Nothing to pair or unpair, but the row can go: once the
-						     machine is re-enrolled (a new row) or retired, the banner
-						     is only clutter. Removing it keeps the tombstone. -->
-						<button
-							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-							title={m["code.nav.remove_machine_title"]()}
-							onclick={() => (confirmRequest = { kind: "device", device })}
+						<RowMenu
+							open={menuOpen(deviceMenu)}
+							onOpenChange={setMenuOpen(deviceMenu)}
+							label={m["code.nav.machine_settings"]()}
 						>
-							<IconTrash class="size-3.5" />
-						</button>
+							<DropdownMenu.Item
+								class={MENU_ITEM_DANGER}
+								onSelect={() => (confirmRequest = { kind: "device", device })}
+							>
+								<IconTrash class="size-4 opacity-90 dark:opacity-80" />
+								{m["code.nav.remove"]()}
+							</DropdownMenu.Item>
+						</RowMenu>
 					{:else}
-						{@const online = device.online !== false}
-						<span
-							class="shrink-0 rounded-full px-1.5 text-[.65rem] {device.credentialState ===
-							'expired'
-								? 'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300'
-								: online
-									? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300'
-									: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}"
-							title={device.credentialState === "expired"
-								? m["code.nav.credential_title"]()
-								: online
-									? m["code.nav.connected"]()
-									: m["code.nav.not_connected"]()}
-						>
-							{device.credentialState === "expired"
-								? m["code.nav.credential_expired"]()
-								: online
-									? m["code.nav.online"]()
-									: m["code.nav.offline"]()}
-						</span>
+						{#if expired}
+							<span
+								class="shrink-0 rounded-full bg-red-100 px-1.5 text-[.65rem] text-red-800 dark:bg-red-900/60 dark:text-red-300"
+								title={m["code.nav.credential_title"]()}
+							>
+								{m["code.nav.credential_expired"]()}
+							</span>
+						{/if}
 						{#if !deviceExpanded && deviceCounts[device.id] !== undefined}
 							<!-- The last-known count (`deviceCounts`, persisted
 							     alongside the collapse state): a device collapsed
@@ -674,57 +738,45 @@
 								{m["code.nav.workspace_count"]({ count: deviceCounts[device.id] })}
 							</span>
 						{/if}
-						<!-- Mirrors the workspace row's agent "+": always visible,
-						     not hidden behind the kebab, because adding a
-						     workspace is the primary action on a paired device
-						     and the only way to add a second one once the
-						     empty-state button (below) is gone. -->
+						<!-- A shortcut on a pointer that hovers (also in the menu,
+						     which is all a touch screen shows). -->
 						<button
-							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
+							class="nav-reveal nav-plus flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
 							title={m["code.nav.add_workspace_title"]()}
+							aria-label={m["code.nav.add_workspace_title"]()}
 							disabled={!online}
 							onclick={() => (workspaceDialogFor = device.id)}
 						>
 							<IconAdd class="size-3.5" />
 						</button>
-						<!-- The machine's own settings: today its delegate profiles.
-						     The row itself is a link to the machine's page, so the
-						     menu is a kebab beside it (same idiom as a workspace's). -->
-						<DropdownMenu.Root>
-							<DropdownMenu.Trigger
-								class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
-								title={m["code.nav.machine_settings"]()}
-								aria-label={m["code.nav.machine_settings"]()}
-							>
-								<IconKebab class="size-3.5" />
-							</DropdownMenu.Trigger>
-							<DropdownMenu.Portal>
-								<DropdownMenu.Content
-									class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-									side="bottom"
-									align="end"
-									sideOffset={6}
-									trapFocus={false}
-									onCloseAutoFocus={(e) => e.preventDefault()}
-									interactOutsideBehavior="defer-otherwise-close"
-								>
-									<DropdownMenu.Item
-										class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-										onSelect={() => (profilesFor = device)}
-									>
-										<IconUsers class="size-4 opacity-90 dark:opacity-80" />
-										{m["code.nav.profiles"]()}
-									</DropdownMenu.Item>
-								</DropdownMenu.Content>
-							</DropdownMenu.Portal>
-						</DropdownMenu.Root>
-						<button
-							class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-red-600 dark:hover:bg-gray-700"
-							title={m["code.nav.remove_pairing_title"]()}
-							onclick={() => (confirmRequest = { kind: "device", device })}
+						<!-- Every action of the machine, the removal last. The row
+						     itself is a link to the machine's page. -->
+						<RowMenu
+							open={menuOpen(deviceMenu)}
+							onOpenChange={setMenuOpen(deviceMenu)}
+							label={m["code.nav.machine_settings"]()}
 						>
-							<IconTrash class="size-3.5" />
-						</button>
+							<DropdownMenu.Item
+								class={MENU_ITEM}
+								disabled={!online}
+								onSelect={() => (workspaceDialogFor = device.id)}
+							>
+								<IconAdd class="size-4 opacity-90 dark:opacity-80" />
+								{m["code.nav.add_workspace"]()}
+							</DropdownMenu.Item>
+							<DropdownMenu.Item class={MENU_ITEM} onSelect={() => (profilesFor = device)}>
+								<IconUsers class="size-4 opacity-90 dark:opacity-80" />
+								{m["code.nav.profiles"]()}
+							</DropdownMenu.Item>
+							<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700" />
+							<DropdownMenu.Item
+								class={MENU_ITEM_DANGER}
+								onSelect={() => (confirmRequest = { kind: "device", device })}
+							>
+								<IconTrash class="size-4 opacity-90 dark:opacity-80" />
+								{m["code.nav.remove"]()}
+							</DropdownMenu.Item>
+						</RowMenu>
 					{/if}
 				</div>
 				{#if device.reenroll}
@@ -805,32 +857,40 @@
 								{@const wsActive = ws.id === selectedWorkspaceId && deviceActive}
 								{@const wsExpanded = isWorkspaceExpanded(device.id, ws.id)}
 								{@const wsSessionCount = agentsOf(tree, ws.id).length}
+								{@const wsLabel = workspaceLabel(ws)}
+								{@const wsMenu = `w:${device.id}:${ws.id}`}
 								<div>
-									<div class="group flex items-center gap-1 pr-1">
+									<div
+										class="nav-row group flex items-center gap-1 pr-1"
+										use:longPress={openMenu(wsMenu)}
+									>
 										<button
 											type="button"
 											class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
 											aria-expanded={wsExpanded}
 											aria-label={wsExpanded
-												? m["code.nav.collapse"]({ name: ws.name })
-												: m["code.nav.expand"]({ name: ws.name })}
+												? m["code.nav.collapse"]({ name: wsLabel })
+												: m["code.nav.expand"]({ name: wsLabel })}
 											onclick={() => toggleWorkspaceCollapsed(device.id, ws.id)}
 										>
 											<IconChevronRight
 												class="size-3 shrink-0 transition-transform {wsExpanded ? 'rotate-90' : ''}"
 											/>
 										</button>
+										<!-- The folder's name, its full path as the tooltip (and
+										     the first line of the menu, for a screen with no hover). -->
 										<span
 											class="min-w-0 {row(
 												wsActive && !selectedAgentId,
 												wsActive && !!selectedAgentId && !wsExpanded
 											)}"
+											title={ws.path || ws.name}
 											data-holds-selection={wsActive && !!selectedAgentId && !wsExpanded
 												? ""
 												: undefined}
 										>
 											<IconFolder class="size-3 shrink-0" />
-											<span class="min-w-0 flex-1 truncate">{ws.name}</span>
+											<span class="min-w-0 flex-1 truncate">{wsLabel}</span>
 											{#if ws.branch}
 												<!-- Worktree workspaces sit beside their source repo in
 											     this same flat list (not nested under it) — the
@@ -854,93 +914,213 @@
 											{/if}
 										</span>
 										<button
-											class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
+											class="nav-reveal nav-plus flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
 											title={m["code.nav.start_session_title"]()}
+											aria-label={m["code.nav.start_session_title"]()}
 											onclick={() => (agentDialogFor = ws)}
 										>
 											<IconAdd class="size-3.5" />
 										</button>
-										<!-- The workspace's actions live in one kebab, not a
-								     row of icons: rename and archive are occasional,
-								     and a bare trash can was the only visible offer
-								     for both. -->
-										<!-- The kebab sits at the row's right edge with air
-								     between it and the add button: the two are
-								     both 24px targets, and a tap meant to start
-								     a session must never open a menu instead. -->
-										<DropdownMenu.Root>
-											<!-- The trigger stays in flow at all times (never
-								     display:none) so its 24px slot is always reserved
-								     — only opacity toggles on hover/focus/open. A
-								     display toggle here would shrink the flex-1 name
-								     span next to it and shove the dot/add button
-								     sideways on hover, which is the bug this avoids.
-								     Same idiom as NavConversationItem's chat kebab. -->
-											<DropdownMenu.Trigger
-												class="ml-1 flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
-												title={m["code.nav.workspace_actions"]()}
-												aria-label={m["code.nav.workspace_actions"]()}
-											>
-												<IconKebab class="size-3.5" />
-											</DropdownMenu.Trigger>
-											<DropdownMenu.Portal>
-												<DropdownMenu.Content
-													class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-													side="bottom"
-													align="end"
-													sideOffset={6}
-													trapFocus={false}
-													onCloseAutoFocus={(e) => e.preventDefault()}
-													interactOutsideBehavior="defer-otherwise-close"
+										<RowMenu
+											open={menuOpen(wsMenu)}
+											onOpenChange={setMenuOpen(wsMenu)}
+											label={m["code.nav.workspace_actions"]()}
+										>
+											<DropdownMenu.Group>
+												<DropdownMenu.GroupHeading
+													class="px-2 pt-1 pb-1.5 text-xs break-all text-gray-500 select-text dark:text-gray-400"
+													data-testid="workspace-path"
 												>
+													{ws.path || ws.name}
+												</DropdownMenu.GroupHeading>
+											</DropdownMenu.Group>
+											<DropdownMenu.Item class={MENU_ITEM} onSelect={() => (agentDialogFor = ws)}>
+												<IconAdd class="size-4 opacity-90 dark:opacity-80" />
+												{m["code.nav.new_session"]()}
+											</DropdownMenu.Item>
+											<DropdownMenu.Item
+												class={MENU_ITEM}
+												onSelect={() => (renameFor = { device, workspace: ws })}
+											>
+												<IconEdit class="size-4 opacity-90 dark:opacity-80" />
+												{m["code.nav.rename"]()}
+											</DropdownMenu.Item>
+											{#if ws.isGitRepo}
+												<!-- Only a git repo can be branched into a worktree;
+											     a plain directory workspace has no repo to run
+											     `git worktree add` against. -->
+												<DropdownMenu.Item
+													class={MENU_ITEM}
+													onSelect={() => (worktreeFor = { device, workspace: ws })}
+												>
+													<IconBranch class="size-4 opacity-90 dark:opacity-80" />
+													{m["code.nav.new_worktree"]()}
+												</DropdownMenu.Item>
+											{/if}
+											<DropdownMenu.Item
+												class={MENU_ITEM}
+												onSelect={() =>
+													(confirmRequest = { kind: "workspace", device, workspace: ws })}
+											>
+												<IconTrash class="size-4 opacity-90 dark:opacity-80" />
+												{m["code.nav.archive"]()}
+											</DropdownMenu.Item>
+										</RowMenu>
+									</div>
+									{#if wsExpanded}
+										<!-- One rail under the workspace, tight: a session's title
+										     starts right of the workspace's folder icon. Delegates and
+										     subtasks hang off their parent by a thin connector of
+										     their own (a left border, no further indent step). -->
+										{#snippet sessionRow(
+											agent: CodeAgentSession,
+											kind: "root" | "delegate" | "subtask"
+										)}
+											{@const agentActive = agent.id === selectedAgentId}
+											{@const kids = parentRow(agent, tree?.agents ?? [], tree?.workspaces ?? [])}
+											{@const cancelledSub =
+												!!agent.parentId &&
+												!!agent.cancelled &&
+												agent.state !== "running" &&
+												agent.state !== "waiting-permission"}
+											{@const ownWaiting = agent.state === "waiting-permission"}
+											{@const needsYou = !cancelledSub && (ownWaiting || !!kids?.waiting)}
+											{@const age = ageOf(agent.updatedAt)}
+											{@const sessionMenu = `a:${device.id}:${agent.id}`}
+											{@const iconSize = kind === "subtask" ? "size-3" : "size-3.5"}
+											<div
+												class="nav-row group flex items-center gap-1 pr-1"
+												data-testid="session-row"
+												data-kind={kind}
+												use:longPress={openMenu(sessionMenu)}
+											>
+												<a
+													href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
+													class="min-w-0 {row(agentActive)} {kind === 'subtask'
+														? 'text-[0.8rem]'
+														: ''}"
+													title={agent.title}
+												>
+													<span class="min-w-0 flex-1 truncate">{agent.title}</span>
+													{#if isScheduledTitle(agent.title)}
+														<IconTime
+															class="size-3 shrink-0 text-gray-400"
+															title={m["code.nav.scheduled_title"]()}
+															data-testid="scheduled-badge"
+														/>
+													{/if}
+													{#if cancelledSub}
+														<span
+															class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-300"
+															title={m["code.nav.cancelled_title"]()}
+															data-testid="subagent-cancelled">{m["code.nav.cancelled"]()}</span
+														>
+													{:else if needsYou}
+														<!-- Waiting for the person: an approval or a
+														     question is open on it (or on a subagent
+														     under it). Amber, and named for a screen reader. -->
+														<span
+															class="flex shrink-0 items-center text-amber-500 dark:text-amber-400"
+															title={ownWaiting
+																? m["code.nav.waiting_title"]()
+																: m["code.nav.sub_waiting_title"]()}
+															data-testid="waiting-approval"
+															data-state="needs-you"
+														>
+															<IconHelp class={iconSize} aria-hidden="true" />
+															<span class="sr-only">{m["code.nav.needs_you"]()}</span>
+														</span>
+													{:else if agent.state === "running"}
+														<span
+															class="flex shrink-0 items-center text-blue-600 dark:text-blue-400"
+															title={m["code.nav.state_running"]()}
+															data-state="running"
+														>
+															<IconRenew class="{iconSize} animate-spin" aria-hidden="true" />
+															<span class="sr-only">{m["code.nav.state_running"]()}</span>
+														</span>
+													{:else if agent.state === "error"}
+														<span
+															class="flex shrink-0 items-center text-red-600 dark:text-red-400"
+															title={m["code.nav.state_error"]()}
+															data-state="error"
+														>
+															<IconWarning class={iconSize} aria-hidden="true" />
+															<span class="sr-only">{m["code.nav.state_error"]()}</span>
+														</span>
+													{/if}
+													<!-- Idle is the common case and draws nothing. -->
+													{#if age}
+														<time
+															class="shrink-0 text-[11px] font-normal text-gray-400 tabular-nums dark:text-gray-500"
+															datetime={agent.updatedAt}
+															data-testid="session-age">{age}</time
+														>
+													{/if}
+												</a>
+												<RowMenu
+													open={menuOpen(sessionMenu)}
+													onOpenChange={setMenuOpen(sessionMenu)}
+													label={m["code.nav.session_actions"]()}
+												>
+													{#if page.data.codeSchedulesEnabled === true}
+														<DropdownMenu.Item
+															class={MENU_ITEM}
+															onSelect={() =>
+																goto(
+																	`${base}/code?view=schedules&new=1&device=${device.id}&ws=${agent.workspaceId}&agent=${agent.id}`
+																)}
+														>
+															<IconTime class="size-4 opacity-90 dark:opacity-80" />
+															{m["code.nav.schedule_this"]()}
+														</DropdownMenu.Item>
+													{/if}
+													{#if !agent.parentId}
+														<!-- Permissions belong to the session, so the item
+														     lives on its row's menu, next to rename and
+														     archive; the dialog reads that session's rules
+														     itself. A subagent follows its root's setting
+														     and has no rules of its own to read. -->
+														<DropdownMenu.Item
+															class={MENU_ITEM}
+															onSelect={() => (permissionsFor = { device, agent })}
+														>
+															<IconPermissions class="size-4 opacity-90 dark:opacity-80" />
+															{m["code.nav.permissions"]()}
+														</DropdownMenu.Item>
+													{/if}
 													<DropdownMenu.Item
-														class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-														onSelect={() => (renameFor = { device, workspace: ws })}
+														class={MENU_ITEM}
+														onSelect={() => (renameAgentFor = { device, agent })}
 													>
 														<IconEdit class="size-4 opacity-90 dark:opacity-80" />
 														{m["code.nav.rename"]()}
 													</DropdownMenu.Item>
-													{#if ws.isGitRepo}
-														<!-- Only a git repo can be branched into a worktree;
-													     a plain directory workspace has no repo to run
-													     `git worktree add` against. -->
-														<DropdownMenu.Item
-															class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-															onSelect={() => (worktreeFor = { device, workspace: ws })}
-														>
-															<IconBranch class="size-4 opacity-90 dark:opacity-80" />
-															{m["code.nav.new_worktree"]()}
-														</DropdownMenu.Item>
-													{/if}
 													<DropdownMenu.Item
-														class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-														onSelect={() =>
-															(confirmRequest = { kind: "workspace", device, workspace: ws })}
+														class={MENU_ITEM}
+														onSelect={() => (confirmRequest = { kind: "agent", device, agent })}
 													>
 														<IconTrash class="size-4 opacity-90 dark:opacity-80" />
 														{m["code.nav.archive"]()}
 													</DropdownMenu.Item>
-												</DropdownMenu.Content>
-											</DropdownMenu.Portal>
-										</DropdownMenu.Root>
-									</div>
-									{#if wsExpanded}
-										<!-- The guide sits one chevron slot in and the rows one more:
-										     a session's `</>` must start clearly right of its
-										     workspace's folder icon, or the nesting does not read. -->
+													<DropdownMenu.Item
+														class={MENU_ITEM_DANGER}
+														onSelect={() =>
+															(confirmRequest = { kind: "agent-delete", device, agent })}
+													>
+														<IconTrash class="size-4 opacity-90 dark:opacity-80" />
+														{m["code.nav.delete"]()}
+													</DropdownMenu.Item>
+												</RowMenu>
+											</div>
+										{/snippet}
 										<div
-											class="ml-6 border-l border-gray-200 pl-6 dark:border-gray-700"
+											class="ml-3 border-l border-gray-200 pl-2 dark:border-gray-700"
 											data-testid="workspace-rail"
 										>
-											{#each agentsOf(tree, ws.id) as agent (agent.id)}
-												{@const agentActive = agent.id === selectedAgentId}
+											{#each nestSessions(agentsOf(tree, ws.id)) as node (node.agent.id)}
+												{@const agent = node.agent}
 												{@const sub = subagentRow(
-													agent,
-													tree?.agents ?? [],
-													tree?.workspaces ?? []
-												)}
-												{@const kids = parentRow(agent, tree?.agents ?? [], tree?.workspaces ?? [])}
-												{@const spawns = spawnerRow(
 													agent,
 													tree?.agents ?? [],
 													tree?.workspaces ?? []
@@ -950,221 +1130,20 @@
 													tree?.agents ?? [],
 													tree?.workspaces ?? []
 												)}
-												<!-- A subagent's rows sit in a rail of their own, one level
-												     under the workspace's: the rail idiom again, so the badge
-												     is not the only thing that says "not a top-level session". -->
-												<div
-													class={sub
-														? "ml-3 border-l border-gray-200 pl-1.5 dark:border-gray-700"
-														: ""}
-													data-testid={sub ? "subagent-rail" : undefined}
-												>
-													<div class="group flex items-center gap-1 pr-1">
-														<a
-															href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
-															class="min-w-0 {row(agentActive)}"
-															title={agent.title}
-														>
-															<IconCode class="size-3 shrink-0" />
-															<span class="min-w-0 flex-1 truncate">{agent.title}</span>
-															{#if isScheduledTitle(agent.title)}
-																<IconTime
-																	class="size-3 shrink-0 text-gray-400"
-																	title={m["code.nav.scheduled_title"]()}
-																	data-testid="scheduled-badge"
-																/>
-															{/if}
-															{#if sub}
-																<span
-																	class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 uppercase dark:bg-gray-700 dark:text-gray-300"
-																	data-testid="subagent-badge">{m["code.nav.sub"]()}</span
-																>
-															{/if}
-															{#if sub && agent.cancelled && agent.state !== "running" && agent.state !== "waiting-permission"}
-																<span
-																	class="shrink-0 rounded-sm bg-gray-100 px-1 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-300"
-																	title={m["code.nav.cancelled_title"]()}
-																	data-testid="subagent-cancelled">{m["code.nav.cancelled"]()}</span
-																>
-															{:else if agent.state === "waiting-permission" || kids?.waiting}
-																<span
-																	class="shrink-0 rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-																	title={agent.state === "waiting-permission"
-																		? m["code.nav.waiting_title"]()
-																		: m["code.nav.sub_waiting_title"]()}
-																	data-testid="waiting-approval"
-																	>{agent.state === "waiting-permission"
-																		? m["code.nav.waiting"]()
-																		: m["code.nav.sub_waiting"]()}</span
-																>
-															{:else}
-																<span
-																	class="size-1.5 shrink-0 rounded-full {agent.state === 'running'
-																		? 'bg-blue-600'
-																		: agent.state === 'error'
-																			? 'bg-red-600'
-																			: agent.state === 'done'
-																				? 'bg-green-700'
-																				: 'bg-gray-400'}"
-																	title={STATE_LABELS[agent.state]()}
-																></span>
-															{/if}
-														</a>
-														{#if spawns}
-															<DropdownMenu.Root>
-																<DropdownMenu.Trigger
-																	class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-																	title={m["code.nav.spawned_title"]()}
-																	data-testid="spawned-count"
-																>
-																	{m["code.nav.spawned_count"]({ count: spawns.count })}
-																</DropdownMenu.Trigger>
-																<DropdownMenu.Portal>
-																	<DropdownMenu.Content
-																		class="z-50 max-w-64 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-																		side="bottom"
-																		align="end"
-																		sideOffset={6}
-																	>
-																		{#each spawns.children as child (child.id)}
-																			<DropdownMenu.Item
-																				class="flex h-8 items-center gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
-																				onSelect={() =>
-																					goto(
-																						`${base}/code?device=${device.id}&ws=${child.workspaceId}&agent=${child.id}`
-																					)}
-																			>
-																				<span class="min-w-0 flex-1 truncate">{child.title}</span>
-																				{#if child.workspaceId !== agent.workspaceId && child.workspaceName}
-																					<span class="shrink-0 text-xs text-gray-400"
-																						>· {child.workspaceName}</span
-																					>
-																				{/if}
-																			</DropdownMenu.Item>
-																		{/each}
-																	</DropdownMenu.Content>
-																</DropdownMenu.Portal>
-															</DropdownMenu.Root>
-														{/if}
-														{#if kids}
-															<DropdownMenu.Root>
-																<DropdownMenu.Trigger
-																	class="flex h-6 shrink-0 items-center rounded-md px-1 text-[11px] text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-																	title={m["code.nav.subagents_title"]()}
-																	data-testid="subagent-count"
-																>
-																	{m["code.nav.subagent_count"]({ count: kids.count })}
-																</DropdownMenu.Trigger>
-																<DropdownMenu.Portal>
-																	<DropdownMenu.Content
-																		class="z-50 max-w-64 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-																		side="bottom"
-																		align="end"
-																		sideOffset={6}
-																	>
-																		{#each kids.children as child (child.id)}
-																			<DropdownMenu.Item
-																				class="flex h-8 items-center gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
-																				onSelect={() =>
-																					goto(
-																						`${base}/code?device=${device.id}&ws=${child.workspaceId}&agent=${child.id}`
-																					)}
-																			>
-																				<span class="min-w-0 flex-1 truncate">{child.title}</span>
-																				{#if child.workspaceId !== agent.workspaceId && child.workspaceName}
-																					<span class="shrink-0 text-xs text-gray-400"
-																						>· {child.workspaceName}</span
-																					>
-																				{/if}
-																			</DropdownMenu.Item>
-																		{:else}
-																			<p class="px-2 py-1 text-xs text-gray-500">
-																				{m["code.nav.other_workspace"]()}
-																			</p>
-																		{/each}
-																	</DropdownMenu.Content>
-																</DropdownMenu.Portal>
-															</DropdownMenu.Root>
-														{/if}
-														<!-- The session's actions live in the same kebab
-									     as the workspace's, at the row's right edge:
-									     rename and archive are occasional, and a bare
-									     trash can was the only visible offer for both. -->
-														<DropdownMenu.Root>
-															<!-- Reserved-space trigger, same as the workspace
-										     kebab above: opacity toggles, display never
-										     does, so the presence dot never jumps on
-										     hover. -->
-															<DropdownMenu.Trigger
-																class="flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 data-[state=open]:bg-gray-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100 dark:hover:bg-gray-700 dark:data-[state=open]:bg-gray-700"
-																title={m["code.nav.session_actions"]()}
-																aria-label={m["code.nav.session_actions"]()}
-															>
-																<IconKebab class="size-3.5" />
-															</DropdownMenu.Trigger>
-															<DropdownMenu.Portal>
-																<DropdownMenu.Content
-																	class="z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-																	side="bottom"
-																	align="end"
-																	sideOffset={6}
-																	trapFocus={false}
-																	onCloseAutoFocus={(e) => e.preventDefault()}
-																	interactOutsideBehavior="defer-otherwise-close"
-																>
-																	{#if page.data.codeSchedulesEnabled === true}
-																		<DropdownMenu.Item
-																			class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-																			onSelect={() =>
-																				goto(
-																					`${base}/code?view=schedules&new=1&device=${device.id}&ws=${agent.workspaceId}&agent=${agent.id}`
-																				)}
-																		>
-																			<IconTime class="size-4 opacity-90 dark:opacity-80" />
-																			{m["code.nav.schedule_this"]()}
-																		</DropdownMenu.Item>
-																	{/if}
-																	{#if !sub}
-																		<!-- Permissions belong to the session, so the item
-														     lives on its row's menu, next to rename and
-														     archive; the dialog reads that session's rules
-														     itself. A subagent follows its root's setting
-														     and has no rules of its own to read. -->
-																		<DropdownMenu.Item
-																			class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-																			onSelect={() => (permissionsFor = { device, agent })}
-																		>
-																			<IconPermissions class="size-4 opacity-90 dark:opacity-80" />
-																			{m["code.nav.permissions"]()}
-																		</DropdownMenu.Item>
-																	{/if}
-																	<DropdownMenu.Item
-																		class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-																		onSelect={() => (renameAgentFor = { device, agent })}
-																	>
-																		<IconEdit class="size-4 opacity-90 dark:opacity-80" />
-																		{m["code.nav.rename"]()}
-																	</DropdownMenu.Item>
-																	<DropdownMenu.Item
-																		class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
-																		onSelect={() =>
-																			(confirmRequest = { kind: "agent", device, agent })}
-																	>
-																		<IconTrash class="size-4 opacity-90 dark:opacity-80" />
-																		{m["code.nav.archive"]()}
-																	</DropdownMenu.Item>
-																	<DropdownMenu.Item
-																		class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-red-600 select-none focus-visible:outline-hidden data-highlighted:bg-red-50 sm:h-8 dark:text-red-400 dark:data-highlighted:bg-red-500/10"
-																		onSelect={() =>
-																			(confirmRequest = { kind: "agent-delete", device, agent })}
-																	>
-																		<IconTrash class="size-4 opacity-90 dark:opacity-80" />
-																		{m["code.nav.delete"]()}
-																	</DropdownMenu.Item>
-																</DropdownMenu.Content>
-															</DropdownMenu.Portal>
-														</DropdownMenu.Root>
-													</div>
+												{@const childKey = `${device.id}:${agent.id}`}
+												{@const childrenOpen = expandedChildren.has(childKey)}
+												{@const shownChildren = node.children.filter(
+													(child, index) =>
+														childrenOpen ||
+														index < CHILDREN_SHOWN ||
+														child.agent.id === selectedAgentId
+												)}
+												{@const hiddenChildren = node.children.length - shownChildren.length}
+												<div>
+													{@render sessionRow(agent, "root")}
+													<!-- A row whose parent is not listed here (another
+													     workspace, archived, hidden) stays top-level, and
+													     still says where it came from. -->
 													{#if spawned}
 														{#if !spawned.gone && spawned.workspaceId}
 															<a
@@ -1215,6 +1194,39 @@
 																{m["code.nav.from_unlisted"]()}
 															</p>
 														{/if}
+													{/if}
+													{#if node.children.length > 0}
+														<div
+															class="ml-2 border-l border-gray-200 pl-1.5 dark:border-gray-700"
+															role="group"
+															aria-label={m["code.nav.children_of"]({ title: agent.title })}
+															data-testid="session-children"
+														>
+															{#each shownChildren as child (child.agent.id)}
+																{@render sessionRow(child.agent, child.kind)}
+															{/each}
+															{#if hiddenChildren > 0}
+																<button
+																	type="button"
+																	class="flex h-6 items-center rounded-md px-2 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
+																	data-testid="children-more"
+																	aria-expanded="false"
+																	onclick={() => toggleChildren(childKey)}
+																>
+																	{m["code.nav.more_children"]({ count: hiddenChildren })}
+																</button>
+															{:else if childrenOpen && node.children.length > CHILDREN_SHOWN}
+																<button
+																	type="button"
+																	class="flex h-6 items-center rounded-md px-2 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
+																	data-testid="children-more"
+																	aria-expanded="true"
+																	onclick={() => toggleChildren(childKey)}
+																>
+																	{m["code.nav.fewer_children"]()}
+																</button>
+															{/if}
+														</div>
 													{/if}
 												</div>
 											{/each}
@@ -1416,3 +1428,31 @@
 		}}
 	/>
 {/if}
+
+<style>
+	/* A row's ＋ and ⋯ show on hover and on keyboard focus anywhere inside the
+	   row on a pointer that can hover; a touch screen has no hover, so ⋯ is
+	   always there (a 44px target) and the ＋ shortcut is left to its menu.
+	   The buttons keep their slot either way, so a row never shifts. */
+	@media (hover: hover) {
+		:global(.nav-reveal) {
+			opacity: 0;
+		}
+		:global(.nav-row:hover .nav-reveal),
+		:global(.nav-row:focus-within .nav-reveal),
+		:global(.nav-reveal[data-state="open"]),
+		:global(.nav-reveal:focus-visible) {
+			opacity: 1;
+		}
+	}
+	@media (hover: none) {
+		:global(.nav-plus) {
+			display: none;
+		}
+		:global(.nav-kebab) {
+			width: 2.75rem;
+			height: 2.75rem;
+			margin-right: -0.25rem;
+		}
+	}
+</style>

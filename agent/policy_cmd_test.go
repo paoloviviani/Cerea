@@ -181,3 +181,71 @@ func TestAgentToolsDirFollowsPolicy(t *testing.T) {
 		t.Error("hello.policy.agentTools does not follow the policy")
 	}
 }
+
+// fileWrite is tighten-only like the terminal: `policy set --no-file-write`
+// turns it off, and no `policy set` flag turns it back on (enroll does).
+func TestPolicySetTightensFileWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, policyFileName)
+	pol := policy.Default()
+	pol.FileWrite = policy.FileWriteAllowed
+	if err := policy.Save(path, pol); err != nil {
+		t.Fatal(err)
+	}
+	if err := runPolicySet([]string{"--state-dir", dir, "--no-file-write"}); err != nil {
+		t.Fatalf("--no-file-write: %v", err)
+	}
+	got, err := policy.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FileWriteAllowed() {
+		t.Error("file writes should now be denied")
+	}
+	if err := runPolicySet([]string{"--state-dir", dir, "--allow-file-write"}); err == nil {
+		t.Fatal("policy set must not accept a flag that re-opens file writes")
+	}
+}
+
+func TestDefaultPolicyDeniesFileWrite(t *testing.T) {
+	if policy.Default().FileWriteAllowed() {
+		t.Fatal("the default policy must deny file writes")
+	}
+	// A policy.json from before the field: denied.
+	path := filepath.Join(t.TempDir(), policyFileName)
+	if err := os.WriteFile(path, []byte(`{"permission":{},"workspaceRoots":[],"allowFreeModels":false,"terminal":"allowed"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pol, err := policy.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pol.FileWriteAllowed() {
+		t.Fatal("a policy file without fileWrite must deny file writes")
+	}
+}
+
+func TestEnrollAllowFileWrite(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{nil, false},
+		{[]string{"--allow-file-write"}, true},
+		// Nothing to save from without the explorer.
+		{[]string{"--allow-file-write", "--no-files"}, false},
+	} {
+		opts := enrollOptions{}
+		fs, _ := newEnrollFlagSet(&opts)
+		if err := fs.Parse(tc.args); err != nil {
+			t.Fatal(err)
+		}
+		pol, err := enrollPolicy(&opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if pol.FileWriteAllowed() != tc.want {
+			t.Errorf("enroll %v: fileWrite = %q, want allowed=%v", tc.args, pol.FileWrite, tc.want)
+		}
+	}
+}

@@ -1,0 +1,21 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "C→M",
+		"op": "files.write",
+		"variant": "create: baseRevision null, the file must not exist yet",
+		"null": true
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "files.write",
+		"args": {
+			"workspaceId": "ws_01",
+			"path": "notes.txt",
+			"content": "aGVsbG8K",
+			"encoding": "base64",
+			"baseRevision": null
+		}
+	}
+}

@@ -64,6 +64,7 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "no-command-shell", kind: "bool", default: false, exposed: true },
 	{ flag: "no-default-file-deny", kind: "bool", default: false, exposed: true },
 	{ flag: "no-files", kind: "bool", default: false, exposed: true },
+	{ flag: "allow-file-write", kind: "bool", default: false, exposed: true },
 	{ flag: "no-terminal", kind: "bool", default: false, exposed: true },
 	{ flag: "permission-max", kind: "keyAction", default: [], exposed: true },
 	{ flag: "permission-rule", kind: "keyAction", default: [], exposed: true },

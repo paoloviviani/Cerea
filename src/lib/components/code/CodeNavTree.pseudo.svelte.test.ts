@@ -55,8 +55,8 @@ describe("The Agents tree, in the pseudo-locale", () => {
 			.toBeVisible();
 		await expect.element(screen.getByText("Agent one")).toBeVisible();
 		await expect
-			.element(screen.getByText(m["code.nav.waiting"]({}, { locale: "en-XA" })))
-			.toBeVisible();
+			.element(screen.getByText(m["code.nav.needs_you"]({}, { locale: "en-XA" })))
+			.toBeInTheDocument();
 		// Machine, workspace and session names are data.
 		expect(
 			unbracketedText(document.body, [/Build box/, /New box/, /^alpha$/, /Agent one/])

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
 import {
 	groupSpawned,
+	nestSessions,
 	parentRow,
 	readShowSubagents,
 	spawnedRow,
@@ -9,6 +10,7 @@ import {
 	subagentRow,
 	subagentStatus,
 	visibleAgents,
+	workspaceLabel,
 } from "./codeSubagents";
 
 const ws = (id: string, name: string): CodeWorkspace =>
@@ -212,5 +214,55 @@ describe("grouping spawned sessions by adjacency", () => {
 	it("does not move subagents", () => {
 		const sub = agent({ id: "k", parentId: "a", spawnedBy: { sessionId: "z", title: "z" } });
 		expect(ids(groupSpawned([mk("a"), mk("z"), sub]))).toEqual(["a", "z", "k"]);
+	});
+});
+
+describe("nesting sessions under their parent", () => {
+	const spawned = (id: string, by: string) =>
+		agent({ id, title: id, spawnedBy: { sessionId: by, title: by } });
+
+	it("nests a spawned session and a subagent under the parent listed in the same workspace", () => {
+		const nodes = nestSessions([parent, child, spawned("s", "p"), agent({ id: "z", title: "Z" })]);
+		expect(nodes.map((n) => n.agent.id)).toEqual(["p", "z"]);
+		expect(nodes[0]?.children.map((c) => [c.agent.id, c.kind])).toEqual([
+			["c", "subtask"],
+			["s", "delegate"],
+		]);
+	});
+
+	it("flattens a chain into one list, in chain order, so there is one connector and no staircase", () => {
+		const nodes = nestSessions([
+			parent,
+			agent({ id: "x", title: "x", parentId: "s2" }),
+			spawned("s2", "s1"),
+			spawned("s1", "p"),
+		]);
+		expect(nodes).toHaveLength(1);
+		expect(nodes[0]?.children.map((c) => c.agent.id)).toEqual(["s1", "s2", "x"]);
+	});
+
+	it("leaves a row top-level when its parent is gone, hidden or elsewhere, and survives a cycle", () => {
+		const nodes = nestSessions([
+			spawned("orphan", "gone"),
+			agent({ id: "far", title: "far", parentId: "not-in-this-list" }),
+			spawned("c1", "c2"),
+			spawned("c2", "c1"),
+		]);
+		expect(nodes.map((n) => n.agent.id)).toEqual(["orphan", "far", "c1", "c2"]);
+		expect(nodes.every((n) => n.children.length === 0)).toBe(true);
+	});
+});
+
+describe("workspaceLabel", () => {
+	it("shows the folder name of a path, and keeps a name someone chose", () => {
+		expect(workspaceLabel({ name: "/home/paolo/repos/cloud_sync", path: "/x" })).toBe("cloud_sync");
+		expect(workspaceLabel({ name: "/home/paolo/repos/cloud_sync/", path: "/x" })).toBe(
+			"cloud_sync"
+		);
+		expect(workspaceLabel({ name: "C:\\work\\app", path: "C:\\work\\app" })).toBe("app");
+		expect(workspaceLabel({ name: "Home - this deployment", path: "/home" })).toBe(
+			"Home - this deployment"
+		);
+		expect(workspaceLabel({ name: "/", path: "/" })).toBe("/");
 	});
 });

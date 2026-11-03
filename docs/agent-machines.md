@@ -63,6 +63,10 @@ tree: paired machines, each with its workspaces, each with its sessions.
 - **The Needs-you inbox** lists, across all your machines, the approvals and
   questions waiting for you, each answerable in place.
 - **Changes** opens a pane with the files the session has changed, from git.
+- **Files** browses the workspace. On a machine enrolled with
+  `--allow-file-write` it can also edit and save text files; a file that changed
+  on disk since you opened it is a conflict you resolve (reload or overwrite),
+  never silently overwritten ([Saving files](agent-machines-reference.md#saving-files)).
 - **Slash commands**: type `/` in the composer for the commands the session can
   run, including `/compact`, `/undo`, `/model` and `/new`.
 - **Stop** ends a running turn. **Fork from here** on an answer starts a new
@@ -126,9 +130,9 @@ To keep galopin running when the terminal closes, see
 
 ## Where to go next
 
-| You want…                                                 | Read                                                                                                                                          |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| every pairing option and what a machine will refuse       | [The pairing dialog](agent-machines-reference.md#the-pairing-dialog) and [the machine policy](agent-machines-reference.md#the-machine-policy) |
-| terminals, the file explorer, a repo's own config         | [The terminal](agent-machines-reference.md#the-terminal), [the file explorer](agent-machines-reference.md#what-the-file-explorer-may-see)     |
-| to run it as a service, remove a machine, install by hand | [Installing and running galopin](agent-machines-reference.md#installing-and-running-galopin)                                                  |
-| how it works                                              | [How it works](agent-machines-reference.md#how-it-works)                                                                                      |
+| You want…                                                 | Read                                                                                                                                                                                                |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| every pairing option and what a machine will refuse       | [The pairing dialog](agent-machines-reference.md#the-pairing-dialog) and [the machine policy](agent-machines-reference.md#the-machine-policy)                                                       |
+| terminals, the file explorer, a repo's own config         | [The terminal](agent-machines-reference.md#the-terminal), [the file explorer](agent-machines-reference.md#what-the-file-explorer-may-see), [saving files](agent-machines-reference.md#saving-files) |
+| to run it as a service, remove a machine, install by hand | [Installing and running galopin](agent-machines-reference.md#installing-and-running-galopin)                                                                                                        |
+| how it works                                              | [How it works](agent-machines-reference.md#how-it-works)                                                                                                                                            |

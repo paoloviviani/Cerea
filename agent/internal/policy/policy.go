@@ -38,6 +38,12 @@ type Policy struct {
 	// NoDefaultFileDeny drops the default deny list (`--no-default-file-deny`),
 	// leaving only FileDeny.
 	NoDefaultFileDeny bool `json:"noDefaultFileDeny,omitempty"`
+	// FileWrite gates files.write, the /code editor's save (PROTOCOL.md §9.3):
+	// "allowed" or "denied" (the default; `enroll --allow-file-write` opens
+	// it). A write lands on disk with no model and no permission rule in the
+	// way, so it stays off until the owner opts in. A local `galopin policy
+	// set` can only turn it off (--no-file-write).
+	FileWrite string `json:"fileWrite,omitempty"`
 	// Terminal gates every terminal.* op: "allowed" or "denied" (the
 	// default; `enroll --allow-terminal` opens it). ADR 0090: a terminal is
 	// a remote shell with no model and no permission rules in the way, so
@@ -320,6 +326,12 @@ const (
 	FilesOff  = "off"
 )
 
+// FileWriteAllowed and FileWriteDenied are Policy.FileWrite's two values.
+const (
+	FileWriteAllowed = "allowed"
+	FileWriteDenied  = "denied"
+)
+
 // TerminalAllowed and TerminalDenied are Policy.Terminal's two values.
 const (
 	TerminalAllowed = "allowed"
@@ -347,6 +359,10 @@ var DefaultFileDeny = []string{
 // FilesAllowed reports whether the explorer may read this machine's
 // workspace files at all.
 func (p Policy) FilesAllowed() bool { return p.Files != FilesOff }
+
+// FileWriteAllowed reports whether the /code editor may save files on this
+// machine. Default denied: an owner opts in with `enroll --allow-file-write`.
+func (p Policy) FileWriteAllowed() bool { return p.FileWrite == FileWriteAllowed }
 
 // TerminalAllowed reports whether this machine permits terminal.* ops at
 // all. Default denied: an owner opts in with `enroll --allow-terminal`.
@@ -422,6 +438,7 @@ func Default() Policy {
 	return Policy{
 		AllowFreeModels:     false,
 		Files:               FilesRead,
+		FileWrite:           FileWriteDenied,
 		Terminal:            TerminalDenied,
 		CommandShell:        TerminalDenied,
 		AgentTools:          TerminalAllowed,
@@ -450,6 +467,9 @@ func Load(path string) (Policy, error) {
 	}
 	if p.Files == "" {
 		p.Files = FilesRead
+	}
+	if p.FileWrite == "" {
+		p.FileWrite = FileWriteDenied
 	}
 	if p.Terminal == "" {
 		p.Terminal = TerminalDenied

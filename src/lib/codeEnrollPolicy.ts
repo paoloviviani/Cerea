@@ -68,6 +68,9 @@ export interface EnrollPolicyChoices {
 	allowOpencodeProvider: boolean;
 	workspaceRoots: string[];
 	noFiles: boolean;
+	/** `--allow-file-write`: the /code editor may save files. Only emitted
+	 * while files are on: with `--no-files` there is nothing to save from. */
+	allowFileWrite: boolean;
 	fileDeny: string[];
 	noDefaultFileDeny: boolean;
 	/** `external_directory=allow`: no asking before work outside the workspace. */
@@ -99,6 +102,7 @@ export function defaultPolicyChoices(): EnrollPolicyChoices {
 		allowOpencodeProvider: false,
 		workspaceRoots: [],
 		noFiles: false,
+		allowFileWrite: false,
 		fileDeny: [],
 		noDefaultFileDeny: false,
 		allowOutsideProject: false,
@@ -120,6 +124,7 @@ export const FLAG_CONTROLS: Readonly<Record<string, string>> = {
 	"allow-opencode-provider": "enroll-allow-opencode-provider",
 	"workspace-root": "enroll-workspace-roots",
 	"no-files": "enroll-no-files",
+	"allow-file-write": "enroll-allow-file-write",
 	"file-deny": "enroll-file-deny",
 	"no-default-file-deny": "enroll-no-default-file-deny",
 	"permission-rule": "enroll-fixed-answers",
@@ -209,6 +214,7 @@ export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
 		args.push("--workspace-root", quoteShellArg(root));
 	}
 	if (choices.noFiles) args.push("--no-files");
+	else if (choices.allowFileWrite) args.push("--allow-file-write");
 	for (const glob of listed(choices.fileDeny)) args.push("--file-deny", quoteShellArg(glob));
 	if (choices.noDefaultFileDeny) args.push("--no-default-file-deny");
 	for (const rule of fixedAnswers(choices)) {
@@ -232,6 +238,7 @@ export function advancedChangedCount(choices: EnrollPolicyChoices): number {
 		choices.allowOpencodeProvider,
 		listed(choices.workspaceRoots).length > 0,
 		choices.noFiles,
+		choices.allowFileWrite && !choices.noFiles,
 		listed(choices.fileDeny).length > 0,
 		choices.noDefaultFileDeny,
 		choices.allowOutsideProject,
@@ -250,6 +257,7 @@ export interface PromisedPolicy {
 	workspaceRoots: string[];
 	allowFreeModels: boolean;
 	files: "read" | "off";
+	fileWrite: "allowed" | "denied";
 	fileDeny: string[];
 	noDefaultFileDeny: boolean;
 	terminal: "allowed" | "denied";
@@ -284,6 +292,7 @@ export function promisedPolicy(choices: EnrollPolicyChoices): PromisedPolicy {
 		workspaceRoots: listed(choices.workspaceRoots),
 		allowFreeModels: choices.allowFreeModels,
 		files: choices.noFiles ? "off" : "read",
+		fileWrite: allowed(choices.allowFileWrite && !choices.noFiles),
 		fileDeny: listed(choices.fileDeny),
 		noDefaultFileDeny: choices.noDefaultFileDeny,
 		terminal: allowed(choices.allowTerminal),

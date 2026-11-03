@@ -71,6 +71,7 @@ the printed line carries every changed value whether it is open or not):
 | **Keep opencode's own providers**                             | `--allow-opencode-provider`                                           | gateway only                | opencode's built-in providers stay enabled next to the gateway's                                                                                                                                              |
 | **Workspace folders** (a list)                                | `--workspace-root PATH`, one per entry                                | anywhere                    | workspaces may only be created under these folders                                                                                                                                                            |
 | **No file explorer**                                          | `--no-files`                                                          | read-only browsing          | keeps the explorer out of the machine's files                                                                                                                                                                 |
+| **Allow saving files** (amber)                                | `--allow-file-write`                                                  | read-only explorer          | lets the `/code` editor save text files in this machine's workspaces (see [Saving files](#saving-files))                                                                                                      |
 | **Hide files** (a list)                                       | `--file-deny GLOB`, one per entry                                     | the built-in secret list    | the explorer also redacts files matching these globs                                                                                                                                                          |
 | **Drop the built-in secret list** (amber)                     | `--no-default-file-deny`                                              | the secret list stays       | stops redacting private keys and credential files, and lets a command's `@file` reference read `.env` files, keeping only your globs                                                                          |
 | **Agents may work outside the project folder without asking** | `--permission-rule external_directory=allow`                          | off: the agent asks         | by default an agent asks before reading or writing files outside the workspace folder; ticked, it does not                                                                                                    |
@@ -116,6 +117,7 @@ set` can only **tighten**; loosening anything needs a new `enroll`.
 | Policy                           | Enroll flag                                                            | Default                                                                                                                                                                                | What it decides                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Tighten later                                         |
 | -------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | **Files**                        | `--no-files`, `--file-deny GLOB`, `--no-default-file-deny`             | read-only browsing, secrets redacted                                                                                                                                                   | Whether the `/code` explorer may browse a workspace, and which files it redacts (see [What the file explorer may see](#what-the-file-explorer-may-see)). Off: no explorer at all                                                                                                                                                                                                                                                                                                                  | `policy set --no-files`, `--file-deny GLOB`           |
+| **File writes**                  | `--allow-file-write`                                                   | denied                                                                                                                                                                                 | Whether the `/code` editor may save text files (see [Saving files](#saving-files)). A veto pair, like the terminal: the deployment's `CODE_FILE_WRITE_ENABLED` must not be `false` (it is on by default), and this machine must allow it. Files on the deny list are never written                                                                                                                                                                                                                | `policy set --no-file-write`                          |
 | **Terminals**                    | `--no-terminal`, `--max-terminals N`                                   | allowed; at most 8 open at once                                                                                                                                                        | Whether the panel may open a real shell on the machine. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal))                                                                                                                                                                                                                                                                                                                                | `policy set --no-terminal`, a lower `--max-terminals` |
 | **Permission ceiling**           | `--permission-max KEY=ACTION` (repeatable)                             | `bash=ask`                                                                                                                                                                             | The most a permission key (`edit`, `bash`, `webfetch`, `task`, `session_spawn`, `session_send`, `session_read`, `schedule`, …) may ever be, whatever the session's setting, an exception or a reply says. Given, the flag replaces the default set. `policy set` can only lower it. The selector's Allow is capped by it.                                                                                                                                                                         |
 | **Machine rules**                | `--permission-rule KEY=ACTION` (repeatable)                            | none                                                                                                                                                                                   | Fixed answers for every session on this machine. A deny there always holds; an allow or ask only matters for reading files, working outside the project folder, the stuck-agent brake, and agents starting or messaging sessions. The ceiling still caps them.                                                                                                                                                                                                                                    |
@@ -216,6 +218,42 @@ the like. `.env` files are shown (add `--file-deny '.env' --file-deny '.env.*'` 
 boundary against the agent, which can read any file. The flags that turn it
 off or extend the list are in [The machine policy](#the-machine-policy).
 
+### Saving files
+
+The explorer is also a minimal editor for text files, when three things allow
+it: the machine was enrolled with `--allow-file-write` (denied by default), the
+deployment has not set `CODE_FILE_WRITE_ENABLED=false` (on by default: the
+machine's policy is the real gate), and the machine runs a galopin that can
+save files. When any of them says no there is no **Edit** button; a save that
+reaches a machine that refuses answers with the exact flag to re-enroll with.
+
+**Edit** turns the file view into an editor, with an unsaved-changes marker,
+**Save** (or Ctrl+S, ⌘S on a Mac) and **Discard**. Leaving the file, the
+Files pane or the page with unsaved edits asks first. Files over 1 MiB, binary
+files and images stay read-only, and say so. Files on the deny list are never
+written, whatever the request, and the same confinement as for reading
+applies: a path outside the workspace, or through a symlink, is refused.
+
+A save is **atomic** (the new text goes to a temporary file in the same folder,
+which then replaces the file, keeping its permissions), and it happens **only
+if the file has not changed on disk since you opened it**: every save carries
+the revision you read. If an agent (or anything else) changed the file in
+between, nothing is written and the editor says **Changed on disk**, with two
+choices:
+
+- **Reload** drops your edits and shows the file as it is now;
+- **Overwrite** saves your text over the new version.
+
+There is no live reload yet: until you save or refresh, the editor does not
+know the file changed. The revision check is what keeps a save from silently
+overwriting an agent's edit. Each save is recorded, with the path and the size
+but never the content, in the deployment's `/code` audit and in the machine's
+own `audit.log`. To turn saving off again on a machine:
+
+```sh
+galopin policy set --no-file-write
+```
+
 ### The terminal
 
 `/code` can also open a real, interactive shell on the machine, but only
@@ -251,8 +289,8 @@ galopin policy set --no-terminal          # turn it back off
 galopin policy set --max-terminals 2      # lower the cap
 ```
 
-`policy set` can only tighten — turn files or the terminal off, lower the
-cap, or add a `--file-deny` entry. Loosening anything back requires
+`policy set` can only tighten — turn files, file writes or the terminal off,
+lower the cap, or add a `--file-deny` entry. Loosening anything back requires
 `enroll` again: the policy is never writable over the link.
 
 ### The permission posture
@@ -490,7 +528,9 @@ you seeing and driving them from the browser.
 ### The Needs-you inbox
 
 The inbox lists, across all your machines, the approvals and questions that are
-waiting for you, each answerable in place and linked to its session. It is part
+waiting for you, each answerable in place and linked to its session. It starts
+as a one-line bar ("2 need you") that opens on a click, and it leaves out the
+session you have open, whose cards that view already shows. It is part
 of /code, so it **goes dark with the rest** when the sign-in is older than 7
 days. That is a trade: nothing in the browser will tell you that a session is
 waiting, and a session waiting for an approval waits (it does not proceed) until
@@ -787,9 +827,10 @@ never more (an Allow spawner makes a child that runs without a card; a
 read-only child comes from `mode: "plan"`) — still under the machine's ceiling,
 which caps the child exactly as it caps the caller. The exceptions are the
 "always" answers the person gave the spawner, copied as they are; removing one
-from the spawner later does not remove it from children already spawned. It
-appears as its own top-level row with a "spawned by" link, not inside the
-spawner's tree.
+from the spawner later does not remove it from children already spawned. In
+the sidebar it sits under its spawner, behind a thin connector (a spawned
+session whose spawner is in another workspace, or gone, stays a top-level row
+with a "spawned by" line).
 
 #### Scheduling work
 

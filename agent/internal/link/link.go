@@ -72,8 +72,12 @@ type PolicyInfo struct {
 	AllowFreeModels bool           `json:"allowFreeModels"`
 	Files           string         `json:"files"`
 	FileDeny        []string       `json:"fileDeny"`
-	Terminal        string         `json:"terminal"`
-	MaxTerminals    int            `json:"maxTerminals"`
+	// FileWrite is the editor's save veto (PROTOCOL.md §9.3 files.write):
+	// "allowed" or "denied" (default). Older machines omit it, and have no
+	// files.write either.
+	FileWrite    string `json:"fileWrite,omitempty"`
+	Terminal     string `json:"terminal"`
+	MaxTerminals int    `json:"maxTerminals"`
 	// CommandShell is the slash-command shell-expansion veto (PROTOCOL.md
 	// §6 session.command): "allowed" or "denied". While denied the machine
 	// refuses every command whose template expands shell, and every command
@@ -125,6 +129,9 @@ type Hello struct {
 type OpError struct {
 	Code    string
 	Message string
+	// Details is the error's optional "details" object (files.write's
+	// conflict carries {revision}); nil sends none.
+	Details any
 }
 
 func (e *OpError) Error() string { return e.Message }
@@ -619,7 +626,7 @@ func (l *Link) handleReq(ctx context.Context, id, op string, args json.RawMessag
 	}
 	result, opErr := l.cfg.Handler.Handle(reqCtx, op, args)
 	if opErr != nil {
-		l.sendError(ctx, id, opErr.Code, opErr.Message)
+		l.sendErrorDetails(ctx, id, opErr.Code, opErr.Message, opErr.Details)
 		return
 	}
 	if err := l.writeFrame(ctx, map[string]any{
@@ -630,10 +637,15 @@ func (l *Link) handleReq(ctx context.Context, id, op string, args json.RawMessag
 }
 
 func (l *Link) sendError(ctx context.Context, id, code, message string) {
-	_ = l.writeFrame(ctx, map[string]any{
-		"type": "res", "id": id, "ok": false,
-		"error": map[string]string{"code": code, "message": message},
-	})
+	l.sendErrorDetails(ctx, id, code, message, nil)
+}
+
+func (l *Link) sendErrorDetails(ctx context.Context, id, code, message string, details any) {
+	body := map[string]any{"code": code, "message": message}
+	if details != nil {
+		body["details"] = details
+	}
+	_ = l.writeFrame(ctx, map[string]any{"type": "res", "id": id, "ok": false, "error": body})
 }
 
 // PublishEvent sends one event frame. Best-effort: if there is no live

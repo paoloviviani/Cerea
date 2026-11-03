@@ -133,6 +133,18 @@ export function codeFilesEnabled(): boolean {
 }
 
 /**
+ * Saving files from the /code editor (`files.write`, PROTOCOL.md §9.3): on
+ * with the explorer, unless the deployment switches it off with
+ * `CODE_FILE_WRITE_ENABLED=false`. Default on because the machine's own
+ * policy is the real gate: `fileWrite` is denied unless the machine was
+ * enrolled with `--allow-file-write`, and that is checked wherever a write is
+ * forwarded (and again by galopin).
+ */
+export function codeFileWriteEnabled(): boolean {
+	return codeFilesEnabled() && config.CODE_FILE_WRITE_ENABLED !== "false";
+}
+
+/**
  * The /code terminal (ADR 0090, PROTOCOL.md §9): the deployment half of the
  * double veto. Off unless explicitly `"true"` — the opposite default from
  * `codeFilesEnabled`, because a terminal is a full remote shell (D6/D7),

@@ -9,7 +9,7 @@
  * feat/permission-selector-agent. They need that galopin to pass, so OC's
  * end-to-end reconcile is where they are first run against the real thing.
  */
-import { existsSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -482,6 +482,8 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByTestId("file-viewer")).toContainText("export const a = 2;", {
 			timeout: 30_000,
 		});
+		// Saving is off unless the machine was enrolled with --allow-file-write.
+		await expect(page.getByTestId("file-edit")).toHaveCount(0);
 		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
 		await row(".env").click();
 		await expect(page.getByTestId("file-viewer")).toContainText("TOKEN=visible-value", {
@@ -525,6 +527,65 @@ test.describe("owned machine agent: parity", () => {
 			timeout: 60_000,
 		});
 		await expect(row("made-by-agent.txt")).toBeVisible({ timeout: 30_000 });
+	});
+
+	test("files: with --allow-file-write the editor saves to disk, and a change on disk is a conflict to resolve", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const m = await openSession(page, db, session.sessionId, { fileWrite: "allowed" });
+		const notes = join(m.workspace, "notes.txt");
+		writeFileSync(notes, "first line\n");
+		const files = page.getByTestId("code-files");
+		const editor = files.locator(".cm-content");
+
+		await page.getByRole("button", { name: "Files" }).click();
+		const tree = page.getByRole("tree", { name: "Workspace files" });
+		await expect(tree).toBeVisible({ timeout: 30_000 });
+		await tree.getByRole("button", { name: /^notes\.txt/ }).click();
+		await expect(page.getByTestId("file-viewer")).toContainText("first line", { timeout: 30_000 });
+
+		/** Type at the end of the file being edited. */
+		async function typeAtEnd(text: string) {
+			await expect(editor).toHaveAttribute("contenteditable", "true");
+			await editor.click();
+			await page.keyboard.press("ControlOrMeta+End");
+			await page.keyboard.type(text);
+			await expect(page.getByTestId("file-dirty")).toHaveText("Unsaved changes");
+		}
+
+		// Edit and save: the file on disk is what the editor holds.
+		await page.getByTestId("file-edit").click();
+		await typeAtEnd("second line");
+		await page.getByTestId("file-save").click();
+		await expect(page.getByTestId("file-dirty")).toHaveText("No changes", { timeout: 30_000 });
+		expect(readFileSync(notes, "utf8")).toBe("first line\nsecond line");
+
+		// The agent (here: the test) changes the file meanwhile: saving is a
+		// conflict, nothing is written, and Overwrite then saves over it.
+		writeFileSync(notes, "the agent's version\n");
+		await typeAtEnd(" (mine)");
+		await page.keyboard.press("ControlOrMeta+s");
+		await expect(page.getByTestId("file-conflict")).toContainText("Changed on disk.", {
+			timeout: 30_000,
+		});
+		expect(readFileSync(notes, "utf8")).toBe("the agent's version\n");
+		await page.getByTestId("file-conflict-overwrite").click();
+		await expect(page.getByTestId("file-conflict")).toHaveCount(0, { timeout: 30_000 });
+		expect(readFileSync(notes, "utf8")).toBe("first line\nsecond line (mine)");
+
+		// Again, but Reload: the edits go, and the editor shows the file on disk.
+		writeFileSync(notes, "changed again\n");
+		await typeAtEnd(" dropped");
+		await page.getByTestId("file-save").click();
+		await expect(page.getByTestId("file-conflict")).toBeVisible({ timeout: 30_000 });
+		await page.getByTestId("file-conflict-reload").click();
+		await expect(page.getByTestId("file-viewer")).toContainText("changed again", {
+			timeout: 30_000,
+		});
+		await expect(page.getByTestId("file-edit")).toBeVisible();
+		expect(readFileSync(notes, "utf8")).toBe("changed again\n");
 	});
 
 	test("effort: the pill names the real model, and a picked effort reaches the model as reasoning_effort", async ({
@@ -641,7 +702,7 @@ test.describe("owned machine agent: parity", () => {
 		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
 	});
 
-	test("sidebar: a subagent is listed under its workspace, marked, and its wait shows on both rows", async ({
+	test("sidebar: a subagent is nested under its parent, and its wait shows on both rows", async ({
 		page,
 		db,
 		session,
@@ -654,37 +715,33 @@ test.describe("owned machine agent: parity", () => {
 			timeout: 60_000,
 		});
 
-		// The sidebar polls: the child shows up as its own row, badged, with
-		// where it came from, and waiting (the loud state) on it and its parent.
-		const badge = page.getByTestId("subagent-badge");
-		await expect(badge).toHaveCount(1, { timeout: 30_000 });
-		const from = page.getByTestId("subagent-from");
-		await expect(from).toContainText("↳ from");
+		// The sidebar polls: the child shows up nested under its parent, behind a
+		// connector, and waiting (the loud state) on it and on its parent.
+		const nested = page.locator('[data-testid="session-children"] [data-kind="subtask"]');
+		await expect(nested).toHaveCount(1, { timeout: 30_000 });
 		await expect(page.getByTestId("waiting-approval")).toHaveCount(2, { timeout: 30_000 });
-		await expect(page.getByTestId("subagent-count")).toContainText("1 subagent");
 
-		// The count's popover links to the child; its view says whose it is.
-		await page.getByTestId("subagent-count").click();
-		await page.getByRole("menuitem").first().click();
+		// Its link opens the child, whose view says whose it is.
+		await nested.getByRole("link").click();
 		await expect(page).toHaveURL(/agent=/);
 		await expect(page.getByTestId("subagent-of")).toContainText("Subagent of");
 
-		// "from" goes back to the parent, which is not a subagent.
-		await from.click();
+		// The parent's own row goes back to the parent, which is not a subagent.
+		await page.getByTestId("session-row").first().getByRole("link").click();
 		await expect(page.getByTestId("subagent-of")).toHaveCount(0);
 
 		// The filter hides subagent rows, and says so on reload.
 		await page.getByRole("button", { name: "Show subagents" }).click();
-		await expect(badge).toHaveCount(0);
+		await expect(nested).toHaveCount(0);
 		await page.reload();
 		await expect(page.getByRole("button", { name: "Show subagents" })).toHaveAttribute(
 			"aria-pressed",
 			"false",
 			{ timeout: 30_000 }
 		);
-		await expect(badge).toHaveCount(0);
+		await expect(nested).toHaveCount(0);
 		await page.getByRole("button", { name: "Show subagents" }).click();
-		await expect(badge).toHaveCount(1);
+		await expect(nested).toHaveCount(1);
 
 		// Unblock the child so the turn ends cleanly.
 		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();

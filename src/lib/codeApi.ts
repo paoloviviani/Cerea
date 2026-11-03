@@ -13,6 +13,7 @@
  */
 
 import type {
+	FileEntry,
 	FilesListResult,
 	FilesReadResult,
 	FilesStatusResult,
@@ -353,6 +354,49 @@ export async function readWorkspaceFile(
 	return unwrap(
 		await fetch(filesUrl(deviceId, workspaceId, "/content", { path, offset: String(offset) }))
 	);
+}
+
+/** files.write's conflict (409): the file changed on disk since it was read
+ * (or appeared, or went). `revision` is what is on disk now (null: no file),
+ * the base to save against to overwrite it. */
+export class FileConflictError extends CodeApiError {
+	constructor(
+		message: string,
+		readonly revision: string | null
+	) {
+		super(message, 409);
+		this.name = "FileConflictError";
+	}
+}
+
+/** Save a text file from the editor (files.write, §9.3): only while the file
+ * is still at `baseRevision` (null: must not exist yet). Answers the entry as
+ * written, with its new revision; throws `FileConflictError` on a 409. */
+export async function writeWorkspaceFile(
+	deviceId: string,
+	workspaceId: string,
+	path: string,
+	content: string,
+	baseRevision: string | null
+): Promise<{ entry: FileEntry }> {
+	const response = await fetch(filesUrl(deviceId, workspaceId, "/content", {}), {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ path, content, encoding: "utf-8", baseRevision }),
+	});
+	if (response.status === 409) {
+		let body: { message?: string; revision?: string | null } = {};
+		try {
+			body = superjson.parse(await response.text()) ?? {};
+		} catch {
+			/* not ours: the generic conflict below */
+		}
+		throw new FileConflictError(
+			body.message ?? "The file changed on disk.",
+			typeof body.revision === "string" ? body.revision : null
+		);
+	}
+	return unwrap(response);
 }
 
 /** The workspace's git status, for the tree's badges. */

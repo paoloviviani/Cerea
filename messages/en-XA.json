@@ -176,6 +176,8 @@
 	"code.enroll.most_may_do": "[Ḿóśť {key} ḿáý ďó]",
 	"code.enroll.no_files_label": "[Ńó ƒíľé éẋþľóŕéŕ.]",
 	"code.enroll.no_files_text": "[Ķééþ ťȟé /ćóďé éẋþľóŕéŕ óúť óƒ ťȟíś ḿáćȟíńé'ś ŵóŕķśþáćé ƒíľéś.]",
+	"code.enroll.file_write_label": "[Áľľóŵ śáǚíńǧ ƒíľéś.]",
+	"code.enroll.file_write_text": "[Ĺéť ťȟé /ćóďé éďíťóŕ śáǚé ťéẋť ƒíľéś íń ťȟíś ḿáćȟíńé'ś ŵóŕķśþáćéś. Á śáǚé ŕéþľáćéś á ƒíľé óńľý íƒ íť ȟáś ńóť ćȟáńǧéď óń ďíśķ śíńćé íť ŵáś óþéńéď, áńď ńéǚéŕ ťóúćȟéś á ƒíľé ȟíďďéń ƀý ťȟé ďéńý ľíśť.]",
 	"code.enroll.no_tools_label": "[Ńó áǧéńť ťóóľś.]",
 	"code.enroll.no_tools_text": "[Íńśťáľľ ńóńé óƒ ǧáľóþíń'ś áǧéńť ťóóľś (śéśśíóń_ľíśť, śéśśíóń_ŕéáď, śéśśíóń_śþáŵń, śéśśíóń_śéńď áńď ťȟé śćȟéďúľé ťóóľś), śó śéśśíóńś ćáńńóť ƒíńď, ŕéáď, śťáŕť óŕ ḿéśśáǧé éáćȟ óťȟéŕ, óŕ ḿáńáǧé ýóúŕ śćȟéďúľéś.]",
 	"code.enroll.outside_label": "[Áǧéńťś ḿáý ŵóŕķ óúťśíďé ťȟé þŕóĵéćť ƒóľďéŕ ŵíťȟóúť áśķíńǧ.]",
@@ -208,6 +210,22 @@
 	"code.files.back_label": "[Ɓáćķ ťó ƒíľéś]",
 	"code.files.binary": "[Ɓíńáŕý ƒíľé · {size}]",
 	"code.files.could_not_read": "[Ćóúľď ńóť ŕéáď ťȟíś ƒíľé.]",
+	"code.files.edit.binary_read_only": "[Ɓíńáŕý ƒíľéś ćáń'ť ƀé éďíťéď ȟéŕé.]",
+	"code.files.edit.conflict_text": "[Ťȟé ƒíľé ćȟáńǧéď óń ďíśķ śíńćé ýóú óþéńéď íť. Ŕéľóáď íť áńď ľóśé ýóúŕ éďíťś, óŕ óǚéŕŵŕíťé íť ŵíťȟ ýóúŕś.]",
+	"code.files.edit.conflict_title": "[Ćȟáńǧéď óń ďíśķ.]",
+	"code.files.edit.discard": "[Ďíśćáŕď]",
+	"code.files.edit.edit": "[Éďíť]",
+	"code.files.edit.image_read_only": "[Íḿáǧéś ćáń'ť ƀé éďíťéď ȟéŕé.]",
+	"code.files.edit.leave_confirm": "[Ýóú ȟáǚé úńśáǚéď éďíťś ťó ťȟíś ƒíľé. Ĺéáǚé áńď ľóśé ťȟéḿ?]",
+	"code.files.edit.no_changes": "[Ńó ćȟáńǧéś]",
+	"code.files.edit.overwrite": "[Óǚéŕŵŕíťé]",
+	"code.files.edit.reload": "[Ŕéľóáď]",
+	"code.files.edit.save": "[Śáǚé]",
+	"code.files.edit.save_failed": "[Ćóúľď ńóť śáǚé ťȟé ƒíľé. Ťŕý áǧáíń.]",
+	"code.files.edit.save_title": "[Śáǚé (Ćťŕľ+Ś, óŕ ⌘Ś óń á Ḿáć)]",
+	"code.files.edit.saving": "[Śáǚíńǧ…]",
+	"code.files.edit.too_large": "[Ƒíľéś óǚéŕ 1 ḾíƁ ćáń'ť ƀé éďíťéď ȟéŕé.]",
+	"code.files.edit.unsaved": "[Úńśáǚéď ćȟáńǧéś]",
 	"code.files.load_more": "[Ĺóáď ḿóŕé]",
 	"code.files.loading": "[Ĺóáďíńǧ…]",
 	"code.files.on_branch": "[Óń {branch}]",
@@ -236,6 +254,21 @@
 	"code.handoff.workspace": "[Ŵóŕķśþáćé]",
 	"code.inbox.could_not_answer": "[Ćóúľď ńóť áńśŵéŕ ťȟé ŕéǫúéśť.]",
 	"code.inbox.could_not_answer_question": "[Ćóúľď ńóť áńśŵéŕ ťȟé ǫúéśťíóń.]",
+	"code.inbox.count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ńééďś ýóú]",
+				"countPlural=other": "[{count} ńééď ýóú]"
+			}
+		}
+	],
 	"code.inbox.hint": "[Áńśŵéŕ ȟéŕé óŕ óń ťȟé áǧéńť — áńśŵéŕíńǧ áńýŵȟéŕé ćľéáŕś íť éǚéŕýŵȟéŕé.]",
 	"code.inbox.label": "[Ńééďś ýóú]",
 	"code.inbox.open_agent": "[Óþéń áǧéńť]",
@@ -250,6 +283,7 @@
 	"code.nav.archiving": "[Áŕćȟíǚíńǧ…]",
 	"code.nav.cancelled": "[ćáńćéľľéď]",
 	"code.nav.cancelled_title": "[Śťóþþéď ƀéƒóŕé íť ƒíńíśȟéď; íťś ŵóŕķ ŵáś ńóť ćóḿþľéťéď]",
+	"code.nav.children_of": "[Śéśśíóńś úńďéŕ {title}]",
 	"code.nav.collapse": "[Ćóľľáþśé {name}]",
 	"code.nav.confirm_title": "[Ćóńƒíŕḿ ťȟíś ḿáćȟíńé]",
 	"code.nav.connected": "[Ćóńńéćťéď]",
@@ -262,23 +296,27 @@
 	"code.nav.deleting": "[Ďéľéťíńǧ…]",
 	"code.nav.devices": "[Ďéǚíćéś]",
 	"code.nav.expand": "[Éẋþáńď {name}]",
+	"code.nav.fewer_children": "[Śȟóŵ ƒéŵéŕ]",
 	"code.nav.from": "[↳ ƒŕóḿ {title}]",
 	"code.nav.from_elsewhere": "[↳ ƒŕóḿ {title} · {where}]",
 	"code.nav.from_unlisted": "[↳ ƒŕóḿ á śéśśíóń ńóť ľíśťéď ȟéŕé]",
 	"code.nav.legacy_detail": "[Íť śťíľľ áľľóŵś éǚéŕýťȟíńǧ. Óńé ŕé-éńŕóľľ ťíǧȟťéńś íť.]",
 	"code.nav.loading": "[Ĺóáďíńǧ þáíŕéď ďéǚíćéś…]",
 	"code.nav.machine_settings": "[Ḿáćȟíńé śéťťíńǧś]",
+	"code.nav.more_children": "[+{count} ḿóŕé]",
+	"code.nav.needs_you": "[Ńééďś ýóú]",
+	"code.nav.new_session": "[Ńéŵ śéśśíóń]",
 	"code.nav.new_worktree": "[Ńéŵ ŵóŕķťŕéé…]",
 	"code.nav.no_agents": "[Ńó áǧéńťś ýéť.]",
 	"code.nav.no_devices": "[Ńó þáíŕéď ďéǚíćéś]",
 	"code.nav.not_connected": "[Ńóť ćóńńéćťéď]",
 	"code.nav.offline": "[óƒƒľíńé]",
 	"code.nav.offline_dot": "[Óƒƒľíńé.]",
-	"code.nav.online": "[óńľíńé]",
-	"code.nav.other_workspace": "[Íń áńóťȟéŕ ŵóŕķśþáćé ńóť ľíśťéď ȟéŕé.]",
+	"code.nav.offline_since": "[óƒƒľíńé {age}]",
 	"code.nav.pair": "[Þáíŕ]",
 	"code.nav.pair_device": "[Þáíŕ á ďéǚíćé]",
 	"code.nav.pair_title": "[Þáíŕ á ńéŵ ďéǚíćé]",
+	"code.nav.pending": "[þéńďíńǧ áþþŕóǚáľ]",
 	"code.nav.permissions": "[Þéŕḿíśśíóńś…]",
 	"code.nav.profiles": "[Þŕóƒíľéś]",
 	"code.nav.reenroll_idp": "[Ŕé-éńŕóľľ ťȟíś ḿáćȟíńé: ťȟé íďéńťíťý þŕóǚíďéŕ ćȟáńǧéď]",
@@ -287,9 +325,9 @@
 	"code.nav.reject_machine": "[Ŕéĵéćť ḿáćȟíńé]",
 	"code.nav.reject_message": "[Á ŕéĵéćťéď ḿáćȟíńé ńéǚéŕ þáíŕś: ťȟé ŕóŵ ƀéćóḿéś á ťóḿƀśťóńé áńď á ŕéćóńńéćť úńďéŕ ťȟé śáḿé ḿáćȟíńé íď íś ŕéƒúśéď. Ťȟé ḿáćȟíńé ḿúśť ŕé-éńŕóľľ ťó ťŕý áǧáíń.]",
 	"code.nav.reject_title": "[Ŕéĵéćť ťȟíś ḿáćȟíńé]",
+	"code.nav.remove": "[Ŕéḿóǚé]",
 	"code.nav.remove_machine": "[Ŕéḿóǚé ťȟíś ḿáćȟíńé]",
 	"code.nav.remove_machine_button": "[Ŕéḿóǚé ḿáćȟíńé]",
-	"code.nav.remove_machine_title": "[Ŕéḿóǚé ťȟíś ḿáćȟíńé ƒŕóḿ ťȟé ľíśť]",
 	"code.nav.remove_message": "[Íťś áććéśś íś áľŕéáďý ŕéǚóķéď; ťȟíś óńľý ŕéḿóǚéś íť ƒŕóḿ ťȟé ľíśť. Íƒ ťȟé ḿáćȟíńé íś śťíľľ íń úśé, ŕé-éńŕóľľ íť: ťȟáť þáíŕś íť áś á ńéŵ ḿáćȟíńé.]",
 	"code.nav.remove_pairing_title": "[Ŕéḿóǚé ťȟíś þáíŕíńǧ]",
 	"code.nav.remove_worktree": "[Áľśó ŕéḿóǚé ťȟé ǧíť ŵóŕķťŕéé (ŕéƒúśéď íƒ íť ȟáś úńćóḿḿíťťéď ćȟáńǧéś)]",
@@ -322,29 +360,10 @@
 	"code.nav.spawned_by": "[śþáŵńéď ƀý {title}]",
 	"code.nav.spawned_by_elsewhere": "[śþáŵńéď ƀý {title} · {where}]",
 	"code.nav.spawned_by_gone": "[śþáŵńéď ƀý {title} (ǧóńé)]",
-	"code.nav.spawned_count": "[śþáŵńéď {count}]",
-	"code.nav.spawned_title": "[Śéśśíóńś śþáŵńéď ƀý ťȟíś óńé]",
 	"code.nav.start_session_title": "[Śťáŕť á ćóďíńǧ śéśśíóń íń ťȟíś ŵóŕķśþáćé]",
-	"code.nav.sub": "[śúƀ]",
-	"code.nav.sub_waiting": "[śúƀáǧéńť ŵáíťíńǧ]",
+	"code.nav.state_error": "[Ƒáíľéď]",
+	"code.nav.state_running": "[Ŕúńńíńǧ]",
 	"code.nav.sub_waiting_title": "[Á śúƀáǧéńť íś ŵáíťíńǧ ƒóŕ ýóúŕ áþþŕóǚáľ]",
-	"code.nav.subagent_count": [
-		{
-			"declarations": [
-				"input count",
-				"local countPlural = count: plural"
-			],
-			"selectors": [
-				"countPlural"
-			],
-			"match": {
-				"countPlural=one": "[{count} śúƀáǧéńť]",
-				"countPlural=other": "[{count} śúƀáǧéńťś]"
-			}
-		}
-	],
-	"code.nav.subagents_title": "[Śúƀáǧéńťś óƒ ťȟíś śéśśíóń]",
-	"code.nav.waiting": "[ŵáíťíńǧ ƒóŕ áþþŕóǚáľ]",
 	"code.nav.waiting_title": "[Ŵáíťíńǧ ƒóŕ ýóúŕ áþþŕóǚáľ]",
 	"code.nav.workspace_actions": "[Ŵóŕķśþáćé áćťíóńś]",
 	"code.nav.workspace_count": [

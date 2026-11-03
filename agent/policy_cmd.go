@@ -15,14 +15,15 @@ Usage:
   galopin policy show [--creds PATH] [--state-dir PATH]
   galopin policy set [options] [--creds PATH] [--state-dir PATH]
 
-'set' may only TIGHTEN the policy: turn files, the terminal, command
+'set' may only TIGHTEN the policy: turn files, file writes, the terminal, command
 shell or agent tools off, lower a permission ceiling or rule, lower maxTerminals, or add to the file deny list. This file is
 never writable over the link (PROTOCOL.md §4); the local CLI keeps that
 same one-way shape, so loosening anything back — files, terminal or
-command shell back on, a higher maxTerminals, dropping a deny entry —
+command shell or file writes back on, a higher maxTerminals, dropping a deny entry —
 refuses and names the 'enroll' re-run that does it instead.
 
   --no-files          Turn the /code explorer off.
+  --no-file-write     Stop the /code editor from saving files here.
   --no-terminal       Turn the terminal off.
   --no-command-shell  Refuse every command whose template expands shell,
                       and every command whose shell is unknown.
@@ -103,6 +104,7 @@ func runPolicyShow(args []string) error {
 		return err
 	}
 	fmt.Println(filesPolicySummary(pol))
+	fmt.Println(fileWritePolicySummary(pol))
 	fmt.Println(terminalPolicySummary(pol))
 	fmt.Println(commandShellPolicySummary(pol))
 	fmt.Println(agentToolsPolicySummary(pol))
@@ -118,6 +120,7 @@ func runPolicySet(args []string) error {
 	fs := flagSetWithHelp("policy set", policyUsage)
 	var credsPath, stateDir string
 	noFiles := fs.Bool("no-files", false, "")
+	noFileWrite := fs.Bool("no-file-write", false, "")
 	noTerminal := fs.Bool("no-terminal", false, "")
 	noCommandShell := fs.Bool("no-command-shell", false, "")
 	noAgentTools := fs.Bool("no-agent-tools", false, "")
@@ -152,6 +155,10 @@ func runPolicySet(args []string) error {
 	}
 
 	changed := false
+	if *noFileWrite {
+		pol.FileWrite = policy.FileWriteDenied
+		changed = true
+	}
 	if *noFiles {
 		pol.Files = policy.FilesOff
 		changed = true
@@ -246,6 +253,7 @@ func runPolicySet(args []string) error {
 		return err
 	}
 	fmt.Fprintln(os.Stderr, filesPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, fileWritePolicySummary(pol))
 	fmt.Fprintln(os.Stderr, terminalPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, commandShellPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
