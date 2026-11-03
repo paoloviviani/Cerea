@@ -36,7 +36,7 @@ import { isMessageToolCallUpdate } from "$lib/utils/messageUpdates";
  *   ordinary message content and pass through verbatim: language and title=
  *   annotation survive, so the file identity survives the export.
  * - Tool calls are summarized to their names with multiplicity
- *   (`_Called 5 tools: `ask_user_question` ×5._`). Arguments and results are
+ *   (`_Used 5 tools: `ask_user_question` ×5._`). Arguments and results are
  *   omitted: they can carry huge/base64 payloads and are call internals, not
  *   conversation text.
  * - Attachments and generated files are listed by name; bytes are out of
@@ -219,7 +219,7 @@ function renderAssistantMessage(message: Message, model?: string): string {
 	const toolNames = collectToolNames(message);
 	if (toolNames.length > 0) {
 		sections.push(
-			`_Called ${toolNames.length} tool${toolNames.length === 1 ? "" : "s"}: ${formatToolNamesWithCounts(toolNames).join(", ")}._`
+			`_Used ${toolNames.length} tool${toolNames.length === 1 ? "" : "s"}: ${formatToolNamesWithCounts(toolNames).join(", ")}._`
 		);
 	}
 	const answer = renderAnswerBody(message.content);

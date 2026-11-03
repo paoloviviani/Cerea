@@ -468,7 +468,7 @@
 		}
 
 		// The `execute_code` tool call a code-execution card stands for: the
-		// card IS the call, so its generic "Called tool" row is not drawn.
+		// card IS the call, so its generic "Used tool" row is not drawn.
 		// Requests carry the call's uuid; older stored ones are paired with
 		// the nearest unclaimed `execute_code` call before them.
 		const codeToolUuids = new Set<string>();
@@ -703,7 +703,7 @@
 		// The coding agent's task plan (opencode's todo list) never renders as a
 		// card: it is state the Tasks pane reads from the transcript (latestPlan),
 		// redundant as a card under the answer. The todowrite tool call it came
-		// from stays in the "Called N tools" group. A chat plan (the plan tool,
+		// from stays in the "Used N tools" group. A chat plan (the plan tool,
 		// keyed by its call id) keeps its card and its stream position.
 		return expandArtifactBlocks(expandThinkBlocks(res)).filter(
 			(b) => !(b.type === "plan" && b.update.uuid.startsWith("agent-plan"))
@@ -734,7 +734,7 @@
 	}
 
 	// Coalesce consecutive process blocks (thinking + tools) into groups so they can
-	// collapse into a single "Called N tools" / "Thought" summary. Text passes through.
+	// collapse into a single "Used N tools" / "Thought" summary. Text passes through.
 	let renderUnits = $derived.by(() => {
 		const units: RenderUnit[] = [];
 		let current: ProcessBlock[] | null = null;
@@ -748,7 +748,7 @@
 		for (const block of blocks) {
 			if (block.type === "tool" && toolShowsImages(block)) {
 				// Never folded either: a screenshot a tool took is something the
-				// person comes back to look for, and behind "Called N tools" it
+				// person comes back to look for, and behind "Used N tools" it
 				// could only be found by opening every group. A lone tool card
 				// keeps its image strip even when collapsed.
 				flush();

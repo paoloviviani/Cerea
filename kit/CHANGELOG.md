@@ -7,6 +7,18 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **"Used tool" instead of "Called tool"**, in the chat and in exported conversations.
+- **File and code cards fit the chat column** when the side pane is open: their minimum width
+  followed the window, so with a file preview open they ran under the pane. They now follow the
+  chat column.
+- **The Files pane tells the truth about retention.** With "Never expire" ticked under
+  Administration → Storage it still said "Files are kept for 30 days": the setting did not reach
+  the page and the pane fell back to its default. Files were never deleted; only the label was wrong.
+- **The code panel's file explorer shows `.env` files.** They were hidden by galopin's built-in
+  deny list; private keys and credential files still are. A slash command still cannot pull a
+  `.env` into a prompt, and the agent still asks before reading one. Hide them again on a machine
+  with `--file-deny '.env' --file-deny '.env.*'` at enroll. File contents are sent with `no-store`,
+  so the browser never caches them. Needs the galopin update.
 - **A file a connector returns becomes a file of the conversation.** A tool result with an MCP
   resource blob, image or audio content, or a base64 file inside its JSON (Microsoft 365
   `download-bytes`, for one) is stored in Files, mounted at `/mnt/data/<name>` in code and opened

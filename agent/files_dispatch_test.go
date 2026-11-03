@@ -20,7 +20,7 @@ func filesMachine(t *testing.T, pol policy.Policy) (*machine, string) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	for name, body := range map[string]string{"main.go": "package main\n", ".env": "SECRET=1\n"} {
+	for name, body := range map[string]string{"main.go": "package main\n", ".env": "SECRET=1\n", "id_rsa": "KEY\n"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -45,8 +45,9 @@ func TestFilesOpsServeTheWorkspaceAndRedact(t *testing.T) {
 	if !strings.Contains(string(raw), `"name":"main.go"`) || !strings.Contains(string(raw), `"name":".env","path":".env"`) {
 		t.Fatalf("list = %s", raw)
 	}
-	if !strings.Contains(string(raw), `"redacted":true`) {
-		t.Errorf("list = %s, want .env redacted", raw)
+	// A private key stays redacted; .env files are not on the default list (2026-11-03).
+	if !strings.Contains(string(raw), `"name":"id_rsa","path":"id_rsa","type":"file"`) || !strings.Contains(string(raw), `"redacted":true`) {
+		t.Errorf("list = %s, want id_rsa redacted", raw)
 	}
 
 	read, operr := mc.Handle(ctx, "files.read", json.RawMessage(`{"workspaceId":"`+wsID+`","path":"main.go"}`))
@@ -56,8 +57,13 @@ func TestFilesOpsServeTheWorkspaceAndRedact(t *testing.T) {
 	if b, _ := json.Marshal(read); !strings.Contains(string(b), `package main`) {
 		t.Errorf("read = %s", b)
 	}
-	if _, operr := mc.Handle(ctx, "files.read", json.RawMessage(`{"workspaceId":"`+wsID+`","path":".env"}`)); operr == nil || operr.Code != "forbidden" {
-		t.Errorf("reading .env = %+v, want forbidden", operr)
+	if env, operr := mc.Handle(ctx, "files.read", json.RawMessage(`{"workspaceId":"`+wsID+`","path":".env"}`)); operr != nil {
+		t.Errorf("reading .env = %+v, want it shown", operr)
+	} else if b, _ := json.Marshal(env); !strings.Contains(string(b), `SECRET=1`) {
+		t.Errorf("read .env = %s", b)
+	}
+	if _, operr := mc.Handle(ctx, "files.read", json.RawMessage(`{"workspaceId":"`+wsID+`","path":"id_rsa"}`)); operr == nil || operr.Code != "forbidden" {
+		t.Errorf("reading id_rsa = %+v, want forbidden", operr)
 	}
 	if _, operr := mc.Handle(ctx, "files.read", json.RawMessage(`{"workspaceId":"`+wsID+`","path":"../x"}`)); operr == nil || operr.Code != "invalid" {
 		t.Errorf("reading ../x = %+v, want invalid", operr)

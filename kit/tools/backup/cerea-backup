@@ -214,7 +214,8 @@ dump_extra() {
   log "extra: copying $EXTRA_DIR into the snapshot as extra/"
   mkdir -p "$RUN_DIR/extra"
   # -L: a file mounted from the host may be a symlink there; keep its content.
-  cp -RL "$EXTRA_DIR"/. "$RUN_DIR/extra/" || die "extra: could not copy $EXTRA_DIR"
+  # -p: keep modes, owners and times, so a restore puts back what was on disk.
+  cp -RLp "$EXTRA_DIR"/. "$RUN_DIR/extra/" || die "extra: could not copy $EXTRA_DIR"
   EXTRA_COUNT=$(find "$RUN_DIR/extra" -type f | wc -l | tr -d ' ')
   log "extra: $EXTRA_COUNT files"
 }

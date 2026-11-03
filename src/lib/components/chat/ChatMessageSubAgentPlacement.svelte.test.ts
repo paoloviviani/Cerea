@@ -74,11 +74,11 @@ describe("sub-agent cards inside a message", () => {
 		expect(out).toContain("Licence of B");
 		expect(out).toContain("searching “A licence”");
 		expect(out).toContain("reading b.test/license");
-		expect(out).not.toContain("Called tool delegate");
+		expect(out).not.toContain("Used tool delegate");
 		expect(out).not.toContain("Calling tool");
 	});
 
-	it("finished: the cards are not folded into 'Called N tools', and show their answers", () => {
+	it("finished: the cards are not folded into 'Used N tools', and show their answers", () => {
 		const view = mount([
 			...bash("x"),
 			call("a"),
@@ -93,8 +93,8 @@ describe("sub-agent cards inside a message", () => {
 		expect(out).toContain("A is MIT.");
 		expect(out).toContain("B is Apache-2.0.");
 		// the bash call keeps its own row; the delegate calls add no tool count to it
-		expect(out).toContain("Called tool bash");
-		expect(out).not.toContain("Called 3 tools");
+		expect(out).toContain("Used tool bash");
+		expect(out).not.toContain("Used 3 tools");
 	});
 
 	it("a later state replaces the earlier card in place", () => {

@@ -1559,7 +1559,7 @@
 	"chat.table.sorted_desc": "Sorted descending — activate to clear sorting",
 	"chat.tool.auto_approved": "allowed by this machine's rules",
 	"chat.tool.auto_approved_title": "This machine's own permission rules allow this, so no approval was asked",
-	"chat.tool.called": "Called tool",
+	"chat.tool.called": "Used tool",
 	"chat.tool.load_failed": "Could not load {names}",
 	"chat.tool.loaded_connectors": "Loaded {names}",
 	"chat.tool.loading_connectors": "Loading {names}",
@@ -1608,8 +1608,8 @@
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
 			"match": {
-				"countPlural=one": "Called {count} tool",
-				"countPlural=other": "Called {count} tools"
+				"countPlural=one": "Used {count} tool",
+				"countPlural=other": "Used {count} tools"
 			}
 		}
 	],

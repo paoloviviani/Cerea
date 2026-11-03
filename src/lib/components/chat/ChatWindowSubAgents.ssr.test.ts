@@ -128,6 +128,6 @@ describe("ChatWindow SSR with sub-agent cards", () => {
 		expect(body).toContain("Big One");
 		expect(body).toContain("A is MIT.");
 		expect(body).toContain("B is Apache-2.0.");
-		expect(body).not.toContain("Called tool");
+		expect(body).not.toContain("Used tool");
 	});
 });
