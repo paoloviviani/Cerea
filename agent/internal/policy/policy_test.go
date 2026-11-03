@@ -525,3 +525,19 @@ func TestIncoherentCeilingWarnsOnlyWhenBashIsUncapped(t *testing.T) {
 		}
 	}
 }
+
+// .env files left the explorer's default list (2026-11-03) but never the
+// prompt list: a command's @.env would put the file in the prompt with no ask.
+func TestEnvFilesShownInTheExplorerButNeverPulledIntoAPrompt(t *testing.T) {
+	for _, g := range DefaultFileDeny {
+		if g == ".env" || g == ".env.*" || g == ".envrc" {
+			t.Errorf("DefaultFileDeny still holds %q", g)
+		}
+	}
+	for _, p := range []Policy{{}, {NoDefaultFileDeny: true}} {
+		got := p.EffectivePromptFileDeny()
+		if len(got) < 2 || got[0] != ".env" || got[1] != ".env.*" {
+			t.Errorf("EffectivePromptFileDeny(%+v) = %v, want the .env patterns first", p, got)
+		}
+	}
+}

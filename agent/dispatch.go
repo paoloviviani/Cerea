@@ -1457,10 +1457,11 @@ func (mc *machine) opSessionCommand(ctx context.Context, args json.RawMessage) (
 
 	// @path references go into the prompt at expansion time, so a denied
 	// file would land in the transcript and the gateway's logs with no ask.
-	// The same deny list the explorer redacts with — and checked whether or
-	// not the shell policy allowed the run.
+	// The explorer's deny list plus the .env files it shows (a prompt is not a
+	// screen: what lands there reaches the model) — checked whether or not the
+	// shell policy allowed the run.
 	for _, ref := range gateRefs {
-		if files.MatchDeny(mc.pol.EffectiveFileDeny(), ref) {
+		if files.MatchDeny(mc.pol.EffectivePromptFileDeny(), ref) {
 			return refuse("forbidden", "this command reads %q, which this machine's file deny list refuses", ref)
 		}
 	}

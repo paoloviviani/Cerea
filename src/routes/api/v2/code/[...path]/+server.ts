@@ -421,9 +421,12 @@ export const GET: RequestHandler = async (event) => {
 				const read = await callOp(() =>
 					link.filesRead({ workspaceId, path: relPath, offset, length })
 				);
-				// An image comes back through /raw, never as base64 JSON here.
+				// An image comes back through /raw, never as base64 JSON here. A file's
+				// content is never cached by the browser or anything between (a .env
+				// file can be opened here).
 				return superjsonResponse(
-					read.kind === "image" ? { ...read, content: undefined, encoding: "none" } : read
+					read.kind === "image" ? { ...read, content: undefined, encoding: "none" } : read,
+					{ headers: { "Cache-Control": "private, no-store" } }
 				);
 			}
 			case "raw": {
