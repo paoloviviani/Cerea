@@ -4,6 +4,7 @@ import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { defaultModel, models, validateModel } from "$lib/server/models";
+import { callerByokModels } from "$lib/server/visibleModels";
 import { findCustomModel, ownerFilter } from "$lib/server/customModels";
 import { isCustomModelId } from "$lib/utils/customModelId";
 import { GLOBAL_SYSTEM_PROMPT_MAX } from "$lib/types/CustomModel";
@@ -63,9 +64,16 @@ export const GET: RequestHandler = async ({ locals }) => {
 	// A custom model is a valid default when it is this person's own; one that
 	// has gone (deleted behind the app's back) resets like any retired model.
 	const activeIsCustom = isCustomModelId(settings?.activeModel);
+	// A user's own-key model (`my/<name>`) is valid while it is in their gateway
+	// list. If the gateway cannot be asked, leave the stored choice alone rather
+	// than reset it over an outage.
+	const activeIsOwn = Boolean(settings?.activeModel?.startsWith("my/"));
+	const ownList = activeIsOwn ? await callerByokModels(locals) : [];
 	const activeValid = activeIsCustom
 		? Boolean(await findCustomModel(ownerFilter(locals), settings?.activeModel))
-		: validateModel(models).safeParse(settings?.activeModel).success;
+		: activeIsOwn
+			? ownList === null || ownList.some((m) => m.id === settings?.activeModel)
+			: validateModel(models).safeParse(settings?.activeModel).success;
 	if (defaultModel && settings && !activeValid) {
 		settings.activeModel = defaultModel.id;
 		await collections.settings.updateOne(authCondition(locals), {

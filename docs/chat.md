@@ -178,8 +178,8 @@ If your group allows it, you can add your own providers and models in the
 gateway console (**Your providers and models** in the Workspace page's
 **Models** tab opens it). Those models are private to you and appear in the
 picker and in the Models tab with a **Your key** badge; their ids start with
-`my/`. They work like any other model: chats, projects, schedules, custom
-models. They use your own API key, so they are not counted against your
+`my/`. They work like any other model: chats, projects, schedules. A custom model
+cannot be based on one. They use your own API key, so they are not counted against your
 group's limits, and the usage is shown to you only.
 
 ### Custom models

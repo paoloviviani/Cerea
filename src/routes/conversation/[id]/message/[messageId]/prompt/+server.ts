@@ -1,6 +1,7 @@
 import { buildPrompt } from "$lib/buildPrompt";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
+import { modelsFor } from "$lib/server/visibleModels";
 import { conversationOwnerFilter, resolveConversationModel } from "$lib/server/customModels";
 import { buildSubtree } from "$lib/utils/tree/buildSubtree";
 import { isMessageId } from "$lib/utils/tree/isMessageId";
@@ -25,7 +26,13 @@ export async function GET({ params, locals }) {
 		error(404, "Message not found");
 	}
 
-	const model = (await resolveConversationModel(conv.model, conversationOwnerFilter(conv)))?.model;
+	const model = (
+		await resolveConversationModel(
+			conv.model,
+			conversationOwnerFilter(conv),
+			await modelsFor(locals, conv.model)
+		)
+	)?.model;
 
 	if (!model) {
 		error(404, "Conversation model not found");

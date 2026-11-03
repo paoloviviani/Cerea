@@ -6,6 +6,7 @@ import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import { ObjectId } from "mongodb";
 import { validModelIdSchema } from "$lib/server/models";
+import { isSelectableCatalogueId } from "$lib/server/visibleModels";
 import { conversationOwnerFilter, isSelectableModel } from "$lib/server/customModels";
 import { applyConversationSettings } from "$lib/server/conversationSettings";
 import {
@@ -180,7 +181,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 		!(await isSelectableModel(
 			model,
 			conversationOwnerFilter({ userId: locals.user?._id, sessionId: locals.sessionId }),
-			(id) => validModelIdSchema.safeParse(id).success
+			(id) => isSelectableCatalogueId(locals, id, (i) => validModelIdSchema.safeParse(i).success)
 		))
 	) {
 		error(400, "Invalid model ID");

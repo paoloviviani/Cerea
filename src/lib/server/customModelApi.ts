@@ -19,11 +19,11 @@ export const customModelFields = {
 	description: z.string().trim().max(CUSTOM_MODEL_DESCRIPTION_MAX).nullish(),
 };
 
-/** The base must be a catalogue model this person can see — never another custom model. */
+/** The base must be a catalogue model this person can see — never another custom model and never a user's own-key (`my/`) model, which only resolves for a turn on its own id. */
 export async function assertBaseModel(locals: App.Locals, baseModelId: string) {
 	if (isCustomModelId(baseModelId)) error(400, "A custom model cannot be based on another one.");
 	const visible = await visibleModels(locals);
-	if (!visible.some((model) => model.id === baseModelId)) {
+	if (!visible.some((model) => model.id === baseModelId && !model.byok)) {
 		error(400, "That base model is not available to you.");
 	}
 }
