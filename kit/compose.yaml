@@ -672,19 +672,30 @@ services:
   #     client picks launch options per connection, and honouring
   #     chromiumSandbox from a client needs `--unsafe`, which would also let it
   #     set args and executablePath). So the service runs `launch-server`
-  #     with playwright-server.json: one Chromium, launched at start with
+  #     with playwright/sandbox-on.json: one Chromium, launched at start with
   #     chromiumSandbox true, that clients connect to; a connecting client
   #     cannot launch anything or change that. A renderer exploit alone is then
   #     not code execution in the container. The sandbox needs user
   #     namespaces, which Docker's default seccomp profile blocks, so the
   #     service runs with Playwright's own profile (seccomp/playwright.json,
   #     source and licence in seccomp/NOTICE.md) instead of CAP_SYS_ADMIN or
-  #     --no-sandbox. The server path stays "/", so the chat's
+  #     --no-sandbox. Its last step is a chroot inside the sandbox's own user
+  #     namespace, which that profile allows only to a container holding
+  #     CAP_SYS_CHROOT: hence cap_add SYS_CHROOT. The container runs as pwuser
+  #     with no effective capabilities and no-new-privileges, so a chroot in the
+  #     container itself is still refused. This works with Docker's default
+  #     AppArmor profile, including on hosts that restrict unprivileged user
+  #     namespaces (Ubuntu 23.10+); no host change is needed. On a host with
+  #     user namespaces off altogether, PLAYWRIGHT_SANDBOX=off starts Chromium
+  #     without its sandbox (playwright/sandbox-off.json) — the rest of the box
+  #     still holds. The server path stays "/", so the chat's
   #     PLAYWRIGHT_WS_ENDPOINT (ws://playwright:3000/) is unchanged;
   #   - read-only root filesystem, tmpfs for scratch and for the npm cache the
-  #     start-up `npx` writes, no capabilities, no privilege escalation, a
-  #     process cap, and CPU and memory limits (a page that eats memory takes
-  #     this container down, not the host).
+  #     start-up `npx` writes (exec: npx runs what it fetches from there), no
+  #     capabilities but SYS_CHROOT, no privilege escalation, a process cap,
+  #     and CPU and memory limits (a page that eats memory takes this container
+  #     down, not the host). A Chromium crash ends the server; the restart
+  #     policy brings it back.
   # CVE-2026-111497 (Brotli decoder out-of-bounds write): the Node in this image
   # (24.22.1) is patched. Chromium's bundled Brotli is unverified, and the
   # image's system libbrotli1 (1.1.0) is unpatched but, as far as is known, not
@@ -702,14 +713,17 @@ services:
     shm_size: 1gb
     networks: [fetch]
     volumes:
-      - ./playwright-server.json:/etc/cerea/playwright-server.json:ro
+      - ./playwright/sandbox-${PLAYWRIGHT_SANDBOX:-on}.json:/etc/cerea/playwright-server.json:ro
     restart: unless-stopped
     read_only: true
     tmpfs:
       - /tmp
-      - /home/pwuser/.npm:uid=1000,gid=1000
-      - /home/pwuser/.cache:uid=1000,gid=1000
+      - /home/pwuser/.npm:uid=1001,gid=1001,exec
+      - /home/pwuser/.cache:uid=1001,gid=1001
     cap_drop: [ALL]
+    # Only for chroot inside Chromium's own user namespace (the sandbox's last
+    # step); see the comment above. pwuser holds no effective capability.
+    cap_add: [SYS_CHROOT]
     security_opt:
       - no-new-privileges:true
       - seccomp=./seccomp/playwright.json

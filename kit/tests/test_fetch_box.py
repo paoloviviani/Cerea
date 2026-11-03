@@ -59,7 +59,7 @@ class FetchNetwork(unittest.TestCase):
         self.assertNotIn("docker.sock", PLAYWRIGHT)
         # The one mount is the server's own config, read-only.
         self.assertEqual(re.findall(r"^      - (\S+)$", PLAYWRIGHT.split("volumes:")[1].split("restart:")[0], re.MULTILINE),
-                         ["./playwright-server.json:/etc/cerea/playwright-server.json:ro"])
+                         ["./playwright/sandbox-${PLAYWRIGHT_SANDBOX:-on}.json:/etc/cerea/playwright-server.json:ro"])
 
 
 class FetchBox(unittest.TestCase):
@@ -67,11 +67,15 @@ class FetchBox(unittest.TestCase):
         for needle in ("read_only: true", "cap_drop: [ALL]", "no-new-privileges:true", "pids_limit:", "mem_limit:", "cpus:"):
             self.assertIn(needle, PLAYWRIGHT, needle)
         self.assertRegex(PLAYWRIGHT, r"user: pwuser")
-        self.assertNotRegex(PLAYWRIGHT, r"cap_add")
+        # One capability back, for the sandbox's chroot in its own user namespace.
+        self.assertRegex(PLAYWRIGHT, r"cap_add: \[SYS_CHROOT\]")
+        self.assertNotRegex(PLAYWRIGHT, r"SYS_ADMIN|privileged")
 
     def test_scratch_space_is_tmpfs_and_covers_the_npm_cache(self):
         for path in ("/tmp", "/home/pwuser/.npm"):
             self.assertRegex(PLAYWRIGHT, rf"- {re.escape(path)}(:|\n)")
+        # pwuser is 1001 in the Playwright image, and npx runs what it fetched.
+        self.assertIn("/home/pwuser/.npm:uid=1001,gid=1001,exec", PLAYWRIGHT)
 
     def test_the_sandbox_is_enabled_with_playwrights_seccomp_profile(self):
         self.assertIn("seccomp=./seccomp/playwright.json", PLAYWRIGHT)
@@ -95,11 +99,20 @@ class FetchBox(unittest.TestCase):
         self.assertNotIn("run-server", PLAYWRIGHT.split("healthcheck:")[0].split("command:")[1])
         self.assertNotIn("--unsafe", PLAYWRIGHT.split("command:")[1].split("\n")[0])
         self.assertNotIn("no-sandbox", PLAYWRIGHT.split("command:")[1].split("\n")[0])
-        config = json.loads((ROOT / "playwright-server.json").read_text(encoding="utf-8"))
-        self.assertIs(config["chromiumSandbox"], True)
-        self.assertEqual(config["wsPath"], "/")  # the chat's PLAYWRIGHT_WS_ENDPOINT path
-        self.assertNotIn("args", config)
-        self.assertNotIn("executablePath", config)
+        on = json.loads((ROOT / "playwright" / "sandbox-on.json").read_text(encoding="utf-8"))
+        off = json.loads((ROOT / "playwright" / "sandbox-off.json").read_text(encoding="utf-8"))
+        self.assertIs(on["chromiumSandbox"], True)
+        self.assertIs(off["chromiumSandbox"], False)
+        # The two differ in the sandbox alone.
+        self.assertEqual({k: v for k, v in on.items() if k != "chromiumSandbox"},
+                         {k: v for k, v in off.items() if k != "chromiumSandbox"})
+        self.assertEqual(on["wsPath"], "/")  # the chat's PLAYWRIGHT_WS_ENDPOINT path
+        for config in (on, off):
+            self.assertNotIn("args", config)
+            self.assertNotIn("executablePath", config)
+
+    def test_the_sandbox_is_on_unless_switched_off(self):
+        self.assertIn("sandbox-${PLAYWRIGHT_SANDBOX:-on}.json", PLAYWRIGHT)
 
     def test_the_seccomp_profile_is_the_pinned_playwright_version(self):
         version = re.search(r"PLAYWRIGHT_VERSION:-([0-9.]+)", PLAYWRIGHT).group(1)

@@ -187,16 +187,27 @@ browser's own code does not go through it. So the box does not rely on it:
   Chromium with `--no-sandbox` unless told otherwise, and `run-server` leaves
   that to each client (honouring a client's `chromiumSandbox` needs `--unsafe`,
   which also lets it set `args` and `executablePath`). So the service runs
-  `launch-server` with `kit/playwright-server.json`: one Chromium, launched at
+  `launch-server` with `kit/playwright/sandbox-on.json`: one Chromium, launched at
   start with `chromiumSandbox: true`, that clients connect to. A connecting
   client cannot launch a browser or change those options, so a client that asks
   for no sandbox, or says nothing, still gets the sandboxed one. The sandbox
   needs user namespaces, which Docker's default seccomp profile blocks; the
   service uses Playwright's own profile (`kit/seccomp/playwright.json`, with its
-  source and licence in `kit/seccomp/NOTICE.md`) rather than extra capabilities.
-  The server's path stays `/`, so `PLAYWRIGHT_WS_ENDPOINT` is unchanged. All
-  concurrent fetches share that one browser, each in its own context.
-- **A read-only filesystem, no capabilities, no privilege escalation,** scratch
+  source and licence in `kit/seccomp/NOTICE.md`) rather than `CAP_SYS_ADMIN`.
+  The sandbox's last step is a `chroot` inside its own user namespace, which
+  that profile allows only to a container holding `CAP_SYS_CHROOT`, so the
+  service adds that one capability back; it runs as `pwuser` with no effective
+  capabilities and `no-new-privileges`, so a `chroot` in the container itself is
+  still refused. This works with Docker's default AppArmor profile, including on
+  hosts that restrict unprivileged user namespaces (Ubuntu 23.10 and later): no
+  change on the host. The server's path stays `/`, so `PLAYWRIGHT_WS_ENDPOINT`
+  is unchanged. All concurrent fetches share that one browser, each in its own
+  context; if Chromium crashes, the server exits and Docker restarts it.
+- **`PLAYWRIGHT_SANDBOX=off`** (in `.env`) starts Chromium without its sandbox,
+  for a host where user namespaces are off altogether and the browser would not
+  start otherwise. `./configure` warns while it is set. The network and the
+  container limits below still apply.
+- **A read-only filesystem, no capabilities but `SYS_CHROOT`, no privilege escalation,** scratch
   space in tmpfs (including the npm cache the start-up `npx` writes), and
   memory (`PLAYWRIGHT_MEM_LIMIT`), CPU (`PLAYWRIGHT_CPUS`) and process limits.
 
