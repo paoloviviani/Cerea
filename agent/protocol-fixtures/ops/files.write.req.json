@@ -1,0 +1,19 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "C→M",
+		"op": "files.write"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "files.write",
+		"args": {
+			"workspaceId": "ws_01",
+			"path": "agent/main.go",
+			"content": "package main\n",
+			"encoding": "utf-8",
+			"baseRevision": "801:42:120:1760000000000000000"
+		}
+	}
+}

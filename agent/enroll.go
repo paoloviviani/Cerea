@@ -127,6 +127,12 @@ Usage:
   --no-default-file-deny  Drop the built-in secret deny list, keeping only
                --file-deny's. The list prevents accidental exposure; it is
                not a boundary against the agent, which can read any file.
+  --allow-file-write  Let the /code editor save text files in this machine's
+               workspaces (default: denied, the explorer is read-only). A
+               save replaces the file atomically and only if it did not
+               change on disk since it was opened; files on the deny list
+               are never written. 'galopin policy set --no-file-write'
+               turns it off again.
   --no-terminal  Keep the /code panel from opening a real shell on this
                machine (default: terminals ALLOWED, which means anyone who
                controls your Cerea session can run commands as you here —
@@ -197,6 +203,7 @@ type enrollOptions struct {
 	noFiles                bool
 	fileDeny               []string
 	noDefaultFileDeny      bool
+	allowFileWrite         bool
 	workspaceRoots         []string
 	allowFreeModels        bool
 	allowTerminal          bool
@@ -262,6 +269,7 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.BoolVar(&opts.noFiles, "no-files", false, "")
 	fs.Var(stringListFlag{&opts.fileDeny}, "file-deny", "")
 	fs.BoolVar(&opts.noDefaultFileDeny, "no-default-file-deny", false, "")
+	fs.BoolVar(&opts.allowFileWrite, "allow-file-write", false, "")
 	// Terminals, the command shell and background subagents are on by default;
 	// the --allow-* spellings stay accepted (they now restate the default) so a
 	// command printed by an older panel still enrolls, and --no-* turns each off.
@@ -538,6 +546,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 		return err
 	}
 	fmt.Fprintln(os.Stderr, filesPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, fileWritePolicySummary(pol))
 	fmt.Fprintln(os.Stderr, terminalPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, commandShellPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
@@ -772,6 +781,15 @@ func filesPolicySummary(pol policy.Policy) string {
 	return "Files: READ-ONLY — the /code explorer can browse each workspace; redacted: " + redacted + "."
 }
 
+// fileWritePolicySummary says, in plain words, whether the /code editor may
+// save files on this machine.
+func fileWritePolicySummary(pol policy.Policy) string {
+	if !pol.FilesAllowed() || !pol.FileWriteAllowed() {
+		return "File writes: DENIED — the /code editor cannot save files on this machine."
+	}
+	return "File writes: ALLOWED — the /code editor can save text files in each workspace (not files on the deny list)."
+}
+
 // terminalPolicySummary says, in plain words, whether a terminal is allowed
 // (PROTOCOL.md §9.3, ADR 0090 §6 "step-up" step): the warning users need to
 // actually read before turning this on.
@@ -863,6 +881,9 @@ func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 	}
 	pol.FileDeny = opts.fileDeny
 	pol.NoDefaultFileDeny = opts.noDefaultFileDeny
+	if opts.allowFileWrite && !opts.noFiles {
+		pol.FileWrite = policy.FileWriteAllowed
+	}
 	if opts.allowTerminal && !opts.noTerminal {
 		pol.Terminal = policy.TerminalAllowed
 	}

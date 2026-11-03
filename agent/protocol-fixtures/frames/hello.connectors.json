@@ -38,6 +38,7 @@
 			"allowFreeModels": false,
 			"files": "read",
 			"fileDeny": [".env", "*.pem"],
+			"fileWrite": "denied",
 			"terminal": "allowed",
 			"maxTerminals": 8,
 			"commandShell": "allowed",

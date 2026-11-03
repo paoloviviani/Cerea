@@ -529,7 +529,9 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 		},
 	}}
 	h.Machine = link.MachineInfo{Mode: "agent", Capabilities: map[string]bool{
-		"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": false, "terminal": terminal.Supported,
+		// fileWrite: this build implements files.write; whether the owner
+		// allows it is the policy's fileWrite, reported separately.
+		"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": true, "terminal": terminal.Supported,
 		// Delegate profiles (PROTOCOL.md §6): the profiles.list/set ops, with
 		// the agent tools they are for.
 		"delegateProfiles": caps.AgentTools && pol.AgentToolsAllowed(),
@@ -564,6 +566,7 @@ func buildHelloBase(pol policy.Policy) link.Hello {
 			AllowFreeModels:     pol.AllowFreeModels,
 			Files:               filesPolicyWord(pol),
 			FileDeny:            orEmptyStrings(pol.EffectiveFileDeny()),
+			FileWrite:           fileWritePolicyWord(pol),
 			Terminal:            terminalPolicyWord(pol),
 			MaxTerminals:        pol.EffectiveMaxTerminals(),
 			CommandShell:        commandShellPolicyWord(pol),
@@ -685,6 +688,13 @@ func filesPolicyWord(pol policy.Policy) string {
 		return policy.FilesRead
 	}
 	return policy.FilesOff
+}
+
+func fileWritePolicyWord(pol policy.Policy) string {
+	if pol.FileWriteAllowed() {
+		return policy.FileWriteAllowed
+	}
+	return policy.FileWriteDenied
 }
 
 func terminalPolicyWord(pol policy.Policy) string {
@@ -853,6 +863,7 @@ func buildConnectorsHello(pol policy.Policy) link.Hello {
 		"terminal": false, "delegateProfiles": false, "mcp": true,
 	}}
 	h.Policy.Files = policy.FilesOff
+	h.Policy.FileWrite = policy.FileWriteDenied
 	h.Policy.Terminal = policy.TerminalDenied
 	h.Policy.CommandShell = policy.TerminalDenied
 	h.Policy.AgentTools = policy.TerminalDenied

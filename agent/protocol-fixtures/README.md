@@ -29,8 +29,8 @@ travels the WebSocket. `_meta` says where it comes from:
 | `errors/` | one `res` error frame per error code (`not_found`, `invalid`, `forbidden`, `unavailable`, `backend`, `unsupported`, `conflict`, `too_large`)                                                                        |
 
 PROTOCOL.md describes ops that neither side implements yet (`files.find`, `files.grep`,
-`files.watch`, `files.unwatch`, `files.write`, and the `files.changed` watcher); they have
-no fixtures until one does. `session.setAutoAccept` and `session.setRules` are retired and
+`files.watch`, `files.unwatch`, and the `files.changed` watcher); they have no fixtures
+until one does. `session.setAutoAccept` and `session.setRules` are retired and
 answer `unsupported`.
 
 ## Who checks what

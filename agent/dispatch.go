@@ -231,6 +231,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opMcp(ctx, op, args)
 	case "files.list", "files.stat", "files.read", "files.status":
 		return mc.opFiles(ctx, op, args)
+	case "files.write":
+		return mc.opFilesWrite(args)
 	case "terminal.list", "terminal.open", "terminal.attach", "terminal.detach", "terminal.resize", "terminal.rename", "terminal.close":
 		return mc.opTerminal(ctx, op, args)
 	case "workspace.list":
@@ -1683,7 +1685,65 @@ func (mc *machine) opFiles(ctx context.Context, op string, args json.RawMessage)
 	return res, nil
 }
 
+// opFilesWrite answers files.write, the /code editor's save (PROTOCOL.md
+// §9.3). The read side's confinement holds (os.Root, the deny list, no
+// symlink followed), behind a second gate: the fileWrite policy, off unless
+// the owner enrolled with --allow-file-write. Every attempt that reaches a
+// workspace is one audit line: the path, the size and the outcome, never the
+// content.
+func (mc *machine) opFilesWrite(args json.RawMessage) (any, *link.OpError) {
+	if !mc.pol.FilesAllowed() {
+		mc.audit.refusal("files.write", "files off by machine policy")
+		return nil, opErrf("forbidden", "this machine was enrolled with --no-files: re-enroll without it, and with --allow-file-write, to save files here")
+	}
+	if !mc.pol.FileWriteAllowed() {
+		mc.audit.refusal("files.write", "file write denied by machine policy")
+		return nil, opErrf("forbidden", "this machine was enrolled without --allow-file-write: re-enroll with it to save files here")
+	}
+	var a struct {
+		WorkspaceID  string  `json:"workspaceId"`
+		Path         string  `json:"path"`
+		Content      *string `json:"content"`
+		Encoding     string  `json:"encoding"`
+		BaseRevision *string `json:"baseRevision"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	if a.Content == nil {
+		return nil, opErrf("invalid", "content is required")
+	}
+	w, ok := mc.workspaces.Get(a.WorkspaceID)
+	if !ok {
+		return nil, notFound("workspace")
+	}
+	body, err := files.DecodeContent(*a.Content, a.Encoding)
+	if err == nil {
+		var entry files.Entry
+		entry, err = mc.files.Write(w.Path, a.Path, body, a.BaseRevision)
+		if err == nil {
+			mc.audit.fileWrite(w.ID, a.Path, len(body), "ok")
+			return map[string]any{"entry": entry}, nil
+		}
+	}
+	operr := filesErr(err)
+	size := len(body)
+	if body == nil {
+		size = len(*a.Content) // refused before decoding: what was sent
+	}
+	mc.audit.fileWrite(w.ID, a.Path, size, operr.Code)
+	return nil, operr
+}
+
 func filesErr(err error) *link.OpError {
+	var conflict *files.ConflictError
+	if errors.As(err, &conflict) {
+		return &link.OpError{
+			Code:    "conflict",
+			Message: strings.TrimPrefix(conflict.Error(), "conflict: "),
+			Details: map[string]any{"revision": conflict.Revision},
+		}
+	}
 	msg := err.Error()
 	for _, code := range []error{files.ErrInvalid, files.ErrForbidden, files.ErrNotFound, files.ErrTooLarge} {
 		if errors.Is(err, code) {
