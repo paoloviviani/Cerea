@@ -447,7 +447,8 @@ test.describe("owned machine agent: parity", () => {
 		mockOpenAI,
 	}) => {
 		const m = await openSession(page, db, session.sessionId);
-		// A committed file then modified, a secret, and a link out of the root.
+		// A committed file then modified, a private key (redacted), a .env (shown since
+		// 0.38.1), and a link out of the root.
 		writeFileSync(join(m.workspace, "app.ts"), "export const a = 1;\n");
 		const git = (...args: string[]) =>
 			execFileSync("git", [
@@ -462,7 +463,8 @@ test.describe("owned machine agent: parity", () => {
 		git("add", "app.ts");
 		git("commit", "-q", "-m", "init");
 		writeFileSync(join(m.workspace, "app.ts"), "export const a = 2;\n");
-		writeFileSync(join(m.workspace, ".env"), "TOKEN=hunter2\n");
+		writeFileSync(join(m.workspace, ".env"), "TOKEN=visible-value\n");
+		writeFileSync(join(m.workspace, "server.key"), "PRIVATE=hunter2\n");
 		symlinkSync("/etc/hostname", join(m.workspace, "escape"));
 
 		await page.getByRole("button", { name: "Files" }).click();
@@ -471,7 +473,9 @@ test.describe("owned machine agent: parity", () => {
 		const row = (name: string) => tree.getByRole("button", { name: new RegExp(`^${name}`) });
 		await expect(row("app.ts")).toContainText("M");
 		await expect(row(".env")).toBeVisible();
-		await expect(row(".env").getByLabel("Hidden by this machine's policy")).toBeVisible();
+		await expect(row(".env").getByLabel("Hidden by this machine's policy")).toHaveCount(0);
+		await expect(row("server.key")).toBeVisible();
+		await expect(row("server.key").getByLabel("Hidden by this machine's policy")).toBeVisible();
 
 		// Opening a file shows its content; the secret shows why it does not.
 		await row("app.ts").click();
@@ -480,6 +484,11 @@ test.describe("owned machine agent: parity", () => {
 		});
 		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
 		await row(".env").click();
+		await expect(page.getByTestId("file-viewer")).toContainText("TOKEN=visible-value", {
+			timeout: 30_000,
+		});
+		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
+		await row("server.key").click();
 		await expect(page.getByTestId("code-files")).toContainText("Hidden by this machine's policy");
 		await expect(page.getByTestId("code-files")).not.toContainText("hunter2");
 		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
