@@ -2,7 +2,12 @@ import type { ToolBlocker } from "./toolBlocker";
 import { randomUUID } from "crypto";
 import { logger } from "../../logger";
 import type { MessageUpdate } from "$lib/types/MessageUpdate";
-import { MessageToolUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
+import {
+	MessageCodeExecutionUpdateType,
+	MessageToolUpdateType,
+	MessageUpdateType,
+} from "$lib/types/MessageUpdate";
+import { saveResultFiles } from "$lib/server/mcp/resultFiles";
 import { ToolResultStatus } from "$lib/types/Tool";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { McpToolMapping } from "$lib/server/mcp/tools";
@@ -744,7 +749,7 @@ export async function* executeToolCalls({
 				{ server: mappingEntry.server, tool: mappingEntry.tool, parameters: p.paramsClean },
 				"[mcp] invoking tool"
 			);
-			const toolResponse: McpToolTextResponse = await callMcpTool(
+			const rawResponse: McpToolTextResponse = await callMcpTool(
 				serverCfg,
 				mappingEntry.tool,
 				argsObj,
@@ -766,6 +771,32 @@ export async function* executeToolCalls({
 					},
 				}
 			);
+			// Files the tool returned are stored once as conversation files and leave the result as notes:
+			// the model, the guard and the stored message never carry their bytes.
+			const resultFiles = rawResponse.inputRequired
+				? undefined
+				: await saveResultFiles(
+						{
+							text: rawResponse.text ?? "",
+							structured: rawResponse.structured,
+							content: rawResponse.content,
+						},
+						{
+							conversationId: elicitation?.conversationId,
+							userId: owner?.userId,
+							messageId: elicitation?.messageId,
+							tool: p.call.name,
+							args: p.paramsClean,
+						}
+					);
+			const toolResponse: McpToolTextResponse = resultFiles
+				? {
+						...rawResponse,
+						text: resultFiles.text,
+						structured: resultFiles.structured,
+						content: resultFiles.content,
+					}
+				: rawResponse;
 			if (toolResponse.inputRequired) {
 				// A guarded call must not park: the resume path re-invokes the tool
 				// without consulting any guard, so its booking would go stale and the
@@ -903,6 +934,15 @@ export async function* executeToolCalls({
 					external: true,
 				},
 			});
+			if (resultFiles?.refs.length) {
+				// Listed like any produced file: the same record a run's files ride on.
+				updatesQueue.push({
+					type: MessageUpdateType.CodeExecution,
+					subtype: MessageCodeExecutionUpdateType.Outputs,
+					runKey: `${p.call.name}:${randomUUID()}`,
+					files: resultFiles.refs,
+				});
+			}
 		} catch (err) {
 			if (guardTicket !== undefined) {
 				// Whether the server acted is unknown from here — the guard decides

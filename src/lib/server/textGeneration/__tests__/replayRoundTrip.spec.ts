@@ -1085,7 +1085,7 @@ describe.sequential("tool results without text", () => {
 	 * `outputs[0].content`, while this path reads `outputs[0].text`. When that is
 	 * addressed, flip the final assertion to require a representation.
 	 */
-	it("replays an image-only tool result as empty content (known upstream gap)", async () => {
+	it("a result that returns an image is saved as a file, and replays as its note", async () => {
 		const { conv, locals } = await newConversation();
 		scriptRounds([
 			{ toolCalls: [{ id: "call_abc123", name: "get_weather", arguments: "{}" }] },
@@ -1112,8 +1112,84 @@ describe.sequential("tool results without text", () => {
 		expect(toolMessage?.tool_call_id, shape).toBe(
 			replayed.find((m) => m.tool_calls)?.tool_calls?.[0].id
 		);
-		// Pinned so that representing the image becomes a deliberate, visible
-		// change rather than a silent one. See the block comment above.
+		// A result stored now carries the note of the file the image became (resultFiles.ts), not
+		// the empty content of the shape below; the old shape is pinned by the next test.
+		expect(String(toolMessage?.content), shape).toContain(
+			"[file saved to this conversation: image-1.png"
+		);
+		expect(String(toolMessage?.content), shape).not.toContain("iVBORw0KGgo");
+	});
+
+	it("replays an image-only tool result stored before files were saved as empty content (known upstream gap)", async () => {
+		const { locals } = await createTestUser();
+		const rootId = crypto.randomUUID();
+		const userId = crypto.randomUUID();
+		const assistantId = crypto.randomUUID();
+		const at = () => new Date();
+		const conv = await createTestConversation(locals, {
+			model: MODEL_ID,
+			rootMessageId: rootId,
+			messages: [
+				{
+					id: rootId,
+					from: "system",
+					content: "",
+					ancestors: [],
+					children: [userId],
+					createdAt: at(),
+					updatedAt: at(),
+				},
+				{
+					id: userId,
+					from: "user",
+					content: "Chart the weather?",
+					ancestors: [rootId],
+					children: [assistantId],
+					createdAt: at(),
+					updatedAt: at(),
+				},
+				{
+					id: assistantId,
+					from: "assistant",
+					content: "Here is the chart.",
+					ancestors: [rootId, userId],
+					children: [],
+					createdAt: at(),
+					updatedAt: at(),
+					updates: [
+						{
+							type: MessageUpdateType.Tool,
+							subtype: MessageToolUpdateType.Call,
+							uuid: "old-image-0001",
+							call: { name: "get_weather", parameters: {} },
+						},
+						{
+							type: MessageUpdateType.Tool,
+							subtype: MessageToolUpdateType.Result,
+							uuid: "old-image-0001",
+							result: {
+								status: "success",
+								call: { name: "get_weather", parameters: {} },
+								outputs: [
+									{
+										text: "",
+										content: [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }],
+									},
+								],
+							},
+						},
+					],
+				} as unknown as Message,
+			],
+		});
+		scriptRounds([{ content: "Follow-up." }]);
+
+		await sendMessage(conv, locals, "And now?");
+
+		const replayed = outgoing(0);
+		const shape = describeMessages(replayed);
+		const toolMessage = replayed.find((m) => m.role === "tool");
+		expect(toolMessage, shape).toBeDefined();
 		expect(String(toolMessage?.content), shape).toBe("");
 	});
 });

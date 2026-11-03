@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ObjectId } from "mongodb";
 import { logger } from "$lib/server/logger";
 import { callMcpTool, getMcpToolTimeoutMs } from "./httpClient";
+import { saveResultFiles } from "./resultFiles";
 import { openDurableElicitation, takeResumableElicitation } from "./elicitation";
 import { ToolResultStatus } from "$lib/types/Tool";
 import {
@@ -284,10 +285,31 @@ async function runApprovedCall(
 	}
 
 	try {
-		const response = await callMcpTool(server, mcp.toolName, call.args, {
+		const raw = await callMcpTool(server, mcp.toolName, call.args, {
 			signal,
 			timeoutMs: getMcpToolTimeoutMs(),
 		});
+		// Files the tool returned are stored and leave the result as notes (see resultFiles.ts).
+		const saved = raw.inputRequired
+			? undefined
+			: await saveResultFiles(raw, {
+					conversationId: owner?.conversationId,
+					userId: owner?.userId,
+					messageId: owner?.messageId,
+					tool: mcp.toolName,
+					args: call.args,
+				});
+		const response = saved
+			? { ...raw, text: saved.text, structured: saved.structured, content: saved.content }
+			: raw;
+		if (saved?.refs.length) {
+			sideUpdates?.push({
+				type: MessageUpdateType.CodeExecution,
+				subtype: MessageCodeExecutionUpdateType.Outputs,
+				runKey: `${mcp.toolName}:${randomUUID()}`,
+				files: saved.refs,
+			});
+		}
 		// A tool that asks for MORE input mid-call, on top of the approval it just
 		// cleared, is a double-elicitation this resume path does not support: the
 		// resume has no guard booking and no round left to re-park cleanly.
@@ -525,8 +547,9 @@ export async function resumeParkedToolCall({
 	if (!server) return { resumed: false, reason: `unknown server ${pending.server}`, updates: [] };
 
 	let update: MessageUpdate;
+	let filesUpdate: MessageUpdate | undefined;
 	try {
-		const response = await callMcpTool(server, pending.tool, pending.args, {
+		const raw = await callMcpTool(server, pending.tool, pending.args, {
 			signal,
 			timeoutMs: getMcpToolTimeoutMs(),
 			resume: {
@@ -534,6 +557,32 @@ export async function resumeParkedToolCall({
 				...(pending.requestState !== undefined ? { requestState: pending.requestState } : {}),
 			},
 		});
+		// Files the tool returned are stored and leave the result as notes (see resultFiles.ts).
+		const saved = raw.inputRequired
+			? undefined
+			: await saveResultFiles(raw, {
+					conversationId,
+					userId: (
+						await collections.conversations.findOne(
+							{ _id: conversationId },
+							{ projection: { userId: 1 } }
+						)
+					)?.userId,
+					messageId: pending.messageId,
+					tool: pending.tool,
+					args: pending.args,
+				});
+		const response = saved
+			? { ...raw, text: saved.text, structured: saved.structured, content: saved.content }
+			: raw;
+		if (saved?.refs.length) {
+			filesUpdate = {
+				type: MessageUpdateType.CodeExecution,
+				subtype: MessageCodeExecutionUpdateType.Outputs,
+				runKey: `${pending.tool}:${randomUUID()}`,
+				files: saved.refs,
+			};
+		}
 
 		// A tool can ask more than once. Park again on the same call rather than handing
 		// the model a round that never finished.
@@ -601,5 +650,5 @@ export async function resumeParkedToolCall({
 		};
 	}
 
-	return { resumed: true, updates: [settled, update] };
+	return { resumed: true, updates: [settled, update, ...(filesUpdate ? [filesUpdate] : [])] };
 }
