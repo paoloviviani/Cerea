@@ -37,6 +37,10 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   to "Your providers and models" in the gateway console for users whose group allows it.
   Needs a Pystino that reports `byok` on `/v1/models` and `byok_allowed` on `/v1/me`; an older
   gateway shows neither.
+- **A machine enrolled with `--no-default-file-deny` no longer tells its agents to stay away from
+  `.env` files.** That flag already lifted the built-in deny list; the instruction in the agents'
+  prompt that listed `.env` files stayed behind and kept them refusing. Machines enrolled the
+  usual way still keep `.env` files out of reach. Needs the galopin update.
 
 ## v0.38.1 — 2026-11-02
 
