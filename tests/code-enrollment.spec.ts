@@ -125,10 +125,11 @@ test.describe("a machine reporting an expired credential", () => {
 		await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 		await openAgentsPanel(page);
 
-		// The device's own row in the Agents panel: neither "online" nor
+		// The device's own row in the Agents panel: neither its dot nor
 		// "paired" claims a good credential once the machine says otherwise.
 		await expect(page.getByText("credential expired", { exact: true })).toBeVisible();
-		await expect(page.getByText("online", { exact: true })).toHaveCount(0);
+		await expect(page.getByTestId("device-status")).toHaveAttribute("data-status", "expired");
+		await expect(page.getByRole("img", { name: "Connected" })).toHaveCount(0);
 
 		// The composer refuses the send it knows is doomed — before the
 		// person has typed anything, let alone pressed enter.

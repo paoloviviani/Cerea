@@ -202,57 +202,134 @@ describe("CodeNavTree rails", () => {
 	});
 });
 
-describe("CodeNavTree subagent rails", () => {
-	it("puts a subagent in a rail of its own, and leaves ordinary sessions out of one", async () => {
-		AGENTS.d1 = [agent("a1", "w1"), { ...agent("a2", "w1"), parentId: "a1" }];
-		go("?device=d1&ws=w1&agent=a1");
-		const screen = mount();
-		await expect.element(screen.getByText("Agent a2")).toBeVisible();
-		const subRails = screen.baseElement.querySelectorAll('[data-testid="subagent-rail"]');
-		expect(subRails).toHaveLength(1);
-		expect(subRails[0]?.className).toContain("border-l");
-		expect(subRails[0]?.textContent).toContain("Agent a2");
-		// a1 is an ordinary session, outside it (its name appears only in the
-		// subagent's own "↳ from" line).
-		expect(subRails[0]?.querySelector('a[title="Agent a1"]')).toBeNull();
-		// Nested inside the workspace's rail.
-		expect(subRails[0]?.closest('[data-testid="workspace-rail"]')).not.toBeNull();
-		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
-	});
-});
-
-describe("CodeNavTree spawned sessions", () => {
+describe("CodeNavTree nesting", () => {
 	const reset = () => (AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")]);
 	const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, " ").trim();
+	const spawnedBy = (id: string, by: string) => ({
+		...agent(id, "w1"),
+		spawnedBy: { sessionId: by, title: `Agent ${by}` },
+	});
 
-	it("marks a spawned session with a provenance chip, not the subagent's ↳ from", async () => {
+	it("puts a subagent and a spawned session under their parent, in one connector group", async () => {
 		AGENTS.d1 = [
 			agent("a1", "w1"),
-			{ ...agent("a2", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1 (then)" } },
-			{ ...agent("a3", "w1"), parentId: "a1" },
-			// A spawner that is gone: the title it was created with still reads.
-			{ ...agent("a4", "w1"), spawnedBy: { sessionId: "gone", title: "Old planner" } },
+			{ ...agent("a2", "w1"), parentId: "a1" },
+			spawnedBy("a3", "a1"),
+			agent("a5", "w1"),
 		];
 		go("?device=d1&ws=w1&agent=a1");
 		const screen = mount([device("d1")]);
-		await expect.element(screen.getByText("Agent a2")).toBeVisible();
+		await expect.element(screen.getByText("Agent a3")).toBeVisible();
 
+		const groups = screen.baseElement.querySelectorAll('[data-testid="session-children"]');
+		expect(groups).toHaveLength(1);
+		expect(groups[0]?.className).toContain("border-l");
+		const group = groups[0] as HTMLElement;
+		const kinds = [...group.querySelectorAll('[data-testid="session-row"]')].map((row) => [
+			row.getAttribute("data-kind"),
+			row.querySelector("a")?.getAttribute("title"),
+		]);
+		expect(kinds).toEqual([
+			["subtask", "Agent a2"],
+			["delegate", "Agent a3"],
+		]);
+		// The group hangs off a1's own block, inside the workspace's rail; a5 is
+		// an ordinary top-level row beside it.
+		expect(groups[0]?.closest('[data-testid="workspace-rail"]')).not.toBeNull();
+		expect(groups[0]?.parentElement?.querySelector('a[title="Agent a1"]')).not.toBeNull();
+		expect(groups[0]?.querySelector('a[title="Agent a5"]')).toBeNull();
+		// Nesting replaces the badge and both provenance lines.
+		for (const id of ["spawned-from", "subagent-from", "spawned-count", "subagent-badge"]) {
+			expect(screen.baseElement.querySelectorAll(`[data-testid="${id}"]`)).toHaveLength(0);
+		}
+		// Subtask rows use the smaller type; delegates match a top-level row.
+		expect(groups[0]?.querySelector('[data-kind="subtask"] a')?.className).toContain(
+			"text-[0.8rem]"
+		);
+		reset();
+	});
+
+	it("shows two nested rows and '+N more', which opens the rest and closes again", async () => {
+		AGENTS.d1 = [
+			agent("a1", "w1"),
+			spawnedBy("a2", "a1"),
+			spawnedBy("a3", "a1"),
+			spawnedBy("a4", "a1"),
+			spawnedBy("a5", "a1"),
+		];
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a3")).toBeVisible();
+		const titles = () =>
+			[...screen.baseElement.querySelectorAll('[data-testid="session-children"] a[title]')].map(
+				(a) => a.getAttribute("title")
+			);
+		expect(titles()).toEqual(["Agent a2", "Agent a3"]);
+		await expect.element(screen.getByTestId("children-more")).toHaveTextContent("+2 more");
+
+		await screen.getByTestId("children-more").click();
+		expect(titles()).toEqual(["Agent a2", "Agent a3", "Agent a4", "Agent a5"]);
+		await expect.element(screen.getByTestId("children-more")).toHaveTextContent("Show fewer");
+
+		await screen.getByTestId("children-more").click();
+		expect(titles()).toEqual(["Agent a2", "Agent a3"]);
+		reset();
+	});
+
+	it("shows exactly two without a '+N more', and keeps a hidden child that is the open session", async () => {
+		AGENTS.d1 = [agent("a1", "w1"), spawnedBy("a2", "a1"), spawnedBy("a3", "a1")];
+		go("");
+		const first = mount([device("d1")]);
+		await expect.element(first.getByText("Agent a3")).toBeVisible();
+		expect(first.getByTestId("children-more").elements()).toHaveLength(0);
+		first.unmount();
+
+		AGENTS.d1 = [
+			agent("a1", "w1"),
+			spawnedBy("a2", "a1"),
+			spawnedBy("a3", "a1"),
+			spawnedBy("a4", "a1"),
+			spawnedBy("a5", "a1"),
+		];
+		go("?device=d1&ws=w1&agent=a5");
+		const second = mount([device("d1")]);
+		await expect.element(second.getByText("Agent a5")).toBeVisible();
+		// a4 stays folded; a5, the open session, is shown though it is the fourth.
+		expect(second.baseElement.querySelector('a[title="Agent a4"]')).toBeNull();
+		await expect.element(second.getByTestId("children-more")).toHaveTextContent("+1 more");
+		reset();
+	});
+
+	it("keeps a subagent whose parent is in another workspace top-level, with its 'from' line", async () => {
+		WORKSPACES.d1 = [
+			{ id: "w1", name: "alpha", path: "/a", isGitRepo: false },
+			{ id: "w3", name: "gamma", path: "/g", isGitRepo: false },
+		];
+		AGENTS.d1 = [agent("a1", "w1"), { ...agent("a2", "w3"), parentId: "a1" }];
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a2")).toBeVisible();
+		expect(screen.baseElement.querySelectorAll('[data-testid="session-children"]')).toHaveLength(0);
+		const from = screen.baseElement.querySelectorAll('[data-testid="subagent-from"]');
+		expect(from).toHaveLength(1);
+		expect(text(from[0])).toBe("↳ from Agent a1 · alpha");
+		WORKSPACES.d1 = [{ id: "w1", name: "alpha", path: "/a", isGitRepo: false }];
+		reset();
+	});
+
+	it("says who spawned a session whose spawner is gone, and labels it as such", async () => {
+		AGENTS.d1 = [
+			{ ...agent("a4", "w1"), spawnedBy: { sessionId: "gone", title: "Old planner" } },
+			agent("a2", "w1"),
+		];
+		go("?device=d1&ws=w1&agent=a2");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a4")).toBeVisible();
 		const froms = [...screen.baseElement.querySelectorAll('[data-testid="spawned-from"]')];
-		expect(froms.map(text)).toEqual(["spawned by Agent a1", "spawned by Old planner (gone)"]);
-		// Linked when the spawner is listed; muted plain text when it is gone.
-		expect(froms[0]?.getAttribute("href")).toContain("agent=a1");
-		expect(froms[0]?.getAttribute("href")).toContain("ws=w1");
-		expect(froms[0]?.querySelector("svg")).not.toBeNull();
-		expect(froms[1]?.tagName).toBe("P");
-		expect(froms[1]?.className).toContain("text-gray-400");
-		// The subagent keeps its ↳, and only it: its parentage is real.
-		const subFrom = screen.baseElement.querySelectorAll('[data-testid="subagent-from"]');
-		expect(subFrom).toHaveLength(1);
-		expect(text(subFrom[0])).toBe("↳ from Agent a1");
-		expect(screen.baseElement.textContent).not.toContain("↳ from Old planner");
-		// Only the real subagent carries a badge, and only it sits in a rail.
-		expect(screen.baseElement.querySelectorAll('[data-testid="subagent-badge"]')).toHaveLength(1);
-		expect(screen.baseElement.querySelectorAll('[data-testid="subagent-rail"]')).toHaveLength(1);
+		expect(froms.map(text)).toEqual(["spawned by Old planner (gone)"]);
+		expect(froms[0]?.tagName).toBe("P");
+		expect(froms[0]?.className).toContain("text-gray-400");
+		expect(screen.baseElement.querySelectorAll('[data-testid="session-children"]')).toHaveLength(0);
 		reset();
 	});
 
@@ -270,12 +347,12 @@ describe("CodeNavTree spawned sessions", () => {
 		reset();
 	});
 
-	it("sorts spawned sessions after their spawner along a two-level chain, at one indent", async () => {
+	it("flattens a two-level spawn chain under its first spawner, in chain order", async () => {
 		AGENTS.d1 = [
 			agent("a1", "w1"),
 			agent("a5", "w1"),
-			{ ...agent("a3", "w1"), spawnedBy: { sessionId: "a2", title: "Agent a2" } },
-			{ ...agent("a2", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1" } },
+			spawnedBy("a3", "a2"),
+			spawnedBy("a2", "a1"),
 		];
 		go("?device=d1&ws=w1&agent=a1");
 		const screen = mount([device("d1")]);
@@ -285,35 +362,18 @@ describe("CodeNavTree spawned sessions", () => {
 			a.getAttribute("title")
 		);
 		expect(order).toEqual(["Agent a1", "Agent a2", "Agent a3", "Agent a5"]);
-		// Adjacency, not containment: no rail around the spawned rows.
-		expect(rail?.querySelectorAll('[data-testid="subagent-rail"]')).toHaveLength(0);
+		// One connector group, both rows in it at the same step: no staircase.
+		const groups = rail?.querySelectorAll('[data-testid="session-children"]');
+		expect(groups).toHaveLength(1);
+		expect(groups?.[0]?.querySelectorAll('[data-testid="session-row"]')).toHaveLength(2);
 		reset();
 	});
 
-	it("shows 'spawned N' on the spawner, as information: a menu of links, no disclosure", async () => {
-		AGENTS.d1 = [
-			agent("a1", "w1"),
-			{ ...agent("a2", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1" } },
-			{ ...agent("a3", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1" } },
-		];
-		go("?device=d1&ws=w1&agent=a1");
-		const screen = mount([device("d1")]);
-		await expect.element(screen.getByText("Agent a3")).toBeVisible();
-		const counts = screen.baseElement.querySelectorAll('[data-testid="spawned-count"]');
-		expect(counts).toHaveLength(1);
-		expect(text(counts[0])).toBe("spawned 2");
-		expect(counts[0]?.closest('[data-testid="workspace-rail"]')).not.toBeNull();
-		// Not collapsible: the spawned rows stay listed whatever is clicked.
-		await screen.getByTestId("spawned-count").click();
-		expect(screen.baseElement.querySelectorAll('a[title^="Agent a"]')).toHaveLength(3);
-		reset();
-	});
-
-	it("keeps spawned sessions when subagents are hidden, and when the spawner is gone", async () => {
+	it("keeps spawned sessions when subagents are hidden", async () => {
 		AGENTS.d1 = [
 			agent("a1", "w1"),
 			{ ...agent("a2", "w1"), parentId: "a1" },
-			{ ...agent("a3", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1" } },
+			spawnedBy("a3", "a1"),
 		];
 		localStorage.setItem("code.showSubagents", "false");
 		go("?device=d1&ws=w1&agent=a1");
@@ -323,20 +383,292 @@ describe("CodeNavTree spawned sessions", () => {
 		expect(screen.baseElement.querySelector('a[title="Agent a3"]')).not.toBeNull();
 		reset();
 	});
+});
 
-	it("leaves a spawned session listed, marked gone, once its spawner is archived or deleted", async () => {
-		AGENTS.d1 = [
-			{ ...agent("a3", "w1"), spawnedBy: { sessionId: "a1", title: "Agent a1 (then)" } },
-			agent("a2", "w1"),
-		];
-		go("?device=d1&ws=w1&agent=a2");
-		const screen = mount([device("d1")]);
-		await expect.element(screen.getByText("Agent a3")).toBeVisible();
-		expect(text(screen.baseElement.querySelector('[data-testid="spawned-from"]'))).toBe(
-			"spawned by Agent a1 (then) (gone)"
+describe("CodeNavTree machine rows", () => {
+	const names = (screen: ReturnType<typeof mount>) =>
+		[...screen.baseElement.querySelectorAll('[data-testid="device-row"] a')].map((a) =>
+			a.getAttribute("title")
 		);
-		expect(screen.baseElement.querySelector('[data-testid="spawned-count"]')).toBeNull();
-		reset();
+
+	it("shows a dot, not an 'online' pill: filled when connected, hollow when not", async () => {
+		go("");
+		const screen = mount([device("d1"), device("d2", { online: false })]);
+		await expect.element(screen.getByText("Box d1")).toBeVisible();
+		const dots = [...screen.baseElement.querySelectorAll('[data-testid="device-status"]')];
+		expect(dots.map((d) => d.getAttribute("data-status"))).toEqual(["online", "offline"]);
+		expect(dots[0]?.className).toContain("bg-green-500");
+		expect(dots[1]?.className).toContain("border");
+		expect(dots[1]?.className).not.toContain("bg-green");
+		expect(dots.map((d) => d.getAttribute("aria-label"))).toEqual(["Connected", "Not connected"]);
+		expect(screen.getByText("online", { exact: true }).elements()).toHaveLength(0);
+		expect(screen.getByText("offline", { exact: true }).elements()).toHaveLength(1);
+	});
+
+	it("sorts offline machines to the bottom, dimmed, with when they were last seen", async () => {
+		go("");
+		const threeHoursAgo = new Date(Date.now() - 3 * 3600_000 - 60_000).toISOString();
+		const screen = mount([
+			device("d1", { online: false, lastSeenAt: threeHoursAgo }),
+			device("d2"),
+			device("d3", { online: false }),
+			device("d4"),
+		]);
+		await expect.element(screen.getByText("Box d2")).toBeVisible();
+		expect(names(screen)).toEqual(["Box d2", "Box d4", "Box d1", "Box d3"]);
+		const rows = [...screen.baseElement.querySelectorAll('[data-testid="device-row"]')];
+		expect(rows.map((r) => r.className.includes("opacity-60"))).toEqual([false, false, true, true]);
+		const since = [...screen.baseElement.querySelectorAll('[data-testid="offline-since"]')];
+		expect(since.map((s) => s.textContent?.trim())).toEqual(["offline 3h", "offline"]);
+	});
+
+	it("keeps a pill only for the states that need words", async () => {
+		go("");
+		const screen = mount([
+			device("d1", { credentialState: "expired" }),
+			device("d2", { status: "pending" }),
+			device("d3", { reenroll: "revoked" }),
+		]);
+		await expect.element(screen.getByText("Box d1")).toBeVisible();
+		await expect.element(screen.getByText("credential expired", { exact: true })).toBeVisible();
+		await expect.element(screen.getByText("pending approval", { exact: true })).toBeVisible();
+		await expect.element(screen.getByText("access revoked", { exact: true })).toBeVisible();
+		// A pending machine keeps its two decisions on the row.
+		await expect
+			.element(screen.getByRole("button", { name: "Confirm this machine" }))
+			.toBeVisible();
+		await expect.element(screen.getByRole("button", { name: "Reject this machine" })).toBeVisible();
+	});
+
+	it("holds every machine action in one ⋯ menu, Remove last and destructive, and no trash on the row", async () => {
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Box d1")).toBeVisible();
+		expect(screen.getByTitle("Remove this pairing").elements()).toHaveLength(0);
+		expect(screen.getByRole("button", { name: "Machine settings" }).elements()).toHaveLength(1);
+
+		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await expect.element(screen.getByRole("menuitem", { name: "Remove" })).toBeVisible();
+		const items = [...document.querySelectorAll('[role="menuitem"]')];
+		expect(items.map((i) => i.textContent?.trim())).toEqual([
+			"Add workspace",
+			"Profiles",
+			"Remove",
+		]);
+		expect(items[2]?.className).toContain("text-red-600");
+		expect(items[0]?.className).not.toContain("text-red-600");
+
+		// Still confirms before anything is removed.
+		await screen.getByRole("menuitem", { name: "Remove" }).click();
+		await expect.element(screen.getByRole("dialog")).toBeVisible();
+		await expect.element(screen.getByRole("button", { name: "Revoke pairing" })).toBeVisible();
+	});
+
+	it("offers Add workspace from the menu, and not while the machine is offline", async () => {
+		go("");
+		const screen = mount([device("d1"), device("d2", { online: false })]);
+		await expect.element(screen.getByText("Box d1")).toBeVisible();
+		await screen.getByRole("button", { name: "Machine settings" }).first().click();
+		await screen.getByRole("menuitem", { name: "Add workspace" }).click();
+		await expect.element(screen.getByRole("dialog")).toBeVisible();
+		window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+
+		await screen.getByRole("button", { name: "Machine settings" }).nth(1).click();
+		await expect
+			.element(screen.getByRole("menuitem", { name: "Add workspace" }))
+			.toHaveAttribute("data-disabled");
+	});
+
+	it("gives a revoked machine a menu with Remove alone", async () => {
+		go("");
+		const screen = mount([device("d3", { reenroll: "revoked" })]);
+		await expect.element(screen.getByText("Box d3")).toBeVisible();
+		await screen.getByRole("button", { name: "Machine settings" }).click();
+		const items = [...document.querySelectorAll('[role="menuitem"]')];
+		expect(items.map((i) => i.textContent?.trim())).toEqual(["Remove"]);
+	});
+});
+
+describe("CodeNavTree workspace rows", () => {
+	it("shows the folder's name, with the full path as its tooltip and the menu's first line", async () => {
+		WORKSPACES.d1 = [
+			{
+				id: "w1",
+				name: "/home/paolo/repos/cloud_sync",
+				path: "/home/paolo/repos/cloud_sync",
+				isGitRepo: false,
+			},
+			{ id: "w2", name: "Home - this deployment", path: "/srv/home", isGitRepo: false },
+		];
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("cloud_sync", { exact: true })).toBeVisible();
+		expect(screen.baseElement.textContent).not.toContain("/home/paolo/repos");
+		const row = screen.getByText("cloud_sync", { exact: true }).element().closest("span.flex");
+		expect(row?.getAttribute("title")).toBe("/home/paolo/repos/cloud_sync");
+		// A name someone chose is kept.
+		await expect.element(screen.getByText("Home - this deployment")).toBeVisible();
+
+		await screen.getByRole("button", { name: "Workspace actions" }).first().click();
+		const path = document.querySelector('[data-testid="workspace-path"]');
+		expect(path?.textContent?.trim()).toBe("/home/paolo/repos/cloud_sync");
+		// Not an action: the first menuitem is the first action after it.
+		expect(path?.getAttribute("role")).not.toBe("menuitem");
+		const items = [...document.querySelectorAll('[role="menuitem"]')];
+		expect(items.map((i) => i.textContent?.trim())).toEqual(["New session", "Rename", "Archive"]);
+		WORKSPACES.d1 = [{ id: "w1", name: "alpha", path: "/a", isGitRepo: false }];
+	});
+
+	it("keeps ＋ as the visible way to start a session, and the menu has it too", async () => {
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("alpha")).toBeVisible();
+		await screen.getByRole("button", { name: "Start a coding session in this workspace" }).click();
+		await expect.element(screen.getByRole("dialog")).toBeVisible();
+	});
+});
+
+describe("CodeNavTree session state", () => {
+	const row = (screen: ReturnType<typeof mount>, id: string) =>
+		screen.baseElement.querySelector(`a[title="Agent ${id}"]`) as HTMLElement;
+
+	it("draws running, needs-you and error as icons with words for a screen reader, and idle as nothing", async () => {
+		AGENTS.d1 = [
+			{ ...agent("a1", "w1"), state: "running" },
+			{ ...agent("a2", "w1"), state: "waiting-permission" },
+			{ ...agent("a3", "w1"), state: "error" },
+			{ ...agent("a4", "w1"), state: "idle" },
+			{ ...agent("a5", "w1"), state: "done" },
+		];
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a5")).toBeVisible();
+		const state = (id: string) => row(screen, id).querySelector("[data-state]");
+		expect(state("a1")?.getAttribute("data-state")).toBe("running");
+		expect(state("a1")?.querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
+		expect(state("a1")?.textContent?.trim()).toBe("Running");
+		expect(state("a2")?.getAttribute("data-state")).toBe("needs-you");
+		expect(state("a2")?.className).toContain("text-amber");
+		expect(state("a2")?.textContent?.trim()).toBe("Needs you");
+		expect(state("a2")?.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+		expect(state("a3")?.getAttribute("data-state")).toBe("error");
+		expect(state("a3")?.textContent?.trim()).toBe("Failed");
+		expect(state("a4")).toBeNull();
+		expect(state("a5")).toBeNull();
+		// The old status dot is gone.
+		expect(row(screen, "a4").querySelector(".rounded-full")).toBeNull();
+		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
+	});
+
+	it("marks a parent amber while one of its subagents waits", async () => {
+		AGENTS.d1 = [
+			agent("a1", "w1"),
+			{ ...agent("a2", "w1"), parentId: "a1", state: "waiting-permission" },
+		];
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a2")).toBeVisible();
+		expect(row(screen, "a1").querySelector("[data-state]")?.getAttribute("data-state")).toBe(
+			"needs-you"
+		);
+		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
+	});
+
+	it("right-aligns a compact time of last activity, and leaves it out under a minute", async () => {
+		AGENTS.d1 = [
+			{ ...agent("a1", "w1"), updatedAt: new Date(Date.now() - 2 * 3600_000 - 5000).toISOString() },
+			{ ...agent("a2", "w1"), updatedAt: new Date(Date.now() - 10_000).toISOString() },
+		];
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a2")).toBeVisible();
+		expect(row(screen, "a1").querySelector('[data-testid="session-age"]')?.textContent).toBe("2h");
+		expect(row(screen, "a2").querySelector('[data-testid="session-age"]')).toBeNull();
+		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
+	});
+});
+
+describe("CodeNavTree row actions", () => {
+	const opacity = (el: Element | null | undefined) => (el ? getComputedStyle(el).opacity : "");
+
+	it("reveals ＋ and ⋯ on hover and keyboard focus within the row, on a pointer that hovers", async () => {
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a1", { exact: true })).toBeVisible();
+		const rowEl = screen.baseElement.querySelector('[data-testid="session-row"]') as HTMLElement;
+		const kebab = rowEl.querySelector(".nav-reveal");
+		expect(kebab?.getAttribute("aria-label")).toBe("Session actions");
+		expect(opacity(kebab)).toBe("0");
+
+		(rowEl.querySelector("a") as HTMLElement).focus();
+		expect(opacity(kebab)).toBe("1");
+		(document.activeElement as HTMLElement).blur();
+		expect(opacity(kebab)).toBe("0");
+
+		// The machine and workspace rows carry both, tagged for the touch rule.
+		const device0 = screen.baseElement.querySelector('[data-testid="device-row"]') as HTMLElement;
+		expect(device0.querySelectorAll(".nav-reveal.nav-plus")).toHaveLength(1);
+		expect(device0.querySelectorAll(".nav-kebab")).toHaveLength(1);
+		// Icon-only buttons are named.
+		for (const button of screen.baseElement.querySelectorAll(".nav-reveal")) {
+			expect(button.getAttribute("aria-label")).toBeTruthy();
+		}
+	});
+
+	it("opens the row's menu on a touch long-press, and not on a mouse press", async () => {
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a1", { exact: true })).toBeVisible();
+		const rowEl = screen.baseElement.querySelector('[data-testid="session-row"]') as HTMLElement;
+		const press = (pointerType: string) =>
+			rowEl.dispatchEvent(
+				new PointerEvent("pointerdown", { pointerType, bubbles: true, clientX: 5, clientY: 5 })
+			);
+
+		press("mouse");
+		await new Promise((resolve) => setTimeout(resolve, 650));
+		expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(0);
+
+		press("touch");
+		await expect.element(screen.getByRole("menuitem", { name: "Rename" })).toBeVisible();
+	});
+
+	it("does not open it when the finger lifts or moves away before the hold", async () => {
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Agent a1", { exact: true })).toBeVisible();
+		const rowEl = screen.baseElement.querySelector('[data-testid="session-row"]') as HTMLElement;
+		rowEl.dispatchEvent(
+			new PointerEvent("pointerdown", {
+				pointerType: "touch",
+				bubbles: true,
+				clientX: 5,
+				clientY: 5,
+			})
+		);
+		rowEl.dispatchEvent(new PointerEvent("pointerup", { pointerType: "touch", bubbles: true }));
+		await new Promise((resolve) => setTimeout(resolve, 650));
+		expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(0);
+
+		rowEl.dispatchEvent(
+			new PointerEvent("pointerdown", {
+				pointerType: "touch",
+				bubbles: true,
+				clientX: 5,
+				clientY: 5,
+			})
+		);
+		rowEl.dispatchEvent(
+			new PointerEvent("pointermove", {
+				pointerType: "touch",
+				bubbles: true,
+				clientX: 60,
+				clientY: 5,
+			})
+		);
+		await new Promise((resolve) => setTimeout(resolve, 650));
+		expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(0);
 	});
 });
 

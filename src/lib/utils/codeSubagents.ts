@@ -203,3 +203,85 @@ export const SHOW_SUBAGENTS_KEY = "code.showSubagents";
 export function readShowSubagents(storage: Pick<Storage, "getItem"> | undefined): boolean {
 	return storage?.getItem(SHOW_SUBAGENTS_KEY) !== "false";
 }
+
+/** How a nested row relates to the session it sits under. */
+export type SessionKind = "delegate" | "subtask";
+
+export interface SessionNode {
+	agent: CodeAgentSession;
+	/** Every session that descends from this one in the same workspace, in
+	 * reading order (a chain is flattened: one connector, not a staircase). */
+	children: Array<{ agent: CodeAgentSession; kind: SessionKind }>;
+}
+
+/**
+ * The sidebar's nesting. `agents` is one workspace's list. A subagent (it has
+ * a `parentId`) is a *subtask* of its parent and a spawned session
+ * (`spawnedBy`, no parent edge) is a *delegate* of its spawner, when that
+ * parent is listed in the same workspace; the row then sits under it. Any
+ * other row stays a top-level one, where the "from"/"spawned by" line still
+ * says who it came from (the parent is elsewhere, gone or hidden).
+ */
+export function nestSessions(agents: CodeAgentSession[]): SessionNode[] {
+	const byId = new Map(agents.map((a) => [a.id, a]));
+	const edge = (a: CodeAgentSession): { parent: CodeAgentSession; kind: SessionKind } | null => {
+		if (a.parentId) {
+			const parent = byId.get(a.parentId);
+			return parent ? { parent, kind: "subtask" } : null;
+		}
+		const parent = a.spawnedBy ? byId.get(a.spawnedBy.sessionId) : undefined;
+		return parent ? { parent, kind: "delegate" } : null;
+	};
+	// A cycle (a spawner that is its own descendant) nests nowhere.
+	const nested = new Set<string>();
+	for (const a of agents) {
+		const seen = new Set([a.id]);
+		let cur: CodeAgentSession | undefined = a;
+		let cyclic = false;
+		while (cur) {
+			const e = edge(cur);
+			if (!e) break;
+			if (seen.has(e.parent.id)) {
+				cyclic = true;
+				break;
+			}
+			seen.add(e.parent.id);
+			cur = e.parent;
+		}
+		if (!cyclic && edge(a)) nested.add(a.id);
+	}
+	const kids = new Map<string, Array<{ agent: CodeAgentSession; kind: SessionKind }>>();
+	for (const a of agents) {
+		const e = nested.has(a.id) ? edge(a) : null;
+		if (!e) continue;
+		kids.set(e.parent.id, [...(kids.get(e.parent.id) ?? []), { agent: a, kind: e.kind }]);
+	}
+	const descendants = (id: string, out: SessionNode["children"], seen: Set<string>) => {
+		for (const child of kids.get(id) ?? []) {
+			if (seen.has(child.agent.id)) continue;
+			seen.add(child.agent.id);
+			out.push(child);
+			descendants(child.agent.id, out, seen);
+		}
+	};
+	return agents
+		.filter((a) => !nested.has(a.id))
+		.map((agent) => {
+			const children: SessionNode["children"] = [];
+			descendants(agent.id, children, new Set([agent.id]));
+			return { agent, children };
+		});
+}
+
+/** The folder name a workspace row shows: a name that is a path (the default
+ * for a workspace added by its directory) reads as its last segment, and any
+ * name the person chose is kept. */
+export function workspaceLabel(workspace: Pick<CodeWorkspace, "name" | "path">): string {
+	const name = workspace.name;
+	if (!name.includes("/") && !name.includes("\\")) return name;
+	const base = name
+		.replace(/[\\/]+$/, "")
+		.split(/[\\/]/)
+		.pop();
+	return base || name;
+}

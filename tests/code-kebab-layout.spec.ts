@@ -4,7 +4,7 @@
  * the real ones (the pills/dialogs specs' pattern).
  *
  * What is pinned here: the workspace row's "start a session" + and the
- * agent row's presence dot never move when the row's kebab is revealed on
+ * agent row's state icon never moves when the row's kebab is revealed on
  * hover — the kebab's 24px slot is reserved at all times, only its opacity
  * toggles — and the same holds for the chat list's own kebab. All three
  * kebabs (workspace, session, chat) draw the same horizontal three-dot
@@ -153,7 +153,7 @@ test("hovering the workspace row moves neither its + nor its kebab, which stays 
 	expectSameBox(kebabAfter, kebabBefore);
 });
 
-test("hovering the agent row moves neither its presence dot nor its kebab, which stays reserved-width while hidden", async ({
+test("hovering the agent row moves neither its state icon nor its kebab, which stays reserved-width while hidden", async ({
 	page,
 }) => {
 	await openAgentsPanel(page);
@@ -161,7 +161,8 @@ test("hovering the agent row moves neither its presence dot nor its kebab, which
 	const agentRow = rowOf(page, AGENT_TITLE);
 	await expect(agentRow).toBeVisible();
 
-	const dot = agentRow.locator('span[title="running"]');
+	// The running spinner (the row's state icon, which replaced the status dot).
+	const dot = agentRow.locator('[data-state="running"]');
 	const kebab = agentRow.getByRole("button", { name: "Session actions" });
 
 	const dotBefore = await boxOf(dot);

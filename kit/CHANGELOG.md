@@ -5,6 +5,24 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **The Agents panel is easier to read.** A machine shows a dot before its name (filled green when
+  connected, hollow grey when not) instead of an "online" pill; a pill stays only for states that need
+  words (pending approval, access revoked, credential expired). Machines that are offline sort to
+  the bottom, dimmed, with when they were last seen ("offline 3h"). Each machine has one ⋯ menu
+  (Add workspace, Profiles, and Remove last, in red, still confirming first) instead of a row of
+  icons and a trash can. A workspace shows its folder name; the full path is its tooltip and the first
+  line of its menu. A session shows a state icon in place of the dot (a spinner while it runs, an
+  amber "?" when it needs you, "!" on error, nothing when idle) and how long ago it was last active.
+  Delegates and subtasks sit under the session that started them, behind a thin connector, two at a
+  time with "+N more" for the rest. On a computer, ＋ and ⋯ appear when you hover a row or tab to it;
+  on a phone only ⋯ shows (a 44px target), and holding a row opens the same menu.
+- **The Needs-you bar starts collapsed and no longer repeats the open session.** It is one line
+  ("2 need you") that opens when you click it, and it remembers your choice for the browser session.
+  The questions of the session you are looking at are left out, since that view already shows
+  them; if they are the only ones pending, the bar is not drawn at all.
+
 ## v0.38.1 — 2026-11-02
 
 Pins: Cerea `0.38.1` (chat and `cerea-documents`), Pystino `0.23.0`.
