@@ -488,7 +488,7 @@ Notice   = {kind: "files.changed", paths: string[], overflow?: bool}   // scope.
 
 ### 9.4 Default `fileDeny`
 
-`.env` files are not on it (since 2026-11): the explorer shows them, and `--file-deny '.env' --file-deny '.env.*'` hides them on a machine. They are still refused as a command's `@file` reference (`.env`, `.env.*` except the example/sample/template files, `.envrc`, whatever the explorer list is), since a reference puts the file in the prompt with no ask; and the agent's own ask before reading a `*.env` file (§ decision function) is unchanged. File content answers carry `Cache-Control: private, no-store`.
+`.env` files are not on it (since 2026-11): the explorer shows them, and `--file-deny '.env' --file-deny '.env.*'` hides them on a machine. They are still refused as a command's `@file` reference (`.env`, `.env.*` except the example/sample/template files, `.envrc`), since a reference puts the file in the prompt with no ask, unless `--no-default-file-deny` dropped the built-in list; and the agent's own ask before reading a `*.env` file (§ decision function) is unchanged. File content answers carry `Cache-Control: private, no-store`.
 
 `*.pem` · `*.key` · `*.p12` · `*.pfx` · `*.kdbx` · `id_rsa*`, `id_ecdsa*`, `id_ed25519*` · `.netrc` · `.npmrc` · `.pypirc` · `.git-credentials` · `.aws/credentials` · `.docker/config.json` · `*.tfstate` · `secrets.y*ml`.
 
