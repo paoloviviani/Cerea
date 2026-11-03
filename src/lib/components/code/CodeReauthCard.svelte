@@ -15,15 +15,22 @@
 	import IconCode from "~icons/carbon/code";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import * as s from "$lib/components/overlay/styles";
+
+	/** The sidebar's size: no page-sized padding, no filling the column. */
+	let { compact = false }: { compact?: boolean } = $props();
 </script>
 
 <div
-	class="pointer-events-auto scrollbar-custom flex min-h-0 flex-1 overflow-y-auto p-8 sm:p-24"
+	class={compact
+		? "pointer-events-auto flex p-1"
+		: "pointer-events-auto scrollbar-custom flex min-h-0 flex-1 overflow-y-auto p-8 sm:p-24"}
 	data-testid="code-reauth-card"
 	data-variant={codeReauth.signedOut ? "signed-out" : "stale"}
 >
 	<div
-		class="m-auto flex w-full max-w-sm flex-col items-center rounded-lg border-2 border-dashed border-line-strong px-8 py-10 text-center sm:px-14 sm:py-14"
+		class={compact
+			? "m-auto flex w-full flex-col items-center rounded-lg border-2 border-dashed border-line-strong px-4 py-5 text-center"
+			: "m-auto flex w-full max-w-sm flex-col items-center rounded-lg border-2 border-dashed border-line-strong px-8 py-10 text-center sm:px-14 sm:py-14"}
 	>
 		<IconCode class="mb-3 size-7 text-ink-faint" />
 		{#if codeReauth.signedOut}

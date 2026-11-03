@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- The sidebar's Agents tab now says when you need to sign in again, instead of showing nothing.
 - **Security: CVE-2026-98432 (Linux kernel, critical). Act on the host now; this release only
   narrows the exposure.** It is a use-after-free in the kernel's IPv4 TCP code, reachable from the
   network by sending a connection request (SYN) that carries IP options, against any TCP port the
