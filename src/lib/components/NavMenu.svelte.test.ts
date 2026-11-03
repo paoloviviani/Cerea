@@ -2,7 +2,12 @@ import NavMenu from "./NavMenu.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import superjson from "superjson";
-import { codeReauth, resetCodeReauth, flagCodeReauth } from "$lib/stores/codeReauth.svelte";
+import {
+	codeReauth,
+	resetCodeReauth,
+	flagCodeReauth,
+	signOutRedirect,
+} from "$lib/stores/codeReauth.svelte";
 import { codeNav } from "$lib/stores/codeNav.svelte";
 import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
 
@@ -270,6 +275,53 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		vi.unstubAllGlobals();
 		resetCodeReauth();
 		host.remove();
+	});
+
+	it("says the sign-in is stale in the Agents view, with the reauth link", async () => {
+		stubFetch({ enabled: true, fresh: false, reauthPath: "/login?reauth=1&next=/code" });
+		mount();
+		await vi.waitFor(() =>
+			expect(host.querySelector('[data-testid="code-reauth-card"]')).not.toBeNull()
+		);
+		const card = host.querySelector('[data-testid="code-reauth-card"]');
+		expect(card?.getAttribute("data-variant")).toBe("stale");
+		expect(card?.querySelector("a")?.getAttribute("href")).toBe("/login?reauth=1&next=/code");
+		expect(host.querySelector('[data-testid="device-rail"]')).toBeNull();
+	});
+
+	it("offers the plain sign-in in the Agents view when there is no session", async () => {
+		stubFetch({
+			enabled: true,
+			fresh: false,
+			signedIn: false,
+			reauthPath: "/login?reauth=1&next=/code",
+			signInPath: "/login?next=/code",
+		});
+		// Keep the test page where it is: the status answer would redirect it.
+		const go = vi.spyOn(signOutRedirect, "go").mockImplementation(() => {});
+		try {
+			mount();
+			await vi.waitFor(() =>
+				expect(host.querySelector('[data-testid="code-reauth-card"]')).not.toBeNull()
+			);
+			const card = host.querySelector('[data-testid="code-reauth-card"]');
+			expect(card?.getAttribute("data-variant")).toBe("signed-out");
+			expect(card?.querySelector("a")?.getAttribute("href")).toBe("/login?next=/code");
+		} finally {
+			go.mockRestore();
+		}
+	});
+
+	it("shows no prompt, only the tree, when the sign-in is fresh", async () => {
+		stubFetch({
+			enabled: true,
+			fresh: true,
+			reauthPath: "/login?reauth=1&next=/code",
+			freshUntil: new Date(Date.now() + 3_600_000).toISOString(),
+		});
+		mount();
+		await vi.waitFor(() => expect(host.textContent).toContain("Pair a device"));
+		expect(host.querySelector('[data-testid="code-reauth-card"]')).toBeNull();
 	});
 
 	it("keeps only the Chats | Agents switch, and asks no machine, while stale", async () => {

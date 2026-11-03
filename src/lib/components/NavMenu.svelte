@@ -77,6 +77,7 @@
 	import CarbonCode from "~icons/carbon/code";
 	import CarbonEdit from "~icons/carbon/edit";
 	import CodeNavTree from "./code/CodeNavTree.svelte";
+	import CodeReauthCard from "./code/CodeReauthCard.svelte";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import { loadCodeStatus } from "$lib/codeApi";
@@ -256,9 +257,13 @@
 	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-sidebar px-2 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent"
 >
 	{#if codeAgentsEnabled && effectiveView === "agents"}
-		<!-- While the sign-in is stale (or not yet known) the tree draws nothing:
-		     no machines, no counts. The Chats | Agents switch below stays. -->
-		{#if codeReauth.checked && !codeReauth.required}
+		<!-- While the sign-in is stale the tree draws no machines and no counts;
+		     the card says why and offers the way back (as the main panel does).
+		     Before /status has answered nothing is drawn: a card shown then would
+		     flash for every signed-in user. The Chats | Agents switch below stays. -->
+		{#if codeReauth.required}
+			<CodeReauthCard compact />
+		{:else if codeReauth.checked}
 			<CodeNavTree />
 		{/if}
 	{:else}
