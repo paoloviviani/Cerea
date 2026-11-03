@@ -248,3 +248,56 @@ func TestWriteStaysInsideTheWorkspace(t *testing.T) {
 		t.Errorf("link.txt is no longer a symlink: %v", err)
 	}
 }
+
+// A change landing while the temp file is written and synced is caught at the
+// last moment: the revision is checked again right before the rename.
+func TestWriteCatchesAChangeDuringTheWrite(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "a.txt", "v1\n")
+	s := New(nil)
+	base := revisionNow(t, s, root, "a.txt")
+	beforePlace = func() { write(t, root, "a.txt", "the agent, mid-save\n") }
+	t.Cleanup(func() { beforePlace = func() {} })
+
+	_, err := s.Write(root, "a.txt", []byte("mine\n"), &base)
+	var conflict *ConflictError
+	if !errors.As(err, &conflict) || conflict.Revision == nil {
+		t.Fatalf("err = %v, want a conflict naming the new revision", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(root, "a.txt")); string(got) != "the agent, mid-save\n" {
+		t.Errorf("the agent's edit was overwritten: %q", got)
+	}
+	assertNoTempFiles(t, root)
+}
+
+// Create-only stays create-only even when the file appears mid-save: the file
+// is put in place with a hard link, which fails on an existing name.
+func TestWriteCreateOnlyNeverReplacesAFileThatAppeared(t *testing.T) {
+	root := t.TempDir()
+	s := New(nil)
+	beforePlace = func() { write(t, root, "new.txt", "someone else's\n") }
+	t.Cleanup(func() { beforePlace = func() {} })
+
+	_, err := s.Write(root, "new.txt", []byte("mine\n"), nil)
+	var conflict *ConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("err = %v, want a conflict", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(root, "new.txt")); string(got) != "someone else's\n" {
+		t.Errorf("the other file was replaced: %q", got)
+	}
+	assertNoTempFiles(t, root)
+}
+
+func assertNoTempFiles(t *testing.T, root string) {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".galopin-") {
+			t.Errorf("temp file left behind: %s", e.Name())
+		}
+	}
+}

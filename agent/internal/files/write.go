@@ -168,8 +168,35 @@ func (s *Service) Write(root, rel string, body []byte, baseRevision *string) (En
 	if err := tmp.Close(); err != nil {
 		return Entry{}, err
 	}
-	if err := renameIn(dirRoot, tmpName, base); err != nil {
-		return Entry{}, err
+	beforePlace()
+	// The revision was checked before the (slow) write and sync; check again
+	// right before putting the file in place, so a change made meanwhile (the
+	// agent saving the same file) is a conflict, not lost. What remains is the
+	// instant between this check and the rename: no lock spans an agent's own
+	// writes, so that window cannot be closed, only made this small.
+	if info == nil {
+		if err := createIn(dirRoot, tmpName, base); err != nil {
+			if errors.Is(err, fs.ErrExist) {
+				return Entry{}, &ConflictError{}
+			}
+			return Entry{}, mapFSErr(err)
+		}
+	} else {
+		again, err := dirRoot.Lstat(base)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return Entry{}, &ConflictError{}
+		case err != nil:
+			return Entry{}, mapFSErr(err)
+		case !again.Mode().IsRegular():
+			return Entry{}, fmt.Errorf("%w: not a regular file", ErrInvalid)
+		}
+		if now := revisionOf(again); now != revisionOf(info) {
+			return Entry{}, &ConflictError{Revision: &now}
+		}
+		if err := renameIn(dirRoot, tmpName, base); err != nil {
+			return Entry{}, err
+		}
 	}
 	renamed = true
 
@@ -179,6 +206,10 @@ func (s *Service) Write(root, rel string, body []byte, baseRevision *string) (En
 	}
 	return s.entryFor(r, root, rel, written), nil
 }
+
+// beforePlace runs between the temp file's sync and putting it in place: a seam
+// for tests to land a concurrent change in that window. A no-op in production.
+var beforePlace = func() {}
 
 // tempName is a fresh hidden name next to the target, for the write's temp file.
 func tempName(base string) (string, error) {
