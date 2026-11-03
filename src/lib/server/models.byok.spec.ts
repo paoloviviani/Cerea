@@ -47,10 +47,25 @@ beforeAll(async () => {
 });
 
 describe("buildModels with BYOK models", () => {
-	it("carries byok on a my/ model and keeps the id intact", () => {
-		const model = built.find((m) => m.id === "my/home-llama");
-		expect(model?.byok).toBe(true);
-		expect(model?.name).toBe("my/home-llama");
+	it("keeps a my/ entry out of the shared catalogue", () => {
+		expect(built.find((m) => m.id === "my/home-llama")).toBeUndefined();
+	});
+
+	it("builds a caller's own model with byok and the id intact", async () => {
+		const { buildByokModels } = await import("./models");
+		const [model, ...rest] = await buildByokModels({
+			data: [
+				{ id: "my/home-llama", byok: true, kind: "chat", display_name: "Home Llama" },
+				{ id: "acme/plain", byok: false },
+				{ id: "my/embed", byok: true, kind: "embedding" },
+			],
+		});
+		expect(rest).toEqual([]);
+		expect(model.byok).toBe(true);
+		expect(model.name).toBe("my/home-llama");
+		expect(model.displayName).toBe("Home Llama");
+		expect(model.unlisted).toBe(false);
+		expect(typeof model.getEndpoint).toBe("function");
 	});
 
 	it("reads null, false and absent as not BYOK", () => {
@@ -61,7 +76,8 @@ describe("buildModels with BYOK models", () => {
 
 	it("serializes byok to the client list as a plain boolean", async () => {
 		const { serializeModelSummary } = await import("./api/utils/serializeModel");
-		const mine = built.find((m) => m.id === "my/home-llama");
+		const { buildByokModels } = await import("./models");
+		const [mine] = await buildByokModels({ data: [{ id: "my/home-llama", byok: true }] });
 		const other = built.find((m) => m.id === "acme/absent");
 		expect(serializeModelSummary(mine as never)).toMatchObject({ id: "my/home-llama", byok: true });
 		expect(serializeModelSummary(other as never).byok).toBe(false);

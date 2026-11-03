@@ -276,6 +276,95 @@ const resolveTaskModel = (modelList: ProcessedModel[]): ProcessedModel | undefin
 	return modelList[0];
 };
 
+type ListEntry = z.infer<typeof listSchema>["data"][number];
+
+/** One gateway `/models` entry as a model config. Shared by the catalogue and a caller's own (BYOK) entries. */
+const toModelConfig = (
+	m: ListEntry,
+	baseURL: string,
+	gatewayKnowsToolImages: boolean
+): ModelConfig => {
+	// Gateway first, then the HuggingFace router's nested shape. A
+	// deployment has one or the other, never both, and reading only the
+	// HF shape is why a gateway's models all reported no capabilities.
+	const inputModalities = [
+		...(m.input_modalities ?? []),
+		...(m.architecture?.input_modalities ?? []),
+	].map((modality) => modality.toLowerCase());
+	const features = (m.supported_features ?? []).map((feature) => feature.toLowerCase());
+
+	const supportsImageInput =
+		inputModalities.includes("image") || inputModalities.includes("vision");
+
+	// The gateway says so per model; on the HF router, any provider
+	// supporting tools makes the model tool-capable.
+	const supportsTools =
+		features.includes("tools") ||
+		Boolean((m.providers ?? []).some((p) => p?.supports_tools === true));
+
+	const supportsReasoning = features.includes("reasoning");
+	// Smallest window any provider offers, not the largest: with
+	// `provider: "auto"` the router picks, so a request sized for the
+	// roomiest provider would overflow whichever one actually serves it.
+	const reportedContexts = (m.providers ?? [])
+		.map((p) => p?.context_length)
+		.filter((n): n is number => typeof n === "number" && n > 0);
+	const contextLength = reportedContexts.length ? Math.min(...reportedContexts) : undefined;
+	return {
+		id: m.id,
+		name: m.id,
+		// The gateway's own name for the model when it has one — an
+		// administrator sets it on the console's model page and it is what
+		// a picker shows. `id` stays the id: it is what a request sends
+		// and what stored references key on.
+		displayName: m.display_name?.trim() || m.id,
+		description: m.description ?? undefined,
+		byok: m.byok === true ? true : undefined,
+		providers: m.providers ?? undefined,
+		contextLength,
+		// Derived, not opted into: see reasoningPolicy.ts. A MODELS override
+		// with an explicit value replaces this in the merge below.
+		preservesReasoning: preservesReasoningByDefault(m.id),
+		multimodal: supportsImageInput,
+		// Explicitly off only when the gateway knows the capability, the model takes images and does not
+		// list it. The MODELS merge below can still change that.
+		toolImagesOff:
+			gatewayKnowsToolImages && supportsImageInput && !features.includes("tool_images"),
+		multimodalAcceptedMimetypes: supportsImageInput ? ["image/*"] : undefined,
+		supportsTools,
+		supportsReasoning,
+		endpoints: [
+			{
+				type: "openai" as const,
+				baseURL,
+				// apiKey will be taken from OPENAI_API_KEY automatically
+			},
+		],
+	} as ModelConfig;
+};
+
+/**
+ * The caller's own (BYOK) models from their per-caller `/v1/models` body, as
+ * the same ProcessedModel the catalogue holds. Built per request and never
+ * stored: the shared catalogue is built without a user token and must not
+ * learn one user's private entries. Entries that are not `byok: true`, not
+ * `my/...` or not chat models are ignored; the catalogue already has the rest.
+ */
+export async function buildByokModels(json: unknown): Promise<ProcessedModel[]> {
+	if (!openaiBaseUrl) return [];
+	const parsed = listSchema.safeParse(json);
+	if (!parsed.success) return [];
+	const CHAT = new Set(["chat", "text", "completion", "completions"]);
+	const own = parsed.data.data.filter(
+		(m) => m.byok === true && m.id.startsWith("my/") && (!m.kind || CHAT.has(m.kind.toLowerCase()))
+	);
+	return Promise.all(
+		own.map((m) =>
+			processModel(toModelConfig(m, openaiBaseUrl, false)).then(addEndpoint)
+		) as Promise<ProcessedModel>[]
+	);
+}
+
 const buildModels = async (): Promise<ProcessedModel[]> => {
 	if (!openaiBaseUrl) {
 		logger.error(
@@ -331,7 +420,12 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 		// not send one and every model it lists is a chat model. Filtering on a
 		// field that may not exist must not empty the catalogue.
 		const CHAT_KINDS = new Set(["chat", "text", "completion", "completions"]);
-		const serves = parsed.data.filter((m) => !m.kind || CHAT_KINDS.has(m.kind.toLowerCase()));
+		// A user's own-key model (`byok`) is never part of the shared catalogue:
+		// it is another user's private entry if a token ever reached this fetch, and
+		// is added per caller from their own list (`buildByokModels`).
+		const serves = parsed.data.filter(
+			(m) => m.byok !== true && (!m.kind || CHAT_KINDS.has(m.kind.toLowerCase()))
+		);
 		const skipped = parsed.data.length - serves.length;
 		if (skipped > 0) {
 			logger.info(
@@ -356,65 +450,7 @@ const buildModels = async (): Promise<ProcessedModel[]> => {
 			(m.supported_features ?? []).some((feature) => feature.toLowerCase() === "tool_images")
 		);
 
-		let modelsRaw = serves.map((m) => {
-			// Gateway first, then the HuggingFace router's nested shape. A
-			// deployment has one or the other, never both, and reading only the
-			// HF shape is why a gateway's models all reported no capabilities.
-			const inputModalities = [
-				...(m.input_modalities ?? []),
-				...(m.architecture?.input_modalities ?? []),
-			].map((modality) => modality.toLowerCase());
-			const features = (m.supported_features ?? []).map((feature) => feature.toLowerCase());
-
-			const supportsImageInput =
-				inputModalities.includes("image") || inputModalities.includes("vision");
-
-			// The gateway says so per model; on the HF router, any provider
-			// supporting tools makes the model tool-capable.
-			const supportsTools =
-				features.includes("tools") ||
-				Boolean((m.providers ?? []).some((p) => p?.supports_tools === true));
-
-			const supportsReasoning = features.includes("reasoning");
-			// Smallest window any provider offers, not the largest: with
-			// `provider: "auto"` the router picks, so a request sized for the
-			// roomiest provider would overflow whichever one actually serves it.
-			const reportedContexts = (m.providers ?? [])
-				.map((p) => p?.context_length)
-				.filter((n): n is number => typeof n === "number" && n > 0);
-			const contextLength = reportedContexts.length ? Math.min(...reportedContexts) : undefined;
-			return {
-				id: m.id,
-				name: m.id,
-				// The gateway's own name for the model when it has one — an
-				// administrator sets it on the console's model page and it is what
-				// a picker shows. `id` stays the id: it is what a request sends
-				// and what stored references key on.
-				displayName: m.display_name?.trim() || m.id,
-				description: m.description ?? undefined,
-				byok: m.byok === true ? true : undefined,
-				providers: m.providers ?? undefined,
-				contextLength,
-				// Derived, not opted into: see reasoningPolicy.ts. A MODELS override
-				// with an explicit value replaces this in the merge below.
-				preservesReasoning: preservesReasoningByDefault(m.id),
-				multimodal: supportsImageInput,
-				// Explicitly off only when the gateway knows the capability, the model takes images and does not
-				// list it. The MODELS merge below can still change that.
-				toolImagesOff:
-					gatewayKnowsToolImages && supportsImageInput && !features.includes("tool_images"),
-				multimodalAcceptedMimetypes: supportsImageInput ? ["image/*"] : undefined,
-				supportsTools,
-				supportsReasoning,
-				endpoints: [
-					{
-						type: "openai" as const,
-						baseURL,
-						// apiKey will be taken from OPENAI_API_KEY automatically
-					},
-				],
-			} as ModelConfig;
-		}) as ModelConfig[];
+		let modelsRaw = serves.map((m) => toModelConfig(m, baseURL, gatewayKnowsToolImages));
 
 		const overrides = getModelOverrides();
 

@@ -49,6 +49,7 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { isGatewayPreset } from "$lib/server/identity/gatewayLogin";
 import { validateModel, models } from "$lib/server/models";
+import { isSelectableCatalogueId } from "$lib/server/visibleModels";
 import { isSelectableModel } from "$lib/server/customModels";
 import { projectAccess, viewerPrincipals } from "$lib/server/projects";
 import { notifyUser } from "$lib/server/push/notify";
@@ -354,10 +355,17 @@ registerExecutor({
 			if (!target.model) return { ok: false, error: "Choose a model for the new chats." };
 			const owner = { userId };
 			if (
-				!(await isSelectableModel(
-					target.model,
-					owner,
-					(id) => validateModel(models).safeParse(id).success
+				!(await isSelectableModel(target.model, owner, (id) =>
+					isSelectableCatalogueId(
+						{
+							token,
+							user: { _id: userId },
+							sessionId: undefined,
+							isAdmin: false,
+						} as unknown as App.Locals,
+						id,
+						(i) => validateModel(models).safeParse(i).success
+					)
 				))
 			) {
 				return { ok: false, error: "That model is not available." };

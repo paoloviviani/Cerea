@@ -2,6 +2,7 @@ import { effectiveReasoningEffort } from "$lib/server/reasoningEffort";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
 import { validModelIdSchema } from "$lib/server/models";
+import { isSelectableCatalogueId, modelsFor } from "$lib/server/visibleModels";
 import {
 	conversationOwnerFilter,
 	isSelectableModel,
@@ -160,7 +161,13 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// is where `custom:<id>` stops, so everything below (the endpoint, the
 	// capability gates, the metrics) sees a catalogue model. A custom model
 	// that is gone falls back instead of failing the turn.
-	const model = (await resolveConversationModel(conv.model, conversationOwnerFilter(conv)))?.model;
+	const model = (
+		await resolveConversationModel(
+			conv.model,
+			conversationOwnerFilter(conv),
+			await modelsFor(locals, conv.model)
+		)
+	)?.model;
 
 	if (!model) {
 		error(410, "Model not available anymore");
@@ -944,10 +951,8 @@ export async function PATCH({ request, locals, params }) {
 
 	if (
 		values.model !== undefined &&
-		!(await isSelectableModel(
-			values.model,
-			conversationOwnerFilter(conv),
-			(id) => validModelIdSchema.safeParse(id).success
+		!(await isSelectableModel(values.model, conversationOwnerFilter(conv), (id) =>
+			isSelectableCatalogueId(locals, id, (i) => validModelIdSchema.safeParse(i).success)
 		))
 	) {
 		error(400, "Invalid model ID");

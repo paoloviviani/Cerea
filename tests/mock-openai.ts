@@ -39,6 +39,18 @@ export const KNOWLEDGE_MODELS_FIXTURE = {
  */
 export const MOCK_IMAGE_MODEL = { id: "mock-image", kind: "image" };
 
+/** The bearer whose `/v1/models` also lists a private (BYOK) model. */
+export const MOCK_BYOK_TOKEN = "e2e-byok-token";
+
+/** That user's own model, in the gateway's shape. */
+export const MOCK_BYOK_MODEL = {
+	id: "my/e2e-llama",
+	kind: "chat",
+	byok: true,
+	display_name: "E2E Llama",
+	supported_features: ["tools"],
+};
+
 /** A real 1x1 PNG: what the mock image model draws, whatever the prompt. */
 export const MOCK_IMAGE_PNG_BASE64 =
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -323,6 +335,13 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 							}
 						: KNOWLEDGE_MODELS_FIXTURE
 				);
+				return;
+			}
+			// The per-caller list: a user holding the BYOK token also sees their own
+			// model, as the gateway lists it (`my/<name>`, `byok: true`). The boot-time
+			// catalogue fetch carries no such token and never sees it.
+			if (req.headers.authorization === `Bearer ${MOCK_BYOK_TOKEN}`) {
+				json(res, 200, { ...MODELS_FIXTURE, data: [...MODELS_FIXTURE.data, MOCK_BYOK_MODEL] });
 				return;
 			}
 			json(res, 200, MODELS_FIXTURE);

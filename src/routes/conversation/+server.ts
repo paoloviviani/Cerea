@@ -18,6 +18,7 @@ import {
 	parseAttachedKnowledgeBaseIds,
 	knowledgeBaseViews,
 } from "$lib/server/projects";
+import { isSelectableCatalogueId, modelsFor } from "$lib/server/visibleModels";
 import { v4 } from "uuid";
 import { authCondition } from "$lib/server/auth";
 import { usageLimits } from "$lib/server/usageLimits";
@@ -76,15 +77,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	// its base.
 	const owner = conversationOwnerFilter({ userId: locals.user?._id, sessionId: locals.sessionId });
 	if (
-		!(await isSelectableModel(
-			values.model,
-			owner,
-			(id) => validateModel(models).safeParse(id).success
+		!(await isSelectableModel(values.model, owner, (id) =>
+			isSelectableCatalogueId(locals, id, (i) => validateModel(models).safeParse(i).success)
 		))
 	) {
 		error(400, "Invalid request");
 	}
-	const model = (await resolveConversationModel(values.model, owner))?.model;
+	const model = (
+		await resolveConversationModel(values.model, owner, await modelsFor(locals, values.model))
+	)?.model;
 
 	if (!model) {
 		error(400, "Invalid model");

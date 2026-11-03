@@ -64,11 +64,14 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   offers **Reload** (drop the edits) or **Overwrite**. Files over 1 MiB, binary files, images and
   files on the deny list stay read-only. Each save is audited with its path and size, never its
   content. Needs the galopin update.
-- Chat: models a user added with their own key in the gateway (BYOK, ids `my/<name>`)
-  show a "Your key" badge in the model picker and in the Models tab, and the Models tab links
-  to "Your providers and models" in the gateway console for users whose group allows it.
-  Needs a Pystino that reports `byok` on `/v1/models` and `capabilities.byok` on `/v1/me`; an older
-  gateway shows neither.
+- **Models a user added with their own key (BYOK, ids `my/<name>`) now work in the chat.** They
+  are listed in the model picker and in the Models tab with a "Your key" badge, can be selected,
+  and a message on one is sent to the gateway under the user's own token (charged to their key,
+  not their group's limits). They come from the user's own `/v1/models` on each request and are
+  never shared with other users. The Models tab links to "Your providers and models" in the
+  gateway console for users whose group allows it (`capabilities.byok` on `/v1/me`). A custom
+  model cannot be based on one. Needs a Pystino that reports `byok` on `/v1/models` and
+  `capabilities.byok` on `/v1/me`; an older gateway shows neither.
 - **A machine enrolled with `--no-default-file-deny` no longer tells its agents to stay away from
   `.env` files.** That flag already lifted the built-in deny list; the instruction in the agents'
   prompt that listed `.env` files stayed behind and kept them refusing. Machines enrolled the

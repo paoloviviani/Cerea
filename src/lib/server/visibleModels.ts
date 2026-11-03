@@ -1,6 +1,11 @@
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
-import { ensureModelsFresh, type ProcessedModel } from "$lib/server/models";
+import {
+	buildByokModels,
+	ensureModelsFresh,
+	models as sharedModels,
+	type ProcessedModel,
+} from "$lib/server/models";
 import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import { billToHeader } from "$lib/server/billTo";
@@ -18,16 +23,17 @@ import { billToHeader } from "$lib/server/billTo";
  */
 
 /**
- * The ids this token can reach, or null if we could not find out.
+ * What this token's `/v1/models` says (the parsed body), or null if we could
+ * not find out.
  *
  * Null and empty are different answers and the caller below treats them
  * differently: empty means the gateway said this person has no models, null
  * means we failed to ask.
  */
-async function reachableIds(
+async function callerList(
 	bearer: string,
 	billingOrganization: string | undefined
-): Promise<Set<string> | null> {
+): Promise<{ data?: { id?: unknown }[] } | null> {
 	const base = config.OPENAI_BASE_URL?.replace(/\/$/, "");
 	if (!base) return null;
 	try {
@@ -54,15 +60,73 @@ async function reachableIds(
 			);
 			return null;
 		}
-		const json = (await response.json()) as { data?: { id?: unknown }[] };
-		const ids = (json.data ?? [])
-			.map((entry) => entry.id)
-			.filter((id): id is string => typeof id === "string");
-		return new Set(ids);
+		return (await response.json()) as { data?: { id?: unknown }[] };
 	} catch (error) {
 		logger.warn(error, "[models] Could not read the per-caller catalogue");
 		return null;
 	}
+}
+
+/** The ids in a per-caller body. */
+function idsOf(json: { data?: { id?: unknown }[] }): Set<string> {
+	return new Set(
+		(json.data ?? []).map((entry) => entry.id).filter((id): id is string => typeof id === "string")
+	);
+}
+
+/** The billing group the person chose (ADR 0061), read from their settings. */
+async function billingOrganizationOf(locals: Pick<App.Locals, "isAdmin" | "sessionId" | "user">) {
+	const stored = await collections.settings.findOne(authCondition(locals), {
+		projection: { billingOrganization: 1 },
+	});
+	return stored?.billingOrganization;
+}
+
+/**
+ * The caller's own models (`my/<name>`, gateway BYOK), or null when the
+ * gateway could not be asked. Derived from *their* `/v1/models` on every call
+ * and never kept: the shared catalogue is built without a user token and a
+ * private model must not outlive the request or reach another user. An
+ * anonymous session (no token) has none.
+ */
+export async function callerByokModels(
+	locals: Pick<App.Locals, "isAdmin" | "sessionId" | "token" | "user">
+): Promise<ProcessedModel[] | null> {
+	const bearer = locals.token;
+	if (!bearer) return [];
+	const json = await callerList(bearer, await billingOrganizationOf(locals));
+	return json ? buildByokModels(json) : null;
+}
+
+/**
+ * The models a turn for this caller may resolve a conversation's `modelId`
+ * against: the shared catalogue, plus the caller's own models when the id is
+ * a `my/` one. Another user's `my/x` is not in their list, so it resolves to
+ * nothing for them. The gateway is only asked for a `my/` id.
+ */
+export async function modelsFor(
+	locals: Pick<App.Locals, "isAdmin" | "sessionId" | "token" | "user">,
+	modelId: string | undefined
+): Promise<ProcessedModel[]> {
+	if (!modelId?.startsWith("my/")) return sharedModels;
+	return [...sharedModels, ...((await callerByokModels(locals)) ?? [])];
+}
+
+/**
+ * Whether `id` is a model this caller may put on a conversation: a shared
+ * catalogue id (as the caller's own check says), or one of their own `my/`
+ * models. A `my/x` that is another user's, or whose capability was revoked, is
+ * not in this caller's list and is refused. If the gateway cannot be asked,
+ * a `my/` id is refused rather than guessed.
+ */
+export async function isSelectableCatalogueId(
+	locals: Pick<App.Locals, "isAdmin" | "sessionId" | "token" | "user">,
+	id: string,
+	isCatalogueId: (id: string) => boolean
+): Promise<boolean> {
+	if (isCatalogueId(id)) return true;
+	if (!id.startsWith("my/")) return false;
+	return ((await callerByokModels(locals)) ?? []).some((model) => model.id === id);
 }
 
 export async function visibleModels(
@@ -81,16 +145,18 @@ export async function visibleModels(
 	// but a models listing has no such setter. Reading it here (once) means
 	// every caller of `visibleModels` gets the same answer without each one
 	// loading settings itself.
-	const stored = await collections.settings.findOne(authCondition(locals), {
-		projection: { billingOrganization: 1 },
-	});
-	const billingOrganization = stored?.billingOrganization;
-
-	const reachable = await reachableIds(bearer, billingOrganization);
+	const json = await callerList(bearer, await billingOrganizationOf(locals));
 	// **Falling back to the unfiltered list is deliberate.** If the gateway
 	// could not be asked, showing everything is a slightly generous answer
 	// that the gateway itself still refuses at send time; showing nothing
 	// would tell somebody they have no models at all, which is the worse
 	// lie and looks like their account has broken.
-	return reachable ? catalogue.filter((model) => reachable.has(model.id)) : catalogue;
+	if (!json) return catalogue;
+	const reachable = idsOf(json);
+	// The caller's own models are in their list and in no one else's, and not in
+	// the shared catalogue (built without a token): add them here, per request.
+	return [
+		...catalogue.filter((model) => reachable.has(model.id)),
+		...(await buildByokModels(json)),
+	];
 }

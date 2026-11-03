@@ -127,9 +127,9 @@ export async function baseModelIdFor(modelId: string, owner: Filter | undefined)
 export async function isSelectableModel(
 	modelId: string,
 	owner: Filter | undefined,
-	isCatalogueId: (id: string) => boolean
+	isCatalogueId: (id: string) => boolean | Promise<boolean>
 ): Promise<boolean> {
-	if (!customModelObjectId(modelId)) return isCatalogueId(modelId);
+	if (!customModelObjectId(modelId)) return await isCatalogueId(modelId);
 	const custom = owner ? await findCustomModel(owner, modelId) : null;
 	return Boolean(custom && models.some((m) => m.id === custom.baseModelId));
 }
