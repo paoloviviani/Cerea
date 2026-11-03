@@ -7,6 +7,19 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Security: CVE-2026-98432 (Linux kernel, critical). Act on the host now; this release only
+  narrows the exposure.** It is a use-after-free in the kernel's IPv4 TCP code, reachable from the
+  network by sending a connection request (SYN) that carries IP options, against any TCP port the
+  host listens on; the published exploit goes through Multipath TCP, which Caddy (built with Go
+  1.24 or later) accepts by default. The fix is a patched kernel: update the host as soon as your
+  distribution ships one (Ubuntu 24.04: `linux` 6.8.0-149 or later) and reboot. Until then, drop
+  IPv4 TCP packets that carry IP options, which normal traffic never uses, before Docker sees them:
+  `sudo nft add table ip cve_2026_98432 && sudo nft add chain ip cve_2026_98432 prerouting '{ type
+  filter hook prerouting priority raw; policy accept; }' && sudo nft add rule ip cve_2026_98432
+  prerouting ip protocol tcp ip hdrlength != 5 counter drop` (not kept across a reboot: put it in
+  your firewall configuration). In the kit, the proxy no longer accepts Multipath TCP
+  (`GODEBUG=multipathtcp=0`, and `net.mptcp.enabled=0` in its network namespace); `docker compose
+  up -d` recreates it with that.
 - **Security: the headless browser is now boxed in. If you run the `fetch` profile (the `enterprise`
   preset, or `./configure --fetch`), update.** The browser that renders pages for web fetch uses a
   Chromium that has known critical bugs (fixed in Chromium 156.0.8078.73) and no Playwright release
