@@ -5,7 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.38.1 — 2026-11-02
+
+Pins: Cerea `0.38.1` (chat and `cerea-documents`), Pystino `0.23.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. On each agent machine, update galopin
+(`curl -fsSL "$CEREA_BASE_URL/galopin/install.sh" | sh`, then restart its service). If you run the
+backup sidecar, rebuild it (`docker compose up -d --build backup`).
 
 - **"Used tool" instead of "Called tool"**, in the chat and in exported conversations.
 - **File and code cards fit the chat column** when the side pane is open: their minimum width
