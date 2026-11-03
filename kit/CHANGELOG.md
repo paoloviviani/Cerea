@@ -35,7 +35,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 - Chat: models a user added with their own key in the gateway (BYOK, ids `my/<name>`)
   show a "Your key" badge in the model picker and in the Models tab, and the Models tab links
   to "Your providers and models" in the gateway console for users whose group allows it.
-  Needs a Pystino that reports `byok` on `/v1/models` and `byok_allowed` on `/v1/me`; an older
+  Needs a Pystino that reports `byok` on `/v1/models` and `capabilities.byok` on `/v1/me`; an older
   gateway shows neither.
 - **A machine enrolled with `--no-default-file-deny` no longer tells its agents to stay away from
   `.env` files.** That flag already lifted the built-in deny list; the instruction in the agents'
