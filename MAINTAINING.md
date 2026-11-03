@@ -180,7 +180,9 @@ release. Version: patch for fixes, minor for features.
    commands, and whether machines need the galopin update.
 
 The fresh-kit test needs Docker, `uv`, `gh`, and ports 80/443 free on the
-machine that runs it. On a CPU without AVX or a kernel in 6.19 to 7.0.13 it
+machine that runs it (or other free ports: set `HTTP_PORT`, `HTTPS_PORT` and `GATEWAY_PORT` (the
+gateway's loopback port, 8000), for
+example beside a live stack). On a CPU without AVX or a kernel in 6.19 to 7.0.13 it
 runs MongoDB 4.4, because `./configure` picks the image from the host (no flag
 needed); the MongoDB 8 path is what CI and operators on capable hosts run.
 
