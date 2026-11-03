@@ -570,9 +570,10 @@ services:
       NODE_OPTIONS: --dns-result-order=ipv4first
     # `default` is the stack's network; `office`, `docs` and `objects` are the
     # internal-only ones the document converter, the document service and the
-    # bundled object store live on (see below). Listing a network replaces the implicit default, so all
+    # bundled object store live on, and `fetch` is the headless browser's own
+    # (see below). Listing a network replaces the implicit default, so all
     # are named.
-    networks: [default, office, docs, objects]
+    networks: [default, office, docs, objects, fetch]
     depends_on:
       chat-mongo:
         condition: service_healthy
@@ -655,22 +656,66 @@ services:
       start_period: 20s
 
   # --- profile: fetch (headless browser for the chat's web fetch) -------------
-
+  #
+  # The browser opens pages a model was pointed at, with JavaScript on, so it is
+  # the most likely thing in the stack to meet hostile code. It is boxed in:
+  #   - only the `fetch` network, shared with the chat and nothing else: not
+  #     `default`, so it cannot reach or even resolve PostgreSQL, Valkey, the
+  #     gateway, Authelia or MongoDB, whatever a compromised renderer tries.
+  #     It is not `internal: true`, because fetching public pages needs the
+  #     internet; the chat's URL guard (which runs in the chat, not here) is the
+  #     filter for where pages may go, the network split is what holds if that
+  #     filter is bypassed from inside the browser;
+  #   - Chromium's own sandbox is ON, enforced by the server, not requested
+  #     by the client. Playwright starts Chromium with --no-sandbox unless told
+  #     otherwise, and `run-server` has no server-side setting for that (the
+  #     client picks launch options per connection, and honouring
+  #     chromiumSandbox from a client needs `--unsafe`, which would also let it
+  #     set args and executablePath). So the service runs `launch-server`
+  #     with playwright-server.json: one Chromium, launched at start with
+  #     chromiumSandbox true, that clients connect to; a connecting client
+  #     cannot launch anything or change that. A renderer exploit alone is then
+  #     not code execution in the container. The sandbox needs user
+  #     namespaces, which Docker's default seccomp profile blocks, so the
+  #     service runs with Playwright's own profile (seccomp/playwright.json,
+  #     source and licence in seccomp/NOTICE.md) instead of CAP_SYS_ADMIN or
+  #     --no-sandbox. The server path stays "/", so the chat's
+  #     PLAYWRIGHT_WS_ENDPOINT (ws://playwright:3000/) is unchanged;
+  #   - read-only root filesystem, tmpfs for scratch and for the npm cache the
+  #     start-up `npx` writes, no capabilities, no privilege escalation, a
+  #     process cap, and CPU and memory limits (a page that eats memory takes
+  #     this container down, not the host).
   # CVE-2026-111497 (Brotli decoder out-of-bounds write): the Node in this image
   # (24.22.1) is patched. Chromium's bundled Brotli is unverified, and the
   # image's system libbrotli1 (1.1.0) is unpatched but, as far as is known, not
   # used by the fetch path. The chat sends Accept-Encoding: gzip, deflate so
   # servers never answer with Brotli. Bump this image (and PLAYWRIGHT_VERSION,
   # and the chat's pinned playwright) when a Playwright release with a newer
-  # Chrome ships; none is newer than 1.64.1 yet.
+  # Chrome ships; none is newer than 1.64.1 yet. The sandbox and this box are
+  # what contain a Chromium bug in the meantime.
   playwright:
     profiles: [fetch]
     image: ${PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.64.1-noble}
-    command: ["npx", "-y", "playwright@${PLAYWRIGHT_VERSION:-1.64.1}", "run-server", "--port", "3000", "--host", "0.0.0.0"]
+    command: ["npx", "-y", "playwright@${PLAYWRIGHT_VERSION:-1.64.1}", "launch-server", "--browser", "chromium", "--config", "/etc/cerea/playwright-server.json"]
     user: pwuser
     init: true
     shm_size: 1gb
+    networks: [fetch]
+    volumes:
+      - ./playwright-server.json:/etc/cerea/playwright-server.json:ro
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/pwuser/.npm:uid=1000,gid=1000
+      - /home/pwuser/.cache:uid=1000,gid=1000
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./seccomp/playwright.json
+    mem_limit: ${PLAYWRIGHT_MEM_LIMIT:-3g}
+    cpus: ${PLAYWRIGHT_CPUS:-2}
+    pids_limit: 1024
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:3000,timeout:4000},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 10s
@@ -804,3 +849,8 @@ networks:
   # and RustFS are the only members.
   objects:
     internal: true
+  # The headless browser's own (fetch profile): the chat and the browser are the
+  # only members. Not internal, because fetching public pages needs the
+  # internet; kept off `default` so a compromised browser reaches none of the
+  # stack's services.
+  fetch:

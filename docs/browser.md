@@ -119,8 +119,7 @@ In the deploy kit, add the `fetch` profile. The `enterprise` preset includes it;
 for another preset run `./configure --fetch`, then `docker compose up -d`
 (`./configure --no-fetch` removes it again).
 
-That runs one more service, a Playwright `run-server` (Chromium, Firefox and
-WebKit) on port 3000 of the compose network. The chat reaches it at
+That runs one more service, a Playwright `launch-server` (one Chromium) on port 3000 of the compose network. The chat reaches it at
 `PLAYWRIGHT_WS_ENDPOINT` (`ws://playwright:3000/`), which `./configure` sets
 while the profile is on and removes when it is off.
 
@@ -141,7 +140,8 @@ is only offered to the model while the renderer answers.
 `run-server` has **no authentication of any kind**: no token, no password, no
 TLS. Anyone who can open a WebSocket to it can drive a real browser, read the
 container's files through `file://`, and reach every other service on the
-compose network from inside it: PostgreSQL, Valkey, the gateway. A reverse
+compose network from inside it: PostgreSQL, Valkey, the gateway (which is why
+it now sits on a network of its own, below). A reverse
 proxy in front does not help, because there is no credential for it to check.
 
 So the service has no `ports:`, and must never get one. (`--host 0.0.0.0` in
@@ -171,6 +171,36 @@ them together.
 
 That is why it is opt-in: on a small host the image and a browser that grows
 with the page are the wrong default.
+
+## How it is boxed in
+
+The browser opens pages a model was pointed at, with JavaScript on, so it is
+treated as the part of the stack most likely to meet hostile code. The chat's
+URL check only filters what the page asks for through Playwright; a compromised
+browser's own code does not go through it. So the box does not rely on it:
+
+- **Its own network.** The service is on the `fetch` network, shared with the
+  chat and nothing else, and not on `default`. It cannot resolve or reach
+  PostgreSQL, Valkey, the gateway, Authelia or MongoDB. The network is not
+  `internal`, because fetching public pages needs the internet.
+- **Chromium's sandbox is on, enforced by the server.** Playwright starts
+  Chromium with `--no-sandbox` unless told otherwise, and `run-server` leaves
+  that to each client (honouring a client's `chromiumSandbox` needs `--unsafe`,
+  which also lets it set `args` and `executablePath`). So the service runs
+  `launch-server` with `kit/playwright-server.json`: one Chromium, launched at
+  start with `chromiumSandbox: true`, that clients connect to. A connecting
+  client cannot launch a browser or change those options, so a client that asks
+  for no sandbox, or says nothing, still gets the sandboxed one. The sandbox
+  needs user namespaces, which Docker's default seccomp profile blocks; the
+  service uses Playwright's own profile (`kit/seccomp/playwright.json`, with its
+  source and licence in `kit/seccomp/NOTICE.md`) rather than extra capabilities.
+  The server's path stays `/`, so `PLAYWRIGHT_WS_ENDPOINT` is unchanged. All
+  concurrent fetches share that one browser, each in its own context.
+- **A read-only filesystem, no capabilities, no privilege escalation,** scratch
+  space in tmpfs (including the npm cache the start-up `npx` writes), and
+  memory (`PLAYWRIGHT_MEM_LIMIT`), CPU (`PLAYWRIGHT_CPUS`) and process limits.
+
+Bump `kit/seccomp/playwright.json` together with the Playwright version.
 
 ## Details in the service definition
 
