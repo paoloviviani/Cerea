@@ -240,7 +240,7 @@
 			</a>
 		</div>
 	{:else}
-		<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+		<div class="grid grid-cols-1 gap-3">
 			<div class="min-w-0">
 				<label class={s.LABEL} for="project-agent-device">{m["projects.agent.machine"]()}</label>
 				<select

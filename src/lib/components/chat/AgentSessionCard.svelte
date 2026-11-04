@@ -124,21 +124,23 @@
 </script>
 
 <section
-	class="{s.card(false)} max-w-xl min-w-0 px-3.5 py-3"
+	class="{s.card(false)} my-1.5 max-w-xl min-w-0 px-3.5 py-3"
 	aria-label={m["chat.agent_session.label"]({ title })}
 	data-testid="agent-session-card"
 	data-action={update.action}
 	data-state={live && !codeReauth.required ? state : undefined}
 >
-	<div class="flex min-w-0 items-start gap-2.5">
-		<IconCode class="mt-0.5 size-4 shrink-0 text-ink-faint" aria-hidden="true" />
-		<div class="min-w-0 flex-1">
-			<p class="truncate text-sm font-semibold text-ink" {title}>
-				{title}
-			</p>
-			<p class="truncate text-xs text-ink-muted" title={route} data-testid="agent-session-route">
-				{route}
-			</p>
+	<div class="flex min-w-0 flex-wrap items-start gap-x-2.5 gap-y-2">
+		<div class="flex min-w-0 flex-1 basis-52 items-start gap-2.5">
+			<IconCode class="mt-0.5 size-4 shrink-0 text-ink-faint" aria-hidden="true" />
+			<div class="min-w-0 flex-1">
+				<p class="line-clamp-2 text-sm font-semibold break-words text-ink" {title}>
+					{title}
+				</p>
+				<p class="text-xs break-words text-ink-muted" data-testid="agent-session-route">
+					{route}
+				</p>
+			</div>
 		</div>
 		{#if live && !codeReauth.required}
 			<span
