@@ -18,6 +18,7 @@ import (
 	"galopin/internal/backend"
 	backendacp "galopin/internal/backend/acp"
 	backendopencode "galopin/internal/backend/opencode"
+	"galopin/internal/decide"
 	"galopin/internal/fsutil"
 	"galopin/internal/link"
 	"galopin/internal/policy"
@@ -292,6 +293,8 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 
 	mc := newMachine(reg, back, mat, pol)
+	home, _ := os.UserHomeDir()
+	mc.protected = decide.NewProtected(home, stateDir)
 	auditLog, err := newAuditLogger(stateDir)
 	if err != nil {
 		return err
@@ -752,9 +755,11 @@ const autoAcceptRetired = "denied"
 // panel can say what a session's Allow still cannot do instead of leaving a
 // refusal to explain it.
 func permissionInfo(pol policy.Policy) link.PermissionInfo {
+	// Derived from the class limits (what an older Cerea reads as the ceiling).
 	max := map[string]string{}
-	for k, v := range pol.Permission.Max {
-		max[k] = v
+	c := pol.Permission.Ceiling()
+	for _, k := range c.Keys() {
+		max[k] = string(c.Of(k))
 	}
 	return link.PermissionInfo{Max: max}
 }

@@ -21,6 +21,8 @@
 		{ "flag": "no-terminal", "kind": "bool", "default": false, "exposed": true },
 		{ "flag": "permission-max", "kind": "keyAction", "default": [], "exposed": true },
 		{ "flag": "permission-rule", "kind": "keyAction", "default": [], "exposed": true },
+		{ "flag": "limit", "kind": "list", "default": [], "exposed": false },
+		{ "flag": "no-file-write", "kind": "bool", "default": false, "exposed": false },
 		{ "flag": "safe-dir", "kind": "list", "default": [], "exposed": false },
 		{ "flag": "no-safe-dirs", "kind": "bool", "default": false, "exposed": false },
 		{ "flag": "workspace-root", "kind": "list", "default": [], "exposed": true },
@@ -47,6 +49,20 @@
 		{ "flag": "shim-port", "kind": "int", "default": 41871, "exposed": false },
 		{ "flag": "yes", "kind": "bool", "default": false, "exposed": false }
 	],
+	"limits": {
+		"flag": "limit",
+		"note": "ADR 0107: --limit CLASS=never|ask|run (loop: ask|stop; secrets: never|ask), repeatable, changes only the classes named. permission-max and permission-rule stay one release as aliases mapped onto classes; the dialog still prints them until it moves to --limit.",
+		"classes": [
+			{ "class": "edit", "default": "run", "allowed": ["never", "ask", "run"] },
+			{ "class": "command", "default": "ask", "allowed": ["never", "ask", "run"] },
+			{ "class": "web", "default": "run", "allowed": ["never", "ask", "run"] },
+			{ "class": "outside", "default": "ask", "allowed": ["never", "ask", "run"] },
+			{ "class": "secrets", "default": "ask", "allowed": ["never", "ask"] },
+			{ "class": "agents", "default": "run", "allowed": ["never", "ask", "run"] },
+			{ "class": "tools", "default": "run", "allowed": ["never", "ask", "run"] },
+			{ "class": "loop", "default": "ask", "allowed": ["ask", "stop"] }
+		]
+	},
 	"ceiling": {
 		"flag": "permission-max",
 		"note": "The flag REPLACES enroll's default set when given: a dialog that changes any row must emit the full set (every row that differs from allow, including the default bash=ask unless changed); with nothing changed it emits nothing. A key absent from the set is not capped (allow).",

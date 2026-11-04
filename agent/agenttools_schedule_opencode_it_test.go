@@ -209,10 +209,11 @@ func TestScheduleToolsIntegration(t *testing.T) {
 			ceiling[scheduleKey] = a
 		}
 		ceilMu.Unlock()
-		mc.pol.Permission.Max = map[string]string{}
+		mc.pol.Permission = policy.Permission{Max: map[string]string{}}
 		if a != permrules.Allow {
 			mc.pol.Permission.Max[scheduleKey] = string(a)
 		}
+		mc.pol.Permission.Normalize()
 	}
 
 	// The fake Cerea, on a real link.

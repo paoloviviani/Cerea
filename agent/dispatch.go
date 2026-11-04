@@ -35,7 +35,9 @@ type machine struct {
 	pol        policy.Policy
 	// live is the permission part of the policy as it stands now (it can only
 	// tighten while the agent runs); the materializer reads the same one.
-	live      *policy.Live
+	live *policy.Live
+	// protected is galopin's own paths and the credential stores (decide.Protected).
+	protected decide.Protected
 	files     *files.Service
 	terminals *terminal.Manager
 
@@ -1123,10 +1125,17 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 		tool = asked.Tool
 	}
 	decision, capped := mc.capDecision(tool, backend.Decision(a.Decision))
+	if decision == backend.DecisionAlways && asked != nil && asked.Class != "" {
+		// The ask's own class (a .env read, a path outside the project) may be
+		// limited though its key is not.
+		if c, err := decide.ParseClass(asked.Class); err == nil && mc.live.Permission().EffectiveLimits()[c] != decide.Run {
+			decision, capped = backend.DecisionOnce, true
+		}
+	}
 	// A card answered after the ceiling tightened under it: an approval never
 	// goes past the ceiling, so it is sent as a rejection instead.
 	if rh, ok := mc.ruleHost(); ok && asked != nil && !strings.HasPrefix(a.RequestID, "gp_") && decision != backend.DecisionReject {
-		if res := mc.decideAsk(rh, dir, *asked); res.Verdict == decide.Reject && res.Step == "ceiling" {
+		if res := mc.decideAsk(rh, dir, *asked); res.Verdict == decide.Reject && (res.Step == "limit" || res.Step == "floor") {
 			decision, capped = backend.DecisionReject, true
 			if a.Message == "" {
 				a.Message = res.Reason

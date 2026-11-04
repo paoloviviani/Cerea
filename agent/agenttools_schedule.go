@@ -134,7 +134,7 @@ func earlyRefusal(f scheduleFacts) error {
 func (at *agentTools) scheduleFactsFor(ctx context.Context, tc *toolCaller, tool string) scheduleFacts {
 	return scheduleFacts{
 		tool: tool, ceiling: at.scheduleCeiling(), grant: at.scheduleGrant(ctx, tc),
-		machineDeny: at.mc.pol.Permission.Rules[scheduleKey] == string(permrules.Deny),
+		machineDeny: at.mc.live.Permission().EffectiveLimits()[decide.ClassAgents] == decide.Never,
 	}
 }
 
@@ -146,7 +146,9 @@ func (at *agentTools) scheduleGrant(_ context.Context, tc *toolCaller) permrules
 	if !ok {
 		return permrules.Ask
 	}
-	act, _ := decide.CoordinationTool(at.mc.decidePolicy(rh), at.mc.rootState(rh, tc.session.ID), scheduleKey, false)
+	st := at.mc.rootState(rh, tc.session.ID)
+	// A schedule runs in the caller's own session: the same word.
+	act, _ := decide.CoordinationFor(at.mc.decidePolicy(rh), st, scheduleKey, false, st.Mode)
 	if act == permrules.Deny {
 		return permrules.Ask
 	}

@@ -174,6 +174,10 @@ type Layers struct {
 	// every selector word. They are not the word's to move and not part of
 	// Own — see SafeDirRules for where they sit and what still caps them.
 	SafeDirs []string
+	// Limits is the machine's limit per permission class in words ("never",
+	// "ask", "run", "stop"; ADR 0107), when the layers come from a policy. Nil
+	// when they were built from a ceiling alone (tests).
+	Limits map[string]string
 }
 
 // The permission selector (PROTOCOL.md §6 "Permissions"): a session carries ONE

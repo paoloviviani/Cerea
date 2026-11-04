@@ -77,13 +77,27 @@ type State struct {
 
 // Policy is the machine's, never a session's.
 type Policy struct {
-	Ceiling permrules.Ceiling
-	// Own is the machine's own rules (policy.json permission.rules).
+	// Limits is the machine's limit per class (ADR 0107); a class absent is its
+	// default (DefaultLimit).
+	Limits map[Class]Limit
+	// Own is the machine's own allow rules (policy.json permission.rules): what
+	// is left of them after migration, honoured for galopin's coordination tools.
 	Own []permrules.Rule
 	// SafeDirs are the safe external directories: their contents never ask.
 	SafeDirs []string
 	// PlanDirs are directories the plan agent writes its plans into.
 	PlanDirs []string
+	// Protected is galopin's own paths (a fixed refusal) and the credential
+	// stores (the secrets class). The zero value protects nothing.
+	Protected Protected
+}
+
+// Limit is the machine's limit for one class.
+func (p Policy) Limit(c Class) Limit {
+	if l, ok := p.Limits[c]; ok && c.Allows(l) {
+		return l
+	}
+	return DefaultLimit(c)
 }
 
 // Result is a verdict with the step that produced it and a refusal text.
@@ -91,7 +105,13 @@ type Result struct {
 	Verdict  Verdict
 	Step     string
 	Category Category
-	Reason   string
+	// Class is the permission class the request belongs to ("" for an
+	// in-project read and the like): the label a card carries.
+	Class Class
+	// Stop is set on a loop refusal under the "stop" limit: the caller ends
+	// the turn and notifies, in addition to refusing the call.
+	Stop   bool
+	Reason string
 }
 
 // Refusal texts, which the agent shows its model.
@@ -99,8 +119,14 @@ const (
 	PlanReason = "This session is set to Plan: running commands, editing files, fetching from the web and other changes are switched off. Reading and searching the project still work. Say what you would run or change and ask the person to switch the session to Ask or Allow."
 )
 
-func ceilingReason(key string) string {
-	return "This machine's policy does not allow " + key + "."
+// FloorReason is the refusal for galopin's own state and configuration.
+const FloorReason = "This is galopin's own configuration or state, which no session may touch."
+
+// LoopStopReason is the refusal under the loop class's "stop" limit.
+const LoopStopReason = "You are repeating the same call. This machine stops a repeating agent: the turn is ended. Report what is blocking you."
+
+func limitReason(c Class) string {
+	return "This machine's policy does not allow " + c.Meaning() + " (limit: never)."
 }
 
 // Classify maps a request to its category. sensitive is set for a read that
@@ -215,22 +241,6 @@ func (p Policy) ownRule(key string) (permrules.Action, bool) {
 	return "", false
 }
 
-// cap is the machine's own ceiling for a key as a verdict ceiling: the
-// ceiling and the machine's own deny or ask rules, never exceptions.
-func (p Policy) cap(key string) (Verdict, string) {
-	c := p.Ceiling.Of(key)
-	if own, ok := p.ownRule(key); ok {
-		c = permrules.Min(c, own)
-	}
-	switch c {
-	case permrules.Deny:
-		return Reject, ceilingReason(key)
-	case permrules.Ask:
-		return Card, ""
-	}
-	return Once, ""
-}
-
 func excepted(exs []permrules.Exception, r Request) bool {
 	pats := r.Patterns
 	if len(pats) == 0 {
@@ -261,32 +271,90 @@ func excepted(exs []permrules.Exception, r Request) bool {
 	return false
 }
 
+// priority orders the classes a request can belong to when more than one
+// applies: the label a card carries is the first of these it is in, so a
+// `.env` read outside the project is a secrets card, not an outside one.
+var priority = []Class{ClassSecrets, ClassLoop, ClassOutside, ClassCommand, ClassAgents, ClassTools, ClassWeb, ClassEdit}
+
+// classesOf is every class the request belongs to. An in-project read, galopin's
+// own bookkeeping tools and a safe-directory access belong to none.
+func (p Policy) classesOf(r Request, cat Category, sensitive bool) []Class {
+	var cs []Class
+	switch cat {
+	case Edit:
+		cs = append(cs, ClassEdit)
+	case Bash:
+		cs = append(cs, ClassCommand)
+	case Web:
+		cs = append(cs, ClassWeb)
+	case Outside:
+		if !(r.Key == "external_directory" && allMatch(r.Patterns, p.safeDirGlob)) {
+			cs = append(cs, ClassOutside)
+		}
+	case Spawn, Coordination:
+		cs = append(cs, ClassAgents)
+	case MCP:
+		cs = append(cs, ClassTools)
+	case Brake:
+		cs = append(cs, ClassLoop)
+	}
+	if _, hit := p.Protected.SecretHit(r); sensitive || hit {
+		cs = append(cs, ClassSecrets)
+	}
+	return cs
+}
+
+// ClassOf is the class a request is labelled with ("" for none): what a card
+// carries as `class` (PROTOCOL.md §7).
+func ClassOf(p Policy, r Request) Class {
+	cat, sensitive := Classify(p, r)
+	return primary(p.classesOf(r, cat, sensitive))
+}
+
+func primary(cs []Class) Class {
+	for _, c := range priority {
+		for _, x := range cs {
+			if x == c {
+				return c
+			}
+		}
+	}
+	return ""
+}
+
 // Decide answers one request from a session whose ROOT is in state s. The
-// machine's ceiling (and its own deny/ask rules) is a cap no step can lift:
-// the result is the stricter of the cap and the mode's answer.
+// machine's limits are a cap no step can lift: galopin's own state is refused
+// outright; a class limited to never refuses; a class limited to ask is always
+// a card; a class that runs is answered by the session's word.
 func Decide(p Policy, s State, r Request) Result {
 	cat, sensitive := Classify(p, r)
-	cap, creason := p.cap(r.Key)
-	if cat == Outside && r.Key != "external_directory" {
-		// An outside read or edit is the external_directory ask's business too.
-		if c2, why := p.cap("external_directory"); c2 < cap {
-			cap, creason = c2, why
+	classes := p.classesOf(r, cat, sensitive)
+	class := primary(classes)
+	if _, hit := p.Protected.OwnHit(r); hit && cat != Internal {
+		return Result{Verdict: Reject, Step: "floor", Category: cat, Class: class, Reason: FloorReason}
+	}
+	lim, limClass := Run, class
+	for _, c := range classes {
+		if l := p.Limit(c); Stricter(l, lim) != lim {
+			lim, limClass = Stricter(l, lim), c
 		}
 	}
-	res := modeAnswer(p, s, r, cat, sensitive)
-	if cap < res.Verdict {
-		res.Verdict = cap
-		if cap == Reject {
-			res.Step, res.Reason = "ceiling", creason
-		} else {
-			res.Step, res.Reason = "ceiling", ""
-		}
+	res := modeAnswer(p, s, r, cat, sensitive, lim == Run)
+	res.Category, res.Class = cat, class
+	switch {
+	case lim == Stop && res.Verdict != Reject:
+		res.Verdict, res.Step, res.Reason, res.Stop = Reject, "limit", LoopStopReason, true
+	case lim == Stop:
+		res.Stop = true
+	case lim == Never && res.Verdict != Reject:
+		res.Verdict, res.Step, res.Reason = Reject, "limit", limitReason(limClass)
+	case lim == AskLimit && res.Verdict == Once:
+		res.Verdict, res.Step = Card, "limit"
 	}
-	res.Category = cat
 	return res
 }
 
-func modeAnswer(p Policy, s State, r Request, cat Category, sensitive bool) Result {
+func modeAnswer(p Policy, s State, r Request, cat Category, sensitive, free bool) Result {
 	mode := s.Mode
 	if !mode.Valid() {
 		mode = permrules.Ask
@@ -313,23 +381,15 @@ func modeAnswer(p Policy, s State, r Request, cat Category, sensitive bool) Resu
 	if cat == Outside && allMatch(r.Patterns, func(pt string) bool { return p.safeDirGlob(pt) }) {
 		return once("safe-dir")
 	}
-	if excepted(s.Exceptions, r) {
+	// An "always allow" only stands where the machine lets a request run: a
+	// class limited to ask is a card every time.
+	if free && excepted(s.Exceptions, r) {
 		return once("exception")
-	}
-	// The machine's own allow lifts only what the mode never moves (work
-	// outside the project folder, the stuck-agent brake, a secret-file read):
-	// an owner's allow for edit or bash is not a standing licence on Ask.
-	if own, ok := p.ownRule(r.Key); ok && own == permrules.Allow && (sensitive || cat == Brake || cat == Outside) {
-		return once("machine-rule")
-	}
-	// Asks that protect a person survive Allow.
-	if sensitive || cat == Brake || cat == Outside {
-		return card("protected")
 	}
 	if mode == permrules.Allow {
 		return once("allow")
 	}
-	if cat == Read {
+	if cat == Read && !sensitive {
 		return once("ask-read")
 	}
 	return card("ask")
@@ -376,14 +436,44 @@ type DelegateHook func(caller, target string) bool
 // CoordinationTool decides one call of galopin's own coordination tools (and
 // `schedule`) before any card is raised: allow means no card, ask a card,
 // deny a refusal the model reads. delegate says the call is between a spawner
-// and the session it spawned.
+// and the session it spawned. See CoordinationFor for the target's word.
 func CoordinationTool(p Policy, s State, key string, delegate bool) (permrules.Action, string) {
-	ceiling := p.Ceiling.Of(key)
+	return CoordinationFor(p, s, key, delegate, "")
+}
+
+// wordRank orders the session words by how cautious they are: Plan is the
+// most cautious.
+func wordRank(a permrules.Action) int {
+	switch a {
+	case permrules.Deny:
+		return 0
+	case permrules.Allow:
+		return 2
+	}
+	return 1
+}
+
+// askCallersAreFree says whether the agents rank rule also frees a caller on
+// Ask. ADR 0107 §1 words the rule for every caller, but its table also says the
+// defaults reproduce today's behaviour, where an Ask session's spawn, send and
+// read raise a card; the two disagree for Ask callers, and loosening cards for
+// them is the unsafe way to be wrong. Until the owner rules, the rule frees
+// callers on Allow only (an Ask caller keeps its cards, as today).
+var askCallersAreFree = false
+
+// CoordinationFor is CoordinationTool with the word of the session the call
+// reaches (ADR 0107 §1, the agents class): target is that session's root's
+// word, or the caller's own for a spawn (a child is never looser than its
+// spawner) and a schedule; "" when there is no target. With the agents class
+// at run, a call is free when the target's word is the same or more cautious
+// than the caller's; otherwise the caller's session word applies.
+func CoordinationFor(p Policy, s State, key string, delegate bool, target permrules.Action) (permrules.Action, string) {
+	lim := p.Limit(ClassAgents)
 	own, hasOwn := p.ownRule(key)
-	if ceiling == permrules.Deny || (hasOwn && own == permrules.Deny) {
+	if lim == Never || (hasOwn && own == permrules.Deny) {
 		return permrules.Deny, "this machine's rules do not allow " + key
 	}
-	capAsk := ceiling == permrules.Ask || (hasOwn && own == permrules.Ask)
+	capAsk := lim == AskLimit || (hasOwn && own == permrules.Ask)
 	// Plan changes nothing: only reading one's own delegate gets through it. A
 	// send, a spawn or a schedule is refused delegate or not, because a delegate
 	// spawned on Allow would otherwise carry the change for the Plan caller.
@@ -394,13 +484,13 @@ func CoordinationTool(p Policy, s State, key string, delegate bool) (permrules.A
 	switch {
 	case delegate:
 		answer = permrules.Allow
-	case s.Mode == permrules.Deny:
-		return permrules.Deny, PlanReason
 	case hasOwn && own == permrules.Allow:
 		answer = permrules.Allow
 	case contains(s.Coordination, key):
 		answer = permrules.Allow
 	case key == "session_list":
+		answer = permrules.Allow
+	case target.Valid() && wordRank(target) <= wordRank(s.Mode) && (s.Mode == permrules.Allow || askCallersAreFree):
 		answer = permrules.Allow
 	case s.Mode == permrules.Allow && key != "session_read":
 		answer = permrules.Allow

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"galopin/internal/backend"
+	"galopin/internal/permrules"
 	"galopin/internal/policy"
 )
 
@@ -185,20 +186,17 @@ func TestSessionReadTargets(t *testing.T) {
 }
 
 // With no rule a read is a card (a gp_ ask carrying the target and count), and a
-// blanket Allow on the session never grants it; a person's no is a refusal.
+// caller on Ask never gets it free; a person's no is a refusal.
 func TestSessionReadNeedsACardUnlessARuleAllows(t *testing.T) {
 	r := newCoordRig(t, nil)
 	r.say("peer", "user", "secret plans", t0)
-	if err := r.cb.SetPermissionMode(context.Background(), "", "caller", "allow"); err != nil {
-		t.Fatal(err)
-	}
 	out, err := r.call("caller", "session_read", map[string]any{"target": "peer", "last": 5})
 	if err != nil || !strings.Contains(out, "secret plans") {
 		t.Fatalf("approved read: %v %q", err, out)
 	}
 	asks := r.asks()
 	if len(asks) != 1 || asks[0].Tool != "session_read" || asks[0].Title != "Read messages from Peer" {
-		t.Fatalf("asks = %+v, want one session_read card even on Allow (a blanket allow is not consent)", asks)
+		t.Fatalf("asks = %+v, want one session_read card for an Ask caller", asks)
 	}
 	meta := asks[0].Metadata
 	if tgt, _ := meta["target"].(map[string]any); tgt["sessionId"] != "peer" || meta["last"] != 5 {
@@ -211,7 +209,7 @@ func TestSessionReadNeedsACardUnlessARuleAllows(t *testing.T) {
 }
 
 func TestSessionReadRuleAllowDenyAndCrossWorkspace(t *testing.T) {
-	r := newCoordRig(t, withRule("session_read", "allow"))
+	r := newCoordRig(t, withAgentsRule("allow"))
 	r.say("peer", "user", "same workspace", t0)
 	r.say("other", "user", "other workspace", t0)
 	if _, err := r.call("caller", "session_read", map[string]any{"target": "peer"}); err != nil {
@@ -263,7 +261,7 @@ func TestSessionReadRateLimit(t *testing.T) {
 // Every read is an audit row naming tool, caller, target, decision and reason —
 // and nothing of what was read.
 func TestSessionReadAuditNeverHoldsContent(t *testing.T) {
-	r := newCoordRig(t, withRule("session_read", "allow"))
+	r := newCoordRig(t, withAgentsRule("allow"))
 	r.say("peer", "user", "TOP_SECRET_CONTENT", t0)
 	if _, err := r.call("caller", "session_read", map[string]any{"target": "peer"}); err != nil {
 		t.Fatal(err)
@@ -294,12 +292,52 @@ func TestSessionReadAuditNeverHoldsContent(t *testing.T) {
 }
 
 func TestPolicyDefaultsLeaveSessionReadUncapped(t *testing.T) {
-	// Like session_send: no default ceiling row (enroll caps bash and session_spawn only).
-	if got := defaultEnrollMax()["session_read"]; got != "" {
-		t.Errorf("enroll's default ceiling caps session_read at %q; it must match session_send (uncapped)", got)
+	// The agents class defaults to run: session_read, session_send and
+	// session_spawn are not capped by a fresh machine.
+	pol := policy.Default()
+	if got := pol.Permission.Ceiling().Of("session_read"); got != permrules.Allow {
+		t.Errorf("a default machine caps session_read at %q", got)
 	}
-	if got := defaultEnrollMax()["session_send"]; got != "" {
+	if got := pol.Permission.Ceiling().Of("session_send"); got != permrules.Allow {
 		t.Fatalf("session_send default changed: %q", got)
 	}
-	_ = policy.Default()
+}
+
+// The agents class at run (ADR 0107): an Allow caller reads a session whose
+// word is the same or more cautious without a card; an Ask caller still asks,
+// and the agents limit at ask puts the card back for everyone.
+func TestSessionReadIsFreeForAnAllowCallerOnAnEqualOrMoreCautiousTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		mutate     func(*policy.Policy)
+		caller     backend.Decision
+		callerWord string
+		peerWord   string
+		wantCards  int
+	}{
+		{"allow caller, ask peer", nil, "", "allow", "ask", 0},
+		{"allow caller, allow peer", nil, "", "allow", "allow", 0},
+		{"allow caller, plan peer", nil, "", "allow", "deny", 0},
+		{"ask caller, ask peer", nil, "", "ask", "ask", 1},
+		{"ask caller, allow peer", nil, "", "ask", "allow", 1},
+		{"agents=ask puts the card back", withLimit("agents", "ask"), "", "allow", "ask", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newCoordRig(t, tc.mutate)
+			r.say("peer", "user", "plans", t0)
+			ctx := context.Background()
+			if err := r.cb.SetPermissionMode(ctx, "", "caller", permrules.Action(tc.callerWord)); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.cb.SetPermissionMode(ctx, "", "peer", permrules.Action(tc.peerWord)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.call("caller", "session_read", map[string]any{"target": "peer"}); err != nil {
+				t.Fatal(err)
+			}
+			if n := len(r.asks()); n != tc.wantCards {
+				t.Errorf("cards = %d, want %d", n, tc.wantCards)
+			}
+		})
+	}
 }

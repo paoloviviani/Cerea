@@ -9,6 +9,9 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"galopin/internal/decide"
+	"galopin/internal/policy"
 )
 
 // packaging/enroll-flags.json is the machine-readable list of enroll's flags
@@ -185,7 +188,13 @@ func TestEnrollFlagsCeilingDefaultsAreEnrollsOwn(t *testing.T) {
 	if file.Ceiling.Flag != "permission-max" {
 		t.Fatalf("ceiling flag = %q", file.Ceiling.Flag)
 	}
-	defaults := defaultEnrollMax()
+	// What a default machine's limits cap, as the per-key ceiling the dialog's
+	// table still speaks (outside, secrets and loop ask by default and add no row).
+	defaults := map[string]string{}
+	dc := policy.Default().Permission.Ceiling()
+	for _, k := range dc.Keys() {
+		defaults[k] = string(dc.Of(k))
+	}
 	var keys []string
 	for _, k := range file.Ceiling.Keys {
 		keys = append(keys, k.Key)
@@ -208,6 +217,45 @@ func TestEnrollFlagsCeilingDefaultsAreEnrollsOwn(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("enroll's default ceiling caps %s, which the file's table does not list", k)
+		}
+	}
+}
+
+// The class table in enroll-flags.json is the decision package's own.
+func TestEnrollFlagsLimitsAreTheClassTable(t *testing.T) {
+	raw, err := os.ReadFile("packaging/enroll-flags.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		Limits struct {
+			Flag    string `json:"flag"`
+			Classes []struct {
+				Class   string   `json:"class"`
+				Default string   `json:"default"`
+				Allowed []string `json:"allowed"`
+			} `json:"classes"`
+		} `json:"limits"`
+	}
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatal(err)
+	}
+	if f.Limits.Flag != "limit" || len(f.Limits.Classes) != len(decide.Classes) {
+		t.Fatalf("limits = %+v", f.Limits)
+	}
+	for i, c := range decide.Classes {
+		row := f.Limits.Classes[i]
+		if row.Class != string(c) || row.Default != decide.DefaultLimit(c).Word() {
+			t.Errorf("row %d = %+v, want class %s default %s", i, row, c, decide.DefaultLimit(c).Word())
+		}
+		var allowed []string
+		for _, l := range []decide.Limit{decide.Never, decide.AskLimit, decide.Run, decide.Stop} {
+			if c.Allows(l) {
+				allowed = append(allowed, l.Word())
+			}
+		}
+		if !reflect.DeepEqual(allowed, row.Allowed) {
+			t.Errorf("%s allowed %v in the file, %v in code", c, row.Allowed, allowed)
 		}
 	}
 }

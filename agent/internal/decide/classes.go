@@ -222,3 +222,35 @@ func (l Limit) Action() permrules.Action {
 	}
 	return permrules.Allow
 }
+
+// LimitsFromWords reads limits kept as words; an unknown class or a word the
+// class does not allow is left to its default.
+func LimitsFromWords(m map[string]string) map[Class]Limit {
+	out := map[Class]Limit{}
+	for k, w := range m {
+		c, err := ParseClass(k)
+		if err != nil {
+			continue
+		}
+		if l, ok := ParseLimit(w); ok && c.Allows(l) {
+			out[c] = l
+		}
+	}
+	return out
+}
+
+// LimitsFromCeiling derives limits from a per-key ceiling alone: each class
+// takes the most cautious cap among its keys (tests that build layers by hand).
+func LimitsFromCeiling(c permrules.Ceiling) map[Class]Limit {
+	out := map[Class]Limit{}
+	for _, cl := range Classes {
+		lim := DefaultLimit(cl)
+		for _, k := range ClassKeys(cl) {
+			if a := c.Of(k); a != permrules.Allow {
+				lim = Stricter(lim, map[bool]Limit{true: Never, false: AskLimit}[a == permrules.Deny])
+			}
+		}
+		out[cl] = lim
+	}
+	return out
+}
