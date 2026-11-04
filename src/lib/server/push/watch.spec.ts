@@ -220,3 +220,61 @@ describe("a chat turn", () => {
 		expect(notify).not.toHaveBeenCalled();
 	});
 });
+
+describe("the reviewer interposes on permission asks (ADR 0107)", () => {
+	const asked = (id: string) =>
+		({ kind: "permission.asked", request: { id } }) as unknown as NormalizedEvent;
+	const flush = () => new Promise((r) => setTimeout(r, 0));
+
+	it("holds the push until the reviewer decides, then sends it with the reason", async () => {
+		let push: (note?: string) => void = () => undefined;
+		const review = vi.fn(
+			async (_u: ObjectId, _d: string, _e: Envelope, p: (note?: string) => void) => {
+				push = p;
+			}
+		);
+		observeMachineEvent(me, "dev1", envelope(asked("p1")), { ...deps, review });
+		await flush();
+		expect(review).toHaveBeenCalledOnce();
+		expect(notify).not.toHaveBeenCalled();
+		push("The reviewer wasn't sure enough (51%; it allows at 90%)");
+		push("again");
+		expect(notify).toHaveBeenCalledOnce();
+		expect(firstCall()[2].body).toContain("wasn't sure enough (51%");
+		expect(firstCall()[2].tag).toBe("ask-p1");
+	});
+
+	it("sends no push when the reviewer answered the ask itself", async () => {
+		const review = vi.fn(async () => undefined);
+		observeMachineEvent(me, "dev1", envelope(asked("p1")), { ...deps, review });
+		await flush();
+		expect(notify).not.toHaveBeenCalled();
+	});
+
+	it("a repeated ask is reviewed once", async () => {
+		const review = vi.fn(async () => undefined);
+		observeMachineEvent(me, "dev1", envelope(asked("p1")), { ...deps, review });
+		observeMachineEvent(me, "dev1", envelope(asked("p1")), { ...deps, review });
+		expect(review).toHaveBeenCalledOnce();
+	});
+
+	it("a reviewer that crashes still lets the push out", async () => {
+		const review = vi.fn(async () => {
+			throw new Error("boom");
+		});
+		observeMachineEvent(me, "dev1", envelope(asked("p1")), { ...deps, review });
+		await flush();
+		expect(notify).toHaveBeenCalledOnce();
+	});
+
+	it("a question is never held", () => {
+		const review = vi.fn(async () => undefined);
+		const question = {
+			kind: "question.asked",
+			request: { id: "q1", questions: [] },
+		} as unknown as NormalizedEvent;
+		observeMachineEvent(me, "dev1", envelope(question), { ...deps, review });
+		expect(review).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenCalledOnce();
+	});
+});

@@ -24,6 +24,7 @@ import {
 	type ReviewAnswerer,
 	type ReviewOutcome,
 } from "$lib/types/AgentReview";
+import { reviewerDegraded } from "$lib/server/review/health";
 import { PERMISSION_CLASSES, type PermissionClass } from "$lib/types/machineProtocol";
 
 export const REVIEW_LOG_TTL_SECONDS = 90 * 24 * 60 * 60;
@@ -216,6 +217,8 @@ export interface ReviewTestCase {
 	got: "allow" | "escalate" | "error";
 	probability: number | null;
 	ok: boolean;
+	/** Only gating cases decide whether the test passes; the others are shown (the instruction decides them). */
+	gating?: boolean;
 }
 export interface ReviewTestReport {
 	passed: boolean;
@@ -259,10 +262,13 @@ export function needsPassingTest(saved: AgentReviewSettings, next: AgentReviewSe
 export async function autoApprovalAvailability(): Promise<{
 	available: boolean;
 	perClass: AgentReviewSettings["perClass"];
+	/** The reviewer keeps failing: Auto's cards come to the user until it answers again. */
+	degraded: boolean;
 }> {
 	const s = await getAgentReviewSettings();
 	return {
 		available: autoPermissionsEnabled() && s.enabled && s.decisionModelId !== null,
 		perClass: s.perClass,
+		degraded: reviewerDegraded(),
 	};
 }

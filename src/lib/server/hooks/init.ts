@@ -4,6 +4,8 @@ import { registerMachineUpgrade } from "$lib/server/code/machineServer";
 import { startMachineRevalidationLoop } from "$lib/server/code/machines";
 import "$lib/server/code/scheduleAgentExecutor";
 import "$lib/server/schedules/chatScheduleExecutor";
+import { registerReviewTester } from "$lib/server/agentReview";
+import { makeReviewTester } from "$lib/server/review/tester";
 import { ScheduleRunner } from "$lib/server/schedules/scheduler";
 import { initExitHandler } from "$lib/server/exitHandler";
 import { assertModelModeValid } from "$lib/server/modelMode";
@@ -52,6 +54,8 @@ export async function initServer(): Promise<void> {
 	// ADR 0093 §4.7: re-check every live machine link against the gateway
 	// every 60s, independent of the machine's own token-renewal cadence.
 	startMachineRevalidationLoop();
+	// The reviewer's save-time test: the admin route refuses an untested change once this is set.
+	registerReviewTester(makeReviewTester());
 
 	if (config.METRICS_ENABLED === "true") {
 		MetricsServer.getInstance();

@@ -541,8 +541,12 @@ export const GET: RequestHandler = async (event) => {
 	// answered — a read of live machine state, never a queue.
 	if (path === "v1/permissions/pending") {
 		const pending = await callOp(() => link.permissionsPending());
+		const { withReviewNote } = await import("$lib/server/code/machineTimeline");
 		return superjsonResponse({
-			permissions: pending.permissions ?? [],
+			permissions: (pending.permissions ?? []).map((p) => ({
+				...p,
+				request: withReviewNote(p.request),
+			})),
 			questions: pending.questions ?? [],
 		});
 	}

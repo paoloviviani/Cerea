@@ -44,6 +44,11 @@
 			{m["code.auto.details"]()}
 		</button>
 	</p>
+	{#if setup?.degraded && label === "auto"}
+		<p class="mt-1 text-amber-700 dark:text-amber-400" data-testid="auto-degraded">
+			{m["code.auto.degraded"]()}
+		</p>
+	{/if}
 	{#if open}
 		<div id="auto-details" class="mt-1.5 max-w-xl" data-testid="auto-details">
 			{#if computed.older}

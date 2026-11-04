@@ -513,3 +513,38 @@ describe("ToolApprovalCard, the assistant's schedule proposal", () => {
 			.toHaveTextContent("In a chat of its own, reused every run");
 	});
 });
+
+describe("ToolApprovalCard, the reviewer's words (ADR 0107)", () => {
+	const ask = {
+		...request("bash", { command: "npm test" }),
+		reviewNote: "The reviewer wasn't sure enough (51%; it allows at 90%)",
+	} as ElicitationRequestPayload;
+
+	it("an auto-allowed ask settles as 'Auto-allowed by <model> (96%)'", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: request("bash", { command: "npm test" }),
+			resolved: {
+				type: "elicitation",
+				subtype: "resolved",
+				elicitationId: "gp_1",
+				action: "accept",
+				resolution: "user",
+				note: "Auto-allowed by clef-flash (96%)",
+			} as never,
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect.element(screen.getByText("Auto-allowed by clef-flash (96%)")).toBeVisible();
+	});
+
+	it("an escalated ask says why it came to the user, above the buttons", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: ask,
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect
+			.element(screen.getByTestId("review-note"))
+			.toHaveTextContent("The reviewer wasn't sure enough (51%; it allows at 90%)");
+	});
+});

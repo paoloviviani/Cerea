@@ -173,6 +173,8 @@ export async function startMachine(input: {
 	sub: string;
 	name?: string;
 	policy?: MachinePolicy;
+	/** The app to dial; the stack's own by default (a spec that runs a second app passes its URL). */
+	cerea?: string;
 }): Promise<Machine> {
 	const name = input.name ?? `e2e-box-${randomUUID().slice(0, 6)}`;
 	const root = mkdtempSync(join(e2eScratch(), "machine-"));
@@ -290,7 +292,7 @@ export async function startMachine(input: {
 			"--creds",
 			creds,
 			"--cerea",
-			E2E_APP_URL,
+			input.cerea ?? E2E_APP_URL,
 			"--no-shim",
 			"--opencode-config",
 			opencodeConfig,

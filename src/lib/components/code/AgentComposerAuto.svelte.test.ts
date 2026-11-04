@@ -60,7 +60,11 @@ const base: Policy = { workspaceRoots: [], allowFreeModels: false, limits: { ...
 function mount(
 	over: {
 		device?: CodeDeviceView;
-		autoApproval?: { available: boolean; perClass: typeof PER_CLASS_DEFAULTS } | null;
+		autoApproval?: {
+			available: boolean;
+			perClass: typeof PER_CLASS_DEFAULTS;
+			degraded?: boolean;
+		} | null;
 		agent?: CodeAgentSession;
 	} = {}
 ) {
@@ -155,6 +159,15 @@ describe("the computed line", () => {
 			.toHaveTextContent("commands and outside access are reviewed");
 		await screen.getByTestId("auto-details-toggle").click();
 		await expect.element(screen.getByTestId("auto-older")).toHaveTextContent("older galopin");
+	});
+
+	it("says so when the reviewer keeps failing", async () => {
+		const screen = mount({
+			autoApproval: { available: true, perClass: PER_CLASS_DEFAULTS, degraded: true },
+		});
+		await expect
+			.element(screen.getByTestId("auto-degraded"))
+			.toHaveTextContent("Auto: reviewer unavailable");
 	});
 
 	it("says Allow and that asks come to the user when there is no reviewer", async () => {
