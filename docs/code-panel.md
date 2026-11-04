@@ -350,6 +350,8 @@ Under the control a line says what to expect, computed from the machine's limits
 
 **Never send this machine's asks to the reviewer** is in each machine's ⋯ menu in the sidebar. It is stored per machine for you, and the reviewer never sees that machine's asks.
 
+**Pairing sets the machine's limits.** The Pair-a-machine dialog has a pill row for commands (Never · Ask · Run) and, under Advanced, one per kind of action; it prints `--limit CLASS=VALUE` only for a kind you changed. When a machine's limit for loops is **Stop the turn**, a repeating agent is cut off and the transcript says _Stopped: the agent was repeating the same action_ as a plain line, not as an error.
+
 Scheduled actions offer the same three steps, in the same order, so a schedule can be set to Plan, Ask or Auto.
 
 ## Where an agent's asks show up

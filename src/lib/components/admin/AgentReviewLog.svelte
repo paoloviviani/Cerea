@@ -61,7 +61,8 @@
 		if (!next) return;
 		try {
 			const page = await fetchPage(next);
-			entries = [...entries, ...page.entries];
+			const have = new Set(entries.map((e) => e.id));
+			entries = [...entries, ...page.entries.filter((e) => !have.has(e.id))];
 			next = page.next;
 		} catch (err) {
 			failure = err instanceof Error ? err.message : m["admin.common.read_failed"]();

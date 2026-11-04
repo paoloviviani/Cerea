@@ -10,8 +10,8 @@
  *   a choice that differs from what `enroll` does on its own — with the one
  *   deliberate divergence below (`billToDefault`: the dialog ticks it, while
  *   `enroll` itself keeps requiring an explicit `--default-group`);
- * - the ceiling flag **replaces** enroll's default set (bash asks) rather than adding to it, so one changed row emits the
- *   whole set, and an unchanged table emits nothing;
+ * - `--limit CLASS=VALUE` (ADR 0107) names only the classes a person changed from the machine's
+ *   defaults, so an untouched table emits nothing and one changed class emits one flag;
  * - every value a person types is shell-quoted (`quoteShellArg`), so a path
  *   with spaces or a glob with `*` reaches `enroll` as one argument.
  *
@@ -19,37 +19,27 @@
  * `enrollFlags.spec.ts` checks against the flag table.
  */
 import { m } from "$lib/paraglide/messages";
-import { ENROLL_FLAGS } from "$lib/enrollFlags";
+import { ENROLL_FLAGS, ENROLL_LIMIT_CLASSES } from "$lib/enrollFlags";
+import type { PermissionClass } from "$lib/types/machineProtocol";
 
-export type CeilingAction = "allow" | "ask" | "deny";
+/** What a class's limit may read in the dialog: the machine's words (ADR 0107). `stop` is loop's
+ * refusal; `never` refuses, `ask` always raises a card, `run` lets the session word decide. */
+export type LimitWord = "never" | "ask" | "run" | "stop";
 
-export const CEILING_ACTIONS: readonly CeilingAction[] = ["allow", "ask", "deny"];
+/** The classes the dialog's table draws, in the order `enroll` lists them. */
+export const LIMIT_CLASSES = ENROLL_LIMIT_CLASSES.map((row) => row.class) as PermissionClass[];
 
-/** The rows of the ceiling table, in the order the dialog draws them. */
-export const CEILING_KEYS = [
-	"edit",
-	"bash",
-	"webfetch",
-	"task",
-	"session_spawn",
-	"session_send",
-	"session_read",
-	"schedule",
-] as const;
-export type CeilingKey = (typeof CEILING_KEYS)[number];
+/** The words a class accepts (secrets: never | ask, no run; loop: ask | stop). */
+export function allowedLimits(cls: PermissionClass): readonly LimitWord[] {
+	return (ENROLL_LIMIT_CLASSES.find((row) => row.class === cls)?.allowed ?? [
+		"ask",
+	]) as readonly LimitWord[];
+}
 
-/** What each row reads when the person touches nothing: `enroll`'s own default
- * ceiling (bash asks), everything else uncapped. */
-export const DEFAULT_CEILING: Readonly<Record<CeilingKey, CeilingAction>> = {
-	edit: "allow",
-	bash: "ask",
-	webfetch: "allow",
-	task: "allow",
-	session_spawn: "allow",
-	session_send: "allow",
-	session_read: "allow",
-	schedule: "allow",
-};
+/** What each class reads when the person touches nothing: the machine's own default. */
+export const DEFAULT_LIMITS: Readonly<Record<PermissionClass, LimitWord>> = Object.fromEntries(
+	ENROLL_LIMIT_CLASSES.map((row) => [row.class, row.default])
+) as Record<PermissionClass, LimitWord>;
 
 /** `enroll`'s own default for `--max-terminals`. */
 export const DEFAULT_MAX_TERMINALS = 8;
@@ -59,7 +49,8 @@ export interface EnrollPolicyChoices {
 	allowTerminal: boolean;
 	/** Only meaningful, and only emitted, when `allowTerminal` is on. */
 	maxTerminals: number;
-	ceiling: Record<CeilingKey, CeilingAction>;
+	/** The machine's limit per class; only a class that differs from its default is printed. */
+	limits: Record<PermissionClass, LimitWord>;
 	allowProjectConfig: boolean;
 	allowCommandShell: boolean;
 	allowBackgroundSubagents: boolean;
@@ -73,10 +64,6 @@ export interface EnrollPolicyChoices {
 	allowFileWrite: boolean;
 	fileDeny: string[];
 	noDefaultFileDeny: boolean;
-	/** `external_directory=allow`: no asking before work outside the workspace. */
-	allowOutsideProject: boolean;
-	/** `read=allow`: no asking before reading `.env` and similar files. */
-	allowSecretReads: boolean;
 	/** `--default-group`: bill to the person's default billing group — the one
 	 * the Pystino console's group picker sets — instead of pinning a group for
 	 * this machine. The dialog has no group picker to disable: whichever
@@ -93,7 +80,7 @@ export function defaultPolicyChoices(): EnrollPolicyChoices {
 	return {
 		allowTerminal: true,
 		maxTerminals: DEFAULT_MAX_TERMINALS,
-		ceiling: { ...DEFAULT_CEILING },
+		limits: { ...DEFAULT_LIMITS },
 		allowProjectConfig: false,
 		allowCommandShell: true,
 		allowBackgroundSubagents: true,
@@ -105,8 +92,6 @@ export function defaultPolicyChoices(): EnrollPolicyChoices {
 		allowFileWrite: false,
 		fileDeny: [],
 		noDefaultFileDeny: false,
-		allowOutsideProject: false,
-		allowSecretReads: false,
 		billToDefault: true,
 	};
 }
@@ -115,7 +100,7 @@ export function defaultPolicyChoices(): EnrollPolicyChoices {
 export const FLAG_CONTROLS: Readonly<Record<string, string>> = {
 	"no-terminal": "enroll-allow-terminal",
 	"max-terminals": "enroll-max-terminals",
-	"permission-max": "enroll-ceiling",
+	limit: "enroll-limits",
 	"allow-project-config": "enroll-allow-project-config",
 	"no-command-shell": "enroll-allow-command-shell",
 	"no-background-subagents": "enroll-allow-background-subagents",
@@ -127,7 +112,6 @@ export const FLAG_CONTROLS: Readonly<Record<string, string>> = {
 	"allow-file-write": "enroll-allow-file-write",
 	"file-deny": "enroll-file-deny",
 	"no-default-file-deny": "enroll-no-default-file-deny",
-	"permission-rule": "enroll-fixed-answers",
 	"default-group": "enroll-bill-to-default",
 };
 
@@ -142,45 +126,20 @@ export function quoteShellArg(value: string): string {
 	return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
-/** The ceiling differs from `enroll`'s own default in at least one row. */
-export function ceilingChanged(ceiling: Record<CeilingKey, CeilingAction>): boolean {
-	return CEILING_KEYS.some((key) => ceiling[key] !== DEFAULT_CEILING[key]);
+/** The classes whose limit differs from the machine's default. */
+export function changedLimits(limits: Record<PermissionClass, LimitWord>): PermissionClass[] {
+	return LIMIT_CLASSES.filter((cls) => limits[cls] !== DEFAULT_LIMITS[cls]);
 }
 
-/** The one action every row of the ceiling holds, or null when they differ
- * (enroll's own default is bash asking, the rest allowing).
- * The dialog's "All tools" row shows it and sets every row at once. */
-export function uniformCeiling(ceiling: Record<CeilingKey, CeilingAction>): CeilingAction | null {
-	const first = ceiling[CEILING_KEYS[0]];
-	return CEILING_KEYS.every((key) => ceiling[key] === first) ? first : null;
-}
-
-/** `KEY=ACTION` pairs the ceiling flag carries. Empty while the table is as
- * `enroll` has it. Once any row differs, the flag states the WHOLE ceiling
- * (enroll replaces its default with the list), so every row that caps
- * something is named, and a row that `enroll` would have capped by default but
- * the person set to Allow is named too: `bash=allow` is how the owner opts
- * out, and leaving it out would silently bring the default back. */
-export function ceilingPairs(ceiling: Record<CeilingKey, CeilingAction>): string[] {
-	if (!ceilingChanged(ceiling)) return [];
-	return CEILING_KEYS.filter(
-		(key) => ceiling[key] !== "allow" || DEFAULT_CEILING[key] !== "allow"
-	).map((key) => `${key}=${ceiling[key]}`);
+/** `CLASS=VALUE` pairs `--limit` carries: only what the person changed, so the defaults emit
+ * nothing and re-enrolling with the printed command never loosens a class by omission. */
+export function limitPairs(limits: Record<PermissionClass, LimitWord>): string[] {
+	return changedLimits(limits).map((cls) => `${cls}=${limits[cls]}`);
 }
 
 /** Trimmed, non-empty values of a repeatable list. */
 function listed(values: string[]): string[] {
 	return values.map((value) => value.trim()).filter((value) => value !== "");
-}
-
-/** The permissions the two "without asking" checkboxes answer for the machine,
- * in the order the flags are printed. Both are allows: they restate, below the
- * agent's own rules, a name opencode would otherwise ask about. */
-function fixedAnswers(choices: EnrollPolicyChoices): string[] {
-	const names: string[] = [];
-	if (choices.allowOutsideProject) names.push("external_directory");
-	if (choices.allowSecretReads) names.push("read");
-	return names;
 }
 
 /** `--max-terminals`'s value problem, or null. Whole numbers from 1. */
@@ -203,7 +162,7 @@ export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
 	) {
 		args.push("--max-terminals", String(choices.maxTerminals));
 	}
-	for (const pair of ceilingPairs(choices.ceiling)) args.push("--permission-max", pair);
+	for (const pair of limitPairs(choices.limits)) args.push("--limit", pair);
 	if (choices.allowProjectConfig) args.push("--allow-project-config");
 	if (!choices.allowCommandShell) args.push("--no-command-shell");
 	if (!choices.allowBackgroundSubagents) args.push("--no-background-subagents");
@@ -217,9 +176,6 @@ export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
 	else if (choices.allowFileWrite) args.push("--allow-file-write");
 	for (const glob of listed(choices.fileDeny)) args.push("--file-deny", quoteShellArg(glob));
 	if (choices.noDefaultFileDeny) args.push("--no-default-file-deny");
-	for (const rule of fixedAnswers(choices)) {
-		args.push("--permission-rule", quoteShellArg(`${rule}=allow`));
-	}
 	return args;
 }
 
@@ -232,7 +188,8 @@ export function advancedChangedCount(choices: EnrollPolicyChoices): number {
 		!choices.allowTerminal || choices.maxTerminals !== DEFAULT_MAX_TERMINALS,
 		!choices.allowCommandShell,
 		!choices.allowBackgroundSubagents,
-		ceilingChanged(choices.ceiling) && uniformCeiling(choices.ceiling) === null,
+		// The commands row sits among the common options; every other class counts here.
+		changedLimits(choices.limits).some((cls) => cls !== "command"),
 		choices.noAgentTools,
 		choices.allowFreeModels,
 		choices.allowOpencodeProvider,
@@ -241,8 +198,6 @@ export function advancedChangedCount(choices: EnrollPolicyChoices): number {
 		choices.allowFileWrite && !choices.noFiles,
 		listed(choices.fileDeny).length > 0,
 		choices.noDefaultFileDeny,
-		choices.allowOutsideProject,
-		choices.allowSecretReads,
 		!choices.billToDefault,
 	].filter(Boolean).length;
 }
@@ -253,7 +208,8 @@ export function advancedChangedCount(choices: EnrollPolicyChoices): number {
  * one promise that lands in `opencode.json` instead: whether its provider
  * allowlist is left out. */
 export interface PromisedPolicy {
-	permission: { max: Record<string, string>; rules: Record<string, string> };
+	/** The machine's whole limit table, every class named (what an untouched one reads as its default). */
+	limits: Record<PermissionClass, LimitWord>;
 	workspaceRoots: string[];
 	allowFreeModels: boolean;
 	files: "read" | "off";
@@ -270,41 +226,13 @@ export interface PromisedPolicy {
 }
 
 export function promisedPolicy(choices: EnrollPolicyChoices): PromisedPolicy {
-	const pairs = ceilingPairs(choices.ceiling);
-	const max = Object.fromEntries(
-		(pairs.length > 0
-			? pairs
-			: Object.entries(DEFAULT_CEILING)
-					.filter(([, action]) => action !== "allow")
-					.map(([key, action]) => `${key}=${action}`)
-		).map((pair) => pair.split("=") as [string, string])
-	);
-	// The machine keeps one limit per class (ADR 0107): the agents class covers
-	// task, session_spawn, session_send, session_read and schedule together, so a
-	// cap on any one of them is the most cautious of those named, on all five.
-	const agentKeys = ["task", "session_spawn", "session_send", "session_read", "schedule"];
-	const named = agentKeys.filter((key) => key in max);
-	if (named.length > 0) {
-		const rank = (action: string) => (action === "deny" ? 0 : action === "ask" ? 1 : 2);
-		const strictest = named.map((key) => max[key]).sort((a, b) => rank(a) - rank(b))[0];
-		if (strictest !== "allow") for (const key of agentKeys) max[key] = strictest;
-	}
 	const allowed = (on: boolean) => (on ? "allowed" : "denied");
 	const terminalCap =
 		choices.allowTerminal && maxTerminalsProblem(choices.maxTerminals) === null
 			? choices.maxTerminals
 			: DEFAULT_MAX_TERMINALS;
 	return {
-		permission: {
-			max,
-			// A machine cannot let .env or credential reads run any more (the
-			// secrets class never runs, ADR 0107): only the outside allow is kept.
-			rules: Object.fromEntries(
-				fixedAnswers(choices)
-					.filter((name) => name !== "read")
-					.map((name) => [name, "allow"])
-			),
-		},
+		limits: { ...DEFAULT_LIMITS, ...choices.limits },
 		workspaceRoots: listed(choices.workspaceRoots),
 		allowFreeModels: choices.allowFreeModels,
 		files: choices.noFiles ? "off" : "read",

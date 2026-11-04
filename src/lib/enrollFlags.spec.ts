@@ -3,8 +3,6 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ENROLL_FLAGS, ENROLL_LIMIT_CLASSES } from "./enrollFlags";
 import {
-	CEILING_KEYS,
-	DEFAULT_CEILING,
 	FLAG_CONTROLS,
 	defaultPolicyChoices,
 	exposedFlags,
@@ -87,10 +85,8 @@ describe("enrollFlags (the TypeScript copy)", () => {
 				allowFileWrite: true,
 				fileDeny: ["x"],
 				noDefaultFileDeny: true,
-				allowOutsideProject: true,
-				allowSecretReads: true,
 				billToDefault: true,
-				ceiling: { ...defaultPolicyChoices().ceiling, edit: "ask" },
+				limits: { ...defaultPolicyChoices().limits, edit: "ask" },
 			})
 				.filter((arg) => arg.startsWith("--"))
 				.map((arg) => arg.slice(2))
@@ -112,7 +108,7 @@ describe("against the agent", () => {
 	});
 
 	it.skipIf(!existsSync(JSON_PATH))(
-		"equals agent/packaging/enroll-flags.json, flag for flag (retired flags aside), and its ceiling",
+		"equals agent/packaging/enroll-flags.json, flag for flag (retired flags aside), and its class table",
 		() => {
 			const file = JSON.parse(readFileSync(JSON_PATH, "utf8")) as {
 				flags: Array<{
@@ -122,7 +118,6 @@ describe("against the agent", () => {
 					exposed: boolean;
 					retired?: boolean;
 				}>;
-				ceiling: { flag: string; keys: Array<{ key: string; default: string }> };
 				limits: {
 					flag: string;
 					classes: Array<{ class: string; default: string; allowed: string[] }>;
@@ -133,20 +128,20 @@ describe("against the agent", () => {
 			expect(live.map((flag) => flag.flag).sort()).toEqual(
 				ENROLL_FLAGS.map((flag) => flag.flag).sort()
 			);
+			// The dialog moved to `--limit` (ADR 0107) before the agent's file did: it still lists the two
+			// alias flags as exposed and `limit` as not. Only these three may differ, and only in `exposed`.
+			const MOVED = new Set(["limit", "permission-max", "permission-rule"]);
 			for (const flag of ENROLL_FLAGS) {
 				const theirs = live.find((candidate) => candidate.flag === flag.flag);
-				expect(theirs?.exposed, `${flag.flag} exposed`).toBe(flag.exposed);
+				if (!MOVED.has(flag.flag)) {
+					expect(theirs?.exposed, `${flag.flag} exposed`).toBe(flag.exposed);
+				}
 				expect(theirs?.kind, `${flag.flag} kind`).toBe(flag.kind);
 				expect(theirs?.default, `${flag.flag} default`).toEqual(flag.default);
 			}
 			// The retired flag stays unexposed in their file, and has no control here.
 			expect(file.flags.find((flag) => flag.flag === "allow-auto-accept")?.exposed ?? false).toBe(
 				false
-			);
-			// The ceiling table: the same rows, in the same order, with the same defaults.
-			expect(file.ceiling.flag).toBe("permission-max");
-			expect(file.ceiling.keys.map((row) => [row.key, row.default])).toEqual(
-				CEILING_KEYS.map((key) => [key, DEFAULT_CEILING[key]])
 			);
 			// The class table: --limit's classes, defaults and allowed words.
 			expect(file.limits.flag).toBe("limit");

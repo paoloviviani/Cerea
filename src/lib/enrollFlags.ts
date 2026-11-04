@@ -66,11 +66,11 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "no-files", kind: "bool", default: false, exposed: true },
 	{ flag: "allow-file-write", kind: "bool", default: false, exposed: true },
 	{ flag: "no-terminal", kind: "bool", default: false, exposed: true },
-	{ flag: "permission-max", kind: "keyAction", default: [], exposed: true },
-	{ flag: "permission-rule", kind: "keyAction", default: [], exposed: true },
-	// ADR 0107: the machine's per-class limits. The dialog still prints the two
-	// alias flags above (kept one release); --limit is the flag it moves to.
-	{ flag: "limit", kind: "list", default: [], exposed: false },
+	// ADR 0107: the two alias flags are kept by enroll for one release but the dialog no longer
+	// prints them; `--limit CLASS=VALUE` is its one control for what the machine allows.
+	{ flag: "permission-max", kind: "keyAction", default: [], exposed: false },
+	{ flag: "permission-rule", kind: "keyAction", default: [], exposed: false },
+	{ flag: "limit", kind: "list", default: [], exposed: true },
 	// The file editor is on by default; this turns it off (--allow-file-write
 	// only restates the default).
 	{ flag: "no-file-write", kind: "bool", default: false, exposed: false },
