@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Policy } from "$lib/types/machineProtocol";
 import { PER_CLASS_DEFAULTS } from "$lib/types/AgentReview";
-import { classRows, expectationLine, thirdStepLabel } from "./autoApproval";
+import { classRows, expectationLine, thirdStepLabel, type AutoSetup } from "./autoApproval";
 
 const policy = (over: Partial<Policy> = {}): Policy => ({
 	workspaceRoots: [],
 	allowFreeModels: false,
 	...over,
 });
-const reviewer = { reviewerAvailable: true, perClass: PER_CLASS_DEFAULTS };
+const reviewer: AutoSetup = { reviewerAvailable: true, perClass: PER_CLASS_DEFAULTS };
 const outcomes = (p: Policy | undefined, setup = reviewer) =>
 	Object.fromEntries(classRows(p, setup).rows.map((r) => [r.class, r.outcome]));
 

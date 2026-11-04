@@ -190,7 +190,7 @@ describe("the review log", () => {
 	it("is created with a 90-day TTL and the view's indexes", async () => {
 		let indexes: Array<{ key: Record<string, number>; expireAfterSeconds?: number }> = [];
 		for (let i = 0; i < 50 && indexes.length < 6; i++) {
-			indexes = await collections.agentReviewLog.indexes();
+			indexes = (await collections.agentReviewLog.indexes()) as typeof indexes;
 			if (indexes.length < 6) await new Promise((r) => setTimeout(r, 100));
 		}
 		expect(indexes.find((x) => x.key.time === 1 && !x.key.deviceId)?.expireAfterSeconds).toBe(
@@ -237,7 +237,12 @@ describe("the device opt-out", () => {
 	it("is read per device for its owner only", async () => {
 		const owner = new ObjectId();
 		const id = new ObjectId();
-		await collections.codeDevices.insertOne({ _id: id, userId: owner, neverReview: true } as never);
+		await collections.codeDevices.insertOne({
+			_id: id,
+			userId: owner,
+			machineId: `m-${id}`,
+			neverReview: true,
+		} as never);
 		expect(await deviceOptedOut(owner, id.toString())).toBe(true);
 		expect(await deviceOptedOut(new ObjectId(), id.toString())).toBe(false);
 		expect(await deviceOptedOut(owner, "not-an-id")).toBe(false);

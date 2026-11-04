@@ -21,7 +21,7 @@ beforeAll(async () => {
 	await ready;
 });
 afterEach(async () => {
-	await collections.codeDevices.deleteMany({});
+	await collections.codeDevices.deleteMany({ userId: owner });
 });
 
 const patch = (userId: ObjectId, id: string, body: unknown) =>
@@ -41,6 +41,7 @@ describe("never-review", () => {
 		await collections.codeDevices.insertOne({
 			_id,
 			userId: owner,
+			machineId: `m-${_id}`,
 			status: "paired",
 			name: "m",
 		} as never);
@@ -57,6 +58,7 @@ describe("never-review", () => {
 		await collections.codeDevices.insertOne({
 			_id,
 			userId: owner,
+			machineId: `m-${_id}`,
 			status: "paired",
 			name: "m",
 		} as never);
