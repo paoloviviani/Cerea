@@ -3215,8 +3215,6 @@
 	"code.auto.reason.device": "You turned the reviewer off for this machine",
 	"code.auto.reason.deployment": "No reviewer is set up here",
 	"code.auto.details": "Details",
-	"code.auto.details_title": "What Auto does on {machine}",
-	"code.auto.details_close": "Close",
 	"code.auto.older_note": "This machine is on an older galopin, so its limits are worked out from its earlier settings.",
 	"code.auto.device.never_review": "Never send this machine's asks to the reviewer",
 	"code.auto.device.never_review_detail": "Its asks then always come to you, even on Auto. The reviewer's provider would otherwise see this machine's command text and paths.",

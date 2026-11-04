@@ -1139,6 +1139,11 @@ command that is not in that file. Set the variable to anything else to turn the
 feature off: connectors machines are then refused and the tab is hidden. See
 [Local connectors](https://paoloviviani.github.io/Cerea/local-connectors/).
 
+**Auto in the composer** can have a decision-model reviewer behind it: an
+administrator chooses one under Administration → Auto-approval, and it stays off
+until then. `CHAT_AUTO_PERMISSIONS='false'` is the kill switch (on otherwise); then the
+third step reads Allow and no reviewer runs.
+
 **Scheduled actions** come with `--agents`: people can have a prompt sent to a
 session on one of their machines on a timetable, and agents can make schedules
 on their own machine. `CHAT_SCHEDULES_ENABLED='false'` is the kill switch (on

@@ -62,7 +62,7 @@ export const PATCH: RequestHandler = async ({ locals, request, url }) => {
 			{ _id: device._id, userId: device.userId },
 			{ $set: { neverReview: parsed.data.value, updatedAt: new Date() } }
 		);
-		return json({ neverReview: parsed.data.value });
+		return superjsonResponse({ neverReview: parsed.data.value });
 	}
 	if (device.status !== "pending") error(409, "That device is not awaiting confirmation.");
 

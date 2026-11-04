@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Auto in the /code composer, with an optional reviewer.** The third step becomes **Auto** when an administrator has set up a decision-model reviewer (Administration → Auto-approval): the asks a machine says must be asked go to the reviewer or to you, per kind of action, and a line under the control says what to expect on that machine. Each user can keep a machine's asks away from the reviewer. Nothing changes until an administrator turns the reviewer on; `CHAT_AUTO_PERMISSIONS='false'` switches the feature off (the step then reads Allow). Needs a galopin with per-kind limits for the full line; older machines work from their earlier settings.
 - **Chat-only users.** When a Pystino group has its new **console access** capability off, its members see no link to the
   Pystino console anywhere in the chat (the admin panel's, "Your providers and models", the usage page's), and the console
   sends them to Settings → Usage, where their quotas are. Bring your own key follows (it needs console access). The kit
