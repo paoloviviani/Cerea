@@ -150,6 +150,31 @@ export async function confirmDevice(id: string): Promise<{ confirmed: boolean }>
 	);
 }
 
+/** "Never send this machine's asks to the reviewer" (ADR 0107): stored on the device, for its owner. */
+export async function setNeverReview(
+	id: string,
+	value: boolean
+): Promise<{ neverReview: boolean }> {
+	return unwrap(
+		await fetch(`${root()}/devices?id=${encodeURIComponent(id)}`, {
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ action: "never-review", value }),
+			signal: AbortSignal.timeout(DEVICE_TIMEOUT_MS),
+		})
+	);
+}
+
+/** Whether a reviewer stands behind Auto here, and the administrator's rows. */
+export async function getAutoApproval(): Promise<{
+	available: boolean;
+	perClass: Record<import("$lib/types/machineProtocol").PermissionClass, "you" | "reviewer">;
+}> {
+	return unwrap(
+		await fetch(`${root()}/auto-approval`, { signal: AbortSignal.timeout(DEVICE_TIMEOUT_MS) })
+	);
+}
+
 /** Revoke a paired machine, or reject one still `pending` — the same
  * tombstoning action either way (spec §4): the row becomes `revoked` and a
  * reconnect with the same machine id is refused from then on. */

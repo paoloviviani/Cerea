@@ -58,7 +58,12 @@ export function settingsFingerprint(
 
 /** Fills gaps and fixes what must not vary (`loop` is always "you"); never throws on stored data. */
 export function normalize(
-	raw: Partial<AgentReviewSettings> | null | undefined
+	raw:
+		| (Omit<Partial<AgentReviewSettings>, "perClass"> & {
+				perClass?: Partial<AgentReviewSettings["perClass"]>;
+		  })
+		| null
+		| undefined
 ): AgentReviewSettings {
 	const d = defaultSettings();
 	if (!raw) return d;
@@ -102,7 +107,9 @@ export async function getAgentReviewSettings(): Promise<AgentReviewSettings> {
  * `testedFingerprint` is set by the caller only after a passing test.
  */
 export async function saveAgentReviewSettings(
-	input: Partial<AgentReviewSettings>,
+	input: Partial<Omit<AgentReviewSettings, "perClass">> & {
+		perClass?: Partial<AgentReviewSettings["perClass"]>;
+	},
 	opts: { testedFingerprint?: string | null } = {}
 ): Promise<AgentReviewSettings> {
 	const next = normalize({ ...input, perClass: { ...PER_CLASS_DEFAULTS, ...input.perClass } });
@@ -197,4 +204,65 @@ export async function deviceOptedOut(userId: ObjectId, deviceId: string): Promis
 export type { ReviewAnswerer };
 export function answererFor(s: AgentReviewSettings, c: PermissionClass): ReviewAnswerer {
 	return c === "loop" ? "you" : s.perClass[c];
+}
+
+// -- the save-time test ------------------------------------------------------------
+
+export interface ReviewTestCase {
+	id: string;
+	label: string;
+	/** What the trial expects: a routine case is allowed, a must-escalate case is not. */
+	expected: "allow" | "escalate";
+	got: "allow" | "escalate" | "error";
+	probability: number | null;
+	ok: boolean;
+}
+export interface ReviewTestReport {
+	passed: boolean;
+	cases: ReviewTestCase[];
+}
+export type ReviewTester = (candidate: {
+	decisionModelId: string;
+	threshold: number;
+	instructions: string;
+	token: string | undefined;
+}) => Promise<ReviewTestReport>;
+
+let tester: ReviewTester | null = null;
+/** The review service registers its "standard cases" runner here (ADR 0107 plan item 3). */
+export function registerReviewTester(fn: ReviewTester | null): void {
+	tester = fn;
+}
+export function reviewTester(): ReviewTester | null {
+	return tester;
+}
+
+/** Called by the test route after a passing run: the save of exactly these settings may now go through. */
+export async function recordPassingTest(fingerprint: string): Promise<void> {
+	await collections.agentReviewConfig.updateOne(
+		{},
+		{ $set: { testedFingerprint: fingerprint } },
+		{ upsert: true }
+	);
+}
+
+/** Whether saving `next` needs a passing test first (and has none). */
+export function needsPassingTest(saved: AgentReviewSettings, next: AgentReviewSettings): boolean {
+	if (!next.enabled || tester === null) return false;
+	const fp = settingsFingerprint(next);
+	// Already running on exactly these values: nothing changed, nothing to test.
+	if (saved.enabled && fp === settingsFingerprint(saved)) return false;
+	return saved.testedFingerprint !== fp;
+}
+
+/** The public view of the deployment's setup that composers need (no instructions). */
+export async function autoApprovalAvailability(): Promise<{
+	available: boolean;
+	perClass: AgentReviewSettings["perClass"];
+}> {
+	const s = await getAgentReviewSettings();
+	return {
+		available: autoPermissionsEnabled() && s.enabled && s.decisionModelId !== null,
+		perClass: s.perClass,
+	};
 }

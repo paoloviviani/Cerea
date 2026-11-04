@@ -38,7 +38,11 @@ function requireJsonBody(request: Request): void {
 	}
 }
 
-const patchSchema = z.object({ action: z.literal("confirm") });
+const patchSchema = z.discriminatedUnion("action", [
+	z.object({ action: z.literal("confirm") }),
+	// ADR 0107: the owner keeps this machine's asks away from the reviewer.
+	z.object({ action: z.literal("never-review"), value: z.boolean() }),
+]);
 
 /** Confirm a pending machine: the browser's Confirm click, the second
  * factor a phished device-code approval alone never reaches (C2). */
@@ -48,9 +52,18 @@ export const PATCH: RequestHandler = async ({ locals, request, url }) => {
 	const id = z.string().min(1).safeParse(url.searchParams.get("id"));
 	if (!id.success) error(400, "A device id is required.");
 	const parsed = patchSchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) error(400, "Expected { action: 'confirm' }.");
+	if (!parsed.success) {
+		error(400, "Expected { action: 'confirm' } or { action: 'never-review', value: boolean }.");
+	}
 
 	const device = await getOwnedDevice(locals, id.data);
+	if (parsed.data.action === "never-review") {
+		await collections.codeDevices.updateOne(
+			{ _id: device._id, userId: device.userId },
+			{ $set: { neverReview: parsed.data.value, updatedAt: new Date() } }
+		);
+		return json({ neverReview: parsed.data.value });
+	}
 	if (device.status !== "pending") error(409, "That device is not awaiting confirmation.");
 
 	const now = new Date();

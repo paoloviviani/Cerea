@@ -107,6 +107,8 @@
 	import ContextMeter from "./ContextMeter.svelte";
 	import CommandConfirmSheet from "./CommandConfirmSheet.svelte";
 	import PermissionsDialog from "./PermissionsDialog.svelte";
+	import AutoLine from "./AutoLine.svelte";
+	import { thirdStepLabel, type AutoSetup } from "$lib/utils/autoApproval";
 	import IconShield from "~icons/lucide/shield";
 	import { clearSentComposerDraft, codeDraftKey } from "$lib/utils/composerDraft";
 
@@ -124,6 +126,9 @@
 		/** How many exceptions ("Always allow" cards) the session has, for
 		 * the details button's badge; the dialog reads the rules itself. */
 		permissionExceptions?: number;
+		/** Whether a reviewer stands behind Auto here, and the administrator's rows
+		 * (ADR 0107); null while unknown, which reads as no reviewer: the step says Allow. */
+		autoApproval?: { available: boolean; perClass: AutoSetup["perClass"] } | null;
 		/** The machine's `hello` policy, for the dialog's legacy-machine
 		 * flag (the composer has no other use for it). */
 		policy?: Policy;
@@ -220,6 +225,7 @@
 		agent,
 		ceiling = {},
 		permissionExceptions = 0,
+		autoApproval = null,
 		policy,
 		device,
 		running = false,
@@ -778,11 +784,27 @@
 		},
 		{
 			mode: "allow",
-			label: m["code.permission_mode.allow"],
+			label: () =>
+				autoSetup && thirdStepLabel(autoSetup) === "auto"
+					? m["code.permission_mode.auto"]()
+					: m["code.permission_mode.allow"](),
 			icon: IconShieldCheck,
-			title: m["code.composer.allow_title"],
+			title: () =>
+				autoSetup && thirdStepLabel(autoSetup) === "auto"
+					? m["code.composer.auto_title"]()
+					: m["code.composer.allow_title"](),
 		},
 	];
+	/** The third step's setup: this machine's opt-out and the deployment's reviewer. */
+	let autoSetup = $derived<AutoSetup | null>(
+		autoApproval
+			? {
+					reviewerAvailable: autoApproval.available,
+					perClass: autoApproval.perClass,
+					neverReview: device?.neverReview === true,
+				}
+			: null
+	);
 	let isSubagent = $derived(Boolean(agent?.parentId));
 	let permissionMode = $derived(agent?.permissionMode ?? null);
 	let showPermissionSelector = $derived(permissionMode !== null && !codeReauth.required);
@@ -1211,6 +1233,10 @@
 		{/if}
 	</div>
 </form>
+
+{#if showPermissionSelector && !isSubagent && permissionMode === "allow" && device}
+	<AutoLine machineName={device.name} policy={device.policy ?? policy} setup={autoSetup} />
+{/if}
 
 <!-- The mode/model/effort row, BELOW the composer like the regular chat's
      model/effort row (`ChatWindow`'s `mt-1.5` line under its form): the

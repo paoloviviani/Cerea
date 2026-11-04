@@ -24,6 +24,7 @@
 	import IconPlug from "~icons/carbon/plug";
 	import IconBot from "~icons/lucide/bot";
 	import IconMagicWand from "~icons/carbon/magic-wand";
+	import IconShieldCheck from "~icons/carbon/security";
 	import SectionSwitcher from "$lib/components/nav/SectionSwitcher.svelte";
 	import type { LayoutServerData } from "./$types";
 
@@ -45,6 +46,11 @@
 		{ href: "/admin/connectors", label: m["admin.layout.section.connectors"](), icon: IconPlug },
 		{ href: "/admin/skills", label: m["admin.layout.section.skills"](), icon: IconMagicWand },
 		{ href: "/admin/assistant", label: m["admin.layout.section.assistant"](), icon: IconBot },
+		{
+			href: "/admin/auto-approval",
+			label: m["admin.layout.section.auto_approval"](),
+			icon: IconShieldCheck,
+		},
 		{ href: "/admin/storage", label: m["admin.layout.section.storage"](), icon: IconDataBase },
 	]);
 
