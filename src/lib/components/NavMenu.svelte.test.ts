@@ -241,7 +241,7 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		);
 	}
 
-	function mount() {
+	function mount(routeId = "/code") {
 		screen = renderWithApp(
 			NavMenu,
 			{
@@ -250,9 +250,16 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 				gatewayIsAdmin: false,
 				codeAgentsEnabled: true,
 			} as never,
-			{ page: { route: { id: "/code" }, data: { models: [] } }, baseElement: host }
+			{ page: { route: { id: routeId }, data: { models: [] } }, baseElement: host }
 		);
 		return screen;
+	}
+
+	/** A chat page with the Agents tab picked: where the sidebar is the only
+	 * place that can say the sign-in is stale. */
+	function mountAgentsTabOnAChat() {
+		codeNav.view = "agents";
+		return mount("/");
 	}
 
 	beforeEach(() => {
@@ -279,7 +286,7 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 
 	it("says the sign-in is stale in the Agents view, with the reauth link", async () => {
 		stubFetch({ enabled: true, fresh: false, reauthPath: "/login?reauth=1&next=/code" });
-		mount();
+		mountAgentsTabOnAChat();
 		await vi.waitFor(() =>
 			expect(host.querySelector('[data-testid="code-reauth-card"]')).not.toBeNull()
 		);
@@ -300,7 +307,7 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		// Keep the test page where it is: the status answer would redirect it.
 		const go = vi.spyOn(signOutRedirect, "go").mockImplementation(() => {});
 		try {
-			mount();
+			mountAgentsTabOnAChat();
 			await vi.waitFor(() =>
 				expect(host.querySelector('[data-testid="code-reauth-card"]')).not.toBeNull()
 			);
@@ -310,6 +317,14 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		} finally {
 			go.mockRestore();
 		}
+	});
+
+	it("leaves the prompt to the panel on /code, so there is one card, not two", async () => {
+		stubFetch({ enabled: true, fresh: false, reauthPath: "/login?reauth=1&next=/code" });
+		mount("/code");
+		await vi.waitFor(() => expect(codeReauth.required).toBe(true));
+		expect(host.querySelector('[data-testid="code-reauth-card"]')).toBeNull();
+		expect(host.querySelector('[data-testid="device-rail"]')).toBeNull();
 	});
 
 	it("shows no prompt, only the tree, when the sign-in is fresh", async () => {

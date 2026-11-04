@@ -262,7 +262,11 @@
 		     Before /status has answered nothing is drawn: a card shown then would
 		     flash for every signed-in user. The Chats | Agents switch below stays. -->
 		{#if codeReauth.required}
-			<CodeReauthCard compact />
+			<!-- On /code the panel itself already shows the full card, right
+			     beside this column: one prompt there, not two. -->
+			{#if page.route.id !== "/code"}
+				<CodeReauthCard compact />
+			{/if}
 		{:else if codeReauth.checked}
 			<CodeNavTree />
 		{/if}
