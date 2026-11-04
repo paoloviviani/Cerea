@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.39.0 — 2026-11-04
+
+Pins: Cerea `0.39.0` (chat and `cerea-documents`), Pystino `0.24.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Coding machines need the galopin update for the file editor and the `--no-default-file-deny` change: re-run the install line from the Pair a machine dialog, then `systemctl --user restart galopin`.
 
 - The sidebar's Agents tab now says when you need to sign in again, instead of showing nothing.
 - **Security: CVE-2026-98432 (Linux kernel, critical). Act on the host now; this release only
