@@ -1036,7 +1036,12 @@ const policySchema = z.object({
 		.optional(),
 	// Optional and lenient: a malformed value never refuses a hello (the raw
 	// frame is what is kept; read it with machineLimits, which drops unknowns).
-	limits: z.record(z.string(), z.string()).optional().catch(undefined),
+	limits: z
+		.preprocess(
+			(v) => (typeof v === "object" && v !== null && !Array.isArray(v) ? v : undefined),
+			z.record(z.string(), z.string()).optional()
+		)
+		.optional() as z.ZodType<Policy["limits"]>,
 	workspaceRoots: z.array(z.string()),
 	allowFreeModels: z.boolean(),
 	files: z.enum(["read", "off"]).optional(),
