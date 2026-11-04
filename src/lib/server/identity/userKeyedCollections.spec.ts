@@ -1045,3 +1045,43 @@ describe("pushSubscriptions: a person's devices go with them", () => {
 		await collections.pushSubscriptions.deleteMany({ userId: target });
 	});
 });
+
+describe("agentReviewLog: the reviewer's decisions go with their person", () => {
+	const row = (userId: ObjectId) => ({
+		time: new Date(),
+		userId,
+		deviceId: "d",
+		machine: "m",
+		sessionId: "s",
+		class: "command" as const,
+		summary: "npm test",
+		probability: 0.95,
+		outcome: "allowed" as const,
+		reason: "routine",
+		applied: true,
+		modelId: "judge",
+	});
+
+	it("is registered, owner-keyed", () => {
+		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "agentReviewLog");
+		expect(entry?.ownerField).toBe("userId");
+	});
+
+	it("erases only the erased person's rows, and moves a stray's onto the target on a merge", async () => {
+		const [gone, kept, stray, target] = [
+			new ObjectId(),
+			new ObjectId(),
+			new ObjectId(),
+			new ObjectId(),
+		];
+		await collections.agentReviewLog.insertMany([row(gone), row(kept), row(stray)]);
+		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "agentReviewLog");
+		if (!entry) throw new Error("must be registered");
+		expect(await entry.erase(gone, NO_CONVERSATIONS)).toBe(1);
+		expect(await collections.agentReviewLog.countDocuments({ userId: kept })).toBe(1);
+		await entry.merge(stray, target);
+		expect(await collections.agentReviewLog.countDocuments({ userId: target })).toBe(1);
+		expect(await collections.agentReviewLog.countDocuments({ userId: stray })).toBe(0);
+		await collections.agentReviewLog.deleteMany({ userId: { $in: [kept, target] } });
+	});
+});

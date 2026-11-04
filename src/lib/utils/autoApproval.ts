@@ -106,11 +106,8 @@ const NAMES: Record<PermissionClass, () => string> = {
 export const className = (c: PermissionClass): string => NAMES[c]();
 
 function list(items: string[]): string {
-	try {
-		return new Intl.ListFormat(undefined, { style: "long", type: "conjunction" }).format(items);
-	} catch {
-		return items.join(", ");
-	}
+	if (items.length < 2) return items.join("");
+	return `${items.slice(0, -1).join(", ")} ${m["code.auto.line.and"]()} ${items[items.length - 1]}`;
 }
 
 /** "Auto on studio-laptop: edits, web and tools run · commands and outside access are reviewed · secrets come to you" */

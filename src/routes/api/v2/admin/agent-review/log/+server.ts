@@ -26,6 +26,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	});
 	return json({
 		entries: entries.map((e) => ({
+			id: e._id?.toString(),
 			time: e.time,
 			machine: e.machine,
 			deviceId: e.deviceId,

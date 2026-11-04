@@ -8,6 +8,7 @@
 	import { className } from "$lib/utils/autoApproval";
 
 	interface Entry {
+		id: string;
 		time: string;
 		machine: string;
 		deviceId: string;
@@ -147,7 +148,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each entries as e (e.time + e.sessionId + e.summary)}
+					{#each entries as e (e.id)}
 						<tr
 							class="border-t border-gray-200 align-top dark:border-gray-700"
 							data-testid="auto-log-row"
