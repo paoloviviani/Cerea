@@ -45,7 +45,7 @@ func spawnChild(t *testing.T, r *coordRig) (string, map[string]any) {
 }
 
 func TestSpawnInheritsAllowWordAndGrant(t *testing.T) {
-	r := newCoordRig(t, nil)
+	r := newCoordRig(t, withLimit("command", "run"))
 	allowCaller(t, r)
 	mustGrant(t, r, "caller", []string{"session_read"})
 
@@ -62,8 +62,8 @@ func TestSpawnInheritsAllowWordAndGrant(t *testing.T) {
 	if n := len(r.asks()); n != 0 {
 		t.Fatalf("an allow spawn raised %d cards: %+v", n, r.asks())
 	}
-	// The child's composed rules carry the word: bash evaluates allow, under
-	// the same ceiling as the caller.
+	// The child's composed rules carry the word: bash evaluates allow when the
+	// machine lets commands run, under the same limits as the caller.
 	if got := childVerdict(r, child, "bash", "ls"); got != decide.Once {
 		t.Errorf("child bash = %s, want once", got)
 	}
@@ -220,12 +220,13 @@ func TestAllowBlanketCoversSendWithoutAGrant(t *testing.T) {
 	if n := len(r.asks()); n != 0 {
 		t.Fatalf("an allow send raised %d cards: %+v", n, r.asks())
 	}
-	// Reads stay grant-gated whatever the word is.
+	// A read of a session whose word is not looser than the caller's is free
+	// too (the agents class at run); the peer here is on Ask.
 	if _, err := r.call("caller", "session_read", map[string]any{"target": "peer"}); err != nil {
 		t.Fatal(err)
 	}
-	if asks := r.asks(); len(asks) != 1 || asks[0].Tool != "session_read" {
-		t.Errorf("asks = %+v, want the one read card", asks)
+	if asks := r.asks(); len(asks) != 0 {
+		t.Errorf("asks = %+v, want none", asks)
 	}
 }
 
@@ -258,6 +259,7 @@ func TestAllowBlanketStillCappedByCeiling(t *testing.T) {
 
 func TestAllowBlanketYieldsToAMachineDeny(t *testing.T) {
 	r := newCoordRig(t, func(p *policy.Policy) {
+		p.Permission.Limits = nil
 		p.Permission.Rules = map[string]string{"session_send": "deny"}
 	})
 	allowCaller(t, r)

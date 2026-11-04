@@ -539,12 +539,21 @@ func TestSelectorS13SafeDirs(t *testing.T) {
 		r.idle(s, mark)
 	})
 
-	t.Run("a ceiling of external_directory=ask still asks for /tmp", func(t *testing.T) {
+	t.Run("the outside limit does not touch the safe directories", func(t *testing.T) {
+		// ADR 0107: outside is "outside the project and the safe directories", so a
+		// limit on it (here the default, ask) never cards /tmp; a path that is
+		// outside still does.
 		r := newPermRig(t, permRigOpts{perm: policy.Permission{Max: map[string]string{"external_directory": "ask"}}})
 		s := r.session("s13-capped", "")
-		ask, _, mark := r.tryCall(s, "write", map[string]any{"filePath": filepath.Join(r.safeTmp(), "s13-capped.txt"), "content": "x"})
+		r.setMode(s, "allow")
+		ask, part, mark := r.tryCall(s, "write", map[string]any{"filePath": filepath.Join(r.safeTmp(), "s13-capped.txt"), "content": "x"})
+		if ask != nil || part.ToolStatus != backend.ToolCompleted {
+			t.Fatalf("a write into /tmp with outside=ask: ask=%v part=%+v, want it to run with no card", ask, part)
+		}
+		r.idle(s, mark)
+		ask, _, mark = r.tryCall(s, "read", map[string]any{"filePath": "/etc/hostname"})
 		if ask == nil || ask.Tool != "external_directory" {
-			t.Fatalf("a write into /tmp under a ceiling of external_directory=ask: ask=%v, want an ask (the ceiling caps the safe directories)", ask)
+			t.Fatalf("a read of /etc/hostname with outside=ask: ask=%v, want an external_directory ask", ask)
 		}
 		r.reply(s, ask.ID, "reject")
 		r.idle(s, mark)

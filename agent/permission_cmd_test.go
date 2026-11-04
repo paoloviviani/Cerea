@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"galopin/internal/decide"
 	"galopin/internal/policy"
 )
 
@@ -22,66 +23,76 @@ func TestParseKeyActions(t *testing.T) {
 	}
 }
 
-func TestTightenOnlyLowers(t *testing.T) {
-	have := map[string]string{"bash": "ask", "edit": "allow"}
-	got, err := tighten("permission-max", have, map[string]string{"bash": "deny", "edit": "ask", "webfetch": "ask"})
-	if err != nil {
-		t.Fatal(err)
+func TestParseLimitFlags(t *testing.T) {
+	got, err := parseLimitFlags([]string{"command=run", " outside = never ", "loop=stop", "secrets=never"})
+	if err != nil || got[decide.ClassCommand] != decide.Run || got[decide.ClassOutside] != decide.Never ||
+		got[decide.ClassLoop] != decide.Stop || got[decide.ClassSecrets] != decide.Never {
+		t.Fatalf("parse = %v, %v", got, err)
 	}
-	if got["bash"] != "deny" || got["edit"] != "ask" || got["webfetch"] != "ask" {
-		t.Errorf("tightened = %v", got)
-	}
-	if have["bash"] != "ask" {
-		t.Error("tighten must not mutate its input")
-	}
-	// Same value is a no-op, not a refusal.
-	if _, err := tighten("permission-max", have, map[string]string{"bash": "ask"}); err != nil {
-		t.Errorf("an unchanged value: %v", err)
-	}
-	// Loosening is refused and names the re-run.
-	for _, want := range []map[string]string{{"bash": "allow"}, {"bash": "ask", "edit": "allow"}} {
-		_, err := tighten("permission-max", have, want)
-		if want["bash"] == "allow" && (err == nil || !strings.Contains(err.Error(), "re-run enroll")) {
-			t.Errorf("%v: err = %v, want a refusal naming enroll", want, err)
+	for _, bad := range []string{"command", "=ask", "command=", "command=maybe", "colour=ask", "secrets=run", "loop=run", "loop=never", "command=allow", "command=deny"} {
+		if _, err := parseLimitFlags([]string{bad}); err == nil {
+			t.Errorf("%q: want a refusal", bad)
 		}
 	}
-	// A key absent from have reads as allow: setting allow there is no change,
-	// and a rule's allow where there was none is not accepted as a tightening.
-	if got, err := tighten("permission-rule", nil, map[string]string{"edit": "allow"}); err != nil || len(got) != 0 {
-		t.Errorf("allow over nothing = %v, %v; want it ignored", got, err)
+	if _, err := parseLimitFlags([]string{"secrets=run"}); err == nil || !strings.Contains(err.Error(), "never or ask") {
+		t.Errorf("the refusal must say what the class takes: %v", err)
 	}
 }
 
-func TestPolicySetPermissionFlagsOnlyTighten(t *testing.T) {
+func TestPolicySetLimitsOnlyTighten(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, policyFileName)
 	start := policy.Default()
-	start.Permission = policy.Permission{Max: map[string]string{"bash": "ask"}}
+	start.Permission.Limits["edit"] = "run"
 	if err := policy.Save(path, start); err != nil {
 		t.Fatal(err)
 	}
-	if err := runPolicySet([]string{"--state-dir", dir, "--permission-max", "edit=ask", "--permission-max", "bash=deny", "--no-auto-accept"}); err != nil {
+	if err := runPolicySet([]string{"--state-dir", dir, "--limit", "edit=ask", "--limit", "command=never", "--limit", "loop=stop", "--no-auto-accept"}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := policy.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Permission.Max["bash"] != "deny" || got.Permission.Max["edit"] != "ask" {
-		t.Errorf("after set: %+v", got.Permission)
+	if l := got.Permission.Limits; l["edit"] != "ask" || l["command"] != "never" || l["loop"] != "stop" || l["web"] != "run" {
+		t.Errorf("after set: %+v", l)
+	}
+	for _, loosen := range []string{"command=ask", "command=run", "loop=ask", "edit=run"} {
+		if err := runPolicySet([]string{"--state-dir", dir, "--limit", loosen}); err == nil || !strings.Contains(err.Error(), "re-run enroll") {
+			t.Errorf("--limit %s: err = %v, want a refusal naming enroll", loosen, err)
+		}
+	}
+	after, _ := policy.Load(path)
+	if after.Permission.Limits["command"] != "never" || after.Permission.Limits["edit"] != "ask" {
+		t.Errorf("a refused set changed the file: %+v", after.Permission.Limits)
+	}
+}
+
+func TestPolicySetAliasesMapOntoClassesAndOnlyTighten(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, policyFileName)
+	if err := policy.Save(path, policy.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runPolicySet([]string{"--state-dir", dir, "--permission-max", "webfetch=ask", "--permission-max", "bash=deny"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := policy.Load(path)
+	if l := got.Permission.Limits; l["web"] != "ask" || l["command"] != "never" {
+		t.Errorf("aliases did not map to classes: %+v", l)
 	}
 	if err := runPolicySet([]string{"--state-dir", dir, "--permission-max", "bash=ask"}); err == nil {
 		t.Error("raising bash from deny to ask must be refused")
 	}
-	after, _ := policy.Load(path)
-	if after.Permission.Max["bash"] != "deny" {
-		t.Errorf("a refused set changed the file: %+v", after.Permission)
+	if err := runPolicySet([]string{"--state-dir", dir, "--permission-rule", "edit=allow"}); err == nil {
+		t.Error("a rule's allow is not a tightening")
 	}
 }
 
 func TestEnrollDefaultsAndStaticFile(t *testing.T) {
-	if got := defaultEnrollMax(); got["bash"] != "ask" || len(got) != 1 {
-		t.Errorf("default ceiling = %v, want bash=ask alone (session_spawn enrolls uncapped)", got)
+	c := policy.Default().Permission.Ceiling()
+	if got := c.Keys(); len(got) != 1 || got[0] != "bash" || c.Of("bash") != "ask" {
+		t.Errorf("default ceiling keys = %v, want bash=ask alone (the command class; everything else runs)", got)
 	}
 	cfg := buildOpencodeConfig("127.0.0.1:1", "s", nil, false, false)
 	cfg.Permission = staticPermission()
@@ -92,17 +103,20 @@ func TestEnrollDefaultsAndStaticFile(t *testing.T) {
 	}
 }
 
-func TestPermissionSummaryNamesTheTrade(t *testing.T) {
-	pol := policy.Default()
-	if s := permissionPolicySummary(pol); !strings.Contains(s, "start on Ask") || !strings.Contains(s, "no ceiling") {
-		t.Errorf("default summary = %q", s)
-	}
-	pol.Permission = policy.Permission{Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}}
-	s := permissionPolicySummary(pol)
-	for _, want := range []string{"bash≤ask", "edit=allow", "start on Ask"} {
+func TestPermissionSummaryIsTheClassTable(t *testing.T) {
+	s := permissionPolicySummary(policy.Default())
+	for _, want := range []string{"edit ", "command", "web ", "outside", "secrets", "agents", "tools", "loop",
+		"judged before it happens, by whoever Cerea routes it to", "start on Ask", "never allowed, whatever the table says"} {
 		if !strings.Contains(s, want) {
-			t.Errorf("summary %q lacks %q", s, want)
+			t.Errorf("summary lacks %q:\n%s", want, s)
 		}
+	}
+	pol := policy.Default()
+	pol.Permission.Limits["command"] = "never"
+	pol.Permission.Notices = []string{"your own allow rules for the edit class were dropped"}
+	s = permissionPolicySummary(pol)
+	if !strings.Contains(s, "never allowed") || !strings.Contains(s, "Note: your own allow rules for the edit class were dropped") {
+		t.Errorf("summary = %s", s)
 	}
 }
 
@@ -111,18 +125,27 @@ func TestEnrollPolicyDefaultsAndFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pol.Permission.Max["bash"] != "ask" || len(pol.Permission.Max) != 1 || len(pol.Permission.Rules) != 0 {
-		t.Errorf("default enroll permission = %+v, want bash=ask alone (session_spawn enrolls uncapped)", pol.Permission)
+	for c, want := range policy.DefaultLimits() {
+		if pol.Permission.Limits[c] != want {
+			t.Errorf("default enroll %s = %s, want %s", c, pol.Permission.Limits[c], want)
+		}
+	}
+	if len(pol.Permission.Rules) != 0 {
+		t.Errorf("default enroll rules = %v", pol.Permission.Rules)
 	}
 
-	pol, err = enrollPolicy(&enrollOptions{allowAutoAccept: true, permissionMax: []string{"edit=ask"}, permissionRules: []string{"session_send=allow"}, maxTerminals: 8})
+	pol, err = enrollPolicy(&enrollOptions{allowAutoAccept: true, limits: []string{"edit=ask", "command=run"}, maxTerminals: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pol.Permission.Max["edit"] != "ask" || pol.Permission.Max["bash"] != "" || pol.Permission.Rules["session_send"] != "allow" {
-		t.Errorf("flagged enroll permission = %+v: --allow-auto-accept is a no-op now, a given ceiling replaces the default", pol.Permission)
+	if l := pol.Permission.Limits; l["edit"] != "ask" || l["command"] != "run" || l["web"] != "run" || l["outside"] != "ask" {
+		t.Errorf("flagged enroll limits = %+v", l)
 	}
-
+	for _, bad := range []string{"command=sometimes", "secrets=run", "nope=ask"} {
+		if _, err := enrollPolicy(&enrollOptions{limits: []string{bad}}); err == nil {
+			t.Errorf("--limit %s was accepted", bad)
+		}
+	}
 	if _, err := enrollPolicy(&enrollOptions{permissionMax: []string{"bash=sometimes"}}); err == nil {
 		t.Error("a bad action word was accepted")
 	}
@@ -131,12 +154,47 @@ func TestEnrollPolicyDefaultsAndFlags(t *testing.T) {
 	if err := policy.Save(path, pol); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := policy.Load(path); err != nil {
-		t.Errorf("the enrolled policy does not load back: %v", err)
+	back, err := policy.Load(path)
+	if err != nil {
+		t.Fatalf("the enrolled policy does not load back: %v", err)
+	}
+	if back.Permission.Limits["edit"] != "ask" {
+		t.Errorf("limits lost in the round trip: %+v", back.Permission.Limits)
 	}
 	raw, _ := os.ReadFile(path)
-	if strings.Contains(string(raw), "autoAccept") {
-		t.Errorf("policy.json still carries autoAccept:\n%s", raw)
+	if strings.Contains(string(raw), "autoAccept") || strings.Contains(string(raw), `"max"`) {
+		t.Errorf("policy.json carries a retired field:\n%s", raw)
+	}
+}
+
+func TestOldPermissionFlagsAreAliasesOntoClasses(t *testing.T) {
+	// --permission-max states ceilings per key: a class takes the most cautious
+	// of its named keys, the old default (bash=ask) is not implied.
+	pol, err := enrollPolicy(&enrollOptions{permissionMax: []string{"edit=ask", "webfetch=deny"}, maxTerminals: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := pol.Permission.Limits; l["edit"] != "ask" || l["web"] != "never" || l["command"] != "ask" {
+		t.Errorf("alias limits = %+v (the machine's default command=ask stays: a re-enroll keeps what it does not name)", l)
+	}
+	pol, err = enrollPolicy(&enrollOptions{permissionMax: []string{"bash=allow"}, permissionRules: []string{"external_directory=allow"}, maxTerminals: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := pol.Permission.Limits; l["command"] != "run" || l["outside"] != "run" {
+		t.Errorf("alias limits = %+v", l)
+	}
+	// A rule that covers only some keys of a class is not carried.
+	pol, err = enrollPolicy(&enrollOptions{permissionRules: []string{"webfetch=allow"}, maxTerminals: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pol.Permission.Rules) != 0 {
+		t.Errorf("a partial class rule was carried: %v", pol.Permission.Rules)
+	}
+	lims, _, notices, err := legacyLimits([]string{"bash=ask"}, nil)
+	if err != nil || lims[decide.ClassCommand] != decide.AskLimit || !strings.Contains(strings.Join(notices, "\n"), "deprecated") {
+		t.Errorf("legacyLimits = %v %v %v", lims, notices, err)
 	}
 }
 
@@ -159,34 +217,31 @@ func TestStaticOpencodeConfigCarriesThePermissionBlock(t *testing.T) {
 	}
 }
 
-// session_read is a ceiling key like session_send: enroll takes it, policy set
-// only tightens it, policy show names it, and the default leaves it uncapped.
-func TestSessionReadIsACeilingKeyLikeSessionSend(t *testing.T) {
-	pol, err := enrollPolicy(&enrollOptions{permissionMax: []string{"session_read=ask", "session_send=ask"}, maxTerminals: 8})
+// The agents class carries session_read and session_send together: a fresh
+// machine leaves both uncapped, and tightening the class caps both.
+func TestAgentsClassCoversTheSessionTools(t *testing.T) {
+	pol, err := enrollPolicy(&enrollOptions{limits: []string{"agents=ask"}, maxTerminals: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pol.Permission.Max["session_read"] != "ask" || pol.Permission.Max["session_send"] != "ask" {
-		t.Fatalf("enroll ceiling = %v", pol.Permission.Max)
-	}
-	if s := permissionPolicySummary(pol); !strings.Contains(s, "session_read≤ask") {
-		t.Errorf("policy show omits the key: %q", s)
+	c := pol.Permission.Ceiling()
+	for _, k := range []string{"session_read", "session_send", "session_spawn", "task", "schedule"} {
+		if c.Of(k) != "ask" {
+			t.Errorf("agents=ask leaves %s at %s", k, c.Of(k))
+		}
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, policyFileName)
 	if err := policy.Save(path, pol); err != nil {
 		t.Fatal(err)
 	}
-	if err := runPolicySet([]string{"--state-dir", dir, "--permission-max", "session_read=deny"}); err != nil {
+	if err := runPolicySet([]string{"--state-dir", dir, "--limit", "agents=never"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := policy.Load(path); got.Permission.Max["session_read"] != "deny" {
-		t.Errorf("tightened = %v", got.Permission.Max)
+	if got, _ := policy.Load(path); got.Permission.Ceiling().Of("session_read") != "deny" {
+		t.Errorf("tightened = %v", got.Permission.Limits)
 	}
-	if err := runPolicySet([]string{"--state-dir", dir, "--permission-max", "session_read=ask"}); err == nil {
-		t.Error("loosening session_read must be refused")
-	}
-	if got := defaultEnrollMax(); got["session_read"] != got["session_send"] {
-		t.Errorf("session_read default %q != session_send default %q", got["session_read"], got["session_send"])
+	if err := runPolicySet([]string{"--state-dir", dir, "--limit", "agents=ask"}); err == nil {
+		t.Error("loosening agents must be refused")
 	}
 }

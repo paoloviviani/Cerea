@@ -35,6 +35,17 @@ type ruleBackend struct {
 	restart  error
 	sel      map[string]permrules.Selector
 	setErr   error
+	// cancelled lists the sessions whose turn was cancelled.
+	cancelled []string
+	// gone makes ReplyPermission answer that the ask is no longer held.
+	gone bool
+}
+
+func (r *ruleBackend) Cancel(_ context.Context, _, sessionID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cancelled = append(r.cancelled, sessionID)
+	return nil
 }
 
 func (r *ruleBackend) Capabilities() backend.Capabilities {
@@ -43,6 +54,9 @@ func (r *ruleBackend) Capabilities() backend.Capabilities {
 func (r *ruleBackend) ReplyPermission(_ context.Context, _, _, _ string, d backend.Decision, msg string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.gone {
+		return backend.ErrPermissionGone
+	}
 	r.replies = append(r.replies, d)
 	r.messages = append(r.messages, msg)
 	return nil
@@ -186,6 +200,7 @@ func askFor(mc *machine, id, tool string) {
 
 func policyWithCeiling(max map[string]string) policy.Policy {
 	p := policy.Default()
+	p.Permission.Limits = nil // legacy keys: migrated when the policy is taken in
 	p.Permission.Max = max
 	return p
 }
@@ -253,7 +268,9 @@ func TestAlwaysIsAnExceptionAndOpencodeGetsOnce(t *testing.T) {
 // opencode's own `always` patterns are what the exception covers, when the ask
 // carries them; a galopin ask (gp_) is never an exception.
 func TestAlwaysUsesTheAsksAlwaysPatternsAndSkipsGalopinAsks(t *testing.T) {
-	mc, rb, _ := newRuleMachine(t, policy.Default())
+	pol := policy.Default()
+	pol.Permission.Limits["command"] = "run" // an "always" only stands where commands may run
+	mc, rb, _ := newRuleMachine(t, pol)
 	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/x", SessionID: "s1", Event: backend.Event{
 		Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "per_1", SessionID: "s1", Tool: "bash",
 			Patterns: []string{"git status --short"}, Always: []string{"git status *"}},
@@ -567,7 +584,7 @@ func TestWatchPolicyTakesInOnlyTightening(t *testing.T) {
 	loose.Permission = policy.Permission{Max: map[string]string{"bash": "allow"}}
 	write(loose)
 	time.Sleep(150 * time.Millisecond)
-	if count() != 1 || live.Permission().Max["bash"] != "deny" {
+	if count() != 1 || live.Permission().Limits["command"] != "never" {
 		t.Errorf("a loosened file was taken in: changes=%d permission=%+v", count(), live.Permission())
 	}
 
