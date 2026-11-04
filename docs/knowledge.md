@@ -156,6 +156,22 @@ This is a different thing from [personal memory](chat.md#memory), a short list
 of facts about you that goes into every conversation, and from the project's
 [memory](#project-memory) above, a short list of shared notes sent in full.
 
+### Agent workspace
+
+If coding agents are on for you and you have paired a machine, the project's
+**Settings** tab has an **Agent workspace** card: the machine and workspace the
+coding sessions started from this project's chats run on, and a permission word
+(Plan, Ask or Allow; Ask by default). Sessions the chat starts use that word;
+a session that already exists keeps its own. It has its own **Save** and
+**Remove**, apart from the page's Save changes.
+
+It is **yours alone**. A machine belongs to one person, so in a shared project
+each member sets their own target, and nobody sees anyone else's. With no
+machine paired the card says so and points to the Agents panel. In a chat, each
+session the assistant starts or prompts leaves a card in the conversation with
+its live state (working, needs you, idle, failed, offline) and an **Open in
+/code** link.
+
 ## Sharing
 
 You can share a **base** or a **project** with a person (by email address) or a

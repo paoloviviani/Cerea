@@ -58,6 +58,7 @@
 	import DeleteProjectModal from "./DeleteProjectModal.svelte";
 	import ProjectMemorySection from "./ProjectMemorySection.svelte";
 	import ProjectDocumentsSection from "./ProjectDocumentsSection.svelte";
+	import ProjectAgentSection from "./ProjectAgentSection.svelte";
 	import type { ProjectView } from "$lib/types/Project";
 	import * as s from "$lib/components/overlay/styles";
 	import IconAddLarge from "~icons/carbon/add-large";
@@ -455,6 +456,12 @@
 		await goto(`${base}/projects`);
 	}
 
+	/** The user's own agent workspace: only with /code on for them, on a saved project. */
+	const agentOn = $derived(
+		(page.data as { codeAgentsEnabled?: boolean }).codeAgentsEnabled === true &&
+			!creating &&
+			!!project
+	);
 	/** The settings tab's index: the groups, and the numbered levels under them. */
 	const settingsIndex = $derived([
 		{ id: "project-group-full", label: m["projects.page.group.full"]() },
@@ -512,6 +519,7 @@
 				]
 			: []),
 		{ id: "project-group-new", label: m["projects.page.group.new_chats"]() },
+		...(agentOn ? [{ id: "project-agent", label: m["projects.agent.title"]() }] : []),
 		...(project?.owned ? [{ id: "project-danger", label: m["projects.page.danger.title"]() }] : []),
 	]);
 </script>
@@ -850,6 +858,12 @@
 								</p>
 							{/if}
 						</SettingsSection>
+
+						{#if agentOn && project}
+							<SettingsSection id="project-agent" title={m["projects.agent.title"]()}>
+								<ProjectAgentSection projectId={project.id} />
+							</SettingsSection>
+						{/if}
 
 						{#if project?.owned}
 							<SettingsSection id="project-share" title={m["projects.page.share.title"]()}>
