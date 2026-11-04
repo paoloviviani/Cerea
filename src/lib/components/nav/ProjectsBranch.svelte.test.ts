@@ -6,6 +6,7 @@ import { chatDrag } from "$lib/stores/chatDrag.svelte";
 import { projectsChanged } from "$lib/stores/projectsRevision";
 import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
 import { CONVERSATIONS_CONTEXT_KEY, newConversationsStore } from "$lib/stores/conversations.svelte";
+import { PROJECTS_TREE_OPEN_KEY } from "$lib/utils/projectsTreeOpen";
 
 const find = (root: ParentNode, selector: string): HTMLElement => {
 	const el = root.querySelector<HTMLElement>(selector);
@@ -135,9 +136,12 @@ function stubFetch(listed: unknown, existingChats: unknown, createStatus = 200) 
 
 beforeEach(() => {
 	posts = [];
+	// What is open is remembered per browser: every test starts closed.
+	localStorage.removeItem(PROJECTS_TREE_OPEN_KEY);
 });
 
 afterEach(() => {
+	localStorage.removeItem(PROJECTS_TREE_OPEN_KEY);
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
 	document.getElementById("app")?.remove();
@@ -519,6 +523,42 @@ describe("ProjectsBranch: the header opens the list, the chevron opens the branc
 		);
 		expect(folderToggle(container)?.getAttribute("aria-expanded")).toBe("true");
 		expect(appNavigation().goto).not.toHaveBeenCalled();
+	});
+
+	it("keeps the branch and an open folder open across a remount (the Agents view and back)", async () => {
+		stubFetch(undefined, [existingChat]);
+		const first = await renderBranch("model-a");
+		await openBranch(first.container);
+		folderToggle(first.container)?.click();
+		await vi.waitFor(() => expect(first.container.textContent).toContain("First chat"));
+
+		// Switching the sidebar to Agents unmounts the chat tree.
+		first.unmount();
+		document.getElementById("app")?.remove();
+
+		const second = await renderBranch("model-a");
+		await vi.waitFor(() => expect(second.container.textContent).toContain("First chat"));
+		expect(folderToggle(second.container)?.getAttribute("aria-expanded")).toBe("true");
+		expect(
+			find(second.container, 'button[aria-label="Collapse Projects"]').getAttribute("aria-expanded")
+		).toBe("true");
+	});
+
+	it("a folder closed before the remount stays closed, and a deleted project is forgotten", async () => {
+		localStorage.setItem(
+			PROJECTS_TREE_OPEN_KEY,
+			JSON.stringify({ branch: true, projects: ["a-project-that-is-gone"] })
+		);
+		stubFetch(undefined, [existingChat]);
+		const { container } = await renderBranch("model-a");
+		await vi.waitFor(() => expect(container.textContent).toContain("Mortgage"));
+		expect(folderToggle(container)?.getAttribute("aria-expanded")).toBe("false");
+		await vi.waitFor(() =>
+			expect(JSON.parse(localStorage.getItem(PROJECTS_TREE_OPEN_KEY) ?? "{}")).toEqual({
+				branch: true,
+				projects: [],
+			})
+		);
 	});
 
 	it("the + still goes to a new project", async () => {
