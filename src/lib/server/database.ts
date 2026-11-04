@@ -11,6 +11,7 @@ import type {
 	VectorStore,
 } from "$lib/types/VectorStore";
 import type { VoiceConfig } from "$lib/types/VoiceConfig";
+import type { AgentReviewLogEntry, AgentReviewSettings } from "$lib/types/AgentReview";
 import type { ImageConfig } from "$lib/types/ImageConfig";
 import type { Project } from "$lib/types/Project";
 import type {
@@ -240,6 +241,10 @@ export class Database {
 		const knowledgeDocuments = db.collection<KnowledgeDocument>("knowledgeDocuments");
 		const knowledgeConfig = db.collection<KnowledgeConfig>("knowledgeConfig");
 		const voiceConfig = db.collection<VoiceConfig>("voiceConfig");
+		// Agent auto-approval (ADR 0107): the administrator's one settings document, and the
+		// reviewer's log (user-keyed, kept 90 days).
+		const agentReviewConfig = db.collection<AgentReviewSettings>("agentReviewConfig");
+		const agentReviewLog = db.collection<AgentReviewLogEntry>("agentReviewLog");
 		const imageConfig = db.collection<ImageConfig>("imageConfig");
 		// Append-only: every change to that configuration, kept because
 		// "which model was this base built with, and who moved the default"
@@ -343,6 +348,8 @@ export class Database {
 			knowledgeDocuments,
 			knowledgeConfig,
 			voiceConfig,
+			agentReviewConfig,
+			agentReviewLog,
 			imageConfig,
 			knowledgeConfigHistory,
 			mcpConnectors,
@@ -403,6 +410,7 @@ export class Database {
 			localConnectorOauth,
 			codeDevices,
 			codeAudit,
+			agentReviewLog,
 			schedules,
 			scheduleRuns,
 			scheduleGrants,
@@ -979,6 +987,26 @@ export class Database {
 		webFetchCache
 			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
 			.catch((e) => logger.error(e, "Error creating TTL index for webFetchCache"));
+
+		agentReviewLog
+			.createIndex({ time: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 })
+			.catch((e) => logger.error(e, "Error creating TTL index for agentReviewLog"));
+		// The log view: newest first, optionally narrowed to a machine, an outcome or a class.
+		agentReviewLog
+			.createIndex({ time: -1, _id: -1 })
+			.catch((e) => logger.error(e, "Error creating index for agentReviewLog by time"));
+		agentReviewLog
+			.createIndex({ deviceId: 1, time: -1 })
+			.catch((e) => logger.error(e, "Error creating index for agentReviewLog by device"));
+		agentReviewLog
+			.createIndex({ outcome: 1, time: -1 })
+			.catch((e) => logger.error(e, "Error creating index for agentReviewLog by outcome"));
+		agentReviewLog
+			.createIndex({ class: 1, time: -1 })
+			.catch((e) => logger.error(e, "Error creating index for agentReviewLog by class"));
+		agentReviewLog
+			.createIndex({ userId: 1, time: -1 })
+			.catch((e) => logger.error(e, "Error creating index for agentReviewLog by userId"));
 
 		codeAudit
 			.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 })

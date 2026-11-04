@@ -46,6 +46,8 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	codeDevices: true,
 	codeAudit: true,
 	schedules: true, // a person's scheduled actions; owner-keyed, erased and merged with the account
+	agentReviewLog: true, // what the reviewer decided for a person's machines; owner-keyed, 90 days
+	agentReviewConfig: false, // the deployment's auto-approval settings, not user content
 	scheduleRuns: true, // one row per occurrence considered: the record of what a schedule did
 	scheduleGrants: true, // a person's background OIDC grant for scheduled chats; owner-keyed, dropped on merge, revoked and erased with the account
 	pushSubscriptions: true, // the browsers a person turned Web Push on for; owner-keyed
