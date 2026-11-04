@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"galopin/internal/decide"
 	"galopin/internal/fsutil"
 	"galopin/internal/permrules"
 )
@@ -96,6 +97,12 @@ type Permission struct {
 	// rules, which sit above opencode's static config file, so they win over
 	// whatever an installer wrote there; the Max ceiling then caps them.
 	Rules map[string]string `json:"rules,omitempty"`
+	// Limits is the machine's say per permission class (ADR 0107): class →
+	// "never" | "ask" | "run" ("stop" for loop). A class absent is its
+	// default (decide.DefaultLimit). This is the one place a limit is kept;
+	// Max and Rules below are what a policy.json written before classes
+	// carried, read once by Load (Migrate) and gone after the next write.
+	Limits map[string]string `json:"limits,omitempty"`
 	// Max is the ceiling: the most a key may ever be, whatever any rule, any
 	// session's selector or any exception says. A key absent from Max is not capped. `enroll`
 	// defaults bash to "ask"; `galopin policy set` may only lower a value.
@@ -111,6 +118,30 @@ type Permission struct {
 	// stays short. `enroll --safe-dir` gives one (replacing the default);
 	// a local `galopin policy set --no-safe-dir` may only remove entries.
 	SafeDirs *[]string `json:"safeDirs,omitempty"`
+}
+
+// EffectiveLimits is every class's limit in force: the file's, else the default.
+func (p Permission) EffectiveLimits() map[decide.Class]decide.Limit {
+	out := make(map[decide.Class]decide.Limit, len(decide.Classes))
+	for _, c := range decide.Classes {
+		out[c] = decide.DefaultLimit(c)
+		if w, ok := p.Limits[string(c)]; ok {
+			if l, ok := decide.ParseLimit(w); ok && c.Allows(l) {
+				out[c] = l
+			}
+		}
+	}
+	return out
+}
+
+// WireLimits is EffectiveLimits as the hello carries it: every class, in the
+// wire words (deny | ask | allow, and stop for loop).
+func (p Permission) WireLimits() map[string]string {
+	out := map[string]string{}
+	for c, l := range p.EffectiveLimits() {
+		out[string(c)] = l.Wire()
+	}
+	return out
 }
 
 // Ceiling is Max as the rule package's type.

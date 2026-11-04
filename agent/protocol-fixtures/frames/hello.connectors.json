@@ -34,6 +34,16 @@
 					"bash": "ask"
 				}
 			},
+			"limits": {
+				"edit": "allow",
+				"command": "ask",
+				"web": "allow",
+				"outside": "ask",
+				"secrets": "ask",
+				"agents": "allow",
+				"tools": "allow",
+				"loop": "ask"
+			},
 			"workspaceRoots": [],
 			"allowFreeModels": false,
 			"files": "read",
