@@ -10,6 +10,8 @@ import { createWebFetchBuiltin } from "./webFetchTool";
 import { createExecuteCodeBuiltin, EXECUTE_CODE_TOOL_NAME } from "./executeCodeTool";
 import { executionBackend } from "$lib/server/codeExecution/backend";
 import { createScheduleTool } from "./scheduleTool";
+import { createAgentSessionBuiltins } from "./agentSessionTools";
+import type { ProjectAgentProfile } from "$lib/types/AgentSession";
 import { createConvertDocumentBuiltin } from "./convertDocumentTool";
 import { createDocumentBuiltins, type DocumentTurnState } from "./documentTools";
 import { createLookDocBuiltins } from "./lookDocTool";
@@ -37,6 +39,12 @@ export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
 export { LOOK_DOC_TOOL_NAME } from "./lookDocTool";
 export { GENERATE_IMAGE_TOOL_NAME } from "./generateImageTool";
 export { SCHEDULE_TOOL_NAME } from "./scheduleTool";
+export {
+	AGENT_SESSIONS_TOOL_NAME,
+	AGENT_START_TOOL_NAME,
+	AGENT_SEND_TOOL_NAME,
+	AGENT_READ_TOOL_NAME,
+} from "./agentSessionTools";
 export {
 	DOC_OUTLINE_TOOL_NAME,
 	DOC_READ_TOOL_NAME,
@@ -179,6 +187,13 @@ export function getEnabledBuiltinTools(params: {
 	 * person on a deployment with scheduled chats on; absent means no tool.
 	 */
 	scheduling?: { timezone?: string };
+	/**
+	 * The chat drives coding-agent sessions (`agent_*`, ADR 0106): present only when the caller
+	 * resolved that /code is on for the deployment, the person holds `code_agents` and has a paired
+	 * machine. `profile` is their own default target for this chat's project, when there is one.
+	 * Offered to a scheduled run too: the approval policy refuses them there unless it is on Allow.
+	 */
+	agentSessions?: { profile?: ProjectAgentProfile | null };
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
@@ -355,6 +370,10 @@ export function getEnabledBuiltinTools(params: {
 	// approval card (`scheduleTool.ts`). Never in a run nobody is watching.
 	if (params.scheduling && params.toolsEnabled && !params.unattended) {
 		tools.push(createScheduleTool({ timezone: params.scheduling.timezone }));
+	}
+
+	if (params.agentSessions && params.toolsEnabled) {
+		tools.push(...createAgentSessionBuiltins({ profile: params.agentSessions.profile }));
 	}
 
 	// External tools carry the guard sentence in their description (untrusted.ts).

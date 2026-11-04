@@ -130,6 +130,8 @@ export const DELETE: RequestHandler = async ({ locals, params, url }) => {
 	// Its notes and context documents (rows and stored files) are the
 	// project's and go with it: no screen would list them otherwise.
 	await collections.projectMemories.deleteMany({ projectId: project._id });
+	// Every member's own agent profile for it (ADR 0106): each names a machine, not the project's.
+	await collections.projectAgentProfiles.deleteMany({ projectId: project._id });
 	await deleteProjectDocuments(project._id);
 	await collections.projects.deleteOne({ _id: project._id });
 	return new Response(null, { status: 204 });
