@@ -23,7 +23,8 @@
 	import ToolUpdate from "./ToolUpdate.svelte";
 	import TurnWaitBanner from "./TurnWaitBanner.svelte";
 	import TurnFailedBanner from "./TurnFailedBanner.svelte";
-	import { failedTurnReasonOf, turnStateOf } from "$lib/utils/generationState";
+	import { failedTurnReasonOf, loopStoppedOf, turnStateOf } from "$lib/utils/generationState";
+	import TurnStoppedNote from "./TurnStoppedNote.svelte";
 	import ToolCallsSummary from "./ToolCallsSummary.svelte";
 	import ArtifactCard from "./ArtifactCard.svelte";
 	import ElicitationForm from "./ElicitationForm.svelte";
@@ -455,6 +456,7 @@
 	// event frames the provider's own text (PROTOCOL.md §7); an empty reason
 	// (an older galopin) renders nothing, which is today's look.
 	let failedReason = $derived(failedTurnReasonOf(message));
+	let loopStopped = $derived(loopStoppedOf(message));
 
 	let blocks = $derived.by(() => {
 		const updates = message.updates ?? [];
@@ -1190,6 +1192,8 @@
 				/>
 			{:else if failedReason}
 				<TurnFailedBanner reason={failedReason} isLatest={isLatestFailedTurn} />
+			{:else if loopStopped}
+				<TurnStoppedNote />
 			{/if}
 		</div>
 

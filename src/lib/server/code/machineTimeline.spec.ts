@@ -479,6 +479,26 @@ describe("eventToUpdates: one live event at a time", () => {
 		}
 	});
 
+	it("reads a stopped loop (error code loop_stopped) as a finished turn with its reason, not a failure", () => {
+		const stopped = {
+			type: MessageUpdateType.TurnState,
+			state: "done",
+			serverNow: expect.any(Number),
+			reason: "loop_stopped",
+		};
+		expect(
+			eventToUpdates({
+				kind: "error",
+				message: "The agent was repeating itself",
+				code: "loop_stopped",
+			})
+		).toEqual([stopped]);
+		// The idle that follows keeps the reason, so the turn does not end as a plain done or a failure.
+		const tracked = trackedErrorReason({ message: "x", code: "loop_stopped" });
+		expect(tracked).toBe("loop_stopped");
+		expect(eventToUpdates({ kind: "status", status: "idle" }, tracked)).toEqual([stopped]);
+	});
+
 	it("shows a non-provider failure's message as it is, and an older galopin's empty one as nothing", () => {
 		// An ACP backend's JSON-RPC code is not an HTTP status.
 		expect(eventToUpdates({ kind: "error", message: "agent refused", code: "-32000" })).toEqual([

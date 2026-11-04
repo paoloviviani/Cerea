@@ -17,6 +17,7 @@
  * its later live tail render identically.
  */
 
+import { LOOP_STOPPED_REASON } from "$lib/utils/generationState";
 import { THINK_CLOSE, THINK_OPEN } from "$lib/utils/thinkTags";
 import {
 	MessageElicitationUpdateType,
@@ -637,6 +638,10 @@ export function providerRefusalReason(
 /** One live `error` event's reason. A code that reads as an HTTP status marks
  * a provider refusal; anything else (a command that would not run, an ACP
  * failure) already says what happened and shows as it is. */
+/** galopin's `error` code for a loop it stopped (the loop class's limit is `stop`): the turn was cancelled on
+ * purpose, so it is read as finished, with this reason for the view's plain line. */
+const LOOP_STOPPED_CODE = "loop_stopped";
+
 function errorEventReason(message: string | undefined, code?: string): string | undefined {
 	if (!message) return undefined;
 	if (isHttpStatus(code)) return providerRefusalReason(message, code);
@@ -648,6 +653,7 @@ function errorEventReason(message: string | undefined, code?: string): string | 
  * turn on the same framed text the event itself emitted (undefined: nothing
  * to upgrade — other failures stay with whatever the transcript carries). */
 export function trackedErrorReason(event: { message: string; code?: string }): string | undefined {
+	if (event.code === LOOP_STOPPED_CODE) return LOOP_STOPPED_REASON;
 	if (!isHttpStatus(event.code) || !event.message) return undefined;
 	return providerRefusalReason(event.message, event.code);
 }
@@ -672,6 +678,10 @@ function statusToTurnState(
 		case "error":
 			return turnStateUpdate("failed", detail ?? lastAssistantError);
 		default:
+			// The idle after a stopped loop ends the turn as done, with the same reason.
+			if (lastAssistantError === LOOP_STOPPED_REASON) {
+				return turnStateUpdate("done", LOOP_STOPPED_REASON);
+			}
 			return turnStateUpdate(lastAssistantError ? "failed" : "done", lastAssistantError);
 	}
 }
@@ -793,6 +803,7 @@ function liveFrames(
 		case "session":
 			return []; // metadata changed; the panel re-reads via its own poll.
 		case "error":
+			if (event.code === LOOP_STOPPED_CODE) return [turnStateUpdate("done", LOOP_STOPPED_REASON)];
 			return [turnStateUpdate("failed", errorEventReason(event.message, event.code))];
 		case "todo":
 			// An unchanged list is not an update: no new card, no new version.

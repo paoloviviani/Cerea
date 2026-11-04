@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
-	CEILING_KEYS,
-	DEFAULT_CEILING,
+	DEFAULT_LIMITS,
+	LIMIT_CLASSES,
 	advancedChangedCount,
-	ceilingChanged,
-	ceilingPairs,
+	allowedLimits,
+	changedLimits,
 	defaultPolicyChoices,
+	limitPairs,
 	maxTerminalsProblem,
 	policyFlagArgs,
 	promisedPolicy,
 	quoteShellArg,
 	type EnrollPolicyChoices,
-	uniformCeiling,
 } from "./codeEnrollPolicy";
 import { buildEnrollCommand } from "./codeEnrollCommand";
 
@@ -41,32 +41,38 @@ describe("the dialog's defaults", () => {
 		);
 	});
 
-	it("its default ceiling is enroll's own: bash asks, the rest uncapped", () => {
-		expect(DEFAULT_CEILING).toEqual({
-			edit: "allow",
-			bash: "ask",
-			webfetch: "allow",
-			task: "allow",
-			session_spawn: "allow",
-			session_send: "allow",
-			session_read: "allow",
-			schedule: "allow",
+	it("its default limits are the machine's own (ADR 0107): commands, outside and secrets ask, the rest run", () => {
+		expect(DEFAULT_LIMITS).toEqual({
+			edit: "run",
+			command: "ask",
+			web: "run",
+			outside: "ask",
+			secrets: "ask",
+			agents: "run",
+			tools: "run",
+			loop: "ask",
 		});
-		expect([...CEILING_KEYS]).toEqual([
+		expect([...LIMIT_CLASSES]).toEqual([
 			"edit",
-			"bash",
-			"webfetch",
-			"task",
-			"session_spawn",
-			"session_send",
-			"session_read",
-			"schedule",
+			"command",
+			"web",
+			"outside",
+			"secrets",
+			"agents",
+			"tools",
+			"loop",
 		]);
+	});
+
+	it("secrets offers never and ask only, loop offers ask and stop", () => {
+		expect(allowedLimits("secrets")).toEqual(["never", "ask"]);
+		expect(allowedLimits("loop")).toEqual(["ask", "stop"]);
+		expect(allowedLimits("command")).toEqual(["never", "ask", "run"]);
 	});
 
 	it("the machine the defaults promise is the one a plain enroll writes", () => {
 		expect(promisedPolicy(defaultPolicyChoices())).toEqual({
-			permission: { max: { bash: "ask" }, rules: {} },
+			limits: DEFAULT_LIMITS,
 			workspaceRoots: [],
 			allowFreeModels: false,
 			files: "read",
@@ -123,16 +129,6 @@ describe("each control emits exactly its flag", () => {
 			{ fileDeny: ["*.secret"] },
 			["--default-group", "--file-deny", "'*.secret'"],
 		],
-		[
-			"work outside the project",
-			{ allowOutsideProject: true },
-			["--default-group", "--permission-rule", "'external_directory=allow'"],
-		],
-		[
-			"secret reads",
-			{ allowSecretReads: true },
-			["--default-group", "--permission-rule", "'read=allow'"],
-		],
 		["bill to the console default", { billToDefault: true }, ["--default-group"]],
 	];
 	for (const [label, over, expected] of cases) {
@@ -177,16 +173,6 @@ describe("each control emits exactly its flag", () => {
 		]);
 	});
 
-	it("both fixed answers emit together, outside-project first", () => {
-		expect(flags({ allowSecretReads: true, allowOutsideProject: true })).toEqual([
-			"--default-group",
-			"--permission-rule",
-			"'external_directory=allow'",
-			"--permission-rule",
-			"'read=allow'",
-		]);
-	});
-
 	it("never emits --allow-auto-accept, whatever else is set", () => {
 		const everything = choose({
 			allowTerminal: true,
@@ -200,10 +186,8 @@ describe("each control emits exactly its flag", () => {
 			noDefaultFileDeny: true,
 			workspaceRoots: ["/a"],
 			fileDeny: ["x"],
-			allowOutsideProject: true,
-			allowSecretReads: true,
 			billToDefault: true,
-			ceiling: { ...DEFAULT_CEILING, edit: "ask" },
+			limits: { ...DEFAULT_LIMITS, edit: "ask" },
 		});
 		expect(policyFlagArgs(everything).join(" ")).not.toContain("auto-accept");
 	});
@@ -236,7 +220,7 @@ describe("billing to the console default", () => {
 			billToDefault: true,
 			allowTerminal: false,
 			workspaceRoots: ["/a"],
-			ceiling: { ...DEFAULT_CEILING, edit: "ask" },
+			limits: { ...DEFAULT_LIMITS, edit: "ask" },
 		});
 		expect(policyFlagArgs(everything)).toContain("--default-group");
 		expect(policyFlagArgs(everything)).not.toContain("--group");
@@ -248,60 +232,48 @@ describe("billing to the console default", () => {
 	});
 });
 
-describe("the ceiling table", () => {
+describe("the limits table", () => {
 	it("an unchanged table emits nothing (the billing default aside)", () => {
-		expect(ceilingChanged({ ...DEFAULT_CEILING })).toBe(false);
-		expect(ceilingPairs({ ...DEFAULT_CEILING })).toEqual([]);
-		expect(flags({ ceiling: { ...DEFAULT_CEILING } })).toEqual(["--default-group"]);
+		expect(changedLimits({ ...DEFAULT_LIMITS })).toEqual([]);
+		expect(limitPairs({ ...DEFAULT_LIMITS })).toEqual([]);
+		expect(flags({ limits: { ...DEFAULT_LIMITS } })).toEqual(["--default-group"]);
 	});
 
-	it("one changed row emits the FULL set, defaults included", () => {
-		const ceiling = { ...DEFAULT_CEILING, edit: "ask" as const };
-		expect(ceilingChanged(ceiling)).toBe(true);
-		expect(ceilingPairs(ceiling)).toEqual(["edit=ask", "bash=ask"]);
-		expect(flags({ ceiling })).toEqual([
-			"--default-group",
-			"--permission-max",
-			"edit=ask",
-			"--permission-max",
-			"bash=ask",
-		]);
+	it("one changed class emits exactly one --limit, and no old alias flag", () => {
+		const limits = { ...DEFAULT_LIMITS, edit: "ask" as const };
+		expect(changedLimits(limits)).toEqual(["edit"]);
+		expect(flags({ limits })).toEqual(["--default-group", "--limit", "edit=ask"]);
+		expect(flags({ limits }).join(" ")).not.toContain("permission-");
 	});
 
-	it("a default row set to Allow is named explicitly: that is how an owner opts out", () => {
-		const ceiling = { ...DEFAULT_CEILING, bash: "allow" as const };
-		expect(ceilingPairs(ceiling)).toEqual(["bash=allow"]);
+	it("opening commands names commands only: that is how an owner opts out of the default ask", () => {
+		expect(limitPairs({ ...DEFAULT_LIMITS, command: "run" })).toEqual(["command=run"]);
 	});
 
-	it("every row Allow still emits something, so the default does not come back", () => {
-		const allOpen = Object.fromEntries(CEILING_KEYS.map((key) => [key, "allow"])) as Record<
-			(typeof CEILING_KEYS)[number],
-			"allow"
-		>;
-		expect(ceilingPairs(allOpen)).toEqual(["bash=allow"]);
-	});
-
-	it("a Deny row is carried as deny", () => {
-		expect(ceilingPairs({ ...DEFAULT_CEILING, webfetch: "deny" })).toEqual([
-			"bash=ask",
-			"webfetch=deny",
-		]);
-	});
-
-	it("moving a row away and back leaves the table unchanged: nothing emitted", () => {
-		const ceiling = { ...DEFAULT_CEILING };
-		ceiling.edit = "deny";
-		ceiling.edit = "allow";
-		expect(ceilingPairs(ceiling)).toEqual([]);
-	});
-
-	it("promises the ceiling the flags write, and the default when nothing is emitted", () => {
+	it("carries each changed class, in the table's order, including never and stop", () => {
 		expect(
-			promisedPolicy(choose({ ceiling: { ...DEFAULT_CEILING, bash: "allow" } })).permission.max
-		).toEqual({ bash: "allow" });
+			limitPairs({
+				...DEFAULT_LIMITS,
+				loop: "stop",
+				web: "never",
+				outside: "run",
+				secrets: "never",
+			})
+		).toEqual(["web=never", "outside=run", "secrets=never", "loop=stop"]);
+	});
+
+	it("moving a class away and back leaves the table unchanged: nothing emitted", () => {
+		const limits = { ...DEFAULT_LIMITS };
+		limits.edit = "never";
+		limits.edit = "run";
+		expect(limitPairs(limits)).toEqual([]);
+	});
+
+	it("promises the whole table, defaults filled in", () => {
 		expect(
-			promisedPolicy(choose({ ceiling: { ...DEFAULT_CEILING, edit: "deny" } })).permission.max
-		).toEqual({ edit: "deny", bash: "ask" });
+			promisedPolicy(choose({ limits: { ...DEFAULT_LIMITS, command: "run" } })).limits
+		).toEqual({ ...DEFAULT_LIMITS, command: "run" });
+		expect(promisedPolicy(defaultPolicyChoices()).limits).toEqual(DEFAULT_LIMITS);
 	});
 });
 
@@ -374,33 +346,13 @@ describe("the Advanced summary's count", () => {
 				choose({ allowTerminal: false, allowCommandShell: false, allowBackgroundSubagents: false })
 			)
 		).toBe(3);
-		// The ceiling counts here only when its rows differ: "All tools" shows a uniform one.
-		const every = (action: "allow" | "ask" | "deny") =>
-			Object.fromEntries(
-				CEILING_KEYS.map((key) => [key, action])
-			) as EnrollPolicyChoices["ceiling"];
-		expect(advancedChangedCount(choose({ ceiling: every("ask") }))).toBe(0);
-		expect(advancedChangedCount(choose({ ceiling: { ...every("allow"), webfetch: "deny" } }))).toBe(
-			1
-		);
+		// Commands sit among the common options; every other class counts under Advanced.
+		expect(advancedChangedCount(choose({ limits: { ...DEFAULT_LIMITS, command: "run" } }))).toBe(0);
+		expect(advancedChangedCount(choose({ limits: { ...DEFAULT_LIMITS, web: "never" } }))).toBe(1);
 	});
 
-	it("uniformCeiling names the one action every row holds, or null", () => {
-		expect(uniformCeiling(defaultPolicyChoices().ceiling)).toBeNull();
-		for (const action of ["allow", "ask", "deny"] as const) {
-			expect(
-				uniformCeiling(
-					Object.fromEntries(
-						CEILING_KEYS.map((key) => [key, action])
-					) as EnrollPolicyChoices["ceiling"]
-				)
-			).toBe(action);
-		}
+	it("a blank list entry does not count", () => {
 		expect(advancedChangedCount(choose({ workspaceRoots: [" "], fileDeny: [""] }))).toBe(0);
-		expect(advancedChangedCount(choose({ allowOutsideProject: true }))).toBe(1);
-		expect(
-			advancedChangedCount(choose({ allowOutsideProject: true, allowSecretReads: true }))
-		).toBe(2);
 	});
 });
 
@@ -421,15 +373,10 @@ describe("the promised policy.json", () => {
 				allowFileWrite: true,
 				fileDeny: ["*.x"],
 				noDefaultFileDeny: true,
-				allowOutsideProject: true,
-				allowSecretReads: true,
 			})
 		);
 		expect(promised).toEqual({
-			permission: {
-				max: { bash: "ask" },
-				rules: { external_directory: "allow" }, // the secrets class never runs: no read allow
-			},
+			limits: DEFAULT_LIMITS,
 			workspaceRoots: ["/a b"],
 			allowFreeModels: true,
 			files: "off",
