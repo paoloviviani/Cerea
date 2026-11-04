@@ -568,15 +568,16 @@ func TestAgentToolsIntegration(t *testing.T) {
 		if len(ctlAsks) == 0 || ctlAsks[0].Tool != "external_directory" {
 			t.Errorf("the control read outside the workspace raised %+v, want an external_directory ask", ctlAsks)
 		}
-		// The point: the inherited exception covers /tmp, so the same read
-		// there runs with no ask at all.
+		// The exception is inherited (checked above), but the outside class is
+		// limited to ask on this machine and an ask limit is a card every time
+		// (ADR 0107): the same read of /tmp still asks, the exception not lifting it.
 		mark3 := hub.mark()
 		prompt(child, ws1, "trigger-child-exc")
 		if p := hub.toolDone(t, mark3, child.ID, "read"); p.ToolStatus != backend.ToolCompleted {
 			t.Fatalf("the /tmp read did not complete: %+v", p)
 		}
-		if asks := hub.asks(mark3, child.ID); len(asks) != 0 {
-			t.Errorf("the child asked for /tmp despite the inherited exception: %+v", asks)
+		if asks := hub.asks(mark3, child.ID); len(asks) == 0 || asks[0].Tool != "external_directory" {
+			t.Errorf("the child's /tmp read under outside=ask raised %+v, want a card the exception does not lift", asks)
 		}
 	})
 
@@ -1394,10 +1395,11 @@ func TestAgentToolsIntegration(t *testing.T) {
 			t.Errorf("a send under a ceiling of ask must raise exactly one galopin card, got %+v", asks)
 		}
 
-		// The key the ceiling does not cap runs with no card in the same workspace...
+		// The agents class is one limit for all its keys (ADR 0107): the read is
+		// capped at ask along with the send, grant or not...
 		part, asks = runTool(t, a, ws1, "trigger-ceil-read", "session_read")
-		if part.ToolStatus != backend.ToolCompleted || len(asks) != 0 {
-			t.Errorf("a granted, uncapped read = %s / %q, asks %+v", part.ToolStatus, part.ToolError, asks)
+		if part.ToolStatus != backend.ToolCompleted || len(asks) != 1 || asks[0].Tool != "session_read" {
+			t.Errorf("a granted read under agents=ask = %s / %q, asks %+v, want one card", part.ToolStatus, part.ToolError, asks)
 		}
 		// ...and asks for a session in another workspace.
 		part, asks = runTool(t, a, ws1, "trigger-ceil-xread", "session_read")
