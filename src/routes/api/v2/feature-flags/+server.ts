@@ -7,7 +7,7 @@ import { config } from "$lib/server/config";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
 import { delegationEnabled } from "$lib/server/delegation";
-import { codeAgentsAllowedFor } from "$lib/server/codeEnabled";
+import { codeAgentsAllowedFor, consoleAllowedFor } from "$lib/server/codeEnabled";
 import { machineClientId } from "$lib/server/code/machineAuth";
 import type { FeatureFlags } from "$lib/server/api/types";
 import { dictationMode, dictationOffersFor } from "$lib/server/dictation";
@@ -69,7 +69,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 		// serve /console on this origin and the admin panel may link to it;
 		// the standalone profiles do not (satellite's console is central's,
 		// generic has none).
-		consoleEnabled: config.CHAT_CONSOLE_ENABLED === "true",
+		// And per person (Pystino's `console` capability): a user whose groups
+		// withhold the console gets no link to it, anywhere. Admins always have it.
+		consoleEnabled: config.CHAT_CONSOLE_ENABLED === "true" && (await consoleAllowedFor(locals)),
 		// Per person (ADR 0096), not a deployment fact: the client's only
 		// source for the Chats | Agents switch (the universal layout load
 		// spreads feature-flags over the layout data), so the deployment-wide

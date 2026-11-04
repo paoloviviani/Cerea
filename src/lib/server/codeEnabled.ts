@@ -121,7 +121,31 @@ export async function byokAllowedFor(locals: App.Locals): Promise<boolean> {
 				? recentValidGatewayOutcome(locals.sessionId)
 				: null;
 	if (!answer || answer.capabilities === "absent") return false;
-	return answer.capabilities.byok_allowed;
+	// The gateway already reports byok false without console access (BYOK is managed
+	// in the console); the explicit check keeps this true if that ever changes.
+	return answer.capabilities.byok_allowed && answer.capabilities.console_allowed;
+}
+
+/**
+ * Whether *this person* may use the gateway console (Pystino's `console`
+ * capability, `capabilities.console` on `/v1/me`), so the chat shows no link to a
+ * page they cannot use. Unlike BYOK, the default is allowed: an older gateway
+ * (no `capabilities`, or no `console` flag), no gateway, no token and a gateway
+ * that cannot be asked right now all read as allowed. Only an explicit
+ * `console: false` hides the console. The deployment's `CHAT_CONSOLE_ENABLED`
+ * is the outer switch and is checked by the caller.
+ */
+export async function consoleAllowedFor(locals: App.Locals): Promise<boolean> {
+	if (!isGatewayPreset() || !locals.token) return true;
+	const outcome = await gatewaySessionCheck(locals.sessionId, locals.token);
+	const answer =
+		outcome?.kind === "valid"
+			? outcome
+			: outcome && outcome.kind !== "ended"
+				? recentValidGatewayOutcome(locals.sessionId)
+				: null;
+	if (!answer || answer.capabilities === "absent") return true;
+	return answer.capabilities.console_allowed;
 }
 
 /**

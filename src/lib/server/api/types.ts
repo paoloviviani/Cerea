@@ -116,6 +116,10 @@ export interface FeatureFlags {
 	 * standalone profiles: satellite's Pystino is central's and its console
 	 * is not this origin's to serve, generic has no Pystino at all — a link
 	 * to an unserved /console would be a 404 wearing the name of a feature.
+	 * Also false for a person whose groups withhold console access (Pystino's
+	 * `console` capability): every console link and console-only control
+	 * follows this one flag, so a chat-only user is never pointed at a page
+	 * that would refuse them. An older gateway (no flag) reads as allowed.
 	 */
 	consoleEnabled: boolean;
 	/**

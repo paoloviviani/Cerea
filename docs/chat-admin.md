@@ -409,5 +409,5 @@ harming anything else; the next start rebuilds it.
 
 Users, groups, providers, models, prices, quotas and redaction are not here. If
 the deployment serves the Pystino console at `/console`, set
-`CHAT_CONSOLE_ENABLED=true` and the chat's admin panel links to it. The
+`CHAT_CONSOLE_ENABLED=true` and the chat's admin panel links to it. The link, and every other pointer to the console (the bring-your-own-key link, the usage page's "Manage in the Pystino console"), is hidden for a user whose groups lack Pystino's **console** capability; such a user manages nothing in the console and reads their quotas under Settings → Usage. Opening the console as that user redirects to that page. Administrators always have the console. The
 console's own documentation is linked from the [reference](reference.md).

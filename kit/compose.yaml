@@ -319,6 +319,9 @@ services:
       # connectors (chat concepts) are capabilities here. Standalone Pystino
       # leaves it unset (false) and hides them.
       GATEWAY_CHAT__ENABLED: "true"
+      # Where the chat is, for the console's redirect of a user without console
+      # access (Pystino's `console` capability) to the chat's usage page.
+      GATEWAY_CHAT__URL: ${PUBLIC_ORIGIN}/chat
       GATEWAY_CHAT__ERASURE_TOKEN: ${CHAT_ERASURE_TOKEN:-}
     volumes:
       # The bundled Authelia's users file, which the console manages

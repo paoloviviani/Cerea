@@ -6,6 +6,12 @@ vi.mock("$lib/server/gatewayServer", () => ({
 	gateway: { get: gatewayGetMock, post: vi.fn(), del: vi.fn() },
 }));
 
+const consoleState = vi.hoisted(() => ({ allowed: true }));
+
+vi.mock("$lib/server/codeEnabled", () => ({
+	consoleAllowedFor: async () => consoleState.allowed,
+}));
+
 const configState = vi.hoisted(() => ({
 	usageEnabled: "true",
 	baseUrl: "https://gateway.example/v1",
@@ -139,6 +145,7 @@ const groupUsage = {
 
 beforeEach(() => {
 	gatewayGetMock.mockReset();
+	consoleState.allowed = true;
 	configState.usageEnabled = "true";
 	configState.baseUrl = "https://gateway.example/v1";
 });
@@ -190,6 +197,30 @@ describe("pystinoUsageProvider.getReport", () => {
 		expect(serialized).not.toContain("77.77");
 		expect(serialized).not.toContain("98765");
 		expect(serialized).not.toContain("616");
+	});
+
+	it("offers no console link to a person without console access, quotas intact", async () => {
+		consoleState.allowed = false;
+		mockUsage({ limits: [userLimit], usage: usageSummary, groups: null });
+
+		const report = await pystinoUsageProvider.getReport({
+			locals: { token: "bearer-token" } as App.Locals,
+		});
+
+		expect(report.sections.map((s) => s.link)).toEqual([undefined, undefined]);
+		expect(report.sections.find((s) => s.title === "Quotas")?.entries).toHaveLength(1);
+	});
+
+	it("offers no console link on the unavailable section either, without console access", async () => {
+		consoleState.allowed = false;
+		gatewayGetMock.mockRejectedValue(new Error("down"));
+
+		const report = await pystinoUsageProvider.getReport({
+			locals: { token: "bearer-token" } as App.Locals,
+		});
+
+		expect(report.sections[0].error).toMatch(/unavailable/);
+		expect(report.sections[0].link).toBeUndefined();
 	});
 
 	it("treats a null groups document (a gateway Optional) as none", async () => {
