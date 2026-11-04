@@ -5,6 +5,12 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- Administrators can publish a connector where **each user brings their own key** (a personal access token, say): the
+  administrator sets the address, which header carries the key and a help line, and each user adds their own key under
+  Workspace → Built-in connectors, so nobody has to find the endpoint themselves.
+
 ## v0.40.1 — 2026-11-04
 
 Pins: Cerea `0.40.1` (chat and `cerea-documents`), Pystino `0.25.0`.

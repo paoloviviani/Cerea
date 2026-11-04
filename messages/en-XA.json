@@ -1861,9 +1861,28 @@
 	"admin.connectors.auth.none": "[ńó śíǧń-íń]",
 	"admin.connectors.auth.oauth": "[Éáćȟ þéŕśóń śíǧńś íń]",
 	"admin.connectors.auth.token": "[śȟáŕéď áććéśś ķéý]",
+	"admin.connectors.auth.user_key": "[éáćȟ úśéŕ'ś óŵń ķéý]",
 	"admin.connectors.check": "[Ćȟéćķ]",
 	"admin.connectors.check_failed": "[Ćóúľď ńóť ćȟéćķ íť. Ťŕý áǧáíń.]",
 	"admin.connectors.check_title": "[Ĺíśť íťś ťóóľś áǧáíń, úśíńǧ ťȟé ćóńńéćťóŕ'ś óŵń áććéśś ķéý]",
+	"admin.connectors.keys.count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} úśéŕ ȟáś áďďéď á ķéý]",
+				"countPlural=other": "[{count} úśéŕś ȟáǚé áďďéď á ķéý]"
+			}
+		}
+	],
+	"admin.connectors.test_key": "[Ťéśť ķéý]",
+	"admin.connectors.test_key_placeholder": "[Á ķéý ťó ćȟéćķ ŵíťȟ (úśéď óńćé, ńóť śťóŕéď)]",
+	"admin.connectors.test_key_title": "[Ĺíśť íťś ťóóľś ŵíťȟ ťȟé ťéśť ķéý, óŕ ŵíťȟ ýóúŕ óŵń ķéý íƒ ýóú áďďéď óńé]",
 	"admin.connectors.checking": "[Ćȟéćķíńǧ…]",
 	"admin.connectors.description": "[Ćóńńéćťóŕś (ḾĆÞ śéŕǚéŕś) ťȟé ďéþľóýḿéńť þŕóǚíďéś ťó éǚéŕý áććóúńť. Éáćȟ þéŕśóń śíǧńś íń ťó á ćóńńéćťóŕ ťȟáť ńééďś íť ťȟéḿśéľǚéś, śó íť ŕéáćȟéś ťȟéíŕ óŵń ďáťá. Ýóú áŕé śȟáŕíńǧ ťȟé ćóńńéćťóŕ, ńóť áń íďéńťíťý. Ćȟóóśé ƀéľóŵ ȟóŵ éáćȟ óńé íś óƒƒéŕéď.]",
 	"admin.connectors.edit": "[Éďíť]",
@@ -1896,6 +1915,13 @@
 	"admin.connectors.form.auth_auto": "[Áúťóḿáťíć (ŕéćóḿḿéńďéď)]",
 	"admin.connectors.form.auth_none": "[Ńóńé]",
 	"admin.connectors.form.auth_token": "[Śȟáŕéď áććéśś ķéý]",
+	"admin.connectors.form.auth_user_key": "[Éáćȟ úśéŕ þŕóǚíďéś ťȟéíŕ óŵń ķéý]",
+	"admin.connectors.form.user_key_note": "[Ńó ķéý íś śťóŕéď óń ťȟé ćóńńéćťóŕ. Éáćȟ úśéŕ áďďś ťȟéíŕ óŵń úńďéŕ Ŵóŕķśþáćé, Ɓúíľť-íń ćóńńéćťóŕś; íť íś úśéď óńľý ƒóŕ ťȟáť úśéŕ'ś ćȟáťś, áńď ťȟé ćóńńéćťóŕ íś ńóť óƒƒéŕéď ťó á úśéŕ úńťíľ ťȟéý ȟáǚé.]",
+	"admin.connectors.form.user_key_header_hint": "[Áúťȟóŕíźáťíóń śéńďś Ɓéáŕéŕ áńď ťȟéń ťȟé ķéý. Áńý óťȟéŕ ȟéáďéŕ ńáḿé śéńďś ťȟé ķéý óń íťś óŵń.]",
+	"admin.connectors.form.key_help": "[Ȟéľþ ƒóŕ úśéŕś]",
+	"admin.connectors.form.key_help_placeholder": "[Ćŕéáťé á ťóķéń íń ýóúŕ áććóúńť śéťťíńǧś ŵíťȟ ťȟé ŕéþó śćóþé.]",
+	"admin.connectors.form.key_help_url": "[Ĺíńķ ťó ćŕéáťé á ķéý]",
+	"admin.connectors.form.key_help_url_placeholder": "[ȟťťþś://]",
 	"admin.connectors.form.cancel": "[Ćáńćéľ]",
 	"admin.connectors.form.description": "[Ďéśćŕíþťíóń]",
 	"admin.connectors.form.description_hint": "[Óńé śéńťéńćé óń ŵȟáť íť íś ƒóŕ. Ťȟé áśśíśťáńť ŕéáďś íť ťó ďéćíďé ŵȟéń ťó úśé ťȟé ćóńńéćťóŕ.]",
@@ -2858,6 +2884,7 @@
 	"mcp.connectors.auth.none": "[ńó śíǧń-íń]",
 	"mcp.connectors.auth.oauth": "[śíǧń-íń]",
 	"mcp.connectors.auth.token": "[áććéśś ķéý]",
+	"mcp.connectors.auth.user_key": "[ýóúŕ óŵń ķéý]",
 	"mcp.connectors.built_in": "[Ɓúíľť-íń ćóńńéćťóŕś ({count})]",
 	"mcp.connectors.built_in_hint": "[Þŕóǚíďéď ƀý ýóúŕ áďḿíńíśťŕáťóŕ. Ťúŕń óńé óƒƒ íƒ ýóú ďó ńóť ŵáńť ťȟé áśśíśťáńť ťó úśé íť; śóḿé áśķ ýóú ťó śíǧń íń ƒíŕśť.]",
 	"mcp.connectors.cancel": "[Ćáńćéľ]",
@@ -2865,6 +2892,19 @@
 	"mcp.connectors.check_title": "[Áśķ ťȟé ćóńńéćťóŕ áǧáíń ȟóŵ ťó śíǧń íń]",
 	"mcp.connectors.check_token_title": "[Ťŕý ťȟé áććéśś ķéý áńď ľíśť ťȟé ćóńńéćťóŕ'ś ťóóľś]",
 	"mcp.connectors.checking": "[Ćȟéćķíńǧ…]",
+	"mcp.connectors.add_key": "[Áďď ýóúŕ ķéý]",
+	"mcp.connectors.replace_key": "[Ŕéþľáćé ķéý]",
+	"mcp.connectors.remove_key": "[Ŕéḿóǚé ķéý]",
+	"mcp.connectors.check_key": "[Ćȟéćķ ķéý]",
+	"mcp.connectors.key_label": "[Ýóúŕ ķéý]",
+	"mcp.connectors.key_privacy": "[Śťóŕéď éńćŕýþťéď áńď úśéď óńľý ƒóŕ ýóúŕ óŵń ćȟáťś. Íť íś ńéǚéŕ śȟóŵń áǧáíń.]",
+	"mcp.connectors.key_help_link": "[Ŵȟéŕé ťó ćŕéáťé á ķéý]",
+	"mcp.connectors.key_refused": "[Ýóúŕ ķéý ŵáś ŕéƒúśéď]",
+	"mcp.connectors.key_refused_hint": "[Ťȟé śéŕǚíćé ďíď ńóť áććéþť íť. Ŕéþľáćé íť ťó úśé ťȟíś ćóńńéćťóŕ.]",
+	"mcp.connectors.no_key": "[Ńó ķéý ýéť]",
+	"mcp.connectors.add_key_first": "[Áďď ýóúŕ ķéý ƒíŕśť]",
+	"mcp.connectors.key_save_failed": "[Ćóúľď ńóť śáǚé ýóúŕ ķéý. Ťŕý áǧáíń.]",
+	"mcp.connectors.confirm_remove_key": "[Ŕéḿóǚé ýóúŕ ķéý ƒóŕ {name}? Íť śťóþś ƀéíńǧ úśéď íń ýóúŕ ćȟáťś.]",
 	"mcp.connectors.client_id": "[Ćľíéńť ÍĎ]",
 	"mcp.connectors.client_id_title": "[Ćľíéńť ÍĎ {id}]",
 	"mcp.connectors.client_secret_optional": "[Ćľíéńť śéćŕéť {#hint}(íƒ íť ȟáś óńé){/hint}]",

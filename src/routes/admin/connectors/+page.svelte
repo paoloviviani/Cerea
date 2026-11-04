@@ -42,7 +42,9 @@
 
 	let name = $state("");
 	let url = $state("");
-	let authMode = $state<"auto" | "none" | "token">("auto");
+	let authMode = $state<"auto" | "none" | "token" | "user_key">("auto");
+	let keyHelpText = $state("");
+	let keyHelpUrl = $state("");
 	let token = $state("");
 	let tokenHeader = $state("");
 	let description = $state("");
@@ -55,6 +57,10 @@
 	let editToken = $state("");
 	let editTokenHeader = $state("");
 	let clearEditToken = $state(false);
+	let editKeyHelpText = $state("");
+	let editKeyHelpUrl = $state("");
+	/** A key typed to check a user-key connector with: sent once, never stored. */
+	let testKeys = $state<Record<string, string>>({});
 	/** Which connector's tool check is running. */
 	let checking = $state<string | null>(null);
 	/** Which OAuth connector has its app details (client id and secret) form open. */
@@ -211,6 +217,13 @@
 					scope: "deployment",
 					...(description.trim() ? { description: description.trim() } : {}),
 					authMode,
+					...(authMode === "user_key"
+						? {
+								...(tokenHeader.trim() ? { tokenHeader: tokenHeader.trim() } : {}),
+								...(keyHelpText.trim() ? { keyHelpText: keyHelpText.trim() } : {}),
+								...(keyHelpUrl.trim() ? { keyHelpUrl: keyHelpUrl.trim() } : {}),
+							}
+						: {}),
 					...(authMode === "token"
 						? {
 								token: token.trim(),
@@ -228,6 +241,8 @@
 			url = "";
 			token = "";
 			tokenHeader = "";
+			keyHelpText = "";
+			keyHelpUrl = "";
 			description = "";
 			authMode = "auto";
 			adding = false;
@@ -250,6 +265,8 @@
 		editDescription = connector.description ?? "";
 		editToken = "";
 		editTokenHeader = connector.tokenHeader ?? "";
+		editKeyHelpText = connector.keyHelpText ?? "";
+		editKeyHelpUrl = connector.keyHelpUrl ?? "";
 		editScopes = (connector.scopes ?? []).join("\n");
 		clearEditToken = false;
 		failure = null;
@@ -278,7 +295,15 @@
 					url: editUrl.trim(),
 					// Always sent: an empty one clears it.
 					description: editDescription.trim(),
-					...(editToken.trim()
+					...(target.auth === "user-key"
+						? {
+								...(header ? { tokenHeader: header } : {}),
+								// Always sent: empty clears.
+								keyHelpText: editKeyHelpText.trim(),
+								keyHelpUrl: editKeyHelpUrl.trim(),
+							}
+						: {}),
+					...(editToken.trim() && target.auth !== "user-key"
 						? {
 								token: editToken.trim(),
 								...(header
@@ -348,8 +373,14 @@
 			await api(asDeployment(connector.id), {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ action }),
+				body: JSON.stringify({
+					action,
+					...(connector.auth === "user-key" && testKeys[connector.id]?.trim()
+						? { testKey: testKeys[connector.id].trim() }
+						: {}),
+				}),
 			});
+			testKeys[connector.id] = "";
 			await load();
 		} catch (err) {
 			failure = err instanceof Error ? err.message : m["admin.connectors.check_failed"]();
@@ -539,6 +570,7 @@
 					<option value="auto">{m["admin.connectors.form.auth_auto"]()}</option>
 					<option value="none">{m["admin.connectors.form.auth_none"]()}</option>
 					<option value="token">{m["admin.connectors.form.auth_token"]()}</option>
+					<option value="user_key">{m["admin.connectors.form.auth_user_key"]()}</option>
 				</select>
 			</label>
 
@@ -574,15 +606,67 @@
 				>
 					<Rich parts={m["admin.connectors.form.shared_warning"].parts({})} tags={{ strong }} />
 				</p>
+			{:else if authMode === "user_key"}
+				<div data-testid="user-key-fields" class="space-y-2">
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium"
+							>{m["admin.connectors.form.header"]()}
+							<span class="font-normal text-gray-500">{m["admin.connectors.form.optional"]()}</span
+							></span
+						>
+						<input
+							class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+							placeholder={EXAMPLE_HEADER}
+							bind:value={tokenHeader}
+							disabled={busy}
+						/>
+						<span class="text-xs text-gray-500 dark:text-gray-400">
+							{m["admin.connectors.form.user_key_header_hint"]()}
+						</span>
+					</label>
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium"
+							>{m["admin.connectors.form.key_help"]()}
+							<span class="font-normal text-gray-500">{m["admin.connectors.form.optional"]()}</span
+							></span
+						>
+						<input
+							class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+							placeholder={m["admin.connectors.form.key_help_placeholder"]()}
+							maxlength="500"
+							bind:value={keyHelpText}
+							disabled={busy}
+						/>
+					</label>
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium"
+							>{m["admin.connectors.form.key_help_url"]()}
+							<span class="font-normal text-gray-500">{m["admin.connectors.form.optional"]()}</span
+							></span
+						>
+						<input
+							type="url"
+							class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+							placeholder={m["admin.connectors.form.key_help_url_placeholder"]()}
+							bind:value={keyHelpUrl}
+							disabled={busy}
+						/>
+					</label>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						{m["admin.connectors.form.user_key_note"]()}
+					</p>
+				</div>
 			{:else}
 				<p class="text-xs text-gray-500 dark:text-gray-400">
 					{m["admin.connectors.form.individual"]()}
 				</p>
 			{/if}
 
-			<p class="text-xs text-gray-500 dark:text-gray-400">
-				{m["admin.connectors.form.add_hint"]()}
-			</p>
+			{#if authMode !== "user_key"}
+				<p class="text-xs text-gray-500 dark:text-gray-400">
+					{m["admin.connectors.form.add_hint"]()}
+				</p>
+			{/if}
 
 			<div class="flex justify-end gap-2">
 				<button
@@ -697,6 +781,12 @@
 									{connector.description}
 								</p>
 							{/if}
+							{#if connector.auth === "user-key" && connector.keyCount !== undefined}
+								<!-- A count only: who has a key, and the keys, are never shown. -->
+								<p class="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="key-count">
+									{m["admin.connectors.keys.count"]({ count: connector.keyCount })}
+								</p>
+							{/if}
 							{#if connector.lastError}
 								<p class="mt-1 text-xs text-red-600 dark:text-red-400">{connector.lastError}</p>
 							{/if}
@@ -707,8 +797,11 @@
 									? m["admin.connectors.auth.oauth"]()
 									: connector.auth === "token"
 										? m["admin.connectors.auth.token"]()
-										: m["admin.connectors.auth.none"]()}
+										: connector.auth === "user-key"
+											? m["admin.connectors.auth.user_key"]()
+											: m["admin.connectors.auth.none"]()}
 							</span>
+
 							<ConnectorTools {connector} />
 							{#if connector.manageable}
 								<button
@@ -767,6 +860,21 @@
 						</div>
 					</div>
 					<ConnectorTools {connector} list />
+					{#if connector.manageable && connector.auth === "user-key"}
+						<!-- Used for the next Check only: sent once, never stored. -->
+						<label class="mt-3 flex max-w-md flex-col gap-1">
+							<span class="text-xs font-medium">{m["admin.connectors.test_key"]()}</span>
+							<input
+								type="password"
+								autocomplete="off"
+								placeholder={m["admin.connectors.test_key_placeholder"]()}
+								title={m["admin.connectors.test_key_title"]()}
+								class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+								bind:value={testKeys[connector.id]}
+								disabled={busy || checking !== null}
+							/>
+						</label>
+					{/if}
 					{#if detailsFor === connector.id}
 						<form
 							data-testid="app-details"
@@ -855,7 +963,42 @@
 									{m["admin.connectors.form.description_hint"]()}
 								</span>
 							</label>
-							{#if connector.auth !== "oauth"}
+							{#if connector.auth === "user-key"}
+								<div class="space-y-2" data-testid="edit-user-key">
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-medium">{m["admin.connectors.form.header"]()}</span>
+										<input
+											class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+											placeholder={EXAMPLE_HEADER}
+											bind:value={editTokenHeader}
+											disabled={busy}
+										/>
+										<span class="text-xs text-gray-500 dark:text-gray-400">
+											{m["admin.connectors.form.user_key_header_hint"]()}
+										</span>
+									</label>
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-medium">{m["admin.connectors.form.key_help"]()}</span>
+										<input
+											class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+											maxlength="500"
+											bind:value={editKeyHelpText}
+											disabled={busy}
+										/>
+									</label>
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-medium"
+											>{m["admin.connectors.form.key_help_url"]()}</span
+										>
+										<input
+											type="url"
+											class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+											bind:value={editKeyHelpUrl}
+											disabled={busy}
+										/>
+									</label>
+								</div>
+							{:else if connector.auth !== "oauth"}
 								<!-- A shared key belongs to the connector; an OAuth one is each person's own. -->
 								<div class="flex flex-wrap gap-2">
 									<label class="flex min-w-48 flex-2 flex-col gap-1" style="flex-grow:2">

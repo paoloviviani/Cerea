@@ -10,17 +10,18 @@ import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
 import { probe } from "$lib/server/mcp/discovery";
-import { beginAuthorization, staticRegistration } from "$lib/server/mcp/oauth";
+import { beginAuthorization, bearerFor, staticRegistration } from "$lib/server/mcp/oauth";
 import { validateScopes } from "$lib/server/mcp/providerQuirks";
 import { ownedBy, usableBy, view } from "$lib/server/mcp/connectors";
 import { callerIdentity } from "$lib/server/admin";
 import { clearPolicy, connectorKey } from "$lib/server/mcp/deploymentModes";
 import { checkConnectorTools } from "$lib/server/mcp/check";
-import { seal } from "$lib/server/mcp/secretBox";
+import { checkUserKey, storeUserKey } from "$lib/server/mcp/userKeys";
+import { seal, sealingAvailable } from "$lib/server/mcp/secretBox";
 import { logger } from "$lib/server/logger";
 
 const body = z.object({
-	action: z.enum(["authorize", "reprobe", "disconnect", "check", "update"]),
+	action: z.enum(["authorize", "reprobe", "disconnect", "check", "update", "setKey", "checkKey"]),
 	/** Where to land after a sign-in, within this app. */
 	next: z.string().max(512).optional(),
 
@@ -54,6 +55,18 @@ const body = z.object({
 	scopes: z.string().max(4000).optional(),
 	/** One sentence the assistant reads in its list of connectors. Empty clears it. */
 	description: z.string().trim().max(300).optional(),
+	/** `setKey`: this person's own key for a connector where each user brings one. */
+	key: z.string().trim().min(1).max(4096).optional(),
+	/** `check` by an administrator: a key to list the tools with, used once and never stored. */
+	testKey: z.string().trim().min(1).max(4096).optional(),
+	/** `update` of a user-key connector: the help shown beside the key field. Empty clears. */
+	keyHelpText: z.string().trim().max(500).optional(),
+	keyHelpUrl: z
+		.union([
+			z.literal(""),
+			z.string().trim().url().startsWith("https://", "the help link must be https").max(1000),
+		])
+		.optional(),
 });
 
 function requireUser(locals: App.Locals) {
@@ -94,10 +107,16 @@ const AUTO_CHECK_MS = 10_000;
 /** The Check button: list the tools with the connector's own credential, or say why it cannot. */
 async function checkOrRefuse(
 	connector: Parameters<typeof checkConnectorTools>[0],
-	userId: Parameters<typeof checkConnectorTools>[1]
+	userId: Parameters<typeof checkConnectorTools>[1],
+	testKey?: string
 ): Promise<void> {
-	if ((await checkConnectorTools(connector, userId)) === "no credential") {
-		error(400, "Sign in to this connector first, or give it a token.");
+	if ((await checkConnectorTools(connector, userId, undefined, testKey)) === "no credential") {
+		error(
+			400,
+			connector.auth === "user-key"
+				? "Enter a test key to check with: nobody has added a key you can use."
+				: "Sign in to this connector first, or give it a token."
+		);
 	}
 }
 
@@ -121,6 +140,8 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 	const identity = await callerIdentity(locals);
 	const isAdmin = identity?.isAdmin ?? false;
 	const adminScreen = isAdmin && asksAsDeployment(url);
+	// `setKey` and `checkKey` are a user's own key on their own row: open to everybody the
+	// connector is offered to, and they never change the connector itself.
 	const changes = action === "update" || action === "reprobe" || action === "check";
 	const connector = await usableBy(params.id as string, user._id);
 	if (!connector) {
@@ -139,13 +160,31 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 		return json(await view(refreshed ?? connector, user._id, isAdmin, undefined, adminScreen));
 	};
 
-	if (action === "reprobe" && connector.auth === "token") {
+	if (action === "setKey" || action === "checkKey") {
+		if (connector.auth !== "user-key") error(400, "That connector does not take your own key.");
+		if (action === "setKey") {
+			if (!parsed.data.key) error(400, "Enter your key.");
+			if (!sealingAvailable()) {
+				error(503, "This deployment has no CHAT_SECRET_KEY, so keys cannot be stored.");
+			}
+			await storeUserKey(connector, user._id, parsed.data.key);
+		}
+		const secret = await bearerFor({ connector, userId: user._id }).catch(() => null);
+		if (secret) {
+			await checkUserKey(connector, user._id, secret);
+		} else if (action === "checkKey") {
+			error(400, "Add your key first.");
+		}
+		return respond();
+	}
+
+	if (action === "reprobe" && (connector.auth === "token" || connector.auth === "user-key")) {
 		// The probe is anonymous by design, so for a server that takes a token
 		// it can only ever say "it wants a credential" — which is the one thing
 		// already known, and which used to land on the row as an error. Asking
 		// again how it authenticates means, for a token connector, trying the
 		// token: list its tools with it and report what the server says.
-		await checkOrRefuse(connector, user._id);
+		await checkOrRefuse(connector, user._id, parsed.data.testKey);
 		return respond();
 	}
 
@@ -173,7 +212,7 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 		// The health check the old server list had, moved server-side — which
 		// is what makes it work at all here: the credential is sealed in the
 		// database, so a browser-side check could never have used it.
-		await checkOrRefuse(connector, user._id);
+		await checkOrRefuse(connector, user._id, parsed.data.testKey);
 		return respond();
 	}
 
@@ -238,7 +277,24 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 			}
 		}
 
-		if (parsed.data.clearToken) {
+		if (connector.auth === "user-key") {
+			// The connector holds no key; what it does hold is how a key is sent, and the help.
+			if (parsed.data.token || parsed.data.clearToken) {
+				error(400, "This connector takes each user's own key; it has none of its own.");
+			}
+			if (parsed.data.tokenHeader) {
+				set.tokenHeader = parsed.data.tokenHeader;
+				set.tokenPrefix = /^authorization$/i.test(parsed.data.tokenHeader) ? "Bearer " : "";
+			}
+			if (parsed.data.keyHelpText !== undefined) {
+				if (parsed.data.keyHelpText) set.keyHelpText = parsed.data.keyHelpText;
+				else unset.keyHelpText = "";
+			}
+			if (parsed.data.keyHelpUrl !== undefined) {
+				if (parsed.data.keyHelpUrl) set.keyHelpUrl = parsed.data.keyHelpUrl;
+				else unset.keyHelpUrl = "";
+			}
+		} else if (parsed.data.clearToken) {
 			unset.tokenSealed = "";
 			unset.tokenHeader = "";
 			unset.tokenPrefix = "";

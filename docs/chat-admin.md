@@ -81,6 +81,19 @@ changing its address or key, lists its tools automatically; if that fails, the
 reason shows on its card instead of a tool count. (A connector each person signs
 in to cannot be listed until somebody has: use **Check** after signing in.)
 
+When you add a connector you choose how it authenticates. **Each user provides
+their own key** is for a service that takes a personal access token: you set the
+name, the address, the header that carries the key (`Authorization` sends
+`Bearer <key>`; any other name sends the key on its own) and an optional help
+text with a link, such as "Create a token at ... with the repo scope". No key is
+stored on the connector. Each user adds their own under Workspace → Built-in
+connectors, and until they do the connector is not used in their chats. The card
+here shows how many users have added a key (a count, never the keys). **Check**
+has a **Test key** field: a key typed there is used for that one check and not
+stored. If a user's key is refused by the service they see "Your key was
+refused" and replace it. Removing the connector removes every user's key. This
+mode is set here, not in `MCP_SERVERS`. See [Connectors](connectors.md).
+
 For a connector each person signs in to, **Re-check** asks the server again how
 people sign in, and **Add app details** takes the client ID and secret from a
 provider that does not register apps itself. Changing such a connector's

@@ -341,6 +341,8 @@ export async function bearerFor(options: {
 
 	const row = await collections.mcpTokens.findOne({ connectorId: connector._id, userId });
 	if (!row) return null;
+	// A user's own key does not expire here; one the server refused is not sent again.
+	if (connector.auth === "user-key") return row.refusedAt ? null : open(row.accessTokenSealed);
 
 	const stillGood =
 		!row.expiresAt || row.expiresAt.getTime() - REFRESH_SKEW_SECONDS * 1000 > Date.now();

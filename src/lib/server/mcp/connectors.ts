@@ -9,7 +9,7 @@
 
 import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
-import type { McpConnector, McpConnectorView } from "$lib/types/McpConnector";
+import type { McpConnector, McpConnectorView, McpToken } from "$lib/types/McpConnector";
 import { stripAddress } from "$lib/utils/connectorUrl";
 import {
 	connectorKey,
@@ -47,8 +47,13 @@ export async function view(
 	const deployment = (connector.scope ?? "user") === "deployment";
 	const policy = deployment ? policyIn(ctx.policies, key) : undefined;
 	let connected = false;
+	let keyRow: McpToken | null = null;
 	if (connector.auth === "token") {
 		connected = Boolean(connector.tokenSealed);
+	} else if (connector.auth === "user-key") {
+		// This person's own key, and only theirs; usable until the server refuses it.
+		keyRow = await collections.mcpTokens.findOne({ connectorId: connector._id, userId });
+		connected = Boolean(keyRow) && !keyRow?.refusedAt;
 	} else if (connector.auth === "oauth") {
 		connected = Boolean(
 			await collections.mcpTokens.findOne(
@@ -82,6 +87,21 @@ export async function view(
 		// connector has to see which header it uses, and the name is not the
 		// secret.
 		tokenHeader: connector.tokenHeader,
+		...(connector.auth === "user-key"
+			? {
+					...(connector.keyHelpText ? { keyHelpText: connector.keyHelpText } : {}),
+					...(connector.keyHelpUrl ? { keyHelpUrl: connector.keyHelpUrl } : {}),
+					...(keyRow?.refusedAt ? { keyRefused: true } : {}),
+					// How many users hold a key: for the administrator's screen only, never who.
+					...(isAdmin && adminScreen
+						? {
+								keyCount: await collections.mcpTokens.countDocuments({
+									connectorId: connector._id,
+								}),
+							}
+						: {}),
+				}
+			: {}),
 		// The id, never the secret: it is already public — it travels in the
 		// authorize URL — and seeing it is how somebody confirms the connector
 		// is using the registration they pasted.

@@ -120,7 +120,7 @@ export interface McpConnector extends Timestamps {
 	 * distinguishing from "we have not looked yet", which is what a missing
 	 * `probedAt` means.
 	 */
-	auth: "none" | "oauth" | "token";
+	auth: "none" | "oauth" | "token" | "user-key";
 
 	/** What the server told us about its own OAuth, from discovery. */
 	oauth?: {
@@ -172,6 +172,15 @@ export interface McpConnector extends Timestamps {
 	tokenHeader?: string;
 	tokenPrefix?: string;
 
+	/**
+	 * For `auth: "user-key"` — what the administrator tells a user who is about to paste their
+	 * own key ("Create a token at ... with the repo scope"), and an optional link to where to
+	 * make one. Plain text, shown as text; the link must be https. The key itself is never on
+	 * the connector: it is one `mcpTokens` row per user, sealed, like an OAuth token.
+	 */
+	keyHelpText?: string;
+	keyHelpUrl?: string;
+
 	/** When the server was last asked how it authenticates. */
 	probedAt?: Date;
 	/** Why the last probe or connection failed, for the row to show. */
@@ -213,6 +222,12 @@ export interface McpToken extends Timestamps {
 	accessTokenSealed: string;
 	/** Sealed. Absent when the server issues none, which some do not. */
 	refreshTokenSealed?: string;
+	/**
+	 * For a `user-key` connector: `accessTokenSealed` is the key the person pasted. Set when
+	 * the server refused it (401/403) on a check, so the card says "Your key was refused" and
+	 * the connector is not offered in their chats until they replace it (which clears this).
+	 */
+	refusedAt?: Date;
 	/** When the access token stops working; refreshed shortly before. */
 	expiresAt?: Date;
 	scope?: string;
@@ -233,7 +248,7 @@ export interface McpConnectorView {
 	id: string;
 	name: string;
 	url: string;
-	auth: "none" | "oauth" | "token";
+	auth: "none" | "oauth" | "token" | "user-key";
 	/** Whose it is. `deployment` entries come from an administrator. */
 	scope: "user" | "deployment";
 	/**
@@ -261,8 +276,15 @@ export interface McpConnectorView {
 	connected: boolean;
 	/** For an OAuth connector, whether it can be signed in to at all. */
 	canAuthorize: boolean;
-	/** Which header carries a static token. Never its value. */
+	/** Which header carries a static token or a user's own key. Never its value. */
 	tokenHeader?: string;
+	/** `user-key`: the administrator's help text and link for the person adding their key. */
+	keyHelpText?: string;
+	keyHelpUrl?: string;
+	/** `user-key`: this person's key was refused by the server on the last check. Theirs alone. */
+	keyRefused?: boolean;
+	/** `user-key`, administrator's screen only: how many users have added a key. A count, never a key. */
+	keyCount?: number;
 	/**
 	 * The OAuth client id in use, and where it came from.
 	 *
