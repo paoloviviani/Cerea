@@ -2395,6 +2395,7 @@
 	"projects.agent.only_you": "Only you: other members of a shared project set their own.",
 	"projects.agent.permission": "Permission",
 	"projects.agent.permission_hint": "Sessions started from this project's chats use this. A session that already exists keeps its own.",
+	"projects.agent.permission_scope": "These apply only to sessions started on this machine and workspace; any other target starts on Ask. Without a chosen mode, the panel's default (Plan) is used.",
 	"projects.agent.remove": "Remove",
 	"projects.agent.removed": "Removed.",
 	"projects.agent.save": "Save",

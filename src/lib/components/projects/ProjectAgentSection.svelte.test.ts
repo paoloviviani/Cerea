@@ -55,13 +55,13 @@ function installFetch() {
 					},
 					updatedAt: "2026-11-04T11:00:00.000Z",
 				};
-				return Response.json({ data: stored });
+				return Response.json(stored);
 			}
 			if (method === "DELETE") {
 				stored = null;
 				return new Response(null, { status: 204 });
 			}
-			return Response.json({ data: stored });
+			return Response.json(stored);
 		})
 	);
 }
@@ -104,6 +104,15 @@ describe("ProjectAgentSection", () => {
 		await expect
 			.element(screen.getByText(/A session that already exists keeps its own/))
 			.toBeVisible();
+	});
+
+	it("hides itself when the API answers 404 (no /code for this user)", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("{}", { status: 404 }))
+		);
+		const screen = mount();
+		await expect.element(screen.getByTestId("project-agent")).not.toBeVisible();
 	});
 
 	it("loads the saved profile into the pickers", async () => {

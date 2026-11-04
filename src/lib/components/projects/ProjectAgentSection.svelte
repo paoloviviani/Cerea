@@ -38,6 +38,8 @@
 	const ENDPOINT = $derived(`${base}/api/v2/projects/${projectId}/agent-profile`);
 
 	let loading = $state(true);
+	/** The profile API answered 404: nothing to configure here. */
+	let hidden = $state(false);
 	let saved = $state<ProjectAgentProfile | null>(null);
 	let deviceId = $state("");
 	let workspaceId = $state("");
@@ -140,11 +142,12 @@
 			try {
 				const response = await fetch(ENDPOINT);
 				if (response.ok) {
-					const body = (await response.json().catch(() => null)) as {
-						data?: ProjectAgentProfile | null;
-					} | null;
-					adopt(body?.data ?? null);
-				} else if (response.status !== 404) {
+					adopt(((await response.json().catch(() => null)) as ProjectAgentProfile | null) ?? null);
+				} else if (response.status === 404) {
+					// The caller cannot open the project, or /code is not allowed
+					// for them: there is no section to show.
+					hidden = true;
+				} else {
 					throw await problem(response, m["projects.agent.error_load"]());
 				}
 			} catch (err) {
@@ -190,10 +193,8 @@
 				body: JSON.stringify(input),
 			});
 			if (!response.ok) throw await problem(response, m["projects.agent.error_save"]());
-			const body = (await response.json().catch(() => null)) as {
-				data?: ProjectAgentProfile;
-			} | null;
-			if (body?.data) adopt(body.data);
+			const profile = (await response.json().catch(() => null)) as ProjectAgentProfile | null;
+			if (profile) adopt(profile);
 			notice = m["projects.agent.saved"]();
 		} catch (err) {
 			failure = err instanceof Error ? err.message : m["projects.agent.error_save"]();
@@ -222,7 +223,7 @@
 	}
 </script>
 
-<div data-testid="project-agent" class="space-y-3">
+<div data-testid="project-agent" class="space-y-3" {hidden}>
 	<p class="text-xs text-ink-muted">{m["projects.agent.description"]()}</p>
 	<p class="text-xs font-medium text-ink-muted" data-testid="project-agent-personal">
 		{m["projects.agent.only_you"]()}
@@ -319,6 +320,7 @@
 				{/each}
 			</div>
 			<p class={s.HINT}>{m["projects.agent.permission_hint"]()}</p>
+			<p class={s.HINT}>{m["projects.agent.permission_scope"]()}</p>
 		</div>
 
 		{#if failure}
