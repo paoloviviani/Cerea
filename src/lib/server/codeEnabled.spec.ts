@@ -30,7 +30,7 @@ vi.mock("$lib/server/config", async (original) => {
 	};
 });
 
-const { codeAgentsAllowedFor } = await import("./codeEnabled");
+const { codeAgentsAllowedFor, consoleAllowedFor, byokAllowedFor } = await import("./codeEnabled");
 
 const GATEWAY_BASE = "http://gateway.invalid/v1";
 
@@ -312,5 +312,51 @@ describe("codeAgentsAllowedFor through a gateway blip", () => {
 
 		expect(await codeAgentsAllowedFor(createTestLocals({ sessionId, token: "tok" }))).toBe(false);
 		forgetGatewaySession(sessionId);
+	});
+});
+
+describe("consoleAllowedFor (Pystino's console capability)", () => {
+	beforeAll(async () => {
+		await ready;
+	});
+
+	async function ask(capabilities?: unknown) {
+		gatewayPreset();
+		const { sessionId, body } = await makeSession(capabilities);
+		stubMe({ status: 200, body });
+		const locals = createTestLocals({ sessionId, token: "tok" });
+		const answer = await consoleAllowedFor(locals);
+		const byok = await byokAllowedFor(locals);
+		forgetGatewaySession(sessionId);
+		return { answer, byok };
+	}
+
+	it("is false only when the gateway says console: false", async () => {
+		expect((await ask({ code_agents: true, console: false })).answer).toBe(false);
+		expect((await ask({ code_agents: true, console: true })).answer).toBe(true);
+	});
+
+	it("reads an older gateway (no flag, no capabilities) as allowed", async () => {
+		expect((await ask({ code_agents: true })).answer).toBe(true);
+		expect((await ask(undefined)).answer).toBe(true);
+	});
+
+	it("is allowed without a gateway, without a token, and when the gateway cannot be asked", async () => {
+		expect(
+			await consoleAllowedFor(createTestLocals({ sessionId: "s-generic", token: undefined }))
+		).toBe(true);
+		gatewayPreset();
+		expect(await consoleAllowedFor(createTestLocals({ sessionId: "s-x", token: undefined }))).toBe(
+			true
+		);
+		const { sessionId } = await makeSession({ console: false });
+		stubMe({ down: true });
+		expect(await consoleAllowedFor(createTestLocals({ sessionId, token: "tok" }))).toBe(true);
+		forgetGatewaySession(sessionId);
+	});
+
+	it("never offers bring-your-own-key without console access", async () => {
+		expect((await ask({ byok: true, console: false })).byok).toBe(false);
+		expect((await ask({ byok: true, console: true })).byok).toBe(true);
 	});
 });

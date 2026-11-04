@@ -17,6 +17,11 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   (keeping credentials and pairing), and the **file editor is on by default** (`--no-file-write` turns it off).
   `--permission-max` and `--permission-rule` keep working for one more release as aliases. Older Cerea ignores
   the new fields, and a newer Cerea reads an older machine as having no limits.
+- **Chat-only users.** When a Pystino group has its new **console access** capability off, its members see no link to the
+  Pystino console anywhere in the chat (the admin panel's, "Your providers and models", the usage page's), and the console
+  sends them to Settings → Usage, where their quotas are. Bring your own key follows (it needs console access). The kit
+  now passes the chat's address to the gateway (`GATEWAY_CHAT__URL`, `<PUBLIC_ORIGIN>/chat`) for that redirect. Needs
+  Pystino ≥ the next release after 0.25.0; with an older gateway nothing changes.
 - Administrators can publish a connector where **each user brings their own key** (a personal access token, say): the
   administrator sets the address, which header carries the key and a help line, and each user adds their own key under
   Workspace → Built-in connectors, so nobody has to find the endpoint themselves.

@@ -51,6 +51,8 @@ export interface GatewayMe {
 		local_connectors?: boolean | null;
 		/** Bring your own key (gateway BYOK; `capabilities.byok` on `/v1/me`). Absent on an older gateway: not allowed. */
 		byok?: boolean | null;
+		/** Console access (`capabilities.console`). Absent on an older gateway: allowed. */
+		console?: boolean | null;
 	} | null;
 }
 
