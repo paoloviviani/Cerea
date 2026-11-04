@@ -471,6 +471,48 @@ whatever came due meanwhile is judged by the downtime rule above rather than
 replayed. Schedules are owner-only, erased with the account and moved on a merge.
 The API is under `/api/v2/code/schedules`, so the 7-day sign-in rule covers it.
 
+## Driving agents from the chat
+
+With `/code` on, a chat can hand work to a coding agent on one of the user's own machines. Four chat
+tools do it, offered when `/code` is on for the deployment, the user holds `code_agents` and has at
+least one paired machine:
+
+- **`agent_sessions`** lists the user's machines, their workspaces and recent sessions, each with
+  its state (idle, working, needs-you, error, offline). Read-only.
+- **`agent_start`** creates a session on a machine and workspace, sets its mode, model and Deny /
+  Ask / Allow word, and sends the prompt.
+- **`agent_send`** sends a prompt to an existing session. It is refused while the session is working
+  or waiting on the user, and it never changes the session's own permission word.
+- **`agent_read`** returns a session's state, open approvals and questions and its last answer; with
+  `full` the transcript, newest first and cut at a size limit. What it returns was written by the
+  agent from repository content, so it is marked as untrusted outside text, like a fetched web page.
+
+**Nothing waits.** `agent_start` and `agent_send` return as soon as the prompt is accepted; the chat
+reads the result later with `agent_read`, when the user asks. The conversation keeps a card for each
+start or send (title, machine and workspace, live state, **Open in /code**).
+
+**Permission posture.** `agent_start` and `agent_send` act on a machine, so they follow the chat's
+tool-approval policy (the approval card on Ask; no card on always-allow); `agent_sessions` and
+`agent_read` never ask. A scheduled chat run on Ask refuses the two acting tools, as it refuses any
+tool that needs approval. A new session gets the project profile's permission word, or **Ask** when
+there is no profile (or the model names a different machine or workspace than the profile's); the
+machine's ceiling still caps it. The approvals a running session raises appear in the Needs-you inbox,
+as for any session. The machine pays with its own credential, as for scheduled runs.
+
+**Only the user's own machines.** Every machine and session id is resolved against the caller's
+devices; another user's id is refused as if it did not exist. An offline machine is refused with a
+plain message. The tools follow the [7-day sign-in](#the-7-day-sign-in) rule: older than that, they
+refuse and tell the user to sign in again. Every start and send writes a `/code` audit row
+(`agent.start`, `agent.send`) with the source conversation id, never the prompt.
+
+**The project agent profile.** Under a project's settings each user can name their own default
+machine and workspace (and mode, model and permission word) for that project's chats. It is stored per
+project and user (`projectAgentProfiles`), never on the project: a project can be shared, a machine is
+one user's. The API is `GET | PUT | DELETE /api/v2/projects/[id]/agent-profile`, for the caller's own
+profile and any user who can open the project; the machine and workspace are validated like a
+schedule's, and the names shown are resolved by the server. The chat is told the project's default
+target in its tool preprompt. A profile is erased with the project and with its user.
+
 ## When it does not work
 
 | Symptom                                                | Where to look                                                                                                                                                                                                                                |

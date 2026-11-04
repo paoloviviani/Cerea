@@ -58,6 +58,7 @@ import type { Schedule, ScheduleGrant, ScheduleRun } from "$lib/types/Schedule";
 import type { PushSubscriptionRow } from "$lib/types/PushSubscription";
 import type { CustomModel } from "$lib/types/CustomModel";
 import type { ProjectMemory } from "$lib/types/ProjectMemory";
+import type { ProjectAgentProfileRow } from "$lib/types/ProjectAgentProfileRow";
 import type { ProjectDocument } from "$lib/types/ProjectDocument";
 import type { CodeAuditEntry, CodeDevice } from "$lib/types/CodeAgent";
 import { config } from "$lib/server/config";
@@ -269,6 +270,9 @@ export class Database {
 		// The index of a project's context documents; the bytes and the text are
 		// in the bucket under `project:<id>` (see `ProjectDocument`).
 		const projectDocuments = db.collection<ProjectDocument>("projectDocuments");
+		// One person's default coding-agent target for a project's chats (ADR 0106):
+		// per (project, user), because a project can be shared and a machine is one user's.
+		const projectAgentProfiles = db.collection<ProjectAgentProfileRow>("projectAgentProfiles");
 		const mcpConnectors = db.collection<McpConnector>("mcpConnectors");
 		// How the deployment offers its own connectors (`.env` servers and the administrator's):
 		// off, on or locked, and whether it is always loaded (ADR 0104). A missing row means on.
@@ -334,6 +338,7 @@ export class Database {
 			customModels,
 			projectMemories,
 			projectDocuments,
+			projectAgentProfiles,
 			vectorStores,
 			knowledgeDocuments,
 			knowledgeConfig,
@@ -389,6 +394,7 @@ export class Database {
 			customModels,
 			projectMemories,
 			projectDocuments,
+			projectAgentProfiles,
 			mcpConnectors,
 			connectorModes,
 			connectorSwitches,
@@ -571,6 +577,13 @@ export class Database {
 		projectDocuments
 			.createIndex({ projectId: 1, createdAt: 1 })
 			.catch((e) => logger.error(e, "Error creating index for projectDocuments by projectId"));
+		// One profile per (project, user); also the lookup a chat in the project makes.
+		projectAgentProfiles
+			.createIndex({ projectId: 1, userId: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for projectAgentProfiles"));
+		projectAgentProfiles
+			.createIndex({ userId: 1 })
+			.catch((e) => logger.error(e, "Error creating index for projectAgentProfiles by userId"));
 		// Deployment-scope names are unique across the deployment: two
 		// administrators must not publish two different procedures under one
 		// `@name`. Partial, so the per-owner user rows above are untouched.

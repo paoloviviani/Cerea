@@ -45,13 +45,20 @@
  * prompt.
  */
 
-import { randomUUID } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
 import { codeAgentsEnabled } from "$lib/server/codeEnabled";
 import { isMachineOnline, MachineLink } from "$lib/server/code/machines";
-import { allowsModel } from "$lib/server/code/modelPolicy";
+import {
+	applyPermissionWord,
+	busyReason,
+	checkOwnedTarget,
+	createOrReuseSession,
+	ownedDevice,
+	sendPrompt,
+	workspaceNameOn,
+} from "$lib/server/code/agentSessions";
 import { runStamp, scheduledRunHeader } from "$lib/server/schedules/runHeader";
 import { registerExecutor, type ExecutorOutcome } from "$lib/server/schedules/executors";
 import { OpError, type Session } from "$lib/types/machineProtocol";
@@ -117,26 +124,10 @@ export function parseTarget(target: unknown): AgentTarget | null {
 	};
 }
 
-async function ownedDevice(userId: ObjectId, deviceId: string): Promise<CodeDevice | null> {
-	let _id: ObjectId;
-	try {
-		_id = new ObjectId(deviceId);
-	} catch {
-		return null;
-	}
-	return collections.codeDevices.findOne({ _id, userId });
-}
-
 export { runStamp };
 
 function sessionTitle(schedule: Schedule, at: Date): string {
 	return `${schedule.name} · ${runStamp(at, schedule.timezone)}`.slice(0, 120);
-}
-
-function busyReason(session: Session): string | null {
-	if (session.pendingPermissions > 0) return "is waiting for an approval";
-	if (session.status === "busy" || session.status === "retry") return "is still working";
-	return null;
 }
 
 function failedFrom(err: unknown, what: string): ExecutorOutcome {
@@ -165,12 +156,9 @@ registerExecutor({
 					"Choose a machine and workspace, a session (or a new one each run) and a permission mode.",
 			};
 		}
-		const device = await ownedDevice(userId, target.deviceId);
-		if (!device) return { ok: false, error: "That machine is not one of yours." };
-		if (device.status !== "paired") return { ok: false, error: "That machine is not paired." };
-		if (target.modelId && !allowsModel(device, target.modelId)) {
-			return { ok: false, error: "This machine was enrolled without --allow-free-models." };
-		}
+		const checked = await checkOwnedTarget(userId, target);
+		if (!checked.ok) return checked;
+		const { device } = checked;
 		target.labels.machine = device.name;
 
 		// An offline machine can be chosen: it cannot be asked, so its names are
@@ -178,10 +166,11 @@ registerExecutor({
 		if (isMachineOnline(target.deviceId)) {
 			const link = new MachineLink(target.deviceId);
 			try {
-				const { workspaces } = await link.workspaceList();
-				const workspace = workspaces.find((w) => w.id === target.workspaceId);
-				if (!workspace) return { ok: false, error: "That workspace is not on this machine." };
-				target.labels.workspace = workspace.name;
+				const workspaceName = await workspaceNameOn(link, target.workspaceId);
+				if (workspaceName === null) {
+					return { ok: false, error: "That workspace is not on this machine." };
+				}
+				target.labels.workspace = workspaceName;
 				if (target.sessionMode === "existing" && target.sessionId) {
 					const { session } = await link.sessionGet({ sessionId: target.sessionId });
 					if (session.workspaceId !== target.workspaceId || session.parentId) {
@@ -287,27 +276,13 @@ registerExecutor({
 
 		let session: Session;
 		try {
-			if (target.sessionMode === "existing" && existing) {
-				session = existing;
-				if (target.modeId && session.modeId !== target.modeId) {
-					session = (await link.sessionSetMode({ sessionId: session.id, modeId: target.modeId }))
-						.session;
-				}
-				if (target.modelId && session.modelId !== target.modelId) {
-					session = (await link.sessionSetModel({ sessionId: session.id, modelId: target.modelId }))
-						.session;
-				}
-			} else {
-				session = (
-					await link.sessionCreate({
-						workspaceId: target.workspaceId,
-						title: sessionTitle(schedule, now),
-						// The panel's own default when none is chosen.
-						modeId: target.modeId ?? "plan",
-						...(target.modelId ? { modelId: target.modelId } : {}),
-					})
-				).session;
-			}
+			session = await createOrReuseSession(link, {
+				workspaceId: target.workspaceId,
+				title: sessionTitle(schedule, now),
+				modeId: target.modeId,
+				modelId: target.modelId,
+				...(target.sessionMode === "existing" && existing ? { existing } : {}),
+			});
 		} catch (err) {
 			return failedFrom(err, "creating the session");
 		}
@@ -319,19 +294,7 @@ registerExecutor({
 		};
 		let coordination: Coordination = { tail: ".", header: "none" };
 		try {
-			if (session.permissionMode !== target.permissionMode) {
-				try {
-					await link.sessionSetPermissionMode({
-						sessionId: session.id,
-						mode: target.permissionMode,
-					});
-				} catch (err) {
-					// A machine that predates the selector starts every session on Ask:
-					// only that word can be left unset. Anything looser must not run.
-					const unsupported = err instanceof OpError && err.code === "unsupported";
-					if (!(unsupported && target.permissionMode === "ask")) throw err;
-				}
-			}
+			await applyPermissionWord(link, session, target.permissionMode);
 		} catch (err) {
 			return { ...failedFrom(err, "setting the permission mode"), result };
 		}
@@ -341,19 +304,19 @@ registerExecutor({
 			return { ...failedFrom(err, "granting coordination"), result };
 		}
 		try {
-			await link.sessionPrompt({
-				sessionId: session.id,
+			await sendPrompt(
+				link,
+				session.id,
 				// One header line, then the person's prompt untouched.
-				text: `${scheduledRunHeader({
+				`${scheduledRunHeader({
 					name: schedule.name,
 					recurrence: schedule.recurrence,
 					timezone: schedule.timezone,
 					previousRunAt: previousRun?.firedAt,
 					now,
 					coordination: coordination.header,
-				})}\n\n${schedule.prompt}`,
-				clientMessageId: randomUUID(),
-			});
+				})}\n\n${schedule.prompt}`
+			);
 		} catch (err) {
 			const outcome = failedFrom(err, "sending the prompt");
 			return { ...outcome, result };

@@ -492,6 +492,31 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		},
 	},
 	{
+		name: "projectAgentProfiles",
+		owner: "userId (erase: also the owning project's rows)",
+		// Unique on (projectId, userId): a profile names one user's machine, so a collision means
+		// both accounts kept one for the same project; the target's stays.
+		mergeRule: "reassign-unique-keep-target",
+		eraseRule: "custom",
+		merge: (stray, target) =>
+			reassignWithUniqueConflict(collections.projectAgentProfiles, "userId", stray, target),
+		// The person's own profiles, and every member's profile in a project they own (those go
+		// with the project, as its notes do). Runs before `projects` deletes the rows it reads.
+		erase: async (userId) => {
+			const owned = await ownedProjectIds(userId);
+			const { deletedCount } = await collections.projectAgentProfiles.deleteMany({
+				$or: [{ userId }, ...(owned.length ? [{ projectId: { $in: owned } }] : [])],
+			});
+			return deletedCount;
+		},
+		count: async (userId) => {
+			const owned = await ownedProjectIds(userId);
+			return collections.projectAgentProfiles.countDocuments({
+				$or: [{ userId }, ...(owned.length ? [{ projectId: { $in: owned } }] : [])],
+			});
+		},
+	},
+	{
 		name: "projects",
 		owner: "userId",
 		mergeRule: "reassign",

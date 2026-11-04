@@ -9,6 +9,7 @@ import type {
 } from "$lib/types/McpElicitation";
 import type { RunOutcome } from "$lib/utils/execution/protocol";
 import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
+import type { AgentSessionCard } from "$lib/types/AgentSession";
 
 export type MessageUpdate =
 	| MessageStatusUpdate
@@ -26,7 +27,8 @@ export type MessageUpdate =
 	| MessageMemoryUpdate
 	| MessageTurnStateUpdate
 	| MessageBackgroundTaskUpdate
-	| MessageCodeExecutionUpdate;
+	| MessageCodeExecutionUpdate
+	| MessageAgentSessionUpdate;
 
 export enum MessageUpdateType {
 	Status = "status",
@@ -45,6 +47,7 @@ export enum MessageUpdateType {
 	TurnState = "turnState",
 	BackgroundTask = "backgroundTask",
 	CodeExecution = "codeExecution",
+	AgentSession = "agentSession",
 }
 
 /**
@@ -458,4 +461,12 @@ export interface MessageBackgroundTaskUpdate {
 	followUp?: boolean;
 	/** From opencode's synthetic injection, not from a tool result. */
 	automatic?: boolean;
+}
+
+/**
+ * A coding-agent session the turn started or prompted (ADR 0106): the
+ * conversation keeps a card for it. Emitted by `agent_start` / `agent_send`.
+ */
+export interface MessageAgentSessionUpdate extends AgentSessionCard {
+	type: MessageUpdateType.AgentSession;
 }

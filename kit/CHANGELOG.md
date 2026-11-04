@@ -9,6 +9,16 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 - The sidebar remembers which projects are open: switching to Agents and back, or reloading, no longer
   collapses them.
+- **Chats can put coding agents to work.** In a chat, the assistant can list your coding sessions, start
+  one on one of your machines, send it a prompt and read what it did; each session it starts or prompts
+  shows as a card with its live state and an **Open in /code** link. Starting or prompting goes through
+  your approval card like any acting tool, and only your own machines can be reached. A project can name
+  **your** default machine, workspace and permission (the new **Agent workspace** section of the project
+  page; each member of a shared project sets their own): sessions started from that project's chats use
+  it; elsewhere a new session starts on Ask, and an existing session keeps its own. What an agent writes is
+  treated as untrusted content by the chat. Needs a machine paired with /code; no galopin update needed.
+- Fix: approving a tool on the very first message of a new conversation sometimes did nothing and left the
+  turn waiting (about one time in four). It now always resumes.
 
 ## v0.39.0 — 2026-11-04
 

@@ -1138,3 +1138,91 @@ describe("executeToolCalls over generate_image and the administrator's approval 
 		expect(execute).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe("executeToolCalls over the agent tools (ADR 0106)", () => {
+	const execute = vi.fn<BuiltinTool["execute"]>(async () => ({ resultText: "ran" }));
+	const builtins: BuiltinTool[] = ["agent_sessions", "agent_start", "agent_send", "agent_read"].map(
+		(name) => ({
+			name,
+			definition: { type: "function" as const, function: { name } },
+			execute,
+		})
+	);
+	const call = (name: string): NormalizedToolCall => ({
+		id: `c-${name}`,
+		name,
+		arguments: JSON.stringify({ prompt: "x", deviceId: "d", sessionId: "s" }),
+	});
+	const approval = (over: Record<string, unknown> = {}) => ({
+		policy: "manual" as const,
+		approvedTools: new Set<string>(),
+		webFetchAllowedUrls: new Set<string>(),
+		...over,
+	});
+	const drainOne = (name: string, toolApproval: ReturnType<typeof approval>) =>
+		drain(
+			[call(name)],
+			{ conversationId: new ObjectId(), generationId: "g", messageId: "m1" },
+			builtins,
+			undefined,
+			toolApproval
+		);
+
+	beforeEach(() => execute.mockClear());
+
+	it("asks for agent_start and agent_send on the Ask policy, and runs nothing until the click", async () => {
+		await ready;
+		for (const name of ["agent_start", "agent_send"]) {
+			const events = await drainOne(name, approval());
+			expect(execute).not.toHaveBeenCalled();
+			expect(summaryOf(events).awaitingInput).toBe(true);
+			const request = events.flatMap((e) =>
+				e.type === "update" &&
+				e.update.type === MessageUpdateType.Elicitation &&
+				e.update.subtype === "request"
+					? [e.update]
+					: []
+			)[0];
+			expect(request?.request.toolApproval?.tool).toBe(name);
+		}
+	});
+
+	it("runs them when the policy is always-allow or the conversation already granted the tool", async () => {
+		await ready;
+		await drainOne("agent_start", approval({ policy: "always-allow" }));
+		await drainOne("agent_send", approval({ approvedTools: new Set(["agent_send"]) }));
+		expect(execute).toHaveBeenCalledTimes(2);
+	});
+
+	it("never asks for the two reads", async () => {
+		await ready;
+		for (const name of ["agent_sessions", "agent_read"]) {
+			const events = await drainOne(name, approval());
+			expect(summaryOf(events).awaitingInput).toBeUndefined();
+		}
+		expect(execute).toHaveBeenCalledTimes(2);
+	});
+
+	it("refuses the acting two in a scheduled run on Ask, and still reads", async () => {
+		await ready;
+		for (const name of ["agent_start", "agent_send"]) {
+			const events = await drainOne(name, approval({ unattended: true }));
+			expect(summaryOf(events).awaitingInput).toBeUndefined();
+			const [refusal] = toolUpdatesOf(events).filter(
+				(u) => u.subtype === MessageToolUpdateType.Error
+			);
+			expect(refusal).toMatchObject({
+				message: expect.stringContaining(`needs the person's approval (${name})`),
+			});
+		}
+		expect(execute).not.toHaveBeenCalled();
+		await drainOne("agent_read", approval({ unattended: true }));
+		expect(execute).toHaveBeenCalledTimes(1);
+	});
+
+	it("runs them in a scheduled run on Allow (always-allow policy)", async () => {
+		await ready;
+		await drainOne("agent_start", approval({ unattended: true, policy: "always-allow" }));
+		expect(execute).toHaveBeenCalledTimes(1);
+	});
+});

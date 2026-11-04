@@ -72,6 +72,7 @@ import { getCapabilities as getDocumentCapabilities } from "$lib/server/document
 import { approvalStateFor, resolveToolApprovalPolicy } from "../toolApprovalPolicy";
 import { schedulesEnabled } from "$lib/server/schedules/limits";
 import { toPrimitive } from "./toolParams";
+import { agentSessionsFor } from "../builtinTools/agentSessionTools";
 
 export type RunMcpFlowContext = Pick<
 	TextGenerationContext,
@@ -385,6 +386,11 @@ export async function* runMcpFlow({
 	// Set when the endpoint rejects a request carrying look_doc pictures: no more pictures this turn.
 	const pictureState: PictureState = { unavailable: false };
 	const imageGeneration = await imageGenerationPromise;
+	// The chat drives coding-agent sessions (ADR 0106): /code on, the person holds `code_agents`,
+	// and a paired machine exists. Resolved here (network-free but two reads), like the memory flags.
+	const agentSessions = artifactToolsEnabled
+		? await agentSessionsFor(locals, conv.projectId)
+		: undefined;
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		...(imageGeneration ? { imageGeneration } : {}),
@@ -424,6 +430,7 @@ export async function* runMcpFlow({
 		// it never proposes a schedule of its own.
 		...(locals?.scheduledRun ? { unattended: true } : {}),
 		...(locals?.user && schedulesEnabled() ? { scheduling: { timezone: locals.timezone } } : {}),
+		...(agentSessions ? { agentSessions } : {}),
 	});
 	// Skills (Phase 1, ADR 0072): the `load_skill` builtin joins when the
 	// turn has any enabled skill, so the model loads a body mid-turn through

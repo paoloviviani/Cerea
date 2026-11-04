@@ -31,6 +31,10 @@ export const EXTERNAL_BUILTIN_TOOLS: ReadonlySet<string> = new Set([
 	"look_doc",
 	"doc_read",
 	"doc_outline",
+	// What an agent session wrote from repository content (ADR 0106): a session
+	// title is written by the agent too, so the list is outside content like a read.
+	"agent_sessions",
+	"agent_read",
 ]);
 
 /**
@@ -57,6 +61,8 @@ export const BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set([
 	"load_tools",
 	"load_skill",
 	"load_skill_file",
+	"agent_start",
+	"agent_send",
 ]);
 
 /** `isExternalTool` for a call known only by name (replayed history, resumed calls). */
