@@ -52,6 +52,8 @@
 	import CarbonFolder from "~icons/carbon/folder";
 	import CarbonSettings from "~icons/carbon/settings";
 	import CarbonTrash from "~icons/carbon/trash-can";
+	import { onMount } from "svelte";
+	import { readProjectsTreeOpen, writeProjectsTreeOpen } from "$lib/utils/projectsTreeOpen";
 
 	const settings = useSettingsStore();
 	const client = useAPIClient();
@@ -111,14 +113,41 @@
 		}
 	}
 
+	/** Remember what is open, so a remount (the Agents view, a reload) keeps it. */
+	function rememberOpen() {
+		writeProjectsTreeOpen(globalThis.localStorage, {
+			branch: open,
+			projects: Object.entries(expanded)
+				.filter(([, isOpen]) => isOpen)
+				.map(([id]) => id),
+		});
+	}
+
+	// Restore what was open before this mount: the branch, then its open
+	// folders and their chats (a folder whose project is gone is dropped).
+	onMount(() => {
+		const stored = readProjectsTreeOpen(globalThis.localStorage);
+		if (!stored.branch && stored.projects.length === 0) return;
+		open = stored.branch;
+		void (async () => {
+			if (!loaded) await loadProjects();
+			const known = stored.projects.filter((id) => projects.some((p) => p.id === id));
+			expanded = Object.fromEntries(known.map((id) => [id, true]));
+			if (known.length !== stored.projects.length) rememberOpen();
+			await Promise.all(known.filter((id) => chats[id] === undefined).map((id) => loadChats(id)));
+		})();
+	});
+
 	async function toggleBranch() {
 		open = !open;
+		rememberOpen();
 		if (open && !loaded) await loadProjects();
 	}
 
 	async function toggleFolder(project: ProjectView) {
 		const next = !expanded[project.id];
 		expanded = { ...expanded, [project.id]: next };
+		rememberOpen();
 		if (next && (chats[project.id] === undefined || chatsFailed[project.id]))
 			await loadChats(project.id);
 	}
@@ -153,7 +182,11 @@
 			{ id: project.id, name: project.name },
 			from?.name
 		);
-		if (ok) expanded = { ...expanded, [project.id]: true };
+		if (ok) {
+			expanded = { ...expanded, [project.id]: true };
+			rememberOpen();
+			rememberOpen();
+		}
 	}
 
 	/**
@@ -298,6 +331,7 @@
 			if (!response.ok) throw new Error(String(response.status));
 			delete chats[project.id];
 			delete expanded[project.id];
+			rememberOpen();
 			await loadProjects();
 		} catch {
 			throw new Error(m["projects.page.delete.failed"]());
