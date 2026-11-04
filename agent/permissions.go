@@ -497,3 +497,49 @@ func watchPolicy(ctx context.Context, path string, live *policy.Live, every time
 		}
 	}
 }
+
+// The reply actor (PROTOCOL.md §6 permission.reply): who gave the answer.
+// galopin cannot tell who is behind a reply, so the label is Cerea's word,
+// kept in the local audit; it changes nothing about what a reply may do except
+// that a review-model reply is once only.
+const (
+	actorUser        = "user"
+	actorReviewModel = "review-model"
+	// maxActorReason caps the reason kept in the audit (display text that may
+	// quote the command the model judged).
+	maxActorReason = 300
+)
+
+// replyActor is permission.reply's optional `actor`. Absent is the user.
+type replyActor struct {
+	Kind    string `json:"kind"`
+	ModelID string `json:"modelId,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// by is the audit's `by` word: "user", or "auto" for a review model.
+func (a replyActor) by() string {
+	if a.Kind == actorReviewModel {
+		return "auto"
+	}
+	return actorUser
+}
+
+// parseActor validates an actor: absent or {kind:"user"} is a person; a
+// review-model needs a model id, and its reason is capped.
+func parseActor(raw *replyActor) (replyActor, *link.OpError) {
+	if raw == nil || raw.Kind == "" || raw.Kind == actorUser {
+		return replyActor{Kind: actorUser}, nil
+	}
+	if raw.Kind != actorReviewModel {
+		return replyActor{}, opErrf("invalid", "actor.kind must be %q or %q, got %q", actorUser, actorReviewModel, raw.Kind)
+	}
+	if raw.ModelID == "" {
+		return replyActor{}, opErrf("invalid", "a review-model actor needs a modelId")
+	}
+	a := *raw
+	if r := []rune(a.Reason); len(r) > maxActorReason {
+		a.Reason = string(r[:maxActorReason])
+	}
+	return a, nil
+}

@@ -22,7 +22,8 @@
 				},
 				"callId": "call_01",
 				"messageId": "msg_02",
-				"always": ["npm *"]
+				"always": ["npm *"],
+				"class": "command"
 			}
 		}
 	}

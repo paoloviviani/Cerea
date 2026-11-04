@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	PERMISSION_CLASSES,
 	CALL_ERROR_CODES,
 	CEREA_TO_MACHINE_FRAME_TYPES,
 	ERROR_CODES,
@@ -242,6 +243,20 @@ describe("protocol fixtures: events survive Cerea's real consumers", () => {
 			expect(Array.isArray(updates)).toBe(true);
 		});
 	}
+
+	it("the current hello carries every class limit; the older machine's carries none", () => {
+		const now = parseMachineFrame(fixtureAt("frames/hello.json").frame) as HelloFrame;
+		expect(Object.keys(now.policy.limits ?? {}).sort()).toEqual([...PERMISSION_CLASSES].sort());
+		expect(now.policy.limits?.command).toBe("ask");
+		const old = parseMachineFrame(fixtureAt("frames/hello.older-machine.json").frame) as HelloFrame;
+		expect(old.policy.limits).toBeUndefined();
+	});
+
+	it("a permission.asked keeps its class", () => {
+		const f = fixtureAt("events/permission.asked.json");
+		const request = (f.frame.event as { request: { class?: string } }).request;
+		expect(PERMISSION_CLASSES).toContain(request.class);
+	});
 
 	it("a permission or question asked produces an elicitation card", () => {
 		for (const name of ["permission.asked", "question.asked"]) {

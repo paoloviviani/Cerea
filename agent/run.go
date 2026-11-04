@@ -562,6 +562,7 @@ func buildHelloBase(pol policy.Policy) link.Hello {
 		Policy: link.PolicyInfo{
 			AutoAccept:          autoAcceptRetired,
 			Permission:          permissionInfo(pol),
+			Limits:              pol.Permission.WireLimits(),
 			WorkspaceRoots:      roots,
 			AllowFreeModels:     pol.AllowFreeModels,
 			Files:               filesPolicyWord(pol),

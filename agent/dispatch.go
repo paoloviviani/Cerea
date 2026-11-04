@@ -1094,13 +1094,23 @@ func (mc *machine) opSessionCompact(ctx context.Context, args json.RawMessage) (
 
 func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
-		SessionID string `json:"sessionId"`
-		RequestID string `json:"requestId"`
-		Decision  string `json:"decision"`
-		Message   string `json:"message,omitempty"`
+		SessionID string      `json:"sessionId"`
+		RequestID string      `json:"requestId"`
+		Decision  string      `json:"decision"`
+		Message   string      `json:"message,omitempty"`
+		Actor     *replyActor `json:"actor,omitempty"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, invalidArgs(err)
+	}
+	actor, operr := parseActor(a.Actor)
+	if operr != nil {
+		return nil, operr
+	}
+	if actor.Kind == actorReviewModel && a.Decision != string(backend.DecisionOnce) {
+		// A reviewer only allows, and only once: never "always", and no reject
+		// (it escalates instead). The machine holds this line whatever Cerea does.
+		return nil, opErrf("invalid", "a review-model reply is once, not %q", a.Decision)
 	}
 	dir, _, operr := mc.resolveSession(a.SessionID)
 	if operr != nil {
@@ -1147,11 +1157,12 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 			// Already resolved (the machine answered it for a root that allows
 			// it, or the backend restarted): close the card, say so, no error.
 			mc.mat.WithdrawPermission(a.SessionID, a.RequestID)
+			mc.audit.permissionReply(a.SessionID, a.RequestID, tool, string(audited), actor, capped, false)
 			return map[string]any{"alreadyResolved": true}, nil
 		}
 		return nil, backendErr(err)
 	}
-	mc.audit.permission(a.SessionID, a.RequestID, tool, string(audited), "user", capped, "")
+	mc.audit.permissionReply(a.SessionID, a.RequestID, tool, string(audited), actor, capped, true)
 	return map[string]any{}, nil
 }
 

@@ -22,7 +22,8 @@
 					"galopin": true
 				},
 				"callId": "call_07",
-				"always": []
+				"always": [],
+				"class": "agents"
 			}
 		}
 	}

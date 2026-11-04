@@ -1060,7 +1060,7 @@ func TestGoValuesMarshalToTheSpecFixtures(t *testing.T) {
 		{"a session with nothing optional set", pick("events/session.minimal.json", "event", "session"),
 			backend.Session{ID: "ses_03", WorkspaceID: "ws_01", Backend: "opencode", Status: backend.StatusIdle, CreatedAt: t0, UpdatedAt: t0}},
 		{"a galopin ask with empty lists", pick("events/permission.asked.galopin.json", "event", "request"),
-			backend.PermissionRequest{ID: "gp_01", SessionID: "ses_01", Tool: "session_read", Title: "Read session ses_02", Metadata: map[string]any{"galopin": true}, CallID: "call_07"}},
+			backend.PermissionRequest{ID: "gp_01", SessionID: "ses_01", Tool: "session_read", Title: "Read session ses_02", Metadata: map[string]any{"galopin": true}, CallID: "call_07", Class: "agents"}},
 		{"a manual compaction part", pick("events/part.compaction.manual.json", "event", "part"),
 			backend.Part{ID: "prt_07", MessageID: "msg_02", Role: "assistant", Type: backend.PartCompaction}},
 		{"a fresh session's snapshot", pick("ops/session.sync.res.snapshot-empty.json", "result", "snapshot"),
