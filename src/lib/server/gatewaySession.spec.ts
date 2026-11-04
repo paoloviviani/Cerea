@@ -98,6 +98,7 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 				code_agents: false,
 				local_connectors: true,
 				byok_allowed: false,
+				console_allowed: true,
 				chat_unconfigured: false,
 			},
 		});
@@ -117,6 +118,30 @@ describe("gatewaySessionCheck (ADR 0093 §4.4)", () => {
 		});
 		expect(answer).toMatchObject({ capabilities: { byok_allowed: true } });
 		forgetGatewaySession(sessionId);
+	});
+
+	it("reads capabilities.console as allowed unless the gateway says false", async () => {
+		for (const [caps, expected] of [
+			[{ code_agents: true, console: false }, false],
+			[{ code_agents: true, console: true }, true],
+			[{ code_agents: true }, true], // an older gateway: no flag
+			[null, true],
+		] as const) {
+			const { sessionId, gatewayUserId } = await makeSession(
+				`gw-console-${String(expected)}-${JSON.stringify(caps)}`
+			);
+			const answer = await gatewaySessionCheck(sessionId, "tok", {
+				...base,
+				fetchImpl: fakeFetch(200, {
+					id: gatewayUserId,
+					is_admin: false,
+					groups: [],
+					capabilities: caps,
+				}).impl,
+			});
+			expect(answer).toMatchObject({ capabilities: { console_allowed: expected } });
+			forgetGatewaySession(sessionId);
+		}
 	});
 
 	it("ends the session on a 401", async () => {
@@ -387,22 +412,46 @@ describe("reading /v1/me's capabilities (the chat's half of the contract)", () =
 		[
 			"grants the flag",
 			{ code_agents: true },
-			{ code_agents: true, local_connectors: true, byok_allowed: false, chat_unconfigured: false },
+			{
+				code_agents: true,
+				local_connectors: true,
+				byok_allowed: false,
+				console_allowed: true,
+				chat_unconfigured: false,
+			},
 		],
 		[
 			"declines it",
 			{ code_agents: false },
-			{ code_agents: false, local_connectors: true, byok_allowed: false, chat_unconfigured: false },
+			{
+				code_agents: false,
+				local_connectors: true,
+				byok_allowed: false,
+				console_allowed: true,
+				chat_unconfigured: false,
+			},
 		],
 		[
 			"speaks capabilities but grants nothing",
 			{},
-			{ code_agents: false, local_connectors: true, byok_allowed: false, chat_unconfigured: false },
+			{
+				code_agents: false,
+				local_connectors: true,
+				byok_allowed: false,
+				console_allowed: true,
+				chat_unconfigured: false,
+			},
 		],
 		[
 			"names only another capability",
 			{ api_keys: true },
-			{ code_agents: false, local_connectors: true, byok_allowed: false, chat_unconfigured: false },
+			{
+				code_agents: false,
+				local_connectors: true,
+				byok_allowed: false,
+				console_allowed: true,
+				chat_unconfigured: false,
+			},
 		],
 		[
 			"sends an explicit null",
@@ -411,13 +460,20 @@ describe("reading /v1/me's capabilities (the chat's half of the contract)", () =
 				code_agents: false,
 				local_connectors: false,
 				byok_allowed: false,
+				console_allowed: true,
 				chat_unconfigured: false,
 			},
 		],
 		[
 			"reports both null (no chat configured)",
 			{ code_agents: null, local_connectors: null },
-			{ code_agents: false, local_connectors: false, byok_allowed: false, chat_unconfigured: true },
+			{
+				code_agents: false,
+				local_connectors: false,
+				byok_allowed: false,
+				console_allowed: true,
+				chat_unconfigured: true,
+			},
 		],
 	])("a body whose capabilities %s is read exactly", async (_name, capabilities, expected) => {
 		const { sessionId, gatewayUserId } = await makeSession("cap");

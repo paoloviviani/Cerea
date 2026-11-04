@@ -25,6 +25,7 @@
  */
 
 import { config } from "$lib/server/config";
+import { consoleAllowedFor } from "$lib/server/codeEnabled";
 import { gateway } from "$lib/server/gatewayServer";
 import { logger } from "$lib/server/logger";
 import type { UsageContext, UsageEntry, UsageProvider, UsageReport, UsageSection } from "./types";
@@ -186,6 +187,11 @@ export const pystinoUsageProvider: UsageProvider = {
 			};
 		}
 
+		// A person whose groups withhold the console reads their quotas here, and
+		// is not sent to a page that would refuse them: no console link at all.
+		const hasConsole = await consoleAllowedFor(ctx.locals);
+		const consoleLink = (label: string) => (hasConsole ? { label, href: CONSOLE_PATH } : undefined);
+
 		try {
 			const bundle = await gateway.get<PystinoUsageBundle>(token, "pystino/usage");
 
@@ -197,7 +203,7 @@ export const pystinoUsageProvider: UsageProvider = {
 			const spend: UsageSection = {
 				title: "Your spending",
 				entries: bundle.usage ? summaryEntries("You", bundle.usage, "user") : [],
-				link: { label: "Manage in the Pystino console", href: CONSOLE_PATH },
+				link: consoleLink("Manage in the Pystino console"),
 			};
 
 			return { sections: [quotas, spend] };
@@ -212,7 +218,7 @@ export const pystinoUsageProvider: UsageProvider = {
 						title: "Pystino usage",
 						entries: [],
 						error: "Usage is temporarily unavailable.",
-						link: { label: "Open the Pystino console", href: CONSOLE_PATH },
+						link: consoleLink("Open the Pystino console"),
 					},
 				],
 			};

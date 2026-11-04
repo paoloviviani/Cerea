@@ -64,6 +64,10 @@ export type GatewaySessionOutcome =
 						local_connectors: boolean;
 						/** Bring your own key: absent from the body (an older gateway) reads as not allowed. */
 						byok_allowed: boolean;
+						/** Console access (Pystino's `console` capability): false only when the body says
+						 * `console: false`. Absent (an older gateway) reads as allowed, so no link is
+						 * hidden from anyone who has the console. */
+						console_allowed: boolean;
 						/** Both reported null: the gateway is not configured for the chat. */
 						chat_unconfigured: boolean;
 				  }
@@ -221,6 +225,7 @@ export async function gatewaySessionCheck(
 								(body.capabilities.local_connectors === undefined ||
 									body.capabilities.local_connectors === true),
 							byok_allowed: body.capabilities?.byok === true,
+							console_allowed: body.capabilities?.console !== false,
 							chat_unconfigured:
 								body.capabilities !== null &&
 								body.capabilities.code_agents === null &&
