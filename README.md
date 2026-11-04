@@ -186,3 +186,7 @@ licensed under the [Apache License 2.0](LICENSE); [NOTICE](NOTICE) records
 that it is based on huggingface/chat-ui, © Hugging Face, and carries the
 third-party notices. How this code was written is disclosed in
 [AI-DISCLOSURE.md](AI-DISCLOSURE.md).
+
+## Acknowledgments
+
+This work is supported by [LINKS Foundation](https://linksfoundation.com/en/).
