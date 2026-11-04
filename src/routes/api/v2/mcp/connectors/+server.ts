@@ -44,7 +44,7 @@ const create = z.object({
 	 * not we hold one, and a server behind something that swallows its own 401
 	 * has to be told.
 	 */
-	authMode: z.enum(["auto", "none", "token", "oauth", "oauth_static"]).default("auto"),
+	authMode: z.enum(["auto", "none", "token", "oauth", "oauth_static", "user_key"]).default("auto"),
 	/**
 	 * For `oauth_static` — credentials an operator already holds, used instead
 	 * of dynamic registration. Metadata discovery still runs; only RFC 7591 is
@@ -72,6 +72,18 @@ const create = z.object({
 	 * become the whole deployment's by omission.
 	 */
 	scope: z.enum(["user", "deployment"]).default("user"),
+	/**
+	 * For `user_key` (deployment only): what to tell a user about to paste their own key,
+	 * and where to make one. Text, and an https link.
+	 */
+	keyHelpText: z.string().trim().max(500).optional(),
+	keyHelpUrl: z
+		.string()
+		.trim()
+		.url()
+		.startsWith("https://", "the help link must be https")
+		.max(1000)
+		.optional(),
 	/** One sentence the assistant reads in its list of connectors (ADR 0104). */
 	description: z.string().trim().max(300).optional(),
 });
@@ -126,6 +138,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		clientSecret,
 		scope,
 		description,
+		keyHelpText,
+		keyHelpUrl,
 	} = parsed.data;
 	const scopeCheck = validateScopes(parsed.data.scopes ?? "");
 	if ("error" in scopeCheck) error(400, scopeCheck.error);
@@ -136,6 +150,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		await requireAdmin(locals);
 	}
 
+	if (authMode === "user_key" && scope !== "deployment") {
+		// A personal connector's owner is its only user: that is just a token.
+		error(400, "Each user bringing their own key applies to a connector the deployment provides.");
+	}
 	if (authMode === "token" && !token) {
 		error(400, "That auth mode needs a token.");
 	}
@@ -157,7 +175,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		...(scopeCheck.scopes.length ? { scopes: scopeCheck.scopes } : {}),
 	};
 
-	if (token) {
+	if (authMode === "user_key") {
+		// No credential on the connector: each user's key is their own sealed row.
+		connector.auth = "user-key";
+		if (tokenHeader) {
+			connector.tokenHeader = tokenHeader;
+			connector.tokenPrefix = /^authorization$/i.test(tokenHeader) ? "Bearer " : "";
+		}
+		if (keyHelpText) connector.keyHelpText = keyHelpText;
+		if (keyHelpUrl) connector.keyHelpUrl = keyHelpUrl;
+	} else if (token) {
 		connector.auth = "token";
 		connector.tokenSealed = seal(token);
 		if (tokenHeader) connector.tokenHeader = tokenHeader;

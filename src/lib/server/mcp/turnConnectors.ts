@@ -146,13 +146,18 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 		.sort({ name: 1 })
 		.limit(200)
 		.toArray();
-	const oauthIds = rows.filter((r) => r.auth === "oauth").map((r) => r._id);
+	const oauthIds = rows
+		.filter((r) => r.auth === "oauth" || r.auth === "user-key")
+		.map((r) => r._id);
 	const signedIn = new Set(
 		oauthIds.length === 0
 			? []
 			: (
 					await collections.mcpTokens
-						.find({ userId, connectorId: { $in: oauthIds } }, { projection: { connectorId: 1 } })
+						.find(
+							{ userId, connectorId: { $in: oauthIds }, refusedAt: { $exists: false } },
+							{ projection: { connectorId: 1 } }
+						)
 						.toArray()
 				).map((t) => t.connectorId.toString())
 	);
@@ -170,7 +175,7 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 		const usable =
 			row.auth === "none" ||
 			(row.auth === "token" && Boolean(row.tokenSealed)) ||
-			(row.auth === "oauth" && signedIn.has(row._id.toString()));
+			((row.auth === "oauth" || row.auth === "user-key") && signedIn.has(row._id.toString()));
 		if (!usable) {
 			blocked.push({ key, name: row.name, reason: "needs sign-in" });
 			continue;

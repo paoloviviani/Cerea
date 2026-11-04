@@ -118,6 +118,10 @@
 	let rowClientId = $state("");
 	let rowClientSecret = $state("");
 
+	/** A user-key connector whose key form is open, and what is typed in it (never kept after Save). */
+	let keyFor = $state<string | null>(null);
+	let keyValue = $state("");
+
 	// Shown so somebody registering a client by hand can copy it. Built here
 	// rather than fetched: it is the same value the server derives from
 	// PUBLIC_ORIGIN, and a round trip to display a constant is silly.
@@ -368,7 +372,32 @@
 		}
 	}
 
-	async function act(connector: McpConnectorView, action: "reprobe" | "disconnect") {
+	/** Store this person's own key (or replace it). The server seals it and answers with no key in it. */
+	async function saveKey(event: SubmitEvent, connector: McpConnectorView) {
+		event.preventDefault();
+		if (!keyValue.trim()) return;
+		busy = true;
+		busyConnector = connector.id;
+		failure = null;
+		try {
+			await api(`/connectors/${connector.id}`, json({ action: "setKey", key: keyValue.trim() }));
+			keyValue = "";
+			keyFor = null;
+			await load();
+		} catch (err) {
+			failure = err instanceof Error ? err.message : m["mcp.connectors.key_save_failed"]();
+		} finally {
+			busy = false;
+			busyConnector = null;
+		}
+	}
+
+	async function removeKey(connector: McpConnectorView) {
+		if (!confirm(m["mcp.connectors.confirm_remove_key"]({ name: connector.name }))) return;
+		await act(connector, "disconnect");
+	}
+
+	async function act(connector: McpConnectorView, action: "reprobe" | "disconnect" | "checkKey") {
 		busy = true;
 		busyConnector = connector.id;
 		failure = null;
@@ -558,15 +587,21 @@
 			description={connector.url}
 			toggleLabel={connector.connected
 				? m["mcp.card.toggle_label"]()
-				: m["mcp.connectors.sign_in_first"]()}
+				: connector.auth === "user-key"
+					? m["mcp.connectors.add_key_first"]()
+					: m["mcp.connectors.sign_in_first"]()}
 			toggleLabelShort={connector.connected
 				? m["mcp.card.toggle_label_short"]()
-				: m["mcp.connectors.sign_in_first"]()}
+				: connector.auth === "user-key"
+					? m["mcp.connectors.add_key_first"]()
+					: m["mcp.connectors.sign_in_first"]()}
 			toggleTitle={connector.mode === "locked"
 				? m["mcp.card.locked_title"]()
 				: connector.connected
 					? m["mcp.connectors.on_for_new"]()
-					: m["mcp.connectors.sign_in_first"]()}
+					: connector.auth === "user-key"
+						? m["mcp.connectors.add_key_first"]()
+						: m["mcp.connectors.sign_in_first"]()}
 			onopen={connector.scope === "user" ? () => (detail = connector) : undefined}
 		>
 			{#snippet pills()}
@@ -576,6 +611,16 @@
 						{connector.auth === "none"
 							? m["mcp.connectors.ready"]()
 							: m["mcp.connectors.connected"]()}
+					</span>
+				{:else if connector.auth === "user-key" && connector.keyRefused}
+					<span class="{s.PILL} {s.PILL_TONES.bad}" data-testid="key-refused">
+						<IconWarning class="size-3" />
+						{m["mcp.connectors.key_refused"]()}
+					</span>
+				{:else if connector.auth === "user-key"}
+					<span class="{s.PILL} {s.PILL_TONES.neutral}">
+						<IconWarning class="size-3" />
+						{m["mcp.connectors.no_key"]()}
 					</span>
 				{:else}
 					<span class="{s.PILL} {s.PILL_TONES.neutral}">
@@ -588,7 +633,9 @@
 						? m["mcp.connectors.auth.oauth"]()
 						: connector.auth === "token"
 							? m["mcp.connectors.auth.token"]()
-							: m["mcp.connectors.auth.none"]()}
+							: connector.auth === "user-key"
+								? m["mcp.connectors.auth.user_key"]()
+								: m["mcp.connectors.auth.none"]()}
 				</span>
 				<ConnectorTools {connector} />
 				{#if connector.registrationSource === "static"}
@@ -629,7 +676,45 @@
 						{m["mcp.connectors.edit"]()}
 					</button>
 				{/if}
-				{#if connector.auth === "oauth" && !connector.connected}
+				{#if connector.auth === "user-key"}
+					<!-- Your own key for a connector the administrator defined: the address and how
+					     it is sent are theirs; the key is yours, kept sealed on the server and
+					     never sent back to this page. -->
+					<button
+						onclick={() => {
+							keyValue = "";
+							keyFor = keyFor === connector.id ? null : connector.id;
+						}}
+						disabled={busy}
+						data-testid="key-open"
+						class={connector.connected
+							? "flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+							: "flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-[.29rem] text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"}
+					>
+						{connector.connected || connector.keyRefused
+							? m["mcp.connectors.replace_key"]()
+							: m["mcp.connectors.add_key"]()}
+					</button>
+					{#if connector.connected || connector.keyRefused}
+						<button
+							onclick={() => act(connector, "checkKey")}
+							disabled={busy}
+							class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+						>
+							<IconRefresh class="size-3 {busyConnector === connector.id ? 'animate-spin' : ''}" />
+							{busyConnector === connector.id
+								? m["mcp.connectors.checking"]()
+								: m["mcp.connectors.check_key"]()}
+						</button>
+						<button
+							onclick={() => removeKey(connector)}
+							disabled={busy}
+							class="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-[.29rem] text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+						>
+							{m["mcp.connectors.remove_key"]()}
+						</button>
+					{/if}
+				{:else if connector.auth === "oauth" && !connector.connected}
 					<button
 						onclick={() => signIn(connector)}
 						disabled={busy || !connector.canAuthorize}
@@ -696,6 +781,66 @@
 			</div>
 
 			<ConnectorTools {connector} list />
+
+			{#if connector.auth === "user-key" && connector.keyRefused && keyFor !== connector.id}
+				<p class="mt-2 text-xs text-red-700 dark:text-red-300">
+					{m["mcp.connectors.key_refused_hint"]()}
+				</p>
+			{/if}
+
+			{#if keyFor === connector.id}
+				<form
+					data-testid="key-form"
+					class="mt-3 space-y-2 rounded-lg border border-gray-200 p-2 dark:border-gray-700"
+					onsubmit={(event) => saveKey(event, connector)}
+				>
+					{#if connector.keyHelpText}
+						<p class="text-xs text-gray-700 dark:text-gray-300">{connector.keyHelpText}</p>
+					{/if}
+					{#if connector.keyHelpUrl}
+						<a
+							href={connector.keyHelpUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="text-xs text-blue-600 underline dark:text-blue-400"
+							>{m["mcp.connectors.key_help_link"]()}</a
+						>
+					{/if}
+					<input
+						type="password"
+						autocomplete="off"
+						aria-label={m["mcp.connectors.key_label"]()}
+						placeholder={m["mcp.connectors.key_label"]()}
+						class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-hidden dark:border-gray-600 dark:bg-gray-900"
+						bind:value={keyValue}
+						required
+						disabled={busy}
+					/>
+					<p class="text-xs text-gray-500 dark:text-gray-400">
+						{m["mcp.connectors.key_privacy"]()}
+					</p>
+					<div class="flex justify-end gap-2">
+						<button
+							type="button"
+							onclick={() => {
+								keyValue = "";
+								keyFor = null;
+							}}
+							disabled={busy}
+							class="btn rounded-lg border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+						>
+							{m["mcp.connectors.cancel"]()}
+						</button>
+						<button
+							type="submit"
+							disabled={busy || !keyValue.trim()}
+							class="btn rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+						>
+							{busy ? m["mcp.connectors.saving"]() : m["mcp.connectors.save"]()}
+						</button>
+					</div>
+				</form>
+			{/if}
 
 			{#if credentialsFor === connector.id}
 				<form

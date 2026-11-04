@@ -42,7 +42,11 @@ export async function credentialHeaders(options: {
 
 	const secret = await bearerFor({ connector, userId });
 	if (!secret) return null;
+	return keyHeader(connector, secret);
+}
 
+/** The header that carries `secret` to this connector: its name, its prefix, the value. */
+export function keyHeader(connector: McpConnector, secret: string): Record<string, string> {
 	const header = connector.tokenHeader?.trim() || "Authorization";
 	// `?? "Bearer "` rather than `|| "Bearer "`: an empty prefix is a real
 	// choice (that is exactly what `X-API-Key` wants) and must survive.

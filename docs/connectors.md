@@ -88,10 +88,45 @@ turn off, or, when your administrator offers it as **On, locked**, marked
 **Always on** with a lock and no switch: it stays on for everyone. A connector the administrator has switched off is not shown.
 
 The **definition** is shared and the **credential is not**: each person signs in
-to a shared OAuth connector themselves. The exception is a static token, which
-belongs to the connector rather than to a person, so publishing one **shares
-the key** with everyone who uses it. The admin screen says so, because it is a
-decision and not an accident.
+to a shared OAuth connector themselves. An administrator publishes a connector
+in one of three ways, and they differ in who holds the credential:
+
+| Mode                                 | The administrator sets                                     | Who holds the credential                                                                                                         |
+| ------------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Each person signs in** (OAuth)     | the address                                                | each person's own sign-in, kept encrypted on the server                                                                          |
+| **Each user provides their own key** | the address, which header carries the key, and a help line | each user's own key, kept encrypted on the server                                                                                |
+| **Shared access key**                | the address and one key                                    | the connector: **everyone uses the administrator's key**. The admin screen says so, because it is a decision and not an accident |
+
+**Each user provides their own key** is for a service that uses personal
+access tokens (GitHub's MCP server with a personal access token, for example)
+where OAuth is not available. The administrator enters the name and address,
+the header that carries the key (by default `Authorization: Bearer <key>`; any
+other header name sends the raw key, as `X-API-Key` expects) and an optional
+help text with a link ("Create a token at ... with the repo scope"). No key is
+stored on the connector, and the admin screen shows only how many users have
+added one, never the keys or who. Under Workspace → **Built-in connectors** the
+card shows **Add your key**: a small form with the administrator's help, a
+password field and **Save**. Then it reads **Connected**, with **Replace key**,
+**Check key** and **Remove key**. Until a key is added the connector is not on
+for that user: it is not used in their chats and its tools are not offered, the
+same as a connector that needs a sign-in. The key is encrypted with
+`CHAT_SECRET_KEY` like an OAuth token, is never sent back to the browser, and
+is used only for that user's own calls. If the service answers 401 or 403 the
+card says **Your key was refused** and the connector stays off for that user
+until they replace the key. Non-administrators never see the service's own
+error text. Removing a user's account removes their keys; removing the
+connector, or changing its address, removes every user's key (a key must not
+follow a connector to another server).
+
+How an administrator checks such a connector: **Check** takes an optional
+**test key**, used once for that check and never stored (an administrator who
+added their own key can check without one). The first successful check, by an
+administrator or by any user saving a key, fills the connector's tool list; a
+later user's check does not replace it.
+
+This mode is available for connectors added in Admin → Connectors, not in the
+`MCP_SERVERS` variable: those entries are not connector rows, so they have no
+place for a per-user credential. Add the connector in Admin instead.
 
 **Who changes what, and where.** A connector the deployment provides, whether
 the administrator added it or it comes from `.env`, is configured only in

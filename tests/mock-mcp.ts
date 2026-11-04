@@ -22,6 +22,8 @@ export interface RecordedToolCall {
 	name: string;
 	args: Record<string, unknown>;
 	at: number;
+	/** The credential header's value the call arrived with (set only when `header` is configured). */
+	credential?: string;
 }
 
 export interface MockMcp {
@@ -84,6 +86,13 @@ export interface MockMcpOptions {
 	 * the shape OAuth discovery cannot see past, and a connector must still work.
 	 */
 	token?: string;
+	/**
+	 * Guard `/mcp` with one header that carries each user's own key: a request whose
+	 * `<name>` header is not `<prefix><key>` for one of `accepts` gets a bare 401. The
+	 * value a tool call arrived with is recorded on the call (`credential`), so a test
+	 * can say whose key a call carried.
+	 */
+	header?: { name: string; prefix?: string; accepts: string[] };
 }
 
 export async function startMockMcp(
@@ -136,8 +145,20 @@ export async function startMockMcp(
 				res.end("<html><body><h1>401 Unauthorized</h1></body></html>");
 				return;
 			}
+			const guard = options.header;
+			let credential: string | undefined;
+			if (guard) {
+				const sent = req.headers[guard.name.toLowerCase()];
+				credential = Array.isArray(sent) ? sent[0] : sent;
+				const allowed = guard.accepts.map((key) => `${guard.prefix ?? ""}${key}`);
+				if (!credential || !allowed.includes(credential)) {
+					res.writeHead(401, { "content-type": "text/html" });
+					res.end("<html><body><h1>401 Unauthorized</h1></body></html>");
+					return;
+				}
+			}
 			// Stateless: a fresh server + transport per request, torn down after.
-			const server = buildServer(record);
+			const server = buildServer((call) => record(credential ? { ...call, credential } : call));
 			const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 			res.on("close", () => {
 				void transport.close();

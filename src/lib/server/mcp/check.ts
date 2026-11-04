@@ -13,7 +13,7 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import type { McpConnector } from "$lib/types/McpConnector";
 import { listTools } from "./health";
-import { credentialHeaders } from "./selection";
+import { credentialHeaders, keyHeader } from "./selection";
 
 export type CheckOutcome = "listed" | "failed" | "no credential";
 
@@ -29,9 +29,16 @@ export async function checkConnectorTools(
 	connector: McpConnector,
 	userId: ObjectId,
 	/** Give up sooner than the default: the check an add or a save waits on. */
-	timeoutMs?: number
+	timeoutMs?: number,
+	/**
+	 * A key to check with instead of the stored one: the administrator's test key for a
+	 * connector where each user brings their own. Used for this call and never stored.
+	 */
+	testKey?: string
 ): Promise<CheckOutcome> {
-	const headers = await credentialHeaders({ connector, userId });
+	const headers = testKey
+		? keyHeader(connector, testKey)
+		: await credentialHeaders({ connector, userId });
 	if (!headers) return "no credential";
 	let result: Awaited<ReturnType<typeof listTools>>;
 	try {
