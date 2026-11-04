@@ -181,6 +181,12 @@
 		// Left alone when it belongs elsewhere: the conversation it came from picks it up
 		// when it is next open, rather than this one resuming a stranger's tool call.
 		if (!pending || pending.conversationId !== convId || $loading) return;
+		// A turn that parked on its first message is still held under the id this tab made up for
+		// it: the server's id arrives with the post-stream refresh of the load data, and an answer
+		// clicked before that lands names an id the thread does not hold yet. Wait for the refresh
+		// (this effect reads `messages`, so it runs again when the thread is replaced) rather than
+		// failing to find the message and leaving the turn parked for good.
+		if (pending.messageId && !messages.some((message) => message.id === pending.messageId)) return;
 		elicitationToResume.set(null);
 		// The turn that asked: another may have been sent while the prompt was open.
 		void writeMessage({
