@@ -5,6 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- The sidebar remembers which projects are open: switching to Agents and back, or reloading, no longer
+  collapses them.
+
 ## v0.39.0 — 2026-11-04
 
 Pins: Cerea `0.39.0` (chat and `cerea-documents`), Pystino `0.24.0`.
