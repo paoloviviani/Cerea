@@ -30,6 +30,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	memories: true,
 	projectMemories: true, // authored by a user; erased with the owning project
 	projectDocuments: true, // added by a user; erased (rows and stored files) with the owning project
+	projectAgentProfiles: true, // one user's default coding-agent target per project; merged by owner, erased with the owner and with the owning project
 	vectorStores: true,
 	knowledgeDocuments: true, // indirect: via storeId -> vectorStores.ownerId
 	knowledgeConfig: false,
@@ -926,6 +927,75 @@ describe("projectDocuments erasure (documents follow the project, not the upload
 		const target = new ObjectId();
 		expect(await entry.merge(erased, target)).toBe(1);
 		await removeBlobs({ "metadata.conversation": `project:${theirs}` });
+	});
+});
+
+describe("projectAgentProfiles (a profile names one user's machine)", () => {
+	beforeAll(async () => {
+		await ready;
+	});
+
+	const row = (projectId: ObjectId, userId: ObjectId) => ({
+		_id: new ObjectId(),
+		projectId,
+		userId,
+		deviceId: "d",
+		workspaceId: "w",
+		permissionMode: "ask" as const,
+		labels: { device: "box", workspace: "repo" },
+		updatedAt: new Date(),
+	});
+
+	it("is registered, merges by owner keeping the target's row on a collision, and erases by owner and with the owned project", async () => {
+		const erased = new ObjectId();
+		const other = new ObjectId();
+		const target = new ObjectId();
+		const mine = new ObjectId();
+		const theirs = new ObjectId();
+		const now = new Date();
+		await collections.projectAgentProfiles.deleteMany({});
+		await collections.projects.deleteMany({ _id: { $in: [mine, theirs] } });
+		await collections.projects.insertMany([
+			{ _id: mine, userId: erased, name: "Mine", shares: [], createdAt: now, updatedAt: now },
+			{ _id: theirs, userId: other, name: "Theirs", shares: [], createdAt: now, updatedAt: now },
+		] as never);
+		await collections.projectAgentProfiles.insertMany([
+			row(mine, erased), // theirs to erase
+			row(mine, other), // goes with the project the erased person owned
+			row(theirs, erased), // the erased person's own profile elsewhere
+			row(theirs, other), // untouched
+		]);
+
+		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "projectAgentProfiles");
+		if (!entry) throw new Error("projectAgentProfiles is not registered");
+		expect(entry.mergeRule).toBe("reassign-unique-keep-target");
+		expect(entry.eraseRule).toBe("custom");
+		expect((await previewErasureCounts(erased, NO_CONVERSATIONS)).projectAgentProfiles).toBe(3);
+
+		// Merge: the stray's profile for `theirs` moves; one for a project the target already has a
+		// profile in is dropped and the target's stays.
+		await collections.projectAgentProfiles.insertOne(row(theirs, target));
+		const strayRows = await collections.projectAgentProfiles.countDocuments({ userId: erased });
+		expect(strayRows).toBe(2);
+		expect(await entry.merge(erased, target)).toBe(1);
+		expect(await collections.projectAgentProfiles.countDocuments({ userId: erased })).toBe(0);
+		expect(
+			await collections.projectAgentProfiles.countDocuments({ projectId: mine, userId: target })
+		).toBe(1);
+		expect(
+			await collections.projectAgentProfiles.countDocuments({ projectId: theirs, userId: target })
+		).toBe(1);
+
+		// Erase the other account (the one who owns `theirs`): its own row and every member's row in
+		// the projects it owns, nothing of anybody else's elsewhere.
+		expect(await entry.erase(other, NO_CONVERSATIONS)).toBe(3);
+		const left = await collections.projectAgentProfiles.find({}).toArray();
+		expect(left.map((r) => `${r.projectId}:${r.userId}`)).toEqual([`${mine}:${target}`]);
+
+		const names = USER_KEYED_COLLECTIONS.map((e) => e.name);
+		expect(names.indexOf("projectAgentProfiles")).toBeLessThan(names.indexOf("projects"));
+		await collections.projectAgentProfiles.deleteMany({});
+		await collections.projects.deleteMany({ _id: { $in: [mine, theirs] } });
 	});
 });
 

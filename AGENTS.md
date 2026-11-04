@@ -953,6 +953,29 @@ only; never source from Anthropic's proprietary `docx`/`xlsx`/`pptx`/`pdf`
 skills or from "awesome skills" aggregates; OpenAI's removed skills come from
 OpenAI's own git history, never a third-party copy.
 
+## The chat drives agent sessions (ADR 0106)
+
+The chat can start, prompt and read coding sessions on the user's own machines; the decision record
+is `docs/adr/0106-chat-drives-agent-sessions.md` in the ai-stack repository, the operator view is
+"Driving agents from the chat" in `docs/code-panel.md`. Where it lives:
+
+- `src/lib/server/textGeneration/builtinTools/agentSessionTools.ts`: the four builtins
+  (`agent_sessions`, `agent_start`, `agent_send`, `agent_read`) and `runAgentSessionTool`, the one body
+  behind both the tool's `execute` and the approval click (`mcp/resumeElicitation.ts`, which re-runs
+  an approved `agent_start`/`agent_send` as the person). Enablement is `agentSessionsFor`, resolved in
+  `runMcpFlow`. Approval gating of the two acting tools is in `toolInvocation.ts`; `agent_read` is in
+  `EXTERNAL_BUILTIN_TOOLS` (`untrusted.ts`).
+- `src/lib/server/code/agentSessions.ts`: the session-starting code **shared** with the scheduled
+  executor (`scheduleAgentExecutor.ts`): create/reuse, mode/model, the permission word, the prompt.
+  Change it there so the two cannot drift.
+- `src/lib/server/projectAgentProfiles.ts` and `routes/api/v2/projects/[id]/agent-profile`: a user's own
+  default target per project (`projectAgentProfiles`, unique on project and user), registered in
+  `userKeyedCollections.ts` and deleted with the project.
+- The shapes both sides share: `src/lib/types/AgentSession.ts` and `MessageAgentSessionUpdate`.
+- Rules to keep: only the caller's own devices (any other id reads as not existing); the 7-day
+  sign-in refusal; `agent_send` never changes a session's permission word; every start and send
+  writes an audit row with the conversation id.
+
 ## The /code Agents panel
 
 `agent/PROTOCOL.md` is the wire protocol, binding for both this app and the Go

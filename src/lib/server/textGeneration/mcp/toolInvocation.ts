@@ -35,6 +35,7 @@ import { parseImageArgs } from "$lib/server/imageGeneration";
 import { WEB_FETCH_TOOL_NAME, webFetchNeedsApproval } from "../builtinTools/webFetchTool";
 import { WEB_FETCH_STRUCTURED_TOOL_NAME } from "../builtinTools/webFetchStructuredTool";
 import { SCHEDULE_TOOL_NAME, parseScheduleToolArgs } from "../builtinTools/scheduleTool";
+import { AGENT_ACTING_TOOLS } from "../builtinTools/agentSessionTools";
 import type { QueuedApprovalCall } from "$lib/types/McpElicitation";
 
 export type Primitive = string | number | boolean;
@@ -412,6 +413,11 @@ export async function* executeToolCalls({
 				qualifiedName: GENERATE_IMAGE_TOOL_NAME,
 				alwaysConfirm: !toolApproval.approvedTools.has(GENERATE_IMAGE_TOOL_NAME),
 			};
+		}
+		// Starting or prompting a coding session on the person's machine acts for them: the approval
+		// policy gates it like any acting tool (ADR 0106). Reads (`agent_sessions`, `agent_read`) do not.
+		if (AGENT_ACTING_TOOLS.has(p.call.name) && builtinByName.has(p.call.name)) {
+			return { qualifiedName: p.call.name };
 		}
 		// A schedule is only ever made by the person's click on the card: proposals the
 		// tool would refuse never open one, and no grant ("for this conversation") skips it.

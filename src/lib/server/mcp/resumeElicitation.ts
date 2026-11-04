@@ -39,6 +39,10 @@ import type { PendingToolApprovalCall, QueuedApprovalCall } from "$lib/types/Mcp
 import { collections } from "$lib/server/database";
 import { GENERATE_IMAGE_TOOL_NAME } from "$lib/server/textGeneration/builtinTools/generateImageTool";
 import {
+	AGENT_ACTING_TOOLS,
+	runAgentSessionTool,
+} from "$lib/server/textGeneration/builtinTools/agentSessionTools";
+import {
 	SCHEDULE_TOOL_NAME,
 	createScheduleFromApproval,
 } from "$lib/server/textGeneration/builtinTools/scheduleTool";
@@ -180,6 +184,8 @@ async function runApprovedCall(
 		userId?: ObjectId;
 		messageId?: string;
 		imageBudget?: { made: number };
+		/** The approving person's own sign-in session: what the 7-day rule of `agent_*` reads. */
+		sessionId?: string;
 	},
 	/** Updates that belong next to the result (a generated image's file listing). */
 	sideUpdates?: MessageUpdate[]
@@ -204,6 +210,37 @@ async function runApprovedCall(
 			result: {
 				status: ToolResultStatus.Success,
 				call: { name: GENERATE_IMAGE_TOOL_NAME, parameters: {} },
+				outputs: [{ text: made.text }],
+				display: true,
+				external: false,
+			},
+		};
+	}
+	if (!call.mcp && AGENT_ACTING_TOOLS.has(call.tool)) {
+		// The person's click runs the call, as them: the same body the tool's `execute` runs.
+		const made = owner
+			? await runAgentSessionTool(call.tool, call.args, {
+					userId: owner.userId,
+					conversationId: owner.conversationId,
+					sessionId: owner.sessionId,
+				}).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }))
+			: { error: "There is no conversation to run this from." };
+		if ("error" in made) {
+			return {
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Error,
+				uuid: toolUuid,
+				message: made.error,
+			};
+		}
+		sideUpdates?.push(...(made.extraUpdates ?? []));
+		return {
+			type: MessageUpdateType.Tool,
+			subtype: MessageToolUpdateType.Result,
+			uuid: toolUuid,
+			result: {
+				status: ToolResultStatus.Success,
+				call: { name: call.tool, parameters: {} },
 				outputs: [{ text: made.text }],
 				display: true,
 				external: false,
@@ -478,7 +515,13 @@ export async function resumeParkedToolCall({
 						extraServers,
 						signal,
 						token,
-						{ conversationId, userId: pending.userId, messageId: pending.messageId, imageBudget },
+						{
+							conversationId,
+							userId: pending.userId,
+							messageId: pending.messageId,
+							imageBudget,
+							sessionId: pending.sessionId,
+						},
 						side
 					)
 				: toolApprovalDenied(pending.toolUuid, pending.tool)
@@ -502,7 +545,13 @@ export async function resumeParkedToolCall({
 						extraServers,
 						signal,
 						token,
-						{ conversationId, userId: pending.userId, messageId: pending.messageId, imageBudget },
+						{
+							conversationId,
+							userId: pending.userId,
+							messageId: pending.messageId,
+							imageBudget,
+							sessionId: pending.sessionId,
+						},
 						queuedSide
 					),
 					...queuedSide

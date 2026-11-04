@@ -35,6 +35,8 @@ export interface CodeAuditInput {
 	mode?: string;
 	/** A schedule an agent's `schedule.*` call touched (its name rides in `name`). */
 	scheduleId?: string;
+	/** The chat conversation a chat-driven session action came from (`agent.start`, `agent.send`; ADR 0106). */
+	conversationId?: string;
 }
 
 /** The row-writing core, independent of a SvelteKit `RequestEvent`: the
@@ -65,6 +67,7 @@ export async function recordCodeAuditRow(
 			...(input.approvalId ? { approvalId: input.approvalId.slice(0, 200) } : {}),
 			...(input.mode ? { mode: input.mode.slice(0, 16) } : {}),
 			...(input.scheduleId ? { scheduleId: input.scheduleId.slice(0, 64) } : {}),
+			...(input.conversationId ? { conversationId: input.conversationId.slice(0, 64) } : {}),
 			...(context.ip ? { ip: context.ip } : {}),
 			...(context.userAgent ? { userAgent: context.userAgent.slice(0, 256) } : {}),
 			at: new Date(),

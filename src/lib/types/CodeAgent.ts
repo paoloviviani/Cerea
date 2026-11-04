@@ -501,6 +501,8 @@ export interface CodeAuditEntry {
 	outcome?: string;
 	/** The schedule an agent's `schedule.*` call touched. */
 	scheduleId?: string;
+	/** The chat conversation that started or prompted a session (`agent.start`, `agent.send`; ADR 0106). */
+	conversationId?: string;
 	ip?: string;
 	userAgent?: string;
 	at: Date;

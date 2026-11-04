@@ -77,6 +77,11 @@ const BUILTIN_TABLE: Record<string, "external" | "internal"> = {
 	forget_for_project: "internal",
 	delegate: "internal",
 	research: "internal",
+	// What an agent session wrote from repository content is outside text; the rest only acts or lists.
+	agent_read: "external",
+	agent_sessions: "internal",
+	agent_start: "internal",
+	agent_send: "internal",
 	// Built where the turn's skills and connectors are resolved, not here.
 	load_tools: "internal",
 	load_skill: "internal",
@@ -97,6 +102,7 @@ function everyBuiltin(): BuiltinTool[] {
 		projectMemoryProjectId: new ObjectId(),
 		modelArtifacts: { supportsArtifacts: true, supportsTools: true, artifactsMode: "tool" },
 		delegation: { models: [{ id: "m", name: "m" } as never] },
+		agentSessions: {},
 		documentCapabilities: {
 			formats: {
 				docx: { outline: true, read: true, operations: ["replace_text"] },
