@@ -9,6 +9,7 @@ import {
 	signOutRedirect,
 } from "$lib/stores/codeReauth.svelte";
 import { codeNav } from "$lib/stores/codeNav.svelte";
+import { codeNeedsYou, publishPending, clearPending } from "$lib/stores/codeNeedsYou.svelte";
 import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
 
 // NavMenu mounts the sidebar tree, whose project rows read the
@@ -353,6 +354,37 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		// No tree: the tree's own markers and its pairing control are absent.
 		expect(host.querySelector('[data-testid="device-rail"]')).toBeNull();
 		expect((host.textContent ?? "").replace(/\s+/g, " ")).not.toContain("Pair a machine");
+	});
+
+	it("badges the Agents option with the asks waiting, and names the count for a screen reader", async () => {
+		stubFetch({
+			enabled: true,
+			fresh: true,
+			reauthPath: "/login?reauth=1&next=/code",
+			freshUntil: new Date(Date.now() + 3_600_000).toISOString(),
+		});
+		mount("/");
+		const agents = () => host.querySelector('[data-testid="sidebar-view-agents"]');
+		await vi.waitFor(() => expect(agents()).not.toBeNull());
+		expect(host.querySelector('[data-testid="sidebar-agents-badge"]')).toBeNull();
+		expect(agents()?.getAttribute("aria-label")).toBeNull();
+		publishPending([
+			{ deviceId: "d1", sessionId: "a1" },
+			{ deviceId: "d1", sessionId: "a2" },
+		]);
+		await vi.waitFor(() =>
+			expect(host.querySelector('[data-testid="sidebar-agents-badge"]')?.textContent).toBe("2")
+		);
+		expect(agents()?.getAttribute("aria-label")).toBe("Agents, 2 need you");
+		publishPending([{ deviceId: "d1", sessionId: "a1" }]);
+		await vi.waitFor(() =>
+			expect(agents()?.getAttribute("aria-label")).toBe("Agents, 1 needs you")
+		);
+		clearPending();
+		await vi.waitFor(() =>
+			expect(host.querySelector('[data-testid="sidebar-agents-badge"]')).toBeNull()
+		);
+		expect(codeNeedsYou.pending).toHaveLength(0);
 	});
 
 	it("draws the tree once the sign-in is known to be fresh, and drops it when a call finds it stale", async () => {

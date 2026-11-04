@@ -25,6 +25,7 @@
 	import { watchChunkErrors } from "$lib/utils/appReload";
 	import { onAppResume } from "$lib/utils/appResume";
 	import NavMenu from "$lib/components/NavMenu.svelte";
+	import NeedsYouShell from "$lib/components/code/NeedsYouShell.svelte";
 	import NavigationLoadingBar from "$lib/components/NavigationLoadingBar.svelte";
 	import MobileNav from "$lib/components/MobileNav.svelte";
 	import ExpandNavigation from "$lib/components/ExpandNavigation.svelte";
@@ -354,7 +355,22 @@
 	<GenerationLiveWatcher />
 	<NotificationToasts />
 	<UpdateBanner show={updated.current} />
-	{@render children?.()}
+	<!-- The main column: the app-wide Needs-you bar (nothing, until an agent
+	     asks) above the page. The inner grid is the cell the page always had,
+	     so a page lays out exactly as it did when it was a child of the shell.
+	     Both wrappers are pointer-events-none and hand the page's own roots
+	     pointer events back (at zero specificity, so a root that sets its own,
+	     like the chat's, keeps it): the chat's message column paints below
+	     in-flow boxes, and a wrapper that took clicks would swallow the
+	     composer's. The bar re-enables its own. -->
+	<div class="pointer-events-none flex min-h-0 min-w-0 flex-col">
+		<NeedsYouShell enabled={data.codeAgentsEnabled === true} />
+		<div
+			class="pointer-events-none grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] [:where(&)>*]:pointer-events-auto"
+		>
+			{@render children?.()}
+		</div>
+	</div>
 
 	{#if publicConfig.PUBLIC_PLAUSIBLE_SCRIPT_URL}
 		<script>

@@ -110,7 +110,11 @@ export function useCodeDevicePoll(): () => void {
 	refCount += 1;
 	if (refCount === 1) {
 		void refreshCodeDevices({ ifStale: true });
-		pollHandle = setInterval(() => void refreshCodeDevices(), POLL_MS);
+		// A hidden tab asks nothing; `onAppResume` below re-reads on return.
+		pollHandle = setInterval(() => {
+			if (typeof document !== "undefined" && document.hidden) return;
+			void refreshCodeDevices();
+		}, POLL_MS);
 		// A sleeping tab's interval is throttled or frozen: re-read the moment
 		// the app is back, and let a returning sign-in clear the stale flag.
 		stopResume = onAppResume(() => {

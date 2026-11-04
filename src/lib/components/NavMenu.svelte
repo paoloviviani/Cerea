@@ -80,6 +80,7 @@
 	import CodeReauthCard from "./code/CodeReauthCard.svelte";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
+	import { codeNeedsYou } from "$lib/stores/codeNeedsYou.svelte";
 	import { loadCodeStatus } from "$lib/codeApi";
 
 	/** The bottom block's rows, which are all the same shape. */
@@ -220,6 +221,11 @@
 		if (codeAgentsEnabled) void loadCodeStatus();
 	});
 
+	// Asks waiting across the machines, from the Needs-you bar (nothing is
+	// published without /code or with a stale sign-in).
+	const needsYouCount = $derived(
+		codeAgentsEnabled && !codeReauth.required ? codeNeedsYou.pending.length : 0
+	);
 	const schedulesActive = $derived(page.url.pathname === `${base}/schedules`);
 	const effectiveView = $derived(
 		codeNav.view === "auto" ? (page.route.id === "/code" ? "agents" : "chats") : codeNav.view
@@ -347,10 +353,21 @@
 				'agents'
 					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
 					: 'text-ink-muted hover:text-ink'}"
+				aria-label={needsYouCount > 0
+					? m["app.nav.agents_needs_you"]({ count: needsYouCount })
+					: undefined}
 				onclick={() => (codeNav.view = "agents")}
 			>
 				<CarbonCode class="size-3.5" />
 				{m["app.nav.agents"]()}
+				{#if needsYouCount > 0}
+					<span
+						data-testid="sidebar-agents-badge"
+						aria-hidden="true"
+						class="min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white"
+						>{needsYouCount}</span
+					>
+				{/if}
 			</button>
 		</div>
 	</div>

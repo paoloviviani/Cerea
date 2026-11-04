@@ -86,7 +86,7 @@
 		<!-- The Needs-you inbox: pending approvals/questions across machines,
 		     answerable inline with the agent card's own cards, deep-linked to
 		     each ask's session. Renders nothing when nothing is waiting. -->
-		<NeedsYouInbox />
+		<NeedsYouInbox publish />
 	{/if}
 	{#if !enabled}
 		<div class="pointer-events-auto {s.EMPTY}">

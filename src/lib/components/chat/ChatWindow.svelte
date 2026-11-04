@@ -45,6 +45,10 @@
 	import SystemPromptModal from "../SystemPromptModal.svelte";
 	import ChatIntroduction from "./ChatIntroduction.svelte";
 	import ComposerFileChips from "./ComposerFileChips.svelte";
+	import NeedsYouInbox from "$lib/components/code/NeedsYouInbox.svelte";
+	import { codeReauth } from "$lib/stores/codeReauth.svelte";
+	import { useCodeDevicePoll } from "$lib/stores/codeDeviceList.svelte";
+	import { agentSessionsOf } from "$lib/utils/agentSessionsOf";
 	import { FileDrag } from "$lib/utils/fileDrag.svelte";
 	import { pastedAttachments } from "$lib/utils/composerFiles";
 	import { chatDraftKey } from "$lib/utils/composerDraft";
@@ -202,6 +206,19 @@
 	let featureAnnouncement = $derived(
 		getActiveAnnouncement(publicConfig.PUBLIC_FEATURE_ANNOUNCEMENTS)
 	);
+	// The sessions this conversation started or prompted: their pending asks
+	// are pinned above the composer (answerable there), and the app-wide
+	// Needs-you bar leaves them out. Only with /code on and a fresh sign-in.
+	let agentSessions = $derived(agentSessionsOf(messages));
+	let pinAsks = $derived(
+		page.data.codeAgentsEnabled === true &&
+			codeReauth.checked &&
+			!codeReauth.required &&
+			agentSessions.length > 0
+	);
+	$effect(() => {
+		if (pinAsks) return useCodeDevicePoll();
+	});
 	let showFeatureAnnouncement = $derived(page.route.id === "/" && !messages.length && !loading);
 
 	// Artifacts: fold <artifact> operations from the visible message path into a
@@ -737,6 +754,9 @@
 			<ComposerFileChips bind:files hidden={loading} />
 
 			<div class="w-full">
+				{#if pinAsks}
+					<NeedsYouInbox sessions={agentSessions} />
+				{/if}
 				{#if askQuestion}
 					<AskQuestion conversationId={askQuestion.conversationId} request={askQuestion.request} />
 				{/if}

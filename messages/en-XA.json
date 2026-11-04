@@ -988,6 +988,21 @@
 	"app.move_to_project.title": "[Ḿóǚé ťó þŕóĵéćť]",
 	"app.nav.admin": "[Áďḿíń]",
 	"app.nav.agents": "[Áǧéńťś]",
+	"app.nav.agents_needs_you": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[Áǧéńťś, {count} ńééďś ýóú]",
+				"countPlural=other": "[Áǧéńťś, {count} ńééď ýóú]"
+			}
+		}
+	],
 	"app.nav.chats": "[Ćȟáťś]",
 	"app.nav.group_month": "[Ťȟíś ḿóńťȟ]",
 	"app.nav.group_older": "[Óľďéŕ]",

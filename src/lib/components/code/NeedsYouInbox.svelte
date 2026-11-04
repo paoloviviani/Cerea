@@ -24,6 +24,23 @@
 	only those pending the bar is not drawn, and it lists them again the moment
 	the person opens another session.
 
+	The same component serves three places, selected by props:
+
+	- On /code (no props) it is the bar described above.
+	- App-wide (`scroll`, `publish`, mounted by `NeedsYouShell` in the app
+	  shell on every other page): the same collapsed bar, its list capped in
+	  height so an expanded one never pushes the page out of view. It also
+	  leaves out the sessions another instance has claimed on this screen,
+	  and it publishes what is pending (`codeNeedsYou`) so the sidebar can
+	  badge the Agents option.
+	- Pinned (`sessions`, above the composer of a chat that started or
+	  prompted agent sessions): lists only the asks of those sessions,
+	  expanded by default (they are the reason the person is here) and
+	  claims them, so the app-wide bar does not list them again.
+
+	Nothing is requested while the tab is hidden: a poll tick is skipped and
+	the first visible moment re-reads.
+
 	Asks persist on the machine — there is deliberately no server-side queue
 	here, only a read of live state. An unattended run that stalls on an ask
 	is expected: the composer's Allow setting is the answer for those, not this
@@ -35,6 +52,13 @@
 	import { replyOutcome } from "$lib/utils/permissionReply";
 	import { browser } from "$app/environment";
 	import { page } from "$app/state";
+	import {
+		claimSessions,
+		clearPending,
+		isClaimed,
+		publishPending,
+		type SessionRef,
+	} from "$lib/stores/codeNeedsYou.svelte";
 	import IconChevronDown from "~icons/carbon/chevron-down";
 	import IconLaunch from "~icons/carbon/launch";
 	import ToolApprovalCard from "$lib/components/chat/ToolApprovalCard.svelte";
@@ -86,6 +110,18 @@
 
 	type InboxItem = InboxPermissionItem | InboxQuestionItem;
 
+	interface Props {
+		/** Only these sessions' asks, expanded by default, claimed from the app-wide bar. */
+		sessions?: SessionRef[];
+		/** Publish what is pending for the sidebar badge (one instance per screen). */
+		publish?: boolean;
+		/** Cap the expanded list's height and scroll inside it. */
+		scroll?: boolean;
+	}
+
+	let { sessions, publish = false, scroll = false }: Props = $props();
+	const pinned = $derived(sessions !== undefined);
+
 	const POLL_MS = 8000;
 
 	let items = $state<InboxItem[]>([]);
@@ -100,9 +136,11 @@
 			return false;
 		}
 	}
-	let collapsed = $state(!readExpanded());
+	// Pinned asks start expanded and keep the choice for this view only.
+	let collapsed = $state(untrack(() => (sessions !== undefined ? false : !readExpanded())));
 	function toggleCollapsed() {
 		collapsed = !collapsed;
+		if (pinned) return;
 		try {
 			if (collapsed) globalThis.sessionStorage?.removeItem(EXPANDED_KEY);
 			else globalThis.sessionStorage?.setItem(EXPANDED_KEY, "1");
@@ -124,7 +162,15 @@
 	const openDeviceId = $derived(page.url.searchParams.get("device"));
 	const openAgentId = $derived(page.url.searchParams.get("agent"));
 	const listed = $derived(
-		items.filter((item) => !(item.deviceId === openDeviceId && item.sessionId === openAgentId))
+		sessions
+			? items.filter((item) =>
+					sessions.some((s) => s.deviceId === item.deviceId && s.sessionId === item.sessionId)
+				)
+			: items.filter(
+					(item) =>
+						!(item.deviceId === openDeviceId && item.sessionId === openAgentId) &&
+						!isClaimed({ deviceId: item.deviceId, sessionId: item.sessionId })
+				)
 	);
 	let count = $derived(listed.length);
 
@@ -164,6 +210,8 @@
 	}
 
 	async function refresh() {
+		// A hidden tab asks nothing; the visibility handler re-reads on return.
+		if (browser && document.hidden) return;
 		const seq = ++fetchSeq;
 		const devices = untrack(() => eligibleDevices);
 		if (devices.length === 0) {
@@ -369,11 +417,37 @@
 		}
 	}
 
+	$effect(() => {
+		if (!publish) return;
+		publishPending(items.map((i) => ({ deviceId: i.deviceId, sessionId: i.sessionId })));
+	});
+	$effect(() => {
+		if (!publish) return;
+		return clearPending;
+	});
+	$effect(() => {
+		if (!sessions) return;
+		return claimSessions(sessions);
+	});
+
+	// Read as soon as there is a machine to ask, and again when the set of
+	// eligible machines changes (the device list may land after this mounts,
+	// as it does in the app shell); between those, the poll tick keeps it fresh.
+	const eligibleKey = $derived(eligibleDevices.map((d) => d.id).join(","));
+	$effect(() => {
+		void eligibleKey;
+		untrack(() => void refresh());
+	});
+
 	onMount(() => {
 		if (!browser) return;
-		void refresh();
 		const timer = setInterval(() => void refresh(), POLL_MS);
+		const onVisible = () => {
+			if (!document.hidden) void refresh();
+		};
+		document.addEventListener("visibilitychange", onVisible);
 		return () => {
+			document.removeEventListener("visibilitychange", onVisible);
 			clearInterval(timer);
 			fetchSeq += 1;
 			for (const abort of tails.values()) abort.abort();
@@ -390,10 +464,12 @@
 	     the same touch targets they already use on an agent card. -->
 	<section
 		aria-label={m["code.inbox.label"]()}
-		data-testid="needs-you-inbox"
-		class="pointer-events-auto border-b border-line bg-amber-50/60 dark:bg-amber-950/20"
+		data-testid={pinned ? "needs-you-pinned" : "needs-you-inbox"}
+		class="pointer-events-auto bg-amber-50/60 dark:bg-amber-950/20 {pinned
+			? 'mb-3 rounded-xl border border-amber-200 dark:border-amber-900/50'
+			: 'border-b border-line'}"
 	>
-		<div class="mx-auto w-full max-w-4xl px-4 py-1.5">
+		<div class="mx-auto w-full {pinned ? 'px-3' : 'max-w-4xl px-4'} py-1.5">
 			<button
 				type="button"
 				class="flex min-h-11 w-full items-center gap-2 text-left"
@@ -414,7 +490,11 @@
 				/>
 			</button>
 			{#if !collapsed}
-				<ul class="mt-2 flex flex-col gap-4 pb-1">
+				<ul
+					class="mt-2 scrollbar-custom flex flex-col gap-4 pb-1 {pinned || scroll
+						? 'max-h-[45dvh] overflow-y-auto'
+						: ''}"
+				>
 					{#each listed as item (item.key)}
 						<li
 							class="rounded-xl border border-amber-200 bg-white p-3 shadow-sm dark:border-amber-900/50 dark:bg-gray-900"
