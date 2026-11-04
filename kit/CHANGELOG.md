@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.40.1 — 2026-11-04
+
+Pins: Cerea `0.40.1` (chat and `cerea-documents`), Pystino `0.25.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. No galopin update is needed for this release.
 
 - Agent approvals and questions now show up on every page, not only in /code: a "N need you" bar at the
   top of the page, a badge on **Agents** in the sidebar, and, in a chat that started or prompted an agent
