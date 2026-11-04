@@ -149,7 +149,14 @@ describe("the switcher on the pages", () => {
 		await expect.element(trigger()).toHaveTextContent("Web");
 		await trigger().click();
 		// Knowledge hides with its pipeline, as it does in the tab row.
-		expect(sheetLabels()).toEqual(["Web", "Connectors", "Skills", "Assistant", "Storage"]);
+		expect(sheetLabels()).toEqual([
+			"Web",
+			"Connectors",
+			"Skills",
+			"Assistant",
+			"Auto-approval",
+			"Storage",
+		]);
 		admin.unmount();
 
 		renderWithApp(AdminLayout, { data: data(false), children: nothing } as never, {
