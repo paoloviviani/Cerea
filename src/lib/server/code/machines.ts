@@ -63,6 +63,7 @@ import {
 	type Terminal,
 	type TerminalAttachResult,
 	type Notice,
+	type ReplyActor,
 } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
 import { observeMachineEvent, safely } from "$lib/server/push/watch";
@@ -534,6 +535,7 @@ export class MachineLink {
 		requestId: string;
 		decision: "once" | "always" | "reject";
 		message?: string;
+		actor?: ReplyActor;
 	}): Promise<{ alreadyResolved?: boolean }> {
 		return this.call("permission.reply", args);
 	}

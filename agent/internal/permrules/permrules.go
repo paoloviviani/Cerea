@@ -232,7 +232,12 @@ type Exception struct {
 // spawned one and every session of a machine whose policy predates permissions
 // all start there.
 type Selector struct {
-	Mode       Action      `json:"mode,omitempty"`
+	Mode Action `json:"mode,omitempty"`
+	// Auto is the fourth word, "auto" (ADR 0105): the session answers locally
+	// exactly as Ask does (Mode stays ask) and its cards may be answered by a
+	// review model on Cerea's side. It sits between ask and allow in the
+	// permissiveness lattice (WordRank). Setting any other word clears it.
+	Auto       bool        `json:"auto,omitempty"`
 	Exceptions []Exception `json:"exceptions,omitempty"`
 	// Coordination is the grant session.grantCoordination recorded: coordination
 	// tools (CoordinationKeys) whose rule reads `allow` for this session, where
@@ -247,6 +252,40 @@ func (s Selector) Effective() Action {
 		return s.Mode
 	}
 	return Ask
+}
+
+// Word is the selector's wire word: "deny" (Plan), "ask", "auto" or "allow".
+func (s Selector) Word() string {
+	if s.Auto && s.Effective() == Ask {
+		return "auto"
+	}
+	return string(s.Effective())
+}
+
+// WordRank orders the selector's four wire words by how much they permit:
+// deny < ask < auto < allow (PROTOCOL.md §6 "Permissions"). ok is false for
+// anything that is not one of the four.
+func WordRank(word string) (rank int, ok bool) {
+	switch word {
+	case "deny", "plan":
+		return 0, true
+	case "ask":
+		return 1, true
+	case "auto":
+		return 2, true
+	case "allow":
+		return 3, true
+	}
+	return 0, false
+}
+
+// WordWithin reports whether requested is no looser than limit: an Allow
+// session may start auto runs (it could already start allow ones), an Ask
+// session may not. An unknown word is never within anything.
+func WordWithin(requested, limit string) bool {
+	r, ok1 := WordRank(requested)
+	l, ok2 := WordRank(limit)
+	return ok1 && ok2 && r <= l
 }
 
 // Find is the exception with this id.

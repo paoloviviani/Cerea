@@ -46,7 +46,7 @@ func (mc *machine) decidePolicy(rh backend.RuleHost) decide.Policy {
 // from its subagents is decided by.
 func (mc *machine) rootState(rh backend.RuleHost, sessionID string) decide.State {
 	root := mc.mat.RootOf(sessionID)
-	return decide.State{Mode: rh.PermissionMode(root), Exceptions: rh.Exceptions(root), Coordination: rh.Coordination(root)}
+	return decide.State{Mode: rh.PermissionMode(root), Auto: rh.Auto(root), Exceptions: rh.Exceptions(root), Coordination: rh.Coordination(root)}
 }
 
 // decideAsk is the one decision for an ask the backend raised (ADR 0097).
@@ -65,6 +65,31 @@ func (mc *machine) decideAsk(rh backend.RuleHost, dir string, req backend.Permis
 		key, patterns = n.NormalizeAsk(req)
 	}
 	return decide.Decide(mc.decidePolicy(rh), st, decide.Request{Key: key, Patterns: patterns, Workspace: dir})
+}
+
+// decideAskPosture is decideAsk under the machine's posture: with skip on,
+// an ask that would become a card is answered by decide.Skip instead (allow,
+// or one of its three refusals).
+func (mc *machine) decideAskPosture(rh backend.RuleHost, dir string, req backend.PermissionRequest) decide.Result {
+	res := mc.decideAsk(rh, dir, req)
+	if res.Verdict != decide.Card || !mc.skip.Load() {
+		return res
+	}
+	key, patterns := req.Tool, req.Patterns
+	if n, ok := mc.back.(backend.AskNormalizer); ok {
+		key, patterns = n.NormalizeAsk(req)
+	}
+	return decide.Skip(mc.decidePolicy(rh), mc.protected, decide.Request{Key: key, Patterns: patterns, Workspace: dir}, res)
+}
+
+// ceilingForced (PENDING OWNER DECISION, see decide/ceiling.go) says whether the machine's ceiling forced this ask to a
+// person (the mark `ceilingForced` on the ask frame, PROTOCOL.md §7).
+func (mc *machine) ceilingForced(dir string, req backend.PermissionRequest) bool {
+	rh, ok := mc.ruleHost()
+	if !ok {
+		return false
+	}
+	return mc.decideAsk(rh, dir, req).CeilingForced
 }
 
 // installPermissions wires what runs on its own: every permission ask is
@@ -92,13 +117,14 @@ func (mc *machine) installPermissions() {
 		// A child whose parent edge is not known yet resolves to itself and
 		// reads Ask: its ask shows a card instead of running, which fails
 		// toward a person.
-		res := mc.decideAsk(rh, dir, req)
+		res := mc.decideAskPosture(rh, dir, req)
 		if res.Verdict == decide.Card {
 			return false
 		}
 		go mc.answerAsk(dir, req, res)
 		return true
 	})
+	mc.mat.OnAskStamp(mc.ceilingForced)
 }
 
 // answerAsk sends a decided ask's reply, audited as a galopin answer. The ask
@@ -110,14 +136,25 @@ func (mc *machine) answerAsk(dir string, req backend.PermissionRequest, res deci
 	if res.Verdict == decide.Reject {
 		d, msg = backend.DecisionReject, res.Reason
 	}
+	skipped := strings.HasPrefix(res.Step, "skip-")
+	if skipped && res.Verdict == decide.Reject {
+		logf("permissions: skip refused %s ask %s (%s)", req.Tool, req.ID, res.Step)
+	}
 	if err := mc.back.ReplyPermission(ctx, dir, req.SessionID, req.ID, d, msg); err != nil {
 		if !backend.IsNotFound(err) && !errors.Is(err, backend.ErrPermissionGone) {
 			logf("permissions: could not answer ask %s (%s): %v", req.ID, d, err)
 		}
+		if skipped && mc.audit != nil {
+			mc.audit.permissionSkip(req.SessionID, req.ID, req.Tool, string(d), res.Step, false)
+		}
 		return
 	}
 	if mc.audit != nil {
-		mc.audit.permission(req.SessionID, req.ID, req.Tool, string(d), "galopin", false, msg)
+		if skipped {
+			mc.audit.permissionSkip(req.SessionID, req.ID, req.Tool, string(d), res.Step, true)
+		} else {
+			mc.audit.permission(req.SessionID, req.ID, req.Tool, string(d), "galopin", false, msg)
+		}
 	}
 }
 
@@ -139,7 +176,7 @@ func (mc *machine) answerPending(ctx context.Context) {
 		if !ok || dir == "" {
 			continue
 		}
-		if res := mc.decideAsk(rh, dir, req); res.Verdict != decide.Card {
+		if res := mc.decideAskPosture(rh, dir, req); res.Verdict != decide.Card {
 			mc.answerAsk(dir, req, res)
 		}
 	}
@@ -253,7 +290,7 @@ func (mc *machine) exceptionViews(rh backend.RuleHost, sessionID string) []backe
 }
 
 // opSessionSetPermissionMode answers session.setPermissionMode {sessionId,
-// mode}: the Deny / Ask / Allow selector, which covers the whole session until
+// mode}: the Deny / Ask / Auto / Allow selector, which covers the whole session until
 // it is changed. An unknown session is `not_found`, a mode that is not one of
 // the three words `invalid`, and a subagent `invalid` too: it has no selector
 // of its own and follows its root. The change reaches the root and every
@@ -280,9 +317,16 @@ func (mc *machine) opSessionSetPermissionMode(ctx context.Context, args json.Raw
 		// Plan is the selector's first word; "deny" is its wire spelling.
 		a.Mode = "deny"
 	}
+	auto := a.Mode == "auto"
 	mode := permrules.Action(a.Mode)
+	if auto {
+		mode = permrules.Ask
+	}
 	if !mode.Valid() {
-		return nil, opErrf("invalid", "mode must be deny (Plan), ask or allow, got %q", a.Mode)
+		return nil, opErrf("invalid", "mode must be deny (Plan), ask, auto or allow, got %q", a.Mode)
+	}
+	if auto && !mc.pol.AutoPermission {
+		return nil, opErrf("forbidden", "this machine's policy does not allow Auto (enroll --allow-auto-permission)")
 	}
 	if mc.mat.RootOf(a.SessionID) != a.SessionID {
 		return nil, opErrf("invalid", "a subagent follows its root: set the mode on session %s", mc.mat.RootOf(a.SessionID))
@@ -291,10 +335,16 @@ func (mc *machine) opSessionSetPermissionMode(ctx context.Context, args json.Raw
 	if !ok {
 		return nil, opErrf("unsupported", "this backend has no permission selector")
 	}
-	if err := rh.SetPermissionMode(ctx, dir, a.SessionID, mode); err != nil {
+	var err error
+	if auto {
+		err = rh.SetAuto(ctx, dir, a.SessionID, true)
+	} else {
+		err = rh.SetPermissionMode(ctx, dir, a.SessionID, mode)
+	}
+	if err != nil {
 		return nil, backendErr(err)
 	}
-	mc.audit.permissionMode(a.SessionID, string(mode))
+	mc.audit.permissionMode(a.SessionID, a.Mode)
 	if mode == permrules.Deny {
 		// A Plan chosen while asks are showing must not leave cards that
 		// answer into the old word: every ask the materializer still holds
@@ -496,4 +546,47 @@ func watchPolicy(ctx context.Context, path string, live *policy.Live, every time
 			apply(ch)
 		}
 	}
+}
+
+// The reply actor (PROTOCOL.md §6 permission.reply): who gave the answer.
+const (
+	actorUser        = "user"
+	actorReviewModel = "review-model"
+	// maxActorReason caps the reason kept in the audit (display text that may
+	// quote the command the model judged).
+	maxActorReason = 300
+)
+
+// replyActor is permission.reply's optional `actor`. Absent is the user.
+type replyActor struct {
+	Kind    string `json:"kind"`
+	ModelID string `json:"modelId,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// by is the audit's `by` word: "user", or "auto" for a review model.
+func (a replyActor) by() string {
+	if a.Kind == actorReviewModel {
+		return "auto"
+	}
+	return actorUser
+}
+
+// parseActor validates an actor: absent or {kind:"user"} is a person; a
+// review-model needs a model id, and its reason is capped.
+func parseActor(raw *replyActor) (replyActor, *link.OpError) {
+	if raw == nil || raw.Kind == "" || raw.Kind == actorUser {
+		return replyActor{Kind: actorUser}, nil
+	}
+	if raw.Kind != actorReviewModel {
+		return replyActor{}, opErrf("invalid", "actor.kind must be %q or %q, got %q", actorUser, actorReviewModel, raw.Kind)
+	}
+	if raw.ModelID == "" {
+		return replyActor{}, opErrf("invalid", "a review-model actor needs a modelId")
+	}
+	a := *raw
+	if r := []rune(a.Reason); len(r) > maxActorReason {
+		a.Reason = string(r[:maxActorReason])
+	}
+	return a, nil
 }

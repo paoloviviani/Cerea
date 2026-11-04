@@ -5,6 +5,18 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **galopin: `galopin run --dangerously-skip-permissions`.** For one run of the agent, every ask that
+  would be a card is allowed, on every session of that machine, for when nobody is watching (a release
+  train, a batch of workers). It is never saved (a restart without it brings the cards back) and it is
+  refused at start unless the machine was enrolled with `--allow-skip-permissions`. It still refuses galopin's own config
+  and credential paths, writes to CI configuration in the workspace and the stuck-agent loop brake, and each
+  decision is written to the machine's own `audit.log` as `by: skip`. **Machines need the galopin update**
+  (re-run the install line from the pairing dialog, then `systemctl --user restart galopin`); a machine
+  that is not updated has no such flag. The same release teaches galopin the groundwork for an `Auto`
+  permission setting (`--allow-auto-permission`, `--max-per-hour`); nothing in Cerea offers it yet.
+
 ## v0.40.0 — 2026-11-04
 
 Pins: Cerea `0.40.0` (chat and `cerea-documents`), Pystino `0.25.0`.

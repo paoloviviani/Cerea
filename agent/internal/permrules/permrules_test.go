@@ -94,3 +94,35 @@ func TestNormalizeCoordinationAcceptsOnlyTheFourKeys(t *testing.T) {
 		t.Errorf("an empty list is a clear: got %v %q", got, bad)
 	}
 }
+
+// The permissiveness lattice (ADR 0105): deny < ask < auto < allow. An Allow
+// session may start Auto runs; an Ask session may not.
+func TestWordLattice(t *testing.T) {
+	order := []string{"deny", "ask", "auto", "allow"}
+	for i, lo := range order {
+		for j, hi := range order {
+			if got := WordWithin(lo, hi); got != (i <= j) {
+				t.Errorf("WordWithin(%s, %s) = %v, want %v", lo, hi, got, i <= j)
+			}
+		}
+	}
+	if !WordWithin("auto", "allow") || WordWithin("auto", "ask") {
+		t.Error("an Allow session may schedule auto runs; an Ask session may not")
+	}
+	if !WordWithin("plan", "ask") || WordWithin("sudo", "allow") || WordWithin("allow", "sudo") {
+		t.Error("plan is deny's alias; an unknown word is within nothing")
+	}
+}
+
+func TestSelectorWordAndAuto(t *testing.T) {
+	if (Selector{}).Word() != "ask" || (Selector{Mode: Deny}).Word() != "deny" || (Selector{Mode: Allow}).Word() != "allow" {
+		t.Error("the three old words read as they did")
+	}
+	if (Selector{Mode: Ask, Auto: true}).Word() != "auto" || (Selector{Auto: true}).Word() != "auto" {
+		t.Error("Auto with ask (or nothing set) is auto")
+	}
+	// Auto never lifts a stricter word: a Plan session with a stray flag stays Plan.
+	if (Selector{Mode: Deny, Auto: true}).Word() != "deny" {
+		t.Error("Plan beats a stray auto flag")
+	}
+}

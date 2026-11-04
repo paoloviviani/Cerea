@@ -16,7 +16,7 @@ Usage:
   galopin policy set [options] [--creds PATH] [--state-dir PATH]
 
 'set' may only TIGHTEN the policy: turn files, file writes, the terminal, command
-shell or agent tools off, lower a permission ceiling or rule, lower maxTerminals, or add to the file deny list. This file is
+shell or agent tools off, lower a permission ceiling or rule, turn Auto or skip off, lower maxPerHour or maxTerminals, or add to the file deny list. This file is
 never writable over the link (PROTOCOL.md §4); the local CLI keeps that
 same one-way shape, so loosening anything back — files, terminal or
 command shell or file writes back on, a higher maxTerminals, dropping a deny entry —
@@ -33,6 +33,9 @@ refuses and names the 'enroll' re-run that does it instead.
                        on a fresh enroll; takes effect at the next 'run').
    --no-background-subagents  Stop allowing background subagents (they are
                        allowed on a fresh enroll; takes effect at the next 'run').
+   --no-auto-permission  Stop sessions being set to Auto on this machine.
+   --no-allow-skip     Refuse 'galopin run --dangerously-skip-permissions' here.
+   --max-per-hour N    Lower the hourly cap on the review model's answers.
    --no-auto-accept    Does nothing (accepted for one more release): auto-accept
                        no longer exists.
    --permission-max KEY=ACTION  Lower the ceiling for KEY (edit, bash, webfetch,
@@ -110,6 +113,8 @@ func runPolicyShow(args []string) error {
 	fmt.Println(agentToolsPolicySummary(pol))
 	fmt.Println(projectConfigPolicySummary(pol, false))
 	fmt.Println(backgroundSubagentsPolicySummary(pol))
+	fmt.Println(autoPermissionPolicySummary(pol))
+	fmt.Println(skipPolicySummary(pol))
 	fmt.Println(permissionPolicySummary(pol))
 	fmt.Printf("allowFreeModels: %v\n", pol.AllowFreeModels)
 	fmt.Printf("workspaceRoots: %v\n", pol.WorkspaceRoots)
@@ -126,6 +131,9 @@ func runPolicySet(args []string) error {
 	noAgentTools := fs.Bool("no-agent-tools", false, "")
 	noProjectConfig := fs.Bool("no-project-config", false, "")
 	noBackground := fs.Bool("no-background-subagents", false, "")
+	noAutoPermission := fs.Bool("no-auto-permission", false, "")
+	noAllowSkip := fs.Bool("no-allow-skip", false, "")
+	maxPerHour := fs.Int("max-per-hour", 0, "")
 	noAutoAccept := fs.Bool("no-auto-accept", false, "")
 	var permMax, permRules []string
 	fs.Var(stringListFlag{&permMax}, "permission-max", "")
@@ -181,6 +189,22 @@ func runPolicySet(args []string) error {
 	}
 	if *noBackground {
 		pol.BackgroundSubagents = policy.TerminalDenied
+		changed = true
+	}
+	if *noAutoPermission {
+		pol.AutoPermission = false
+		changed = true
+	}
+	if *noAllowSkip {
+		pol.AllowSkip = false
+		changed = true
+	}
+	if *maxPerHour != 0 {
+		current := pol.EffectiveMaxPerHour()
+		if *maxPerHour < 0 || *maxPerHour >= current {
+			return fmt.Errorf("--max-per-hour %d does not tighten the current cap of %d: re-run enroll with --max-per-hour %d to raise it", *maxPerHour, current, *maxPerHour)
+		}
+		pol.MaxPerHour = *maxPerHour
 		changed = true
 	}
 	if *noAutoAccept {
@@ -259,6 +283,8 @@ func runPolicySet(args []string) error {
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, false))
 	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, autoPermissionPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, skipPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, permissionPolicySummary(pol))
 	return nil
 }

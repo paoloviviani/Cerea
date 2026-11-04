@@ -96,6 +96,13 @@ type PolicyInfo struct {
 	// (task background:true): "allowed" or "denied" (default). Older
 	// machines omit it, read as denied: the env flag was never set there.
 	BackgroundSubagents string `json:"backgroundSubagents,omitempty"`
+	// AutoPermission is whether this machine lets a session be set to Auto
+	// (PROTOCOL.md §4, ADR 0105): absent is off, as on a galopin older than
+	// the field.
+	AutoPermission bool `json:"autoPermission,omitempty"`
+	// MaxPerHour is the most asks an hour Cerea's review model may answer for
+	// this machine (default 60). Absent: a galopin older than the field.
+	MaxPerHour int `json:"maxPerHour,omitempty"`
 	// Warnings are machine-level advisories for the device card (today:
 	// opencode global config pinning a model outside Pystino). Absent when
 	// there is nothing to say; a Cerea that predates the field ignores it.
@@ -116,11 +123,15 @@ type MachineInfo struct {
 // Hello is the whole first frame's payload (protocol and type are added by
 // the link itself).
 type Hello struct {
-	Agent          AgentInfo     `json:"agent"`
-	Backends       []BackendInfo `json:"backends"`
-	Machine        MachineInfo   `json:"machine"`
-	Policy         PolicyInfo    `json:"policy"`
-	CredentialInfo string        `json:"-"` // set via SetCredentialState before each dial
+	Agent    AgentInfo     `json:"agent"`
+	Backends []BackendInfo `json:"backends"`
+	Machine  MachineInfo   `json:"machine"`
+	Policy   PolicyInfo    `json:"policy"`
+	// Posture is the machine's process-wide permission posture (PROTOCOL.md
+	// §5): "normal", or "skip" for the life of a `run --dangerously-skip-
+	// permissions` process. Empty sends nothing (an older galopin).
+	Posture        string `json:"posture,omitempty"`
+	CredentialInfo string `json:"-"` // set via SetCredentialState before each dial
 }
 
 // OpError is a req's refusal, encoded as the res frame's "error" object.
@@ -430,7 +441,7 @@ func (l *Link) runOnce(ctx context.Context) error {
 	go sched.run(connCtx)
 
 	hello := l.cfg.Hello()
-	if err := l.writeFrame(connCtx, map[string]any{
+	helloFrame := map[string]any{
 		"type":     "hello",
 		"protocol": 1,
 		"agent":    hello.Agent,
@@ -440,7 +451,11 @@ func (l *Link) runOnce(ctx context.Context) error {
 		"credential": map[string]string{
 			"state": defaultString(hello.CredentialInfo, "ok"),
 		},
-	}); err != nil {
+	}
+	if hello.Posture != "" {
+		helloFrame["posture"] = hello.Posture
+	}
+	if err := l.writeFrame(connCtx, helloFrame); err != nil {
 		return fmt.Errorf("sending hello: %w", err)
 	}
 

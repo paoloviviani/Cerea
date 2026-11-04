@@ -100,6 +100,11 @@ export interface Policy {
 	 * "allowed" (enroll's default) or "denied" (--no-background-subagents; also what an absent field means).
 	 * Older machines omit it: read as denied. */
 	backgroundSubagents?: "allowed" | "denied";
+	/** The owner lets a session be set to Auto (§6, ADR 0105). Absent: off. */
+	autoPermission?: boolean;
+	/** The most asks an hour the review model may answer for this machine; Cerea counts it.
+	 * Absent on an older galopin: Cerea's own default applies. */
+	maxPerHour?: number;
 }
 
 export type MachineMode = "agent" | "connectors";
@@ -118,6 +123,10 @@ export interface Machine {
 	capabilities: {
 		/** The machine has an `mcp.json` and answers the `mcp.*` ops (§10). */
 		mcp?: boolean;
+		/** This galopin understands the fourth permission word `auto`, the reply `actor`
+		 * and `ceilingForced` (§6, ADR 0105). A build fact: whether the owner allows it is
+		 * `policy.autoPermission`. Older machines omit it: read as false. */
+		autoPermission?: boolean;
 		files?: boolean;
 		fileSearch?: boolean;
 		fileWatch?: boolean;
@@ -170,6 +179,18 @@ export type PermissionMode = "deny" | "ask" | "allow";
 
 export const PERMISSION_MODES: readonly PermissionMode[] = ["deny", "ask", "allow"];
 
+/** The selector's four wire words (PROTOCOL.md §6 "Permissions", ADR 0105), loosest last: `auto`
+ * sits between `ask` and `allow` in the permissiveness lattice. `PermissionMode` stays the three
+ * words Cerea sets today; a galopin with capability `autoPermission` may report (and, when policy
+ * allows, accept) `auto` too. */
+export type PermissionWord = PermissionMode | "auto";
+
+export const PERMISSION_WORDS: readonly PermissionWord[] = ["deny", "ask", "auto", "allow"];
+
+export function isPermissionWord(value: unknown): value is PermissionWord {
+	return value === "auto" || isPermissionMode(value);
+}
+
 export interface Session {
 	id: string;
 	workspaceId: string;
@@ -181,7 +202,10 @@ export interface Session {
 	modelId: string | null;
 	/** The session's blanket permission setting (`session.setPermissionMode`).
 	 * A child reports its root's. Absent on a machine that predates the
-	 * selector: the panel then draws no selector at all. */
+	 * selector: the panel then draws no selector at all. A galopin with
+	 * `autoPermission` reports `auto` for a session set to it (a `PermissionWord`);
+	 * nothing in Cerea sets it yet, so the type stays the three words until the
+	 * review service widens it with its UI. */
 	permissionMode?: PermissionMode;
 	/** An earlier Deny stuck in this session's stored rules (opencode keeps
 	 * them forever): subagents started from here have their first turn
@@ -382,6 +406,9 @@ export interface PermissionRequest {
 	callId?: string;
 	messageId?: string;
 	always: string[];
+	/** The machine's ceiling forced this card to a person (§7, ADR 0105): a review model never
+	 * answers it. Absent (an older galopin) is false. */
+	ceilingForced?: boolean;
 }
 
 /**
@@ -813,6 +840,25 @@ export interface HelloFrame {
 	machine?: Machine;
 	policy: Policy;
 	credential: { state: CredentialState };
+	/** The machine's process-wide permission posture (§5): `skip` for the life of a
+	 * `galopin run --dangerously-skip-permissions` process, else `normal`. Absent on an older
+	 * galopin: read as `normal`. `auto-degraded` is Cerea's own derived state and never on the
+	 * wire. A value this build does not know reads as absent. */
+	posture?: string;
+}
+
+/** Who gave a `permission.reply` (§6): absent is a person. galopin records it in its local
+ * audit (`by: "user"` or `"auto"`) and refuses a review-model answer on a session not on Auto,
+ * to a `ceilingForced` card, or to anything but `once`. */
+export type ReplyActor =
+	{ kind: "user" } | { kind: "review-model"; modelId: string; reason: string };
+
+export type MachinePosture = "normal" | "skip";
+
+/** The posture a hello states: `skip` only when it says so, else `normal` (absent, an older
+ * galopin, or a word this build does not know). */
+export function machinePosture(hello: Pick<HelloFrame, "posture">): MachinePosture {
+	return hello.posture === "skip" ? "skip" : "normal";
 }
 
 /** C→M, answering `hello`. */
@@ -1005,6 +1051,8 @@ const policySchema = z.object({
 	maxTerminals: z.number().optional(),
 	agentTools: z.enum(["allowed", "denied"]).optional(),
 	backgroundSubagents: z.enum(["allowed", "denied"]).optional(),
+	autoPermission: z.boolean().optional(),
+	maxPerHour: z.number().int().positive().optional(),
 });
 
 const machineSchema = z.object({
@@ -1027,6 +1075,9 @@ export const helloFrameSchema: z.ZodType<HelloFrame> = z.object({
 	machine: machineSchema.optional(),
 	policy: policySchema,
 	credential: z.object({ state: z.enum(["ok", "expiring", "expired"]) }),
+	// Any string: a posture this build does not know must not drop the whole hello.
+	// Read it through `machinePosture`.
+	posture: z.string().optional(),
 });
 
 // Not annotated `z.ZodType<ResFrame>`: zod infers an object's `unknown`-typed

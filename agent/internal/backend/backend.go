@@ -378,6 +378,13 @@ type RuleHost interface {
 	// SetPermissionMode sets a root session's mode. Nothing is written to the
 	// agent; the change governs the next ask.
 	SetPermissionMode(ctx context.Context, workspaceDir, sessionID string, mode permrules.Action) error
+	// Auto reports whether the session's root is on the fourth word, "auto"
+	// (ADR 0105): decided locally exactly as ask, its cards may be answered by
+	// a review model Cerea runs. PermissionMode reads ask for it.
+	Auto(sessionID string) bool
+	// SetAuto puts a root session on auto (on) or back on ask (off). Nothing is
+	// written to the agent; SetPermissionMode clears it too.
+	SetAuto(ctx context.Context, workspaceDir, sessionID string, on bool) error
 	// Exceptions is the root's exceptions, in the order they were given.
 	Exceptions(sessionID string) []permrules.Exception
 	// AddException records an exception on the session's root (one already

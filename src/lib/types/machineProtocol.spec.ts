@@ -4,7 +4,10 @@ import {
 	isPermissionMode,
 	parseDelegateProfiles,
 	parseMachineFrame,
+	isPermissionWord,
+	machinePosture,
 	parsePermissionRules,
+	PERMISSION_WORDS,
 } from "./machineProtocol";
 
 const CAPABILITIES = {
@@ -218,5 +221,57 @@ describe("delegate profiles", () => {
 			default: null,
 			profiles: {},
 		});
+	});
+});
+
+// ADR 0105: the fields a galopin with auto permissions adds. Every one is optional and advertised;
+// Cerea's hello schema drops unknown keys, so each must be named there to be seen at all.
+describe("auto permissions fields (ADR 0105)", () => {
+	const full = {
+		...hello({
+			workspaceRoots: [],
+			allowFreeModels: false,
+			autoPermission: true,
+			maxPerHour: 30,
+		}),
+		machine: { capabilities: { files: true, autoPermission: true } },
+		posture: "skip",
+	};
+
+	it("new galopin, new Cerea: the capability, the policy fields and the posture are all seen", () => {
+		const parsed = parseMachineFrame(full);
+		if (parsed?.type !== "hello") throw new Error("hello expected");
+		expect(parsed.machine?.capabilities.autoPermission).toBe(true);
+		expect(parsed.policy.autoPermission).toBe(true);
+		expect(parsed.policy.maxPerHour).toBe(30);
+		expect(machinePosture(parsed)).toBe("skip");
+	});
+
+	it("old galopin, new Cerea: a hello without any of them still connects, reading off and normal", () => {
+		const parsed = parseMachineFrame(hello({ workspaceRoots: [], allowFreeModels: false }));
+		if (parsed?.type !== "hello") throw new Error("hello expected");
+		expect(parsed.machine?.capabilities.autoPermission).toBeUndefined();
+		expect(parsed.policy.autoPermission).toBeUndefined();
+		expect(parsed.policy.maxPerHour).toBeUndefined();
+		expect(machinePosture(parsed)).toBe("normal");
+	});
+
+	it("a posture a newer galopin invents does not drop the hello", () => {
+		const parsed = parseMachineFrame({ ...full, posture: "paranoid" });
+		if (parsed?.type !== "hello") throw new Error("hello expected");
+		expect(machinePosture(parsed)).toBe("normal");
+	});
+
+	it("a malformed maxPerHour is a malformed hello, like any other policy field", () => {
+		expect(
+			parseMachineFrame(hello({ workspaceRoots: [], allowFreeModels: false, maxPerHour: 0 }))
+		).toBeNull();
+	});
+
+	it("the lattice words run deny < ask < auto < allow, and auto is a word", () => {
+		expect(PERMISSION_WORDS).toEqual(["deny", "ask", "auto", "allow"]);
+		expect(isPermissionWord("auto")).toBe(true);
+		expect(isPermissionMode("auto")).toBe(false); // the three words Cerea sets today
+		expect(isPermissionWord("sudo")).toBe(false);
 	});
 });

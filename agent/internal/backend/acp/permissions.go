@@ -81,13 +81,24 @@ func (b *Backend) NormalizeAsk(req backend.PermissionRequest) (string, []string)
 }
 
 func (b *Backend) AgentRules(_ context.Context, _, sessionID string) (backend.RuleLayers, error) {
-	return backend.RuleLayers{Mode: string(b.sels.get(sessionID).Effective())}, nil
+	return backend.RuleLayers{Mode: b.sels.get(sessionID).Word()}, nil
 }
 func (b *Backend) PermissionMode(sessionID string) permrules.Action {
 	return b.sels.get(sessionID).Effective()
 }
 func (b *Backend) SetPermissionMode(_ context.Context, _, sessionID string, mode permrules.Action) error {
-	b.sels.update(sessionID, func(s permrules.Selector) permrules.Selector { s.Mode = mode; return s })
+	b.sels.update(sessionID, func(s permrules.Selector) permrules.Selector { s.Mode = mode; s.Auto = false; return s })
+	return nil
+}
+func (b *Backend) Auto(sessionID string) bool { return b.sels.get(sessionID).Word() == "auto" }
+func (b *Backend) SetAuto(_ context.Context, _, sessionID string, on bool) error {
+	b.sels.update(sessionID, func(s permrules.Selector) permrules.Selector {
+		s.Auto = on
+		if on {
+			s.Mode = permrules.Ask
+		}
+		return s
+	})
 	return nil
 }
 func (b *Backend) Exceptions(sessionID string) []permrules.Exception {

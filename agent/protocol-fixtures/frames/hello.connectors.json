@@ -24,7 +24,8 @@
 				"fileWrite": false,
 				"terminal": false,
 				"delegateProfiles": false,
-				"mcp": true
+				"mcp": true,
+				"autoPermission": false
 			}
 		},
 		"policy": {
@@ -45,10 +46,12 @@
 			"agentTools": "allowed",
 			"projectConfig": "denied",
 			"backgroundSubagents": "allowed",
-			"warnings": ["opencode global config pins a model outside Pystino"]
+			"warnings": ["opencode global config pins a model outside Pystino"],
+			"maxPerHour": 60
 		},
 		"credential": {
 			"state": "ok"
-		}
+		},
+		"posture": "normal"
 	}
 }

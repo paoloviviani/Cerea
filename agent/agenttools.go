@@ -553,10 +553,14 @@ func (at *agentTools) spawnCore(ctx context.Context, tc *toolCaller, call backen
 	// The child's starting word: the caller's. Backends without a selector
 	// (ACP) have no word to read — the child keeps the backend's default.
 	childWord := permrules.Ask
+	childAuto := false
 	if rh, ok := at.mc.back.(backend.RuleHost); ok {
 		if word := rh.PermissionMode(tc.session.ID); word.Valid() {
 			childWord = word
 		}
+		// An Auto spawner makes an Auto child, never a looser one; policy that
+		// has since turned Auto off leaves the child on Ask.
+		childAuto = rh.Auto(tc.session.ID) && at.mc.pol.AutoPermission
 	}
 
 	// Fork-bomb limits, all before any ask is raised.
@@ -592,7 +596,7 @@ func (at *agentTools) spawnCore(ctx context.Context, tc *toolCaller, call backen
 	auto := grant == permrules.Allow && !escalates
 	meta := map[string]any{
 		"title": title, "modeId": modeLabel(childMode), "modelId": nilIfEmpty(childModel),
-		"workspaceId": tc.workspaceID, "prompt": prompt, "permissionMode": string(childWord),
+		"workspaceId": tc.workspaceID, "prompt": prompt, "permissionMode": childWordName(childWord, childAuto),
 	}
 	if profName != "" {
 		meta["profile"] = profName
@@ -632,7 +636,11 @@ func (at *agentTools) spawnCore(ctx context.Context, tc *toolCaller, call backen
 	// same way it caps the caller (it is composed last when the rules are
 	// re-applied). Both stay unset for backends without a selector.
 	if rh, ok := at.mc.back.(backend.RuleHost); ok {
-		if childWord != permrules.Ask {
+		if childAuto {
+			if err := rh.SetAuto(ctx, tc.dir, child.ID, true); err != nil {
+				return "", child.ID, refuse("the new session %q was created but its permission word was not inherited: %v", child.ID, err)
+			}
+		} else if childWord != permrules.Ask {
 			if err := rh.SetPermissionMode(ctx, tc.dir, child.ID, childWord); err != nil {
 				return "", child.ID, refuse("the new session %q was created but its permission word was not inherited: %v", child.ID, err)
 			}
@@ -678,7 +686,7 @@ func (at *agentTools) spawnCore(ctx context.Context, tc *toolCaller, call backen
 	}
 	result := map[string]any{
 		"sessionId": child.ID, "title": title, "mode": modeLabel(childMode),
-		"permissionMode": string(childWord),
+		"permissionMode": childWordName(childWord, childAuto),
 	}
 	if profName != "" {
 		result["profile"] = profName
@@ -873,4 +881,12 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 		return `{"autoApproved":true}`, targetID, nil
 	}
 	return "{}", targetID, nil
+}
+
+// childWordName is the word a spawned session starts on, as the card shows it.
+func childWordName(word permrules.Action, auto bool) string {
+	if auto {
+		return "auto"
+	}
+	return string(word)
 }

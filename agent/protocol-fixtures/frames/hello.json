@@ -1,6 +1,6 @@
 {
 	"_meta": {
-		"spec": "§5 (hello), §4 (Policy), §9 (Machine), §10.2 (mode, mcp)",
+		"spec": "§5 (hello, posture), §4 (Policy), §9 (Machine), §10.2 (mode, mcp), §6 Permissions (autoPermission)",
 		"direction": "M→C",
 		"note": "every field current galopin sends"
 	},
@@ -48,7 +48,8 @@
 				"fileWrite": true,
 				"terminal": true,
 				"delegateProfiles": true,
-				"mcp": true
+				"mcp": true,
+				"autoPermission": true
 			},
 			"mode": "agent"
 		},
@@ -70,10 +71,13 @@
 			"agentTools": "allowed",
 			"projectConfig": "denied",
 			"backgroundSubagents": "allowed",
-			"warnings": ["opencode global config pins a model outside Pystino"]
+			"warnings": ["opencode global config pins a model outside Pystino"],
+			"autoPermission": true,
+			"maxPerHour": 60
 		},
 		"credential": {
 			"state": "ok"
-		}
+		},
+		"posture": "normal"
 	}
 }

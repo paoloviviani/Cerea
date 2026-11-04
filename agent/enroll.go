@@ -82,6 +82,18 @@ Usage:
                 galopin never sets OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS,
                 so a task with background:true fails closed inside opencode.
                 --allow-background-subagents restates the default.
+  --allow-auto-permission  Let a session be set to Auto (default: off). Auto
+               decides on this machine exactly as Ask does; Cerea may then have
+               a review model answer the cards it is allowed to (never one the
+               ceiling forces). The machine tells Cerea it allows it.
+  --max-per-hour N  How many asks an hour Cerea's review model may answer for
+               this machine (default 60). Cerea counts and enforces it.
+  --allow-skip-permissions  Allow 'galopin run --dangerously-skip-permissions'
+               on this machine (default: off, the flag is then refused at
+               start). Skip answers allow to every ask that would be a card,
+               for the life of that process, except what the ceiling caps,
+               galopin's own config, credentials, CI configuration and the
+               runaway-loop brake (README "Skipping permissions").
   --allow-auto-accept  Does nothing, and is accepted for one more release so
                existing scripts keep working. Auto-accept is gone: a session
                now has a Deny / Ask / Allow selector in the /code composer
@@ -215,6 +227,9 @@ type enrollOptions struct {
 	noCommandShell         bool
 	noBackground           bool
 	maxTerminals           int
+	allowAutoPermission    bool
+	allowSkipPermissions   bool
+	maxPerHour             int
 	yes                    bool
 }
 
@@ -282,6 +297,9 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.BoolVar(&opts.allowProjectConfig, "allow-project-config", false, "")
 	fs.BoolVar(&opts.allowBackground, "allow-background-subagents", true, "")
 	fs.IntVar(&opts.maxTerminals, "max-terminals", policy.DefaultMaxTerminals, "")
+	fs.BoolVar(&opts.allowAutoPermission, "allow-auto-permission", false, "")
+	fs.BoolVar(&opts.allowSkipPermissions, "allow-skip-permissions", false, "")
+	fs.IntVar(&opts.maxPerHour, "max-per-hour", policy.DefaultMaxPerHour, "")
 	fs.BoolVar(&opts.yes, "yes", false, "")
 	return fs, noDiscover
 }
@@ -552,6 +570,8 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, opts.allowOpencodeProviders))
 	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, autoPermissionPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, skipPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, permissionPolicySummary(pol))
 	if w := pol.Permission.IncoherentCeiling(); w != "" {
 		fmt.Fprintln(os.Stderr, "warning: "+w+".")
@@ -840,6 +860,22 @@ func commandShellPolicySummary(pol policy.Policy) string {
 
 // backgroundSubagentsPolicySummary says, in plain words, whether opencode
 // may run background subagents on this machine.
+func autoPermissionPolicySummary(pol policy.Policy) string {
+	on := "DENIED — a session cannot be set to Auto."
+	if pol.AutoPermission {
+		on = "ALLOWED — a session may be set to Auto (decided here exactly as Ask; Cerea's review model may answer cards the ceiling does not force)."
+	}
+	return fmt.Sprintf("Auto permission: %s Review answers per hour (maxPerHour): %d.", on, pol.EffectiveMaxPerHour())
+}
+
+// skipPolicySummary says whether `run --dangerously-skip-permissions` may start.
+func skipPolicySummary(pol policy.Policy) string {
+	if !pol.AllowSkip {
+		return "Skip permissions: DENIED — 'galopin run --dangerously-skip-permissions' is refused at start (enroll --allow-skip-permissions allows it)."
+	}
+	return "Skip permissions: ALLOWED — 'galopin run --dangerously-skip-permissions' may start; for that process every ask that would be a card is allowed, except the ceiling, galopin's own config, credentials, CI configuration and the loop brake."
+}
+
 func backgroundSubagentsPolicySummary(pol policy.Policy) string {
 	if !pol.BackgroundSubagentsAllowed() {
 		return "Background subagents: DENIED — OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS is never set, so a task with background:true fails closed."
@@ -900,6 +936,11 @@ func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 		pol.BackgroundSubagents = policy.TerminalAllowed
 	}
 	pol.MaxTerminals = opts.maxTerminals
+	pol.AutoPermission = opts.allowAutoPermission
+	pol.AllowSkip = opts.allowSkipPermissions
+	if opts.maxPerHour != policy.DefaultMaxPerHour && opts.maxPerHour > 0 {
+		pol.MaxPerHour = opts.maxPerHour
+	}
 	return pol, nil
 }
 

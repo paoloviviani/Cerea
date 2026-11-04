@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"galopin/internal/backend"
@@ -67,6 +68,11 @@ type machine struct {
 	mcp *mcpconn.Hub
 	// mcpIdle overrides the connector idle timeout (zero: the default); tests.
 	mcpIdle time.Duration
+	// skip is the process-wide skip posture (`run --dangerously-skip-permissions`,
+	// ADR 0105 §1): never persisted, it lives and dies with this process.
+	// protected is the Reject list skip shares with auto's escalate list.
+	skip      atomic.Bool
+	protected decide.Protected
 }
 
 func newMachine(reg *workspaces.Registry, back backend.Backend, mat *sessions.Materializer, pol policy.Policy) *machine {
@@ -721,6 +727,9 @@ func (mc *machine) permissionMode(sessionID string) string {
 	if !ok {
 		return ""
 	}
+	if rh.Auto(sessionID) {
+		return "auto"
+	}
 	return string(rh.PermissionMode(sessionID))
 }
 
@@ -1094,13 +1103,18 @@ func (mc *machine) opSessionCompact(ctx context.Context, args json.RawMessage) (
 
 func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
-		SessionID string `json:"sessionId"`
-		RequestID string `json:"requestId"`
-		Decision  string `json:"decision"`
-		Message   string `json:"message,omitempty"`
+		SessionID string      `json:"sessionId"`
+		RequestID string      `json:"requestId"`
+		Decision  string      `json:"decision"`
+		Message   string      `json:"message,omitempty"`
+		Actor     *replyActor `json:"actor,omitempty"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, invalidArgs(err)
+	}
+	actor, operr := parseActor(a.Actor)
+	if operr != nil {
+		return nil, operr
 	}
 	dir, _, operr := mc.resolveSession(a.SessionID)
 	if operr != nil {
@@ -1111,6 +1125,24 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	tool := ""
 	if asked != nil {
 		tool = asked.Tool
+	}
+	if actor.Kind == actorReviewModel {
+		// A review model only ever allows once, only on a session that is on
+		// Auto, and never what the ceiling forces to a person (ADR 0105): the
+		// machine holds these lines itself, whatever Cerea decided.
+		if a.Decision != string(backend.DecisionOnce) {
+			return nil, opErrf("invalid", "a review model answers once, not %q", a.Decision)
+		}
+		rh, ok := mc.ruleHost()
+		if !ok || !rh.Auto(a.SessionID) {
+			return nil, opErrf("forbidden", "session %s is not on Auto: a review model may not answer its asks", a.SessionID)
+		}
+		if asked != nil && !strings.HasPrefix(a.RequestID, "gp_") && mc.decideAsk(rh, dir, *asked).CeilingForced {
+			return nil, opErrf("forbidden", "this ask needs a person: this machine's policy does not let a review model answer it")
+		}
+		if strings.HasPrefix(a.RequestID, "gp_") {
+			return nil, opErrf("forbidden", "galopin's own tool approvals are answered by a person")
+		}
 	}
 	decision, capped := mc.capDecision(tool, backend.Decision(a.Decision))
 	// A card answered after the ceiling tightened under it: an approval never
@@ -1147,11 +1179,12 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 			// Already resolved (the machine answered it for a root that allows
 			// it, or the backend restarted): close the card, say so, no error.
 			mc.mat.WithdrawPermission(a.SessionID, a.RequestID)
+			mc.audit.permissionReply(a.SessionID, a.RequestID, tool, string(audited), actor, capped, false)
 			return map[string]any{"alreadyResolved": true}, nil
 		}
 		return nil, backendErr(err)
 	}
-	mc.audit.permission(a.SessionID, a.RequestID, tool, string(audited), "user", capped, "")
+	mc.audit.permissionReply(a.SessionID, a.RequestID, tool, string(audited), actor, capped, true)
 	return map[string]any{}, nil
 }
 

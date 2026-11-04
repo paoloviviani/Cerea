@@ -102,6 +102,60 @@ in.
 flag is needed. A machine enrolled before the path was recorded gets a warning
 from `run`: re-run `enroll`, or pass `run --opencode-config PATH`.
 
+### Skipping permissions, and Auto
+
+`galopin run --dangerously-skip-permissions` answers **allow** to every ask that
+would have become a card, on every session of this machine, for the life of that
+one process (ADR 0105 §1). It is **never saved**: a restart without the flag
+restores cards. It is refused at start unless the machine's policy allows it:
+
+```sh
+galopin enroll … --allow-skip-permissions   # once, eyes open; default off
+galopin run --dangerously-skip-permissions  # per process
+```
+
+What it never allows (each refusal is logged and written to the local
+`audit.log` as `by: skip`, with the tool class and never the command):
+
+- **what the ceiling caps at `ask` or `deny`.** On a default enrollment
+  (`bash=ask`) skip means reads, edits and web only; bash is refused. Skip never
+  widens the ceiling; enroll with `--permission-max` to change it.
+- **the Reject list** (one list in the code, shared with Cerea's auto escalate
+  list): galopin's own state and config (`policy.json` first), the cache root,
+  credential stores (`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.docker`, gcloud, gh and
+  git config, `.netrc`, `.npmrc`, `.pypirc`, `.git-credentials`), opencode's
+  config and auth, the gateway's and kit's conventional config homes, and
+  **writes** to CI configuration in the workspace (`.github/workflows/**`,
+  `.gitlab-ci.yml`, `.circleci/**`, `.buildkite/**`, `azure-pipelines.yml`,
+  `Jenkinsfile`; reads are fine). For `bash` the command text is searched for
+  these names: it is not a shell parser.
+- **the runaway-loop brake** (`doom_loop`): refused, so the session stops.
+
+Plan sessions stay Plan. Two asks that survive Allow are dissolved by skip and
+the owner accepts that at launch: a `.env` read inside the workspace and an
+outside-project ask not on the list. Cerea shows the machine as "permissions
+skipped" for the process lifetime (the hello's `posture`).
+
+**Auto** is a fourth permission word, between Ask and Allow. On the machine it is
+decided exactly as Ask (reads and safe-directory asks answered locally,
+everything else is a card); the difference is on Cerea's side, where a review
+model may answer the cards it is allowed to. galopin marks every card the
+**ceiling forced** (`ceilingForced`), which no model ever answers, and holds the
+line itself: it refuses a review-model answer to such a card, to a session that
+is not on Auto, and to anything but `once`. Auto is off until the owner allows
+it, and its hourly cap defaults to 60:
+
+```sh
+galopin enroll … --allow-auto-permission --max-per-hour 30
+galopin policy set --no-auto-permission --no-allow-skip --max-per-hour 10   # only tightens
+galopin policy show                                                          # shows all three
+```
+
+Each answer a review model gives is recorded in galopin's own audit as
+`by: auto` with the model id and reason, and whether it was applied. Auto
+sends the ask text (command, paths, session title) to Cerea's review model,
+which is a deployment choice made in Cerea, not here.
+
 ### Models
 
 `enroll` discovers the gateway's models once and writes them into

@@ -545,3 +545,38 @@ func TestEnvFilesShownInTheExplorerButNeverPulledIntoAPrompt(t *testing.T) {
 		t.Errorf("EffectivePromptFileDeny(no defaults) = %v, want only the owner's globs", dropped)
 	}
 }
+
+// ADR 0105 keys: absent means off, and the cap has a conservative default.
+func TestAutoAndSkipKeysDefaultOffAndRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/policy.json"
+	if p := Default(); p.AutoPermission || p.AllowSkip || p.EffectiveMaxPerHour() != DefaultMaxPerHour || DefaultMaxPerHour != 60 {
+		t.Errorf("defaults = %+v", p)
+	}
+	// A policy.json that predates the keys loads with them off.
+	if err := os.WriteFile(path, []byte(`{"permission":{},"workspaceRoots":[],"allowFreeModels":false}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.AutoPermission || old.AllowSkip || old.EffectiveMaxPerHour() != 60 {
+		t.Errorf("an old file: %+v", old)
+	}
+	old.AutoPermission, old.AllowSkip, old.MaxPerHour = true, true, 7
+	if err := Save(path, old); err != nil {
+		t.Fatal(err)
+	}
+	back, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !back.AutoPermission || !back.AllowSkip || back.EffectiveMaxPerHour() != 7 {
+		t.Errorf("round trip: %+v", back)
+	}
+	back.MaxPerHour = -3
+	if back.EffectiveMaxPerHour() != 60 {
+		t.Error("a nonsense cap reads as the default")
+	}
+}

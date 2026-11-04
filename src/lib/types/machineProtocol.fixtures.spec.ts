@@ -19,12 +19,16 @@ import {
 	OP_NAMES,
 	delegateProfilesBody,
 	eventFrameSchema,
+	isPermissionWord,
 	machineMode,
+	machinePosture,
 	mcpLoginResultSchema,
 	mcpOpenResultSchema,
 	parseDelegateProfiles,
 	parseMcpList,
 	type HelloFrame,
+	type PermissionRequest,
+	type ReplyActor,
 	parseMachineFrame,
 	parsePermissionRules,
 	type NormalizedEvent,
@@ -382,5 +386,45 @@ describe("protocol fixtures: local MCP connectors (§10)", () => {
 		expect(closed).toMatchObject({ type: "mcp", closed: { reason: "idle", detail: null } });
 		// A frame with no channel is dropped, not thrown.
 		expect(parseMachineFrame({ type: "mcp", message: {} })).toBeNull();
+	});
+});
+
+describe("protocol fixtures: auto permissions and skip (ADR 0105)", () => {
+	it("the hello carries the capability, the policy fields and the posture; skip is its variant", () => {
+		const hello = parseMachineFrame(fixtureAt("frames/hello.json").frame) as HelloFrame;
+		expect(hello.machine?.capabilities.autoPermission).toBe(true);
+		expect(hello.policy.autoPermission).toBe(true);
+		expect(hello.policy.maxPerHour).toBe(60);
+		expect(machinePosture(hello)).toBe("normal");
+		const skip = parseMachineFrame(fixtureAt("frames/hello.skip.json").frame) as HelloFrame;
+		expect(machinePosture(skip)).toBe("skip");
+		// The older machine says none of it: off, and normal.
+		const old = parseMachineFrame(fixtureAt("frames/hello.older-machine.json").frame) as HelloFrame;
+		expect(old.policy.autoPermission).toBeUndefined();
+		expect(old.machine?.capabilities.autoPermission).toBeUndefined();
+		expect(machinePosture(old)).toBe("normal");
+	});
+
+	it("a ceiling-forced ask reads as such, and an ordinary one does not", () => {
+		const forced = fixtureAt("events/permission.asked.ceiling-forced.json").frame as unknown as {
+			event: { request: PermissionRequest };
+		};
+		expect(forced.event.request.ceilingForced).toBe(true);
+		const plain = fixtureAt("events/permission.asked.json").frame as unknown as {
+			event: { request: PermissionRequest };
+		};
+		expect(plain.event.request.ceilingForced).toBeUndefined();
+	});
+
+	it("the reply actor and the auto word are in the request fixtures", () => {
+		const reply = fixtureAt("ops/permission.reply.req.review-model.json").frame as unknown as {
+			args: { actor: ReplyActor; decision: string };
+		};
+		expect(reply.args.actor).toMatchObject({ kind: "review-model" });
+		expect(reply.args.decision).toBe("once");
+		const mode = fixtureAt("ops/session.setPermissionMode.req.auto.json").frame as unknown as {
+			args: { mode: string };
+		};
+		expect(isPermissionWord(mode.args.mode)).toBe(true);
 	});
 });

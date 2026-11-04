@@ -18,6 +18,7 @@ import (
 	"galopin/internal/backend"
 	backendacp "galopin/internal/backend/acp"
 	backendopencode "galopin/internal/backend/opencode"
+	"galopin/internal/decide"
 	"galopin/internal/fsutil"
 	"galopin/internal/link"
 	"galopin/internal/policy"
@@ -69,6 +70,19 @@ Usage:
   --machine-name NAME   Display name for this machine (default: hostname).
   --port PORT         Override the shim's port (only meaningful without
                       --no-shim; default: the port enroll recorded).
+  --dangerously-skip-permissions  For THIS process only (never saved): answer
+                      allow to every ask that would have been a card, on every
+                      session of this machine, with nobody watching. Refused
+                      unless policy allows it (enroll --allow-skip-permissions).
+                      Still refused, and written to the local audit as by:skip:
+                      what the ceiling caps at ask or deny (on a default
+                      enrollment: bash), galopin's own config and state, the
+                      cache root, credential and gateway/kit config paths, CI
+                      configuration writes (.github/workflows and the like),
+                      and the runaway-loop brake (that session stops). Plan
+                      sessions stay Plan. The status shown to Cerea is
+                      "permissions skipped". A restart without the flag
+                      restores cards.
   --no-refresh-models   Don't re-discover the gateway's models at start
                       (default: refreshed best-effort, 10s at most, into the
                       opencode.json enroll wrote; a failure only warns).
@@ -88,6 +102,7 @@ type runOptions struct {
 	machineName     string
 	port            int
 	noRefreshModels bool
+	skipPerms       bool
 }
 
 func runRun(args []string) error {
@@ -106,6 +121,7 @@ func runRun(args []string) error {
 	fs.StringVar(&opts.machineName, "machine-name", "", "")
 	fs.IntVar(&opts.port, "port", 0, "")
 	fs.BoolVar(&opts.noRefreshModels, "no-refresh-models", false, "")
+	fs.BoolVar(&opts.skipPerms, "dangerously-skip-permissions", false, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -117,6 +133,9 @@ func runRun(args []string) error {
 	case "", "opencode", "acp":
 	default:
 		return fmt.Errorf("unknown --backend %q (want \"opencode\" or \"acp\"; --connectors-only runs no backend)", opts.backendKind)
+	}
+	if opts.skipPerms && opts.connectorsOnly {
+		return fmt.Errorf("--dangerously-skip-permissions has nothing to skip on a connectors-only machine (no coding agent runs)")
 	}
 	if opts.connectorsOnly {
 		conflict := opts.backendKind != ""
@@ -201,6 +220,9 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := checkSkipAllowed(opts.skipPerms, pol); err != nil {
+		return err
+	}
 
 	machineID, err := loadOrMintMachineID(filepath.Join(stateDir, machineIDFileName))
 	if err != nil {
@@ -268,6 +290,9 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 
 	if opts.backendKind == backendNone {
+		if opts.skipPerms {
+			return fmt.Errorf("--dangerously-skip-permissions has nothing to skip on a connectors-only machine (no coding agent runs)")
+		}
 		return runConnectorsOnly(ctx, opts, credsPath, stateDir, mcpPath, cereaOrigin, machineID, machineName, sh, pol)
 	}
 
@@ -292,6 +317,12 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 
 	mc := newMachine(reg, back, mat, pol)
+	home, _ := os.UserHomeDir()
+	mc.protected = decide.NewProtected(home, stateDir)
+	if opts.skipPerms {
+		mc.skip.Store(true)
+		logf("WARNING: --dangerously-skip-permissions: every ask that would be a card is ALLOWED on every session of this machine until this process ends, except what the ceiling caps, galopin's own config, credentials, CI configuration and the loop brake. Nothing is saved: a restart without the flag restores cards.")
+	}
 	auditLog, err := newAuditLogger(stateDir)
 	if err != nil {
 		return err
@@ -341,6 +372,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		Cred:        sh,
 		Hello: func() link.Hello {
 			h := buildHello(back, pol)
+			h.Posture = mc.posture()
 			if connectors.Configured() {
 				h.Machine.Capabilities["mcp"] = true
 			}
@@ -537,6 +569,10 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 		"delegateProfiles": caps.AgentTools && pol.AgentToolsAllowed(),
 		// Local MCP connectors (§10.2): run sets it when an mcp.json exists.
 		"mcp": false,
+		// Auto (ADR 0105): this build understands the fourth permission word
+		// and the reply actor. Whether the owner allows it is
+		// policy.autoPermission, reported separately.
+		"autoPermission": true,
 	}}
 	return h
 }
@@ -573,6 +609,8 @@ func buildHelloBase(pol policy.Policy) link.Hello {
 			AgentTools:          agentToolsPolicyWord(pol),
 			ProjectConfig:       projectConfigPolicyWord(pol),
 			BackgroundSubagents: backgroundSubagentsPolicyWord(pol),
+			AutoPermission:      pol.AutoPermission,
+			MaxPerHour:          pol.EffectiveMaxPerHour(),
 			Warnings:            modelPinWarnings(pol),
 		},
 	}
@@ -721,6 +759,30 @@ func agentToolsDir(pol policy.Policy, stateDir string) string {
 	return filepath.Join(stateDir, "opencode-tools")
 }
 
+// checkSkipAllowed refuses a start with --dangerously-skip-permissions when
+// the machine's policy does not allow it: the flag alone is never enough.
+func checkSkipAllowed(skip bool, pol policy.Policy) error {
+	if skip && !pol.AllowSkip {
+		return fmt.Errorf("--dangerously-skip-permissions is refused: this machine's policy does not allow it (re-run 'galopin enroll' with --allow-skip-permissions to allow it, then start again)")
+	}
+	return nil
+}
+
+// The machine's posture words (PROTOCOL.md §5 hello.posture).
+const (
+	postureNormal = "normal"
+	postureSkip   = "skip"
+)
+
+// posture is "skip" for the life of a process started with
+// --dangerously-skip-permissions, else "normal".
+func (mc *machine) posture() string {
+	if mc.skip.Load() {
+		return postureSkip
+	}
+	return postureNormal
+}
+
 func agentToolsPolicyWord(pol policy.Policy) string {
 	if pol.AgentToolsAllowed() {
 		return policy.TerminalAllowed
@@ -860,7 +922,7 @@ func buildConnectorsHello(pol policy.Policy) link.Hello {
 	h.Backends = []link.BackendInfo{}
 	h.Machine = link.MachineInfo{Mode: "connectors", Capabilities: map[string]bool{
 		"files": false, "fileSearch": false, "fileWatch": false, "fileWrite": false,
-		"terminal": false, "delegateProfiles": false, "mcp": true,
+		"terminal": false, "delegateProfiles": false, "mcp": true, "autoPermission": false,
 	}}
 	h.Policy.Files = policy.FilesOff
 	h.Policy.FileWrite = policy.FileWriteDenied
@@ -870,5 +932,7 @@ func buildConnectorsHello(pol policy.Policy) link.Hello {
 	h.Policy.ProjectConfig = policy.TerminalDenied
 	h.Policy.BackgroundSubagents = policy.TerminalDenied
 	h.Policy.Warnings = nil
+	h.Policy.AutoPermission = false
+	h.Posture = postureNormal
 	return h
 }

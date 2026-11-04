@@ -70,7 +70,11 @@ type Request struct {
 
 // State is the ROOT session's state: a subagent is decided by its root's.
 type State struct {
-	Mode         permrules.Action
+	Mode permrules.Action
+	// Auto is the session's fourth word (ADR 0105). It is decided exactly as
+	// Ask whatever Mode says: auto never answers anything Ask would not, so a
+	// stray Mode of allow beside it widens nothing.
+	Auto         bool
 	Exceptions   []permrules.Exception
 	Coordination []string
 }
@@ -92,6 +96,12 @@ type Result struct {
 	Step     string
 	Category Category
 	Reason   string
+	// CeilingForced marks a Card the machine's ceiling (or its own ask rule)
+	// put to a person: the key is capped at ask, so a person decides whatever
+	// the session's word says. Cerea never hands such a card to a review
+	// model (ADR 0105): auto must not be more permissive than skip, which
+	// refuses the same ask.
+	CeilingForced bool
 }
 
 // Refusal texts, which the agent shows its model.
@@ -231,6 +241,13 @@ func (p Policy) cap(key string) (Verdict, string) {
 	return Once, ""
 }
 
+// Cap is the machine's own limit for a key as a verdict: Once when nothing
+// caps it, Card when a person must decide, Reject when it is refused.
+func (p Policy) Cap(key string) Verdict {
+	v, _ := p.cap(key)
+	return v
+}
+
 func excepted(exs []permrules.Exception, r Request) bool {
 	pats := r.Patterns
 	if len(pats) == 0 {
@@ -283,12 +300,14 @@ func Decide(p Policy, s State, r Request) Result {
 		}
 	}
 	res.Category = cat
+	res.CeilingForced = ceilingForcesAHuman(res, cap)
 	return res
 }
 
 func modeAnswer(p Policy, s State, r Request, cat Category, sensitive bool) Result {
 	mode := s.Mode
-	if !mode.Valid() {
+	if !mode.Valid() || (s.Auto && mode != permrules.Deny) {
+		// Auto is Ask, whatever Mode says beside it; a Plan session stays Plan.
 		mode = permrules.Ask
 	}
 	once := func(step string) Result { return Result{Verdict: Once, Step: step} }

@@ -177,6 +177,32 @@ func (a *auditLogger) permission(session, requestID, tool, decision, by string, 
 	a.write(entry)
 }
 
+// permissionSkip records one decision of the skip posture (ADR 0105 §1):
+// by:"skip", the tool class (never a pattern), the decision and the step that
+// made it (skip-allow, skip-ceiling, skip-protected, skip-loop). applied is
+// false when the answer did not reach the agent (the ask was already gone).
+func (a *auditLogger) permissionSkip(session, requestID, tool, decision, step string, applied bool) {
+	a.write(map[string]any{"action": "permission", "session": session, "requestId": requestID, "tool": tool,
+		"decision": decision, "by": "skip", "step": step, "applied": applied})
+}
+
+// permissionReply records a person's or a review model's answer to a card
+// (PROTOCOL.md §6 permission.reply): the same row as permission(), plus the
+// actor's model and reason when the answer is by:"auto", and whether it was
+// applied (an answer to an ask already resolved never happened).
+func (a *auditLogger) permissionReply(session, requestID, tool, decision string, actor replyActor, capped, applied bool) {
+	entry := map[string]any{"action": "permission", "session": session, "requestId": requestID, "tool": tool,
+		"decision": decision, "by": actor.by(), "applied": applied}
+	if actor.Kind == actorReviewModel {
+		entry["model"] = actor.ModelID
+		entry["reason"] = actor.Reason
+	}
+	if capped {
+		entry["capped"] = true
+	}
+	a.write(entry)
+}
+
 // permissionSavedRemove records an exception being removed (no patterns).
 func (a *auditLogger) permissionSavedRemove(session, id string) {
 	a.write(map[string]any{"action": "permission.saved.remove", "session": session, "id": id})

@@ -71,6 +71,9 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	// Machine policy the dialog does not offer a control for: the default
 	// safe directories are on without any flag, and re-enrolling with
 	// --safe-dir / --no-safe-dirs is the owner's rarer, by-hand change.
+	{ flag: "allow-auto-permission", kind: "bool", default: false, exposed: false },
+	{ flag: "allow-skip-permissions", kind: "bool", default: false, exposed: false },
+	{ flag: "max-per-hour", kind: "int", default: 60, exposed: false },
 	{ flag: "safe-dir", kind: "list", default: [], exposed: false },
 	{ flag: "no-safe-dirs", kind: "bool", default: false, exposed: false },
 	{ flag: "workspace-root", kind: "list", default: [], exposed: true },

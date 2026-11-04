@@ -35,6 +35,9 @@ type ruleBackend struct {
 	restart  error
 	sel      map[string]permrules.Selector
 	setErr   error
+	// replyErr, when set, is what ReplyPermission answers (a not-found: the ask
+	// was already resolved).
+	replyErr error
 }
 
 func (r *ruleBackend) Capabilities() backend.Capabilities {
@@ -43,6 +46,9 @@ func (r *ruleBackend) Capabilities() backend.Capabilities {
 func (r *ruleBackend) ReplyPermission(_ context.Context, _, _, _ string, d backend.Decision, msg string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.replyErr != nil {
+		return r.replyErr
+	}
 	r.replies = append(r.replies, d)
 	r.messages = append(r.messages, msg)
 	return nil
@@ -63,6 +69,29 @@ func (r *ruleBackend) SetPermissionMode(_ context.Context, _, sessionID string, 
 	}
 	sel := r.sel[sessionID]
 	sel.Mode = mode
+	sel.Auto = false
+	r.sel[sessionID] = sel
+	return nil
+}
+func (r *ruleBackend) Auto(sessionID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sel[sessionID].Word() == "auto"
+}
+func (r *ruleBackend) SetAuto(_ context.Context, _, sessionID string, on bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.setErr != nil {
+		return r.setErr
+	}
+	if r.sel == nil {
+		r.sel = map[string]permrules.Selector{}
+	}
+	sel := r.sel[sessionID]
+	sel.Auto = on
+	if on {
+		sel.Mode = permrules.Ask
+	}
 	r.sel[sessionID] = sel
 	return nil
 }

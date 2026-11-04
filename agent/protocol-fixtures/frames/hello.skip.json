@@ -1,0 +1,84 @@
+{
+	"_meta": {
+		"spec": "§5 (hello.posture)",
+		"direction": "M→C",
+		"variant": "skip",
+		"note": "galopin run --dangerously-skip-permissions: process-wide, never persisted; every reconnect says so again"
+	},
+	"frame": {
+		"type": "hello",
+		"protocol": 1,
+		"agent": {
+			"version": "0.20.0",
+			"os": "linux",
+			"arch": "amd64",
+			"hostname": "dev-box"
+		},
+		"backends": [
+			{
+				"id": "opencode",
+				"version": "1.18.32",
+				"capabilities": {
+					"diff": true,
+					"children": true,
+					"usage": true,
+					"compact": true,
+					"images": true,
+					"files": true,
+					"worktrees": false,
+					"questions": true,
+					"revert": true,
+					"revertFiles": true,
+					"efforts": true,
+					"commands": true,
+					"toolImages": true,
+					"agentTools": true,
+					"steer": true,
+					"permissions": true,
+					"coordinationGrant": true,
+					"scheduleTools": true,
+					"historyPaging": true
+				}
+			}
+		],
+		"machine": {
+			"capabilities": {
+				"files": true,
+				"fileSearch": false,
+				"fileWatch": false,
+				"fileWrite": true,
+				"terminal": true,
+				"delegateProfiles": true,
+				"mcp": true,
+				"autoPermission": true
+			},
+			"mode": "agent"
+		},
+		"policy": {
+			"autoAccept": "denied",
+			"permission": {
+				"max": {
+					"bash": "ask"
+				}
+			},
+			"workspaceRoots": [],
+			"allowFreeModels": false,
+			"files": "read",
+			"fileDeny": [".env", "*.pem"],
+			"fileWrite": "denied",
+			"terminal": "allowed",
+			"maxTerminals": 8,
+			"commandShell": "allowed",
+			"agentTools": "allowed",
+			"projectConfig": "denied",
+			"backgroundSubagents": "allowed",
+			"warnings": ["opencode global config pins a model outside Pystino"],
+			"autoPermission": true,
+			"maxPerHour": 60
+		},
+		"credential": {
+			"state": "ok"
+		},
+		"posture": "skip"
+	}
+}

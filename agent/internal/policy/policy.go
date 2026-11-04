@@ -86,6 +86,35 @@ type Policy struct {
 	// OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true"). A local
 	// `galopin policy set` can only turn it off.
 	BackgroundSubagents string `json:"backgroundSubagents,omitempty"`
+	// AutoPermission lets a session be set to the fourth permission word,
+	// "auto" (ADR 0105, PROTOCOL.md §6): asks are decided locally as on Ask
+	// and Cerea may have a review model answer the cards. Off by default
+	// (`enroll --allow-auto-permission` opens it); the hello advertises it. A
+	// local `galopin policy set` can only turn it off.
+	AutoPermission bool `json:"autoPermission,omitempty"`
+	// MaxPerHour is how many asks per hour Cerea's review model may answer for
+	// this machine (the rate limit Cerea counts, echoed in the hello). 0 means
+	// DefaultMaxPerHour; `policy set` may only lower it.
+	MaxPerHour int `json:"maxPerHour,omitempty"`
+	// AllowSkip lets `galopin run --dangerously-skip-permissions` start (ADR
+	// 0105 §1). Off by default: the flag turns every card on the machine into
+	// an allow for the life of the process, so the standing consent is the
+	// owner's, recorded here (`enroll --allow-skip-permissions`), and typing
+	// the flag alone is not enough. A local `galopin policy set` can only
+	// turn it off.
+	AllowSkip bool `json:"allowSkip,omitempty"`
+}
+
+// DefaultMaxPerHour is Policy.MaxPerHour's value when unset: one answer a
+// minute on average, enough for a working agent and a bound on a runaway loop.
+const DefaultMaxPerHour = 60
+
+// EffectiveMaxPerHour is p.MaxPerHour, or DefaultMaxPerHour when unset.
+func (p Policy) EffectiveMaxPerHour() int {
+	if p.MaxPerHour <= 0 {
+		return DefaultMaxPerHour
+	}
+	return p.MaxPerHour
 }
 
 // Permission is what the machine decides about opencode's permissions

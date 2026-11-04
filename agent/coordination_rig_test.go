@@ -179,6 +179,23 @@ func (c *coordBackend) SetPermissionMode(_ context.Context, _, id string, mode p
 	defer c.mu.Unlock()
 	sel := c.sel[id]
 	sel.Mode = mode
+	sel.Auto = false
+	c.sel[id] = sel
+	return nil
+}
+func (c *coordBackend) Auto(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sel[c.rootOf(id)].Word() == "auto"
+}
+func (c *coordBackend) SetAuto(_ context.Context, _, id string, on bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	sel := c.sel[id]
+	sel.Auto = on
+	if on {
+		sel.Mode = permrules.Ask
+	}
 	c.sel[id] = sel
 	return nil
 }

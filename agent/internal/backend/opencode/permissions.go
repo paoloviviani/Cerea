@@ -321,6 +321,21 @@ func (b *Backend) SetCoordination(ctx context.Context, workspaceDir, sessionID s
 func (b *Backend) SetPermissionMode(ctx context.Context, workspaceDir, sessionID string, mode permrules.Action) error {
 	return b.updateSelector(ctx, workspaceDir, sessionID, func(s permrules.Selector) (permrules.Selector, error) {
 		s.Mode = mode
+		s.Auto = false
+		return s, nil
+	})
+}
+
+// Auto implements backend.RuleHost.
+func (b *Backend) Auto(sessionID string) bool { return b.selectorOf(sessionID).Word() == "auto" }
+
+// SetAuto implements backend.RuleHost: auto is ask plus the flag.
+func (b *Backend) SetAuto(ctx context.Context, workspaceDir, sessionID string, on bool) error {
+	return b.updateSelector(ctx, workspaceDir, sessionID, func(s permrules.Selector) (permrules.Selector, error) {
+		s.Auto = on
+		if on {
+			s.Mode = permrules.Ask
+		}
 		return s, nil
 	})
 }
@@ -590,7 +605,7 @@ func (b *Backend) AgentRules(ctx context.Context, workspaceDir, sessionID string
 	if err != nil {
 		return backend.RuleLayers{}, err
 	}
-	out := backend.RuleLayers{Agent: agent, Mode: string(b.selectorOf(sessionID).Effective())}
+	out := backend.RuleLayers{Agent: agent, Mode: b.selectorOf(sessionID).Word()}
 	for _, r := range agentRules {
 		out.Rules = append(out.Rules, backend.SourcedRule{Rule: r, Source: backend.SourceDefault})
 	}

@@ -276,3 +276,34 @@ func childVerdict(r *coordRig, id, key, pattern string) decide.Verdict {
 	rh := r.mc.back.(backend.RuleHost)
 	return r.mc.decideAsk(rh, "/w", backend.PermissionRequest{ID: "perm_x", SessionID: id, Tool: key, Patterns: []string{pattern}}).Verdict
 }
+
+// An Auto spawner makes an Auto child (never looser, never stricter), while
+// policy allows Auto; with policy off the child starts on Ask. The word is the
+// lattice rule applied to spawning: deny < ask < auto < allow.
+func TestSpawnInheritsAutoWhilePolicyAllowsIt(t *testing.T) {
+	for _, allowed := range []bool{true, false} {
+		r := newCoordRig(t, nil)
+		r.mc.pol.AutoPermission = allowed
+		if err := r.cb.SetAuto(context.Background(), "", "caller", true); err != nil {
+			t.Fatal(err)
+		}
+		child, result := spawnChild(t, r)
+		wantAuto := allowed
+		if r.cb.Auto(child) != wantAuto {
+			t.Errorf("policy auto=%v: child auto = %v, want %v", allowed, r.cb.Auto(child), wantAuto)
+		}
+		word := "ask"
+		if wantAuto {
+			word = "auto"
+		}
+		if result["permissionMode"] != word {
+			t.Errorf("policy auto=%v: result permissionMode = %v, want %s", allowed, result["permissionMode"], word)
+		}
+		if !permrules.WordWithin(word, "auto") {
+			t.Errorf("the child's word %s must be within its spawner's", word)
+		}
+		if r.cb.PermissionMode(child) != permrules.Ask {
+			t.Errorf("an auto child is ask locally, got %s", r.cb.PermissionMode(child))
+		}
+	}
+}

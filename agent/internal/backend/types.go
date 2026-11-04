@@ -226,6 +226,10 @@ type PermissionRequest struct {
 	CallID    string         `json:"callId,omitempty"`
 	MessageID string         `json:"messageId,omitempty"`
 	Always    []string       `json:"always,omitempty"`
+	// CeilingForced is set by galopin on a card the machine's ceiling forced
+	// to a person (PROTOCOL.md §7): a review model never answers it. Absent
+	// is false, and so is an older galopin's.
+	CeilingForced bool `json:"ceilingForced,omitempty"`
 }
 
 // Mode is a backend's named operating mode (opencode: agents with

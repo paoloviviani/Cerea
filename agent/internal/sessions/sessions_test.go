@@ -604,3 +604,46 @@ func TestSnapshotCarriesRetryUntilStatusChanges(t *testing.T) {
 		t.Errorf("Retry = %+v after busy, want nil", tr.Retry)
 	}
 }
+
+// ceilingForced rides on every ask that stays a card: live ones, and the ones a
+// snapshot seeds from the backend's history (which never passed a live event).
+func TestAskStampMarksLiveAndSeededCards(t *testing.T) {
+	ctx := context.Background()
+	fb := newFakeBackend()
+	fb.transcripts["s1"] = backend.Transcript{Permissions: []backend.PermissionRequest{
+		{ID: "old_forced", SessionID: "s1", Tool: "bash"}, {ID: "old_plain", SessionID: "s1", Tool: "edit"},
+	}}
+	m := New(fb, policy.Default())
+	m.Track("/ws", backend.Session{ID: "s1"})
+	m.OnAskStamp(func(_ string, req backend.PermissionRequest) bool { return req.Tool == "bash" })
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s1", Event: backend.Event{
+		Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "live", SessionID: "s1", Tool: "bash"},
+	}})
+	res, err := m.Sync(ctx, "s1", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Snapshot == nil {
+		t.Fatal("setup: no snapshot")
+	}
+	got := map[string]bool{}
+	for _, p := range m.PendingPermissionRequests("s1") {
+		got[p.ID] = p.CeilingForced
+	}
+	want := map[string]bool{"live": true, "old_forced": true, "old_plain": false}
+	if len(got) != len(want) {
+		t.Fatalf("pending = %v, want %v", got, want)
+	}
+	for id, w := range want {
+		if got[id] != w {
+			t.Errorf("%s: ceilingForced = %v, want %v", id, got[id], w)
+		}
+	}
+	var seen bool
+	for _, p := range res.Snapshot.Permissions {
+		seen = seen || (p.ID == "old_forced" && p.CeilingForced)
+	}
+	if !seen {
+		t.Errorf("the snapshot a client reads does not carry the mark: %+v", res.Snapshot.Permissions)
+	}
+}
