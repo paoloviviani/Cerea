@@ -332,6 +332,28 @@ What the operator should know:
   ceiling and rules and the approval card are unchanged. Read-only delegation is
   the `plan` mode of `session_spawn` / `session_committee`.
 
+## Where an agent's asks show up
+
+One component, the Needs-you inbox, draws every pending approval and question
+with the same cards an agent's transcript uses, and answering anywhere clears
+it everywhere. It appears in three places, for a user with /code on and a fresh
+sign-in:
+
+- **On /code**, at the top of the page.
+- **On every other page**, as a bar at the top of the main column, shown only
+  while something is pending. It starts collapsed ("2 need you") and the
+  choice is remembered for the browser session. It is not drawn on the sign-in
+  routes, and it asks the machines only while the tab is visible, on the device
+  poll's 8-second cadence (no request at all with /code off, a stale sign-in or
+  no paired machine).
+- **Above the composer of a chat that started or prompted agent sessions**:
+  the asks of exactly those sessions, already expanded, answerable in place.
+  The app-wide bar then leaves them out, so one question is never on screen
+  twice (the same rule it applies to the session open in the agent view).
+
+The **Agents** option of the sidebar's Chats | Agents switch carries a count
+badge while asks are pending. Push notifications (below) are unchanged.
+
 ## Notifications for agents
 
 With Web Push set up ([Notifications](notifications.md#for-operators): the

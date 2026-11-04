@@ -943,6 +943,16 @@
 	"app.move_to_project.title": "Move to project",
 	"app.nav.admin": "Admin",
 	"app.nav.agents": "Agents",
+	"app.nav.agents_needs_you": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Agents, {count} needs you",
+				"countPlural=other": "Agents, {count} need you"
+			}
+		}
+	],
 	"app.nav.chats": "Chats",
 	"app.nav.group_month": "This month",
 	"app.nav.group_older": "Older",
