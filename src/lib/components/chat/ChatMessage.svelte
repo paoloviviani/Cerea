@@ -35,6 +35,7 @@
 	import SubAgentCard from "./SubAgentCard.svelte";
 	import MemoryCard from "./MemoryCard.svelte";
 	import BackgroundTaskCard from "./BackgroundTaskCard.svelte";
+	import AgentSessionCard from "./AgentSessionCard.svelte";
 	import ProducedFilesCard from "./ProducedFilesCard.svelte";
 	import { isCodeRunKey } from "$lib/utils/execution/keys";
 	import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
@@ -52,6 +53,7 @@
 		isMessageSubAgentUpdate,
 		isMessageMemoryUpdate,
 		isMessageBackgroundTaskUpdate,
+		isMessageAgentSessionUpdate,
 	} from "$lib/utils/messageUpdates";
 	import {
 		MessageUpdateType,
@@ -66,6 +68,7 @@
 		type MessageSubAgentUpdate,
 		type MessageMemoryUpdate,
 		type MessageBackgroundTaskUpdate,
+		type MessageAgentSessionUpdate,
 	} from "$lib/types/MessageUpdate";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import type { CodeSubagentAnchor } from "$lib/types/CodeAgent";
@@ -331,6 +334,7 @@
 		  }
 		| { type: "memory"; update: MessageMemoryUpdate }
 		| { type: "backgroundTask"; update: MessageBackgroundTaskUpdate }
+		| { type: "agentSession"; update: MessageAgentSessionUpdate }
 		| { type: "files"; files: PersistedDeliverableRef[] }
 		| {
 				type: "subagent";
@@ -358,6 +362,7 @@
 		  }
 		| { kind: "memory"; update: MessageMemoryUpdate }
 		| { kind: "backgroundTask"; update: MessageBackgroundTaskUpdate }
+		| { kind: "agentSession"; update: MessageAgentSessionUpdate }
 		| { kind: "files"; files: PersistedDeliverableRef[] }
 		| { kind: "subagent"; uuid: string; anchor: CodeSubagentAnchor; updates: MessageToolUpdate[] };
 
@@ -662,6 +667,10 @@
 				// card for the spawning call stays — the marker names the
 				// lifecycle, the tool card the call.
 				res.push({ type: "backgroundTask", update });
+			} else if (isMessageAgentSessionUpdate(update)) {
+				// One card per start or prompt, in order, never folded: the
+				// session it names is the work the turn did (ADR 0106).
+				res.push({ type: "agentSession", update });
 			} else if (update.type === MessageUpdateType.FinalAnswer) {
 				sawFinalAnswer = true;
 				const finalText = update.text ?? "";
@@ -801,6 +810,9 @@
 				// the marker.
 				flush();
 				units.push({ kind: "backgroundTask", update: block.update });
+			} else if (block.type === "agentSession") {
+				flush();
+				units.push({ kind: "agentSession", update: block.update });
 			} else if (block.type === "files") {
 				// Never folded either: the file is the answer to what was asked.
 				flush();
@@ -878,6 +890,7 @@
 				block.type === "delegate" ||
 				block.type === "memory" ||
 				block.type === "backgroundTask" ||
+				block.type === "agentSession" ||
 				block.type === "subagent"
 		);
 	});
@@ -1015,6 +1028,10 @@
 							<div data-exclude-from-copy>
 								<BackgroundTaskCard update={block.update} />
 							</div>
+						{:else if block.type === "agentSession"}
+							<div data-exclude-from-copy>
+								<AgentSessionCard update={block.update} />
+							</div>
 						{:else if block.type === "files"}
 							<div data-exclude-from-copy>
 								<ProducedFilesCard conversationId={convId} files={block.files} />
@@ -1121,6 +1138,10 @@
 						{:else if unit.kind === "backgroundTask"}
 							<div data-exclude-from-copy>
 								<BackgroundTaskCard update={unit.update} />
+							</div>
+						{:else if unit.kind === "agentSession"}
+							<div data-exclude-from-copy>
+								<AgentSessionCard update={unit.update} />
 							</div>
 						{:else if unit.kind === "files"}
 							<div data-exclude-from-copy>
