@@ -890,7 +890,10 @@ test.describe("owned machine agent: parity", () => {
 		await page.getByRole("button").filter({ hasText: "Do A" }).click();
 		await page.getByRole("button", { name: "Send", exact: true }).click();
 
-		await expect(page.getByText("Thanks for answering.")).toBeVisible({ timeout: 60_000 });
+		// In the transcript: the sidebar's row for the session is titled from the same answer.
+		await expect(transcriptCard(page).getByText("Thanks for answering.")).toBeVisible({
+			timeout: 60_000,
+		});
 		// The tool call itself settles rather than hanging pending forever.
 		await expect(page.getByText("wants to call")).toHaveCount(0);
 		// It collapses to what was asked and chosen, not the "server" (it read

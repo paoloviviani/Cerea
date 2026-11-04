@@ -77,9 +77,10 @@ const BUILTIN_TABLE: Record<string, "external" | "internal"> = {
 	forget_for_project: "internal",
 	delegate: "internal",
 	research: "internal",
-	// What an agent session wrote from repository content is outside text; the rest only acts or lists.
+	// What an agent session wrote from repository content is outside text, and so is a session title
+	// (the agent writes it too); starting and sending only act.
 	agent_read: "external",
-	agent_sessions: "internal",
+	agent_sessions: "external",
 	agent_start: "internal",
 	agent_send: "internal",
 	// Built where the turn's skills and connectors are resolved, not here.
