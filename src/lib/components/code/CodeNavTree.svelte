@@ -1284,7 +1284,7 @@
 	<PermissionsDialog
 		deviceId={permissionsFor.device.id}
 		agentId={permissionsFor.agent.id}
-		sessionTitle={permissionsFor.agent.title}
+		mode={permissionsFor.agent.permissionMode ?? null}
 		device={permissionsFor.device}
 		subagent={Boolean(permissionsFor.agent.parentId)}
 		policy={permissionsFor.device.policy}

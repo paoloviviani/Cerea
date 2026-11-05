@@ -1,35 +1,11 @@
 <!--
-	The Permissions dialog: what this session will do about each kind of tool
-	call, in plain words, read from the machine. One row per capability
-	(edit files, run commands, fetch from the web, ...) with the FINAL
-	answer: Allowed, Asks first or Blocked. opencode's rules are
-	last-match-wins and the same permission repeats in the raw list with
-	contradictory answers, so the rows work the answer out (`capabilityRows`)
-	instead of listing them. A row the machine's limits hold below what the
-	session's setting would give says so.
-
-	Opened from a session's ⋯ menu in the agents sidebar (CodeNavTree) or
-	from the details button beside the composer's Deny / Ask / Allow
-	selector (AgentComposer), so the transcript and its approval cards stay
-	in view while the person reads it. The Deny / Ask / Allow selector and
-	the Coordination switches are the two ways to grant here: the former is
-	the composer's, the latter replaces a repeated approval card with a
-	grant the session keeps; Remove on an exception can only tighten (that
-	command asks again). What it shows is always the machine's last
-	word: the dialog reads the rules and the exceptions itself, for the
-	session it was opened for, and re-reads after every change. The
-	ceiling, the machine's own rules and its policy have no control here
-	at all.
-
-	An exception is what the card's "Always allow" leaves behind: one command
-	or pattern allowed for this session, on top of the selector. Switching to
-	Deny blocks it without deleting it; switching back to Ask restores it.
-
-	The raw rule list, in evaluation order, is kept behind a small disclosure
-	for troubleshooting. There a rule from the person's own opencode config
-	that Cerea or the machine replace is struck through and labelled, rather
-	than listed as if it were in force. A machine whose galopin predates the
-	op answers 404, and the dialog says so instead of listing rules.
+	The Permissions sheet, opened from the shield beside the composer's Plan / Ask / Auto step (and
+	from a session's menu in the agents sidebar): what reaches the user on this machine, class by
+	class (ADR 0107 section 3), from the machine's limits (its hello), the administrator's rows and
+	the reviewer's availability. Then the session's Exceptions (what "Always allow" on a card left
+	behind, with Remove) and the Coordination switches. The exceptions and the grant are read from
+	the machine for this session (`permission.rules`) and re-read after every change; the machine's
+	own rules are never listed.
 -->
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
@@ -37,23 +13,24 @@
 	import Modal from "$lib/components/Modal.svelte";
 	import {
 		CodeApiError,
+		getAutoApproval,
 		getPermissionRules,
 		removeSavedApproval,
 		setCoordinationGrant,
 		type CodeDeviceView,
 	} from "$lib/codeApi";
-	import type { PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
+	import type { PermissionMode, PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
 	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
+	import { isLegacyMachine } from "$lib/utils/permissionRules";
 	import {
-		actionLabel,
-		annotateRules,
-		capabilityRows,
-		isLegacyMachine,
-		sourceLabel,
-		overriddenLabel,
-		type CapabilityRow,
-		type RuleAction,
-	} from "$lib/utils/permissionRules";
+		className,
+		classRows,
+		expectationLine,
+		outcomeText,
+		reasonText,
+		thirdStepLabel,
+		type AutoSetup,
+	} from "$lib/utils/autoApproval";
 	import {
 		ceilingNote,
 		coordinationKeys,
@@ -69,9 +46,12 @@
 	interface Props {
 		deviceId: string;
 		agentId: string;
-		/** The session's title, for the heading: the dialog is one session's
-		 * and can be opened for a row that is not the one on screen. */
-		sessionTitle: string;
+		/** The session's step (Plan is the wire's `deny`), for the one sentence on what
+		 * reaches the user; the sentence is left out when unknown. */
+		mode?: PermissionMode | null;
+		/** The reviewer's availability and the administrator's rows; read here when the
+		 * opener has none. */
+		setup?: AutoSetup | null;
 		/** The device row this session belongs to, for the coordination
 		 * switches' disabled reasons (a galopin too old to grant, agent tools
 		 * off) and the ceiling note. Unknown when the tree has not loaded
@@ -94,7 +74,8 @@
 	let {
 		deviceId,
 		agentId,
-		sessionTitle,
+		mode = null,
+		setup: given,
 		device,
 		subagent = false,
 		onchanged,
@@ -140,28 +121,34 @@
 		untrack(() => void load());
 	});
 
-	let rules = $derived(annotateRules(result?.rules ?? []));
-	let rows = $derived(result ? capabilityRows(result) : []);
 	let exceptions = $derived(result?.savedApprovals ?? []);
-	/** The machine's safe external directories, in its own words; empty on a
-	 * galopin older than the field, and when the machine has none. */
-	let safeDirs = $derived(result?.safeDirs ?? []);
 
-	/** The safe-directory line in the external_directory row: the directories
-	 * that never ask, and what happens everywhere else. Said only when the
-	 * row is not held below the session's setting by the machine's limits —
-	 * a ceiling on external_directory caps the safe directories too, and the
-	 * row already says so. */
-	function safeDirNote(row: CapabilityRow): string | null {
-		if (row.id !== "external" || row.capped || safeDirs.length === 0) return null;
-		const elsewhere =
-			row.action === "deny"
-				? m["code.permissions.where_blocked"]()
-				: row.action === "allow"
-					? m["code.permissions.where_allowed"]()
-					: m["code.permissions.where_asks"]();
-		return m["code.permissions.safe_dirs"]({ dirs: safeDirs.join(", "), where: elsewhere });
-	}
+	/** The reviewer's side, from the opener when it has it, else read once. */
+	let fetched = $state<AutoSetup | null>(null);
+	$effect(() => {
+		if (given !== undefined) return;
+		untrack(() => {
+			getAutoApproval()
+				.then((v) => (fetched = { reviewerAvailable: v.available, perClass: v.perClass }))
+				.catch(() => (fetched = null));
+		});
+	});
+	let setup = $derived<AutoSetup>({
+		...(given ?? fetched ?? { reviewerAvailable: false, perClass: {} as AutoSetup["perClass"] }),
+		neverReview: (given ?? fetched)?.neverReview || device?.neverReview === true,
+	});
+	let computed = $derived(classRows(device?.policy ?? policy, setup));
+	let label = $derived(thirdStepLabel(setup));
+	let machineName = $derived(device?.name ?? "");
+	let stepSentence = $derived(
+		mode === "deny"
+			? m["code.permissions.step_plan"]()
+			: mode === "ask"
+				? m["code.permissions.step_ask"]()
+				: mode === "allow"
+					? expectationLine(machineName, computed.rows, label)
+					: ""
+	);
 
 	/** A machine enrolled before ceilings: nothing caps its Allow. Said up
 	 * front, never inside the collapsed detail. */
@@ -171,12 +158,6 @@
 		// this dialog is closed. Cleared again if a re-enroll makes it go away.
 		if (result) codeLegacyMachines[deviceId] = legacy;
 	});
-
-	const TONES: Record<RuleAction, keyof typeof s.PILL_TONES> = {
-		allow: "good",
-		ask: "neutral",
-		deny: "bad",
-	};
 
 	async function remove(id: string) {
 		if (removing) return;
@@ -223,8 +204,10 @@
 				<IconShield class="size-5 text-blue-600" />
 			</div>
 			<div class="min-w-0 pr-8">
-				<h2 id="permissions-dialog-title" class="{s.TITLE} truncate">
-					{m["code.permissions.title"]({ session: sessionTitle })}
+				<h2 id="permissions-dialog-title" class="{s.TITLE} break-words">
+					{machineName
+						? m["code.permissions.title"]({ machine: machineName })
+						: m["code.permissions.title_plain"]()}
 				</h2>
 				<p class="{s.SUBTITLE} break-words">
 					{m["code.permissions.subtitle"]()}
@@ -253,40 +236,45 @@
 					</div>
 				{/if}
 
-				<ul class="flex flex-col gap-1" data-testid="permission-rows">
-					{#each rows as row (row.id)}
-						<li
-							class="flex flex-wrap items-center gap-1.5"
-							data-testid="permission-row"
-							data-row={row.id}
-							data-action={row.action}
-						>
-							<span class="text-ink">{row.label}</span>
-							<span class="{s.PILL} {s.PILL_TONES[TONES[row.action]]}"
-								>{actionLabel(row.action)}</span
-							>
-							{#if row.except.length > 0}
-								<span class="text-ink-muted"
-									>{m["code.permissions.except"]({ what: row.except.join("; ") })}</span
-								>
-							{/if}
-							{#if safeDirNote(row)}
-								<span class="text-ink-faint" data-testid="permission-safe-dirs">
-									{safeDirNote(row)}
-								</span>
-							{/if}
-							{#if row.capped}
-								<span class="text-ink-faint" data-testid="permission-capped"
-									>{m["code.permissions.limited"]()}</span
-								>
-							{/if}
-						</li>
-					{/each}
-				</ul>
+				{#if stepSentence}
+					<p class="text-ink" data-testid="permission-step">{stepSentence}</p>
+				{/if}
+				{#if setup.degraded && label === "auto"}
+					<p class="text-amber-700 dark:text-amber-400" data-testid="permission-degraded">
+						{m["code.auto.degraded"]()}
+					</p>
+				{/if}
 
-				<p class="text-ink-muted">
-					{m["code.permissions.set_by"]()}
-				</p>
+				<div>
+					<p class="mb-1 font-medium text-ink">
+						{label === "auto"
+							? m["code.permissions.classes_auto"]()
+							: m["code.permissions.classes_allow"]()}
+					</p>
+					{#if computed.older}
+						<p class="mb-1 text-ink-muted" data-testid="permission-older">
+							{m["code.auto.older_note"]()}
+						</p>
+					{/if}
+					<table class="w-full text-left" data-testid="permission-classes">
+						<tbody>
+							{#each computed.rows as row (row.class)}
+								<tr
+									class="border-t border-line align-top"
+									data-testid="permission-class-{row.class}"
+								>
+									<th scope="row" class="py-1 pr-2 font-medium text-ink">{className(row.class)}</th>
+									<td class="py-1 pr-2 text-ink" data-testid="permission-outcome-{row.class}"
+										>{outcomeText(row)}</td
+									>
+									<td class="py-1 text-ink-muted" data-testid="permission-reason-{row.class}"
+										>{reasonText(row)}</td
+									>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
 
 				<div>
 					<p class="mb-1 font-medium text-ink">{m["code.permissions.exceptions"]()}</p>
@@ -388,45 +376,6 @@
 						{/if}
 					{/if}
 				</div>
-
-				<details data-testid="permission-raw">
-					<summary class="cursor-pointer text-ink-faint hover:text-ink-muted">
-						{m["code.permissions.raw"]()}
-					</summary>
-					<p class="my-1 text-ink-muted">
-						{m["code.permissions.raw_note"]()}
-					</p>
-					{#if rules.length === 0}
-						<p class="text-ink-muted">{m["code.permissions.no_rules"]()}</p>
-					{:else}
-						<ul class="flex flex-col gap-1" data-testid="permission-rules">
-							{#each rules as rule, index (index)}
-								<li
-									class="flex flex-wrap items-center gap-1.5"
-									data-testid="permission-rule"
-									data-overridden={rule.overriddenBy ? "true" : "false"}
-								>
-									<span class={rule.overriddenBy ? "text-ink-faint line-through" : "text-ink"}>
-										<span class="font-mono">{rule.permission}</span>
-										{#if rule.pattern !== "*"}
-											<span class="font-mono text-ink-muted">{rule.pattern}</span>
-										{/if}
-									</span>
-									<span
-										class="{s.PILL} {s.PILL_TONES[TONES[rule.action]]} {rule.overriddenBy
-											? 'opacity-60'
-											: ''}">{rule.action}</span
-									>
-									{#if rule.overriddenBy}
-										<span class="text-ink-faint">{overriddenLabel(rule.overriddenBy)}</span>
-									{:else if rule.source}
-										<span class="text-ink-faint">{sourceLabel(rule.source)}</span>
-									{/if}
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</details>
 			</div>
 		{:else if !codeReauth.required}
 			{#if loading}

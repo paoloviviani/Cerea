@@ -452,39 +452,31 @@ dialog.
 **Permissions…** item, not offered on a subagent, which follows its main
 session) or from the shield button beside the **Plan · Ask · Allow** selector
 in the composer; the transcript and its approval cards stay in view while you
-read it. It is titled _Permissions — <session title>_ and reads that session's
-rules itself, so it can be opened for any row, selected or not. Besides the
-selector and **Remove** it holds a **Coordination** section: two switches —
-_Can find, read and message other sessions_ and _Can start new sessions_ — for
-the sessions this one may touch without a card. That is the standing answer to
-the orchestrator's repeated `session_read` cards: granting it once replaces
-asking every time, from the session's next turn. Still asks, grant or not: a
-session in another workspace, a send past three hops, anything the machine's
-ceiling caps, and the rate limits. A session it spawns starts with the same
-grant. It gives one row per
-capability
-(edit and write files, run commands, fetch from the web, start subagents, read
-files, work outside the project folder, start or message other sessions, ask you
-questions) with the **final answer**: _Allowed_, _Asks first_ or _Blocked_.
-opencode's rules are last-match-wins and the same permission can repeat with
-different answers, so the panel works the answer out the way opencode does
-instead of listing them. Reading says _except secret files like .env: ask_ when
-a narrower rule asks about those. A row the machine's ceiling holds below what
-the session's setting would give says _limited by this machine_. Under the rows
-come the session's **exceptions**, each _Allowed for this session: `git status *`_
-with a **Remove** that makes that command ask again. Remove can only tighten,
-and the machine records each removal. An exception the machine marks as not
-removable shows "held by the machine" instead. The full rule list, in evaluation
-order, stays behind _Show the raw rules (for troubleshooting)_; there a rule
-from the person's own opencode config that Cerea or the machine replace is
-struck through and labelled _overridden by Cerea_ (or _by this
-machine's rules / floor / limits_); the match behind that label is literal, so a
-rule that a broader glob in fact replaced can still be listed as in force. While
-the sign-in is [stale](#the-7-day-sign-in) the shield button and Remove are
-hidden, and the server refuses them anyway. The shield button carries the
-session's exceptions count; a machine enrolled before ceilings is answered with
-the re-enroll notice instead of a clean bill. A machine whose galopin predates
-permission reporting says so in the dialog instead of listing rules.
+read it. It is titled _Permissions — <machine>_ and starts with one sentence on what
+reaches you at the selected step, then a table of each kind of action (edits,
+commands, web, outside access, secrets, agents, tools, loops) with what happens
+(_Runs_, _Reviewed_, _Comes to you_, _Refused_, _Ends the turn_) and why (_This
+machine's limit_, _Set by your admin_, _Always comes to you_, or that no
+reviewer is set up or you turned it off for this machine). It is computed from
+the machine's limits in its hello, the administrator's rows and the reviewer's
+availability; a machine on an older galopin reports no per-kind limits, so they
+are derived from its earlier settings and the sheet says so. Nothing is listed
+from the backend's own rules. Under the table come the session's **exceptions**,
+each _Allowed for this session: `git status *`_ with a **Remove** that makes that
+command ask again (Remove can only tighten, and the machine records each
+removal; an exception the machine marks as not removable shows "held by the
+machine"), and a **Coordination** section: two switches, _Can find, read and
+message other sessions without asking_ and _Can start new sessions without
+asking_. Without a switch those agents actions come to you or the reviewer like
+any other ask; a switch is the standing answer, from the session's next turn.
+Still asks, grant or not: anything the machine's limits set to ask, and the rate
+limits apply. A session it spawns starts with the same grant. The sheet reads
+`permission.rules` for the exceptions and the grant only. While the sign-in is
+[stale](#the-7-day-sign-in) the shield button and Remove are hidden, and the
+server refuses them anyway. The shield button carries the session's exceptions
+count and is named for the step ("Permissions: Auto"); a machine enrolled before
+ceilings is answered with the re-enroll notice instead of a clean bill. A machine
+whose galopin predates permission reporting says so in the sheet.
 
 ## The panel in detail
 

@@ -795,9 +795,7 @@ describe("CodeNavTree session Permissions menu", () => {
 
 		await screen.getByRole("button", { name: "Session actions" }).nth(1).click();
 		await screen.getByRole("menuitem", { name: "Permissions…" }).click();
-		await expect
-			.element(screen.getByRole("heading", { name: "Permissions — Agent a2" }))
-			.toBeVisible();
+		await expect.element(screen.getByRole("heading", { name: /^Permissions/ })).toBeVisible();
 		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		// The dialog read THAT session's rules, not the selection's.
 		expect(apiMock.getPermissionRules).toHaveBeenCalledWith("d1", "a2");

@@ -251,22 +251,20 @@ describe("the permission details button", () => {
 	it("sits beside the selector, carries the exceptions count, and opens the dialog for this session", async () => {
 		api.getPermissionRules.mockResolvedValueOnce(oneApproval);
 		const screen = mount(session(), { permissionExceptions: 2 });
-		const button = screen.getByRole("button", { name: "Permission details for this session" });
+		const button = screen.getByRole("button", { name: "Permissions: Ask" });
 		await expect.element(button).toBeVisible();
 		await expect.element(button).toHaveTextContent("2");
 
 		await button.click();
 		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
-		await expect
-			.element(screen.getByRole("heading", { name: "Permissions — Build it" }))
-			.toBeVisible();
+		await expect.element(screen.getByRole("heading", { name: "Permissions" })).toBeVisible();
 		// The dialog read THIS session's rules itself.
 		await vi.waitFor(() => expect(api.getPermissionRules).toHaveBeenCalledWith("d1", "a1"));
 	});
 
 	it("carries no count without exceptions", async () => {
 		const screen = mount(session(), { permissionExceptions: 0 });
-		const button = screen.getByRole("button", { name: "Permission details for this session" });
+		const button = screen.getByRole("button", { name: "Permissions: Ask" });
 		await expect.element(button).toBeVisible();
 		expect(button.element().textContent?.trim()).toBe("");
 	});
@@ -274,9 +272,7 @@ describe("the permission details button", () => {
 	it("is hidden on a subagent", async () => {
 		const screen = mount(session({ parentId: "root-1" }), { permissionExceptions: 1 });
 		await expect.element(screen.getByTestId("permission-mode")).toBeVisible();
-		expect(
-			screen.getByRole("button", { name: "Permission details for this session" }).elements()
-		).toHaveLength(0);
+		expect(screen.getByRole("button", { name: "Permissions: Ask" }).elements()).toHaveLength(0);
 	});
 
 	it("is hidden while the /code sign-in is stale", async () => {

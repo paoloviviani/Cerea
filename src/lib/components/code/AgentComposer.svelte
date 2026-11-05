@@ -107,7 +107,6 @@
 	import ContextMeter from "./ContextMeter.svelte";
 	import CommandConfirmSheet from "./CommandConfirmSheet.svelte";
 	import PermissionsDialog from "./PermissionsDialog.svelte";
-	import AutoLine from "./AutoLine.svelte";
 	import { thirdStepLabel, type AutoSetup } from "$lib/utils/autoApproval";
 	import IconShield from "~icons/lucide/shield";
 	import { clearSentComposerDraft, codeDraftKey } from "$lib/utils/composerDraft";
@@ -1136,7 +1135,9 @@
 								<button
 									type="button"
 									class={composerPillClass({ compact: true })}
-									aria-label={m["code.composer.details_label"]()}
+									aria-label={m["code.composer.details_label"]({
+										step: PERMISSION_SEGMENTS.find((x) => x.mode === permissionMode)?.label() ?? "",
+									})}
 									title={m["code.composer.details_title"]()}
 									data-testid="permission-details"
 									onclick={() => (permissionDetailsOpen = true)}
@@ -1238,10 +1239,6 @@
 		{/if}
 	</div>
 </form>
-
-{#if showPermissionSelector && !isSubagent && permissionMode === "allow" && device}
-	<AutoLine machineName={device.name} policy={device.policy ?? policy} setup={autoSetup} />
-{/if}
 
 <!-- The mode/model/effort row, BELOW the composer like the regular chat's
      model/effort row (`ChatWindow`'s `mt-1.5` line under its form): the
@@ -1354,7 +1351,8 @@
 	<PermissionsDialog
 		{deviceId}
 		{agentId}
-		sessionTitle={agent?.title ?? ""}
+		mode={permissionMode}
+		setup={autoSetup ?? undefined}
 		{policy}
 		{device}
 		subagent={isSubagent}
