@@ -46,8 +46,9 @@ import {
 	type ChildContext,
 } from "$lib/server/code/machineTimeline";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
-import { OpError, type Envelope } from "$lib/types/machineProtocol";
+import { OpError, type Envelope, type PermissionRequest } from "$lib/types/machineProtocol";
 import { logger } from "$lib/server/logger";
+import { onReviewNote } from "$lib/server/review/wording";
 import { toolImageUrl } from "$lib/server/code/toolImages";
 import { codeAttachmentKey } from "$lib/server/codeAttachments";
 import { findAttachments } from "$lib/server/files/attachmentStore";
@@ -327,9 +328,11 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			// frame (the guard then refuses its reconnect). Scheduled once, here.
 			let reauthTimer: ReturnType<typeof setTimeout> | undefined;
 
+			let unsubscribeNotes: (() => void) | undefined;
 			const finish = () => {
 				if (closed) return;
 				closed = true;
+				unsubscribeNotes?.();
 				clearInterval(heartbeat);
 				clearTimeout(lifetime);
 				clearTimeout(reauthTimer);
@@ -396,6 +399,16 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 				// connection itself stays open (listener migration in
 				// `machines.ts` means a reconnected machine keeps pushing
 				// through this same subscription).
+				// The reviewer judges an ask after the machine announced it, so a
+				// live card is emitted before its note exists. When the note
+				// lands, the same request is emitted again with it; the client
+				// replaces the card's request in place.
+				const liveAsks = new Map<string, { request: PermissionRequest; child?: ChildContext }>();
+				unsubscribeNotes = onReviewNote((requestId, note) => {
+					const ask = liveAsks.get(requestId);
+					if (closed || !ask || note.allowed) return;
+					emit(null, permissionRequestToUpdate(ask.request, ask.child));
+				});
 				for (;;) {
 					if (closed) return;
 					const next = buffered.shift();
@@ -448,6 +461,11 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 							next.sessionId,
 							thinking
 						);
+						if (next.event.kind === "permission.asked") {
+							liveAsks.set(next.event.request.id, { request: next.event.request, child });
+						} else if (next.event.kind === "permission.replied") {
+							liveAsks.delete(next.event.requestId);
+						}
 						for (const update of updates) emit(child ? null : id, await withFiles(update));
 						continue;
 					}

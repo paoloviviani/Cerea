@@ -179,7 +179,7 @@ describe("the allow path", () => {
 			})
 		);
 		expect(reviewNoteFor("per_1")).toEqual({
-			text: "Auto-allowed by clef-flash (96%)",
+			text: "Auto-allowed by reviewer model",
 			allowed: true,
 		});
 	});

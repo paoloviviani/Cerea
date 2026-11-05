@@ -13,6 +13,7 @@ import {
 	allowedNote,
 	belowNote,
 	cappedNote,
+	onReviewNote,
 	ruleNote,
 	setReviewNote,
 	unavailableNote,
@@ -38,7 +39,7 @@ afterEach(async () => {
 
 describe("the wording", () => {
 	it("is exactly the sentences the ADR gives", () => {
-		expect(allowedNote("clef-flash", 0.96)).toBe("Auto-allowed by clef-flash (96%)");
+		expect(allowedNote()).toBe("Auto-allowed by reviewer model");
 		expect(belowNote(0.51, 0.9)).toBe("The reviewer wasn't sure enough (51%; it allows at 90%)");
 		expect(ruleNote("it touches credentials or a secrets file")).toBe(
 			"This kind of request always comes to you: it touches credentials or a secrets file"
@@ -50,11 +51,11 @@ describe("the wording", () => {
 
 describe("on the card", () => {
 	it("an auto-allowed ask settles with the note", () => {
-		setReviewNote("n1", { text: allowedNote("clef-flash", 0.96), allowed: true });
+		setReviewNote("n1", { text: allowedNote(), allowed: true });
 		expect(permissionResolvedToUpdate("n1", "once")).toMatchObject({
 			resolution: "user",
 			action: "accept",
-			note: "Auto-allowed by clef-flash (96%)",
+			note: "Auto-allowed by reviewer model",
 		});
 		// the user's own rejection is never labelled as the reviewer's
 		expect(permissionResolvedToUpdate("n1", "reject").note).toBeUndefined();
@@ -90,5 +91,16 @@ describe("availability: the reviewer keeps failing", () => {
 		expect((await autoApprovalAvailability()).degraded).toBe(true);
 		noteCallOk();
 		expect((await autoApprovalAvailability()).degraded).toBe(false);
+	});
+});
+
+describe("a note set after the card was announced", () => {
+	it("reaches a listener (the stream re-emits the card with it) until it unsubscribes", () => {
+		const seen: string[] = [];
+		const off = onReviewNote((id, note) => seen.push(`${id}:${note.text}`));
+		setReviewNote("late1", { text: belowNote(0.77, 0.9), allowed: false });
+		off();
+		setReviewNote("late2", { text: "x", allowed: false });
+		expect(seen).toEqual(["late1:The reviewer wasn't sure enough (77%; it allows at 90%)"]);
 	});
 });

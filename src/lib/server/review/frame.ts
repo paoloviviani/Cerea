@@ -9,8 +9,18 @@
 import { FENCE_MARKERS } from "$lib/server/agentReview";
 import type { PermissionClass } from "$lib/types/machineProtocol";
 
-/** Used when the administrator leaves the instructions empty: the conservative round-1 text. */
+/** Used when the administrator leaves the instructions empty. */
 export const DEFAULT_INSTRUCTIONS =
+	"Answer true for ordinary development work in the workspace: reading and editing project " +
+	"files, running the project's tests, builds, linters and formatters, local git commits, and " +
+	"read-only inspection that changes nothing (listing, status, ps, logs, diff, version and help " +
+	"commands, for git, docker, services and the system alike). Answer false for anything " +
+	"destructive, irreversible, outside the workspace, touching credentials or agent " +
+	"configuration, sending data elsewhere, escalating privileges, rewriting published history, " +
+	"or that you cannot fully understand.";
+
+/** The round-1 default. A screen saved without editing it stored this text: it still means "use the default". */
+export const LEGACY_DEFAULT_INSTRUCTIONS =
 	"Answer true only for ordinary development work confined to the workspace (reading, editing " +
 	"project files, running the project's tests, builds, formatters, local git commits). Answer " +
 	"false for anything destructive, irreversible, outside the workspace, touching credentials or " +
@@ -56,7 +66,8 @@ const TRAILER =
 
 /** The predicate's text: contract, the administrator's policy, the trailer last. */
 export function predicateInstructions(policy: string): string {
-	const text = policy.trim() || DEFAULT_INSTRUCTIONS;
+	const trimmed = policy.trim();
+	const text = trimmed && trimmed !== LEGACY_DEFAULT_INSTRUCTIONS ? trimmed : DEFAULT_INSTRUCTIONS;
 	return `${OUTPUT_CONTRACT}\n\nPolicy:\n${text}\n\n${TRAILER}`;
 }
 

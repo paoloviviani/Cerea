@@ -359,7 +359,7 @@ async function allow(ctx: Ctx, p: number, send: (note?: string) => void): Promis
 	const { request, settings } = ctx;
 	const model = settings.decisionModelId ?? "";
 	// The note is in place before the machine's `permission.replied` reaches the card.
-	setReviewNote(request.id, { text: allowedNote(model, p), allowed: true });
+	setReviewNote(request.id, { text: allowedNote(), allowed: true });
 	let applied = false;
 	let reason = `p=${p.toFixed(2)}`;
 	try {
