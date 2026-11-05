@@ -811,7 +811,7 @@ describe("CodeNavTree session Permissions menu", () => {
 		await expect.element(screen.getByText("Box d1")).toBeVisible();
 		await screen.getByRole("button", { name: "Machine settings" }).first().click();
 		const item = screen.getByRole("menuitemcheckbox", {
-			name: "Never send this machine's asks to the reviewer",
+			name: "Never auto review requests",
 		});
 		await expect.element(item).toHaveAttribute("aria-checked", "false");
 		await item.click();
@@ -826,7 +826,7 @@ describe("CodeNavTree session Permissions menu", () => {
 		await expect
 			.element(
 				screen.getByRole("menuitemcheckbox", {
-					name: "Never send this machine's asks to the reviewer",
+					name: "Never auto review requests",
 				})
 			)
 			.toHaveAttribute("aria-checked", "true");

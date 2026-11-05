@@ -65,7 +65,7 @@ export interface CodeDeviceView {
 	 * the owner carries neither and stays excluded from this list, as before.
 	 */
 	reenroll?: "issuer_changed" | "revoked";
-	/** The owner's "Never send this machine's asks to the reviewer" (ADR 0107). */
+	/** The owner's "Never auto review requests" (ADR 0107). */
 	neverReview?: boolean;
 }
 

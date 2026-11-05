@@ -348,7 +348,7 @@ The third step is labelled **Allow**, not Auto, when there is no reviewer behind
 
 To see what reaches you, tap the **shield** beside the control (its name carries the step, for example "Permissions: Auto"). The sheet opens with one sentence for the selected step, for example _Auto on studio-laptop: edits, web, agents and tools run · commands and outside access are reviewed · secrets and loops come to you_, then lists each kind of action with what happens and why: "This machine's limit", "Set by your admin", or that you turned the reviewer off for this machine. A machine on an older galopin reports no per-kind limits, so they are derived from its earlier settings and the sheet says so. Nothing about it sits under the composer. Below the table are the session's exceptions (what "Always allow" left behind, each with Remove) and the Coordination switches, which let the session find, read, message and start other sessions without asking each time.
 
-**Never send this machine's asks to the reviewer** is in each machine's ⋯ menu in the sidebar. It is stored per machine for you, and the reviewer never sees that machine's asks.
+**Never auto review requests** is in each machine's ⋯ menu in the sidebar. It is stored per machine for you, and the reviewer never sees that machine's asks.
 
 **Pairing sets the machine's limits.** The Pair-a-machine dialog has a pill row for commands (Never · Ask · Run) and, under Advanced, one per kind of action; it prints `--limit CLASS=VALUE` only for a kind you changed. When a machine's limit for loops is **Stop the turn**, a repeating agent is cut off and the transcript says _Stopped: the agent was repeating the same action_ as a plain line, not as an error.
 
