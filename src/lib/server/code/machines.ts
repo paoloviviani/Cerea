@@ -535,7 +535,10 @@ export class MachineLink {
 		decision: "once" | "always" | "reject";
 		message?: string;
 		/** Who gave the answer (PROTOCOL.md §6); a `review-model` answer must be `once`. */
-		actor?: { kind: "user" } | { kind: "review-model"; modelId: string; reason?: string };
+		actor?:
+			| { kind: "user" }
+			| { kind: "review-model"; modelId: string; reason?: string }
+			| { kind: "rule"; reason?: string };
 	}): Promise<{ alreadyResolved?: boolean }> {
 		return this.call("permission.reply", args);
 	}

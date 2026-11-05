@@ -420,6 +420,9 @@ export interface PermissionRequest {
 	/** The permission class the machine put this ask in (ADR 0107); absent on
 	 * a machine older than classes. */
 	class?: PermissionClass;
+	/** Set by the machine alone (never from agent metadata): a bash command provably a plain read
+	 * inside the workspace (ADR 0107 amendment). Null on the wire from a gateway is the same as absent. */
+	readOnly?: boolean | null;
 	/** Added by Cerea, never sent by a machine: why the reviewer sent this ask to the user (ADR 0107). */
 	reviewNote?: string;
 }

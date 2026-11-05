@@ -3,6 +3,7 @@
 const pct = (p: number) => Math.round(p * 100);
 
 export const allowedNote = () => "Auto-allowed by reviewer model";
+export const readOnlyNote = () => "Auto-allowed: read-only";
 export const belowNote = (p: number, threshold: number) =>
 	`The reviewer wasn't sure enough (${pct(p)}%; it allows at ${pct(threshold)}%)`;
 export const ruleNote = (reason: string) => `This kind of request always comes to you: ${reason}`;

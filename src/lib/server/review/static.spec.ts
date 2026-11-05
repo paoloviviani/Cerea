@@ -33,6 +33,27 @@ describe("the static escalate list", () => {
 			expect(r("read", p), p).toBeNull();
 		}
 	});
+	it("writes into a repository's .git, not reads and not look-alikes", () => {
+		for (const p of [
+			"/w/.git/config",
+			"/w/.git/hooks/pre-commit",
+			".git/info/attributes",
+			"sub/.git/config",
+			".git",
+		]) {
+			expect(r("edit", p), p).toMatch(/git directory/);
+			expect(r("read", p), p).toBeNull();
+		}
+		for (const p of [
+			"/w/.gitignore",
+			"/w/.github/CODEOWNERS",
+			"/w/.husky/pre-commit",
+			"/w/.gitattributes",
+			"/w/dot.git/x",
+		]) {
+			expect(r("edit", p), p).toBeNull();
+		}
+	});
 	it("ordinary work passes", () => {
 		for (const [t, p] of [
 			["bash", "npm test"],

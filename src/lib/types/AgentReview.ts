@@ -42,7 +42,8 @@ export interface AgentReviewSettings {
 	testedFingerprint?: string | null;
 }
 
-export type ReviewOutcome = "allowed" | "escalated" | "error";
+/** `read-only`: allowed by rule (a plain read), no model involved. */
+export type ReviewOutcome = "allowed" | "escalated" | "error" | "read-only";
 
 /** One decision of the reviewer. Kept 90 days. Never the full command: a capped summary. */
 export interface AgentReviewLogEntry {

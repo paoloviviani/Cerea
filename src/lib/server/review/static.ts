@@ -37,6 +37,9 @@ const CI = [
 	/(^|[\\/])Jenkinsfile$/,
 ];
 
+/** A repository's own git directory (config, hooks, info, anything under it): `.git` as a whole path segment. */
+const GIT_DIR = /(^|[\\/])\.git([\\/]|$)/;
+
 const WRITE_TOOLS = new Set(["edit", "write", "patch", "multiedit", "apply_patch"]);
 
 /** Why this ask always goes to the user, or null when the static list has no objection. */
@@ -47,6 +50,9 @@ export function staticEscalateReason(ask: StaticTarget): string | null {
 	}
 	if (WRITE_TOOLS.has(ask.tool) && ask.targets.some((t) => CI.some((r) => r.test(t)))) {
 		return "it changes CI configuration";
+	}
+	if (WRITE_TOOLS.has(ask.tool) && ask.targets.some((t) => GIT_DIR.test(t))) {
+		return "it changes a repository's git directory (config, hooks)";
 	}
 	return null;
 }

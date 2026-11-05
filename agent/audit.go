@@ -188,6 +188,9 @@ func (a *auditLogger) permissionReply(session, requestID, tool, decision string,
 		entry["model"] = actor.ModelID
 		entry["reason"] = actor.Reason
 	}
+	if actor.Kind == actorRule {
+		entry["reason"] = actor.Reason
+	}
 	if capped {
 		entry["capped"] = true
 	}

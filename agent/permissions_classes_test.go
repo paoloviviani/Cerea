@@ -261,3 +261,39 @@ func TestDecidePolicyReadsTheLiveLimits(t *testing.T) {
 		t.Errorf("a tightened limit is not read live: %v", got)
 	}
 }
+
+// The machine marks a plain read itself, and the "rule" actor is for that mark
+// alone: an agent's own readOnly field is overwritten, and a rule reply to any
+// other ask is refused.
+func TestRuleActorNeedsTheMachinesReadOnlyMark(t *testing.T) {
+	mc, rb, dir := classMachine(t, nil)
+	ws := t.TempDir()
+	ask := func(id, cmd string) {
+		mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{
+			WorkspaceDir: ws, SessionID: "s1",
+			Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{
+				ID: id, SessionID: "s1", Tool: "bash", Patterns: []string{cmd}, ReadOnly: true}},
+		})
+	}
+	ask("per_1", "ls -la")
+	ask("per_2", "rm -rf /")
+	rule := map[string]any{"kind": "rule", "reason": "read-only"}
+	if _, operr := mc.opPermissionReply(context.Background(), replyArgs(t, "per_2", "once", rule)); operr == nil || operr.Code != "invalid" {
+		t.Errorf("rule reply to a non-read-only ask: %v, want invalid", operr)
+	}
+	if _, operr := mc.opPermissionReply(context.Background(), replyArgs(t, "per_1", "always", rule)); operr == nil {
+		t.Error("a rule reply must be once")
+	}
+	if _, operr := mc.opPermissionReply(context.Background(), replyArgs(t, "per_1", "once", rule)); operr != nil {
+		t.Fatal(operr)
+	}
+	rows := permissionRows(t, dir)
+	if len(rows) != 1 || rows[0]["by"] != "rule" {
+		t.Errorf("rows = %v", rows)
+	}
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+	if len(rb.replies) != 1 {
+		t.Errorf("replies = %v", rb.replies)
+	}
+}

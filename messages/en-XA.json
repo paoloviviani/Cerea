@@ -3410,6 +3410,7 @@
 	"admin.auto.log.outcome.allowed": "[Áľľóŵéď]",
 	"admin.auto.log.outcome.escalated": "[Śéńť ťó ťȟé úśéŕ]",
 	"admin.auto.log.outcome.error": "[Éŕŕóŕ]",
+	"admin.auto.log.outcome.read_only": "[Áľľóŵéď: ŕéáď-óńľý]",
 	"admin.auto.log.yes": "[Ýéś]",
 	"admin.auto.log.no": "[Ńó]",
 	"code.permission_mode.auto": "[Áúťó]",
