@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- New built-in skill `cerea`: asked "what can you do?", "what is Cerea?" or "how do I use this?", the assistant answers with a structured overview of its capabilities for users and administrators, lists the tools and connectors actually available in that conversation, and links the documentation. Administrators can switch it off like any bundled skill (`CHAT_SKILLS_DISABLED`).
+
 ## v0.42.0 — 2026-11-05
 
 Pins: Cerea `0.42.0` (chat and `cerea-documents`), Pystino `0.27.0`.

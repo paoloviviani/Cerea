@@ -33,6 +33,7 @@ beforeAll(async () => {
 const INLINE_SEEDS = ["csv-shaping", "report-writing", "json-shaping"];
 const DIRECTORY_SKILLS = [
 	"business-writing",
+	"cerea",
 	"charts",
 	"data-analysis",
 	"excel",
@@ -306,5 +307,27 @@ describe("turn-time resolution of built-ins", () => {
 		expect(await findSkillFile(undefined, "pdf-tools", "scripts/pdf_tools.py")).toBeUndefined();
 		expect((await listDeploymentSkills()).some((row) => row.name === "powerpoint")).toBe(false);
 		expect(await skillsAvailable(undefined)).toBe(true);
+	});
+});
+
+describe("the cerea built-in", () => {
+	it("is listed and its documentation links point to published pages", async () => {
+		const { readFileSync } = await import("node:fs");
+		const { resolve } = await import("node:path");
+		const skill = definition("cerea");
+		expect(skill.description).toMatch(/what you can do/i);
+		const root = resolve(__dirname, "../../../..");
+		const nav = readFileSync(resolve(root, "mkdocs.yml"), "utf8");
+		const base = "https://paoloviviani.github.io/Cerea/";
+		const links = [
+			...skill.content.matchAll(/https:\/\/paoloviviani\.github\.io\/Cerea\/([a-z-]*)\/?/g),
+		];
+		const pages = links.map((m) => m[1]).filter(Boolean);
+		expect(pages.length).toBeGreaterThan(5);
+		for (const page of pages) {
+			expect(() => readFileSync(resolve(root, "docs", `${page}.md`))).not.toThrow();
+			expect(nav).toContain(`${page}.md`);
+		}
+		expect(skill.content).toContain(base);
 	});
 });

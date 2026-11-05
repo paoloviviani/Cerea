@@ -46,7 +46,10 @@ honest limits are listed with each skill.
 | `themes`           | Colour and font themes applied across documents and decks           |
 
 Three more built-ins handle data shaping: `csv-shaping`, `json-shaping` and
-`report-writing`.
+`report-writing`. A last one, `cerea`, answers "what can you do?", "what is
+Cerea?" and "how do I use this?": it describes the assistant's capabilities for
+users and administrators, lists the tools and connectors actually available in
+the conversation, and points to these documentation pages.
 
 ### word
 
