@@ -88,6 +88,18 @@ describe("askDecisionModel", () => {
 		if (!r.ok) expect(r.kind).toBe(kind);
 	});
 
+	it("a spent quota says so instead of a bare 429", async () => {
+		fetchMock.mockImplementation(async () =>
+			json({ error: { message: "Quota exceeded. user limit", code: "quota_exceeded" } }, 429)
+		);
+		const r = await run();
+		expect(r).toMatchObject({
+			ok: false,
+			kind: "unreachable",
+			detail: "the usage quota is used up",
+		});
+	});
+
 	it("a network failure and a timeout are errors", async () => {
 		fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
 		expect((await run()).ok).toBe(false);

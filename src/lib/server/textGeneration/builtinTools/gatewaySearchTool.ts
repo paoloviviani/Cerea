@@ -1,4 +1,5 @@
 import { config } from "$lib/server/config";
+import { classifyGatewayError, quotaNoticeForModel } from "$lib/server/gatewayErrors";
 import { gateway, GatewayCallFailed } from "$lib/server/gatewayServer";
 import type { BuiltinTool } from "./types";
 
@@ -167,6 +168,10 @@ export function createGatewaySearchBuiltins(params: {
 					// inside this message and says what it is.
 					const message =
 						err instanceof GatewayCallFailed ? err.message : "The search backend is unavailable.";
+					const failure = classifyGatewayError(err);
+					if (failure.kind === "quota") {
+						return { error: `Search failed. ${quotaNoticeForModel(failure)}` };
+					}
 					return { error: `Search failed: ${message}` };
 				}
 			},

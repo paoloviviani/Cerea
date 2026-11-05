@@ -17,6 +17,7 @@
  * deprecation line (`warnLegacyTranscription`); attachments never use it.
  */
 
+import { isQuotaError } from "$lib/server/gatewayErrors";
 import { createHash } from "node:crypto";
 import { config } from "$lib/server/config";
 import { collections } from "$lib/server/database";
@@ -303,6 +304,8 @@ export async function transcribeAudio(options: TranscribeOptions): Promise<Trans
 		if (status === 403) {
 			kind = "refused";
 			reason = `The transcription model ${model} isn't available to your groups.`;
+		} else if (isQuotaError(err)) {
+			reason = "Transcription is unavailable because your usage quota is used up.";
 		} else if (status === 429 || status >= 500) {
 			reason = `The transcription model ${model} is unavailable right now (the provider answered ${status}).`;
 		} else if (err instanceof GatewayCallFailed) {

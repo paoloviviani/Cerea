@@ -6,12 +6,16 @@
  * one throttled or briefly unavailable request.
  */
 import { APIConnectionError } from "openai";
+import { classifyGatewayError } from "$lib/server/gatewayErrors";
 
 export const RETRY_BACKOFF_MS: readonly number[] = [10_000, 25_000, 60_000];
 
+/**
+ * A real throttle. A spent quota also answers 429 but is not one: waiting does
+ * not help, so it is neither a rate limit nor retriable (see gatewayErrors).
+ */
 export const isRateLimitError = (err: unknown): boolean =>
-	(typeof err === "object" && err !== null && (err as { status?: number }).status === 429) ||
-	/\b429\b/.test(String(err));
+	classifyGatewayError(err).kind === "rate_limit";
 
 /**
  * Retriable because the same request can succeed unchanged moments later: a
