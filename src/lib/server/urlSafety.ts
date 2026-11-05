@@ -153,6 +153,20 @@ function isInternalMcpHost(hostname: string): boolean {
 	return internalMcpHosts().has(hostname.toLowerCase());
 }
 
+/**
+ * An `http://` URL whose host is exactly one named in `MCP_INTERNAL_HOSTS`: the only plain-http
+ * address a deployment connector may have. `mcpFetch` (probe, tool listing, calls) then still
+ * requires the host to resolve to a private address.
+ */
+export function isInternalMcpHttpUrl(urlString: string): boolean {
+	try {
+		const url = new URL(urlString.trim());
+		return url.protocol === "http:" && isInternalMcpHost(url.hostname);
+	} catch {
+		return false;
+	}
+}
+
 export interface UrlSafetyOptions {
 	/** Inert unless `MCP_ALLOW_INSECURE_URLS=true`, and even then only for local hosts. */
 	allowInsecure?: boolean;

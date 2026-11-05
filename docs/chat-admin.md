@@ -82,6 +82,11 @@ changing its address or key, lists its tools automatically; if that fails, the
 reason shows on its card instead of a tool count. (A connector each person signs
 in to cannot be listed until somebody has: use **Check** after signing in.)
 
+A connector's address must be https; the one exception is a connector you add here
+for everyone, which may use plain `http://` when its host is named in
+`MCP_INTERNAL_HOSTS` (a server on the same Compose network, such as
+`http://mcp-joplin:8081/mcp`).
+
 When you add a connector you choose how it authenticates. **Each user provides
 their own key** is for a service that takes a personal access token: you set the
 name, the address, the header that carries the key (`Authorization` sends

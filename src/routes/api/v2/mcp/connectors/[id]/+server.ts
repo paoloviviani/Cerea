@@ -13,6 +13,7 @@ import { probe } from "$lib/server/mcp/discovery";
 import { beginAuthorization, bearerFor, staticRegistration } from "$lib/server/mcp/oauth";
 import { validateScopes } from "$lib/server/mcp/providerQuirks";
 import { ownedBy, usableBy, view } from "$lib/server/mcp/connectors";
+import { isInternalMcpHttpUrl } from "$lib/server/urlSafety";
 import { callerIdentity } from "$lib/server/admin";
 import { clearPolicy, connectorKey } from "$lib/server/mcp/deploymentModes";
 import { checkConnectorTools } from "$lib/server/mcp/check";
@@ -29,12 +30,9 @@ const body = z.object({
 	// require resending a credential — and an absent `token` therefore means
 	// "leave it alone", never "clear it".
 	name: z.string().trim().min(1).max(128).optional(),
-	url: z
-		.string()
-		.trim()
-		.url()
-		.startsWith("https://", "a connector must be served over HTTPS")
-		.optional(),
+	// https only, except a deployment connector on a host named in MCP_INTERNAL_HOSTS
+	// (checked in the handler, where the connector's scope is known).
+	url: z.string().trim().url().optional(),
 	token: z.string().trim().min(1).optional(),
 	tokenHeader: z.string().trim().max(128).optional(),
 	tokenPrefix: z.string().max(32).optional(),
@@ -228,6 +226,16 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 		if (parsed.data.description !== undefined) {
 			if (parsed.data.description) set.description = parsed.data.description;
 			else unset.description = "";
+		}
+		if (
+			parsed.data.url &&
+			!parsed.data.url.startsWith("https://") &&
+			!((connector.scope ?? "user") === "deployment" && isInternalMcpHttpUrl(parsed.data.url))
+		) {
+			error(
+				400,
+				"a connector must be served over HTTPS (or be a host listed in MCP_INTERNAL_HOSTS)"
+			);
 		}
 		if (parsed.data.url && parsed.data.url !== connector.url) {
 			set.url = parsed.data.url;
