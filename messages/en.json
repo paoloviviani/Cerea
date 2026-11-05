@@ -3111,6 +3111,8 @@
 	"admin.auto.test.expect_allow": "should be allowed",
 	"admin.auto.test.expect_escalate": "should go to the user",
 	"admin.auto.saved": "Saved.",
+	"admin.auto.log.link": "Review log",
+	"admin.auto.log.back": "Back to Agents",
 	"admin.auto.log.title": "Review log",
 	"admin.auto.log.intro": "What the reviewer decided, newest first, kept 90 days. Commands and paths are shortened.",
 	"admin.auto.log.machine": "Machine",

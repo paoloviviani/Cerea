@@ -9,10 +9,8 @@
 		THRESHOLD_MAX,
 		THRESHOLD_MIN,
 		type ReviewAnswerer,
-		type ReviewOutcome,
 	} from "$lib/types/AgentReview";
 	import { className } from "$lib/utils/autoApproval";
-	import AgentReviewLog from "./AgentReviewLog.svelte";
 
 	/** The fence markers the server refuses; the same list, so the page says so before the save does. */
 	const FENCE_MARKERS = ["<<<", ">>>", "```", "</", "[[", "]]", "BEGIN ", "END "];
@@ -48,7 +46,6 @@
 	let testFailure = $state<string | null>(null);
 	let testReport = $state<{ passed: boolean; cases: TestCase[] } | null>(null);
 	let testedKey = $state<string | null>(null);
-	let logKey = $state(0);
 
 	const snapshot = () =>
 		JSON.stringify([enabled, modelId, threshold, instructions.trim(), perClass, perHour]);
@@ -175,12 +172,6 @@
 		"rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900";
 	const BTN2 =
 		"rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-gray-600";
-	const outcomeLabel: Record<ReviewOutcome, () => string> = {
-		allowed: m["admin.auto.log.outcome.allowed"],
-		escalated: m["admin.auto.log.outcome.escalated"],
-		error: m["admin.auto.log.outcome.error"],
-	};
-	void outcomeLabel;
 </script>
 
 <div class="flex flex-col gap-8" data-testid="agent-review">
@@ -188,6 +179,11 @@
 		<div>
 			<h2 id="auto-title" class="text-lg font-semibold">{m["admin.auto.title"]()}</h2>
 			<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">{m["admin.auto.intro"]()}</p>
+			<a
+				href="{base}/admin/agents/review-log"
+				class="mt-1 inline-block text-sm underline"
+				data-testid="auto-log-link">{m["admin.auto.log.link"]()}</a
+			>
 			<p
 				class="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
 				data-testid="auto-egress"
@@ -427,10 +423,4 @@
 			</div>
 		{/if}
 	</section>
-
-	{#if !loading && !loadFailure}
-		{#key logKey}
-			<AgentReviewLog />
-		{/key}
-	{/if}
 </div>

@@ -136,16 +136,26 @@
 		</p>
 	{:else}
 		<div class="overflow-x-auto">
-			<table class="w-full min-w-[40rem] text-left text-sm">
+			<table class="w-full min-w-[52rem] text-left text-sm">
 				<thead class="text-xs text-gray-500">
 					<tr>
-						<th class="py-1 pr-3 font-medium">{m["admin.auto.log.col.time"]()}</th>
-						<th class="py-1 pr-3 font-medium">{m["admin.auto.log.col.machine"]()}</th>
-						<th class="py-1 pr-3 font-medium">{m["admin.auto.log.col.class"]()}</th>
-						<th class="py-1 pr-3 font-medium">{m["admin.auto.log.col.what"]()}</th>
-						<th class="py-1 pr-3 font-medium">{m["admin.auto.log.col.probability"]()}</th>
-						<th class="py-1 pr-3 font-medium">{m["admin.auto.log.col.outcome"]()}</th>
-						<th class="py-1 font-medium">{m["admin.auto.log.col.applied"]()}</th>
+						<th class="py-1 pr-3 font-medium whitespace-nowrap">{m["admin.auto.log.col.time"]()}</th
+						>
+						<th class="py-1 pr-3 font-medium whitespace-nowrap"
+							>{m["admin.auto.log.col.machine"]()}</th
+						>
+						<th class="py-1 pr-3 font-medium whitespace-nowrap"
+							>{m["admin.auto.log.col.class"]()}</th
+						>
+						<th class="py-1 pr-3 font-medium whitespace-nowrap">{m["admin.auto.log.col.what"]()}</th
+						>
+						<th class="py-1 pr-3 font-medium whitespace-nowrap"
+							>{m["admin.auto.log.col.probability"]()}</th
+						>
+						<th class="py-1 pr-3 font-medium whitespace-nowrap"
+							>{m["admin.auto.log.col.outcome"]()}</th
+						>
+						<th class="py-1 font-medium whitespace-nowrap">{m["admin.auto.log.col.applied"]()}</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -155,14 +165,16 @@
 							data-testid="auto-log-row"
 						>
 							<td class="py-1.5 pr-3 whitespace-nowrap">{new Date(e.time).toLocaleString()}</td>
-							<td class="py-1.5 pr-3">{e.machine}</td>
-							<td class="py-1.5 pr-3">{className(e.class)}</td>
-							<td class="py-1.5 pr-3 font-mono text-xs break-all" title={e.reason}>{e.summary}</td>
-							<td class="py-1.5 pr-3"
+							<td class="py-1.5 pr-3 whitespace-nowrap">{e.machine}</td>
+							<td class="py-1.5 pr-3 whitespace-nowrap">{className(e.class)}</td>
+							<td class="min-w-48 py-1.5 pr-3 font-mono text-xs break-all" title={e.reason}
+								>{e.summary}</td
+							>
+							<td class="py-1.5 pr-3 whitespace-nowrap"
 								>{e.probability === null ? "—" : `${Math.round(e.probability * 100)}%`}</td
 							>
-							<td class="py-1.5 pr-3">{outcomeLabel(e.outcome)}</td>
-							<td class="py-1.5"
+							<td class="py-1.5 pr-3 whitespace-nowrap">{outcomeLabel(e.outcome)}</td>
+							<td class="py-1.5 whitespace-nowrap"
 								>{e.applied ? m["admin.auto.log.yes"]() : m["admin.auto.log.no"]()}</td
 							>
 						</tr>
