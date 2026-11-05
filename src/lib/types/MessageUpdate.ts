@@ -337,6 +337,8 @@ export interface MessageElicitationResolvedUpdate {
 	elicitationId: string;
 	action: ElicitationAction;
 	resolution: ElicitationResolution;
+	/** Set when the reviewer answered: "Auto-allowed by ⟨model⟩ (96%)" (ADR 0107). */
+	note?: string;
 	/** What was submitted, so a reloaded transcript can still show the answers. */
 	content?: Record<string, ElicitationValue>;
 }

@@ -128,7 +128,11 @@
 		permissionExceptions?: number;
 		/** Whether a reviewer stands behind Auto here, and the administrator's rows
 		 * (ADR 0107); null while unknown, which reads as no reviewer: the step says Allow. */
-		autoApproval?: { available: boolean; perClass: AutoSetup["perClass"] } | null;
+		autoApproval?: {
+			available: boolean;
+			perClass: AutoSetup["perClass"];
+			degraded?: boolean;
+		} | null;
 		/** The machine's `hello` policy, for the dialog's legacy-machine
 		 * flag (the composer has no other use for it). */
 		policy?: Policy;
@@ -802,6 +806,7 @@
 					reviewerAvailable: autoApproval.available,
 					perClass: autoApproval.perClass,
 					neverReview: device?.neverReview === true,
+					degraded: autoApproval.degraded === true,
 				}
 			: null
 	);

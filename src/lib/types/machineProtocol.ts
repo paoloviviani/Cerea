@@ -420,6 +420,8 @@ export interface PermissionRequest {
 	/** The permission class the machine put this ask in (ADR 0107); absent on
 	 * a machine older than classes. */
 	class?: PermissionClass;
+	/** Added by Cerea, never sent by a machine: why the reviewer sent this ask to the user (ADR 0107). */
+	reviewNote?: string;
 }
 
 /**

@@ -169,6 +169,7 @@ export async function setNeverReview(
 export async function getAutoApproval(): Promise<{
 	available: boolean;
 	perClass: Record<import("$lib/types/machineProtocol").PermissionClass, "you" | "reviewer">;
+	degraded?: boolean;
 }> {
 	return unwrap(
 		await fetch(`${root()}/auto-approval`, { signal: AbortSignal.timeout(DEVICE_TIMEOUT_MS) })

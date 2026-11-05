@@ -92,6 +92,8 @@ export interface ElicitationRequestPayload {
 	 */
 	childSessionId?: string;
 	childTitle?: string | null;
+	/** Why the reviewer did not settle this ask (ADR 0107): shown on the card. */
+	reviewNote?: string;
 }
 
 /** In the database because the pod serving the answer need not be the one waiting on it. */

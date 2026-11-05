@@ -257,6 +257,16 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 	const recorded: RecordedRequest[] = [];
 	/** The image model in the catalogue, and how it answers: drawn, or refused by the provider. */
 	const image = { enabled: false, mode: "ok" as "ok" | "refuse" };
+	/**
+	 * `POST /v1/decisions` (Pystino's decision route, ADR 0100): what the reviewer's predicate answers.
+	 * `rules` are checked in order against the request's input text; `probability` is the default.
+	 * `mode` makes the route fail the way a provider can.
+	 */
+	const decisions = {
+		probability: 0.97,
+		rules: [] as Array<{ contains: string; probability: number }>,
+		mode: "ok" as "ok" | "error" | "refusal" | "malformed",
+	};
 
 	const scenarioFor = (conversationId: string | null): ScenarioScript => {
 		if (conversationId) {
@@ -304,7 +314,19 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 			return;
 		}
 
+		if (url.pathname === "/__control/decisions" && req.method === "POST") {
+			const parsed = JSON.parse((await readBody(req)) || "{}") as Partial<typeof decisions>;
+			if (typeof parsed.probability === "number") decisions.probability = parsed.probability;
+			if (parsed.rules) decisions.rules = parsed.rules;
+			if (parsed.mode) decisions.mode = parsed.mode;
+			json(res, 200, { ok: true });
+			return;
+		}
+
 		if (url.pathname === "/__control/reset" && req.method === "POST") {
+			decisions.probability = 0.97;
+			decisions.rules = [];
+			decisions.mode = "ok";
 			image.enabled = false;
 			image.mode = "ok";
 			overrides.clear();
@@ -315,6 +337,44 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 
 		if (url.pathname === "/__control/requests" && req.method === "GET") {
 			json(res, 200, recorded);
+			return;
+		}
+
+		// ── Decision route — what the reviewer calls. Records the caller's token with the body.
+		if (url.pathname === "/v1/decisions" && req.method === "POST") {
+			const raw = (await readBody(req)) || "{}";
+			const body = JSON.parse(raw) as { input?: string };
+			recorded.push({
+				method: "POST",
+				path: url.pathname,
+				conversationId,
+				stream: false,
+				body: { ...body, authorization: req.headers.authorization ?? null },
+				at: Date.now(),
+			});
+			if (decisions.mode === "error") {
+				json(res, 502, { error: { message: "upstream unreachable", type: "api_error" } });
+				return;
+			}
+			if (decisions.mode === "refusal") {
+				json(res, 200, { answers: [{ type: "refusal", name: "safe" }] });
+				return;
+			}
+			if (decisions.mode === "malformed") {
+				json(res, 200, { answers: [{ type: "predicate", name: "safe" }] });
+				return;
+			}
+			const rule = decisions.rules.find((r) => (body.input ?? "").includes(r.contains));
+			json(res, 200, {
+				answers: [
+					{
+						type: "predicate",
+						name: "safe",
+						probability: rule?.probability ?? decisions.probability,
+					},
+				],
+				usage: { prompt_tokens: 300, completion_tokens: 0, cost: 13 },
+			});
 			return;
 		}
 

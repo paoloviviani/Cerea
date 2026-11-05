@@ -532,6 +532,8 @@ services:
       CHAT_SCHEDULES_ENABLED: ${CHAT_SCHEDULES_ENABLED:-}
       CHAT_SCHEDULES_MAX_PER_USER: ${CHAT_SCHEDULES_MAX_PER_USER:-}
       CHAT_AUTO_PERMISSIONS: ${CHAT_AUTO_PERMISSIONS:-}
+      AUTO_REVIEW_TIMEOUT_SECONDS: ${AUTO_REVIEW_TIMEOUT_SECONDS:-}
+      AUTO_REVIEW_WATCHDOG_SECONDS: ${AUTO_REVIEW_WATCHDOG_SECONDS:-}
       # Deployment-wide MCP servers (JSON list of {"name","url"}) and the exact
       # hostnames among them that may be plain http on this network (for
       # example mcp-search from tools/mcp). Both empty: none. See the README,

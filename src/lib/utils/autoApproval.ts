@@ -34,6 +34,8 @@ export interface AutoSetup {
 	perClass: Record<PermissionClass, ReviewAnswerer>;
 	/** The device's owner opted out of the reviewer. */
 	neverReview?: boolean;
+	/** The reviewer keeps failing: Auto's cards come to the user until it answers again. */
+	degraded?: boolean;
 }
 
 /** The third step reads "Auto" only when a reviewer can answer for this machine. */

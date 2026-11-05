@@ -117,6 +117,7 @@
 
 	let settledLabel = $derived.by(() => {
 		if (alreadyAnswered && !resolved) return alreadyAnswered;
+		if (resolved?.note) return resolved.note;
 		if (outcome === "accept") return m["chat.approval.allowed"]();
 		if (outcome === "decline") return m["chat.approval.denied"]();
 		if (resolved?.resolution === "expired" || expired) return m["chat.approval.timed_out"]();
@@ -417,6 +418,12 @@
 			{:else}
 				<pre
 					class="mt-3 max-h-48 overflow-auto rounded-lg bg-gray-100 p-2 font-mono text-xs whitespace-pre-wrap text-gray-600 dark:bg-gray-800/70 dark:text-gray-300">{argsJson}</pre>
+			{/if}
+
+			{#if request.reviewNote}
+				<p class="mt-3 text-xs text-gray-500 dark:text-gray-400" data-testid="review-note">
+					{request.reviewNote}
+				</p>
 			{/if}
 
 			{#if error}

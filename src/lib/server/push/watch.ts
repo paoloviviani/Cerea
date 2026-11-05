@@ -33,9 +33,26 @@ type Notify = (userId: ObjectId, event: PushEvent, message: PushMessage) => unkn
 interface Deps {
 	notify: Notify;
 	now: () => number;
+	/**
+	 * The reviewer (ADR 0107). Given an ask, it decides whether the "needs you" push goes out: it
+	 * calls `push` (with a note saying why the ask comes to the user) or, when it answered the ask
+	 * itself, never. Absent in specs of the push triggers alone: the push then goes out at once.
+	 */
+	review?: (
+		userId: ObjectId,
+		deviceId: string,
+		envelope: Envelope,
+		push: (note?: string) => void
+	) => Promise<void>;
 }
 
-const realDeps: Deps = { notify: (u, e, m) => notifyUser(u, e, m), now: () => Date.now() };
+const realDeps: Deps = {
+	notify: (u, e, m) => notifyUser(u, e, m),
+	now: () => Date.now(),
+	// Loaded when used: the review service reaches the machine link, which reaches this module.
+	review: async (u, d, e, push) =>
+		(await import("$lib/server/review/service")).reviewPermissionAsk(u, d, e, push),
+};
 
 const MAX_TRACKED = 2000;
 const STALE_MS = 6 * 3600_000;
@@ -101,15 +118,30 @@ export function observeMachineEvent(
 		case "question.asked": {
 			const id = event.request.id;
 			if (!firstTime(`${deviceId}:${id}`, deps.now())) return;
-			deps.notify(userId, "permission", {
-				title: "An agent needs you",
-				body:
-					event.kind === "permission.asked"
-						? "A coding agent is waiting for your approval."
-						: "A coding agent has a question for you.",
-				path: agentUrl(deviceId, envelope.rootSessionId ?? sessionId),
-				tag: `ask-${id}`,
-			});
+			let sent = false;
+			const push = (note?: string) => {
+				if (sent) return;
+				sent = true;
+				deps.notify(userId, "permission", {
+					title: "An agent needs you",
+					body:
+						(event.kind === "permission.asked"
+							? "A coding agent is waiting for your approval."
+							: "A coding agent has a question for you.") + (note ? ` ${note}.` : ""),
+					path: agentUrl(deviceId, envelope.rootSessionId ?? sessionId),
+					tag: `ask-${id}`,
+				});
+			};
+			// A permission ask on an Auto session is held for the reviewer; a question never is.
+			if (event.kind === "permission.asked" && deps.review) {
+				// Whatever goes wrong inside, the user is told: a held push must never be lost.
+				deps.review(userId, deviceId, envelope, push).catch((err) => {
+					logger.warn({ err: String(err) }, "review: failed, pushing");
+					push();
+				});
+				return;
+			}
+			push();
 			return;
 		}
 		case "status": {

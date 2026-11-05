@@ -54,6 +54,7 @@ import type {
 } from "$lib/types/machineProtocol";
 import { usableAttachments, type ToolImageUrl } from "./toolImages";
 import type { ElicitationValue } from "$lib/types/McpElicitation";
+import { reviewNoteFor } from "$lib/server/review/wording";
 import { permissionToElicitation, questionToElicitation } from "$lib/utils/codeInboxCards";
 
 /**
@@ -486,20 +487,28 @@ export function permissionRequestToUpdate(
 	return {
 		type: MessageUpdateType.Elicitation,
 		subtype: MessageElicitationUpdateType.Request,
-		request: permissionToElicitation(request, child),
+		request: permissionToElicitation(withReviewNote(request), child),
 	};
+}
+
+/** An ask the reviewer sent to the user carries its reason (ADR 0107). */
+export function withReviewNote(request: PermissionRequest): PermissionRequest {
+	const note = reviewNoteFor(request.id);
+	return note && !note.allowed ? { ...request, reviewNote: note.text } : request;
 }
 
 export function permissionResolvedToUpdate(
 	requestId: string,
 	decision: string
 ): MessageElicitationResolvedUpdate {
+	const note = reviewNoteFor(requestId);
 	return {
 		type: MessageUpdateType.Elicitation,
 		subtype: MessageElicitationUpdateType.Resolved,
 		elicitationId: requestId,
 		action: decision === "reject" ? "decline" : "accept",
 		resolution: "user",
+		...(note?.allowed && decision !== "reject" ? { note: note.text } : {}),
 	};
 }
 
