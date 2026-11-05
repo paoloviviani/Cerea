@@ -279,6 +279,16 @@ export function promisedPolicy(choices: EnrollPolicyChoices): PromisedPolicy {
 					.map(([key, action]) => `${key}=${action}`)
 		).map((pair) => pair.split("=") as [string, string])
 	);
+	// The machine keeps one limit per class (ADR 0107): the agents class covers
+	// task, session_spawn, session_send, session_read and schedule together, so a
+	// cap on any one of them is the most cautious of those named, on all five.
+	const agentKeys = ["task", "session_spawn", "session_send", "session_read", "schedule"];
+	const named = agentKeys.filter((key) => key in max);
+	if (named.length > 0) {
+		const rank = (action: string) => (action === "deny" ? 0 : action === "ask" ? 1 : 2);
+		const strictest = named.map((key) => max[key]).sort((a, b) => rank(a) - rank(b))[0];
+		if (strictest !== "allow") for (const key of agentKeys) max[key] = strictest;
+	}
 	const allowed = (on: boolean) => (on ? "allowed" : "denied");
 	const terminalCap =
 		choices.allowTerminal && maxTerminalsProblem(choices.maxTerminals) === null
@@ -287,12 +297,19 @@ export function promisedPolicy(choices: EnrollPolicyChoices): PromisedPolicy {
 	return {
 		permission: {
 			max,
-			rules: Object.fromEntries(fixedAnswers(choices).map((name) => [name, "allow"])),
+			// A machine cannot let .env or credential reads run any more (the
+			// secrets class never runs, ADR 0107): only the outside allow is kept.
+			rules: Object.fromEntries(
+				fixedAnswers(choices)
+					.filter((name) => name !== "read")
+					.map((name) => [name, "allow"])
+			),
 		},
 		workspaceRoots: listed(choices.workspaceRoots),
 		allowFreeModels: choices.allowFreeModels,
 		files: choices.noFiles ? "off" : "read",
-		fileWrite: allowed(choices.allowFileWrite && !choices.noFiles),
+		// The file editor is on by default (ADR 0107): off only with files off.
+		fileWrite: allowed(!choices.noFiles),
 		fileDeny: listed(choices.fileDeny),
 		noDefaultFileDeny: choices.noDefaultFileDeny,
 		terminal: allowed(choices.allowTerminal),

@@ -40,6 +40,8 @@ Commands:
   connectors  List, test and sign in to the MCP servers this machine offers
             to the chat ('connectors list|test|login').
   policy    Show, or locally tighten, this machine's policy.json.
+  reset     Return this machine's policy to the defaults (keeps credentials
+            and the pairing with Cerea).
   licenses  Print the third-party licence notices compiled into this binary.
 
 Run 'galopin <command> -h' for that command's options.
@@ -64,6 +66,8 @@ func main() {
 		err = runModels(os.Args[2:])
 	case "policy":
 		err = runPolicy(os.Args[2:])
+	case "reset":
+		err = runReset(os.Args[2:])
 	case "connectors":
 		err = runConnectors(os.Args[2:])
 	case "licenses":

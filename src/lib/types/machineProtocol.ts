@@ -70,6 +70,36 @@ export const COORDINATION_KEYS = [
 ] as const;
 export type CoordinationKey = (typeof COORDINATION_KEYS)[number];
 
+/** The eight permission classes of a machine's policy (ADR 0107). */
+export const PERMISSION_CLASSES = [
+	"edit",
+	"command",
+	"web",
+	"outside",
+	"secrets",
+	"agents",
+	"tools",
+	"loop",
+] as const;
+export type PermissionClass = (typeof PERMISSION_CLASSES)[number];
+/** The limits of a hello's policy, only the classes and words this build
+ * knows; undefined when the machine sent none (older than classes). */
+export function machineLimits(
+	policy: { limits?: unknown } | undefined
+): Partial<Record<PermissionClass, PermissionLimit>> | undefined {
+	const raw = policy?.limits;
+	if (typeof raw !== "object" || raw === null) return undefined;
+	const out: Partial<Record<PermissionClass, PermissionLimit>> = {};
+	for (const c of PERMISSION_CLASSES) {
+		const v = (raw as Record<string, unknown>)[c];
+		if (v === "deny" || v === "ask" || v === "allow" || v === "stop") out[c] = v;
+	}
+	return out;
+}
+
+/** A class's limit on the wire: deny (never) | ask | allow (run); "stop" is loop's refusal. */
+export type PermissionLimit = "deny" | "ask" | "allow" | "stop";
+
 export interface Policy {
 	/** Retired. The machine still sends the constant "denied" for one
 	 * release; nothing reads it. */
@@ -80,6 +110,11 @@ export interface Policy {
 		max?: Record<string, string>;
 		rules?: Record<string, string>;
 	};
+	/** The machine's limit per permission class (ADR 0107, PROTOCOL.md §4):
+	 * every class, "deny" (never), "ask" (a card every time) or "allow" (the
+	 * session's word decides); loop is "ask" or "stop". Absent on a machine
+	 * older than classes. Read-only for Cerea. */
+	limits?: Partial<Record<PermissionClass, PermissionLimit>>;
 	workspaceRoots: string[];
 	allowFreeModels: boolean;
 	/** The explorer's read access (§9): "read" (default) or "off" (--no-files). */
@@ -382,6 +417,9 @@ export interface PermissionRequest {
 	callId?: string;
 	messageId?: string;
 	always: string[];
+	/** The permission class the machine put this ask in (ADR 0107); absent on
+	 * a machine older than classes. */
+	class?: PermissionClass;
 }
 
 /**
@@ -996,6 +1034,14 @@ const policySchema = z.object({
 			rules: z.record(z.string(), z.string()).optional(),
 		})
 		.optional(),
+	// Optional and lenient: a malformed value never refuses a hello (the raw
+	// frame is what is kept; read it with machineLimits, which drops unknowns).
+	limits: z
+		.preprocess(
+			(v) => (typeof v === "object" && v !== null && !Array.isArray(v) ? v : undefined),
+			z.record(z.string(), z.string()).optional()
+		)
+		.optional() as z.ZodType<Policy["limits"]>,
 	workspaceRoots: z.array(z.string()),
 	allowFreeModels: z.boolean(),
 	files: z.enum(["read", "off"]).optional(),

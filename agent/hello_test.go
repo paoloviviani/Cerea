@@ -29,6 +29,7 @@ func TestHelloSendsEmptyWorkspaceRootsNotNull(t *testing.T) {
 func TestHelloCarriesThePermissionPolicy(t *testing.T) {
 	pol := policy.Default()
 	pol.Permission = policy.Permission{Max: map[string]string{"bash": "ask"}}
+	pol.Permission.Normalize() // a policy.json with a ceiling is migrated on load
 	body, err := json.Marshal(buildHello(newE2EFakeBackend(), pol))
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +53,7 @@ func TestHelloCarriesThePermissionPolicy(t *testing.T) {
 	}
 	// And a default policy still sends the strings and an object, never null.
 	body, _ = json.Marshal(buildHello(newE2EFakeBackend(), policy.Default()))
-	if !strings.Contains(string(body), `"autoAccept":"denied"`) || !strings.Contains(string(body), `"max":{}`) {
+	if !strings.Contains(string(body), `"autoAccept":"denied"`) || !strings.Contains(string(body), `"max":{"bash":"ask"}`) || !strings.Contains(string(body), `"limits":{"agents":"allow","command":"ask","edit":"allow","loop":"ask","outside":"ask","secrets":"ask","tools":"allow","web":"allow"}`) {
 		t.Errorf("default hello policy = %s", body)
 	}
 }

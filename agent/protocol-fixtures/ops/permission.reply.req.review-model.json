@@ -1,0 +1,23 @@
+{
+	"_meta": {
+		"spec": "§6",
+		"direction": "C→M",
+		"op": "permission.reply",
+		"variant": "review-model"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "permission.reply",
+		"args": {
+			"sessionId": "ses_01",
+			"requestId": "per_01",
+			"decision": "once",
+			"actor": {
+				"kind": "review-model",
+				"modelId": "pystino/review-1",
+				"reason": "p=0.97 routine read-only test run"
+			}
+		}
+	}
+}

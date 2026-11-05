@@ -70,7 +70,7 @@ describe("the dialog's defaults", () => {
 			workspaceRoots: [],
 			allowFreeModels: false,
 			files: "read",
-			fileWrite: "denied",
+			fileWrite: "allowed",
 			fileDeny: [],
 			noDefaultFileDeny: false,
 			terminal: "allowed",
@@ -428,7 +428,7 @@ describe("the promised policy.json", () => {
 		expect(promised).toEqual({
 			permission: {
 				max: { bash: "ask" },
-				rules: { external_directory: "allow", read: "allow" },
+				rules: { external_directory: "allow" }, // the secrets class never runs: no read allow
 			},
 			workspaceRoots: ["/a b"],
 			allowFreeModels: true,

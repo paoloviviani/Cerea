@@ -230,8 +230,10 @@ func TestEnrollAllowFileWrite(t *testing.T) {
 		args []string
 		want bool
 	}{
-		{nil, false},
+		// On by default (ADR 0107); --allow-file-write only restates it.
+		{nil, true},
 		{[]string{"--allow-file-write"}, true},
+		{[]string{"--no-file-write"}, false},
 		// Nothing to save from without the explorer.
 		{[]string{"--allow-file-write", "--no-files"}, false},
 	} {

@@ -201,66 +201,87 @@ veto that only `enroll` can loosen:
   (`enroll --no-files` turns it off), with a secret deny list (`.env`,
   private keys, credentials files — `--file-deny GLOB` extends it,
   `--no-default-file-deny` drops the defaults).
-- **What the agent may do without asking** is a per-session selector in
-  the /code composer — **Deny, Ask or Allow** — not a machine setting.
-  Every session starts on **Ask**, including on a machine enrolled before
-  the selector existed (no re-enroll needed): the agent asks before it
-  edits, runs a command, fetches a page or starts a subagent. Reading stays
-  allowed under all three words, and under Allow two asks survive: a write
-  outside the project folder and the stuck-agent brake. Under **Deny** the
-  tools stay visible and every call is refused with a message naming the
-  word and the way out — galopin rejects each ask from a Deny session and
-  its subagents before any card is shown, so children inherit no blanket
-  deny and a Deny chosen mid-turn takes effect at once, from the next ask.
-  "Always allow" on
-  a card is an exception for that command in that session only, removable
-  in the panel. Any other change applies **from the session's next turn**: the
-  turn that is running is not stopped and finishes under the word it
-  started with. A **new subagent** follows the session's word from
-  its first turn: opencode starts that turn before galopin can give it the
-  word, so its asks come from a floor that asks, and galopin answers them
-  `once` when the session's word and exceptions allow (audited
-  `by: "galopin"`). Under Allow nothing waits, except keys the ceiling caps.
-  A session whose stored rules still carry an earlier Deny (opencode keeps
-  them forever) or a deny the ceiling no longer imposes is flagged on the
-  session (`staleDeny`, `stalePolicy`) and the panel says to start a new
-  session for subagents or the current policy — subagents started from a
-  `staleDeny` session have their first turn refused.
+- **What the agent may do without asking** has two parts: a per-session
+  selector in the /code composer, and the machine's **limits**.
+  The selector is **Plan, Ask or Allow** (on the wire `deny`, `ask`,
+  `allow`). Every session starts on **Ask**, including on a machine enrolled
+  before the selector existed: the agent asks before it edits, runs a command,
+  fetches a page or starts a subagent; reading the project always runs. Under
+  Plan every call that would change something is refused with a message
+  naming the word and the way out. "Always allow" on a card is an exception
+  for that command in that session only, removable in the panel. Any other
+  change applies from the session's next turn. A new subagent follows its
+  root's word from its first turn (galopin answers its first asks `once` when
+  the word and exceptions allow, audited `by: "galopin"`). A session whose
+  stored rules still carry an earlier Plan is flagged `staleDeny` /
+  `stalePolicy` and the panel says to start a new session.
+  **The machine's limits** (set by `enroll`, never over the link) are one row
+  per **class** of action, each `never`, `ask` or `run`:
+
+  | Class     | What it covers                                           | Default | Takes           |
+  | --------- | -------------------------------------------------------- | ------- | --------------- |
+  | `edit`    | editing files inside the project                         | run     | never, ask, run |
+  | `command` | shell commands (bash, sudo)                              | ask     | never, ask, run |
+  | `web`     | webfetch, websearch, codesearch                          | run     | never, ask, run |
+  | `outside` | reading or writing outside the project and the safe dirs | ask     | never, ask, run |
+  | `secrets` | `.env` files and credential stores                       | ask     | never, ask      |
+  | `agents`  | `task`, the session tools, `schedule`                    | run     | never, ask, run |
+  | `tools`   | connector (MCP) and other tools galopin does not know    | run     | never, ask, run |
+  | `loop`    | an agent repeating the same call (`doom_loop`)           | ask     | ask, stop       |
+
+  `never` refuses. `run` means **uncapped: the session's word decides** (an
+  Ask session still gets cards, an Allow one does not). `ask` means **the
+  machine always raises a card**, whatever the session's word: "judged before
+  it happens, by whoever Cerea routes it to" (you, or, when your deployment
+  runs one, a reviewing model: galopin cannot tell, every answer arrives over
+  the link). `secrets` never runs, and `loop` is `ask` or `stop` (the call is
+  refused, the turn is ended and the chat is told through an ordinary error
+  event). galopin's **own state and configuration** (the state directory,
+  `policy.json`, the credentials, the opencode config it owns) are refused
+  always: that is not a class and no setting changes it. An "always allow"
+  stores nothing on a class limited to `ask` or `never`. The defaults are what
+  every machine did before classes: bash asks, and anything outside the
+  project, a `.env` file or a stuck agent always asked.
+  The **agents** class `run` means a send, read or spawn is free when the
+  target session's word is the same or more cautious than the caller's (a
+  spawned child is never looser than its spawner), and otherwise the
+  caller's own word applies; across workspaces, past the hop limit and past
+  the rate limit a card is still raised. (Today the free case is for a caller
+  on Allow; a caller on Ask keeps its cards: `decide.askCallersAreFree`.)
   The machine's **safe external directories** (`enroll --safe-dir PATH`
-  repeatable, replacing the default; `--no-safe-dirs` for none) are the one
-  thing no session ever asks about: `/tmp`, the temp dir and the toolchain
-  caches (`~/.cache/{go-build,pip,uv,pnpm,node-gyp}`, `~/go/pkg/mod`,
-  `~/.npm`, `~/.local/share/pnpm`; never the whole `~/.cache`) — those that
-  exist — never raise the
-  external_directory card, under Deny, Ask or Allow alike, subagents
-  included. A safe directory is one the agent may write into
-  (external_directory does not separate read from write), so the list stays
-  short, and `galopin policy set --no-safe-dir PATH` may only remove from
-  it. The ceiling key `external_directory` still caps every one of them.
-  What **is** the machine's is the **ceiling**
-  (`enroll --permission-max KEY=ACTION`, default `bash=ask`
-  alone; the coordination keys `session_spawn`, `session_read` and
-  `session_send` are ceiling keys too, and so is `schedule`, all uncapped by
-  default): the most any key
-  may ever be, whatever a session's word or exceptions say. The old auto-accept toggle and
-  `--allow-auto-accept` are gone (the flag is accepted for one more
-  release and does nothing).
+  repeatable, replacing the default; `--no-safe-dirs` for none) are not
+  "outside": `/tmp`, the temp dir and the toolchain caches
+  (`~/.cache/{go-build,pip,uv,pnpm,node-gyp}`, `~/go/pkg/mod`, `~/.npm`,
+  `~/.local/share/pnpm`; never the whole `~/.cache`) — those that exist —
+  never raise a card, under every word. A safe directory is one the agent may
+  write into, so the list stays short, and `galopin policy set --no-safe-dir
+PATH` may only remove from it.
+  Set a limit with `galopin enroll --limit CLASS=VALUE` (repeatable;
+  `--limit command=run --limit web=ask`). **Re-enrolling keeps every setting
+  the machine has except the options you pass**, so adding one limit never
+  puts back what you had turned off. `galopin reset` returns the whole policy
+  to the defaults (it asks to confirm, `--yes` skips that) and keeps the
+  credentials and the pairing. `--permission-max KEY=ACTION` and
+  `--permission-rule KEY=ACTION` are accepted for one more release as
+  aliases, mapped onto the class of KEY (with a notice), and `--allow-auto-accept`
+  still does nothing.
+  A `policy.json` written before classes is migrated when it is read: each class
+  takes the **most cautious** value among the old keys it replaces (tighten-only,
+  no re-enroll), the old always-asked outside, `.env` and loop become
+  `outside=ask`, `secrets=ask`, `loop=ask`, and an own `allow` rule is carried
+  over only when every key of its class has one, else dropped; `galopin policy
+show` prints the table and says what was dropped.
+
 - **Agent tools** (on by default; `--no-agent-tools`): `session_list`,
   `session_read`, `session_send` and `session_spawn`, so a session's model can
   find, **read** (the other session's user and assistant text only, never its
   tool output, truncated at 4 KB a message and 32 KB an answer), message and
-  start other sessions on this machine. Each read, send and spawn asks a person
-  unless this machine's own rule for that tool says allow, the session was
-  **granted** it (`session.grantCoordination {sessionId, keys}`, only those four
-  keys; `[]` clears), or — for a spawn or a send, never a read — the session's
-  own word is **Allow** and the ceiling leaves the tool alone (like `schedule`
-  create; the default ceiling leaves `session_spawn` uncapped, so on a fresh
-  machine an Allow session spawns with no card). A spawned session
+  start other sessions on this machine. What happens is the **agents** class (above): at `run`, a call from a session on Allow to a session whose word is the same or more cautious needs no card, a call from a session on Ask still asks a person unless this machine's own rule for that tool says allow, or the session was **granted** it (`session.grantCoordination {sessionId, keys}`, only those four keys; `[]` clears); at `ask` every call is a card, at `never` none works. A spawned session
   inherits its spawner's exceptions and grant, and its word only as Allow (an
   Allow spawner starts an Allow child, any other starts on Ask), never more;
   Cerea's scheduled runs orchestrate other sessions
   with nobody to answer a card this way. A grant persists with the session, and is never
-  more than the ceiling, another workspace, the hop limit or the rate limits
+  more than the agents limit, another workspace, the hop limit or the rate limits
   allow. An older galopin has no such op and answers `unsupported`; Cerea runs
   the schedule without it and says so. Every read, send, spawn and grant is a
   row in `audit.log`, never the text. See [PROTOCOL.md](PROTOCOL.md) §6.
@@ -271,8 +292,8 @@ veto that only `enroll` can loosen:
   refusal). Creating one follows the session's Deny / Ask / Allow — the
   blanket Allow covers it — except from a scheduled run, which always asks;
   a run pausing or deleting its own schedule needs no card, even on Deny; any other change
-  or delete always asks. The ceiling key `schedule`
-  (`--permission-max schedule=ask|deny`) caps all of it. Audited by schedule
+  or delete always asks. The `agents` class (`--limit agents=ask|never`) caps
+  all of it. Audited by schedule
   id or name, never the prompt. See [PROTOCOL.md](PROTOCOL.md) §5 "Machine
   calls" and §6 "Schedule tools".
 - **The delegation skill** (written with the agent tools, never without
@@ -305,15 +326,17 @@ veto that only `enroll` can loosen:
   (default 8). Enrolling with terminals on always prints a warning: the
   shell is outside every permission rule.
 
-`galopin policy show` prints the current policy in plain words — the
-permission line names the effective safe directories, so an owner can see
-what never asks.
+`galopin policy show` prints the current policy in plain words: the class table
+(each class, its limit, one line of what it means), the safe directories, and
+any note a migration owes (a rule dropped).
 `galopin policy set` can locally **tighten** it without a full re-enroll —
-turn files or the terminal off, lower `--max-terminals`, a
-`--permission-max` ceiling or a `--permission-rule`, remove a safe
-directory with `--no-safe-dir PATH`, or add a
-`--file-deny` entry — but never loosen it back; loosening always requires
-`enroll` again, since the policy is never writable over the link (§4).
+turn files, file writes or the terminal off, lower `--max-terminals`, lower a
+class with `--limit CLASS=never|ask` (`loop=stop`), remove a safe directory
+with `--no-safe-dir PATH`, or add a `--file-deny` entry — but never loosen it
+back; loosening always requires `enroll` again, since the policy is never
+writable over the link (§4). The **file editor is on by default**
+(`enroll --no-file-write` turns it off; `--allow-file-write` is accepted and
+restates the default).
 
 ## State directory
 

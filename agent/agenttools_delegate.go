@@ -1,7 +1,7 @@
 package main
 
 import (
-	"galopin/internal/permrules"
+	"galopin/internal/decide"
 )
 
 // Delegates (ADR 0099). A session created by session_spawn is a delegate of
@@ -35,16 +35,9 @@ func (at *agentTools) IsDelegatePair(callerID, targetID string) delegateDirectio
 	return notDelegates
 }
 
-// machineHolds reports whether the machine's own rules cap the tool at ask or
-// deny: the ceiling (Max) or an explicit machine rule. Only these beat the
-// delegate relationship; the session's own word does not.
+// machineHolds reports whether the machine's agents limit is ask or never: a
+// machine that limits delegation beats the delegate relationship; the
+// session's own word does not.
 func (at *agentTools) machineHolds(tool string) bool {
-	perm := at.mc.live.Permission()
-	for _, m := range []map[string]string{perm.Max, perm.Rules} {
-		switch permrules.Action(m[tool]) {
-		case permrules.Ask, permrules.Deny:
-			return true
-		}
-	}
-	return false
+	return at.mc.live.Permission().EffectiveLimits()[decide.ClassAgents] != decide.Run
 }
