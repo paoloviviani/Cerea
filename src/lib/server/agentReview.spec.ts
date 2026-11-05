@@ -57,9 +57,9 @@ const entry = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("settings", () => {
-	it("default to off, 0.90, the ADR's rows, loop fixed on you, 300 an hour", async () => {
+	it("default to off, 0.85, the ADR's rows, loop fixed on you, 300 an hour", async () => {
 		const s = await getAgentReviewSettings();
-		expect(s).toMatchObject({ enabled: false, decisionModelId: null, threshold: 0.9 });
+		expect(s).toMatchObject({ enabled: false, decisionModelId: null, threshold: 0.85 });
 		expect(s.perClass).toEqual(PER_CLASS_DEFAULTS);
 		expect(PER_CLASS_DEFAULTS).toMatchObject({
 			command: "reviewer",

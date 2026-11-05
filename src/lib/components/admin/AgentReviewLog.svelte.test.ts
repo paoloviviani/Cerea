@@ -76,4 +76,15 @@ describe("Administration -> Agents -> Review log", () => {
 			expect(calls.some((c) => c.includes("before=2026-11-05T08%3A00%3A00Z"))).toBe(true)
 		);
 	});
+
+	it("reads the user-scoped endpoint for scope=own, and renders a stacked card per entry", async () => {
+		stub({ log: logEntries });
+		renderWithApp(AgentReviewLog, { scope: "own" });
+		await expect
+			.poll(() => document.querySelectorAll('[data-testid="auto-log-card"]').length)
+			.toBe(2);
+		expect(calls[0]).toContain("/api/v2/code/review-log");
+		expect(calls[0]).not.toContain("/admin/");
+		await expect.element(page.getByTestId("auto-log-cards")).toHaveTextContent("npm test");
+	});
 });

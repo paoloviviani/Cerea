@@ -9,7 +9,7 @@ export type ReviewAnswerer = "you" | "reviewer";
 
 export const THRESHOLD_MIN = 0.5;
 export const THRESHOLD_MAX = 0.99;
-export const THRESHOLD_DEFAULT = 0.9;
+export const THRESHOLD_DEFAULT = 0.85;
 export const INSTRUCTIONS_MAX = 2000;
 export const MAX_PER_HOUR_DEFAULT = 300;
 export const MAX_PER_HOUR_MAX = 10_000;

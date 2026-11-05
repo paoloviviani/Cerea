@@ -33,7 +33,7 @@
 
 	let enabled = $state(false);
 	let modelId = $state("");
-	let threshold = $state(0.9);
+	let threshold = $state(0.85);
 	let instructions = $state("");
 	let perClass = $state<Record<PermissionClass, ReviewAnswerer>>({ ...PER_CLASS_DEFAULTS });
 	let perHour = $state(300);

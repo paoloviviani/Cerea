@@ -8,6 +8,7 @@
 	own rules are never listed.
 -->
 <script lang="ts">
+	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
 	import { untrack } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
@@ -274,6 +275,13 @@
 							{/each}
 						</tbody>
 					</table>
+					{#if label === "auto" && setup.reviewerAvailable && !setup.neverReview}
+						<a
+							href="{base}/settings/review-log"
+							class="mt-1 inline-block text-xs text-ink-muted underline hover:text-ink"
+							data-testid="permission-review-log-link">{m["code.permissions.review_log_link"]()}</a
+						>
+					{/if}
 				</div>
 
 				<div>
