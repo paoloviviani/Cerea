@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.41.0 — 2026-11-05
+
+Pins: Cerea `0.41.0` (chat and `cerea-documents`), Pystino `0.26.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Coding machines need the galopin update for the new permission model (classes and limits, the loop stop, the file editor on by default; re-enrolling now keeps your settings): re-run the install line from the Pair a machine dialog, then `systemctl --user restart galopin`. The kit now pins Pystino 0.26.0 (console access, decision models); `docker compose pull` fetches both.
 
 - **Auto with a decision-model reviewer.** A session on Auto now has its routine asks answered by the administrator's decision model, billed to the machine owner's own quota through their background sign-in access; the rest come to the user with the reason. Needs the galopin update below and a Pystino with decision models (`POST /v1/decisions`). New optional `AUTO_REVIEW_TIMEOUT_SECONDS` and `AUTO_REVIEW_WATCHDOG_SECONDS`.
 - **Auto in the /code composer, with an optional reviewer.** The third step becomes **Auto** when an administrator has set up a decision-model reviewer (Administration → Auto-approval): the asks a machine says must be asked go to the reviewer or to you, per kind of action, and a line under the control says what to expect on that machine. Each user can keep a machine's asks away from the reviewer. Nothing changes until an administrator turns the reviewer on; `CHAT_AUTO_PERMISSIONS='false'` switches the feature off (the step then reads Allow). Needs a galopin with per-kind limits for the full line; older machines work from their earlier settings. The Pair-a-machine dialog now sets limits with `--limit CLASS=VALUE` (only what you change) instead of `--permission-max`/`--permission-rule`, and a stopped loop shows as a plain "Stopped" line.
