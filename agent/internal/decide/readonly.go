@@ -48,6 +48,7 @@ type roCheck struct {
 	p        Policy
 	home, ws string
 	cwd      string
+	gitOK    *bool
 }
 
 func (ro *roCheck) script(src string) bool {
@@ -199,13 +200,6 @@ func (ro *roCheck) call(c *syntax.CallExpr) bool {
 		return ro.generic(rest, flagSpec{short: "qvz0123456789", shortVal: "nc", long: map[string]int{"lines": 1, "bytes": 1, "quiet": 0, "silent": 0, "verbose": 0, "zero-terminated": 0}}, false)
 	case "wc":
 		return ro.generic(rest, flagSpec{short: "clmwL", long: map[string]int{"bytes": 0, "chars": 0, "lines": 0, "words": 0, "max-line-length": 0}}, false)
-	case "less":
-		for _, a := range rest {
-			if strings.HasPrefix(a, "+") {
-				return false
-			}
-		}
-		return ro.generic(rest, flagSpec{short: "NSRinqsMwW", long: map[string]int{"line-numbers": 0, "chop-long-lines": 0, "quiet": 0, "silent": 0, "ignore-case": 0, "raw-control-chars": 0}}, false)
 	case "grep":
 		return ro.grep(rest)
 	case "ls":
@@ -502,7 +496,7 @@ func closing(s string, from int, d byte) int {
 
 var gitDeny = []string{"--output", "-o", "--ext-diff", "--exec-path", "-c", "-C", "--no-index", "--paginate",
 	"--open-files-in-pager", "-O", "--git-dir", "--work-tree", "--config-env", "--upload-pack", "--exec",
-	"--namespace", "--super-prefix", "--textconv", "--ext"}
+	"--namespace", "--super-prefix", "--textconv", "--ext", "--show-signature", "--verify", "--gpg"}
 
 func (ro *roCheck) git(args []string) bool {
 	if len(args) == 0 {
@@ -511,6 +505,9 @@ func (ro *roCheck) git(args []string) bool {
 	switch args[0] {
 	case "status", "log", "diff", "show":
 	default:
+		return false
+	}
+	if !ro.gitConfigSafe() {
 		return false
 	}
 	afterDD := false
@@ -684,4 +681,97 @@ func resolve(p string) (string, bool) {
 func partHasTilde(n syntax.WordPart) bool {
 	l, ok := n.(*syntax.Lit)
 	return ok && strings.HasPrefix(l.Value, "~")
+}
+
+// gitRisky are the words that, anywhere in a repository's local config, could
+// make `git status|log|diff|show` run a program: a filesystem monitor, a pager,
+// an external diff or textconv, a clean/smudge filter, a signature verifier
+// (gpg.program), an ssh or askpass command, hooks, or an include of another
+// file. It is a lenient substring match on the lowercased text on purpose: any
+// odd spelling that contains one is refused.
+var gitRisky = []string{"include", "fsmonitor", "pager", "external", "textconv", "filter", "gpg", "showsignature",
+	"sshcommand", "askpass", "editor", "hookspath", "command", "program", "process", "smudge", "clean", "[alias"}
+
+// gitConfigSafe reports whether the repository the command would run in has a
+// local config none of whose text names something that executes (agents can
+// write .git/config, and edits run unreviewed). The repository is found the way
+// git finds it, upward from the working directory; its config, the worktree
+// config and a linked worktree's common config are all read. A config that
+// cannot be read, or is odd, is not safe. Global and system config are the
+// user's own and are not examined. No repository at all is fine.
+func (ro *roCheck) gitConfigSafe() bool {
+	if ro.gitOK != nil {
+		return *ro.gitOK
+	}
+	ok := ro.gitConfigScan()
+	ro.gitOK = &ok
+	return ok
+}
+
+func (ro *roCheck) gitConfigScan() bool {
+	dir := ro.cwd
+	var gitdir string
+	for {
+		fi, err := os.Lstat(filepath.Join(dir, ".git"))
+		if err == nil {
+			g := filepath.Join(dir, ".git")
+			if fi.IsDir() {
+				gitdir = g
+			} else if fi.Mode().IsRegular() {
+				b, err := os.ReadFile(g)
+				if err != nil || len(b) > 4096 {
+					return false
+				}
+				line, found := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir:")
+				if !found {
+					return false
+				}
+				line = strings.TrimSpace(line)
+				if !filepath.IsAbs(line) {
+					line = filepath.Join(dir, line)
+				}
+				gitdir = filepath.Clean(line)
+			} else {
+				return false // a symlink or something else: not understood
+			}
+			break
+		} else if !os.IsNotExist(err) {
+			return false
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return true // not in a repository
+		}
+		dir = parent
+	}
+	files := []string{filepath.Join(gitdir, "config"), filepath.Join(gitdir, "config.worktree")}
+	if b, err := os.ReadFile(filepath.Join(gitdir, "commondir")); err == nil {
+		c := strings.TrimSpace(string(b))
+		if c == "" || len(b) > 4096 {
+			return false
+		}
+		if !filepath.IsAbs(c) {
+			c = filepath.Join(gitdir, c)
+		}
+		c = filepath.Clean(c)
+		files = append(files, filepath.Join(c, "config"), filepath.Join(c, "config.worktree"))
+	} else if !os.IsNotExist(err) {
+		return false
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil || len(b) > 1<<20 {
+			return false
+		}
+		text := strings.ToLower(string(b))
+		for _, w := range gitRisky {
+			if strings.Contains(text, w) {
+				return false
+			}
+		}
+	}
+	return true
 }

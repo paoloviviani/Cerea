@@ -42,7 +42,7 @@ func TestReadOnlyCommand(t *testing.T) {
 	yes := []string{
 		"ls", "ls -la", "ls -la sub", "ls sub/", "ls -lh --color=auto", "cat a.txt", "cat a.txt sub/b.go", "cat sub/b.go | head -n 5",
 		"cat ./a.txt", "cat inlink/b.go", "cat " + ws + "/a.txt", "cat nonexistent.txt", "head -20 a.txt", "head -n20 a.txt", "tail -n 50 a.txt",
-		"tail -5 a.txt", "wc -l a.txt", "less a.txt", "grep foo a.txt", "grep -n 'foo bar' a.txt sub/b.go", "grep -in -e foo -e bar a.txt",
+		"tail -5 a.txt", "wc -l a.txt", "grep foo a.txt", "grep -n 'foo bar' a.txt sub/b.go", "grep -in -e foo -e bar a.txt",
 		"grep -C 3 foo a.txt", "cat a.txt | grep foo", "docker ps | grep web", "ps aux", "ps -ef", "ps -eo pid,comm", "df -h", "df -h .", "du -sh sub",
 		"du -h --max-depth=1 .", "find . -name '*.go'", "find sub -type f -name \"*.go\" -mtime -2", "find . -maxdepth 2 -type d",
 		"find . \\( -name a -o -name b \\) -print", "sed -n 1,5p a.txt", "sed -n '1,5p' a.txt", "sed 's/a/b/g' a.txt", "sed -n -e '/foo/p' a.txt",
@@ -123,8 +123,9 @@ func TestReadOnlyCommand(t *testing.T) {
 		"ps aux e":                                   "ps env 2",
 		"tail -f a.txt":                              "follow",
 		"tail -F a.txt":                              "follow",
-		"less +!sh a.txt":                            "less command",
-		"less -o out a.txt":                          "log file",
+		"less a.txt":                                 "less is not on the list",
+		"git log --show-signature":                   "signature",
+		"git log --textconv":                         "textconv",
 		"journalctl -f":                              "follow",
 		"journalctl --vacuum-size=1M":                "vacuum",
 		"journalctl --rotate":                        "rotate",
@@ -184,4 +185,114 @@ func TestReadOnlyOnlyBashInWorkspace(t *testing.T) {
 			t.Errorf("want not read-only: %+v", r)
 		}
 	}
+}
+
+func TestGitCommandsNeedASafeLocalConfig(t *testing.T) {
+	cmds := []string{"git status", "git log --oneline", "git diff", "git show HEAD"}
+	write := func(t *testing.T, path, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plain := "[core]\n\trepositoryformatversion = 0\n\tbare = false\n[remote \"origin\"]\n\turl = https://example.org/x.git\n[branch \"main\"]\n\tremote = origin\n"
+	t.Run("a plain repo qualifies", func(t *testing.T) {
+		p, ws := roFixture(t)
+		write(t, filepath.Join(ws, ".git", "config"), plain)
+		for _, c := range cmds {
+			if !p.ReadOnlyCommand(Request{Key: "bash", Patterns: []string{c}, Workspace: ws}) {
+				t.Errorf("want read-only: %q", c)
+			}
+		}
+	})
+	t.Run("a repo above the workspace is read too", func(t *testing.T) {
+		p, ws := roFixture(t)
+		write(t, filepath.Join(filepath.Dir(ws), ".git", "config"), "[core]\n\tfsmonitor = touch /tmp/x\n")
+		if p.ReadOnlyCommand(Request{Key: "bash", Patterns: []string{"git status"}, Workspace: ws}) {
+			t.Error("a parent repo's fsmonitor must disqualify")
+		}
+	})
+	bad := map[string]string{
+		"fsmonitor":       "[core]\n\tfsmonitor = sh -c evil\n",
+		"fsmonitor caps":  "[CORE]\n\tFsMonitor=evil\n",
+		"core.pager":      "[core]\n\tpager = sh\n",
+		"pager section":   "[pager]\n\tlog = sh\n",
+		"diff.external":   "[diff]\n\texternal = evil\n",
+		"diff driver cmd": "[diff \"x\"]\n\tcommand = evil\n",
+		"diff textconv":   "[diff \"x\"]\n\ttextconv = evil\n",
+		"filter clean":    "[filter \"x\"]\n\tclean = evil\n",
+		"filter smudge":   "[filter \"x\"]\n\tsmudge = evil\n",
+		"filter process":  "[filter \"x\"]\n\tprocess = evil\n",
+		"gpg.program":     "[gpg]\n\tprogram = evil\n",
+		"gpg.ssh.program": "[gpg \"ssh\"]\n\tprogram = evil\n",
+		"showSignature":   "[log]\n\tshowSignature = true\n",
+		"include":         "[include]\n\tpath = ../evil\n",
+		"includeIf":       "[includeIf \"gitdir:/\"]\n\tpath = evil\n",
+		"sshCommand":      "[core]\n\tsshCommand = evil\n",
+		"inline section":  "[core] pager = evil\n",
+		"hooksPath":       "[core]\n\thooksPath = /tmp\n",
+	}
+	for name, body := range bad {
+		t.Run("config "+name, func(t *testing.T) {
+			p, ws := roFixture(t)
+			write(t, filepath.Join(ws, ".git", "config"), plain+body)
+			for _, c := range cmds {
+				if p.ReadOnlyCommand(Request{Key: "bash", Patterns: []string{c}, Workspace: ws}) {
+					t.Errorf("want NOT read-only: %q", c)
+				}
+			}
+			// a non-git read is unaffected
+			if !p.ReadOnlyCommand(Request{Key: "bash", Patterns: []string{"ls"}, Workspace: ws}) {
+				t.Error("ls must stay read-only")
+			}
+		})
+	}
+	t.Run("config.worktree is read", func(t *testing.T) {
+		p, ws := roFixture(t)
+		write(t, filepath.Join(ws, ".git", "config"), plain)
+		write(t, filepath.Join(ws, ".git", "config.worktree"), "[core]\n\tfsmonitor = evil\n")
+		if p.ReadOnlyCommand(Request{Key: "bash", Patterns: []string{"git status"}, Workspace: ws}) {
+			t.Error("config.worktree fsmonitor must disqualify")
+		}
+	})
+	t.Run("a linked worktree: .git file, gitdir and commondir", func(t *testing.T) {
+		p, ws := roFixture(t)
+		main := filepath.Join(filepath.Dir(ws), "main", ".git")
+		wt := filepath.Join(main, "worktrees", "ws")
+		write(t, filepath.Join(main, "config"), plain)
+		write(t, filepath.Join(wt, "commondir"), "../..\n")
+		write(t, filepath.Join(ws, ".git"), "gitdir: "+wt+"\n")
+		if !p.ReadOnlyCommand(Request{Key: "bash", Patterns: []string{"git status"}, Workspace: ws}) {
+			t.Error("a clean linked worktree should qualify")
+		}
+		write(t, filepath.Join(main, "config"), plain+"[core]\n\tfsmonitor = evil\n")
+		if p.ReadOnlyCommand(Request{Key: "bash", Patterns: []string{"git status"}, Workspace: ws}) {
+			t.Error("the common config's fsmonitor must disqualify")
+		}
+		write(t, filepath.Join(main, "config"), plain)
+		write(t, filepath.Join(wt, "config.worktree"), "[diff]\n\texternal = evil\n")
+		if p.ReadOnlyCommand(Request{Key: "bash", Patterns: []string{"git diff"}, Workspace: ws}) {
+			t.Error("the worktree config's diff.external must disqualify")
+		}
+	})
+	t.Run("odd .git is not read-only", func(t *testing.T) {
+		p, ws := roFixture(t)
+		write(t, filepath.Join(ws, ".git"), "not a gitdir pointer")
+		if p.ReadOnlyCommand(Request{Key: "bash", Patterns: []string{"git status"}, Workspace: ws}) {
+			t.Error("an unparseable .git file must disqualify")
+		}
+	})
+	t.Run("an unreadable config is not read-only", func(t *testing.T) {
+		p, ws := roFixture(t)
+		write(t, filepath.Join(ws, ".git", "config"), plain)
+		if err := os.Chmod(filepath.Join(ws, ".git", "config"), 0); err != nil {
+			t.Fatal(err)
+		}
+		if os.Geteuid() != 0 && p.ReadOnlyCommand(Request{Key: "bash", Patterns: []string{"git status"}, Workspace: ws}) {
+			t.Error("an unreadable config must disqualify")
+		}
+	})
 }
