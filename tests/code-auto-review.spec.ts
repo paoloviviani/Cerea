@@ -231,7 +231,7 @@ test.describe("Auto with a reviewer", () => {
 		const out = join(workspaceOf(), "out.txt");
 		await expect.poll(() => existsSync(out), { timeout: 90_000 }).toBe(true);
 		expect(readFileSync(out, "utf8").trim()).toBe("reviewed");
-		await expect(page.getByText("Auto-allowed by mock-decider (97%)")).toBeVisible({
+		await expect(page.getByText("Auto-allowed by reviewer model")).toBeVisible({
 			timeout: 30_000,
 		});
 

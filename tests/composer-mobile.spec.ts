@@ -239,7 +239,7 @@ test.describe("/code composer at 390×844", () => {
 	});
 });
 
-test.describe("/code composer: the ceiling note on mobile", () => {
+test.describe("/code composer: no note beside the shield on mobile", () => {
 	test("steps aside on a phone, the row stays one line, and the Allow segment still carries it", async ({
 		page,
 	}) => {
@@ -304,7 +304,7 @@ test.describe("/code composer at 1280×800", () => {
 		expect(overlapsVertically(attachBox, sendBox)).toBe(true);
 	});
 
-	test("under Allow the ceiling note shows, and the row still lines up", async ({ page }) => {
+	test("under Allow the row has no note and still lines up", async ({ page }) => {
 		await installStubs(page, { permissionMode: "allow", ceiling: { bash: "ask" } });
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await goto(page);
@@ -312,12 +312,11 @@ test.describe("/code composer at 1280×800", () => {
 
 		const selector = page.getByRole("radiogroup", { name: "Permission for this session" });
 		await expect(selector).toBeVisible();
-		await expect(page.getByTestId("permission-mode-note")).toHaveText(
-			"Allow · bash asks (machine limit)"
-		);
+		await expect(page.getByTestId("permission-mode-note")).toHaveCount(0);
+		await expect(page.getByTestId("permission-details")).toBeVisible();
 
-		// The note is one more thing in the pill row: `+` and send must stay on
-		// it, not drift to the composer's corner.
+		// The shield is in the pill row: `+` and send must stay on it,
+		// not drift to the composer's corner.
 		const attach = page.getByRole("button", { name: "Add attachment" });
 		const send = page.getByRole("button", { name: "Send message" });
 		const [attachBox, selectorBox, sendBox] = await Promise.all([attach, selector, send].map(box));

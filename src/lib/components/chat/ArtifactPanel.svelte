@@ -788,7 +788,9 @@
 		document.body.appendChild(a);
 		a.click();
 		a.remove();
-		URL.revokeObjectURL(url);
+		// Not at once: the browser reads the blob after the click returns, and a
+		// revoke now can cut the saved file short.
+		setTimeout(() => URL.revokeObjectURL(url), 60_000);
 	}
 
 	function gotoVersion(n: number) {
