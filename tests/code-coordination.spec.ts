@@ -71,7 +71,7 @@ test.describe("the Permissions dialog's coordination switches", () => {
 		if (!created) throw new Error("the pair flow created no session");
 		const sessionId = created.id;
 
-		await page.getByRole("button", { name: "Permission details for this session" }).click();
+		await page.getByTestId("permission-details").click();
 		const options = page.getByTestId("coordination-options");
 		await expect(options).toBeVisible();
 		const message = options.getByText("Can find, read and message other sessions");

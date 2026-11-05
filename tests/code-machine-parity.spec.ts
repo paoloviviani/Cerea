@@ -146,9 +146,10 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByRole("button", { name: /auto.?accept/i })).toHaveCount(0);
 		await choose(page, "Allow");
 		// The enroll-default ceiling holds bash at ask.
-		await expect(page.getByTestId("permission-mode-note")).toHaveText(
-			/Allow · .*bash asks.*\(machine limit\)/
-		);
+		await expect(page.getByTestId("permission-mode-note")).toHaveCount(0);
+		await page.getByTestId("permission-details").click();
+		await expect(page.getByTestId("permission-outcome-command")).not.toHaveText("Runs");
+		await page.keyboard.press("Escape");
 	});
 
 	const bashWriteScenario = (id: string, file: string, words: string[]) => ({
@@ -239,7 +240,7 @@ test.describe("owned machine agent: parity", () => {
 		// verbatim (probed live: "echo same" arrives as always ["echo *"],
 		// "git status" as ["git status *"]) — the panel shows what is in
 		// force, never a narrower promise.
-		await page.getByRole("button", { name: "Permission details for this session" }).click();
+		await page.getByTestId("permission-details").click();
 		const item = page.getByTestId("permission-exception-item");
 		await expect(item).toHaveCount(1, { timeout: 30_000 });
 		await expect(item).toContainText("echo *");
