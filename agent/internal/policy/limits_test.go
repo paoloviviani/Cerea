@@ -239,3 +239,31 @@ func TestTableNamesEveryClassInPlainWords(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationOfTheLegacyDefaultSpawnCapRunsAgents(t *testing.T) {
+	p := loadOld(t, `{"permission":{"max":{"bash":"ask","session_spawn":"ask"}}}`)
+	wantLimits(t, p.Permission, map[string]string{"command": "ask", "agents": "run"})
+	if !strings.Contains(strings.Join(p.Permission.Notices, "\n"), "Delegation: the old default (session_spawn=ask) became agents=run") {
+		t.Errorf("notices lack the delegation note: %v", p.Permission.Notices)
+	}
+}
+
+func TestMigrationOfOtherAgentsCapsStaysCautious(t *testing.T) {
+	cases := map[string]struct{ json, want string }{
+		"task ask":         {`{"permission":{"max":{"task":"ask"}}}`, "ask"},
+		"task ask + spawn": {`{"permission":{"max":{"task":"ask","session_spawn":"ask"}}}`, "ask"},
+		"spawn deny":       {`{"permission":{"max":{"session_spawn":"deny"}}}`, "never"},
+		"schedule ask":     {`{"permission":{"max":{"session_spawn":"ask","schedule":"ask"}}}`, "ask"},
+		"send ask":         {`{"permission":{"max":{"session_spawn":"ask","session_send":"ask"}}}`, "ask"},
+		"spawn allow":      {`{"permission":{"max":{"session_spawn":"allow"}}}`, "run"},
+	}
+	for name, c := range cases {
+		p := loadOld(t, c.json)
+		if got := p.Permission.EffectiveLimits()[decide.ClassAgents].Word(); got != c.want {
+			t.Errorf("%s: agents = %s, want %s", name, got, c.want)
+		}
+		if strings.Contains(strings.Join(p.Permission.Notices, "\n"), "Delegation:") {
+			t.Errorf("%s: unexpected delegation notice", name)
+		}
+	}
+}

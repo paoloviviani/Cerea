@@ -373,7 +373,7 @@ func TestProfileNeverRaisesPermissionAboveSpawner(t *testing.T) {
 }
 
 func TestProfileStillGoesThroughTheCardAndCeiling(t *testing.T) {
-	r := newCoordRig(t, withMax("session_spawn", "ask"))
+	r := newCoordRig(t, withLimit("agents", "ask"))
 	r.offer("pystino/fast")
 	r.writeProfiles(`{"default":"fast","profiles":{"fast":{"model":"pystino/fast"}}}`)
 	allowCaller(t, r)

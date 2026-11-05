@@ -64,7 +64,9 @@ func (p *Permission) Normalize() []string {
 // absent from Max is uncapped), tighten-only, and what the session-level
 // "protected" step asked for (outside the project, .env, a repeating agent)
 // becomes outside, secrets and loop at ask. An own allow rule is kept only when
-// every key of its class has one; otherwise it is dropped and said so.
+// every key of its class has one; otherwise it is dropped and said so. One
+// exception: the legacy default ceiling (session_spawn=ask alone among the
+// agents keys) becomes agents=run, since task was never capped.
 func (p *Permission) migrate() []string {
 	var notices []string
 	capOf := func(key string) permrules.Action {
@@ -87,6 +89,22 @@ func (p *Permission) migrate() []string {
 			lim = decide.Stricter(lim, limitOf(capOf(k)))
 		}
 		switch c {
+		case decide.ClassAgents:
+			// The old default ceiling capped only session_spawn=ask; task (opencode's
+			// own subagent spawn) was never capped. Folding that into the class would
+			// make every subagent ask, so the legacy default alone becomes run.
+			if capOf("session_spawn") == permrules.Ask {
+				only := true
+				for _, k := range keys {
+					if k != "session_spawn" && capOf(k) != permrules.Allow {
+						only = false
+					}
+				}
+				if only {
+					lim = decide.Run
+					notices = append(notices, "Delegation: the old default (session_spawn=ask) became agents=run — subagents run as before; `--limit agents=ask` asks before every delegation.")
+				}
+			}
 		case decide.ClassTools:
 			for _, k := range sortedKeys(p.Max, p.Rules) {
 				if kc, ok := decide.KeyClass(k); ok && kc == decide.ClassTools {

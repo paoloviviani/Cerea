@@ -269,8 +269,12 @@ PATH` may only remove from it.
   takes the **most cautious** value among the old keys it replaces (tighten-only,
   no re-enroll), the old always-asked outside, `.env` and loop become
   `outside=ask`, `secrets=ask`, `loop=ask`, and an own `allow` rule is carried
-  over only when every key of its class has one, else dropped; `galopin policy
-show` prints the table and says what was dropped.
+  over only when every key of its class has one, else dropped. The one exception
+  is the old default ceiling (`session_spawn=ask` and no other agents key capped):
+  it becomes `agents=run`, because opencode's `task` subagent spawn was never
+  capped and every subagent would otherwise ask; `--limit agents=ask` asks before
+  every delegation. Any other cap on an agents key keeps the most-cautious rule.
+  `galopin policy show` prints the table and says what was dropped.
 
 - **Agent tools** (on by default; `--no-agent-tools`): `session_list`,
   `session_read`, `session_send` and `session_spawn`, so a session's model can
