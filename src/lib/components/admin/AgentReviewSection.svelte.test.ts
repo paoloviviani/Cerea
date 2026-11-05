@@ -55,18 +55,16 @@ afterEach(() => {
 });
 
 describe("Administration -> Agents -> Auto-approval", () => {
-	it("shows the egress note, the fixed frame around the editable text, and per-class rows with loop fixed", async () => {
+	it("shows the fixed frame around the editable text and per-class rows with loop fixed, and no egress note", async () => {
 		stub(view());
 		renderWithApp(AgentReviewSection, {});
-		await expect
-			.element(page.getByTestId("auto-egress"))
-			.toHaveTextContent("provider sees command text and file paths");
 		await expect.element(page.getByTestId("auto-frame-top")).toBeVisible();
 		await expect.element(page.getByTestId("auto-frame-bottom")).toBeVisible();
 		await expect.element(page.getByTestId("auto-row-command-reviewer")).toBeChecked();
 		await expect.element(page.getByTestId("auto-row-secrets-you")).toBeChecked();
 		await expect.element(page.getByTestId("auto-row-loop")).toHaveTextContent("always");
 		expect(document.querySelector('[data-testid="auto-row-loop-reviewer"]')).toBeNull();
+		expect(document.querySelector('[data-testid="auto-egress"]')).toBeNull();
 	});
 
 	it("explains that a decision model must be added in the gateway when there are none", async () => {

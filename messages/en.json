@@ -3075,7 +3075,6 @@
 	"admin.auto.page_title": "Agents · administration",
 	"admin.auto.title": "Auto-approval",
 	"admin.auto.intro": "When a user puts a coding session on Auto, the machine's own limits still decide what may run at all. For what the machine says must be asked, a decision model can answer for the user, or the user answers. You choose, per kind of action, who answers.",
-	"admin.auto.egress": "The reviewer's provider sees command text and file paths from users' machines. Choose a decision model whose provider you are content to send that to.",
 	"admin.auto.killswitch": "The deployment switch CHAT_AUTO_PERMISSIONS is off: no reviewer runs, and the composer's third step reads Allow whatever is set here.",
 	"admin.auto.enabled": "Use a reviewer for Auto",
 	"admin.auto.enabled_detail": "Off: the third step in the composer reads Allow and every ask comes to the user.",
