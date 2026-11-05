@@ -58,7 +58,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "24.22.1" # >= 24.22.1: CVE-2026-111497 (Brotli)
+  NODE_VERSION: "24.22.2" # >= 24.22.1: CVE-2026-111497 (Brotli); 24.22.2: V8 backports (CI crash "jit_page.has_value()", exit 133)
 
 jobs:
   check:
@@ -116,7 +116,16 @@ jobs:
       # vendored Pyodide dist (not fetched, to keep PR runs short) and is a
       # known pre-existing failure even with it — tracked in
       # reports/2026-09-24-thin-agent-progress.md ("Known CI exclusions").
-      - run: npx vitest run --project=server --project=ssr --no-file-parallelism
+      # Retries ONLY a V8 fatal at start-up (exit 133, SIGTRAP: "Check failed:
+      # jit_page.has_value()", backlog C68), never a test failure (exit 1).
+      - run: |
+          for attempt in 1 2 3; do
+            npx vitest run --project=server --project=ssr --no-file-parallelism && exit 0
+            rc=$?
+            [ "$rc" -eq 133 ] || exit "$rc"
+            echo "::warning::vitest died with a V8 fatal (exit 133), retrying ($attempt/3)"
+          done
+          exit 133
       # The specs that store, read or delete files, again on the S3 backend.
       - name: File specs on S3 (RustFS)
         env:
@@ -128,7 +137,13 @@ jobs:
           CHAT_S3_CREATE_BUCKET: "true"
         run: |
           files="$(grep -rlE 'blobs/testing|blobStore' src --include='*.spec.ts' | grep -v 'src/lib/server/blobs/' | sort)"
-          npx vitest run --project=server --project=ssr --no-file-parallelism $files
+          for attempt in 1 2 3; do
+            npx vitest run --project=server --project=ssr --no-file-parallelism $files && exit 0
+            rc=$?
+            [ "$rc" -eq 133 ] || exit "$rc"
+            echo "::warning::vitest died with a V8 fatal (exit 133), retrying ($attempt/3)"
+          done
+          exit 133
 
   go:
     if: github.event_name != 'schedule'

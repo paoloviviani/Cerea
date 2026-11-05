@@ -5,7 +5,7 @@ ARG INCLUDE_DB=false
 # Node must be at least 24.22.1 (22.23.4 on the 22 line). Pinned to an exact
 # patch so a floating tag can never fall back to a vulnerable build;
 # src/lib/server/dockerfileNodePins.spec.ts enforces it.
-FROM node:24.22.1-slim AS base
+FROM node:24.22.2-slim AS base
 
 # install dotenv-cli
 RUN npm install -g dotenv-cli
@@ -40,7 +40,7 @@ COPY --chown=1000 package-lock.json /app/package-lock.json
 
 RUN chmod +x /app/entrypoint.sh
 
-FROM node:24.22.1 AS builder
+FROM node:24.22.2 AS builder
 
 WORKDIR /app
 
@@ -71,7 +71,7 @@ RUN git config --global --add safe.directory /app && \
 # build/). Same base and lockfile as the builder, so native packages (sharp,
 # resvg) resolve to the same binaries. `prepare` runs husky, a dev tool, so it
 # is dropped here; no other install script needs a dev dependency.
-FROM node:24.22.1 AS prod-deps
+FROM node:24.22.2 AS prod-deps
 
 WORKDIR /app
 
