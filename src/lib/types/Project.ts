@@ -115,6 +115,9 @@ export interface ProjectView {
 	/** Whether the viewer owns it. Editing, sharing and deleting need this. */
 	owned: boolean;
 	shares: { kind: "user" | "group"; principal: string }[];
+	/** The viewer's own chats in the project. */
 	conversationCount: number;
+	/** Other members' chats in it: a number only, never titles. */
+	othersCount: number;
 	updatedAt: string;
 }

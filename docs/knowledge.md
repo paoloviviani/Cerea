@@ -178,8 +178,10 @@ You can share a **base** or a **project** with a person (by email address) or a
 group (by name).
 
 - **Cerea can't check the name you type.** It can't look up who exists or who is in a group, so a typo in an address and a colleague who hasn't signed in yet look the same. The share list shows what you typed, not who it reached. Check the spelling.
-- **A shared project is a shared workspace.** Everyone who can see it sees every
-  conversation in it. The project page says so.
+- **A shared project shares its instructions, knowledge and memory, not its chats.**
+  Members see only their own conversations in it (plus a count of other members'
+  chats), and a chat opens for its author only. With past-chat memory on, the
+  assistant can recall past chats from all members. The project page says so.
 - **Sharing a project shares no documents.** Retrieval runs with the _reader's_
   own identity on every turn, so a reader sees passages only from bases they
   could already read. A project is never a way to publish a document without

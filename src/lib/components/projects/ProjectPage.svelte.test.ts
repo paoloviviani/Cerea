@@ -52,6 +52,7 @@ function projectView(overrides: Partial<ProjectView> = {}): ProjectView {
 		owned: true,
 		shares: [],
 		conversationCount: 0,
+		othersCount: 0,
 		updatedAt: new Date().toISOString(),
 		...overrides,
 	};
@@ -75,9 +76,8 @@ const CHATS = [
 		title: "Budget questions",
 		model: "m",
 		updatedAt: "2026-01-01T00:00:00Z",
-		mine: true,
 	},
-	{ id: "c2", title: "Their thread", model: "m", updatedAt: "2026-01-01T00:00:00Z", mine: false },
+	{ id: "c2", title: "Second thread", model: "m", updatedAt: "2026-01-01T00:00:00Z" },
 ];
 
 function settingsContext(webSearchEnabled: boolean) {
@@ -100,6 +100,7 @@ function stubApi(
 		connectors?: McpConnectorView[];
 		project?: ProjectView | null;
 		chats?: typeof CHATS;
+		othersCount?: number;
 	} = {}
 ) {
 	const seen: SeenCall[] = [];
@@ -125,7 +126,10 @@ function stubApi(
 				return Response.json({ data: { notes: [] } });
 			}
 			if (/\/projects\/[^/]+\/conversations$/.test(url) && method === "GET") {
-				return Response.json({ data: options.chats ?? [] });
+				return Response.json({
+					data: options.chats ?? [],
+					othersCount: options.othersCount ?? 0,
+				});
 			}
 			if (url.endsWith("/api/v2/projects") && method === "GET") {
 				return Response.json({
@@ -323,13 +327,30 @@ describe("ProjectPage sections", () => {
 		expect(document.body.querySelector('[data-testid="project-documents"]')).not.toBeNull();
 	});
 
-	it("a shared project still lists its chats, with actions only for one's own", async () => {
-		stubApi({ project: projectView({ owned: false }), chats: CHATS });
+	it("a shared project lists only the viewer's chats, with a muted line for the others'", async () => {
+		stubApi({ project: projectView({ owned: false }), chats: CHATS, othersCount: 3 });
 		mountExisting();
 		await waitForText("Budget questions");
-		// Not theirs, not the owner's: no removal for the chat they did not start.
 		expect(byLabel("Actions for Budget questions")).not.toBeNull();
-		expect(byLabel("Remove Their thread from project")).toBeNull();
+		expect(
+			document.body.querySelector('[data-testid="project-others-count"]')?.textContent?.trim()
+		).toBe("3 more chats by other members");
+	});
+
+	it("says 'chat' for one other member's chat and shows no line at zero", async () => {
+		stubApi({ project: projectView({ owned: false }), chats: CHATS, othersCount: 1 });
+		mountExisting();
+		await waitForText("Budget questions");
+		expect(
+			document.body.querySelector('[data-testid="project-others-count"]')?.textContent?.trim()
+		).toBe("1 more chat by other members");
+	});
+
+	it("shows no line about other members' chats when there are none", async () => {
+		stubApi({ project: projectView(), chats: CHATS });
+		mountExisting();
+		await waitForText("Budget questions");
+		expect(document.body.querySelector('[data-testid="project-others-count"]')).toBeNull();
 	});
 });
 
@@ -416,7 +437,7 @@ describe("ProjectPage chats", () => {
 		expect(seen[0].body).toEqual({ projectId: null });
 		await vi.waitFor(() => expect(text()).toContain("Chats (1)"));
 		expect(text()).not.toContain("Budget questions");
-		expect(text()).toContain("Their thread");
+		expect(text()).toContain("Second thread");
 		expect(confirmSpy).not.toHaveBeenCalled();
 	});
 
@@ -434,15 +455,6 @@ describe("ProjectPage chats", () => {
 		expect(seen[0].body).toEqual({ projectId: "proj-2" });
 		await vi.waitFor(() => expect(text()).toContain("Chats (1)"));
 		await vi.waitFor(() => expect(text()).not.toContain("Budget questions"));
-	});
-
-	it("offers the project's owner removal, but not a move, for a chat someone else started", async () => {
-		stubApi({ project: projectView({ conversationCount: 2 }), chats: CHATS });
-		mountExisting();
-		await waitForText("Their thread");
-		const items = await menuItem("Their thread", "Remove from project");
-		expect(items).not.toBeNull();
-		expect(text()).not.toContain("Move to project…");
 	});
 
 	it("deletes the author's chat after the same confirmation the sidebar opens", async () => {
@@ -468,17 +480,6 @@ describe("ProjectPage chats", () => {
 		);
 		await vi.waitFor(() => expect(text()).not.toContain("Budget questions"));
 		expect(text()).toContain("Chats (1)");
-	});
-
-	it("offers no Delete for a chat someone else started", async () => {
-		stubApi({ project: projectView({ conversationCount: 2 }), chats: CHATS });
-		mountExisting();
-		await waitForText("Their thread");
-		await menuItem("Their thread", "Remove from project");
-		const names = [...document.body.querySelectorAll('[role="menuitem"]')].map((el) =>
-			el.textContent?.trim()
-		);
-		expect(names).toEqual(["Remove from project"]);
 	});
 });
 

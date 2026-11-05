@@ -2622,7 +2622,21 @@
 	"projects.page.chats.empty.start": "[Śťáŕť ťȟé ƒíŕśť ćȟáť]",
 	"projects.page.chats.empty.title": "[Ńóťȟíńǧ ȟéŕé ýéť]",
 	"projects.page.chats.new": "[Ńéŵ ćȟáť]",
-	"projects.page.chats.others": "[· śóḿéƀóďý éľśé'ś]",
+	"projects.page.chats.others_count": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ḿóŕé ćȟáť ƀý óťȟéŕ ḿéḿƀéŕś]",
+				"countPlural=other": "[{count} ḿóŕé ćȟáťś ƀý óťȟéŕ ḿéḿƀéŕś]"
+			}
+		}
+	],
 	"projects.page.chats.past_searchable": "[· þáśť ćȟáťś śéáŕćȟáƀľé]",
 	"projects.page.chats.shared": "[· śȟáŕéď ŵíťȟ ýóú]",
 	"projects.page.chats.title": "[Ćȟáťś ({count})]",
@@ -2719,7 +2733,7 @@
 	"projects.page.no_models": "[Ńó ḿóďéľś áŕé áǚáíľáƀľé ťó ýóú ýéť. Áśķ ýóúŕ áďḿíńíśťŕáťóŕ.]",
 	"projects.page.open_failed": "[Ćóúľď ńóť óþéń ťȟáť þŕóĵéćť. Ťŕý áǧáíń.]",
 	"projects.page.optional": "[(óþťíóńáľ)]",
-	"projects.page.past.detail": "[Ƒíńíśȟéď ćȟáťś áŕé śáǚéď íńťó á ķńóŵľéďǧé ƀáśé óƒ ťȟéíŕ óŵń. Íť áþþéáŕś úńďéŕ Ķńóŵľéďǧé, áńď ýóú ćáń éḿþťý óŕ ďéľéťé íť ľíķé áńý óťȟéŕ. Óƒƒ ƀý ďéƒáúľť, ƀéćáúśé íť ķééþś á ćóþý óƒ ŵȟáť ŵáś śáíď.]",
+	"projects.page.past.detail": "[Íń á śȟáŕéď þŕóĵéćť, ťȟé áśśíśťáńť ćáń ŕéćáľľ þáśť ćȟáťś ƒŕóḿ áľľ ḿéḿƀéŕś, áľťȟóúǧȟ ḿéḿƀéŕś ńéǚéŕ śéé éáćȟ óťȟéŕ'ś ćȟáťś. Ƒíńíśȟéď ćȟáťś áŕé śáǚéď íńťó á ķńóŵľéďǧé ƀáśé óƒ ťȟéíŕ óŵń. Íť áþþéáŕś úńďéŕ Ķńóŵľéďǧé, áńď ýóú ćáń éḿþťý óŕ ďéľéťé íť ľíķé áńý óťȟéŕ. Óƒƒ ƀý ďéƒáúľť, ƀéćáúśé íť ķééþś á ćóþý óƒ ŵȟáť ŵáś śáíď.]",
 	"projects.page.past.label": "[Śéáŕćȟ ťȟíś þŕóĵéćť'ś þáśť ćȟáťś]",
 	"projects.page.pill.full": "[{n} · íń ƒúľľ]",
 	"projects.page.pill.searched": "[{n} · śéáŕćȟéď]",
@@ -2739,7 +2753,7 @@
 	"projects.page.share.group_placeholder": "[ŕéśéáŕćȟ]",
 	"projects.page.share.kind_group": "[· ǧŕóúþ]",
 	"projects.page.share.kind_user": "[· úśéŕ]",
-	"projects.page.share.note": "[Éǚéŕýóńé ȟéŕé śééś {#strong}éǚéŕý ćóńǚéŕśáťíóń{/strong} íń ťȟé þŕóĵéćť, íńćľúďíńǧ óńéś ýóú ďíď ńóť śťáŕť, áńď ćáń áďď óŕ ŕéḿóǚé íťś ďóćúḿéńťś áńď ńóťéś. Ťȟé áďďŕéśś íś ńóť ćȟéćķéď, śó á ťýþó áńď á ćóľľéáǧúé ŵȟó ȟáś ńóť śíǧńéď íń ýéť ľóóķ ťȟé śáḿé.]",
+	"projects.page.share.note": "[Éǚéŕýóńé ȟéŕé śȟáŕéś ťȟé þŕóĵéćť'ś {#strong}íńśťŕúćťíóńś, ķńóŵľéďǧé áńď ḿéḿóŕý{/strong}, áńď ćáń áďď óŕ ŕéḿóǚé íťś ďóćúḿéńťś áńď ńóťéś. Ćȟáťś áŕé ńóť śȟáŕéď: éáćȟ ḿéḿƀéŕ śééś óńľý ťȟéíŕ óŵń. Ťȟé áďďŕéśś íś ńóť ćȟéćķéď, śó á ťýþó áńď á ćóľľéáǧúé ŵȟó ȟáś ńóť śíǧńéď íń ýéť ľóóķ ťȟé śáḿé.]",
 	"projects.page.share.person": "[Á þéŕśóń]",
 	"projects.page.share.remove": "[Ŕéḿóǚé]",
 	"projects.page.share.remove_failed": "[Ćóúľď ńóť ŕéḿóǚé ťȟáť. Ťŕý áǧáíń.]",

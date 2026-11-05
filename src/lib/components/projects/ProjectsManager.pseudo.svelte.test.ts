@@ -23,6 +23,7 @@ const project = (id: string, name: string, extra: object = {}) => ({
 	owned: true,
 	shares: [],
 	conversationCount: 2,
+	othersCount: 0,
 	updatedAt: "2026-01-01T00:00:00.000Z",
 	...extra,
 });

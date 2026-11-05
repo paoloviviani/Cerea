@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Shared projects list only your own chats.** Members of a shared project share its instructions, knowledge and memory, but each sees only their own chats in it (plus a count of other members' chats), instead of a list of colleagues' titles that could not be opened.
 - **Chat-only users.** When a Pystino group has its new **console access** capability off, its members see no link to the
   Pystino console anywhere in the chat (the admin panel's, "Your providers and models", the usage page's), and the console
   sends them to Settings → Usage, where their quotas are. Bring your own key follows (it needs console access). The kit

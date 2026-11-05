@@ -80,6 +80,8 @@
 	// reopened folder does not blink.
 	let expanded = $state<Record<string, boolean>>({});
 	let chats = $state<Record<string, ProjectConversation[]>>({});
+	/** Other members' chats per folder: a count only. */
+	let others = $state<Record<string, number>>({});
 	/** Folders whose last read of their chats failed, so they offer a retry. */
 	let chatsFailed = $state<Record<string, boolean>>({});
 	/** The project whose new chat is being created, for the in-flight guard. */
@@ -157,9 +159,13 @@
 		try {
 			const response = await fetch(`${base}/api/v2/projects/${projectId}/conversations`);
 			if (!response.ok) throw new Error(String(response.status));
-			const listed = (await response.json()) as { data: ProjectConversation[] };
+			const listed = (await response.json()) as {
+				data: ProjectConversation[];
+				othersCount?: number;
+			};
 			if (read !== chatsRead[projectId]) return;
 			chats = { ...chats, [projectId]: listed.data };
+			others = { ...others, [projectId]: listed.othersCount ?? 0 };
 			chatsFailed = { ...chatsFailed, [projectId]: false };
 		} catch {
 			if (read !== chatsRead[projectId]) return;
@@ -479,6 +485,14 @@
 							/>
 						{/each}
 					</div>
+				{/if}
+				{#if !chatsFailed[project.id] && chats[project.id] !== undefined && (others[project.id] ?? 0) > 0}
+					<p
+						class="ml-[1.375rem] px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400"
+						data-testid="project-others-count"
+					>
+						{m["projects.page.chats.others_count"]({ count: others[project.id] })}
+					</p>
 				{/if}
 			</TreeBranch>
 		{/each}
