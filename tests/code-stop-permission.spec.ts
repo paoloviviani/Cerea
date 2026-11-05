@@ -369,7 +369,7 @@ test.describe("the permission selector", () => {
 
 		// The mode pill is gone (the selector drives build and plan); the
 		// permission-details button is the selector's own sibling.
-		const mode = page.getByRole("button", { name: "Permission details for this session" });
+		const mode = page.getByTestId("permission-details");
 		const model = page.getByRole("button", { name: "Model and effort" });
 		await expect(mode).toBeVisible();
 		await expect(model).toBeVisible();
@@ -383,7 +383,9 @@ test.describe("the permission selector", () => {
 		await expect(model).toHaveAttribute("data-remount-probe", "1");
 	});
 
-	test("under Allow it names what the machine's ceiling still caps", async ({ page }) => {
+	test("under Allow the shield's sheet shows what the machine's ceiling still caps", async ({
+		page,
+	}) => {
 		await installStubs(page, {
 			ceiling: { bash: "ask" },
 			snapshot: {
@@ -400,12 +402,14 @@ test.describe("the permission selector", () => {
 		});
 		await goto(page);
 
-		await expect(page.getByTestId("permission-mode-note")).toHaveText(
-			"Allow · bash asks (machine limit)"
-		);
+		// No note beside the shield; the machine's limit is in its sheet.
+		await expect(page.getByTestId("permission-mode-note")).toHaveCount(0);
+		await page.getByTestId("permission-details").click();
+		await expect(page.getByTestId("permission-outcome-command")).toHaveText("Comes to you");
+		await expect(page.getByTestId("permission-outcome-edit")).toHaveText("Runs");
 	});
 
-	test("a subagent's view shows its root's word, disabled, and says it follows the main session", async ({
+	test("a subagent's view shows its root's word, disabled, (its title says it follows the main session)", async ({
 		page,
 	}) => {
 		await installStubs(page, {
@@ -426,7 +430,11 @@ test.describe("the permission selector", () => {
 
 		await expect(segment(page, "deny")).toHaveAttribute("aria-checked", "true");
 		await expect(segment(page, "allow")).toBeDisabled();
-		await expect(page.getByTestId("permission-mode-note")).toHaveText("Follows the main session");
+		await expect(page.getByTestId("permission-mode-note")).toHaveCount(0);
+		await expect(page.getByTestId("permission-mode")).toHaveAttribute(
+			"title",
+			"A subagent follows the main session's permission setting."
+		);
 	});
 
 	test("there is no Auto Accept pill any more", async ({ page }) => {
