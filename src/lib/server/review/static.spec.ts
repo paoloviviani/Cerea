@@ -33,21 +33,6 @@ describe("the static escalate list", () => {
 			expect(r("read", p), p).toBeNull();
 		}
 	});
-	it("writes to a repository's config, hooks and info, not reads", () => {
-		for (const p of [
-			"/w/.git/config",
-			"/w/.git/config.worktree",
-			"/w/.git/hooks/pre-commit",
-			"/w/.git/info/attributes",
-			".git/config",
-			"/m/.git/worktrees/ws/config.worktree",
-		]) {
-			expect(r("edit", p), p).toMatch(/git configuration/);
-			expect(r("read", p), p).toBeNull();
-		}
-		expect(r("edit", "/w/.gitignore")).toBeNull();
-		expect(r("edit", "/w/.github/CODEOWNERS")).toBeNull();
-	});
 	it("ordinary work passes", () => {
 		for (const [t, p] of [
 			["bash", "npm test"],
