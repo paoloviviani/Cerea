@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Coding agents: a user answering a card can always choose "Always allow", also for kinds of action the machine sets to always ask; matching requests then run for the rest of that session (shown and removable under the shield's Exceptions). The reviewer and the read-only rule still allow once only; loop alerts stay once-only; a machine's "never" still refuses. Needs the galopin update on each machine.
 - New built-in skill `cerea`: asked "what can you do?", "what is Cerea?" or "how do I use this?", the assistant answers with a structured overview of its capabilities for users and administrators, lists the tools and connectors actually available in that conversation, and links the documentation. Administrators can switch it off like any bundled skill (`CHAT_SKILLS_DISABLED`).
 
 ## v0.42.0 — 2026-11-05

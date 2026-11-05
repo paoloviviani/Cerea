@@ -88,9 +88,12 @@ screen. Example: "Every Monday at 08:00, summarise the news on space travel."
 Made from a conversation's menu (Schedule…).
 
 **Coding agents on the user's machines.** The Agents panel in the sidebar
-drives coding agents that run on the user's own machine under `galopin`, with
-the Plan, Ask and Allow permission choices and a Needs-you inbox. The code
-stays on the machine.
+drives coding agents that run on the user's own machine under `galopin`; a chat
+can also start and steer an agent session. The composer offers Plan, Ask and
+Auto: in Auto, routine requests run or go to a reviewer model the administrator
+set up, and the rest reach the user's Needs-you inbox, where "Always allow"
+covers a pattern for the session. The code stays on the machine. Example: "On
+my laptop, run the tests in the shop-api project and fix what fails."
 
 **Notifications.** Settings → Notifications, per device, for agent approvals,
 finished runs and long answers.
@@ -145,7 +148,7 @@ Documentation: https://paoloviviani.github.io/Cerea/
 - File storage (operators): https://paoloviviani.github.io/Cerea/storage/
 - The headless browser (operators): https://paoloviviani.github.io/Cerea/browser/
 - Configuration (operators): https://paoloviviani.github.io/Cerea/configuration/
-- The /code panel (operators): https://paoloviviani.github.io/Cerea/code-panel/
+- The Agents panel: https://paoloviviani.github.io/Cerea/code-panel/
 
 In the app: Settings (usage and billing, notifications, review log), Workspace
 (Skills, Connectors, Local connectors, Memory), and Admin for administrators.
@@ -159,4 +162,4 @@ In the app: Settings (usage and billing, notifications, review log), Workspace
   "what can you do?" gets the headline list; a request for everything gets the
   sections above.
 - Link a documentation page only when it helps with what was asked.
-- Plain and factual, no marketing tone. Say "users", not "people".
+- Plain and factual, no marketing tone; address the user directly.
