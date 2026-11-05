@@ -240,10 +240,10 @@ func TestAllowBlanketStillCappedByCeiling(t *testing.T) {
 		t.Fatalf("a send the ceiling caps at ask must still raise a card; asks = %+v", asks)
 	}
 
-	// Spawns likewise under a session_spawn=ask ceiling (older enrollments
-	// carry it; fresh ones leave the key uncapped) — and the approved child
-	// still inherits the caller's word.
-	r2 := newCoordRig(t, func(p *policy.Policy) { withMax("session_spawn", "ask")(p) })
+	// Spawns likewise under an agents=ask limit (the explicit `--limit agents=ask`;
+	// the old session_spawn=ask default migrates to agents=run) — and the approved
+	// child still inherits the caller's word.
+	r2 := newCoordRig(t, withLimit("agents", "ask"))
 	_ = r2.cb.SetPermissionMode(context.Background(), "", "caller", permrules.Allow)
 	child, result := spawnChild(t, r2)
 	if asks := r2.asks(); len(asks) != 1 || asks[0].Tool != "session_spawn" {

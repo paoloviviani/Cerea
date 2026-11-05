@@ -138,6 +138,11 @@ export interface MachinePermission {
 	 * pass `{ session_spawn: "ask" }` to open bash, or `{}` to cap nothing.
 	 */
 	max?: Record<string, "ask" | "deny">;
+	/**
+	 * The class form (ADR 0107; what a fresh `enroll` writes now): class -> never | ask | run.
+	 * When given, it is written instead of `max`, e.g. `{ agents: "ask" }` for `--limit agents=ask`.
+	 */
+	limits?: Record<string, string>;
 	/** The machine's own rules (applied to every session, capped by `max`). */
 	rules?: Record<string, "allow" | "ask" | "deny">;
 	/** The machine's safe external directories (what `enroll --safe-dir`
@@ -146,7 +151,11 @@ export interface MachinePermission {
 	safeDirs?: string[];
 }
 
-/** What a fresh `enroll` writes as the ceiling. */
+/**
+ * The LEGACY ceiling that older enrollments wrote (bash and session_spawn at "ask"). It is kept as the
+ * harness default on purpose: galopin migrates it on first read (bash -> command=ask, the spawn cap ->
+ * agents=run, so `task` subagents still run), and the specs depend on that migration holding.
+ */
 export const ENROLL_DEFAULT_MAX: Record<string, "ask" | "deny"> = {
 	bash: "ask",
 	session_spawn: "ask",
@@ -264,7 +273,9 @@ export async function startMachine(input: {
 		join(stateDir, "policy.json"),
 		JSON.stringify({
 			permission: {
-				max: policy.permission?.max ?? ENROLL_DEFAULT_MAX,
+				...(policy.permission?.limits
+					? { limits: policy.permission.limits }
+					: { max: policy.permission?.max ?? ENROLL_DEFAULT_MAX }),
 				...(policy.permission?.rules ? { rules: policy.permission.rules } : {}),
 				...(policy.permission?.safeDirs || policy.safeDirsUnderHome
 					? {

@@ -13,7 +13,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   eight **classes** (edit, command, web, outside, secrets, agents, tools, loop), each `never`, `ask` or `run`,
   shown by `galopin policy show` and set with `galopin enroll --limit CLASS=VALUE`. **What changes for existing
   machines: nothing** until Auto is used: on first read galopin migrates the old per-key ceiling and rules
-  onto classes (the most cautious value, nothing loosened, no re-enroll) and `policy show` says if a rule
+  onto classes (the most cautious value, nothing loosened, no re-enroll; the old default spawn cap `session_spawn=ask` becomes
+  `agents=run`, so subagents keep running without a card) and `policy show` says if a rule
   was dropped. Also new: **re-enrolling now keeps every setting you do not pass** (it used to reset the policy,
   see #25), `galopin enroll <cerea-url>` takes the address directly, `galopin reset` restores the defaults
   (keeping credentials and pairing), and the **file editor is on by default** (`--no-file-write` turns it off).
