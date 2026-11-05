@@ -5,7 +5,7 @@ import { listReviewLog } from "$lib/server/agentReview";
 import { PERMISSION_CLASSES, type PermissionClass } from "$lib/types/machineProtocol";
 import type { ReviewOutcome } from "$lib/types/AgentReview";
 
-const OUTCOMES: ReviewOutcome[] = ["allowed", "escalated", "error"];
+const OUTCOMES: ReviewOutcome[] = ["allowed", "escalated", "error", "read-only"];
 
 /**
  * Parse the filters from the query and answer a page. `userId` is the scope and comes from the

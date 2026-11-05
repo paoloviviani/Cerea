@@ -566,6 +566,9 @@ func watchPolicy(ctx context.Context, path string, live *policy.Live, every time
 const (
 	actorUser        = "user"
 	actorReviewModel = "review-model"
+	// actorRule is Cerea's fixed rule (a plain read, ADR 0107 amendment): once
+	// only, and only for an ask galopin itself marked readOnly.
+	actorRule = "rule"
 	// maxActorReason caps the reason kept in the audit (display text that may
 	// quote the command the model judged).
 	maxActorReason = 300
@@ -580,8 +583,11 @@ type replyActor struct {
 
 // by is the audit's `by` word: "user", or "auto" for a review model.
 func (a replyActor) by() string {
-	if a.Kind == actorReviewModel {
+	switch a.Kind {
+	case actorReviewModel:
 		return "auto"
+	case actorRule:
+		return "rule"
 	}
 	return actorUser
 }
@@ -592,10 +598,10 @@ func parseActor(raw *replyActor) (replyActor, *link.OpError) {
 	if raw == nil || raw.Kind == "" || raw.Kind == actorUser {
 		return replyActor{Kind: actorUser}, nil
 	}
-	if raw.Kind != actorReviewModel {
-		return replyActor{}, opErrf("invalid", "actor.kind must be %q or %q, got %q", actorUser, actorReviewModel, raw.Kind)
+	if raw.Kind != actorReviewModel && raw.Kind != actorRule {
+		return replyActor{}, opErrf("invalid", "actor.kind must be %q, %q or %q, got %q", actorUser, actorReviewModel, actorRule, raw.Kind)
 	}
-	if raw.ModelID == "" {
+	if raw.Kind == actorReviewModel && raw.ModelID == "" {
 		return replyActor{}, opErrf("invalid", "a review-model actor needs a modelId")
 	}
 	a := *raw

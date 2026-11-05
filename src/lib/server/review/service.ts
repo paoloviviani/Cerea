@@ -37,6 +37,7 @@ import {
 	belowNote,
 	cappedNote,
 	clearReviewNote,
+	readOnlyNote,
 	noAccessNote,
 	refusedNote,
 	ruleNote,
@@ -60,7 +61,9 @@ export interface ReviewDeps {
 			sessionId: string;
 			requestId: string;
 			decision: "once";
-			actor: { kind: "review-model"; modelId: string; reason: string };
+			actor:
+				| { kind: "review-model"; modelId: string; reason: string }
+				| { kind: "rule"; reason: string };
 		}): Promise<{ alreadyResolved?: boolean }>;
 	};
 	deviceName: (userId: ObjectId, deviceId: string) => Promise<string>;
@@ -206,14 +209,22 @@ export async function reviewPermissionAsk(
 	try {
 		const settings = await deps.settings();
 		const cls = request.class;
+		// A plain read the MACHINE marked (never agent metadata): answered by rule, no model. The
+		// static escalate list still wins; a device's opt-out is about the model, so it does not apply.
+		const fast =
+			request.readOnly === true &&
+			cls === "command" &&
+			answererFor(settings, cls) === "reviewer" &&
+			!staticEscalateReason({ tool: request.tool, targets: targetsOf(request).all });
 		// Not ours to judge: today's behaviour, the push goes out now.
 		if (
 			!deps.killSwitchOn() ||
 			!settings.enabled ||
-			!settings.decisionModelId ||
 			!cls ||
-			answererFor(settings, cls) !== "reviewer" ||
-			(await deps.optedOut(userId, deviceId))
+			(!fast &&
+				(!settings.decisionModelId ||
+					answererFor(settings, cls) !== "reviewer" ||
+					(await deps.optedOut(userId, deviceId))))
 		) {
 			return send();
 		}
@@ -229,6 +240,7 @@ export async function reviewPermissionAsk(
 		if (session.permissionMode !== "allow") return send();
 
 		const ctx: Ctx = { userId, deviceId, envelope, request, cls, settings, session, link, deps };
+		if (fast) return await allowReadOnly(ctx, send);
 		const verdict = await judge(ctx);
 		if (verdict.kind === "pass") return send();
 		if (verdict.kind === "escalate") {
@@ -383,6 +395,35 @@ async function allow(ctx: Ctx, p: number, send: (note?: string) => void): Promis
 		return send(unavailableNote());
 	}
 	await record(ctx, { outcome: "allowed", probability: p, reason, applied });
+}
+
+/** A plain read (ADR 0107 amendment): allowed once by rule. No model call, no rate-cap use. */
+async function allowReadOnly(ctx: Ctx, send: (note?: string) => void): Promise<void> {
+	const { request } = ctx;
+	const reason = "a plain read inside the workspace";
+	setReviewNote(request.id, { text: readOnlyNote(), allowed: true });
+	let applied = false;
+	try {
+		const res = await ctx.link.permissionReply({
+			sessionId: request.sessionId || ctx.envelope.sessionId,
+			requestId: request.id,
+			decision: "once",
+			actor: { kind: "rule", reason },
+		});
+		applied = res.alreadyResolved !== true;
+		if (!applied) clearReviewNote(request.id);
+	} catch (err) {
+		clearReviewNote(request.id);
+		await record(ctx, {
+			outcome: "error",
+			probability: null,
+			reason: `${reason} (could not be delivered: ${err instanceof Error ? err.message : "error"})`,
+			applied: false,
+		});
+		// Not delivered: the ask is still a card, as it was before the rule.
+		return send();
+	}
+	await record(ctx, { outcome: "read-only", probability: null, reason, applied });
 }
 
 async function record(

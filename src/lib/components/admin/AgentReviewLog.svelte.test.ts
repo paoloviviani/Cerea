@@ -64,6 +64,25 @@ describe("Administration -> Agents -> Review log", () => {
 		await vi.waitFor(() => expect(calls.some((c) => c.includes("outcome=escalated"))).toBe(true));
 	});
 
+	it("renders a read-only rule entry as 'Allowed: read-only' and filters on it", async () => {
+		stub({
+			log: [
+				{
+					...logEntries[0],
+					id: "e3",
+					summary: "docker compose ps",
+					probability: null,
+					outcome: "read-only",
+					reason: "a plain read inside the workspace",
+				},
+			],
+		});
+		renderWithApp(AgentReviewLog, {});
+		await expect.element(page.getByTestId("auto-log")).toHaveTextContent("Allowed: read-only");
+		await page.getByLabelText("Outcome").selectOptions("read-only");
+		await vi.waitFor(() => expect(calls.some((c) => c.includes("outcome=read-only"))).toBe(true));
+	});
+
 	it("shows an empty log, and pages with 'Older entries'", async () => {
 		stub({ log: [] });
 		renderWithApp(AgentReviewLog, {});

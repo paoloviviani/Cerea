@@ -1109,7 +1109,7 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	if operr != nil {
 		return nil, operr
 	}
-	if actor.Kind == actorReviewModel && a.Decision != string(backend.DecisionOnce) {
+	if (actor.Kind == actorReviewModel || actor.Kind == actorRule) && a.Decision != string(backend.DecisionOnce) {
 		// A reviewer only allows, and only once: never "always", and no reject
 		// (it escalates instead). The machine holds this line whatever Cerea does.
 		return nil, opErrf("invalid", "a review-model reply is once, not %q", a.Decision)
@@ -1120,6 +1120,10 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	}
 	// One answer path for opencode's asks and galopin's own (gp_).
 	asked := mc.askedRequest(a.SessionID, a.RequestID)
+	if actor.Kind == actorRule && (asked == nil || !asked.ReadOnly) {
+		// The rule exists for the machine's own read-only mark, nothing else.
+		return nil, opErrf("invalid", "a rule reply is only for an ask the machine marked read-only")
+	}
 	tool := ""
 	if asked != nil {
 		tool = asked.Tool

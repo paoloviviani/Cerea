@@ -97,12 +97,13 @@
 
 	const SELECT =
 		"rounded-md border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800";
-	const OUTCOMES: ReviewOutcome[] = ["allowed", "escalated", "error"];
+	const OUTCOMES: ReviewOutcome[] = ["allowed", "escalated", "error", "read-only"];
 	const outcomeLabel = (o: ReviewOutcome) =>
 		({
 			allowed: m["admin.auto.log.outcome.allowed"],
 			escalated: m["admin.auto.log.outcome.escalated"],
 			error: m["admin.auto.log.outcome.error"],
+			"read-only": m["admin.auto.log.outcome.read_only"],
 		})[o]();
 </script>
 

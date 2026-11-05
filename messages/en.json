@@ -3137,6 +3137,7 @@
 	"admin.auto.log.outcome.allowed": "Allowed",
 	"admin.auto.log.outcome.escalated": "Sent to the user",
 	"admin.auto.log.outcome.error": "Error",
+	"admin.auto.log.outcome.read_only": "Allowed: read-only",
 	"admin.auto.log.yes": "Yes",
 	"admin.auto.log.no": "No",
 	"code.permission_mode.auto": "Auto",
