@@ -333,7 +333,7 @@ describe("a user's own key", () => {
 		// Look for the status in what the server could have written, not in the whole body: the
 		// connector's random id and port can contain "401" by chance (a flake seen in CI).
 		const served = Object.fromEntries(
-			Object.entries(bad.body as Record<string, unknown>).filter(([k]) => k !== "id" && k !== "url")
+			Object.entries(bad.body).filter(([k]) => k !== "id" && k !== "url")
 		);
 		expect(JSON.stringify(served)).not.toMatch(/\b401\b|unauthori[sz]ed/i);
 		const resolved = await resolveSelection({ connectorIds: [id.toString()], userId: c.user._id });
