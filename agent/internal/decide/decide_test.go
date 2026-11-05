@@ -214,6 +214,32 @@ func TestAnAskLimitIsNotLiftedByAnException(t *testing.T) {
 	}
 }
 
+func TestAnOverAskExceptionHoldsUnderAnAskLimitExceptForLoopNeverAndPlan(t *testing.T) {
+	ex := []permrules.Exception{{ID: "e", Permission: "bash", Patterns: []string{"go test *"}, OverAsk: true}}
+	r := Request{Key: "bash", Patterns: []string{"go test ./..."}, Workspace: ws}
+	got := Decide(pol(map[Class]Limit{ClassCommand: AskLimit}), State{Exceptions: ex}, r)
+	if got.Verdict != Once || got.Step != "exception-ask" {
+		t.Errorf("ask limit with an OverAsk exception: %+v", got)
+	}
+	if got := Decide(pol(map[Class]Limit{ClassCommand: Never}), State{Exceptions: ex}, r); got.Verdict != Reject {
+		t.Errorf("never: %+v", got)
+	}
+	if got := Decide(pol(map[Class]Limit{ClassCommand: AskLimit}), State{Mode: permrules.Deny, Exceptions: ex}, r); got.Verdict != Reject {
+		t.Errorf("plan: %+v", got)
+	}
+	loop := []permrules.Exception{{ID: "l", Permission: "doom_loop", Patterns: []string{"*"}, OverAsk: true}}
+	lr := Request{Key: "doom_loop", Patterns: []string{"*"}, Workspace: ws}
+	if got := Decide(pol(map[Class]Limit{ClassLoop: AskLimit}), State{Mode: permrules.Allow, Exceptions: loop}, lr); got.Verdict != Card {
+		t.Errorf("loop: %+v", got)
+	}
+	if AskAlwaysOK(pol(map[Class]Limit{ClassLoop: AskLimit}), lr) {
+		t.Error("AskAlwaysOK for loop")
+	}
+	if !AskAlwaysOK(pol(map[Class]Limit{ClassCommand: AskLimit}), r) || AskAlwaysOK(pol(map[Class]Limit{ClassCommand: Run}), r) || AskAlwaysOK(pol(map[Class]Limit{ClassCommand: Never}), r) {
+		t.Error("AskAlwaysOK limit handling")
+	}
+}
+
 func TestClassOfLabelsEveryRequest(t *testing.T) {
 	for c, r := range classRequests {
 		if got := ClassOf(pol(nil), r); got != c {

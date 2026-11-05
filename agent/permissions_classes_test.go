@@ -10,6 +10,7 @@ import (
 	"galopin/internal/backend"
 	"galopin/internal/decide"
 	"galopin/internal/link"
+	"galopin/internal/permrules"
 	"galopin/internal/policy"
 )
 
@@ -210,9 +211,54 @@ func TestAnAutoReplyToAResolvedAskIsAuditedNotApplied(t *testing.T) {
 	}
 }
 
-// "Always" is capped where the class is limited: an ask-limited class never
-// keeps an exception, whatever the key.
-func TestAlwaysIsCappedByTheAsksClassNotJustItsKey(t *testing.T) {
+// A human's "always" stands where the class is limited to ask (the exception is
+// marked OverAsk), and a later matching ask runs under it.
+func TestHumanAlwaysOnAnAskLimitedClassIsStoredAndRuns(t *testing.T) {
+	mc, rb, _ := classMachine(t, nil)
+	rh, _ := mc.ruleHost()
+	ask := func(id string) {
+		mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/x", SessionID: "s1", Event: backend.Event{
+			Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: id, SessionID: "s1", Tool: "bash", Patterns: []string{"go test ./..."}, Always: []string{"go test *"}},
+		}})
+	}
+	ask("per_1")
+	for _, actor := range []map[string]any{nil, {"kind": "user"}} {
+		if actor != nil {
+			// a second ask, answered with an explicit user actor
+			ask("per_2")
+		}
+		id := "per_1"
+		if actor != nil {
+			id = "per_2"
+		}
+		if _, operr := mc.opPermissionReply(context.Background(), replyArgs(t, id, "always", actor)); operr != nil {
+			t.Fatal(operr)
+		}
+	}
+	ex := rb.Exceptions("s1")
+	if len(ex) != 1 || !ex[0].OverAsk || ex[0].Patterns[0] != "go test *" {
+		t.Fatalf("exceptions = %+v, want one OverAsk go test exception", ex)
+	}
+	for _, d := range rb.replies {
+		if d != backend.DecisionOnce {
+			t.Errorf("opencode was told %s, want once", d)
+		}
+	}
+	ask("per_3")
+	if _, held := pendingClass(mc, "per_3"); held {
+		t.Error("a later matching ask under the exception was carded")
+	}
+	// Something the exception does not cover still asks.
+	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/x", SessionID: "s1", Event: backend.Event{
+		Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "per_4", SessionID: "s1", Tool: "bash", Patterns: []string{"rm -rf /"}},
+	}})
+	if _, held := pendingClass(mc, "per_4"); !held {
+		t.Error("an uncovered command did not ask")
+	}
+	_ = rh
+}
+
+func TestHumanAlwaysOnAnEnvReadIsStored(t *testing.T) {
 	mc, rb, _ := classMachine(t, nil)
 	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/x", SessionID: "s1", Event: backend.Event{
 		Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "per_1", SessionID: "s1", Tool: "read", Patterns: []string{"/x/.env"}, Always: []string{"*"}},
@@ -220,8 +266,60 @@ func TestAlwaysIsCappedByTheAsksClassNotJustItsKey(t *testing.T) {
 	if _, operr := mc.opPermissionReply(context.Background(), replyArgs(t, "per_1", "always", nil)); operr != nil {
 		t.Fatal(operr)
 	}
+	if ex := rb.Exceptions("s1"); len(ex) != 1 || !ex[0].OverAsk {
+		t.Errorf("exceptions = %+v", ex)
+	}
+}
+
+// A reviewer or a rule never gets "always" (refused), the loop class stays
+// once-only, and a never limit still refuses.
+func TestAlwaysStaysOnceForLoopAndNeverAndIsRefusedForAutoAndRule(t *testing.T) {
+	mc, rb, _ := classMachine(t, func(p *policy.Policy) { p.Permission.Limits["web"] = "never" })
+	ctx := context.Background()
+	askFor(mc, "per_1", "doom_loop")
+	askFor(mc, "per_2", "bash")
+	if _, operr := mc.opPermissionReply(ctx, replyArgs(t, "per_1", "always", nil)); operr != nil {
+		t.Fatal(operr)
+	}
 	if ex := rb.Exceptions("s1"); len(ex) != 0 {
-		t.Errorf("an .env read stored an exception: %+v", ex)
+		t.Errorf("a loop ask stored an exception: %+v", ex)
+	}
+	for _, actor := range []map[string]any{{"kind": "auto", "modelId": "m"}, {"kind": "review-model", "modelId": "m"}, {"kind": "rule"}} {
+		if _, operr := mc.opPermissionReply(ctx, replyArgs(t, "per_2", "always", actor)); operr == nil {
+			t.Errorf("actor %v: an always was accepted", actor)
+		}
+	}
+	if ex := rb.Exceptions("s1"); len(ex) != 0 {
+		t.Errorf("a non-human always stored an exception: %+v", ex)
+	}
+	// A never limit still refuses the ask itself, and stores nothing.
+	rh, _ := mc.ruleHost()
+	req := backend.PermissionRequest{ID: "per_3", SessionID: "s1", Tool: "webfetch", Patterns: []string{"https://x.test"}}
+	if mc.humanAlwaysOverAsk(rh, "/x", req) {
+		t.Error("a never-limited class accepts a human always")
+	}
+	if res := mc.decideAsk(rh, "/x", req); res.Verdict != decide.Reject {
+		t.Errorf("never limit = %+v", res)
+	}
+}
+
+func TestAnOverAskExceptionIsHeldBackByPlan(t *testing.T) {
+	mc, rb, _ := classMachine(t, nil)
+	rh, _ := mc.ruleHost()
+	askFor(mc, "per_1", "bash")
+	if _, operr := mc.opPermissionReply(context.Background(), replyArgs(t, "per_1", "always", nil)); operr != nil {
+		t.Fatal(operr)
+	}
+	if len(rb.Exceptions("s1")) != 1 {
+		t.Fatal("no exception stored")
+	}
+	req := backend.PermissionRequest{ID: "per_2", SessionID: "s1", Tool: "bash", Patterns: []string{"rm -rf /"}}
+	if res := mc.decideAsk(rh, "/x", req); res.Verdict != decide.Once || res.Step != "exception-ask" {
+		t.Errorf("ask mode = %+v", res)
+	}
+	_ = rb.SetPermissionMode(context.Background(), "", "s1", permrules.Deny)
+	if res := mc.decideAsk(rh, "/x", req); res.Verdict != decide.Reject || res.Step != "plan" {
+		t.Errorf("plan mode = %+v, want the plan refusal", res)
 	}
 }
 

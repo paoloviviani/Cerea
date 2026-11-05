@@ -444,7 +444,7 @@ test.describe("the permission selector", () => {
 		await expect(page.getByRole("button", { name: /auto.?accept/i })).toHaveCount(0);
 	});
 
-	test("the card hides Always allow for a key the ceiling caps, and offers it for another", async ({
+	test("the card offers Always allow for a key the ceiling caps (a human's always is stored over an ask limit)", async ({
 		page,
 	}) => {
 		const h = await installStubs(page, { ceiling: { bash: "ask" } });
@@ -459,6 +459,6 @@ test.describe("the permission selector", () => {
 		await goto(page);
 
 		await expect(page.getByRole("button", { name: "Allow once" })).toBeVisible();
-		await expect(page.getByRole("button", { name: "Always allow (this session)" })).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "Always allow (this session)" })).toBeVisible();
 	});
 });

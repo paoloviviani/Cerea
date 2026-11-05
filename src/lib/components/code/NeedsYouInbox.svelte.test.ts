@@ -259,17 +259,17 @@ describe("NeedsYouInbox Always allow", () => {
 			.toBeVisible();
 	});
 
-	it("hides it for a key the machine's own ceiling holds below allow (bash asks by default)", async () => {
+	it("still offers it for a key the machine's own ceiling holds below allow (bash asks by default)", async () => {
 		fake.pendingByDevice = { d1: { permissions: [permission()], questions: [] } };
 		await browserPage.viewport(1200, 800);
 		const screen = mount(withPolicy({ bash: "ask" }));
 		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
-		expect(
-			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
-		).toHaveLength(0);
+		await expect
+			.element(screen.getByRole("button", { name: "Always allow (this session)" }))
+			.toBeVisible();
 	});
 
-	it("decides each ask against its own machine's ceiling", async () => {
+	it("offers it on every machine's ask, whatever its ceiling", async () => {
 		fake.pendingByDevice = {
 			d1: { permissions: [permission("a1", "perm-1")], questions: [] },
 			d2: { permissions: [permission("a2", "perm-2")], questions: [] },
@@ -284,10 +284,10 @@ describe("NeedsYouInbox Always allow", () => {
 		const screen = renderWithApp(NeedsYouInbox);
 		await expect.element(screen.getByTestId("needs-you-item").first()).toBeVisible();
 		await vi.waitFor(() => expect(screen.getByTestId("needs-you-item").elements()).toHaveLength(2));
-		// Exactly one of the two cards (the open machine's) offers it.
+		// Both cards offer it: the ceiling no longer hides a human's "always".
 		expect(
 			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
-		).toHaveLength(1);
+		).toHaveLength(2);
 	});
 });
 

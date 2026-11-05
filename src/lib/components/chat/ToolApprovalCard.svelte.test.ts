@@ -235,20 +235,28 @@ describe("ToolApprovalCard, galopin approvals", () => {
 				context: new Map([[ALWAYS_CAPPED, capped]]),
 			} as never);
 
-		it("hides Always allow for it, and keeps Allow once and Deny", async () => {
+		it("still offers Always allow: a human's always is stored over an ask limit", async () => {
 			const screen = withCeiling((tool) => tool === "bash", "bash");
 			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			await expect
+				.element(screen.getByRole("button", { name: "Always allow (this session)" }))
+				.toBeVisible();
 			await expect.element(screen.getByRole("button", { name: "Deny" })).toBeVisible();
-			expect(
-				screen.getByRole("button", { name: "Always allow (this session)" }).elements()
-			).toHaveLength(0);
 		});
 
-		it("keeps Always allow for a key it does not cap", async () => {
+		it("offers Always allow edits for a key it does not cap", async () => {
 			const screen = withCeiling((tool) => tool === "bash", "edit");
 			await expect
 				.element(screen.getByRole("button", { name: "Always allow edits (this session)" }))
 				.toBeVisible();
+		});
+
+		it("never offers Always allow on the loop brake, which stays once-only", async () => {
+			const screen = withCeiling(() => false, "doom_loop");
+			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			expect(
+				screen.getByRole("button", { name: "Always allow (this session)" }).elements()
+			).toHaveLength(0);
 		});
 	});
 

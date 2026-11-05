@@ -229,6 +229,10 @@ type Exception struct {
 	Permission string   `json:"permission"`
 	Patterns   []string `json:"patterns"`
 	GrantedAt  string   `json:"grantedAt,omitempty"`
+	// OverAsk marks an exception a human gave on a card of a class the machine
+	// limits to ask: only such an exception holds there (every other one is
+	// held back by the limit). Never set for the loop class.
+	OverAsk bool `json:"overAsk,omitempty"`
 }
 
 // Selector is a root session's whole permission choice. The zero value is Ask:
@@ -269,7 +273,20 @@ func (s Selector) Find(id string) (Exception, bool) {
 func (s Selector) With(e Exception) (Selector, Exception) {
 	for _, have := range s.Exceptions {
 		if have.Permission == e.Permission && equalStrings(have.Patterns, e.Patterns) {
-			return s, have
+			if !e.OverAsk || have.OverAsk {
+				return s, have
+			}
+			// The same exception given again where the class is limited to
+			// ask: the stored one keeps its id and gains the mark.
+			out := s
+			out.Exceptions = append([]Exception(nil), s.Exceptions...)
+			for i := range out.Exceptions {
+				if out.Exceptions[i].ID == have.ID {
+					out.Exceptions[i].OverAsk = true
+					have = out.Exceptions[i]
+				}
+			}
+			return out, have
 		}
 	}
 	out := s

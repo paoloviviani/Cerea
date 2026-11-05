@@ -230,6 +230,19 @@ func (mc *machine) capDecision(tool string, d backend.Decision) (backend.Decisio
 	return d, false
 }
 
+// humanAlwaysOverAsk reports whether a human's "always" on this ask stands
+// although its class is limited to ask (see decide.AskAlwaysOK).
+func (mc *machine) humanAlwaysOverAsk(rh backend.RuleHost, dir string, req backend.PermissionRequest) bool {
+	if strings.HasPrefix(req.ID, "gp_") {
+		return false
+	}
+	key, patterns := req.Tool, req.Patterns
+	if n, ok := mc.back.(backend.AskNormalizer); ok {
+		key, patterns = n.NormalizeAsk(req)
+	}
+	return decide.AskAlwaysOK(mc.decidePolicy(rh), decide.Request{Key: key, Patterns: patterns, Workspace: dir})
+}
+
 // askedRequest is a pending ask the machine holds, nil when it holds none by
 // that id.
 func (mc *machine) askedRequest(sessionID, requestID string) *backend.PermissionRequest {
@@ -479,7 +492,7 @@ func newExceptionID() string {
 // exception on its ROOT session: the permission and the patterns opencode said
 // the approval would cover (its `always`, else the ask's own). The caller has
 // checked the ceiling does not cap the key.
-func (mc *machine) grantException(ctx context.Context, rh backend.RuleHost, dir, sessionID string, asked *backend.PermissionRequest) error {
+func (mc *machine) grantException(ctx context.Context, rh backend.RuleHost, dir, sessionID string, asked *backend.PermissionRequest, overAsk bool) error {
 	patterns := asked.Always
 	if len(patterns) == 0 {
 		patterns = asked.Patterns
@@ -489,7 +502,7 @@ func (mc *machine) grantException(ctx context.Context, rh backend.RuleHost, dir,
 	}
 	_, err := rh.AddException(ctx, dir, mc.mat.RootOf(sessionID), permrules.Exception{
 		ID: newExceptionID(), Permission: asked.Tool, Patterns: append([]string(nil), patterns...),
-		GrantedAt: time.Now().UTC().Format(time.RFC3339),
+		GrantedAt: time.Now().UTC().Format(time.RFC3339), OverAsk: overAsk,
 	})
 	return err
 }

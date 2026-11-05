@@ -377,6 +377,28 @@ describe("the parent stream over a session tree", () => {
 });
 
 describe("the reply routes targeting a child session", () => {
+	it("sends a human's always with actor user, so the machine stores it over an ask limit", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(deviceId);
+		const { agent } = await createSession(deviceId, workspace.id);
+		const replyArgs: unknown[] = [];
+		machine.onOp("permission.reply", (args: unknown) => {
+			replyArgs.push(args);
+			return {};
+		});
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${agent.id}/permissions/perm-2?device=${deviceId}`,
+			{ method: "POST", body: JSON.stringify({ decision: "always" }), locals: user.locals }
+		);
+		expect(res.status).toBe(200);
+		expect(replyArgs).toEqual([
+			{ sessionId: agent.id, requestId: "perm-2", decision: "always", actor: { kind: "user" } },
+		]);
+		machine.close();
+	});
+
 	it("forwards a permission reply to the child's own request", async () => {
 		const machine = await connectAndPair();
 		const deviceId = machine.deviceId as string;
@@ -414,7 +436,9 @@ describe("the reply routes targeting a child session", () => {
 			}
 		);
 		expect(res.status).toBe(200);
-		expect(replyArgs).toEqual([{ sessionId: "child-1", requestId: "perm-1", decision: "once" }]);
+		expect(replyArgs).toEqual([
+			{ sessionId: "child-1", requestId: "perm-1", decision: "once", actor: { kind: "user" } },
+		]);
 
 		machine.close();
 	});
