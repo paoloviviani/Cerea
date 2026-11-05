@@ -166,8 +166,10 @@
 	 * tool arguments, which may say anything.
 	 */
 	const galopin = $derived(onanswer !== undefined && toolApproval?.args?.galopin === true);
-	/** The ceiling holds this tool below allow: an "always" would store
-	 * nothing, so the button is not offered (see `alwaysCappedContext`). */
+	/** The ceiling holds this tool below allow: a new subagent's first turn
+	 * asks anyway there, so the first-turn chip is not drawn (see
+	 * `alwaysCappedContext`). The "Always allow" button is NOT hidden by it: a
+	 * human's "always" is stored by the machine even where the class asks. */
 	const alwaysCapped = getContext<AlwaysCapped | undefined>(ALWAYS_CAPPED);
 	/** A new subagent's first turn asks whatever the setting is (see
 	 * `firstTurnSubagent`): say so, so the ask does not read as the setting
@@ -192,9 +194,9 @@
 			!(alwaysCapped?.(toolApproval?.tool ?? "") ?? false) &&
 			(toolApproval?.tool === undefined || !ALWAYS_ASKS_KEYS.has(toolApproval.tool))
 	);
-	const capped = $derived(
-		onanswer !== undefined && toolApproval ? (alwaysCapped?.(toolApproval.tool) ?? false) : false
-	);
+	/** The loop brake is once-only: an "always" on "you are repeating yourself"
+	 * is meaningless, so the machine keeps it once and the card does not offer it. */
+	const onceOnly = $derived(toolApproval?.tool === "doom_loop");
 	type Fact = { label: string; value: string; long?: boolean };
 	const galopinFacts = $derived.by((): Fact[] => {
 		const args = toolApproval?.args;
@@ -440,7 +442,7 @@
 					<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
 					{proposesSchedule ? m["chat.approval.schedule.create"]() : approveLabel}
 				</button>
-				{#if !galopin && !capped && !proposesSchedule}
+				{#if !galopin && !onceOnly && !proposesSchedule}
 					<button
 						type="button"
 						onclick={() => send("accept", onanswer ? "always" : "conversation")}

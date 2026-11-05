@@ -221,7 +221,7 @@ func TestAlwaysIsAnExceptionAndOpencodeGetsOnce(t *testing.T) {
 	askFor(mc, "per_1", "bash")
 	askFor(mc, "per_2", "edit")
 	askFor(mc, "per_3", "bash")
-	reply("per_1", "always") // bash is capped at ask: stores nothing
+	reply("per_1", "always") // bash is limited to ask: a human's always still stores it (OverAsk)
 	reply("per_2", "always") // edit is not capped: an exception
 	reply("per_3", "reject")
 	reply("per_unknown", "always") // an ask the machine does not hold, with a ceiling: cannot tell what it covers
@@ -235,9 +235,10 @@ func TestAlwaysIsAnExceptionAndOpencodeGetsOnce(t *testing.T) {
 		}
 	}
 	ex := rb.Exceptions("s1")
-	if len(ex) != 1 || ex[0].Permission != "edit" || len(ex[0].Patterns) != 1 || ex[0].Patterns[0] != "rm -rf /" ||
-		!strings.HasPrefix(ex[0].ID, "ex_") || ex[0].GrantedAt == "" {
-		t.Fatalf("exceptions = %+v, want one edit exception (patterns fall back to the ask's own), none for the capped bash", ex)
+	if len(ex) != 2 || ex[0].Permission != "bash" || !ex[0].OverAsk || ex[1].Permission != "edit" || ex[1].OverAsk ||
+		len(ex[1].Patterns) != 1 || ex[1].Patterns[0] != "rm -rf /" ||
+		!strings.HasPrefix(ex[1].ID, "ex_") || ex[1].GrantedAt == "" {
+		t.Fatalf("exceptions = %+v, want a bash one (OverAsk) and an edit one (patterns fall back to the ask's own)", ex)
 	}
 
 	var perms []map[string]any
@@ -249,9 +250,9 @@ func TestAlwaysIsAnExceptionAndOpencodeGetsOnce(t *testing.T) {
 	if len(perms) != 4 {
 		t.Fatalf("audit rows = %v, want one per reply", perms)
 	}
-	if perms[0]["tool"] != "bash" || perms[0]["decision"] != "once" || perms[0]["capped"] != true || perms[0]["by"] != "user" ||
+	if perms[0]["tool"] != "bash" || perms[0]["decision"] != "always" || perms[0]["capped"] != nil || perms[0]["by"] != "user" ||
 		perms[0]["session"] != "s1" || perms[0]["requestId"] != "per_1" {
-		t.Errorf("capped row = %v", perms[0])
+		t.Errorf("ask-limited row = %v", perms[0])
 	}
 	if perms[1]["decision"] != "always" || perms[1]["capped"] != nil {
 		t.Errorf("the stored exception is audited as the person's always: %v", perms[1])

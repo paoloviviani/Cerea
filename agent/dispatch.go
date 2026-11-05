@@ -1128,8 +1128,18 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	if asked != nil {
 		tool = asked.Tool
 	}
-	decision, capped := mc.capDecision(tool, backend.Decision(a.Decision))
-	if decision == backend.DecisionAlways && asked != nil && asked.Class != "" {
+	// A human's "always" stands even where the class is limited to ask (the
+	// exception is marked OverAsk); never for the loop class, a never limit or
+	// galopin's own paths, and never from a reviewer or a rule.
+	overAsk := false
+	if rh, ok := mc.ruleHost(); ok && actor.Kind == actorUser && asked != nil && a.Decision == string(backend.DecisionAlways) {
+		overAsk = mc.humanAlwaysOverAsk(rh, dir, *asked)
+	}
+	decision, capped := backend.Decision(a.Decision), false
+	if !overAsk {
+		decision, capped = mc.capDecision(tool, decision)
+	}
+	if !overAsk && decision == backend.DecisionAlways && asked != nil && asked.Class != "" {
 		// The ask's own class (a .env read, a path outside the project) may be
 		// limited though its key is not.
 		if c, err := decide.ParseClass(asked.Class); err == nil && mc.live.Permission().EffectiveLimits()[c] != decide.Run {
@@ -1157,7 +1167,7 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	if rh, ok := mc.ruleHost(); ok && decision == backend.DecisionAlways && !strings.HasPrefix(a.RequestID, "gp_") {
 		sent = backend.DecisionOnce
 		if asked != nil {
-			if err := mc.grantException(ctx, rh, dir, a.SessionID, asked); err != nil {
+			if err := mc.grantException(ctx, rh, dir, a.SessionID, asked, overAsk); err != nil {
 				logf("permissions: could not record the exception for %s (this one is allowed once): %v", asked.Tool, err)
 				audited = backend.DecisionOnce
 			}

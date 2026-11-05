@@ -241,13 +241,13 @@ func (p Policy) ownRule(key string) (permrules.Action, bool) {
 	return "", false
 }
 
-func excepted(exs []permrules.Exception, r Request) bool {
+func excepted(exs []permrules.Exception, r Request, overAsk bool) bool {
 	pats := r.Patterns
 	if len(pats) == 0 {
 		pats = []string{"*"}
 	}
 	for _, e := range exs {
-		if e.Permission != r.Key {
+		if e.Permission != r.Key || (overAsk && !e.OverAsk) {
 			continue
 		}
 		covered := true
@@ -339,7 +339,13 @@ func Decide(p Policy, s State, r Request) Result {
 			lim, limClass = Stricter(l, lim), c
 		}
 	}
-	res := modeAnswer(p, s, r, cat, sensitive, lim == Run)
+	askLimited := lim == AskLimit
+	for _, c := range classes {
+		if c == ClassLoop {
+			askLimited = false // an "always" on a loop ask is meaningless
+		}
+	}
+	res := modeAnswer(p, s, r, cat, sensitive, lim == Run, askLimited)
 	// A write into a repository's .git (config, hooks, info) is never answered
 	// by the session's word or an exception: it is a card, so a person sees it.
 	if cat == Edit && res.Verdict == Once && res.Step != "plan-file" {
@@ -355,13 +361,13 @@ func Decide(p Policy, s State, r Request) Result {
 		res.Stop = true
 	case lim == Never && res.Verdict != Reject:
 		res.Verdict, res.Step, res.Reason = Reject, "limit", limitReason(limClass)
-	case lim == AskLimit && res.Verdict == Once:
+	case lim == AskLimit && res.Verdict == Once && res.Step != "exception-ask":
 		res.Verdict, res.Step = Card, "limit"
 	}
 	return res
 }
 
-func modeAnswer(p Policy, s State, r Request, cat Category, sensitive, free bool) Result {
+func modeAnswer(p Policy, s State, r Request, cat Category, sensitive, free, askLimited bool) Result {
 	mode := s.Mode
 	if !mode.Valid() {
 		mode = permrules.Ask
@@ -390,8 +396,13 @@ func modeAnswer(p Policy, s State, r Request, cat Category, sensitive, free bool
 	}
 	// An "always allow" only stands where the machine lets a request run: a
 	// class limited to ask is a card every time.
-	if free && excepted(s.Exceptions, r) {
+	if free && excepted(s.Exceptions, r, false) {
 		return once("exception")
+	}
+	// ... except the "always allow" a human chose on such a card: that one
+	// stands (Exception.OverAsk), and is the only one that does.
+	if askLimited && excepted(s.Exceptions, r, true) {
+		return once("exception-ask")
 	}
 	if mode == permrules.Allow {
 		return once("allow")
@@ -515,4 +526,23 @@ func contains(l []string, k string) bool {
 		}
 	}
 	return false
+}
+
+// AskAlwaysOK reports whether a human's "always allow" on this request may be
+// stored although the machine limits its class to ask: the strictest limit over
+// its classes is ask (not never, not stop, not run) and none of them is the
+// loop class. galopin's own paths never get here (a fixed refusal).
+func AskAlwaysOK(p Policy, r Request) bool {
+	cat, sensitive := Classify(p, r)
+	if _, hit := p.Protected.OwnHit(r); hit && cat != Internal {
+		return false
+	}
+	lim := Run
+	for _, c := range p.classesOf(r, cat, sensitive) {
+		if c == ClassLoop {
+			return false
+		}
+		lim = Stricter(p.Limit(c), lim)
+	}
+	return lim == AskLimit
 }
