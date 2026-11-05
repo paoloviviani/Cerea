@@ -1,6 +1,7 @@
 package decide
 
 import (
+	"galopin/internal/permrules"
 	"os"
 	"path/filepath"
 	"testing"
@@ -182,5 +183,39 @@ func TestReadOnlyOnlyBashInWorkspace(t *testing.T) {
 		if p.ReadOnlyCommand(r) {
 			t.Errorf("want not read-only: %+v", r)
 		}
+	}
+}
+
+func TestWritesIntoDotGitAreAlwaysACard(t *testing.T) {
+	pr := NewProtected("/home/u", "/home/u/.config/galopin")
+	pl := Policy{Protected: pr}
+	const w = "/work/proj"
+	cards := []string{".git/config", ".git/hooks/pre-commit", ".git/info/attributes", ".git", "sub/.git/config",
+		w + "/.git/config", w + "/.git/worktrees/x/config.worktree"}
+	free := []string{".gitignore", ".github/CODEOWNERS", ".husky/pre-commit", ".gitattributes", ".pre-commit-config.yaml",
+		"src/dot.git/x", "src/a.go", "/tmp/.git/config"}
+	for _, mode := range []permrules.Action{permrules.Allow, permrules.Ask} {
+		for _, f := range cards {
+			r := Request{Key: "edit", Patterns: []string{f}, Workspace: w}
+			got := Decide(pl, State{Mode: mode, Exceptions: []permrules.Exception{{Permission: "edit", Patterns: []string{"*"}}}}, r)
+			if got.Verdict != Card {
+				t.Errorf("%v %q: %v, want card", mode, f, got.Verdict)
+			}
+		}
+	}
+	for _, f := range free {
+		r := Request{Key: "edit", Patterns: []string{f}, Workspace: w}
+		if got := Decide(Policy{Protected: pr, SafeDirs: []string{"/tmp"}}, State{Mode: permrules.Allow}, r); got.Verdict != Once {
+			t.Errorf("%q: %v, want once", f, got.Verdict)
+		}
+	}
+	// Plan still refuses it; a never limit still refuses it.
+	r := Request{Key: "edit", Patterns: []string{".git/config"}, Workspace: w}
+	if got := Decide(pl, State{Mode: permrules.Deny}, r); got.Verdict != Reject {
+		t.Errorf("plan: %v", got.Verdict)
+	}
+	pn := Policy{Protected: pr, Limits: map[Class]Limit{ClassEdit: Never}}
+	if got := Decide(pn, State{Mode: permrules.Allow}, r); got.Verdict != Reject {
+		t.Errorf("never: %v", got.Verdict)
 	}
 }

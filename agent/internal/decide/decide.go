@@ -340,6 +340,13 @@ func Decide(p Policy, s State, r Request) Result {
 		}
 	}
 	res := modeAnswer(p, s, r, cat, sensitive, lim == Run)
+	// A write into a repository's .git (config, hooks, info) is never answered
+	// by the session's word or an exception: it is a card, so a person sees it.
+	if cat == Edit && res.Verdict == Once && res.Step != "plan-file" {
+		if _, hit := p.Protected.CIHit(r); hit {
+			res.Verdict, res.Step = Card, "git-internals"
+		}
+	}
 	res.Category, res.Class = cat, class
 	switch {
 	case lim == Stop && res.Verdict != Reject:

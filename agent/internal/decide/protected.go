@@ -18,8 +18,8 @@ import (
 //
 // WorkspaceGlobs are CI configuration files (CIGlobs) a write to which runs
 // code in a pipeline. They are part of the list so a Cerea-side escalate list
-// and the machine agree on the same names; the machine's own decision does
-// not consult them (a CI file is an edit).
+// and the machine agree on the same names; the machine's own decision consults
+// only the .git half (GitGlobs), not CI files (a CI file is an edit).
 type Protected struct {
 	// Home is the user's home directory, for the `~/` spelling a command uses.
 	Home string
@@ -39,10 +39,16 @@ var CIGlobs = []string{
 	"azure-pipelines.yml", "Jenkinsfile",
 }
 
+// GitGlobs are a repository's own git directory: a write to its config, hooks or
+// info files makes later git commands run code. Unlike CIGlobs the machine's own
+// decision consults them (see Decide): an editor write there is a card even when
+// the edit limit runs.
+var GitGlobs = []string{".git/**"}
+
 // NewProtected builds the list for a machine: home and galopin's state
 // directory (policy.json, credentials, the audit log).
 func NewProtected(home, stateDir string) Protected {
-	pr := Protected{Home: home, WorkspaceGlobs: CIGlobs}
+	pr := Protected{Home: home, WorkspaceGlobs: append(append([]string{}, CIGlobs...), GitGlobs...)}
 	add := func(dst *[]string, p ...string) {
 		for _, x := range p {
 			if x != "" {
@@ -102,6 +108,9 @@ func (pr Protected) CIHit(r Request) (string, bool) {
 		rel, err := filepath.Rel(r.Workspace, abs)
 		if err != nil || strings.HasPrefix(rel, "..") {
 			continue
+		}
+		if hasGitSegment(filepath.ToSlash(rel)) {
+			return ".git/**", true
 		}
 		for _, g := range pr.WorkspaceGlobs {
 			if globMatch(g, filepath.ToSlash(rel)) {
@@ -165,4 +174,16 @@ func globMatch(glob, rel string) bool {
 		return rel == base || strings.HasPrefix(rel, base+"/")
 	}
 	return rel == glob
+}
+
+// hasGitSegment reports whether a workspace-relative path is a repository's git
+// directory (or inside one), at any depth: `.git` as a whole path segment, so
+// `.gitignore` and `.github` do not match.
+func hasGitSegment(rel string) bool {
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == ".git" {
+			return true
+		}
+	}
+	return false
 }
