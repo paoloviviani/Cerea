@@ -27,6 +27,7 @@
 	import { browser } from "$app/environment";
 	import { switchTheme, subscribeToTheme } from "$lib/switchTheme";
 	import { clearCodePanelCache } from "$lib/stores/codeTreeCache.svelte";
+	import { clearProjectsCache } from "$lib/stores/projectsTreeCache.svelte";
 	import { clearAllComposerDrafts } from "$lib/utils/composerDraft";
 	import { clearTranscripts } from "$lib/stores/agentTranscriptCache";
 	import IconSun from "$lib/components/icons/IconSun.svelte";
@@ -114,6 +115,7 @@
 			clearAllComposerDrafts();
 			clearTranscripts();
 			clearCodePanelCache();
+			clearProjectsCache();
 		}}
 	>
 		<button

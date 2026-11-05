@@ -6,6 +6,7 @@ import { chatDrag } from "$lib/stores/chatDrag.svelte";
 import { projectsChanged } from "$lib/stores/projectsRevision";
 import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
 import { CONVERSATIONS_CONTEXT_KEY, newConversationsStore } from "$lib/stores/conversations.svelte";
+import { clearProjectsCache } from "$lib/stores/projectsTreeCache.svelte";
 import { PROJECTS_TREE_OPEN_KEY } from "$lib/utils/projectsTreeOpen";
 
 const find = (root: ParentNode, selector: string): HTMLElement => {
@@ -137,6 +138,7 @@ function stubFetch(listed: unknown, existingChats: unknown, createStatus = 200, 
 
 beforeEach(() => {
 	posts = [];
+	clearProjectsCache();
 	// What is open is remembered per browser: every test starts closed.
 	localStorage.removeItem(PROJECTS_TREE_OPEN_KEY);
 });
@@ -305,6 +307,7 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 			unmount();
 			document.getElementById("app")?.remove();
 			localStorage.removeItem(PROJECTS_TREE_OPEN_KEY);
+			clearProjectsCache();
 		}
 		stubFetch(undefined, [existingChat], 200, 0);
 		const { container } = await renderBranch("model-a");
