@@ -231,6 +231,10 @@ type PermissionRequest struct {
 	// that stays a card. Absent on an ask no class covers and on a galopin
 	// older than classes.
 	Class string `json:"class,omitempty"`
+	// ReadOnly is set by galopin alone (never read from the agent's request):
+	// the ask is a bash command provably a plain read inside the workspace
+	// (decide.ReadOnlyCommand). Cerea answers it by rule in an Auto session.
+	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
 // Mode is a backend's named operating mode (opencode: agents with

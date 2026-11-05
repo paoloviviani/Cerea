@@ -3,6 +3,7 @@ package decide
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -50,6 +51,8 @@ func NewProtected(home, stateDir string) Protected {
 		}
 	}
 	add(&pr.OwnDirs, stateDir)
+	// machine-wide secrets that no workspace holds, listed so a command that names them is a secrets ask
+	add(&pr.SecretDirs, "/etc/shadow", "/etc/gshadow", "/etc/sudoers", "/etc/sudoers.d", "/etc/ssh", "/root/.ssh")
 	if home != "" {
 		j := func(e ...string) string { return filepath.Join(append([]string{home}, e...)...) }
 		add(&pr.OwnDirs, j(".config", "galopin"), j(".config", "opencode"), j(".local", "share", "opencode"))
@@ -71,7 +74,23 @@ func NewProtected(home, stateDir string) Protected {
 func (pr Protected) OwnHit(r Request) (string, bool) { return pr.hit(pr.OwnDirs, r) }
 
 // SecretHit reports whether the request reaches a credential store.
-func (pr Protected) SecretHit(r Request) (string, bool) { return pr.hit(pr.SecretDirs, r) }
+func (pr Protected) SecretHit(r Request) (string, bool) {
+	if d, ok := pr.hit(pr.SecretDirs, r); ok {
+		return d, true
+	}
+	// /proc/<pid>/environ holds a process's environment: credentials in plain text
+	for _, pat := range r.Patterns {
+		if procEnviron.MatchString(filepath.Clean(pat)) || (r.Key == "bash" && procEnvironText.MatchString(pat)) {
+			return "/proc/*/environ", true
+		}
+	}
+	return "", false
+}
+
+var (
+	procEnviron     = regexp.MustCompile(`^/proc/[^/]+(/task/[^/]+)?/environ$`)
+	procEnvironText = regexp.MustCompile(`/proc/[^\s/]+(/task/[^\s/]+)?/environ`)
+)
 
 // CIHit reports whether a write request reaches a CI configuration file.
 func (pr Protected) CIHit(r Request) (string, bool) {

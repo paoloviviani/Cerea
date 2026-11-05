@@ -209,7 +209,7 @@ type Materializer struct {
 	// onAskStamp says, for every ask that stays a card (live, or seeded from
 	// the backend's history), its permission class; the answer is carried on
 	// the request as Class. Like the filter it is called without the lock held.
-	onAskStamp func(workspaceDir string, req backend.PermissionRequest) string
+	onAskStamp func(workspaceDir string, req backend.PermissionRequest) (class string, readOnly bool)
 
 	outCh chan Envelope
 }
@@ -342,7 +342,7 @@ func (m *Materializer) OnAskFilter(fn func(workspaceDir string, req backend.Perm
 
 // OnAskStamp installs the permission-class marker (see onAskStamp). Set
 // before Start.
-func (m *Materializer) OnAskStamp(fn func(workspaceDir string, req backend.PermissionRequest) string) {
+func (m *Materializer) OnAskStamp(fn func(workspaceDir string, req backend.PermissionRequest) (string, bool)) {
 	m.onAskStamp = fn
 }
 
@@ -368,14 +368,16 @@ func (m *Materializer) stampPending(sessionID string) {
 	}
 	m.mu.Unlock()
 	classes := make([]string, len(pending))
+	readOnly := make([]bool, len(pending))
 	for i, req := range pending {
-		classes[i] = m.onAskStamp(dir, req)
+		classes[i], readOnly[i] = m.onAskStamp(dir, req)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, req := range pending {
 		if cur, ok := st.permissions[req.ID]; ok {
 			cur.Class = classes[i]
+			cur.ReadOnly = readOnly[i]
 		}
 	}
 }
@@ -594,7 +596,8 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 	}
 	if be.Event.Kind == backend.EventPermissionAsked && be.Event.Request != nil && m.onAskStamp != nil {
 		req := *be.Event.Request
-		req.Class = m.onAskStamp(be.WorkspaceDir, req)
+		// both fields are overwritten, whatever the agent's request carried
+		req.Class, req.ReadOnly = m.onAskStamp(be.WorkspaceDir, req)
 		be.Event.Request = &req
 	}
 	m.mu.Lock()

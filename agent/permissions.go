@@ -74,19 +74,35 @@ func (mc *machine) decideAsk(rh backend.RuleHost, dir string, req backend.Permis
 // askClass is the permission class a card carries (PROTOCOL.md §7): galopin's
 // own gp_ asks are the agents class; any other is classified by the one
 // function.
-func (mc *machine) askClass(dir string, req backend.PermissionRequest) string {
+func (mc *machine) askClass(dir string, req backend.PermissionRequest) (string, bool) {
 	if strings.HasPrefix(req.ID, "gp_") {
-		return string(decide.ClassAgents)
+		return string(decide.ClassAgents), false
 	}
 	rh, ok := mc.ruleHost()
 	if !ok {
-		return ""
+		return "", false
 	}
 	key, patterns := req.Tool, req.Patterns
 	if n, ok := mc.back.(backend.AskNormalizer); ok {
 		key, patterns = n.NormalizeAsk(req)
 	}
-	return string(decide.ClassOf(mc.decidePolicy(rh), decide.Request{Key: key, Patterns: patterns, Workspace: dir}))
+	dr := decide.Request{Key: key, Patterns: patterns, Workspace: dir}
+	pol := mc.decidePolicy(rh)
+	return string(decide.ClassOf(pol, dr)), askReadOnly(pol, dr, req.Metadata)
+}
+
+// askReadOnly is the machine's read-only mark (ADR 0107 amendment): computed
+// from the command text only. The one use of the agent's metadata is to
+// narrow: a command that names another working directory is never read-only.
+func askReadOnly(pol decide.Policy, dr decide.Request, meta map[string]any) bool {
+	for _, k := range []string{"workdir", "cwd", "workingDirectory"} {
+		if v, ok := meta[k]; ok {
+			if s, _ := v.(string); s != "" && filepath.Clean(s) != filepath.Clean(dr.Workspace) {
+				return false
+			}
+		}
+	}
+	return pol.ReadOnlyCommand(dr)
 }
 
 // installPermissions wires what runs on its own: every permission ask is
