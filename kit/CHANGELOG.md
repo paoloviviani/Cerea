@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.42.1 — 2026-11-05
+
+Pins: Cerea `0.42.1` (chat and `cerea-documents`), Pystino `0.27.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Coding machines need the galopin update for "Always allow" on cards for kinds of action the machine sets to always ask: re-run the install line from the Pair a machine dialog, then `systemctl --user restart galopin`.
 
 - Coding agents: a user answering a card can always choose "Always allow", also for kinds of action the machine sets to always ask; matching requests then run for the rest of that session (shown and removable under the shield's Exceptions). The reviewer and the read-only rule still allow once only; loop alerts stay once-only; a machine's "never" still refuses. Needs the galopin update on each machine.
 - New built-in skill `cerea`: asked "what can you do?", "what is Cerea?" or "how do I use this?", the assistant answers with a structured overview of its capabilities for users and administrators, lists the tools and connectors actually available in that conversation, and links the documentation. Administrators can switch it off like any bundled skill (`CHAT_SKILLS_DISABLED`).
