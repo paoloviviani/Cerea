@@ -520,7 +520,7 @@ describe("ToolApprovalCard, the reviewer's words (ADR 0107)", () => {
 		reviewNote: "The reviewer wasn't sure enough (51%; it allows at 90%)",
 	} as ElicitationRequestPayload;
 
-	it("an auto-allowed ask settles as 'Auto-allowed by <model> (96%)'", async () => {
+	it("an auto-allowed ask settles as 'Auto-allowed by reviewer model'", async () => {
 		const screen = render(ToolApprovalCard, {
 			conversationId: "a1",
 			request: request("bash", { command: "npm test" }),
@@ -530,11 +530,11 @@ describe("ToolApprovalCard, the reviewer's words (ADR 0107)", () => {
 				elicitationId: "gp_1",
 				action: "accept",
 				resolution: "user",
-				note: "Auto-allowed by clef-flash (96%)",
+				note: "Auto-allowed by reviewer model",
 			} as never,
 			onanswer: async () => ({ ok: true }),
 		});
-		await expect.element(screen.getByText("Auto-allowed by clef-flash (96%)")).toBeVisible();
+		await expect.element(screen.getByText("Auto-allowed by reviewer model")).toBeVisible();
 	});
 
 	it("an escalated ask says why it came to the user, above the buttons", async () => {

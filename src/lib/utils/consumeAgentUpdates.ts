@@ -554,6 +554,25 @@ export async function consumeAgentUpdates(
 							break;
 						}
 					}
+					// The same ask again (the reviewer's note arrived after the card):
+					// the card's request is replaced in place, never doubled.
+					const sameAsk = (candidate: MessageUpdate) =>
+						candidate.type === MessageUpdateType.Elicitation &&
+						candidate.subtype === MessageElicitationUpdateType.Request &&
+						candidate.request.elicitationId === update.request.elicitationId;
+					if (updatesBuffer.some(sameAsk)) {
+						updatesBuffer = updatesBuffer.map((u) => (sameAsk(u) ? update : u));
+						updatesDirty = true;
+						scheduleFrameFlush();
+						break;
+					}
+					const holder = [...messages]
+						.reverse()
+						.find((m) => m.from === "assistant" && (m.updates ?? []).some(sameAsk));
+					if (holder) {
+						holder.updates = (holder.updates ?? []).map((u) => (sameAsk(u) ? update : u));
+						break;
+					}
 					openAssistant();
 					pushUpdate(update);
 					scheduleFrameFlush();
