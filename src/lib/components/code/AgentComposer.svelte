@@ -80,7 +80,6 @@
 	import type { PermissionMode, Policy } from "$lib/types/machineProtocol";
 	import type { CodeDeviceView } from "$lib/codeApi";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
-	import { ceilingNote } from "$lib/utils/permissionRules";
 	import * as s from "$lib/components/overlay/styles";
 	import type { CodeProviderMode, CodeProviderModel } from "$lib/types/CodeAgent";
 	import { resolveActiveModel } from "$lib/utils/activeModel";
@@ -107,7 +106,6 @@
 	import ContextMeter from "./ContextMeter.svelte";
 	import CommandConfirmSheet from "./CommandConfirmSheet.svelte";
 	import PermissionsDialog from "./PermissionsDialog.svelte";
-	import AutoLine from "./AutoLine.svelte";
 	import { thirdStepLabel, type AutoSetup } from "$lib/utils/autoApproval";
 	import IconShield from "~icons/lucide/shield";
 	import { clearSentComposerDraft, codeDraftKey } from "$lib/utils/composerDraft";
@@ -119,10 +117,6 @@
 		/** The open agent's snapshot: the pills' current values are its. Null
 		 * when the snapshot read failed, and the pills then carry no claim. */
 		agent: CodeAgentSession | null;
-		/** The machine's ceiling (`permission.rules.ceiling`): permission key
-		 * -> the most it may ever be. The selector's note names what it still
-		 * holds back under Allow. Empty until the read lands. */
-		ceiling?: Record<string, "ask" | "deny">;
 		/** How many exceptions ("Always allow" cards) the session has, for
 		 * the details button's badge; the dialog reads the rules itself. */
 		permissionExceptions?: number;
@@ -227,7 +221,6 @@
 		deviceId,
 		agentId,
 		agent,
-		ceiling = {},
 		permissionExceptions = 0,
 		autoApproval = null,
 		policy,
@@ -813,14 +806,6 @@
 	let isSubagent = $derived(Boolean(agent?.parentId));
 	let permissionMode = $derived(agent?.permissionMode ?? null);
 	let showPermissionSelector = $derived(permissionMode !== null && !codeReauth.required);
-	/** Under Allow, what this machine's ceiling still holds back. */
-	let permissionNote = $derived.by(() => {
-		if (isSubagent) return m["code.composer.follows_main"]();
-		if (permissionMode !== "allow") return "";
-		const held = ceilingNote(ceiling);
-		// Nothing capped: the selected segment already says Allow.
-		return held ? m["code.composer.allow_held"]({ held }) : "";
-	});
 
 	/** build and plan are driven by the selector (Plan runs plan, Ask and Allow
 	 * run build) wherever the machine shows one; custom agents stay listed. */
@@ -1090,10 +1075,8 @@
 						<!-- The permission selector: the session's blanket, Plan · Ask ·
 					     Allow. The value is the agent snapshot's word, so a click
 					     waits for the machine's answer rather than guessing. On a
-					     subagent it is disabled and says whose it follows; under
-					     Allow, the note names what the ceiling still caps. Below
-					     `sm` the note drops out of the one-line row (the Allow
-					     segment's title carries the same facts). -->
+					     subagent it is disabled. What it means, and what the machine
+					     still holds back, is in the shield's sheet. -->
 						{#if showPermissionSelector}
 							<div
 								role="radiogroup"
@@ -1136,7 +1119,9 @@
 								<button
 									type="button"
 									class={composerPillClass({ compact: true })}
-									aria-label={m["code.composer.details_label"]()}
+									aria-label={m["code.composer.details_label"]({
+										step: PERMISSION_SEGMENTS.find((x) => x.mode === permissionMode)?.label() ?? "",
+									})}
 									title={m["code.composer.details_title"]()}
 									data-testid="permission-details"
 									onclick={() => (permissionDetailsOpen = true)}
@@ -1156,15 +1141,6 @@
 										>
 									{/if}
 								</button>
-							{/if}
-							{#if permissionNote}
-								<span
-									class="flex min-w-0 flex-none items-center gap-1 text-xs text-gray-500 max-sm:hidden dark:text-gray-400"
-									data-testid="permission-mode-note"
-									title={permissionNote}
-								>
-									{permissionNote}
-								</span>
 							{/if}
 						{/if}
 
@@ -1238,10 +1214,6 @@
 		{/if}
 	</div>
 </form>
-
-{#if showPermissionSelector && !isSubagent && permissionMode === "allow" && device}
-	<AutoLine machineName={device.name} policy={device.policy ?? policy} setup={autoSetup} />
-{/if}
 
 <!-- The mode/model/effort row, BELOW the composer like the regular chat's
      model/effort row (`ChatWindow`'s `mt-1.5` line under its form): the
@@ -1354,7 +1326,8 @@
 	<PermissionsDialog
 		{deviceId}
 		{agentId}
-		sessionTitle={agent?.title ?? ""}
+		mode={permissionMode}
+		setup={autoSetup ?? undefined}
 		{policy}
 		{device}
 		subagent={isSubagent}

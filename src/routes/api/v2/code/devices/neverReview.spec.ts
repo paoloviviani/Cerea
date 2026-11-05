@@ -1,4 +1,4 @@
-/** "Never send this machine's asks to the reviewer" (ADR 0107): the owner's flag, on the owner's device only. */
+/** "Never auto review requests" (ADR 0107): the owner's flag, on the owner's device only. */
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ObjectId } from "mongodb";
 

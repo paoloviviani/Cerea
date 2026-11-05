@@ -795,9 +795,7 @@ describe("CodeNavTree session Permissions menu", () => {
 
 		await screen.getByRole("button", { name: "Session actions" }).nth(1).click();
 		await screen.getByRole("menuitem", { name: "Permissions…" }).click();
-		await expect
-			.element(screen.getByRole("heading", { name: "Permissions — Agent a2" }))
-			.toBeVisible();
+		await expect.element(screen.getByRole("heading", { name: /^Permissions/ })).toBeVisible();
 		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		// The dialog read THAT session's rules, not the selection's.
 		expect(apiMock.getPermissionRules).toHaveBeenCalledWith("d1", "a2");
@@ -813,7 +811,7 @@ describe("CodeNavTree session Permissions menu", () => {
 		await expect.element(screen.getByText("Box d1")).toBeVisible();
 		await screen.getByRole("button", { name: "Machine settings" }).first().click();
 		const item = screen.getByRole("menuitemcheckbox", {
-			name: "Never send this machine's asks to the reviewer",
+			name: "Never auto review requests",
 		});
 		await expect.element(item).toHaveAttribute("aria-checked", "false");
 		await item.click();
@@ -828,7 +826,7 @@ describe("CodeNavTree session Permissions menu", () => {
 		await expect
 			.element(
 				screen.getByRole("menuitemcheckbox", {
-					name: "Never send this machine's asks to the reviewer",
+					name: "Never auto review requests",
 				})
 			)
 			.toHaveAttribute("aria-checked", "true");

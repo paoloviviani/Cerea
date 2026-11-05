@@ -10,6 +10,7 @@ import { load as fetching } from "./fetch/+page.server";
 import { load as instructions } from "./instructions/+page.server";
 import { load as delegation } from "./delegation/+page.server";
 import { load as voice } from "./voice/+page.server";
+import { load as autoApproval } from "./auto-approval/+page.server";
 
 async function target(load: () => unknown): Promise<{ status: number; location: string }> {
 	try {
@@ -27,6 +28,7 @@ describe("old admin addresses", () => {
 		["instructions", instructions, "/admin/assistant#instructions"],
 		["delegation", delegation, "/admin/assistant#sub-agents"],
 		["voice", voice, "/admin/assistant#voice"],
+		["auto-approval", autoApproval, "/admin/agents#auto-approval"],
 	])("/admin/%s redirects to %s", async (_old, load, expected) => {
 		const result = await target(load as never);
 		expect(result.status).toBe(308);

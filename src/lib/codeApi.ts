@@ -150,7 +150,7 @@ export async function confirmDevice(id: string): Promise<{ confirmed: boolean }>
 	);
 }
 
-/** "Never send this machine's asks to the reviewer" (ADR 0107): stored on the device, for its owner. */
+/** "Never auto review requests" (ADR 0107): stored on the device, for its owner. */
 export async function setNeverReview(
 	id: string,
 	value: boolean

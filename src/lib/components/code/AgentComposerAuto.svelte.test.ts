@@ -130,70 +130,28 @@ describe("the third step", () => {
 	});
 });
 
-describe("the computed line", () => {
-	it("for a default machine names what runs, what is reviewed and what comes to the user", async () => {
+describe("below the composer", () => {
+	it("renders no permission line and no details link, on any step", async () => {
+		for (const permissionMode of ["allow", "ask", "deny"] as const) {
+			document.body.innerHTML = "";
+			const screen = mount({ agent: session({ permissionMode }) });
+			await expect.element(screen.getByTestId("permission-mode-allow")).toBeVisible();
+			expect(document.querySelector('[data-testid="auto-line-wrap"]')).toBeNull();
+			expect(document.querySelector('[data-testid="auto-line"]')).toBeNull();
+			expect(document.querySelector('[data-testid="auto-details-toggle"]')).toBeNull();
+			expect(document.body.textContent).not.toMatch(/come to you|Details/);
+		}
+	});
+
+	it("names the selected step on the shield for assistive tech", async () => {
 		const screen = mount();
 		await expect
-			.element(screen.getByTestId("auto-line"))
-			.toHaveTextContent(
-				"Auto on studio-laptop: edits, web, agents and tools run · commands and outside access are reviewed · secrets and loops come to you"
-			);
-	});
-
-	it("for a machine with commands=run, commands run", async () => {
-		const screen = mount({
-			device: device({ ...base, limits: { ...DEFAULT_LIMITS, command: "allow" } }),
-		});
+			.element(screen.getByTestId("permission-details"))
+			.toHaveAttribute("aria-label", "Permissions: Auto");
+		document.body.innerHTML = "";
+		const ask = mount({ agent: session({ permissionMode: "ask" }) });
 		await expect
-			.element(screen.getByTestId("auto-line"))
-			.toHaveTextContent(
-				"edits, commands, web, agents and tools run · outside access are reviewed"
-			);
-	});
-
-	it("for an older machine derives the default ceiling and says so in the details", async () => {
-		const old: Policy = { workspaceRoots: [], allowFreeModels: false, permission: { max: {} } };
-		const screen = mount({ device: device(old) });
-		await expect
-			.element(screen.getByTestId("auto-line"))
-			.toHaveTextContent("commands and outside access are reviewed");
-		await screen.getByTestId("auto-details-toggle").click();
-		await expect.element(screen.getByTestId("auto-older")).toHaveTextContent("older galopin");
-	});
-
-	it("says so when the reviewer keeps failing", async () => {
-		const screen = mount({
-			autoApproval: { available: true, perClass: PER_CLASS_DEFAULTS, degraded: true },
-		});
-		await expect
-			.element(screen.getByTestId("auto-degraded"))
-			.toHaveTextContent("Auto: reviewer unavailable");
-	});
-
-	it("says Allow and that asks come to the user when there is no reviewer", async () => {
-		const screen = mount({ autoApproval: { available: false, perClass: PER_CLASS_DEFAULTS } });
-		await expect
-			.element(screen.getByTestId("auto-line"))
-			.toHaveTextContent("Allow on studio-laptop:");
-		await expect
-			.element(screen.getByTestId("auto-line"))
-			.toHaveTextContent("commands, outside access, secrets and loops come to you");
-	});
-
-	it("gives each class's outcome and reason in the details", async () => {
-		const screen = mount();
-		await screen.getByTestId("auto-details-toggle").click();
-		const details = screen.getByTestId("auto-details");
-		await expect.element(details).toBeVisible();
-		await expect.element(screen.getByTestId("auto-row-command")).toHaveTextContent("Reviewed");
-		await expect.element(screen.getByTestId("auto-row-edit")).toHaveTextContent("Runs");
-		await expect.element(details).toHaveTextContent("This machine's limit");
-		await expect.element(details).toHaveTextContent("Set by your admin");
-	});
-
-	it("is absent on Plan and Ask", async () => {
-		const screen = mount({ agent: session({ permissionMode: "ask" }) });
-		await expect.element(screen.getByTestId("permission-mode-allow")).toBeVisible();
-		expect(document.querySelector('[data-testid="auto-line"]')).toBeNull();
+			.element(ask.getByTestId("permission-details"))
+			.toHaveAttribute("aria-label", "Permissions: Ask");
 	});
 });

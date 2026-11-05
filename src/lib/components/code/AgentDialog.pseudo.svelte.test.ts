@@ -56,16 +56,16 @@ describe("The Code dialogs, in the pseudo-locale", () => {
 		const screen = renderWithApp(PermissionsDialog, {
 			deviceId: "d1",
 			agentId: "a1",
-			sessionTitle: "Build it",
+			device: { id: "d1", name: "Build it", backends: [] } as never,
+			mode: "allow",
+			setup: { reviewerAvailable: true, perClass: {} } as never,
 			onclose: () => {},
 		});
 		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
 		await expect
 			.element(screen.getByText(m["code.permissions.exceptions"]({}, { locale: "en-XA" })))
 			.toBeVisible();
-		expect(
-			unbracketedText(document.body, [/Build it/, /^edit$/, /^bash$/, /src\//, /^\((edit|bash)\)$/])
-		).toEqual([]);
+		expect(unbracketedText(document.body, [/Build it/, /src\//, /^\((edit|bash)\)$/])).toEqual([]);
 	});
 
 	it("the delegate profiles dialog owns every word it shows", async () => {

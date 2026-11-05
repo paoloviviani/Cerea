@@ -32,49 +32,13 @@ const view = (over: Record<string, unknown> = {}, settings: Record<string, unkno
 	testAvailable: true,
 	...over,
 });
-const logEntries = [
-	{
-		id: "e1",
-		time: "2026-11-05T09:00:00Z",
-		machine: "studio-laptop",
-		deviceId: "d1",
-		sessionId: "s",
-		class: "command",
-		summary: "npm test",
-		probability: 0.96,
-		outcome: "allowed",
-		reason: "routine",
-		applied: true,
-		modelId: "judge-a",
-	},
-	{
-		id: "e2",
-		time: "2026-11-05T08:00:00Z",
-		machine: "studio-laptop",
-		deviceId: "d1",
-		sessionId: "s",
-		class: "outside",
-		summary: "rm -rf /etc",
-		probability: 0.12,
-		outcome: "escalated",
-		reason: "no",
-		applied: true,
-		modelId: "judge-a",
-	},
-];
-
-function stub(
-	v: unknown,
-	opts: { testStatus?: number; testBody?: unknown; log?: unknown[]; next?: string | null } = {}
-) {
+function stub(v: unknown, opts: { testStatus?: number; testBody?: unknown } = {}) {
 	calls.length = 0;
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const url = String(input);
 			calls.push({ url, init });
-			if (url.includes("/agent-review/log"))
-				return Response.json({ entries: opts.log ?? [], next: opts.next ?? null });
 			if (url.includes("/agent-review/test")) {
 				if (opts.testStatus && opts.testStatus !== 200)
 					return Response.json({ message: "no" }, { status: opts.testStatus });
@@ -90,7 +54,7 @@ afterEach(() => {
 	document.body.innerHTML = "";
 });
 
-describe("Administration -> Agent auto-approval", () => {
+describe("Administration -> Agents -> Auto-approval", () => {
 	it("shows the egress note, the fixed frame around the editable text, and per-class rows with loop fixed", async () => {
 		stub(view());
 		renderWithApp(AgentReviewSection, {});
@@ -206,29 +170,13 @@ describe("Administration -> Agent auto-approval", () => {
 		await expect.element(page.getByTestId("auto-save")).toBeEnabled();
 	});
 
-	it("lists the review log and filters by outcome", async () => {
-		stub(view(), { log: logEntries });
+	it("links to the review log page instead of showing the log", async () => {
+		stub(view());
 		renderWithApp(AgentReviewSection, {});
 		await expect
-			.poll(() => document.querySelectorAll('[data-testid="auto-log-row"]').length)
-			.toBe(2);
-		await expect.element(page.getByTestId("auto-log")).toHaveTextContent("rm -rf /etc");
-		await page.getByLabelText("Outcome").selectOptions("escalated");
-		await vi.waitFor(() =>
-			expect(calls.some((c) => c.url.includes("outcome=escalated"))).toBe(true)
-		);
-	});
-
-	it("shows an empty log, and pages with 'Older entries'", async () => {
-		stub(view(), { log: [] });
-		renderWithApp(AgentReviewSection, {});
-		await expect.element(page.getByTestId("auto-log-empty")).toBeVisible();
-		document.body.innerHTML = "";
-		stub(view(), { log: logEntries, next: "2026-11-05T08:00:00Z" });
-		renderWithApp(AgentReviewSection, {});
-		await page.getByTestId("auto-log-more").click();
-		await vi.waitFor(() =>
-			expect(calls.some((c) => c.url.includes("before=2026-11-05T08%3A00%3A00Z"))).toBe(true)
-		);
+			.element(page.getByTestId("auto-log-link"))
+			.toHaveAttribute("href", "/admin/agents/review-log");
+		expect(document.querySelector('[data-testid="auto-log"]')).toBeNull();
+		expect(calls.some((c) => c.url.includes("/agent-review/log"))).toBe(false);
 	});
 });

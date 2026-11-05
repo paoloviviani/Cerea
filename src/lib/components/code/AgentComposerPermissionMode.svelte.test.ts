@@ -10,8 +10,7 @@ import type { CodeAgentSession } from "$lib/types/CodeAgent";
  * changed. What this file pins:
  * - it shows the machine's word (`agent.permissionMode`) and never a guess:
  *   a click sends one op and the segment moves only when the snapshot does;
- * - under Allow it names what the ceiling still caps;
- * - on a subagent it is disabled, saying it follows the main session;
+ * - on a subagent it is disabled;
  * - it is absent without a word to show (an older machine) and while the
  *   sign-in is stale;
  * - it writes no rule: the one call is `setPermissionMode`;
@@ -64,7 +63,6 @@ function session(over: Partial<CodeAgentSession> = {}): CodeAgentSession {
 function mount(
 	agent: CodeAgentSession | null,
 	extra: {
-		ceiling?: Record<string, "ask" | "deny">;
 		permissionExceptions?: number;
 		modes?: Array<{ id: string; label: string; description: string }> | null;
 		onchanged?: () => void;
@@ -159,36 +157,22 @@ describe("the permission selector", () => {
 		await expect.element(segment(screen, "ask")).toHaveAttribute("aria-checked", "true");
 	});
 
-	it("names what the ceiling still caps under Allow", async () => {
-		const allow = mount(session({ permissionMode: "allow" }), { ceiling: { bash: "ask" } });
-		await expect
-			.element(allow.getByTestId("permission-mode-note"))
-			.toHaveTextContent("Allow · bash asks (machine limit)");
+	it("writes no summary line beside the selector, under any mode", async () => {
+		for (const permissionMode of ["deny", "ask", "allow"] as const) {
+			const screen = mount(session({ permissionMode }));
+			await expect.element(segment(screen, permissionMode)).toBeVisible();
+			expect(screen.getByTestId("permission-mode-note").elements()).toHaveLength(0);
+			screen.unmount();
+		}
 	});
 
-	it("names several caps, and a denial as a denial", async () => {
-		const allow = mount(session({ permissionMode: "allow" }), {
-			ceiling: { bash: "ask", webfetch: "deny" },
-		});
-		await expect
-			.element(allow.getByTestId("permission-mode-note"))
-			.toHaveTextContent("Allow · bash asks, webfetch is denied (machine limit)");
-	});
-
-	it("under Allow with nothing capped, shows no note, and says subagents follow it", async () => {
-		const screen = mount(session({ permissionMode: "allow" }), { ceiling: {} });
+	it("under Allow, says subagents follow it on the segment's tooltip", async () => {
+		const screen = mount(session({ permissionMode: "allow" }));
 		await expect.element(segment(screen, "allow")).toHaveAttribute("aria-checked", "true");
-		expect(screen.getByTestId("permission-mode-note").elements()).toHaveLength(0);
 		// The Allow segment's own tooltip says subagents follow it (no first-turn caveat since 0.3.10).
 		const title = segment(screen, "allow").element().getAttribute("title") ?? "";
 		expect(title).toContain("New subagents follow it too");
 		expect(title).not.toContain("first turn");
-	});
-
-	it("does not name the ceiling or the first-turn caveat under Ask", async () => {
-		const ask = mount(session({ permissionMode: "ask" }), { ceiling: { bash: "ask" } });
-		await expect.element(segment(ask, "ask")).toBeVisible();
-		expect(ask.getByTestId("permission-mode-note").elements()).toHaveLength(0);
 	});
 
 	it("tells Allow's two surviving asks on its tooltip, so nobody reads it as 'anything'", async () => {
@@ -199,15 +183,12 @@ describe("the permission selector", () => {
 		expect(segment(screen, "ask").element().getAttribute("title")).toContain("Reading is allowed");
 	});
 
-	it("is disabled on a subagent, showing its root's word and saying it follows the main session", async () => {
+	it("is disabled on a subagent, showing its root's word", async () => {
 		const screen = mount(session({ parentId: "root-1", permissionMode: "deny" }));
 		await expect.element(segment(screen, "deny")).toHaveAttribute("aria-checked", "true");
 		for (const mode of ["deny", "ask", "allow"]) {
 			await expect.element(segment(screen, mode)).toBeDisabled();
 		}
-		await expect
-			.element(screen.getByTestId("permission-mode-note"))
-			.toHaveTextContent("Follows the main session");
 		expect(api.setPermissionMode).not.toHaveBeenCalled();
 	});
 
@@ -251,22 +232,20 @@ describe("the permission details button", () => {
 	it("sits beside the selector, carries the exceptions count, and opens the dialog for this session", async () => {
 		api.getPermissionRules.mockResolvedValueOnce(oneApproval);
 		const screen = mount(session(), { permissionExceptions: 2 });
-		const button = screen.getByRole("button", { name: "Permission details for this session" });
+		const button = screen.getByRole("button", { name: "Permissions: Ask" });
 		await expect.element(button).toBeVisible();
 		await expect.element(button).toHaveTextContent("2");
 
 		await button.click();
 		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
-		await expect
-			.element(screen.getByRole("heading", { name: "Permissions — Build it" }))
-			.toBeVisible();
+		await expect.element(screen.getByRole("heading", { name: "Permissions" })).toBeVisible();
 		// The dialog read THIS session's rules itself.
 		await vi.waitFor(() => expect(api.getPermissionRules).toHaveBeenCalledWith("d1", "a1"));
 	});
 
 	it("carries no count without exceptions", async () => {
 		const screen = mount(session(), { permissionExceptions: 0 });
-		const button = screen.getByRole("button", { name: "Permission details for this session" });
+		const button = screen.getByRole("button", { name: "Permissions: Ask" });
 		await expect.element(button).toBeVisible();
 		expect(button.element().textContent?.trim()).toBe("");
 	});
@@ -274,9 +253,7 @@ describe("the permission details button", () => {
 	it("is hidden on a subagent", async () => {
 		const screen = mount(session({ parentId: "root-1" }), { permissionExceptions: 1 });
 		await expect.element(screen.getByTestId("permission-mode")).toBeVisible();
-		expect(
-			screen.getByRole("button", { name: "Permission details for this session" }).elements()
-		).toHaveLength(0);
+		expect(screen.getByRole("button", { name: "Permissions: Ask" }).elements()).toHaveLength(0);
 	});
 
 	it("is hidden while the /code sign-in is stale", async () => {

@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- /code: the shield beside the composer now shows what reaches you (a sentence for the selected step and each kind of action with its reason), plus exceptions and coordination; the permission line under the composer and the backend's rule list are gone.
+
 ## v0.41.0 — 2026-11-05
 
 Pins: Cerea `0.41.0` (chat and `cerea-documents`), Pystino `0.26.0`.
