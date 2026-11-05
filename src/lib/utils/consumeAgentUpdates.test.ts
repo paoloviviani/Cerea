@@ -226,6 +226,38 @@ describe("consumeAgentUpdates", () => {
 		expect(isConversationGenerationActive(messages)).toBe(true);
 	});
 
+	it("replaces an ask's card in place when the same ask returns with the reviewer's note", async () => {
+		const ask = (reviewNote?: string): MessageElicitationRequestUpdate => ({
+			type: MessageUpdateType.Elicitation,
+			subtype: MessageElicitationUpdateType.Request,
+			request: {
+				elicitationId: "p9",
+				server: "bash",
+				mode: "form",
+				message: "docker compose ps",
+				toolApproval: { tool: "bash", args: {} },
+				...(reviewNote ? { reviewNote } : {}),
+			},
+		});
+		const note = "The reviewer wasn't sure enough (77%; it allows at 90%)";
+		// Same turn (buffered) and after the turn closed (committed).
+		for (const frames of [
+			[user("go"), running(), ask(), ask(note)],
+			[user("go"), running(), token("x"), done(), ask(), ask(note)],
+		]) {
+			const messages = await run(frames);
+			const cards = messages
+				.flatMap((m) => m.updates ?? [])
+				.filter(
+					(u) =>
+						u.type === MessageUpdateType.Elicitation &&
+						u.subtype === MessageElicitationUpdateType.Request
+				) as MessageElicitationRequestUpdate[];
+			expect(cards).toHaveLength(1);
+			expect(cards[0].request.reviewNote).toBe(note);
+		}
+	});
+
 	it("settles an approval card on the message that asked", async () => {
 		const request: MessageElicitationRequestUpdate = {
 			type: MessageUpdateType.Elicitation,

@@ -13,6 +13,7 @@ import {
 	allowedNote,
 	belowNote,
 	cappedNote,
+	onReviewNote,
 	ruleNote,
 	setReviewNote,
 	unavailableNote,
@@ -90,5 +91,16 @@ describe("availability: the reviewer keeps failing", () => {
 		expect((await autoApprovalAvailability()).degraded).toBe(true);
 		noteCallOk();
 		expect((await autoApprovalAvailability()).degraded).toBe(false);
+	});
+});
+
+describe("a note set after the card was announced", () => {
+	it("reaches a listener (the stream re-emits the card with it) until it unsubscribes", () => {
+		const seen: string[] = [];
+		const off = onReviewNote((id, note) => seen.push(`${id}:${note.text}`));
+		setReviewNote("late1", { text: belowNote(0.77, 0.9), allowed: false });
+		off();
+		setReviewNote("late2", { text: "x", allowed: false });
+		expect(seen).toEqual(["late1:The reviewer wasn't sure enough (77%; it allows at 90%)"]);
 	});
 });

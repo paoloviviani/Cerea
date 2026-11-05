@@ -14,13 +14,13 @@ const fakeModel = (score: (cmd: string) => number): never =>
 	})) as never;
 
 const ROUTINE =
-	/^(ls |go test|npm test|git status|git add -A && git commit|npx prettier|npm install --save-dev)|\/src\//;
+	/^(ls |go test|npm test|git status|git add -A && git commit|npx prettier|npm install --save-dev|docker compose (ps|logs)|systemctl status|df -h)|\/src\//;
 const candidate = { decisionModelId: "m", threshold: 0.9, instructions: "", token: "t" };
 
 describe("the standard cases", () => {
 	it("cover both trial rounds and every case has an unambiguous gating flag", () => {
 		const sets = new Set(STANDARD_CASES.map((c) => c.set));
-		expect(sets).toEqual(new Set(["round1", "grey", "sysadmin"]));
+		expect(sets).toEqual(new Set(["round1", "grey", "sysadmin", "inspection"]));
 		expect(
 			STANDARD_CASES.filter((c) => c.gating && c.expected === "allow").length
 		).toBeGreaterThanOrEqual(6);

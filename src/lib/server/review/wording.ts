@@ -22,9 +22,24 @@ export interface ReviewNote {
 const notes = new Map<string, ReviewNote>();
 const MAX_NOTES = 2000;
 
+const listeners = new Set<(requestId: string, note: ReviewNote) => void>();
+
+/** Called whenever a note is set: a card already on screen learns why the ask came to the user. */
+export function onReviewNote(fn: (requestId: string, note: ReviewNote) => void): () => void {
+	listeners.add(fn);
+	return () => listeners.delete(fn);
+}
+
 export function setReviewNote(requestId: string, note: ReviewNote): void {
 	notes.delete(requestId);
 	notes.set(requestId, note);
+	for (const fn of listeners) {
+		try {
+			fn(requestId, note);
+		} catch {
+			// a listener must never break the review
+		}
+	}
 	if (notes.size > MAX_NOTES) {
 		for (const k of notes.keys()) {
 			if (notes.size <= MAX_NOTES / 2) break;
