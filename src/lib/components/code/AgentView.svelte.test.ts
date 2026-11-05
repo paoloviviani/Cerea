@@ -340,7 +340,7 @@ describe("AgentView permission selector", () => {
 		expect(fake.setCalls).toEqual([]);
 	});
 
-	it("hides the card's Always button for a key the ceiling caps, and offers it for one it does not", async () => {
+	it("offers the card's Always button for a key the ceiling caps as well as for one it does not", async () => {
 		await browserPage.viewport(1200, 800);
 		fake.ceiling = { bash: "ask" };
 		const screen = mount();
@@ -362,9 +362,13 @@ describe("AgentView permission selector", () => {
 		await expect
 			.element(screen.getByRole("button", { name: "Always allow edits (this session)" }))
 			.toBeVisible();
-		// One card has the button (edit), the capped one (bash) does not.
+		// Both cards have it: edit's reads "Always allow edits", the capped bash's
+		// plain "Always allow" (a human's always is stored over an ask limit).
 		expect(
 			screen.getByRole("button", { name: "Always allow edits (this session)" }).elements()
+		).toHaveLength(1);
+		expect(
+			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
 		).toHaveLength(1);
 		expect(screen.getByRole("button", { name: "Allow once" }).elements()).toHaveLength(2);
 	});

@@ -169,7 +169,7 @@ test.describe("owned machine agent: parity", () => {
 		finishReason: "stop" as const,
 	});
 
-	test("approvals: under the default ceiling (bash asks) there is no Always allow, so every call asks", async ({
+	test("approvals: under the default ceiling (bash asks) a human still gets Always allow, and Allow once keeps asking", async ({
 		page,
 		db,
 		session,
@@ -179,15 +179,15 @@ test.describe("owned machine agent: parity", () => {
 		await mockOpenAI.setDefaultScenario(bashWriteScenario("call_a", "a", ["First", " done", "."]));
 		await send(page, "write a");
 		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
-		// The ceiling holds bash at ask: an "always" would store nothing, so the
-		// card does not offer one. Scoped to the transcript: the Needs-you
+		// The ceiling holds bash at ask, and a human's "always" is still offered
+		// (the machine stores it over the limit). Scoped to the transcript: the Needs-you
 		// inbox mirrors the same ask, so a page-global lookup goes ambiguous
 		// once its poll picks the ask up.
 		const transcript = page.getByLabel("Conversation messages");
 		await expect(transcript.getByRole("button", { name: "Allow once" })).toBeVisible();
 		await expect(
 			transcript.getByRole("button", { name: "Always allow (this session)" })
-		).toHaveCount(0);
+		).toBeVisible();
 		await transcript.getByRole("button", { name: "Allow once" }).click();
 		await expect(transcriptCard(page).getByText("First done.")).toBeVisible({ timeout: 60_000 });
 

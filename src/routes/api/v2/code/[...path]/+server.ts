@@ -1477,6 +1477,9 @@ export const POST: RequestHandler = async (event) => {
 				sessionId: targetSessionId,
 				requestId: decodeURIComponent(permissionMatch[2]),
 				decision: parsed.data.decision,
+				// This route is a human's click; the machine stores an "always"
+				// even where the class is limited to ask only for this actor.
+				actor: { kind: "user" },
 			})
 		);
 		// The machine answers "already resolved" for an ask something else

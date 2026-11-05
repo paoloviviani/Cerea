@@ -245,8 +245,9 @@ func TestSelectorS4S5S6Exceptions(t *testing.T) {
 	}
 }
 
-// S7: "always" on a capped key stores nothing, and the next call asks.
-func TestSelectorS7AlwaysOnACappedKeyStoresNothing(t *testing.T) {
+// S7: a human's "always" on a key the ceiling holds at ask is still stored (it
+// is the human's word), and the next identical call runs under it.
+func TestSelectorS7AlwaysOnAnAskLimitedKeyIsStoredAndRuns(t *testing.T) {
 	r := newPermRig(t, permRigOpts{perm: policy.Permission{Max: map[string]string{"bash": "ask"}}})
 	s := r.session("s7", "")
 	ask, _, mark := r.tryCall(s, "bash", bashArgs("echo capped"))
@@ -255,23 +256,15 @@ func TestSelectorS7AlwaysOnACappedKeyStoresNothing(t *testing.T) {
 	}
 	r.reply(s, ask.ID, "always")
 	r.idle(s, mark)
-	if ex := r.exceptions(s); len(ex) != 0 {
-		t.Errorf("exceptions = %+v, want none: the ceiling caps bash", ex)
+	if ex := r.exceptions(s); len(ex) != 1 {
+		t.Errorf("exceptions = %+v, want one exception", ex)
 	}
 	ask, _, mark = r.tryCall(s, "bash", bashArgs("echo capped"))
-	if ask == nil {
-		t.Error("the next identical call did not ask")
-	} else {
+	if ask != nil {
+		t.Error("the next identical call asked under the human's exception")
 		r.reply(s, ask.ID, "reject")
-		r.idle(s, mark)
 	}
-	var capped bool
-	for _, row := range r.auditRows() {
-		capped = capped || (row["action"] == "permission" && row["decision"] == "once" && row["capped"] == true)
-	}
-	if !capped {
-		t.Errorf("audit lacks the capped reply: %v", r.auditRows())
-	}
+	r.idle(s, mark)
 }
 
 // opencode takes a session's rules when a turn starts, so a PATCH made while a
