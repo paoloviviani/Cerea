@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"galopin/internal/decide"
-	"galopin/internal/policy"
 )
 
 // packaging/enroll-flags.json is the machine-readable list of enroll's flags
@@ -28,15 +27,8 @@ type enrollFlagEntry struct {
 }
 
 type enrollFlagsFile struct {
-	Version int               `json:"version"`
-	Flags   []enrollFlagEntry `json:"flags"`
-	Ceiling struct {
-		Flag string `json:"flag"`
-		Keys []struct {
-			Key     string `json:"key"`
-			Default string `json:"default"`
-		} `json:"keys"`
-	} `json:"ceiling"`
+	Version    int               `json:"version"`
+	Flags      []enrollFlagEntry `json:"flags"`
 	DialogOnly []struct {
 		Control string `json:"control"`
 		Exposed bool   `json:"exposed"`
@@ -148,8 +140,8 @@ func defaultWord(e enrollFlagEntry) string {
 func TestEnrollFlagsExposedSetIsTheDialogsControlList(t *testing.T) {
 	want := []string{
 		"allow-file-write", "allow-free-models", "allow-opencode-provider", "allow-project-config", "default-group", "file-deny",
-		"max-terminals", "no-agent-tools", "no-background-subagents", "no-command-shell",
-		"no-default-file-deny", "no-files", "no-terminal", "permission-max", "permission-rule",
+		"limit", "max-terminals", "no-agent-tools", "no-background-subagents", "no-command-shell",
+		"no-default-file-deny", "no-files", "no-terminal",
 		"workspace-root",
 	}
 	var got []string
@@ -178,46 +170,6 @@ func TestEnrollFlagsExposedSetIsTheDialogsControlList(t *testing.T) {
 	d := loadEnrollFlags(t).DialogOnly
 	if len(d) != 1 || d[0].Control != "install-opencode" || !d[0].Exposed {
 		t.Errorf("dialogOnly = %+v, want the install-opencode control", d)
-	}
-}
-
-// The ceiling table's defaults are enroll's own, so a dialog applying the
-// replace-the-whole-set rule starts from the right rows.
-func TestEnrollFlagsCeilingDefaultsAreEnrollsOwn(t *testing.T) {
-	file := loadEnrollFlags(t)
-	if file.Ceiling.Flag != "permission-max" {
-		t.Fatalf("ceiling flag = %q", file.Ceiling.Flag)
-	}
-	// What a default machine's limits cap, as the per-key ceiling the dialog's
-	// table still speaks (outside, secrets and loop ask by default and add no row).
-	defaults := map[string]string{}
-	dc := policy.Default().Permission.Ceiling()
-	for _, k := range dc.Keys() {
-		defaults[k] = string(dc.Of(k))
-	}
-	var keys []string
-	for _, k := range file.Ceiling.Keys {
-		keys = append(keys, k.Key)
-		want := defaults[k.Key]
-		if want == "" {
-			want = "allow"
-		}
-		if k.Default != want {
-			t.Errorf("ceiling %s: the file says %s, enroll defaults to %s", k.Key, k.Default, want)
-		}
-	}
-	wantKeys := []string{"edit", "bash", "webfetch", "task", "session_spawn", "session_send", "session_read", "schedule"}
-	if !reflect.DeepEqual(keys, wantKeys) {
-		t.Errorf("ceiling keys = %v, want %v", keys, wantKeys)
-	}
-	for k := range defaults {
-		found := false
-		for _, have := range keys {
-			found = found || have == k
-		}
-		if !found {
-			t.Errorf("enroll's default ceiling caps %s, which the file's table does not list", k)
-		}
 	}
 }
 

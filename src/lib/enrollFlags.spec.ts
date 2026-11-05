@@ -18,7 +18,7 @@ import {
  * (a Go test there fails when `enroll` gains a flag it does not list). The
  * TypeScript copy is always checked against the flags `enroll.go` registers;
  * where that file exists (it lands with the agent branch) it is checked against
- * the file too, flags, ceiling rows and defaults.
+ * the file too: flags, the class table and defaults.
  */
 const AGENT_DIR = fileURLToPath(new URL("../../agent/", import.meta.url));
 const JSON_PATH = `${AGENT_DIR}packaging/enroll-flags.json`;
@@ -128,14 +128,9 @@ describe("against the agent", () => {
 			expect(live.map((flag) => flag.flag).sort()).toEqual(
 				ENROLL_FLAGS.map((flag) => flag.flag).sort()
 			);
-			// The dialog moved to `--limit` (ADR 0107) before the agent's file did: it still lists the two
-			// alias flags as exposed and `limit` as not. Only these three may differ, and only in `exposed`.
-			const MOVED = new Set(["limit", "permission-max", "permission-rule"]);
 			for (const flag of ENROLL_FLAGS) {
 				const theirs = live.find((candidate) => candidate.flag === flag.flag);
-				if (!MOVED.has(flag.flag)) {
-					expect(theirs?.exposed, `${flag.flag} exposed`).toBe(flag.exposed);
-				}
+				expect(theirs?.exposed, `${flag.flag} exposed`).toBe(flag.exposed);
 				expect(theirs?.kind, `${flag.flag} kind`).toBe(flag.kind);
 				expect(theirs?.default, `${flag.flag} default`).toEqual(flag.default);
 			}
