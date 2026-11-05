@@ -1,3 +1,4 @@
+import { classifyGatewayError, quotaMessageForUser } from "$lib/server/gatewayErrors";
 import { effectiveReasoningEffort } from "$lib/server/reasoningEffort";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
@@ -779,10 +780,11 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					const statusCode =
 						(typeof errObj.statusCode === "number" ? errObj.statusCode : undefined) ||
 						(typeof errObj.status === "number" ? errObj.status : undefined);
+					const failure = classifyGatewayError(err);
 					await update({
 						type: MessageUpdateType.Status,
 						status: MessageUpdateStatus.Error,
-						message: err.message,
+						message: failure.kind === "quota" ? quotaMessageForUser(failure) : err.message,
 						...(statusCode && { statusCode }),
 					});
 					logger.error(err, "Error in conversation stream");

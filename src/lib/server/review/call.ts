@@ -3,6 +3,7 @@
  * question; the answer is `answers[0].probability`. Anything that is not a probability is an
  * `error` with a reason the log and the card can say; the caller escalates on every one of them.
  */
+import { isQuotaError } from "$lib/server/gatewayErrors";
 import { config } from "$lib/server/config";
 import { gateway, GatewayCallFailed, GatewayTimeout } from "$lib/server/gatewayServer";
 import { decisionBody, type AskFields } from "./frame";
@@ -35,6 +36,9 @@ export async function askDecisionModel(args: {
 		if (err instanceof GatewayTimeout)
 			return { ok: false, kind: "unreachable", detail: "timed out" };
 		if (err instanceof GatewayCallFailed) {
+			if (isQuotaError(err)) {
+				return { ok: false, kind: "unreachable", detail: "the usage quota is used up" };
+			}
 			return { ok: false, kind: "unreachable", detail: `the gateway answered ${err.status}` };
 		}
 		return { ok: false, kind: "unreachable", detail: "the gateway could not be reached" };

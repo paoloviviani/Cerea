@@ -22,6 +22,7 @@ import { collections } from "$lib/server/database";
 import { storeDeliverable } from "$lib/server/execution/deliverables";
 import { gateway, GatewayCallFailed, GatewayTimeout } from "$lib/server/gatewayServer";
 import { logger } from "$lib/server/logger";
+import { classifyGatewayError, quotaNoticeForModel } from "$lib/server/gatewayErrors";
 import { contentFetch } from "$lib/server/urlSafety";
 import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 import type { BuiltinToolImage } from "$lib/server/textGeneration/builtinTools/types";
@@ -421,6 +422,10 @@ export function describeImageFailure(err: unknown, model: string): string {
 		}
 		if (err.status === 401) {
 			return "The image could not be made because the sign-in is incomplete. The user should sign out and back in.";
+		}
+		const failure = classifyGatewayError(err);
+		if (failure.kind === "quota") {
+			return `The image could not be made. ${quotaNoticeForModel(failure)}`;
 		}
 		if (err.status === 429) {
 			return `The image model ${model} is rate limited right now (${err.message}). Do not retry in this turn.`;

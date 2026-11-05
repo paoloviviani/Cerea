@@ -19,7 +19,9 @@ import { config } from "$lib/server/config";
 export class GatewayCallFailed extends Error {
 	constructor(
 		readonly status: number,
-		message: string
+		message: string,
+		/** The gateway's error `code` (e.g. `quota_exceeded`), when the body had one. */
+		readonly code?: string
 	) {
 		super(message);
 		this.name = "GatewayCallFailed";
@@ -99,13 +101,17 @@ async function call<T>(
 	if (!response.ok) {
 		// The gateway's own message, which is written for whoever caused it.
 		let detail = `The gateway answered ${response.status}.`;
+		let code: string | undefined;
 		try {
-			const parsed = (await response.json()) as { error?: { message?: string } };
+			const parsed = (await response.json()) as {
+				error?: { message?: string | null; code?: string | null } | null;
+			};
 			if (parsed?.error?.message) detail = parsed.error.message;
+			if (typeof parsed?.error?.code === "string") code = parsed.error.code;
 		} catch {
 			/* a non-JSON body: the status is all there is to report */
 		}
-		throw new GatewayCallFailed(response.status, detail);
+		throw new GatewayCallFailed(response.status, detail, code);
 	}
 	try {
 		return (await response.json()) as T;

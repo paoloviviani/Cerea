@@ -509,3 +509,50 @@ describe("cancelling a sub-agent", () => {
 		expect(create).not.toHaveBeenCalled();
 	});
 });
+
+describe("a sub-agent refused over quota", () => {
+	const refuse = (error: Record<string, unknown>, status = 429) =>
+		Object.assign(new Error(`${status} ${String(error.message)}`), {
+			status,
+			error,
+			code: error.code,
+		});
+
+	it("says the quota is used up, does not retry, and does not call it a rate limit", async () => {
+		const { openai, create } = upstream([
+			async () => {
+				throw refuse({
+					message:
+						"Quota exceeded. group per member limit of 5 cost per month exceeded (current 5)",
+					type: "insufficient_quota",
+					param: null,
+					code: "quota_exceeded",
+				});
+			},
+		]);
+		const result = await runNestedAgent(spec(), ctx(), deps(openai));
+		expect(create).toHaveBeenCalledTimes(1);
+		expect(result).toHaveProperty("error");
+		const text = (result as { error: string }).error;
+		expect(text).toContain("quota");
+		expect(text).toContain("Do not retry or delegate again");
+		expect(text).toContain("billing group");
+		expect(text).not.toContain("rate limited");
+	});
+
+	it("keeps the rate-limit wording for a plain 429", async () => {
+		vi.useFakeTimers();
+		try {
+			const { openai } = upstream([
+				async () => {
+					throw refuse({ message: "slow down", code: null, type: null });
+				},
+			]);
+			const run = runNestedAgent(spec(), ctx(), deps(openai));
+			await vi.runAllTimersAsync();
+			expect(await run).toEqual({ error: "rate limited" });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});

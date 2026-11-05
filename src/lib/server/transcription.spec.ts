@@ -28,7 +28,8 @@ vi.mock("$lib/server/gatewayServer", async () => {
 	class GatewayCallFailed extends Error {
 		constructor(
 			readonly status: number,
-			message: string
+			message: string,
+			readonly code?: string
 		) {
 			super(message);
 		}
@@ -251,6 +252,12 @@ describe("transcribeAudio", () => {
 		});
 		postForm.mockRejectedValueOnce(new GatewayCallFailed(429, "slow"));
 		expect(await call()).toMatchObject({ ok: false, kind: "unreachable", status: 429 });
+		postForm.mockRejectedValueOnce(new GatewayCallFailed(429, "Quota exceeded.", "quota_exceeded"));
+		expect(await call()).toMatchObject({
+			ok: false,
+			status: 429,
+			reason: expect.stringContaining("quota"),
+		});
 		postForm.mockRejectedValueOnce(new GatewayTimeout(1000, 180000));
 		expect(await call()).toMatchObject({ ok: false, status: 504 });
 		postForm.mockRejectedValueOnce(new GatewayCallFailed(422, "Unsupported audio"));

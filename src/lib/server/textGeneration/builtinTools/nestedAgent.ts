@@ -16,6 +16,7 @@ import { createSchemaPreflightGuard } from "$lib/server/mcp/preflightGuard";
 import { composeGuards, type ToolCallGuard } from "../mcp/toolGuard";
 import { parseToolArguments, withParseableArguments } from "../mcp/toolArgs";
 import { stripLoneSurrogates } from "../utils/loneSurrogates";
+import { classifyGatewayError, quotaNoticeForModel } from "$lib/server/gatewayErrors";
 import { isRateLimitError, withUpstreamRetry } from "../utils/upstreamRetry";
 import type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
 import { LOAD_TOOLS_TOOL_NAME } from "./loadToolsTool";
@@ -452,7 +453,11 @@ export async function runNestedAgent(
 			}
 			const message = err instanceof Error ? err.message : String(err);
 			logger.warn({ err: message, iteration }, `[${spec.label}] sub-agent LLM call failed`);
-			if (isRateLimitError(err)) return { error: spec.failure.rateLimited };
+			const failure = classifyGatewayError(err);
+			if (failure.kind === "quota") {
+				return { error: `${spec.displayName} could not run. ${quotaNoticeForModel(failure)}` };
+			}
+			if (failure.kind === "rate_limit") return { error: spec.failure.rateLimited };
 			return { error: `${spec.displayName} agent LLM error: ${message}` };
 		}
 

@@ -50,6 +50,7 @@
  * OCR model in the hope that it copes (`resolveOfficeReader`, docs/knowledge.md).
  */
 
+import { isQuotaError } from "$lib/server/gatewayErrors";
 import type { ExtractionFailureKind } from "$lib/types/Message";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
@@ -761,6 +762,8 @@ async function extractViaGateway(options: {
 				// wording is a bare code; name the reader instead.
 				reason = `The document reader ${model} isn't available to your groups.`;
 				kind = "refused";
+			} else if (isQuotaError(err)) {
+				reason = "The file was stored without text because your usage quota is used up.";
 			} else if (status === 429 || status >= 500) reason = readerFailureReason(status, model);
 			else {
 				// Any other refusal (400, 415…) is the reader's own word on this file.

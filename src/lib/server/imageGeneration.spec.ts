@@ -41,7 +41,8 @@ vi.mock("$lib/server/gatewayServer", async () => {
 	class GatewayCallFailed extends Error {
 		constructor(
 			readonly status: number,
-			message: string
+			message: string,
+			readonly code?: string
 		) {
 			super(message);
 		}
@@ -338,6 +339,17 @@ describe("generateImages", () => {
 			return result.error;
 		};
 		expect(await failWith(new GatewayCallFailed(403, "no grant"))).toContain("not available");
+		const quota = await failWith(
+			new GatewayCallFailed(
+				429,
+				"Quota exceeded. user limit of 1 cost per month exceeded",
+				"quota_exceeded"
+			)
+		);
+		expect(quota).toContain("quota");
+		expect(quota).toContain("Do not retry");
+		expect(quota).not.toContain("rate limited");
+		expect(await failWith(new GatewayCallFailed(429, "slow"))).toContain("rate limited");
 		expect(await failWith(new GatewayCallFailed(502, "upstream broke"))).toContain(
 			"upstream broke"
 		);
