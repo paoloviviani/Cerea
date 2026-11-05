@@ -5,6 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.42.2 — 2026-11-05
+
+Pins: Cerea `0.42.2` (chat and `cerea-documents`), Pystino `0.27.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. 
+
+- Admin connectors ("Connectors for everyone") accept a plain `http://` address when its host is listed in `MCP_INTERNAL_HOSTS`, the same opening `MCP_SERVERS` already had, so a Compose-network MCP server can take each user's own key. Every other connector, and every connector a user adds for themselves, still needs https.
 ## v0.42.1 — 2026-11-05
 
 Pins: Cerea `0.42.1` (chat and `cerea-documents`), Pystino `0.27.0`.
