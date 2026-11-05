@@ -5,8 +5,20 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.42.0 — 2026-11-05
 
+Pins: Cerea `0.42.0` (chat and `cerea-documents`), Pystino `0.27.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Coding machines need the galopin update for plain reads to skip the reviewer and for the .git rule: re-run the install line from the Pair a machine dialog, then `systemctl --user restart galopin`. To get the new reviewer threshold on a deployment that saved one, set 0.85 in Admin → Agents → Auto-approval.
+
+- Auto (coding agents): plain reads skip the reviewer. galopin recognises commands that only read workspace files or show status (`cat`, `head`, `tail`, non-recursive `grep`, `ls`, `ps`, `df`, `git status|log|diff|show`, `docker ps|logs`, `docker compose ps|logs`, `systemctl status`, `journalctl`, …) and Cerea allows them at once without asking the decision model; the transcript says "Auto-allowed: read-only". Secret paths, outside-workspace paths, wildcards, substitutions and recursive reads still take the normal route. A noise and latency reduction, not a security measure: Auto's rules are guardrails against a careless agent, not a security boundary (ADR 0107).
+- Writes into a repository's `.git` directory (config, hooks) always come to the user, also in Auto.
+- The reviewer's default instructions now count read-only inspection (status, ps, logs, diff, listing) as routine, and the default threshold is 0.85 (was 0.90). A deployment that saved the old default text unchanged gets the new one; a saved threshold is kept.
+- A reviewer-approved call reads "Auto-allowed by reviewer model"; when the reviewer sends a request to you, the card now says why ("The reviewer wasn't sure enough (77%; it allows at 85%)").
+- Admin: the "Auto-approval" tab is now "Agents", with Auto-approval as its section; the review log has its own page there, and the reviewer-provider note is gone.
+- Users can see the reviewer's decisions for their own machines under Settings → Review log, also linked from the shield. On phones the log shows one stacked entry per decision.
+- The device menu's opt-out reads "Never auto review requests".
+- The sidebar's Projects section keeps its projects and chats when switching between Chats and Agents, and refreshes in place instead of flashing.
 - /code: the shield beside the composer now shows what reaches you (a sentence for the selected step and each kind of action with its reason), plus exceptions and coordination; the permission line under the composer and the backend's rule list are gone.
 
 ## v0.41.0 — 2026-11-05
