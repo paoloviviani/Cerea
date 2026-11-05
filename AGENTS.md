@@ -782,8 +782,11 @@ bite:
   would let a chat client enumerate the directory. The cost is that a share
   names a principal that may not exist: a typo and a colleague who has not
   signed in yet are indistinguishable.
-- **A shared project is a shared workspace.** Everyone who can see it sees
-  every conversation in it. The project page says so.
+- **A shared project shares instructions, knowledge and memory, not chats.**
+  The conversations list returns only the caller's own, plus `othersCount`
+  (never other members' titles or ids); conversations open for their author
+  only. With past-chat indexing on, the assistant can recall chats from all
+  members. The project page says so.
 - **Sharing a project shares no documents.** Retrieval runs with the reader's
   own identity, so they see passages only from bases they could already read.
 - **Retrieval never fails a turn.** Every error is logged

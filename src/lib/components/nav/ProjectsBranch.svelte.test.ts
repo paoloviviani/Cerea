@@ -39,6 +39,7 @@ const project = {
 	owned: true,
 	shares: [] as { kind: "user" | "group"; principal: string }[],
 	conversationCount: 2,
+	othersCount: 0,
 	updatedAt: new Date().toISOString(),
 };
 
@@ -96,7 +97,7 @@ const settingsContext = (activeModel: string) => ({
 
 let posts: Array<{ url: string; body: Record<string, unknown> }>;
 
-function stubFetch(listed: unknown, existingChats: unknown, createStatus = 200) {
+function stubFetch(listed: unknown, existingChats: unknown, createStatus = 200, othersCount = 0) {
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (url: string | URL, init?: RequestInit) => {
@@ -120,7 +121,7 @@ function stubFetch(listed: unknown, existingChats: unknown, createStatus = 200) 
 				);
 			}
 			if (href.includes("/projects/") && href.endsWith("/conversations") && method === "GET") {
-				return new Response(JSON.stringify({ data: existingChats }), { status: 200 });
+				return new Response(JSON.stringify({ data: existingChats, othersCount }), { status: 200 });
 			}
 			if (href.match(/\/api\/v2\/conversations\/(conv-1|conv-42)$/) && method !== "GET") {
 				posts.push({
@@ -285,6 +286,32 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 		expect(appNavigation().goto).toHaveBeenCalledWith("/conversation/conv-42");
 		// No project page was opened: the point of the row's own +.
 		expect(appNavigation().goto).not.toHaveBeenCalledWith(expect.stringContaining("/projects/"));
+	});
+
+	it("shows a muted line for other members' chats in the folder, singular and plural, hidden at 0", async () => {
+		for (const [count, expected] of [
+			[2, "2 more chats by other members"],
+			[1, "1 more chat by other members"],
+		] as const) {
+			stubFetch(undefined, [existingChat], 200, count);
+			const { container, unmount } = await renderBranch("model-a");
+			await openBranch(container);
+			folderToggle(container)?.click();
+			await vi.waitFor(() =>
+				expect(find(container, '[data-testid="project-others-count"]').textContent?.trim()).toBe(
+					expected
+				)
+			);
+			unmount();
+			document.getElementById("app")?.remove();
+			localStorage.removeItem(PROJECTS_TREE_OPEN_KEY);
+		}
+		stubFetch(undefined, [existingChat], 200, 0);
+		const { container } = await renderBranch("model-a");
+		await openBranch(container);
+		folderToggle(container)?.click();
+		await vi.waitFor(() => expect(container.textContent).toContain("First chat"));
+		expect(container.querySelector('[data-testid="project-others-count"]')).toBeNull();
 	});
 
 	it("starting from an empty folder works from the row itself, not the project page", async () => {

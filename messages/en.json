@@ -2382,7 +2382,16 @@
 	"projects.page.chats.empty.start": "Start the first chat",
 	"projects.page.chats.empty.title": "Nothing here yet",
 	"projects.page.chats.new": "New chat",
-	"projects.page.chats.others": "· somebody else's",
+	"projects.page.chats.others_count": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} more chat by other members",
+				"countPlural=other": "{count} more chats by other members"
+			}
+		}
+	],
 	"projects.page.chats.past_searchable": "· past chats searchable",
 	"projects.page.chats.shared": "· shared with you",
 	"projects.page.chats.title": "Chats ({count})",
@@ -2479,7 +2488,7 @@
 	"projects.page.no_models": "No models are available to you yet. Ask your administrator.",
 	"projects.page.open_failed": "Could not open that project. Try again.",
 	"projects.page.optional": "(optional)",
-	"projects.page.past.detail": "Finished chats are saved into a knowledge base of their own. It appears under Knowledge, and you can empty or delete it like any other. Off by default, because it keeps a copy of what was said.",
+	"projects.page.past.detail": "In a shared project, the assistant can recall past chats from all members, although members never see each other's chats. Finished chats are saved into a knowledge base of their own. It appears under Knowledge, and you can empty or delete it like any other. Off by default, because it keeps a copy of what was said.",
 	"projects.page.past.label": "Search this project's past chats",
 	"projects.page.pill.full": "{n} · in full",
 	"projects.page.pill.searched": "{n} · searched",
@@ -2499,7 +2508,7 @@
 	"projects.page.share.group_placeholder": "research",
 	"projects.page.share.kind_group": "· group",
 	"projects.page.share.kind_user": "· user",
-	"projects.page.share.note": "Everyone here sees {#strong}every conversation{/strong} in the project, including ones you did not start, and can add or remove its documents and notes. The address is not checked, so a typo and a colleague who has not signed in yet look the same.",
+	"projects.page.share.note": "Everyone here shares the project's {#strong}instructions, knowledge and memory{/strong}, and can add or remove its documents and notes. Chats are not shared: each member sees only their own. The address is not checked, so a typo and a colleague who has not signed in yet look the same.",
 	"projects.page.share.person": "A person",
 	"projects.page.share.remove": "Remove",
 	"projects.page.share.remove_failed": "Could not remove that. Try again.",
