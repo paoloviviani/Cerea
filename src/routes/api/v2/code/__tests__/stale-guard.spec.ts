@@ -237,6 +237,7 @@ const KNOWN_ROUTE_FILES = [
 	"../attachments/[key]/[sha256]/+server.ts",
 	"../auto-approval/+server.ts",
 	"../devices/+server.ts",
+	"../review-log/+server.ts",
 	"../schedules/+server.ts",
 	"../schedules/[id]/+server.ts",
 	"../schedules/[id]/run/+server.ts",

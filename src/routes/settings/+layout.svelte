@@ -12,6 +12,7 @@
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { m } from "$lib/paraglide/messages";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
+	import CarbonCheckmarkOutline from "~icons/carbon/checkmark-outline";
 	import CarbonSettings from "~icons/carbon/settings";
 	import CarbonMeter from "~icons/carbon/meter";
 	import CarbonNotification from "~icons/carbon/notification";
@@ -41,6 +42,16 @@
 						href: "/settings/notifications",
 						label: m["settings.tabs.notifications"](),
 						icon: CarbonNotification,
+					},
+				]
+			: []),
+		// The Auto reviewer's decisions for the user's own requests: only where coding agents exist.
+		...(page.data.user && page.data.codeAgentsEnabled
+			? [
+					{
+						href: "/settings/review-log",
+						label: m["settings.tabs.review_log"](),
+						icon: CarbonCheckmarkOutline,
 					},
 				]
 			: []),

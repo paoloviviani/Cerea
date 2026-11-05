@@ -1,4 +1,9 @@
-<!-- The reviewer's log (ADR 0107): what it allowed or sent back, newest first, filterable, paged. -->
+<!--
+	The reviewer's log (ADR 0107): what it allowed or sent back, newest first, filterable, paged.
+	`scope` picks the data source: "admin" reads every machine (administrators), "own" reads only the
+	signed-in user's machines (the server scopes by session). From the sm breakpoint up it is a
+	table; below it each entry is a stacked row, so the command and the outcome stay in view.
+-->
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
@@ -22,6 +27,14 @@
 		modelId: string;
 	}
 
+	interface Props {
+		scope?: "admin" | "own";
+	}
+	let { scope = "admin" }: Props = $props();
+	const endpoint = $derived(
+		scope === "own" ? `${base}/api/v2/code/review-log` : `${base}/api/v2/admin/agent-review/log`
+	);
+
 	let entries = $state<Entry[]>([]);
 	let next = $state<string | null>(null);
 	let machine = $state("");
@@ -38,7 +51,7 @@
 		if (outcome) q.set("outcome", outcome);
 		if (cls) q.set("class", cls);
 		if (before) q.set("before", before);
-		const response = await fetch(`${base}/api/v2/admin/agent-review/log?${q}`);
+		const response = await fetch(`${endpoint}?${q}`);
 		if (!response.ok) throw new Error(m["admin.common.error_status"]({ status: response.status }));
 		return response.json();
 	}
@@ -95,8 +108,12 @@
 
 <section aria-labelledby="auto-log-title" class="flex flex-col gap-3" data-testid="auto-log">
 	<div>
-		<h2 id="auto-log-title" class="text-lg font-semibold">{m["admin.auto.log.title"]()}</h2>
-		<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">{m["admin.auto.log.intro"]()}</p>
+		<h2 id="auto-log-title" class="text-lg font-semibold" data-scope={scope}>
+			{m["admin.auto.log.title"]()}
+		</h2>
+		<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+			{scope === "own" ? m["admin.auto.log.intro_own"]() : m["admin.auto.log.intro"]()}
+		</p>
 	</div>
 	<div class="flex flex-wrap gap-2">
 		<select
@@ -135,7 +152,37 @@
 			{m["admin.auto.log.empty"]()}
 		</p>
 	{:else}
-		<div class="overflow-x-auto">
+		<ul class="flex flex-col sm:hidden" data-testid="auto-log-cards">
+			{#each entries as e (e.id)}
+				<li
+					class="flex flex-col gap-0.5 border-t border-gray-200 py-2 text-sm dark:border-gray-700"
+					data-testid="auto-log-card"
+				>
+					<div class="flex flex-wrap gap-x-1 text-xs text-gray-500">
+						<span>{new Date(e.time).toLocaleString()}</span>
+						<span aria-hidden="true">·</span>
+						<span class="text-gray-700 dark:text-gray-300">{e.machine}</span>
+						<span aria-hidden="true">·</span>
+						<span>{className(e.class)}</span>
+					</div>
+					<div class="truncate font-mono text-xs" title={`${e.summary}\n${e.reason}`}>
+						{e.summary}
+					</div>
+					<div class="flex flex-wrap gap-x-1 text-xs">
+						<span class="font-medium">{outcomeLabel(e.outcome)}</span>
+						<span aria-hidden="true">·</span>
+						<span>{e.probability === null ? "—" : `${Math.round(e.probability * 100)}%`}</span>
+						<span aria-hidden="true">·</span>
+						<span class="text-gray-500"
+							>{m["admin.auto.log.col.applied"]()}: {e.applied
+								? m["admin.auto.log.yes"]()
+								: m["admin.auto.log.no"]()}</span
+						>
+					</div>
+				</li>
+			{/each}
+		</ul>
+		<div class="hidden overflow-x-auto sm:block">
 			<table class="w-full min-w-[52rem] text-left text-sm">
 				<thead class="text-xs text-gray-500">
 					<tr>
