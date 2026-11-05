@@ -7,6 +7,7 @@ import {
 	assertSafeBrowserRequest,
 	contentFetch,
 	isValidUrl,
+	isInternalMcpHttpUrl,
 	mcpFetch,
 	ssrfSafeFetch,
 } from "./urlSafety";
@@ -392,5 +393,23 @@ describe("assertSafeBrowserRequest", () => {
 		env.CHAT_FETCH_ALLOW_INTERNAL_NETWORKS = "true";
 		await expect(assertSafeBrowserRequest("https://10.1.2.3/")).resolves.toBeUndefined();
 		await expect(assertSafeBrowserRequest("http://127.0.0.1/")).rejects.toThrow();
+	});
+});
+
+describe("isInternalMcpHttpUrl", () => {
+	const original = env.MCP_INTERNAL_HOSTS;
+	afterEach(() => {
+		env.MCP_INTERNAL_HOSTS = original;
+	});
+
+	it("is true only for http to a host named exactly in MCP_INTERNAL_HOSTS", () => {
+		env.MCP_INTERNAL_HOSTS = "mcp-joplin";
+		expect(isInternalMcpHttpUrl("http://mcp-joplin:8081/mcp")).toBe(true);
+		expect(isInternalMcpHttpUrl("https://mcp-joplin:8081/mcp")).toBe(false);
+		expect(isInternalMcpHttpUrl("http://mcp-joplin.evil.com/mcp")).toBe(false);
+		expect(isInternalMcpHttpUrl("http://mcp-other/mcp")).toBe(false);
+		expect(isInternalMcpHttpUrl("nonsense")).toBe(false);
+		env.MCP_INTERNAL_HOSTS = "";
+		expect(isInternalMcpHttpUrl("http://mcp-joplin:8081/mcp")).toBe(false);
 	});
 });

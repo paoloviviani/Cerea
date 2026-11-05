@@ -23,6 +23,7 @@ import { validateScopes } from "$lib/server/mcp/providerQuirks";
 import { view, viewsFor } from "$lib/server/mcp/connectors";
 import { checkConnectorTools } from "$lib/server/mcp/check";
 import { localConnectorViews } from "$lib/server/mcp/local";
+import { isInternalMcpHttpUrl } from "$lib/server/urlSafety";
 import { callerIdentity, requireAdmin } from "$lib/server/admin";
 import type { McpConnector } from "$lib/types/McpConnector";
 
@@ -32,8 +33,10 @@ const AUTO_CHECK_MS = 10_000;
 const create = z.object({
 	name: z.string().trim().min(1).max(128),
 	// http is refused: a bearer token on a plaintext connection is the thing
-	// this ADR exists to stop, and localhost is not a case we serve.
-	url: z.string().trim().url().startsWith("https://", "a connector must be served over HTTPS"),
+	// this ADR exists to stop, and localhost is not a case we serve. The one
+	// exception, checked in the handler because it depends on `scope`, is a
+	// deployment connector on a host named in MCP_INTERNAL_HOSTS.
+	url: z.string().trim().url(),
 	/**
 	 * How it authenticates — chosen, rather than inferred from whether a token
 	 * was typed.
@@ -143,6 +146,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	} = parsed.data;
 	const scopeCheck = validateScopes(parsed.data.scopes ?? "");
 	if ("error" in scopeCheck) error(400, scopeCheck.error);
+
+	if (!url.startsWith("https://") && !(scope === "deployment" && isInternalMcpHttpUrl(url))) {
+		error(400, "a connector must be served over HTTPS (or be a host listed in MCP_INTERNAL_HOSTS)");
+	}
 
 	if (scope === "deployment") {
 		// Checked before the probe, so a non-administrator does not cause an

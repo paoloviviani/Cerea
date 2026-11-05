@@ -690,7 +690,8 @@ name is a hostname that resolves to a private address over plain http. The
 listed hostnames, matched exactly, are allowed for MCP connections only (never
 for `web_fetch` or attachments), and the address they resolve to must still be a
 private one: link-local and cloud-metadata addresses stay refused. A name you
-do not list is refused as before.
+do not list is refused as before. The same names are accepted as the address of a
+connector an administrator adds under Admin, Connectors (not of a user's own).
 
 To add a server, copy a service, change its name and the package after `--`,
 and add the name to both `.env` lines. Containers you add by hand are not
