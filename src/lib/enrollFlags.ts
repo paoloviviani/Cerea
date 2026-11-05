@@ -68,10 +68,34 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "no-terminal", kind: "bool", default: false, exposed: true },
 	{ flag: "permission-max", kind: "keyAction", default: [], exposed: true },
 	{ flag: "permission-rule", kind: "keyAction", default: [], exposed: true },
+	// ADR 0107: the machine's per-class limits. The dialog still prints the two
+	// alias flags above (kept one release); --limit is the flag it moves to.
+	{ flag: "limit", kind: "list", default: [], exposed: false },
+	// The file editor is on by default; this turns it off (--allow-file-write
+	// only restates the default).
+	{ flag: "no-file-write", kind: "bool", default: false, exposed: false },
 	// Machine policy the dialog does not offer a control for: the default
 	// safe directories are on without any flag, and re-enrolling with
 	// --safe-dir / --no-safe-dirs is the owner's rarer, by-hand change.
 	{ flag: "safe-dir", kind: "list", default: [], exposed: false },
 	{ flag: "no-safe-dirs", kind: "bool", default: false, exposed: false },
 	{ flag: "workspace-root", kind: "list", default: [], exposed: true },
+];
+
+/** The permission classes `--limit CLASS=VALUE` takes (ADR 0107): each class's
+ * default and the values it accepts. A copy of `limits` in
+ * `agent/packaging/enroll-flags.json`, compared by `enrollFlags.spec.ts`. */
+export const ENROLL_LIMIT_CLASSES: readonly {
+	class: string;
+	default: string;
+	allowed: readonly string[];
+}[] = [
+	{ class: "edit", default: "run", allowed: ["never", "ask", "run"] },
+	{ class: "command", default: "ask", allowed: ["never", "ask", "run"] },
+	{ class: "web", default: "run", allowed: ["never", "ask", "run"] },
+	{ class: "outside", default: "ask", allowed: ["never", "ask", "run"] },
+	{ class: "secrets", default: "ask", allowed: ["never", "ask"] },
+	{ class: "agents", default: "run", allowed: ["never", "ask", "run"] },
+	{ class: "tools", default: "run", allowed: ["never", "ask", "run"] },
+	{ class: "loop", default: "ask", allowed: ["ask", "stop"] },
 ];

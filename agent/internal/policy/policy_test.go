@@ -96,7 +96,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Permission.Max["bash"] != "ask" ||
+	if got.Permission.Limits["command"] != "ask" || got.Permission.Max != nil ||
 		got.Permission.Rules["edit"] != "allow" || got.AllowFreeModels != want.AllowFreeModels ||
 		!equalStrings(got.WorkspaceRoots, want.WorkspaceRoots) {
 		t.Errorf("round trip mismatch: got %+v, want %+v", got, want)
@@ -190,8 +190,8 @@ func TestLegacyAutoAcceptAndRespondersAreIgnoredAndDropped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a legacy file must still load: %v", err)
 	}
-	if p.Permission.Max["bash"] != "ask" || len(p.Permission.Rules) != 0 {
-		t.Errorf("the ceiling must survive and nothing else appear: %+v", p.Permission)
+	if p.Permission.Limits["command"] != "ask" || p.Permission.Max != nil || len(p.Permission.Rules) != 0 {
+		t.Errorf("the ceiling must survive (as the command class) and nothing else appear: %+v", p.Permission)
 	}
 	if !p.TerminalAllowed() {
 		t.Error("the rest of the file still loads")
@@ -243,39 +243,30 @@ func TestLiveOnlyTightens(t *testing.T) {
 	if ch.Any() {
 		t.Errorf("a looser file changed something: %+v", ch)
 	}
-	if got := live.Permission(); got.Max["bash"] != "ask" || got.Rules["read"] != "" {
+	if got := live.Permission(); got.Limits["command"] != "ask" || got.Rules["read"] != "" {
 		t.Errorf("after a loosening read: %+v", got)
 	}
 
 	// Tighter input: taken, and reported.
-	ch = live.Tighten(Permission{Max: map[string]string{"bash": "deny", "webfetch": "ask"}, Rules: map[string]string{"edit": "ask"}})
+	ch = live.Tighten(Permission{Max: map[string]string{"bash": "deny", "webfetch": "ask", "websearch": "ask", "codesearch": "ask"}, Rules: map[string]string{"edit": "ask"}})
 	if !ch.Tightened {
 		t.Errorf("change = %+v, want tightened", ch)
 	}
 	got := live.Permission()
-	if got.Max["bash"] != "deny" || got.Max["webfetch"] != "ask" || got.Rules["edit"] != "ask" {
+	if got.Limits["command"] != "never" || got.Limits["web"] != "ask" || got.Limits["edit"] != "ask" {
 		t.Errorf("after tightening: %+v", got)
 	}
 
 	// Raising what was lowered: ignored, so a file edited back up cannot undo it.
 	ch = live.Tighten(Permission{Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}})
-	if ch.Any() || live.Permission().Max["bash"] != "deny" || live.Permission().Rules["edit"] != "ask" {
+	if ch.Any() || live.Permission().Limits["command"] != "never" || live.Permission().Limits["edit"] != "ask" {
 		t.Errorf("a raised file undid a tightening: %+v %+v", ch, live.Permission())
-	}
-
-	// A new ask/deny rule where there was none tightens; a new allow does not.
-	ch = live.Tighten(Permission{Rules: map[string]string{"read": "ask"}})
-	if !ch.Tightened {
-		t.Error("a new ask rule is a tightening")
-	}
-	if ch = live.Tighten(Permission{Rules: map[string]string{"write": "allow"}}); ch.Any() {
-		t.Errorf("a new allow rule changed something: %+v", ch)
 	}
 }
 
 func TestLiveLayers(t *testing.T) {
 	l := NewLive(Permission{Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}}).Layers()
-	if l.Ceiling.Of("bash") != "ask" || len(l.Own) != 1 || l.Own[0].Permission != "edit" {
+	if l.Ceiling.Of("bash") != "ask" || l.Limits["command"] != "ask" || len(l.Own) != 1 || l.Own[0].Permission != "edit" {
 		t.Errorf("layers = %+v", l)
 	}
 }
@@ -519,7 +510,9 @@ func TestIncoherentCeilingWarnsOnlyWhenBashIsUncapped(t *testing.T) {
 		{map[string]string{"session_spawn": "ask"}, false},
 	}
 	for _, c := range cases {
-		got := Permission{Max: c.max}.IncoherentCeiling()
+		p := Permission{Max: c.max}
+		p.Normalize()
+		got := p.IncoherentCeiling()
 		if (got != "") != c.warn {
 			t.Errorf("max %v: warning %q, want warn=%v", c.max, got, c.warn)
 		}

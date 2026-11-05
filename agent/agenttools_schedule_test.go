@@ -131,7 +131,7 @@ func TestScheduleGrantComposed(t *testing.T) {
 		{pK, map[string]permrules.Action{"session_spawn": pA}, nil, pK},
 	}
 	for _, c := range cases {
-		p := decide.Policy{Own: permrules.OwnRules(c.own), Ceiling: permrules.Ceiling{Max: c.ceiling}}
+		p := decide.Policy{Own: permrules.OwnRules(c.own), Limits: decide.LimitsFromCeiling(permrules.Ceiling{Max: c.ceiling})}
 		got, _ := decide.CoordinationTool(p, decide.State{Mode: c.mode}, scheduleKey, false)
 		if got == pD && c.mode == pD {
 			got = pK // scheduleGrant reads a Plan refusal as ask; decideSchedule refuses the rest

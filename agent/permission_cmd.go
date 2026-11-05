@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"galopin/internal/decide"
 	"galopin/internal/permrules"
 	"galopin/internal/policy"
 )
@@ -13,22 +14,6 @@ import (
 // "Permission"). A permission KEY is opencode's own name for a tool class —
 // edit, bash, webfetch, … — or one of galopin's coordination tools:
 // session_read, session_send and session_spawn.
-
-// defaultEnrollMax is the ceiling a fresh enroll writes: bash asks. It is the
-// one default that is not about convenience. If the ceiling let bash run, the
-// agent could read opencode's server password out of its own environment and
-// widen its own session's rules past the ceiling; an ask in front of bash is
-// what keeps that off by default (the honest gap, PROTOCOL.md §6).
-//
-// session_spawn is deliberately NOT capped by default: a spawn is bounded
-// (depth, live count, rate), audited with both sessions named, and the child
-// is capped by the same ceiling as its caller — so an Allow session spawns
-// with no card out of the box, while bash still asks per command. Machines
-// enrolled before this default carry session_spawn=ask in their own file and
-// keep it; re-enroll (or an explicit --permission-max list) adopts the new one.
-func defaultEnrollMax() map[string]string {
-	return map[string]string{"bash": string(permrules.Ask)}
-}
 
 // staticPermission is what a fresh enroll writes into the opencode.json it
 // owns: the tool classes that change files or reach out ask. Existing machines
@@ -59,57 +44,111 @@ func parseKeyActions(flag string, values []string) (map[string]string, error) {
 	return out, nil
 }
 
-// tighten merges want into have, accepting only values that restrict. A key
-// not in have reads as allow: for a ceiling that is no cap, and for a rule it
-// means setting "allow" where there was nothing is a loosening too (it would
-// beat the static file). It returns the first refusal so the caller can name
-// the `enroll` re-run that does what was asked.
-func tighten(flag string, have, want map[string]string) (map[string]string, error) {
-	out := map[string]string{}
-	for k, v := range have {
-		out[k] = v
-	}
-	keys := make([]string, 0, len(want))
-	for k := range want {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		cur := permrules.Allow
-		if v, ok := have[k]; ok {
-			cur = permrules.Action(v)
+// parseLimitFlags reads repeated CLASS=VALUE values (--limit command=ask):
+// the class must be one of the eight and the value one that class takes.
+func parseLimitFlags(values []string) (map[decide.Class]decide.Limit, error) {
+	out := map[decide.Class]decide.Limit{}
+	for _, v := range values {
+		k, w, ok := strings.Cut(v, "=")
+		k, w = strings.TrimSpace(k), strings.TrimSpace(w)
+		if !ok || k == "" || w == "" {
+			return nil, fmt.Errorf("--limit %q: want CLASS=VALUE (for example command=ask)", v)
 		}
-		next := permrules.Action(want[k])
-		if next == cur {
-			continue
+		c, err := decide.ParseClass(k)
+		if err != nil {
+			return nil, fmt.Errorf("--limit %q: %w", v, err)
 		}
-		if permrules.Min(cur, next) != next {
-			return nil, fmt.Errorf("--%s %s=%s does not tighten the current %s: re-run enroll to loosen it", flag, k, next, cur)
+		l, ok := decide.ParseLimit(w)
+		if !ok || w == "deny" || w == "allow" || !c.Allows(l) {
+			return nil, fmt.Errorf("--limit %q: the %s class takes %s", v, c, c.AllowedWords())
 		}
-		out[k] = string(next)
+		out[c] = l
 	}
 	return out, nil
 }
 
+// legacyLimits maps the old --permission-max / --permission-rule values onto
+// classes (the one-release alias): a class named through any of its keys takes
+// the most cautious word given for them; an own allow rule is carried only by
+// the same rule as a migrated one. The notices say what was mapped or dropped.
+func legacyLimits(maxFlags, ruleFlags []string) (map[decide.Class]decide.Limit, map[string]string, []string, error) {
+	max, err := parseKeyActions("permission-max", maxFlags)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	rules, err := parseKeyActions("permission-rule", ruleFlags)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	out := map[decide.Class]decide.Limit{}
+	var notices []string
+	named := map[decide.Class]bool{}
+	note := func(flag, key, word string, c decide.Class, ok bool) {
+		if !ok {
+			notices = append(notices, fmt.Sprintf("--%s %s=%s has no class and was ignored", flag, key, word))
+			return
+		}
+		notices = append(notices, fmt.Sprintf("--%s %s=%s is now the %s class", flag, key, word, c))
+	}
+	for _, src := range []struct {
+		flag string
+		m    map[string]string
+	}{{"permission-max", max}, {"permission-rule", rules}} {
+		for k, w := range src.m {
+			c, ok := decide.KeyClass(k)
+			if src.flag == "permission-rule" && permrules.Action(w) == permrules.Allow {
+				continue // an own allow rule: handled by the migration below
+			}
+			note(src.flag, k, w, c, ok)
+			if !ok {
+				continue
+			}
+			l := map[permrules.Action]decide.Limit{permrules.Deny: decide.Never, permrules.Ask: decide.AskLimit, permrules.Allow: decide.Run}[permrules.Action(w)]
+			if c == decide.ClassLoop {
+				l = map[bool]decide.Limit{true: decide.Stop, false: decide.AskLimit}[l == decide.Never]
+			}
+			if cur, seen := out[c]; seen {
+				l = decide.Stricter(cur, l)
+			}
+			if !c.Allows(l) {
+				notices = append(notices, fmt.Sprintf("--%s %s=%s cannot apply: the %s class takes %s", src.flag, k, w, c, c.AllowedWords()))
+				continue
+			}
+			out[c], named[c] = l, true
+		}
+	}
+	// Own allow rules go through the migration's agreement rule.
+	carried := map[string]string{}
+	if len(rules) > 0 {
+		legacy := policy.Permission{Rules: rules}
+		legacy.Normalize()
+		for k, v := range legacy.Rules {
+			carried[k] = v
+		}
+		for _, n := range legacy.Notices {
+			notices = append(notices, n)
+		}
+		// An allow on external_directory lifts the outside class to run.
+		if permrules.Action(rules["external_directory"]) == permrules.Allow {
+			if _, set := out[decide.ClassOutside]; !set {
+				out[decide.ClassOutside] = decide.Run
+			}
+		}
+	}
+	if len(maxFlags) > 0 || len(ruleFlags) > 0 {
+		notices = append([]string{"--permission-max and --permission-rule are deprecated and will be removed next release: use --limit CLASS=never|ask|run (galopin policy show lists the classes)"}, notices...)
+	}
+	return out, carried, notices, nil
+}
+
 // permissionPolicySummary says, in plain words, what the machine decides
-// about permissions.
+// about permissions: the class table, then the safe directories.
 func permissionPolicySummary(pol policy.Policy) string {
 	p := pol.Permission
-	var parts []string
-	if len(p.Max) == 0 {
-		parts = append(parts, "no ceiling (opencode's own rules decide what asks)")
-	} else {
-		keys := make([]string, 0, len(p.Max))
-		for k := range p.Max {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		var caps []string
-		for _, k := range keys {
-			caps = append(caps, k+"≤"+p.Max[k])
-		}
-		parts = append(parts, "ceiling "+strings.Join(caps, ", ")+" — no rule, selector or \"always allow\" goes past it")
-	}
+	var b strings.Builder
+	b.WriteString("Permissions — what this machine allows, per class (galopin's own state and config are never allowed, whatever the table says):\n")
+	b.WriteString(strings.Join(p.Table(), "\n"))
+	b.WriteString("\n  'ask' means judged before it happens, by whoever Cerea routes it to; 'run' leaves it to the session's word (Plan, Ask or Allow).")
 	if len(p.Rules) > 0 {
 		keys := make([]string, 0, len(p.Rules))
 		for k := range p.Rules {
@@ -120,14 +159,16 @@ func permissionPolicySummary(pol policy.Policy) string {
 		for _, k := range keys {
 			rs = append(rs, k+"="+p.Rules[k])
 		}
-		parts = append(parts, "this machine's own rules "+strings.Join(rs, ", "))
+		b.WriteString("\n  This machine's own allow rules (carried over): " + strings.Join(rs, ", ") + ".")
 	}
-	if dirs := pol.Permission.EffectiveSafeDirs(); len(dirs) > 0 {
-		parts = append(parts, "safe directories "+strings.Join(policy.DisplaySafeDirs(dirs), ", ")+
-			" never ask (the ceiling on external_directory still caps them)")
+	if dirs := p.EffectiveSafeDirs(); len(dirs) > 0 {
+		b.WriteString("\n  Safe directories (outside the project, never ask): " + strings.Join(policy.DisplaySafeDirs(dirs), ", ") + ".")
 	} else {
-		parts = append(parts, "no safe directories: every external_directory asks")
+		b.WriteString("\n  No safe directories: everything outside the project is the outside class.")
 	}
-	parts = append(parts, "sessions start on Ask; a person moves a session to Deny or Allow in the /code composer, and the ceiling caps both")
-	return "Permissions: " + strings.Join(parts, "; ") + "."
+	b.WriteString("\n  Sessions start on Ask; a person moves a session to Plan or Allow in the /code composer, and the limits cap both.")
+	for _, n := range p.Notices {
+		b.WriteString("\n  Note: " + n)
+	}
+	return b.String()
 }

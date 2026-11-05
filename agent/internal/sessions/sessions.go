@@ -206,6 +206,10 @@ type Materializer struct {
 	// RootOf are safe; anything that could block or re-enter event
 	// application is not.
 	onAskFilter func(workspaceDir string, req backend.PermissionRequest) bool
+	// onAskStamp says, for every ask that stays a card (live, or seeded from
+	// the backend's history), its permission class; the answer is carried on
+	// the request as Class. Like the filter it is called without the lock held.
+	onAskStamp func(workspaceDir string, req backend.PermissionRequest) string
 
 	outCh chan Envelope
 }
@@ -334,6 +338,46 @@ func (m *Materializer) OnChildAsk(fn func(workspaceDir string, req backend.Permi
 // Start.
 func (m *Materializer) OnAskFilter(fn func(workspaceDir string, req backend.PermissionRequest) bool) {
 	m.onAskFilter = fn
+}
+
+// OnAskStamp installs the permission-class marker (see onAskStamp). Set
+// before Start.
+func (m *Materializer) OnAskStamp(fn func(workspaceDir string, req backend.PermissionRequest) string) {
+	m.onAskStamp = fn
+}
+
+// stampPending gives their class to the asks the materializer holds for
+// sessionID: the seeded ones, which never passed through a live event. Called
+// without the lock held.
+func (m *Materializer) stampPending(sessionID string) {
+	if m.onAskStamp == nil {
+		return
+	}
+	m.mu.Lock()
+	st, ok := m.sessions[sessionID]
+	if !ok {
+		m.mu.Unlock()
+		return
+	}
+	dir := st.workspaceDir
+	pending := make([]backend.PermissionRequest, 0, len(st.permissionOrder))
+	for _, id := range st.permissionOrder {
+		if req, ok := st.permissions[id]; ok {
+			pending = append(pending, *req)
+		}
+	}
+	m.mu.Unlock()
+	classes := make([]string, len(pending))
+	for i, req := range pending {
+		classes[i] = m.onAskStamp(dir, req)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, req := range pending {
+		if cur, ok := st.permissions[req.ID]; ok {
+			cur.Class = classes[i]
+		}
+	}
 }
 
 // ChildAgent is the subagent type a child session was started as, read from
@@ -548,6 +592,11 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 			return
 		}
 	}
+	if be.Event.Kind == backend.EventPermissionAsked && be.Event.Request != nil && m.onAskStamp != nil {
+		req := *be.Event.Request
+		req.Class = m.onAskStamp(be.WorkspaceDir, req)
+		be.Event.Request = &req
+	}
 	m.mu.Lock()
 	st, exists := m.sessions[be.SessionID]
 	if !exists {
@@ -627,6 +676,7 @@ func (m *Materializer) resync(ctx context.Context, workspaceDir, sessionID strin
 		}
 	}
 	m.mu.Unlock()
+	m.stampPending(sessionID)
 	for _, env := range envs {
 		m.publish(env)
 	}
@@ -929,6 +979,7 @@ func (m *Materializer) Sync(ctx context.Context, sessionID, epoch string, afterS
 		m.mu.Lock()
 		mergeSeedLocked(st, tr)
 		m.mu.Unlock()
+		m.stampPending(sessionID)
 	}
 
 	m.mu.Lock()

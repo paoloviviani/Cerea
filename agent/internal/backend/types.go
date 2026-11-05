@@ -226,6 +226,11 @@ type PermissionRequest struct {
 	CallID    string         `json:"callId,omitempty"`
 	MessageID string         `json:"messageId,omitempty"`
 	Always    []string       `json:"always,omitempty"`
+	// Class is the permission class galopin put the ask in (edit, command,
+	// web, outside, secrets, agents, tools, loop; ADR 0107), set on every ask
+	// that stays a card. Absent on an ask no class covers and on a galopin
+	// older than classes.
+	Class string `json:"class,omitempty"`
 }
 
 // Mode is a backend's named operating mode (opencode: agents with

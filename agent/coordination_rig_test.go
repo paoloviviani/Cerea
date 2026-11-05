@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"galopin/internal/backend"
+	"galopin/internal/decide"
 	"galopin/internal/link"
 	"galopin/internal/permrules"
 	"galopin/internal/policy"
@@ -356,6 +357,7 @@ func (r *coordRig) audit() []map[string]any { return auditRows(r.t, r.stateDir) 
 
 func withRule(key, action string) func(*policy.Policy) {
 	return func(p *policy.Policy) {
+		p.Permission.Limits = nil // legacy keys: migrated when the policy is taken in
 		if p.Permission.Rules == nil {
 			p.Permission.Rules = map[string]string{}
 		}
@@ -363,8 +365,25 @@ func withRule(key, action string) func(*policy.Policy) {
 	}
 }
 
+// withAgentsRule is the machine's own rule on every key of the agents class:
+// one key's rule alone does not survive migration (ADR 0107: a class takes one
+// value for all its keys).
+func withAgentsRule(action string) func(*policy.Policy) {
+	return func(p *policy.Policy) {
+		for _, k := range decide.ClassKeys(decide.ClassAgents) {
+			withRule(k, action)(p)
+		}
+	}
+}
+
+// withLimit sets a class limit on a default policy.
+func withLimit(class, word string) func(*policy.Policy) {
+	return func(p *policy.Policy) { p.Permission.Limits[class] = word }
+}
+
 func withMax(key, action string) func(*policy.Policy) {
 	return func(p *policy.Policy) {
+		p.Permission.Limits = nil // legacy keys: migrated when the policy is taken in
 		if p.Permission.Max == nil {
 			p.Permission.Max = map[string]string{}
 		}

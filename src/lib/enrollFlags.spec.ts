@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ENROLL_FLAGS } from "./enrollFlags";
+import { ENROLL_FLAGS, ENROLL_LIMIT_CLASSES } from "./enrollFlags";
 import {
 	CEILING_KEYS,
 	DEFAULT_CEILING,
@@ -123,6 +123,10 @@ describe("against the agent", () => {
 					retired?: boolean;
 				}>;
 				ceiling: { flag: string; keys: Array<{ key: string; default: string }> };
+				limits: {
+					flag: string;
+					classes: Array<{ class: string; default: string; allowed: string[] }>;
+				};
 				dialogOnly: Array<{ control: string; exposed: boolean }>;
 			};
 			const live = file.flags.filter((flag) => !flag.retired);
@@ -144,6 +148,9 @@ describe("against the agent", () => {
 			expect(file.ceiling.keys.map((row) => [row.key, row.default])).toEqual(
 				CEILING_KEYS.map((key) => [key, DEFAULT_CEILING[key]])
 			);
+			// The class table: --limit's classes, defaults and allowed words.
+			expect(file.limits.flag).toBe("limit");
+			expect(file.limits.classes).toEqual(ENROLL_LIMIT_CLASSES);
 			// The one control that is not an enroll flag: it must be on the dialog.
 			expect(file.dialogOnly.map((row) => row.control)).toEqual(["install-opencode"]);
 		}

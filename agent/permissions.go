@@ -39,7 +39,11 @@ func (mc *machine) decidePolicy(rh backend.RuleHost) decide.Policy {
 		layers = mc.layersFn
 	}
 	l := layers()
-	return decide.Policy{Ceiling: l.Ceiling, Own: l.Own, SafeDirs: l.SafeDirs, PlanDirs: rh.PlanDirs()}
+	limits := decide.LimitsFromWords(l.Limits)
+	if l.Limits == nil {
+		limits = decide.LimitsFromCeiling(l.Ceiling)
+	}
+	return decide.Policy{Limits: limits, Own: l.Own, SafeDirs: l.SafeDirs, PlanDirs: rh.PlanDirs(), Protected: mc.protected}
 }
 
 // rootState is the ROOT session's selector, which every ask from the root and
@@ -67,6 +71,24 @@ func (mc *machine) decideAsk(rh backend.RuleHost, dir string, req backend.Permis
 	return decide.Decide(mc.decidePolicy(rh), st, decide.Request{Key: key, Patterns: patterns, Workspace: dir})
 }
 
+// askClass is the permission class a card carries (PROTOCOL.md §7): galopin's
+// own gp_ asks are the agents class; any other is classified by the one
+// function.
+func (mc *machine) askClass(dir string, req backend.PermissionRequest) string {
+	if strings.HasPrefix(req.ID, "gp_") {
+		return string(decide.ClassAgents)
+	}
+	rh, ok := mc.ruleHost()
+	if !ok {
+		return ""
+	}
+	key, patterns := req.Tool, req.Patterns
+	if n, ok := mc.back.(backend.AskNormalizer); ok {
+		key, patterns = n.NormalizeAsk(req)
+	}
+	return string(decide.ClassOf(mc.decidePolicy(rh), decide.Request{Key: key, Patterns: patterns, Workspace: dir}))
+}
+
 // installPermissions wires what runs on its own: every permission ask is
 // decided by the one function before any card is shown. reject and once are
 // answered here (from a goroutine: the filter runs inside event application
@@ -84,6 +106,7 @@ func (mc *machine) installPermissions() {
 	rh.OnProcessStart(func() {
 		mc.mat.WithdrawPending()
 	})
+	mc.mat.OnAskStamp(mc.askClass)
 	mc.mat.OnAskFilter(func(dir string, req backend.PermissionRequest) bool {
 		rh, ok := mc.ruleHost()
 		if !ok {
@@ -119,6 +142,26 @@ func (mc *machine) answerAsk(dir string, req backend.PermissionRequest, res deci
 	if mc.audit != nil {
 		mc.audit.permission(req.SessionID, req.ID, req.Tool, string(d), "galopin", false, msg)
 	}
+	if res.Stop {
+		mc.stopLoop(ctx, dir, req)
+	}
+}
+
+// stopLoop is the loop class's "stop" limit: the repeating call was refused,
+// and the turn is ended and the person told, through the ordinary error event
+// (the same path a failed turn takes).
+func (mc *machine) stopLoop(ctx context.Context, dir string, req backend.PermissionRequest) {
+	if err := mc.back.Cancel(ctx, dir, req.SessionID); err != nil && !backend.IsNotFound(err) {
+		logf("permissions: could not end the turn of %s after a repeating call: %v", req.SessionID, err)
+	}
+	mc.mat.ApplyBackendEvent(ctx, backend.BackendEvent{
+		WorkspaceDir: dir, SessionID: req.SessionID,
+		Event: backend.Event{Kind: backend.EventError, ErrorCode: "loop_stopped",
+			ErrorMessage: "The agent repeated the same call, so this machine ended the turn (its loop limit is stop)."},
+	})
+	if mc.audit != nil {
+		mc.audit.write(map[string]any{"action": "permission.loopStop", "session": req.SessionID, "requestId": req.ID})
+	}
 }
 
 // answerPending decides what opencode still holds when galopin starts: an ask
@@ -145,25 +188,27 @@ func (mc *machine) answerPending(ctx context.Context) {
 	}
 }
 
-// capDecision lowers an "always" the ceiling does not let stand. An "always
-// allow" becomes an exception that is composed under the ceiling's tail like
-// every other rule, so on a key capped below allow it could never take effect:
-// it is answered "once" and nothing is stored, rather than shown to a person
-// as a standing permission that does nothing. tool is the ask's permission key;
-// "" (the ask is not known to the machine) is capped whenever any key is,
+// capDecision lowers an "always" the machine's limits do not let stand. An
+// "always allow" is an exception that only counts where a class runs, so on a
+// class limited to ask or never it could never take effect: it is answered
+// "once" and nothing is stored, rather than shown to a person as a standing
+// permission that does nothing. tool is the ask's permission key; "" (the ask
+// is not known to the machine) is capped whenever any class is limited,
 // because what the "always" would cover cannot be told.
 func (mc *machine) capDecision(tool string, d backend.Decision) (backend.Decision, bool) {
 	if d != backend.DecisionAlways {
 		return d, false
 	}
-	c := mc.live.Layers().Ceiling
+	limits := mc.live.Permission().EffectiveLimits()
 	if tool == "" {
-		if len(c.Keys()) == 0 {
-			return d, false
+		for _, l := range limits {
+			if l != decide.Run {
+				return backend.DecisionOnce, true
+			}
 		}
-		return backend.DecisionOnce, true
+		return d, false
 	}
-	if c.Limits(tool) {
+	if c, ok := decide.KeyClass(tool); ok && limits[c] != decide.Run {
 		return backend.DecisionOnce, true
 	}
 	return d, false
@@ -496,4 +541,50 @@ func watchPolicy(ctx context.Context, path string, live *policy.Live, every time
 			apply(ch)
 		}
 	}
+}
+
+// The reply actor (PROTOCOL.md §6 permission.reply): who gave the answer.
+// galopin cannot tell who is behind a reply, so the label is Cerea's word,
+// kept in the local audit; it changes nothing about what a reply may do except
+// that a review-model reply is once only.
+const (
+	actorUser        = "user"
+	actorReviewModel = "review-model"
+	// maxActorReason caps the reason kept in the audit (display text that may
+	// quote the command the model judged).
+	maxActorReason = 300
+)
+
+// replyActor is permission.reply's optional `actor`. Absent is the user.
+type replyActor struct {
+	Kind    string `json:"kind"`
+	ModelID string `json:"modelId,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// by is the audit's `by` word: "user", or "auto" for a review model.
+func (a replyActor) by() string {
+	if a.Kind == actorReviewModel {
+		return "auto"
+	}
+	return actorUser
+}
+
+// parseActor validates an actor: absent or {kind:"user"} is a person; a
+// review-model needs a model id, and its reason is capped.
+func parseActor(raw *replyActor) (replyActor, *link.OpError) {
+	if raw == nil || raw.Kind == "" || raw.Kind == actorUser {
+		return replyActor{Kind: actorUser}, nil
+	}
+	if raw.Kind != actorReviewModel {
+		return replyActor{}, opErrf("invalid", "actor.kind must be %q or %q, got %q", actorUser, actorReviewModel, raw.Kind)
+	}
+	if raw.ModelID == "" {
+		return replyActor{}, opErrf("invalid", "a review-model actor needs a modelId")
+	}
+	a := *raw
+	if r := []rune(a.Reason); len(r) > maxActorReason {
+		a.Reason = string(r[:maxActorReason])
+	}
+	return a, nil
 }

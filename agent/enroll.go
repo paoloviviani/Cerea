@@ -196,6 +196,7 @@ type enrollOptions struct {
 	discover               bool
 	allowOpencodeProviders bool
 	allowAutoAccept        bool
+	limits                 []string
 	permissionMax          []string
 	permissionRules        []string
 	safeDirs               []string
@@ -204,6 +205,7 @@ type enrollOptions struct {
 	fileDeny               []string
 	noDefaultFileDeny      bool
 	allowFileWrite         bool
+	noFileWrite            bool
 	workspaceRoots         []string
 	allowFreeModels        bool
 	allowTerminal          bool
@@ -216,6 +218,13 @@ type enrollOptions struct {
 	noBackground           bool
 	maxTerminals           int
 	yes                    bool
+	// set holds the flag names given on the command line. When non-nil the
+	// policy is the existing one (base) with only those options changed
+	// (re-enrolling keeps every setting you did not pass); nil (a test calling
+	// the pieces directly) applies every option's value to a fresh policy.
+	set map[string]bool
+	// base is the policy already on this machine, nil on a fresh one.
+	base *policy.Policy
 }
 
 // stringListFlag implements flag.Value for a flag that may be repeated
@@ -260,6 +269,7 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.BoolVar(&opts.discover, "discover", true, "")
 	fs.BoolVar(&opts.allowOpencodeProviders, "allow-opencode-provider", false, "")
 	fs.BoolVar(&opts.allowAutoAccept, "allow-auto-accept", false, "")
+	fs.Var(stringListFlag{&opts.limits}, "limit", "")
 	fs.Var(stringListFlag{&opts.permissionMax}, "permission-max", "")
 	fs.Var(stringListFlag{&opts.permissionRules}, "permission-rule", "")
 	fs.Var(stringListFlag{&opts.safeDirs}, "safe-dir", "")
@@ -270,6 +280,7 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.Var(stringListFlag{&opts.fileDeny}, "file-deny", "")
 	fs.BoolVar(&opts.noDefaultFileDeny, "no-default-file-deny", false, "")
 	fs.BoolVar(&opts.allowFileWrite, "allow-file-write", false, "")
+	fs.BoolVar(&opts.noFileWrite, "no-file-write", false, "")
 	// Terminals, the command shell and background subagents are on by default;
 	// the --allow-* spellings stay accepted (they now restate the default) so a
 	// command printed by an older panel still enrolls, and --no-* turns each off.
@@ -292,15 +303,34 @@ func runEnroll(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	// The Cerea address may come first or last: 'galopin enroll <url> [flags]'.
+	// The flag package stops at the first non-flag, so parse the rest again.
+	var positional []string
+	for fs.NArg() > 0 {
+		positional = append(positional, fs.Arg(0))
+		if err := fs.Parse(fs.Args()[1:]); err != nil {
+			return err
+		}
+	}
 	if *noDiscover {
 		opts.discover = false
 	}
-	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	if len(positional) > 1 {
+		return fmt.Errorf("unexpected arguments: %s (one Cerea address is expected)", strings.Join(positional[1:], " "))
 	}
 	if opts.device && opts.loopback {
 		return fmt.Errorf("--device and --loopback conflict: pick one flow")
 	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if len(positional) == 1 {
+		if set["cerea"] && opts.cerea != positional[0] {
+			return fmt.Errorf("--cerea %s and the address %s differ: give one", opts.cerea, positional[0])
+		}
+		opts.cerea = positional[0]
+		set["cerea"] = true
+	}
+	opts.set = set
 	// A bad permission flag fails now, not after the person has signed in.
 	if _, err := enrollPolicy(&opts); err != nil {
 		return err
@@ -312,8 +342,6 @@ func runEnroll(args []string) error {
 		}
 		opts.creds = path
 	}
-	set := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	if set["group"] && set["default-group"] {
 		return fmt.Errorf("--group and --default-group conflict: pin one group, or follow your Pystino default")
 	}
@@ -535,6 +563,16 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	// The machine's own veto (PROTOCOL.md §4): written once here, never
 	// writable over the link. `run` loads it from the same directory as
 	// the credential file.
+	// Re-enrolling keeps every setting already on this machine except the
+	// options passed (policy.json is read, not rebuilt).
+	if opts.set != nil && opts.base == nil {
+		switch existing, err := policy.Load(policyPathFor(opts.creds)); {
+		case err != nil:
+			return fmt.Errorf("the policy already on this machine cannot be read (%v): fix it, or run 'galopin reset' first", err)
+		case fileExists(policyPathFor(opts.creds)):
+			opts.base = &existing
+		}
+	}
 	pol, err := enrollPolicy(opts)
 	if err != nil {
 		return err
@@ -555,6 +593,9 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	fmt.Fprintln(os.Stderr, permissionPolicySummary(pol))
 	if w := pol.Permission.IncoherentCeiling(); w != "" {
 		fmt.Fprintln(os.Stderr, "warning: "+w+".")
+	}
+	if opts.base != nil {
+		fmt.Fprintln(os.Stderr, "note: re-enrolled: the settings already on this machine were kept except the options you passed ('galopin reset' returns the policy to the defaults).")
 	}
 	// opencode loads the user's own global config into every session, so a
 	// model pinned there outside Pystino would bypass this gateway (or break
@@ -813,7 +854,7 @@ func agentToolsPolicySummary(pol policy.Policy) string {
 	if !pol.AgentToolsAllowed() {
 		return "Agent tools: OFF — no session_* or schedule_* tool is installed into the agent."
 	}
-	return "Agent tools: ON — a session's agent can list, read, spawn and message other sessions here. A read asks unless a rule for session_read says allow or the session was granted it; a spawn or a send asks unless a rule says allow, the session was granted it, or the session's own word is Allow and the ceiling leaves the tool alone (reads stay grant-gated whatever the word). Spawned sessions inherit the spawner's word and grant, never more. Schedule tools: creating a schedule follows the session's Deny / Ask / Allow (a scheduled run always asks); changing or deleting one asks unless a run stops its own; the ceiling key schedule caps all of it."
+	return "Agent tools: ON — a session's agent can list, read, spawn and message other sessions here. The agents class decides: at run (the default) a call is free when the other session's word (Plan, Ask or Allow) is the same or more cautious than the caller's and the caller is on Allow, otherwise the caller's own word applies (a read asks unless a rule or a grant says otherwise); at ask every call is a card; at never none works. Spawned sessions inherit the spawner's word and grant, never more. Schedule tools follow the same class."
 }
 
 // projectConfigPolicySummary says, in plain words, what a workspace's own
@@ -847,48 +888,137 @@ func backgroundSubagentsPolicySummary(pol policy.Policy) string {
 	return "Background subagents: ALLOWED — a task may keep running after its parent turn ends; its result returns as a synthetic message the panel shows."
 }
 
-// enrollPolicy is the policy.json a fresh enroll writes from its flags: the
-// machine's own veto (PROTOCOL.md §4). Everything defaults closed except what
-// the flags open; the permission ceiling defaults to bash=ask (session_spawn is uncapped, so Allow spawns with no card).
-func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
+// freshEnrollPolicy is what a machine with no policy gets from `enroll` with
+// no option, and what `galopin reset` returns it to: closed except the
+// terminal, command shell, background subagents and the file editor, which
+// are on by default; the class limits are their defaults.
+func freshEnrollPolicy() policy.Policy {
 	pol := policy.Default()
-	pol.Permission.Max = defaultEnrollMax()
-	if len(opts.permissionMax) > 0 {
-		// Given, the flag states the whole ceiling: --permission-max bash=allow
-		// is how an owner opts out of the bash default, deliberately.
-		max, err := parseKeyActions("permission-max", opts.permissionMax)
+	pol.FileWrite = policy.FileWriteAllowed
+	pol.Terminal = policy.TerminalAllowed
+	pol.CommandShell = policy.TerminalAllowed
+	pol.BackgroundSubagents = policy.TerminalAllowed
+	pol.MaxTerminals = policy.DefaultMaxTerminals
+	return pol
+}
+
+// enrollPolicy is the policy.json an enroll writes: the machine's own veto
+// (PROTOCOL.md §4). With opts.set it starts from the policy already on the
+// machine (opts.base) or the fresh defaults and changes only the options
+// given; without it (callers that built the options by hand) every option's
+// value is applied to a closed policy.
+func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
+	var pol policy.Policy
+	given := func(name string) bool { return opts.set == nil || opts.set[name] }
+	switch {
+	case opts.set == nil:
+		pol = policy.Default()
+	case opts.base != nil:
+		pol = *opts.base
+	default:
+		pol = freshEnrollPolicy()
+	}
+	pol.Permission.Notices = nil
+	// The class limits. The old flags map onto classes for one release.
+	if len(opts.permissionMax) > 0 || len(opts.permissionRules) > 0 {
+		lims, carried, notices, err := legacyLimits(opts.permissionMax, opts.permissionRules)
 		if err != nil {
 			return policy.Policy{}, err
 		}
-		pol.Permission.Max = max
-	}
-	if len(opts.permissionRules) > 0 {
-		rules, err := parseKeyActions("permission-rule", opts.permissionRules)
-		if err != nil {
-			return policy.Policy{}, err
+		for c, l := range lims {
+			pol.Permission.SetLimitTo(c, l)
 		}
-		pol.Permission.Rules = rules
+		if len(carried) > 0 {
+			if pol.Permission.Rules == nil {
+				pol.Permission.Rules = map[string]string{}
+			}
+			for k, v := range carried {
+				pol.Permission.Rules[k] = v
+			}
+		}
+		for _, n := range notices {
+			fmt.Fprintln(os.Stderr, "note: "+n)
+		}
 	}
-	safeDirs, err := enrollSafeDirs(opts)
+	lims, err := parseLimitFlags(opts.limits)
 	if err != nil {
 		return policy.Policy{}, err
 	}
-	pol.Permission.SafeDirs = safeDirs
-	pol.WorkspaceRoots = opts.workspaceRoots
-	pol.AllowFreeModels = opts.allowFreeModels
-	if opts.noFiles {
+	for c, l := range lims {
+		pol.Permission.SetLimitTo(c, l)
+	}
+	if pol.Permission.Limits == nil {
+		pol.Permission.Limits = policy.DefaultLimits()
+	}
+	if given("safe-dir") || given("no-safe-dirs") {
+		safeDirs, err := enrollSafeDirs(opts)
+		if err != nil {
+			return policy.Policy{}, err
+		}
+		if opts.set == nil || safeDirs != nil {
+			pol.Permission.SafeDirs = safeDirs
+		}
+	}
+	if given("workspace-root") && (opts.set == nil || len(opts.workspaceRoots) > 0) {
+		pol.WorkspaceRoots = opts.workspaceRoots
+	}
+	if given("allow-free-models") && (opts.set == nil || opts.allowFreeModels) {
+		pol.AllowFreeModels = opts.allowFreeModels
+	}
+	if given("no-files") && opts.noFiles {
 		pol.Files = policy.FilesOff
 	}
-	pol.FileDeny = opts.fileDeny
-	pol.NoDefaultFileDeny = opts.noDefaultFileDeny
-	if opts.allowFileWrite && !opts.noFiles {
+	if given("file-deny") && (opts.set == nil || len(opts.fileDeny) > 0) {
+		pol.FileDeny = opts.fileDeny
+	}
+	if given("no-default-file-deny") && opts.noDefaultFileDeny {
+		pol.NoDefaultFileDeny = true
+	}
+	// The file editor is on by default; --no-file-write turns it off and
+	// --allow-file-write is the old spelling of the default.
+	switch {
+	case opts.noFileWrite:
+		pol.FileWrite = policy.FileWriteDenied
+	case opts.set == nil:
+		if !opts.noFiles {
+			pol.FileWrite = policy.FileWriteAllowed
+		}
+	case opts.set["allow-file-write"]:
 		pol.FileWrite = policy.FileWriteAllowed
 	}
-	if opts.allowTerminal && !opts.noTerminal {
-		pol.Terminal = policy.TerminalAllowed
+	if pol.Files == policy.FilesOff {
+		// Nothing to save from.
+		pol.FileWrite = policy.FileWriteDenied
 	}
-	if opts.allowCommandShell && !opts.noCommandShell {
-		pol.CommandShell = policy.TerminalAllowed
+	if opts.set == nil {
+		if opts.allowTerminal && !opts.noTerminal {
+			pol.Terminal = policy.TerminalAllowed
+		}
+		if opts.allowCommandShell && !opts.noCommandShell {
+			pol.CommandShell = policy.TerminalAllowed
+		}
+		if opts.allowBackground && !opts.noBackground {
+			pol.BackgroundSubagents = policy.TerminalAllowed
+		}
+	} else {
+		if opts.set["allow-terminal"] {
+			pol.Terminal = policy.TerminalAllowed
+		}
+		if opts.noTerminal {
+			pol.Terminal = policy.TerminalDenied
+		}
+		if opts.set["allow-command-shell"] {
+			pol.CommandShell = policy.TerminalAllowed
+		}
+		if opts.noCommandShell {
+			pol.CommandShell = policy.TerminalDenied
+		}
+		if opts.set["allow-background-subagents"] {
+			pol.BackgroundSubagents = policy.TerminalAllowed
+		}
+		if opts.noBackground {
+			pol.BackgroundSubagents = policy.TerminalDenied
+		}
 	}
 	if opts.noAgentTools {
 		pol.AgentTools = policy.TerminalDenied
@@ -896,11 +1026,15 @@ func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 	if opts.allowProjectConfig {
 		pol.ProjectConfig = policy.TerminalAllowed
 	}
-	if opts.allowBackground && !opts.noBackground {
-		pol.BackgroundSubagents = policy.TerminalAllowed
+	if given("max-terminals") {
+		pol.MaxTerminals = opts.maxTerminals
 	}
-	pol.MaxTerminals = opts.maxTerminals
 	return pol, nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // enrollSafeDirs is permission.safeDirs from the flags: --no-safe-dirs says

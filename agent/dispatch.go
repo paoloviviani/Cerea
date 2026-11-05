@@ -35,7 +35,9 @@ type machine struct {
 	pol        policy.Policy
 	// live is the permission part of the policy as it stands now (it can only
 	// tighten while the agent runs); the materializer reads the same one.
-	live      *policy.Live
+	live *policy.Live
+	// protected is galopin's own paths and the credential stores (decide.Protected).
+	protected decide.Protected
 	files     *files.Service
 	terminals *terminal.Manager
 
@@ -1094,13 +1096,23 @@ func (mc *machine) opSessionCompact(ctx context.Context, args json.RawMessage) (
 
 func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
-		SessionID string `json:"sessionId"`
-		RequestID string `json:"requestId"`
-		Decision  string `json:"decision"`
-		Message   string `json:"message,omitempty"`
+		SessionID string      `json:"sessionId"`
+		RequestID string      `json:"requestId"`
+		Decision  string      `json:"decision"`
+		Message   string      `json:"message,omitempty"`
+		Actor     *replyActor `json:"actor,omitempty"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, invalidArgs(err)
+	}
+	actor, operr := parseActor(a.Actor)
+	if operr != nil {
+		return nil, operr
+	}
+	if actor.Kind == actorReviewModel && a.Decision != string(backend.DecisionOnce) {
+		// A reviewer only allows, and only once: never "always", and no reject
+		// (it escalates instead). The machine holds this line whatever Cerea does.
+		return nil, opErrf("invalid", "a review-model reply is once, not %q", a.Decision)
 	}
 	dir, _, operr := mc.resolveSession(a.SessionID)
 	if operr != nil {
@@ -1113,10 +1125,17 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 		tool = asked.Tool
 	}
 	decision, capped := mc.capDecision(tool, backend.Decision(a.Decision))
+	if decision == backend.DecisionAlways && asked != nil && asked.Class != "" {
+		// The ask's own class (a .env read, a path outside the project) may be
+		// limited though its key is not.
+		if c, err := decide.ParseClass(asked.Class); err == nil && mc.live.Permission().EffectiveLimits()[c] != decide.Run {
+			decision, capped = backend.DecisionOnce, true
+		}
+	}
 	// A card answered after the ceiling tightened under it: an approval never
 	// goes past the ceiling, so it is sent as a rejection instead.
 	if rh, ok := mc.ruleHost(); ok && asked != nil && !strings.HasPrefix(a.RequestID, "gp_") && decision != backend.DecisionReject {
-		if res := mc.decideAsk(rh, dir, *asked); res.Verdict == decide.Reject && res.Step == "ceiling" {
+		if res := mc.decideAsk(rh, dir, *asked); res.Verdict == decide.Reject && (res.Step == "limit" || res.Step == "floor") {
 			decision, capped = backend.DecisionReject, true
 			if a.Message == "" {
 				a.Message = res.Reason
@@ -1147,11 +1166,12 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 			// Already resolved (the machine answered it for a root that allows
 			// it, or the backend restarted): close the card, say so, no error.
 			mc.mat.WithdrawPermission(a.SessionID, a.RequestID)
+			mc.audit.permissionReply(a.SessionID, a.RequestID, tool, string(audited), actor, capped, false)
 			return map[string]any{"alreadyResolved": true}, nil
 		}
 		return nil, backendErr(err)
 	}
-	mc.audit.permission(a.SessionID, a.RequestID, tool, string(audited), "user", capped, "")
+	mc.audit.permissionReply(a.SessionID, a.RequestID, tool, string(audited), actor, capped, true)
 	return map[string]any{}, nil
 }
 

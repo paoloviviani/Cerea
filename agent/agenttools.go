@@ -741,7 +741,17 @@ func (at *agentTools) grantFor(_ context.Context, tc *toolCaller, tool, target s
 	if delegate && tool == "session_read" {
 		delegate = at.IsDelegatePair(tc.session.ID, target) == callerSpawned
 	}
-	act, reason := decide.CoordinationTool(at.mc.decidePolicy(rh), at.mc.rootState(rh, tc.session.ID), tool, delegate)
+	// The agents class (ADR 0107): the word of the session the call reaches. A
+	// spawn creates a child on the caller's own word, never a looser one.
+	st := at.mc.rootState(rh, tc.session.ID)
+	targetWord := permrules.Action("")
+	switch {
+	case tool == "session_spawn":
+		targetWord = st.Mode
+	case target != "":
+		targetWord = rh.PermissionMode(at.mc.mat.RootOf(target))
+	}
+	act, reason := decide.CoordinationFor(at.mc.decidePolicy(rh), st, tool, delegate, targetWord)
 	if act == permrules.Deny {
 		return permrules.Deny, refuse("%s", reason)
 	}

@@ -33,7 +33,7 @@ func TestAcpAsksAreDecidedByTheSameFunction(t *testing.T) {
 	}
 	for _, c := range cases {
 		key, patterns := b.NormalizeAsk(c.req)
-		got := decide.Decide(decide.Policy{}, decide.State{Mode: c.mode}, decide.Request{Key: key, Patterns: patterns, Workspace: "/w"})
+		got := decide.Decide(decide.Policy{Limits: map[decide.Class]decide.Limit{decide.ClassCommand: decide.Run}}, decide.State{Mode: c.mode}, decide.Request{Key: key, Patterns: patterns, Workspace: "/w"})
 		if got.Verdict != c.want {
 			t.Errorf("%s: key %q patterns %v: %s, want %s", c.name, key, patterns, got.Verdict, c.want)
 		}

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"galopin/internal/decide"
 	"galopin/internal/fsutil"
 	"galopin/internal/permrules"
 )
@@ -96,6 +97,16 @@ type Permission struct {
 	// rules, which sit above opencode's static config file, so they win over
 	// whatever an installer wrote there; the Max ceiling then caps them.
 	Rules map[string]string `json:"rules,omitempty"`
+	// Limits is the machine's say per permission class (ADR 0107): class →
+	// "never" | "ask" | "run" ("stop" for loop). A class absent is its
+	// default (decide.DefaultLimit). This is the one place a limit is kept;
+	// Max and Rules below are what a policy.json written before classes
+	// carried, read once by Load (Migrate) and gone after the next write.
+	Limits map[string]string `json:"limits,omitempty"`
+	// Notices are what a migration from per-key ceilings and rules owes the
+	// owner (a rule dropped, a cap with no class); `policy show` prints them
+	// until the next enroll or reset.
+	Notices []string `json:"notices,omitempty"`
 	// Max is the ceiling: the most a key may ever be, whatever any rule, any
 	// session's selector or any exception says. A key absent from Max is not capped. `enroll`
 	// defaults bash to "ask"; `galopin policy set` may only lower a value.
@@ -113,11 +124,54 @@ type Permission struct {
 	SafeDirs *[]string `json:"safeDirs,omitempty"`
 }
 
-// Ceiling is Max as the rule package's type.
+// EffectiveLimits is every class's limit in force: the file's, else the default.
+func (p Permission) EffectiveLimits() map[decide.Class]decide.Limit {
+	out := make(map[decide.Class]decide.Limit, len(decide.Classes))
+	for _, c := range decide.Classes {
+		out[c] = decide.DefaultLimit(c)
+		if w, ok := p.Limits[string(c)]; ok {
+			if l, ok := decide.ParseLimit(w); ok && c.Allows(l) {
+				out[c] = l
+			}
+		}
+	}
+	return out
+}
+
+func (p Permission) limitWords() map[string]string {
+	out := map[string]string{}
+	for c, l := range p.EffectiveLimits() {
+		out[string(c)] = l.Word()
+	}
+	return out
+}
+
+// WireLimits is EffectiveLimits as the hello carries it: every class, in the
+// wire words (deny | ask | allow, and stop for loop).
+func (p Permission) WireLimits() map[string]string {
+	out := map[string]string{}
+	for c, l := range p.EffectiveLimits() {
+		out[string(c)] = l.Wire()
+	}
+	return out
+}
+
+// Ceiling is the limits as the rule package's per-key cap, which composes the
+// opencode session rules and caps "always allow". Outside, secrets and loop at
+// ask add nothing (opencode asks them on its own and the decision function
+// does the rest); a class at never or ask caps its keys.
 func (p Permission) Ceiling() permrules.Ceiling {
 	c := permrules.Ceiling{Max: map[string]permrules.Action{}}
-	for k, v := range p.Max {
-		c.Max[k] = permrules.Action(v)
+	for cl, l := range p.EffectiveLimits() {
+		if l == decide.Run || l == decide.Stop {
+			continue
+		}
+		if l == decide.AskLimit && (cl == decide.ClassOutside || cl == decide.ClassLoop) {
+			continue
+		}
+		for _, k := range decide.ClassKeys(cl) {
+			c.Max[k] = l.Action()
+		}
 	}
 	return c
 }
@@ -142,7 +196,7 @@ func (p Permission) IncoherentCeiling() string {
 	if len(capped) == 0 {
 		return ""
 	}
-	return "this ceiling limits " + strings.Join(capped, ", ") + " but leaves bash uncapped; a shell command can do all of that, so the limit holds against nothing a hijacked session would try. Cap bash too (--permission-max bash=ask) — until the OS sandbox exists the ceiling is advisory against bash"
+	return "this ceiling limits " + strings.Join(capped, ", ") + " but leaves bash uncapped; a shell command can do all of that, so the limit holds against nothing a hijacked session would try. Limit command too (--limit command=ask) — until the OS sandbox exists the ceiling is advisory against bash"
 }
 
 // OwnRules is Rules as the rule package's type, sorted.
@@ -310,6 +364,16 @@ func (p Permission) Validate() error {
 	if err := check("max", p.Max); err != nil {
 		return err
 	}
+	for k, v := range p.Limits {
+		c, err := decide.ParseClass(k)
+		if err != nil {
+			return fmt.Errorf("permission.limits: %w", err)
+		}
+		l, ok := decide.ParseLimit(v)
+		if !ok || v == "deny" || v == "allow" || !c.Allows(l) {
+			return fmt.Errorf("permission.limits.%s: %q is not %s", k, v, c.AllowedWords())
+		}
+	}
 	if p.SafeDirs != nil {
 		for i, d := range *p.SafeDirs {
 			if d == "" || !filepath.IsAbs(d) || filepath.Clean(d) != d {
@@ -436,6 +500,7 @@ const GatewayProviderID = "pystino"
 // closed. `enroll`'s flags are what opens any of it.
 func Default() Policy {
 	return Policy{
+		Permission:          Permission{Limits: DefaultLimits()},
 		AllowFreeModels:     false,
 		Files:               FilesRead,
 		FileWrite:           FileWriteDenied,
@@ -465,6 +530,9 @@ func Load(path string) (Policy, error) {
 	if err := p.Permission.Validate(); err != nil {
 		return Policy{}, fmt.Errorf("%s: %w", path, err)
 	}
+	// A policy.json written before classes carries per-key ceilings and
+	// rules: fold them into classes (tighten-only, nothing re-enrolled).
+	p.Permission.Normalize()
 	if p.Files == "" {
 		p.Files = FilesRead
 	}
@@ -491,6 +559,13 @@ func Load(path string) (Policy, error) {
 
 // Save persists policy.json atomically at 0600 (R8, via fsutil).
 func Save(path string, p Policy) error {
+	if p.Permission.Limits == nil && p.Permission.Max == nil && p.Permission.Rules == nil {
+		// Nothing was ever said: the defaults, written down so a later load does
+		// not read an empty block as the old "no ceiling".
+		p.Permission.Limits = DefaultLimits()
+	} else {
+		p.Permission.Normalize()
+	}
 	body, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return err
@@ -583,6 +658,8 @@ type Live struct {
 
 // NewLive starts from the permission policy `run` loaded.
 func NewLive(p Permission) *Live {
+	p = clonePermission(p)
+	p.Normalize()
 	return &Live{p: clonePermission(p), safeDirs: p.EffectiveSafeDirs()}
 }
 
@@ -601,6 +678,7 @@ func (l *Live) Layers() permrules.Layers {
 		Own:      l.p.OwnRules(),
 		Ceiling:  l.p.Ceiling(),
 		SafeDirs: append([]string(nil), l.safeDirs...),
+		Limits:   l.p.limitWords(),
 	}
 }
 
@@ -626,7 +704,22 @@ func (l *Live) Tighten(next Permission) Change {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var ch Change
-	l.p.Max, ch.Tightened = meetActions(l.p.Max, next.Max, ch.Tightened)
+	next = clonePermission(next)
+	next.Normalize()
+	cur := l.p.EffectiveLimits()
+	for c, nl := range next.EffectiveLimits() {
+		if s := decide.Stricter(cur[c], nl); s != cur[c] {
+			if l.p.Limits == nil {
+				l.p.Limits = map[string]string{}
+			}
+			cur[c] = s
+			ch.Tightened = true
+		}
+	}
+	l.p.Limits = map[string]string{}
+	for c, lim := range cur {
+		l.p.Limits[string(c)] = lim.Word()
+	}
 	var rulesTight bool
 	l.p.Rules, rulesTight = lowerActions(l.p.Rules, next.Rules)
 	ch.Tightened = ch.Tightened || rulesTight
@@ -702,6 +795,13 @@ func lowerActions(have, next map[string]string) (map[string]string, bool) {
 
 func clonePermission(p Permission) Permission {
 	var out Permission
+	if p.Limits != nil {
+		out.Limits = make(map[string]string, len(p.Limits))
+		for k, v := range p.Limits {
+			out.Limits[k] = v
+		}
+	}
+	out.Notices = append([]string(nil), p.Notices...)
 	if p.Max != nil {
 		out.Max = make(map[string]string, len(p.Max))
 		for k, v := range p.Max {

@@ -6,8 +6,19 @@ import (
 	"path/filepath"
 	"strings"
 
+	"galopin/internal/decide"
+	"galopin/internal/permrules"
 	"galopin/internal/policy"
 )
+
+// parseOrNil reads KEY=ACTION values already validated once; nil on an error.
+func parseOrNil(values []string) map[string]string {
+	m, err := parseKeyActions("permission-rule", values)
+	if err != nil {
+		return nil
+	}
+	return m
+}
 
 const policyUsage = `galopin policy — show or locally tighten this machine's policy.
 
@@ -16,7 +27,7 @@ Usage:
   galopin policy set [options] [--creds PATH] [--state-dir PATH]
 
 'set' may only TIGHTEN the policy: turn files, file writes, the terminal, command
-shell or agent tools off, lower a permission ceiling or rule, lower maxTerminals, or add to the file deny list. This file is
+shell or agent tools off, lower a permission class limit, lower maxTerminals, or add to the file deny list. This file is
 never writable over the link (PROTOCOL.md §4); the local CLI keeps that
 same one-way shape, so loosening anything back — files, terminal or
 command shell or file writes back on, a higher maxTerminals, dropping a deny entry —
@@ -35,12 +46,13 @@ refuses and names the 'enroll' re-run that does it instead.
                        allowed on a fresh enroll; takes effect at the next 'run').
    --no-auto-accept    Does nothing (accepted for one more release): auto-accept
                        no longer exists.
-   --permission-max KEY=ACTION  Lower the ceiling for KEY (edit, bash, webfetch,
-                       session_read, session_send, session_spawn, schedule, …) to ask or deny (repeatable). Takes
-                       effect on a running machine within seconds: opencode is
-                       restarted so nothing it kept in memory outlives it.
-   --permission-rule KEY=ACTION  Lower this machine's own rule for KEY, or add
-                       an ask/deny one (repeatable).
+   --limit CLASS=VALUE  Lower a permission class (edit, command, web, outside,
+                       secrets, agents, tools, loop) to never, ask (or stop for
+                       loop) (repeatable). Takes effect on a running machine
+                       within seconds: opencode is restarted so nothing it kept
+                       in memory outlives it. 'policy show' lists the classes.
+   --permission-max KEY=ACTION, --permission-rule KEY=ACTION  Deprecated aliases
+                       (one more release), mapped onto the class of KEY.
    --no-safe-dir PATH  Remove PATH from this machine's safe directories — the
                        directories outside the workspace whose contents never
                        ask (repeatable). A local set may only remove: adding
@@ -127,7 +139,8 @@ func runPolicySet(args []string) error {
 	noProjectConfig := fs.Bool("no-project-config", false, "")
 	noBackground := fs.Bool("no-background-subagents", false, "")
 	noAutoAccept := fs.Bool("no-auto-accept", false, "")
-	var permMax, permRules []string
+	var permMax, permRules, limits []string
+	fs.Var(stringListFlag{&limits}, "limit", "")
 	fs.Var(stringListFlag{&permMax}, "permission-max", "")
 	fs.Var(stringListFlag{&permRules}, "permission-rule", "")
 	var noSafeDirs []string
@@ -186,23 +199,47 @@ func runPolicySet(args []string) error {
 	if *noAutoAccept {
 		fmt.Fprintln(os.Stderr, "warning: --no-auto-accept does nothing any more: auto-accept was replaced by the Deny / Ask / Allow selector, and there is no machine setting for it to turn off.")
 	}
-	if len(permMax) > 0 {
-		want, err := parseKeyActions("permission-max", permMax)
+	if len(permMax) > 0 || len(permRules) > 0 {
+		lims, _, notices, err := legacyLimits(permMax, permRules)
 		if err != nil {
 			return err
 		}
-		if pol.Permission.Max, err = tighten("permission-max", pol.Permission.Max, want); err != nil {
-			return err
+		for _, n := range notices {
+			fmt.Fprintln(os.Stderr, "note: "+n)
+		}
+		for _, c := range decide.Classes {
+			l, ok := lims[c]
+			if !ok {
+				continue
+			}
+			ch, err := pol.Permission.TightenLimit(c, l)
+			if err != nil {
+				return err
+			}
+			changed = changed || ch
+		}
+		for k, v := range parseOrNil(permRules) {
+			if permrules.Action(v) == permrules.Allow {
+				return fmt.Errorf("--permission-rule %s=allow does not tighten: re-run enroll to loosen it", k)
+			}
 		}
 		changed = true
 	}
-	if len(permRules) > 0 {
-		want, err := parseKeyActions("permission-rule", permRules)
+	if len(limits) > 0 {
+		lims, err := parseLimitFlags(limits)
 		if err != nil {
 			return err
 		}
-		if pol.Permission.Rules, err = tighten("permission-rule", pol.Permission.Rules, want); err != nil {
-			return err
+		for _, c := range decide.Classes {
+			l, ok := lims[c]
+			if !ok {
+				continue
+			}
+			ch, err := pol.Permission.TightenLimit(c, l)
+			if err != nil {
+				return err
+			}
+			changed = changed || ch
 		}
 		changed = true
 	}
@@ -246,7 +283,7 @@ func runPolicySet(args []string) error {
 	if !changed {
 		return fmt.Errorf("policy set: nothing to change (see 'galopin policy set -h')")
 	}
-	if w := pol.Permission.IncoherentCeiling(); w != "" && (len(permMax) > 0 || len(permRules) > 0) {
+	if w := pol.Permission.IncoherentCeiling(); w != "" && (len(permMax) > 0 || len(permRules) > 0 || len(limits) > 0) {
 		fmt.Fprintln(os.Stderr, "warning: "+w+".")
 	}
 	if err := policy.Save(path, pol); err != nil {
