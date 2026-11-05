@@ -43,6 +43,14 @@
 	import { handleResponse, useAPIClient } from "$lib/APIClient";
 	import { useSettingsStore } from "$lib/stores/settings.js";
 	import { projectsRevision } from "$lib/stores/projectsRevision";
+	import {
+		areChatsFresh,
+		bindProjectsCacheOwner,
+		isProjectsFresh,
+		projectsTreeCache,
+		type ProjectConversation,
+	} from "$lib/stores/projectsTreeCache.svelte";
+	import { reconcileById } from "$lib/utils/reconcileById";
 	import { chatDrag } from "$lib/stores/chatDrag.svelte";
 	import { useMoveConversation } from "$lib/utils/useMoveConversation";
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
@@ -61,29 +69,18 @@
 	const convsStore = useConversationsStore();
 	const moveConversation = useMoveConversation();
 
-	interface ProjectConversation {
-		id: string;
-		title: string;
-		model: string;
-		updatedAt: string;
-	}
-
 	const openProject = (id?: string) => goto(`${base}/projects/${id ?? "new"}`);
 
-	let open = $state(false);
-	let projects = $state<ProjectView[]>([]);
-	let loaded = $state(false);
-	let failed = $state(false);
+	// The lists live in a module cache, not here: this branch unmounts whenever
+	// the Agents view is shown, and rows held in component state began on a
+	// loading row at every return to Chats.
+	bindProjectsCacheOwner(page.data.user?.id);
+	$effect(() => bindProjectsCacheOwner(page.data.user?.id));
+	const cache = projectsTreeCache;
 	let busy = $state(false);
-
-	// Which folders are expanded, and what is in them. Kept across closes so a
-	// reopened folder does not blink.
-	let expanded = $state<Record<string, boolean>>({});
-	let chats = $state<Record<string, ProjectConversation[]>>({});
-	/** Other members' chats per folder: a count only. */
-	let others = $state<Record<string, number>>({});
-	/** Folders whose last read of their chats failed, so they offer a retry. */
+	/** Folders whose read failed with nothing cached, so they offer a retry. */
 	let chatsFailed = $state<Record<string, boolean>>({});
+
 	/** The project whose new chat is being created, for the in-flight guard. */
 	let starting = $state<string | null>(null);
 
@@ -103,55 +100,82 @@
 			if (!response.ok) throw new Error(String(response.status));
 			const listed = ((await response.json()) as { data: ProjectView[] }).data;
 			if (read !== projectsRead) return;
-			projects = listed;
-			failed = false;
+			// Folded in place: unchanged rows keep their objects, so nothing redraws.
+			const merged = reconcileById(cache.projects, listed);
+			if (merged !== cache.projects) cache.projects = merged;
+			cache.fetchedAt = Date.now();
+			cache.failed = false;
 		} catch {
 			if (read !== projectsRead) return;
 			// A sidebar branch is not the place to report a failure loudly: the
 			// label says "unavailable" and the rest of the panel still works.
-			failed = true;
+			// Rows already known stay rather than being blanked.
+			if (cache.projects.length === 0 || !cache.loaded) cache.failed = true;
 		} finally {
-			if (read === projectsRead) loaded = true;
+			if (read === projectsRead) cache.loaded = true;
 		}
 	}
 
-	/** Remember what is open, so a remount (the Agents view, a reload) keeps it. */
+	/** Remember what is open, so a reload keeps it (a remount keeps the cache). */
 	function rememberOpen() {
 		writeProjectsTreeOpen(globalThis.localStorage, {
-			branch: open,
-			projects: Object.entries(expanded)
+			branch: cache.open,
+			projects: Object.entries(cache.expanded)
 				.filter(([, isOpen]) => isOpen)
 				.map(([id]) => id),
 		});
 	}
 
-	// Restore what was open before this mount: the branch, then its open
-	// folders and their chats (a folder whose project is gone is dropped).
+	/** Re-read what is on screen when it is older than the freshness window. */
+	async function refreshVisible() {
+		if (!cache.open && !cache.loaded) return;
+		if (!isProjectsFresh()) await loadProjects();
+		await Promise.all(
+			Object.entries(cache.expanded)
+				.filter(
+					([id, isOpen]) => isOpen && cache.projects.some((p) => p.id === id) && !areChatsFresh(id)
+				)
+				.map(([id]) => loadChats(id))
+		);
+	}
+
+	// Restore what was open once per page load: the branch, then its open
+	// folders and their chats (a folder whose project is gone is dropped). Later
+	// mounts draw the cache's own state in the first frame and only refresh.
 	onMount(() => {
+		if (cache.restored) {
+			void refreshVisible();
+			return;
+		}
+		cache.restored = true;
 		const stored = readProjectsTreeOpen(globalThis.localStorage);
 		if (!stored.branch && stored.projects.length === 0) return;
-		open = stored.branch;
+		cache.open = stored.branch;
 		void (async () => {
-			if (!loaded) await loadProjects();
-			const known = stored.projects.filter((id) => projects.some((p) => p.id === id));
-			expanded = Object.fromEntries(known.map((id) => [id, true]));
+			if (!cache.loaded) await loadProjects();
+			const known = stored.projects.filter((id) => cache.projects.some((p) => p.id === id));
+			cache.expanded = Object.fromEntries(known.map((id) => [id, true]));
 			if (known.length !== stored.projects.length) rememberOpen();
-			await Promise.all(known.filter((id) => chats[id] === undefined).map((id) => loadChats(id)));
+			await Promise.all(
+				known.filter((id) => cache.chats[id] === undefined).map((id) => loadChats(id))
+			);
 		})();
 	});
 
 	async function toggleBranch() {
-		open = !open;
+		cache.open = !cache.open;
 		rememberOpen();
-		if (open && !loaded) await loadProjects();
+		if (cache.open && !cache.loaded) await loadProjects();
+		else if (cache.open) void refreshVisible();
 	}
 
 	async function toggleFolder(project: ProjectView) {
-		const next = !expanded[project.id];
-		expanded = { ...expanded, [project.id]: next };
+		const next = !cache.expanded[project.id];
+		cache.expanded = { ...cache.expanded, [project.id]: next };
 		rememberOpen();
-		if (next && (chats[project.id] === undefined || chatsFailed[project.id]))
+		if (next && (cache.chats[project.id] === undefined || chatsFailed[project.id]))
 			await loadChats(project.id);
+		else if (next && !areChatsFresh(project.id)) void loadChats(project.id);
 	}
 
 	async function loadChats(projectId: string) {
@@ -164,14 +188,19 @@
 				othersCount?: number;
 			};
 			if (read !== chatsRead[projectId]) return;
-			chats = { ...chats, [projectId]: listed.data };
-			others = { ...others, [projectId]: listed.othersCount ?? 0 };
-			chatsFailed = { ...chatsFailed, [projectId]: false };
+			const prev = cache.chats[projectId];
+			const merged = prev ? reconcileById(prev, listed.data) : listed.data;
+			if (merged !== prev) cache.chats[projectId] = merged;
+			const othersCount = listed.othersCount ?? 0;
+			if (cache.others[projectId] !== othersCount) cache.others[projectId] = othersCount;
+			cache.chatsFetchedAt[projectId] = Date.now();
+			if (chatsFailed[projectId]) chatsFailed = { ...chatsFailed, [projectId]: false };
 		} catch {
 			if (read !== chatsRead[projectId]) return;
 			// Not an empty folder: saying "No chats yet" about a folder that
 			// could not be read would be wrong, and kept, would never be retried.
-			chatsFailed = { ...chatsFailed, [projectId]: true };
+			// Rows already known stay.
+			if (cache.chats[projectId] === undefined) chatsFailed = { ...chatsFailed, [projectId]: true };
 		}
 	}
 
@@ -181,7 +210,7 @@
 		chatDrag.current = null;
 		if (!dragged || dragged.projectId === project.id) return;
 		const from = dragged.projectId
-			? projects.find((entry) => entry.id === dragged.projectId)
+			? cache.projects.find((entry) => entry.id === dragged.projectId)
 			: undefined;
 		const ok = await moveConversation(
 			{ id: dragged.id, title: dragged.title, model: dragged.model },
@@ -189,7 +218,7 @@
 			from?.name
 		);
 		if (ok) {
-			expanded = { ...expanded, [project.id]: true };
+			cache.expanded = { ...cache.expanded, [project.id]: true };
 			rememberOpen();
 			rememberOpen();
 		}
@@ -238,15 +267,15 @@
 			// The branch keeps its own lists, so put the new chat where the row
 			// will show it when this comes back: opened, counted, first in the
 			// folder. No refetch — the title arrives when the generation names it.
-			projects = projects.map((entry) =>
+			cache.projects = cache.projects.map((entry) =>
 				entry.id === project.id
 					? { ...entry, conversationCount: entry.conversationCount + 1 }
 					: entry
 			);
-			expanded = { ...expanded, [project.id]: true };
-			if (chats[project.id] !== undefined) {
-				chats = {
-					...chats,
+			cache.expanded = { ...cache.expanded, [project.id]: true };
+			if (cache.chats[project.id] !== undefined) {
+				cache.chats = {
+					...cache.chats,
 					[project.id]: [
 						{
 							id: conversationId,
@@ -256,7 +285,7 @@
 							model,
 							updatedAt: new Date().toISOString(),
 						},
-						...chats[project.id],
+						...cache.chats[project.id],
 					],
 				};
 			}
@@ -276,9 +305,9 @@
 	 * will show it.
 	 */
 	async function renameChat(projectId: string, conversationId: string, title: string) {
-		const before = chats[projectId] ?? [];
-		chats = {
-			...chats,
+		const before = cache.chats[projectId] ?? [];
+		cache.chats = {
+			...cache.chats,
 			[projectId]: before.map((entry) =>
 				entry.id === conversationId ? { ...entry, title } : entry
 			),
@@ -300,11 +329,11 @@
 	 * deleting from the flat Chats list does.
 	 */
 	async function destroyChat(projectId: string, conversationId: string) {
-		chats = {
-			...chats,
-			[projectId]: (chats[projectId] ?? []).filter((entry) => entry.id !== conversationId),
+		cache.chats = {
+			...cache.chats,
+			[projectId]: (cache.chats[projectId] ?? []).filter((entry) => entry.id !== conversationId),
 		};
-		projects = projects.map((entry) =>
+		cache.projects = cache.projects.map((entry) =>
 			entry.id === projectId
 				? { ...entry, conversationCount: Math.max(0, entry.conversationCount - 1) }
 				: entry
@@ -335,8 +364,8 @@
 				{ method: "DELETE" }
 			);
 			if (!response.ok) throw new Error(String(response.status));
-			delete chats[project.id];
-			delete expanded[project.id];
+			delete cache.chats[project.id];
+			delete cache.expanded[project.id];
 			rememberOpen();
 			await loadProjects();
 		} catch {
@@ -348,16 +377,15 @@
 
 	/** The project page changed something this tree shows. */
 	async function reload() {
-		if (!loaded && !open) return;
-		chats = {};
-		chatsFailed = {};
+		if (!cache.loaded && !cache.open) return;
 		// A folder read already in flight began before whatever changed.
 		for (const id of Object.keys(chatsRead)) chatsRead[id] += 1;
 		await loadProjects();
-		// A folder that is open must show its chats again, not wait for a toggle.
+		// A folder that is open must show its chats again, not wait for a toggle;
+		// they fold in place, so the rows on screen do not blink meanwhile.
 		await Promise.all(
-			Object.entries(expanded)
-				.filter(([id, isOpen]) => isOpen && projects.some((project) => project.id === id))
+			Object.entries(cache.expanded)
+				.filter(([id, isOpen]) => isOpen && cache.projects.some((project) => project.id === id))
 				.map(([id]) => loadChats(id))
 		);
 	}
@@ -374,8 +402,8 @@
 <TreeBranch
 	label={m["nav.projects.title"]()}
 	href="{base}/projects"
-	badge={loaded && !failed ? projects.length : undefined}
-	{open}
+	badge={cache.loaded && !cache.failed ? cache.projects.length : undefined}
+	open={cache.open}
 	onactivate={toggleBranch}
 	onadd={() => openProject()}
 	addTitle={m["nav.projects.new_project"]()}
@@ -384,24 +412,24 @@
 		<CarbonFolder class="size-3.5 shrink-0" />
 	{/snippet}
 
-	{#if !loaded}
+	{#if !cache.loaded}
 		<TreeLeaf label={m["nav.projects.loading"]()} depth={1} />
-	{:else if failed}
+	{:else if cache.failed}
 		<TreeLeaf
 			label={m["nav.projects.unavailable"]()}
 			depth={1}
 			title={m["nav.projects.load_failed"]()}
 		/>
-	{:else if projects.length === 0}
+	{:else if cache.projects.length === 0}
 		<TreeLeaf label={m["nav.projects.none"]()} depth={1} onclick={() => openProject()} />
 	{:else}
-		{#each projects as project (project.id)}
+		{#each cache.projects as project (project.id)}
 			<TreeBranch
 				label={project.name}
 				href="{base}/projects/{project.id}"
 				depth={1}
 				badge={project.conversationCount || undefined}
-				open={expanded[project.id] ?? false}
+				open={cache.expanded[project.id] ?? false}
 				onactivate={() => toggleFolder(project)}
 				onadd={() => startChat(project)}
 				addTitle={m["nav.projects.new_chat"]()}
@@ -453,9 +481,9 @@
 						onclick={() => loadChats(project.id)}
 						title={m["nav.projects.try_again"]()}
 					/>
-				{:else if chats[project.id] === undefined}
+				{:else if cache.chats[project.id] === undefined}
 					<TreeLeaf label={m["nav.projects.loading"]()} depth={2} />
-				{:else if chats[project.id].length === 0}
+				{:else if cache.chats[project.id].length === 0}
 					<TreeLeaf
 						label={m["nav.projects.no_chats"]()}
 						depth={2}
@@ -469,7 +497,7 @@
 					<div
 						class="ml-[1.375rem] flex flex-col gap-px border-l border-gray-200 pl-2.5 dark:border-gray-700"
 					>
-						{#each chats[project.id] as conversation (conversation.id)}
+						{#each cache.chats[project.id] as conversation (conversation.id)}
 							{@const sidebarConv = {
 								id: conversation.id,
 								title: convsStore?.titles[conversation.id] ?? conversation.title,
@@ -486,12 +514,12 @@
 						{/each}
 					</div>
 				{/if}
-				{#if !chatsFailed[project.id] && chats[project.id] !== undefined && (others[project.id] ?? 0) > 0}
+				{#if !chatsFailed[project.id] && cache.chats[project.id] !== undefined && (cache.others[project.id] ?? 0) > 0}
 					<p
 						class="ml-[1.375rem] px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400"
 						data-testid="project-others-count"
 					>
-						{m["projects.page.chats.others_count"]({ count: others[project.id] })}
+						{m["projects.page.chats.others_count"]({ count: cache.others[project.id] })}
 					</p>
 				{/if}
 			</TreeBranch>

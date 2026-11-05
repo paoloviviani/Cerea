@@ -1094,6 +1094,16 @@ before?}` ahead of `historyDone`; without the capability (an older galopin,
   "Offline." above them. The cache is per person: `NavFooter`'s sign-out calls
   `clearCodePanelCache()` beside the drafts, `bindCodeCacheOwner(user.id)`
   empties it on an account switch, and a stale sign-in drops it.
+- **The sidebar's Projects tree outlives the branch (stale-while-revalidate).**
+  `ProjectsBranch` unmounts whenever the Agents view is shown, so its projects,
+  per-folder chats and open/closed state live in
+  `stores/projectsTreeCache.svelte.ts`, not in component state. Returning to
+  Chats draws them in the first frame with no loading row; a read runs only
+  when older than 8 s (`PROJECTS_CACHE_STALE_MS`) and folds in place
+  (`utils/reconcileById.ts`). A failed read keeps the rows. Only the caller's
+  own chats are in it (the endpoints list nothing else). `NavFooter`'s sign-out
+  calls `clearProjectsCache()`; `bindProjectsCacheOwner` empties it on an
+  account switch and never binds on the server.
 - **The agent view is the chat's own machinery.** `ChatMessageColumn`,
   `ChatInput`, the approval card, the shared side pane. That is what makes
   live updates arrive by construction; a bespoke stack here would be a second
