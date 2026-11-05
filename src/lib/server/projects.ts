@@ -221,11 +221,14 @@ export async function projectForMemory(
 	return projectForMember(projectId, locals);
 }
 
-export async function projectView(access: ProjectAccess): Promise<ProjectView> {
+export async function projectView(access: ProjectAccess, viewerId: ObjectId): Promise<ProjectView> {
 	const { project, owned } = access;
-	const conversationCount = await collections.conversations.countDocuments({
-		projectId: project._id,
-	});
+	// Chats are listed per author: the viewer's own are counted, the rest only
+	// as a number (never titles or ids).
+	const [conversationCount, totalCount] = await Promise.all([
+		collections.conversations.countDocuments({ projectId: project._id, userId: viewerId }),
+		collections.conversations.countDocuments({ projectId: project._id }),
+	]);
 	return {
 		id: project._id.toString(),
 		name: project.name,
@@ -249,6 +252,7 @@ export async function projectView(access: ProjectAccess): Promise<ProjectView> {
 				}))
 			: [],
 		conversationCount,
+		othersCount: Math.max(0, totalCount - conversationCount),
 		updatedAt: project.updatedAt.toISOString(),
 	};
 }

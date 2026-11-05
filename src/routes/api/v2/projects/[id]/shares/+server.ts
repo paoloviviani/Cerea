@@ -73,7 +73,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 		);
 		access.project.shares.push(share);
 	}
-	return json(await projectView(access));
+	return json(await projectView(access, access.project.userId));
 };
 
 export const DELETE: RequestHandler = async ({ locals, params, url }) => {
@@ -100,5 +100,5 @@ export const DELETE: RequestHandler = async ({ locals, params, url }) => {
 	);
 	const updated = await collections.projects.findOne({ _id: access.project._id });
 	if (!updated) error(404, "No such project.");
-	return json(await projectView({ project: updated, owned: true }));
+	return json(await projectView({ project: updated, owned: true }, updated.userId));
 };
