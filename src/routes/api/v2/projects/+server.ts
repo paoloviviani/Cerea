@@ -46,7 +46,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 	const principals = await viewerPrincipals(user, locals.token);
 	const projects = await listProjects(user._id, principals);
 	const views = await Promise.all(
-		projects.map((project) => projectView({ project, owned: project.userId.equals(user._id) }))
+		projects.map((project) =>
+			projectView({ project, owned: project.userId.equals(user._id) }, user._id)
+		)
 	);
 	return json({ data: views });
 };
@@ -76,5 +78,5 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		updatedAt: now,
 	};
 	await collections.projects.insertOne(project);
-	return json(await projectView({ project, owned: true }), { status: 201 });
+	return json(await projectView({ project, owned: true }, user._id), { status: 201 });
 };

@@ -51,7 +51,7 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	const principals = await viewerPrincipals(user, locals.token);
 	const access = await projectAccess(params.id as string, user._id, principals);
 	if (!access) error(404, "No such project.");
-	return json(await projectView(access));
+	return json(await projectView(access, user._id));
 };
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
@@ -70,7 +70,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	await collections.projects.updateOne({ _id: access.project._id }, { $set: changes });
 	const updated = await collections.projects.findOne({ _id: access.project._id });
 	if (!updated) error(404, "No such project.");
-	return json(await projectView({ project: updated, owned: true }));
+	return json(await projectView({ project: updated, owned: true }, user._id));
 };
 
 export const DELETE: RequestHandler = async ({ locals, params, url }) => {

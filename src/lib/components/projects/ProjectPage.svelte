@@ -23,8 +23,9 @@
 
 	Three things this has to say out loud (ADR 0062), as the overlay did:
 
-	**A shared project is a shared workspace.** Everyone who can see it sees
-	every conversation in it, including ones other people started.
+	**A shared project shares its instructions, knowledge and memory, not its
+	chats.** Everyone who can see it sees only their own conversations in it,
+	plus a count of the others'.
 
 	**Sharing a project does not share its knowledge bases.** Retrieval
 	re-checks the reader's own access to every attached base on every turn.
@@ -77,7 +78,6 @@
 		title: string;
 		model: string;
 		updatedAt: string;
-		mine: boolean;
 	}
 
 	interface Props {
@@ -212,10 +212,13 @@
 			if (!creating) {
 				const [detail, listed] = await Promise.all([
 					api<ProjectView>(`/projects/${id}`),
-					api<{ data: ProjectConversation[] }>(`/projects/${id}/conversations`),
+					api<{ data: ProjectConversation[]; othersCount: number }>(
+						`/projects/${id}/conversations`
+					),
 				]);
 				project = detail;
 				conversations = listed.data;
+				othersCount = listed.othersCount ?? 0;
 				seed(detail);
 			}
 		} catch (err) {
@@ -356,6 +359,9 @@
 			busy = false;
 		}
 	}
+
+	/** Other members' chats in this project: a count, never their titles. */
+	let othersCount = $state(0);
 
 	const moveConversation = useMoveConversation();
 	let moving = $state<ProjectConversation | null>(null);
@@ -1067,26 +1073,24 @@
 													>
 													<span class="text-xs text-ink-muted">
 														{modelName(conversation.model)}
-														{#if !conversation.mine}{m["projects.page.chats.others"]()}{/if}
 													</span>
 												</span>
 											</a>
-											<!-- Moving a chat is its author's alone; the project's
-											     owner may only take a member's chat out. -->
-											{#if conversation.mine || project.owned}
-												<MoveMenu
-													label={conversation.title}
-													onmove={conversation.mine ? () => (moving = conversation) : undefined}
-													onremove={() => removeChat(conversation)}
-													ondelete={conversation.mine
-														? () =>
-																(deleting = $state.snapshot(conversation) as ProjectConversation)
-														: undefined}
-												/>
-											{/if}
+											<MoveMenu
+												label={conversation.title}
+												onmove={() => (moving = conversation)}
+												onremove={() => removeChat(conversation)}
+												ondelete={() =>
+													(deleting = $state.snapshot(conversation) as ProjectConversation)}
+											/>
 										</li>
 									{/each}
 								</ul>
+							{/if}
+							{#if othersCount > 0}
+								<p class="mt-3 text-xs text-ink-muted" data-testid="project-others-count">
+									{m["projects.page.chats.others_count"]({ count: othersCount })}
+								</p>
 							{/if}
 						</div>
 					</section>

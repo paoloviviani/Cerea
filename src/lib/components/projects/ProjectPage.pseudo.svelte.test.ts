@@ -33,6 +33,7 @@ const PROJECT = {
 	owned: true,
 	shares: [{ kind: "user", principal: "ana@example.org" }],
 	conversationCount: 1,
+	othersCount: 0,
 	updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
@@ -64,7 +65,6 @@ function stubApi() {
 								name: "call.pdf",
 								status: "ready",
 								chars: 1200,
-								mine: true,
 								addedBy: "x",
 							},
 						],
@@ -79,7 +79,6 @@ function stubApi() {
 								id: "n1",
 								text: "Staging resets on Monday",
 								source: "user",
-								mine: true,
 								author: "x",
 								createdAt: "2026-01-01T00:00:00.000Z",
 							},
@@ -94,7 +93,6 @@ function stubApi() {
 							title: "Budget questions",
 							model: "m",
 							updatedAt: "2026-01-01T00:00:00Z",
-							mine: false,
 						},
 					],
 				});

@@ -212,7 +212,7 @@ describe("projectView defaults for new chats", () => {
 		};
 		await collections.projects.insertOne(project);
 
-		const view = await projectView({ project, owned: true });
+		const view = await projectView({ project, owned: true }, project.userId);
 
 		expect(view.defaultWebSearch).toBe(true);
 		// The stored field is retired (ADR 0104): kept on old rows, never shown.
@@ -222,7 +222,7 @@ describe("projectView defaults for new chats", () => {
 	it("leaves the defaults unset when the project does not set them", async () => {
 		const project = await makeProject(new ObjectId());
 
-		const view = await projectView({ project, owned: true });
+		const view = await projectView({ project, owned: true }, project.userId);
 
 		expect(view.defaultWebSearch).toBeUndefined();
 	});

@@ -1,15 +1,12 @@
 /**
- * The conversations in one project, newest activity first.
+ * The caller's own conversations in one project, newest activity first.
  *
- * Everyone who can see the project sees the whole list, including conversations
- * other people started. That is the point of sharing a project rather than
- * sharing chats one at a time — a shared project is a shared workspace — and
- * the project page says so plainly so nobody discovers it by finding their own
- * thread in a colleague's list.
+ * A project is shared (instructions, knowledge, memory), its chats are not:
+ * conversations open for their author only, so listing a colleague's chat
+ * would be a dead end that also leaks its title. Other members' chats are
+ * reduced to `othersCount`; their ids and titles never leave the server.
  *
- * The message bodies are not sent, only the titles and timestamps. Reading a
- * conversation still goes through the conversation route, which enforces its
- * own rules.
+ * The message bodies are not sent, only titles and timestamps.
  */
 
 import { error, json, type RequestHandler } from "@sveltejs/kit";
@@ -22,17 +19,20 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	const access = await projectAccess(params.id as string, locals.user._id, principals);
 	if (!access) error(404, "No such project.");
 
-	const conversations = await collections.conversations
-		.find({ projectId: access.project._id })
-		.project<{ _id: object; title: string; model: string; updatedAt: Date; userId?: object }>({
-			title: 1,
-			model: 1,
-			updatedAt: 1,
-			userId: 1,
-		})
-		.sort({ updatedAt: -1 })
-		.limit(200)
-		.toArray();
+	const own = { projectId: access.project._id, userId: locals.user._id };
+	const [conversations, totalCount] = await Promise.all([
+		collections.conversations
+			.find(own)
+			.project<{ _id: object; title: string; model: string; updatedAt: Date }>({
+				title: 1,
+				model: 1,
+				updatedAt: 1,
+			})
+			.sort({ updatedAt: -1 })
+			.limit(200)
+			.toArray(),
+		collections.conversations.countDocuments({ projectId: access.project._id }),
+	]);
 
 	return json({
 		data: conversations.map((conversation) => ({
@@ -40,7 +40,7 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 			title: conversation.title,
 			model: conversation.model,
 			updatedAt: conversation.updatedAt.toISOString(),
-			mine: conversation.userId?.toString() === locals.user?._id.toString(),
 		})),
+		othersCount: Math.max(0, totalCount - conversations.length),
 	});
 };
