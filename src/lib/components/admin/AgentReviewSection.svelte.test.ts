@@ -90,7 +90,7 @@ afterEach(() => {
 	document.body.innerHTML = "";
 });
 
-describe("Administration -> Agent auto-approval", () => {
+describe("Administration -> Agents -> Auto-approval", () => {
 	it("shows the egress note, the fixed frame around the editable text, and per-class rows with loop fixed", async () => {
 		stub(view());
 		renderWithApp(AgentReviewSection, {});

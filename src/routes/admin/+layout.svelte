@@ -47,8 +47,8 @@
 		{ href: "/admin/skills", label: m["admin.layout.section.skills"](), icon: IconMagicWand },
 		{ href: "/admin/assistant", label: m["admin.layout.section.assistant"](), icon: IconBot },
 		{
-			href: "/admin/auto-approval",
-			label: m["admin.layout.section.auto_approval"](),
+			href: "/admin/agents",
+			label: m["admin.layout.section.agents"](),
 			icon: IconShieldCheck,
 		},
 		{ href: "/admin/storage", label: m["admin.layout.section.storage"](), icon: IconDataBase },

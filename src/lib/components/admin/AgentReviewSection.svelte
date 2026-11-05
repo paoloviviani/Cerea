@@ -184,7 +184,7 @@
 </script>
 
 <div class="flex flex-col gap-8" data-testid="agent-review">
-	<section aria-labelledby="auto-title" class="flex flex-col gap-4">
+	<section id="auto-approval" aria-labelledby="auto-title" class="flex flex-col gap-4">
 		<div>
 			<h2 id="auto-title" class="text-lg font-semibold">{m["admin.auto.title"]()}</h2>
 			<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">{m["admin.auto.intro"]()}</p>

@@ -37,7 +37,7 @@ describe("Administration tabs", () => {
 			{ label: "Connectors", href: "/admin/connectors" },
 			{ label: "Skills", href: "/admin/skills" },
 			{ label: "Assistant", href: "/admin/assistant" },
-			{ label: "Auto-approval", href: "/admin/auto-approval" },
+			{ label: "Agents", href: "/admin/agents" },
 			{ label: "Storage", href: "/admin/storage" },
 		]);
 	});
@@ -52,7 +52,7 @@ describe("Administration tabs", () => {
 			"Connectors",
 			"Skills",
 			"Assistant",
-			"Auto-approval",
+			"Agents",
 			"Storage",
 		]);
 	});
