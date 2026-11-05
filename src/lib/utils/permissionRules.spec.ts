@@ -3,7 +3,6 @@ import type { PermissionRule } from "$lib/types/machineProtocol";
 import {
 	ceilingEmpty,
 	ceilingFor,
-	ceilingNote,
 	ceilingOfPolicy,
 	isCapped,
 	hasFileRules,
@@ -58,13 +57,6 @@ describe("the ceiling", () => {
 		expect(isCapped(ceiling, "webfetch")).toBe(false);
 		expect(isCapped({ "*": "ask" }, "anything")).toBe(true);
 		expect(isCapped({}, "bash")).toBe(false);
-	});
-
-	it("names what the ceiling still holds back, for the selector's note", () => {
-		expect(ceilingNote({ bash: "ask" })).toBe("bash asks");
-		expect(ceilingNote({ bash: "ask", edit: "deny" })).toBe("bash asks, edit is denied");
-		expect(ceilingNote({ "*": "ask" })).toBe("everything asks");
-		expect(ceilingNote({})).toBe("");
 	});
 });
 

@@ -328,17 +328,7 @@ describe("AgentView permission selector", () => {
 		expect(fake.ruleReads).toBeGreaterThan(reads);
 	});
 
-	it("names what the ceiling still caps under Allow, from permission.rules", async () => {
-		await browserPage.viewport(1200, 800);
-		fake.mode = "allow";
-		fake.ceiling = { bash: "ask" };
-		const screen = mount();
-		await expect
-			.element(screen.getByTestId("permission-mode-note"))
-			.toHaveTextContent("Allow · bash asks (machine limit)");
-	});
-
-	it("is disabled on a subagent's view, saying it follows the main session", async () => {
+	it("is disabled on a subagent's view", async () => {
 		await browserPage.viewport(1200, 800);
 		fake.parentId = "root-1";
 		fake.mode = "deny";
@@ -347,9 +337,6 @@ describe("AgentView permission selector", () => {
 			.element(screen.getByTestId("permission-mode-deny"))
 			.toHaveAttribute("aria-checked", "true");
 		await expect.element(screen.getByTestId("permission-mode-allow")).toBeDisabled();
-		await expect
-			.element(screen.getByTestId("permission-mode-note"))
-			.toHaveTextContent("Follows the main session");
 		expect(fake.setCalls).toEqual([]);
 	});
 

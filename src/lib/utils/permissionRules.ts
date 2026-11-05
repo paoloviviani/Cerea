@@ -3,7 +3,6 @@
  * (`permission.max` in the machine's hello) per permission key, and whether a machine predates
  * ceilings. Nothing here writes anything.
  */
-import { m } from "$lib/paraglide/messages";
 import type { PermissionRule, PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
 
 export type RuleAction = PermissionRule["action"];
@@ -54,19 +53,6 @@ export function ceilingFor(
 export function isCapped(ceiling: Record<string, "ask" | "deny">, permission: string): boolean {
 	const max = ceilingFor(ceiling, permission);
 	return max !== null && RANK[max] < RANK.allow;
-}
-
-/** What the ceiling still holds back under Allow, in words: "bash asks",
- * "edit is denied". Empty when it caps nothing. The key `*` reads "everything". */
-export function ceilingNote(ceiling: Record<string, "ask" | "deny">): string {
-	return Object.entries(ceiling)
-		.map(([key, max]) => {
-			const name = key === "*" ? m["code.permissions.ceiling_everything"]() : key;
-			return max === "ask"
-				? m["code.permissions.ceiling_asks"]({ key: name })
-				: m["code.permissions.ceiling_denied"]({ key: name });
-		})
-		.join(", ");
 }
 
 // -- legacy machines ---------------------------------------------------------

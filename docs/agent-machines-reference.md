@@ -401,7 +401,7 @@ edits are refused by the same Plan setting.
 (`external_directory`) and the **stuck-agent brake** (`doom_loop`, an agent
 repeating itself). Allow never silences them. The machine's ceiling is the other
 thing Allow cannot pass: where the machine says `bash` asks, `bash` asks on
-Allow too, and the selector says so (_"Allow · bash asks (machine limit)"_).
+Allow too, and the shield's sheet says so.
 Nothing in the panel can raise the ceiling; loosening it means enrolling again.
 
 **What never asks, on every machine:** the **safe directories** the machine was
@@ -575,10 +575,10 @@ Inside the prompt box, in the chat's own pill idiom:
 - **permission** — the **Plan · Ask · Allow** selector: what this session does
   about a tool call it has no rule for, until you change it. A new session
   starts on **Ask**. It shows what the machine says (never a guess), and a click
-  is only reflected once the machine has confirmed it. Under **Allow** it names
-  what the machine's limits still hold back, e.g. _"Allow · bash asks (machine
-  limit)"_. On a **subagent**'s view it is disabled, showing its main session's
-  setting: _"Follows the main session"_. It is hidden while the sign-in is stale.
+  is only reflected once the machine has confirmed it. Nothing is written beside it:
+  what the step means and what the machine still holds back is in the shield's
+  sheet. On a **subagent**'s view it is disabled, showing its main session's
+  setting. It is hidden while the sign-in is stale.
   Beside it a shield button, hidden on a subagent and while the sign-in is
   stale, opens this session's [Permissions dialog](#permissions) and shows the
   exceptions count when there is one.
