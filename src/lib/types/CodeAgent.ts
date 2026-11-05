@@ -373,6 +373,8 @@ export interface CodeDevice {
 		allowedTools?: string[] | null;
 	}>;
 	mcpServersAt?: Date;
+	/** "Never send this machine's asks to the reviewer" (ADR 0107): set by the owner, read by the review service. */
+	neverReview?: boolean;
 }
 
 /** A working directory the daemon serves agents from. Lives on the daemon. */

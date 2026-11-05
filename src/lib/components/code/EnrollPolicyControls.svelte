@@ -4,7 +4,7 @@
 	nobody has to edit the printed command by hand (`FLAG_CONTROLS` names each
 	flag's control; `enrollFlags.spec.ts` keeps the two in step).
 
-	Common options sit on top: the ceiling for all tools at once (three pills),
+	Common options sit on top: what the machine lets commands do (three pills),
 	trusting repos, and installing opencode. The rest sit under Advanced, which
 	is collapsed until opened but never hides a choice: the preview above
 	carries every non-default value, and the summary counts them. Each control
@@ -15,11 +15,11 @@
 	default while `enroll` itself keeps requiring an explicit `--default-group`:
 	unticking it is what removes the flag. The
 	risky ones (terminal, command shell, trusting repos' own config, dropping
-	the secret list, a bash ceiling of Allow) read in an amber tone.
+	the secret list, commands that run without a card) read in an amber tone.
 
-	The ceiling is the one control that is not one flag per row: the flag
-	replaces enroll's default set, so a single changed row writes all of it.
-	"All tools" sets every row; the rows themselves sit under Advanced.
+	The limits are the one control that is not one flag per row: `--limit
+	CLASS=VALUE` is printed only for a class changed from the machine's default
+	(ADR 0107). Commands sit on top; every class has a row under Advanced.
 -->
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
@@ -28,15 +28,16 @@
 	import { page } from "$app/state";
 	import IconClose from "~icons/carbon/close";
 	import {
-		CEILING_ACTIONS,
-		CEILING_KEYS,
+		LIMIT_CLASSES,
 		advancedChangedCount,
-		ceilingChanged,
-		uniformCeiling,
+		allowedLimits,
+		changedLimits,
 		maxTerminalsProblem,
-		type CeilingAction,
 		type EnrollPolicyChoices,
+		type LimitWord,
 	} from "$lib/codeEnrollPolicy";
+	import { className } from "$lib/utils/autoApproval";
+	import type { PermissionClass } from "$lib/types/machineProtocol";
 
 	interface Props {
 		choices: EnrollPolicyChoices;
@@ -57,24 +58,17 @@
 		| "noFiles"
 		| "allowFileWrite"
 		| "noDefaultFileDeny"
-		| "allowOutsideProject"
-		| "allowSecretReads"
 		| "billToDefault";
 
-	const ACTION_LABEL: Record<CeilingAction, () => string> = {
-		allow: m["code.enroll.action.allow"],
-		ask: m["code.enroll.action.ask"],
-		deny: m["code.enroll.action.deny"],
+	const WORD_LABEL: Record<LimitWord, () => string> = {
+		never: m["code.enroll.limit.never"],
+		ask: m["code.enroll.limit.ask"],
+		run: m["code.enroll.limit.run"],
+		stop: m["code.enroll.limit.stop"],
 	};
 
 	let advancedCount = $derived(advancedChangedCount(choices));
-	let allTools = $derived(uniformCeiling(choices.ceiling));
-
-	function setAllTools(action: CeilingAction) {
-		for (const key of CEILING_KEYS) choices.ceiling[key] = action;
-	}
-
-	let ceilingEdited = $derived(ceilingChanged(choices.ceiling));
+	let limitsEdited = $derived(changedLimits(choices.limits).length > 0);
 	let terminalProblem = $derived(maxTerminalsProblem(choices.maxTerminals));
 
 	const FIELD =
@@ -105,20 +99,16 @@
 	</label>
 {/snippet}
 
-<!-- Allow · Ask · Deny side by side: one click, the current one pressed. -->
-{#snippet pills(
-	testid: string,
-	label: string,
-	current: CeilingAction | null,
-	pick: (action: CeilingAction) => void
-)}
+<!-- A class's words side by side (never · ask · run; secrets has no run, loop reads ask · stop):
+     one click, the current one pressed. -->
+{#snippet pills(testid: string, label: string, cls: PermissionClass)}
 	<div class="flex gap-1" role="group" aria-label={label} data-testid={testid}>
-		{#each CEILING_ACTIONS as action (action)}
+		{#each allowedLimits(cls) as word (word)}
 			<button
 				type="button"
-				class="{PILL} {current === action ? '' : PILL_OFF}"
-				aria-pressed={current === action}
-				onclick={() => pick(action)}>{ACTION_LABEL[action]()}</button
+				class="{PILL} {choices.limits[cls] === word ? '' : PILL_OFF}"
+				aria-pressed={choices.limits[cls] === word}
+				onclick={() => (choices.limits[cls] = word)}>{WORD_LABEL[word]()}</button
 			>
 		{/each}
 	</div>
@@ -165,26 +155,26 @@
 		<Rich parts={m["code.enroll.fixed_note"].parts()} tags={{ code: inlineCode }} />
 	</p>
 
-	<div class="mb-3 text-xs text-ink-muted" data-testid="enroll-ceiling">
+	<div class="mb-3 text-xs text-ink-muted" data-testid="enroll-limits">
 		<div class="flex flex-wrap items-center justify-between gap-2">
 			<p>
-				<span class="font-medium text-ink">{m["code.enroll.ceiling_title"]()}</span>
-				{m["code.enroll.ceiling_detail"]()}
+				<span class="font-medium text-ink">{m["code.enroll.limits_title"]()}</span>
+				{m["code.enroll.limits_detail"]()}
 			</p>
-			{@render pills("enroll-ceiling-all", m["code.enroll.all_tools"](), allTools, setAllTools)}
+			{@render pills("enroll-limit-command", m["code.enroll.limit_commands"](), "command")}
 		</div>
-		{#if allTools === null}
-			<p class="mt-1" data-testid="enroll-ceiling-mixed">
-				{#if ceilingChanged(choices.ceiling)}
-					{m["code.enroll.ceiling_per_tool"]()}
-				{:else}
-					{m["code.enroll.ceiling_default"]()}
-				{/if}
-			</p>
-		{/if}
-		{#if choices.ceiling.bash === "allow"}
-			<p class="mt-1.5 text-amber-700 dark:text-amber-400" data-testid="enroll-bash-allow-warning">
-				<IconWarning class="mr-0.5 inline size-3 align-text-top" />{m["code.enroll.bash_warning"]()}
+		<p class="mt-1" data-testid="enroll-limits-note">
+			{#if limitsEdited}
+				{m["code.enroll.limits_edited"]()}
+			{:else}
+				{m["code.enroll.limits_default"]()}
+			{/if}
+		</p>
+		{#if choices.limits.command === "run"}
+			<p class="mt-1.5 text-amber-700 dark:text-amber-400" data-testid="enroll-command-run-warning">
+				<IconWarning class="mr-0.5 inline size-3 align-text-top" />{m[
+					"code.enroll.command_run_warning"
+				]()}
 			</p>
 		{/if}
 	</div>
@@ -293,34 +283,27 @@
 				m["code.enroll.subagents_text"]()
 			)}
 
-			<div class="mb-3 text-xs text-ink-muted" data-testid="enroll-ceiling-rows">
+			<div class="mb-3 text-xs text-ink-muted" data-testid="enroll-limit-rows">
 				<p class="mb-1">
-					<span class="font-medium text-ink">{m["code.enroll.cap_by_tool"]()}</span>
+					<span class="font-medium text-ink">{m["code.enroll.limits_by_class"]()}</span>
 				</p>
 				<table class="w-full">
 					<tbody>
-						{#each CEILING_KEYS as key (key)}
+						{#each LIMIT_CLASSES.filter((cls) => cls !== "command") as cls (cls)}
 							<tr>
-								<th scope="row" class="py-0.5 pr-2 text-left font-mono font-normal text-ink"
-									>{key}</th
+								<th scope="row" class="py-0.5 pr-2 text-left font-normal text-ink"
+									>{className(cls)}</th
 								>
 								<td class="py-0.5">
-									{@render pills(
-										`enroll-ceiling-${key}`,
-										m["code.enroll.most_may_do"]({ key }),
-										choices.ceiling[key],
-										(action) => (choices.ceiling[key] = action)
-									)}
+									{@render pills(`enroll-limit-${cls}`, className(cls), cls)}
 								</td>
 							</tr>
 						{/each}
 					</tbody>
 				</table>
-				{#if ceilingEdited}
-					<p class="mt-1.5" data-testid="enroll-ceiling-edited">
-						{m["code.enroll.ceiling_edited"]()}
-					</p>
-				{/if}
+				<p class="mt-1.5" data-testid="enroll-limits-secrets">
+					{m["code.enroll.limits_secrets"]()}
+				</p>
 			</div>
 			{@render flag(
 				"noAgentTools",
@@ -378,22 +361,6 @@
 				m["code.enroll.drop_text"](),
 				true
 			)}
-
-			<div data-testid="enroll-fixed-answers">
-				{@render flag(
-					"allowOutsideProject",
-					"enroll-allow-outside-project",
-					m["code.enroll.outside_label"](),
-					m["code.enroll.outside_text"]()
-				)}
-				{@render flag(
-					"allowSecretReads",
-					"enroll-allow-secret-reads",
-					m["code.enroll.secrets_label"](),
-					m["code.enroll.secrets_text"](),
-					true
-				)}
-			</div>
 		</div>
 	</details>
 </div>

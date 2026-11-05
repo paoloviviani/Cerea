@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildEnrollCommand } from "./codeEnrollCommand";
 import {
-	DEFAULT_CEILING,
+	DEFAULT_LIMITS,
 	defaultPolicyChoices,
 	promisedPolicy,
 	type EnrollPolicyChoices,
@@ -175,39 +175,14 @@ async function enrollWith(choices: EnrollPolicyChoices): Promise<Enrolled> {
 	};
 }
 
-/** policy.json now keeps the machine's say as class limits (ADR 0107). The
- * dialog still speaks the old per-key ceiling, so read the limits back into
- * that shape: a class below run caps the keys the dialog's table names for it
- * (outside, secrets and loop ask by default and add no row), and outside at
- * run is the dialog's external_directory allow. */
-const DIALOG_KEYS: Record<string, string[]> = {
-	edit: ["edit"],
-	command: ["bash"],
-	web: ["webfetch"],
-	agents: ["task", "session_spawn", "session_send", "session_read", "schedule"],
-};
-function ceilingFromLimits(limits: Record<string, string> | undefined) {
-	const max: Record<string, string> = {};
-	const rules: Record<string, string> = {};
-	for (const [cls, word] of Object.entries(limits ?? {})) {
-		if (word !== "never" && word !== "ask") {
-			if (cls === "outside" && word === "run") rules.external_directory = "allow";
-			// The dialog lists a raised bash (its default is ask) as bash=allow.
-			if (cls === "command" && word === "run") max.bash = "allow";
-			continue;
-		}
-		for (const key of DIALOG_KEYS[cls] ?? []) max[key] = word === "never" ? "deny" : "ask";
-	}
-	return { max, rules };
-}
-
 /** The fields the dialog promises, read from what enroll wrote. A field enroll
  * leaves out is read as the machine reads it (its documented default). */
 function actualOf(enrolled: Enrolled) {
 	const { policy, opencode } = enrolled;
 	const word = (key: string, fallback: string) => (policy[key] as string | undefined) ?? fallback;
 	return {
-		permission: ceilingFromLimits(policy.permission?.limits),
+		// A class enroll leaves out is read as the machine reads it: its default.
+		limits: { ...DEFAULT_LIMITS, ...policy.permission?.limits },
 		workspaceRoots: (policy.workspaceRoots as string[] | null) ?? [],
 		allowFreeModels: policy.allowFreeModels === true,
 		files: word("files", "read"),
@@ -243,23 +218,18 @@ describe.skipIf(!HAVE_BINARY)(
 					allowBackgroundSubagents: false,
 				}),
 			],
+			["edit asked", choose({ limits: { ...DEFAULT_LIMITS, edit: "ask" } })],
 			[
-				"one ceiling row changed: the whole set is written",
-				choose({ ceiling: { ...DEFAULT_CEILING, edit: "ask" } }),
+				"commands opened: the owner's opt-out",
+				choose({ limits: { ...DEFAULT_LIMITS, command: "run" } }),
 			],
+			["a kind refused", choose({ limits: { ...DEFAULT_LIMITS, web: "never" } })],
 			[
-				"bash opened: the owner's opt-out",
-				choose({ ceiling: { ...DEFAULT_CEILING, bash: "allow" } }),
+				"work outside the project without asking",
+				choose({ limits: { ...DEFAULT_LIMITS, outside: "run" } }),
 			],
-			[
-				"every row Allow",
-				choose({
-					ceiling: Object.fromEntries(
-						Object.keys(DEFAULT_CEILING).map((k) => [k, "allow"])
-					) as typeof DEFAULT_CEILING,
-				}),
-			],
-			["a row denied", choose({ ceiling: { ...DEFAULT_CEILING, webfetch: "deny" } })],
+			["secrets refused", choose({ limits: { ...DEFAULT_LIMITS, secrets: "never" } })],
+			["loops stopped", choose({ limits: { ...DEFAULT_LIMITS, loop: "stop" } })],
 			["trust repos", choose({ allowProjectConfig: true })],
 			[
 				"the Advanced switches",
@@ -281,15 +251,12 @@ describe.skipIf(!HAVE_BINARY)(
 			["files off, secret list dropped", choose({ noFiles: true, noDefaultFileDeny: true })],
 			["file writes allowed", choose({ allowFileWrite: true })],
 			["file writes asked for with files off", choose({ noFiles: true, allowFileWrite: true })],
-			["work outside the project without asking", choose({ allowOutsideProject: true })],
-			["secret reads without asking", choose({ allowSecretReads: true })],
-			["both fixed answers", choose({ allowOutsideProject: true, allowSecretReads: true })],
 			[
 				"everything at once",
 				choose({
 					allowTerminal: true,
 					maxTerminals: 2,
-					ceiling: { ...DEFAULT_CEILING, edit: "ask", session_send: "deny" },
+					limits: { ...DEFAULT_LIMITS, edit: "ask", agents: "never", loop: "stop" },
 					allowProjectConfig: true,
 					allowCommandShell: true,
 					allowBackgroundSubagents: true,
@@ -301,8 +268,6 @@ describe.skipIf(!HAVE_BINARY)(
 					allowFileWrite: true,
 					fileDeny: ["*.secret"],
 					noDefaultFileDeny: true,
-					allowOutsideProject: true,
-					allowSecretReads: true,
 				}),
 			],
 		];

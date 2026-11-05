@@ -332,6 +332,22 @@ What the operator should know:
   ceiling and rules and the approval card are unchanged. Read-only delegation is
   the `plan` mode of `session_spawn` / `session_committee`.
 
+## Plan, Ask and Auto
+
+The composer's permission control has three steps: **Plan** (the agent may only look and plan), **Ask** (every action that needs permission asks you first) and **Auto**. On the wire they are the machine's `deny`, `ask` and `allow`; Auto is `allow`.
+
+What Auto does depends on three layers, and the most cautious wins: **this machine's limits** (set when it was enrolled: per kind of action, never, ask or run), **your administrator's rows** (who answers an ask: you or a reviewer model) and the session. On Auto, what the machine lets run runs; what the machine says must be asked becomes a card that goes to the reviewer when the administrator's row for that kind says so, the machine is not opted out and the reviewer is reachable, and otherwise comes to you. The reviewer allows an action once when it is sure enough, or sends it to you with its reason.
+
+The third step is labelled **Allow**, not Auto, when there is no reviewer behind it: none is set up or turned on, the deployment switch is off, or you opted this machine out. Its asks then come to you.
+
+Under the control a line says what to expect, computed from the machine's limits and the administrator's rows, for example _Auto on studio-laptop: edits, web, agents and tools run · commands and outside access are reviewed · secrets and loops come to you_. **Details** lists each kind of action with what happens and why: "This machine's limit", "Set by your admin", or that you turned the reviewer off for this machine. A machine on an older galopin reports no per-kind limits, so the line is derived from its earlier settings and the details say so.
+
+**Never send this machine's asks to the reviewer** is in each machine's ⋯ menu in the sidebar. It is stored per machine for you, and the reviewer never sees that machine's asks.
+
+**Pairing sets the machine's limits.** The Pair-a-machine dialog has a pill row for commands (Never · Ask · Run) and, under Advanced, one per kind of action; it prints `--limit CLASS=VALUE` only for a kind you changed. When a machine's limit for loops is **Stop the turn**, a repeating agent is cut off and the transcript says _Stopped: the agent was repeating the same action_ as a plain line, not as an error.
+
+Scheduled actions offer the same three steps, in the same order, so a schedule can be set to Plan, Ask or Auto.
+
 ## Where an agent's asks show up
 
 One component, the Needs-you inbox, draws every pending approval and question

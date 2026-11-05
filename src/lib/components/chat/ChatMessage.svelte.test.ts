@@ -325,6 +325,28 @@ describe("a failed turn says why, on the turn itself", () => {
 		expect(banner?.textContent).toContain("Check the provider's credit or key, or switch model.");
 	});
 
+	it("a stopped loop is a plain neutral line, not a failure (ADR 0107)", () => {
+		const { baseElement } = mount([turnState("done", "loop_stopped")]);
+		const note = baseElement.querySelector('[data-testid="turn-stopped-note"]');
+		expect(note?.textContent).toContain("Stopped: the agent was repeating the same action");
+		expect(baseElement.querySelector('[data-testid="turn-failed-reason"]')).toBeNull();
+		// The wire reason is not shown, and the note reads as status, not an alert.
+		expect(note?.textContent).not.toContain("loop_stopped");
+		expect(note?.getAttribute("role")).toBe("status");
+		expect(note?.className).not.toContain("danger");
+	});
+
+	it("a plain finished turn and a failed one with the same word show no stopped line", () => {
+		expect(
+			mount([turnState("done")]).baseElement.querySelector('[data-testid="turn-stopped-note"]')
+		).toBeNull();
+		expect(
+			mount([turnState("failed", "loop_stopped")]).baseElement.querySelector(
+				'[data-testid="turn-stopped-note"]'
+			)
+		).toBeNull();
+	});
+
 	it("an older galopin's empty reason keeps today's look", () => {
 		const { baseElement } = mount([turnState("failed")]);
 		expect(baseElement.querySelector('[data-testid="turn-failed-reason"]')).toBeNull();

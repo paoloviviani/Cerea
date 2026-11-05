@@ -20,6 +20,7 @@ const apiMock = vi.hoisted(() => ({
 	getPermissionRules: vi.fn(),
 	getDelegateProfiles: vi.fn(),
 	listProviderModels: vi.fn(),
+	setNeverReview: vi.fn(async () => ({ neverReview: true })),
 }));
 
 vi.mock("$app/state", async () => {
@@ -39,6 +40,7 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 	getPermissionRules: apiMock.getPermissionRules,
 	getDelegateProfiles: apiMock.getDelegateProfiles,
 	listProviderModels: apiMock.listProviderModels,
+	setNeverReview: apiMock.setNeverReview,
 }));
 
 function device(id: string, over: Record<string, unknown> = {}) {
@@ -803,6 +805,33 @@ describe("CodeNavTree session Permissions menu", () => {
 
 		window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 		await expect.element(screen.getByTestId("permissions-detail")).not.toBeInTheDocument();
+	});
+
+	it("lets the owner keep a machine's asks from the reviewer, from its settings menu (ADR 0107)", async () => {
+		go("");
+		const screen = mount([device("d1"), device("d2", { neverReview: true })]);
+		await expect.element(screen.getByText("Box d1")).toBeVisible();
+		await screen.getByRole("button", { name: "Machine settings" }).first().click();
+		const item = screen.getByRole("menuitemcheckbox", {
+			name: "Never send this machine's asks to the reviewer",
+		});
+		await expect.element(item).toHaveAttribute("aria-checked", "false");
+		await item.click();
+		await vi.waitFor(() => expect(apiMock.setNeverReview).toHaveBeenCalledWith("d1", true));
+	});
+
+	it("shows an opted-out machine's choice as set", async () => {
+		go("");
+		const screen = mount([device("d2", { neverReview: true })]);
+		await expect.element(screen.getByText("Box d2")).toBeVisible();
+		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await expect
+			.element(
+				screen.getByRole("menuitemcheckbox", {
+					name: "Never send this machine's asks to the reviewer",
+				})
+			)
+			.toHaveAttribute("aria-checked", "true");
 	});
 
 	it("opens a machine's delegate profiles from its settings menu, for that machine", async () => {

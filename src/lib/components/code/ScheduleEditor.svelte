@@ -31,6 +31,7 @@
 	import IconTime from "~icons/carbon/time";
 	import {
 		createSchedule,
+		getAutoApproval,
 		createWorkspace,
 		listProviderModels,
 		listProviderModes,
@@ -44,6 +45,7 @@
 		type ScheduleView,
 	} from "$lib/codeApi";
 	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
+	import { thirdStepLabel } from "$lib/utils/autoApproval";
 	import type {
 		CodeAgentSession,
 		CodeDirectory,
@@ -147,6 +149,24 @@
 	let modeId = $state(stored.modeId ?? "");
 	let modelId = $state(stored.modelId ?? "");
 	let permissionMode = $state<"deny" | "ask" | "allow">(stored.permissionMode ?? "ask");
+	// The third step reads Auto only when a reviewer can answer for the chosen machine (ADR 0107).
+	let autoApproval = $state<Awaited<ReturnType<typeof getAutoApproval>> | null>(null);
+	$effect(() => {
+		void getAutoApproval()
+			.then((v) => (autoApproval = v))
+			.catch(() => (autoApproval = null));
+	});
+	const thirdLabel = $derived(
+		thirdStepLabel(
+			autoApproval && {
+				reviewerAvailable: autoApproval.available,
+				perClass: autoApproval.perClass,
+				neverReview: codeDeviceList.devices.find((d) => d.id === deviceId)?.neverReview === true,
+			}
+		) === "auto"
+			? m["code.permission_mode.auto"]()
+			: m["code.permission_mode.allow"]()
+	);
 	let canMessage = $state(stored.canMessage === true);
 	let canSpawn = $state(stored.canSpawn === true);
 	let enabled = $state(untrack(() => editing?.enabled) ?? true);
@@ -809,7 +829,7 @@
 					<span class={s.LABEL} id="sched-perm-label">{m["code.schedule_editor.permission"]()}</span
 					>
 					<div class="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="sched-perm-label">
-						{#each [["deny", m["code.permission_mode.plan"]()], ["ask", m["code.permission_mode.ask"]()], ["allow", m["code.permission_mode.allow"]()]] as const as [value, label] (value)}
+						{#each [["deny", m["code.permission_mode.plan"]()], ["ask", m["code.permission_mode.ask"]()], ["allow", thirdLabel]] as const as [value, label] (value)}
 							<button
 								type="button"
 								role="radio"

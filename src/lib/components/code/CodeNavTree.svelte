@@ -59,6 +59,7 @@
 	import {
 		confirmDevice,
 		revokeDevice,
+		setNeverReview,
 		archiveAgent,
 		deleteAgent,
 		archiveWorkspace,
@@ -82,6 +83,8 @@
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import PermissionsDialog from "./PermissionsDialog.svelte";
 	import MachineProfilesDialog from "./MachineProfilesDialog.svelte";
+	import IconSecurity from "~icons/carbon/security";
+	import { error as errorToast } from "$lib/stores/errors";
 	import WorkspaceDialog from "./WorkspaceDialog.svelte";
 	import WorkspaceRenameDialog from "./WorkspaceRenameDialog.svelte";
 	import WorktreeDialog from "./WorktreeDialog.svelte";
@@ -399,6 +402,15 @@
 			await refreshCodeDevices();
 		} catch (err) {
 			actionFailure = err instanceof Error ? err.message : m["code.nav.could_not_confirm"]();
+		}
+	}
+
+	async function toggleNeverReview(id: string, value: boolean) {
+		try {
+			await setNeverReview(id, value);
+			await refreshCodeDevices();
+		} catch (err) {
+			errorToast.set(err instanceof Error ? err.message : m["code.auto.device.failed"]());
 		}
 	}
 
@@ -768,6 +780,18 @@
 								<IconUsers class="size-4 opacity-90 dark:opacity-80" />
 								{m["code.nav.profiles"]()}
 							</DropdownMenu.Item>
+							<!-- ADR 0107: this machine's asks never go to the decision-model reviewer. -->
+							<DropdownMenu.CheckboxItem
+								class={MENU_ITEM}
+								checked={device.neverReview === true}
+								title={m["code.auto.device.never_review_detail"]()}
+								data-testid="never-review"
+								onCheckedChange={(value) => void toggleNeverReview(device.id, value)}
+							>
+								<IconSecurity class="size-4 opacity-90 dark:opacity-80" />
+								<span class="min-w-0 flex-1">{m["code.auto.device.never_review"]()}</span>
+								{#if device.neverReview}<IconCheck class="size-4" />{/if}
+							</DropdownMenu.CheckboxItem>
 							<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700" />
 							<DropdownMenu.Item
 								class={MENU_ITEM_DANGER}

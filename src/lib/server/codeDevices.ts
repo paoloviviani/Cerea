@@ -65,6 +65,8 @@ export interface CodeDeviceView {
 	 * the owner carries neither and stays excluded from this list, as before.
 	 */
 	reenroll?: "issuer_changed" | "revoked";
+	/** The owner's "Never send this machine's asks to the reviewer" (ADR 0107). */
+	neverReview?: boolean;
 }
 
 export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView {
@@ -87,6 +89,7 @@ export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView 
 		...(device.lastSeenAt ? { lastSeenAt: device.lastSeenAt } : {}),
 		...(device.pairedAt ? { pairedAt: device.pairedAt } : {}),
 		...(reenroll ? { reenroll } : {}),
+		...(device.neverReview ? { neverReview: true } : {}),
 	};
 }
 

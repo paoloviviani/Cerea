@@ -66,6 +66,7 @@
 		fetchSubagentTimeline,
 		getAgent,
 		getPermissionRules,
+		getAutoApproval,
 		listProviderModes,
 		listProviderModels,
 		listSubagents,
@@ -177,6 +178,13 @@
 	 * Permissions line, the selector's note and the card's Always button. Null
 	 * until it lands and on a machine that predates the op. */
 	let permissionRules = $state<PermissionRulesResult | null>(null);
+	/** Whether a reviewer stands behind Auto on this deployment (ADR 0107); null until known. */
+	let autoApproval = $state<Awaited<ReturnType<typeof getAutoApproval>> | null>(null);
+	$effect(() => {
+		void getAutoApproval()
+			.then((v) => (autoApproval = v))
+			.catch(() => (autoApproval = null));
+	});
 	/** The agent's working directory, from the same read. */
 	let agentCwd = $state<string | null>(null);
 	let workspace = $state<CodeWorkspace | null>(null);
@@ -1582,6 +1590,7 @@
 					{agent}
 					{ceiling}
 					permissionExceptions={permissionRules?.savedApprovals.length ?? 0}
+					{autoApproval}
 					policy={codeDeviceList.devices.find((d) => d.id === deviceId)?.policy}
 					device={codeDeviceList.devices.find((d) => d.id === deviceId)}
 					{modes}

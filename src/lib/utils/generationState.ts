@@ -20,6 +20,16 @@ export function turnStateOf(message?: Message): MessageTurnStateUpdate | undefin
 	return undefined;
 }
 
+/** The turn state reason a stopped loop leaves (galopin's `error` event code `loop_stopped`, ADR 0107):
+ * the machine's limit for loops is `stop`, so it cancelled the turn. Not a failure: the turn is done. */
+export const LOOP_STOPPED_REASON = "loop_stopped";
+
+/** Whether this turn ended because the machine stopped a loop (rendered as a plain line, not an error). */
+export function loopStoppedOf(message?: Message): boolean {
+	const state = turnStateOf(message);
+	return state?.state === "done" && state.reason === LOOP_STOPPED_REASON;
+}
+
 /**
  * Why a failed turn died, as the failed-turn banner renders it: the machine's
  * error event framed the provider's own text (PROTOCOL.md §7); an empty

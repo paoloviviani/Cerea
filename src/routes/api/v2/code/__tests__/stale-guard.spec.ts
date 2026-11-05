@@ -204,6 +204,7 @@ const FORWARDER_SAMPLES: Array<[string, string]> = [
  * prefix guard must refuse it all the same. */
 const OTHER_SAMPLES: Array<[string, string]> = [
 	["GET", "devices"],
+	["GET", "auto-approval"],
 	["PATCH", "devices?id=x"],
 	["DELETE", "devices?id=x"],
 	["GET", "agents/a1/stream?device=d1"],
@@ -234,6 +235,7 @@ const KNOWN_ROUTE_FILES = [
 	"../agents/[id]/stream/+server.ts",
 	"../attachments/[key]/+server.ts",
 	"../attachments/[key]/[sha256]/+server.ts",
+	"../auto-approval/+server.ts",
 	"../devices/+server.ts",
 	"../schedules/+server.ts",
 	"../schedules/[id]/+server.ts",

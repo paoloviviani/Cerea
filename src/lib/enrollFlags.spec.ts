@@ -3,8 +3,6 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ENROLL_FLAGS, ENROLL_LIMIT_CLASSES } from "./enrollFlags";
 import {
-	CEILING_KEYS,
-	DEFAULT_CEILING,
 	FLAG_CONTROLS,
 	defaultPolicyChoices,
 	exposedFlags,
@@ -20,7 +18,7 @@ import {
  * (a Go test there fails when `enroll` gains a flag it does not list). The
  * TypeScript copy is always checked against the flags `enroll.go` registers;
  * where that file exists (it lands with the agent branch) it is checked against
- * the file too, flags, ceiling rows and defaults.
+ * the file too: flags, the class table and defaults.
  */
 const AGENT_DIR = fileURLToPath(new URL("../../agent/", import.meta.url));
 const JSON_PATH = `${AGENT_DIR}packaging/enroll-flags.json`;
@@ -87,10 +85,8 @@ describe("enrollFlags (the TypeScript copy)", () => {
 				allowFileWrite: true,
 				fileDeny: ["x"],
 				noDefaultFileDeny: true,
-				allowOutsideProject: true,
-				allowSecretReads: true,
 				billToDefault: true,
-				ceiling: { ...defaultPolicyChoices().ceiling, edit: "ask" },
+				limits: { ...defaultPolicyChoices().limits, edit: "ask" },
 			})
 				.filter((arg) => arg.startsWith("--"))
 				.map((arg) => arg.slice(2))
@@ -112,7 +108,7 @@ describe("against the agent", () => {
 	});
 
 	it.skipIf(!existsSync(JSON_PATH))(
-		"equals agent/packaging/enroll-flags.json, flag for flag (retired flags aside), and its ceiling",
+		"equals agent/packaging/enroll-flags.json, flag for flag (retired flags aside), and its class table",
 		() => {
 			const file = JSON.parse(readFileSync(JSON_PATH, "utf8")) as {
 				flags: Array<{
@@ -122,7 +118,6 @@ describe("against the agent", () => {
 					exposed: boolean;
 					retired?: boolean;
 				}>;
-				ceiling: { flag: string; keys: Array<{ key: string; default: string }> };
 				limits: {
 					flag: string;
 					classes: Array<{ class: string; default: string; allowed: string[] }>;
@@ -142,11 +137,6 @@ describe("against the agent", () => {
 			// The retired flag stays unexposed in their file, and has no control here.
 			expect(file.flags.find((flag) => flag.flag === "allow-auto-accept")?.exposed ?? false).toBe(
 				false
-			);
-			// The ceiling table: the same rows, in the same order, with the same defaults.
-			expect(file.ceiling.flag).toBe("permission-max");
-			expect(file.ceiling.keys.map((row) => [row.key, row.default])).toEqual(
-				CEILING_KEYS.map((key) => [key, DEFAULT_CEILING[key]])
 			);
 			// The class table: --limit's classes, defaults and allowed words.
 			expect(file.limits.flag).toBe("limit");

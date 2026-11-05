@@ -12,7 +12,7 @@ import { FLAG_CONTROLS, exposedFlags } from "$lib/codeEnrollPolicy";
  * printed command by hand. Pinned here: every exposed flag has a control; the
  * untouched dialog prints exactly the defaults — `enroll`'s own, plus the one
  * deliberate divergence, Bill to my default group ticked; each control emits
- * exactly its flag; the ceiling table writes the whole set once a row changes;
+ * exactly its flag; `--limit` is printed only for a class that was changed;
  * Advanced is collapsed by default yet never hides a choice from the preview;
  * and no word of auto-accept survives.
  */
@@ -241,127 +241,98 @@ describe("each control emits exactly its flag", () => {
 		expect(policyPart(screen)).toBe("--default-group --file-deny '*.secret'");
 	});
 
-	it("fixed answers: two checkboxes, off by default, replace the old free-form list", async () => {
+	it("the old fixed-answer checkboxes and the dead secrets control are gone", async () => {
 		const screen = mount();
 		await openAdvanced(screen);
-		const box = screen.getByTestId("enroll-fixed-answers");
-		await expect.element(box).toBeVisible();
-		await expect.element(screen.getByTestId("enroll-allow-outside-project")).not.toBeChecked();
-		await expect.element(screen.getByTestId("enroll-allow-secret-reads")).not.toBeChecked();
+		for (const gone of [
+			"enroll-fixed-answers",
+			"enroll-allow-outside-project",
+			"enroll-allow-secret-reads",
+			"enroll-ceiling",
+		]) {
+			expect(screen.getByTestId(gone).elements(), gone).toHaveLength(0);
+		}
 		await expect
-			.element(screen.getByText("Fixed answers for this machine"))
+			.element(screen.getByText("Agents may read secret files without asking."))
 			.not.toBeInTheDocument();
-		await expect.element(screen.getByRole("button", { name: "Add rule" })).not.toBeInTheDocument();
 		expect(command(screen)).toBe(PLAIN);
-	});
-
-	it("outside the project: emits exactly its flag", async () => {
-		const screen = mount();
-		await openAdvanced(screen);
-		await screen.getByTestId("enroll-allow-outside-project").click();
-		expect(policyPart(screen)).toBe("--default-group --permission-rule 'external_directory=allow'");
-		await screen.getByTestId("enroll-allow-outside-project").click();
-		expect(command(screen)).toBe(PLAIN);
-	});
-
-	it("secret reads: emits exactly its flag, and reads as risky", async () => {
-		const screen = mount();
-		await openAdvanced(screen);
-		await screen.getByTestId("enroll-allow-secret-reads").click();
-		expect(policyPart(screen)).toBe("--default-group --permission-rule 'read=allow'");
-		const label = screen.getByTestId("enroll-allow-secret-reads").element().closest("label");
-		expect(label?.querySelector('[data-risky="true"]')).not.toBeNull();
-		const outside = screen.getByTestId("enroll-allow-outside-project").element().closest("label");
-		expect(outside?.querySelector("[data-risky]")).toBeNull();
-	});
-
-	it("both fixed answers emit both flags, outside-project first", async () => {
-		const screen = mount();
-		await openAdvanced(screen);
-		await screen.getByTestId("enroll-allow-secret-reads").click();
-		await screen.getByTestId("enroll-allow-outside-project").click();
-		expect(policyPart(screen)).toBe(
-			"--default-group --permission-rule 'external_directory=allow' --permission-rule 'read=allow'"
-		);
 	});
 });
 
-describe("the ceiling", () => {
-	const row = (screen: Screen, key: string) => screen.getByTestId(`enroll-ceiling-${key}`);
-	const pick = (screen: Screen, key: string, action: "Allow" | "Ask" | "Deny") =>
-		row(screen, key).getByRole("button", { name: action }).click();
-	const pressed = (screen: Screen, key: string) =>
-		row(screen, key).element().querySelector('[aria-pressed="true"]')?.textContent?.trim() ?? null;
+describe("the limits (ADR 0107)", () => {
+	const row = (screen: Screen, cls: string) => screen.getByTestId(`enroll-limit-${cls}`);
+	const pick = (screen: Screen, cls: string, word: string) =>
+		row(screen, cls).getByRole("button", { name: word }).click();
+	const pressed = (screen: Screen, cls: string) =>
+		row(screen, cls).element().querySelector('[aria-pressed="true"]')?.textContent?.trim() ?? null;
 
-	it("All tools sits in the common part, and shows the default as mixed", async () => {
+	it("commands sit in the common part, defaulting to Ask, and print nothing", async () => {
 		const screen = mount();
-		await expect.element(row(screen, "all")).toBeVisible();
-		expect(pressed(screen, "all")).toBeNull();
-		await expect.element(screen.getByTestId("enroll-ceiling-mixed")).toHaveTextContent("bash");
+		await expect.element(row(screen, "command")).toBeVisible();
+		expect(pressed(screen, "command")).toBe("Ask");
 		expect(policyPart(screen)).toBe("--default-group");
+		await expect.element(screen.getByTestId("enroll-limits-note")).toHaveTextContent("Default");
 	});
 
-	it("has the eight rows under Advanced, with enroll's default: bash asks", async () => {
+	it("shows the class table under Advanced with the machine's defaults, and secrets without Run, loops with Stop", async () => {
 		const screen = mount();
 		await openAdvanced(screen);
-		const keys = [
-			"edit",
-			"bash",
-			"webfetch",
-			"task",
-			"session_spawn",
-			"session_send",
-			"session_read",
-			"schedule",
-		];
-		const expected = ["Allow", "Ask", "Allow", "Allow", "Allow", "Allow", "Allow", "Allow"];
-		for (const [i, key] of keys.entries()) expect(pressed(screen, key), key).toBe(expected[i]);
+		const expected: Record<string, string> = {
+			edit: "Run",
+			web: "Run",
+			outside: "Ask",
+			secrets: "Ask",
+			agents: "Run",
+			tools: "Run",
+			loop: "Ask",
+		};
+		for (const [cls, word] of Object.entries(expected))
+			expect(pressed(screen, cls), cls).toBe(word);
+		const words = (cls: string) =>
+			[...row(screen, cls).element().querySelectorAll("button")].map((b) => b.textContent?.trim());
+		expect(words("secrets")).toEqual(["Never", "Ask"]);
+		expect(words("loop")).toEqual(["Ask", "Stop the turn"]);
+		expect(words("edit")).toEqual(["Never", "Ask", "Run"]);
 		expect(policyPart(screen)).toBe("--default-group");
 	});
 
-	it("All tools sets every row with one click, and prints the whole set", async () => {
-		const screen = mount();
-		await pick(screen, "all", "Ask");
-		expect(pressed(screen, "all")).toBe("Ask");
-		expect(policyPart(screen)).toBe(
-			"--default-group " +
-				"--permission-max edit=ask --permission-max bash=ask --permission-max webfetch=ask " +
-				"--permission-max task=ask --permission-max session_spawn=ask --permission-max session_send=ask " +
-				"--permission-max session_read=ask --permission-max schedule=ask"
-		);
-		await pick(screen, "all", "Allow");
-		expect(policyPart(screen)).toBe("--default-group --permission-max bash=allow");
-		await expect.element(screen.getByTestId("enroll-bash-allow-warning")).toBeVisible();
-	});
-
-	it("one changed row prints the full set, defaults included", async () => {
+	it("one changed class prints one --limit, and moving it back prints nothing again", async () => {
 		const screen = mount();
 		await openAdvanced(screen);
 		await pick(screen, "edit", "Ask");
-		expect(policyPart(screen)).toBe(
-			"--default-group --permission-max edit=ask --permission-max bash=ask"
-		);
-		await expect.element(screen.getByTestId("enroll-ceiling-edited")).toBeVisible();
-		// Back to the default: nothing again.
-		await pick(screen, "edit", "Allow");
+		expect(policyPart(screen)).toBe("--default-group --limit edit=ask");
+		await expect.element(screen.getByTestId("enroll-limits-note")).toHaveTextContent("Changed");
+		await pick(screen, "edit", "Run");
 		expect(policyPart(screen)).toBe("--default-group");
-		expect(screen.getByTestId("enroll-ceiling-edited").elements()).toHaveLength(0);
 	});
 
-	it("opening bash names the opt-out explicitly, and warns", async () => {
+	it("opening commands prints command=run and warns in the amber tone", async () => {
 		const screen = mount();
-		await openAdvanced(screen);
-		expect(screen.getByTestId("enroll-bash-allow-warning").elements()).toHaveLength(0);
-		await pick(screen, "bash", "Allow");
-		expect(policyPart(screen)).toBe("--default-group --permission-max bash=allow");
-		await expect.element(screen.getByTestId("enroll-bash-allow-warning")).toBeVisible();
+		expect(screen.getByTestId("enroll-command-run-warning").elements()).toHaveLength(0);
+		await pick(screen, "command", "Run");
+		expect(policyPart(screen)).toBe("--default-group --limit command=run");
+		await expect.element(screen.getByTestId("enroll-command-run-warning")).toBeVisible();
 	});
 
-	it("a Deny row is carried as deny", async () => {
+	it("never, outside and loop stop are carried as typed, and never the old alias flags", async () => {
 		const screen = mount();
 		await openAdvanced(screen);
-		await pick(screen, "webfetch", "Deny");
-		expect(policyPart(screen)).toContain("--permission-max webfetch=deny");
+		await pick(screen, "web", "Never");
+		await pick(screen, "outside", "Run");
+		await pick(screen, "loop", "Stop the turn");
+		expect(policyPart(screen)).toBe(
+			"--default-group --limit web=never --limit outside=run --limit loop=stop"
+		);
+		expect(command(screen)).not.toContain("permission-");
+	});
+
+	it("only the classes changed reach the Advanced count, commands excluded", async () => {
+		const screen = mount();
+		await pick(screen, "command", "Run");
+		expect(screen.getByTestId("enroll-advanced-count").elements()).toHaveLength(0);
+		await openAdvanced(screen);
+		await pick(screen, "web", "Never");
+		await expect.element(screen.getByTestId("enroll-advanced-count")).toHaveTextContent("1");
 	});
 });
 

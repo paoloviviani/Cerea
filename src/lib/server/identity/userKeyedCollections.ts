@@ -707,6 +707,16 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.pushSubscriptions, "userId", userId),
 	},
 	{
+		name: "agentReviewLog",
+		owner: "userId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// What the reviewer decided for a person's machines stays with that person.
+		merge: (stray, target) => reassignSimple(collections.agentReviewLog, "userId", stray, target),
+		erase: (userId) => eraseByField(collections.agentReviewLog, "userId", userId),
+	},
+	{
 		name: "scheduleRuns",
 		owner: "userId",
 		mergeRule: "reassign",
