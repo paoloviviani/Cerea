@@ -556,8 +556,16 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 				if (applied.titleChanged) {
 					await collections.conversations.updateOne(
-						{ _id: convId },
-						{ $set: { title: conv?.title, updatedAt: new Date() } }
+						// Never over a rename the user made while the title was being written.
+						{ _id: convId, titleSource: { $ne: "user" } },
+						{
+							$set: {
+								title: conv?.title,
+								...(conv?.titleSource ? { titleSource: conv.titleSource } : {}),
+								...(conv?.titleAttempts !== undefined ? { titleAttempts: conv.titleAttempts } : {}),
+								updatedAt: new Date(),
+							},
+						}
 					);
 				}
 				if (applied.finalAnswerReceived) finalAnswerReceived = true;

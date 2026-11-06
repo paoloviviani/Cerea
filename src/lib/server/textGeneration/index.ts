@@ -43,8 +43,18 @@ async function* keepAlive(done: AbortSignal): AsyncGenerator<MessageUpdate, unde
 export async function* textGeneration(ctx: TextGenerationContext) {
 	const done = new AbortController();
 
-	const titleGen = generateTitleForConversation(ctx.conv, ctx.locals);
-	const textGen = textGenerationWithoutTitle(ctx, done);
+	// Resolves when the turn's generation has ended: a title that had to fall
+	// back is retried then, with the start of the reply to read.
+	let replyDone!: () => void;
+	const afterReply = new Promise<void>((resolve) => (replyDone = resolve));
+	const titleGen = generateTitleForConversation(ctx.conv, ctx.locals, { afterReply });
+	const textGen = (async function* () {
+		try {
+			yield* textGenerationWithoutTitle(ctx, done);
+		} finally {
+			replyDone();
+		}
+	})();
 	const keepAliveGen = keepAlive(done.signal);
 
 	// keep alive until textGen is done

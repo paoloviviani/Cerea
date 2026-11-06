@@ -65,8 +65,10 @@ export async function applyConversationSettings(
 ): Promise<UpdateResult> {
 	const updateValues = {
 		// Titles are model-generated, so they can carry think markup.
+		// A rename by the user is final: `titleSource: "user"` stops every retry.
 		...(values.title !== undefined && {
 			title: values.title.replace(thinkTagPattern("gi"), "").trim(),
+			titleSource: "user" as const,
 		}),
 		...(values.model !== undefined && { model: values.model }),
 		...(values.knowledgeBaseIds !== undefined && {

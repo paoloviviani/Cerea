@@ -5,6 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Better chat titles.** A title that could not be written (a reasoning model that used its whole budget thinking, a quota error, a timeout) is no longer stuck as the first few words: it is tried again after the first reply, with the start of the reply to read, and once more on the next message. The fallback is now the first sentence cut at a word boundary, not the raw first five words. A title you typed yourself is never replaced. New chats only; existing chats keep their titles.
+- **Model for titles (Administration → Assistant).** Choose which model names chats, from the gateway's chat models. Automatic (the default) uses `TASK_MODEL` if set, else a model that does not reason, else the chat's own model. `TITLE_MODEL` sets it from the environment.
+
 ## v0.43.0 — 2026-11-06
 
 Pins: Cerea `0.43.0` (chat and `cerea-documents`), Pystino `0.28.0`.

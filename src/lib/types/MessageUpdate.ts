@@ -88,6 +88,10 @@ export interface MessageStatusUpdate {
 export interface MessageTitleUpdate {
 	type: MessageUpdateType.Title;
 	title: string;
+	/** Whether the model named the chat, or `title` is the trimmed-sentence fallback. */
+	source?: "model" | "fallback";
+	/** The model-asking attempts made so far, this one included. */
+	attempts?: number;
 }
 export interface MessageStreamUpdate {
 	type: MessageUpdateType.Stream;
