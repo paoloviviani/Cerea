@@ -260,22 +260,54 @@ describe("AttachmentMounter: produced files", () => {
 		await mounter.syncProduced(rows);
 		expect(mounted).toEqual(["/mnt/data/report.docx"]);
 
-		// The name is re-uploaded, numbered 3 at upload: the newest content,
+		// The name is re-uploaded (sent after both rows): the newest content,
 		// mounted over the row like any attachment.
-		await mounter.sync([
-			{ type: "hash", name: "report.docx", value: "h1", mime: "application/pdf", version: 3 },
-		]);
+		const sent = Date.parse("2026-10-28T11:30:00Z");
+		const upload = {
+			type: "hash" as const,
+			name: "report.docx",
+			value: "h1",
+			mime: "application/pdf",
+			version: 3,
+			sentAt: sent,
+		};
+		await mounter.sync([upload]);
 		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("RE-UPLOADED");
 
 		// The rows do not come back over it on the next runs.
 		await mounter.syncProduced(rows);
 		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("RE-UPLOADED");
 
-		// A row numbered past the attachment takes the path back.
+		// A row made after the attachment was sent takes the path back.
 		await mounter.syncProduced([
 			row("report.docx", "p3", 11, { version: 4, createdAt: "2026-10-28T12:00:00Z" }),
 		]);
 		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("EDITED AGAIN");
+	});
+
+	it("mounts a restored older row over an attachment with no send time: the numbers do not say which is current", async () => {
+		const { mounter, loaded } = setup({
+			[out("p1")]: () => body("OLD ROW"),
+			"/conversation/conv1/output/h1": () => body("RE-UPLOADED"),
+		});
+		await mounter.sync([
+			{
+				type: "hash",
+				name: "report.docx",
+				value: "h1",
+				mime: "application/pdf",
+				version: 3,
+			},
+		]);
+		// Row 1 (a lower number than the attachment's) was restored later.
+		await mounter.syncProduced([
+			row("report.docx", "p1", 7, {
+				version: 1,
+				createdAt: "2026-10-28T10:00:00Z",
+				latestAt: "2026-10-28T12:00:00Z",
+			}),
+		]);
+		expect(new TextDecoder().decode(loaded.at(-1)?.data as ArrayBuffer)).toBe("OLD ROW");
 	});
 
 	it("keeps a file attached again mounted over an older produced version, by when it was sent", async () => {

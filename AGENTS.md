@@ -1334,8 +1334,11 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   `markCurrentVersion`) instead of copying it; the current version is the one
   that became newest last — a row by the latest `latestAt ?? createdAt`, the
   attachment by its message's timestamp. The sandbox mounts the current
-  version of every name at `/mnt/data/<name>` (`AttachmentMounter.syncProduced`,
-  listed per run from `code-execution/output`): a produced row is mounted over
+  version of every name at `/mnt/data/<name>` — except that two attachments of
+  one name with different content (attached, then re-uploaded) are two mounts,
+  the first at `<name>` and the later at `<name> (2)` (`planAttachments`), so
+  the bare name keeps the first upload, and the prompt names the path
+  (`AttachmentMounter.syncProduced`, listed per run from `code-execution/output`): a produced row is mounted over
   the attachment of that name unless the attachment is the current version —
   a re-upload is the newest content by construction; earlier versions are not
   mounted. The
