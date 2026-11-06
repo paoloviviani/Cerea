@@ -19,6 +19,7 @@ import (
 	backendacp "galopin/internal/backend/acp"
 	backendopencode "galopin/internal/backend/opencode"
 	"galopin/internal/decide"
+	"galopin/internal/filediff"
 	"galopin/internal/fsutil"
 	"galopin/internal/link"
 	"galopin/internal/policy"
@@ -442,6 +443,8 @@ type runningBackend interface {
 // selects (PROTOCOL.md §2: opencode is the default, richer implementation;
 // acp is the generic adapter any ACP agent can be plugged in behind).
 func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol policy.Policy, live *policy.Live, logf func(string, ...any)) (runningBackend, error) {
+	home, _ := os.UserHomeDir()
+	protect := diffProtect(decide.NewProtected(home, stateDir))
 	switch opts.backendKind {
 	case "", "opencode":
 		// galopin's own agent-coordination tools are installed unless the
@@ -467,6 +470,7 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 			// The machine's own rules and ceiling, read live: every session's
 			// rules and the agent-level floor are built from them.
 			Permissions: live.Layers,
+			Protect:     protect,
 			Logf:        func(format string, args ...any) { logf(format, args...) },
 		})
 		if err := ocBackend.Start(ctx); err != nil {
@@ -482,8 +486,9 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 			Command: cmd,
 			// galopin's coordination tools, offered over MCP when the agent can
 			// use an HTTP MCP server (PROTOCOL.md §6).
-			Tools: pol.AgentToolsAllowed(),
-			Logf:  func(format string, args ...any) { logf(format, args...) },
+			Tools:   pol.AgentToolsAllowed(),
+			Protect: protect,
+			Logf:    func(format string, args ...any) { logf(format, args...) },
 		})
 		if err := acpBackend.Start(ctx); err != nil {
 			return nil, fmt.Errorf("starting acp agent %q: %w", opts.acpCommand, err)
@@ -884,4 +889,21 @@ func buildConnectorsHello(pol policy.Policy) link.Hello {
 	h.Policy.BackgroundSubagents = policy.TerminalDenied
 	h.Policy.Warnings = nil
 	return h
+}
+
+// diffProtect is the predicate galopin's own diffs use to avoid reading a path
+// into a diff: galopin's own state, the credential stores, and the files a
+// read of which is already sensitive (.env).
+func diffProtect(pr decide.Protected) filediff.Protect {
+	return func(workspace, path string) bool {
+		rq := decide.Request{Key: "read", Patterns: []string{path}, Workspace: workspace}
+		if _, hit := pr.SecretHit(rq); hit {
+			return true
+		}
+		if _, hit := pr.OwnHit(rq); hit {
+			return true
+		}
+		_, sensitive := decide.Classify(decide.Policy{Protected: pr}, rq)
+		return sensitive
+	}
 }

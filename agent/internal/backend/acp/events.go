@@ -83,6 +83,9 @@ func (b *Backend) handleRequest(id json.RawMessage, method string, params json.R
 	workspaceDir := st.workspaceDir
 	st.mu.Unlock()
 
+	// The ask comes before the tool runs: snapshot the files it names now.
+	b.trackEdit(st.id, workspaceDir, p.ToolCall)
+
 	b.emit(workspaceDir, p.SessionID, backend.Event{Kind: backend.EventPermissionAsked, Request: &req})
 }
 
@@ -193,6 +196,19 @@ func (b *Backend) handleTextChunk(st *sessionState, role string, upd map[string]
 	acpMsgID := getStr(upd, "messageId", "messageID")
 
 	st.mu.Lock()
+	if st.replaying {
+		// A replayed history: an agent that sends no message ids (goose) is
+		// grouped one message per run of the same role.
+		if acpMsgID == "" {
+			if st.replayRole != role {
+				st.replaySeq++
+				st.replayRole = role
+			}
+			acpMsgID = fmt.Sprintf("%s:replay:%d", st.id, st.replaySeq)
+		} else {
+			st.replayRole = role
+		}
+	}
 	var msgID, partID string
 	var firstChunk bool
 	if role == "assistant" && st.busy {
@@ -254,6 +270,9 @@ func (b *Backend) handleToolCall(st *sessionState, upd map[string]any) {
 	partID := "tool:" + callID
 
 	st.mu.Lock()
+	if st.replaying {
+		st.replayRole = "" // text after a tool call is a new message
+	}
 	msgID := ""
 	if _, ok := st.partIndex[partID]; ok {
 		msgID = st.messages[st.partOwner[partID]].Message.ID
@@ -292,6 +311,7 @@ func (b *Backend) handleToolCall(st *sessionState, upd map[string]any) {
 	workspaceDir := st.workspaceDir
 	st.mu.Unlock()
 
+	b.trackEdit(st.id, workspaceDir, upd)
 	b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventPart, Part: &part})
 }
 
