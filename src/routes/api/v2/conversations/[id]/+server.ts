@@ -176,8 +176,22 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 		}
 	}
 
+	// Re-sending the chat's current model is not a new selection: a chat on a
+	// model an administrator has since hidden keeps working (same rule as
+	// `/conversation/[id]`). Only a change TO another model is checked.
+	const currentModel =
+		model !== undefined && ObjectId.isValid(params.id ?? "")
+			? (
+					await collections.conversations.findOne(
+						{ _id: new ObjectId(params.id), ...authCondition(locals) },
+						{ projection: { model: 1 } }
+					)
+				)?.model
+			: undefined;
+
 	if (
 		model !== undefined &&
+		model !== currentModel &&
 		!(await isSelectableModel(
 			model,
 			conversationOwnerFilter({ userId: locals.user?._id, sessionId: locals.sessionId }),
