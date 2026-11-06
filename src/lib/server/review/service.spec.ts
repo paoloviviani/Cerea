@@ -495,6 +495,7 @@ describe("plain reads: a machine-marked readOnly command is allowed by rule", ()
 		for (const mode of ["ask", "deny"]) {
 			const h = harness();
 			h.state.mode = mode;
+			h.state.autoClasses = undefined;
 			await run(h, ro());
 			expect(h.push).toHaveBeenCalledWith(undefined);
 			expect(h.reply).not.toHaveBeenCalled();

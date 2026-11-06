@@ -426,7 +426,7 @@ describe("POST v1/agents/:id/permission-mode", () => {
 				)
 			).agent;
 		expect(await snapshot()).toMatchObject({
-			permissionMode: "allow",
+			permissionMode: "ask",
 			autoClasses: { edit: "run" },
 		});
 		// The browser cannot name the map: an `autoClasses` in the body is ignored, and Allow clears it.
