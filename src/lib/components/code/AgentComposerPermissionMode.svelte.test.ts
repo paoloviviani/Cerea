@@ -96,12 +96,12 @@ beforeEach(async () => {
 });
 
 describe("the permission selector", () => {
-	it("is three segments, Plan · Ask · Allow, with the machine's word selected", async () => {
+	it("is four segments, Plan · Ask · Auto · Allow, with the machine's word selected", async () => {
 		const screen = mount(session({ permissionMode: "allow" }));
 		const group = screen.getByRole("radiogroup", { name: "Permission for this session" });
 		await expect.element(group).toBeVisible();
 		const radios = group.getByRole("radio").elements();
-		expect(radios.map((el) => el.textContent?.trim())).toEqual(["Plan", "Ask", "Allow"]);
+		expect(radios.map((el) => el.textContent?.trim())).toEqual(["Plan", "Ask", "Auto", "Allow"]);
 		await expect.element(segment(screen, "allow")).toHaveAttribute("aria-checked", "true");
 		await expect.element(segment(screen, "ask")).toHaveAttribute("aria-checked", "false");
 		await expect.element(segment(screen, "deny")).toHaveAttribute("aria-checked", "false");
@@ -122,7 +122,7 @@ describe("the permission selector", () => {
 		const screen = mount(session({ permissionMode: "ask" }), { onpermissionchanged });
 		await segment(screen, "deny").click();
 		await vi.waitFor(() => expect(api.setPermissionMode).toHaveBeenCalledTimes(1));
-		expect(api.setPermissionMode).toHaveBeenCalledWith("d1", "a1", "deny");
+		expect(api.setPermissionMode).toHaveBeenCalledWith("d1", "a1", "deny", { auto: false });
 		await vi.waitFor(() => expect(onpermissionchanged).toHaveBeenCalledTimes(1));
 		// The parent has not re-read: the machine's word is still Ask.
 		await expect.element(segment(screen, "ask")).toHaveAttribute("aria-checked", "true");
@@ -175,10 +175,10 @@ describe("the permission selector", () => {
 		expect(title).not.toContain("first turn");
 	});
 
-	it("tells Allow's two surviving asks on its tooltip, so nobody reads it as 'anything'", async () => {
+	it("tells Allow's surviving asks (the fixed floor) on its tooltip, so nobody reads it as 'anything'", async () => {
 		const screen = mount(session());
 		const title = segment(screen, "allow").element().getAttribute("title") ?? "";
-		expect(title).toContain("outside the project folder");
+		expect(title).toContain("credential files");
 		expect(title).toContain("stuck");
 		expect(segment(screen, "ask").element().getAttribute("title")).toContain("Reading is allowed");
 	});
@@ -186,7 +186,7 @@ describe("the permission selector", () => {
 	it("is disabled on a subagent, showing its root's word", async () => {
 		const screen = mount(session({ parentId: "root-1", permissionMode: "deny" }));
 		await expect.element(segment(screen, "deny")).toHaveAttribute("aria-checked", "true");
-		for (const mode of ["deny", "ask", "allow"]) {
+		for (const mode of ["deny", "ask", "auto", "allow"]) {
 			await expect.element(segment(screen, mode)).toBeDisabled();
 		}
 		expect(api.setPermissionMode).not.toHaveBeenCalled();
@@ -288,7 +288,9 @@ describe("the selector drives the build and plan agents", () => {
 	it("Plan switches a build session to the plan agent, after the word is set", async () => {
 		const screen = mount(session({ permissionMode: "ask", modeId: "build" }), { modes: MODES });
 		await segment(screen, "deny").click();
-		await vi.waitFor(() => expect(api.setPermissionMode).toHaveBeenCalledWith("d1", "a1", "deny"));
+		await vi.waitFor(() =>
+			expect(api.setPermissionMode).toHaveBeenCalledWith("d1", "a1", "deny", { auto: false })
+		);
 		await vi.waitFor(() => expect(api.setAgentMode).toHaveBeenCalledWith("d1", "a1", "plan"));
 	});
 

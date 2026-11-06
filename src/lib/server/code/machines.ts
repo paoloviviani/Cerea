@@ -43,6 +43,7 @@ import {
 	BIN_TERM_ACK,
 	type Backend,
 	type CallResFrame,
+	type AutoClasses,
 	type CoordinationKey,
 	type Directory,
 	type Command,
@@ -512,6 +513,8 @@ export class MachineLink {
 	sessionSetPermissionMode(args: {
 		sessionId: string;
 		mode: "deny" | "ask" | "allow";
+		/** ADR 0109: with `allow`, the per-class map that makes the session Auto; without, Allow. */
+		autoClasses?: AutoClasses;
 	}): Promise<Record<string, never>> {
 		return this.call("session.setPermissionMode", args);
 	}

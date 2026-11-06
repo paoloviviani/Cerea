@@ -4,8 +4,7 @@
 	nobody has to edit the printed command by hand (`FLAG_CONTROLS` names each
 	flag's control; `enrollFlags.spec.ts` keeps the two in step).
 
-	Common options sit on top: what the machine lets commands do (three pills),
-	trusting repos, and installing opencode. The rest sit under Advanced, which
+	Common options sit on top: trusting repos, and installing opencode. The rest sit under Advanced, which
 	is collapsed until opened but never hides a choice: the preview above
 	carries every non-default value, and the summary counts them. Each control
 	has a default equal to enroll's own and a default emits no flag
@@ -17,9 +16,8 @@
 	risky ones (terminal, command shell, trusting repos' own config, dropping
 	the secret list, commands that run without a card) read in an amber tone.
 
-	The limits are the one control that is not one flag per row: `--limit
-	CLASS=VALUE` is printed only for a class changed from the machine's default
-	(ADR 0107). Commands sit on top; every class has a row under Advanced.
+	There are no machine limits (ADR 0109): what runs, is reviewed or comes to you is chosen per
+	session (Plan, Ask, Auto, Allow) and in Workspace, Agents.
 -->
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
@@ -28,16 +26,10 @@
 	import { page } from "$app/state";
 	import IconClose from "~icons/carbon/close";
 	import {
-		LIMIT_CLASSES,
 		advancedChangedCount,
-		allowedLimits,
-		changedLimits,
 		maxTerminalsProblem,
 		type EnrollPolicyChoices,
-		type LimitWord,
 	} from "$lib/codeEnrollPolicy";
-	import { className } from "$lib/utils/autoApproval";
-	import type { PermissionClass } from "$lib/types/machineProtocol";
 
 	interface Props {
 		choices: EnrollPolicyChoices;
@@ -60,22 +52,11 @@
 		| "noDefaultFileDeny"
 		| "billToDefault";
 
-	const WORD_LABEL: Record<LimitWord, () => string> = {
-		never: m["code.enroll.limit.never"],
-		ask: m["code.enroll.limit.ask"],
-		run: m["code.enroll.limit.run"],
-		stop: m["code.enroll.limit.stop"],
-	};
-
 	let advancedCount = $derived(advancedChangedCount(choices));
-	let limitsEdited = $derived(changedLimits(choices.limits).length > 0);
 	let terminalProblem = $derived(maxTerminalsProblem(choices.maxTerminals));
 
 	const FIELD =
 		"rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink focus:border-blue-600 focus:outline-hidden";
-	const PILL =
-		"rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors aria-pressed:border-blue-600 aria-pressed:bg-blue-600 aria-pressed:text-white";
-	const PILL_OFF = "border-line text-ink-muted hover:bg-sunken";
 	const SMALL_BTN =
 		"rounded-lg border border-line px-2 py-0.5 text-xs font-medium text-ink-muted hover:bg-sunken";
 </script>
@@ -97,21 +78,6 @@
 			{text}
 		</span>
 	</label>
-{/snippet}
-
-<!-- A class's words side by side (never · ask · run; secrets has no run, loop reads ask · stop):
-     one click, the current one pressed. -->
-{#snippet pills(testid: string, label: string, cls: PermissionClass)}
-	<div class="flex gap-1" role="group" aria-label={label} data-testid={testid}>
-		{#each allowedLimits(cls) as word (word)}
-			<button
-				type="button"
-				class="{PILL} {choices.limits[cls] === word ? '' : PILL_OFF}"
-				aria-pressed={choices.limits[cls] === word}
-				onclick={() => (choices.limits[cls] = word)}>{WORD_LABEL[word]()}</button
-			>
-		{/each}
-	</div>
 {/snippet}
 
 <!-- A repeatable list: one text field per entry, Add and Remove. -->
@@ -154,30 +120,6 @@
 	<p class="mb-3 text-xs text-ink-muted" data-testid="enroll-fixed-note">
 		<Rich parts={m["code.enroll.fixed_note"].parts()} tags={{ code: inlineCode }} />
 	</p>
-
-	<div class="mb-3 text-xs text-ink-muted" data-testid="enroll-limits">
-		<div class="flex flex-wrap items-center justify-between gap-2">
-			<p>
-				<span class="font-medium text-ink">{m["code.enroll.limits_title"]()}</span>
-				{m["code.enroll.limits_detail"]()}
-			</p>
-			{@render pills("enroll-limit-command", m["code.enroll.limit_commands"](), "command")}
-		</div>
-		<p class="mt-1" data-testid="enroll-limits-note">
-			{#if limitsEdited}
-				{m["code.enroll.limits_edited"]()}
-			{:else}
-				{m["code.enroll.limits_default"]()}
-			{/if}
-		</p>
-		{#if choices.limits.command === "run"}
-			<p class="mt-1.5 text-amber-700 dark:text-amber-400" data-testid="enroll-command-run-warning">
-				<IconWarning class="mr-0.5 inline size-3 align-text-top" />{m[
-					"code.enroll.command_run_warning"
-				]()}
-			</p>
-		{/if}
-	</div>
 
 	{@render flag(
 		"allowProjectConfig",
@@ -283,28 +225,6 @@
 				m["code.enroll.subagents_text"]()
 			)}
 
-			<div class="mb-3 text-xs text-ink-muted" data-testid="enroll-limit-rows">
-				<p class="mb-1">
-					<span class="font-medium text-ink">{m["code.enroll.limits_by_class"]()}</span>
-				</p>
-				<table class="w-full">
-					<tbody>
-						{#each LIMIT_CLASSES.filter((cls) => cls !== "command") as cls (cls)}
-							<tr>
-								<th scope="row" class="py-0.5 pr-2 text-left font-normal text-ink"
-									>{className(cls)}</th
-								>
-								<td class="py-0.5">
-									{@render pills(`enroll-limit-${cls}`, className(cls), cls)}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-				<p class="mt-1.5" data-testid="enroll-limits-secrets">
-					{m["code.enroll.limits_secrets"]()}
-				</p>
-			</div>
 			{@render flag(
 				"noAgentTools",
 				"enroll-no-agent-tools",

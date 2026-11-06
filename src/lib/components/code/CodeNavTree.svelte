@@ -82,6 +82,7 @@
 	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import PermissionsDialog from "./PermissionsDialog.svelte";
+	import { stepOf } from "$lib/types/machineProtocol";
 	import MachineProfilesDialog from "./MachineProfilesDialog.svelte";
 	import IconSecurity from "~icons/carbon/security";
 	import { error as errorToast } from "$lib/stores/errors";
@@ -1284,7 +1285,7 @@
 	<PermissionsDialog
 		deviceId={permissionsFor.device.id}
 		agentId={permissionsFor.agent.id}
-		mode={permissionsFor.agent.permissionMode ?? null}
+		mode={stepOf(permissionsFor.agent.permissionMode, permissionsFor.agent.autoClasses)}
 		device={permissionsFor.device}
 		subagent={Boolean(permissionsFor.agent.parentId)}
 		policy={permissionsFor.device.policy}

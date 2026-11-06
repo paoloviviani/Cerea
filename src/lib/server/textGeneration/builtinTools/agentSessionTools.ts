@@ -18,7 +18,8 @@ import { authTimeFresh, sessionAuthFresh } from "$lib/server/code/stepUp";
 import { getProjectAgentProfile, profileView } from "$lib/server/projectAgentProfiles";
 import { setSessionConnectorKeys } from "$lib/server/code/sessionConnectors";
 import { MessageUpdateType, type MessageAgentSessionUpdate } from "$lib/types/MessageUpdate";
-import { OpError, type Part, type Session } from "$lib/types/machineProtocol";
+import { OpError, type Part, type PermissionStep, type Session } from "$lib/types/machineProtocol";
+import { autoClassesFor } from "$lib/server/agentReview";
 import type { CodeDevice } from "$lib/types/CodeAgent";
 import type { ProjectAgentProfile } from "$lib/types/AgentSession";
 import type { BuiltinTool, BuiltinToolResult } from "./types";
@@ -264,7 +265,7 @@ async function startSession(
 		profile !== null && deviceId === profile.deviceId && workspaceId === profile.workspaceId;
 	const modeId = input.modeId ?? (useProfile ? profile.modeId : undefined);
 	const modelId = input.modelId ?? (useProfile ? profile.modelId : undefined);
-	const permissionMode = useProfile ? profile.permissionMode : "ask";
+	const permissionMode: PermissionStep = useProfile ? profile.permissionMode : "ask";
 
 	const found = await deviceFor(userId, deviceId, modelId);
 	if ("error" in found) return found;
@@ -296,6 +297,7 @@ async function startSession(
 			modeId,
 			modelId,
 			permissionMode,
+			...(permissionMode === "auto" ? { autoClasses: await autoClassesFor(userId) } : {}),
 			prompt: input.prompt,
 			// The project's connector default goes with the profile's own target, never another.
 			...(useProfile && profile.connectorKeys?.length
@@ -335,7 +337,7 @@ async function startSession(
 		mode: permissionMode,
 		outcome: "ok",
 	});
-	const word = { ask: "Ask", allow: "Allow", deny: "Deny" }[permissionMode];
+	const word = { ask: "Ask", auto: "Auto", allow: "Allow", deny: "Deny" }[permissionMode];
 	return {
 		text: JSON.stringify({
 			started: true,

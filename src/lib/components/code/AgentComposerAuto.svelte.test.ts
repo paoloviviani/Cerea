@@ -8,7 +8,7 @@ import type { CodeAgentSession } from "$lib/types/CodeAgent";
 import type { CodeDeviceView } from "$lib/codeApi";
 import type { Policy } from "$lib/types/machineProtocol";
 
-/** ADR 0107 section 3: the third step's label and the computed line under the control. */
+/** ADR 0109 amendment: the four steps, Plan · Ask · Auto · Allow; Auto is `allow` with its map. */
 vi.mock("$env/dynamic/public", () => ({
 	env: { PUBLIC_APP_ASSETS: "chatui", PUBLIC_APP_NAME: "chat-ui" },
 }));
@@ -28,19 +28,9 @@ const session = (over: Partial<CodeAgentSession> = {}): CodeAgentSession => ({
 	modeId: null,
 	modelId: null,
 	permissionMode: "allow",
+	autoClasses: { command: "ask", edit: "run" },
 	...over,
 });
-
-const DEFAULT_LIMITS = {
-	edit: "allow",
-	web: "allow",
-	tools: "allow",
-	agents: "allow",
-	command: "ask",
-	outside: "ask",
-	secrets: "ask",
-	loop: "ask",
-} as const;
 
 const device = (policy: Policy, extra: Partial<CodeDeviceView> = {}): CodeDeviceView =>
 	({
@@ -55,7 +45,7 @@ const device = (policy: Policy, extra: Partial<CodeDeviceView> = {}): CodeDevice
 		...extra,
 	}) as unknown as CodeDeviceView;
 
-const base: Policy = { workspaceRoots: [], allowFreeModels: false, limits: { ...DEFAULT_LIMITS } };
+const base: Policy = { workspaceRoots: [], allowFreeModels: false };
 
 function mount(
 	over: {
@@ -98,35 +88,57 @@ beforeEach(async () => {
 	await browserPage.viewport(1200, 800);
 });
 
-describe("the third step", () => {
-	it("reads Auto when a reviewer is available and the device has not opted out", async () => {
-		const screen = mount();
-		await expect.element(screen.getByTestId("permission-mode-allow")).toBeVisible();
-		expect(labels(screen)).toEqual(["Plan", "Ask", "Auto"]);
-		await expect
-			.element(screen.getByTestId("permission-mode-allow"))
-			.toHaveAttribute("aria-checked", "true");
-	});
-
-	it("reads Allow with no reviewer (unconfigured, off or the kill switch), unknown state, or an opted-out device", async () => {
+describe("the four steps", () => {
+	it("always offers Plan, Ask, Auto and Allow, with or without a reviewer", async () => {
 		for (const over of [
+			{},
 			{ autoApproval: { available: false, perClass: PER_CLASS_DEFAULTS } },
 			{ autoApproval: null },
 			{ device: device(base, { neverReview: true }) },
 		]) {
 			document.body.innerHTML = "";
 			const screen = mount(over);
-			await expect.element(screen.getByTestId("permission-mode-allow")).toBeVisible();
-			expect(labels(screen)).toEqual(["Plan", "Ask", "Allow"]);
+			await expect.element(screen.getByTestId("permission-mode-auto")).toBeVisible();
+			expect(labels(screen)).toEqual(["Plan", "Ask", "Auto", "Allow"]);
 		}
 	});
 
-	it("still maps to the wire's allow", async () => {
-		const screen = mount({ agent: session({ permissionMode: "ask" }) });
-		await expect.element(screen.getByTestId("permission-mode-allow")).toHaveTextContent("Auto");
-		await screen.getByTestId("permission-mode-allow").click();
+	it("reads `allow` with its map as Auto, and without one as Allow", async () => {
+		const auto = mount();
+		await expect
+			.element(auto.getByTestId("permission-mode-auto"))
+			.toHaveAttribute("aria-checked", "true");
+		await expect
+			.element(auto.getByTestId("permission-mode-allow"))
+			.toHaveAttribute("aria-checked", "false");
+		document.body.innerHTML = "";
+		const allow = mount({ agent: session({ autoClasses: undefined }) });
+		await expect
+			.element(allow.getByTestId("permission-mode-allow"))
+			.toHaveAttribute("aria-checked", "true");
+		await expect
+			.element(allow.getByTestId("permission-mode-auto"))
+			.toHaveAttribute("aria-checked", "false");
+	});
+
+	it("Auto sends the word allow with auto, Allow sends allow alone", async () => {
 		const { setPermissionMode } = await import("$lib/codeApi");
-		await vi.waitFor(() => expect(setPermissionMode).toHaveBeenCalledWith("d1", "a1", "allow"));
+		const screen = mount({ agent: session({ permissionMode: "ask", autoClasses: undefined }) });
+		await screen.getByTestId("permission-mode-auto").click();
+		await vi.waitFor(() =>
+			expect(setPermissionMode).toHaveBeenCalledWith("d1", "a1", "allow", { auto: true })
+		);
+		await screen.getByTestId("permission-mode-allow").click();
+		await vi.waitFor(() =>
+			expect(setPermissionMode).toHaveBeenLastCalledWith("d1", "a1", "allow", { auto: false })
+		);
+	});
+
+	it("moving from Auto to Allow is a change even though the wire word is the same", async () => {
+		const { setPermissionMode } = await import("$lib/codeApi");
+		const screen = mount();
+		await screen.getByTestId("permission-mode-allow").click();
+		await vi.waitFor(() => expect(setPermissionMode).toHaveBeenCalledTimes(1));
 	});
 });
 
@@ -135,7 +147,7 @@ describe("below the composer", () => {
 		for (const permissionMode of ["allow", "ask", "deny"] as const) {
 			document.body.innerHTML = "";
 			const screen = mount({ agent: session({ permissionMode }) });
-			await expect.element(screen.getByTestId("permission-mode-allow")).toBeVisible();
+			await expect.element(screen.getByTestId("permission-mode-auto")).toBeVisible();
 			expect(document.querySelector('[data-testid="auto-line-wrap"]')).toBeNull();
 			expect(document.querySelector('[data-testid="auto-line"]')).toBeNull();
 			expect(document.querySelector('[data-testid="auto-details-toggle"]')).toBeNull();

@@ -29,11 +29,12 @@
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import CodeReauthCard from "$lib/components/code/CodeReauthCard.svelte";
 	import type { CodeWorkspace } from "$lib/types/CodeAgent";
-	import type { PermissionMode } from "$lib/types/machineProtocol";
+	import type { PermissionStep } from "$lib/types/machineProtocol";
 	import type { ProjectAgentProfile, ProjectAgentProfileInput } from "$lib/types/AgentSession";
 	import IconShieldX from "~icons/carbon/security";
 	import IconShieldQuestion from "~icons/carbon/help";
-	import IconShieldCheck from "~icons/carbon/checkmark-outline";
+	import IconShieldAuto from "~icons/carbon/checkmark-outline";
+	import IconShieldOff from "~icons/carbon/warning-alt";
 
 	interface Props {
 		projectId: string;
@@ -49,7 +50,7 @@
 	let saved = $state<ProjectAgentProfile | null>(null);
 	let deviceId = $state("");
 	let workspaceId = $state("");
-	let permissionMode = $state<PermissionMode>("ask");
+	let permissionMode = $state<PermissionStep>("ask");
 	/** Connectors sessions started from this project's chats may use (ADR 0108): none by default. */
 	let connectorKeys = $state<string[]>([]);
 	let connectorOptions = $state<AgentConnectorOption[]>([]);
@@ -81,7 +82,7 @@
 	);
 
 	const PERMISSIONS: Array<{
-		mode: PermissionMode;
+		mode: PermissionStep;
 		label: () => string;
 		title: () => string;
 		icon: typeof IconShieldX;
@@ -99,10 +100,16 @@
 			icon: IconShieldQuestion,
 		},
 		{
+			mode: "auto",
+			label: m["code.permission_mode.auto"],
+			title: m["code.composer.auto_title"],
+			icon: IconShieldAuto,
+		},
+		{
 			mode: "allow",
 			label: m["code.permission_mode.allow"],
 			title: m["code.composer.allow_title"],
-			icon: IconShieldCheck,
+			icon: IconShieldOff,
 		},
 	];
 

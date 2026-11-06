@@ -169,6 +169,26 @@ describe("ProjectAgentSection", () => {
 		});
 	});
 
+	it("offers Plan, Ask, Auto and Allow, and saves Auto as its own step (ADR 0109)", async () => {
+		const screen = mount();
+		const group = screen.getByRole("radiogroup", { name: "Permission" });
+		await expect.element(group).toBeVisible();
+		expect(
+			group
+				.getByRole("radio")
+				.elements()
+				.map((el) => el.textContent?.trim())
+		).toEqual(["Plan", "Ask", "Auto", "Allow"]);
+		await screen.getByLabelText("Machine").selectOptions("d1");
+		await screen.getByLabelText("Workspace").selectOptions("w2");
+		await screen.getByRole("radio", { name: "Auto" }).click();
+		await screen.getByRole("button", { name: "Save" }).click();
+		await expect.element(screen.getByText("Saved.")).toBeVisible();
+		expect(calls.find((c) => c.method === "PUT")?.body).toMatchObject({
+			permissionMode: "auto",
+		});
+	});
+
 	it("changes the permission word and keeps the stored mode for the same machine", async () => {
 		stored = PROFILE;
 		const screen = mount();

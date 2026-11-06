@@ -78,7 +78,7 @@ function mount(
 		onreenroll?: () => void;
 		onchanged?: () => void;
 		agentId?: string;
-		mode?: "deny" | "ask" | "allow";
+		mode?: "deny" | "ask" | "auto" | "allow";
 		setup?: unknown;
 		device?: unknown;
 	} = {}
@@ -120,32 +120,19 @@ beforeEach(async () => {
 	await browserPage.viewport(1200, 800);
 });
 
+// The user's own rows (ADR 0109): edits, web, agents and tools run; commands and outside access
+// go to the reviewer; secrets come to the user.
 const PER_CLASS = {
-	edit: "reviewer",
+	edit: "run",
 	command: "reviewer",
-	web: "reviewer",
+	web: "run",
 	outside: "reviewer",
 	secrets: "you",
-	agents: "reviewer",
-	tools: "reviewer",
+	agents: "run",
+	tools: "run",
 	loop: "you",
 } as const;
-const LIMITS = {
-	edit: "allow",
-	web: "allow",
-	tools: "allow",
-	agents: "allow",
-	command: "ask",
-	outside: "ask",
-	secrets: "ask",
-	loop: "ask",
-} as const;
-const policyOf = (limits?: Record<string, string>) =>
-	({
-		workspaceRoots: [],
-		allowFreeModels: false,
-		...(limits ? { limits } : { permission: { max: {} } }),
-	}) as never;
+const policyOf = () => ({ workspaceRoots: [], allowFreeModels: false }) as never;
 const deviceOf = (policy: unknown) =>
 	({ id: "d1", name: "studio-laptop", backends: [], policy }) as never;
 const cell = (screen: ReturnType<typeof mount>, kind: "outcome" | "reason", c: string) =>
@@ -156,9 +143,9 @@ describe("the Permissions sheet: what reaches you", () => {
 
 	it("is titled with the machine and says what reaches you on Auto, with a row and a reason per class", async () => {
 		const screen = mount(RESULT, {
-			mode: "allow",
+			mode: "auto",
 			setup: reviewer,
-			device: deviceOf(policyOf({ ...LIMITS })),
+			device: deviceOf(policyOf()),
 		});
 		await expect
 			.element(screen.getByRole("heading", { name: "Permissions — studio-laptop" }))
@@ -169,67 +156,61 @@ describe("the Permissions sheet: what reaches you", () => {
 				"Auto on studio-laptop: edits, web, agents and tools run · commands and outside access are reviewed · secrets and loops come to you"
 			);
 		await expect.element(cell(screen, "outcome", "edit")).toHaveTextContent("Runs");
-		await expect.element(cell(screen, "reason", "edit")).toHaveTextContent("This machine's limit");
+		await expect
+			.element(cell(screen, "reason", "edit"))
+			.toHaveTextContent("Set in Workspace, Agents");
 		await expect.element(cell(screen, "outcome", "command")).toHaveTextContent("Reviewed");
-		await expect.element(cell(screen, "reason", "command")).toHaveTextContent("Set by your admin");
 		await expect.element(cell(screen, "outcome", "secrets")).toHaveTextContent("Comes to you");
 		await expect.element(cell(screen, "reason", "loop")).toHaveTextContent("Always comes to you");
+		// Rows are runs / reviewed / comes to you: no machine limit anywhere.
+		expect(document.body.textContent).not.toMatch(/this machine's limit|older galopin|Refused/i);
+		await expect
+			.element(screen.getByTestId("permission-agents-link"))
+			.toHaveAttribute("href", "/workspace?tab=agents");
 	});
 
-	it("says what Plan and Ask mean in one sentence", async () => {
+	it("says what Plan, Ask and Allow mean in one sentence; the class rows are for Auto only", async () => {
 		let screen = mount(RESULT, { mode: "deny", setup: reviewer });
 		await expect.element(screen.getByTestId("permission-step")).toHaveTextContent("Plan:");
 		document.body.innerHTML = "";
 		screen = mount(RESULT, { mode: "ask", setup: reviewer });
 		await expect.element(screen.getByTestId("permission-step")).toHaveTextContent("Ask:");
+		document.body.innerHTML = "";
+		screen = mount(RESULT, { mode: "allow", setup: reviewer });
+		await expect.element(screen.getByTestId("permission-step")).toHaveTextContent("hands off");
+		expect(screen.getByTestId("permission-classes").elements()).toHaveLength(0);
 	});
 
-	it("on a machine with commands=run, commands run", async () => {
+	it("a class set to runs runs, one set to you comes to you", async () => {
 		const screen = mount(RESULT, {
-			mode: "allow",
-			setup: reviewer,
-			device: deviceOf(policyOf({ ...LIMITS, command: "allow" })),
+			mode: "auto",
+			setup: { reviewerAvailable: true, perClass: { ...PER_CLASS, command: "run", edit: "you" } },
 		});
 		await expect.element(cell(screen, "outcome", "command")).toHaveTextContent("Runs");
-		await expect
-			.element(screen.getByTestId("permission-step"))
-			.toHaveTextContent("edits, commands, web, agents and tools run");
+		await expect.element(cell(screen, "outcome", "edit")).toHaveTextContent("Comes to you");
 	});
 
-	it("on an older galopin derives the limits from the earlier settings and says so", async () => {
+	it("with no reviewer, a reviewer row comes to you, never runs; what runs still runs", async () => {
 		const screen = mount(RESULT, {
-			mode: "allow",
-			setup: reviewer,
+			mode: "auto",
+			setup: { reviewerAvailable: false, perClass: PER_CLASS },
 			device: deviceOf(policyOf()),
 		});
-		await expect.element(screen.getByTestId("permission-older")).toHaveTextContent("older galopin");
-		await expect.element(cell(screen, "reason", "edit")).toHaveTextContent("older galopin");
-		await expect.element(cell(screen, "outcome", "command")).toHaveTextContent("Reviewed");
-	});
-
-	it("with no reviewer, reads Allow and sends every ask to the user, because no reviewer is set up", async () => {
-		const screen = mount(RESULT, {
-			mode: "allow",
-			setup: { reviewerAvailable: false, perClass: PER_CLASS },
-			device: deviceOf(policyOf({ ...LIMITS })),
-		});
-		await expect
-			.element(screen.getByTestId("permission-step"))
-			.toHaveTextContent("Allow on studio-laptop:");
 		await expect.element(cell(screen, "outcome", "command")).toHaveTextContent("Comes to you");
 		await expect
 			.element(cell(screen, "reason", "command"))
-			.toHaveTextContent("No reviewer is set up here");
+			.toHaveTextContent("No reviewer is switched on for you");
+		await expect.element(cell(screen, "outcome", "edit")).toHaveTextContent("Runs");
 	});
 
 	it("reads the reviewer's availability itself when the opener has none", async () => {
 		api.getAutoApproval.mockResolvedValue({ available: true, perClass: PER_CLASS });
-		const screen = mount(RESULT, { mode: "allow", device: deviceOf(policyOf({ ...LIMITS })) });
+		const screen = mount(RESULT, { mode: "auto", device: deviceOf(policyOf()) });
 		await expect.element(cell(screen, "outcome", "command")).toHaveTextContent("Reviewed");
 	});
 
 	it("shows nothing of the backend: no tool names, no rule list, no raw rules", async () => {
-		const screen = mount(RESULT, { mode: "allow", setup: reviewer });
+		const screen = mount(RESULT, { mode: "auto", setup: reviewer });
 		await expect.element(screen.getByTestId("permission-classes")).toBeVisible();
 		expect(screen.getByTestId("permission-raw").elements()).toHaveLength(0);
 		expect(screen.getByTestId("permission-rows").elements()).toHaveLength(0);

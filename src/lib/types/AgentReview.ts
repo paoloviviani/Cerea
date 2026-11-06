@@ -1,11 +1,13 @@
 /**
- * Agent auto-approval (ADR 0107 section 2): what the administrator decides about who answers a
- * machine's permission asks while a session is on Auto, and the log of what the reviewer did.
+ * Agent auto-approval (ADR 0107, reshaped by ADR 0109): what each user decides about who answers a
+ * machine's permission asks while a session is on Auto, and the log of what the reviewer did. The
+ * administrator only switches the reviewer on for the deployment.
  */
 import type { PermissionClass } from "$lib/types/machineProtocol";
 
-/** Who answers an ask of a class in Auto: the user, or the decision-model reviewer. */
-export type ReviewAnswerer = "you" | "reviewer";
+/** What happens to a class in Auto (ADR 0109 amendment): it runs with no card, a decision-model
+ * reviewer answers the card, or the user does. */
+export type ReviewAnswerer = "run" | "reviewer" | "you";
 
 export const THRESHOLD_MIN = 0.5;
 export const THRESHOLD_MAX = 0.99;
@@ -14,33 +16,48 @@ export const INSTRUCTIONS_MAX = 2000;
 export const MAX_PER_HOUR_DEFAULT = 300;
 export const MAX_PER_HOUR_MAX = 10_000;
 
-/** ADR 0107: secrets and loop come to the user; the rest only matter if a machine sets them to ask. */
+/** ADR 0109 amendment: edits, web, agents and tools run; commands and outside access go to the
+ * reviewer; secrets come to the user; loop is fixed to the user. */
 export const PER_CLASS_DEFAULTS: Record<PermissionClass, ReviewAnswerer> = {
-	edit: "reviewer",
+	edit: "run",
 	command: "reviewer",
-	web: "reviewer",
+	web: "run",
 	outside: "reviewer",
 	secrets: "you",
-	agents: "reviewer",
-	tools: "reviewer",
+	agents: "run",
+	tools: "run",
 	loop: "you",
 };
 
+/** The deployment's one switch (ADR 0109): Auto may use a reviewer here. The other fields of the
+ * stored document are the earlier deployment-level settings, kept only to seed each user's own on
+ * first read. */
+export interface AgentReviewDeployment {
+	enabled: boolean;
+}
+
 export interface AgentReviewSettings {
+	/** For a user: their own reviewer switch. */
 	enabled: boolean;
 	/** A gateway model of `kind: decision`; null while none is chosen. */
 	decisionModelId: string | null;
 	/** Allow at or above this probability (0.50 to 0.99). */
 	threshold: number;
-	/** The administrator's policy text, inside the fixed frame. */
+	/** The user's policy text, inside the fixed frame. */
 	instructions: string;
 	/** `loop` is always "you": the reviewer has no transcript. */
 	perClass: Record<PermissionClass, ReviewAnswerer>;
 	maxPerHourPerMachine: number;
 	updatedAt?: Date;
-	/** Fingerprint of the model, threshold and instructions that last passed "Test on the standard cases". */
+	/** Earlier deployment-level documents carried this; nothing reads it any more. */
 	testedFingerprint?: string | null;
 }
+
+/** One user's settings (collection `agentReviewUserSettings`, one per user). */
+export type UserAgentReviewSettings = Omit<AgentReviewSettings, "testedFingerprint"> & {
+	_id?: import("mongodb").ObjectId;
+	userId: import("mongodb").ObjectId;
+};
 
 /** `read-only`: allowed by rule (a plain read), no model involved. */
 export type ReviewOutcome = "allowed" | "escalated" | "error" | "read-only";

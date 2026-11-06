@@ -245,12 +245,11 @@ describe("protocol fixtures: events survive Cerea's real consumers", () => {
 		});
 	}
 
-	it("the current hello carries every class limit; the older machine's carries none", () => {
+	it("a hello that still carries limits (an older galopin) parses, and Cerea does not read them (ADR 0109)", () => {
 		const now = parseMachineFrame(fixtureAt("frames/hello.json").frame) as HelloFrame;
-		expect(Object.keys(now.policy.limits ?? {}).sort()).toEqual([...PERMISSION_CLASSES].sort());
-		expect(now.policy.limits?.command).toBe("ask");
+		expect(now.type).toBe("hello");
 		const old = parseMachineFrame(fixtureAt("frames/hello.older-machine.json").frame) as HelloFrame;
-		expect(old.policy.limits).toBeUndefined();
+		expect(old.type).toBe("hello");
 	});
 
 	// Both directions of the compatibility rule (MAINTAINING.md §4): a Cerea built

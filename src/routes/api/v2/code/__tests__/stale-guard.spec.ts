@@ -205,6 +205,9 @@ const FORWARDER_SAMPLES: Array<[string, string]> = [
 const OTHER_SAMPLES: Array<[string, string]> = [
 	["GET", "devices"],
 	["GET", "auto-approval"],
+	["GET", "auto-approval/settings"],
+	["PUT", "auto-approval/settings"],
+	["POST", "auto-approval/test"],
 	// A session's connector opt-in (ADR 0108).
 	["GET", "connectors?device=d1&session=s1"],
 	["PUT", "connectors"],
@@ -241,6 +244,8 @@ const KNOWN_ROUTE_FILES = [
 	"../attachments/[key]/+server.ts",
 	"../attachments/[key]/[sha256]/+server.ts",
 	"../auto-approval/+server.ts",
+	"../auto-approval/settings/+server.ts",
+	"../auto-approval/test/+server.ts",
 	"../connectors/+server.ts",
 	"../devices/+server.ts",
 	"../review-log/+server.ts",

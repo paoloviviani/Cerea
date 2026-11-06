@@ -20,7 +20,7 @@
 		setCoordinationGrant,
 		type CodeDeviceView,
 	} from "$lib/codeApi";
-	import type { PermissionMode, PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
+	import type { PermissionRulesResult, PermissionStep, Policy } from "$lib/types/machineProtocol";
 	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 	import { isLegacyMachine } from "$lib/utils/permissionRules";
 	import {
@@ -29,7 +29,7 @@
 		expectationLine,
 		outcomeText,
 		reasonText,
-		thirdStepLabel,
+		reviewerFor,
 		type AutoSetup,
 	} from "$lib/utils/autoApproval";
 	import {
@@ -48,11 +48,11 @@
 	interface Props {
 		deviceId: string;
 		agentId: string;
-		/** The session's step (Plan is the wire's `deny`), for the one sentence on what
-		 * reaches the user; the sentence is left out when unknown. */
-		mode?: PermissionMode | null;
-		/** The reviewer's availability and the administrator's rows; read here when the
-		 * opener has none. */
+		/** The session's step (Plan is the wire's `deny`; Auto is `allow` with its per-class map),
+		 * for the one sentence on what reaches the user; the sentence is left out when unknown. */
+		mode?: PermissionStep | null;
+		/** The reviewer's availability and the user's own rows; read here when the opener has
+		 * none. */
 		setup?: AutoSetup | null;
 		/** The device row this session belongs to, for the coordination
 		 * switches' disabled reasons (a galopin too old to grant, agent tools
@@ -139,17 +139,18 @@
 		...(given ?? fetched ?? { reviewerAvailable: false, perClass: {} as AutoSetup["perClass"] }),
 		neverReview: (given ?? fetched)?.neverReview || device?.neverReview === true,
 	});
-	let computed = $derived(classRows(device?.policy ?? policy, setup));
-	let label = $derived(thirdStepLabel(setup));
+	let rows = $derived(classRows(setup));
 	let machineName = $derived(device?.name ?? "");
 	let stepSentence = $derived(
 		mode === "deny"
 			? m["code.permissions.step_plan"]()
 			: mode === "ask"
 				? m["code.permissions.step_ask"]()
-				: mode === "allow"
-					? expectationLine(machineName, computed.rows, label)
-					: ""
+				: mode === "auto"
+					? expectationLine(machineName, rows)
+					: mode === "allow"
+						? m["code.permissions.step_allow"]()
+						: ""
 	);
 
 	/** A machine enrolled before ceilings: nothing caps its Allow. Said up
@@ -241,49 +242,50 @@
 				{#if stepSentence}
 					<p class="text-ink" data-testid="permission-step">{stepSentence}</p>
 				{/if}
-				{#if setup.degraded && label === "auto"}
+				{#if setup.degraded && mode === "auto"}
 					<p class="text-amber-700 dark:text-amber-400" data-testid="permission-degraded">
 						{m["code.auto.degraded"]()}
 					</p>
 				{/if}
 
-				<div>
-					<p class="mb-1 font-medium text-ink">
-						{label === "auto"
-							? m["code.permissions.classes_auto"]()
-							: m["code.permissions.classes_allow"]()}
-					</p>
-					{#if computed.older}
-						<p class="mb-1 text-ink-muted" data-testid="permission-older">
-							{m["code.auto.older_note"]()}
-						</p>
-					{/if}
-					<table class="w-full text-left" data-testid="permission-classes">
-						<tbody>
-							{#each computed.rows as row (row.class)}
-								<tr
-									class="border-t border-line align-top"
-									data-testid="permission-class-{row.class}"
-								>
-									<th scope="row" class="py-1 pr-2 font-medium text-ink">{className(row.class)}</th>
-									<td class="py-1 pr-2 text-ink" data-testid="permission-outcome-{row.class}"
-										>{outcomeText(row)}</td
+				{#if mode === "auto"}
+					<div>
+						<p class="mb-1 font-medium text-ink">{m["code.permissions.classes_auto"]()}</p>
+						<table class="w-full text-left" data-testid="permission-classes">
+							<tbody>
+								{#each rows as row (row.class)}
+									<tr
+										class="border-t border-line align-top"
+										data-testid="permission-class-{row.class}"
 									>
-									<td class="py-1 text-ink-muted" data-testid="permission-reason-{row.class}"
-										>{reasonText(row)}</td
-									>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-					{#if label === "auto" && setup.reviewerAvailable && !setup.neverReview}
+										<th scope="row" class="py-1 pr-2 font-medium text-ink"
+											>{className(row.class)}</th
+										>
+										<td class="py-1 pr-2 text-ink" data-testid="permission-outcome-{row.class}"
+											>{outcomeText(row)}</td
+										>
+										<td class="py-1 text-ink-muted" data-testid="permission-reason-{row.class}"
+											>{reasonText(row)}</td
+										>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
 						<a
-							href="{base}/settings/review-log"
-							class="mt-1 inline-block text-xs text-ink-muted underline hover:text-ink"
-							data-testid="permission-review-log-link">{m["code.permissions.review_log_link"]()}</a
+							href="{base}/workspace?tab=agents"
+							class="mt-1 mr-3 inline-block text-xs text-ink-muted underline hover:text-ink"
+							data-testid="permission-agents-link">{m["code.permissions.agents_link"]()}</a
 						>
-					{/if}
-				</div>
+						{#if reviewerFor(setup)}
+							<a
+								href="{base}/settings/review-log"
+								class="mt-1 inline-block text-xs text-ink-muted underline hover:text-ink"
+								data-testid="permission-review-log-link"
+								>{m["code.permissions.review_log_link"]()}</a
+							>
+						{/if}
+					</div>
+				{/if}
 
 				<div>
 					<p class="mb-1 font-medium text-ink">{m["code.permissions.exceptions"]()}</p>

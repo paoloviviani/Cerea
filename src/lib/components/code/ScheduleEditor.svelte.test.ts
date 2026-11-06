@@ -101,7 +101,7 @@ describe("ScheduleEditor permission mode", () => {
 			.element(screen.getByRole("radio", { name: "Ask" }))
 			.toHaveAttribute("aria-checked", "true");
 
-		await screen.getByRole("radio", { name: "Allow" }).click();
+		await screen.getByRole("radio", { name: "Auto" }).click();
 		expect(screen.getByTestId("ask-warning").elements()).toHaveLength(0);
 		await expect.element(screen.getByText(/never past the machine's own ceiling/)).toBeVisible();
 	});
@@ -180,7 +180,7 @@ describe("ScheduleEditor target picker", () => {
 		await expect.element(screen.getByLabelText("3. Session")).toHaveValue("__new__");
 		await screen.getByLabelText("Name", { exact: true }).fill("Nightly");
 		await screen.getByLabelText("Prompt", { exact: true }).fill("go");
-		await screen.getByRole("radio", { name: "Allow" }).click();
+		await screen.getByRole("radio", { name: "Auto" }).click();
 		await screen.getByRole("button", { name: "Create schedule" }).click();
 		await vi.waitFor(() => expect(onsaved).toHaveBeenCalled());
 		const target = api.createSchedule.mock.calls[0][0].target;

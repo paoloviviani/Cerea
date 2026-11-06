@@ -1,5 +1,5 @@
 /**
- * Auto with a decision-model reviewer, end to end (ADR 0107): a session on Auto whose agent raises a
+ * Auto with a decision-model reviewer, end to end (ADR 0107, per user since ADR 0109): a session on Auto whose agent raises a
  * command ask. The real `galopin` and `opencode` run; the gateway is the hermetic mock, whose
  * `POST /v1/decisions` answers a scripted probability.
  *
@@ -126,7 +126,12 @@ test.describe("Auto with a reviewer", () => {
 		await machine?.stop();
 		machine = null;
 		await control("reset", {});
-		for (const name of ["scheduleGrants", "agentReviewConfig", "agentReviewLog"]) {
+		for (const name of [
+			"scheduleGrants",
+			"agentReviewConfig",
+			"agentReviewUserSettings",
+			"agentReviewLog",
+		]) {
 			await db.collection(name).deleteMany({});
 		}
 	});
@@ -165,10 +170,15 @@ test.describe("Auto with a reviewer", () => {
 			createdAt: now,
 			updatedAt: now,
 		});
-		await db.collection("agentReviewConfig").updateOne(
-			{},
+		// The administrator's one switch, and the user's own reviewer (Workspace, Agents).
+		await db
+			.collection("agentReviewConfig")
+			.updateOne({}, { $set: { enabled: true } }, { upsert: true });
+		await db.collection("agentReviewUserSettings").updateOne(
+			{ userId },
 			{
 				$set: {
+					userId,
 					enabled: true,
 					decisionModelId: "mock-decider",
 					threshold: 0.9,
@@ -210,7 +220,7 @@ test.describe("Auto with a reviewer", () => {
 		await page.getByRole("button", { name: "Create agent" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 
-		const auto = page.getByTestId("permission-mode-allow");
+		const auto = page.getByTestId("permission-mode-auto");
 		await expect(auto).toHaveText(/Auto/);
 		await auto.click();
 		await expect(auto).toHaveAttribute("aria-checked", "true");

@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-	DEFAULT_LIMITS,
-	LIMIT_CLASSES,
 	advancedChangedCount,
-	allowedLimits,
-	changedLimits,
 	defaultPolicyChoices,
-	limitPairs,
 	maxTerminalsProblem,
 	policyFlagArgs,
 	promisedPolicy,
@@ -41,38 +36,8 @@ describe("the dialog's defaults", () => {
 		);
 	});
 
-	it("its default limits are the machine's own (ADR 0107): commands, outside and secrets ask, the rest run", () => {
-		expect(DEFAULT_LIMITS).toEqual({
-			edit: "run",
-			command: "ask",
-			web: "run",
-			outside: "ask",
-			secrets: "ask",
-			agents: "run",
-			tools: "run",
-			loop: "ask",
-		});
-		expect([...LIMIT_CLASSES]).toEqual([
-			"edit",
-			"command",
-			"web",
-			"outside",
-			"secrets",
-			"agents",
-			"tools",
-			"loop",
-		]);
-	});
-
-	it("secrets offers never and ask only, loop offers ask and stop", () => {
-		expect(allowedLimits("secrets")).toEqual(["never", "ask"]);
-		expect(allowedLimits("loop")).toEqual(["ask", "stop"]);
-		expect(allowedLimits("command")).toEqual(["never", "ask", "run"]);
-	});
-
 	it("the machine the defaults promise is the one a plain enroll writes", () => {
 		expect(promisedPolicy(defaultPolicyChoices())).toEqual({
-			limits: DEFAULT_LIMITS,
 			workspaceRoots: [],
 			allowFreeModels: false,
 			files: "read",
@@ -187,7 +152,6 @@ describe("each control emits exactly its flag", () => {
 			workspaceRoots: ["/a"],
 			fileDeny: ["x"],
 			billToDefault: true,
-			limits: { ...DEFAULT_LIMITS, edit: "ask" },
 		});
 		expect(policyFlagArgs(everything).join(" ")).not.toContain("auto-accept");
 	});
@@ -220,7 +184,6 @@ describe("billing to the console default", () => {
 			billToDefault: true,
 			allowTerminal: false,
 			workspaceRoots: ["/a"],
-			limits: { ...DEFAULT_LIMITS, edit: "ask" },
 		});
 		expect(policyFlagArgs(everything)).toContain("--default-group");
 		expect(policyFlagArgs(everything)).not.toContain("--group");
@@ -232,48 +195,17 @@ describe("billing to the console default", () => {
 	});
 });
 
-describe("the limits table", () => {
-	it("an unchanged table emits nothing (the billing default aside)", () => {
-		expect(changedLimits({ ...DEFAULT_LIMITS })).toEqual([]);
-		expect(limitPairs({ ...DEFAULT_LIMITS })).toEqual([]);
-		expect(flags({ limits: { ...DEFAULT_LIMITS } })).toEqual(["--default-group"]);
+describe("no machine limits (ADR 0109)", () => {
+	it("the dialog prints no --limit and no old alias flag, whatever else is chosen", () => {
+		const all = policyFlagArgs(
+			choose({ allowTerminal: false, allowProjectConfig: true, noAgentTools: true })
+		).join(" ");
+		expect(all).not.toContain("--limit");
+		expect(all).not.toContain("permission-");
 	});
 
-	it("one changed class emits exactly one --limit, and no old alias flag", () => {
-		const limits = { ...DEFAULT_LIMITS, edit: "ask" as const };
-		expect(changedLimits(limits)).toEqual(["edit"]);
-		expect(flags({ limits })).toEqual(["--default-group", "--limit", "edit=ask"]);
-		expect(flags({ limits }).join(" ")).not.toContain("permission-");
-	});
-
-	it("opening commands names commands only: that is how an owner opts out of the default ask", () => {
-		expect(limitPairs({ ...DEFAULT_LIMITS, command: "run" })).toEqual(["command=run"]);
-	});
-
-	it("carries each changed class, in the table's order, including never and stop", () => {
-		expect(
-			limitPairs({
-				...DEFAULT_LIMITS,
-				loop: "stop",
-				web: "never",
-				outside: "run",
-				secrets: "never",
-			})
-		).toEqual(["web=never", "outside=run", "secrets=never", "loop=stop"]);
-	});
-
-	it("moving a class away and back leaves the table unchanged: nothing emitted", () => {
-		const limits = { ...DEFAULT_LIMITS };
-		limits.edit = "never";
-		limits.edit = "run";
-		expect(limitPairs(limits)).toEqual([]);
-	});
-
-	it("promises the whole table, defaults filled in", () => {
-		expect(
-			promisedPolicy(choose({ limits: { ...DEFAULT_LIMITS, command: "run" } })).limits
-		).toEqual({ ...DEFAULT_LIMITS, command: "run" });
-		expect(promisedPolicy(defaultPolicyChoices()).limits).toEqual(DEFAULT_LIMITS);
+	it("the promised policy names no limits", () => {
+		expect(promisedPolicy(defaultPolicyChoices())).not.toHaveProperty("limits");
 	});
 });
 
@@ -346,9 +278,6 @@ describe("the Advanced summary's count", () => {
 				choose({ allowTerminal: false, allowCommandShell: false, allowBackgroundSubagents: false })
 			)
 		).toBe(3);
-		// Commands sit among the common options; every other class counts under Advanced.
-		expect(advancedChangedCount(choose({ limits: { ...DEFAULT_LIMITS, command: "run" } }))).toBe(0);
-		expect(advancedChangedCount(choose({ limits: { ...DEFAULT_LIMITS, web: "never" } }))).toBe(1);
 	});
 
 	it("a blank list entry does not count", () => {
@@ -376,7 +305,6 @@ describe("the promised policy.json", () => {
 			})
 		);
 		expect(promised).toEqual({
-			limits: DEFAULT_LIMITS,
 			workspaceRoots: ["/a b"],
 			allowFreeModels: true,
 			files: "off",

@@ -138,6 +138,18 @@ afterEach(async () => {
 	await cleanupTestData();
 });
 
+/** The default rows' map (no settings stored for the owner). */
+const AUTO_MAP = {
+	edit: "run",
+	command: "ask",
+	web: "run",
+	outside: "ask",
+	secrets: "ask",
+	agents: "run",
+	tools: "run",
+	loop: "ask",
+};
+
 describe("validateTarget", () => {
 	it("takes the machine's own names, and describes the target machine › workspace › session", async () => {
 		const row = await make();
@@ -229,9 +241,11 @@ describe("a new session each run", () => {
 
 		const session = machine.model.sessions[0];
 		expect(session.permissionMode).toBe("allow");
+		// A schedule's Allow is Auto (ADR 0109): the owner's per-class map rides with the word.
 		expect(ops("session.setPermissionMode")[0].args).toEqual({
 			sessionId: session.id,
 			mode: "allow",
+			autoClasses: AUTO_MAP,
 		});
 		expect(ops("session.prompt")[0].args).toMatchObject({
 			sessionId: session.id,
@@ -325,7 +339,11 @@ describe("always this session", () => {
 			sessionId: "s1",
 			modelId: "pystino/mock-model",
 		});
-		expect(ops("session.setPermissionMode")[0].args).toEqual({ sessionId: "s1", mode: "allow" });
+		expect(ops("session.setPermissionMode")[0].args).toEqual({
+			sessionId: "s1",
+			mode: "allow",
+			autoClasses: AUTO_MAP,
+		});
 		expect(ops("session.prompt")[0].args).toMatchObject({
 			sessionId: "s1",
 			text: expect.stringMatching(/^\[Scheduled run of .*\]\n\nrun the suite$/),

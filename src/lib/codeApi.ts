@@ -205,10 +205,13 @@ export async function setSessionConnectors(
 	);
 }
 
-/** Whether a reviewer stands behind Auto here, and the administrator's rows. */
+/** Whether a reviewer stands behind Auto here, and the user's own rows. */
 export async function getAutoApproval(): Promise<{
 	available: boolean;
-	perClass: Record<import("$lib/types/machineProtocol").PermissionClass, "you" | "reviewer">;
+	perClass: Record<
+		import("$lib/types/machineProtocol").PermissionClass,
+		import("$lib/types/AgentReview").ReviewAnswerer
+	>;
 	degraded?: boolean;
 }> {
 	return unwrap(
@@ -672,7 +675,10 @@ export async function setAgentModel(
 export async function setPermissionMode(
 	deviceId: string,
 	agentId: string,
-	mode: PermissionMode
+	mode: PermissionMode,
+	/** ADR 0109: `allow` with `auto` is the Auto step (Cerea adds the user's per-class map);
+	 * `allow` alone is Allow, hands off. */
+	opts: { auto?: boolean } = {}
 ): Promise<{ ok: boolean }> {
 	return unwrap(
 		await fetch(
@@ -680,7 +686,7 @@ export async function setPermissionMode(
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ mode }),
+				body: JSON.stringify(opts.auto ? { mode, auto: true } : { mode }),
 			}
 		)
 	);

@@ -392,6 +392,53 @@ describe("POST v1/agents/:id/permission-mode", () => {
 		machine.close();
 	});
 
+	it("Auto is `allow` with the caller's own per-class map, worked out here; Allow carries none (ADR 0109)", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const sessionId = await createSession(deviceId);
+		machine.opLog.length = 0;
+		expect((await post(sessionId, deviceId, { mode: "allow", auto: true })).status).toBe(200);
+		expect(machine.opLog).toEqual([
+			{
+				op: "session.setPermissionMode",
+				args: {
+					sessionId,
+					mode: "allow",
+					autoClasses: {
+						edit: "run",
+						command: "ask",
+						web: "run",
+						outside: "ask",
+						secrets: "ask",
+						agents: "run",
+						tools: "run",
+						loop: "ask",
+					},
+				},
+			},
+		]);
+		const snapshot = async () =>
+			(
+				await parse<{ agent: { permissionMode?: string; autoClasses?: Record<string, string> } }>(
+					await forwarder(forwarderGET, `/api/v2/code/v1/agents/${sessionId}?device=${deviceId}`, {
+						locals: user.locals,
+					})
+				)
+			).agent;
+		expect(await snapshot()).toMatchObject({
+			permissionMode: "allow",
+			autoClasses: { edit: "run" },
+		});
+		// The browser cannot name the map: an `autoClasses` in the body is ignored, and Allow clears it.
+		machine.opLog.length = 0;
+		await post(sessionId, deviceId, { mode: "allow", autoClasses: { command: "run" } });
+		expect(machine.opLog).toEqual([
+			{ op: "session.setPermissionMode", args: { sessionId, mode: "allow" } },
+		]);
+		expect((await snapshot()).autoClasses).toBeUndefined();
+		machine.close();
+	});
+
 	it("the snapshot carries the machine's permissionMode (a child reports its root's)", async () => {
 		const machine = await connectAndPair();
 		const deviceId = machine.deviceId as string;

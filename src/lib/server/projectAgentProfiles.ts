@@ -11,14 +11,14 @@ import { collections } from "$lib/server/database";
 import { checkOwnedTarget, workspaceNameOn } from "$lib/server/code/agentSessions";
 import { isMachineOnline, MachineLink } from "$lib/server/code/machines";
 import { connectorOptions, MAX_SESSION_CONNECTORS } from "$lib/server/code/sessionConnectors";
-import { OpError, PERMISSION_MODES } from "$lib/types/machineProtocol";
+import { OpError, PERMISSION_STEPS } from "$lib/types/machineProtocol";
 import type { ProjectAgentProfile, ProjectAgentProfileInput } from "$lib/types/AgentSession";
 import type { ProjectAgentProfileRow } from "$lib/types/ProjectAgentProfileRow";
 
 export const profileInputSchema = z.object({
 	deviceId: z.string().min(1).max(64),
 	workspaceId: z.string().min(1).max(256),
-	permissionMode: z.enum(PERMISSION_MODES as [string, ...string[]]),
+	permissionMode: z.enum(PERMISSION_STEPS as [string, ...string[]]),
 	modeId: z.string().min(1).max(64).optional(),
 	modelId: z.string().min(1).max(256).optional(),
 	connectorKeys: z.array(z.string().min(1).max(300)).max(MAX_SESSION_CONNECTORS).optional(),

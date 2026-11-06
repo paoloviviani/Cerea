@@ -82,23 +82,6 @@ export const PERMISSION_CLASSES = [
 	"loop",
 ] as const;
 export type PermissionClass = (typeof PERMISSION_CLASSES)[number];
-/** The limits of a hello's policy, only the classes and words this build
- * knows; undefined when the machine sent none (older than classes). */
-export function machineLimits(
-	policy: { limits?: unknown } | undefined
-): Partial<Record<PermissionClass, PermissionLimit>> | undefined {
-	const raw = policy?.limits;
-	if (typeof raw !== "object" || raw === null) return undefined;
-	const out: Partial<Record<PermissionClass, PermissionLimit>> = {};
-	for (const c of PERMISSION_CLASSES) {
-		const v = (raw as Record<string, unknown>)[c];
-		if (v === "deny" || v === "ask" || v === "allow" || v === "stop") out[c] = v;
-	}
-	return out;
-}
-
-/** A class's limit on the wire: deny (never) | ask | allow (run); "stop" is loop's refusal. */
-export type PermissionLimit = "deny" | "ask" | "allow" | "stop";
 
 export interface Policy {
 	/** Retired. The machine still sends the constant "denied" for one
@@ -110,11 +93,7 @@ export interface Policy {
 		max?: Record<string, string>;
 		rules?: Record<string, string>;
 	};
-	/** The machine's limit per permission class (ADR 0107, PROTOCOL.md §4):
-	 * every class, "deny" (never), "ask" (a card every time) or "allow" (the
-	 * session's word decides); loop is "ask" or "stop". Absent on a machine
-	 * older than classes. Read-only for Cerea. */
-	limits?: Partial<Record<PermissionClass, PermissionLimit>>;
+	// A machine that still sends `limits` (an older galopin) is ignored: ADR 0109, no machine limits.
 	workspaceRoots: string[];
 	allowFreeModels: boolean;
 	/** The explorer's read access (§9): "read" (default) or "off" (--no-files). */
@@ -205,6 +184,40 @@ export type PermissionMode = "deny" | "ask" | "allow";
 
 export const PERMISSION_MODES: readonly PermissionMode[] = ["deny", "ask", "allow"];
 
+/**
+ * What the composer and a project's agent profile offer (ADR 0109 amendment): Plan · Ask · Auto ·
+ * Allow. Auto is Cerea's: the wire word `allow` plus the per-class map (`autoClasses`); Allow is
+ * the same word with no map, hands off apart from the machine's fixed floor.
+ */
+export type PermissionStep = "deny" | "ask" | "auto" | "allow";
+export const PERMISSION_STEPS: readonly PermissionStep[] = ["deny", "ask", "auto", "allow"];
+
+/** One class of an Auto session: `run` needs no card, `ask` raises one (Cerea routes it). */
+export type AutoClassWord = "run" | "ask";
+/** The per-class map Cerea sends with the word `allow` (`session.setPermissionMode`'s
+ * `autoClasses`; absent = Allow, hands off). Read back as `Session.autoClasses`. */
+export type AutoClasses = Partial<Record<PermissionClass, AutoClassWord>>;
+
+/** The wire word and map a step stands for; `auto` needs the user's map. */
+export function stepToWire(
+	step: PermissionStep,
+	autoClasses: AutoClasses | undefined
+): { mode: PermissionMode; autoClasses?: AutoClasses } {
+	if (step === "auto") return { mode: "allow", ...(autoClasses ? { autoClasses } : {}) };
+	return { mode: step };
+}
+
+/** The step a session reads as: `allow` with a map is Auto, without one Allow. */
+export function stepOf(
+	mode: PermissionMode | undefined | null,
+	autoClasses: AutoClasses | undefined | null
+): PermissionStep | null {
+	if (!mode) return null;
+	if (mode === "allow")
+		return autoClasses && Object.keys(autoClasses).length > 0 ? "auto" : "allow";
+	return mode;
+}
+
 export interface Session {
 	id: string;
 	workspaceId: string;
@@ -218,6 +231,9 @@ export interface Session {
 	 * A child reports its root's. Absent on a machine that predates the
 	 * selector: the panel then draws no selector at all. */
 	permissionMode?: PermissionMode;
+	/** The Auto map (ADR 0109): present with `permissionMode: "allow"` when the session is on Auto,
+	 * absent on Allow (hands off) and on a machine that does not know it. */
+	autoClasses?: AutoClasses;
 	/** An earlier Deny stuck in this session's stored rules (opencode keeps
 	 * them forever): subagents started from here have their first turn
 	 * refused. Absent on a machine that predates the verdict. */
@@ -1041,14 +1057,7 @@ const policySchema = z.object({
 			rules: z.record(z.string(), z.string()).optional(),
 		})
 		.optional(),
-	// Optional and lenient: a malformed value never refuses a hello (the raw
-	// frame is what is kept; read it with machineLimits, which drops unknowns).
-	limits: z
-		.preprocess(
-			(v) => (typeof v === "object" && v !== null && !Array.isArray(v) ? v : undefined),
-			z.record(z.string(), z.string()).optional()
-		)
-		.optional() as z.ZodType<Policy["limits"]>,
+	// `limits` (an older galopin still sends it) is not read: ADR 0109, no machine limits.
 	workspaceRoots: z.array(z.string()),
 	allowFreeModels: z.boolean(),
 	files: z.enum(["read", "off"]).optional(),

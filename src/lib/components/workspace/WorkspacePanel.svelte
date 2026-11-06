@@ -10,7 +10,7 @@
 	(`overlay/styles.ts`); only the overlay shell is gone, replaced by the card
 	this panel draws around whichever tab is showing.
 
-	**The tab and the item are the address.** `?tab=models|custom|mcp|local|kb|skills|memory` picks the
+	**The tab and the item are the address.** `?tab=models|custom|mcp|local|kb|skills|memory|agents` picks the
 	tab, an `?id=` opens one item's own view — so the programmatic openers that
 	used to open an overlay navigate here instead, and old `/knowledge/…` links
 	redirect to `?tab=kb&id=…`. `id` is read once by
@@ -31,6 +31,8 @@
 	import SkillsManager from "$lib/components/skills/SkillsManager.svelte";
 	import MemoryManager from "$lib/components/memory/MemoryManager.svelte";
 	import LocalConnectors from "$lib/components/workspace/LocalConnectors.svelte";
+	import AgentsSettings from "$lib/components/workspace/AgentsSettings.svelte";
+	import LucideBot from "~icons/lucide/bot";
 	import LucideLaptop from "~icons/lucide/laptop";
 	import LucideBoxes from "~icons/lucide/boxes";
 	import LucideLibrary from "~icons/lucide/library";
@@ -65,6 +67,7 @@
 		{ key: "skills", label: m["workspace.tab.skills"], icon: IconDocument },
 		{ key: "mcp", label: m["workspace.tab.mcp"], icon: IconMCP },
 		{ key: "local", label: m["workspace.tab.local"], icon: LucideLaptop },
+		{ key: "agents", label: m["workspace.tab.agents"], icon: LucideBot },
 	] as const;
 	// Memory hides on the same terms as Knowledge, for the same reason: with
 	// `CHAT_MEMORY_ENABLED=false` its routes answer 404, so the tab would only
@@ -77,7 +80,9 @@
 				(t.key !== "kb" || data.knowledgeEnabled !== false) &&
 				(t.key !== "memory" || data.memoryEnabled !== false) &&
 				// LOCAL_CONNECTORS_ENABLED: off, the endpoints answer 404 and the tab is not offered.
-				(t.key !== "local" || data.localConnectorsEnabled === true)
+				(t.key !== "local" || data.localConnectorsEnabled === true) &&
+				// Auto-approval is the signed-in user's, where coding agents exist (ADR 0109).
+				(t.key !== "agents" || (Boolean(data.user) && data.codeAgentsEnabled === true))
 		)
 	);
 	type TabKey = (typeof ALL_TABS)[number]["key"];
@@ -95,7 +100,9 @@
 	const initialId = $derived(page.url.searchParams.get("id") ?? undefined);
 	// MCP servers are a flat list with no per-item view, so an `id` beside
 	// `?tab=mcp` has nothing to open and is ignored.
-	const initialItemId = $derived(tab === "mcp" || tab === "local" ? undefined : initialId);
+	const initialItemId = $derived(
+		tab === "mcp" || tab === "local" || tab === "agents" ? undefined : initialId
+	);
 </script>
 
 <!--
@@ -153,6 +160,8 @@
 				<MCPServerManager />
 			{:else if tab === "local"}
 				<LocalConnectors />
+			{:else if tab === "agents"}
+				<AgentsSettings />
 			{:else if tab === "kb"}
 				<KnowledgeManager initialId={initialItemId} />
 			{:else if tab === "memory"}

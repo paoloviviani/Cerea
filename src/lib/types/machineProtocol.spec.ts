@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
 	delegateProfilesBody,
 	isPermissionMode,
-	machineLimits,
 	parseDelegateProfiles,
 	parseMachineFrame,
 	parsePermissionRules,
@@ -65,41 +64,13 @@ describe("hello policy", () => {
 		});
 	});
 
-	it("keeps the machine's limits per class, and reads an older machine's absence as undefined", () => {
-		const limits = {
-			edit: "allow",
-			command: "ask",
-			web: "allow",
-			outside: "ask",
-			secrets: "ask",
-			agents: "allow",
-			tools: "deny",
-			loop: "stop",
-		};
-		const frame = parseMachineFrame(
-			hello({ limits, workspaceRoots: [], allowFreeModels: false })
-		) as { policy: { limits?: Record<string, string> } };
-		expect(frame.policy.limits).toEqual(limits);
-		const old = parseMachineFrame(hello({ workspaceRoots: [], allowFreeModels: false })) as {
-			policy: { limits?: unknown };
-		};
-		expect(old.policy.limits).toBeUndefined();
-	});
-
-	it("drops a class or word it does not know instead of refusing the hello", () => {
-		const frame = parseMachineFrame(
-			hello({
-				limits: { edit: "allow", telepathy: "ask", command: "sometimes" },
-				workspaceRoots: [],
-				allowFreeModels: false,
-			})
-		) as { policy: { limits?: Record<string, string> } };
-		expect(machineLimits(frame.policy)).toEqual({ edit: "allow" });
-		expect(machineLimits({})).toBeUndefined();
-		// not an object at all: the hello still parses
-		expect(
-			parseMachineFrame(hello({ limits: "lots", workspaceRoots: [], allowFreeModels: false }))?.type
-		).toBe("hello");
+	it("parses whatever limits an older galopin still sends, and Cerea reads none of them (ADR 0109)", () => {
+		for (const limits of [{ edit: "allow", telepathy: "ask" }, "lots", undefined]) {
+			const frame = parseMachineFrame(
+				hello({ limits, workspaceRoots: [], allowFreeModels: false })
+			);
+			expect(frame?.type).toBe("hello");
+		}
 	});
 
 	it("still refuses a policy that is not a policy", () => {

@@ -21,12 +21,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildEnrollCommand } from "./codeEnrollCommand";
-import {
-	DEFAULT_LIMITS,
-	defaultPolicyChoices,
-	promisedPolicy,
-	type EnrollPolicyChoices,
-} from "./codeEnrollPolicy";
+import { defaultPolicyChoices, promisedPolicy, type EnrollPolicyChoices } from "./codeEnrollPolicy";
 
 const AGENT_DIR = fileURLToPath(new URL("../../agent/", import.meta.url));
 const GO =
@@ -125,7 +120,6 @@ interface Enrolled {
 		permission?: {
 			max?: Record<string, string>;
 			rules?: Record<string, string>;
-			limits?: Record<string, string>;
 		};
 	};
 	opencode: { enabled_providers?: string[] };
@@ -181,8 +175,6 @@ function actualOf(enrolled: Enrolled) {
 	const { policy, opencode } = enrolled;
 	const word = (key: string, fallback: string) => (policy[key] as string | undefined) ?? fallback;
 	return {
-		// A class enroll leaves out is read as the machine reads it: its default.
-		limits: { ...DEFAULT_LIMITS, ...policy.permission?.limits },
 		workspaceRoots: (policy.workspaceRoots as string[] | null) ?? [],
 		allowFreeModels: policy.allowFreeModels === true,
 		files: word("files", "read"),
@@ -218,18 +210,6 @@ describe.skipIf(!HAVE_BINARY)(
 					allowBackgroundSubagents: false,
 				}),
 			],
-			["edit asked", choose({ limits: { ...DEFAULT_LIMITS, edit: "ask" } })],
-			[
-				"commands opened: the owner's opt-out",
-				choose({ limits: { ...DEFAULT_LIMITS, command: "run" } }),
-			],
-			["a kind refused", choose({ limits: { ...DEFAULT_LIMITS, web: "never" } })],
-			[
-				"work outside the project without asking",
-				choose({ limits: { ...DEFAULT_LIMITS, outside: "run" } }),
-			],
-			["secrets refused", choose({ limits: { ...DEFAULT_LIMITS, secrets: "never" } })],
-			["loops stopped", choose({ limits: { ...DEFAULT_LIMITS, loop: "stop" } })],
 			["trust repos", choose({ allowProjectConfig: true })],
 			[
 				"the Advanced switches",
@@ -256,7 +236,6 @@ describe.skipIf(!HAVE_BINARY)(
 				choose({
 					allowTerminal: true,
 					maxTerminals: 2,
-					limits: { ...DEFAULT_LIMITS, edit: "ask", agents: "never", loop: "stop" },
 					allowProjectConfig: true,
 					allowCommandShell: true,
 					allowBackgroundSubagents: true,

@@ -39,34 +39,32 @@ means enrolling again; `galopin policy set` on the machine can only tighten."_
 
 **Common options**, at the top:
 
-| Control                                                                 | What it adds to the printed command                                                                                                                                       | Default | Use it when                                                                                                               |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **What this machine lets commands do** (three pills: Never · Ask · Run) | `--limit command=never` or `--limit command=run` (Ask is the default and prints nothing)                                                                                  | Ask     | you want commands refused outright, or to run without a card whenever a session is on Allow or Auto (amber)               |
-| **Trust the repos this machine opens** (amber)                          | `--allow-project-config`                                                                                                                                                  | off     | the machine opens repositories you trust, and you want their own opencode setup to load                                   |
-| **Install opencode**                                                    | opencode's own installer line, pinned to the release galopin is tested against (`curl -fsSL https://opencode.ai/install \| bash -s -- --version 1.19.3`), before `enroll` | off     | the machine is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
+| Control                                        | What it adds to the printed command                                                                                                                                       | Default | Use it when                                                                                                               |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Trust the repos this machine opens** (amber) | `--allow-project-config`                                                                                                                                                  | off     | the machine opens repositories you trust, and you want their own opencode setup to load                                   |
+| **Install opencode**                           | opencode's own installer line, pinned to the release galopin is tested against (`curl -fsSL https://opencode.ai/install \| bash -s -- --version 1.19.3`), before `enroll` | off     | the machine is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
 
-**The limits** are what the machine allows per kind of action (permission classes): `never` refuses, `ask` always raises a card, `run` leaves the answer to the session's Plan · Ask · Auto. Whatever a session's setting says, a kind never goes past its limit. The dialog prints `--limit CLASS=VALUE` **only for a kind you changed from the default**, so an untouched table prints nothing and one change prints one flag; the old `--permission-max` and `--permission-rule` flags are no longer printed (`enroll` still accepts them for one release).
+**There are no limits.** The dialog has no limits table (ADR 0109): what runs, is reviewed or comes to you is chosen per session (Plan · Ask · Auto · Allow) and by your rows in Workspace → Agents. It prints no `--limit`; `enroll` still accepts the flag for one release and ignores it with a warning.
 
 **Advanced**, collapsed until opened (its summary counts what you changed, and
 the printed line carries every changed value whether it is open or not):
 
-| Control                                                                                                                               | What it adds                                                          | Default                                                             | What it does                                                                                                                                                                                                  |
-| ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Bill to my default group**                                                                                                          | `--default-group`                                                     | ticked                                                              | bills to the group the Pystino console's group picker sets, instead of pinning one group for this machine; untick to pin the group a plain enroll would pick. Change the mode later with `galopin auth group` |
-| **Terminals** (amber)                                                                                                                 | unticked: `--no-terminal`; a number other than 8: `--max-terminals N` | on; at most 8 open at once                                          | the panel may open a real shell on this machine: anyone who controls your Cerea session can run commands as you, with no model and no permission rule in the way                                              |
-| **Slash commands that run shell** (amber)                                                                                             | unticked: `--no-command-shell`                                        | on                                                                  | a slash command whose template runs a shell snippet may run it, before any permission is asked; plain slash commands work either way                                                                          |
-| **Background subagents**                                                                                                              | unticked: `--no-background-subagents`                                 | on                                                                  | a task can keep running after its parent turn ends                                                                                                                                                            |
-| **What the machine lets each kind of action do** (a row of pills per kind: edits, web, outside access, secrets, agents, tools, loops) | `--limit CLASS=VALUE`, one per changed kind                           | edits, web, agents, tools: Run; outside access, secrets, loops: Ask | secrets offers Never · Ask only (they can never run without a card); loops offer Ask · Stop the turn                                                                                                          |
-| **No agent tools**                                                                                                                    | `--no-agent-tools`                                                    | installed                                                           | installs none of the agent tools (`session_*` and `schedule_*`), so sessions cannot start or message each other, and agents cannot make schedules                                                             |
-| **Allow free models**                                                                                                                 | `--allow-free-models`                                                 | the gateway's models only                                           | models from providers other than the gateway's may be listed and used                                                                                                                                         |
-| **Keep opencode's own providers**                                                                                                     | `--allow-opencode-provider`                                           | gateway only                                                        | opencode's built-in providers stay enabled next to the gateway's                                                                                                                                              |
-| **Workspace folders** (a list)                                                                                                        | `--workspace-root PATH`, one per entry                                | anywhere                                                            | workspaces may only be created under these folders                                                                                                                                                            |
-| **No file explorer**                                                                                                                  | `--no-files`                                                          | read-only browsing                                                  | keeps the explorer out of the machine's files                                                                                                                                                                 |
-| **Allow saving files** (amber)                                                                                                        | `--allow-file-write`                                                  | read-only explorer                                                  | lets the `/code` editor save text files in this machine's workspaces (see [Saving files](#saving-files))                                                                                                      |
-| **Hide files** (a list)                                                                                                               | `--file-deny GLOB`, one per entry                                     | the built-in secret list                                            | the explorer also redacts files matching these globs                                                                                                                                                          |
-| **Drop the built-in secret list** (amber)                                                                                             | `--no-default-file-deny`                                              | the secret list stays                                               | stops redacting private keys and credential files, and lets a command's `@file` reference read `.env` files, keeping only your globs                                                                          |
+| Control                                   | What it adds                                                          | Default                    | What it does                                                                                                                                                                                                  |
+| ----------------------------------------- | --------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bill to my default group**              | `--default-group`                                                     | ticked                     | bills to the group the Pystino console's group picker sets, instead of pinning one group for this machine; untick to pin the group a plain enroll would pick. Change the mode later with `galopin auth group` |
+| **Terminals** (amber)                     | unticked: `--no-terminal`; a number other than 8: `--max-terminals N` | on; at most 8 open at once | the panel may open a real shell on this machine: anyone who controls your Cerea session can run commands as you, with no model and no permission rule in the way                                              |
+| **Slash commands that run shell** (amber) | unticked: `--no-command-shell`                                        | on                         | a slash command whose template runs a shell snippet may run it, before any permission is asked; plain slash commands work either way                                                                          |
+| **Background subagents**                  | unticked: `--no-background-subagents`                                 | on                         | a task can keep running after its parent turn ends                                                                                                                                                            |
+| **No agent tools**                        | `--no-agent-tools`                                                    | installed                  | installs none of the agent tools (`session_*` and `schedule_*`), so sessions cannot start or message each other, and agents cannot make schedules                                                             |
+| **Allow free models**                     | `--allow-free-models`                                                 | the gateway's models only  | models from providers other than the gateway's may be listed and used                                                                                                                                         |
+| **Keep opencode's own providers**         | `--allow-opencode-provider`                                           | gateway only               | opencode's built-in providers stay enabled next to the gateway's                                                                                                                                              |
+| **Workspace folders** (a list)            | `--workspace-root PATH`, one per entry                                | anywhere                   | workspaces may only be created under these folders                                                                                                                                                            |
+| **No file explorer**                      | `--no-files`                                                          | read-only browsing         | keeps the explorer out of the machine's files                                                                                                                                                                 |
+| **Allow saving files** (amber)            | `--allow-file-write`                                                  | read-only explorer         | lets the `/code` editor save text files in this machine's workspaces (see [Saving files](#saving-files))                                                                                                      |
+| **Hide files** (a list)                   | `--file-deny GLOB`, one per entry                                     | the built-in secret list   | the explorer also redacts files matching these globs                                                                                                                                                          |
+| **Drop the built-in secret list** (amber) | `--no-default-file-deny`                                              | the secret list stays      | stops redacting private keys and credential files, and lets a command's `@file` reference read `.env` files, keeping only your globs                                                                          |
 
-Work outside the project folder is the **outside access** row of the limits (Run lets it happen without a card). There is no longer a control for reading secret files without asking: the machine never lets secrets run, only ask or refuse.
+Work outside the project folder is the **outside access** row of your Auto rows in Workspace → Agents. There is no control for reading secret files without asking: credential paths always come to you as a card.
 
 Connection plumbing (`--issuer`, `--gateway`, `--cerea`, `--client-id`,
 `--creds`, `--output`, `--device`, `--device-endpoint`, `--loopback`, `--group`, `--shim-port`,
@@ -84,8 +82,7 @@ dialog also lists the binaries and `SHA256SUMS` for a manual download, and the
 machines waiting for confirmation.
 
 Nothing here lets a session do "anything": what a session may do is the
-**Plan / Ask / Allow selector** in its composer, inside the limits this dialog
-sets (see [Permissions](#permissions)).
+**Plan / Ask / Auto / Allow selector** in its composer (see [Permissions](#permissions)).
 
 ### The machine policy
 
@@ -385,7 +382,8 @@ once the machine has confirmed it.
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Plan**  | the agent plans and reads; every call that would change something is refused, with no card. The agent is told. Choosing Plan switches the session to opencode's `plan` agent |
 | **Ask**   | asks you, with the approval card (a read inside the project does not ask)                                                                                                    |
-| **Allow** | lets it through without asking, **up to the machine's limits** (the ceiling you set at enroll)                                                                               |
+| **Auto**  | each kind of action runs, goes to your reviewer, or comes to you, as you set in Workspace → Agents (Cerea sends the machine a per-class `autoClasses` map with `allow`)      |
+| **Allow** | hands off: everything runs except the fixed floor (credential files, the machine's own settings, `.git` and CI writes, loops)                                                |
 
 **What the setting covers.** Editing (writes and patches), `bash`, `webfetch`,
 `websearch`, `codesearch`, the `task` tool that starts a subagent, and every MCP
@@ -450,17 +448,15 @@ dialog.
 
 **The Permissions dialog** opens from a session's ⋯ menu (the
 **Permissions…** item, not offered on a subagent, which follows its main
-session) or from the shield button beside the **Plan · Ask · Allow** selector
+session) or from the shield button beside the **Plan · Ask · Auto · Allow** selector
 in the composer; the transcript and its approval cards stay in view while you
 read it. It is titled _Permissions — <machine>_ and starts with one sentence on what
 reaches you at the selected step, then a table of each kind of action (edits,
 commands, web, outside access, secrets, agents, tools, loops) with what happens
-(_Runs_, _Reviewed_, _Comes to you_, _Refused_, _Ends the turn_) and why (_This
-machine's limit_, _Set by your admin_, _Always comes to you_, or that no
-reviewer is set up or you turned it off for this machine). It is computed from
-the machine's limits in its hello, the administrator's rows and the reviewer's
-availability; a machine on an older galopin reports no per-kind limits, so they
-are derived from its earlier settings and the sheet says so. Nothing is listed
+(_Runs_, _Reviewed_, _Comes to you_) and why (_Set in Workspace, Agents_, _Always
+comes to you_, or that no reviewer is switched on for you or you turned it off
+for this machine). It is computed from your rows, the fixed floor and the
+reviewer's availability, only for a session on Auto. Nothing is listed
 from the backend's own rules. Under the table come the session's **exceptions**,
 each _Allowed for this session: `git status *`_ with a **Remove** that makes that
 command ask again (Remove can only tighten, and the machine records each
@@ -469,7 +465,7 @@ machine"), and a **Coordination** section: two switches, _Can find, read and
 message other sessions without asking_ and _Can start new sessions without
 asking_. Without a switch those agents actions come to you or the reviewer like
 any other ask; a switch is the standing answer, from the session's next turn.
-Still asks, grant or not: anything the machine's limits set to ask, and the rate
+Still asks, grant or not: the fixed floor, and the rate
 limits apply. A session it spawns starts with the same grant. The sheet reads
 `permission.rules` for the exceptions and the grant only. While the sign-in is
 [stale](#the-7-day-sign-in) the shield button and Remove are hidden, and the
@@ -572,7 +568,7 @@ Inside the prompt box, in the chat's own pill idiom:
 - **mode** — the backend's own modes (plan, build, …), listed live rather
   than from a hardcoded set that would drift from what it enforces.
 - **model** — the models the session's backend offers.
-- **permission** — the **Plan · Ask · Allow** selector: what this session does
+- **permission** — the **Plan · Ask · Auto · Allow** selector: what this session does
   about a tool call it has no rule for, until you change it. A new session
   starts on **Ask**. It shows what the machine says (never a guess), and a click
   is only reflected once the machine has confirmed it. Nothing is written beside it:

@@ -87,19 +87,18 @@ your machines keep working meanwhile, the panel just asks you to sign in again
 Every session has one **permission setting**, the selector in its composer.
 **New sessions start on Ask.**
 
-| Setting   | What it does with a tool call the session has no rule for                                                  |
-| --------- | ---------------------------------------------------------------------------------------------------------- |
-| **Plan**  | the agent plans and reads; anything that would change something is refused, with no card                   |
-| **Ask**   | asks you, with an approval card (reading inside the project does not ask)                                  |
-| **Allow** | lets it through without asking, **up to the machine's limits** (the ceiling its owner set when pairing it) |
+| Setting   | What it does with a tool call the session has no rule for                                                                        |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Plan**  | the agent plans and reads; anything that would change something is refused, with no card                                         |
+| **Ask**   | asks you, with an approval card (reading inside the project does not ask)                                                        |
+| **Auto**  | each kind of action runs, goes to your reviewer model, or comes to you, as you set in Workspace → Agents                         |
+| **Allow** | hands off: everything runs, except a fixed floor (credential files, the machine's own settings, `.git` and CI writes, and loops) |
 
 When a card appears you can **Allow once**, **Always allow (this session)** for
-that command, or **Deny**. Allow never passes the machine's ceiling: where it
-says `bash` asks, `bash` asks on Allow too, and the selector says so. Writing
-outside the project folder still asks on Allow. The ceiling and the machine's
-other limits are fixed when the machine is paired and the chat cannot loosen
-them. The full rules, the **Permissions** dialog and the exceptions are in the
-[reference](agent-machines-reference.md#permissions).
+that command, or **Deny**. There are no machine limits: you choose the step per
+session, and your rows decide Auto. The fixed floor stays on Allow too, and the
+chat cannot loosen it. The full rules, the **Permissions** dialog and the
+exceptions are in the [reference](agent-machines-reference.md#permissions).
 
 ## Delegating work
 
@@ -107,7 +106,7 @@ A session's model can hand work to other sessions on the same machine, and to
 subagents inside its own turn. A machine can have **profiles**, a name and a model
 each, so a helper can run on a different model; the model can also run a
 **committee** of two or three helpers on one question, or ask a read-only second
-opinion. All of it is under the same permissions and limits.
+opinion. All of it is under the same permissions.
 See [Delegating work](agent-machines-reference.md#delegating-work).
 
 ## Updating galopin

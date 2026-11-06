@@ -53,6 +53,9 @@ interface Harness {
 	settings: AgentReviewSettings;
 	state: {
 		mode: string | undefined;
+		/** The Auto map the session reports; none is Allow (hands off). */
+		autoClasses: Record<string, string> | undefined;
+		settingsFor: string[];
 		optedOut: boolean;
 		token: () => Promise<string>;
 		result: () => Promise<DecisionResult>;
@@ -67,6 +70,14 @@ interface Harness {
 function harness(overSettings: Partial<AgentReviewSettings> = {}): Harness {
 	const settings: AgentReviewSettings = {
 		...defaultSettings(),
+		// Every kind reaches the reviewer here (the user's defaults let edits, web, agents and tools run).
+		perClass: {
+			...defaultSettings().perClass,
+			edit: "reviewer",
+			web: "reviewer",
+			agents: "reviewer",
+			tools: "reviewer",
+		},
 		enabled: true,
 		decisionModelId: "clef-flash",
 		threshold: 0.9,
@@ -74,6 +85,8 @@ function harness(overSettings: Partial<AgentReviewSettings> = {}): Harness {
 	};
 	const state: Harness["state"] = {
 		mode: "allow",
+		autoClasses: { command: "ask", edit: "run" },
+		settingsFor: [],
 		optedOut: false,
 		token: async () => "owner-token",
 		result: async () => ({ ok: true, probability: 0.96 }),
@@ -88,14 +101,24 @@ function harness(overSettings: Partial<AgentReviewSettings> = {}): Harness {
 	const call = vi.fn(async () => state.result());
 	const log = vi.fn(async () => undefined);
 	const deps: ReviewDeps = {
-		settings: async () => settings,
+		settings: async (uid) => {
+			state.settingsFor.push(String(uid));
+			return settings;
+		},
 		killSwitchOn: () => state.killSwitchOn,
 		optedOut: async () => state.optedOut,
 		token: () => state.token(),
 		link: () => ({
 			sessionGet: async () => {
 				if (state.sessionGetFails) throw new Error("offline");
-				return { session: { permissionMode: state.mode, title: "Fix tests", workspaceId: "w1" } };
+				return {
+					session: {
+						permissionMode: state.mode,
+						...(state.autoClasses ? { autoClasses: state.autoClasses } : {}),
+						title: "Fix tests",
+						workspaceId: "w1",
+					},
+				};
 			},
 			workspaceList: async () => ({ workspaces: [{ id: "w1", path: "/home/dev/shop" }] }),
 			permissionReply: reply as never,
@@ -115,10 +138,16 @@ const run = (h: Harness, env = ask(), device = "d1") =>
 beforeEach(() => _resetReviewState());
 afterEach(() => vi.useRealTimers());
 
-describe("routing: only Auto, on a reviewer row, on a machine not opted out, is reviewed", () => {
+describe("routing: only Auto (allow with its map), on a reviewer row, on a machine not opted out, is reviewed", () => {
 	const cases: Array<[string, (h: Harness) => void, Envelope | undefined]> = [
 		["session word ask", (h) => (h.state.mode = "ask"), undefined],
 		["session word deny", (h) => (h.state.mode = "deny"), undefined],
+		["Allow, hands off (no Auto map)", (h) => (h.state.autoClasses = undefined), undefined],
+		[
+			"row says runs (never reaches a card)",
+			(h) => (h.settings.perClass.command = "run"),
+			undefined,
+		],
 		["row says you", (h) => (h.settings.perClass.command = "you"), undefined],
 		["device opted out", (h) => (h.state.optedOut = true), undefined],
 		["reviewer off", (h) => (h.settings.enabled = false), undefined],
@@ -145,6 +174,14 @@ describe("routing: only Auto, on a reviewer row, on a machine not opted out, is 
 		await run(h, ask({ cls: "secrets", tool: "edit", patterns: ["/work/notes.txt"] }));
 		expect(h.call).not.toHaveBeenCalled();
 		expect(h.push).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("whose settings", () => {
+	it("are the machine owner's: the service asks for them by the owner's id, nobody else's", async () => {
+		const h = harness();
+		await run(h);
+		expect(h.state.settingsFor).toEqual([String(user)]);
 	});
 });
 

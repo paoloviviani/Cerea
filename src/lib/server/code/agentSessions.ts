@@ -14,7 +14,13 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import type { MachineLink } from "$lib/server/code/machines";
 import { allowsModel } from "$lib/server/code/modelPolicy";
-import { OpError, type PermissionMode, type Session } from "$lib/types/machineProtocol";
+import {
+	OpError,
+	stepToWire,
+	type AutoClasses,
+	type PermissionStep,
+	type Session,
+} from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
 
 /** A device of this user's, by its hex id. A malformed id or somebody else's row is `null`. */
@@ -120,18 +126,31 @@ export async function createOrReuseSession(
 }
 
 /**
- * Set the session's Deny / Ask / Allow word when it differs. A machine that predates the
- * selector starts every session on Ask: only that word can be left unset. Anything looser must
- * not run, so the error propagates.
+ * Set the session's Plan / Ask / Auto / Allow step when it differs (ADR 0109 amendment). Auto is
+ * the word `allow` plus the user's per-class map (`autoClasses`, from `autoClassesFor`); Allow is
+ * the same word with none. A machine that predates the selector starts every session on Ask: only
+ * that word can be left unset. Anything looser must not run, so the error propagates.
  */
 export async function applyPermissionWord(
 	link: MachineLink,
 	session: Session,
-	mode: PermissionMode
+	step: PermissionStep,
+	autoClasses?: AutoClasses
 ): Promise<void> {
-	if (session.permissionMode === mode) return;
+	const { mode, autoClasses: map } = stepToWire(step, autoClasses);
+	if (step === "auto" && !map) throw new Error("Auto needs the user's per-class map.");
+	if (
+		session.permissionMode === mode &&
+		JSON.stringify(session.autoClasses ?? null) === JSON.stringify(map ?? null)
+	) {
+		return;
+	}
 	try {
-		await link.sessionSetPermissionMode({ sessionId: session.id, mode });
+		await link.sessionSetPermissionMode({
+			sessionId: session.id,
+			mode,
+			...(map ? { autoClasses: map } : {}),
+		});
 	} catch (err) {
 		const unsupported = err instanceof OpError && err.code === "unsupported";
 		if (!(unsupported && mode === "ask")) throw err;
@@ -154,7 +173,9 @@ export async function startAgentSession(
 		title: string;
 		modeId?: string;
 		modelId?: string;
-		permissionMode: PermissionMode;
+		permissionMode: PermissionStep;
+		/** The user's map, when `permissionMode` is "auto". */
+		autoClasses?: AutoClasses;
 		prompt: string;
 		/** Runs once the session exists and before the prompt goes (the project's connector default). */
 		afterCreate?: (session: Session) => Promise<void>;
@@ -167,7 +188,7 @@ export async function startAgentSession(
 		throw new AgentStepError("create", err);
 	}
 	try {
-		await applyPermissionWord(link, session, input.permissionMode);
+		await applyPermissionWord(link, session, input.permissionMode, input.autoClasses);
 	} catch (err) {
 		throw new AgentStepError("permission", err);
 	}
