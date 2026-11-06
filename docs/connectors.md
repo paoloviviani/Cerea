@@ -29,6 +29,14 @@ it authenticates, so you never declare that yourself. There are three outcomes:
 
 Only connect to servers you trust.
 
+## Coding agents
+
+Your connectors can also reach a coding agent on one of your machines, off by
+default: switch them on for one session or as a project's default. The agent
+then has `connector_list` and `connector_call`, Cerea runs each call with your
+own sign-in or key, and the credential never reaches the machine. See
+[Connectors for an agent](code-panel.md#connectors-for-an-agent).
+
 ## Using them
 
 Switch connectors on and off in one place: **Workspace → Connectors**. Each
@@ -139,7 +147,7 @@ it read-only, administrators included: its status, how many tools it has and
 the list of them, and your own **Use in my chats** switch where the
 administrator allows one. Your own connectors are edited in Workspace as
 before. Every card says what is known about its tools: "N tools", "Tools not
-checked yet", or why listing them failed. People who are not administrators
+checked yet", or why listing them failed. Users who are not administrators
 see the address without its query string, and a generic "Could not list its
 tools" instead of the server's own error: those are for the administrator.
 

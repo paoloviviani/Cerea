@@ -7,7 +7,7 @@
 The chat has a small **Admin** area of its own, and the split is by _whose
 decision it is_. The Pystino console owns how the platform is run: providers,
 models, prices, quotas, redaction, users and groups. The chat's Admin area owns
-what the **product** does for people: which model reads a document, what
+what the **product** does for users: which model reads a document, what
 fetches a URL, which connectors and skills everybody gets. Several of these
 are gateway rows underneath; the decision is still a product one, and this is
 where it is made.
@@ -50,7 +50,7 @@ like the document reader. With none offered it says so: add one in the gateway
 console (Providers), then choose it here. With none chosen, the caller's
 billing-group search policy in the gateway decides. `WEB_SEARCH_MODEL` in the
 environment overrides the screen and shows as "set in the environment". The
-choice only applies to people granted that backend; everyone else falls back to
+choice only applies to users granted that backend; everyone else falls back to
 their group's policy. Anyone with no usable backend sees the composer's Web
 search pill disabled rather than a switch that does nothing.
 
@@ -101,7 +101,7 @@ refused" and replace it. Removing the connector removes every user's key. This
 mode is set here, not in `MCP_SERVERS`. See [Connectors](connectors.md).
 
 For a connector each person signs in to, **Re-check** asks the server again how
-people sign in, and **Add app details** takes the client ID and secret from a
+users sign in, and **Add app details** takes the client ID and secret from a
 provider that does not register apps itself. Changing such a connector's
 address signs everybody out of it (their saved sign-ins are removed, so they
 are never sent to the new address) and asks the new server how to sign in. An
@@ -123,8 +123,8 @@ tools have not been checked.
 
 Every connector added here is **On** until you change it, and that includes the
 servers in `MCP_SERVERS`. **After an upgrade, review this page:** set what you
-do not want everybody to have to **Off**, and what people should be able to turn
-off to plain **On**. Tell people what changes for them too: their own
+do not want everybody to have to **Off**, and what users should be able to turn
+off to plain **On**. Tell users what changes for them too: their own
 connectors also come back **On** after the upgrade, and the choices older
 versions kept in their browser (which connectors were on in a chat, and the
 defaults for new chats) are not carried over; they switch connectors off again
