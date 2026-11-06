@@ -1,7 +1,7 @@
 # Writing the interface
 
 How the words in Cerea's interface are written. Read this before you add or
-change any text a person sees: labels, buttons, toasts, error messages, empty
+change any text a user sees: labels, buttons, toasts, error messages, empty
 states, tooltips, `aria-label`s, page titles, settings descriptions. It is also
 the brief for anyone extracting strings for translation: translate the
 plain-language wording, not the technical term it replaced.
@@ -19,12 +19,15 @@ adds it in brackets.
 
 - Plain, friendly, short. One idea per sentence. Say it the way you would say it
   to a colleague.
+- Address the reader as "you". When the text names the people who use Cerea,
+  say "users", not "people" ("Users can see their own review log"). The owner's
+  preference, 2026-10-28.
 - Sentence case everywhere ("Add connector", not "Add Connector"). Titles of
-  things people name themselves keep their own case.
+  things users name themselves keep their own case.
 - Say what happened and what to do next. "Could not save. Try again." beats
   "Request failed (500)."
 - No blame ("You entered an invalid..."), no stack-speak, no status codes, no
-  environment variable names on pages ordinary people see.
+  environment variable names on pages ordinary users see.
 - Do not promise what the code does not do. If something is partial or has a
   catch, say so in the same breath, briefly.
 - Prefer a verb on buttons ("Sign in", "Add", "Check"), the thing's name on
@@ -39,7 +42,7 @@ adds it in brackets.
 | MCP server                                                | connector                                                                  | Keep "MCP" only where an expert needs it: admin pages and the URL hint in the add-connector form ("the address of an MCP server").                                                                                      |
 | Base server, `.env` server, "Provided by this deployment" | built-in connector                                                         | Group heading "Built-in connectors".                                                                                                                                                                                    |
 | "from .env" pill                                          | "Set up by the administrator"                                              | Shown to administrators only. The admin page itself may say "Set in the .env file".                                                                                                                                     |
-| deployment, instance, gateway, Pystino                    | "here", "this service", "your administrator"                               | Leave it out when the sentence still works. Never name the gateway product to ordinary people.                                                                                                                          |
+| deployment, instance, gateway, Pystino                    | "here", "this service", "your administrator"                               | Leave it out when the sentence still works. Never name the gateway product to ordinary users.                                                                                                                           |
 | OAuth, authenticate, authorize                            | sign in                                                                    | "Sign in to this connector." Say "OAuth" only on admin pages and the advanced authentication choice, with "sign in" beside it.                                                                                          |
 | token, API key, bearer, credential                        | "access key" / "password"                                                  | Only on pages that need one (add a connector with a key, push set-up), and explain where it comes from. "Tokens" as the model's length budget: say "length" or "words", never "tokens", outside the Code context meter. |
 | health check                                              | Check                                                                      | The button and the result ("Working", "Not reachable").                                                                                                                                                                 |
@@ -58,7 +61,7 @@ adds it in brackets.
 | Code area: workspace (a folder on a machine)              | kept                                                                       | Same reason.                                                                                                                                                                                                            |
 | Code area: agent                                          | agent                                                                      | The product word in the sidebar ("Agents").                                                                                                                                                                             |
 | Code area: session                                        | session                                                                    | Kept: it is what an agent's run is.                                                                                                                                                                                     |
-| Code area: worktree, HEAD, branch                         | kept                                                                       | Git words for people who use git. Add a plain half-sentence.                                                                                                                                                            |
+| Code area: worktree, HEAD, branch                         | kept                                                                       | Git words for users who use git. Add a plain half-sentence.                                                                                                                                                             |
 | Code area: posture, ceiling, policy                       | kept                                                                       | Same reason.                                                                                                                                                                                                            |
 | error "The request failed (500)"                          | "Something went wrong. Try again."                                         | Keep the status code only in the console.                                                                                                                                                                               |
 
