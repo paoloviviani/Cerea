@@ -480,6 +480,7 @@
 	"code.schedule.status.missed_downtime": "[Ḿíśśéď: Ćéŕéá ŵáś ďóŵń]",
 	"code.schedule.status.missed_offline": "[Ḿíśśéď: ḿáćȟíńé óƒƒľíńé]",
 	"code.schedule.status.sent": "[Śéńť]",
+	"code.schedule.status.skipped_no_access": "[Śķíþþéď: śíǧń íń áǧáíń]",
 	"code.schedule.status.skipped_still_running": "[Śķíþþéď: śťíľľ ŕúńńíńǧ]",
 	"code.schedule.weekday.friday": "[Ƒŕíďáý]",
 	"code.schedule.weekday.monday": "[Ḿóńďáý]",

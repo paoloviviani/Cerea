@@ -64,7 +64,7 @@ import {
 } from "./grants";
 import { getExecutor } from "./executors";
 import { runNow } from "./scheduler";
-import { createSchedule, deleteSchedule, getSchedule, updateSchedule } from "./store";
+import { createSchedule, deleteSchedule, getSchedule, scheduleView, updateSchedule } from "./store";
 import type { Schedule } from "$lib/types/Schedule";
 
 await ready;
@@ -892,7 +892,7 @@ describe("the background grant", () => {
 		expect(flags.refresh).toHaveBeenCalledTimes(1);
 	});
 
-	it("invalid_grant drops the grant and switches every chat schedule of theirs off", async () => {
+	it("invalid_grant drops the grant; every chat schedule of theirs stays enabled and skips", async () => {
 		const a = await make(continueTarget());
 		const b = await make(
 			{ mode: "continue", conversationId: (await seedConversation()).toString() },
@@ -907,12 +907,15 @@ describe("the background grant", () => {
 		);
 		const run = await runNow(person.user._id, a._id.toString());
 
-		expect(run.status).toBe("failed");
+		expect(run.status).toBe("skipped-no-access");
 		expect(run.detail).toBe(SIGN_IN_AGAIN);
 		expect(await hasGrant(person.user._id)).toBe(false);
 		for (const schedule of [a, b]) {
 			const after = await getSchedule(person.user._id, schedule._id.toString());
-			expect(after).toMatchObject({ enabled: false, disabledReason: SIGN_IN_AGAIN });
+			expect(after.enabled).toBe(true);
+			expect(after.disabledReason).toBeUndefined();
+			expect(after.nextRunAt).not.toBeNull();
+			expect(after.consecutiveFailures).toBe(0);
 		}
 		expect(flags.turn).not.toHaveBeenCalled();
 		// The refresh token is revoked at the IdP, best effort.
@@ -934,13 +937,49 @@ describe("the background grant", () => {
 		expect((await getSchedule(person.user._id, schedule._id.toString())).enabled).toBe(true);
 	});
 
-	it("a grant that went missing switches the schedule off without posting anything", async () => {
+	it("a grant that went missing skips the run without posting anything and never switches the schedule off", async () => {
 		const schedule = await make(continueTarget());
 		await collections.scheduleGrants.deleteMany({});
-		const run = await runNow(person.user._id, schedule._id.toString());
-		expect(run.status).toBe("failed");
+		for (let i = 0; i < 4; i++) {
+			const run = await runNow(person.user._id, schedule._id.toString());
+			expect(run.status).toBe("skipped-no-access");
+		}
 		expect(flags.turn).not.toHaveBeenCalled();
-		expect((await getSchedule(person.user._id, schedule._id.toString())).enabled).toBe(false);
+		expect((await getSchedule(person.user._id, schedule._id.toString())).enabled).toBe(true);
+	});
+
+	it("the warning is derived from the grant: shown while it is gone, gone after the next sign-in, and runs resume", async () => {
+		const schedule = await make(continueTarget());
+		const view = async () =>
+			scheduleView(await getSchedule(person.user._id, schedule._id.toString()));
+		expect((await view()).accessIssue).toBeUndefined();
+
+		// The grant expires: the refresh is refused and the grant dropped.
+		await collections.scheduleGrants.updateOne(
+			{ userId: person.user._id },
+			{ $set: { accessExpiresAt: new Date(Date.now() - 1000) } }
+		);
+		flags.refresh.mockRejectedValue(
+			Object.assign(new Error("invalid_grant"), { error: "invalid_grant" })
+		);
+		expect((await runNow(person.user._id, schedule._id.toString())).status).toBe(
+			"skipped-no-access"
+		);
+		expect((await view()).accessIssue).toBe(NEEDS_GRANT);
+		expect((await view()).enabled).toBe(true);
+
+		// A new login writes a grant: no write to the schedule, and the warning is gone.
+		const row = await getSchedule(person.user._id, schedule._id.toString());
+		await saveGrant(person.user._id, {
+			refresh_token: "rt-new",
+			access_token: "at-new",
+			expires_at: Math.floor(Date.now() / 1000) + 3600,
+		} as never);
+		expect((await view()).accessIssue).toBeUndefined();
+		expect((await getSchedule(person.user._id, schedule._id.toString())).updatedAt).toEqual(
+			row.updatedAt
+		);
+		expect((await runNow(person.user._id, schedule._id.toString())).status).toBe("sent");
 	});
 
 	it("stops being used by schedules with the last chat schedule, but stays: it keeps the sessions signed in", async () => {
@@ -1016,7 +1055,7 @@ describe("when an account goes", () => {
 		expect(await collections.schedules.countDocuments({ _id: schedule._id })).toBe(0);
 	});
 
-	it("merging drops the stray's grant and switches its chat schedules off, for the target to turn on", async () => {
+	it("merging drops the stray's grant; its chat schedules move over still enabled", async () => {
 		const target = await createTestUser();
 		const schedule = await make({ mode: "continue", conversationId: conversationId.toString() });
 		const merge = (
@@ -1027,6 +1066,7 @@ describe("when an account goes", () => {
 		expect(await hasGrant(person.user._id)).toBe(false);
 		const row = await collections.schedules.findOne({ _id: schedule._id });
 		expect(row?.userId.equals(target.user._id)).toBe(true);
-		expect(row).toMatchObject({ enabled: false, disabledReason: SIGN_IN_AGAIN });
+		expect(row?.enabled).toBe(true);
+		expect(row?.disabledReason).toBeUndefined();
 	});
 });

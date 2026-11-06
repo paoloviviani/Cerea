@@ -51,6 +51,27 @@ describe("SchedulesPanel list rows", () => {
 		expect(screen.getByTestId("run-progress").elements()).toHaveLength(1);
 	});
 
+	it("shows the sign-in warning on an enabled schedule while access is expired, and not once it is back", async () => {
+		const issue = "Sign in again: the background access stopped working.";
+		api.listSchedules.mockResolvedValueOnce({
+			schedules: [row({ accessIssue: issue })],
+			limit: 20,
+		});
+		const first = renderWithApp(SchedulesPanel);
+		await expect.element(first.getByTestId("access-issue")).toHaveTextContent(issue);
+		expect(first.getByTestId("disabled-reason").elements()).toHaveLength(0);
+		await first.unmount();
+
+		// After a sign-in the server derives no warning: the same schedule, still enabled, shows none.
+		api.listSchedules.mockResolvedValueOnce({
+			schedules: [row()],
+			limit: 20,
+		});
+		const second = renderWithApp(SchedulesPanel);
+		await expect.element(second.getByText("Nightly check")).toBeInTheDocument();
+		expect(second.getByTestId("access-issue").elements()).toHaveLength(0);
+	});
+
 	it("shows a zero count the same way", async () => {
 		api.listSchedules.mockResolvedValue({
 			schedules: [row({ maxOccurrences: 12, firedCount: 0 })],

@@ -311,6 +311,14 @@
 											<IconWarning class="mt-px size-3.5 shrink-0" />
 											<span class="min-w-0 break-words">{schedule.disabledReason}</span>
 										</p>
+									{:else if schedule.accessIssue && schedule.enabled}
+										<p
+											class="mt-2 flex items-start gap-1.5 rounded-lg bg-warn-subtle px-2.5 py-1.5 text-xs text-warn"
+											data-testid="access-issue"
+										>
+											<IconWarning class="mt-px size-3.5 shrink-0" />
+											<span class="min-w-0 break-words">{schedule.accessIssue}</span>
+										</p>
 									{:else if !deviceOnline(schedule) && schedule.enabled}
 										<p class="mt-2 text-xs text-ink-muted">
 											{m["code.schedules.offline_note"]()}

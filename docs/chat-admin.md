@@ -243,8 +243,12 @@ panel.
   background access is settled; the ordinary sign-in's consent is remembered for 90 days).
   If the IdP answers a refresh with any OAuth error (`invalid_grant`, or the `server_error`
   Authelia gives the newest token of a chain it revoked after a rotated token was reused),
-  or with a different subject, the grant is dropped, the user's session ends and their chat
-  schedules switch off; the next sign-in asks for background access again. A user's Stop in
+  or with a different subject, the grant is dropped and the user's session ends. Their chat
+  schedules **stay enabled**: each due run is recorded as "Skipped: sign in again" (not a failure, so
+  it never counts toward the three that switch a schedule off, and nothing is replayed afterwards),
+  the first skip sends one notification, and the schedules list shows a warning that is worked out
+  from the grant as it is now. The next sign-in gives background access again, the warning goes by
+  itself and the next due run executes. A user's Stop in
   Settings only switches schedules off and stops them using the grant (their sessions keep
   using it); deleting an account revokes it at the IdP's revocation endpoint when the
   discovery document has one, and a merge drops the merged-away account's and switches its

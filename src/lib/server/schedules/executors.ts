@@ -95,6 +95,12 @@ export interface ScheduleExecutor {
 	run(context: ExecutorRunContext): Promise<ExecutorOutcome>;
 	/** A reason the person cannot have a schedule of this kind running yet, in words they read; null when they can. */
 	precondition?(userId: ObjectId): Promise<string | null>;
+	/**
+	 * A warning for an enabled schedule that cannot run right now for want of what `precondition` asks
+	 * (chat: the background grant expired); null when fine. Derived on every read, never stored, so it
+	 * goes by itself the moment the person fixes it. The schedule stays enabled and its runs are skipped.
+	 */
+	accessIssue?(userId: ObjectId): Promise<string | null>;
 	/** Called after a schedule of this kind was deleted. Never throws into the caller. */
 	afterDelete?(schedule: Schedule): Promise<void>;
 }

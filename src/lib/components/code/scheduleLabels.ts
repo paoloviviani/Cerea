@@ -10,6 +10,7 @@ import type { Recurrence, ScheduleRunStatus } from "$lib/types/Schedule";
 const RUN_STATUS: Record<ScheduleRunStatus, () => string> = {
 	sent: m["code.schedule.status.sent"],
 	"skipped-still-running": m["code.schedule.status.skipped_still_running"],
+	"skipped-no-access": m["code.schedule.status.skipped_no_access"],
 	"missed-offline": m["code.schedule.status.missed_offline"],
 	"missed-downtime": m["code.schedule.status.missed_downtime"],
 	failed: m["code.schedule.status.failed"],

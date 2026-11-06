@@ -480,9 +480,10 @@ browser sessions and your scheduled runs (the newest sign-in replaces the older)
 refresh an access token from it and call the models as you, so your quota, billing
 group, redaction rules and model access apply and usage is yours. Signing out of one
 device keeps it. If your identity provider refuses it (you were deprovisioned, or
-revoked it), you are signed out and your chat schedules switch themselves off with
-"Sign in again and turn it back on"; signing in again restores the access and you turn
-the schedules on. **Settings → Application → Background access for schedules → Stop**
+revoked it), you are signed out. Your chat schedules stay on but show a warning and skip
+their runs ("Skipped: sign in again") until you sign in again; signing in again restores the
+access, the warning goes by itself and the next run goes ahead (skipped runs are not made up).
+**Settings → Application → Background access for schedules → Stop**
 switches your chat schedules off and stops them using it; it does not sign you out
 (your sessions keep refreshing through it), and turning a chat schedule on again, or
 signing in again, gives it back. Deleting your account removes it. If your identity
