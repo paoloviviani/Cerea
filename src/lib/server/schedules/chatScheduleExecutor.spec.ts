@@ -37,6 +37,7 @@ vi.mock("$lib/server/auth", async (original) => ({
 }));
 vi.mock("$lib/server/models", () => ({
 	models: [{ id: "test-model" }, { id: "other-model" }],
+	defaultModel: undefined,
 	validateModel: () => z.enum(["test-model", "other-model"]),
 }));
 vi.mock("$lib/server/push/notify", () => ({ notifyUser: flags.notify }));

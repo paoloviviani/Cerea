@@ -40,6 +40,7 @@ vi.mock("$lib/server/schedules/limits", async (original) => ({
 }));
 vi.mock("$lib/server/models", () => ({
 	models: [{ id: "test-model" }],
+	defaultModel: undefined,
 	validateModel: () => null,
 }));
 vi.mock("../../../../conversation/[id]/+server", () => ({

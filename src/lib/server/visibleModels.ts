@@ -3,12 +3,14 @@ import { logger } from "$lib/server/logger";
 import {
 	buildByokModels,
 	ensureModelsFresh,
+	defaultModel,
 	models as sharedModels,
 	type ProcessedModel,
 } from "$lib/server/models";
 import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import { billToHeader } from "$lib/server/billTo";
+import { isUnlistedForUsers } from "$lib/server/hiddenModels";
 
 /**
  * The catalogue models this caller may see: what `GET /api/v2/models` lists
@@ -124,6 +126,10 @@ export async function isSelectableCatalogueId(
 	id: string,
 	isCatalogueId: (id: string) => boolean
 ): Promise<boolean> {
+	// An administrator-hidden model (or an unlisted one) is not newly selectable;
+	// chats already on it keep working because they never pass through here.
+	const known = sharedModels.find((model) => model.id === id);
+	if (known && isUnlistedForUsers(known, defaultModel?.id)) return false;
 	if (isCatalogueId(id)) return true;
 	if (!id.startsWith("my/")) return false;
 	return ((await callerByokModels(locals)) ?? []).some((model) => model.id === id);
@@ -132,7 +138,9 @@ export async function isSelectableCatalogueId(
 export async function visibleModels(
 	locals: Pick<App.Locals, "isAdmin" | "sessionId" | "token" | "user">
 ): Promise<ProcessedModel[]> {
-	const catalogue = (await ensureModelsFresh()).filter((model) => model.unlisted == false);
+	const catalogue = (await ensureModelsFresh()).filter(
+		(model) => !isUnlistedForUsers(model, defaultModel?.id)
+	);
 
 	// No OIDC token means there is nobody to filter *for* — an anonymous or
 	// development session. It sees the deployment's list.

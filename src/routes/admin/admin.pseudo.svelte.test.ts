@@ -97,6 +97,7 @@ describe("Administration, in the pseudo-locale", () => {
 				available_models: [{ id: "m1", name: "Model one", reasoning: false }],
 				configurable: false,
 			},
+			"/admin/hidden-models": { configurable: false, models: [] },
 			"/admin/dictation": {
 				mode: "browser",
 				transcriptionModel: "whisper",

@@ -1,4 +1,5 @@
 import { error } from "@sveltejs/kit";
+import { isUnlistedForUsers } from "$lib/server/hiddenModels";
 
 /**
  * Resolve a model by namespace and optional model name.
@@ -13,7 +14,8 @@ export async function resolveModel(namespace: string, model?: string) {
 	try {
 		const { models } = await import("$lib/server/models");
 		const found = models.find((m) => m.id === modelId);
-		if (!found || found.unlisted) {
+		const { defaultModel } = await import("$lib/server/models");
+		if (!found || isUnlistedForUsers(found, defaultModel?.id)) {
 			error(404, "Model not found");
 		}
 		return found;

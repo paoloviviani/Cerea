@@ -11,6 +11,7 @@
 	import VoiceSection from "$lib/components/admin/VoiceSection.svelte";
 	import ImagesSection from "$lib/components/admin/ImagesSection.svelte";
 	import TitleModelSection from "$lib/components/admin/TitleModelSection.svelte";
+	import HiddenModelsSection from "$lib/components/admin/HiddenModelsSection.svelte";
 </script>
 
 <svelte:head><title>{m["admin.assistant.page_title"]()}</title></svelte:head>
@@ -21,4 +22,5 @@
 	<VoiceSection />
 	<ImagesSection />
 	<TitleModelSection />
+	<HiddenModelsSection />
 </div>

@@ -8,13 +8,14 @@ import { html } from "satori-html";
 import InterRegular from "$lib/server/fonts/Inter-Regular.ttf";
 import InterBold from "$lib/server/fonts/Inter-Bold.ttf";
 import { base } from "$app/paths";
-import { models } from "$lib/server/models";
+import { defaultModel, models } from "$lib/server/models";
+import { isUnlistedForUsers } from "$lib/server/hiddenModels";
 import { render } from "svelte/server";
 
 export const GET: RequestHandler = (async ({ params }) => {
 	const model = models.find(({ id }) => id === params.model);
 
-	if (!model || model.unlisted) {
+	if (!model || isUnlistedForUsers(model, defaultModel?.id)) {
 		redirect(302, `${base}/`);
 	}
 	const renderedComponent = render(ModelThumbnail, {

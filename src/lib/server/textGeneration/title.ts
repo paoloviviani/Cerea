@@ -1,3 +1,4 @@
+import { isUnlistedForUsers } from "$lib/server/hiddenModels";
 import { config } from "$lib/server/config";
 import { generateFromDefaultEndpoint } from "$lib/server/generateFromDefaultEndpoint";
 import { isCustomModelId } from "$lib/utils/customModelId";
@@ -95,7 +96,7 @@ async function catalogue(): Promise<TitleModelCandidate[]> {
 			id: m.id,
 			name: m.name,
 			supportsReasoning: m.supportsReasoning,
-			unlisted: m.unlisted,
+			unlisted: isUnlistedForUsers(m),
 		}));
 	} catch {
 		return [];

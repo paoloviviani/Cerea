@@ -10,6 +10,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 - **Better chat titles.** A title that could not be written (a reasoning model that used its whole budget thinking, a quota error, a timeout) is no longer stuck as the first few words: it is tried again after the first reply, with the start of the reply to read, and once more on the next message. The fallback is now the first sentence cut at a word boundary, not the raw first five words. A title you typed yourself is never replaced. New chats only; existing chats keep their titles.
 - **Model for titles (Administration → Assistant).** Choose which model names chats, from the gateway's chat models. Automatic (the default) uses `TASK_MODEL` if set, else a model that does not reason, else the chat's own model. `TITLE_MODEL` sets it from the environment.
 
+- **Hide models from the chat picker (Administration → Assistant).** Administrators can hide a gateway chat model from users' model pickers while it stays usable for internal tasks. Chats already on it keep working; the default model cannot be hidden. A hidden non-reasoning model is what automatic **Model for titles** now prefers. `HIDDEN_MODELS` sets it from the environment.
+
 ## v0.43.0 — 2026-11-06
 
 Pins: Cerea `0.43.0` (chat and `cerea-documents`), Pystino `0.28.0`.
