@@ -37,8 +37,7 @@ export const SIGN_IN_AGAIN =
 export const LEGACY_SIGN_IN_AGAIN =
 	"Sign in again and turn it back on: the background access this schedule runs with stopped working.";
 export const NEEDS_GRANT =
-	"Scheduled chats need background access, which comes from signing in. Sign in again; if this stays, " +
-	"your administrator has to allow refresh tokens (the offline_access scope) for the chat's client.";
+	"Scheduled runs need your background access, which comes from signing in. Sign in again; if this message stays, ask your administrator.";
 
 /** The grant is missing: nothing to refresh. */
 export class GrantMissingError extends Error {

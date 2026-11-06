@@ -176,7 +176,7 @@ describe("making a chat schedule", () => {
 
 		expect(res.status).toBe(409);
 		expect(res.text).toContain("background access");
-		expect(res.text).toContain("offline_access");
+		expect(res.text).toContain("ask your administrator");
 		expect(await collections.schedules.countDocuments({})).toBe(0);
 	});
 

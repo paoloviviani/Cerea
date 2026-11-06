@@ -43,7 +43,7 @@ describe("ScheduleAccessSettings", () => {
 			vi.fn(async () => answer({ required: true, granted: false, active: false, chatSchedules: 0 }))
 		);
 		const screen = render(ScheduleAccessSettings);
-		await expect.element(screen.getByText(/offline_access/)).toBeVisible();
+		await expect.element(screen.getByText(/ask your administrator/)).toBeVisible();
 		expect(screen.getByTestId("schedule-access-stop").elements()).toHaveLength(0);
 	});
 
