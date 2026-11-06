@@ -200,7 +200,7 @@ means the feature is off, and PowerPoint then previews in the browser,
 approximately. It is off in every preset. The image is large (about 1.5 GB) and
 a conversion takes a few hundred MB of memory.
 
-Gotenberg runs LibreOffice and Chromium on documents people upload, so it is
+Gotenberg runs LibreOffice and Chromium on documents users upload, so it is
 boxed in: it sits alone with the chat on an `internal` Docker network (no route
 to the internet, no published port), has no volumes (scratch space is tmpfs,
 the root filesystem read-only), no capabilities, CPU and memory limits
@@ -254,7 +254,7 @@ look is the built-in neutral style plus what the person asks for, or a file they
 upload. Without the service the tools are not offered and the skills fall back to
 the in-sandbox helpers. Decks can have slide backgrounds and up to 30 shapes per
 slide; a person who explicitly asks for a custom deck design gets one built in
-the browser sandbox instead (the PowerPoint skill's one exception). What people
+the browser sandbox instead (the PowerPoint skill's one exception). What users
 can ask for, and the limits, are on [Word, Excel, PowerPoint and PDF
 files](office.md).
 
@@ -357,7 +357,7 @@ This reports everything wrong at once:
 Among them, what identity configuration turns up:
 - an external IdP with no admin rule — set `--admin-email`, or `--admin-claim` with `--admin-claim-value`; a half-set claim pair, or an `OIDC_ADMIN_EMAIL` entry that is not a valid address, is reported the same way;
 - `OIDC_LINK_BY_EMAIL` on — the reminder to turn it off when the transition is done;
-- the `team` preset without SMTP — people cannot reset their own password;
+- the `team` preset without SMTP — users cannot reset their own password;
 - `pystino idp check --discovery-only`, run in the gateway container against the configured issuer;
 - with an external IdP, any configured scope the issuer's `scopes_supported` does not list (`--offline` skips the lookup).
 
@@ -456,9 +456,9 @@ but only on the host's loopback.
 
 **TLS.** Two setups work:
 - `--tls upstream`: NetBird's reverse proxy, or another edge, terminates TLS and forwards plain HTTP to the NetBird address on port 80. It must pass `Host`, forward WebSocket upgrades and not buffer (see [TLS modes](#tls-modes)). Set `TRUSTED_PROXIES` to the range it connects from; for NetBird that is `100.64.0.0/10`.
-- `--tls internal`: people reach the NetBird address or name directly, with Caddy's own certificate. Every browser and agent machine must trust that CA ([Certificate trust](#certificate-trust-with-internal-tls)).
+- `--tls internal`: users reach the NetBird address or name directly, with Caddy's own certificate. Every browser and agent machine must trust that CA ([Certificate trust](#certificate-trust-with-internal-tls)).
 
-**`PUBLIC_ORIGIN` must be the address people type into the browser** (with
+**`PUBLIC_ORIGIN` must be the address users type into the browser** (with
 `https://`), and the agent machines have to reach it as well: they join the
 same NetBird network, or the origin is published some other way. The stack
 builds every sign-in redirect from it.
@@ -790,7 +790,7 @@ Its accounts are managed from the console's **Users** page:
 Groups and roles live in the console too (the **Groups** page): the bundled
 users file carries no groups of its own.
 
-With SMTP set (`./configure --smtp-host …`), people reset their own password
+With SMTP set (`./configure --smtp-host …`), users reset their own password
 from the sign-in page. Without it, only an administrator can, by issuing a
 one-time password from the Users page.
 
@@ -863,8 +863,8 @@ Groups from the identity provider:
 or takes `--group-import manual|auto` (default `manual`), written as
 `OIDC_GROUP_IMPORT`. With **manual**, a sign-in creates no group: the names it
 carries are listed on the console's **Groups** page under *Seen from your
-identity provider*, with how many people carry each and when it was last
-seen. **Import** creates the group and gives it to those people at once (at
+identity provider*, with how many users carry each and when it was last
+seen. **Import** creates the group and gives it to those users at once (at
 their next sign-in if `OIDC_GROUP_SYNC` is not `every_login`); **Dismiss**
 stops listing it. A group that already exists is granted from the claim in
 both modes, as before. **auto** is the old behaviour: every name becomes a
@@ -885,7 +885,7 @@ provider (ADR 0095). `./configure` asks for it with an external IdP, or takes
   `OIDC_AUTO_PROVISION=true`);
 - **approval** — the account is created disabled, in the console's **Users**
   page *Awaiting approval* queue; **Approve** enables it, **Reject** deletes it;
-- **invite** — only people you invited (or the directory pushed) can sign in;
+- **invite** — only users you invited (or the directory pushed) can sign in;
   everyone else is refused with a text that says to ask for an invitation.
   Invitations expire after 14 days; re-inviting (the invite-text button)
   re-issues one;
@@ -905,7 +905,7 @@ closes the link (`4404`) without revoking the device, and it reconnects by
 itself once the person is back in a required group.
 
 **Everyone joins `users`.** Each person is put in one default group at their
-first sign-in, with any IdP (`OIDC_DEFAULT_GROUP`, `users`; existing people at
+first sign-in, with any IdP (`OIDC_DEFAULT_GROUP`, `users`; existing users at
 their next sign-in), so a new account has a group to bill and can use the
 public models before anything is imported. It grants no model by itself:
 restrict models by group on the Models screen, or keep them public. Someone
@@ -947,7 +947,7 @@ Without the scope, group-based features (group sync, quotas and billing by
 group, an `--admin-claim groups` rule) work only if the IdP puts a groups claim
 in its tokens regardless; check with `docker compose run --rm --no-deps
 gateway pystino idp check --device`, which prints the claim. With no groups
-claim, people sign in with no group memberships and an admin rule by
+claim, users sign in with no group memberships and an admin rule by
 `--admin-email` still works.
 
 galopin follows the same rule: it asks for `offline_access` only when the
@@ -1013,9 +1013,9 @@ link-by-email on — how many existing accounts a first sign-in would link to.
      next activity.
 5. **Each person with an agent machine re-enrolls it.** Their `/chat/code` shows **Re-enroll this machine: the identity provider changed** with the command to run on that machine; tell them before you switch.
 6. **The old provider stays listed.** The console's Settings screen keeps it as
-   a disabled "previous" row, so people who signed in there can be linked
+   a disabled "previous" row, so users who signed in there can be linked
    back. If nobody ever signed in through it, **Remove** on that row deletes
-   it; if people did, the row says how many and stays. Removing it loses
+   it; if users did, the row says how many and stays. Removing it loses
    nothing: pointing `.env` at that issuer again creates it afresh.
 
 ### Merging accounts
@@ -1069,7 +1069,7 @@ machines.
 **Delete** erases the person everywhere, chat included: conversations, files
 and attachments, projects, knowledge bases, memories, skills,
 MCP connectors, settings, sessions and machine links. Content they shared
-with other people disappears for them too; the delete confirmation names it
+with other users disappears for them too; the delete confirmation names it
 and asks you to tick it before it proceeds. Their spend history stays in the
 ledger, anonymised. If the chat is down at delete time, the erasure is queued
 and retried until the chat confirms — `docker compose exec gateway pystino
@@ -1077,7 +1077,7 @@ erasure list` shows the queue.
 
 ## Agent machines
 
-With `--agents` (`CODE_AGENTS_ENABLED='true'`), people can pair their own
+With `--agents` (`CODE_AGENTS_ENABLED='true'`), users can pair their own
 machines and drive coding agents on them from `/chat/code`. Each machine runs
 galopin, a small agent that dials out to your origin over WebSocket, so no
 inbound port is needed on the machine.
@@ -1128,7 +1128,7 @@ the new binary.
 
 ## Local connectors
 
-`LOCAL_CONNECTORS_ENABLED='true'` (the kit's default) lets people connect MCP
+`LOCAL_CONNECTORS_ENABLED='true'` (the kit's default) lets users connect MCP
 servers that run on their own machine to their chat, without the Agents panel
 and without a coding agent on the machine. The machine runs galopin in
 connectors mode (`galopin enroll --connectors-only`, then
@@ -1145,7 +1145,7 @@ administrator chooses one under Administration → Auto-approval, and it stays o
 until then. `CHAT_AUTO_PERMISSIONS='false'` is the kill switch (on otherwise); then the
 third step reads Allow and no reviewer runs.
 
-**Scheduled actions** come with `--agents`: people can have a prompt sent to a
+**Scheduled actions** come with `--agents`: users can have a prompt sent to a
 session on one of their machines on a timetable, and agents can make schedules
 on their own machine. `CHAT_SCHEDULES_ENABLED='false'` is the kill switch (on
 otherwise) and `CHAT_SCHEDULES_MAX_PER_USER` caps each person's schedules

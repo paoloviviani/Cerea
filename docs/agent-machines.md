@@ -1,6 +1,6 @@
 # Agent machines: getting started
 
-!!! info "For people using the Agents panel"
+!!! info "For users using the Agents panel"
 
     Pairing your own machine and driving it from the chat. The depth is in the
     [reference](agent-machines-reference.md); **see also**
@@ -32,8 +32,13 @@ A satellite or standalone chat on another host sets `CEREA_BASE_URL` to that add
 2. **Copy the line.** In the sidebar's **Agents** side, click **Pair** (or
    **Pair a device** when the list is empty). The **Pair a machine** dialog
    prints one line for this deployment, with the origin, the issuer and the
-   gateway filled in. Set what this machine may ever allow first (see
-   [The pairing dialog](agent-machines-reference.md#the-pairing-dialog)), then copy it.
+   gateway filled in. The dialog's heading is **Options for this machine**: look
+   through them first (see
+   [The pairing dialog](agent-machines-reference.md#the-pairing-dialog)), then copy the line.
+   One option to know about is **Use a project's own opencode setup**, off by
+   default: opencode then ignores a repository's own `opencode.json`, `.opencode`
+   folder and `AGENTS.md` or `CLAUDE.md`, so code you did not write cannot add
+   commands, agents, plugins or connectors to the session.
 3. **Paste it in a terminal on the machine.** Your browser opens to sign in; on
    a machine with no screen it prints a link and a code you can open on your
    phone. The machine then appears in the Agents panel as **Pending**: click the
@@ -58,13 +63,19 @@ tree: paired machines, each with its workspaces, each with its sessions.
   path. A machine can be set to refuse folders outside the ones its owner listed.
 - **A session** (an "agent") belongs to one workspace. It reads like a chat
   conversation, and the composer has the same pills: **mode** (plan, build, and
-  whatever the agent offers), **model**, and the **Plan · Ask · Allow**
+  whatever the agent offers), **model**, and the **Plan · Ask · Auto · Allow**
   permission selector.
 - **The Needs-you inbox** lists, across all your machines, the approvals and
   questions waiting for you, each answerable in place.
-- **Changes** opens a pane with the files the session has changed, from git.
-- **Files** browses the workspace. On a machine enrolled with
-  `--allow-file-write` it can also edit and save text files; a file that changed
+- **Changes** opens a pane with the files the session has changed, from git
+  (outside a git folder, from the edits the agent made), each with its diff.
+- **Cost and context**: the ring in the composer shows how full the model's
+  context is, and its popup the session's cost and the latest turn's, as the
+  gateway metered them.
+- **Connectors**: a session can use your connectors, off until you switch them
+  on for it or for a project ([Connectors for an agent](code-panel.md#connectors-for-an-agent)).
+- **Files** browses the workspace. It can also edit and save text files (on by default;
+  a machine enrolled with `--no-file-write` stays read-only); a file that changed
   on disk since you opened it is a conflict you resolve (reload or overwrite),
   never silently overwritten ([Saving files](agent-machines-reference.md#saving-files)).
 - **Slash commands**: type `/` in the composer for the commands the session can
@@ -99,6 +110,8 @@ that command, or **Deny**. There are no machine limits: you choose the step per
 session, and your rows decide Auto. The fixed floor stays on Allow too, and the
 chat cannot loosen it. The full rules, the **Permissions** dialog and the
 exceptions are in the [reference](agent-machines-reference.md#permissions).
+On Auto, what the reviewer decided is in **Settings → Review log**
+([the review log](code-panel.md#the-review-log)).
 
 ## Delegating work
 

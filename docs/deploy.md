@@ -6,7 +6,7 @@
     without it. This page is the map; the deploy kit's README is the runbook.
 
 Cerea is a chat application: it needs a MongoDB, an OpenAI-compatible
-endpoint to talk to, and an OIDC identity provider to sign people in. How
+endpoint to talk to, and an OIDC identity provider to sign users in. How
 much of that you run yourself is the deployment decision, and there are
 three supported answers.
 
@@ -51,7 +51,7 @@ file, so you write the runtime yourself:
 
 The minimum variables differ by what you point the chat at, because
 `USE_USER_TOKEN` (with `OPENAI_BASE_URL`) is the switch that decides the
-deployment shape — `true` means the chat is a gateway deployment: people
+deployment shape — `true` means the chat is a gateway deployment: users
 sign in through the gateway and inference bills to _them_:
 
 - **Against Pystino:** `OPENAI_BASE_URL` at the gateway's `/v1`,
@@ -60,7 +60,7 @@ sign in through the gateway and inference bills to _them_:
   `OPENID_CLIENT_ID`, `OPENID_CLIENT_SECRET`, `OPENID_SCOPES`), the
   `CHAT_ERASURE_TOKEN` shared with the gateway, and `CHAT_PG_URL` for the
   knowledge bases' passages. Miss `USE_USER_TOKEN` and everything
-  silently bills to a shared key instead of the people using it.
+  silently bills to a shared key instead of the users using it.
 - **Against any other endpoint:** `OPENAI_BASE_URL` at the endpoint,
   `USE_USER_TOKEN` unset or `false`, `OPENAI_API_KEY` set (one shared
   key), and OIDC variables for your own identity provider.
