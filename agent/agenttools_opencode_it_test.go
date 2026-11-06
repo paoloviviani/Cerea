@@ -587,9 +587,9 @@ func TestAgentToolsIntegration(t *testing.T) {
 		// The control: something outside the workspace that nothing allows
 		// still asks the child, so the empty card count above means the
 		// exception, not a broken ask path.
-		// The caller (and so the child, which follows its root) goes back to Ask:
-		// on Allow nothing outside would ask any more (ADR 0109).
-		if err := oc.SetPermissionMode(ctx, ws1.Path, caller.ID, permrules.Ask); err != nil {
+		// The child (its own root, on Allow like its caller) goes back to Ask: on
+		// Allow nothing outside would ask any more (ADR 0109).
+		if err := oc.SetPermissionMode(ctx, ws1.Path, child.ID, permrules.Ask); err != nil {
 			t.Fatal(err)
 		}
 		mark2 := hub.mark()
