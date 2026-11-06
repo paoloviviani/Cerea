@@ -11,4 +11,7 @@ export interface ProjectAgentProfileRow extends Omit<ProjectAgentProfile, "updat
 	projectId: ObjectId;
 	userId: ObjectId;
 	updatedAt: Date;
+	/** Set by every save since ADR 0109 made Allow hands off: a row without it that says "allow" was
+	 * saved when Allow meant Auto, and reads as Auto. */
+	steps?: 2;
 }

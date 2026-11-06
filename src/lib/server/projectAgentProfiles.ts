@@ -41,7 +41,13 @@ export async function getProjectAgentProfile(
 	projectId: ObjectId,
 	userId: ObjectId
 ): Promise<ProjectAgentProfileRow | null> {
-	return collections.projectAgentProfiles.findOne({ projectId, userId });
+	const row = await collections.projectAgentProfiles.findOne({ projectId, userId });
+	// Copy-on-read (ADR 0109): a profile saved before Allow became hands off said "allow" and ran
+	// under the reviewer; it must not silently loosen, so it reads as Auto until saved again.
+	if (row && row.steps !== 2 && row.permissionMode === "allow") {
+		return { ...row, permissionMode: "auto" };
+	}
+	return row;
 }
 
 /** Validate and store the caller's profile. The error text is for the caller to show. */
@@ -98,6 +104,7 @@ export async function saveProjectAgentProfile(
 		...(connectorKeys.length ? { connectorKeys } : {}),
 		labels: { device: device.name, workspace: workspaceLabel },
 		updatedAt: new Date(),
+		steps: 2,
 	};
 	await collections.projectAgentProfiles.replaceOne({ projectId, userId }, row, { upsert: true });
 	return { ok: true, profile: row };

@@ -14,6 +14,7 @@ import {
 	SettingsInvalid,
 } from "$lib/server/agentReview";
 import { probeDecisionModels } from "$lib/server/agentReviewModels";
+import { resendAutoMap } from "$lib/server/review/resend";
 import { PERMISSION_CLASSES } from "$lib/types/machineProtocol";
 import { INSTRUCTIONS_MAX } from "$lib/types/AgentReview";
 
@@ -68,6 +69,8 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 		if (err instanceof SettingsInvalid) error(400, err.message);
 		throw err;
 	}
+	// The new rows reach the user's sessions that are on Auto now (best effort, never fails the save).
+	await resendAutoMap(locals.user._id);
 	// Who and what changed, never the text.
 	logger.info(
 		{
