@@ -38,7 +38,7 @@ func (r *permRig) bashCall(command string) map[string]any {
 }
 
 // TestBackgroundSubagentPermissions: under a root on Allow a general subagent,
-// foreground or background, asks only where the machine's ceiling caps the key.
+// foreground or background, asks nothing (ADR 0109: no machine limit caps it).
 func TestBackgroundSubagentPermissions(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -46,10 +46,8 @@ func TestBackgroundSubagentPermissions(t *testing.T) {
 		tool string
 		ask  bool
 	}{
-		{"no ceiling", nil, "bash", false},
-		{"no ceiling", nil, "edit", false},
-		{"bash=ask", map[string]string{"bash": "ask"}, "bash", true},
-		{"bash=ask", map[string]string{"bash": "ask"}, "edit", false},
+		{"allow", nil, "bash", false},
+		{"allow", nil, "edit", false},
 	} {
 		for _, bg := range []bool{false, true} {
 			name := fmt.Sprintf("%s/%s/bg=%v", tc.name, tc.tool, bg)

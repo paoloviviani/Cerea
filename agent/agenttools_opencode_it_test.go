@@ -587,6 +587,11 @@ func TestAgentToolsIntegration(t *testing.T) {
 		// The control: something outside the workspace that nothing allows
 		// still asks the child, so the empty card count above means the
 		// exception, not a broken ask path.
+		// The caller (and so the child, which follows its root) goes back to Ask:
+		// on Allow nothing outside would ask any more (ADR 0109).
+		if err := oc.SetPermissionMode(ctx, ws1.Path, caller.ID, permrules.Ask); err != nil {
+			t.Fatal(err)
+		}
 		mark2 := hub.mark()
 		prompt(child, ws1, "trigger-child-ctl")
 		if ctl := hub.toolDone(t, mark2, child.ID, "read"); ctl.ToolStatus != backend.ToolCompleted {
@@ -596,16 +601,15 @@ func TestAgentToolsIntegration(t *testing.T) {
 		if len(ctlAsks) == 0 || ctlAsks[0].Tool != "external_directory" {
 			t.Errorf("the control read outside the workspace raised %+v, want an external_directory ask", ctlAsks)
 		}
-		// The exception is inherited (checked above), but the outside class is
-		// limited to ask on this machine and an ask limit is a card every time
-		// (ADR 0107): the same read of /tmp still asks, the exception not lifting it.
+		// The exception is inherited (checked above); /tmp is a safe directory, so
+		// the same read of /tmp asks no one even on Ask.
 		mark3 := hub.mark()
 		prompt(child, ws1, "trigger-child-exc")
 		if p := hub.toolDone(t, mark3, child.ID, "read"); p.ToolStatus != backend.ToolCompleted {
 			t.Fatalf("the /tmp read did not complete: %+v", p)
 		}
-		if asks := hub.asks(mark3, child.ID); len(asks) == 0 || asks[0].Tool != "external_directory" {
-			t.Errorf("the child's /tmp read under outside=ask raised %+v, want a card the exception does not lift", asks)
+		if asks := hub.asks(mark3, child.ID); len(asks) != 0 {
+			t.Errorf("the child's /tmp read raised %+v, want none (a safe directory)", asks)
 		}
 	})
 
@@ -1403,6 +1407,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 
 	t.Run("grant: another workspace still asks, and a local deny refuses", func(t *testing.T) {
 		hub.setApprove(approveAll)
+		defer setMachineCeiling(nil)
 		a := newSession(ws1, "it-ceil-a", "build")
 		b := newSession(ws1, "it-ceil-b", "build")
 		x := newSession(ws2, "it-ceil-x", "build")
