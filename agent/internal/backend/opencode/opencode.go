@@ -24,6 +24,7 @@ import (
 
 	"galopin/internal/attach"
 	"galopin/internal/backend"
+	"galopin/internal/filediff"
 	"galopin/internal/permrules"
 	"galopin/packaging"
 )
@@ -87,6 +88,9 @@ type Config struct {
 	// strips any inherited value, so background:true fails closed inside
 	// opencode. Set only from policy.BackgroundSubagentsAllowed.
 	BackgroundSubagents bool
+	// Protect names the paths whose content must never be read into a diff
+	// (galopin's own filediff fallback); nil protects nothing.
+	Protect filediff.Protect
 	// Permissions supplies the machine's two permission inputs — its own
 	// rules and its ceiling — live, so a ceiling tightened while the process
 	// runs is seen by the next session, prompt and restart. Nil applies none
@@ -117,6 +121,10 @@ type Backend struct {
 
 	// att holds the images tool calls produced (attachments.go).
 	att *attach.Store
+
+	// diffs is galopin's own record of edits, the fallback beside opencode's
+	// session diff (diffs.go).
+	diffs *filediff.Tracker
 
 	client *http.Client
 	// longClient carries the calls that legitimately run long — today only
@@ -247,6 +255,7 @@ func New(cfg Config) *Backend {
 	return &Backend{
 		cfg:              cfg,
 		att:              attach.New(cfg.AttachmentCacheBytes),
+		diffs:            filediff.New(cfg.Protect),
 		client:           &http.Client{},
 		longClient:       &http.Client{},
 		overlay:          map[string]sessionOverlay{},

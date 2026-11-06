@@ -89,6 +89,17 @@ type sessionState struct {
 	// answers before that — the menu is the help, and before an update there
 	// is nothing this session has said it can run.
 	commands []backend.Command
+
+	// loaded is set once the session's history is known: created here, or
+	// replayed by session/load. A session only listed by the agent is not.
+	loaded bool
+	// replaying is set while session/load's replay arrives (ops.go
+	// Transcript): chunks then build the transcript from the agent's own
+	// history. replaySeq/replayRole group an agent's id-less chunks into
+	// one message per run of the same role.
+	replaying  bool
+	replaySeq  int
+	replayRole string
 }
 
 func newSessionState(id, workspaceDir string) *sessionState {

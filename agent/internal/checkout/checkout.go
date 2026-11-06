@@ -132,3 +132,7 @@ func lines(s string) []string {
 	}
 	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
 }
+
+// LineDelta is the +N/-M estimate the pane's badge shows, exported so another
+// source of FileDiffs counts the same way.
+func LineDelta(before, after string) (int, int) { return lineDelta(before, after) }

@@ -4,7 +4,7 @@
 // agent can be plugged in behind it (opencode's own `opencode acp`, Gemini
 // CLI, Claude Code via claude-code-acp, Pi via pi-acp), reporting whichever
 // subset of capabilities that agent actually has. It necessarily reports
-// fewer capabilities than internal/backend/opencode (no diff, children,
+// fewer capabilities than internal/backend/opencode (no native diff, children,
 // usage or compact — see Capabilities) because ACP itself has no wire
 // message for any of those (PROTOCOL.md §2's comparison).
 //
@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"galopin/internal/backend"
+	"galopin/internal/filediff"
 )
 
 // Config is everything needed to spawn and speak ACP to one agent process.
@@ -43,6 +44,9 @@ type Config struct {
 	// StartupTimeout bounds Start's wait for the initialize handshake to
 	// complete (default 30s).
 	StartupTimeout time.Duration
+	// Protect names the paths whose content must never be read into a diff
+	// (internal/filediff); nil protects nothing.
+	Protect filediff.Protect
 	// Tools offers galopin's coordination tools to the agent over MCP (tools.go)
 	// when the agent can use an HTTP MCP server. The machine's policy decides.
 	Tools bool
@@ -118,6 +122,10 @@ type Backend struct {
 	sels selectors
 	// tools is the MCP tool subsystem's state (tools.go).
 	tools toolState
+	// diffs is galopin's own record of what edit tool calls changed (diffs.go).
+	diffs *filediff.Tracker
+	// loadMu serializes session/load replays (Transcript).
+	loadMu sync.Mutex
 
 	events   chan backend.BackendEvent
 	eventsMu sync.Mutex
@@ -132,6 +140,7 @@ func New(cfg Config) *Backend {
 		cfg:   cfg,
 		att:   attach.New(0),
 		reg:   newRegistry(),
+		diffs: filediff.New(cfg.Protect),
 		ready: make(chan struct{}),
 	}
 }
@@ -156,7 +165,9 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	images := b.agentCaps.promptImage
 	b.infoMu.Unlock()
 	tools := b.MCPCapable()
-	// Diff/Children/Usage/Compact/Worktrees/Questions: ACP has no wire
+	// Diff is galopin's own (diffs.go): ACP has no diff message, so the files
+	// an edit tool call names are compared before and after it runs.
+	// Children/Usage/Compact/Worktrees/Questions: ACP has no wire
 	// message for any of these (PROTOCOL.md §2) — the user-question tool
 	// design's fallback for a backend without a native question mechanism
 	// is the injected MCP tool the agent-handoff work adds, not this
@@ -164,7 +175,7 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	// session/request_permission asks go through the same decision function as
 	// opencode's (permissions.go), so the Plan/Ask/Allow selector works here too.
 	return backend.Capabilities{
-		Diff: false, Children: false, Usage: false, Compact: false, Permissions: true,
+		Diff: true, Children: false, Usage: false, Compact: false, Permissions: true,
 		Images: images, Files: false, Worktrees: false,
 		Questions: false,
 		// Commands: always — the agent's available_commands_update carries
