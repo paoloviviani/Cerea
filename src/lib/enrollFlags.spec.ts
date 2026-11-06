@@ -80,6 +80,7 @@ describe("enrollFlags (the TypeScript copy)", () => {
 				noAgentTools: true,
 				allowFreeModels: true,
 				allowOpencodeProvider: true,
+				engine: "goose" as const,
 				workspaceRoots: ["/a"],
 				noFiles: allowTerminal,
 				allowFileWrite: true,

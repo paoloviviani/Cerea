@@ -143,6 +143,22 @@ describe("quoteShellArg", () => {
 	});
 });
 
+describe("the goose engine", () => {
+	it("installs galopin and the pinned goose in one go and enrolls with --engine goose", () => {
+		const command = buildEnrollCommand({ ...BASE_OPTIONS, engine: "goose", installOpencode: true });
+		expect(command).toContain(
+			"curl -fsSL 'https://cerea.example.org/chat/galopin/install.sh' | sh -s -- --engine goose &&"
+		);
+		// The opencode install line is not wanted with goose, even when ticked.
+		expect(command).not.toContain("opencode.ai");
+		expect(command).toContain("  --engine goose \\\n");
+	});
+
+	it("prints nothing for the default engine", () => {
+		expect(buildEnrollCommand({ ...BASE_OPTIONS, engine: "opencode" })).not.toContain("--engine");
+	});
+});
+
 describe("the pinned opencode release", () => {
 	it("is the one in agent/packaging/opencode-version, which galopin reports and CI tests", () => {
 		const pinned = readFileSync(
