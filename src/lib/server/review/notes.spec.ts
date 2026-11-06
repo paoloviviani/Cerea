@@ -1,5 +1,6 @@
 /** What the cards say: the notes the stream, the inbox and the availability read (ADR 0107). */
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import { autoApprovalAvailability } from "$lib/server/agentReview";
 import {
@@ -35,6 +36,7 @@ beforeAll(async () => {
 afterEach(async () => {
 	_resetHealth();
 	await collections.agentReviewConfig.deleteMany({});
+	await collections.agentReviewUserSettings.deleteMany({});
 });
 
 describe("the wording", () => {
@@ -78,19 +80,25 @@ describe("on the card", () => {
 
 describe("availability: the reviewer keeps failing", () => {
 	it("is degraded after three failures in a row, and a success clears it", async () => {
+		const uid = new ObjectId();
 		await collections.agentReviewConfig.updateOne(
 			{},
-			{ $set: { enabled: true, decisionModelId: "m" } },
+			{ $set: { enabled: true } },
 			{ upsert: true }
 		);
-		expect((await autoApprovalAvailability()).degraded).toBe(false);
+		await collections.agentReviewUserSettings.insertOne({
+			userId: uid,
+			enabled: true,
+			decisionModelId: "m",
+		} as never);
+		expect((await autoApprovalAvailability(uid)).degraded).toBe(false);
 		noteCallFailed();
 		noteCallFailed();
-		expect((await autoApprovalAvailability()).degraded).toBe(false);
+		expect((await autoApprovalAvailability(uid)).degraded).toBe(false);
 		noteCallFailed();
-		expect((await autoApprovalAvailability()).degraded).toBe(true);
+		expect((await autoApprovalAvailability(uid)).degraded).toBe(true);
 		noteCallOk();
-		expect((await autoApprovalAvailability()).degraded).toBe(false);
+		expect((await autoApprovalAvailability(uid)).degraded).toBe(false);
 	});
 });
 

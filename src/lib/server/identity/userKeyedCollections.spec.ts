@@ -48,6 +48,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	codeSessionConnectors: true, // which connectors a coding session may use; owner-keyed, merged and erased with the account
 	schedules: true, // a person's scheduled actions; owner-keyed, erased and merged with the account
 	agentReviewLog: true, // what the reviewer decided for a person's machines; owner-keyed, 90 days
+	agentReviewUserSettings: true, // one document per account (ADR 0109); the target's survives a merge
 	agentReviewConfig: false, // the deployment's auto-approval settings, not user content
 	scheduleRuns: true, // one row per occurrence considered: the record of what a schedule did
 	scheduleGrants: true, // a person's background OIDC grant for scheduled chats; owner-keyed, dropped on merge, revoked and erased with the account
@@ -1084,5 +1085,53 @@ describe("agentReviewLog: the reviewer's decisions go with their person", () => 
 		expect(await collections.agentReviewLog.countDocuments({ userId: target })).toBe(1);
 		expect(await collections.agentReviewLog.countDocuments({ userId: stray })).toBe(0);
 		await collections.agentReviewLog.deleteMany({ userId: { $in: [kept, target] } });
+	});
+});
+
+describe("agentReviewUserSettings: a user's reviewer settings go with their person (ADR 0109)", () => {
+	const doc = (userId: ObjectId, decisionModelId: string) => ({
+		userId,
+		enabled: true,
+		decisionModelId,
+		threshold: 0.85,
+		instructions: "",
+		perClass: {},
+		maxPerHourPerMachine: 300,
+	});
+	const entry = () => {
+		const found = USER_KEYED_COLLECTIONS.find((e) => e.name === "agentReviewUserSettings");
+		if (!found) throw new Error("must be registered");
+		return found;
+	};
+
+	it("is registered, owner-keyed, one per account", () => {
+		expect(entry()).toMatchObject({ ownerField: "userId", mergeRule: "keep-target-delete-stray" });
+	});
+
+	it("erases only the erased person's document", async () => {
+		const [gone, kept] = [new ObjectId(), new ObjectId()];
+		await collections.agentReviewUserSettings.insertMany([doc(gone, "a"), doc(kept, "b")] as never);
+		expect(await entry().erase(gone, NO_CONVERSATIONS)).toBe(1);
+		expect(await collections.agentReviewUserSettings.countDocuments({ userId: kept })).toBe(1);
+		await collections.agentReviewUserSettings.deleteMany({ userId: kept });
+	});
+
+	it("a merge keeps the target's own document, or moves the stray's when the target has none", async () => {
+		const [stray, target, bare] = [new ObjectId(), new ObjectId(), new ObjectId()];
+		await collections.agentReviewUserSettings.insertMany([
+			doc(stray, "stray-model"),
+			doc(target, "target-model"),
+		] as never);
+		await entry().merge(stray, target);
+		expect(await collections.agentReviewUserSettings.countDocuments({ userId: stray })).toBe(0);
+		expect(
+			(await collections.agentReviewUserSettings.findOne({ userId: target }))?.decisionModelId
+		).toBe("target-model");
+		await collections.agentReviewUserSettings.insertOne(doc(stray, "moves") as never);
+		await entry().merge(stray, bare);
+		expect(
+			(await collections.agentReviewUserSettings.findOne({ userId: bare }))?.decisionModelId
+		).toBe("moves");
+		await collections.agentReviewUserSettings.deleteMany({ userId: { $in: [target, bare] } });
 	});
 });

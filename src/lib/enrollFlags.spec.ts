@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ENROLL_FLAGS, ENROLL_LIMIT_CLASSES } from "./enrollFlags";
+import { ENROLL_FLAGS } from "./enrollFlags";
 import {
 	FLAG_CONTROLS,
 	defaultPolicyChoices,
@@ -86,7 +86,6 @@ describe("enrollFlags (the TypeScript copy)", () => {
 				fileDeny: ["x"],
 				noDefaultFileDeny: true,
 				billToDefault: true,
-				limits: { ...defaultPolicyChoices().limits, edit: "ask" },
 			})
 				.filter((arg) => arg.startsWith("--"))
 				.map((arg) => arg.slice(2))
@@ -103,12 +102,15 @@ describe("against the agent", () => {
 		].map((match) => match[1]);
 		// The retired flag still parses (it warns that it does nothing), so it
 		// is registered but classified nowhere: it is not a policy any more.
-		const policyRegistered = registered.filter((name) => name !== "allow-auto-accept").sort();
+		// The retired flags still parse (they warn that they do nothing), so they are registered
+		// but classified nowhere: `--limit` (ADR 0109) like `--allow-auto-accept`.
+		const tolerated = new Set(["allow-auto-accept", "limit"]);
+		const policyRegistered = registered.filter((name) => !tolerated.has(name)).sort();
 		expect(policyRegistered).toEqual(ENROLL_FLAGS.map((flag) => flag.flag).sort());
 	});
 
 	it.skipIf(!existsSync(JSON_PATH))(
-		"equals agent/packaging/enroll-flags.json, flag for flag (retired flags aside), and its class table",
+		"equals agent/packaging/enroll-flags.json, flag for flag (retired flags aside), and its flag table",
 		() => {
 			const file = JSON.parse(readFileSync(JSON_PATH, "utf8")) as {
 				flags: Array<{
@@ -118,10 +120,6 @@ describe("against the agent", () => {
 					exposed: boolean;
 					retired?: boolean;
 				}>;
-				limits: {
-					flag: string;
-					classes: Array<{ class: string; default: string; allowed: string[] }>;
-				};
 				dialogOnly: Array<{ control: string; exposed: boolean }>;
 			};
 			const live = file.flags.filter((flag) => !flag.retired);
@@ -138,9 +136,6 @@ describe("against the agent", () => {
 			expect(file.flags.find((flag) => flag.flag === "allow-auto-accept")?.exposed ?? false).toBe(
 				false
 			);
-			// The class table: --limit's classes, defaults and allowed words.
-			expect(file.limits.flag).toBe("limit");
-			expect(file.limits.classes).toEqual(ENROLL_LIMIT_CLASSES);
 			// The one control that is not an enroll flag: it must be on the dialog.
 			expect(file.dialogOnly.map((row) => row.control)).toEqual(["install-opencode"]);
 		}

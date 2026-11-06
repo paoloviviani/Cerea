@@ -9,7 +9,6 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
 	PERMISSION_CLASSES,
 	CALL_ERROR_CODES,
@@ -245,27 +244,20 @@ describe("protocol fixtures: events survive Cerea's real consumers", () => {
 		});
 	}
 
-	it("the current hello carries every class limit; the older machine's carries none", () => {
-		const now = parseMachineFrame(fixtureAt("frames/hello.json").frame) as HelloFrame;
-		expect(Object.keys(now.policy.limits ?? {}).sort()).toEqual([...PERMISSION_CLASSES].sort());
-		expect(now.policy.limits?.command).toBe("ask");
+	it("the current hello carries no limits, and a hello that still does (an older galopin) parses with them unread (ADR 0109)", () => {
+		const now = fixtureAt("frames/hello.json").frame as unknown as {
+			policy: Record<string, unknown>;
+		};
+		expect(now.policy).not.toHaveProperty("limits");
+		expect(parseMachineFrame(now as never)?.type).toBe("hello");
+		const withLimits = {
+			...now,
+			policy: { ...now.policy, limits: { command: "ask", loop: "stop", telepathy: "run" } },
+		};
+		const parsed = parseMachineFrame(withLimits as never) as HelloFrame;
+		expect(parsed.type).toBe("hello");
 		const old = parseMachineFrame(fixtureAt("frames/hello.older-machine.json").frame) as HelloFrame;
-		expect(old.policy.limits).toBeUndefined();
-	});
-
-	// Both directions of the compatibility rule (MAINTAINING.md §4): a Cerea built
-	// before limits and class has a policy schema that does not name them, and a
-	// zod object ignores keys it does not know, so the new hello still parses
-	// there; the new Cerea reads the old fixture as having no limits (above).
-	it("an older Cerea's policy schema, which does not know limits, still accepts the new hello", () => {
-		const oldPolicy = z.object({
-			autoAccept: z.enum(["allowed", "denied"]).optional(),
-			permission: z.object({ max: z.record(z.string(), z.string()).optional() }).optional(),
-			workspaceRoots: z.array(z.string()),
-			allowFreeModels: z.boolean(),
-		});
-		const hello = fixtureAt("frames/hello.json").frame as unknown as { policy: unknown };
-		expect(oldPolicy.safeParse(hello.policy).success).toBe(true);
+		expect(old.type).toBe("hello");
 	});
 
 	it("a permission.asked keeps its class", () => {

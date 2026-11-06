@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"note": "Every flag `galopin enroll` registers, classified for the /code panel's Pair-a-machine dialog. exposed:true means the dialog must offer a control for it (a default emits no flag); exposed:false is connection plumbing, a retired flag, or a control the dialog does not need (a default emits no flag, so the safe-directory flags and the rest stay out of the printed command). enroll_flags_test.go fails when this file and enroll's registered flags differ, so a new flag cannot land unclassified. kind is bool | int | string | list | keyAction (a repeatable KEY=ACTION list). default is what enroll uses when the flag is absent.",
+	"note": "ADR 0109: limit is retired (accepted, ignored); deny is the advanced local refuse-only flag, not in the dialog. Every flag `galopin enroll` registers, classified for the /code panel's Pair-a-machine dialog. exposed:true means the dialog must offer a control for it (a default emits no flag); exposed:false is connection plumbing, a retired flag, or a control the dialog does not need (a default emits no flag, so the safe-directory flags and the rest stay out of the printed command). enroll_flags_test.go fails when this file and enroll's registered flags differ, so a new flag cannot land unclassified. kind is bool | int | string | list | keyAction (a repeatable KEY=ACTION list). default is what enroll uses when the flag is absent.",
 	"flags": [
 		{ "flag": "allow-background-subagents", "kind": "bool", "default": true, "exposed": false },
 		{ "flag": "allow-command-shell", "kind": "bool", "default": true, "exposed": false },
@@ -21,7 +21,8 @@
 		{ "flag": "no-terminal", "kind": "bool", "default": false, "exposed": true },
 		{ "flag": "permission-max", "kind": "keyAction", "default": [], "exposed": false },
 		{ "flag": "permission-rule", "kind": "keyAction", "default": [], "exposed": false },
-		{ "flag": "limit", "kind": "list", "default": [], "exposed": true },
+		{ "flag": "limit", "kind": "list", "default": [], "exposed": false, "retired": true },
+		{ "flag": "deny", "kind": "list", "default": [], "exposed": false },
 		{ "flag": "no-file-write", "kind": "bool", "default": false, "exposed": false },
 		{ "flag": "safe-dir", "kind": "list", "default": [], "exposed": false },
 		{ "flag": "no-safe-dirs", "kind": "bool", "default": false, "exposed": false },
@@ -49,20 +50,6 @@
 		{ "flag": "shim-port", "kind": "int", "default": 41871, "exposed": false },
 		{ "flag": "yes", "kind": "bool", "default": false, "exposed": false }
 	],
-	"limits": {
-		"flag": "limit",
-		"note": "ADR 0107: --limit CLASS=never|ask|run (loop: ask|stop; secrets: never|ask), repeatable, changes only the classes named. permission-max and permission-rule stay one release as aliases mapped onto classes; the dialog still prints them until it moves to --limit.",
-		"classes": [
-			{ "class": "edit", "default": "run", "allowed": ["never", "ask", "run"] },
-			{ "class": "command", "default": "ask", "allowed": ["never", "ask", "run"] },
-			{ "class": "web", "default": "run", "allowed": ["never", "ask", "run"] },
-			{ "class": "outside", "default": "ask", "allowed": ["never", "ask", "run"] },
-			{ "class": "secrets", "default": "ask", "allowed": ["never", "ask"] },
-			{ "class": "agents", "default": "run", "allowed": ["never", "ask", "run"] },
-			{ "class": "tools", "default": "run", "allowed": ["never", "ask", "run"] },
-			{ "class": "loop", "default": "ask", "allowed": ["ask", "stop"] }
-		]
-	},
 	"dialogOnly": [
 		{
 			"control": "install-opencode",

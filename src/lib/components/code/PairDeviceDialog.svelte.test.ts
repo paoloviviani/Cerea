@@ -12,7 +12,7 @@ import { FLAG_CONTROLS, exposedFlags } from "$lib/codeEnrollPolicy";
  * printed command by hand. Pinned here: every exposed flag has a control; the
  * untouched dialog prints exactly the defaults — `enroll`'s own, plus the one
  * deliberate divergence, Bill to my default group ticked; each control emits
- * exactly its flag; `--limit` is printed only for a class that was changed;
+ * exactly its flag; there are no machine limits, so no `--limit` (ADR 0109);
  * Advanced is collapsed by default yet never hides a choice from the preview;
  * and no word of auto-accept survives.
  */
@@ -259,80 +259,32 @@ describe("each control emits exactly its flag", () => {
 	});
 });
 
-describe("the limits (ADR 0107)", () => {
-	const row = (screen: Screen, cls: string) => screen.getByTestId(`enroll-limit-${cls}`);
-	const pick = (screen: Screen, cls: string, word: string) =>
-		row(screen, cls).getByRole("button", { name: word }).click();
-	const pressed = (screen: Screen, cls: string) =>
-		row(screen, cls).element().querySelector('[aria-pressed="true"]')?.textContent?.trim() ?? null;
-
-	it("commands sit in the common part, defaulting to Ask, and print nothing", async () => {
-		const screen = mount();
-		await expect.element(row(screen, "command")).toBeVisible();
-		expect(pressed(screen, "command")).toBe("Ask");
-		expect(policyPart(screen)).toBe("--default-group");
-		await expect.element(screen.getByTestId("enroll-limits-note")).toHaveTextContent("Default");
-	});
-
-	it("shows the class table under Advanced with the machine's defaults, and secrets without Run, loops with Stop", async () => {
+describe("no machine limits (ADR 0109)", () => {
+	it("has no limits table, no commands pills and no limit warning, in the common part or under Advanced", async () => {
 		const screen = mount();
 		await openAdvanced(screen);
-		const expected: Record<string, string> = {
-			edit: "Run",
-			web: "Run",
-			outside: "Ask",
-			secrets: "Ask",
-			agents: "Run",
-			tools: "Run",
-			loop: "Ask",
-		};
-		for (const [cls, word] of Object.entries(expected))
-			expect(pressed(screen, cls), cls).toBe(word);
-		const words = (cls: string) =>
-			[...row(screen, cls).element().querySelectorAll("button")].map((b) => b.textContent?.trim());
-		expect(words("secrets")).toEqual(["Never", "Ask"]);
-		expect(words("loop")).toEqual(["Ask", "Stop the turn"]);
-		expect(words("edit")).toEqual(["Never", "Ask", "Run"]);
-		expect(policyPart(screen)).toBe("--default-group");
-	});
-
-	it("one changed class prints one --limit, and moving it back prints nothing again", async () => {
-		const screen = mount();
-		await openAdvanced(screen);
-		await pick(screen, "edit", "Ask");
-		expect(policyPart(screen)).toBe("--default-group --limit edit=ask");
-		await expect.element(screen.getByTestId("enroll-limits-note")).toHaveTextContent("Changed");
-		await pick(screen, "edit", "Run");
-		expect(policyPart(screen)).toBe("--default-group");
-	});
-
-	it("opening commands prints command=run and warns in the amber tone", async () => {
-		const screen = mount();
-		expect(screen.getByTestId("enroll-command-run-warning").elements()).toHaveLength(0);
-		await pick(screen, "command", "Run");
-		expect(policyPart(screen)).toBe("--default-group --limit command=run");
-		await expect.element(screen.getByTestId("enroll-command-run-warning")).toBeVisible();
-	});
-
-	it("never, outside and loop stop are carried as typed, and never the old alias flags", async () => {
-		const screen = mount();
-		await openAdvanced(screen);
-		await pick(screen, "web", "Never");
-		await pick(screen, "outside", "Run");
-		await pick(screen, "loop", "Stop the turn");
-		expect(policyPart(screen)).toBe(
-			"--default-group --limit web=never --limit outside=run --limit loop=stop"
+		for (const gone of [
+			"enroll-limits",
+			"enroll-limits-note",
+			"enroll-limit-rows",
+			"enroll-limit-command",
+			"enroll-limit-edit",
+			"enroll-command-run-warning",
+		]) {
+			expect(screen.getByTestId(gone).elements(), gone).toHaveLength(0);
+		}
+		expect(document.body.textContent).not.toMatch(
+			/What this machine lets|Never refuses|Stop the turn/
 		);
-		expect(command(screen)).not.toContain("permission-");
 	});
 
-	it("only the classes changed reach the Advanced count, commands excluded", async () => {
+	it("prints no --limit and no old alias flag, whatever is chosen", async () => {
 		const screen = mount();
-		await pick(screen, "command", "Run");
-		expect(screen.getByTestId("enroll-advanced-count").elements()).toHaveLength(0);
 		await openAdvanced(screen);
-		await pick(screen, "web", "Never");
-		await expect.element(screen.getByTestId("enroll-advanced-count")).toHaveTextContent("1");
+		await screen.getByTestId("enroll-allow-command-shell").click();
+		await screen.getByTestId("enroll-no-agent-tools").click();
+		expect(command(screen)).not.toContain("--limit");
+		expect(command(screen)).not.toContain("permission-");
 	});
 });
 

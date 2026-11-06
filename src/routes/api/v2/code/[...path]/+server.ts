@@ -47,6 +47,7 @@ import {
 } from "$lib/server/code/toolImages";
 import { codeAttachmentKey } from "$lib/server/codeAttachments";
 import { deleteAttachments, findAttachments } from "$lib/server/files/attachmentStore";
+import { autoClassesFor } from "$lib/server/agentReview";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import {
 	COORDINATION_KEYS,
@@ -261,6 +262,7 @@ function toSession(session: Session): CodeAgentSession {
 		parentId: session.parentId ?? null,
 		effort: session.effort ?? null,
 		...(session.permissionMode ? { permissionMode: session.permissionMode } : {}),
+		...(session.autoClasses ? { autoClasses: session.autoClasses } : {}),
 		...(session.staleDeny ? { staleDeny: true } : {}),
 		...(session.stalePolicy ? { stalePolicy: true } : {}),
 		...(session.cancelled ? { cancelled: true } : {}),
@@ -831,6 +833,9 @@ const RAW_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/
  * follows its root). */
 const permissionModeSchema = z.object({
 	mode: z.enum(["deny", "ask", "allow"]),
+	/** ADR 0109: `ask` with `auto: true` is Auto (the user's per-class map, worked out here, never
+	 * trusted from the browser); `allow` alone is Allow, hands off. */
+	auto: z.boolean().optional(),
 });
 
 /** The message trio of a coordination grant: together or not at all. */
@@ -1364,11 +1369,26 @@ export const POST: RequestHandler = async (event) => {
 	const permissionModeMatch = new RegExp(`^v1/agents/(${ID})/permission-mode$`).exec(path);
 	if (permissionModeMatch) {
 		const parsed = permissionModeSchema.safeParse(body);
-		if (!parsed.success) error(400, "Expected { mode: 'deny' | 'ask' | 'allow' }.");
+		if (!parsed.success) error(400, "Expected { mode: 'deny' | 'ask' | 'allow', auto?: boolean }.");
 		const sessionId = decodeURIComponent(permissionModeMatch[1]);
-		const audit = { action: "permission.mode", deviceId, sessionId, mode: parsed.data.mode };
+		const auto = parsed.data.mode === "ask" && parsed.data.auto === true;
+		const audit = {
+			action: "permission.mode",
+			deviceId,
+			sessionId,
+			mode: auto ? "auto" : parsed.data.mode,
+		};
+		const owner = event.locals.user;
+		if (auto && !owner) error(401, "Login required");
+		const autoClasses = auto && owner ? await autoClassesFor(owner._id) : undefined;
 		try {
-			await callOp(() => link.sessionSetPermissionMode({ sessionId, mode: parsed.data.mode }));
+			await callOp(() =>
+				link.sessionSetPermissionMode({
+					sessionId,
+					mode: parsed.data.mode,
+					...(autoClasses ? { autoClasses } : {}),
+				})
+			);
 		} catch (err) {
 			await recordCodeAudit(event, { ...audit, outcome: "refused" });
 			throw err;

@@ -104,7 +104,7 @@ test.describe("scheduled actions, hermetic", () => {
 
 		await editor.getByLabel("Name").fill("Nightly suite");
 		await editor.getByLabel("Agent mode").selectOption("build");
-		await editor.getByRole("radio", { name: "Allow" }).click();
+		await editor.getByRole("radio", { name: "Auto" }).click();
 		await editor.getByLabel("Prompt").fill("Run the suite and summarise failures.");
 		await editor.getByLabel("Repeats").selectOption("hours");
 		await editor.getByLabel("Every how many hours").fill("6");
@@ -133,7 +133,9 @@ test.describe("scheduled actions, hermetic", () => {
 		expect(fake.model.sessions.length).toBe(sessionsBefore + 1);
 		const created = fake.model.sessions[fake.model.sessions.length - 1];
 		expect(created.title).toMatch(/^Nightly suite · \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
-		expect(created.permissionMode).toBe("allow");
+		// A schedule's Allow is Auto (ADR 0109): the word ask plus the owner's per-class map.
+		expect(created.permissionMode).toBe("ask");
+		expect(created.autoClasses).toMatchObject({ edit: "run", command: "ask" });
 		expect(created.modeId).toBe("build");
 		const prompts = ops(fake, "session.prompt").filter(
 			(o) => (o.args as { sessionId: string }).sessionId === created.id
@@ -144,7 +146,18 @@ test.describe("scheduled actions, hermetic", () => {
 		);
 		expect(ops(fake, "session.setPermissionMode").pop()?.args).toEqual({
 			sessionId: created.id,
-			mode: "allow",
+			// A schedule's Allow is Auto (ADR 0109): the owner's default rows as the map.
+			mode: "ask",
+			autoClasses: {
+				edit: "run",
+				command: "ask",
+				web: "run",
+				outside: "ask",
+				secrets: "ask",
+				agents: "run",
+				tools: "run",
+				loop: "ask",
+			},
 		});
 
 		// The history shows the run, with a link into its session.
@@ -285,7 +298,7 @@ test.describe("scheduled actions, hermetic", () => {
 		expect(stored?.target.workspaceId).toBe("ws-created");
 	});
 
-	test("Ask is explained next to the selector, and Allow is capped by the machine", async ({
+	test("Ask is explained next to the selector, and Auto is held to the fixed floor", async ({
 		page,
 		db,
 		session,
@@ -296,9 +309,9 @@ test.describe("scheduled actions, hermetic", () => {
 		await page.goto(`${E2E_APP_BASE}/code?view=schedules&new=1`);
 		const editor = page.getByTestId("schedule-editor");
 		await expect(editor.getByTestId("ask-warning")).toContainText("Needs-you inbox");
-		await editor.getByRole("radio", { name: "Allow" }).click();
+		await editor.getByRole("radio", { name: "Auto" }).click();
 		await expect(editor.getByTestId("ask-warning")).toHaveCount(0);
-		await expect(editor).toContainText("never past the machine's own ceiling");
+		await expect(editor).toContainText("never past the fixed floor");
 	});
 
 	/** Fill the editor for a fresh schedule on the machine's one workspace. */

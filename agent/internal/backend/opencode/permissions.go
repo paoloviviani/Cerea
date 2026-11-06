@@ -321,6 +321,29 @@ func (b *Backend) SetCoordination(ctx context.Context, workspaceDir, sessionID s
 func (b *Backend) SetPermissionMode(ctx context.Context, workspaceDir, sessionID string, mode permrules.Action) error {
 	return b.updateSelector(ctx, workspaceDir, sessionID, func(s permrules.Selector) (permrules.Selector, error) {
 		s.Mode = mode
+		s.Auto, s.AutoClasses = false, nil
+		return s, nil
+	})
+}
+
+// AutoClasses implements backend.AutoHost.
+func (b *Backend) AutoClasses(sessionID string) (map[string]string, bool) {
+	s := b.selectorOf(sessionID)
+	if !s.Auto || s.Effective() != permrules.Ask {
+		return nil, false
+	}
+	out := make(map[string]string, len(s.AutoClasses))
+	for k, v := range s.AutoClasses {
+		out[k] = v
+	}
+	return out, true
+}
+
+// SetAuto implements backend.AutoHost.
+func (b *Backend) SetAuto(ctx context.Context, workspaceDir, sessionID string, classes map[string]string) error {
+	return b.updateSelector(ctx, workspaceDir, sessionID, func(s permrules.Selector) (permrules.Selector, error) {
+		s.Mode, s.Auto = permrules.Ask, true
+		s.AutoClasses = classes
 		return s, nil
 	})
 }

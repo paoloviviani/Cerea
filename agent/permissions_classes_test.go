@@ -74,12 +74,9 @@ func TestACardCarriesItsClass(t *testing.T) {
 	}
 }
 
-func TestGalopinsOwnConfigIsRefusedWhateverTheLimits(t *testing.T) {
-	mc, rb, _ := classMachine(t, func(p *policy.Policy) {
-		for _, c := range []string{"edit", "command", "outside", "tools"} {
-			p.Permission.Limits[c] = "run"
-		}
-	})
+func TestGalopinsOwnConfigIsRefusedInEveryWord(t *testing.T) {
+	mc, rb, _ := classMachine(t, nil)
+	_ = rb.SetPermissionMode(context.Background(), "", "s1", permrules.Allow)
 	own := filepath.Join(mc.protected.OwnDirs[0], "policy.json")
 	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/x", SessionID: "s1", Event: backend.Event{
 		Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "per_1", SessionID: "s1", Tool: "edit", Patterns: []string{own}},
@@ -92,28 +89,18 @@ func TestGalopinsOwnConfigIsRefusedWhateverTheLimits(t *testing.T) {
 	}
 }
 
-func TestTheLoopStopEndsTheTurnAndTellsThePerson(t *testing.T) {
-	mc, rb, dir := classMachine(t, func(p *policy.Policy) { p.Permission.Limits["loop"] = "stop" })
+// ADR 0109: a loop alert is a card even on Allow, never a stop and never a run.
+func TestALoopAlertIsACardEvenOnAllow(t *testing.T) {
+	mc, rb, _ := classMachine(t, nil)
+	_ = rb.SetPermissionMode(context.Background(), "", "s1", permrules.Allow)
 	askFor(mc, "per_1", "doom_loop")
-	waitReplies(t, rb, 1)
+	if got, held := pendingClass(mc, "per_1"); !held || got != "loop" {
+		t.Errorf("loop alert on Allow: held=%v class=%q, want a loop card", held, got)
+	}
 	rb.mu.Lock()
-	if rb.replies[0] != backend.DecisionReject {
-		t.Errorf("reply = %v, want reject", rb.replies[0])
-	}
-	cancelled := rb.cancelled
-	rb.mu.Unlock()
-	if len(cancelled) != 1 || cancelled[0] != "s1" {
-		t.Errorf("cancelled = %v, want the turn of s1 ended", cancelled)
-	}
-	if n := mc.mat.PendingPermissions("s1"); n != 0 {
-		t.Errorf("a stop must not leave a card, got %d", n)
-	}
-	var found bool
-	for _, row := range auditRows(t, dir) {
-		found = found || row["action"] == "permission.loopStop"
-	}
-	if !found {
-		t.Error("the stop was not audited")
+	defer rb.mu.Unlock()
+	if len(rb.cancelled) != 0 || len(rb.replies) != 0 {
+		t.Errorf("a loop alert must neither end the turn nor be answered: %v %v", rb.cancelled, rb.replies)
 	}
 }
 
@@ -211,11 +198,10 @@ func TestAnAutoReplyToAResolvedAskIsAuditedNotApplied(t *testing.T) {
 	}
 }
 
-// A human's "always" stands where the class is limited to ask (the exception is
-// marked OverAsk), and a later matching ask runs under it.
-func TestHumanAlwaysOnAnAskLimitedClassIsStoredAndRuns(t *testing.T) {
+// A human's "always" on an ordinary ask is a plain exception, and a later
+// matching ask runs under it.
+func TestHumanAlwaysIsStoredAndRuns(t *testing.T) {
 	mc, rb, _ := classMachine(t, nil)
-	rh, _ := mc.ruleHost()
 	ask := func(id string) {
 		mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/x", SessionID: "s1", Event: backend.Event{
 			Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: id, SessionID: "s1", Tool: "bash", Patterns: []string{"go test ./..."}, Always: []string{"go test *"}},
@@ -223,12 +209,9 @@ func TestHumanAlwaysOnAnAskLimitedClassIsStoredAndRuns(t *testing.T) {
 	}
 	ask("per_1")
 	for _, actor := range []map[string]any{nil, {"kind": "user"}} {
-		if actor != nil {
-			// a second ask, answered with an explicit user actor
-			ask("per_2")
-		}
 		id := "per_1"
 		if actor != nil {
+			ask("per_2")
 			id = "per_2"
 		}
 		if _, operr := mc.opPermissionReply(context.Background(), replyArgs(t, id, "always", actor)); operr != nil {
@@ -236,8 +219,8 @@ func TestHumanAlwaysOnAnAskLimitedClassIsStoredAndRuns(t *testing.T) {
 		}
 	}
 	ex := rb.Exceptions("s1")
-	if len(ex) != 1 || !ex[0].OverAsk || ex[0].Patterns[0] != "go test *" {
-		t.Fatalf("exceptions = %+v, want one OverAsk go test exception", ex)
+	if len(ex) != 1 || ex[0].OverAsk || ex[0].Patterns[0] != "go test *" {
+		t.Fatalf("exceptions = %+v, want one plain go test exception", ex)
 	}
 	for _, d := range rb.replies {
 		if d != backend.DecisionOnce {
@@ -248,14 +231,12 @@ func TestHumanAlwaysOnAnAskLimitedClassIsStoredAndRuns(t *testing.T) {
 	if _, held := pendingClass(mc, "per_3"); held {
 		t.Error("a later matching ask under the exception was carded")
 	}
-	// Something the exception does not cover still asks.
 	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/x", SessionID: "s1", Event: backend.Event{
 		Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "per_4", SessionID: "s1", Tool: "bash", Patterns: []string{"rm -rf /"}},
 	}})
 	if _, held := pendingClass(mc, "per_4"); !held {
 		t.Error("an uncovered command did not ask")
 	}
-	_ = rh
 }
 
 func TestHumanAlwaysOnAnEnvReadIsStored(t *testing.T) {
@@ -272,9 +253,9 @@ func TestHumanAlwaysOnAnEnvReadIsStored(t *testing.T) {
 }
 
 // A reviewer or a rule never gets "always" (refused), the loop class stays
-// once-only, and a never limit still refuses.
-func TestAlwaysStaysOnceForLoopAndNeverAndIsRefusedForAutoAndRule(t *testing.T) {
-	mc, rb, _ := classMachine(t, func(p *policy.Policy) { p.Permission.Limits["web"] = "never" })
+// once-only, and a local deny still refuses.
+func TestAlwaysStaysOnceForLoopAndDenyAndIsRefusedForAutoAndRule(t *testing.T) {
+	mc, rb, _ := classMachine(t, func(p *policy.Policy) { p.Permission.Deny = []string{"web"} })
 	ctx := context.Background()
 	askFor(mc, "per_1", "doom_loop")
 	askFor(mc, "per_2", "bash")
@@ -292,28 +273,30 @@ func TestAlwaysStaysOnceForLoopAndNeverAndIsRefusedForAutoAndRule(t *testing.T) 
 	if ex := rb.Exceptions("s1"); len(ex) != 0 {
 		t.Errorf("a non-human always stored an exception: %+v", ex)
 	}
-	// A never limit still refuses the ask itself, and stores nothing.
+	// A local deny still refuses the ask itself, and stores nothing.
 	rh, _ := mc.ruleHost()
 	req := backend.PermissionRequest{ID: "per_3", SessionID: "s1", Tool: "webfetch", Patterns: []string{"https://x.test"}}
 	if mc.humanAlwaysOverAsk(rh, "/x", req) {
-		t.Error("a never-limited class accepts a human always")
+		t.Error("a denied class accepts a human always")
 	}
 	if res := mc.decideAsk(rh, "/x", req); res.Verdict != decide.Reject {
-		t.Errorf("never limit = %+v", res)
+		t.Errorf("local deny = %+v", res)
 	}
 }
 
 func TestAnOverAskExceptionIsHeldBackByPlan(t *testing.T) {
 	mc, rb, _ := classMachine(t, nil)
 	rh, _ := mc.ruleHost()
-	askFor(mc, "per_1", "bash")
+	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/x", SessionID: "s1", Event: backend.Event{
+		Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "per_1", SessionID: "s1", Tool: "read", Patterns: []string{"/x/.env"}, Always: []string{"*"}},
+	}})
 	if _, operr := mc.opPermissionReply(context.Background(), replyArgs(t, "per_1", "always", nil)); operr != nil {
 		t.Fatal(operr)
 	}
 	if len(rb.Exceptions("s1")) != 1 {
 		t.Fatal("no exception stored")
 	}
-	req := backend.PermissionRequest{ID: "per_2", SessionID: "s1", Tool: "bash", Patterns: []string{"rm -rf /"}}
+	req := backend.PermissionRequest{ID: "per_2", SessionID: "s1", Tool: "read", Patterns: []string{".env"}}
 	if res := mc.decideAsk(rh, "/x", req); res.Verdict != decide.Once || res.Step != "exception-ask" {
 		t.Errorf("ask mode = %+v", res)
 	}
@@ -323,75 +306,94 @@ func TestAnOverAskExceptionIsHeldBackByPlan(t *testing.T) {
 	}
 }
 
-func TestTheHelloCarriesTheLimitsAndAnOldHelloHasNone(t *testing.T) {
+func TestTheHelloAdvertisesNoLimitsAndTolerantlyReadsOldOnes(t *testing.T) {
 	pol := policy.Default()
-	pol.Permission.Limits["tools"] = "never"
-	pol.Permission.Limits["loop"] = "stop"
+	pol.Permission.Deny = []string{"tools"}
 	body, _ := json.Marshal(buildHello(newE2EFakeBackend(), pol))
-	var got struct {
-		Policy struct {
-			Limits map[string]string `json:"limits"`
-		} `json:"policy"`
-	}
+	var got map[string]any
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Policy.Limits["tools"] != "deny" || got.Policy.Limits["loop"] != "stop" || got.Policy.Limits["command"] != "ask" || len(got.Policy.Limits) != 8 {
-		t.Errorf("hello limits = %v", got.Policy.Limits)
+	if _, has := got["policy"].(map[string]any)["limits"]; has {
+		t.Errorf("the hello still advertises limits: %s", body)
 	}
-	// An older machine's hello has no limits: it decodes with none.
+	// A hello an older galopin sent (with limits) still decodes: the field is gone, not an error.
 	var old link.PolicyInfo
-	if err := json.Unmarshal([]byte(`{"autoAccept":"denied","permission":{"max":{"bash":"ask"}},"workspaceRoots":[],"allowFreeModels":false}`), &old); err != nil || old.Limits != nil {
+	if err := json.Unmarshal([]byte(`{"autoAccept":"denied","permission":{"max":{"bash":"ask"}},"limits":{"command":"ask"},"workspaceRoots":[],"allowFreeModels":false}`), &old); err != nil {
 		t.Errorf("old policy = %+v %v", old, err)
 	}
 }
 
-func TestDecidePolicyReadsTheLiveLimits(t *testing.T) {
+func TestDecidePolicyReadsTheLiveDeny(t *testing.T) {
 	mc, _, _ := classMachine(t, nil)
 	rh, _ := mc.ruleHost()
-	if got := mc.decidePolicy(rh).Limit(decide.ClassCommand); got != decide.AskLimit {
-		t.Fatalf("command = %v", got)
+	if mc.decidePolicy(rh).Deny[decide.ClassCommand] {
+		t.Fatal("command denied on a fresh machine")
 	}
 	next := policy.Default().Permission
-	next.Limits["command"] = "never"
+	next.Deny = []string{"command"}
 	mc.live.Tighten(next)
-	if got := mc.decidePolicy(rh).Limit(decide.ClassCommand); got != decide.Never {
-		t.Errorf("a tightened limit is not read live: %v", got)
+	if !mc.decidePolicy(rh).Deny[decide.ClassCommand] {
+		t.Error("a tightened deny is not read live")
 	}
 }
 
-// The machine marks a plain read itself, and the "rule" actor is for that mark
-// alone: an agent's own readOnly field is overwritten, and a rule reply to any
-// other ask is refused.
-func TestRuleActorNeedsTheMachinesReadOnlyMark(t *testing.T) {
-	mc, rb, dir := classMachine(t, nil)
-	ws := t.TempDir()
-	ask := func(id, cmd string) {
-		mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{
-			WorkspaceDir: ws, SessionID: "s1",
-			Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{
-				ID: id, SessionID: "s1", Tool: "bash", Patterns: []string{cmd}, ReadOnly: true}},
-		})
+// Auto (ADR 0109 amendment): session.setPermissionMode with autoClasses.
+func TestSetPermissionModeAutoClasses(t *testing.T) {
+	mc, rb, _ := classMachine(t, nil)
+	ctx := context.Background()
+	set := func(args string) *link.OpError {
+		_, operr := mc.opSessionSetPermissionMode(ctx, json.RawMessage(args))
+		return operr
 	}
-	ask("per_1", "ls -la")
-	ask("per_2", "rm -rf /")
-	rule := map[string]any{"kind": "rule", "reason": "read-only"}
-	if _, operr := mc.opPermissionReply(context.Background(), replyArgs(t, "per_2", "once", rule)); operr == nil || operr.Code != "invalid" {
-		t.Errorf("rule reply to a non-read-only ask: %v, want invalid", operr)
-	}
-	if _, operr := mc.opPermissionReply(context.Background(), replyArgs(t, "per_1", "always", rule)); operr == nil {
-		t.Error("a rule reply must be once")
-	}
-	if _, operr := mc.opPermissionReply(context.Background(), replyArgs(t, "per_1", "once", rule)); operr != nil {
+	if operr := set(`{"sessionId":"s1","mode":"ask","autoClasses":{"edit":"run","command":"ask","secrets":"run","bogus":"run","web":"maybe"}}`); operr != nil {
 		t.Fatal(operr)
 	}
-	rows := permissionRows(t, dir)
-	if len(rows) != 1 || rows[0]["by"] != "rule" {
-		t.Errorf("rows = %v", rows)
+	got, auto := rb.AutoClasses("s1")
+	if !auto || got["edit"] != "run" || got["command"] != "ask" || got["secrets"] != "ask" || got["web"] != "ask" || got["bogus"] != "" {
+		t.Fatalf("stored auto map = %v (auto=%v)", got, auto)
 	}
-	rb.mu.Lock()
-	defer rb.mu.Unlock()
-	if len(rb.replies) != 1 {
-		t.Errorf("replies = %v", rb.replies)
+	if mc.permissionMode("s1") != "ask" || mc.autoClasses("s1")["edit"] != "run" {
+		t.Errorf("read back: mode %q classes %v", mc.permissionMode("s1"), mc.autoClasses("s1"))
+	}
+	// edit runs, command and web are cards.
+	askFor(mc, "per_1", "edit")
+	askFor(mc, "per_2", "bash")
+	if _, held := pendingClass(mc, "per_1"); held {
+		t.Error("an edit under Auto edit=run was carded")
+	}
+	if _, held := pendingClass(mc, "per_2"); !held {
+		t.Error("a command under Auto command=ask was not carded")
+	}
+	// An empty map is Auto that runs nothing (fail closed); a malformed one too.
+	for _, body := range []string{`{}`, `"nonsense"`, `[1]`} {
+		if operr := set(`{"sessionId":"s1","mode":"ask","autoClasses":` + body + `}`); operr != nil {
+			t.Fatalf("%s: %v", body, operr)
+		}
+		if got, auto := rb.AutoClasses("s1"); !auto || len(got) != 0 {
+			t.Errorf("%s: stored %v auto=%v, want Auto with nothing running", body, got, auto)
+		}
+	}
+	// autoClasses with another word is invalid and changes nothing.
+	for _, mode := range []string{"allow", "deny", "plan"} {
+		if operr := set(`{"sessionId":"s1","mode":"` + mode + `","autoClasses":{"edit":"run"}}`); operr == nil || operr.Code != "invalid" {
+			t.Errorf("mode %s with autoClasses: %v, want invalid", mode, operr)
+		}
+	}
+	// A later set without autoClasses takes the session off Auto.
+	if operr := set(`{"sessionId":"s1","mode":"ask"}`); operr != nil {
+		t.Fatal(operr)
+	}
+	if _, auto := rb.AutoClasses("s1"); auto || mc.autoClasses("s1") != nil {
+		t.Error("a plain ask left the session on Auto")
+	}
+	if operr := set(`{"sessionId":"s1","mode":"ask","autoClasses":{"edit":"run"}}`); operr != nil {
+		t.Fatal(operr)
+	}
+	if operr := set(`{"sessionId":"s1","mode":"allow"}`); operr != nil {
+		t.Fatal(operr)
+	}
+	if _, auto := rb.AutoClasses("s1"); auto {
+		t.Error("allow left the session on Auto")
 	}
 }

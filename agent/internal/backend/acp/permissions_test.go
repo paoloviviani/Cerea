@@ -29,11 +29,11 @@ func TestAcpAsksAreDecidedByTheSameFunction(t *testing.T) {
 		{"fetch in plan", ask("fetch", nil, nil), permrules.Deny, decide.Reject},
 		{"unknown kind in ask", ask("teleport", nil, nil), permrules.Ask, decide.Card},
 		{"unknown kind in allow", ask("teleport", nil, nil), permrules.Allow, decide.Once},
-		{"read outside the workspace asks", ask("read", []any{map[string]any{"path": "/etc/shadow"}}, nil), permrules.Allow, decide.Card},
+		{"read outside the workspace asks in ask", ask("read", []any{map[string]any{"path": "/etc/shadow"}}, nil), permrules.Ask, decide.Card},
 	}
 	for _, c := range cases {
 		key, patterns := b.NormalizeAsk(c.req)
-		got := decide.Decide(decide.Policy{Limits: map[decide.Class]decide.Limit{decide.ClassCommand: decide.Run}}, decide.State{Mode: c.mode}, decide.Request{Key: key, Patterns: patterns, Workspace: "/w"})
+		got := decide.Decide(decide.Policy{}, decide.State{Mode: c.mode}, decide.Request{Key: key, Patterns: patterns, Workspace: "/w"})
 		if got.Verdict != c.want {
 			t.Errorf("%s: key %q patterns %v: %s, want %s", c.name, key, patterns, got.Verdict, c.want)
 		}
@@ -67,7 +67,7 @@ func TestAcpOtherKindIsInferredForGoose(t *testing.T) {
 		if key != c.key {
 			t.Errorf("%s: key %q, want %q", c.name, key, c.key)
 		}
-		got := decide.Decide(decide.Policy{Limits: map[decide.Class]decide.Limit{decide.ClassCommand: decide.Run}}, decide.State{Mode: c.mode}, decide.Request{Key: key, Patterns: patterns, Workspace: "/w"})
+		got := decide.Decide(decide.Policy{}, decide.State{Mode: c.mode}, decide.Request{Key: key, Patterns: patterns, Workspace: "/w"})
 		if got.Verdict != c.want {
 			t.Errorf("%s: key %q patterns %v: %s, want %s", c.name, key, patterns, got.Verdict, c.want)
 		}
@@ -92,7 +92,7 @@ func TestAcpPiGateAskIsUnwrapped(t *testing.T) {
 	}{
 		{"bash in plan", ask("bash", `{"command":"rm -rf x"}`), permrules.Deny, decide.Reject, "bash"},
 		{"write in plan", ask("write", `{"path":"b.txt","content":"hi"}`), permrules.Deny, decide.Reject, "edit"},
-		{"write outside the workspace", ask("write", `{"path":"/etc/x","content":"hi"}`), permrules.Allow, decide.Card, "edit"},
+		{"write outside the workspace asks in ask", ask("write", `{"path":"/etc/x","content":"hi"}`), permrules.Ask, decide.Card, "edit"},
 		{"read in ask", ask("read", `{"path":"a.txt"}`), permrules.Ask, decide.Once, "read"},
 	}
 	for _, c := range cases {
@@ -100,7 +100,7 @@ func TestAcpPiGateAskIsUnwrapped(t *testing.T) {
 		if key != c.key {
 			t.Errorf("%s: key %q, want %q", c.name, key, c.key)
 		}
-		got := decide.Decide(decide.Policy{Limits: map[decide.Class]decide.Limit{decide.ClassCommand: decide.Run}}, decide.State{Mode: c.mode}, decide.Request{Key: key, Patterns: patterns, Workspace: "/w"})
+		got := decide.Decide(decide.Policy{}, decide.State{Mode: c.mode}, decide.Request{Key: key, Patterns: patterns, Workspace: "/w"})
 		if got.Verdict != c.want {
 			t.Errorf("%s: key %q patterns %v: %s, want %s", c.name, key, patterns, got.Verdict, c.want)
 		}

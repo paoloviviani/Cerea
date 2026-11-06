@@ -1,8 +1,8 @@
 /**
  * The review service (ADR 0107 sections 2 and 3, ADR 0105 section 2): a machine's permission ask on
- * a session whose word is Allow (the composer's Auto) is judged by a decision model instead of
- * waking the user, when the deployment's rows, the machine's owner and the reviewer's availability
- * all say so. The reviewer only ever allows once or escalates; every other outcome is "comes to
+ * a session on Auto (the word `allow` plus the per-class map) is judged by a decision model instead
+ * of waking the user, when the owner's own rows and the reviewer's availability say so. The
+ * settings are the machine owner's (ADR 0109), never another user's. The reviewer only ever allows once or escalates; every other outcome is "comes to
  * you", with the reason on the push, the card and the log.
  *
  * The "needs you" push is interposed: it is held until the decision lands, and a watchdog pushes
@@ -21,7 +21,7 @@ import {
 	appendReviewLog,
 	autoPermissionsEnabled,
 	deviceOptedOut,
-	getAgentReviewSettings,
+	effectiveReviewSettings,
 } from "$lib/server/agentReview";
 import { MachineLink } from "$lib/server/code/machines";
 import { isGatewayPreset } from "$lib/server/identity/gatewayLogin";
@@ -47,15 +47,14 @@ import {
 
 /** What the service needs from the outside; the defaults are the real ones, specs pass fakes. */
 export interface ReviewDeps {
-	settings: () => Promise<AgentReviewSettings>;
+	/** The machine owner's settings (ADR 0109), on only while the deployment's switch is on too. */
+	settings: (userId: ObjectId) => Promise<AgentReviewSettings>;
 	killSwitchOn: () => boolean;
 	optedOut: (userId: ObjectId, deviceId: string) => Promise<boolean>;
 	/** The owner's own access token from their background grant; throws when there is none. */
 	token: (userId: ObjectId) => Promise<string>;
 	link: (deviceId: string) => {
-		sessionGet(a: {
-			sessionId: string;
-		}): Promise<{ session: { permissionMode?: string; title: string; workspaceId: string } }>;
+		sessionGet(a: { sessionId: string }): Promise<{ session: SessionFacts }>;
 		workspaceList(): Promise<{ workspaces: Array<{ id: string; path: string }> }>;
 		permissionReply(a: {
 			sessionId: string;
@@ -79,7 +78,7 @@ function envNumber(v: unknown, fallback: number, min: number): number {
 }
 
 export const realDeps: ReviewDeps = {
-	settings: getAgentReviewSettings,
+	settings: effectiveReviewSettings,
 	killSwitchOn: autoPermissionsEnabled,
 	optedOut: deviceOptedOut,
 	token: async (userId) => {
@@ -103,6 +102,15 @@ export const realDeps: ReviewDeps = {
 };
 
 export class NoAccess extends Error {}
+
+/** What the service reads of a session. */
+interface SessionFacts {
+	permissionMode?: string;
+	/** The Auto map; its presence (with the word `ask`) is what makes a session Auto. */
+	autoClasses?: Record<string, string>;
+	title: string;
+	workspaceId: string;
+}
 
 // -- in-process state: lost on restart, which is acceptable and said --------------------------
 
@@ -207,7 +215,7 @@ export async function reviewPermissionAsk(
 	(watchdog as { unref?: () => void }).unref?.();
 
 	try {
-		const settings = await deps.settings();
+		const settings = await deps.settings(userId);
 		const cls = request.class;
 		// A plain read the MACHINE marked (never agent metadata): answered by rule, no model. The
 		// static escalate list still wins; a device's opt-out is about the model, so it does not apply.
@@ -229,15 +237,16 @@ export async function reviewPermissionAsk(
 			return send();
 		}
 		const link = deps.link(deviceId);
-		let session: { permissionMode?: string; title: string; workspaceId: string };
+		let session: SessionFacts;
 		try {
 			session = (await link.sessionGet({ sessionId: request.sessionId || envelope.sessionId }))
 				.session;
 		} catch {
 			return send();
 		}
-		// Plan and Ask sessions are the user's own: only Auto (the machine's `allow`) is routed.
-		if (session.permissionMode !== "allow") return send();
+		// Plan and Ask are the user's own, and Allow is hands off: only Auto (the word `ask` with
+		// its per-class map, PROTOCOL.md §6) is routed.
+		if (session.permissionMode !== "ask" || !session.autoClasses) return send();
 
 		const ctx: Ctx = { userId, deviceId, envelope, request, cls, settings, session, link, deps };
 		if (fast) return await allowReadOnly(ctx, send);
@@ -275,7 +284,7 @@ interface Ctx {
 	request: PermissionRequest;
 	cls: PermissionClass;
 	settings: AgentReviewSettings;
-	session: { permissionMode?: string; title: string; workspaceId: string };
+	session: SessionFacts;
 	link: ReturnType<ReviewDeps["link"]>;
 	deps: ReviewDeps;
 }

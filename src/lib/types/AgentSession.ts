@@ -4,7 +4,7 @@
  * project. Server (the `agent_*` builtins, the profile API) and client (the
  * card, the project settings section) both build on these.
  */
-import type { PermissionMode } from "$lib/types/machineProtocol";
+import type { PermissionStep } from "$lib/types/machineProtocol";
 
 /** Names shown with no live machine ("machine › workspace"). */
 export interface AgentSessionLabels {
@@ -36,7 +36,7 @@ export interface ProjectAgentProfile {
 	deviceId: string;
 	workspaceId: string;
 	/** Applied to sessions `agent_start` creates; `ask` when there is no profile. */
-	permissionMode: PermissionMode;
+	permissionMode: PermissionStep;
 	modeId?: string;
 	modelId?: string;
 	/** Connectors sessions started from this project's chats may use (ADR 0108); none by default. */

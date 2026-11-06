@@ -6,7 +6,7 @@
  * What is pinned here, at 390×844 (the operator's phone): the `+`, every
  * pill, the context ring and send share one row (their boxes overlap
  * vertically, no second row); the pill group never wraps; the permission
- * selector (Plan · Ask · Allow) stays one pill-height group of three labelled
+ * selector (Plan · Ask · Allow) stays one pill-height group of four labelled
  * segments with its accessible name and its `aria-checked` state, and its
  * "what the ceiling still caps" note steps aside on a phone (the Allow
  * segment's title carries it). At 1280×800, the same composer keeps its text
@@ -213,7 +213,7 @@ test.describe("/code composer at 390×844", () => {
 		// label kept for a screen reader: the same row height as chat's toggles.
 		const selectorBox = await box(selector);
 		expect(selectorBox.height).toBeLessThanOrEqual(32);
-		await expect(selector.getByRole("radio")).toHaveText(["Plan", "Ask", "Allow"]);
+		await expect(selector.getByRole("radio")).toHaveText(["Plan", "Ask", "Auto", "Allow"]);
 
 		// The model name itself truncates rather than pushing the row wider
 		// (the pill's own bounding box also carries the effort suffix and
@@ -253,7 +253,7 @@ test.describe("/code composer: no note beside the shield on mobile", () => {
 		await expect(page.getByTestId("permission-mode-note")).toBeHidden();
 		await expect(selector.getByRole("radio", { name: "Allow" })).toHaveAttribute(
 			"title",
-			/outside the project folder/
+			/credential files/
 		);
 		const attach = page.getByRole("button", { name: "Add attachment" });
 		const send = page.getByRole("button", { name: "Send message" });
@@ -264,7 +264,9 @@ test.describe("/code composer: no note beside the shield on mobile", () => {
 });
 
 test.describe("/code composer at 1280×800", () => {
-	test("keeps the text labels: Plan · Ask · Allow and the ring's value", async ({ page }) => {
+	test("keeps the text labels: Plan · Ask · Auto · Allow and the ring's value", async ({
+		page,
+	}) => {
 		await installStubs(page);
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await goto(page);
@@ -275,7 +277,7 @@ test.describe("/code composer at 1280×800", () => {
 		await expect(selector).toBeVisible();
 		await expect(ring).toBeVisible();
 
-		await expect(selector.getByRole("radio")).toHaveText(["Plan", "Ask", "Allow"]);
+		await expect(selector.getByRole("radio")).toHaveText(["Plan", "Ask", "Auto", "Allow"]);
 		const askBox = await box(selector.getByRole("radio", { name: "Ask" }));
 		expect(askBox.width).toBeGreaterThan(20);
 		const ringLabelBox = await box(ring.locator("span").first());

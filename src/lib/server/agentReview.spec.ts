@@ -1,4 +1,4 @@
-/** Agent auto-approval storage (ADR 0107), against the real database. */
+/** Agent auto-approval storage (ADR 0107, per user since ADR 0109), against the real database. */
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ObjectId } from "mongodb";
 
@@ -20,13 +20,14 @@ import {
 	appendReviewLog,
 	autoApprovalAvailability,
 	autoPermissionsEnabled,
+	autoClassMap,
 	deviceOptedOut,
-	getAgentReviewSettings,
+	effectiveReviewSettings,
+	getUserReviewSettings,
 	listReviewLog,
-	needsPassingTest,
 	registerReviewTester,
-	saveAgentReviewSettings,
-	settingsFingerprint,
+	saveUserReviewSettings,
+	setDeploymentReviewEnabled,
 	SettingsInvalid,
 } from "./agentReview";
 
@@ -37,6 +38,7 @@ afterEach(async () => {
 	env.killSwitch = undefined;
 	registerReviewTester(null);
 	await collections.agentReviewConfig.deleteMany({});
+	await collections.agentReviewUserSettings.deleteMany({});
 	await collections.agentReviewLog.deleteMany({});
 });
 
@@ -56,72 +58,159 @@ const entry = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-describe("settings", () => {
-	it("default to off, 0.85, the ADR's rows, loop fixed on you, 300 an hour", async () => {
-		const s = await getAgentReviewSettings();
+/** Auto-approval needs the administrator's switch and the user's own reviewer. */
+async function setUp(userId: ObjectId, over: Record<string, unknown> = {}) {
+	await setDeploymentReviewEnabled(true);
+	await saveUserReviewSettings(userId, { enabled: true, decisionModelId: "judge", ...over });
+}
+
+describe("a user's settings", () => {
+	it("default to off, 0.85, the amendment's rows, loop fixed on you, 300 an hour", async () => {
+		const s = await getUserReviewSettings(user);
 		expect(s).toMatchObject({ enabled: false, decisionModelId: null, threshold: 0.85 });
 		expect(s.perClass).toEqual(PER_CLASS_DEFAULTS);
-		expect(PER_CLASS_DEFAULTS).toMatchObject({
+		expect(PER_CLASS_DEFAULTS).toEqual({
+			edit: "run",
 			command: "reviewer",
+			web: "run",
 			outside: "reviewer",
 			secrets: "you",
+			agents: "run",
+			tools: "run",
 			loop: "you",
 		});
 		expect(Object.keys(s.perClass).sort()).toEqual([...PERMISSION_CLASSES].sort());
 		expect(s.maxPerHourPerMachine).toBe(300);
+		// Nothing to copy: nothing is stored by a read.
+		expect(await collections.agentReviewUserSettings.countDocuments({})).toBe(0);
 	});
 
-	it("keep what is saved, and fill the rest from the defaults", async () => {
-		await saveAgentReviewSettings({
+	it("keep what is saved, per user, and fill the rest from the defaults", async () => {
+		await saveUserReviewSettings(user, {
 			enabled: true,
 			decisionModelId: "judge",
 			threshold: 0.62,
 			instructions: "  Routine dev work is fine.  ",
-			perClass: { secrets: "reviewer" },
-			maxPerHourPerMachine: 50,
+			perClass: { secrets: "reviewer", edit: "reviewer" },
 		});
-		const s = await getAgentReviewSettings();
-		expect(s).toMatchObject({
-			enabled: true,
-			decisionModelId: "judge",
-			threshold: 0.62,
-			maxPerHourPerMachine: 50,
-		});
+		const s = await getUserReviewSettings(user);
+		expect(s).toMatchObject({ enabled: true, decisionModelId: "judge", threshold: 0.62 });
 		expect(s.instructions).toBe("Routine dev work is fine.");
-		expect(s.perClass.secrets).toBe("reviewer");
-		expect(s.perClass.command).toBe("reviewer");
+		expect(s.perClass).toMatchObject({
+			secrets: "reviewer",
+			edit: "reviewer",
+			command: "reviewer",
+		});
+		// Another user never sees them.
+		const other = await getUserReviewSettings(new ObjectId());
+		expect(other).toMatchObject({ enabled: false, decisionModelId: null });
 	});
 
 	it("refuse a threshold below the 0.50 floor or above 0.99", async () => {
 		for (const threshold of [0.49, 0.2, 1, 0.995]) {
-			await expect(saveAgentReviewSettings({ threshold })).rejects.toBeInstanceOf(SettingsInvalid);
+			await expect(saveUserReviewSettings(user, { threshold })).rejects.toBeInstanceOf(
+				SettingsInvalid
+			);
 		}
-		await saveAgentReviewSettings({ threshold: 0.5 });
-		expect((await getAgentReviewSettings()).threshold).toBe(0.5);
+		await saveUserReviewSettings(user, { threshold: 0.5 });
+		expect((await getUserReviewSettings(user)).threshold).toBe(0.5);
 	});
 
-	it("refuse loop on the reviewer, and read loop as you whatever is stored", async () => {
-		await expect(
-			saveAgentReviewSettings({ perClass: { loop: "reviewer" } })
-		).rejects.toBeInstanceOf(SettingsInvalid);
-		await collections.agentReviewConfig.insertOne({ perClass: { loop: "reviewer" } } as never);
-		expect((await getAgentReviewSettings()).perClass.loop).toBe("you");
+	it("refuse loop off you and secrets that run, and read them safely whatever is stored", async () => {
+		for (const bad of [{ loop: "reviewer" }, { loop: "run" }, { secrets: "run" }] as const) {
+			await expect(saveUserReviewSettings(user, { perClass: bad })).rejects.toBeInstanceOf(
+				SettingsInvalid
+			);
+		}
+		await collections.agentReviewUserSettings.insertOne({
+			userId: user,
+			perClass: { loop: "run", secrets: "run" },
+		} as never);
+		const s = await getUserReviewSettings(user);
+		expect(s.perClass).toMatchObject({ loop: "you", secrets: "you" });
 	});
 
 	it("refuse over-long instructions, fence markers, and enabling without a model", async () => {
 		await expect(
-			saveAgentReviewSettings({ instructions: "x".repeat(2001) })
-		).rejects.toBeInstanceOf(SettingsInvalid);
-		await expect(saveAgentReviewSettings({ instructions: "ok ``` then" })).rejects.toBeInstanceOf(
-			SettingsInvalid
-		);
-		await expect(
-			saveAgentReviewSettings({ instructions: "BEGIN UNTRUSTED" })
+			saveUserReviewSettings(user, { instructions: "x".repeat(2001) })
 		).rejects.toBeInstanceOf(SettingsInvalid);
 		await expect(
-			saveAgentReviewSettings({ enabled: true, decisionModelId: null })
+			saveUserReviewSettings(user, { instructions: "ok ``` then" })
 		).rejects.toBeInstanceOf(SettingsInvalid);
-		await saveAgentReviewSettings({ instructions: "x".repeat(2000) });
+		await expect(
+			saveUserReviewSettings(user, { instructions: "BEGIN UNTRUSTED" })
+		).rejects.toBeInstanceOf(SettingsInvalid);
+		await expect(
+			saveUserReviewSettings(user, { enabled: true, decisionModelId: null })
+		).rejects.toBeInstanceOf(SettingsInvalid);
+		await saveUserReviewSettings(user, { instructions: "x".repeat(2000) });
+	});
+});
+
+describe("the first read of a user with no settings (migration)", () => {
+	it("starts from the deployment's earlier model, threshold, instructions and rows, once", async () => {
+		await collections.agentReviewConfig.insertOne({
+			enabled: true,
+			decisionModelId: "old-judge",
+			threshold: 0.9,
+			instructions: "Old policy.",
+			perClass: { command: "reviewer", edit: "reviewer", web: "you", secrets: "you" },
+			maxPerHourPerMachine: 300,
+		} as never);
+		const s = await getUserReviewSettings(user);
+		expect(s).toMatchObject({
+			enabled: true,
+			decisionModelId: "old-judge",
+			threshold: 0.9,
+			instructions: "Old policy.",
+		});
+		// Rows that never saw a card under the default machine limits seed as "runs"; the rest carry.
+		expect(s.perClass).toMatchObject({ command: "reviewer", edit: "run", web: "you", loop: "you" });
+		// Copy-on-read: this user's copy is stored, nobody else's is.
+		expect(await collections.agentReviewUserSettings.countDocuments({})).toBe(1);
+		// Later changes to the deployment's old fields do not move the copy.
+		await collections.agentReviewConfig.updateOne({}, { $set: { decisionModelId: "newer" } });
+		expect((await getUserReviewSettings(user)).decisionModelId).toBe("old-judge");
+		// Another user is not touched until they read.
+		expect(await collections.agentReviewUserSettings.countDocuments({ userId: user })).toBe(1);
+	});
+
+	it("leaves a user's own settings alone, and never copies when the deployment had no model", async () => {
+		await collections.agentReviewConfig.insertOne({ enabled: true } as never);
+		expect((await getUserReviewSettings(user)).decisionModelId).toBeNull();
+		expect(await collections.agentReviewUserSettings.countDocuments({})).toBe(0);
+	});
+});
+
+describe("what the review service decides with", () => {
+	it("is the user's own settings, on only while the administrator's switch is too", async () => {
+		const other = new ObjectId();
+		await setUp(user, { threshold: 0.7 });
+		await setDeploymentReviewEnabled(true);
+		expect(await effectiveReviewSettings(user)).toMatchObject({ enabled: true, threshold: 0.7 });
+		// Another user's settings are never used for this one.
+		expect(await effectiveReviewSettings(other)).toMatchObject({ enabled: false, threshold: 0.85 });
+		await setDeploymentReviewEnabled(false);
+		expect((await effectiveReviewSettings(user)).enabled).toBe(false);
+	});
+});
+
+describe("the Auto map", () => {
+	it("sends run for the classes that run and ask for the rest, loop and secrets always ask", () => {
+		expect(autoClassMap(PER_CLASS_DEFAULTS)).toEqual({
+			edit: "run",
+			command: "ask",
+			web: "run",
+			outside: "ask",
+			secrets: "ask",
+			agents: "run",
+			tools: "run",
+			loop: "ask",
+		});
+		expect(autoClassMap({ ...PER_CLASS_DEFAULTS, edit: "reviewer", web: "you" })).toMatchObject({
+			edit: "ask",
+			web: "ask",
+		});
 	});
 });
 
@@ -134,55 +223,20 @@ describe("the kill switch", () => {
 		expect(autoPermissionsEnabled()).toBe(false);
 	});
 
-	it("makes the third step unavailable even with a reviewer configured", async () => {
-		await saveAgentReviewSettings({ enabled: true, decisionModelId: "judge" });
-		expect((await autoApprovalAvailability()).available).toBe(true);
+	it("makes Auto's reviewer unavailable even with one configured", async () => {
+		await setUp(user);
+		expect((await autoApprovalAvailability(user)).available).toBe(true);
 		env.killSwitch = "false";
-		expect((await autoApprovalAvailability()).available).toBe(false);
+		expect((await autoApprovalAvailability(user)).available).toBe(false);
 	});
 
-	it("is not available while the reviewer is off or has no model", async () => {
-		expect((await autoApprovalAvailability()).available).toBe(false);
-		await saveAgentReviewSettings({ enabled: false, decisionModelId: "judge" });
-		expect((await autoApprovalAvailability()).available).toBe(false);
-	});
-});
-
-describe("the save-time test gate", () => {
-	const base = {
-		enabled: true,
-		decisionModelId: "judge",
-		threshold: 0.9,
-		instructions: "a",
-		perClass: PER_CLASS_DEFAULTS,
-		maxPerHourPerMachine: 300,
-	};
-	it("does not apply until a tester is registered", async () => {
-		const saved = await getAgentReviewSettings();
-		expect(needsPassingTest(saved, { ...saved, ...base })).toBe(false);
-	});
-	it("applies to a changed model, threshold or instructions once registered, and passes with a matching fingerprint", async () => {
-		registerReviewTester(async () => ({ passed: true, cases: [] }));
-		const saved = { ...(await getAgentReviewSettings()), ...base };
-		for (const change of [
-			{ threshold: 0.8 },
-			{ instructions: "b" },
-			{ decisionModelId: "other" },
-		]) {
-			const next = { ...saved, ...change };
-			expect(needsPassingTest(saved, next)).toBe(true);
-			expect(
-				needsPassingTest({ ...saved, testedFingerprint: settingsFingerprint(next) }, next)
-			).toBe(false);
-		}
-		// Turning it on is a change too; unchanged values already running are not.
-		expect(needsPassingTest({ ...saved, enabled: false }, saved)).toBe(true);
-		expect(
-			needsPassingTest(saved, { ...saved, perClass: { ...saved.perClass, edit: "you" } })
-		).toBe(false);
-		expect(
-			needsPassingTest({ ...saved, enabled: false }, { ...saved, enabled: false, threshold: 0.7 })
-		).toBe(false);
+	it("is not available while the administrator's switch is off, or the user's reviewer is off or has no model", async () => {
+		expect((await autoApprovalAvailability(user)).available).toBe(false);
+		await setUp(user);
+		await setDeploymentReviewEnabled(false);
+		expect((await autoApprovalAvailability(user)).available).toBe(false);
+		await setUp(user, { enabled: false });
+		expect((await autoApprovalAvailability(user)).available).toBe(false);
 	});
 });
 

@@ -180,6 +180,7 @@ func (mc *machine) enrich(s backend.Session, workspaceID string) backend.Session
 	s.WorkspaceID = workspaceID
 	s.PendingPermissions = mc.mat.PendingPermissions(s.ID)
 	s.PermissionMode = mc.permissionMode(s.ID)
+	s.AutoClasses = mc.autoClasses(s.ID)
 	s.StaleDeny = mc.staleDeny(s.ID)
 	s.StalePolicy = mc.stalePolicy(s.ID)
 	s.RootID = mc.mat.RootOf(s.ID)
@@ -208,6 +209,7 @@ func (mc *machine) enrichAll(sessions []backend.Session, workspaceIDs []string) 
 		s.WorkspaceID = workspaceIDs[i]
 		s.PendingPermissions = mc.mat.PendingPermissions(s.ID)
 		s.PermissionMode = mc.permissionMode(s.ID)
+		s.AutoClasses = mc.autoClasses(s.ID)
 		s.StaleDeny = mc.staleDeny(s.ID)
 		s.StalePolicy = mc.stalePolicy(s.ID)
 		s.RootID = mc.mat.RootOf(s.ID)
@@ -726,6 +728,15 @@ func (mc *machine) permissionMode(sessionID string) string {
 	return string(rh.PermissionMode(sessionID))
 }
 
+// autoClasses is an Auto session's per-class map (nil when it is not on Auto).
+func (mc *machine) autoClasses(sessionID string) map[string]string {
+	if ah, ok := mc.back.(backend.AutoHost); ok {
+		m, _ := ah.AutoClasses(sessionID)
+		return m
+	}
+	return nil
+}
+
 // staleDeny is the stale-deny verdict for a session's root (false when the
 // backend has no verdict to give).
 func (mc *machine) staleDeny(sessionID string) bool {
@@ -1128,9 +1139,9 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	if asked != nil {
 		tool = asked.Tool
 	}
-	// A human's "always" stands even where the class is limited to ask (the
-	// exception is marked OverAsk); never for the loop class, a never limit or
-	// galopin's own paths, and never from a reviewer or a rule.
+	// A human's "always" stands on a credential ask (the exception is marked
+	// OverAsk); never for the loop class or galopin's own paths, and never
+	// from a reviewer or a rule.
 	overAsk := false
 	if rh, ok := mc.ruleHost(); ok && actor.Kind == actorUser && asked != nil && a.Decision == string(backend.DecisionAlways) {
 		overAsk = mc.humanAlwaysOverAsk(rh, dir, *asked)
@@ -1141,15 +1152,15 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	}
 	if !overAsk && decision == backend.DecisionAlways && asked != nil && asked.Class != "" {
 		// The ask's own class (a .env read, a path outside the project) may be
-		// limited though its key is not.
-		if c, err := decide.ParseClass(asked.Class); err == nil && mc.live.Permission().EffectiveLimits()[c] != decide.Run {
+		// denied locally though its key is not.
+		if c, err := decide.ParseClass(asked.Class); err == nil && mc.live.Permission().Denied(c) {
 			decision, capped = backend.DecisionOnce, true
 		}
 	}
 	// A card answered after the ceiling tightened under it: an approval never
 	// goes past the ceiling, so it is sent as a rejection instead.
 	if rh, ok := mc.ruleHost(); ok && asked != nil && !strings.HasPrefix(a.RequestID, "gp_") && decision != backend.DecisionReject {
-		if res := mc.decideAsk(rh, dir, *asked); res.Verdict == decide.Reject && (res.Step == "limit" || res.Step == "floor") {
+		if res := mc.decideAsk(rh, dir, *asked); res.Verdict == decide.Reject && (res.Step == "deny" || res.Step == "floor") {
 			decision, capped = backend.DecisionReject, true
 			if a.Message == "" {
 				a.Message = res.Reason

@@ -32,10 +32,10 @@ func TestFreshEnrollWritesTheDefaultsWithTheFileEditorOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := loadPol(t, creds)
-	if !p.FileWriteAllowed() || !p.TerminalAllowed() || p.Permission.Limits["command"] != "ask" || p.Permission.Limits["edit"] != "run" {
+	if !p.FileWriteAllowed() || !p.TerminalAllowed() || len(p.Permission.Deny) != 0 {
 		t.Errorf("fresh policy = %+v", p)
 	}
-	if !reflect.DeepEqual(p.Permission.Limits, policy.DefaultLimits()) {
+	if p.Permission.Limits != nil {
 		t.Errorf("limits = %v", p.Permission.Limits)
 	}
 	// --no-file-write turns it off; --allow-file-write stays accepted.
@@ -63,14 +63,14 @@ func TestReEnrollKeepsEverythingExceptTheOptionsPassed(t *testing.T) {
 	creds := filepath.Join(dir, "credentials.json")
 	root := t.TempDir()
 	if err := runEnroll(enrollArgs(srv.URL, creds,
-		"--limit", "command=never", "--limit", "loop=stop", "--safe-dir", "/srv/safe", "--file-deny", "*.secret",
+		"--deny", "command", "--deny", "outside", "--limit", "edit=never", "--safe-dir", "/srv/safe", "--file-deny", "*.secret",
 		"--no-terminal", "--max-terminals", "3", "--workspace-root", root, "--no-file-write",
 		"--no-agent-tools", "--allow-free-models", "--no-command-shell", "--allow-project-config",
 	)); err != nil {
 		t.Fatal(err)
 	}
 	before := loadPol(t, creds)
-	if before.Permission.Limits["command"] != "never" || before.Terminal != policy.TerminalDenied {
+	if !before.Permission.Denied("command") || before.Permission.Limits != nil || before.Terminal != policy.TerminalDenied {
 		t.Fatalf("setup: %+v", before)
 	}
 
@@ -78,18 +78,14 @@ func TestReEnrollKeepsEverythingExceptTheOptionsPassed(t *testing.T) {
 	if err := runEnroll(enrollArgs(srv.URL, creds, "--limit", "web=ask")); err != nil {
 		t.Fatal(err)
 	}
+	// (--limit is retired: accepted and ignored, so nothing changes.)
 	after := loadPol(t, creds)
 	want := before
-	want.Permission.Limits = map[string]string{}
-	for k, v := range before.Permission.Limits {
-		want.Permission.Limits[k] = v
-	}
-	want.Permission.Limits["web"] = "ask"
 	if !reflect.DeepEqual(after, want) {
 		t.Errorf("re-enroll changed more than the option passed:\n got %+v\nwant %+v", after, want)
 	}
 	for name, ok := range map[string]bool{
-		"limits":         after.Permission.Limits["command"] == "never" && after.Permission.Limits["loop"] == "stop",
+		"local deny":     after.Permission.Denied("command") && after.Permission.Denied("outside") && !after.Permission.Denied("edit"),
 		"safe dirs":      after.Permission.SafeDirs != nil && len(*after.Permission.SafeDirs) == 1,
 		"file deny":      len(after.FileDeny) == 1,
 		"terminal":       after.Terminal == policy.TerminalDenied,
@@ -107,18 +103,18 @@ func TestReEnrollKeepsEverythingExceptTheOptionsPassed(t *testing.T) {
 	}
 
 	// An option passed wins, and only it: turn the terminal back on.
-	if err := runEnroll(enrollArgs(srv.URL, creds, "--allow-terminal", "--limit", "command=ask")); err != nil {
+	if err := runEnroll(enrollArgs(srv.URL, creds, "--allow-terminal", "--deny", "web")); err != nil {
 		t.Fatal(err)
 	}
 	again := loadPol(t, creds)
-	if !again.TerminalAllowed() || again.Permission.Limits["command"] != "ask" || again.Permission.Limits["web"] != "ask" || again.MaxTerminals != 3 || again.FileWriteAllowed() {
+	if !again.TerminalAllowed() || !again.Permission.Denied("web") || again.Permission.Denied("command") || again.MaxTerminals != 3 || again.FileWriteAllowed() {
 		t.Errorf("after the second re-enroll: %+v", again)
 	}
 }
 
-// A machine enrolled before classes keeps its settings through a re-enroll too:
-// the migrated limits are what is kept.
-func TestReEnrollOfAnOldPolicyKeepsItsMigratedSettings(t *testing.T) {
+// A machine enrolled before ADR 0109 keeps its other settings through a
+// re-enroll; its retired limits, ceiling and rules are dropped.
+func TestReEnrollOfAnOldPolicyDropsItsRetiredLimitsAndKeepsTheRest(t *testing.T) {
 	srv := fakeEnrollServer(t)
 	creds := filepath.Join(t.TempDir(), "credentials.json")
 	if err := os.WriteFile(policyPathFor(creds), []byte(`{"permission":{"max":{"bash":"allow"},"rules":{"edit":"allow"}},"workspaceRoots":[],"allowFreeModels":false,"terminal":"denied","fileWrite":"denied"}`), 0o600); err != nil {
@@ -128,7 +124,7 @@ func TestReEnrollOfAnOldPolicyKeepsItsMigratedSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := loadPol(t, creds)
-	if p.Permission.Limits["command"] != "run" || p.Permission.Rules["edit"] != "allow" || p.TerminalAllowed() || p.FileWriteAllowed() {
+	if p.Permission.Limits != nil || p.Permission.Rules != nil || p.TerminalAllowed() || p.FileWriteAllowed() {
 		t.Errorf("an old machine's settings were not kept: %+v", p)
 	}
 	raw, _ := os.ReadFile(policyPathFor(creds))
@@ -164,9 +160,12 @@ func TestEnrollTakesTheCereaAddressPositionally(t *testing.T) {
 	if err := runEnroll(append(enrollArgs(srv.URL, creds), "https://a.example.org", "https://b.example.org")); err == nil {
 		t.Error("two positional addresses were accepted")
 	}
-	// A bad --limit fails before any sign-in.
-	if err := runEnroll(enrollArgs(srv.URL, creds, "--limit", "secrets=run")); err == nil || !strings.Contains(err.Error(), "never or ask") {
-		t.Errorf("secrets=run: %v", err)
+	// A bad --deny fails before any sign-in; a retired --limit is accepted and ignored.
+	if err := runEnroll(enrollArgs(srv.URL, creds, "--deny", "loop")); err == nil || !strings.Contains(err.Error(), "loop") {
+		t.Errorf("--deny loop: %v", err)
+	}
+	if err := runEnroll(enrollArgs(srv.URL, creds, "--limit", "secrets=run")); err != nil {
+		t.Errorf("a retired --limit must still be accepted: %v", err)
 	}
 }
 
@@ -174,7 +173,7 @@ func TestResetRestoresTheDefaultsAndKeepsTheCredentials(t *testing.T) {
 	srv := fakeEnrollServer(t)
 	dir := t.TempDir()
 	creds := filepath.Join(dir, "credentials.json")
-	if err := runEnroll(enrollArgs(srv.URL, creds, "--limit", "command=never", "--no-terminal", "--no-file-write", "--safe-dir", "/srv/safe", "https://cerea.example.org")); err != nil {
+	if err := runEnroll(enrollArgs(srv.URL, creds, "--deny", "command", "--no-terminal", "--no-file-write", "--safe-dir", "/srv/safe", "https://cerea.example.org")); err != nil {
 		t.Fatal(err)
 	}
 	credsBefore, _ := os.ReadFile(creds)
@@ -184,7 +183,7 @@ func TestResetRestoresTheDefaultsAndKeepsTheCredentials(t *testing.T) {
 	if err := resetPolicy(policyPathFor(creds), false, func(string) (bool, error) { return false, nil }); err == nil {
 		t.Error("a declined reset must say it did nothing")
 	}
-	if loadPol(t, creds).Permission.Limits["command"] != "never" {
+	if !loadPol(t, creds).Permission.Denied("command") {
 		t.Fatal("a declined reset changed the policy")
 	}
 	// --yes skips the prompt entirely.

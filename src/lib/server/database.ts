@@ -11,7 +11,11 @@ import type {
 	VectorStore,
 } from "$lib/types/VectorStore";
 import type { VoiceConfig } from "$lib/types/VoiceConfig";
-import type { AgentReviewLogEntry, AgentReviewSettings } from "$lib/types/AgentReview";
+import type {
+	AgentReviewLogEntry,
+	AgentReviewSettings,
+	UserAgentReviewSettings,
+} from "$lib/types/AgentReview";
 import type { ImageConfig } from "$lib/types/ImageConfig";
 import type { Project } from "$lib/types/Project";
 import type {
@@ -246,6 +250,8 @@ export class Database {
 		// reviewer's log (user-keyed, kept 90 days).
 		const agentReviewConfig = db.collection<AgentReviewSettings>("agentReviewConfig");
 		const agentReviewLog = db.collection<AgentReviewLogEntry>("agentReviewLog");
+		const agentReviewUserSettings =
+			db.collection<UserAgentReviewSettings>("agentReviewUserSettings");
 		const imageConfig = db.collection<ImageConfig>("imageConfig");
 		// Append-only: every change to that configuration, kept because
 		// "which model was this base built with, and who moved the default"
@@ -353,6 +359,7 @@ export class Database {
 			voiceConfig,
 			agentReviewConfig,
 			agentReviewLog,
+			agentReviewUserSettings,
 			imageConfig,
 			knowledgeConfigHistory,
 			mcpConnectors,
@@ -416,6 +423,7 @@ export class Database {
 			codeAudit,
 			codeSessionConnectors,
 			agentReviewLog,
+			agentReviewUserSettings,
 			schedules,
 			scheduleRuns,
 			scheduleGrants,
@@ -993,6 +1001,9 @@ export class Database {
 			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
 			.catch((e) => logger.error(e, "Error creating TTL index for webFetchCache"));
 
+		agentReviewUserSettings
+			.createIndex({ userId: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for agentReviewUserSettings"));
 		agentReviewLog
 			.createIndex({ time: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 })
 			.catch((e) => logger.error(e, "Error creating TTL index for agentReviewLog"));

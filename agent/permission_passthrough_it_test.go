@@ -10,15 +10,12 @@ import (
 	"galopin/internal/policy"
 )
 
-// P1: the owner's opencode.json says edit: deny and the machine's own rule says
-// edit: allow. The file's deny is the owner's and stands (ADR 0097: the floor
-// restates it, so opencode refuses natively and galopin is never asked), and a
-// machine allow for edit is no licence anyway: it lifts only what the mode never
-// moves. Under Allow the write is refused with no card.
-func TestPassthroughP1MachineRulesBeatTheFile(t *testing.T) {
+// P1: the owner's opencode.json says edit: deny. The file's deny is the owner's
+// and stands (ADR 0097: the floor restates it, so opencode refuses natively and
+// galopin is never asked), even under Allow: the write is refused with no card.
+func TestPassthroughP1TheFilesDenyStands(t *testing.T) {
 	r := newPermRig(t, permRigOpts{
 		file: map[string]any{"edit": "deny"},
-		perm: policy.Permission{Rules: map[string]string{"edit": "allow"}},
 	})
 	s := r.session("p1", "")
 	r.setMode(s, "allow")
@@ -34,7 +31,7 @@ func TestPassthroughP1MachineRulesBeatTheFile(t *testing.T) {
 		t.Errorf("asks = %v, want none", asks)
 	}
 
-	// Control: without the machine's rule the same file denies, whatever the mode.
+	// Control: a second machine, same file, same answer.
 	r2 := newPermRig(t, permRigOpts{file: map[string]any{"edit": "deny"}})
 	s2 := r2.session("p1-control", "")
 	r2.setMode(s2, "allow")
@@ -44,18 +41,17 @@ func TestPassthroughP1MachineRulesBeatTheFile(t *testing.T) {
 	}
 }
 
-// P2: the file allows edit, the machine's own rule says ask. Exactly one ask,
+// P2: the file allows edit, the session is on Ask. Exactly one ask,
 // which stays pending whatever the panel is doing; once lands the write,
 // reject errors the tool.
 func TestPassthroughP2AskStaysPendingAndAnswersLand(t *testing.T) {
 	r := newPermRig(t, permRigOpts{
 		file: map[string]any{"edit": "allow"},
-		perm: policy.Permission{Rules: map[string]string{"edit": "ask"}},
 	})
 	s := r.session("p2", "")
 	ask, _, mark := r.try(s, "p2a.txt")
 	if ask == nil {
-		t.Fatal("the write ran; the machine's ask should have beaten the file's allow")
+		t.Fatal("the write ran; galopin's Ask should have beaten the file's allow")
 	}
 	if ask.Tool != "edit" {
 		t.Errorf("ask tool = %q, want edit", ask.Tool)
@@ -89,23 +85,19 @@ func TestPassthroughP2AskStaysPendingAndAnswersLand(t *testing.T) {
 	}
 }
 
-// P3: the machine's rule says allow but the ceiling says ask: the ceiling wins.
-// A human's "always" on that card is still stored (ADR 0107, 2026-11-05
-// amendment: overAsk), scoped to the file of the ask and never opencode's `*`:
+// P3: on Ask an edit asks. A human's "always" on that card is stored, scoped to the file of the ask and never opencode's `*`:
 // the next write of that file runs, any other file asks.
-func TestPassthroughP3CeilingAskStoresAHumansAlwaysForThatFileOnly(t *testing.T) {
-	r := newPermRig(t, permRigOpts{
-		perm: policy.Permission{Rules: map[string]string{"edit": "allow"}, Max: map[string]string{"edit": "ask"}},
-	})
+func TestPassthroughP3AlwaysStoresForThatFileOnly(t *testing.T) {
+	r := newPermRig(t, permRigOpts{})
 	s := r.session("p3", "")
-	// Nothing is written to the session: the machine's rule and the ceiling are
-	// galopin's own answers, not opencode rules (ADR 0097).
+	// Nothing is written to the session: the selector is galopin's own state,
+	// not opencode rules (ADR 0097).
 	if rules := r.sessionRules(s.ID); len(rules) != 0 {
 		t.Fatalf("session rules before the first prompt = %+v, want none", rules)
 	}
 	ask, _, mark := r.try(s, "p3a.txt")
 	if ask == nil {
-		t.Fatal("the write ran; the ceiling (ask) should have beaten the machine's allow")
+		t.Fatal("the write ran; the session's Ask should have asked")
 	}
 	r.reply(s, ask.ID, "always")
 	r.idle(s, mark)
@@ -166,7 +158,7 @@ func TestPassthroughP6TightenedCeilingRestartsAndDenies(t *testing.T) {
 	}
 
 	// Tighten through the same path the file watcher takes.
-	ch := r.live.Tighten(policy.Permission{Max: map[string]string{"edit": "deny"}})
+	ch := r.live.Tighten(policy.Permission{Deny: []string{"edit"}})
 	if !ch.Tightened {
 		t.Fatalf("the ceiling did not read as tightened: %+v", ch)
 	}
@@ -209,17 +201,15 @@ func TestPassthroughRestartWithdrawsPendingAsks(t *testing.T) {
 	}
 }
 
-// P4: the machine's own allow of edit does not reach a subagent. The parent is on
-// Ask (the mode block sits above the machine's own rule), so it asks; so does the
-// child, and no edit allow is among the child's own rules.
-func TestPassthroughP4MachineAllowDoesNotReachTheSubagent(t *testing.T) {
+// P4: a subagent follows its root's word. The parent is on Ask, so it asks; so
+// does the child, and no edit allow is among the child's own rules.
+func TestPassthroughP4SubagentFollowsItsRootsAsk(t *testing.T) {
 	r := newPermRig(t, permRigOpts{
 		file: map[string]any{"edit": "ask"},
-		perm: policy.Permission{Rules: map[string]string{"edit": "allow"}},
 	})
 	parent := r.session("p4", "")
 	if ask, _, _ := r.try(parent, "p4-parent.txt"); ask == nil {
-		t.Fatal("the parent wrote without asking: the machine's allow beat the session's Ask")
+		t.Fatal("the parent wrote without asking on Ask")
 	} else {
 		r.reply(parent, ask.ID, "reject")
 	}
@@ -227,7 +217,7 @@ func TestPassthroughP4MachineAllowDoesNotReachTheSubagent(t *testing.T) {
 	child, mark := r.delegate(parent, "p4-child-marker", "p4-child.txt")
 	ask, part := r.childOutcome(child, mark)
 	if ask == nil {
-		t.Fatalf("the subagent wrote without asking (%+v): the machine's allow reached it", part)
+		t.Fatalf("the subagent wrote without asking (%+v): it follows its root's Ask", part)
 	}
 	if ask.SessionID != child {
 		t.Errorf("ask belongs to %s, want the child %s", ask.SessionID, child)
@@ -252,14 +242,14 @@ func TestPassthroughP4MachineAllowDoesNotReachTheSubagent(t *testing.T) {
 	}
 }
 
-// P5: the parent's session denies edit. A deny is the one thing a subagent
+// P5: the parent's session is on Plan (deny). A deny is the one thing a subagent
 // does inherit: its write is refused with no card.
 func TestPassthroughP5ParentDenyReachesTheSubagent(t *testing.T) {
 	r := newPermRig(t, permRigOpts{
 		file: map[string]any{"edit": "ask"},
-		perm: policy.Permission{Rules: map[string]string{"edit": "deny"}},
 	})
 	parent := r.session("p5", "")
+	r.setMode(parent, "deny")
 	child, mark := r.delegate(parent, "p5-child-marker", "p5-child.txt")
 	ask, part := r.childOutcome(child, mark)
 	if ask != nil {
@@ -274,11 +264,9 @@ func TestPassthroughP5ParentDenyReachesTheSubagent(t *testing.T) {
 	}
 }
 
-// P6b: an exception under a ceiling that tightens to ask. The exception is a rule
-// galopin composes under the ceiling's tail, so re-applying the rules is enough —
-// the next write asks even before the restart, which opencode's own in-memory
-// "always" would have needed (canary 4 pins that behaviour of opencode).
-func TestPassthroughP6bTightenedToAskCapsTheException(t *testing.T) {
+// P6b: an exception under a local deny that arrives later. The deny beats the
+// exception at the next ask, with no restart.
+func TestPassthroughP6bALocalDenyBeatsTheException(t *testing.T) {
 	r := newPermRig(t, permRigOpts{file: map[string]any{"edit": "ask"}})
 	s := r.session("p6b", "")
 	ask, _, mark := r.try(s, "p6b-a.txt")
@@ -291,43 +279,18 @@ func TestPassthroughP6bTightenedToAskCapsTheException(t *testing.T) {
 		t.Fatalf("the exception was not honoured: ask=%v part=%+v", ask, part)
 	}
 
-	ch := r.live.Tighten(policy.Permission{Max: map[string]string{"edit": "ask"}})
+	ch := r.live.Tighten(policy.Permission{Deny: []string{"edit"}})
 	if !ch.Tightened {
 		t.Fatal("not tightened")
 	}
-	// No rule and no restart: the next ask is decided under the new ceiling.
-	ask, _, _ = r.try(s, "p6b-a.txt")
-	if ask == nil {
-		t.Fatal("the exception outlived a ceiling of ask: the tail does not cap it")
+	// No rule and no restart: the next ask is decided under the new deny.
+	ask, part, _ := r.try(s, "p6b-a.txt")
+	if ask != nil {
+		t.Fatalf("the exception outlived a local deny: asked %+v", ask)
 	}
-	r.reply(s, ask.ID, "reject")
+	if !refused(part) {
+		t.Errorf("a denied class ran: %+v", part)
+	}
 
 	r.mc.policyTightened(r.ctx, ch)
-}
-
-// F2: the machine's own ask reaches a subagent. A parent's rule normally stops
-// at the parent (opencode carries only denies); a restricting machine rule is
-// applied to the child as a cap, so the subagent's write asks.
-func TestPassthroughMachineAskReachesTheSubagent(t *testing.T) {
-	r := newPermRig(t, permRigOpts{perm: policy.Permission{Rules: map[string]string{"edit": "ask"}}})
-	parent := r.session("machine-ask", "")
-	child, mark := r.delegate(parent, "machine-ask-marker", "machine-ask.txt")
-	ask, part := r.childOutcome(child, mark)
-	if ask == nil {
-		t.Fatalf("the subagent wrote without asking (%+v): the machine's ask stopped at the parent", part)
-	}
-	if ask.SessionID != child || ask.Tool != "edit" {
-		t.Errorf("ask = %+v", ask)
-	}
-	if r.exists("machine-ask.txt") {
-		t.Fatal("the file exists before anyone answered")
-	}
-	// Restrict-only: the same rule applied to a read-only subagent could only
-	// tighten, never turn its deny into an ask (permrules + backend units pin
-	// that); here the general child's write lands once answered.
-	r.reply(backend.Session{ID: child}, ask.ID, "once")
-	r.hub.toolDone(t, mark, child, "write")
-	if !r.exists("machine-ask.txt") {
-		t.Error("answering the child's ask did not land its write")
-	}
 }

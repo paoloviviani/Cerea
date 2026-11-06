@@ -39,18 +39,26 @@ func (mc *machine) decidePolicy(rh backend.RuleHost) decide.Policy {
 		layers = mc.layersFn
 	}
 	l := layers()
-	limits := decide.LimitsFromWords(l.Limits)
-	if l.Limits == nil {
-		limits = decide.LimitsFromCeiling(l.Ceiling)
+	deny := map[decide.Class]bool{}
+	for _, d := range l.Deny {
+		if c, err := decide.ParseDeny(d); err == nil {
+			deny[c] = true
+		}
 	}
-	return decide.Policy{Limits: limits, Own: l.Own, SafeDirs: l.SafeDirs, PlanDirs: rh.PlanDirs(), Protected: mc.protected}
+	return decide.Policy{Deny: deny, SafeDirs: l.SafeDirs, PlanDirs: rh.PlanDirs(), Protected: mc.protected}
 }
 
 // rootState is the ROOT session's selector, which every ask from the root and
 // from its subagents is decided by.
 func (mc *machine) rootState(rh backend.RuleHost, sessionID string) decide.State {
 	root := mc.mat.RootOf(sessionID)
-	return decide.State{Mode: rh.PermissionMode(root), Exceptions: rh.Exceptions(root), Coordination: rh.Coordination(root)}
+	st := decide.State{Mode: rh.PermissionMode(root), Exceptions: rh.Exceptions(root), Coordination: rh.Coordination(root)}
+	if ah, ok := mc.back.(backend.AutoHost); ok {
+		if m, auto := ah.AutoClasses(root); auto {
+			st.Auto, st.AutoRun = true, decide.AutoRunSet(m)
+		}
+	}
+	return st
 }
 
 // decideAsk is the one decision for an ask the backend raised (ADR 0097).
@@ -163,26 +171,6 @@ func (mc *machine) answerAsk(dir string, req backend.PermissionRequest, res deci
 	if mc.audit != nil {
 		mc.audit.permission(req.SessionID, req.ID, req.Tool, string(d), "galopin", false, msg)
 	}
-	if res.Stop {
-		mc.stopLoop(ctx, dir, req)
-	}
-}
-
-// stopLoop is the loop class's "stop" limit: the repeating call was refused,
-// and the turn is ended and the person told, through the ordinary error event
-// (the same path a failed turn takes).
-func (mc *machine) stopLoop(ctx context.Context, dir string, req backend.PermissionRequest) {
-	if err := mc.back.Cancel(ctx, dir, req.SessionID); err != nil && !backend.IsNotFound(err) {
-		logf("permissions: could not end the turn of %s after a repeating call: %v", req.SessionID, err)
-	}
-	mc.mat.ApplyBackendEvent(ctx, backend.BackendEvent{
-		WorkspaceDir: dir, SessionID: req.SessionID,
-		Event: backend.Event{Kind: backend.EventError, ErrorCode: "loop_stopped",
-			ErrorMessage: "The agent repeated the same call, so this machine ended the turn (its loop limit is stop)."},
-	})
-	if mc.audit != nil {
-		mc.audit.write(map[string]any{"action": "permission.loopStop", "session": req.SessionID, "requestId": req.ID})
-	}
 }
 
 // answerPending decides what opencode still holds when galopin starts: an ask
@@ -209,34 +197,21 @@ func (mc *machine) answerPending(ctx context.Context) {
 	}
 }
 
-// capDecision lowers an "always" the machine's limits do not let stand. An
-// "always allow" is an exception that only counts where a class runs, so on a
-// class limited to ask or never it could never take effect: it is answered
-// "once" and nothing is stored, rather than shown to a person as a standing
-// permission that does nothing. tool is the ask's permission key; "" (the ask
-// is not known to the machine) is capped whenever any class is limited,
-// because what the "always" would cover cannot be told.
+// capDecision lowers an "always" that could never take effect: on a class the
+// owner denied locally, or on a loop alert, it is answered "once" and nothing is
+// stored. tool is the ask's permission key.
 func (mc *machine) capDecision(tool string, d backend.Decision) (backend.Decision, bool) {
 	if d != backend.DecisionAlways {
 		return d, false
 	}
-	limits := mc.live.Permission().EffectiveLimits()
-	if tool == "" {
-		for _, l := range limits {
-			if l != decide.Run {
-				return backend.DecisionOnce, true
-			}
-		}
-		return d, false
-	}
-	if c, ok := decide.KeyClass(tool); ok && limits[c] != decide.Run {
-		return backend.DecisionOnce, true
+	if c, ok := decide.KeyClass(tool); ok && (c == decide.ClassLoop || mc.live.Permission().Denied(c)) {
+		return backend.DecisionOnce, true // a loop alert is never an "always"
 	}
 	return d, false
 }
 
 // humanAlwaysOverAsk reports whether a human's "always" on this ask stands
-// although its class is limited to ask (see decide.AskAlwaysOK).
+// although its class is a credential one (see decide.AskAlwaysOK).
 func (mc *machine) humanAlwaysOverAsk(rh backend.RuleHost, dir string, req backend.PermissionRequest) bool {
 	if strings.HasPrefix(req.ID, "gp_") {
 		return false
@@ -347,6 +322,9 @@ func (mc *machine) opSessionSetPermissionMode(ctx context.Context, args json.Raw
 	var a struct {
 		SessionID string `json:"sessionId"`
 		Mode      string `json:"mode"`
+		// AutoClasses present (even {}) makes the session Auto (mode ask);
+		// read as raw JSON so that a map of the wrong shape fails closed.
+		AutoClasses json.RawMessage `json:"autoClasses"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, invalidArgs(err)
@@ -369,6 +347,21 @@ func (mc *machine) opSessionSetPermissionMode(ctx context.Context, args json.Raw
 	rh, ok := mc.ruleHost()
 	if !ok {
 		return nil, opErrf("unsupported", "this backend has no permission selector")
+	}
+	auto := len(a.AutoClasses) > 0 && string(a.AutoClasses) != "null"
+	if auto && mode != permrules.Ask {
+		return nil, opErrf("invalid", "autoClasses goes with mode ask (Auto), got %q", a.Mode)
+	}
+	if auto {
+		ah, ok := mc.back.(backend.AutoHost)
+		if !ok {
+			return nil, opErrf("unsupported", "this backend has no Auto selector")
+		}
+		if err := ah.SetAuto(ctx, dir, a.SessionID, sanitizeAutoClasses(a.AutoClasses)); err != nil {
+			return nil, backendErr(err)
+		}
+		mc.audit.permissionMode(a.SessionID, "auto")
+		return map[string]any{}, nil
 	}
 	if err := rh.SetPermissionMode(ctx, dir, a.SessionID, mode); err != nil {
 		return nil, backendErr(err)
@@ -815,4 +808,28 @@ func evalExisting(p string) (string, error) {
 		rest = filepath.Join(filepath.Base(cur), rest)
 		cur = parent
 	}
+}
+
+// sanitizeAutoClasses reads an Auto map from the wire, failing closed: only a
+// known class whose word is exactly "run" or "ask" is kept (secrets and loop
+// are kept as "ask": they never run); anything else, a map of the wrong
+// shape included, is a class that asks.
+func sanitizeAutoClasses(raw json.RawMessage) map[string]string {
+	out := map[string]string{}
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		return out
+	}
+	for k, v := range m {
+		c, err := decide.ParseClass(k)
+		if err != nil {
+			continue
+		}
+		if w, _ := v.(string); w == decide.AutoRun && c != decide.ClassSecrets && c != decide.ClassLoop {
+			out[string(c)] = decide.AutoRun
+		} else {
+			out[string(c)] = decide.AutoAsk
+		}
+	}
+	return out
 }

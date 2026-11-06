@@ -847,7 +847,11 @@ export class FakeMachine {
 			// real galopin: the selector, a read that reports the session's mode
 			// and exceptions, and a tighten-only delete by id.
 			case "session.setPermissionMode": {
-				const { sessionId, mode } = args as { sessionId: string; mode: string };
+				const { sessionId, mode, autoClasses } = args as {
+					sessionId: string;
+					mode: string;
+					autoClasses?: Record<string, "run" | "ask">;
+				};
 				const session = model.sessions.find((s) => s.id === sessionId);
 				if (!session) throw new OpError("not_found", "No such session.");
 				if (mode !== "deny" && mode !== "ask" && mode !== "allow") {
@@ -857,6 +861,9 @@ export class FakeMachine {
 					throw new OpError("invalid", "a subagent follows its root");
 				}
 				session.permissionMode = mode;
+				// ADR 0109: the Auto map rides with `ask` and its presence is Auto.
+				if (mode === "ask" && autoClasses) session.autoClasses = autoClasses;
+				else delete session.autoClasses;
 				return {};
 			}
 			// The narrow grant (PROTOCOL.md §6): only the four coordination keys, a

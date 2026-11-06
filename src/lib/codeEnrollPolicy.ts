@@ -10,8 +10,8 @@
  *   a choice that differs from what `enroll` does on its own — with the one
  *   deliberate divergence below (`billToDefault`: the dialog ticks it, while
  *   `enroll` itself keeps requiring an explicit `--default-group`);
- * - `--limit CLASS=VALUE` (ADR 0107) names only the classes a person changed from the machine's
- *   defaults, so an untouched table emits nothing and one changed class emits one flag;
+ * - there are no machine limits (ADR 0109): the dialog prints no `--limit`, and galopin ignores
+ *   one if an old command is pasted;
  * - every value a person types is shell-quoted (`quoteShellArg`), so a path
  *   with spaces or a glob with `*` reaches `enroll` as one argument.
  *
@@ -19,27 +19,7 @@
  * `enrollFlags.spec.ts` checks against the flag table.
  */
 import { m } from "$lib/paraglide/messages";
-import { ENROLL_FLAGS, ENROLL_LIMIT_CLASSES } from "$lib/enrollFlags";
-import type { PermissionClass } from "$lib/types/machineProtocol";
-
-/** What a class's limit may read in the dialog: the machine's words (ADR 0107). `stop` is loop's
- * refusal; `never` refuses, `ask` always raises a card, `run` lets the session word decide. */
-export type LimitWord = "never" | "ask" | "run" | "stop";
-
-/** The classes the dialog's table draws, in the order `enroll` lists them. */
-export const LIMIT_CLASSES = ENROLL_LIMIT_CLASSES.map((row) => row.class) as PermissionClass[];
-
-/** The words a class accepts (secrets: never | ask, no run; loop: ask | stop). */
-export function allowedLimits(cls: PermissionClass): readonly LimitWord[] {
-	return (ENROLL_LIMIT_CLASSES.find((row) => row.class === cls)?.allowed ?? [
-		"ask",
-	]) as readonly LimitWord[];
-}
-
-/** What each class reads when the person touches nothing: the machine's own default. */
-export const DEFAULT_LIMITS: Readonly<Record<PermissionClass, LimitWord>> = Object.fromEntries(
-	ENROLL_LIMIT_CLASSES.map((row) => [row.class, row.default])
-) as Record<PermissionClass, LimitWord>;
+import { ENROLL_FLAGS } from "$lib/enrollFlags";
 
 /** `enroll`'s own default for `--max-terminals`. */
 export const DEFAULT_MAX_TERMINALS = 8;
@@ -49,8 +29,6 @@ export interface EnrollPolicyChoices {
 	allowTerminal: boolean;
 	/** Only meaningful, and only emitted, when `allowTerminal` is on. */
 	maxTerminals: number;
-	/** The machine's limit per class; only a class that differs from its default is printed. */
-	limits: Record<PermissionClass, LimitWord>;
 	allowProjectConfig: boolean;
 	allowCommandShell: boolean;
 	allowBackgroundSubagents: boolean;
@@ -80,7 +58,6 @@ export function defaultPolicyChoices(): EnrollPolicyChoices {
 	return {
 		allowTerminal: true,
 		maxTerminals: DEFAULT_MAX_TERMINALS,
-		limits: { ...DEFAULT_LIMITS },
 		allowProjectConfig: false,
 		allowCommandShell: true,
 		allowBackgroundSubagents: true,
@@ -100,7 +77,6 @@ export function defaultPolicyChoices(): EnrollPolicyChoices {
 export const FLAG_CONTROLS: Readonly<Record<string, string>> = {
 	"no-terminal": "enroll-allow-terminal",
 	"max-terminals": "enroll-max-terminals",
-	limit: "enroll-limits",
 	"allow-project-config": "enroll-allow-project-config",
 	"no-command-shell": "enroll-allow-command-shell",
 	"no-background-subagents": "enroll-allow-background-subagents",
@@ -124,17 +100,6 @@ export function exposedFlags(): string[] {
  * `'"'"'`, reopens it. Every value a person types goes through it. */
 export function quoteShellArg(value: string): string {
 	return `'${value.replace(/'/g, `'"'"'`)}'`;
-}
-
-/** The classes whose limit differs from the machine's default. */
-export function changedLimits(limits: Record<PermissionClass, LimitWord>): PermissionClass[] {
-	return LIMIT_CLASSES.filter((cls) => limits[cls] !== DEFAULT_LIMITS[cls]);
-}
-
-/** `CLASS=VALUE` pairs `--limit` carries: only what the person changed, so the defaults emit
- * nothing and re-enrolling with the printed command never loosens a class by omission. */
-export function limitPairs(limits: Record<PermissionClass, LimitWord>): string[] {
-	return changedLimits(limits).map((cls) => `${cls}=${limits[cls]}`);
 }
 
 /** Trimmed, non-empty values of a repeatable list. */
@@ -162,7 +127,6 @@ export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
 	) {
 		args.push("--max-terminals", String(choices.maxTerminals));
 	}
-	for (const pair of limitPairs(choices.limits)) args.push("--limit", pair);
 	if (choices.allowProjectConfig) args.push("--allow-project-config");
 	if (!choices.allowCommandShell) args.push("--no-command-shell");
 	if (!choices.allowBackgroundSubagents) args.push("--no-background-subagents");
@@ -188,8 +152,6 @@ export function advancedChangedCount(choices: EnrollPolicyChoices): number {
 		!choices.allowTerminal || choices.maxTerminals !== DEFAULT_MAX_TERMINALS,
 		!choices.allowCommandShell,
 		!choices.allowBackgroundSubagents,
-		// The commands row sits among the common options; every other class counts here.
-		changedLimits(choices.limits).some((cls) => cls !== "command"),
 		choices.noAgentTools,
 		choices.allowFreeModels,
 		choices.allowOpencodeProvider,
@@ -208,8 +170,6 @@ export function advancedChangedCount(choices: EnrollPolicyChoices): number {
  * one promise that lands in `opencode.json` instead: whether its provider
  * allowlist is left out. */
 export interface PromisedPolicy {
-	/** The machine's whole limit table, every class named (what an untouched one reads as its default). */
-	limits: Record<PermissionClass, LimitWord>;
 	workspaceRoots: string[];
 	allowFreeModels: boolean;
 	files: "read" | "off";
@@ -232,7 +192,6 @@ export function promisedPolicy(choices: EnrollPolicyChoices): PromisedPolicy {
 			? choices.maxTerminals
 			: DEFAULT_MAX_TERMINALS;
 	return {
-		limits: { ...DEFAULT_LIMITS, ...choices.limits },
 		workspaceRoots: listed(choices.workspaceRoots),
 		allowFreeModels: choices.allowFreeModels,
 		files: choices.noFiles ? "off" : "read",

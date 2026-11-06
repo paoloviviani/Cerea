@@ -66,11 +66,13 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "no-files", kind: "bool", default: false, exposed: true },
 	{ flag: "allow-file-write", kind: "bool", default: false, exposed: true },
 	{ flag: "no-terminal", kind: "bool", default: false, exposed: true },
-	// ADR 0107: the two alias flags are kept by enroll for one release but the dialog no longer
-	// prints them; `--limit CLASS=VALUE` is its one control for what the machine allows.
+	// ADR 0109: machine limits are gone. `--limit` is retired (accepted and ignored with a warning,
+	// listed `retired` by the agent's file, so not here); permission-max and permission-rule stay
+	// one more release, ignored, and the dialog prints none of them.
 	{ flag: "permission-max", kind: "keyAction", default: [], exposed: false },
 	{ flag: "permission-rule", kind: "keyAction", default: [], exposed: false },
-	{ flag: "limit", kind: "list", default: [], exposed: true },
+	// ADR 0109: the advanced local refuse-only flag (`--deny CLASS`), by hand, not in the dialog.
+	{ flag: "deny", kind: "list", default: [], exposed: false },
 	// The file editor is on by default; this turns it off (--allow-file-write
 	// only restates the default).
 	{ flag: "no-file-write", kind: "bool", default: false, exposed: false },
@@ -80,22 +82,4 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "safe-dir", kind: "list", default: [], exposed: false },
 	{ flag: "no-safe-dirs", kind: "bool", default: false, exposed: false },
 	{ flag: "workspace-root", kind: "list", default: [], exposed: true },
-];
-
-/** The permission classes `--limit CLASS=VALUE` takes (ADR 0107): each class's
- * default and the values it accepts. A copy of `limits` in
- * `agent/packaging/enroll-flags.json`, compared by `enrollFlags.spec.ts`. */
-export const ENROLL_LIMIT_CLASSES: readonly {
-	class: string;
-	default: string;
-	allowed: readonly string[];
-}[] = [
-	{ class: "edit", default: "run", allowed: ["never", "ask", "run"] },
-	{ class: "command", default: "ask", allowed: ["never", "ask", "run"] },
-	{ class: "web", default: "run", allowed: ["never", "ask", "run"] },
-	{ class: "outside", default: "ask", allowed: ["never", "ask", "run"] },
-	{ class: "secrets", default: "ask", allowed: ["never", "ask"] },
-	{ class: "agents", default: "run", allowed: ["never", "ask", "run"] },
-	{ class: "tools", default: "run", allowed: ["never", "ask", "run"] },
-	{ class: "loop", default: "ask", allowed: ["ask", "stop"] },
 ];

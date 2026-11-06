@@ -11,14 +11,14 @@ import { collections } from "$lib/server/database";
 import { checkOwnedTarget, workspaceNameOn } from "$lib/server/code/agentSessions";
 import { isMachineOnline, MachineLink } from "$lib/server/code/machines";
 import { connectorOptions, MAX_SESSION_CONNECTORS } from "$lib/server/code/sessionConnectors";
-import { OpError, PERMISSION_MODES } from "$lib/types/machineProtocol";
+import { OpError, PERMISSION_STEPS } from "$lib/types/machineProtocol";
 import type { ProjectAgentProfile, ProjectAgentProfileInput } from "$lib/types/AgentSession";
 import type { ProjectAgentProfileRow } from "$lib/types/ProjectAgentProfileRow";
 
 export const profileInputSchema = z.object({
 	deviceId: z.string().min(1).max(64),
 	workspaceId: z.string().min(1).max(256),
-	permissionMode: z.enum(PERMISSION_MODES as [string, ...string[]]),
+	permissionMode: z.enum(PERMISSION_STEPS as [string, ...string[]]),
 	modeId: z.string().min(1).max(64).optional(),
 	modelId: z.string().min(1).max(256).optional(),
 	connectorKeys: z.array(z.string().min(1).max(300)).max(MAX_SESSION_CONNECTORS).optional(),
@@ -41,7 +41,13 @@ export async function getProjectAgentProfile(
 	projectId: ObjectId,
 	userId: ObjectId
 ): Promise<ProjectAgentProfileRow | null> {
-	return collections.projectAgentProfiles.findOne({ projectId, userId });
+	const row = await collections.projectAgentProfiles.findOne({ projectId, userId });
+	// Copy-on-read (ADR 0109): a profile saved before Allow became hands off said "allow" and ran
+	// under the reviewer; it must not silently loosen, so it reads as Auto until saved again.
+	if (row && row.steps !== 2 && row.permissionMode === "allow") {
+		return { ...row, permissionMode: "auto" };
+	}
+	return row;
 }
 
 /** Validate and store the caller's profile. The error text is for the caller to show. */
@@ -98,6 +104,7 @@ export async function saveProjectAgentProfile(
 		...(connectorKeys.length ? { connectorKeys } : {}),
 		labels: { device: device.name, workspace: workspaceLabel },
 		updatedAt: new Date(),
+		steps: 2,
 	};
 	await collections.projectAgentProfiles.replaceOne({ projectId, userId }, row, { upsert: true });
 	return { ok: true, profile: row };

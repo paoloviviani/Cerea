@@ -45,6 +45,7 @@
  * prompt.
  */
 
+import { autoClassesFor } from "$lib/server/agentReview";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
@@ -294,7 +295,14 @@ registerExecutor({
 		};
 		let coordination: Coordination = { tail: ".", header: "none" };
 		try {
-			await applyPermissionWord(link, session, target.permissionMode);
+			// A schedule's "allow" keeps meaning Auto (ADR 0109): an unattended run is still routed to
+			// the owner's reviewer or to them, never silently hands off.
+			await applyPermissionWord(
+				link,
+				session,
+				target.permissionMode === "allow" ? "auto" : target.permissionMode,
+				target.permissionMode === "allow" ? await autoClassesFor(schedule.userId) : undefined
+			);
 		} catch (err) {
 			return { ...failedFrom(err, "setting the permission mode"), result };
 		}

@@ -116,6 +116,36 @@ describe("the workspace panel", () => {
 			.toBeInTheDocument();
 	});
 
+	it("offers the Agents tab (the user's own auto-approval, ADR 0109) only for a signed-in user where coding agents exist", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					settings: {
+						enabled: false,
+						decisionModelId: null,
+						threshold: 0.85,
+						instructions: "",
+						perClass: {},
+					},
+					deploymentEnabled: true,
+					killSwitchOn: false,
+					decisionModels: [],
+					catalogue: "ok",
+				})
+			)
+		);
+		const off = mountWorkspace("?tab=agents", { user: { id: "u" }, codeAgentsEnabled: false });
+		expect(off.baseElement.textContent).not.toContain("Auto-approval");
+		expect(off.getByRole("heading", { name: "Models" })).toBeInTheDocument();
+		off.unmount();
+		document.getElementById("app")?.remove();
+
+		const on = mountWorkspace("?tab=agents", { user: { id: "u" }, codeAgentsEnabled: true });
+		expect(on.baseElement.querySelector('nav a[href$="/workspace?tab=agents"]')).not.toBeNull();
+		await expect.element(on.getByRole("heading", { name: "Auto-approval" })).toBeInTheDocument();
+	});
+
 	it("a mistyped tab param falls back to Models", () => {
 		vi.stubGlobal(
 			"fetch",

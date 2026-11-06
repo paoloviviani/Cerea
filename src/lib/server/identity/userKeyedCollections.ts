@@ -728,6 +728,23 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.agentReviewLog, "userId", userId),
 	},
 	{
+		name: "agentReviewUserSettings",
+		owner: "userId",
+		mergeRule: "keep-target-delete-stray",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// One document per account (ADR 0109): the target's own survives, the stray's is dropped.
+		merge: async (stray, target) => {
+			const has = await collections.agentReviewUserSettings.countDocuments({ userId: target });
+			if (has > 0) {
+				return (await collections.agentReviewUserSettings.deleteMany({ userId: stray }))
+					.deletedCount;
+			}
+			return reassignSimple(collections.agentReviewUserSettings, "userId", stray, target);
+		},
+		erase: (userId) => eraseByField(collections.agentReviewUserSettings, "userId", userId),
+	},
+	{
 		name: "scheduleRuns",
 		owner: "userId",
 		mergeRule: "reassign",

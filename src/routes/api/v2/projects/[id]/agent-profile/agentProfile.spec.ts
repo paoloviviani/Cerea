@@ -177,6 +177,25 @@ describe("/api/v2/projects/[id]/agent-profile", () => {
 		expect(rows[0]).not.toHaveProperty("modeId");
 	});
 
+	it("a profile saved before Allow became hands off (no steps marker) reads as Auto, and only a new save can be Allow (ADR 0109)", async () => {
+		await put(ownerLocals, valid(ownerMachine, { permissionMode: "ask" }));
+		// What an earlier version stored: the word "allow", no marker.
+		await collections.projectAgentProfiles.updateOne(
+			{},
+			{ $set: { permissionMode: "allow" }, $unset: { steps: "" } }
+		);
+		expect(await (await get(ownerLocals)).json()).toMatchObject({ permissionMode: "auto" });
+		// Legacy "ask" and "deny" are untouched.
+		await collections.projectAgentProfiles.updateOne({}, { $set: { permissionMode: "deny" } });
+		expect(await (await get(ownerLocals)).json()).toMatchObject({ permissionMode: "deny" });
+		// Saved again as Allow after the change: hands off.
+		await put(ownerLocals, valid(ownerMachine, { permissionMode: "allow" }));
+		expect(await (await get(ownerLocals)).json()).toMatchObject({ permissionMode: "allow" });
+		// Auto is its own stored step.
+		await put(ownerLocals, valid(ownerMachine, { permissionMode: "auto" }));
+		expect(await (await get(ownerLocals)).json()).toMatchObject({ permissionMode: "auto" });
+	});
+
 	it("stores a connector default (none unless set), and refuses a connector that is not the caller's", async () => {
 		const { seal } = await import("$lib/server/mcp/secretBox");
 		const row = (userId: ObjectId, name: string) => ({

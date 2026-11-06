@@ -111,22 +111,12 @@ func TestGrantedSessionReadsAndSendsWithoutACard(t *testing.T) {
 // A grant is never more than the machine's ceiling, the cross-workspace rule,
 // the hop limit or the rate limit.
 func TestGrantNeverExceedsTheCeilingWorkspaceHopOrRate(t *testing.T) {
-	// The ceiling caps send at ask and deny for read.
-	r := newCoordRig(t, withMax("session_read", "deny"))
+	// A local deny of the agents class beats a grant.
+	r := newCoordRig(t, withDeny("agents"))
 	r.say("peer", "user", "x", t0)
 	mustGrant(t, r, "caller", []string{"session_read", "session_send"})
 	_, err := r.call("caller", "session_read", map[string]any{"target": "peer"})
-	refusedWith(t, err, "do not allow session_read")
-	// The agents class is one limit for every key: at ask a grant still gets a card.
-	r = newCoordRig(t, withMax("session_send", "ask"))
-	r.say("peer", "user", "x", t0)
-	mustGrant(t, r, "caller", []string{"session_read", "session_send"})
-	if _, err := r.call("caller", "session_send", map[string]any{"target": "peer", "text": "hi"}); err != nil {
-		t.Fatal(err)
-	}
-	if asks := r.asks(); len(asks) != 1 || asks[0].Tool != "session_send" {
-		t.Fatalf("a key the ceiling caps at ask must still raise a card; asks = %+v", asks)
-	}
+	refusedWith(t, err, "refused")
 
 	// Cross-workspace: send and read to another workspace still ask.
 	r = newCoordRig(t, nil)

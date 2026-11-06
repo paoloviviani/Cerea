@@ -90,8 +90,10 @@ Made from a conversation's menu (Schedule…).
 **Coding agents on the user's machines.** The Agents panel in the sidebar
 drives coding agents that run on the user's own machine under `galopin`; a chat
 can also start and steer an agent session. The composer offers Plan, Ask and
-Auto: in Auto, routine requests run or go to a reviewer model the administrator
-set up, and the rest reach the user's Needs-you inbox, where "Always allow"
+Auto: in Auto, each kind of action runs, goes to a reviewer model the user set
+up, or reaches the user's Needs-you inbox, as the user sets in Workspace → Agents
+(administrators only switch reviewers on for the deployment); Allow is hands off,
+and the rest reach the user's Needs-you inbox, where "Always allow"
 covers a pattern for the session. The code stays on the machine. Example: "On
 my laptop, run the tests in the shop-api project and fix what fails."
 

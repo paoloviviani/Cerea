@@ -57,7 +57,8 @@
 	import IconCheck from "~icons/carbon/checkmark";
 	import IconShieldX from "~icons/lucide/shield-x";
 	import IconShieldQuestion from "~icons/lucide/shield-question";
-	import IconShieldCheck from "~icons/lucide/shield-check";
+	import IconShieldAuto from "~icons/lucide/shield-half";
+	import IconShieldOff from "~icons/lucide/shield-off";
 	import {
 		composerPillClass,
 		PILL_COMPACT,
@@ -77,7 +78,7 @@
 		runAgentCommand,
 		CodeApiError,
 	} from "$lib/codeApi";
-	import type { PermissionMode, Policy } from "$lib/types/machineProtocol";
+	import { stepOf, stepToWire, type PermissionStep, type Policy } from "$lib/types/machineProtocol";
 	import type { CodeDeviceView } from "$lib/codeApi";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import * as s from "$lib/components/overlay/styles";
@@ -106,7 +107,7 @@
 	import ContextMeter from "./ContextMeter.svelte";
 	import CommandConfirmSheet from "./CommandConfirmSheet.svelte";
 	import PermissionsDialog from "./PermissionsDialog.svelte";
-	import { thirdStepLabel, type AutoSetup } from "$lib/utils/autoApproval";
+	import type { AutoSetup } from "$lib/utils/autoApproval";
 	import IconShield from "~icons/lucide/shield";
 	import { clearSentComposerDraft, codeDraftKey } from "$lib/utils/composerDraft";
 
@@ -733,12 +734,13 @@
 	 * snapshot's word, so a click is only claimed once the parent has re-read
 	 * the machine and it agrees. A refusal (a subagent, an unknown session)
 	 * lands in the same failure line as the other pills'. */
-	async function applyPermissionMode(mode: PermissionMode) {
-		if (applying || mode === agent?.permissionMode) return;
+	async function applyPermissionMode(step: PermissionStep) {
+		if (applying || step === permissionMode) return;
+		const mode = stepToWire(step, undefined).mode;
 		applying = "permission";
 		applyFailure = null;
 		try {
-			await setPermissionMode(deviceId, agentId, mode);
+			await setPermissionMode(deviceId, agentId, mode, { auto: step === "auto" });
 			// The selector drives the two built-in agents: Plan runs the plan
 			// agent, Ask and Allow the build agent. A custom agent the person
 			// picked from the agent list is never switched away.
@@ -762,7 +764,7 @@
 	 * galopin has no `permissionMode`), and never on a stale sign-in: the
 	 * server refuses the call anyway. */
 	const PERMISSION_SEGMENTS: Array<{
-		mode: PermissionMode;
+		mode: PermissionStep;
 		label: () => string;
 		title: () => string;
 		icon: typeof IconShieldX;
@@ -780,16 +782,16 @@
 			title: m["code.composer.ask_title"],
 		},
 		{
+			mode: "auto",
+			label: m["code.permission_mode.auto"],
+			icon: IconShieldAuto,
+			title: m["code.composer.auto_title"],
+		},
+		{
 			mode: "allow",
-			label: () =>
-				autoSetup && thirdStepLabel(autoSetup) === "auto"
-					? m["code.permission_mode.auto"]()
-					: m["code.permission_mode.allow"](),
-			icon: IconShieldCheck,
-			title: () =>
-				autoSetup && thirdStepLabel(autoSetup) === "auto"
-					? m["code.composer.auto_title"]()
-					: m["code.composer.allow_title"](),
+			label: m["code.permission_mode.allow"],
+			icon: IconShieldOff,
+			title: m["code.composer.allow_title"],
 		},
 	];
 	/** The third step's setup: this machine's opt-out and the deployment's reviewer. */
@@ -804,7 +806,8 @@
 			: null
 	);
 	let isSubagent = $derived(Boolean(agent?.parentId));
-	let permissionMode = $derived(agent?.permissionMode ?? null);
+	/** The step the machine reports: `allow` with its per-class map is Auto, without one Allow. */
+	let permissionMode = $derived(stepOf(agent?.permissionMode, agent?.autoClasses));
 	let showPermissionSelector = $derived(permissionMode !== null && !codeReauth.required);
 
 	/** build and plan are driven by the selector (Plan runs plan, Ask and Allow
@@ -813,7 +816,7 @@
 	function isSelectorAgent(id: string | null): boolean {
 		return id === null || SELECTOR_AGENTS.includes(id);
 	}
-	function selectorAgent(mode: PermissionMode): string | null {
+	function selectorAgent(mode: "deny" | "ask" | "allow"): string | null {
 		const want = mode === "deny" ? "plan" : "build";
 		return (modes ?? []).some((x) => x.id === want) ? want : null;
 	}

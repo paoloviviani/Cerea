@@ -451,6 +451,8 @@ export interface CodeAgentSession {
 	 * subagent reports its root's). Absent on a machine that predates the
 	 * selector: the composer then draws none. */
 	permissionMode?: "deny" | "ask" | "allow";
+	/** ADR 0109: the per-class map; present (with `permissionMode: "ask"`) only on an Auto session. */
+	autoClasses?: import("$lib/types/machineProtocol").AutoClasses;
 	/** An earlier Deny stuck in this session's stored rules: subagents
 	 * started from here have their first turn refused (start a new session
 	 * to use subagents). Absent on a machine that predates the verdict. */

@@ -67,15 +67,11 @@ type PolicyInfo struct {
 	// and dropped after (PROTOCOL.md §5).
 	AutoAccept string `json:"autoAccept"`
 	// Permission is the machine's say over opencode's permissions.
-	Permission PermissionInfo `json:"permission"`
-	// Limits is the machine's limit per permission class (ADR 0107): every
-	// class, each "deny" | "ask" | "allow" (loop: "ask" | "stop"). Absent on a
-	// galopin older than classes.
-	Limits          map[string]string `json:"limits,omitempty"`
-	WorkspaceRoots  []string          `json:"workspaceRoots"`
-	AllowFreeModels bool              `json:"allowFreeModels"`
-	Files           string            `json:"files"`
-	FileDeny        []string          `json:"fileDeny"`
+	Permission      PermissionInfo `json:"permission"`
+	WorkspaceRoots  []string       `json:"workspaceRoots"`
+	AllowFreeModels bool           `json:"allowFreeModels"`
+	Files           string         `json:"files"`
+	FileDeny        []string       `json:"fileDeny"`
 	// FileWrite is the editor's save veto (PROTOCOL.md §9.3 files.write):
 	// "allowed" or "denied" (default). Older machines omit it, and have no
 	// files.write either.

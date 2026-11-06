@@ -120,18 +120,16 @@ func TestScheduleGrantComposed(t *testing.T) {
 		// rest) — never deny, and never allow even with the machine's own
 		// schedule allow, which Deny keeps but does not apply.
 		{pD, nil, nil, pK},
-		{pK, map[string]permrules.Action{"schedule": pA}, nil, pA},
-		{pA, map[string]permrules.Action{"schedule": pK}, nil, pK},
-		{pA, map[string]permrules.Action{"schedule": pD}, nil, pD},
 		{pD, map[string]permrules.Action{"schedule": pA}, nil, pK},
-		{pA, nil, map[string]permrules.Action{"schedule": pK}, pK},
 		{pA, nil, map[string]permrules.Action{"schedule": pD}, pD},
-		{pK, map[string]permrules.Action{"schedule": pA}, map[string]permrules.Action{"schedule": pK}, pK},
 		// A grant of the coordination tools says nothing about schedules.
 		{pK, map[string]permrules.Action{"session_spawn": pA}, nil, pK},
 	}
 	for _, c := range cases {
-		p := decide.Policy{Own: permrules.OwnRules(c.own), Limits: decide.LimitsFromCeiling(permrules.Ceiling{Max: c.ceiling})}
+		p := decide.Policy{}
+		if c.ceiling["schedule"] == pD {
+			p.Deny = map[decide.Class]bool{decide.ClassAgents: true}
+		}
 		got, _ := decide.CoordinationTool(p, decide.State{Mode: c.mode}, scheduleKey, false)
 		if got == pD && c.mode == pD {
 			got = pK // scheduleGrant reads a Plan refusal as ask; decideSchedule refuses the rest
