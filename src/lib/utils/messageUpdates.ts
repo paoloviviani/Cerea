@@ -27,6 +27,17 @@ import {
 } from "$lib/types/MessageUpdate";
 import type { StreamingMode } from "$lib/types/Settings";
 
+/** A send the server refused before any reply stream opened; carries the HTTP status. */
+export class SendRefusedError extends Error {
+	constructor(
+		message: string,
+		readonly status: number
+	) {
+		super(message);
+		this.name = "SendRefusedError";
+	}
+}
+
 type MessageUpdateRequestOptions = {
 	base: string;
 	inputs?: string;
@@ -106,7 +117,7 @@ export async function fetchMessageUpdates(
 			.catch(() =>
 				m["chat.errors.status_code"]({ status: response.status, text: response.statusText })
 			);
-		throw Error(errorMessage);
+		throw new SendRefusedError(errorMessage, response.status);
 	}
 	if (!response.body) {
 		throw Error(m["chat.errors.no_body"]());

@@ -111,6 +111,13 @@
 		 * consumed once, then cleared — never left set.
 		 */
 		sendFailedText?: string | null;
+		/**
+		 * The server's message when a send was refused with 410 (the chat's
+		 * model is gone: a revoked BYOK key, or a model removed from the
+		 * deployment). Shown above the composer with a way to pick another
+		 * model; cleared by the page on the next send. Bound.
+		 */
+		modelGoneMessage?: string | null;
 		/** Knowledge bases attached to THIS conversation; bound through to the composer. */
 		knowledgeBases?: { id: string; name: string }[];
 		/**
@@ -147,6 +154,7 @@
 		files = $bindable([]),
 		draft = $bindable(""),
 		sendFailedText = $bindable<string | null>(null),
+		modelGoneMessage = $bindable<string | null>(null),
 		onmessage,
 		onstop,
 		onretry,
@@ -318,6 +326,14 @@
 		if (!sendFailedText) return;
 		if (!draft) draft = sendFailedText;
 		sendFailedText = null;
+	});
+
+	// Switching model answers the notice: it is about the model that is gone.
+	let modelGoneFor: string | null = null;
+	$effect(() => {
+		const id = currentModel.id;
+		if (modelGoneFor !== null && modelGoneFor !== id) modelGoneMessage = null;
+		modelGoneFor = modelGoneMessage ? id : null;
 	});
 
 	const drag = new FileDrag();
@@ -759,6 +775,25 @@
 				{/if}
 				{#if askQuestion}
 					<AskQuestion conversationId={askQuestion.conversationId} request={askQuestion.request} />
+				{/if}
+				{#if modelGoneMessage}
+					<div
+						role="alert"
+						data-testid="model-gone"
+						class="mb-3 flex w-full max-w-4xl flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200"
+					>
+						<span class="min-w-0 flex-1">{modelGoneMessage}</span>
+						<button
+							type="button"
+							class="btn shrink-0 rounded-lg px-2 py-1 text-sm font-medium underline"
+							onclick={() => {
+								if (requireAuthUser()) return;
+								pickerOpen = true;
+							}}
+						>
+							{m["chat.window.model_gone_switch"]()}
+						</button>
+					</div>
 				{/if}
 				<div class="flex w-full gap-2 *:mb-3">
 					{#if !loading && lastIsError}

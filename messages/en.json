@@ -1654,6 +1654,7 @@
 	"chat.window.read_only": "This conversation is read-only.",
 	"chat.window.record": "Start voice recording",
 	"chat.window.send": "Send message",
+	"chat.window.model_gone_switch": "Choose another model",
 	"chat.window.switch_failed": "Could not switch model. Try again.",
 	"chat.window.using_tool": "Using a tool",
 	"chat.window.voice_failed": "Could not turn your voice into text. Try again.",

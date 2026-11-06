@@ -24,6 +24,7 @@
 	import { addSibling } from "$lib/utils/tree/addSibling";
 	import {
 		fetchMessageUpdates,
+		SendRefusedError,
 		resolveStreamingMode,
 		applyStreamingMode,
 	} from "$lib/utils/messageUpdates";
@@ -56,6 +57,8 @@
 	let resuming = $state(false);
 	/** A fresh send's text, bound down to ChatWindow when its send fails. */
 	let sendFailedText: string | null = $state(null);
+	/** The server's message when a send was refused with 410: the chat's model is gone. */
+	let modelGoneMessage: string | null = $state(null);
 	let initialRun = true;
 	// Conversation-scoped stop tombstone. A boolean reset on page.params.id
 	// changes resurrects the generating UI: invalidation reassigns page.params,
@@ -206,6 +209,7 @@
 		isRetry?: boolean;
 		resumeElicitationId?: string;
 	}): Promise<void> {
+		modelGoneMessage = null;
 		// True once the server accepted the request and its reply stream is
 		// open: from then on the message is in the thread, whatever happens to
 		// the stream.
@@ -364,6 +368,7 @@
 				// A user abort rejects the fetch; that is not an error worth a toast
 				if (!$isAborted && !(err instanceof DOMException && err.name === "AbortError")) {
 					error.set(err.message);
+					if (err instanceof SendRefusedError && err.status === 410) modelGoneMessage = err.message;
 					// The server never accepted this send (a rejected POST or a
 					// network failure before the stream opened): put a fresh
 					// send's text back, like every never-accepted path. Aborts
@@ -799,6 +804,7 @@
 	{pending}
 	{resuming}
 	bind:sendFailedText
+	bind:modelGoneMessage
 	messages={messagesPath as Message[]}
 	{messagesAlternatives}
 	preprompt={data.preprompt}
