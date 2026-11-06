@@ -23,6 +23,16 @@ export interface Conversation extends Timestamps {
 	loadedConnectors?: string[];
 
 	title: string;
+	/**
+	 * Where `title` came from. `fallback`: the model could not name the chat
+	 * and the title is a trimmed first sentence, so a later turn may try again
+	 * (`titleAttempts` bounds that); `model`: the model named it; `user`: the
+	 * user renamed it, and nothing may overwrite it. Absent on conversations
+	 * that predate this field, and on a chat not yet titled.
+	 */
+	titleSource?: "fallback" | "model" | "user";
+	/** How many times a model was asked to title this chat. */
+	titleAttempts?: number;
 	rootMessageId?: Message["id"];
 	messages: Message[];
 

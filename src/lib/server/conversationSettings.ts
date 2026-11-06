@@ -65,8 +65,10 @@ export async function applyConversationSettings(
 ): Promise<UpdateResult> {
 	const updateValues = {
 		// Titles are model-generated, so they can carry think markup.
+		// A rename by the user is final: `titleSource: "user"` stops every retry.
 		...(values.title !== undefined && {
 			title: values.title.replace(thinkTagPattern("gi"), "").trim(),
+			titleSource: "user" as const,
 		}),
 		...(values.model !== undefined && { model: values.model }),
 		...(values.knowledgeBaseIds !== undefined && {
@@ -157,4 +159,26 @@ export async function applyConversationSettings(
 		// overwrites it.
 		{ $set: updateValues },
 	]);
+}
+
+/**
+ * Persists a title a model just wrote (with its source and attempt count).
+ * Conditional: a user's rename (`titleSource: "user"`) is final, so a title
+ * generation that finishes after it writes nothing.
+ */
+export async function saveGeneratedTitle(
+	convId: Conversation["_id"],
+	conv: Pick<Conversation, "title" | "titleSource" | "titleAttempts"> | undefined
+): Promise<UpdateResult> {
+	return collections.conversations.updateOne(
+		{ _id: convId, titleSource: { $ne: "user" } },
+		{
+			$set: {
+				title: conv?.title,
+				...(conv?.titleSource ? { titleSource: conv.titleSource } : {}),
+				...(conv?.titleAttempts !== undefined ? { titleAttempts: conv.titleAttempts } : {}),
+				updatedAt: new Date(),
+			},
+		}
+	);
 }

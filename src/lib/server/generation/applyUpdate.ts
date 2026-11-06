@@ -15,7 +15,7 @@ export interface ApplyUpdateContext {
 	/** The assistant message this turn writes into. Mutated in place. */
 	message: Message;
 	/** Mutated in place for title only; persisting it is the caller's job. */
-	conv: Pick<Conversation, "title">;
+	conv: Pick<Conversation, "title" | "titleSource" | "titleAttempts">;
 	/**
 	 * Content the message already had when the turn began. A resumed turn continues
 	 * a message that is not empty, and the final answer replaces only what this turn
@@ -187,6 +187,8 @@ export function applyUpdateToMessage(
 	} else if (event.type === MessageUpdateType.Title) {
 		// A reasoning model will put think markers in a title if nothing removes them.
 		conv.title = event.title.replace(thinkTagPattern("gi"), "").trim();
+		if (event.source) conv.titleSource = event.source;
+		if (event.attempts !== undefined) conv.titleAttempts = event.attempts;
 		titleChanged = true;
 	} else if (event.type === MessageUpdateType.FinalAnswer) {
 		message.interrupted = event.interrupted;

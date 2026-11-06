@@ -91,6 +91,12 @@ describe("Administration, in the pseudo-locale", () => {
 				account_reason: null,
 				ask_first: false,
 			},
+			"/admin/title-model": {
+				model: null,
+				task_model: null,
+				available_models: [{ id: "m1", name: "Model one", reasoning: false }],
+				configurable: false,
+			},
 			"/admin/dictation": {
 				mode: "browser",
 				transcriptionModel: "whisper",
@@ -103,6 +109,7 @@ describe("Administration, in the pseudo-locale", () => {
 		await expect.element(page.getByText(en("admin.delegation.title"))).toBeVisible();
 		await expect.element(page.getByText(en("admin.voice.option.browser.title"))).toBeVisible();
 		await expect.element(page.getByText(en("admin.images.label"))).toBeVisible();
+		await expect.element(page.getByText(en("admin.titles.label"))).toBeVisible();
 		expect(
 			unbracketedWords([
 				"ADMIN_INSTRUCTIONS",
@@ -112,6 +119,7 @@ describe("Administration, in the pseudo-locale", () => {
 				"CHAT_IMAGE_MODEL",
 				"generate_image",
 				"flux-2-klein-4b",
+				"Model one",
 				"whisper",
 				"research",
 				"delegate",

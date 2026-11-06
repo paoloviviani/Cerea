@@ -46,7 +46,7 @@ import { armTurnCap, classifyTurnAbort, untilCapped } from "$lib/server/generati
 import { clampStoppedContent } from "$lib/server/stopTruncation";
 import { MetricsServer } from "$lib/server/metrics";
 import { randomUUID } from "$lib/utils/randomUuid";
-import { applyConversationSettings } from "$lib/server/conversationSettings";
+import { applyConversationSettings, saveGeneratedTitle } from "$lib/server/conversationSettings";
 
 // How long a stop marker is protected from the pre-flight cleanup of a new
 // generation. A marker younger than this may still be awaiting observation by
@@ -555,10 +555,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				if (applied.skipped) return;
 
 				if (applied.titleChanged) {
-					await collections.conversations.updateOne(
-						{ _id: convId },
-						{ $set: { title: conv?.title, updatedAt: new Date() } }
-					);
+					await saveGeneratedTitle(convId, conv);
 				}
 				if (applied.finalAnswerReceived) finalAnswerReceived = true;
 
