@@ -8,7 +8,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import superjson from "superjson";
 
 import ChatsList from "./ChatsList.svelte";
-import { renderWithApp } from "../__tests__/renderWithApp";
+import { renderWithApp, setPage } from "../__tests__/renderWithApp";
 import { CONVERSATIONS_CONTEXT_KEY, newConversationsStore } from "$lib/stores/conversations.svelte";
 
 vi.mock("$env/dynamic/public", () => ({
@@ -152,5 +152,70 @@ describe("ChatsList delete", () => {
 		await vi.waitFor(() => expect(text()).not.toContain("Delete chat"));
 		expect(seen).toHaveLength(0);
 		expect(text()).toContain("Budget talk");
+	});
+});
+
+describe("ChatsList tabs", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		document.body.innerHTML = "";
+		setPage({ url: "/" });
+	});
+
+	it("opens on the chats, with a second tab for the artifacts of chats outside projects", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) =>
+				String(input).includes("/api/v2/projects")
+					? Response.json({ data: [] })
+					: new Response(superjson.stringify({ conversations: ROWS, hasMore: false }))
+			)
+		);
+		renderWithApp(ChatsList, {} as never);
+		await vi.waitFor(() => expect(text()).toContain("Budget talk"));
+		const tabs = [...document.body.querySelectorAll('nav[aria-label="Chats sections"] a')];
+		expect(tabs.map((a) => a.textContent?.trim())).toEqual(["Chats", "Artifacts"]);
+		expect(tabs[0].getAttribute("aria-current")).toBe("page");
+		expect(tabs[1].getAttribute("href")).toBe("/chats?tab=artifacts");
+		expect(document.body.querySelector('[data-testid="artifacts-list"]')).toBeNull();
+	});
+
+	it("?tab=artifacts lists the artifacts of the chats that are in no project", async () => {
+		const asked: string[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				if (url.includes("/api/v2/artifacts")) {
+					asked.push(url);
+					return Response.json({
+						data: [
+							{
+								kind: "file",
+								name: "plan.pdf",
+								identifier: "plan.pdf",
+								type: "application/pdf",
+								version: 1,
+								versionCount: 1,
+								conversationId: "a1",
+								conversationTitle: "Trip plan",
+								at: "2026-11-01T10:00:00Z",
+								sha256: "b".repeat(64),
+								size: 10,
+							},
+						],
+						hasMore: false,
+					});
+				}
+				if (url.includes("/api/v2/projects")) return Response.json({ data: [] });
+				return new Response(superjson.stringify({ conversations: ROWS, hasMore: false }));
+			})
+		);
+		renderWithApp(ChatsList, {} as never, { page: { url: "/chats?tab=artifacts" } });
+		await vi.waitFor(() => expect(text()).toContain("plan.pdf"));
+		expect(asked[0]).toContain("project=none");
+		expect(document.body.querySelector('[data-testid="chats-list"]')).toBeNull();
+		const tabs = [...document.body.querySelectorAll('nav[aria-label="Chats sections"] a')];
+		expect(tabs[1].getAttribute("aria-current")).toBe("page");
 	});
 });

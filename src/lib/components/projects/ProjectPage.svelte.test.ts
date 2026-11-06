@@ -175,7 +175,7 @@ function mountCreate(webSearchEnabled: boolean) {
 	});
 }
 
-function mountExisting(webSearchEnabled = false, tab?: "settings") {
+function mountExisting(webSearchEnabled = false, tab?: "settings" | "artifacts") {
 	return renderWithApp(ProjectPage, { id: "proj-1" } as never, {
 		page: {
 			url: tab ? `/projects/proj-1?tab=${tab}` : "/projects/proj-1",
@@ -251,10 +251,53 @@ describe("ProjectPage tabs", () => {
 
 		// The tab bar is the workspace's: two links, the active one marked.
 		const tabs = [...document.body.querySelectorAll('nav[aria-label="Project sections"] a')];
-		expect(tabs.map((a) => a.textContent?.trim())).toEqual(["Conversations", "Settings"]);
+		expect(tabs.map((a) => a.textContent?.trim())).toEqual([
+			"Conversations",
+			"Artifacts",
+			"Settings",
+		]);
 		expect(tabs[0].getAttribute("aria-current")).toBe("page");
 		expect(tabs[0].getAttribute("href")).toBe("/projects/proj-1");
-		expect(tabs[1].getAttribute("href")).toBe("/projects/proj-1?tab=settings");
+		expect(tabs[1].getAttribute("href")).toBe("/projects/proj-1?tab=artifacts");
+		expect(tabs[2].getAttribute("href")).toBe("/projects/proj-1?tab=settings");
+	});
+
+	it("the artifacts tab lists what the project's chats made, from the project's scope", async () => {
+		stubApi({ project: projectView(), chats: CHATS });
+		const original = globalThis.fetch;
+		const asked: string[] = [];
+		vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = String(input);
+			if (url.includes("/api/v2/artifacts")) {
+				asked.push(url);
+				return Response.json({
+					data: [
+						{
+							kind: "file",
+							name: "budget.xlsx",
+							identifier: "budget.xlsx",
+							type: "application/octet-stream",
+							version: 2,
+							versionCount: 2,
+							conversationId: "c1",
+							conversationTitle: "Budget questions",
+							at: "2026-01-01T00:00:00Z",
+							sha256: "f".repeat(64),
+							size: 2048,
+						},
+					],
+					hasMore: false,
+				});
+			}
+			return original(input, init);
+		});
+		mountExisting(false, "artifacts");
+		await waitForText("budget.xlsx");
+		expect(asked[0]).toContain("project=proj-1");
+		expect(document.body.querySelector('[data-testid="artifacts-list"]')).not.toBeNull();
+		expect(document.body.querySelector('[data-testid="project-others-count"]')).toBeNull();
+		const tabs = [...document.body.querySelectorAll('nav[aria-label="Project sections"] a')];
+		expect(tabs[1].getAttribute("aria-current")).toBe("page");
 	});
 
 	it("/projects/new has no tab bar: everything it makes is settings", async () => {

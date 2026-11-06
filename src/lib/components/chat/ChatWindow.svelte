@@ -462,6 +462,21 @@
 		}
 	});
 
+	// `?artifact=<identifier>` (the Artifacts tabs' links) opens that artifact in the
+	// side pane once the conversation has it: a text artifact by its identifier, a
+	// file by its name. Once per conversation and artifact, so closing the pane sticks.
+	let deepLinked = "";
+	$effect(() => {
+		const wanted = page.url.searchParams.get("artifact");
+		const conversation = page.params?.id;
+		if (!wanted || !conversation) return;
+		const key = `${conversation}:${wanted}`;
+		if (key === deepLinked) return;
+		if (!artifactRegistry.artifacts.has(wanted) && !fileRegistry.artifacts.has(wanted)) return;
+		deepLinked = key;
+		untrack(() => sidePane.openArtifact(wanted, null));
+	});
+
 	// Open the newest dashboard the first time it shows up: the point of the run
 	// is watching it train. Once per URL, so the user can close it and read the
 	// chat while the run continues.

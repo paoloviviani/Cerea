@@ -3221,5 +3221,54 @@
 	"workspace.agents.test.not_passed": "Some key cases did not go as expected. You can still save; changing the instructions, the threshold or the model may help.",
 	"workspace.agents.test.expect_allow": "should be allowed",
 	"workspace.agents.test.expect_escalate": "should come to you",
-	"workspace.agents.test.gating": "key case"
+	"workspace.agents.test.gating": "key case",
+	"artifacts.list.count": [
+		{
+			"declarations": ["input count", "input more", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count}{more} artifact",
+				"countPlural=other": "{count}{more} artifacts"
+			}
+		}
+	],
+	"artifacts.list.count_found": [
+		{
+			"declarations": ["input count", "input more", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count}{more} artifact found",
+				"countPlural=other": "{count}{more} artifacts found"
+			}
+		}
+	],
+	"artifacts.list.download": "Download {name}",
+	"artifacts.list.empty": "No artifacts yet",
+	"artifacts.list.empty_chats": "Files and documents the model makes in chats outside a project appear here.",
+	"artifacts.list.empty_project": "Files and documents the model makes in your chats in this project appear here.",
+	"artifacts.list.from_chat": "From {title}",
+	"artifacts.list.headline": "Artifacts",
+	"artifacts.list.load_failed": "Could not load the artifacts. Try again.",
+	"artifacts.list.loading": "Loading…",
+	"artifacts.list.no_match": "No artifacts match “{query}”",
+	"artifacts.list.no_match_detail": "Names are searched as you type. Capital letters and accents are ignored.",
+	"artifacts.list.open": "Open {name} in its chat",
+	"artifacts.list.scope_chats": "Made by the model in your chats that are not in a project, newest first.",
+	"artifacts.list.scope_project": "Made by the model in your own chats in this project, newest first.",
+	"artifacts.list.search": "Search artifacts by name",
+	"artifacts.list.show_all": "Show all artifacts",
+	"artifacts.list.versions": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} version",
+				"countPlural=other": "{count} versions"
+			}
+		}
+	],
+	"chat.list.tab.artifacts": "Artifacts",
+	"chat.list.tab.chats": "Chats",
+	"chat.list.tabs_label": "Chats sections",
+	"projects.page.tab.artifacts": "Artifacts"
 }

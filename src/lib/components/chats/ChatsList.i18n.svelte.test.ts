@@ -37,7 +37,7 @@ describe("Chats list, in the pseudo-locale", () => {
 		const screen = renderWithApp(ChatsList, {} as never);
 		const heading = m["chat.list.title"]({}, { locale: "en-XA" });
 		expect(heading).toMatch(/^\[.+\]$/);
-		await expect.element(screen.getByText(heading)).toBeVisible();
+		await expect.element(screen.getByRole("heading", { name: heading })).toBeVisible();
 		await expect.element(screen.getByText("Budget talk")).toBeVisible();
 
 		// Chat titles are the person's own words; the model name and the

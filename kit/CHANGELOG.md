@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Artifacts tab on projects and on the Chats page.** Every file and artifact the assistant made in your own chats, in one list: name, kind, latest version and version count, the chat it came from and when. Open one to land in its chat with the artifact in the side panel, or download the latest version. Filter by name; the list loads as you scroll. A project's page has the tab for that project's chats; the Chats page has it for chats outside any project. Only your own chats are listed, also in a shared project.
 - **Better chat titles.** A title that could not be written (a reasoning model that used its whole budget thinking, a quota error, a timeout) is no longer stuck as the first few words: it is tried again after the first reply, with the start of the reply to read, and once more on the next message. The fallback is now the first sentence cut at a word boundary, not the raw first five words. A title you typed yourself is never replaced. New chats only; existing chats keep their titles.
 - **Model for titles (Administration → Assistant).** Choose which model names chats, from the gateway's chat models. Automatic (the default) uses `TASK_MODEL` if set, else a model that does not reason, else the chat's own model. `TITLE_MODEL` sets it from the environment.
 

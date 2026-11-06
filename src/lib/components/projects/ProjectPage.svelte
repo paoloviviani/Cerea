@@ -2,7 +2,7 @@
 	A project, as a page: `/projects/new` creates one, `/projects/<id>` is its page.
 
 	This replaced an overlay with a form view inside it and a second Edit inside
-	that. It is now two tabs of one page, addressed like the workspace panel
+	that. It is now tabs of one page (conversations, artifacts, settings), addressed like the workspace panel
 	(`?tab=settings`; anything else, a bare `/projects/<id>` included, is the
 	conversations tab, and a query change never remounts the page):
 
@@ -71,6 +71,8 @@
 	import IconSettings from "~icons/carbon/settings";
 	import IconClose from "~icons/carbon/close";
 	import LucideFolderOpen from "~icons/lucide/folder-open";
+	import LucideShapes from "~icons/lucide/shapes";
+	import ArtifactsList from "$lib/components/artifacts/ArtifactsList.svelte";
 	import LucideLibrary from "~icons/lucide/library";
 
 	interface ProjectConversation {
@@ -158,6 +160,7 @@
 	 */
 	const TABS = [
 		{ key: "conversations", label: m["projects.page.tab.conversations"] },
+		{ key: "artifacts", label: m["projects.page.tab.artifacts"] },
 		{ key: "settings", label: m["projects.page.tab.settings"] },
 	] as const;
 	type TabKey = (typeof TABS)[number]["key"];
@@ -598,6 +601,8 @@
 				>
 					{#if t.key === "conversations"}
 						<IconChat class="size-3.5 sm:size-4" />
+					{:else if t.key === "artifacts"}
+						<LucideShapes class="size-3.5 sm:size-4" />
 					{:else}
 						<IconSettings class="size-3.5 sm:size-4" />
 					{/if}
@@ -1009,6 +1014,9 @@
 					ondelete={destroy}
 				/>
 			{/if}
+		{:else if tab === "artifacts" && project}
+			<!-- What the model made in your own chats of this project. -->
+			<ArtifactsList project={id as string} />
 		{:else}
 			<!--
 				The conversations tab: the strip with the count and the New chat
