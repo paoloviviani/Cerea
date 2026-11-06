@@ -209,11 +209,13 @@ func TestScheduleToolsIntegration(t *testing.T) {
 			ceiling[scheduleKey] = a
 		}
 		ceilMu.Unlock()
-		mc.pol.Permission = policy.Permission{Max: map[string]string{}}
+		// ADR 0109: a deny of schedules is the local deny of the agents class.
+		perm := policy.Permission{}
 		if a != permrules.Allow {
-			mc.pol.Permission.Max[scheduleKey] = string(a)
+			perm.Deny = []string{"agents"}
 		}
-		mc.pol.Permission.Normalize()
+		mc.pol.Permission = perm
+		mc.live = policy.NewLive(perm)
 	}
 
 	// The fake Cerea, on a real link.
