@@ -1192,6 +1192,48 @@ the MCP tools) only after this. A panel feature that needs it says so ("update
 galopin on that machine"). Re-enroll only to change the machine's own policy
 (loosening needs it) or to recover a revoked machine.
 
+### Using opencode yourself: `galopin launch opencode`
+
+```sh
+galopin launch opencode [--opencode PATH] [--port PORT] [-- opencode arguments…]
+```
+
+Starts your own interactive opencode, in the current directory, set up the way
+galopin sets up the one it supervises, but **without dialing Cerea**: no
+pairing, no machine link, nothing in the Agents panel. It uses
+
+- the `opencode.json` `enroll` wrote (as `OPENCODE_CONFIG`), so the same
+  gateway provider and models;
+- the same local proxy, so the same refreshed credential and billing group.
+  A `run` or `serve` already listening on the shim port is reused; otherwise
+  galopin starts the proxy for as long as this opencode runs and stops it when
+  it exits (never two on one port);
+- the machine's project-config setting (`--allow-project-config`; off by
+  default, in which case opencode starts with `--pure`), and a private
+  `TMPDIR` of its own, so it never disturbs a running `galopin run`.
+
+Everything after `--` goes to opencode untouched, and galopin exits with
+opencode's exit code; SIGINT, SIGTERM and SIGHUP are forwarded. A machine that
+is not enrolled stops with "run 'galopin enroll' first". `--opencode PATH`
+picks the binary (default `opencode` on PATH, then `$HOME/.opencode/bin`); one
+that differs from the version galopin is tested against only draws a warning.
+
+Provider credentials and routing selectors in your shell (`ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, the other
+well-known provider keys and base URLs, `OPENCODE_PERMISSION`, `OPENCODE_MODEL`)
+are removed from opencode's environment, so nothing is billed outside the
+gateway by accident. Your own opencode configuration (`~/.config/opencode`,
+`opencode auth`) still applies, exactly as under `run`.
+
+**Not supervised.** galopin prints, on stderr:
+`galopin: local opencode, billed to <group>; not supervised by Cerea (no
+Plan/Ask/Auto, no review log)`. opencode is given the "everything asks"
+permission floor, so every tool call asks you, in the terminal. What cannot
+apply is anything that needs galopin to answer for you: the refusal of
+galopin's own state and credentials, the Plan/Ask/Auto selector, the delegated
+permissions and the review log. Treat it as opencode with the gateway wired in.
+The command is `launch <tool>` so other tools can follow; only opencode exists.
+
 ### Keeping it running
 
 **Linux**, as a systemd user service, so galopin starts at boot, restarts if it
