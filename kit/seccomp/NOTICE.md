@@ -4,10 +4,10 @@
 by the `playwright` service (profile `fetch`) in `../compose.yaml` so Chromium's
 sandbox can start without extra capabilities.
 
-- Source: https://github.com/microsoft/playwright/blob/v1.64.1/utils/docker/seccomp_profile.json
-- Playwright tag: v1.64.1 (commit cfe490d941f992655948eee8fd4fd94e1c4234bf)
+- Source: https://github.com/microsoft/playwright/blob/v1.65.0/utils/docker/seccomp_profile.json
+- Playwright tag: v1.65.0 (commit a1f35e1955976e84411f9c10358228a80b763ebe)
 - Licence: Apache-2.0, Copyright (c) Microsoft Corporation
-  (https://github.com/microsoft/playwright/blob/v1.64.1/LICENSE)
+  (https://github.com/microsoft/playwright/blob/v1.65.0/LICENSE)
 
 When you bump `PLAYWRIGHT_VERSION`, replace the file with the one from the new
 tag and update this notice.

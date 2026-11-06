@@ -315,7 +315,7 @@ jobs:
     # The Playwright image's browsers must match the *installed* Playwright
     # exactly, or the project silently reports "no tests" (see AGENTS.md).
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
       options: --user root
     env:
       HOME: /root
@@ -337,7 +337,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
       options: --user root
     # RustFS for the blob-store spec's second run (the files on S3). Reached by
     # its service name, since this job runs in a container.
@@ -403,7 +403,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
       options: --user root
     services:
       rustfs:
