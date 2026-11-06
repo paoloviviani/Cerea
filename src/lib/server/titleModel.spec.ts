@@ -6,7 +6,6 @@ import { pickTitleModel } from "./titleModel";
 
 const catalogue = [
 	{ id: "thinker", name: "thinker", supportsReasoning: true },
-	{ id: "hidden", name: "hidden", supportsReasoning: false, unlisted: true },
 	{ id: "plain", name: "plain", supportsReasoning: false },
 ];
 
@@ -43,5 +42,32 @@ describe("pickTitleModel", () => {
 				catalogue: catalogue.slice(0, 1),
 			})
 		).toBe("thinker");
+	});
+	it("automatic prefers a hidden non-reasoning model set aside for tasks", () => {
+		const withHidden = [
+			...catalogue,
+			{ id: "aside", name: "aside", supportsReasoning: false, unlisted: true },
+		];
+		expect(
+			pickTitleModel({ stored: null, env: "", convModel: "plain", catalogue: withHidden })
+		).toBe("aside");
+		expect(
+			pickTitleModel({ stored: null, env: "", convModel: "thinker", catalogue: withHidden })
+		).toBe("aside");
+	});
+	it("automatic ignores a hidden model that reasons", () => {
+		const withHidden = [
+			{ id: "dim", name: "dim", supportsReasoning: true, unlisted: true },
+			...catalogue,
+		];
+		expect(
+			pickTitleModel({ stored: null, env: "", convModel: "plain", catalogue: withHidden })
+		).toBe("plain");
+	});
+	it("a stored choice may be a hidden model", () => {
+		const withHidden = [{ id: "aside", name: "aside", unlisted: true }, ...catalogue];
+		expect(
+			pickTitleModel({ stored: "aside", env: "", convModel: "plain", catalogue: withHidden })
+		).toBe("aside");
 	});
 });

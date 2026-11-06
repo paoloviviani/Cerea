@@ -4,6 +4,7 @@ import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { defaultModel, models, validateModel } from "$lib/server/models";
+import { isUnlistedForUsers } from "$lib/server/hiddenModels";
 import { callerByokModels } from "$lib/server/visibleModels";
 import { findCustomModel, ownerFilter } from "$lib/server/customModels";
 import { isCustomModelId } from "$lib/utils/customModelId";
@@ -82,10 +83,12 @@ export const GET: RequestHandler = async ({ locals }) => {
 	}
 
 	// if the model is unlisted, set the active model to the default model
+	const activeEntry = models.find((m) => m.id === settings?.activeModel);
 	if (
 		defaultModel &&
 		settings?.activeModel &&
-		models.find((m) => m.id === settings?.activeModel)?.unlisted === true
+		activeEntry &&
+		isUnlistedForUsers(activeEntry, defaultModel.id)
 	) {
 		settings.activeModel = defaultModel.id;
 		await collections.settings.updateOne(authCondition(locals), {

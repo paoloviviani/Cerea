@@ -950,6 +950,7 @@ export async function PATCH({ request, locals, params }) {
 
 	if (
 		values.model !== undefined &&
+		values.model !== conv.model &&
 		!(await isSelectableModel(values.model, conversationOwnerFilter(conv), (id) =>
 			isSelectableCatalogueId(locals, id, (i) => validModelIdSchema.safeParse(i).success)
 		))

@@ -6,7 +6,8 @@ import { error, redirect } from "@sveltejs/kit";
 import { base } from "$app/paths";
 import { z } from "zod";
 import type { Message } from "$lib/types/Message";
-import { models, validateModel } from "$lib/server/models";
+import { defaultModel, models, validateModel } from "$lib/server/models";
+import { isUnlistedForUsers } from "$lib/server/hiddenModels";
 import {
 	conversationOwnerFilter,
 	isSelectableModel,
@@ -105,7 +106,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
 	const rootMessageId: Message["id"] = messages[0].id;
 
-	if (model?.unlisted) {
+	if (model && isUnlistedForUsers(model, defaultModel?.id)) {
 		error(400, "Can't start a conversation with an unlisted model");
 	}
 
