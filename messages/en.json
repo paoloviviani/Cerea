@@ -471,7 +471,7 @@
 	"code.schedule_created_by.fallback_chat": "a chat",
 	"code.schedule_created_by.fallback_title": "a session",
 	"code.schedule_created_by.text": "Created by an agent in",
-	"code.schedule_editor.allow_hint": "Runs without asking, but never past the machine's own ceiling: what that machine caps at Ask still asks.",
+	"code.schedule_editor.allow_hint": "Auto: each kind of action runs, goes to your reviewer or comes to you, as you set in Workspace, Agents, never past the fixed floor.",
 	"code.schedule_editor.ask_warning": "Nobody is watching a scheduled run. On Ask it stops at its first approval and waits; the approval card appears in the Needs-you inbox at the top of this page. Choose Allow for work that must finish on its own.",
 	"code.schedule_editor.at": "At",
 	"code.schedule_editor.can_message": "Can find, read and message other sessions",

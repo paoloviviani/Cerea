@@ -133,7 +133,7 @@ test.describe("owned machine agent: parity", () => {
 		);
 	};
 
-	test("selector: a new session starts on Ask, and under Allow names what the machine still caps", async ({
+	test("selector: a new session starts on Ask, and under Allow the sheet says hands off", async ({
 		page,
 		db,
 		session,
@@ -145,10 +145,10 @@ test.describe("owned machine agent: parity", () => {
 		);
 		await expect(page.getByRole("button", { name: /auto.?accept/i })).toHaveCount(0);
 		await choose(page, "Allow");
-		// The enroll-default ceiling holds bash at ask.
+		// Allow is hands off (ADR 0109): the sheet says so, and names the floor.
 		await expect(page.getByTestId("permission-mode-note")).toHaveCount(0);
 		await page.getByTestId("permission-details").click();
-		await expect(page.getByTestId("permission-outcome-command")).not.toHaveText("Runs");
+		await expect(page.getByTestId("permission-step")).toContainText("hands off");
 		await page.keyboard.press("Escape");
 	});
 

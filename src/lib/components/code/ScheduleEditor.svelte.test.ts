@@ -103,7 +103,7 @@ describe("ScheduleEditor permission mode", () => {
 
 		await screen.getByRole("radio", { name: "Auto" }).click();
 		expect(screen.getByTestId("ask-warning").elements()).toHaveLength(0);
-		await expect.element(screen.getByText(/never past the machine's own ceiling/)).toBeVisible();
+		await expect.element(screen.getByText(/never past the fixed floor/)).toBeVisible();
 	});
 });
 

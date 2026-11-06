@@ -383,9 +383,7 @@ test.describe("the permission selector", () => {
 		await expect(model).toHaveAttribute("data-remount-probe", "1");
 	});
 
-	test("under Allow the shield's sheet shows what the machine's ceiling still caps", async ({
-		page,
-	}) => {
+	test("under Allow the shield's sheet says hands off and names the floor", async ({ page }) => {
 		await installStubs(page, {
 			ceiling: { bash: "ask" },
 			snapshot: {
@@ -402,11 +400,11 @@ test.describe("the permission selector", () => {
 		});
 		await goto(page);
 
-		// No note beside the shield; the machine's limit is in its sheet.
+		// No note beside the shield; what still asks is in its sheet.
 		await expect(page.getByTestId("permission-mode-note")).toHaveCount(0);
 		await page.getByTestId("permission-details").click();
-		await expect(page.getByTestId("permission-outcome-command")).toHaveText("Comes to you");
-		await expect(page.getByTestId("permission-outcome-edit")).toHaveText("Runs");
+		await expect(page.getByTestId("permission-step")).toContainText("hands off");
+		await expect(page.getByTestId("permission-step")).toContainText("credential files");
 	});
 
 	test("a subagent's view shows its root's word, disabled, (its title says it follows the main session)", async ({
