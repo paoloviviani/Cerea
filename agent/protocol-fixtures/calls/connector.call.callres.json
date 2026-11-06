@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "C→M",
+		"op": "connector.call"
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": true,
+		"result": {
+			"isError": false,
+			"text": "3 issues"
+		}
+	}
+}

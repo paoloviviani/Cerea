@@ -1,0 +1,26 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "M→C",
+		"op": "connector.call"
+	},
+	"frame": {
+		"type": "call",
+		"id": "c1",
+		"op": "connector.call",
+		"sessionId": "ses_02",
+		"rootSessionId": "ses_01",
+		"caller": {
+			"workspaceId": "ws_01",
+			"permissionMode": "ask",
+			"coordination": []
+		},
+		"args": {
+			"connector": "connector:65f1a2b3c4d5e6f708192a3b",
+			"tool": "find",
+			"arguments": {
+				"q": "flaky"
+			}
+		}
+	}
+}

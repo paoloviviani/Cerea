@@ -194,24 +194,30 @@ func frameTypesRead(t *testing.T) map[string]bool {
 	return types
 }
 
-// callOps is every schedule op galopin sends as a call.
+// callOps is every op galopin sends as a call: the schedule ops (cereaCall)
+// and the connector ops (connectorCerea).
 func callOps(t *testing.T) map[string]bool {
 	t.Helper()
 	ops := map[string]bool{}
-	ast.Inspect(fxParseGo(t, "agenttools_schedule.go"), func(n ast.Node) bool {
-		c, ok := n.(*ast.CallExpr)
-		if !ok {
+	for file, helper := range map[string][2]string{
+		"agenttools_schedule.go":   {"cereaCall", "schedule."},
+		"agenttools_connectors.go": {"connectorCerea", "connector."},
+	} {
+		ast.Inspect(fxParseGo(t, file), func(n ast.Node) bool {
+			c, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := c.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != helper[0] || len(c.Args) < 3 {
+				return true
+			}
+			if s, ok := fxLit(c.Args[2]); ok {
+				ops[helper[1]+s] = true
+			}
 			return true
-		}
-		sel, ok := c.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "cereaCall" || len(c.Args) < 3 {
-			return true
-		}
-		if s, ok := fxLit(c.Args[2]); ok {
-			ops["schedule."+s] = true
-		}
-		return true
-	})
+		})
+	}
 	return ops
 }
 

@@ -1,0 +1,43 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "C→M",
+		"op": "connector.list"
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": true,
+		"result": {
+			"connectors": [
+				{
+					"id": "connector:65f1a2b3c4d5e6f708192a3b",
+					"name": "Tracker",
+					"summary": "Issues and boards",
+					"tools": [
+						{
+							"name": "find",
+							"description": "Find issues",
+							"inputSchema": {
+								"type": "object",
+								"properties": {
+									"q": {
+										"type": "string"
+									}
+								}
+							}
+						}
+					]
+				},
+				{
+					"id": "base:maps",
+					"name": "Maps",
+					"summary": "",
+					"tools": [],
+					"note": "its tools could not be listed right now"
+				}
+			],
+			"local": ["notes"]
+		}
+	}
+}
