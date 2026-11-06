@@ -133,7 +133,9 @@ test.describe("scheduled actions, hermetic", () => {
 		expect(fake.model.sessions.length).toBe(sessionsBefore + 1);
 		const created = fake.model.sessions[fake.model.sessions.length - 1];
 		expect(created.title).toMatch(/^Nightly suite · \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
-		expect(created.permissionMode).toBe("allow");
+		// A schedule's Allow is Auto (ADR 0109): the word ask plus the owner's per-class map.
+		expect(created.permissionMode).toBe("ask");
+		expect(created.autoClasses).toMatchObject({ edit: "run", command: "ask" });
 		expect(created.modeId).toBe("build");
 		const prompts = ops(fake, "session.prompt").filter(
 			(o) => (o.args as { sessionId: string }).sessionId === created.id

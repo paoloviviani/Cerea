@@ -260,7 +260,7 @@ test.describe("owned machine agent: parity", () => {
 		await expect(transcriptCard(page).getByText("Third done.")).toBeVisible({ timeout: 60_000 });
 	});
 
-	test("selector Allow: bash under the default ceiling is still a card (the ceiling is the one thing Cerea cannot raise)", async ({
+	test("selector Allow: hands off (ADR 0109), bash runs with no card", async ({
 		page,
 		db,
 		session,
@@ -270,10 +270,8 @@ test.describe("owned machine agent: parity", () => {
 		await choose(page, "Allow");
 		await mockOpenAI.setDefaultScenario(bashWriteScenario("call_c", "c", ["Wrote", " c", "."]));
 		await send(page, "write c");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
-		expect(existsSync(join(m.workspace, "c.txt"))).toBe(false);
-		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
 		await expect(transcriptCard(page).getByText("Wrote c.")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByText("wants to call")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "c.txt"))).toBe(true);
 	});
 
