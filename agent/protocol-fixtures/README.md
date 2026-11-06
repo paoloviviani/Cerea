@@ -25,7 +25,7 @@ travels the WebSocket. `_meta` says where it comes from:
 | `frames/` | `hello` (current, an older machine, a connectors-only machine), `mcp` traffic and `closed` frames (§10), `welcome` (paired with features, pending without), `status`, `credential`, `auth`, the four `notice` kinds |
 | `ops/`    | `<op>.req.json` and `<op>.res.json` for every op Cerea sends (plus `.req.<variant>` / `.res.<variant>`)                                                                                                             |
 | `events/` | event envelopes (`{"type":"event",...}`), one per event kind and part type, with child-session, null and minimal variants                                                                                           |
-| `calls/`  | machine calls: `schedule.*` and `connector.*` `call` and `callres` frames, the `caller` facts, the six `callres` error codes                                                                                                          |
+| `calls/`  | machine calls: `schedule.*` and `connector.*` `call` and `callres` frames, the `caller` facts, the six `callres` error codes                                                                                        |
 | `errors/` | one `res` error frame per error code (`not_found`, `invalid`, `forbidden`, `unavailable`, `backend`, `unsupported`, `conflict`, `too_large`)                                                                        |
 
 PROTOCOL.md describes ops that neither side implements yet (`files.find`, `files.grep`,
