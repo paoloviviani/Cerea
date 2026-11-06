@@ -223,10 +223,12 @@ func (b *Backend) translateEvent(directory, typ string, props map[string]any) []
 			}
 		default:
 			s = backend.StatusIdle
+			b.diffs.EndTurn(sessionID)
 		}
 		return []backend.BackendEvent{wrap(sessionID, backend.Event{Kind: backend.EventStatus, Status: s, Retry: retry})}
 
 	case "session.idle":
+		b.diffs.EndTurn(sessionID)
 		return []backend.BackendEvent{wrap(sessionID, backend.Event{Kind: backend.EventStatus, Status: backend.StatusIdle})}
 
 	case "session.error":
@@ -286,6 +288,7 @@ func (b *Backend) translateEvent(directory, typ string, props map[string]any) []
 			sid = sessionID
 		}
 		part := b.mapPart(sid, partMap)
+		b.trackEdit(directory, sid, part)
 		return []backend.BackendEvent{wrap(sid, backend.Event{Kind: backend.EventPart, Part: &part})}
 
 	case "message.part.delta":

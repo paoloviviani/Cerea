@@ -10,11 +10,9 @@ import (
 	"galopin/internal/backend"
 )
 
-// Compile-time check: Backend must satisfy the floor interface. Unlike
-// internal/backend/opencode, none of the optional capability interfaces
-// (Differ/Childrener/Compactor) apply — ACP has no wire message for any of
-// them (PROTOCOL.md §2), so Capabilities() reports them false and this
-// package implements none of those interfaces.
+// Compile-time check: Backend must satisfy the floor interface. Of the
+// optional capability interfaces only Differ applies (diffs.go, galopin's own
+// snapshots); ACP has no wire message for Childrener/Compactor (PROTOCOL.md §2).
 var _ backend.Backend = (*Backend)(nil)
 
 func (b *Backend) ListSessions(ctx context.Context, workspaceDir string) ([]backend.Session, error) {
@@ -105,6 +103,7 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 
 	st := b.reg.getOrCreate(id, workspaceDir)
 	st.mu.Lock()
+	st.loaded = true
 	st.title = opts.Title
 	st.modeID = curMode
 	st.modelID = curModel
@@ -169,6 +168,7 @@ func (b *Backend) DeleteSession(ctx context.Context, workspaceDir, sessionID str
 	}
 	b.reg.delete(sessionID)
 	b.att.Forget(sessionID)
+	b.diffs.Forget(sessionID)
 	return nil
 }
 
@@ -253,6 +253,8 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir, sessionID string, pr
 
 func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionState, respCh <-chan rpcMessage) {
 	msg := <-respCh
+	// The turn is over: per-call snapshots of edits that never finished go.
+	b.diffs.EndTurn(sessionID)
 
 	st.mu.Lock()
 	st.busy = false
@@ -428,22 +430,30 @@ func (b *Backend) Models(ctx context.Context, workspaceDir string) ([]backend.Mo
 }
 
 // Transcript returns the session's accumulated state if this process has
-// touched it (live prompts, or an earlier Transcript call), otherwise
-// tries session/load (PROTOCOL.md §7's no-gap guarantee) — its replayed
-// session/update notifications populate the registry through the very
-// same handleNotify path a live turn uses (see events.go), so by the time
-// the session/load call itself returns, the registry already holds
-// everything it replayed.
+// it (live prompts, created here, or an earlier replay), otherwise loads it
+// with session/load (PROTOCOL.md §7's no-gap guarantee). The agent replays
+// the history as session/update notifications, which fill the registry
+// through the same handleNotify path a live turn uses (events.go); the
+// notifications are lines the connection's reader sees before the load
+// response, so by the time the call returns the registry holds all of it.
 func (b *Backend) Transcript(ctx context.Context, workspaceDir, sessionID string) (backend.Transcript, error) {
+	// One replay at a time: a second session.sync for the same session must
+	// find the first one's result, not replay over it.
+	b.loadMu.Lock()
+	defer b.loadMu.Unlock()
 	st, ok := b.reg.get(sessionID)
+	if ok {
+		st.mu.Lock()
+		ok = st.loaded || st.busy || len(st.messages) > 0
+		st.mu.Unlock()
+	}
 	if !ok {
 		b.infoMu.Lock()
-		// Both loadSession (the top-level agentCapabilities flag) and
-		// sessionCapabilities.resume gate session/load — verified live,
-		// opencode 1.18.31 advertises both together, but the ACP schema
-		// treats them as two separate signals, so a stricter agent that
-		// sets one without the other is trusted over guessing.
-		canLoad := b.agentCaps.loadSession && b.agentCaps.sessionResume
+		// session/load is the agent's loadSession capability. sessionCapabilities.resume
+		// gates a different method (session/resume, which replays nothing); goose
+		// advertises loadSession alone, and waiting for resume too left every
+		// reloaded transcript empty.
+		canLoad := b.agentCaps.loadSession
 		b.infoMu.Unlock()
 		if !canLoad {
 			return backend.Transcript{Status: backend.StatusIdle}, nil
@@ -452,10 +462,17 @@ func (b *Backend) Transcript(ctx context.Context, workspaceDir, sessionID string
 		if err != nil {
 			return backend.Transcript{}, err
 		}
+		st = b.reg.getOrCreate(sessionID, workspaceDir)
+		st.mu.Lock()
+		st.replaying, st.replayRole, st.replaySeq = true, "", 0
+		st.mu.Unlock()
 		callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
 		servers, ep := b.mcpServers()
 		raw, err := conn.call(callCtx, "session/load", map[string]any{"sessionId": sessionID, "cwd": workspaceDir, "mcpServers": servers})
 		cancel()
+		st.mu.Lock()
+		st.replaying = false
+		st.mu.Unlock()
 		if err != nil {
 			if ep != nil {
 				ep.Revoke()
@@ -466,7 +483,6 @@ func (b *Backend) Transcript(ctx context.Context, workspaceDir, sessionID string
 		if json.Unmarshal(raw, &m) == nil {
 			modes, models, curMode, curModel := sessionOptions(m)
 			b.reg.setCaps(workspaceDir, workspaceCaps{modes: modes, models: models})
-			st = b.reg.getOrCreate(sessionID, workspaceDir)
 			st.mu.Lock()
 			if st.modeID == "" {
 				st.modeID = curMode
@@ -476,10 +492,9 @@ func (b *Backend) Transcript(ctx context.Context, workspaceDir, sessionID string
 			}
 			st.mu.Unlock()
 		}
-		st, ok = b.reg.get(sessionID)
-		if !ok {
-			st = b.reg.getOrCreate(sessionID, workspaceDir)
-		}
+		st.mu.Lock()
+		st.loaded = true
+		st.mu.Unlock()
 		b.adoptMCP(st, ep)
 	}
 	st.mu.Lock()
