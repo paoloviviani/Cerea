@@ -373,3 +373,37 @@ func TestAgentFromTitleReadsOnlyOpencodesOwnSuffix(t *testing.T) {
 		}
 	}
 }
+
+// An OverAsk exception that matches everything (the bare `*` an edit "always"
+// stored in 0.42.1) is dropped on load; every other one is kept.
+func TestLoadDropsABroadOverAskException(t *testing.T) {
+	path := t.TempDir() + "/overlay.json"
+	b := New(Config{OverlayPath: path})
+	sel := permrules.Selector{Exceptions: []permrules.Exception{
+		{ID: "ex_1", Permission: "edit", Patterns: []string{"*"}, OverAsk: true},
+		{ID: "ex_2", Permission: "edit", Patterns: []string{"a.go"}, OverAsk: true},
+		{ID: "ex_3", Permission: "edit", Patterns: []string{"*"}}, // older: kept
+		{ID: "ex_4", Permission: "bash", Patterns: []string{"go test *"}, OverAsk: true},
+	}}
+	if err := b.setOverlay("s1", sessionOverlay{Selector: sel}); err != nil {
+		t.Fatal(err)
+	}
+	b2 := New(Config{OverlayPath: path})
+	if err := b2.loadOverlay(); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, e := range b2.selectorOf("s1").Exceptions {
+		ids = append(ids, e.ID)
+	}
+	if strings.Join(ids, ",") != "ex_2,ex_3,ex_4" {
+		t.Errorf("kept %v, want ex_2,ex_3,ex_4", ids)
+	}
+	if d := b2.DroppedBroadExceptions(); len(d) != 1 || d[0] != "s1 edit" {
+		t.Errorf("dropped = %v", d)
+	}
+	b3 := New(Config{OverlayPath: path})
+	if err := b3.loadOverlay(); err != nil || len(b3.DroppedBroadExceptions()) != 0 {
+		t.Errorf("second load: err=%v dropped=%v (the drop is saved)", err, b3.DroppedBroadExceptions())
+	}
+}

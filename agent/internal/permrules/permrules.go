@@ -294,6 +294,41 @@ func (s Selector) With(e Exception) (Selector, Exception) {
 	return out, e
 }
 
+// Overbroad reports whether a stored exception pattern matches everything: it
+// is empty or made only of `*`, `?`, `/` and spaces (`*`, `**`, `**/*`).
+func Overbroad(pattern string) bool {
+	return strings.Trim(pattern, "*?/ \t") == ""
+}
+
+// WithoutBroadOverAsk drops every OverAsk exception with an overbroad pattern
+// (the `*` edit exceptions the first release of "always over ask" stored) and
+// says how many it dropped. Exceptions not marked OverAsk are kept.
+func (s Selector) WithoutBroadOverAsk() (Selector, []Exception) {
+	var dropped []Exception
+	var kept []Exception
+	for _, e := range s.Exceptions {
+		if e.OverAsk {
+			broad := len(e.Patterns) == 0
+			for _, p := range e.Patterns {
+				if Overbroad(p) {
+					broad = true
+				}
+			}
+			if broad {
+				dropped = append(dropped, e)
+				continue
+			}
+		}
+		kept = append(kept, e)
+	}
+	if len(dropped) == 0 {
+		return s, nil
+	}
+	out := s
+	out.Exceptions = kept
+	return out, dropped
+}
+
 // Without drops the exception with this id.
 func (s Selector) Without(id string) (Selector, bool) {
 	var kept []Exception

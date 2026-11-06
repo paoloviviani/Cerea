@@ -168,6 +168,8 @@ type Backend struct {
 
 	overlayMu sync.Mutex
 	overlay   map[string]sessionOverlay
+	// droppedBroad is what loadOverlay dropped (see DroppedBroadExceptions).
+	droppedBroad []string
 
 	// toolsMu guards the galopin tool relay (tools.go): the loopback server
 	// plus its held approvals, and the handler answering the calls.

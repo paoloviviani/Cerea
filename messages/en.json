@@ -957,7 +957,7 @@
 	"chat.approval.allow_once": "Allow once",
 	"chat.approval.allowed": "Allowed",
 	"chat.approval.always": "Always allow (this session)",
-	"chat.approval.always_edits": "Always allow edits (this session)",
+	"chat.approval.always_edits": "Always allow edits to this file",
 	"chat.approval.arguments": "Arguments",
 	"chat.approval.cancelled": "Cancelled with the response",
 	"chat.approval.collapse": "Collapse",
