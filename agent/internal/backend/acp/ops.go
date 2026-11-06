@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -348,7 +349,16 @@ func (b *Backend) SetModel(ctx context.Context, workspaceDir, sessionID, modelID
 	callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
 	defer cancel()
 	if _, err := conn.call(callCtx, "session/set_model", map[string]any{"sessionId": sessionID, "modelId": modelID}); err != nil {
-		return backend.Session{}, fmt.Errorf("acp: session/set_model is not supported by this agent: %w", err)
+		// goose and pi-acp advertise the model as a config option and answer
+		// "method not found" to the unstable session/set_model: the stable
+		// way is session/set_config_option on that option.
+		var re *rpcError
+		if !errors.As(err, &re) || re.Code != -32601 {
+			return backend.Session{}, fmt.Errorf("acp: session/set_model failed: %w", err)
+		}
+		if _, err2 := conn.call(callCtx, "session/set_config_option", map[string]any{"sessionId": sessionID, "configId": "model", "value": modelID}); err2 != nil {
+			return backend.Session{}, fmt.Errorf("acp: neither session/set_model nor session/set_config_option is supported by this agent: %w", err2)
+		}
 	}
 	st, ok := b.reg.get(sessionID)
 	if !ok {

@@ -33,6 +33,11 @@ type fakeAgent struct {
 	// the params of every session/new and session/load.
 	mcpHTTP   bool
 	newParams chan map[string]any
+
+	// noSetModel makes session/set_model answer "method not found" (goose and
+	// pi-acp); configOpts holds the params of every session/set_config_option.
+	noSetModel bool
+	configOpts chan map[string]any
 }
 
 type fakePromptReq struct {
@@ -47,6 +52,7 @@ func newFakeAgent(t *testing.T, w io.Writer) *fakeAgent {
 		promptParams: make(chan map[string]any, 16),
 		cancels:      make(chan string, 16),
 		newParams:    make(chan map[string]any, 16),
+		configOpts:   make(chan map[string]any, 16),
 	}
 	fa.conn = newRPCConn(w, fa.handleRequest, fa.handleNotify, t.Logf)
 	return fa
@@ -80,7 +86,18 @@ func (fa *fakeAgent) handleRequest(id json.RawMessage, method string, params jso
 		// Deliberately no respond here: the test completes it later via
 		// fa.respond(pr.id, ...), which is what lets the async-Prompt-
 		// contract test observe Prompt() returning well before that.
-	case "session/set_mode", "session/set_model", "session/close":
+	case "session/set_model":
+		if fa.noSetModel {
+			_ = fa.conn.respond(id, nil, &rpcError{Code: -32601, Message: "method not found"})
+			return
+		}
+		fa.respond(id, map[string]any{})
+	case "session/set_config_option":
+		var p map[string]any
+		_ = json.Unmarshal(params, &p)
+		fa.configOpts <- p
+		fa.respond(id, map[string]any{"configOptions": []any{}})
+	case "session/set_mode", "session/close":
 		fa.respond(id, map[string]any{})
 	case "session/list":
 		fa.respond(id, map[string]any{"sessions": []any{}})
@@ -533,5 +550,31 @@ func TestPromptReturnsBeforeTurnCompletes(t *testing.T) {
 	case <-fa.promptReqs:
 	case <-time.After(5 * time.Second):
 		t.Fatal("fake agent never saw session/prompt")
+	}
+}
+
+// goose and pi-acp have no session/set_model; the model is a config option.
+func TestSetModelFallsBackToConfigOption(t *testing.T) {
+	b, fa := newTestBackend(t)
+	fa.noSetModel = true
+	ctx := context.Background()
+	sess, err := b.CreateSession(ctx, "/w", backend.CreateSessionOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := b.SetModel(ctx, "/w", sess.ID, "m-2")
+	if err != nil {
+		t.Fatalf("SetModel: %v", err)
+	}
+	if got.ModelID != "m-2" {
+		t.Errorf("ModelID = %q, want m-2", got.ModelID)
+	}
+	select {
+	case p := <-fa.configOpts:
+		if getStr(p, "configId") != "model" || getStr(p, "value") != "m-2" || getStr(p, "sessionId") != sess.ID {
+			t.Errorf("set_config_option params = %v", p)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("session/set_config_option never reached the agent")
 	}
 }
