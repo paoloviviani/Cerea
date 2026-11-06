@@ -171,7 +171,7 @@ test.describe("scheduled actions, hermetic", () => {
 		await seedUser(db, session.sessionId, sub);
 		const name = `sched-agent-${randomUUID().slice(0, 6)}`;
 		fake = await connectFakeMachine(sub, name);
-		expect(fake.features).toEqual({ machineCalls: ["schedule"] });
+		expect(fake.features).toEqual({ machineCalls: ["schedule", "connector"] });
 		await pairAndStartSession(page, name);
 		const agent = fake.model.sessions[0];
 		agent.title = "Refactor the parser";

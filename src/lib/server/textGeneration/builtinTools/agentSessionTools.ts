@@ -16,6 +16,7 @@ import {
 } from "$lib/server/code/agentSessions";
 import { authTimeFresh, sessionAuthFresh } from "$lib/server/code/stepUp";
 import { getProjectAgentProfile, profileView } from "$lib/server/projectAgentProfiles";
+import { setSessionConnectorKeys } from "$lib/server/code/sessionConnectors";
 import { MessageUpdateType, type MessageAgentSessionUpdate } from "$lib/types/MessageUpdate";
 import { OpError, type Part, type Session } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
@@ -296,6 +297,19 @@ async function startSession(
 			modelId,
 			permissionMode,
 			prompt: input.prompt,
+			// The project's connector default goes with the profile's own target, never another.
+			...(useProfile && profile.connectorKeys?.length
+				? {
+						afterCreate: async (created: Session) => {
+							await setSessionConnectorKeys(
+								userId,
+								deviceId,
+								created.id,
+								profile.connectorKeys ?? []
+							);
+						},
+					}
+				: {}),
 		});
 	} catch (err) {
 		const step = err instanceof AgentStepError ? err.step : "create";

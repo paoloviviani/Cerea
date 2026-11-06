@@ -136,6 +136,10 @@ Every `tools/call` adds one line to `audit.log` in galopin's config directory:
 when, which server, which tool, and the outcome (`ok`, `error`, `refused`).
 Never the arguments or the result, which stay between the chat and the server.
 
+## Coding agents on the same machine
+
+On a machine that also runs coding agents, a session can use its own machine's connectors without going through Cerea: switch them on for the session (the **Connectors** switches in its Permissions sheet, "on this machine"; see [Connectors for an agent](code-panel.md#connectors-for-an-agent)). galopin runs the call itself, in-process, with the same ceiling as the chat: `allowedTools` still applies, a server that needs a sign-in is refused until you sign in, and each call adds its line to `audit.log`. The call is also a `tools` call for the session's permissions (Plan refuses it, Ask raises a card, the machine's `tools` limit caps it). Switching a server on for a session is separate from its Workspace switch for the chat.
+
 ## Signing in to an http server
 
 Secrets for a stdio server belong in its `env`, which never leaves the machine,

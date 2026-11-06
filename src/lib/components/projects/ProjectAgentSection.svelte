@@ -18,7 +18,13 @@
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
 	import * as s from "$lib/components/overlay/styles";
-	import { listWorkspaces, loadCodeStatus } from "$lib/codeApi";
+	import {
+		getSessionConnectors,
+		listWorkspaces,
+		loadCodeStatus,
+		type AgentConnectorOption,
+	} from "$lib/codeApi";
+	import ConnectorSwitches from "$lib/components/code/ConnectorSwitches.svelte";
 	import { codeDeviceList, useCodeDevicePoll } from "$lib/stores/codeDeviceList.svelte";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import CodeReauthCard from "$lib/components/code/CodeReauthCard.svelte";
@@ -44,6 +50,9 @@
 	let deviceId = $state("");
 	let workspaceId = $state("");
 	let permissionMode = $state<PermissionMode>("ask");
+	/** Connectors sessions started from this project's chats may use (ADR 0108): none by default. */
+	let connectorKeys = $state<string[]>([]);
+	let connectorOptions = $state<AgentConnectorOption[]>([]);
 	let workspaces = $state<CodeWorkspace[]>([]);
 	let loadingWorkspaces = $state(false);
 	let workspaceNote = $state<string | null>(null);
@@ -57,7 +66,8 @@
 		!saved ||
 			saved.deviceId !== deviceId ||
 			saved.workspaceId !== workspaceId ||
-			saved.permissionMode !== permissionMode
+			saved.permissionMode !== permissionMode ||
+			[...(saved.connectorKeys ?? [])].sort().join("\n") !== [...connectorKeys].sort().join("\n")
 	);
 	const canSave = $derived(!busy && !!deviceId && !!workspaceId && dirty);
 	/** The stored workspace's name when the machine cannot list it now. */
@@ -106,6 +116,19 @@
 		deviceId = profile?.deviceId ?? "";
 		workspaceId = profile?.workspaceId ?? "";
 		permissionMode = profile?.permissionMode ?? "ask";
+		connectorKeys = profile?.connectorKeys ?? [];
+	}
+
+	/** The connectors this user could switch on for a session on the machine. */
+	async function loadConnectors(id: string) {
+		connectorOptions = [];
+		if (!id) return;
+		try {
+			const { options } = await getSessionConnectors(id);
+			if (deviceId === id) connectorOptions = options;
+		} catch {
+			/* the list is optional: without it the section says there is nothing to switch on */
+		}
 	}
 
 	/** What the chosen machine has. An offline one has nothing to list. */
@@ -164,11 +187,14 @@
 		const id = deviceId;
 		void device?.online;
 		void loadMachine(id);
+		void loadConnectors(id);
 	});
 
 	function onDeviceChange() {
 		workspaceId = "";
 		notice = null;
+		// A server on the old machine means nothing on the new one.
+		connectorKeys = connectorKeys.filter((k) => !k.startsWith("local:"));
 	}
 
 	async function save() {
@@ -185,6 +211,7 @@
 			permissionMode,
 			...(keep?.modeId ? { modeId: keep.modeId } : {}),
 			...(keep?.modelId ? { modelId: keep.modelId } : {}),
+			...(connectorKeys.length ? { connectorKeys } : {}),
 		};
 		try {
 			const response = await fetch(ENDPOINT, {
@@ -322,6 +349,19 @@
 			<p class={s.HINT}>{m["projects.agent.permission_hint"]()}</p>
 			<p class={s.HINT}>{m["projects.agent.permission_scope"]()}</p>
 		</div>
+
+		{#if deviceId}
+			<div data-testid="project-agent-connectors">
+				<span class={s.LABEL}>{m["projects.agent.connectors_title"]()}</span>
+				<ConnectorSwitches
+					options={connectorOptions}
+					selected={connectorKeys}
+					disabled={busy}
+					onchange={(keys) => (connectorKeys = keys)}
+				/>
+				<p class={s.HINT}>{m["projects.agent.connectors_hint"]()}</p>
+			</div>
+		{/if}
 
 		{#if failure}
 			<p class={s.ERROR} role="alert" data-testid="project-agent-error">{failure}</p>

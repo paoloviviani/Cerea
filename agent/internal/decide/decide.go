@@ -546,3 +546,28 @@ func AskAlwaysOK(p Policy, r Request) bool {
 	}
 	return lim == AskLimit
 }
+
+// ConnectorCall decides one call of a connector's tool through galopin's
+// connector tools (ADR 0108, item 3), which are the `tools` class like any other
+// MCP tool: allow means no card, ask a card, deny a refusal the model reads. The
+// machine's limit for the class caps the session's word, as for every class:
+// never refuses, ask is always a card, and run leaves it to the word (Plan
+// refuses, Ask raises a card, Allow runs). Reading what is on offer
+// (list true) changes nothing, so only a never limit and a Plan-less nothing
+// stand in its way: it is refused under never and otherwise free.
+func ConnectorCall(p Policy, s State, list bool) (permrules.Action, string) {
+	lim := p.Limit(ClassTools)
+	if lim == Never {
+		return permrules.Deny, limitReason(ClassTools)
+	}
+	if list {
+		return permrules.Allow, ""
+	}
+	if s.Mode == permrules.Deny {
+		return permrules.Deny, PlanReason
+	}
+	if lim == AskLimit || s.Mode != permrules.Allow {
+		return permrules.Ask, ""
+	}
+	return permrules.Allow, ""
+}

@@ -28,6 +28,7 @@ import { logger } from "$lib/server/logger";
 import { codeSchedulesEnabled } from "$lib/server/codeEnabled";
 import { recordCodeAuditRow } from "$lib/server/code/audit";
 import { MachineLink } from "$lib/server/code/machines";
+import { CONNECTOR_CALL_OPS, handleConnectorCall } from "$lib/server/code/machineConnectors";
 import "$lib/server/code/scheduleAgentExecutor";
 import { parseTarget, type AgentTarget } from "$lib/server/code/scheduleAgentExecutor";
 import { recurrenceSchema } from "$lib/server/schedules/recurrence";
@@ -51,7 +52,7 @@ import {
 import type { Schedule } from "$lib/types/Schedule";
 
 /** The op families `welcome.features.machineCalls` advertises. */
-export const MACHINE_CALL_FEATURES = ["schedule"];
+export const MACHINE_CALL_FEATURES = ["schedule", "connector"];
 
 export const MAX_ACTIVE_AGENT_SCHEDULES = 5;
 export const MAX_CALLS_PER_HOUR = 10;
@@ -59,14 +60,7 @@ const HOUR_MS = 60 * 60 * 1000;
 
 const MUTATING_ACTIONS = ["schedule.create", "schedule.update", "schedule.delete"];
 
-class CallError extends Error {
-	constructor(
-		readonly code: CallErrorCode,
-		message: string
-	) {
-		super(message);
-	}
-}
+import { CallError } from "$lib/server/code/machineCallError";
 
 /** The opencode agent mode a run starts in: the executor's `modeId`. Not
  * bounded by the caller — the permission word bounds what a run may do. */
@@ -494,7 +488,7 @@ async function opDelete(ctx: CallContext) {
 }
 
 const OPS: Record<
-	MachineCallOp,
+	Exclude<MachineCallOp, "connector.list" | "connector.call">,
 	{ mutating: boolean; run: (ctx: CallContext) => Promise<unknown> }
 > = {
 	"schedule.context": { mutating: false, run: opContext },
@@ -527,7 +521,10 @@ export async function handleMachineCall(deviceId: string, frame: CallFrame): Pro
 		ok: false,
 		error: { code, message },
 	});
-	const op = Object.hasOwn(OPS, frame.op) ? OPS[frame.op as MachineCallOp] : undefined;
+	// The connector family (ADR 0108, item 3) is its own handler: it has no schedules kill switch
+	// and no serialising queue, and its rules are the connector resolver's.
+	if (CONNECTOR_CALL_OPS.includes(frame.op)) return handleConnectorCall(deviceId, frame);
+	const op = Object.hasOwn(OPS, frame.op) ? OPS[frame.op as keyof typeof OPS] : undefined;
 	if (!op) return fail("unsupported", `This Cerea does not know the call "${frame.op}".`);
 
 	let ctx: CallContext;

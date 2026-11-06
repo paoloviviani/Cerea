@@ -307,6 +307,42 @@ describe("agent_start", () => {
 		expect(ops("session.setPermissionMode")[0].args).toMatchObject({ mode: "allow" });
 	});
 
+	it("switches on the project's connector default for the session it starts, before the prompt", async () => {
+		const { seal } = await import("$lib/server/mcp/secretBox");
+		const connector = {
+			_id: new ObjectId(),
+			userId: person.user._id,
+			scope: "user" as const,
+			name: "Tracker",
+			url: "https://tracker.test/mcp",
+			auth: "token" as const,
+			tokenSealed: seal("t"),
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		};
+		await collections.mcpConnectors.insertOne(connector);
+		try {
+			const projectId = await projectWithConversation();
+			const key = `connector:${connector._id}`;
+			await saveProjectAgentProfile(projectId, person.user._id, {
+				deviceId,
+				workspaceId: "ws1",
+				permissionMode: "ask",
+				connectorKeys: [key],
+			});
+			const out = parse(await run(AGENT_START_TOOL_NAME, { prompt: "Go" }));
+			const row = await collections.codeSessionConnectors.findOne({
+				userId: person.user._id,
+				deviceId,
+				sessionId: out.sessionId as string,
+			});
+			expect(row?.keys).toEqual([key]);
+		} finally {
+			await collections.mcpConnectors.deleteOne({ _id: connector._id });
+			await collections.codeSessionConnectors.deleteMany({ userId: person.user._id });
+		}
+	});
+
 	it("falls back to Ask when the model names a target other than the profile's", async () => {
 		const projectId = await projectWithConversation();
 		await saveProjectAgentProfile(projectId, person.user._id, {

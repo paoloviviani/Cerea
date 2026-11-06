@@ -59,6 +59,7 @@ import type { Schedule, ScheduleGrant, ScheduleRun } from "$lib/types/Schedule";
 import type { PushSubscriptionRow } from "$lib/types/PushSubscription";
 import type { CustomModel } from "$lib/types/CustomModel";
 import type { ProjectMemory } from "$lib/types/ProjectMemory";
+import type { CodeSessionConnectorsRow } from "$lib/types/CodeSessionConnectors";
 import type { ProjectAgentProfileRow } from "$lib/types/ProjectAgentProfileRow";
 import type { ProjectDocument } from "$lib/types/ProjectDocument";
 import type { CodeAuditEntry, CodeDevice } from "$lib/types/CodeAgent";
@@ -300,6 +301,8 @@ export class Database {
 		// explorer's raw reads and refusals, later terminals and writes.
 		// Never content. Kept 90 days.
 		const codeAudit = db.collection<CodeAuditEntry>("codeAudit");
+		// Which connectors a coding-agent session may use (ADR 0108); default none.
+		const codeSessionConnectors = db.collection<CodeSessionConnectorsRow>("codeSessionConnectors");
 		// Scheduled actions (`server/schedules/`): the timetable a person set, and
 		// one row per occurrence considered — fired or not — which is the record.
 		const schedules = db.collection<Schedule>("schedules");
@@ -360,6 +363,7 @@ export class Database {
 			localConnectorOauth,
 			codeDevices,
 			codeAudit,
+			codeSessionConnectors,
 			schedules,
 			scheduleRuns,
 			scheduleGrants,
@@ -410,6 +414,7 @@ export class Database {
 			localConnectorOauth,
 			codeDevices,
 			codeAudit,
+			codeSessionConnectors,
 			agentReviewLog,
 			schedules,
 			scheduleRuns,
@@ -1011,6 +1016,13 @@ export class Database {
 		codeAudit
 			.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 })
 			.catch((e) => logger.error(e, "Error creating TTL index for codeAudit"));
+		codeSessionConnectors
+			.createIndex({ userId: 1, deviceId: 1, sessionId: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for codeSessionConnectors"));
+		// A session nobody has touched for a year loses its opt-in (back to none, the safe side).
+		codeSessionConnectors
+			.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60 })
+			.catch((e) => logger.error(e, "Error creating TTL index for codeSessionConnectors"));
 		codeAudit
 			.createIndex({ userId: 1, at: -1 })
 			.catch((e) => logger.error(e, "Error creating index for codeAudit by userId"));

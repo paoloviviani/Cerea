@@ -76,6 +76,11 @@ func (mc *machine) decideAsk(rh backend.RuleHost, dir string, req backend.Permis
 // function.
 func (mc *machine) askClass(dir string, req backend.PermissionRequest) (string, bool) {
 	if strings.HasPrefix(req.ID, "gp_") {
+		// A connector's tool is the tools class (ADR 0108); every other gp_ ask
+		// is galopin's coordination, the agents class.
+		if req.Tool == "connector_call" {
+			return string(decide.ClassTools), false
+		}
 		return string(decide.ClassAgents), false
 	}
 	rh, ok := mc.ruleHost()

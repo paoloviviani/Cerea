@@ -32,6 +32,12 @@ type channel struct {
 	idle       *time.Timer
 	listIDs    map[string]bool
 	callIDs    map[string]string // request id -> tool
+
+	// local, when set, takes what would go to Cerea: the channel belongs to
+	// galopin's own in-process client (local.go), not to a Cerea chat.
+	local func(raw []byte)
+	// localClosed tells that client the channel ended.
+	localClosed func()
 }
 
 func newChannel(h *Hub, e *Entry) *channel {
@@ -190,7 +196,10 @@ func (c *channel) end(why, reason string, detail *string, emit bool) {
 		}
 		c.logf("connectors: %s: stopped (channel %s, %s)", c.entry.Name, c.id, stopped)
 	}
-	if emit {
+	if c.localClosed != nil {
+		c.localClosed()
+	}
+	if emit && c.local == nil {
 		c.hub.cfg.Closed(c.id, reason, detail)
 	}
 }
@@ -203,6 +212,10 @@ func (c *channel) isClosed() bool {
 
 func (c *channel) toCerea(raw []byte) {
 	if c.isClosed() {
+		return
+	}
+	if c.local != nil {
+		c.local(raw)
 		return
 	}
 	if err := c.hub.cfg.Send(c.id, raw); err != nil {

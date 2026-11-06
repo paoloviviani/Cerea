@@ -84,6 +84,11 @@ type agentTools struct {
 	// calls stands in for the link's machine calls in tests; nil means the
 	// machine's live link (agenttools_schedule.go).
 	calls machineCaller
+
+	// connectorNames is, per session, the display name of each connector id its
+	// last connector_list showed, for the card of a later connector_call (under
+	// mu). The id is all a call names; the name is for the person reading.
+	connectorNames map[string]map[string]string
 }
 
 // installAgentTools wires the tools when the backend has them.
@@ -156,6 +161,10 @@ func (at *agentTools) dispatch(ctx context.Context, call backend.ToolCall) (stri
 		out, to, err = at.send(ctx, tc, call)
 	case "session_read":
 		out, to, err = at.read(ctx, tc, call)
+	case "connector_list":
+		out, err = at.connectorListTool(ctx, tc, call)
+	case "connector_call":
+		out, to, err = at.connectorCallTool(ctx, tc, call)
 	case "schedule_list":
 		out, err = at.scheduleList(ctx, tc, call)
 	case "schedule_create":

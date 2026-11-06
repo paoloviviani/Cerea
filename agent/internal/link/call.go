@@ -20,6 +20,9 @@ type Call struct {
 	RootSessionID string `json:"rootSessionId"`
 	Caller        any    `json:"caller"`
 	Args          any    `json:"args"`
+	// Timeout overrides Config.CallTimeout for this call (a connector's tool
+	// may run longer than a schedule lookup); zero uses the default.
+	Timeout time.Duration `json:"-"`
 }
 
 type callResult struct {
@@ -89,7 +92,11 @@ func (l *Link) Call(ctx context.Context, c Call) (json.RawMessage, *OpError) {
 		drop()
 		return nil, unavailable("Cerea is not reachable from this machine right now")
 	}
-	timer := time.NewTimer(l.cfg.CallTimeout)
+	wait := l.cfg.CallTimeout
+	if c.Timeout > 0 {
+		wait = c.Timeout
+	}
+	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {
 	case r := <-ch:

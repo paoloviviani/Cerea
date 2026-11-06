@@ -632,6 +632,18 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.connectorSwitches, "userId", userId),
 	},
 	{
+		name: "codeSessionConnectors",
+		owner: "userId",
+		mergeRule: "reassign-unique-keep-target",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// Unique on (userId, deviceId, sessionId): a device is one user's, so a collision is
+		// two accounts that each kept an opt-in for the same session; the target's stays.
+		merge: (stray, target) =>
+			reassignWithUniqueConflict(collections.codeSessionConnectors, "userId", stray, target),
+		erase: (userId) => eraseByField(collections.codeSessionConnectors, "userId", userId),
+	},
+	{
 		name: "mcpTokens",
 		owner: "userId",
 		mergeRule: "reassign-unique-keep-target",

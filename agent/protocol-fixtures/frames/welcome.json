@@ -8,7 +8,7 @@
 		"deviceId": "65f1a2b3c4d5e6f708192a3b",
 		"status": "paired",
 		"features": {
-			"machineCalls": ["schedule"]
+			"machineCalls": ["schedule", "connector"]
 		}
 	}
 }

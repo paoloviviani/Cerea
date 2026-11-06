@@ -166,6 +166,45 @@ export async function setNeverReview(
 	);
 }
 
+/** One connector a user can switch on for a coding session (ADR 0108, item 3). */
+export interface AgentConnectorOption {
+	key: string;
+	name: string;
+	kind: "base" | "connector" | "local";
+	summary: string;
+	unavailable?: "switched off" | "needs sign-in";
+	locked?: boolean;
+}
+
+/** The connectors a session could use, and which it has switched on (none by default). */
+export async function getSessionConnectors(
+	deviceId: string,
+	sessionId?: string
+): Promise<{ options: AgentConnectorOption[]; selected: string[] }> {
+	const query = new URLSearchParams({
+		device: deviceId,
+		...(sessionId ? { session: sessionId } : {}),
+	});
+	return unwrap(
+		await fetch(`${root()}/connectors?${query}`, { signal: AbortSignal.timeout(DEVICE_TIMEOUT_MS) })
+	);
+}
+
+export async function setSessionConnectors(
+	deviceId: string,
+	sessionId: string,
+	keys: string[]
+): Promise<{ selected: string[] }> {
+	return unwrap(
+		await fetch(`${root()}/connectors`, {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ deviceId, sessionId, keys }),
+			signal: AbortSignal.timeout(DEVICE_TIMEOUT_MS),
+		})
+	);
+}
+
 /** Whether a reviewer stands behind Auto here, and the administrator's rows. */
 export async function getAutoApproval(): Promise<{
 	available: boolean;

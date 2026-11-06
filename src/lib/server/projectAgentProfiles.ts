@@ -10,6 +10,7 @@ import { z } from "zod";
 import { collections } from "$lib/server/database";
 import { checkOwnedTarget, workspaceNameOn } from "$lib/server/code/agentSessions";
 import { isMachineOnline, MachineLink } from "$lib/server/code/machines";
+import { connectorOptions, MAX_SESSION_CONNECTORS } from "$lib/server/code/sessionConnectors";
 import { OpError, PERMISSION_MODES } from "$lib/types/machineProtocol";
 import type { ProjectAgentProfile, ProjectAgentProfileInput } from "$lib/types/AgentSession";
 import type { ProjectAgentProfileRow } from "$lib/types/ProjectAgentProfileRow";
@@ -20,6 +21,7 @@ export const profileInputSchema = z.object({
 	permissionMode: z.enum(PERMISSION_MODES as [string, ...string[]]),
 	modeId: z.string().min(1).max(64).optional(),
 	modelId: z.string().min(1).max(256).optional(),
+	connectorKeys: z.array(z.string().min(1).max(300)).max(MAX_SESSION_CONNECTORS).optional(),
 });
 
 export function profileView(row: ProjectAgentProfileRow): ProjectAgentProfile {
@@ -29,6 +31,7 @@ export function profileView(row: ProjectAgentProfileRow): ProjectAgentProfile {
 		permissionMode: row.permissionMode,
 		...(row.modeId ? { modeId: row.modeId } : {}),
 		...(row.modelId ? { modelId: row.modelId } : {}),
+		...(row.connectorKeys?.length ? { connectorKeys: row.connectorKeys } : {}),
 		labels: row.labels,
 		updatedAt: row.updatedAt.toISOString(),
 	};
@@ -70,6 +73,19 @@ export async function saveProjectAgentProfile(
 		}
 	}
 
+	// Every connector must be one the user could switch on for a session on this machine now.
+	const connectorKeys = [...new Set(input.connectorKeys ?? [])];
+	if (connectorKeys.length > 0) {
+		const allowed = new Set(
+			(await connectorOptions(userId, input.deviceId))
+				.filter((o) => !o.unavailable)
+				.map((o) => o.key)
+		);
+		if (connectorKeys.some((k) => !allowed.has(k))) {
+			return { ok: false, error: "One of those connectors is not available to you." };
+		}
+	}
+
 	const row: ProjectAgentProfileRow = {
 		_id: previous?._id ?? new ObjectId(),
 		projectId,
@@ -79,6 +95,7 @@ export async function saveProjectAgentProfile(
 		permissionMode: input.permissionMode,
 		...(input.modeId ? { modeId: input.modeId } : {}),
 		...(input.modelId ? { modelId: input.modelId } : {}),
+		...(connectorKeys.length ? { connectorKeys } : {}),
 		labels: { device: device.name, workspace: workspaceLabel },
 		updatedAt: new Date(),
 	};

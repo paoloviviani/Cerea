@@ -169,8 +169,8 @@ afterEach(async () => {
 });
 
 describe("the link", () => {
-	it("advertises schedule calls in the welcome", () => {
-		expect(machine.features).toEqual({ machineCalls: ["schedule"] });
+	it("advertises schedule and connector calls in the welcome", () => {
+		expect(machine.features).toEqual({ machineCalls: ["schedule", "connector"] });
 	});
 
 	it("keeps the scheduleTools capability from the hello", async () => {

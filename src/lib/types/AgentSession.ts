@@ -39,6 +39,8 @@ export interface ProjectAgentProfile {
 	permissionMode: PermissionMode;
 	modeId?: string;
 	modelId?: string;
+	/** Connectors sessions started from this project's chats may use (ADR 0108); none by default. */
+	connectorKeys?: string[];
 	labels: AgentSessionLabels;
 	updatedAt: string;
 }
@@ -46,5 +48,5 @@ export interface ProjectAgentProfile {
 /** The body of `PUT /api/v2/projects/[id]/agent-profile` (labels are resolved by the server). */
 export type ProjectAgentProfileInput = Pick<
 	ProjectAgentProfile,
-	"deviceId" | "workspaceId" | "permissionMode" | "modeId" | "modelId"
+	"deviceId" | "workspaceId" | "permissionMode" | "modeId" | "modelId" | "connectorKeys"
 >;

@@ -17,6 +17,7 @@ const apiMock = vi.hoisted(() => ({
 	listDevices: vi.fn(),
 	listWorkspaces: vi.fn(),
 	loadCodeStatus: vi.fn(async () => undefined),
+	getSessionConnectors: vi.fn(),
 }));
 vi.mock("$lib/codeApi", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/codeApi")>()),
@@ -90,6 +91,10 @@ beforeEach(() => {
 			{ id: "w2", name: "docs", path: "/d", isGitRepo: false },
 		],
 	});
+	apiMock.getSessionConnectors.mockReset().mockResolvedValue({
+		options: [{ key: "connector:a", name: "Tracker", kind: "connector", summary: "Issues" }],
+		selected: [],
+	});
 	machines([{ id: "d1", name: "Studio laptop" }]);
 	installFetch();
 });
@@ -124,6 +129,26 @@ describe("ProjectAgentSection", () => {
 			.element(screen.getByRole("radio", { name: "Allow" }))
 			.toHaveAttribute("aria-checked", "true");
 		await expect.element(screen.getByRole("button", { name: "Remove" })).toBeVisible();
+	});
+
+	it("offers the connectors with none on, and saves the ones switched on as the default", async () => {
+		const screen = mount();
+		await screen.getByLabelText("Machine").selectOptions("d1");
+		await expect.element(screen.getByRole("option", { name: "docs" })).toBeInTheDocument();
+		await screen.getByLabelText("Workspace").selectOptions("w2");
+		const tracker = screen.getByTestId("connector-switch-Tracker");
+		await expect.element(tracker).not.toBeChecked();
+		await screen.getByRole("button", { name: "Save" }).click();
+		await expect.element(screen.getByText("Saved.")).toBeVisible();
+		expect(calls.find((c) => c.method === "PUT")?.body).not.toHaveProperty("connectorKeys");
+		await tracker.click();
+		await expect.element(tracker).toBeChecked();
+		await screen.getByRole("button", { name: "Save" }).click();
+		await vi.waitFor(() =>
+			expect(calls.filter((c) => c.method === "PUT")[1]?.body?.connectorKeys).toEqual([
+				"connector:a",
+			])
+		);
 	});
 
 	it("saves a new target with Ask as the default permission", async () => {

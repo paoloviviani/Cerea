@@ -322,3 +322,34 @@ func TestCoordinationTool(t *testing.T) {
 		}
 	}
 }
+
+// ConnectorCall is the tools class for galopin's connector tools (ADR 0108):
+// the machine's limit caps, the session's word decides, reading the list is free.
+func TestConnectorCallDecision(t *testing.T) {
+	pol := func(l Limit) Policy { return Policy{Limits: map[Class]Limit{ClassTools: l}} }
+	type row struct {
+		limit Limit
+		mode  permrules.Action
+		list  bool
+		want  permrules.Action
+	}
+	for _, c := range []row{
+		{Run, permrules.Allow, false, permrules.Allow},
+		{Run, permrules.Ask, false, permrules.Ask},
+		{Run, permrules.Deny, false, permrules.Deny},
+		{AskLimit, permrules.Allow, false, permrules.Ask},
+		{Never, permrules.Allow, false, permrules.Deny},
+		{Run, permrules.Deny, true, permrules.Allow},
+		{Run, permrules.Ask, true, permrules.Allow},
+		{AskLimit, permrules.Ask, true, permrules.Allow},
+		{Never, permrules.Allow, true, permrules.Deny},
+	} {
+		got, reason := ConnectorCall(pol(c.limit), State{Mode: c.mode}, c.list)
+		if got != c.want {
+			t.Errorf("limit %v mode %s list %v: got %s, want %s", c.limit, c.mode, c.list, got, c.want)
+		}
+		if got == permrules.Deny && reason == "" {
+			t.Errorf("limit %v mode %s: a refusal without a reason", c.limit, c.mode)
+		}
+	}
+}

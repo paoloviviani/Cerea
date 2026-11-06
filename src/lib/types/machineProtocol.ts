@@ -1001,6 +1001,8 @@ export const MACHINE_CALL_OPS = [
 	"schedule.create",
 	"schedule.update",
 	"schedule.delete",
+	"connector.list",
+	"connector.call",
 ] as const;
 export type MachineCallOp = (typeof MACHINE_CALL_OPS)[number];
 

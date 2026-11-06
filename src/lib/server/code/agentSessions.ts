@@ -11,6 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
+import { logger } from "$lib/server/logger";
 import type { MachineLink } from "$lib/server/code/machines";
 import { allowsModel } from "$lib/server/code/modelPolicy";
 import { OpError, type PermissionMode, type Session } from "$lib/types/machineProtocol";
@@ -155,6 +156,8 @@ export async function startAgentSession(
 		modelId?: string;
 		permissionMode: PermissionMode;
 		prompt: string;
+		/** Runs once the session exists and before the prompt goes (the project's connector default). */
+		afterCreate?: (session: Session) => Promise<void>;
 	}
 ): Promise<Session> {
 	let session: Session;
@@ -167,6 +170,12 @@ export async function startAgentSession(
 		await applyPermissionWord(link, session, input.permissionMode);
 	} catch (err) {
 		throw new AgentStepError("permission", err);
+	}
+	try {
+		await input.afterCreate?.(session);
+	} catch (err) {
+		// Best effort: a connector default that cannot be applied must not lose the session.
+		logger.warn({ err: String(err) }, "agent start: afterCreate failed");
 	}
 	try {
 		await sendPrompt(link, session.id, input.prompt);
