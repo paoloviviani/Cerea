@@ -34,6 +34,7 @@ import {
 import type { CodeDeviceView } from "$lib/server/codeDevices";
 import type { DelegateProfiles } from "$lib/types/machineProtocol";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
+import { type GatewayUsageResponse, type TurnSpan, turnQuery } from "$lib/utils/gatewayUsage";
 import type {
 	CodeAgentSession,
 	CodeCommand,
@@ -1158,5 +1159,21 @@ export async function previewRecurrence(
 ): Promise<{ ok: true; description: string; next: Date[] } | { ok: false; error: string }> {
 	return unwrap(
 		await fetch(`${root()}/schedules/preview`, jsonInit("POST", { recurrence, timezone }))
+	);
+}
+
+/** What the gateway metered for this session, and for one turn when `turn`
+ * says when it began (and ended) on this page's clock — sent as durations, so
+ * the gateway's clock decides. Never throws for "no figures": the answer says
+ * `available: false`. */
+export async function getAgentGatewayUsage(
+	deviceId: string,
+	agentId: string,
+	turn: TurnSpan | null = null
+): Promise<GatewayUsageResponse> {
+	return unwrap(
+		await fetch(
+			`${root()}/agents/${encodeURIComponent(agentId)}/usage?device=${encodeURIComponent(deviceId)}${turnQuery(turn, Date.now())}`
+		)
 	);
 }
