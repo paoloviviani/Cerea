@@ -92,15 +92,11 @@ describe("PairDeviceDialog", () => {
 		await expect.element(screen.getByTestId("enroll-bill-to-default")).toBeChecked();
 	});
 
-	it("says once, plainly, that these are fixed at enroll", async () => {
+	it("no longer says the options are fixed limits (ADR 0109)", async () => {
 		const screen = mount();
-		const note = screen.getByTestId("enroll-fixed-note");
-		await expect.element(note).toBeVisible();
-		const text = note.element().textContent?.replace(/\s+/g, " ").trim();
-		expect(text).toBe(
-			"These are fixed when the machine enrolls. Loosening one later means enrolling again; galopin policy set on the machine can only tighten."
-		);
-		expect(screen.getByTestId("enroll-fixed-note").elements()).toHaveLength(1);
+		await expect.element(screen.getByTestId("enroll-policy")).toBeVisible();
+		expect(screen.getByTestId("enroll-fixed-note").elements()).toHaveLength(0);
+		expect(document.body.textContent).not.toContain("will ever allow");
 	});
 
 	it("mentions no auto-accept, no responder, anywhere", async () => {
@@ -111,10 +107,10 @@ describe("PairDeviceDialog", () => {
 		expect(screen.getByRole("checkbox", { name: /auto-accept/i }).elements()).toHaveLength(0);
 	});
 
-	it("keeps the plain-words sentences for the two it had: Trust the repos, Install opencode", async () => {
+	it("keeps the plain-words sentences for the two it had: the project's own setup, Install opencode", async () => {
 		const screen = mount();
 		await expect
-			.element(screen.getByRole("checkbox", { name: /Trust the repos this machine opens/ }))
+			.element(screen.getByRole("checkbox", { name: /Use a project's own opencode setup/ }))
 			.toBeVisible();
 		await expect.element(screen.getByRole("checkbox", { name: /Install opencode/ })).toBeVisible();
 		expect(screen.getByTestId("enroll-allow-project-config").element()).not.toBeChecked();

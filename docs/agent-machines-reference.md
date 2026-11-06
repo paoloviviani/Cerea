@@ -32,16 +32,14 @@ exception: **Bill to my default group** starts ticked, so a machine paired
 through the dialog follows your console default group unless you untick it
 (`enroll` itself keeps requiring an explicit `--default-group`). The line above
 updates as you change things, with paths
-and globs quoted so they reach `enroll` as single arguments. The dialog says it
-once, plainly: _"These are fixed when the machine enrolls. Loosening one later
-means enrolling again; `galopin policy set` on the machine can only tighten."_
-(A control shown in an amber tone is one that opens something up.)
+and globs quoted so they reach `enroll` as single arguments. (A control shown in
+an amber tone is one that opens something up.)
 
 **Common options**, at the top:
 
 | Control                                        | What it adds to the printed command                                                                                                                                       | Default | Use it when                                                                                                               |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **Trust the repos this machine opens** (amber) | `--allow-project-config`                                                                                                                                                  | off     | the machine opens repositories you trust, and you want their own opencode setup to load                                   |
+| **Use a project's own opencode setup** (amber) | `--allow-project-config`                                                                                                                                                  | off     | the machine opens repositories you trust, and you want their own opencode setup to load                                   |
 | **Install opencode**                           | opencode's own installer line, pinned to the release galopin is tested against (`curl -fsSL https://opencode.ai/install \| bash -s -- --version 1.19.3`), before `enroll` | off     | the machine is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
 
 **The machine has no limits of its own** (ADR 0109). What a session may do is its Plan · Ask · Allow · Auto word in the composer (and, for Auto, the rows in Workspace → Agents), plus a fixed floor in galopin. The dialog prints no limit flag; `enroll` still accepts the retired `--limit`, `--permission-max` and `--permission-rule` for one more release, ignores them and warns.

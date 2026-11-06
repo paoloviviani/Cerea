@@ -1,6 +1,6 @@
 <!--
 	The machine-policy controls of the Pair-a-machine dialog: one control for
-	every `galopin enroll` flag that sets what the machine will ever allow, so
+	every `galopin enroll` flag the dialog offers (machine options, not limits: ADR 0109), so
 	nobody has to edit the printed command by hand (`FLAG_CONTROLS` names each
 	flag's control; `enrollFlags.spec.ts` keeps the two in step).
 
@@ -63,7 +63,6 @@
 
 <!-- A checkbox with its one sentence. `risky` tints the label amber and adds
      the warning mark: the owner should feel what these open. -->
-{#snippet inlineCode(text: string)}<code class="font-mono">{text}</code>{/snippet}
 {#snippet plainCode(text: string)}<code>{text}</code>{/snippet}
 {#snippet flag(key: BooleanKey, testid: string, label: string, text: string, risky = false)}
 	<label class="mb-3 flex items-start gap-2 text-xs text-ink-muted">
@@ -116,10 +115,7 @@
 {/snippet}
 
 <div data-testid="enroll-policy">
-	<p class="mb-1 text-xs font-medium text-ink">{m["code.enroll.title"]()}</p>
-	<p class="mb-3 text-xs text-ink-muted" data-testid="enroll-fixed-note">
-		<Rich parts={m["code.enroll.fixed_note"].parts()} tags={{ code: inlineCode }} />
-	</p>
+	<p class="mb-2 text-xs font-medium text-ink">{m["code.enroll.title"]()}</p>
 
 	{@render flag(
 		"allowProjectConfig",
