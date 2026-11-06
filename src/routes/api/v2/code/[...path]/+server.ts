@@ -833,7 +833,7 @@ const RAW_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/
  * follows its root). */
 const permissionModeSchema = z.object({
 	mode: z.enum(["deny", "ask", "allow"]),
-	/** ADR 0109: `allow` with `auto: true` is Auto (the user's per-class map, worked out here, never
+	/** ADR 0109: `ask` with `auto: true` is Auto (the user's per-class map, worked out here, never
 	 * trusted from the browser); `allow` alone is Allow, hands off. */
 	auto: z.boolean().optional(),
 });
@@ -1371,7 +1371,7 @@ export const POST: RequestHandler = async (event) => {
 		const parsed = permissionModeSchema.safeParse(body);
 		if (!parsed.success) error(400, "Expected { mode: 'deny' | 'ask' | 'allow', auto?: boolean }.");
 		const sessionId = decodeURIComponent(permissionModeMatch[1]);
-		const auto = parsed.data.mode === "allow" && parsed.data.auto === true;
+		const auto = parsed.data.mode === "ask" && parsed.data.auto === true;
 		const audit = {
 			action: "permission.mode",
 			deviceId,

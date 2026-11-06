@@ -513,7 +513,7 @@ export class MachineLink {
 	sessionSetPermissionMode(args: {
 		sessionId: string;
 		mode: "deny" | "ask" | "allow";
-		/** ADR 0109: with `allow`, the per-class map that makes the session Auto; without, Allow. */
+		/** ADR 0109: with `ask`, the per-class map that makes the session Auto. */
 		autoClasses?: AutoClasses;
 	}): Promise<Record<string, never>> {
 		return this.call("session.setPermissionMode", args);

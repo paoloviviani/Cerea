@@ -73,16 +73,18 @@ type State struct {
 	Mode         permrules.Action
 	Exceptions   []permrules.Exception
 	Coordination []string
+	// Auto marks an Auto session (Mode is Ask): the classes in AutoRun run with
+	// no card, every other class is a card (ADR 0109 amendment). A nil AutoRun
+	// on an Auto session runs nothing.
+	Auto    bool
+	AutoRun map[Class]bool
 }
 
 // Policy is the machine's, never a session's.
 type Policy struct {
-	// Limits is the machine's limit per class (ADR 0107); a class absent is its
-	// default (DefaultLimit).
-	Limits map[Class]Limit
-	// Own is the machine's own allow rules (policy.json permission.rules): what
-	// is left of them after migration, honoured for galopin's coordination tools.
-	Own []permrules.Rule
+	// Deny is the classes this machine's owner refuses locally (--deny; ADR
+	// 0109): refuse-only, never set over the link.
+	Deny map[Class]bool
 	// SafeDirs are the safe external directories: their contents never ask.
 	SafeDirs []string
 	// PlanDirs are directories the plan agent writes its plans into.
@@ -92,14 +94,6 @@ type Policy struct {
 	Protected Protected
 }
 
-// Limit is the machine's limit for one class.
-func (p Policy) Limit(c Class) Limit {
-	if l, ok := p.Limits[c]; ok && c.Allows(l) {
-		return l
-	}
-	return DefaultLimit(c)
-}
-
 // Result is a verdict with the step that produced it and a refusal text.
 type Result struct {
 	Verdict  Verdict
@@ -107,10 +101,7 @@ type Result struct {
 	Category Category
 	// Class is the permission class the request belongs to ("" for an
 	// in-project read and the like): the label a card carries.
-	Class Class
-	// Stop is set on a loop refusal under the "stop" limit: the caller ends
-	// the turn and notifies, in addition to refusing the call.
-	Stop   bool
+	Class  Class
 	Reason string
 }
 
@@ -122,11 +113,8 @@ const (
 // FloorReason is the refusal for galopin's own state and configuration.
 const FloorReason = "This is galopin's own configuration or state, which no session may touch."
 
-// LoopStopReason is the refusal under the loop class's "stop" limit.
-const LoopStopReason = "You are repeating the same call. This machine stops a repeating agent: the turn is ended. Report what is blocking you."
-
-func limitReason(c Class) string {
-	return "This machine's policy does not allow " + c.Meaning() + " (limit: never)."
+func denyReason(c Class) string {
+	return "This machine's owner has refused " + c.Meaning() + " (galopin --deny " + string(c) + ")."
 }
 
 // Classify maps a request to its category. sensitive is set for a read that
@@ -231,17 +219,8 @@ func (p Policy) planPath(workspace, pat string) bool {
 	return false
 }
 
-// ownRule is the machine's own rule for key: the last one naming it exactly.
-func (p Policy) ownRule(key string) (permrules.Action, bool) {
-	for i := len(p.Own) - 1; i >= 0; i-- {
-		if p.Own[i].Permission == key && p.Own[i].Pattern == "*" {
-			return p.Own[i].Action, true
-		}
-	}
-	return "", false
-}
-
-func excepted(exs []permrules.Exception, r Request, overAsk bool) bool {
+func excepted(exs []permrules.Exception, r Request, overAskOnly ...bool) bool {
+	overAsk := len(overAskOnly) > 0 && overAskOnly[0]
 	pats := r.Patterns
 	if len(pats) == 0 {
 		pats = []string{"*"}
@@ -322,10 +301,12 @@ func primary(cs []Class) Class {
 	return ""
 }
 
-// Decide answers one request from a session whose ROOT is in state s. The
-// machine's limits are a cap no step can lift: galopin's own state is refused
-// outright; a class limited to never refuses; a class limited to ask is always
-// a card; a class that runs is answered by the session's word.
+// Decide answers one request from a session whose ROOT is in state s (ADR
+// 0109): galopin's own state is refused outright; a class the owner denied
+// locally is refused; otherwise the session's word decides (Plan refuses, Ask
+// is a card, Allow runs, Auto runs the classes its map says run). The floor
+// then lifts a run to a card: credential paths, a write into .git or CI
+// config, and a repeating agent.
 func Decide(p Policy, s State, r Request) Result {
 	cat, sensitive := Classify(p, r)
 	classes := p.classesOf(r, cat, sensitive)
@@ -333,21 +314,20 @@ func Decide(p Policy, s State, r Request) Result {
 	if _, hit := p.Protected.OwnHit(r); hit && cat != Internal {
 		return Result{Verdict: Reject, Step: "floor", Category: cat, Class: class, Reason: FloorReason}
 	}
-	lim, limClass := Run, class
 	for _, c := range classes {
-		if l := p.Limit(c); Stricter(l, lim) != lim {
-			lim, limClass = Stricter(l, lim), c
+		if p.Deny[c] {
+			return Result{Verdict: Reject, Step: "deny", Category: cat, Class: class, Reason: denyReason(c)}
 		}
 	}
-	askLimited := lim == AskLimit
+	loop, secret := false, false
 	for _, c := range classes {
-		if c == ClassLoop {
-			askLimited = false // an "always" on a loop ask is meaningless
-		}
+		loop = loop || c == ClassLoop
+		secret = secret || c == ClassSecrets
 	}
-	res := modeAnswer(p, s, r, cat, sensitive, lim == Run, askLimited)
-	// A write into a repository's .git (config, hooks, info) is never answered
-	// by the session's word or an exception: it is a card, so a person sees it.
+	// A secrets ask only stands on a human's "always" (Exception.OverAsk).
+	res := modeAnswer(p, s, r, cat, sensitive, classes, secret && !loop, loop)
+	// A write into a repository's .git (config, hooks, info) or CI config is
+	// never answered by the session's word or an exception: it is a card.
 	if cat == Edit && res.Verdict == Once && res.Step != "plan-file" {
 		if _, hit := p.Protected.CIHit(r); hit {
 			res.Verdict, res.Step = Card, "git-internals"
@@ -355,19 +335,15 @@ func Decide(p Policy, s State, r Request) Result {
 	}
 	res.Category, res.Class = cat, class
 	switch {
-	case lim == Stop && res.Verdict != Reject:
-		res.Verdict, res.Step, res.Reason, res.Stop = Reject, "limit", LoopStopReason, true
-	case lim == Stop:
-		res.Stop = true
-	case lim == Never && res.Verdict != Reject:
-		res.Verdict, res.Step, res.Reason = Reject, "limit", limitReason(limClass)
-	case lim == AskLimit && res.Verdict == Once && res.Step != "exception-ask":
-		res.Verdict, res.Step = Card, "limit"
+	case res.Verdict == Once && loop:
+		res.Verdict, res.Step = Card, "loop"
+	case res.Verdict == Once && secret && res.Step != "exception-ask":
+		res.Verdict, res.Step = Card, "secrets"
 	}
 	return res
 }
 
-func modeAnswer(p Policy, s State, r Request, cat Category, sensitive, free, askLimited bool) Result {
+func modeAnswer(p Policy, s State, r Request, cat Category, sensitive bool, classes []Class, askOnly, loop bool) Result {
 	mode := s.Mode
 	if !mode.Valid() {
 		mode = permrules.Ask
@@ -394,21 +370,30 @@ func modeAnswer(p Policy, s State, r Request, cat Category, sensitive, free, ask
 	if cat == Outside && allMatch(r.Patterns, func(pt string) bool { return p.safeDirGlob(pt) }) {
 		return once("safe-dir")
 	}
-	// An "always allow" only stands where the machine lets a request run: a
-	// class limited to ask is a card every time.
-	if free && excepted(s.Exceptions, r, false) {
-		return once("exception")
-	}
-	// ... except the "always allow" a human chose on such a card: that one
-	// stands (Exception.OverAsk), and is the only one that does.
-	if askLimited && excepted(s.Exceptions, r, true) {
-		return once("exception-ask")
+	// An "always allow": a credential ask only stands when a human gave it
+	// over the ask (OverAsk); a repeating agent never.
+	if !loop {
+		if !askOnly && excepted(s.Exceptions, r) {
+			return once("exception")
+		}
+		if askOnly && excepted(s.Exceptions, r, true) {
+			return once("exception-ask")
+		}
 	}
 	if mode == permrules.Allow {
 		return once("allow")
 	}
 	if cat == Read && !sensitive {
 		return once("ask-read")
+	}
+	if s.Auto && len(classes) > 0 {
+		all := true
+		for _, c := range classes {
+			all = all && s.AutoRun[c]
+		}
+		if all {
+			return once("auto-run")
+		}
 	}
 	return card("ask")
 }
@@ -480,41 +465,37 @@ func wordRank(a permrules.Action) int {
 var askCallersAreFree = false
 
 // CoordinationFor is CoordinationTool with the word of the session the call
-// reaches (ADR 0107 §1, the agents class): target is that session's root's
-// word, or the caller's own for a spawn (a child is never looser than its
-// spawner) and a schedule; "" when there is no target. With the agents class
-// at run, a call is free when the target's word is the same or more cautious
-// than the caller's; otherwise the caller's session word applies.
+// reaches: target is that session's root's word, or the caller's own for a
+// spawn (a child is never looser than its spawner) and a schedule; "" when
+// there is no target. A call is free when the target's word is the same or more
+// cautious than the caller's on Allow; otherwise the caller's word applies. An
+// Auto caller is on Ask here, except that its agents class running makes a
+// call free the way Allow does.
 func CoordinationFor(p Policy, s State, key string, delegate bool, target permrules.Action) (permrules.Action, string) {
-	lim := p.Limit(ClassAgents)
-	own, hasOwn := p.ownRule(key)
-	if lim == Never || (hasOwn && own == permrules.Deny) {
-		return permrules.Deny, "this machine's rules do not allow " + key
+	if p.Deny[ClassAgents] {
+		return permrules.Deny, denyReason(ClassAgents)
 	}
-	capAsk := lim == AskLimit || (hasOwn && own == permrules.Ask)
 	// Plan changes nothing: only reading one's own delegate gets through it. A
 	// send, a spawn or a schedule is refused delegate or not, because a delegate
 	// spawned on Allow would otherwise carry the change for the Plan caller.
 	if s.Mode == permrules.Deny && !(delegate && key == "session_read") {
 		return permrules.Deny, PlanReason
 	}
+	autoRuns := s.Auto && s.AutoRun[ClassAgents]
 	answer := permrules.Ask
 	switch {
 	case delegate:
-		answer = permrules.Allow
-	case hasOwn && own == permrules.Allow:
 		answer = permrules.Allow
 	case contains(s.Coordination, key):
 		answer = permrules.Allow
 	case key == "session_list":
 		answer = permrules.Allow
+	case autoRuns && key != "session_read":
+		answer = permrules.Allow
 	case target.Valid() && wordRank(target) <= wordRank(s.Mode) && (s.Mode == permrules.Allow || askCallersAreFree):
 		answer = permrules.Allow
 	case s.Mode == permrules.Allow && key != "session_read":
 		answer = permrules.Allow
-	}
-	if capAsk {
-		answer = permrules.Ask
 	}
 	return answer, ""
 }
@@ -528,37 +509,34 @@ func contains(l []string, k string) bool {
 	return false
 }
 
-// AskAlwaysOK reports whether a human's "always allow" on this request may be
-// stored although the machine limits its class to ask: the strictest limit over
-// its classes is ask (not never, not stop, not run) and none of them is the
-// loop class. galopin's own paths never get here (a fixed refusal).
+// AskAlwaysOK reports whether a human's "always allow" on this request is an
+// over-ask one: the request is in the credential class (which is a card even on
+// Allow), so only a human's exception stands there. The loop class and
+// galopin's own paths never get one.
 func AskAlwaysOK(p Policy, r Request) bool {
 	cat, sensitive := Classify(p, r)
 	if _, hit := p.Protected.OwnHit(r); hit && cat != Internal {
 		return false
 	}
-	lim := Run
+	secret := false
 	for _, c := range p.classesOf(r, cat, sensitive) {
 		if c == ClassLoop {
 			return false
 		}
-		lim = Stricter(p.Limit(c), lim)
+		secret = secret || c == ClassSecrets
 	}
-	return lim == AskLimit
+	return secret
 }
 
 // ConnectorCall decides one call of a connector's tool through galopin's
 // connector tools (ADR 0108, item 3), which are the `tools` class like any other
 // MCP tool: allow means no card, ask a card, deny a refusal the model reads. The
-// machine's limit for the class caps the session's word, as for every class:
-// never refuses, ask is always a card, and run leaves it to the word (Plan
-// refuses, Ask raises a card, Allow runs). Reading what is on offer
-// (list true) changes nothing, so only a never limit and a Plan-less nothing
-// stand in its way: it is refused under never and otherwise free.
+// session's word decides (Plan refuses, Ask raises a card, Allow runs, Auto runs
+// when its map says tools run); a local --deny tools refuses. Reading what is on
+// offer (list true) changes nothing, so it is free unless denied.
 func ConnectorCall(p Policy, s State, list bool) (permrules.Action, string) {
-	lim := p.Limit(ClassTools)
-	if lim == Never {
-		return permrules.Deny, limitReason(ClassTools)
+	if p.Deny[ClassTools] {
+		return permrules.Deny, denyReason(ClassTools)
 	}
 	if list {
 		return permrules.Allow, ""
@@ -566,8 +544,8 @@ func ConnectorCall(p Policy, s State, list bool) (permrules.Action, string) {
 	if s.Mode == permrules.Deny {
 		return permrules.Deny, PlanReason
 	}
-	if lim == AskLimit || s.Mode != permrules.Allow {
-		return permrules.Ask, ""
+	if s.Mode == permrules.Allow || (s.Auto && s.AutoRun[ClassTools]) {
+		return permrules.Allow, ""
 	}
-	return permrules.Allow, ""
+	return permrules.Ask, ""
 }

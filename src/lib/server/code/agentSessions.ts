@@ -153,7 +153,7 @@ export async function applyPermissionWord(
 		});
 	} catch (err) {
 		const unsupported = err instanceof OpError && err.code === "unsupported";
-		if (!(unsupported && mode === "ask")) throw err;
+		if (!(unsupported && step === "ask")) throw err;
 	}
 }
 

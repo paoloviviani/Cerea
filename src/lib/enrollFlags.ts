@@ -66,11 +66,13 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "no-files", kind: "bool", default: false, exposed: true },
 	{ flag: "allow-file-write", kind: "bool", default: false, exposed: true },
 	{ flag: "no-terminal", kind: "bool", default: false, exposed: true },
-	// ADR 0109: machine limits are gone. enroll keeps the old flags for one release (ignored with a
-	// warning) so an old pasted command still runs; the dialog prints none of them.
+	// ADR 0109: machine limits are gone. `--limit` is retired (accepted and ignored with a warning,
+	// listed `retired` by the agent's file, so not here); permission-max and permission-rule stay
+	// one more release, ignored, and the dialog prints none of them.
 	{ flag: "permission-max", kind: "keyAction", default: [], exposed: false },
 	{ flag: "permission-rule", kind: "keyAction", default: [], exposed: false },
-	{ flag: "limit", kind: "list", default: [], exposed: false },
+	// ADR 0109: the advanced local refuse-only flag (`--deny CLASS`), by hand, not in the dialog.
+	{ flag: "deny", kind: "list", default: [], exposed: false },
 	// The file editor is on by default; this turns it off (--allow-file-write
 	// only restates the default).
 	{ flag: "no-file-write", kind: "bool", default: false, exposed: false },

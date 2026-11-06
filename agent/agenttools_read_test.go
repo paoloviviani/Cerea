@@ -229,7 +229,7 @@ func TestSessionReadRuleAllowDenyAndCrossWorkspace(t *testing.T) {
 	d := newCoordRig(t, withRule("session_read", "deny"))
 	d.say("peer", "user", "x", t0)
 	_, err := d.call("caller", "session_read", map[string]any{"target": "peer"})
-	refusedWith(t, err, "do not allow session_read")
+	refusedWith(t, err, "refused")
 	if len(d.asks()) != 0 {
 		t.Error("a deny must not raise a card")
 	}
@@ -305,7 +305,7 @@ func TestPolicyDefaultsLeaveSessionReadUncapped(t *testing.T) {
 
 // The agents class at run (ADR 0107): an Allow caller reads a session whose
 // word is the same or more cautious without a card; an Ask caller still asks,
-// and the agents limit at ask puts the card back for everyone.
+// (ADR 0109: no machine limit puts the card back).
 func TestSessionReadIsFreeForAnAllowCallerOnAnEqualOrMoreCautiousTarget(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -320,7 +320,6 @@ func TestSessionReadIsFreeForAnAllowCallerOnAnEqualOrMoreCautiousTarget(t *testi
 		{"allow caller, plan peer", nil, "", "allow", "deny", 0},
 		{"ask caller, ask peer", nil, "", "ask", "ask", 1},
 		{"ask caller, allow peer", nil, "", "ask", "allow", 1},
-		{"agents=ask puts the card back", withLimit("agents", "ask"), "", "allow", "ask", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newCoordRig(t, tc.mutate)

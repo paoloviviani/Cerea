@@ -27,7 +27,7 @@ const session = (over: Partial<CodeAgentSession> = {}): CodeAgentSession => ({
 	updatedAt: "2026-10-03T00:00:00Z",
 	modeId: null,
 	modelId: null,
-	permissionMode: "allow",
+	permissionMode: "ask",
 	autoClasses: { command: "ask", edit: "run" },
 	...over,
 });
@@ -103,7 +103,7 @@ describe("the four steps", () => {
 		}
 	});
 
-	it("reads `allow` with its map as Auto, and without one as Allow", async () => {
+	it("reads `ask` with a map as Auto, and `allow` without one as Allow", async () => {
 		const auto = mount();
 		await expect
 			.element(auto.getByTestId("permission-mode-auto"))
@@ -112,7 +112,7 @@ describe("the four steps", () => {
 			.element(auto.getByTestId("permission-mode-allow"))
 			.toHaveAttribute("aria-checked", "false");
 		document.body.innerHTML = "";
-		const allow = mount({ agent: session({ autoClasses: undefined }) });
+		const allow = mount({ agent: session({ permissionMode: "allow", autoClasses: undefined }) });
 		await expect
 			.element(allow.getByTestId("permission-mode-allow"))
 			.toHaveAttribute("aria-checked", "true");
@@ -121,12 +121,12 @@ describe("the four steps", () => {
 			.toHaveAttribute("aria-checked", "false");
 	});
 
-	it("Auto sends the word allow with auto, Allow sends allow alone", async () => {
+	it("Auto sends the word ask with auto, Allow sends allow alone", async () => {
 		const { setPermissionMode } = await import("$lib/codeApi");
-		const screen = mount({ agent: session({ permissionMode: "ask", autoClasses: undefined }) });
+		const screen = mount({ agent: session({ permissionMode: "deny", autoClasses: undefined }) });
 		await screen.getByTestId("permission-mode-auto").click();
 		await vi.waitFor(() =>
-			expect(setPermissionMode).toHaveBeenCalledWith("d1", "a1", "allow", { auto: true })
+			expect(setPermissionMode).toHaveBeenCalledWith("d1", "a1", "ask", { auto: true })
 		);
 		await screen.getByTestId("permission-mode-allow").click();
 		await vi.waitFor(() =>
@@ -134,7 +134,7 @@ describe("the four steps", () => {
 		);
 	});
 
-	it("moving from Auto to Allow is a change even though the wire word is the same", async () => {
+	it("moving from Auto to Allow is a change", async () => {
 		const { setPermissionMode } = await import("$lib/codeApi");
 		const screen = mount();
 		await screen.getByTestId("permission-mode-allow").click();
@@ -161,7 +161,7 @@ describe("below the composer", () => {
 			.element(screen.getByTestId("permission-details"))
 			.toHaveAttribute("aria-label", "Permissions: Auto");
 		document.body.innerHTML = "";
-		const ask = mount({ agent: session({ permissionMode: "ask" }) });
+		const ask = mount({ agent: session({ permissionMode: "ask", autoClasses: undefined }) });
 		await expect
 			.element(ask.getByTestId("permission-details"))
 			.toHaveAttribute("aria-label", "Permissions: Ask");

@@ -92,25 +92,20 @@ type Policy struct {
 // Permission is what the machine decides about opencode's permissions
 // (PROTOCOL.md §6 "Permissions"). Nothing in it is writable over the link.
 type Permission struct {
-	// Rules are galopin's own rules for every session on the machine, key →
-	// "allow" | "ask" | "deny" (pattern "*"). They are applied as session
-	// rules, which sit above opencode's static config file, so they win over
-	// whatever an installer wrote there; the Max ceiling then caps them.
-	Rules map[string]string `json:"rules,omitempty"`
-	// Limits is the machine's say per permission class (ADR 0107): class →
-	// "never" | "ask" | "run" ("stop" for loop). A class absent is its
-	// default (decide.DefaultLimit). This is the one place a limit is kept;
-	// Max and Rules below are what a policy.json written before classes
-	// carried, read once by Load (Migrate) and gone after the next write.
+	// Deny is the owner's local deny (ADR 0109): classes (edit, command, web,
+	// outside, secrets, agents, tools) galopin refuses on this machine whatever
+	// the session's word. Refuse-only; `enroll --deny` and `policy set --deny`
+	// add, `policy set --no-deny` removes; never writable over the link.
+	Deny []string `json:"deny,omitempty"`
+	// Rules, Limits and Max are retired (ADR 0109): read from an older
+	// policy.json, reported and ignored for one release, dropped at the next
+	// write.
+	Rules  map[string]string `json:"rules,omitempty"`
 	Limits map[string]string `json:"limits,omitempty"`
-	// Notices are what a migration from per-key ceilings and rules owes the
-	// owner (a rule dropped, a cap with no class); `policy show` prints them
-	// until the next enroll or reset.
-	Notices []string `json:"notices,omitempty"`
-	// Max is the ceiling: the most a key may ever be, whatever any rule, any
-	// session's selector or any exception says. A key absent from Max is not capped. `enroll`
-	// defaults bash to "ask"; `galopin policy set` may only lower a value.
-	Max map[string]string `json:"max,omitempty"`
+	Max    map[string]string `json:"max,omitempty"`
+	// Notices are what loading a retired field owes the owner; `policy show`
+	// and `run` print them. Not persisted.
+	Notices []string `json:"-"`
 	// SafeDirs are the machine's safe external directories (PROTOCOL.md §6
 	// "Permissions"): absolute paths whose contents never ask, under every
 	// selector word. The pointer carries the three states the file can hold:
@@ -122,90 +117,6 @@ type Permission struct {
 	// stays short. `enroll --safe-dir` gives one (replacing the default);
 	// a local `galopin policy set --no-safe-dir` may only remove entries.
 	SafeDirs *[]string `json:"safeDirs,omitempty"`
-}
-
-// EffectiveLimits is every class's limit in force: the file's, else the default.
-func (p Permission) EffectiveLimits() map[decide.Class]decide.Limit {
-	out := make(map[decide.Class]decide.Limit, len(decide.Classes))
-	for _, c := range decide.Classes {
-		out[c] = decide.DefaultLimit(c)
-		if w, ok := p.Limits[string(c)]; ok {
-			if l, ok := decide.ParseLimit(w); ok && c.Allows(l) {
-				out[c] = l
-			}
-		}
-	}
-	return out
-}
-
-func (p Permission) limitWords() map[string]string {
-	out := map[string]string{}
-	for c, l := range p.EffectiveLimits() {
-		out[string(c)] = l.Word()
-	}
-	return out
-}
-
-// WireLimits is EffectiveLimits as the hello carries it: every class, in the
-// wire words (deny | ask | allow, and stop for loop).
-func (p Permission) WireLimits() map[string]string {
-	out := map[string]string{}
-	for c, l := range p.EffectiveLimits() {
-		out[string(c)] = l.Wire()
-	}
-	return out
-}
-
-// Ceiling is the limits as the rule package's per-key cap, which composes the
-// opencode session rules and caps "always allow". Outside, secrets and loop at
-// ask add nothing (opencode asks them on its own and the decision function
-// does the rest); a class at never or ask caps its keys.
-func (p Permission) Ceiling() permrules.Ceiling {
-	c := permrules.Ceiling{Max: map[string]permrules.Action{}}
-	for cl, l := range p.EffectiveLimits() {
-		if l == decide.Run || l == decide.Stop {
-			continue
-		}
-		if l == decide.AskLimit && (cl == decide.ClassOutside || cl == decide.ClassLoop) {
-			continue
-		}
-		for _, k := range decide.ClassKeys(cl) {
-			c.Max[k] = l.Action()
-		}
-	}
-	return c
-}
-
-// IncoherentCeiling explains a ceiling that restricts what a shell can do
-// anyway: a limit on edit, webfetch, websearch or codesearch while bash is
-// uncapped. Until the OS sandbox exists the ceiling is galopin refusing the
-// asks it is shown, and a command can edit, fetch and search on its own, so
-// such a ceiling holds against nothing a hijacked session would try. "" when
-// the ceiling is coherent.
-func (p Permission) IncoherentCeiling() string {
-	c := p.Ceiling()
-	if c.Of("bash") != permrules.Allow {
-		return ""
-	}
-	var capped []string
-	for _, k := range []string{"edit", "webfetch", "websearch", "codesearch"} {
-		if c.Of(k) != permrules.Allow {
-			capped = append(capped, k+"="+string(c.Of(k)))
-		}
-	}
-	if len(capped) == 0 {
-		return ""
-	}
-	return "this ceiling limits " + strings.Join(capped, ", ") + " but leaves bash uncapped; a shell command can do all of that, so the limit holds against nothing a hijacked session would try. Limit command too (--limit command=ask) — until the OS sandbox exists the ceiling is advisory against bash"
-}
-
-// OwnRules is Rules as the rule package's type, sorted.
-func (p Permission) OwnRules() []permrules.Rule {
-	m := map[string]permrules.Action{}
-	for k, v := range p.Rules {
-		m[k] = permrules.Action(v)
-	}
-	return permrules.OwnRules(m)
 }
 
 // defaultSafeDirs is DefaultSafeDirs with the home directory given, so a
@@ -347,31 +258,11 @@ func DisplaySafeDirs(dirs []string) []string {
 // absolute, clean path (a relative one would allow whatever the working
 // directory happens to be).
 func (p Permission) Validate() error {
-	check := func(field string, m map[string]string) error {
-		for k, v := range m {
-			if k == "" || permrules.IsWildcard(k) {
-				return fmt.Errorf("permission.%s: %q is not a permission key (a literal name such as \"bash\")", field, k)
-			}
-			if !permrules.Action(v).Valid() {
-				return fmt.Errorf("permission.%s.%s: %q is not allow, ask or deny", field, k, v)
-			}
-		}
-		return nil
-	}
-	if err := check("rules", p.Rules); err != nil {
-		return err
-	}
-	if err := check("max", p.Max); err != nil {
-		return err
-	}
-	for k, v := range p.Limits {
-		c, err := decide.ParseClass(k)
-		if err != nil {
-			return fmt.Errorf("permission.limits: %w", err)
-		}
-		l, ok := decide.ParseLimit(v)
-		if !ok || v == "deny" || v == "allow" || !c.Allows(l) {
-			return fmt.Errorf("permission.limits.%s: %q is not %s", k, v, c.AllowedWords())
+	// The retired fields (rules, limits, max) are not validated: they are
+	// ignored, and a typo in one must not stop galopin from starting.
+	for i, d := range p.Deny {
+		if _, err := decide.ParseDeny(d); err != nil {
+			return fmt.Errorf("permission.deny[%d]: %w", i, err)
 		}
 	}
 	if p.SafeDirs != nil {
@@ -500,7 +391,7 @@ const GatewayProviderID = "pystino"
 // closed. `enroll`'s flags are what opens any of it.
 func Default() Policy {
 	return Policy{
-		Permission:          Permission{Limits: DefaultLimits()},
+		Permission:          Permission{},
 		AllowFreeModels:     false,
 		Files:               FilesRead,
 		FileWrite:           FileWriteDenied,
@@ -530,8 +421,7 @@ func Load(path string) (Policy, error) {
 	if err := p.Permission.Validate(); err != nil {
 		return Policy{}, fmt.Errorf("%s: %w", path, err)
 	}
-	// A policy.json written before classes carries per-key ceilings and
-	// rules: fold them into classes (tighten-only, nothing re-enrolled).
+	// Retired limits, ceilings and rules are dropped and reported (ADR 0109).
 	p.Permission.Normalize()
 	if p.Files == "" {
 		p.Files = FilesRead
@@ -559,13 +449,7 @@ func Load(path string) (Policy, error) {
 
 // Save persists policy.json atomically at 0600 (R8, via fsutil).
 func Save(path string, p Policy) error {
-	if p.Permission.Limits == nil && p.Permission.Max == nil && p.Permission.Rules == nil {
-		// Nothing was ever said: the defaults, written down so a later load does
-		// not read an empty block as the old "no ceiling".
-		p.Permission.Limits = DefaultLimits()
-	} else {
-		p.Permission.Normalize()
-	}
+	p.Permission.Normalize()
 	body, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return err
@@ -675,10 +559,9 @@ func (l *Live) Layers() permrules.Layers {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return permrules.Layers{
-		Own:      l.p.OwnRules(),
 		Ceiling:  l.p.Ceiling(),
 		SafeDirs: append([]string(nil), l.safeDirs...),
-		Limits:   l.p.limitWords(),
+		Deny:     append([]string(nil), l.p.Deny...),
 	}
 }
 
@@ -706,23 +589,15 @@ func (l *Live) Tighten(next Permission) Change {
 	var ch Change
 	next = clonePermission(next)
 	next.Normalize()
-	cur := l.p.EffectiveLimits()
-	for c, nl := range next.EffectiveLimits() {
-		if s := decide.Stricter(cur[c], nl); s != cur[c] {
-			if l.p.Limits == nil {
-				l.p.Limits = map[string]string{}
-			}
-			cur[c] = s
+	have := l.p.DenySet()
+	for c := range next.DenySet() {
+		if !have[c] {
+			l.p.Deny = append(l.p.Deny, string(c))
+			have[c] = true
 			ch.Tightened = true
 		}
 	}
-	l.p.Limits = map[string]string{}
-	for c, lim := range cur {
-		l.p.Limits[string(c)] = lim.Word()
-	}
-	var rulesTight bool
-	l.p.Rules, rulesTight = lowerActions(l.p.Rules, next.Rules)
-	ch.Tightened = ch.Tightened || rulesTight
+	l.p.Normalize2()
 	if next.SafeDirs != nil {
 		drop := map[string]bool{}
 		for _, d := range *next.SafeDirs {
@@ -745,75 +620,10 @@ func (l *Live) Tighten(next Permission) Change {
 	return ch
 }
 
-// meetActions merges next into have key by key, keeping the lower; the bool
-// reports whether anything got lower (or a key got capped).
-func meetActions(have, next map[string]string, already bool) (map[string]string, bool) {
-	out := map[string]string{}
-	for k, v := range have {
-		out[k] = v
-	}
-	changed := already
-	for k, v := range next {
-		cur, ok := out[k]
-		curAction := permrules.Allow
-		if ok {
-			curAction = permrules.Action(cur)
-		}
-		if permrules.Min(curAction, permrules.Action(v)) != curAction {
-			out[k] = v
-			changed = true
-		}
-	}
-	return out, changed
-}
-
-// lowerActions is meetActions for the machine's own rules, where a key absent
-// from have is no rule rather than a cap: an ask or deny added where there was
-// nothing is a tightening, an allow added where there was nothing is ignored.
-func lowerActions(have, next map[string]string) (map[string]string, bool) {
-	out := map[string]string{}
-	for k, v := range have {
-		out[k] = v
-	}
-	changed := false
-	for k, v := range next {
-		cur, ok := out[k]
-		if !ok {
-			if permrules.Action(v) != permrules.Allow {
-				out[k] = v
-				changed = true
-			}
-			continue
-		}
-		if permrules.Min(permrules.Action(cur), permrules.Action(v)) != permrules.Action(cur) {
-			out[k] = v
-			changed = true
-		}
-	}
-	return out, changed
-}
-
 func clonePermission(p Permission) Permission {
 	var out Permission
-	if p.Limits != nil {
-		out.Limits = make(map[string]string, len(p.Limits))
-		for k, v := range p.Limits {
-			out.Limits[k] = v
-		}
-	}
+	out.Deny = append([]string(nil), p.Deny...)
 	out.Notices = append([]string(nil), p.Notices...)
-	if p.Max != nil {
-		out.Max = make(map[string]string, len(p.Max))
-		for k, v := range p.Max {
-			out.Max[k] = v
-		}
-	}
-	if p.Rules != nil {
-		out.Rules = make(map[string]string, len(p.Rules))
-		for k, v := range p.Rules {
-			out.Rules[k] = v
-		}
-	}
 	if p.SafeDirs != nil {
 		s := append([]string(nil), *p.SafeDirs...)
 		out.SafeDirs = &s

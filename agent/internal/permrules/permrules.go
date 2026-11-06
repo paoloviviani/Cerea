@@ -162,11 +162,6 @@ func (c Ceiling) Equal(o Ceiling) bool { return !c.TighterThan(o) && !o.TighterT
 
 // Layers are the two machine inputs to a session's rules.
 type Layers struct {
-	// Own is galopin's own rules for the machine (policy.json's
-	// permission.rules): they beat opencode's static file, because a session's
-	// rules sit above config. Never allow-rules the ceiling forbids: the tail
-	// lowers them.
-	Own []Rule
 	// Ceiling is the machine's cap.
 	Ceiling Ceiling
 	// SafeDirs are the machine's safe external directories (policy.json's
@@ -174,10 +169,8 @@ type Layers struct {
 	// every selector word. They are not the word's to move and not part of
 	// Own — see SafeDirRules for where they sit and what still caps them.
 	SafeDirs []string
-	// Limits is the machine's limit per permission class in words ("never",
-	// "ask", "run", "stop"; ADR 0107), when the layers come from a policy. Nil
-	// when they were built from a ceiling alone (tests).
-	Limits map[string]string
+	// Deny is the classes the owner refuses locally (ADR 0109).
+	Deny []string
 }
 
 // The permission selector (PROTOCOL.md §6 "Permissions"): a session carries ONE
@@ -247,6 +240,11 @@ type Selector struct {
 	// the machine's own rules and the ceiling say nothing stricter. It is part of
 	// the selector so it persists with it, and a subagent follows its root's.
 	Coordination []string `json:"coordination,omitempty"`
+	// Auto marks an Auto session (Mode is ask): AutoClasses says per permission
+	// class whether it runs ("run") or is a card ("ask"). A class absent or
+	// any other word is a card (fail closed). See PROTOCOL.md §6.
+	Auto        bool              `json:"auto,omitempty"`
+	AutoClasses map[string]string `json:"autoClasses,omitempty"`
 }
 
 // Effective is the mode in force: what was set, else ask.

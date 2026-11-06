@@ -240,11 +240,12 @@ describe("a new session each run", () => {
 		expect(title).toMatch(/^Nightly · \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
 
 		const session = machine.model.sessions[0];
-		expect(session.permissionMode).toBe("allow");
+		expect(session.permissionMode).toBe("ask");
+		expect(session.autoClasses).toEqual(AUTO_MAP);
 		// A schedule's Allow is Auto (ADR 0109): the owner's per-class map rides with the word.
 		expect(ops("session.setPermissionMode")[0].args).toEqual({
 			sessionId: session.id,
-			mode: "allow",
+			mode: "ask",
 			autoClasses: AUTO_MAP,
 		});
 		expect(ops("session.prompt")[0].args).toMatchObject({
@@ -341,7 +342,7 @@ describe("always this session", () => {
 		});
 		expect(ops("session.setPermissionMode")[0].args).toEqual({
 			sessionId: "s1",
-			mode: "allow",
+			mode: "ask",
 			autoClasses: AUTO_MAP,
 		});
 		expect(ops("session.prompt")[0].args).toMatchObject({

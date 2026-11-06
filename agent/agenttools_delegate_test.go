@@ -92,25 +92,25 @@ func TestDelegateAcrossWorkspacesStillAsks(t *testing.T) {
 	}
 }
 
-func TestMachineCeilingBeatsTheDelegateRelation(t *testing.T) {
+func TestLocalDenyBeatsTheDelegateRelation(t *testing.T) {
 	for _, tool := range []string{"session_read", "session_send"} {
-		r := newCoordRig(t, withMax(tool, "ask"))
-		r.markSpawned("peer", "caller")
-		r.say("peer", "assistant", "x", t0)
 		args := map[string]any{"target": "peer"}
 		if tool == "session_send" {
 			args["text"] = "hi"
 		}
+		r := newCoordRig(t, nil)
+		r.markSpawned("peer", "caller")
+		r.say("peer", "assistant", "x", t0)
 		if _, err := r.call("caller", tool, args); err != nil {
 			t.Fatal(err)
 		}
-		if a := r.asks(); len(a) != 1 {
-			t.Fatalf("%s with a machine ceiling at ask: asks = %d, want 1", tool, len(a))
+		if a := r.asks(); len(a) != 0 {
+			t.Fatalf("%s to a delegate: asks = %d, want none", tool, len(a))
 		}
-		r2 := newCoordRig(t, withMax(tool, "deny"))
+		r2 := newCoordRig(t, withDeny("agents"))
 		r2.markSpawned("peer", "caller")
 		_, err := r2.call("caller", tool, args)
-		refusedWith(t, err, "do not allow")
+		refusedWith(t, err, "refused")
 	}
 }
 

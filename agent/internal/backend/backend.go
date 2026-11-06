@@ -418,3 +418,15 @@ type RuleHost interface {
 type AskNormalizer interface {
 	NormalizeAsk(req PermissionRequest) (key string, patterns []string)
 }
+
+// AutoHost is the part of a permission surface that keeps an Auto session's
+// per-class map (ADR 0109 amendment, PROTOCOL.md §6 "The selector"): both
+// shipped backends implement it next to RuleHost.
+type AutoHost interface {
+	// AutoClasses is the session's root's Auto map; ok is false when the root
+	// is not on Auto.
+	AutoClasses(sessionID string) (classes map[string]string, ok bool)
+	// SetAuto puts a root session on Auto (mode ask) with the map, which is
+	// already sanitised. SetPermissionMode takes a session off Auto.
+	SetAuto(ctx context.Context, workspaceDir, sessionID string, classes map[string]string) error
+}

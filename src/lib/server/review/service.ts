@@ -106,7 +106,7 @@ export class NoAccess extends Error {}
 /** What the service reads of a session. */
 interface SessionFacts {
 	permissionMode?: string;
-	/** The Auto map; its presence with the word `allow` is what makes a session Auto. */
+	/** The Auto map; its presence (with the word `ask`) is what makes a session Auto. */
 	autoClasses?: Record<string, string>;
 	title: string;
 	workspaceId: string;
@@ -244,9 +244,9 @@ export async function reviewPermissionAsk(
 		} catch {
 			return send();
 		}
-		// Plan and Ask are the user's own, and Allow is hands off: only Auto (the word `allow`
-		// with its per-class map) is routed.
-		if (session.permissionMode !== "allow" || !session.autoClasses) return send();
+		// Plan and Ask are the user's own, and Allow is hands off: only Auto (the word `ask` with
+		// its per-class map, PROTOCOL.md §6) is routed.
+		if (session.permissionMode !== "ask" || !session.autoClasses) return send();
 
 		const ctx: Ctx = { userId, deviceId, envelope, request, cls, settings, session, link, deps };
 		if (fast) return await allowReadOnly(ctx, send);

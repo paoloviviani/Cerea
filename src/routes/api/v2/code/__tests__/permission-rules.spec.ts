@@ -392,18 +392,18 @@ describe("POST v1/agents/:id/permission-mode", () => {
 		machine.close();
 	});
 
-	it("Auto is `allow` with the caller's own per-class map, worked out here; Allow carries none (ADR 0109)", async () => {
+	it("Auto is `ask` with the caller's own per-class map, worked out here; Allow carries none (ADR 0109)", async () => {
 		const machine = await connectAndPair();
 		const deviceId = machine.deviceId as string;
 		const sessionId = await createSession(deviceId);
 		machine.opLog.length = 0;
-		expect((await post(sessionId, deviceId, { mode: "allow", auto: true })).status).toBe(200);
+		expect((await post(sessionId, deviceId, { mode: "ask", auto: true })).status).toBe(200);
 		expect(machine.opLog).toEqual([
 			{
 				op: "session.setPermissionMode",
 				args: {
 					sessionId,
-					mode: "allow",
+					mode: "ask",
 					autoClasses: {
 						edit: "run",
 						command: "ask",

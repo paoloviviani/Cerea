@@ -29,6 +29,9 @@ type Session struct {
 	// "allow"); a subagent reports its root's. Empty when the backend has no
 	// permission rules of its own to select over.
 	PermissionMode string `json:"permissionMode,omitempty"`
+	// AutoClasses is the per-class map of an Auto session (permissionMode is
+	// "ask"; ADR 0109 amendment): class -> "run" | "ask". Absent on any other.
+	AutoClasses map[string]string `json:"autoClasses,omitempty"`
 	// StaleDeny says the session's root carries an earlier Deny in its stored
 	// rules that opencode keeps forever (its rules are append-only): subagents
 	// started from here have their first turn refused. Start a new session to

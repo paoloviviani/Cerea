@@ -861,8 +861,8 @@ export class FakeMachine {
 					throw new OpError("invalid", "a subagent follows its root");
 				}
 				session.permissionMode = mode;
-				// ADR 0109: the Auto map rides with `allow`; none is Allow (hands off).
-				if (mode === "allow" && autoClasses) session.autoClasses = autoClasses;
+				// ADR 0109: the Auto map rides with `ask` and its presence is Auto.
+				if (mode === "ask" && autoClasses) session.autoClasses = autoClasses;
 				else delete session.autoClasses;
 				return {};
 			}

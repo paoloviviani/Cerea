@@ -84,7 +84,7 @@ function harness(overSettings: Partial<AgentReviewSettings> = {}): Harness {
 		...overSettings,
 	};
 	const state: Harness["state"] = {
-		mode: "allow",
+		mode: "ask",
 		autoClasses: { command: "ask", edit: "run" },
 		settingsFor: [],
 		optedOut: false,
@@ -138,11 +138,18 @@ const run = (h: Harness, env = ask(), device = "d1") =>
 beforeEach(() => _resetReviewState());
 afterEach(() => vi.useRealTimers());
 
-describe("routing: only Auto (allow with its map), on a reviewer row, on a machine not opted out, is reviewed", () => {
+describe("routing: only Auto (ask with its map), on a reviewer row, on a machine not opted out, is reviewed", () => {
 	const cases: Array<[string, (h: Harness) => void, Envelope | undefined]> = [
-		["session word ask", (h) => (h.state.mode = "ask"), undefined],
+		["plain Ask (no Auto map)", (h) => (h.state.autoClasses = undefined), undefined],
 		["session word deny", (h) => (h.state.mode = "deny"), undefined],
-		["Allow, hands off (no Auto map)", (h) => (h.state.autoClasses = undefined), undefined],
+		[
+			"Allow, hands off",
+			(h) => {
+				h.state.mode = "allow";
+				h.state.autoClasses = undefined;
+			},
+			undefined,
+		],
 		[
 			"row says runs (never reaches a card)",
 			(h) => (h.settings.perClass.command = "run"),

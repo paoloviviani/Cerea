@@ -1,13 +1,10 @@
 package decide
 
-import (
-	"fmt"
+import "fmt"
 
-	"galopin/internal/permrules"
-)
-
-// Class is one of the eight permission classes of ADR 0107: what a machine's
-// owner limits, in words a person reads. Every request that is not an
+// Class is one of the eight permission classes of ADR 0107: what a request is
+// labelled with for routing, review and audit, and what a machine owner may
+// refuse locally (--deny). Every request that is not an
 // in-project read belongs to at least one class.
 type Class string
 
@@ -24,120 +21,6 @@ const (
 
 // Classes is every class, in the order a person reads them.
 var Classes = []Class{ClassEdit, ClassCommand, ClassWeb, ClassOutside, ClassSecrets, ClassAgents, ClassTools, ClassLoop}
-
-// Limit is what the machine says about a class: never allowed, always
-// asked, or free to run (the session's word then decides). On the wire the
-// three are deny, ask and allow; for the loop class the wire word for Stop is
-// "stop" (see Wire).
-type Limit int
-
-const (
-	// Never refuses the action (wire "deny").
-	Never Limit = iota
-	// AskLimit raises a card every time (wire "ask"), whatever the session's word.
-	AskLimit
-	// Run leaves the decision to the session's word (wire "allow"): uncapped.
-	Run
-	// Stop is the loop class's refusal: end the turn and notify, never run
-	// (wire "stop"). It is stricter than a card.
-	Stop
-)
-
-// Word is the limit as a person writes it on the command line and in
-// policy.json.
-func (l Limit) Word() string {
-	switch l {
-	case Never:
-		return "never"
-	case AskLimit:
-		return "ask"
-	case Stop:
-		return "stop"
-	}
-	return "run"
-}
-
-// Wire is the limit as the hello's `limits` carries it.
-func (l Limit) Wire() string {
-	switch l {
-	case Never:
-		return "deny"
-	case AskLimit:
-		return "ask"
-	case Stop:
-		return "stop"
-	}
-	return "allow"
-}
-
-// ParseLimit reads a command-line or file word (never|ask|run|stop) or a wire
-// word (deny|ask|allow|stop).
-func ParseLimit(s string) (Limit, bool) {
-	switch s {
-	case "never", "deny":
-		return Never, true
-	case "ask":
-		return AskLimit, true
-	case "run", "allow":
-		return Run, true
-	case "stop":
-		return Stop, true
-	}
-	return 0, false
-}
-
-// Strictness orders limits by how much they permit: Stop and Never refuse,
-// Ask is a card, Run is free. Used to take the more cautious of two.
-func (l Limit) permits() int {
-	switch l {
-	case Never, Stop:
-		return 0
-	case AskLimit:
-		return 1
-	}
-	return 2
-}
-
-// Stricter is the less permissive of two limits of the same class.
-func Stricter(a, b Limit) Limit {
-	if a.permits() <= b.permits() {
-		return a
-	}
-	return b
-}
-
-// DefaultLimit is the class's limit on a machine that says nothing: today's
-// behaviour for anyone not on Auto (ADR 0107 §1).
-func DefaultLimit(c Class) Limit {
-	switch c {
-	case ClassCommand, ClassOutside, ClassSecrets, ClassLoop:
-		return AskLimit
-	}
-	return Run
-}
-
-// Allows reports whether l is a value the class accepts: secrets never runs,
-// and loop is ask or stop only.
-func (c Class) Allows(l Limit) bool {
-	switch c {
-	case ClassSecrets:
-		return l == Never || l == AskLimit
-	case ClassLoop:
-		return l == AskLimit || l == Stop
-	}
-	return l == Never || l == AskLimit || l == Run
-}
-
-// AllowedWords says which words the class accepts, for an error message.
-func (c Class) AllowedWords() string {
-	switch c {
-	case ClassSecrets:
-		return "never or ask"
-	case ClassLoop:
-		return "ask or stop"
-	}
-	return "never, ask or run"
-}
 
 // ParseClass reads a class name.
 func ParseClass(s string) (Class, error) {
@@ -212,45 +95,39 @@ func KeyClass(key string) (Class, bool) {
 	return ClassTools, true
 }
 
-// Action is the limit as an opencode action for the ceiling (Run is allow).
-func (l Limit) Action() permrules.Action {
-	switch l {
-	case Never:
-		return permrules.Deny
-	case AskLimit, Stop:
-		return permrules.Ask
+// Denyable reports whether the class may be refused locally: the loop alert is
+// always a card, never a refusal.
+func (c Class) Denyable() bool { return c != ClassLoop }
+
+// ParseDeny reads a --deny class name.
+func ParseDeny(s string) (Class, error) {
+	c, err := ParseClass(s)
+	if err != nil {
+		return "", err
 	}
-	return permrules.Allow
+	if !c.Denyable() {
+		return "", fmt.Errorf("the loop class cannot be denied: a repeating agent is always a card")
+	}
+	return c, nil
 }
 
-// LimitsFromWords reads limits kept as words; an unknown class or a word the
-// class does not allow is left to its default.
-func LimitsFromWords(m map[string]string) map[Class]Limit {
-	out := map[Class]Limit{}
-	for k, w := range m {
+// AutoWord is one class's word in an Auto session's map: run or ask.
+const (
+	AutoRun = "run"
+	AutoAsk = "ask"
+)
+
+// AutoRunSet reads an Auto session's per-class map (PROTOCOL.md §6): only a
+// known class whose word is "run" runs; everything else asks (fail closed). The
+// secrets and loop classes never run (the floor's cards).
+func AutoRunSet(m map[string]string) map[Class]bool {
+	out := map[Class]bool{}
+	for k, v := range m {
 		c, err := ParseClass(k)
-		if err != nil {
+		if err != nil || v != AutoRun || c == ClassSecrets || c == ClassLoop {
 			continue
 		}
-		if l, ok := ParseLimit(w); ok && c.Allows(l) {
-			out[c] = l
-		}
-	}
-	return out
-}
-
-// LimitsFromCeiling derives limits from a per-key ceiling alone: each class
-// takes the most cautious cap among its keys (tests that build layers by hand).
-func LimitsFromCeiling(c permrules.Ceiling) map[Class]Limit {
-	out := map[Class]Limit{}
-	for _, cl := range Classes {
-		lim := DefaultLimit(cl)
-		for _, k := range ClassKeys(cl) {
-			if a := c.Of(k); a != permrules.Allow {
-				lim = Stricter(lim, map[bool]Limit{true: Never, false: AskLimit}[a == permrules.Deny])
-			}
-		}
-		out[cl] = lim
+		out[c] = true
 	}
 	return out
 }

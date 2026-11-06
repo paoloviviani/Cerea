@@ -209,12 +209,12 @@ func TestWritesIntoDotGitAreAlwaysACard(t *testing.T) {
 			t.Errorf("%q: %v, want once", f, got.Verdict)
 		}
 	}
-	// Plan still refuses it; a never limit still refuses it.
+	// Plan still refuses it; a local deny still refuses it.
 	r := Request{Key: "edit", Patterns: []string{".git/config"}, Workspace: w}
 	if got := Decide(pl, State{Mode: permrules.Deny}, r); got.Verdict != Reject {
 		t.Errorf("plan: %v", got.Verdict)
 	}
-	pn := Policy{Protected: pr, Limits: map[Class]Limit{ClassEdit: Never}}
+	pn := Policy{Protected: pr, Deny: map[Class]bool{ClassEdit: true}}
 	if got := Decide(pn, State{Mode: permrules.Allow}, r); got.Verdict != Reject {
 		t.Errorf("never: %v", got.Verdict)
 	}

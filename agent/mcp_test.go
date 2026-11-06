@@ -257,7 +257,7 @@ func TestMCPGoesThroughTheDecisionFunction(t *testing.T) {
 }
 
 func TestMCPMachineCeilingStillCaps(t *testing.T) {
-	r := newCoordRig(t, withMax("session_read", "deny"))
+	r := newCoordRig(t, withDeny("agents"))
 	r.mc.agentTools.async = func(f func()) { f() }
 	gate, err := r.mc.startMCP()
 	if err != nil || gate == nil {
@@ -267,7 +267,7 @@ func TestMCPMachineCeilingStillCaps(t *testing.T) {
 	m := &mcpRig{coordRig: r, gate: gate}
 	cs, _ := m.client("caller")
 	out, isErr := callTool(t, cs, "session_read", map[string]any{"target": "peer"})
-	if !isErr || !strings.Contains(out, "do not allow") {
+	if !isErr || !strings.Contains(out, "refused") {
 		t.Fatalf("ceiling deny: %v %q", isErr, out)
 	}
 }

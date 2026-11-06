@@ -86,7 +86,7 @@ func TestLoadMissingFileIsDefault(t *testing.T) {
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "policy.json")
 	want := Policy{
-		Permission:     Permission{Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}},
+		Permission:     Permission{Deny: []string{"web", "command"}},
 		WorkspaceRoots: []string{"/srv/code"}, AllowFreeModels: true,
 	}
 	if err := Save(path, want); err != nil {
@@ -96,8 +96,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Permission.Limits["command"] != "ask" || got.Permission.Max != nil ||
-		got.Permission.Rules["edit"] != "allow" || got.AllowFreeModels != want.AllowFreeModels ||
+	if !equalStrings(got.Permission.Deny, []string{"command", "web"}) || got.AllowFreeModels != want.AllowFreeModels ||
 		!equalStrings(got.WorkspaceRoots, want.WorkspaceRoots) {
 		t.Errorf("round trip mismatch: got %+v, want %+v", got, want)
 	}
@@ -190,8 +189,8 @@ func TestLegacyAutoAcceptAndRespondersAreIgnoredAndDropped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a legacy file must still load: %v", err)
 	}
-	if p.Permission.Limits["command"] != "ask" || p.Permission.Max != nil || len(p.Permission.Rules) != 0 {
-		t.Errorf("the ceiling must survive (as the command class) and nothing else appear: %+v", p.Permission)
+	if p.Permission.Max != nil || len(p.Permission.Deny) != 0 || len(p.Permission.Notices) != 1 {
+		t.Errorf("a retired ceiling is dropped with a notice, and nothing else appears: %+v", p.Permission)
 	}
 	if !p.TerminalAllowed() {
 		t.Error("the rest of the file still loads")
@@ -205,68 +204,94 @@ func TestLegacyAutoAcceptAndRespondersAreIgnoredAndDropped(t *testing.T) {
 	}
 }
 
-func TestLoadRefusesAPermissionTypoInsteadOfUncapping(t *testing.T) {
+// ADR 0109: a policy.json from before it, with limits, a ceiling and own rules
+// (even malformed ones), loads, says so, and ignores them; the next write drops
+// them.
+func TestRetiredLimitsLoadWarnAndAreIgnored(t *testing.T) {
 	for name, body := range map[string]string{
-		"ceiling typo": `{"permission":{"max":{"bash":"asc"}}}`,
-		"wildcard key": `{"permission":{"max":{"*":"deny"}}}`,
-		"rule typo":    `{"permission":{"rules":{"edit":"yes"}}}`,
+		"limits":       `{"permission":{"limits":{"command":"never","edit":"ask","loop":"stop"}}}`,
+		"ceiling":      `{"permission":{"max":{"bash":"deny"}}}`,
+		"rules":        `{"permission":{"rules":{"edit":"allow"}}}`,
+		"typo ignored": `{"permission":{"max":{"bash":"asc"},"limits":{"nonsense":"x"}}}`,
 	} {
 		path := filepath.Join(t.TempDir(), "policy.json")
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Load(path); err == nil {
-			t.Errorf("%s: Load accepted %s", name, body)
+		p, err := Load(path)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(p.Permission.Notices) != 1 || !strings.Contains(p.Permission.Notices[0], "ignored") {
+			t.Errorf("%s: notices %v", name, p.Permission.Notices)
+		}
+		if len(p.Permission.DenySet()) != 0 || len(p.Permission.Ceiling().Keys()) != 0 {
+			t.Errorf("%s: a retired field must not refuse anything: %+v", name, p.Permission)
+		}
+		if err := Save(path, p); err != nil {
+			t.Fatal(err)
+		}
+		saved, _ := os.ReadFile(path)
+		for _, w := range []string{"limits", `"max"`, `"rules"`} {
+			if strings.Contains(string(saved), w) {
+				t.Errorf("%s: Save kept %s:\n%s", name, w, saved)
+			}
 		}
 	}
 }
 
-func TestPermissionCeilingAndRules(t *testing.T) {
-	p := Permission{Max: map[string]string{"bash": "ask", "edit": "deny"}, Rules: map[string]string{"edit": "allow", "read": "allow"}}
-	if got := p.Ceiling().Of("bash"); got != "ask" {
+func TestLoadRefusesAnUnknownOrLoopDeny(t *testing.T) {
+	for _, body := range []string{`{"permission":{"deny":["nonsense"]}}`, `{"permission":{"deny":["loop"]}}`} {
+		path := filepath.Join(t.TempDir(), "policy.json")
+		_ = os.WriteFile(path, []byte(body), 0o600)
+		if _, err := Load(path); err == nil {
+			t.Errorf("Load accepted %s", body)
+		}
+	}
+}
+
+func TestDenyCeilingAndSet(t *testing.T) {
+	p := Permission{Deny: []string{"web", "command", "web", "edit"}}
+	p.Normalize()
+	if !equalStrings(p.Deny, []string{"command", "edit", "web"}) {
+		t.Errorf("Normalize: %v", p.Deny)
+	}
+	if got := p.Ceiling().Of("bash"); got != "deny" {
 		t.Errorf("bash ceiling = %s", got)
 	}
-	if got := p.Ceiling().Of("webfetch"); got != "allow" {
-		t.Errorf("an uncapped key = %s, want allow", got)
+	if got := p.Ceiling().Of("webfetch"); got != "deny" {
+		t.Errorf("webfetch ceiling = %s", got)
 	}
-	rules := p.OwnRules()
-	if len(rules) != 2 || rules[0].Permission != "edit" || rules[1].Permission != "read" {
-		t.Errorf("OwnRules = %+v, want edit then read (sorted)", rules)
+	if got := p.Ceiling().Of("task"); got != "allow" {
+		t.Errorf("an undenied key = %s, want allow", got)
+	}
+	if !p.Denied("web") || p.Denied("agents") {
+		t.Error("Denied")
+	}
+	if p.AddDeny("web") || !p.AddDeny("agents") || !p.RemoveDeny("agents") || p.RemoveDeny("agents") {
+		t.Error("AddDeny/RemoveDeny report")
 	}
 }
 
 func TestLiveOnlyTightens(t *testing.T) {
-	live := NewLive(Permission{Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}})
-
-	// Looser input: ignored.
-	ch := live.Tighten(Permission{Max: map[string]string{"bash": "allow", "edit": "allow"}, Rules: map[string]string{"edit": "allow", "read": "allow"}})
-	if ch.Any() {
-		t.Errorf("a looser file changed something: %+v", ch)
+	live := NewLive(Permission{Deny: []string{"command"}})
+	// A file that no longer denies it: ignored (loosening needs enroll).
+	if ch := live.Tighten(Permission{}); ch.Any() || !live.Permission().Denied("command") {
+		t.Errorf("a looser file changed something: %+v", live.Permission())
 	}
-	if got := live.Permission(); got.Limits["command"] != "ask" || got.Rules["read"] != "" {
-		t.Errorf("after a loosening read: %+v", got)
+	// A new deny: taken, and reported.
+	if ch := live.Tighten(Permission{Deny: []string{"command", "web"}}); !ch.Tightened || !live.Permission().Denied("web") {
+		t.Errorf("a new deny was not taken: %+v", live.Permission())
 	}
-
-	// Tighter input: taken, and reported.
-	ch = live.Tighten(Permission{Max: map[string]string{"bash": "deny", "webfetch": "ask", "websearch": "ask", "codesearch": "ask"}, Rules: map[string]string{"edit": "ask"}})
-	if !ch.Tightened {
-		t.Errorf("change = %+v, want tightened", ch)
-	}
-	got := live.Permission()
-	if got.Limits["command"] != "never" || got.Limits["web"] != "ask" || got.Limits["edit"] != "ask" {
-		t.Errorf("after tightening: %+v", got)
-	}
-
-	// Raising what was lowered: ignored, so a file edited back up cannot undo it.
-	ch = live.Tighten(Permission{Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}})
-	if ch.Any() || live.Permission().Limits["command"] != "never" || live.Permission().Limits["edit"] != "ask" {
-		t.Errorf("a raised file undid a tightening: %+v %+v", ch, live.Permission())
+	// Retired limits in a re-read file change nothing.
+	if ch := live.Tighten(Permission{Limits: map[string]string{"edit": "never"}}); ch.Any() || live.Permission().Denied("edit") {
+		t.Errorf("a retired limit was taken: %+v", live.Permission())
 	}
 }
 
 func TestLiveLayers(t *testing.T) {
-	l := NewLive(Permission{Max: map[string]string{"bash": "ask"}, Rules: map[string]string{"edit": "allow"}}).Layers()
-	if l.Ceiling.Of("bash") != "ask" || l.Limits["command"] != "ask" || len(l.Own) != 1 || l.Own[0].Permission != "edit" {
+	l := NewLive(Permission{Deny: []string{"command"}}).Layers()
+	if l.Ceiling.Of("bash") != "deny" || len(l.Deny) != 1 || l.Deny[0] != "command" {
 		t.Errorf("layers = %+v", l)
 	}
 }
@@ -493,29 +518,6 @@ func TestDisplaySafeDirsShortensTheHomePrefix(t *testing.T) {
 	want := []string{"/tmp", "~/.cache", filepath.Join(home+"2", "x")}
 	if !equalStrings(got, want) {
 		t.Errorf("DisplaySafeDirs = %v, want %v (a neighbour directory is not the home)", got, want)
-	}
-}
-
-func TestIncoherentCeilingWarnsOnlyWhenBashIsUncapped(t *testing.T) {
-	cases := []struct {
-		max  map[string]string
-		warn bool
-	}{
-		{nil, false},
-		{map[string]string{"bash": "ask"}, false},
-		{map[string]string{"webfetch": "deny"}, true},
-		{map[string]string{"webfetch": "deny", "bash": "allow"}, true},
-		{map[string]string{"webfetch": "deny", "bash": "ask"}, false},
-		{map[string]string{"edit": "ask", "bash": "deny"}, false},
-		{map[string]string{"session_spawn": "ask"}, false},
-	}
-	for _, c := range cases {
-		p := Permission{Max: c.max}
-		p.Normalize()
-		got := p.IncoherentCeiling()
-		if (got != "") != c.warn {
-			t.Errorf("max %v: warning %q, want warn=%v", c.max, got, c.warn)
-		}
 	}
 }
 

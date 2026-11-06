@@ -102,15 +102,11 @@ describe("against the agent", () => {
 		].map((match) => match[1]);
 		// The retired flag still parses (it warns that it does nothing), so it
 		// is registered but classified nowhere: it is not a policy any more.
-		// `--limit` is kept by one release of galopin (ADR 0109: ignored with a warning) and is gone
-		// after it, so neither side is held to it.
+		// The retired flags still parse (they warn that they do nothing), so they are registered
+		// but classified nowhere: `--limit` (ADR 0109) like `--allow-auto-accept`.
 		const tolerated = new Set(["allow-auto-accept", "limit"]);
 		const policyRegistered = registered.filter((name) => !tolerated.has(name)).sort();
-		expect(policyRegistered).toEqual(
-			ENROLL_FLAGS.map((flag) => flag.flag)
-				.filter((name) => name !== "limit")
-				.sort()
-		);
+		expect(policyRegistered).toEqual(ENROLL_FLAGS.map((flag) => flag.flag).sort());
 	});
 
 	it.skipIf(!existsSync(JSON_PATH))(
@@ -126,10 +122,11 @@ describe("against the agent", () => {
 				}>;
 				dialogOnly: Array<{ control: string; exposed: boolean }>;
 			};
-			const live = file.flags.filter((flag) => !flag.retired && flag.flag !== "limit");
-			const ours = ENROLL_FLAGS.filter((flag) => flag.flag !== "limit");
-			expect(live.map((flag) => flag.flag).sort()).toEqual(ours.map((flag) => flag.flag).sort());
-			for (const flag of ours) {
+			const live = file.flags.filter((flag) => !flag.retired);
+			expect(live.map((flag) => flag.flag).sort()).toEqual(
+				ENROLL_FLAGS.map((flag) => flag.flag).sort()
+			);
+			for (const flag of ENROLL_FLAGS) {
 				const theirs = live.find((candidate) => candidate.flag === flag.flag);
 				expect(theirs?.exposed, `${flag.flag} exposed`).toBe(flag.exposed);
 				expect(theirs?.kind, `${flag.flag} kind`).toBe(flag.kind);

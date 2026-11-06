@@ -186,16 +186,17 @@ export const PERMISSION_MODES: readonly PermissionMode[] = ["deny", "ask", "allo
 
 /**
  * What the composer and a project's agent profile offer (ADR 0109 amendment): Plan · Ask · Auto ·
- * Allow. Auto is Cerea's: the wire word `allow` plus the per-class map (`autoClasses`); Allow is
- * the same word with no map, hands off apart from the machine's fixed floor.
+ * Allow. Auto is the wire word `ask` plus the per-class map (`autoClasses`, PROTOCOL.md §6): the
+ * map's presence makes the session Auto, and `permissionMode` stays "ask". Allow is `allow` with
+ * no map: hands off apart from the machine's fixed floor.
  */
 export type PermissionStep = "deny" | "ask" | "auto" | "allow";
 export const PERMISSION_STEPS: readonly PermissionStep[] = ["deny", "ask", "auto", "allow"];
 
 /** One class of an Auto session: `run` needs no card, `ask` raises one (Cerea routes it). */
 export type AutoClassWord = "run" | "ask";
-/** The per-class map Cerea sends with the word `allow` (`session.setPermissionMode`'s
- * `autoClasses`; absent = Allow, hands off). Read back as `Session.autoClasses`. */
+/** The per-class map Cerea sends with the word `ask` (`session.setPermissionMode`'s
+ * `autoClasses`; its presence is Auto). Read back as `Session.autoClasses`. */
 export type AutoClasses = Partial<Record<PermissionClass, AutoClassWord>>;
 
 /** The wire word and map a step stands for; `auto` needs the user's map. */
@@ -203,7 +204,7 @@ export function stepToWire(
 	step: PermissionStep,
 	autoClasses: AutoClasses | undefined
 ): { mode: PermissionMode; autoClasses?: AutoClasses } {
-	if (step === "auto") return { mode: "allow", ...(autoClasses ? { autoClasses } : {}) };
+	if (step === "auto") return { mode: "ask", ...(autoClasses ? { autoClasses } : {}) };
 	return { mode: step };
 }
 
@@ -213,8 +214,8 @@ export function stepOf(
 	autoClasses: AutoClasses | undefined | null
 ): PermissionStep | null {
 	if (!mode) return null;
-	if (mode === "allow")
-		return autoClasses && Object.keys(autoClasses).length > 0 ? "auto" : "allow";
+	// The map's presence (even empty) is Auto; it is only ever sent with the word `ask`.
+	if (mode === "ask" && autoClasses) return "auto";
 	return mode;
 }
 
@@ -231,8 +232,7 @@ export interface Session {
 	 * A child reports its root's. Absent on a machine that predates the
 	 * selector: the panel then draws no selector at all. */
 	permissionMode?: PermissionMode;
-	/** The Auto map (ADR 0109): present with `permissionMode: "allow"` when the session is on Auto,
-	 * absent on Allow (hands off) and on a machine that does not know it. */
+	/** The Auto map (ADR 0109): present, with `permissionMode: "ask"`, only on an Auto session. */
 	autoClasses?: AutoClasses;
 	/** An earlier Deny stuck in this session's stored rules (opencode keeps
 	 * them forever): subagents started from here have their first turn

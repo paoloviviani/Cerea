@@ -88,7 +88,29 @@ func (b *Backend) PermissionMode(sessionID string) permrules.Action {
 	return b.sels.get(sessionID).Effective()
 }
 func (b *Backend) SetPermissionMode(_ context.Context, _, sessionID string, mode permrules.Action) error {
-	b.sels.update(sessionID, func(s permrules.Selector) permrules.Selector { s.Mode = mode; return s })
+	b.sels.update(sessionID, func(s permrules.Selector) permrules.Selector {
+		s.Mode = mode
+		s.Auto, s.AutoClasses = false, nil
+		return s
+	})
+	return nil
+}
+func (b *Backend) AutoClasses(sessionID string) (map[string]string, bool) {
+	s := b.sels.get(sessionID)
+	if !s.Auto || s.Effective() != permrules.Ask {
+		return nil, false
+	}
+	out := make(map[string]string, len(s.AutoClasses))
+	for k, v := range s.AutoClasses {
+		out[k] = v
+	}
+	return out, true
+}
+func (b *Backend) SetAuto(_ context.Context, _, sessionID string, classes map[string]string) error {
+	b.sels.update(sessionID, func(s permrules.Selector) permrules.Selector {
+		s.Mode, s.Auto, s.AutoClasses = permrules.Ask, true, classes
+		return s
+	})
 	return nil
 }
 func (b *Backend) Exceptions(sessionID string) []permrules.Exception {

@@ -676,8 +676,7 @@ export async function setPermissionMode(
 	deviceId: string,
 	agentId: string,
 	mode: PermissionMode,
-	/** ADR 0109: `allow` with `auto` is the Auto step (Cerea adds the user's per-class map);
-	 * `allow` alone is Allow, hands off. */
+	/** ADR 0109: `ask` with `auto` is the Auto step (Cerea adds the user's per-class map). */
 	opts: { auto?: boolean } = {}
 ): Promise<{ ok: boolean }> {
 	return unwrap(
