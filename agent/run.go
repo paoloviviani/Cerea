@@ -303,6 +303,13 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	defer auditLog.Close()
 	mc.AttachAudit(auditLog)
 	mc.AttachReportState(stateDir)
+	if d, ok := back.(interface{ DroppedBroadExceptions() []string }); ok {
+		for _, x := range d.DroppedBroadExceptions() {
+			logf("permissions: dropped a saved approval that allowed every edit (%s); it asks again, one file at a time", x)
+			sess, perm, _ := strings.Cut(x, " ")
+			auditLog.permissionSavedDropped(sess, perm)
+		}
+	}
 	// The machine's local MCP connectors (mcp.json, PROTOCOL.md §10): served
 	// whenever the file exists, whatever the backend.
 	connectors := mc.startConnectors(stateDir, mcpPath)

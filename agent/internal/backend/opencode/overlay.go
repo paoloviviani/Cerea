@@ -147,6 +147,14 @@ func (b *Backend) claimPendingClientMessageID(sessionID, mintedID, clientMessage
 	b.pendingMu.Unlock()
 }
 
+// DroppedBroadExceptions lists the "<session> <permission>" of each
+// over-broad saved approval dropped when the overlay was loaded.
+func (b *Backend) DroppedBroadExceptions() []string {
+	b.overlayMu.Lock()
+	defer b.overlayMu.Unlock()
+	return append([]string(nil), b.droppedBroad...)
+}
+
 func (b *Backend) loadOverlay() error {
 	if b.cfg.OverlayPath == "" {
 		return nil
@@ -166,7 +174,27 @@ func (b *Backend) loadOverlay() error {
 	if f.Sessions != nil {
 		b.overlay = f.Sessions
 	}
+	// An OverAsk exception whose pattern matches everything (the bare `*` an
+	// edit "always" stored before it was scoped to the file) is dropped.
+	var dropped []string
+	for id, o := range b.overlay {
+		next, gone := o.Selector.WithoutBroadOverAsk()
+		if len(gone) == 0 {
+			continue
+		}
+		o.Selector = next
+		b.overlay[id] = o
+		for _, e := range gone {
+			dropped = append(dropped, id+" "+e.Permission)
+		}
+	}
+	b.droppedBroad = dropped
 	b.overlayMu.Unlock()
+	if len(dropped) > 0 {
+		if err := b.saveOverlay(); err != nil {
+			return err
+		}
+	}
 	b.clientMsgMu.Lock()
 	if f.ClientMessageIDs != nil {
 		b.clientMessageIDs = f.ClientMessageIDs

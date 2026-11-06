@@ -191,14 +191,14 @@ describe("ToolApprovalCard, galopin approvals", () => {
 			.toBeVisible();
 	});
 
-	it("says an edit's Always allow covers every edit in the session", async () => {
+	it("says an edit's Always allow covers this file only", async () => {
 		const onanswer = vi.fn(async () => ({ ok: true }));
 		const screen = render(ToolApprovalCard, {
 			conversationId: "a1",
 			request: request("edit", { filepath: "src/a.ts" }),
 			onanswer,
 		});
-		await screen.getByRole("button", { name: "Always allow edits (this session)" }).click();
+		await screen.getByRole("button", { name: "Always allow edits to this file" }).click();
 		expect(onanswer).toHaveBeenCalledWith("accept", "always");
 	});
 
@@ -247,7 +247,7 @@ describe("ToolApprovalCard, galopin approvals", () => {
 		it("offers Always allow edits for a key it does not cap", async () => {
 			const screen = withCeiling((tool) => tool === "bash", "edit");
 			await expect
-				.element(screen.getByRole("button", { name: "Always allow edits (this session)" }))
+				.element(screen.getByRole("button", { name: "Always allow edits to this file" }))
 				.toBeVisible();
 		});
 

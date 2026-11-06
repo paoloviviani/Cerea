@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -89,8 +90,10 @@ func TestPassthroughP2AskStaysPendingAndAnswersLand(t *testing.T) {
 }
 
 // P3: the machine's rule says allow but the ceiling says ask: the ceiling wins.
-// "always" becomes "once": nothing is saved, and the next identical write asks again.
-func TestPassthroughP3CeilingWinsAndAlwaysBecomesOnce(t *testing.T) {
+// A human's "always" on that card is still stored (ADR 0107, 2026-11-05
+// amendment: overAsk), scoped to the file of the ask and never opencode's `*`:
+// the next write of that file runs, any other file asks.
+func TestPassthroughP3CeilingAskStoresAHumansAlwaysForThatFileOnly(t *testing.T) {
 	r := newPermRig(t, permRigOpts{
 		perm: policy.Permission{Rules: map[string]string{"edit": "allow"}, Max: map[string]string{"edit": "ask"}},
 	})
@@ -107,27 +110,36 @@ func TestPassthroughP3CeilingWinsAndAlwaysBecomesOnce(t *testing.T) {
 	r.reply(s, ask.ID, "always")
 	r.idle(s, mark)
 	if !r.exists("p3a.txt") {
-		t.Fatal("the capped answer should still have let this one write through")
+		t.Fatal("the answer should have let this one write through")
 	}
-	if ex := r.exceptions(s); len(ex) != 0 {
-		t.Errorf("exceptions = %+v, want none: a capped key stores nothing", ex)
+	ex := r.exceptions(s)
+	if len(ex) != 1 || ex[0].Permission != "edit" || len(ex[0].Patterns) == 0 {
+		t.Fatalf("exceptions = %+v, want one edit exception for the file", ex)
 	}
-	// The next identical write asks again — that is what "once" means.
-	ask, _, mark = r.try(s, "p3a.txt")
+	for _, p := range ex[0].Patterns {
+		if strings.Trim(p, "*?/ ") == "" {
+			t.Errorf("exception pattern %q matches every file", p)
+		}
+	}
+	// The same file runs under the exception, another file asks.
+	if ask, part, _ := r.try(s, "p3a.txt"); ask != nil || part.ToolStatus != backend.ToolCompleted {
+		t.Fatalf("the same file did not run: ask=%v part=%+v", ask, part)
+	}
+	ask, _, mark = r.try(s, "p3b.txt")
 	if ask == nil {
-		t.Fatal("an identical write did not ask again: the always was remembered")
+		t.Fatal("another file did not ask: the always covers more than its file")
 	}
 	r.reply(s, ask.ID, "reject")
 	r.idle(s, mark)
 
-	var capped bool
+	var stored bool
 	for _, row := range r.auditRows() {
-		if row["action"] == "permission" && row["decision"] == "once" && row["capped"] == true && row["by"] == "user" {
-			capped = true
+		if row["action"] == "permission" && row["decision"] == "always" && row["by"] == "user" && row["capped"] == nil {
+			stored = true
 		}
 	}
-	if !capped {
-		t.Errorf("audit lacks the capped reply: %v", r.auditRows())
+	if !stored {
+		t.Errorf("audit lacks the stored always: %v", r.auditRows())
 	}
 }
 
@@ -148,8 +160,8 @@ func TestPassthroughP6TightenedCeilingRestartsAndDenies(t *testing.T) {
 	if ex := r.exceptions(s); len(ex) != 1 || ex[0].Permission != "edit" || ex[0].SessionID != s.ID || !ex[0].Removable {
 		t.Fatalf("the exception for the always = %+v, want one removable edit exception on this session", ex)
 	}
-	// Remembered: the next write sails through without asking.
-	if ask, part, _ := r.try(s, "p6b.txt"); ask != nil || part.ToolStatus != backend.ToolCompleted {
+	// Remembered: the next write of that file sails through without asking.
+	if ask, part, _ := r.try(s, "p6a.txt"); ask != nil || part.ToolStatus != backend.ToolCompleted {
 		t.Fatalf("the always was not honoured: ask=%v part=%+v", ask, part)
 	}
 
@@ -275,7 +287,7 @@ func TestPassthroughP6bTightenedToAskCapsTheException(t *testing.T) {
 	}
 	r.reply(s, ask.ID, "always")
 	r.idle(s, mark)
-	if ask, part, _ := r.try(s, "p6b-b.txt"); ask != nil || part.ToolStatus != backend.ToolCompleted {
+	if ask, part, _ := r.try(s, "p6b-a.txt"); ask != nil || part.ToolStatus != backend.ToolCompleted {
 		t.Fatalf("the exception was not honoured: ask=%v part=%+v", ask, part)
 	}
 
@@ -284,7 +296,7 @@ func TestPassthroughP6bTightenedToAskCapsTheException(t *testing.T) {
 		t.Fatal("not tightened")
 	}
 	// No rule and no restart: the next ask is decided under the new ceiling.
-	ask, _, _ = r.try(s, "p6b-c.txt")
+	ask, _, _ = r.try(s, "p6b-a.txt")
 	if ask == nil {
 		t.Fatal("the exception outlived a ceiling of ask: the tail does not cap it")
 	}
