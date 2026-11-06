@@ -63,7 +63,7 @@ Two things about running the suites in a container:
 
   ```bash
   docker run --rm -v $PWD:/chat -w /chat --entrypoint /bin/sh \
-    mcr.microsoft.com/playwright:v1.64.1-noble \
+    mcr.microsoft.com/playwright:v1.65.0-noble \
     -c 'export HOME=/root CI=true; corepack enable; npx vitest run --project=client'
   ```
 

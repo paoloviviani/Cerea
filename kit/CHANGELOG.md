@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Security: headless browser and e2e image updated to Playwright 1.65.0** (Chromium 158). `PLAYWRIGHT_IMAGE` and `PLAYWRIGHT_VERSION` default to 1.65.0; a pinned older image keeps its old Chromium until you change it.
+
 ## v0.42.2 — 2026-11-05
 
 Pins: Cerea `0.42.2` (chat and `cerea-documents`), Pystino `0.27.0`.

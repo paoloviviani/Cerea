@@ -717,12 +717,12 @@ services:
   # used by the fetch path. The chat sends Accept-Encoding: gzip, deflate so
   # servers never answer with Brotli. Bump this image (and PLAYWRIGHT_VERSION,
   # and the chat's pinned playwright) when a Playwright release with a newer
-  # Chrome ships; none is newer than 1.64.1 yet. The sandbox and this box are
+  # Chrome ships; Chromium 158 ships since 1.65.0 (re-check for newer). The sandbox and this box are
   # what contain a Chromium bug in the meantime.
   playwright:
     profiles: [fetch]
-    image: ${PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.64.1-noble}
-    command: ["npx", "-y", "playwright@${PLAYWRIGHT_VERSION:-1.64.1}", "launch-server", "--browser", "chromium", "--config", "/etc/cerea/playwright-server.json"]
+    image: ${PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.65.0-noble}
+    command: ["npx", "-y", "playwright@${PLAYWRIGHT_VERSION:-1.65.0}", "launch-server", "--browser", "chromium", "--config", "/etc/cerea/playwright-server.json"]
     user: pwuser
     init: true
     shm_size: 1gb
