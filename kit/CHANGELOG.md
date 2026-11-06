@@ -5,8 +5,21 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.43.0 — 2026-11-06
 
+Pins: Cerea `0.43.0` (chat and `cerea-documents`), Pystino `0.28.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Coding machines need the galopin update (diffs, connectors, cost tagging, the new permission model): re-run the install line from the Pair a machine dialog, then `systemctl --user restart galopin`. Each user's auto-approval settings start from the deployment's previous ones; review them in Workspace → Agents.
+
+- **One person, one selector (ADR 0109).** Machine limits are gone: the session's step decides. Plan refuses; Ask brings every action to you; **Allow** is hands off; **Auto** follows your own rows in **Workspace → Agents**, where each kind of action runs, goes to your reviewer, or comes to you. A small fixed floor always remains: galopin's own files are refused, and credential paths, `.git` and CI writes always come to you. Old `--limit` flags and stored limits are ignored with a warning; an optional local `galopin enroll --deny CLASS` refuses a kind of action on that machine. Project defaults saved earlier as "allow" now read as Auto.
+- **Auto-approval is per user.** Your decision model, threshold, instructions and rows live in Workspace → Agents, billed to you; **Test** shows how the reviewer rules on standard cases without blocking a save. Admins only switch the reviewer on for the deployment.
+- **Diffs for every engine.** galopin snapshots edited files and shows their diff for any engine; a resumed ACP session shows its history again.
+- **Connectors for coding agents.** Switch on, per session or as a project default, which of your connectors a coding agent may use (`connector_list` / `connector_call`); Cerea runs each call with your credentials, which never reach the machine, and your machine's own local connectors are served directly.
+- **Cost per session.** The composer meter shows each session's cost and tokens, and the latest turn's, as metered by the gateway (needs Pystino 0.28.0).
+- **"Always allow" covers that file only** (or that exact command), never everything; blanket exceptions saved earlier are dropped.
+- **Clearer errors:** a used-up quota says so (with the reset time when known) instead of "rate limited"; a send refused because the model is gone shows the reason and a "Choose another model" button.
+- **Schedules stay on when your background sign-in expires:** runs are skipped with a warning that disappears when you sign in again.
+- Fixes: a table artifact's CSV download could be cut short; knowledge search on a base with a mismatched embedding width now explains itself; the sandbox mounts the current version of a restored attachment; a failed delete in a project folder restores the row; admin connectors may use an `http://` host listed in `MCP_INTERNAL_HOSTS` (0.42.2).
 - **Security: headless browser and e2e image updated to Playwright 1.65.0** (Chromium 158). `PLAYWRIGHT_IMAGE` and `PLAYWRIGHT_VERSION` default to 1.65.0; a pinned older image keeps its old Chromium until you change it.
 
 ## v0.42.2 — 2026-11-05
