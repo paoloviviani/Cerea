@@ -1376,6 +1376,16 @@ export async function search(
 	try {
 		const [vector] = await embedChunks(token, base, [body.query]);
 		const dims = base.dimensions;
+		// A provider that ignores `dimensions`, for a model that is not a known
+		// MRL one, answers at its native width, which is not the base's
+		// recorded one. Casting that to halfvec(dims) would die in Postgres
+		// as a 500; say what is wrong and what to do instead.
+		if (vector.length !== dims) {
+			throw new KnowledgeError(
+				400,
+				`This base's embedding width (${dims}) does not match what its model "${base.embeddingModel}" returns (${vector.length}). Re-embed the base (reindex it) or pick an embedding model that honours the requested width.`
+			);
+		}
 		const literal = `[${vector.map((v) => (Number.isFinite(v) ? v : 0)).join(",")}]`;
 		if (!INDEXED_DIMENSIONS.includes(dims as (typeof INDEXED_DIMENSIONS)[number])) {
 			throw new KnowledgeError(400, `This base's vectors are ${dims} wide; no index covers that.`);
