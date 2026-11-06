@@ -747,46 +747,7 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByTestId("waiting-approval")).toHaveCount(0, { timeout: 60_000 });
 	});
 
-	test("subagent approvals: with the root on Allow and bash capped by the machine, the spawn needs no card and only the child's first turn asks, once", async ({
-		page,
-		db,
-		session,
-		mockOpenAI,
-	}) => {
-		// The machine caps bash at ask, so Allow does not reach it. opencode starts a subagent
-		// before Cerea can hand it the session's setting (PROTOCOL.md): galopin answers that
-		// first-turn ask itself only when the rules it is entitled to allow it, and a capped key
-		// is not allowed, so the ask stays a card. The parent's own `task` call is not a card under Allow.
-		const m = await openSession(page, db, session.sessionId, {
-			permission: { max: { session_spawn: "ask", bash: "ask" } },
-		});
-		await choose(page, "Allow");
-		await mockOpenAI.setDefaultScenario(subagentApprovalScenario(m.workspace));
-		await send(page, "delegate this");
-
-		const card = transcriptCard(page);
-		await expect(card.getByText(/Subagent .*Tool approval/)).toBeVisible({ timeout: 60_000 });
-		// No "first turn asks" chip here: bash is capped, so it asks on every turn and the chip
-		// (which says the asking stops after the first) would mislead; ToolApprovalCard's own test
-		// covers the chip.
-		await expect(card.getByText("New subagent · first turn asks")).toHaveCount(0);
-		// The one card is the child's bash, not the parent's spawn.
-		await expect(card.locator("code").filter({ hasText: /^task$/ })).toHaveCount(0);
-		await card.getByRole("button", { name: "Allow once" }).click();
-
-		await expect(page.getByText("Inspect the repo").first()).toBeVisible({ timeout: 60_000 });
-		await page.getByRole("button", { name: /Expand Inspect the repo/ }).click();
-		// Scoped to the transcript: the subagent is also a sidebar row now, and
-		// opencode may title it from the same reply.
-		await expect(
-			page.locator('[data-message-role="assistant"]').getByText("Child done.").first()
-		).toBeVisible({ timeout: 60_000 });
-		// Nothing else asked: the one approval above was the whole of it.
-		await expect(page.getByText("wants to call")).toHaveCount(0);
-		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
-	});
-
-	test("subagent approvals: with the root on Allow and bash left uncapped, no ask is left standing", async ({
+	test("subagent approvals: with the root on Allow (hands off, ADR 0109), no ask is left standing", async ({
 		page,
 		db,
 		session,
