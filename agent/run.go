@@ -284,6 +284,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 
 	mat := sessions.New(back, pol)
 	mat.UseLive(live)
+	sh.setSessionTag(sessionTagFunc(mat))
 	if err := mat.Start(ctx); err != nil {
 		return fmt.Errorf("subscribing to %s: %w", back.ID(), err)
 	}
@@ -889,6 +890,33 @@ func buildConnectorsHello(pol policy.Policy) link.Hello {
 	h.Policy.BackgroundSubagents = policy.TerminalDenied
 	h.Policy.Warnings = nil
 	return h
+}
+
+// sessionTagFunc is the shim's resolver: the top-level session a gateway call
+// belongs to, so a subagent's usage counts toward its parent. An engine that
+// names its session on the request (opencode: x-session-id) is believed; one
+// that does not (an ACP agent) is attributed to the one session whose turn is
+// running, and to none when there are several, since a guess would put one
+// session's cost on another.
+func sessionTagFunc(mat *sessions.Materializer) func(string) string {
+	return func(engineSessionID string) string {
+		if engineSessionID != "" {
+			return mat.RootOf(engineSessionID)
+		}
+		roots := map[string]bool{}
+		for _, id := range mat.TrackedIDs() {
+			if st, ok := mat.Status(id); ok && (st == backend.StatusBusy || st == backend.StatusRetry) {
+				roots[mat.RootOf(id)] = true
+			}
+		}
+		if len(roots) != 1 {
+			return ""
+		}
+		for r := range roots {
+			return r
+		}
+		return ""
+	}
 }
 
 // diffProtect is the predicate galopin's own diffs use to avoid reading a path
