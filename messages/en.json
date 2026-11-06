@@ -3190,5 +3190,15 @@
 	"code.enroll.command_run_warning": "Commands will run on this machine without a card whenever a session is on Allow or Auto.",
 	"code.enroll.limits_by_class": "What the machine lets each kind of action do",
 	"code.enroll.limits_secrets": "Secrets (.env and credential files) can never run without a card: the most is Ask.",
-	"chat.turn_stopped.loop": "Stopped: the agent was repeating the same action."
+	"chat.turn_stopped.loop": "Stopped: the agent was repeating the same action.",
+	"code.connectors.title": "Connectors",
+	"code.connectors.hint": "Tools from your connectors that this session may use. Off by default. Each call follows this session's permissions, and the machine's limit for connector tools.",
+	"code.connectors.none": "No connectors are available to you.",
+	"code.connectors.on_machine": "on this machine",
+	"code.connectors.needs_signin": "needs sign-in",
+	"code.connectors.switched_off": "switched off in Workspace",
+	"code.connectors.could_not_load": "Could not read the connectors.",
+	"code.connectors.could_not_save": "Could not save the connectors.",
+	"projects.agent.connectors_title": "Connectors",
+	"projects.agent.connectors_hint": "Connectors that sessions started from this project's chats may use. Off by default. Saved with the workspace above."
 }

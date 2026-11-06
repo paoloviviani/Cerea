@@ -313,6 +313,31 @@ async function fetchWithLocalRetry(
 	}
 }
 
+/**
+ * One server's tools as the server lists them (name, description, its own inputSchema), from the
+ * same per-server cache the chat uses. A failure is thrown, never cached. For callers that need
+ * the raw listing rather than provider-shaped function definitions (the agent connector ops).
+ */
+export async function listMcpServerTools(
+	server: McpServerConfig,
+	{ ttlMs = DEFAULT_TTL_MS, signal }: { ttlMs?: number; signal?: AbortSignal } = {}
+): Promise<Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>> {
+	const now = Date.now();
+	evictExpired(now);
+	const key = serverCacheKey(server);
+	const cached = cache.get(key);
+	const tools = cached ? cached.tools : await fetchWithLocalRetry(server, { signal });
+	if (!cached) {
+		cache.set(key, { fetchedAt: now, ttlMs, tools });
+		enforceCacheCap();
+	}
+	return tools.map((t) => ({
+		name: t.name,
+		...(t.description ? { description: t.description } : {}),
+		...(t.inputSchema ? { inputSchema: t.inputSchema } : {}),
+	}));
+}
+
 export async function getOpenAiToolsForMcp(
 	servers: McpServerConfig[],
 	{

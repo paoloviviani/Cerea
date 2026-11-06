@@ -177,6 +177,44 @@ describe("/api/v2/projects/[id]/agent-profile", () => {
 		expect(rows[0]).not.toHaveProperty("modeId");
 	});
 
+	it("stores a connector default (none unless set), and refuses a connector that is not the caller's", async () => {
+		const { seal } = await import("$lib/server/mcp/secretBox");
+		const row = (userId: ObjectId, name: string) => ({
+			_id: new ObjectId(),
+			userId,
+			scope: "user" as const,
+			name,
+			url: `https://${name.toLowerCase()}.test/mcp`,
+			auth: "token" as const,
+			tokenSealed: seal("t"),
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		const mine = row(owner.user._id, "Mine");
+		const theirs = row(member.user._id, "Theirs");
+		await collections.mcpConnectors.insertMany([mine, theirs]);
+		try {
+			const none = await put(ownerLocals, valid(ownerMachine));
+			expect(await none.json()).not.toHaveProperty("connectorKeys");
+
+			const keys = [`connector:${mine._id}`];
+			const set = await put(ownerLocals, valid(ownerMachine, { connectorKeys: keys }));
+			expect(set.status).toBe(200);
+			expect(await set.json()).toMatchObject({ connectorKeys: keys });
+			expect(await (await get(ownerLocals)).json()).toMatchObject({ connectorKeys: keys });
+
+			const stolen = await put(
+				ownerLocals,
+				valid(ownerMachine, { connectorKeys: [`connector:${theirs._id}`] })
+			);
+			expect(stolen.status).toBe(400);
+			// The refused save changed nothing.
+			expect(await (await get(ownerLocals)).json()).toMatchObject({ connectorKeys: keys });
+		} finally {
+			await collections.mcpConnectors.deleteMany({ _id: { $in: [mine._id, theirs._id] } });
+		}
+	});
+
 	it("keeps each user's profile their own: a shared member sets, reads and deletes only theirs", async () => {
 		await put(ownerLocals, valid(ownerMachine));
 		expect((await put(memberLocals, valid(memberMachine, { permissionMode: "ask" }))).status).toBe(

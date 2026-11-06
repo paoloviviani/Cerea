@@ -30,6 +30,8 @@ const api = vi.hoisted(() => ({
 	getAutoApproval: vi.fn(),
 	removeSavedApproval: vi.fn(),
 	setCoordinationGrant: vi.fn(),
+	getSessionConnectors: vi.fn(),
+	setSessionConnectors: vi.fn(),
 }));
 
 vi.mock("$env/dynamic/public", () => ({
@@ -44,6 +46,8 @@ vi.mock("$lib/codeApi", async (importOriginal) => {
 		getAutoApproval: api.getAutoApproval,
 		removeSavedApproval: api.removeSavedApproval,
 		setCoordinationGrant: api.setCoordinationGrant,
+		getSessionConnectors: api.getSessionConnectors,
+		setSessionConnectors: api.setSessionConnectors,
 	};
 });
 
@@ -99,6 +103,8 @@ beforeEach(async () => {
 	errorToast.set(undefined);
 	api.getPermissionRules.mockReset().mockResolvedValue(RESULT);
 	api.getAutoApproval.mockReset().mockRejectedValue(new Error("none"));
+	api.getSessionConnectors.mockReset().mockResolvedValue({ options: [], selected: [] });
+	api.setSessionConnectors.mockReset().mockResolvedValue({ selected: [] });
 	api.setCoordinationGrant
 		.mockReset()
 		.mockImplementation(async (_device: string, _agent: string, keys: string[]) => ({

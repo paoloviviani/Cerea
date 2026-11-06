@@ -358,6 +358,17 @@ To see what reaches you, tap the **shield** beside the control (its name carries
 
 Scheduled actions offer the same three steps, in the same order, so a schedule can be set to Plan, Ask or Auto.
 
+## Connectors for an agent
+
+A coding session can use your **connectors**: the ones in Workspace → Connectors (your own and your administrator's) and the servers of your own machines ([local connectors](local-connectors.md)). **Off by default**: a session gets none until you switch them on, so it carries only what it needs.
+
+- **For one session**: open the shield beside the permission step (the session's Permissions sheet) and use the **Connectors** switches. A connector that is switched off in Workspace, or needs a sign-in or a key, shows off and disabled with the reason. A server on the session's own machine shows "on this machine".
+- **As a project default**: under the project's **Agent workspace**, switch on the connectors that sessions started from that project's chats get. It applies to sessions the chat starts on that machine and workspace; a session that already exists keeps its own.
+
+The agent has two tools: `connector_list` (what is on, with each tool) and `connector_call` (one tool of one connector). Cerea runs a call to a Cerea connector **with your own sign-in or key**, and the credential never reaches the machine; a call to a server on the machine runs there, without going through Cerea. Whatever the chat would not offer you is not offered here either: a connector your administrator switched off, or you switched off in Workspace, stops working at once, even in a session you had switched it on for.
+
+A connector call is a **tool** call like any other connector tool: the machine's `tools` limit caps it (never, ask, run), Plan refuses it, Ask shows you a card with the connector, the tool and its arguments, and Allow runs it. In Auto the card goes to the reviewer or to you by the administrator's row for _tools_, and the [review log](#plan-ask-and-auto) records it. A call is limited to 60 a minute per machine and 80 seconds, its text to 200,000 characters. Cerea records the connector, the tool and the outcome in the audit trail, never the arguments or the result. Needs a galopin that has this feature and a Cerea that offers it; otherwise the tools say so. Agents without MCP or tool files (pi, over ACP) do not get connectors yet.
+
 ## Where an agent's asks show up
 
 One component, the Needs-you inbox, draws every pending approval and question

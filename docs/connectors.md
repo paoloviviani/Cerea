@@ -53,6 +53,10 @@ pill changes that for the current chat. See [Tool approvals](chat.md#tool-approv
 A server may also ask _you_ for something mid-turn (a choice, a confirmation),
 which appears as a form in the conversation.
 
+## Connectors for coding agents
+
+A coding session ([/code](code-panel.md#connectors-for-an-agent)) can use your connectors too, but only the ones you switch on for that session (or as a project default); none by default. Cerea runs the call with **your** credentials, which never leave the server, and applies the same rules as the chat: a connector your administrator set to **Off**, or that you switched off in Workspace, or that needs a sign-in or your key, is not offered to the agent, and stops working at once if it changes after you switched it on. Other users' connectors are never offered. Each call is recorded (connector, tool and outcome, never the arguments) and follows the session's permission step.
+
 ## Files a connector returns
 
 When a connector's tool returns a file, Cerea keeps it as a file of the

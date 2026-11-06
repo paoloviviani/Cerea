@@ -76,6 +76,9 @@ type Hub struct {
 	reloadCount int
 	pending     map[string]*Pending // state -> sign-in begun from the chat
 	stopping    sync.WaitGroup      // transports closing, for Shutdown to wait on
+
+	localMu       sync.Mutex
+	localSessions map[string]*localSession // in-process clients (local.go), by server
 }
 
 // New loads mcp.json and returns the hub.
@@ -281,6 +284,16 @@ func newChannelID() string {
 
 // Open is mcp.open: a new channel to the named server.
 func (h *Hub) Open(ctx context.Context, name string) (string, *OpenError) {
+	ch, oerr := h.open(ctx, name, nil)
+	if oerr != nil {
+		return "", oerr
+	}
+	return ch.id, nil
+}
+
+// open is Open's work; setup, when given, runs on the new channel before it
+// starts (the in-process client points the channel's output at itself).
+func (h *Hub) open(ctx context.Context, name string, setup func(*channel)) (*channel, *OpenError) {
 	h.mu.Lock()
 	e := h.entries[name]
 	open := 0
@@ -292,26 +305,29 @@ func (h *Hub) Open(ctx context.Context, name string) (string, *OpenError) {
 	h.mu.Unlock()
 	switch {
 	case e == nil:
-		return "", &OpenError{"not_found", "no connector named " + name}
+		return nil, &OpenError{"not_found", "no connector named " + name}
 	case e.Invalid != "":
-		return "", &OpenError{"forbidden", "the connector " + name + " is invalid: " + e.Invalid}
+		return nil, &OpenError{"forbidden", "the connector " + name + " is invalid: " + e.Invalid}
 	case e.Disabled:
-		return "", &OpenError{"forbidden", "the connector " + name + " is disabled on this machine"}
+		return nil, &OpenError{"forbidden", "the connector " + name + " is disabled on this machine"}
 	case e.Transport != TransportStdio && h.loginNeeded(e):
-		return "", &OpenError{"forbidden", "the connector " + name + " needs a sign-in. " + loginSentence(name)}
+		return nil, &OpenError{"forbidden", "the connector " + name + " needs a sign-in. " + loginSentence(name)}
 	case open >= h.cfg.MaxChannels:
-		return "", &OpenError{"unavailable", fmt.Sprintf("the connector %s already has %d open channels", name, open)}
+		return nil, &OpenError{"unavailable", fmt.Sprintf("the connector %s already has %d open channels", name, open)}
 	}
 	if e.Transport == TransportHTTP {
 		if err := h.probe(ctx, e); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 	ch := newChannel(h, e)
-	if oerr := ch.start(ctx); oerr != nil {
-		return "", oerr
+	if setup != nil {
+		setup(ch)
 	}
-	return ch.id, nil
+	if oerr := ch.start(ctx); oerr != nil {
+		return nil, oerr
+	}
+	return ch, nil
 }
 
 // probe asks an http server once whether it wants a sign-in: a bare ping,

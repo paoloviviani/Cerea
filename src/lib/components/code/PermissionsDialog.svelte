@@ -43,6 +43,7 @@
 	import IconShield from "~icons/lucide/shield";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import * as s from "$lib/components/overlay/styles";
+	import SessionConnectors from "./SessionConnectors.svelte";
 
 	interface Props {
 		deviceId: string;
@@ -384,6 +385,10 @@
 						{/if}
 					{/if}
 				</div>
+
+				{#if !subagent}
+					<SessionConnectors {deviceId} sessionId={agentId} />
+				{/if}
 			</div>
 		{:else if !codeReauth.required}
 			{#if loading}

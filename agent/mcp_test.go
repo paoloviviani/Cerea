@@ -317,3 +317,36 @@ func TestMCPCallsAreAudited(t *testing.T) {
 		t.Fatalf("no audit row for the call: %v", r.audit())
 	}
 }
+
+func TestMCPOffersTheConnectorToolsAndRunsThemAsTheBoundSession(t *testing.T) {
+	r := newMCPRig(t, nil)
+	r.cb.mu.Lock()
+	r.cb.sel["caller"] = permrules.Selector{Mode: permrules.Allow}
+	r.cb.mu.Unlock()
+	fc := &fakeConnectorCerea{list: `{"connectors":[{"id":"connector:abc","name":"Tracker","tools":[{"name":"find"}]}],"local":[]}`, call: `{"isError":false,"text":"ok"}`}
+	r.mc.agentTools.calls = fc
+	cs, _ := r.client("caller")
+	out, isErr := callTool(t, cs, "connector_list", map[string]any{})
+	if isErr || !strings.Contains(out, `"cerea:connector:abc"`) {
+		t.Fatalf("list = %q (error %v)", out, isErr)
+	}
+	out, isErr = callTool(t, cs, "connector_call", map[string]any{"connector": "cerea:connector:abc", "tool": "find", "arguments": map[string]any{}})
+	if isErr || out != "ok" {
+		t.Fatalf("call = %q (error %v)", out, isErr)
+	}
+	// The token's session is the caller's: Cerea was asked as that session.
+	for _, c := range fc.got {
+		if c.SessionID != "caller" {
+			t.Fatalf("call made as %q", c.SessionID)
+		}
+	}
+	// A Plan session is refused, in the same {"refused": …} shape as every gate.
+	r.cb.mu.Lock()
+	r.cb.sel["peer"] = permrules.Selector{Mode: permrules.Deny}
+	r.cb.mu.Unlock()
+	csPeer, _ := r.client("peer")
+	out, isErr = callTool(t, csPeer, "connector_call", map[string]any{"connector": "cerea:connector:abc", "tool": "find"})
+	if !isErr || !strings.Contains(out, `"refused"`) {
+		t.Fatalf("plan call = %q (error %v)", out, isErr)
+	}
+}

@@ -218,3 +218,19 @@ func TestCallWriteFailureOnLiveLinkIsNotReachable(t *testing.T) {
 		t.Fatalf("err = %#v, want unavailable (not reachable)", err)
 	}
 }
+
+// A call may carry its own time limit (a connector's tool outlives a
+// schedule lookup): it is not cut short by the link's default, and the
+// default still applies to a call that names none.
+func TestCallTimeoutOverrideLongerThanTheDefault(t *testing.T) {
+	l := startCallLink(t, pairedWelcome, func(sc *serverConn) {
+		call := sc.readType("call")
+		time.Sleep(700 * time.Millisecond) // past the 300 ms default
+		sc.send(map[string]any{"type": "callres", "id": call["id"], "ok": true, "result": map[string]any{"late": true}})
+		_, _, _ = sc.conn.Read(context.Background())
+	})
+	res, err := l.Call(context.Background(), Call{Op: "connector.call", Timeout: 5 * time.Second})
+	if err != nil || string(res) != `{"late":true}` {
+		t.Fatalf("res = %s, err = %v", res, err)
+	}
+}

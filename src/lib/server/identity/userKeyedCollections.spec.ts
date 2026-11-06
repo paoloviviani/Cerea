@@ -45,6 +45,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	localConnectorOauth: true, // a local connector's sign-in in flight; deleted on merge, erased with the account
 	codeDevices: true,
 	codeAudit: true,
+	codeSessionConnectors: true, // which connectors a coding session may use; owner-keyed, merged and erased with the account
 	schedules: true, // a person's scheduled actions; owner-keyed, erased and merged with the account
 	agentReviewLog: true, // what the reviewer decided for a person's machines; owner-keyed, 90 days
 	agentReviewConfig: false, // the deployment's auto-approval settings, not user content
