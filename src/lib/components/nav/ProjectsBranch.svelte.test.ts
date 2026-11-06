@@ -98,6 +98,9 @@ const settingsContext = (activeModel: string) => ({
 
 let posts: Array<{ url: string; body: Record<string, unknown> }>;
 
+/** When set, a DELETE of a conversation answers this status instead of 200. */
+let deleteStatus = 200;
+
 function stubFetch(listed: unknown, existingChats: unknown, createStatus = 200, othersCount = 0) {
 	vi.stubGlobal(
 		"fetch",
@@ -129,6 +132,11 @@ function stubFetch(listed: unknown, existingChats: unknown, createStatus = 200, 
 					url: href.replace(/^https?:\/\/[^/]+/, ""),
 					body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {},
 				});
+				if (method === "DELETE" && deleteStatus !== 200) {
+					return new Response(JSON.stringify({ message: "Conversation not found" }), {
+						status: deleteStatus,
+					});
+				}
 				return new Response(JSON.stringify({ success: true }), { status: 200 });
 			}
 			throw new Error(`unexpected fetch: ${method} ${href}`);
@@ -138,6 +146,7 @@ function stubFetch(listed: unknown, existingChats: unknown, createStatus = 200, 
 
 beforeEach(() => {
 	posts = [];
+	deleteStatus = 200;
 	clearProjectsCache();
 	// What is open is remembered per browser: every test starts closed.
 	localStorage.removeItem(PROJECTS_TREE_OPEN_KEY);
@@ -460,6 +469,42 @@ describe("ProjectsBranch: starting a chat from the row", () => {
 			const el = [...container.querySelectorAll("span")].find((s) => s.textContent === "1");
 			if (!el) throw new Error("no count badge yet");
 		});
+	});
+});
+
+describe("ProjectsBranch: a refused chat delete", () => {
+	it("puts the row and the count back, says so, and stays on the page", async () => {
+		deleteStatus = 404;
+		const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+		stubFetch(undefined, [existingChat]);
+		const { container } = await renderBranch("model-a");
+		await openBranch(container);
+
+		const folder = folderToggle(container);
+		if (!folder) throw new Error("no folder row for the project");
+		folder.click();
+		const menu = await vi.waitFor(() => find(container, 'button[title="More options"]'));
+		fireTap(menu);
+		const del = await vi.waitFor(() => {
+			const el = [...document.querySelectorAll("[role='menuitem']")].find((b) =>
+				b.textContent?.includes("Delete")
+			);
+			if (!el) throw new Error("no delete item yet");
+			return el as HTMLElement;
+		});
+		del.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+		const confirm = await vi.waitFor(() => {
+			const el = [...document.querySelectorAll("button")].find((b) => b.textContent === "Delete");
+			if (!el) throw new Error("no confirm button yet");
+			return el as HTMLElement;
+		});
+		confirm.click();
+
+		await vi.waitFor(() =>
+			expect(alert).toHaveBeenCalledWith("Could not delete the chat. Try again.")
+		);
+		expect(container.textContent).toContain("First chat");
+		expect(appNavigation().goto).not.toHaveBeenCalled();
 	});
 });
 

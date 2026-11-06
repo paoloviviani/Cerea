@@ -329,23 +329,42 @@
 	 * deleting from the flat Chats list does.
 	 */
 	async function destroyChat(projectId: string, conversationId: string) {
+		const before = cache.chats[projectId] ?? [];
+		const index = before.findIndex((entry) => entry.id === conversationId);
+		const row = before[index];
 		cache.chats = {
 			...cache.chats,
-			[projectId]: (cache.chats[projectId] ?? []).filter((entry) => entry.id !== conversationId),
+			[projectId]: before.filter((entry) => entry.id !== conversationId),
 		};
 		cache.projects = cache.projects.map((entry) =>
 			entry.id === projectId
 				? { ...entry, conversationCount: Math.max(0, entry.conversationCount - 1) }
 				: entry
 		);
-		if (page.params.id === conversationId) {
-			await goto(base);
-		}
 		try {
 			await client.conversations({ id: conversationId }).delete().then(handleResponse);
 		} catch (err) {
 			console.error(err);
+			// The server kept the chat (it is not the caller's, or the request
+			// failed): put the row and its count back where they were.
+			if (row) {
+				const now = cache.chats[projectId] ?? [];
+				if (!now.some((entry) => entry.id === conversationId)) {
+					const next = [...now];
+					next.splice(Math.min(index, next.length), 0, row);
+					cache.chats = { ...cache.chats, [projectId]: next };
+				}
+			}
+			cache.projects = cache.projects.map((entry) =>
+				entry.id === projectId
+					? { ...entry, conversationCount: entry.conversationCount + 1 }
+					: entry
+			);
 			alert(m["nav.projects.delete_chat_failed"]());
+			return;
+		}
+		if (page.params.id === conversationId) {
+			await goto(base);
 		}
 	}
 
