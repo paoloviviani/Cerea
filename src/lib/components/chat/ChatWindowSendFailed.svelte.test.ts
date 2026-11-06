@@ -71,7 +71,7 @@ const model = {
 	providers: [],
 } as never;
 
-async function mountWithFailedText(text: string | null) {
+async function mountWithFailedText(text: string | null, modelGoneMessage: string | null = null) {
 	await (browserPage as unknown as { viewport: (w: number, h: number) => Promise<void> }).viewport(
 		1280,
 		800
@@ -84,6 +84,7 @@ async function mountWithFailedText(text: string | null) {
 			currentModel: model,
 			conversationTitle: "T",
 			sendFailedText: text,
+			modelGoneMessage,
 		},
 		{
 			page: {
@@ -105,6 +106,29 @@ describe("a failed fresh send", () => {
 		const box = screen.container.querySelector("textarea");
 		if (!box) throw new Error("no composer textarea");
 		await expect.element(box).toHaveValue("rewrite me");
+		screen.unmount();
+	});
+});
+
+describe("a send refused because the model is gone (410)", () => {
+	it("shows the server's message and a way to choose another model", async () => {
+		const screen = await mountWithFailedText("rewrite me", "Model not available anymore");
+		const notice = screen.container.querySelector('[data-testid="model-gone"]');
+		if (!notice) throw new Error("no model-gone notice");
+		expect(notice.textContent).toContain("Model not available anymore");
+		const button = notice.querySelector("button");
+		if (!button) throw new Error("no switch button");
+		expect(button.textContent).toContain("Choose another model");
+		(button as HTMLElement).click();
+		await vi.waitFor(() => {
+			if (!document.querySelector('[role="dialog"]')) throw new Error("picker not open");
+		});
+		screen.unmount();
+	});
+
+	it("shows nothing when the send was not refused that way", async () => {
+		const screen = await mountWithFailedText("rewrite me");
+		expect(screen.container.querySelector('[data-testid="model-gone"]')).toBeNull();
 		screen.unmount();
 	});
 });
