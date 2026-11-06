@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- galopin's pinned opencode moves to 1.19.5 (the v1 line; opencode 2.x is not supported yet). Re-run the install line on coding machines to pick it up.
+
 ## v0.42.2 — 2026-11-05
 
 Pins: Cerea `0.42.2` (chat and `cerea-documents`), Pystino `0.27.0`.

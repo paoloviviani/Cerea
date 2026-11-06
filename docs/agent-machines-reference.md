@@ -43,7 +43,7 @@ means enrolling again; `galopin policy set` on the machine can only tighten."_
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
 | **What this machine lets commands do** (three pills: Never · Ask · Run) | `--limit command=never` or `--limit command=run` (Ask is the default and prints nothing)                                                                                  | Ask     | you want commands refused outright, or to run without a card whenever a session is on Allow or Auto (amber)               |
 | **Trust the repos this machine opens** (amber)                          | `--allow-project-config`                                                                                                                                                  | off     | the machine opens repositories you trust, and you want their own opencode setup to load                                   |
-| **Install opencode**                                                    | opencode's own installer line, pinned to the release galopin is tested against (`curl -fsSL https://opencode.ai/install \| bash -s -- --version 1.19.3`), before `enroll` | off     | the machine is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
+| **Install opencode**                                                    | opencode's own installer line, pinned to the release galopin is tested against (`curl -fsSL https://opencode.ai/install \| bash -s -- --version 1.19.5`), before `enroll` | off     | the machine is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
 
 **The limits** are what the machine allows per kind of action (permission classes): `never` refuses, `ask` always raises a card, `run` leaves the answer to the session's Plan · Ask · Auto. Whatever a session's setting says, a kind never goes past its limit. The dialog prints `--limit CLASS=VALUE` **only for a kind you changed from the default**, so an untouched table prints nothing and one change prints one flag; the old `--permission-max` and `--permission-rule` flags are no longer printed (`enroll` still accepts them for one release).
 
@@ -1131,9 +1131,9 @@ in `agent/`.
 ### Installing on a machine (Linux or macOS)
 
 **Prerequisite:** `opencode` on the PATH, at the release galopin is tested
-against (currently 1.19.3; the one place it is written is
-`agent/packaging/opencode-version`): `npm i -g opencode-ai@1.19.3`, or
-`curl -fsSL https://opencode.ai/install | bash -s -- --version 1.19.3`. A newer
+against (currently 1.19.5; the one place it is written is
+`agent/packaging/opencode-version`): `npm i -g opencode-ai@1.19.5`, or
+`curl -fsSL https://opencode.ai/install | bash -s -- --version 1.19.5`. A newer
 opencode usually works, but it can change something galopin relies on; a daily
 CI job runs galopin's real-opencode suite against each new release
 (`agent/README.md`, "opencode releases"). `galopin run` supervises
