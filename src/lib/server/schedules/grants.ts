@@ -10,9 +10,10 @@
  * session and run. A run calls the gateway with that access token, so identity, quota, redaction and
  * billing are the person's own.
  *
- * A refresh the IdP refuses (`invalid_grant`) means the grant is over: it is dropped and the person's
- * chat schedules switch off ("Sign in again and turn it back on"); the next login writes a new grant,
- * and the schedules stay off until the person turns them back on. A refresh that fails for any other
+ * A refresh the IdP refuses (`invalid_grant`) means the grant is over: it is dropped. The person's chat
+ * schedules stay **enabled**: while there is no grant their runs are skipped (`skipped-no-access`) and the
+ * list shows a warning derived from the grant's state (`scheduleAccessIssue`); the next login writes a new
+ * grant, the warning goes by itself and the next occurrence runs. A refresh that fails for any other
  * reason (the IdP unreachable) is an ordinary error. An IdP that issues no refresh token leaves no
  * grant: chat behaves as it always did, and schedules explain what the administrator must allow.
  */
@@ -31,6 +32,9 @@ import { open, seal, sealingAvailable } from "$lib/server/mcp/secretBox";
 const oidc = () => import("$lib/server/auth");
 
 export const SIGN_IN_AGAIN =
+	"Sign in again: the background access this schedule runs with stopped working, so its runs are skipped until you do.";
+/** What schedules disabled for an expired grant said before they stayed enabled; the migration finds them by it. */
+export const LEGACY_SIGN_IN_AGAIN =
 	"Sign in again and turn it back on: the background access this schedule runs with stopped working.";
 export const NEEDS_GRANT =
 	"Scheduled chats need background access, which comes from signing in. Sign in again; if this stays, " +
@@ -216,7 +220,7 @@ export interface GrantAccess {
  * a scheduled run asking at once share one refresh and never present a rotated refresh token. Throws
  * `GrantMissingError` (no grant, or `forSchedule` and background access is stopped), `GrantRefusedError`
  * (the IdP answered the refresh with an OAuth error, or the subject changed: the grant is then already
- * dropped and their chat schedules switched off), `GrantBusyError` (another refresh holds the lock) or
+ * dropped; their schedules stay enabled and skip until a new login), `GrantBusyError` (another refresh holds the lock) or
  * an ordinary error for a refresh that could not reach the IdP.
  */
 export async function accessTokenFor(
@@ -249,7 +253,7 @@ export async function accessTokenFor(
 				// An OAuth error response means the chain is dead: `invalid_grant`, or the `server_error`
 				// an IdP answers for the newest token of a chain it revoked after a rotated token was reused.
 				if (isOAuthErrorResponse(err)) {
-					await dropGrantAndDisable(userId, SIGN_IN_AGAIN);
+					await dropGrant(userId);
 					throw new GrantRefusedError();
 				}
 				throw err;
@@ -265,7 +269,7 @@ export async function accessTokenFor(
 				}
 				if (sub && sub !== grant.sub) {
 					logger.warn({ userId: userId.toString() }, "schedule_grant_subject_mismatch");
-					await dropGrantAndDisable(userId, SIGN_IN_AGAIN);
+					await dropGrant(userId);
 					throw new GrantRefusedError();
 				}
 			}
@@ -296,7 +300,7 @@ export async function accessTokenFor(
 	);
 }
 
-/** Switch off every chat schedule of the person, with the reason they will read. */
+/** Switch off every chat schedule of the person, with the reason they will read (their own Stop; never for an expired grant). */
 export async function disableChatSchedules(userId: ObjectId, reason: string): Promise<number> {
 	const { modifiedCount } = await collections.schedules.updateMany(
 		{ userId, kind: "chat", enabled: true },
@@ -318,8 +322,11 @@ export async function dropGrant(userId: ObjectId): Promise<boolean> {
 	return true;
 }
 
-/** The grant is over: drop it and switch the person's chat schedules off. */
-export async function dropGrantAndDisable(userId: ObjectId, reason: string): Promise<void> {
-	await dropGrant(userId);
-	await disableChatSchedules(userId, reason);
+/**
+ * Why a chat schedule cannot run right now for want of background access, or null. Derived from the
+ * grant as it is now, never stored: a new login clears it with no write to the schedule.
+ */
+export async function scheduleAccessIssue(userId: ObjectId): Promise<string | null> {
+	if (await scheduleGrantUsable(userId)) return null;
+	return (await hasGrant(userId)) ? SIGN_IN_AGAIN : NEEDS_GRANT;
 }

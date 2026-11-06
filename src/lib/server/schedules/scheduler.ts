@@ -18,6 +18,10 @@
  * `missed-downtime` row is written and nothing fires. Either way the
  * occurrences in between are not replayed: `nextRunAt` already points past now.
  *
+ * **No background access** (chat: the grant expired) is not a failure and never switches the schedule
+ * off: the occurrence is recorded `skipped-no-access`, `nextRunAt` has already moved on (nothing piles up
+ * to replay on renewal), and the first skip of a stretch notifies. The next run after a sign-in executes.
+ *
  * **Overlap and offline** are the executor's to judge (it knows what busy
  * means); the core records what it reports.
  *
@@ -139,7 +143,11 @@ async function record(
 		scheduleName: schedule.name,
 	};
 	await collections.scheduleRuns.insertOne(run);
-	safely(() => afterScheduleRun(run));
+	// A run skipped for want of background access tells the user once per expiry: the schedule's
+	// previous run being skipped the same way means they were told already (a `sent` run resets it).
+	if (!(outcome.status === "skipped-no-access" && schedule.lastStatus === "skipped-no-access")) {
+		safely(() => afterScheduleRun(run));
+	}
 
 	const failures =
 		outcome.status === "failed"

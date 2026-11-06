@@ -309,6 +309,14 @@ export async function scheduleView(schedule: Schedule): Promise<ScheduleView> {
 	} catch {
 		targetLabel = "";
 	}
+	// Derived from the grant as it is now, so a new login clears it without touching the schedule.
+	let accessIssue: string | null = null;
+	if (schedule.enabled) {
+		accessIssue =
+			(await getExecutor(schedule.kind)
+				?.accessIssue?.(schedule.userId)
+				.catch(() => null)) ?? null;
+	}
 	return {
 		id: schedule._id.toString(),
 		kind: schedule.kind,
@@ -320,6 +328,7 @@ export async function scheduleView(schedule: Schedule): Promise<ScheduleView> {
 		timezone: schedule.timezone,
 		enabled: schedule.enabled,
 		...(schedule.disabledReason ? { disabledReason: schedule.disabledReason } : {}),
+		...(accessIssue ? { accessIssue } : {}),
 		nextRunAt: schedule.nextRunAt,
 		...(schedule.maxOccurrences !== undefined ? { maxOccurrences: schedule.maxOccurrences } : {}),
 		firedCount: schedule.firedCount ?? 0,

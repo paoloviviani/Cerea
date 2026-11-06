@@ -64,6 +64,8 @@ import {
 	accessTokenFor,
 	hasGrant,
 	leewayFor,
+	NEEDS_GRANT,
+	scheduleAccessIssue,
 	scheduleGrantUsable,
 	SIGN_IN_AGAIN,
 	stopScheduleUse,
@@ -268,7 +270,7 @@ describe("refreshing without a stale token", () => {
 });
 
 describe("a refused grant", () => {
-	it("ends the session, drops the grant, revokes it at the IdP and switches the chat schedules off", async () => {
+	it("ends the session, drops the grant, revokes it at the IdP; the chat schedules stay enabled", async () => {
 		const { user, sessions } = await login({ refresh: "rt-1", ageMs: 60_000 });
 		const a = await chatSchedule(user._id, "a");
 		const b = await chatSchedule(user._id, "b");
@@ -284,15 +286,14 @@ describe("a refused grant", () => {
 		expect(await hasGrant(user._id)).toBe(false);
 		expect(idp.revoked).toEqual(["rt-1"]);
 		for (const _id of [a, b]) {
-			expect(await collections.schedules.findOne({ _id })).toMatchObject({
-				enabled: false,
-				nextRunAt: null,
-				disabledReason: SIGN_IN_AGAIN,
-			});
+			const row = await collections.schedules.findOne({ _id });
+			expect(row?.enabled).toBe(true);
+			expect(row?.nextRunAt).not.toBeNull();
+			expect(row?.disabledReason).toBeUndefined();
 		}
 	});
 
-	it("the next login restores the grant; the schedules stay off until they are turned on", async () => {
+	it("the next login restores the grant and the schedules never went off", async () => {
 		const { user } = await login({ refresh: "rt-1", ageMs: 60_000 });
 		const _id = await chatSchedule(user._id);
 		idp.refuse = true;
@@ -301,11 +302,14 @@ describe("a refused grant", () => {
 			{ $set: { accessExpiresAt: new Date(Date.now() - 1000) } }
 		);
 		await expect(accessTokenFor(user._id)).rejects.toThrow(SIGN_IN_AGAIN);
+		// While the grant is gone the warning is derived, not stored.
+		expect(await scheduleAccessIssue(user._id)).toBe(NEEDS_GRANT);
 
 		idp.refuse = false;
 		await login({ refresh: "rt-new" });
 		expect(await hasGrant(user._id)).toBe(true);
-		expect((await collections.schedules.findOne({ _id }))?.enabled).toBe(false);
+		expect(await scheduleAccessIssue(user._id)).toBeNull();
+		expect((await collections.schedules.findOne({ _id }))?.enabled).toBe(true);
 	});
 
 	it("an IdP that cannot be reached is an ordinary error: the grant and the schedules stay", async () => {
@@ -337,7 +341,7 @@ describe("a dead chain, a changed subject, a busy lock and short-lived tokens", 
 	}
 
 	it.each(["server_error", "invalid_client", "temporarily_unavailable"])(
-		"any OAuth error response (%s) from the token endpoint means the chain is dead: dropped, schedules off",
+		"any OAuth error response (%s) from the token endpoint means the chain is dead: dropped, schedules stay on",
 		async (error) => {
 			const { user, sessions } = await nearExpiry();
 			const _id = await chatSchedule(user._id);
@@ -348,7 +352,7 @@ describe("a dead chain, a changed subject, a busy lock and short-lived tokens", 
 
 			expect(found.invalidateSession).toBe(true);
 			expect(await hasGrant(user._id)).toBe(false);
-			expect((await collections.schedules.findOne({ _id }))?.enabled).toBe(false);
+			expect((await collections.schedules.findOne({ _id }))?.enabled).toBe(true);
 		}
 	);
 
@@ -360,7 +364,7 @@ describe("a dead chain, a changed subject, a busy lock and short-lived tokens", 
 		await expect(accessTokenFor(user._id)).rejects.toThrow(SIGN_IN_AGAIN);
 
 		expect(await hasGrant(user._id)).toBe(false);
-		expect((await collections.schedules.findOne({ _id }))?.enabled).toBe(false);
+		expect((await collections.schedules.findOne({ _id }))?.enabled).toBe(true);
 	});
 
 	it("the same subject is fine", async () => {

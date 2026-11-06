@@ -461,6 +461,7 @@
 	"code.schedule.status.missed_offline": "Missed: machine offline",
 	"code.schedule.status.sent": "Sent",
 	"code.schedule.status.skipped_still_running": "Skipped: still running",
+	"code.schedule.status.skipped_no_access": "Skipped: sign in again",
 	"code.schedule.weekday.friday": "Friday",
 	"code.schedule.weekday.monday": "Monday",
 	"code.schedule.weekday.saturday": "Saturday",

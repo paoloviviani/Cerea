@@ -179,6 +179,13 @@ describe("a scheduled run", () => {
 		expect(firstCall()[2].path).toBe("/code?view=schedules");
 	});
 
+	it("tells a run skipped for want of background access, pointing at the schedules list", () => {
+		afterScheduleRun({ ...sent(), result: undefined, status: "skipped-no-access" }, deps);
+		expect(notify).toHaveBeenCalledTimes(1);
+		expect(firstCall()[2].title).toBe("Scheduled run skipped");
+		expect(firstCall()[2].path).toBe("/code?view=schedules");
+	});
+
 	it("sends a failed chat run to its conversation, not to the machines' list, and says nothing for a sent one", () => {
 		const chat = {
 			...sent(),

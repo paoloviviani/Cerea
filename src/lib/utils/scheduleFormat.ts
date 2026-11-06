@@ -33,6 +33,7 @@ export function formatWhenLong(at: Date | string, timeZone?: string): string {
 export const RUN_STATUS_TONE: Record<ScheduleRunStatus, PillTone> = {
 	sent: "good",
 	"skipped-still-running": "neutral",
+	"skipped-no-access": "warn",
 	"missed-offline": "neutral",
 	"missed-downtime": "neutral",
 	failed: "bad",

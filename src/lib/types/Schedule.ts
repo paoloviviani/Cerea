@@ -30,11 +30,17 @@ export type Recurrence =
 	| { type: "cron"; expr: string };
 
 export type ScheduleRunStatus =
-	"sent" | "skipped-still-running" | "missed-offline" | "missed-downtime" | "failed";
+	| "sent"
+	| "skipped-still-running"
+	| "skipped-no-access"
+	| "missed-offline"
+	| "missed-downtime"
+	| "failed";
 
 export const SCHEDULE_RUN_STATUSES: ScheduleRunStatus[] = [
 	"sent",
 	"skipped-still-running",
+	"skipped-no-access",
 	"missed-offline",
 	"missed-downtime",
 	"failed",
@@ -132,6 +138,8 @@ export interface ScheduleView {
 	timezone: string;
 	enabled: boolean;
 	disabledReason?: string;
+	/** A warning on an enabled schedule that cannot run now (chat: background access expired); derived, gone once fixed. */
+	accessIssue?: string;
 	nextRunAt: Date | null;
 	lastRunAt?: Date;
 	lastStatus?: ScheduleRunStatus;

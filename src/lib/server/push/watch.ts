@@ -243,6 +243,15 @@ export function afterScheduleRun(
 		});
 		return;
 	}
+	if (run.status === "skipped-no-access") {
+		deps.notify(run.userId, "scheduleRun", {
+			title: "Scheduled run skipped",
+			body: `"${run.scheduleName}" did not run: sign in again to give it background access.`,
+			path: "/code?view=schedules",
+			tag: `schedule-${run.scheduleId.toString()}`,
+		});
+		return;
+	}
 	if (run.status !== "sent") return;
 	const deviceId = run.result?.ids["deviceId"];
 	const sessionId = run.result?.ids["sessionId"];

@@ -65,6 +65,7 @@ import {
 	enableScheduleUse,
 	NEEDS_GRANT,
 	SIGN_IN_AGAIN,
+	scheduleAccessIssue,
 	stopScheduleUse,
 } from "./grants";
 import { clampPermission, userApprovalPolicy, type SchedulePermission } from "./permission";
@@ -440,6 +441,10 @@ registerExecutor({
 		return (await enableScheduleUse(userId)) ? null : NEEDS_GRANT;
 	},
 
+	async accessIssue(userId) {
+		return isGatewayPreset() ? scheduleAccessIssue(userId) : null;
+	},
+
 	async afterDelete(schedule) {
 		// The grant is the person's, not the schedule's: it goes with their last chat schedule.
 		const remaining = await collections.schedules.countDocuments({
@@ -470,11 +475,12 @@ registerExecutor({
 				token = (await accessTokenFor(schedule.userId, { forSchedule: true })).value;
 			} catch (err) {
 				if (err instanceof GrantMissingError) {
-					return { status: "failed", detail: NEEDS_GRANT, disable: SIGN_IN_AGAIN };
+					// Not the schedule's fault and the user fixes it by signing in: skip, stay enabled.
+					return { status: "skipped-no-access", detail: NEEDS_GRANT };
 				}
 				if (err instanceof GrantRefusedError) {
-					// The grant is already dropped and every chat schedule of theirs switched off.
-					return { status: "failed", detail: SIGN_IN_AGAIN, disable: SIGN_IN_AGAIN };
+					// The grant is already dropped; the schedule stays on and resumes after the next sign-in.
+					return { status: "skipped-no-access", detail: SIGN_IN_AGAIN };
 				}
 				return {
 					status: "failed",

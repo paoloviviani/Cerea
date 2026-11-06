@@ -10,6 +10,12 @@ vi.mock("./limits", async (original) => ({
 	maxSchedulesPerUser: () => limits.cap,
 }));
 
+const push = vi.hoisted(() => ({ afterScheduleRun: vi.fn() }));
+vi.mock("$lib/server/push/watch", async (original) => ({
+	...(await original<typeof import("$lib/server/push/watch")>()),
+	afterScheduleRun: push.afterScheduleRun,
+}));
+
 import { _clearExecutors, getExecutor, registerExecutor } from "./executors";
 import {
 	CATCH_UP_CAP_MS,
@@ -257,6 +263,48 @@ describe("downtime: one catch-up, or missed-downtime", () => {
 		expect(decideLateness(hourly, scheduledFor, new Date(scheduledFor.getTime() + 40_000))).toEqual(
 			{ fire: true }
 		);
+	});
+});
+
+describe("no background access", () => {
+	const skip = () => ({
+		status: "skipped-no-access" as const,
+		detail: "Sign in again.",
+	});
+
+	it("skips without failing or switching off, never piles up missed runs, and notifies once per stretch", async () => {
+		push.afterScheduleRun.mockClear();
+		answer = skip;
+		const row = await due({ scheduledFor: new Date(Date.now() - 20 * MIN) });
+		const id = row._id.toString();
+		for (let i = 0; i < 4; i++) {
+			await runNow(user, id);
+		}
+		const stored = await getSchedule(user, id);
+		expect(stored.enabled).toBe(true);
+		expect(stored.disabledReason).toBeUndefined();
+		expect(stored.consecutiveFailures).toBe(0);
+		expect(stored.lastStatus).toBe("skipped-no-access");
+		// Three failures would have switched it off; four skips did not. One notification only.
+		expect(push.afterScheduleRun).toHaveBeenCalledTimes(1);
+
+		// The scheduled occurrence is one skipped run, and the next one is in the future: renewal
+		// replays nothing.
+		await collections.schedules.updateOne({ _id: row._id }, { $set: { lastStatus: "sent" } });
+		await runDue(new Date());
+		const runs = await listRuns(user, id);
+		expect(runs.filter((r) => r.trigger === "schedule")).toHaveLength(1);
+		expect(runs.find((r) => r.trigger === "schedule")?.status).toBe("skipped-no-access");
+		expect((await getSchedule(user, id)).nextRunAt?.getTime() ?? 0).toBeGreaterThan(Date.now());
+
+		// Access is back: the next due occurrence executes.
+		answer = () => ({ status: "sent" });
+		await collections.schedules.updateOne(
+			{ _id: row._id },
+			{ $set: { nextRunAt: new Date(Date.now() - MIN) } }
+		);
+		await runDue(new Date());
+		expect((await getSchedule(user, id)).lastStatus).toBe("sent");
 	});
 });
 
