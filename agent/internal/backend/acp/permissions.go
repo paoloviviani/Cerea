@@ -12,6 +12,7 @@ package acp
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 	"strings"
 	"sync"
@@ -146,7 +147,8 @@ var _ backend.RuleHost = (*Backend)(nil)
 
 // paths of a tool call's locations and its raw input, for the patterns.
 func askMetadata(toolCall map[string]any) map[string]any {
-	meta := map[string]any{"kind": getStr(toolCall, "kind")}
+	toolCall = unwrapPiGate(toolCall)
+	meta := map[string]any{"kind": inferKind(toolCall)}
 	var paths []string
 	if locs, ok := toolCall["locations"].([]any); ok {
 		for _, l := range locs {
@@ -169,4 +171,72 @@ func askMetadata(toolCall map[string]any) map[string]any {
 		meta["paths"] = paths
 	}
 	return map[string]any{"acp": meta}
+}
+
+// inferKind is the tool call's ACP kind, or, when the agent sends none or the
+// catch-all "other" (goose puts "other" on every ask, whatever the tool), the
+// kind its title and raw input give away. Without it a shell command would be
+// decided as an unknown "tools" ask: no command limit, no read-only rule.
+// Unrecognised shapes stay "other", which is the cautious class.
+func inferKind(toolCall map[string]any) string {
+	kind := getStr(toolCall, "kind")
+	if kind != "" && kind != "other" {
+		return kind
+	}
+	if raw, ok := toolCall["rawInput"].(map[string]any); ok && getStr(raw, "command") != "" {
+		return "execute"
+	}
+	// goose titles an ask "<tool> · <argument>".
+	name, _, found := strings.Cut(getStr(toolCall, "title"), " \u00b7 ")
+	if found {
+		switch strings.TrimSpace(name) {
+		case "write", "edit", "str_replace", "multi_edit":
+			return "edit"
+		case "tree":
+			return "read"
+		}
+	}
+	return kind
+}
+
+// unwrapPiGate reads the ask of the pi permission-gate extension (the recipe in
+// docs ships it): pi-acp has no tool permissions of its own, only the ACP
+// forwarding of an extension's ctx.ui.confirm(title, message), kind "other".
+// The gate titles that confirm "pi <tool>" and puts {"tool","input"} JSON in
+// the message; this turns it back into an ordinary tool call (kind, rawInput)
+// so the same decision function applies. Anything else is returned unchanged.
+func unwrapPiGate(toolCall map[string]any) map[string]any {
+	title := getStr(toolCall, "title")
+	if !strings.HasPrefix(title, "pi ") {
+		return toolCall
+	}
+	raw, _ := toolCall["rawInput"].(map[string]any)
+	var msg struct {
+		Tool  string         `json:"tool"`
+		Input map[string]any `json:"input"`
+	}
+	if raw == nil || getStr(raw, "method") != "confirm" || json.Unmarshal([]byte(getStr(raw, "message")), &msg) != nil || msg.Tool != strings.TrimPrefix(title, "pi ") {
+		return toolCall
+	}
+	kind := ""
+	switch msg.Tool {
+	case "bash":
+		kind = "execute"
+	case "write", "edit":
+		kind = "edit"
+	case "read":
+		kind = "read"
+	case "grep", "find", "ls":
+		kind = "search"
+	}
+	if kind == "" {
+		return toolCall
+	}
+	out := map[string]any{}
+	for k, v := range toolCall {
+		out[k] = v
+	}
+	out["kind"] = kind
+	out["rawInput"] = msg.Input
+	return out
 }
