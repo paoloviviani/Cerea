@@ -8,8 +8,12 @@ import (
 
 const ws = "/work/proj"
 
-func pol(limits map[Class]Limit) Policy {
-	return Policy{Limits: limits, SafeDirs: []string{"/tmp"}}
+func pol(deny ...Class) Policy {
+	d := map[Class]bool{}
+	for _, c := range deny {
+		d[c] = true
+	}
+	return Policy{Deny: d, SafeDirs: []string{"/tmp"}}
 }
 
 // one request per class, the shape opencode raises it in.
@@ -24,59 +28,65 @@ var classRequests = map[Class]Request{
 	ClassLoop:    {Key: "doom_loop", Patterns: []string{"bash"}, Workspace: ws},
 }
 
-// TestEveryClassEveryLimitEverySessionWord is the decision table: for each class,
-// each limit the class allows and each session word, the verdict is the
-// stricter of the limit and the word's answer, and never looser than either.
-func TestEveryClassEveryLimitEverySessionWord(t *testing.T) {
-	limits := []Limit{Never, AskLimit, Run, Stop}
+// TestWordFloorDenyTable is the decision table (ADR 0109): every class, every
+// session word, with and without a local deny. No class limits exist: the word
+// decides, the floor lifts a run to a card on credentials, loop alerts (and git
+// and CI writes, tested below), and a local deny refuses.
+func TestWordFloorDenyTable(t *testing.T) {
 	modes := []permrules.Action{permrules.Deny, permrules.Ask, permrules.Allow}
 	for _, c := range Classes {
-		for _, l := range limits {
-			if !c.Allows(l) {
+		for _, m := range modes {
+			r := classRequests[c]
+			want := Card
+			switch {
+			case c == ClassAgents: // task is not a change in itself
+				want = Once
+			case m == permrules.Deny:
+				want = Reject
+			case m == permrules.Allow && c != ClassSecrets && c != ClassLoop:
+				want = Once
+			}
+			got := Decide(pol(), State{Mode: m}, r)
+			if got.Verdict != want {
+				t.Errorf("%s mode=%s: got %s (%s), want %s", c, m, got.Verdict, got.Step, want)
+			}
+			if got.Class != c {
+				t.Errorf("%s mode=%s: labelled %q", c, m, got.Class)
+			}
+			if got.Verdict == Reject && got.Reason == "" {
+				t.Errorf("%s mode=%s: a reject needs a reason", c, m)
+			}
+			// A local deny refuses whatever the word, except the classes that are
+			// not requests of their own (agents' task, the loop alert).
+			dg := Decide(pol(c), State{Mode: m}, r)
+			if c == ClassLoop {
 				continue
 			}
-			for _, m := range modes {
-				r := classRequests[c]
-				got := Decide(pol(map[Class]Limit{c: l}), State{Mode: m}, r)
-				// What the session's word alone says for this request.
-				word := Card
-				switch {
-				case c == ClassAgents: // task is not a change in itself
-					word = Once
-					if m == permrules.Deny {
-						word = Once
-					}
-				case m == permrules.Deny:
-					word = Reject
-				case m == permrules.Allow:
-					word = Once
-				}
-				want := word
-				switch l {
-				case Never, Stop:
-					want = Reject
-				case AskLimit:
-					want = stricter(word, Card)
-				}
-				if got.Verdict != want {
-					t.Errorf("%s limit=%s mode=%s: got %s (%s), want %s", c, l.Word(), m, got.Verdict, got.Step, want)
-				}
-				if got.Class != c {
-					t.Errorf("%s limit=%s mode=%s: labelled %q", c, l.Word(), m, got.Class)
-				}
-				if got.Verdict == Reject && got.Reason == "" {
-					t.Errorf("%s limit=%s mode=%s: a reject needs a reason", c, l.Word(), m)
-				}
-				if l == Stop && m != permrules.Deny && !got.Stop {
-					t.Errorf("%s: a stop limit must mark the result Stop", c)
-				}
+			if dg.Verdict != Reject || dg.Step != "deny" {
+				t.Errorf("%s mode=%s deny: got %s/%s, want deny reject", c, m, dg.Verdict, dg.Step)
 			}
 		}
 	}
 }
 
-func TestDefaultsReproduceTodaysBehaviour(t *testing.T) {
-	p := pol(nil)
+func TestDenyOnlyRefuses(t *testing.T) {
+	// Denying one class never touches another.
+	if got := Decide(pol(ClassCommand), State{Mode: permrules.Allow}, classRequests[ClassEdit]); got.Verdict != Once {
+		t.Errorf("edit with command denied: %+v", got)
+	}
+	if ClassLoop.Denyable() {
+		t.Error("loop must not be denyable")
+	}
+	if _, err := ParseDeny("loop"); err == nil {
+		t.Error("ParseDeny(loop) should fail")
+	}
+	if _, err := ParseDeny("nonsense"); err == nil {
+		t.Error("ParseDeny(nonsense) should fail")
+	}
+}
+
+func TestWordsWithoutLimits(t *testing.T) {
+	p := pol()
 	for _, tc := range []struct {
 		name string
 		s    State
@@ -88,11 +98,12 @@ func TestDefaultsReproduceTodaysBehaviour(t *testing.T) {
 		{"allow edit", State{Mode: permrules.Allow}, classRequests[ClassEdit], Once},
 		{"allow web", State{Mode: permrules.Allow}, classRequests[ClassWeb], Once},
 		{"allow mcp", State{Mode: permrules.Allow}, classRequests[ClassTools], Once},
-		{"allow bash asks (command=ask)", State{Mode: permrules.Allow}, classRequests[ClassCommand], Card},
-		{"allow outside asks", State{Mode: permrules.Allow}, classRequests[ClassOutside], Card},
-		{"allow .env asks", State{Mode: permrules.Allow}, classRequests[ClassSecrets], Card},
-		{"allow loop asks", State{Mode: permrules.Allow}, classRequests[ClassLoop], Card},
+		{"allow bash runs", State{Mode: permrules.Allow}, classRequests[ClassCommand], Once},
+		{"allow outside runs", State{Mode: permrules.Allow}, classRequests[ClassOutside], Once},
+		{"allow .env is a card", State{Mode: permrules.Allow}, classRequests[ClassSecrets], Card},
+		{"allow loop is a card", State{Mode: permrules.Allow}, classRequests[ClassLoop], Card},
 		{"outside read asks", State{}, Request{Key: "read", Patterns: []string{"/etc/passwd"}, Workspace: ws}, Card},
+		{"allow outside read runs", State{Mode: permrules.Allow}, Request{Key: "read", Patterns: []string{"/etc/passwd"}, Workspace: ws}, Once},
 		{"env example is an ordinary read", State{}, Request{Key: "read", Patterns: []string{ws + "/.env.example"}, Workspace: ws}, Once},
 		{"plan rejects edit", State{Mode: permrules.Deny}, classRequests[ClassEdit], Reject},
 		{"plan reads", State{Mode: permrules.Deny}, Request{Key: "grep", Patterns: []string{"x"}, Workspace: ws}, Once},
@@ -107,78 +118,76 @@ func TestDefaultsReproduceTodaysBehaviour(t *testing.T) {
 	}
 }
 
-func TestOutsideVersusSafeDirs(t *testing.T) {
-	safe := Request{Key: "external_directory", Patterns: []string{"/tmp/*"}, Workspace: ws}
-	for _, l := range []Limit{Never, AskLimit, Run} {
-		p := pol(map[Class]Limit{ClassOutside: l})
-		// A safe directory is not "outside": the outside limit does not touch it.
-		for _, m := range []permrules.Action{permrules.Ask, permrules.Allow} {
-			if got := Decide(p, State{Mode: m}, safe); got.Verdict != Once || got.Step != "safe-dir" || got.Class != "" {
-				t.Errorf("outside=%s mode=%s: safe dir got %s/%s class %q", l.Word(), m, got.Verdict, got.Step, got.Class)
-			}
-		}
-		if got := Decide(p, State{Mode: permrules.Deny}, safe); got.Verdict != Once {
-			t.Errorf("plan safe dir: %s", got.Verdict)
+func TestAutoRunsOnlyTheClassesItsMapSays(t *testing.T) {
+	runs := AutoRunSet(map[string]string{"edit": "run", "web": "run", "command": "ask", "secrets": "run", "loop": "run", "bogus": "run", "tools": "RUN"})
+	if runs[ClassSecrets] || runs[ClassLoop] || runs[ClassCommand] || runs[ClassTools] || len(runs) != 2 {
+		t.Fatalf("AutoRunSet: %v", runs)
+	}
+	auto := State{Mode: permrules.Ask, Auto: true, AutoRun: runs}
+	for _, tc := range []struct {
+		c    Class
+		want Verdict
+	}{{ClassEdit, Once}, {ClassWeb, Once}, {ClassCommand, Card}, {ClassOutside, Card}, {ClassSecrets, Card}, {ClassTools, Card}, {ClassLoop, Card}} {
+		if got := Decide(pol(), auto, classRequests[tc.c]); got.Verdict != tc.want {
+			t.Errorf("auto %s: got %s/%s, want %s", tc.c, got.Verdict, got.Step, tc.want)
 		}
 	}
-	// An outside read or edit (a path outside project and safe dirs) is outside.
-	for _, r := range []Request{
-		{Key: "read", Patterns: []string{"/etc/passwd"}, Workspace: ws},
-		{Key: "edit", Patterns: []string{"/etc/x"}, Workspace: ws},
-	} {
-		if got := Decide(pol(map[Class]Limit{ClassOutside: Never}), State{Mode: permrules.Allow}, r); got.Verdict != Reject || got.Class != ClassOutside {
-			t.Errorf("%s outside never: %+v", r.Key, got)
-		}
-		if got := Decide(pol(map[Class]Limit{ClassOutside: Run}), State{Mode: permrules.Allow}, r); got.Verdict != Once {
-			t.Errorf("%s outside run, Allow: %+v", r.Key, got)
-		}
-		if got := Decide(pol(map[Class]Limit{ClassOutside: Run}), State{Mode: permrules.Ask}, r); got.Verdict != Card {
-			t.Errorf("%s outside run, Ask: %+v", r.Key, got)
-		}
+	// Fail closed: an Auto session with no map runs nothing that is a class.
+	if got := Decide(pol(), State{Mode: permrules.Ask, Auto: true}, classRequests[ClassEdit]); got.Verdict != Card {
+		t.Errorf("auto with no map: %+v", got)
 	}
-	// Inside a safe directory an edit is an ordinary edit.
-	if got := Decide(pol(nil), State{Mode: permrules.Allow}, Request{Key: "edit", Patterns: []string{"/tmp/x"}, Workspace: ws}); got.Verdict != Once || got.Class != ClassEdit {
-		t.Errorf("edit in a safe dir: %+v", got)
+	// In-project reads still run, and the floor and a local deny still apply.
+	if got := Decide(pol(), auto, Request{Key: "read", Patterns: []string{ws + "/a.go"}, Workspace: ws}); got.Verdict != Once {
+		t.Errorf("auto read: %+v", got)
+	}
+	if got := Decide(pol(ClassEdit), auto, classRequests[ClassEdit]); got.Verdict != Reject {
+		t.Errorf("auto with edit denied: %+v", got)
+	}
+	pr := Policy{Protected: NewProtected("/home/u", "/home/u/.config/galopin")}
+	if got := Decide(pr, auto, Request{Key: "edit", Patterns: []string{".git/config"}, Workspace: ws}); got.Verdict != Card {
+		t.Errorf("auto .git write: %+v", got)
+	}
+	if got := Decide(pr, auto, Request{Key: "edit", Patterns: []string{"/home/u/.config/galopin/policy.json"}, Workspace: ws}); got.Verdict != Reject {
+		t.Errorf("auto own state: %+v", got)
+	}
+	// A request in several classes runs only when all of them run.
+	multi := Request{Key: "read", Patterns: []string{"/srv/x/.env"}, Workspace: ws}
+	if got := Decide(pol(), State{Mode: permrules.Ask, Auto: true, AutoRun: AutoRunSet(map[string]string{"outside": "run"})}, multi); got.Verdict != Card {
+		t.Errorf("outside+secrets: %+v", got)
+	}
+	// Coordination and connector calls follow the map too.
+	if a, _ := ConnectorCall(pol(), State{Mode: permrules.Ask, Auto: true, AutoRun: AutoRunSet(map[string]string{"tools": "run"})}, false); a != permrules.Allow {
+		t.Errorf("connector call, tools run: %s", a)
+	}
+	if a, _ := ConnectorCall(pol(), auto, false); a != permrules.Ask {
+		t.Errorf("connector call, tools ask: %s", a)
+	}
+	if a, _ := CoordinationFor(pol(), State{Mode: permrules.Ask, Auto: true, AutoRun: AutoRunSet(map[string]string{"agents": "run"})}, "session_send", false, ""); a != permrules.Allow {
+		t.Errorf("coordination, agents run: %s", a)
 	}
 }
 
-func TestSecretsAndLoopRestrictions(t *testing.T) {
-	if ClassSecrets.Allows(Run) || ClassLoop.Allows(Run) || ClassLoop.Allows(Never) {
-		t.Fatal("secrets never runs; loop is ask or stop")
-	}
-	if !ClassLoop.Allows(Stop) || !ClassLoop.Allows(AskLimit) || !ClassSecrets.Allows(Never) {
-		t.Fatal("allowed values are wrong")
-	}
-	// A limit the class does not allow falls back to the default, never to run.
-	p := pol(map[Class]Limit{ClassSecrets: Run, ClassLoop: Run})
-	if got := Decide(p, State{Mode: permrules.Allow}, classRequests[ClassSecrets]); got.Verdict != Card {
-		t.Errorf("secrets=run in the file must not run: %+v", got)
-	}
-	if got := Decide(p, State{Mode: permrules.Allow}, classRequests[ClassLoop]); got.Verdict != Card {
-		t.Errorf("loop=run in the file must not run: %+v", got)
-	}
+func TestSecretsAndLoopAreCardsEvenOnAllow(t *testing.T) {
 	// A credential store reached from a command is the secrets class too.
-	p = Policy{Protected: NewProtected("/home/u", "/home/u/.config/galopin")}
+	p := Policy{Protected: NewProtected("/home/u", "/home/u/.config/galopin")}
 	got := Decide(p, State{Mode: permrules.Allow}, Request{Key: "read", Patterns: []string{"/home/u/.ssh/id_ed25519"}, Workspace: ws})
 	if got.Verdict != Card || got.Class != ClassSecrets {
 		t.Errorf("a credential read: %+v", got)
 	}
-	p.Limits = map[Class]Limit{ClassCommand: Run}
 	got = Decide(p, State{Mode: permrules.Allow}, Request{Key: "bash", Patterns: []string{"cat ~/.aws/credentials"}, Workspace: ws})
 	if got.Verdict != Card || got.Class != ClassSecrets {
-		t.Errorf("a command touching a credential store, command=run: %+v", got)
+		t.Errorf("a command touching a credential store: %+v", got)
 	}
 	// .env wins the label over outside.
-	got = Decide(pol(nil), State{Mode: permrules.Allow}, Request{Key: "read", Patterns: []string{"/srv/other/.env"}, Workspace: ws})
+	got = Decide(pol(), State{Mode: permrules.Allow}, Request{Key: "read", Patterns: []string{"/srv/other/.env"}, Workspace: ws})
 	if got.Class != ClassSecrets {
 		t.Errorf("an .env read outside the project is labelled %q", got.Class)
 	}
 }
 
-func TestGalopinsOwnStateIsNeverAllowedWhateverTheLimits(t *testing.T) {
+func TestGalopinsOwnStateIsNeverAllowed(t *testing.T) {
 	prot := NewProtected("/home/u", "/home/u/.config/galopin")
-	all := map[Class]Limit{ClassEdit: Run, ClassCommand: Run, ClassOutside: Run, ClassTools: Run, ClassAgents: Run}
-	p := Policy{Limits: all, Protected: prot}
+	p := Policy{Protected: prot}
 	for _, r := range []Request{
 		{Key: "read", Patterns: []string{"/home/u/.config/galopin/policy.json"}, Workspace: ws},
 		{Key: "edit", Patterns: []string{"/home/u/.config/galopin/policy.json"}, Workspace: ws},
@@ -199,82 +208,56 @@ func TestGalopinsOwnStateIsNeverAllowedWhateverTheLimits(t *testing.T) {
 	}
 }
 
-func TestAnAskLimitIsNotLiftedByAnException(t *testing.T) {
+func TestExceptions(t *testing.T) {
 	ex := []permrules.Exception{{ID: "e", Permission: "bash", Patterns: []string{"go test *"}}}
 	r := Request{Key: "bash", Patterns: []string{"go test ./..."}, Workspace: ws}
-	if got := Decide(pol(map[Class]Limit{ClassCommand: AskLimit}), State{Exceptions: ex}, r); got.Verdict != Card {
-		t.Errorf("command=ask with an exception: %+v", got)
-	}
-	got := Decide(pol(map[Class]Limit{ClassCommand: Run}), State{Exceptions: ex}, r)
+	got := Decide(pol(), State{Exceptions: ex}, r)
 	if got.Verdict != Once || got.Step != "exception" {
-		t.Errorf("command=run with an exception: %+v", got)
+		t.Errorf("an exception: %+v", got)
 	}
-	if got := Decide(pol(map[Class]Limit{ClassCommand: Never}), State{Exceptions: ex}, r); got.Verdict != Reject {
-		t.Errorf("command=never with an exception: %+v", got)
+	if got := Decide(pol(ClassCommand), State{Exceptions: ex}, r); got.Verdict != Reject {
+		t.Errorf("command denied with an exception: %+v", got)
 	}
-}
-
-func TestAnOverAskExceptionHoldsUnderAnAskLimitExceptForLoopNeverAndPlan(t *testing.T) {
-	ex := []permrules.Exception{{ID: "e", Permission: "bash", Patterns: []string{"go test *"}, OverAsk: true}}
-	r := Request{Key: "bash", Patterns: []string{"go test ./..."}, Workspace: ws}
-	got := Decide(pol(map[Class]Limit{ClassCommand: AskLimit}), State{Exceptions: ex}, r)
-	if got.Verdict != Once || got.Step != "exception-ask" {
-		t.Errorf("ask limit with an OverAsk exception: %+v", got)
+	// A credential ask only stands on a human's (OverAsk) exception; plan and
+	// loop never.
+	env := Request{Key: "read", Patterns: []string{ws + "/.env"}, Workspace: ws}
+	plain := []permrules.Exception{{ID: "e", Permission: "read", Patterns: []string{"*"}}}
+	if got := Decide(pol(), State{Mode: permrules.Allow, Exceptions: plain}, env); got.Verdict != Card {
+		t.Errorf(".env with a plain exception: %+v", got)
 	}
-	if got := Decide(pol(map[Class]Limit{ClassCommand: Never}), State{Exceptions: ex}, r); got.Verdict != Reject {
-		t.Errorf("never: %+v", got)
+	over := []permrules.Exception{{ID: "e", Permission: "read", Patterns: []string{ws + "/.env"}, OverAsk: true}}
+	if got := Decide(pol(), State{Exceptions: over}, env); got.Verdict != Once || got.Step != "exception-ask" {
+		t.Errorf(".env with a human's exception: %+v", got)
 	}
-	if got := Decide(pol(map[Class]Limit{ClassCommand: AskLimit}), State{Mode: permrules.Deny, Exceptions: ex}, r); got.Verdict != Reject {
+	if got := Decide(pol(), State{Mode: permrules.Deny, Exceptions: over}, env); got.Verdict != Reject {
 		t.Errorf("plan: %+v", got)
 	}
 	loop := []permrules.Exception{{ID: "l", Permission: "doom_loop", Patterns: []string{"*"}, OverAsk: true}}
-	lr := Request{Key: "doom_loop", Patterns: []string{"*"}, Workspace: ws}
-	if got := Decide(pol(map[Class]Limit{ClassLoop: AskLimit}), State{Mode: permrules.Allow, Exceptions: loop}, lr); got.Verdict != Card {
+	lr := classRequests[ClassLoop]
+	if got := Decide(pol(), State{Mode: permrules.Allow, Exceptions: loop}, lr); got.Verdict != Card {
 		t.Errorf("loop: %+v", got)
 	}
-	if AskAlwaysOK(pol(map[Class]Limit{ClassLoop: AskLimit}), lr) {
-		t.Error("AskAlwaysOK for loop")
-	}
-	if !AskAlwaysOK(pol(map[Class]Limit{ClassCommand: AskLimit}), r) || AskAlwaysOK(pol(map[Class]Limit{ClassCommand: Run}), r) || AskAlwaysOK(pol(map[Class]Limit{ClassCommand: Never}), r) {
-		t.Error("AskAlwaysOK limit handling")
+	if AskAlwaysOK(pol(), lr) || !AskAlwaysOK(pol(), env) || AskAlwaysOK(pol(), r) {
+		t.Error("AskAlwaysOK: only a credential ask is over-ask")
 	}
 }
 
 func TestClassOfLabelsEveryRequest(t *testing.T) {
 	for c, r := range classRequests {
-		if got := ClassOf(pol(nil), r); got != c {
+		if got := ClassOf(pol(), r); got != c {
 			t.Errorf("%s request labelled %q", c, got)
 		}
 	}
-	if got := ClassOf(pol(nil), Request{Key: "read", Patterns: []string{ws + "/a.go"}, Workspace: ws}); got != "" {
+	if got := ClassOf(pol(), Request{Key: "read", Patterns: []string{ws + "/a.go"}, Workspace: ws}); got != "" {
 		t.Errorf("an in-project read has no class, got %q", got)
 	}
-	if got := ClassOf(pol(nil), Request{Key: "session_send", Workspace: ws}); got != ClassAgents {
+	if got := ClassOf(pol(), Request{Key: "session_send", Workspace: ws}); got != ClassAgents {
 		t.Errorf("session_send: %q", got)
-	}
-}
-
-// With the open question about Ask callers answered the other way, the rank
-// rule frees them too: the rule itself, target by target.
-func TestAgentsRankRuleForAskCallersIfTheOwnerWantsIt(t *testing.T) {
-	askCallersAreFree = true
-	defer func() { askCallersAreFree = false }()
-	for _, tc := range []struct {
-		target permrules.Action
-		want   permrules.Action
-	}{{permrules.Deny, permrules.Allow}, {permrules.Ask, permrules.Allow}, {permrules.Allow, permrules.Ask}} {
-		if got, _ := CoordinationFor(Policy{}, State{Mode: permrules.Ask}, "session_send", false, tc.target); got != tc.want {
-			t.Errorf("Ask caller to %s target: %s, want %s", tc.target, got, tc.want)
-		}
-	}
-	if got, _ := CoordinationFor(Policy{Limits: map[Class]Limit{ClassAgents: AskLimit}}, State{Mode: permrules.Ask}, "session_send", false, permrules.Deny); got != permrules.Ask {
-		t.Errorf("agents=ask still wins: %s", got)
 	}
 }
 
 func TestCoordinationTool(t *testing.T) {
 	grant := State{Coordination: []string{"session_read", "session_send"}}
-	lim := func(l Limit) Policy { return Policy{Limits: map[Class]Limit{ClassAgents: l}} }
 	tests := []struct {
 		name     string
 		p        Policy
@@ -293,21 +276,13 @@ func TestCoordinationTool(t *testing.T) {
 		{"grant read", Policy{}, grant, "session_read", false, "", permrules.Allow},
 		{"grant does not cover spawn", Policy{}, grant, "session_spawn", false, "", permrules.Ask},
 		{"plan refuses", Policy{}, State{Mode: permrules.Deny, Coordination: []string{"session_send"}}, "session_send", false, permrules.Deny, permrules.Deny},
-		// the agents rank rule
 		{"Ask sends to a more cautious Plan session: still asks", Policy{}, State{Mode: permrules.Ask}, "session_send", false, permrules.Deny, permrules.Ask},
-		{"Ask sends to an Ask session: still asks", Policy{}, State{Mode: permrules.Ask}, "session_send", false, permrules.Ask, permrules.Ask},
 		{"Ask sends to an Allow session: the session word applies", Policy{}, State{Mode: permrules.Ask}, "session_send", false, permrules.Allow, permrules.Ask},
 		{"Allow sends to an Ask session: free", Policy{}, State{Mode: permrules.Allow}, "session_send", false, permrules.Ask, permrules.Allow},
 		{"Allow reads an Ask session: free", Policy{}, State{Mode: permrules.Allow}, "session_read", false, permrules.Ask, permrules.Allow},
 		{"Ask reads an Allow session: asks", Policy{}, State{Mode: permrules.Ask}, "session_read", false, permrules.Allow, permrules.Ask},
-		// the agents limit
-		{"agents=ask beats the rank rule", lim(AskLimit), State{Mode: permrules.Allow}, "session_send", false, permrules.Ask, permrules.Ask},
-		{"agents=ask beats a grant", lim(AskLimit), grant, "session_send", false, "", permrules.Ask},
-		{"agents=never", lim(Never), State{Mode: permrules.Allow}, "session_send", false, permrules.Ask, permrules.Deny},
-		{"agents=never beats a delegate", lim(Never), State{}, "session_read", true, "", permrules.Deny},
-		{"agents=ask beats a delegate", lim(AskLimit), State{}, "session_read", true, "", permrules.Ask},
-		{"machine ask beats grant", Policy{Own: []permrules.Rule{{Permission: "session_send", Pattern: "*", Action: permrules.Ask}}}, grant, "session_send", false, "", permrules.Ask},
-		{"machine allow", Policy{Own: []permrules.Rule{{Permission: "session_read", Pattern: "*", Action: permrules.Allow}}}, State{}, "session_read", false, "", permrules.Allow},
+		{"agents denied locally", pol(ClassAgents), State{Mode: permrules.Allow}, "session_send", false, permrules.Ask, permrules.Deny},
+		{"agents denied beats a delegate", pol(ClassAgents), State{}, "session_read", true, "", permrules.Deny},
 		{"delegate read in ask", Policy{}, State{}, "session_read", true, "", permrules.Allow},
 		{"a Plan spawner's send to its delegate is rejected", Policy{}, State{Mode: permrules.Deny}, "session_send", true, "", permrules.Deny},
 		{"a Plan spawner reads its delegate", Policy{}, State{Mode: permrules.Deny}, "session_read", true, "", permrules.Allow},
@@ -316,40 +291,44 @@ func TestCoordinationTool(t *testing.T) {
 		{"an Ask spawner's send to its delegate is once", Policy{}, State{}, "session_send", true, "", permrules.Allow},
 	}
 	for _, tc := range tests {
-		got, _ := CoordinationFor(tc.p, tc.s, tc.key, tc.delegate, tc.target)
+		got, reason := CoordinationFor(tc.p, tc.s, tc.key, tc.delegate, tc.target)
 		if got != tc.want {
 			t.Errorf("%s: got %s, want %s", tc.name, got, tc.want)
+		}
+		if got == permrules.Deny && reason == "" {
+			t.Errorf("%s: a refusal without a reason", tc.name)
 		}
 	}
 }
 
 // ConnectorCall is the tools class for galopin's connector tools (ADR 0108):
-// the machine's limit caps, the session's word decides, reading the list is free.
+// the session's word decides, a local deny refuses, reading the list is free.
 func TestConnectorCallDecision(t *testing.T) {
-	pol := func(l Limit) Policy { return Policy{Limits: map[Class]Limit{ClassTools: l}} }
 	type row struct {
-		limit Limit
-		mode  permrules.Action
-		list  bool
-		want  permrules.Action
+		deny bool
+		mode permrules.Action
+		list bool
+		want permrules.Action
 	}
 	for _, c := range []row{
-		{Run, permrules.Allow, false, permrules.Allow},
-		{Run, permrules.Ask, false, permrules.Ask},
-		{Run, permrules.Deny, false, permrules.Deny},
-		{AskLimit, permrules.Allow, false, permrules.Ask},
-		{Never, permrules.Allow, false, permrules.Deny},
-		{Run, permrules.Deny, true, permrules.Allow},
-		{Run, permrules.Ask, true, permrules.Allow},
-		{AskLimit, permrules.Ask, true, permrules.Allow},
-		{Never, permrules.Allow, true, permrules.Deny},
+		{false, permrules.Allow, false, permrules.Allow},
+		{false, permrules.Ask, false, permrules.Ask},
+		{false, permrules.Deny, false, permrules.Deny},
+		{true, permrules.Allow, false, permrules.Deny},
+		{false, permrules.Deny, true, permrules.Allow},
+		{false, permrules.Ask, true, permrules.Allow},
+		{true, permrules.Allow, true, permrules.Deny},
 	} {
-		got, reason := ConnectorCall(pol(c.limit), State{Mode: c.mode}, c.list)
+		p := pol()
+		if c.deny {
+			p = pol(ClassTools)
+		}
+		got, reason := ConnectorCall(p, State{Mode: c.mode}, c.list)
 		if got != c.want {
-			t.Errorf("limit %v mode %s list %v: got %s, want %s", c.limit, c.mode, c.list, got, c.want)
+			t.Errorf("deny %v mode %s list %v: got %s, want %s", c.deny, c.mode, c.list, got, c.want)
 		}
 		if got == permrules.Deny && reason == "" {
-			t.Errorf("limit %v mode %s: a refusal without a reason", c.limit, c.mode)
+			t.Errorf("deny %v mode %s: a refusal without a reason", c.deny, c.mode)
 		}
 	}
 }

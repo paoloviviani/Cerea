@@ -186,8 +186,8 @@ func TestConnectorCallOnAskRaisesAToolsCardAndDeclineRunsNothing(t *testing.T) {
 }
 
 func TestConnectorCallGating(t *testing.T) {
-	// Plan refuses the call but not the list; a never limit refuses both; an
-	// ask limit cards even on Allow.
+	// Plan refuses the call but not the list; a local deny of tools refuses both
+	// (ADR 0109).
 	r, _ := connectorRig(t, permrules.Deny, nil)
 	if _, err := r.call("caller", "connector_call", map[string]any{"connector": "cerea:connector:abc", "tool": "find"}); err == nil || !strings.Contains(err.Error(), "Plan") {
 		t.Fatalf("Plan: %v", err)
@@ -196,23 +196,24 @@ func TestConnectorCallGating(t *testing.T) {
 		t.Fatalf("list on Plan: %v", err)
 	}
 
-	r, fc := connectorRig(t, permrules.Allow, withLimit("tools", "never"))
+	r, fc := connectorRig(t, permrules.Allow, withDeny("tools"))
 	for tool, args := range map[string]map[string]any{"connector_list": {}, "connector_call": {"connector": "cerea:connector:abc", "tool": "find"}} {
 		_, err := r.call("caller", tool, args)
-		if err == nil || !strings.Contains(err.Error(), "does not allow") {
-			t.Fatalf("never limit, %s: %v", tool, err)
+		if err == nil || !strings.Contains(err.Error(), "refused") {
+			t.Fatalf("local deny, %s: %v", tool, err)
 		}
 	}
 	if len(fc.got) != 0 {
 		t.Fatalf("a refused call reached Cerea: %+v", fc.got)
 	}
 
-	r, _ = connectorRig(t, permrules.Allow, withLimit("tools", "ask"))
+	// With no limit on the machine, Allow runs the call with no card.
+	r, _ = connectorRig(t, permrules.Allow, nil)
 	if _, err := r.call("caller", "connector_call", map[string]any{"connector": "cerea:connector:abc", "tool": "find"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.asks()) != 1 {
-		t.Fatalf("an ask limit raised %d cards", len(r.asks()))
+	if len(r.asks()) != 0 {
+		t.Fatalf("Allow raised %d cards", len(r.asks()))
 	}
 }
 

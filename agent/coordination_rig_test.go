@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"galopin/internal/backend"
-	"galopin/internal/decide"
 	"galopin/internal/link"
 	"galopin/internal/permrules"
 	"galopin/internal/policy"
@@ -240,7 +239,12 @@ type coordRig struct {
 	calls    int
 }
 
-func newCoordRig(t *testing.T, mutate func(*policy.Policy)) *coordRig {
+// rigOpt changes a built rig (a grant, a session word): the machine has no own
+// rules any more (ADR 0109), so what a rule used to say is said per session.
+type rigOpt func(*coordRig)
+
+// newCoordRig builds the rig; mutate is nil, a func(*policy.Policy) or a rigOpt.
+func newCoordRig(t *testing.T, mutate any) *coordRig {
 	t.Helper()
 	stateDir := t.TempDir()
 	reg, err := workspaces.Load(filepath.Join(stateDir, "workspaces.json"))
@@ -256,8 +260,17 @@ func newCoordRig(t *testing.T, mutate func(*policy.Policy)) *coordRig {
 		t.Fatal(err)
 	}
 	pol := policy.Default()
-	if mutate != nil {
-		mutate(&pol)
+	var opt rigOpt
+	switch m := mutate.(type) {
+	case nil:
+	case func(*policy.Policy):
+		if m != nil {
+			m(&pol)
+		}
+	case rigOpt:
+		opt = m
+	default:
+		t.Fatalf("newCoordRig: unsupported option %T", mutate)
 	}
 	cb := &coordBackend{
 		sessions: map[string]backend.Session{}, dirs: map[string]string{},
@@ -280,6 +293,9 @@ func newCoordRig(t *testing.T, mutate func(*policy.Policy)) *coordRig {
 	r.addSession(w1, "caller", "Caller", "")
 	r.addSession(w1, "peer", "Peer", "")
 	r.addSession(w2, "other", "Other", "")
+	if opt != nil {
+		opt(r)
+	}
 	return r
 }
 
@@ -355,38 +371,36 @@ func (r *coordRig) grant(id string, keys any) (any, *link.OpError) {
 
 func (r *coordRig) audit() []map[string]any { return auditRows(r.t, r.stateDir) }
 
-func withRule(key, action string) func(*policy.Policy) {
-	return func(p *policy.Policy) {
-		p.Permission.Limits = nil // legacy keys: migrated when the policy is taken in
-		if p.Permission.Rules == nil {
-			p.Permission.Rules = map[string]string{}
-		}
-		p.Permission.Rules[key] = action
+// withRule: what the machine's own rule on a key used to say, said as the
+// caller's coordination grant (allow) or a local deny of the agents class
+// (deny; a deny covers every key, not one).
+func withRule(key, action string) any {
+	switch action {
+	case "allow":
+		return rigOpt(func(r *coordRig) {
+			if _, operr := r.grant("caller", []string{key}); operr != nil {
+				r.t.Fatal(operr)
+			}
+		})
+	case "deny":
+		return withDeny("agents")
 	}
+	panic("withRule: " + action)
 }
 
-// withAgentsRule is the machine's own rule on every key of the agents class:
-// one key's rule alone does not survive migration (ADR 0107: a class takes one
-// value for all its keys).
-func withAgentsRule(action string) func(*policy.Policy) {
-	return func(p *policy.Policy) {
-		for _, k := range decide.ClassKeys(decide.ClassAgents) {
-			withRule(k, action)(p)
-		}
+// withAgentsRule grants the caller every coordination key.
+func withAgentsRule(action string) any {
+	if action != "allow" {
+		panic("withAgentsRule: " + action)
 	}
+	return rigOpt(func(r *coordRig) {
+		if _, operr := r.grant("caller", permrules.CoordinationKeys); operr != nil {
+			r.t.Fatal(operr)
+		}
+	})
 }
 
-// withLimit sets a class limit on a default policy.
-func withLimit(class, word string) func(*policy.Policy) {
-	return func(p *policy.Policy) { p.Permission.Limits[class] = word }
-}
-
-func withMax(key, action string) func(*policy.Policy) {
-	return func(p *policy.Policy) {
-		p.Permission.Limits = nil // legacy keys: migrated when the policy is taken in
-		if p.Permission.Max == nil {
-			p.Permission.Max = map[string]string{}
-		}
-		p.Permission.Max[key] = action
-	}
+// withDeny is the owner's local --deny CLASS.
+func withDeny(classes ...string) func(*policy.Policy) {
+	return func(p *policy.Policy) { p.Permission.Deny = append(p.Permission.Deny, classes...) }
 }

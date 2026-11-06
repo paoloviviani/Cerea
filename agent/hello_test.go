@@ -28,8 +28,8 @@ func TestHelloSendsEmptyWorkspaceRootsNotNull(t *testing.T) {
 // responders field any more.
 func TestHelloCarriesThePermissionPolicy(t *testing.T) {
 	pol := policy.Default()
-	pol.Permission = policy.Permission{Max: map[string]string{"bash": "ask"}}
-	pol.Permission.Normalize() // a policy.json with a ceiling is migrated on load
+	pol.Permission = policy.Permission{Deny: []string{"command"}}
+	pol.Permission.Normalize()
 	body, err := json.Marshal(buildHello(newE2EFakeBackend(), pol))
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestHelloCarriesThePermissionPolicy(t *testing.T) {
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Policy.AutoAccept != "denied" || got.Policy.Permission.Max["bash"] != "ask" {
+	if got.Policy.AutoAccept != "denied" || got.Policy.Permission.Max["bash"] != "deny" {
 		t.Errorf("hello policy = %s", body)
 	}
 	if strings.Contains(string(body), "responders") {
@@ -53,7 +53,7 @@ func TestHelloCarriesThePermissionPolicy(t *testing.T) {
 	}
 	// And a default policy still sends the strings and an object, never null.
 	body, _ = json.Marshal(buildHello(newE2EFakeBackend(), policy.Default()))
-	if !strings.Contains(string(body), `"autoAccept":"denied"`) || !strings.Contains(string(body), `"max":{"bash":"ask"}`) || !strings.Contains(string(body), `"limits":{"agents":"allow","command":"ask","edit":"allow","loop":"ask","outside":"ask","secrets":"ask","tools":"allow","web":"allow"}`) {
+	if !strings.Contains(string(body), `"autoAccept":"denied"`) || !strings.Contains(string(body), `"max":{}`) || strings.Contains(string(body), `"limits"`) {
 		t.Errorf("default hello policy = %s", body)
 	}
 }

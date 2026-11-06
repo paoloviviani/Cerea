@@ -134,7 +134,7 @@ func earlyRefusal(f scheduleFacts) error {
 func (at *agentTools) scheduleFactsFor(ctx context.Context, tc *toolCaller, tool string) scheduleFacts {
 	return scheduleFacts{
 		tool: tool, ceiling: at.scheduleCeiling(), grant: at.scheduleGrant(ctx, tc),
-		machineDeny: at.mc.live.Permission().EffectiveLimits()[decide.ClassAgents] == decide.Never,
+		machineDeny: at.mc.live.Permission().Denied(decide.ClassAgents),
 	}
 }
 

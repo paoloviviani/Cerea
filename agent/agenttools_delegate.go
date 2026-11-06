@@ -35,9 +35,8 @@ func (at *agentTools) IsDelegatePair(callerID, targetID string) delegateDirectio
 	return notDelegates
 }
 
-// machineHolds reports whether the machine's agents limit is ask or never: a
-// machine that limits delegation beats the delegate relationship; the
-// session's own word does not.
+// machineHolds reports whether the owner denied the agents class locally: a
+// machine that refuses delegation beats the delegate relationship.
 func (at *agentTools) machineHolds(tool string) bool {
-	return at.mc.live.Permission().EffectiveLimits()[decide.ClassAgents] != decide.Run
+	return at.mc.live.Permission().Denied(decide.ClassAgents)
 }

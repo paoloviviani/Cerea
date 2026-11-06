@@ -11,7 +11,6 @@ import (
 
 	"galopin/internal/backend"
 	"galopin/internal/permrules"
-	"galopin/internal/policy"
 )
 
 // A spawned session inherits its caller's permission word and coordination
@@ -45,7 +44,7 @@ func spawnChild(t *testing.T, r *coordRig) (string, map[string]any) {
 }
 
 func TestSpawnInheritsAllowWordAndGrant(t *testing.T) {
-	r := newCoordRig(t, withLimit("command", "run"))
+	r := newCoordRig(t, nil)
 	allowCaller(t, r)
 	mustGrant(t, r, "caller", []string{"session_read"})
 
@@ -138,17 +137,16 @@ func TestSpawnFromAskInheritsExceptionsToo(t *testing.T) {
 	}
 }
 
-func TestSpawnedExceptionsStayCappedByCeiling(t *testing.T) {
-	// The ceiling composes last, so an exception the caller holds for a
-	// capped key must not soften the child's copy past it.
-	r := newCoordRig(t, func(p *policy.Policy) { withMax("bash", "ask")(p) })
+func TestSpawnedExceptionsStayUnderALocalDeny(t *testing.T) {
+	// A local deny stands over an exception the caller holds, in the child's copy too.
+	r := newCoordRig(t, withDeny("command"))
 	allowCaller(t, r)
 	addException(t, r, "caller", "bash", "git *")
 	addException(t, r, "caller", "external_directory", "/tmp/*")
 
 	child, _ := spawnChild(t, r)
-	if got := childVerdict(r, child, "bash", "git status"); got != decide.Card {
-		t.Errorf("child bash git status = %s, want the ceiling's card", got)
+	if got := childVerdict(r, child, "bash", "git status"); got != decide.Reject {
+		t.Errorf("child bash git status = %s, want the local deny's refusal", got)
 	}
 	if got := childVerdict(r, child, "external_directory", "/tmp/x"); got != decide.Once {
 		t.Errorf("child external_directory /tmp/x = %s, want once", got)
@@ -230,24 +228,22 @@ func TestAllowBlanketCoversSendWithoutAGrant(t *testing.T) {
 	}
 }
 
-func TestAllowBlanketStillCappedByCeiling(t *testing.T) {
-	r := newCoordRig(t, func(p *policy.Policy) { withMax("session_send", "ask")(p) })
+func TestAllowCallerSendsAndSpawnsWithNoCard(t *testing.T) {
+	r := newCoordRig(t, nil)
 	allowCaller(t, r)
 	if _, err := r.call("caller", "session_send", map[string]any{"target": "peer", "text": "hi"}); err != nil {
 		t.Fatal(err)
 	}
-	if asks := r.asks(); len(asks) != 1 || asks[0].Tool != "session_send" {
-		t.Fatalf("a send the ceiling caps at ask must still raise a card; asks = %+v", asks)
+	if asks := r.asks(); len(asks) != 0 {
+		t.Fatalf("an Allow send raised cards: %+v", asks)
 	}
 
-	// Spawns likewise under an agents=ask limit (the explicit `--limit agents=ask`;
-	// the old session_spawn=ask default migrates to agents=run) — and the approved
-	// child still inherits the caller's word.
-	r2 := newCoordRig(t, withLimit("agents", "ask"))
+	// Spawns likewise, and the child inherits the caller's word.
+	r2 := newCoordRig(t, nil)
 	_ = r2.cb.SetPermissionMode(context.Background(), "", "caller", permrules.Allow)
 	child, result := spawnChild(t, r2)
-	if asks := r2.asks(); len(asks) != 1 || asks[0].Tool != "session_spawn" {
-		t.Fatalf("a spawn the ceiling caps at ask must still raise a card; asks = %+v", asks)
+	if asks := r2.asks(); len(asks) != 0 {
+		t.Fatalf("an Allow spawn raised cards: %+v", asks)
 	}
 	if result["permissionMode"] != "allow" {
 		t.Errorf("result permissionMode = %v, want allow", result["permissionMode"])
@@ -258,10 +254,7 @@ func TestAllowBlanketStillCappedByCeiling(t *testing.T) {
 }
 
 func TestAllowBlanketYieldsToAMachineDeny(t *testing.T) {
-	r := newCoordRig(t, func(p *policy.Policy) {
-		p.Permission.Limits = nil
-		p.Permission.Rules = map[string]string{"session_send": "deny"}
-	})
+	r := newCoordRig(t, withDeny("agents"))
 	allowCaller(t, r)
 	before := len(r.asks())
 	if _, err := r.call("caller", "session_send", map[string]any{"target": "peer", "text": "hi"}); err == nil {

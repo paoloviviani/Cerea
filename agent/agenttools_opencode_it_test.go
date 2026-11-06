@@ -184,10 +184,11 @@ func TestAgentToolsIntegration(t *testing.T) {
 	// card (PROTOCOL.md §6 "Permissions"), and each session gets them when it is
 	// created or next prompted.
 	var rulesMu sync.Mutex
-	var machineRules map[string]permrules.Action
+	var machineRules map[string]permrules.Action // retired (ADR 0109): kept so the subtests below are reviewed one by one
 	setMachineRules := func(m map[string]permrules.Action) {
 		rulesMu.Lock()
 		machineRules = m
+		_ = machineRules
 		rulesMu.Unlock()
 	}
 	// The machine's ceiling, changed by the coordination-grant subtests.
@@ -205,7 +206,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 		Permissions: func() permrules.Layers {
 			rulesMu.Lock()
 			defer rulesMu.Unlock()
-			return permrules.Layers{Own: permrules.OwnRules(machineRules), Ceiling: permrules.Ceiling{Max: machineCeiling}}
+			return permrules.Layers{Ceiling: permrules.Ceiling{Max: machineCeiling}}
 		},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
@@ -236,7 +237,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 	mc.layersFn = func() permrules.Layers {
 		rulesMu.Lock()
 		defer rulesMu.Unlock()
-		return permrules.Layers{Own: permrules.OwnRules(machineRules), Ceiling: permrules.Ceiling{Max: machineCeiling}}
+		return permrules.Layers{Ceiling: permrules.Ceiling{Max: machineCeiling}}
 	}
 	audit, err := newAuditLogger(dirs["state"])
 	if err != nil {

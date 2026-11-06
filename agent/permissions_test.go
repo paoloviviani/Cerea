@@ -77,6 +77,31 @@ func (r *ruleBackend) SetPermissionMode(_ context.Context, _, sessionID string, 
 	}
 	sel := r.sel[sessionID]
 	sel.Mode = mode
+	sel.Auto, sel.AutoClasses = false, nil
+	r.sel[sessionID] = sel
+	return nil
+}
+func (r *ruleBackend) AutoClasses(sessionID string) (map[string]string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	sel := r.sel[sessionID]
+	if !sel.Auto {
+		return nil, false
+	}
+	out := map[string]string{}
+	for k, v := range sel.AutoClasses {
+		out[k] = v
+	}
+	return out, true
+}
+func (r *ruleBackend) SetAuto(_ context.Context, _, sessionID string, classes map[string]string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.sel == nil {
+		r.sel = map[string]permrules.Selector{}
+	}
+	sel := r.sel[sessionID]
+	sel.Mode, sel.Auto, sel.AutoClasses = permrules.Ask, true, classes
 	r.sel[sessionID] = sel
 	return nil
 }
@@ -216,10 +241,9 @@ func askEditIn(mc *machine, wsDir, id string, patterns []string, md map[string]a
 	})
 }
 
-func policyWithCeiling(max map[string]string) policy.Policy {
+func policyWithDeny(classes ...string) policy.Policy {
 	p := policy.Default()
-	p.Permission.Limits = nil // legacy keys: migrated when the policy is taken in
-	p.Permission.Max = max
+	p.Permission.Deny = classes
 	return p
 }
 
@@ -227,7 +251,7 @@ func policyWithCeiling(max map[string]string) policy.Policy {
 // keeps: opencode is answered "once" every time, and a key the ceiling caps
 // stores nothing.
 func TestAlwaysIsAnExceptionAndOpencodeGetsOnce(t *testing.T) {
-	mc, rb, dir := newRuleMachine(t, policyWithCeiling(map[string]string{"bash": "ask", "webfetch": "deny"}))
+	mc, rb, dir := newRuleMachine(t, policyWithDeny("web"))
 	ctx := context.Background()
 	reply := func(id, decision string) {
 		t.Helper()
@@ -239,10 +263,10 @@ func TestAlwaysIsAnExceptionAndOpencodeGetsOnce(t *testing.T) {
 	askFor(mc, "per_1", "bash")
 	askFor(mc, "per_2", "edit")
 	askFor(mc, "per_3", "bash")
-	reply("per_1", "always") // bash is limited to ask: a human's always still stores it (OverAsk)
+	reply("per_1", "always") // a human's always on a command: an exception
 	reply("per_2", "always") // edit is not capped: an exception
 	reply("per_3", "reject")
-	reply("per_unknown", "always") // an ask the machine does not hold, with a ceiling: cannot tell what it covers
+	reply("per_unknown", "always") // an ask the machine does not hold: nothing to store
 	want := []backend.Decision{backend.DecisionOnce, backend.DecisionOnce, backend.DecisionReject, backend.DecisionOnce}
 	if len(rb.replies) != len(want) {
 		t.Fatalf("replies = %v, want %v", rb.replies, want)
@@ -253,10 +277,10 @@ func TestAlwaysIsAnExceptionAndOpencodeGetsOnce(t *testing.T) {
 		}
 	}
 	ex := rb.Exceptions("s1")
-	if len(ex) != 2 || ex[0].Permission != "bash" || !ex[0].OverAsk || ex[1].Permission != "edit" || ex[1].OverAsk ||
+	if len(ex) != 2 || ex[0].Permission != "bash" || ex[0].OverAsk || ex[1].Permission != "edit" || ex[1].OverAsk ||
 		len(ex[1].Patterns) != 1 || ex[1].Patterns[0] != "a.txt" ||
 		!strings.HasPrefix(ex[1].ID, "ex_") || ex[1].GrantedAt == "" {
-		t.Fatalf("exceptions = %+v, want a bash one (OverAsk) and an edit one (patterns fall back to the ask's own)", ex)
+		t.Fatalf("exceptions = %+v, want a bash one and an edit one (patterns fall back to the ask's own)", ex)
 	}
 
 	var perms []map[string]any
@@ -270,7 +294,7 @@ func TestAlwaysIsAnExceptionAndOpencodeGetsOnce(t *testing.T) {
 	}
 	if perms[0]["tool"] != "bash" || perms[0]["decision"] != "always" || perms[0]["capped"] != nil || perms[0]["by"] != "user" ||
 		perms[0]["session"] != "s1" || perms[0]["requestId"] != "per_1" {
-		t.Errorf("ask-limited row = %v", perms[0])
+		t.Errorf("first row = %v", perms[0])
 	}
 	if perms[1]["decision"] != "always" || perms[1]["capped"] != nil {
 		t.Errorf("the stored exception is audited as the person's always: %v", perms[1])
@@ -288,7 +312,6 @@ func TestAlwaysIsAnExceptionAndOpencodeGetsOnce(t *testing.T) {
 // carries them; a galopin ask (gp_) is never an exception.
 func TestAlwaysUsesTheAsksAlwaysPatternsAndSkipsGalopinAsks(t *testing.T) {
 	pol := policy.Default()
-	pol.Permission.Limits["command"] = "run" // an "always" only stands where commands may run
 	mc, rb, _ := newRuleMachine(t, pol)
 	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/x", SessionID: "s1", Event: backend.Event{
 		Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "per_1", SessionID: "s1", Tool: "bash",
@@ -358,7 +381,7 @@ func TestAnExceptionThatCannotBeStoredStillAnswersOnce(t *testing.T) {
 }
 
 func TestPermissionRulesIsReadOnlyAndTakenApartBySource(t *testing.T) {
-	mc, rb, _ := newRuleMachine(t, policyWithCeiling(map[string]string{"edit": "ask"}))
+	mc, rb, _ := newRuleMachine(t, policyWithDeny("edit"))
 	rb.layers = backend.RuleLayers{Agent: "build", Rules: []backend.SourcedRule{
 		{Rule: permrules.Rule{Permission: "*", Pattern: "*", Action: permrules.Allow}, Source: backend.SourceDefault},
 		{Rule: permrules.Rule{Permission: "edit", Pattern: "*", Action: permrules.Ask}, Source: backend.SourceFile},
@@ -398,7 +421,7 @@ func TestPermissionRulesIsReadOnlyAndTakenApartBySource(t *testing.T) {
 	if out.Mode != "allow" {
 		t.Errorf("mode = %q, want the backend's word", out.Mode)
 	}
-	if len(out.SavedApprovals) != 1 || out.Ceiling["edit"] != "ask" {
+	if len(out.SavedApprovals) != 1 || out.Ceiling["edit"] != "deny" {
 		t.Fatalf("saved/ceiling = %+v: only this root's exceptions should be listed", out)
 	}
 	ex := out.SavedApprovals[0]
@@ -527,7 +550,7 @@ func TestTightenedPolicyRejectsWhatItNowRefusesAndRestartsNothing(t *testing.T) 
 	if mc.mat.PendingPermissions("s1") != 2 {
 		t.Fatal("setup: the asks were not held")
 	}
-	ch := mc.live.Tighten(policy.Permission{Max: map[string]string{"edit": "deny"}})
+	ch := mc.live.Tighten(policy.Permission{Deny: []string{"edit"}})
 	if !ch.Tightened {
 		t.Fatal("setup: not tightened")
 	}
@@ -591,19 +614,19 @@ func TestWatchPolicyTakesInOnlyTightening(t *testing.T) {
 	}
 
 	tight := start
-	tight.Permission = policy.Permission{Max: map[string]string{"bash": "deny"}}
+	tight.Permission = policy.Permission{Deny: []string{"command"}}
 	write(tight)
-	waitFor(1, "a lowered ceiling")
+	waitFor(1, "a new local deny")
 	if !changes[0].Tightened {
 		t.Errorf("change = %+v", changes[0])
 	}
 
 	// A file edited back up is ignored: loosening needs enroll.
 	loose := start
-	loose.Permission = policy.Permission{Max: map[string]string{"bash": "allow"}}
+	loose.Permission = policy.Permission{}
 	write(loose)
 	time.Sleep(150 * time.Millisecond)
-	if count() != 1 || live.Permission().Limits["command"] != "never" {
+	if count() != 1 || !live.Permission().Denied("command") {
 		t.Errorf("a loosened file was taken in: changes=%d permission=%+v", count(), live.Permission())
 	}
 
@@ -787,7 +810,7 @@ func TestRetiredOpsAnswerUnsupported(t *testing.T) {
 func TestReplyAfterTheCeilingTightenedIsAReject(t *testing.T) {
 	mc, rb, _ := newRuleMachine(t, policy.Default())
 	askFor(mc, "per_1", "webfetch")
-	ch := mc.live.Tighten(policy.Permission{Max: map[string]string{"webfetch": "deny"}})
+	ch := mc.live.Tighten(policy.Permission{Deny: []string{"web"}})
 	if !ch.Tightened {
 		t.Fatal("setup: not tightened")
 	}
@@ -820,8 +843,7 @@ func verdictFor(mc *machine, tool string, patterns ...string) string {
 
 func TestEditAlwaysCoversOnlyThatFile(t *testing.T) {
 	for name, pol := range map[string]policy.Policy{
-		"default":        policy.Default(),
-		"edit limit ask": policyWithCeiling(map[string]string{"edit": "ask"}),
+		"default": policy.Default(),
 	} {
 		t.Run(name, func(t *testing.T) {
 			mc, rb, _ := newRuleMachine(t, pol)

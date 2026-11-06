@@ -196,7 +196,8 @@ type enrollOptions struct {
 	discover               bool
 	allowOpencodeProviders bool
 	allowAutoAccept        bool
-	limits                 []string
+	limits                 []string // retired (ADR 0109): accepted, ignored
+	deny                   []string
 	permissionMax          []string
 	permissionRules        []string
 	safeDirs               []string
@@ -270,6 +271,7 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.BoolVar(&opts.allowOpencodeProviders, "allow-opencode-provider", false, "")
 	fs.BoolVar(&opts.allowAutoAccept, "allow-auto-accept", false, "")
 	fs.Var(stringListFlag{&opts.limits}, "limit", "")
+	fs.Var(stringListFlag{&opts.deny}, "deny", "")
 	fs.Var(stringListFlag{&opts.permissionMax}, "permission-max", "")
 	fs.Var(stringListFlag{&opts.permissionRules}, "permission-rule", "")
 	fs.Var(stringListFlag{&opts.safeDirs}, "safe-dir", "")
@@ -591,9 +593,6 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, opts.allowOpencodeProviders))
 	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, permissionPolicySummary(pol))
-	if w := pol.Permission.IncoherentCeiling(); w != "" {
-		fmt.Fprintln(os.Stderr, "warning: "+w+".")
-	}
 	if opts.base != nil {
 		fmt.Fprintln(os.Stderr, "note: re-enrolled: the settings already on this machine were kept except the options you passed ('galopin reset' returns the policy to the defaults).")
 	}
@@ -891,7 +890,7 @@ func backgroundSubagentsPolicySummary(pol policy.Policy) string {
 // freshEnrollPolicy is what a machine with no policy gets from `enroll` with
 // no option, and what `galopin reset` returns it to: closed except the
 // terminal, command shell, background subagents and the file editor, which
-// are on by default; the class limits are their defaults.
+// are on by default; no class limits (ADR 0109).
 func freshEnrollPolicy() policy.Policy {
 	pol := policy.Default()
 	pol.FileWrite = policy.FileWriteAllowed
@@ -919,36 +918,19 @@ func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 		pol = freshEnrollPolicy()
 	}
 	pol.Permission.Notices = nil
-	// The class limits. The old flags map onto classes for one release.
-	if len(opts.permissionMax) > 0 || len(opts.permissionRules) > 0 {
-		lims, carried, notices, err := legacyLimits(opts.permissionMax, opts.permissionRules)
-		if err != nil {
-			return policy.Policy{}, err
-		}
-		for c, l := range lims {
-			pol.Permission.SetLimitTo(c, l)
-		}
-		if len(carried) > 0 {
-			if pol.Permission.Rules == nil {
-				pol.Permission.Rules = map[string]string{}
-			}
-			for k, v := range carried {
-				pol.Permission.Rules[k] = v
-			}
-		}
-		for _, n := range notices {
-			fmt.Fprintln(os.Stderr, "note: "+n)
-		}
+	// ADR 0109: no machine limits. The retired flags are accepted and ignored,
+	// and the owner's optional local deny is the only thing left.
+	for _, n := range retiredFlagNotices(opts.limits, opts.permissionMax, opts.permissionRules) {
+		fmt.Fprintln(os.Stderr, "warning: "+n)
 	}
-	lims, err := parseLimitFlags(opts.limits)
+	denies, err := parseDenyFlags("deny", opts.deny)
 	if err != nil {
 		return policy.Policy{}, err
 	}
-	for c, l := range lims {
-		pol.Permission.SetLimitTo(c, l)
-	}
-	if pol.Permission.Limits == nil {
-		pol.Permission.Limits = policy.DefaultLimits()
+	if given("deny") && (opts.set == nil || len(denies) > 0) {
+		// An enroll that names --deny sets the list; one that does not keeps it.
+		pol.Permission.Deny = nil
+		pol.Permission.AddDeny(denies...)
 	}
 	if given("safe-dir") || given("no-safe-dirs") {
 		safeDirs, err := enrollSafeDirs(opts)

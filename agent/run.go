@@ -275,6 +275,9 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 
 	// The permission policy as the running agent holds it: loaded from
 	// policy.json now, and only ever tightened afterwards (permissions.go).
+	for _, n := range pol.Permission.Notices {
+		logf("policy: warning: %s", n)
+	}
 	live := policy.NewLive(pol.Permission)
 	back, err := startBackend(ctx, opts, stateDir, pol, live, logf)
 	if err != nil {
@@ -328,7 +331,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	// on every hello by buildHello). The files are the user's, never edited.
 	reportModelPins(scanModelPins(pol.AllowFreeModels), auditLog, sh)
 	go watchPolicy(ctx, filepath.Join(stateDir, policyFileName), live, policyPollEvery, func(ch policy.Change) {
-		logf("permissions: policy tightened (ceiling, rules or safe dirs: %v)", ch.Tightened)
+		logf("permissions: policy tightened (local deny or safe dirs: %v)", ch.Tightened)
 		mc.policyTightened(ctx, ch)
 	})
 	for _, w := range reg.List(true) {
@@ -578,7 +581,6 @@ func buildHelloBase(pol policy.Policy) link.Hello {
 		Policy: link.PolicyInfo{
 			AutoAccept:          autoAcceptRetired,
 			Permission:          permissionInfo(pol),
-			Limits:              pol.Permission.WireLimits(),
 			WorkspaceRoots:      roots,
 			AllowFreeModels:     pol.AllowFreeModels,
 			Files:               filesPolicyWord(pol),
@@ -768,7 +770,7 @@ const autoAcceptRetired = "denied"
 // panel can say what a session's Allow still cannot do instead of leaving a
 // refusal to explain it.
 func permissionInfo(pol policy.Policy) link.PermissionInfo {
-	// Derived from the class limits (what an older Cerea reads as the ceiling).
+	// The local deny as a ceiling (empty on a machine with no --deny).
 	max := map[string]string{}
 	c := pol.Permission.Ceiling()
 	for _, k := range c.Keys() {
