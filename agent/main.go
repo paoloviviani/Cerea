@@ -37,6 +37,8 @@ Commands:
   run       Supervise opencode and dial out to Cerea over WSS (PROTOCOL.md).
   models    Re-discover the gateway's models ('models refresh') without
             re-enrolling.
+  goose     Point your own goose (Desktop, CLI, editor extension) at galopin's
+            proxy ('goose setup').
   connectors  List, test and sign in to the MCP servers this machine offers
             to the chat ('connectors list|test|login').
   policy    Show, or locally tighten, this machine's policy.json.
@@ -68,6 +70,8 @@ func main() {
 		err = runPolicy(os.Args[2:])
 	case "reset":
 		err = runReset(os.Args[2:])
+	case "goose":
+		err = runGoose(os.Args[2:])
 	case "connectors":
 		err = runConnectors(os.Args[2:])
 	case "licenses":

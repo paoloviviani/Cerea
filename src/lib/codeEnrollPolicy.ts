@@ -24,8 +24,13 @@ import { ENROLL_FLAGS } from "$lib/enrollFlags";
 /** `enroll`'s own default for `--max-terminals`. */
 export const DEFAULT_MAX_TERMINALS = 8;
 
+/** The coding engines a machine can run (ADR 0110); opencode is `enroll`'s default. */
+export type EnrollEngine = "opencode" | "goose";
+
 /** Everything the dialog lets a person choose about the machine's policy. */
 export interface EnrollPolicyChoices {
+	/** `--engine goose`; opencode (the default) prints nothing. */
+	engine: EnrollEngine;
 	allowTerminal: boolean;
 	/** Only meaningful, and only emitted, when `allowTerminal` is on. */
 	maxTerminals: number;
@@ -56,6 +61,7 @@ export interface EnrollPolicyChoices {
 
 export function defaultPolicyChoices(): EnrollPolicyChoices {
 	return {
+		engine: "opencode",
 		allowTerminal: true,
 		maxTerminals: DEFAULT_MAX_TERMINALS,
 		allowProjectConfig: false,
@@ -89,6 +95,7 @@ export const FLAG_CONTROLS: Readonly<Record<string, string>> = {
 	"file-deny": "enroll-file-deny",
 	"no-default-file-deny": "enroll-no-default-file-deny",
 	"default-group": "enroll-bill-to-default",
+	engine: "enroll-engine",
 };
 
 /** The flags the dialog has a control for, in the file's own terms. */
@@ -116,6 +123,7 @@ export function maxTerminalsProblem(value: number): string | null {
  * order. Defaults contribute nothing. */
 export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
 	const args: string[] = [];
+	if (choices.engine === "goose") args.push("--engine", "goose");
 	if (choices.billToDefault) {
 		args.push("--default-group");
 	}
@@ -149,6 +157,7 @@ export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
  * box opens ticked, so unticking it is the change that counts. */
 export function advancedChangedCount(choices: EnrollPolicyChoices): number {
 	return [
+		choices.engine !== "opencode",
 		!choices.allowTerminal || choices.maxTerminals !== DEFAULT_MAX_TERMINALS,
 		!choices.allowCommandShell,
 		!choices.allowBackgroundSubagents,

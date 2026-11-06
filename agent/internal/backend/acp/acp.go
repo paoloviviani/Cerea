@@ -50,6 +50,18 @@ type Config struct {
 	// Tools offers galopin's coordination tools to the agent over MCP (tools.go)
 	// when the agent can use an HTTP MCP server. The machine's policy decides.
 	Tools bool
+	// SessionMeta is sent as _meta on session/new and session/load. goose reads
+	// _meta.client (a string) and files the session as a user session, which
+	// goose Desktop and the editor extensions list (ADR 0110).
+	SessionMeta map[string]any
+	// HiddenModes are agent modes galopin never lets a session sit in, because
+	// they skip the ask (goose's auto and smart_approve): they are left out of
+	// Modes, SetMode refuses them, and ForceMode is set again whenever a
+	// session reports one (on new, load, after set_mode, on a mode update and
+	// before a prompt).
+	HiddenModes []string
+	// ForceMode is the mode a session is put back in (see HiddenModes).
+	ForceMode string
 	// Logf receives lifecycle-only messages: started, ready, restarting,
 	// exited (R6 — never frame or response bodies, which may carry a
 	// user's prompt text).

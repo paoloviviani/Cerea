@@ -16,3 +16,11 @@ var opencodeVersion string
 // against, from the opencode-version file (the one place it is written; the
 // panel's install line and CI read the same file).
 func OpencodeVersion() string { return strings.TrimSpace(opencodeVersion) }
+
+//go:embed goose-version
+var gooseVersion string
+
+// GooseVersion is the goose release galopin supports as an engine (ADR 0110),
+// from the goose-version file; goose-sha256 beside it records the archives'
+// checksums, which upstream does not publish. Written only by bump-goose.sh.
+func GooseVersion() string { return strings.TrimSpace(gooseVersion) }
