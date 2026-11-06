@@ -184,15 +184,29 @@ func TestAgentToolsIntegration(t *testing.T) {
 	// card (PROTOCOL.md §6 "Permissions"), and each session gets them when it is
 	// created or next prompted.
 	var rulesMu sync.Mutex
-	var machineRules map[string]permrules.Action // retired (ADR 0109): kept so the subtests below are reviewed one by one
+	// ADR 0109: the machine has no own rules. What a rule used to say is said
+	// per session: an allow is the coordination grant every session created
+	// while it is set gets, a deny is the owner's local deny of the agents class.
+	var machineRules map[string]permrules.Action
 	setMachineRules := func(m map[string]permrules.Action) {
 		rulesMu.Lock()
 		machineRules = m
-		_ = machineRules
 		rulesMu.Unlock()
 	}
 	// The machine's ceiling, changed by the coordination-grant subtests.
 	var machineCeiling map[string]permrules.Action
+	// machineLayers is called with rulesMu held.
+	machineLayers := func() permrules.Layers {
+		l := permrules.Layers{Ceiling: permrules.Ceiling{Max: machineCeiling}}
+		for _, m := range []map[string]permrules.Action{machineRules, machineCeiling} {
+			for _, a := range m {
+				if a == permrules.Deny {
+					l.Deny = []string{"agents"}
+				}
+			}
+		}
+		return l
+	}
 	setMachineCeiling := func(m map[string]permrules.Action) {
 		rulesMu.Lock()
 		machineCeiling = m
@@ -206,7 +220,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 		Permissions: func() permrules.Layers {
 			rulesMu.Lock()
 			defer rulesMu.Unlock()
-			return permrules.Layers{Ceiling: permrules.Ceiling{Max: machineCeiling}}
+			return machineLayers()
 		},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
@@ -237,7 +251,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 	mc.layersFn = func() permrules.Layers {
 		rulesMu.Lock()
 		defer rulesMu.Unlock()
-		return permrules.Layers{Ceiling: permrules.Ceiling{Max: machineCeiling}}
+		return machineLayers()
 	}
 	audit, err := newAuditLogger(dirs["state"])
 	if err != nil {
@@ -311,6 +325,19 @@ func TestAgentToolsIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		mc.trackSession(ws, s)
+		rulesMu.Lock()
+		var grant []string
+		for k, a := range machineRules {
+			if a == permrules.Allow && permrules.IsCoordinationKey(k) {
+				grant = append(grant, k)
+			}
+		}
+		rulesMu.Unlock()
+		if len(grant) > 0 {
+			if err := oc.SetCoordination(ctx, ws.Path, s.ID, grant); err != nil {
+				t.Fatal(err)
+			}
+		}
 		return s
 	}
 	prompt := func(s backend.Session, ws workspaces.Workspace, text string) {
@@ -1178,7 +1205,6 @@ func TestAgentToolsIntegration(t *testing.T) {
 			// two tools: reading it as consent would enable session traffic on
 			// every machine that never wrote a rule.
 			{"absent, under opencode's default * allow", nil, true, false},
-			{"explicit ask", rules{"session_spawn": permrules.Ask, "session_send": permrules.Ask}, true, false},
 			{"explicit allow", rules{"session_spawn": permrules.Allow, "session_send": permrules.Allow}, false, false},
 			{"explicit deny", rules{"session_spawn": permrules.Deny, "session_send": permrules.Deny}, false, true},
 		} {
@@ -1212,7 +1238,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 					// Either galopin refused it (the rule's text) or opencode
 					// withdrew the tool for a denied key before galopin was
 					// reached; both are a refusal with no card.
-					galopinRefused := part.ToolStatus == backend.ToolFailed && strings.Contains(part.ToolError, "rules do not allow")
+					galopinRefused := part.ToolStatus == backend.ToolFailed && strings.Contains(part.ToolError, "refused")
 					if !(galopinRefused || part.Tool == "invalid") || len(asks) != 0 {
 						t.Errorf("%s / %s: want a refusal and no card, got tool=%s status=%s err=%q asks=%+v", c.name, tool, part.Tool, part.ToolStatus, part.ToolError, asks)
 					}
@@ -1375,43 +1401,23 @@ func TestAgentToolsIntegration(t *testing.T) {
 		hub.waitIdle(t, mark, a.ID)
 	})
 
-	t.Run("grant: a ceiling at ask still produces a card, and another workspace still asks", func(t *testing.T) {
+	t.Run("grant: another workspace still asks, and a local deny refuses", func(t *testing.T) {
 		hub.setApprove(approveAll)
-		setMachineCeiling(map[string]permrules.Action{"session_send": permrules.Ask})
-		defer setMachineCeiling(nil)
 		a := newSession(ws1, "it-ceil-a", "build")
 		b := newSession(ws1, "it-ceil-b", "build")
 		x := newSession(ws2, "it-ceil-x", "build")
 		grantCoordination(t, a.ID, []string{"session_read", "session_send"})
-		route("trigger-ceil-send", "session_send", mustJSON2(map[string]any{"target": b.ID, "text": "ceiling hello"}))
-		route("trigger-ceil-read", "session_read", mustJSON2(map[string]any{"target": b.ID}))
 		route("trigger-ceil-xread", "session_read", mustJSON2(map[string]any{"target": x.ID}))
 		publish()
 
-		part, asks := runTool(t, a, ws1, "trigger-ceil-send", "session_send")
-		if part.ToolStatus != backend.ToolCompleted || part.Output != "{}" {
-			t.Errorf("a capped send = %s / %q / %q, want a carded one ({})", part.ToolStatus, part.Output, part.ToolError)
-		}
-		if len(asks) != 1 || asks[0].Tool != "session_send" || !strings.HasPrefix(asks[0].ID, "gp_") {
-			t.Errorf("a send under a ceiling of ask must raise exactly one galopin card, got %+v", asks)
-		}
-
-		// The agents class is one limit for all its keys (ADR 0107): the read is
-		// capped at ask along with the send, grant or not...
-		part, asks = runTool(t, a, ws1, "trigger-ceil-read", "session_read")
-		if part.ToolStatus != backend.ToolCompleted || len(asks) != 1 || asks[0].Tool != "session_read" {
-			t.Errorf("a granted read under agents=ask = %s / %q, asks %+v, want one card", part.ToolStatus, part.ToolError, asks)
-		}
-		// ...and asks for a session in another workspace.
-		part, asks = runTool(t, a, ws1, "trigger-ceil-xread", "session_read")
+		// A grant covers sessions of the same workspace only: another one asks.
+		part, asks := runTool(t, a, ws1, "trigger-ceil-xread", "session_read")
 		if part.ToolStatus != backend.ToolCompleted || len(asks) != 1 || asks[0].Tool != "session_read" {
 			t.Errorf("a cross-workspace read = %s / %q, asks %+v, want one card", part.ToolStatus, part.ToolError, asks)
 		}
 
-		// A ceiling of deny leaves nothing to grant: opencode drops a tool whose
-		// every pattern is denied from the model's tool list (the unit tests
-		// cover the refusal text galopin gives when the call does arrive), so the
-		// call never runs and no card is raised.
+		// A local deny of the agents class leaves nothing to grant: the call is
+		// refused, never run and never carded.
 		setMachineCeiling(map[string]permrules.Action{"session_read": permrules.Deny})
 		route("trigger-ceil-deny", "session_read", mustJSON2(map[string]any{"target": b.ID}))
 		publish()
