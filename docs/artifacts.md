@@ -70,3 +70,27 @@ artifact in the panel with its versions and preview; each file has its own
 
 The panel is **per conversation**: it lists the open chat's files, not other
 conversations', and files older than the retention period are gone.
+
+## The Artifacts tabs
+
+The panel shows one conversation. To find something the assistant made in an
+older chat, use an **Artifacts** tab:
+
+- a **project's page** has an **Artifacts** tab next to **Conversations** and
+  **Settings** (`/projects/<id>?tab=artifacts`): what the assistant made in
+  your own chats of that project;
+- the **Chats** page (`/chats`) has an **Artifacts** tab (`?tab=artifacts`):
+  the same for chats that are in no project.
+
+Each row is one artifact, newest first: its name, what kind it is, its latest
+version and how many versions there are, the chat it came from and when. The
+name and the chat open that chat with the artifact in the side panel; the
+download button saves the latest version. A box above the list filters by
+name, and more rows load as you scroll. Files you attached to a message are
+not listed, only what the assistant made: text artifacts, files from its code
+and Office documents from the document tools.
+
+The tab lists **only your own chats**. In a shared project, the artifacts of
+a colleague's chats are not listed and not counted. There is nothing to delete
+on the tab: an artifact belongs to its chat and goes when you delete the chat
+(or after the retention period, for files).

@@ -30,6 +30,8 @@
 	import { FULL_DATE_TIME } from "$lib/i18n/dateOptions";
 	import type { ProjectView } from "$lib/types/Project";
 	import ChatSnippet from "./ChatSnippet.svelte";
+	import ArtifactsList from "$lib/components/artifacts/ArtifactsList.svelte";
+	import LucideShapes from "~icons/lucide/shapes";
 	import InfiniteScroll from "$lib/components/InfiniteScroll.svelte";
 	import * as s from "$lib/components/overlay/styles";
 	import IconAddLarge from "~icons/carbon/add-large";
@@ -116,6 +118,17 @@
 		)
 	);
 	const modelName = (id?: string) => (id ? (models.get(id) ?? id) : "");
+
+	/**
+	 * The tab and the address are one thing, as on the project page:
+	 * `?tab=artifacts` shows the artifacts of the chats that are in no
+	 * project; anything else is the list of chats.
+	 */
+	const TABS = [
+		{ key: "chats", label: m["chat.list.tab.chats"] },
+		{ key: "artifacts", label: m["chat.list.tab.artifacts"] },
+	] as const;
+	const tab = $derived(page.url.searchParams.get("tab") === "artifacts" ? "artifacts" : "chats");
 
 	const searching = $derived(query.trim() !== "");
 
@@ -240,171 +253,200 @@
 		<p class={s.SUBTITLE}>{m["chat.list.subtitle"]()}</p>
 	</header>
 
-	<div class="scrollbar-custom min-h-0 flex-1 scroll-pt-24 overflow-x-hidden overflow-y-auto">
-		<div class="{s.STRIP} {rows.length > 0 ? s.STRIP_ACTIVE : s.STRIP_IDLE}">
-			<div class="flex items-center gap-3">
-				<div class={s.STRIP_TILE} class:grayscale={rows.length === 0}>
-					<IconChat class="size-5 text-accent" />
-				</div>
-				<div>
-					<p class={s.STRIP_HEADLINE}>
-						{#if searching}{m["chat.list.matching"]({ query: query.trim() })}{:else}{m[
-								"chat.list.all"
-							]()}{/if}
-					</p>
-					<p class={s.STRIP_DETAIL} role="status" aria-live="polite">
-						{#if loading && rows.length === 0}
-							{m["chat.list.loading"]()}
-						{:else if searching}
-							{m["chat.list.count_found"]({ count: rows.length, more: hasMore ? "+" : "" })}
-						{:else}
-							{m["chat.list.count"]({ count: rows.length, more: hasMore ? "+" : "" })}
-						{/if}
-					</p>
-				</div>
-			</div>
-			<a href="{base}/" class={s.PRIMARY}>
-				<IconAddLarge class="size-4" />
-				{m["chat.list.new_chat"]()}
-			</a>
-		</div>
-
-		<!-- Pinned to the top of the scrolling area, on the page's own
-		     background so the rows pass behind it rather than through it. -->
-		<div class="sticky top-0 z-10 mb-4 bg-page pt-1 pb-2" data-testid="chats-search-bar">
-			<div class="relative">
-				<IconSearch
-					class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint"
-				/>
-				<input
-					bind:this={searchEl}
-					bind:value={input}
-					oninput={onInput}
-					onkeydown={(event) => {
-						if (event.key === "Enter") {
-							clearTimeout(debounce);
-							clearTimeout(idle);
-							run(true);
-						}
-						if (event.key === "Escape" && input) {
-							event.preventDefault();
-							void clear();
-						}
-					}}
-					type="search"
-					name="chat-search"
-					data-testid="chats-search"
-					aria-label={m["chat.list.search"]()}
-					placeholder={m["chat.list.search"]()}
-					maxlength={MAX_TITLE_QUERY_LENGTH}
-					autocomplete="off"
-					spellcheck="false"
-					aria-describedby="chats-search-hint"
-					class="{s.SEARCH} pr-9 pl-9 [&::-webkit-search-cancel-button]:hidden"
-				/>
-				{#if input}
-					<button
-						type="button"
-						onclick={clear}
-						aria-label={m["chat.list.clear_search"]()}
-						class="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-ink-faint hover:bg-sunken hover:text-ink"
-					>
-						<IconClose class="size-4" />
-					</button>
-				{/if}
-			</div>
-			<p id="chats-search-hint" class="mt-1.5 text-xs text-ink-faint">
-				{m["chat.list.search_hint"]()}
-			</p>
-		</div>
-
-		{#if failure}
-			<p class="{s.ERROR} mb-4">{failure}</p>
-		{/if}
-
-		{#if rows.length > 0}
-			<ul class="flex flex-col gap-2" data-testid="chats-list">
-				{#each rows as row (String(row.id))}
-					<li class="relative">
-						<a
-							href="{base}/conversation/{row.id}"
-							data-testid="chats-row"
-							class="{s.card(false)} block no-underline hover:border-line-strong"
-						>
-							<div class="py-3 pr-12 pl-4">
-								<h2 class="{s.CARD_TITLE} font-medium">{row.title}</h2>
-								<div
-									class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-muted"
-								>
-									<time
-										datetime={new Date(row.updatedAt).toISOString()}
-										title={formatDateTime(row.updatedAt, FULL_DATE_TIME)}
-									>
-										{formatRelativeTime(row.updatedAt)}
-									</time>
-									{#if row.model}
-										<span class="min-w-0 truncate">{modelName(row.model)}</span>
-									{/if}
-									{#if row.projectId}
-										<span class="{s.PILL} {s.PILL_TONES.busy} max-w-full min-w-0">
-											<LucideFolderOpen class="size-3 shrink-0" />
-											<span class="truncate"
-												>{projectNames[row.projectId] ?? m["chat.list.project_fallback"]()}</span
-											>
-										</span>
-									{/if}
-								</div>
-								{#if row.snippet}<ChatSnippet snippet={row.snippet} />{/if}
-							</div>
-						</a>
-						<div class="absolute top-2 right-2">
-							<MoveMenu
-								label={row.title}
-								onmove={() => (moving = row)}
-								onremove={row.projectId
-									? () =>
-											moveConversation(
-												{
-													id: String(row.id),
-													title: row.title,
-													model: row.model,
-													updatedAt: row.updatedAt,
-												},
-												null,
-												projectNames[row.projectId as string]
-											).then((ok) => ok && moved(row, null))
-									: undefined}
-								ondelete={() => (deleting = $state.snapshot(row) as ChatRow)}
-							/>
-						</div>
-					</li>
-				{/each}
-			</ul>
-			{#if hasMore}
-				<InfiniteScroll onvisible={more} />
-			{/if}
-		{:else if loading}
-			<p class={s.SUBTITLE}>{m["chat.list.loading"]()}</p>
-		{:else if !failure}
-			<div class={s.EMPTY} data-testid={searching ? "chats-no-results" : "chats-empty"}>
-				<IconChat class={s.EMPTY_ICON} />
-				{#if searching}
-					<p class={s.EMPTY_TITLE}>{m["chat.list.no_match"]({ query: query.trim() })}</p>
-					<p class={s.EMPTY_DETAIL}>
-						{m["chat.list.no_match_detail"]()}
-					</p>
-					<button type="button" onclick={clear} class={s.SECONDARY}
-						>{m["chat.list.show_all"]()}</button
-					>
+	<nav
+		aria-label={m["chat.list.tabs_label"]()}
+		class="flex flex-wrap gap-0.5 border-b border-gray-200 sm:gap-1 dark:border-gray-700"
+	>
+		{#each TABS as t (t.key)}
+			{@const active = tab === t.key}
+			<a
+				href={t.key === "chats" ? `${base}/chats` : `${base}/chats?tab=${t.key}`}
+				aria-current={active ? "page" : undefined}
+				class="flex items-center gap-1 rounded-t-lg border-b-2 px-2 py-1.5 text-xs font-medium transition-colors sm:gap-1.5 sm:px-3 sm:py-2 sm:text-sm {active
+					? 'border-blue-600 text-blue-700 dark:text-blue-400'
+					: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}"
+			>
+				{#if t.key === "chats"}
+					<IconChat class="size-3.5 sm:size-4" />
 				{:else}
-					<p class={s.EMPTY_TITLE}>{m["chat.list.empty"]()}</p>
-					<p class={s.EMPTY_DETAIL}>{m["chat.list.empty_detail"]()}</p>
-					<a href="{base}/" class={s.PRIMARY}>
-						<IconAddLarge class="size-4" />
-						{m["chat.list.start"]()}
-					</a>
+					<LucideShapes class="size-3.5 sm:size-4" />
 				{/if}
+				{t.label()}
+			</a>
+		{/each}
+	</nav>
+
+	{#if tab === "artifacts"}
+		<div class="scrollbar-custom min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+			<ArtifactsList project="none" />
+		</div>
+	{:else}
+		<div class="scrollbar-custom min-h-0 flex-1 scroll-pt-24 overflow-x-hidden overflow-y-auto">
+			<div class="{s.STRIP} {rows.length > 0 ? s.STRIP_ACTIVE : s.STRIP_IDLE}">
+				<div class="flex items-center gap-3">
+					<div class={s.STRIP_TILE} class:grayscale={rows.length === 0}>
+						<IconChat class="size-5 text-accent" />
+					</div>
+					<div>
+						<p class={s.STRIP_HEADLINE}>
+							{#if searching}{m["chat.list.matching"]({ query: query.trim() })}{:else}{m[
+									"chat.list.all"
+								]()}{/if}
+						</p>
+						<p class={s.STRIP_DETAIL} role="status" aria-live="polite">
+							{#if loading && rows.length === 0}
+								{m["chat.list.loading"]()}
+							{:else if searching}
+								{m["chat.list.count_found"]({ count: rows.length, more: hasMore ? "+" : "" })}
+							{:else}
+								{m["chat.list.count"]({ count: rows.length, more: hasMore ? "+" : "" })}
+							{/if}
+						</p>
+					</div>
+				</div>
+				<a href="{base}/" class={s.PRIMARY}>
+					<IconAddLarge class="size-4" />
+					{m["chat.list.new_chat"]()}
+				</a>
 			</div>
-		{/if}
-	</div>
+
+			<!-- Pinned to the top of the scrolling area, on the page's own
+		     background so the rows pass behind it rather than through it. -->
+			<div class="sticky top-0 z-10 mb-4 bg-page pt-1 pb-2" data-testid="chats-search-bar">
+				<div class="relative">
+					<IconSearch
+						class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint"
+					/>
+					<input
+						bind:this={searchEl}
+						bind:value={input}
+						oninput={onInput}
+						onkeydown={(event) => {
+							if (event.key === "Enter") {
+								clearTimeout(debounce);
+								clearTimeout(idle);
+								run(true);
+							}
+							if (event.key === "Escape" && input) {
+								event.preventDefault();
+								void clear();
+							}
+						}}
+						type="search"
+						name="chat-search"
+						data-testid="chats-search"
+						aria-label={m["chat.list.search"]()}
+						placeholder={m["chat.list.search"]()}
+						maxlength={MAX_TITLE_QUERY_LENGTH}
+						autocomplete="off"
+						spellcheck="false"
+						aria-describedby="chats-search-hint"
+						class="{s.SEARCH} pr-9 pl-9 [&::-webkit-search-cancel-button]:hidden"
+					/>
+					{#if input}
+						<button
+							type="button"
+							onclick={clear}
+							aria-label={m["chat.list.clear_search"]()}
+							class="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-ink-faint hover:bg-sunken hover:text-ink"
+						>
+							<IconClose class="size-4" />
+						</button>
+					{/if}
+				</div>
+				<p id="chats-search-hint" class="mt-1.5 text-xs text-ink-faint">
+					{m["chat.list.search_hint"]()}
+				</p>
+			</div>
+
+			{#if failure}
+				<p class="{s.ERROR} mb-4">{failure}</p>
+			{/if}
+
+			{#if rows.length > 0}
+				<ul class="flex flex-col gap-2" data-testid="chats-list">
+					{#each rows as row (String(row.id))}
+						<li class="relative">
+							<a
+								href="{base}/conversation/{row.id}"
+								data-testid="chats-row"
+								class="{s.card(false)} block no-underline hover:border-line-strong"
+							>
+								<div class="py-3 pr-12 pl-4">
+									<h2 class="{s.CARD_TITLE} font-medium">{row.title}</h2>
+									<div
+										class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-muted"
+									>
+										<time
+											datetime={new Date(row.updatedAt).toISOString()}
+											title={formatDateTime(row.updatedAt, FULL_DATE_TIME)}
+										>
+											{formatRelativeTime(row.updatedAt)}
+										</time>
+										{#if row.model}
+											<span class="min-w-0 truncate">{modelName(row.model)}</span>
+										{/if}
+										{#if row.projectId}
+											<span class="{s.PILL} {s.PILL_TONES.busy} max-w-full min-w-0">
+												<LucideFolderOpen class="size-3 shrink-0" />
+												<span class="truncate"
+													>{projectNames[row.projectId] ?? m["chat.list.project_fallback"]()}</span
+												>
+											</span>
+										{/if}
+									</div>
+									{#if row.snippet}<ChatSnippet snippet={row.snippet} />{/if}
+								</div>
+							</a>
+							<div class="absolute top-2 right-2">
+								<MoveMenu
+									label={row.title}
+									onmove={() => (moving = row)}
+									onremove={row.projectId
+										? () =>
+												moveConversation(
+													{
+														id: String(row.id),
+														title: row.title,
+														model: row.model,
+														updatedAt: row.updatedAt,
+													},
+													null,
+													projectNames[row.projectId as string]
+												).then((ok) => ok && moved(row, null))
+										: undefined}
+									ondelete={() => (deleting = $state.snapshot(row) as ChatRow)}
+								/>
+							</div>
+						</li>
+					{/each}
+				</ul>
+				{#if hasMore}
+					<InfiniteScroll onvisible={more} />
+				{/if}
+			{:else if loading}
+				<p class={s.SUBTITLE}>{m["chat.list.loading"]()}</p>
+			{:else if !failure}
+				<div class={s.EMPTY} data-testid={searching ? "chats-no-results" : "chats-empty"}>
+					<IconChat class={s.EMPTY_ICON} />
+					{#if searching}
+						<p class={s.EMPTY_TITLE}>{m["chat.list.no_match"]({ query: query.trim() })}</p>
+						<p class={s.EMPTY_DETAIL}>
+							{m["chat.list.no_match_detail"]()}
+						</p>
+						<button type="button" onclick={clear} class={s.SECONDARY}
+							>{m["chat.list.show_all"]()}</button
+						>
+					{:else}
+						<p class={s.EMPTY_TITLE}>{m["chat.list.empty"]()}</p>
+						<p class={s.EMPTY_DETAIL}>{m["chat.list.empty_detail"]()}</p>
+						<a href="{base}/" class={s.PRIMARY}>
+							<IconAddLarge class="size-4" />
+							{m["chat.list.start"]()}
+						</a>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	{/if}
 </div>

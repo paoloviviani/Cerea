@@ -3495,5 +3495,71 @@
 	"workspace.agents.test.not_passed": "[Śóḿé ķéý ćáśéś ďíď ńóť ǧó áś éẋþéćťéď. Ýóú ćáń śťíľľ śáǚé; ćȟáńǧíńǧ ťȟé íńśťŕúćťíóńś, ťȟé ťȟŕéśȟóľď óŕ ťȟé ḿóďéľ ḿáý ȟéľþ.]",
 	"workspace.agents.test.expect_allow": "[śȟóúľď ƀé áľľóŵéď]",
 	"workspace.agents.test.expect_escalate": "[śȟóúľď ćóḿé ťó ýóú]",
-	"workspace.agents.test.gating": "[ķéý ćáśé]"
+	"workspace.agents.test.gating": "[ķéý ćáśé]",
+	"artifacts.list.count": [
+		{
+			"declarations": [
+				"input count",
+				"input more",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count}{more} áŕťíƒáćť]",
+				"countPlural=other": "[{count}{more} áŕťíƒáćťś]"
+			}
+		}
+	],
+	"artifacts.list.count_found": [
+		{
+			"declarations": [
+				"input count",
+				"input more",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count}{more} áŕťíƒáćť ƒóúńď]",
+				"countPlural=other": "[{count}{more} áŕťíƒáćťś ƒóúńď]"
+			}
+		}
+	],
+	"artifacts.list.download": "[Ďóŵńľóáď {name}]",
+	"artifacts.list.empty": "[Ńó áŕťíƒáćťś ýéť]",
+	"artifacts.list.empty_chats": "[Ƒíľéś áńď ďóćúḿéńťś ťȟé ḿóďéľ ḿáķéś íń ćȟáťś óúťśíďé á þŕóĵéćť áþþéáŕ ȟéŕé.]",
+	"artifacts.list.empty_project": "[Ƒíľéś áńď ďóćúḿéńťś ťȟé ḿóďéľ ḿáķéś íń ýóúŕ ćȟáťś íń ťȟíś þŕóĵéćť áþþéáŕ ȟéŕé.]",
+	"artifacts.list.from_chat": "[Ƒŕóḿ {title}]",
+	"artifacts.list.headline": "[Áŕťíƒáćťś]",
+	"artifacts.list.load_failed": "[Ćóúľď ńóť ľóáď ťȟé áŕťíƒáćťś. Ťŕý áǧáíń.]",
+	"artifacts.list.loading": "[Ĺóáďíńǧ…]",
+	"artifacts.list.no_match": "[Ńó áŕťíƒáćťś ḿáťćȟ “{query}”]",
+	"artifacts.list.no_match_detail": "[Ńáḿéś áŕé śéáŕćȟéď áś ýóú ťýþé. Ćáþíťáľ ľéťťéŕś áńď áććéńťś áŕé íǧńóŕéď.]",
+	"artifacts.list.open": "[Óþéń {name} íń íťś ćȟáť]",
+	"artifacts.list.scope_chats": "[Ḿáďé ƀý ťȟé ḿóďéľ íń ýóúŕ ćȟáťś ťȟáť áŕé ńóť íń á þŕóĵéćť, ńéŵéśť ƒíŕśť.]",
+	"artifacts.list.scope_project": "[Ḿáďé ƀý ťȟé ḿóďéľ íń ýóúŕ óŵń ćȟáťś íń ťȟíś þŕóĵéćť, ńéŵéśť ƒíŕśť.]",
+	"artifacts.list.search": "[Śéáŕćȟ áŕťíƒáćťś ƀý ńáḿé]",
+	"artifacts.list.show_all": "[Śȟóŵ áľľ áŕťíƒáćťś]",
+	"artifacts.list.versions": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ǚéŕśíóń]",
+				"countPlural=other": "[{count} ǚéŕśíóńś]"
+			}
+		}
+	],
+	"chat.list.tab.artifacts": "[Áŕťíƒáćťś]",
+	"chat.list.tab.chats": "[Ćȟáťś]",
+	"chat.list.tabs_label": "[Ćȟáťś śéćťíóńś]",
+	"projects.page.tab.artifacts": "[Áŕťíƒáćťś]"
 }
