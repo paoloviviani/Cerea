@@ -62,9 +62,8 @@
 	const toolApproval = $derived(request.toolApproval);
 
 	/**
-	 * The agent path's "always" saves the patterns the agent proposes, and for a
-	 * file edit that is every file in the session, not this one: say so on the
-	 * button, so one click is not read as "this edit, here".
+	 * The agent path's "always" for a file edit is scoped by the machine to the
+	 * file(s) of this ask (never the agent's own `*`): the button says so.
 	 */
 	let alwaysLabel = $derived(
 		toolApproval?.tool === "edit" ? m["chat.approval.always_edits"]() : m["chat.approval.always"]()

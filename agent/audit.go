@@ -181,7 +181,7 @@ func (a *auditLogger) permission(session, requestID, tool, decision, by string, 
 // (PROTOCOL.md §6 permission.reply): the same row as permission(), plus the
 // actor's model and reason when the answer is by:"auto", and whether it was
 // applied (an answer to an ask already resolved never happened).
-func (a *auditLogger) permissionReply(session, requestID, tool, decision string, actor replyActor, capped, applied bool) {
+func (a *auditLogger) permissionReply(session, requestID, tool, decision string, actor replyActor, capped, applied bool, note ...string) {
 	entry := map[string]any{"action": "permission", "session": session, "requestId": requestID, "tool": tool,
 		"decision": decision, "by": actor.by(), "applied": applied}
 	if actor.Kind == actorReviewModel {
@@ -194,7 +194,16 @@ func (a *auditLogger) permissionReply(session, requestID, tool, decision string,
 	if capped {
 		entry["capped"] = true
 	}
+	if len(note) > 0 && note[0] != "" {
+		entry["note"] = note[0]
+	}
 	a.write(entry)
+}
+
+// permissionSavedDropped records an over-broad saved approval (a bare `*`
+// given on a card limited to ask) dropped when the agent started.
+func (a *auditLogger) permissionSavedDropped(session, permission string) {
+	a.write(map[string]any{"action": "permission.saved.dropped", "session": session, "tool": permission, "reason": "matched everything"})
 }
 
 // permissionSavedRemove records an exception being removed (no patterns).

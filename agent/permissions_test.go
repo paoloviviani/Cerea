@@ -192,9 +192,27 @@ func auditRows(t *testing.T, dir string) []map[string]any {
 }
 
 func askFor(mc *machine, id, tool string) {
+	if tool == "edit" { // opencode: the file as the pattern, `*` as its "always"
+		askEdit(mc, id, []string{"a.txt"}, nil)
+		return
+	}
 	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{
 		WorkspaceDir: "/x", SessionID: "s1",
 		Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: id, SessionID: "s1", Tool: tool, Patterns: []string{"rm -rf /"}}},
+	})
+}
+
+// askEdit raises an edit ask the way opencode does: the workspace-relative
+// path(s) as patterns, `*` as what an "always" would cover, and the metadata.
+func askEdit(mc *machine, id string, patterns []string, md map[string]any) {
+	askEditIn(mc, "/x", id, patterns, md)
+}
+
+func askEditIn(mc *machine, wsDir, id string, patterns []string, md map[string]any) {
+	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{
+		WorkspaceDir: wsDir, SessionID: "s1",
+		Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{
+			ID: id, SessionID: "s1", Tool: "edit", Patterns: patterns, Always: []string{"*"}, Metadata: md}},
 	})
 }
 
@@ -236,7 +254,7 @@ func TestAlwaysIsAnExceptionAndOpencodeGetsOnce(t *testing.T) {
 	}
 	ex := rb.Exceptions("s1")
 	if len(ex) != 2 || ex[0].Permission != "bash" || !ex[0].OverAsk || ex[1].Permission != "edit" || ex[1].OverAsk ||
-		len(ex[1].Patterns) != 1 || ex[1].Patterns[0] != "rm -rf /" ||
+		len(ex[1].Patterns) != 1 || ex[1].Patterns[0] != "a.txt" ||
 		!strings.HasPrefix(ex[1].ID, "ex_") || ex[1].GrantedAt == "" {
 		t.Fatalf("exceptions = %+v, want a bash one (OverAsk) and an edit one (patterns fall back to the ask's own)", ex)
 	}
@@ -309,7 +327,7 @@ func TestASubagentsAlwaysIsStoredOnItsRoot(t *testing.T) {
 	}})
 	mc.sessionWorkspaceID["kid"] = mc.sessionWorkspaceID["s1"]
 	mc.mat.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/x", SessionID: "kid", Event: backend.Event{
-		Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "per_k", SessionID: "kid", Tool: "edit", Always: []string{"*"}},
+		Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{ID: "per_k", SessionID: "kid", Tool: "edit", Patterns: []string{"a.txt"}, Always: []string{"*"}},
 	}})
 	args, _ := json.Marshal(map[string]any{"sessionId": "kid", "requestId": "per_k", "decision": "always"})
 	if _, operr := mc.opPermissionReply(ctx, args); operr != nil {
@@ -781,5 +799,143 @@ func TestReplyAfterTheCeilingTightenedIsAReject(t *testing.T) {
 	defer rb.mu.Unlock()
 	if len(rb.replies) != 1 || rb.replies[0] != backend.DecisionReject {
 		t.Errorf("replies = %v, want the approval sent as a reject", rb.replies)
+	}
+}
+
+// G11: an edit "always" is scoped to the file(s) of the ask, never opencode's `*`.
+func editReply(t *testing.T, mc *machine, id, decision string) {
+	t.Helper()
+	args, _ := json.Marshal(map[string]any{"sessionId": "s1", "requestId": id, "decision": decision})
+	if _, operr := mc.opPermissionReply(context.Background(), args); operr != nil {
+		t.Fatal(operr)
+	}
+}
+
+func verdictFor(mc *machine, tool string, patterns ...string) string {
+	rh, _ := mc.ruleHost()
+	dir, _, _ := mc.resolveSession("s1")
+	req := backend.PermissionRequest{ID: "per_x", SessionID: "s1", Tool: tool, Patterns: patterns}
+	return mc.decideAsk(rh, dir, req).Verdict.String()
+}
+
+func TestEditAlwaysCoversOnlyThatFile(t *testing.T) {
+	for name, pol := range map[string]policy.Policy{
+		"default":        policy.Default(),
+		"edit limit ask": policyWithCeiling(map[string]string{"edit": "ask"}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			mc, rb, _ := newRuleMachine(t, pol)
+			dir := "/x"
+			askEdit(mc, "per_1", []string{"src/a.go"}, map[string]any{"filepath": filepath.Join(dir, "unused", "src/a.go")})
+			editReply(t, mc, "per_1", "always")
+			ex := rb.Exceptions("s1")
+			if len(ex) != 1 || ex[0].Permission != "edit" {
+				t.Fatalf("exceptions = %+v", ex)
+			}
+			for _, p := range ex[0].Patterns {
+				if permrules.Overbroad(p) {
+					t.Fatalf("pattern %q matches everything", p)
+				}
+			}
+			if v := verdictFor(mc, "edit", "src/a.go"); v != "once" {
+				t.Errorf("same file: %s, want once", v)
+			}
+			if v := verdictFor(mc, "edit", "src/b.go"); v != "card" {
+				t.Errorf("other file: %s, want card", v)
+			}
+			if v := verdictFor(mc, "edit", "src/a.go", "src/b.go"); v != "card" {
+				t.Errorf("same + other file: %s, want card", v)
+			}
+		})
+	}
+}
+
+func TestEditAlwaysOnAPatchCoversItsFilesOnly(t *testing.T) {
+	mc, rb, _ := newRuleMachine(t, policy.Default())
+	dir := "/x"
+	md := map[string]any{"filepath": "a.go, b.go", "files": []any{
+		map[string]any{"filePath": filepath.Join(dir, "a.go"), "relativePath": "a.go"},
+		map[string]any{"filePath": filepath.Join(dir, "pkg", "b.go"), "relativePath": "pkg/b.go"},
+	}}
+	askEdit(mc, "per_1", []string{"a.go", "pkg/b.go"}, md)
+	editReply(t, mc, "per_1", "always")
+	if ex := rb.Exceptions("s1"); len(ex) != 1 || len(ex[0].Patterns) != 2 {
+		t.Fatalf("exceptions = %+v, want two exact paths", ex)
+	}
+	if v := verdictFor(mc, "edit", "a.go", "pkg/b.go"); v != "once" {
+		t.Errorf("same patch: %s", v)
+	}
+	if v := verdictFor(mc, "edit", "pkg/b.go"); v != "once" {
+		t.Errorf("one of its files: %s", v)
+	}
+	if v := verdictFor(mc, "edit", "a.go", "c.go"); v != "card" {
+		t.Errorf("patch with another file: %s", v)
+	}
+}
+
+func TestEditAlwaysWithoutAPathIsOnceAndSaysSo(t *testing.T) {
+	mc, rb, dir := newRuleMachine(t, policy.Default())
+	askEdit(mc, "per_1", nil, nil)
+	editReply(t, mc, "per_1", "always")
+	if ex := rb.Exceptions("s1"); len(ex) != 0 {
+		t.Fatalf("stored %+v, want nothing", ex)
+	}
+	if len(rb.replies) != 1 || rb.replies[0] != backend.DecisionOnce {
+		t.Errorf("replies = %v", rb.replies)
+	}
+	found := false
+	for _, r := range auditRows(t, dir) {
+		if r["action"] == "permission" && r["decision"] == "once" && r["note"] == noAlwaysScope {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("audit has no always-not-stored note")
+	}
+	if v := verdictFor(mc, "edit", "a.go"); v != "card" {
+		t.Errorf("a later edit: %s, want card", v)
+	}
+}
+
+func TestEditAlwaysThroughASymlinkOutOfTheWorkspaceIsNotStored(t *testing.T) {
+	mc, rb, _ := newRuleMachine(t, policy.Default())
+	dir := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, "link")); err != nil {
+		t.Skip(err)
+	}
+	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: dir, SessionID: "s1", Event: backend.Event{
+		Kind: backend.EventSession, Session: &backend.Session{ID: "s1"}}})
+	askEditIn(mc, dir, "per_1", []string{"link/x.txt"}, nil)
+	editReply(t, mc, "per_1", "always")
+	if ex := rb.Exceptions("s1"); len(ex) != 0 {
+		t.Fatalf("stored %+v", ex)
+	}
+}
+
+func TestOverbroadAlwaysIsNeverStoredPerClass(t *testing.T) {
+	cases := []struct {
+		name, key string
+		patterns  []string
+		always    []string
+		want      []string // nil: nothing stored
+	}{
+		{"bash star falls back to the command", "bash", []string{"git status"}, []string{"*"}, []string{"git status"}},
+		{"bash keeps a specific prefix", "bash", []string{"go test ./..."}, []string{"go test *"}, []string{"go test *"}},
+		{"bash star command stores nothing", "bash", []string{"rm *"}, []string{"*"}, nil},
+		{"webfetch star falls back to the url", "webfetch", []string{"https://example.com/a"}, []string{"*"}, []string{"https://example.com/a"}},
+		{"external_directory keeps the directory", "external_directory", []string{"/opt/x/*"}, []string{"/opt/x/*"}, []string{"/opt/x/*"}},
+		{"external_directory star stores nothing", "external_directory", nil, []string{"*"}, nil},
+		{"external_directory root stores nothing", "external_directory", []string{"/*"}, []string{"/*"}, nil},
+		{"tool keeps opencode's", "task", []string{"general"}, []string{"general"}, []string{"general"}},
+		{"mcp tool star stays (the key is the tool)", "linear_x", nil, []string{"*"}, []string{"*"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, _ := alwaysPatterns("/ws", c.key, c.patterns, &backend.PermissionRequest{Tool: c.key, Patterns: c.patterns, Always: c.always})
+			if strings.Join(got, "|") != strings.Join(c.want, "|") {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
 	}
 }

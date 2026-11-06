@@ -1163,13 +1163,17 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	// key the ceiling caps stores nothing (capDecision has already said once).
 	// The exception is in force BEFORE the answer goes out, so the call that
 	// follows the approved one is not asked again by a race.
-	sent, audited := decision, decision
+	sent, audited, note := decision, decision, ""
 	if rh, ok := mc.ruleHost(); ok && decision == backend.DecisionAlways && !strings.HasPrefix(a.RequestID, "gp_") {
 		sent = backend.DecisionOnce
 		if asked != nil {
-			if err := mc.grantException(ctx, rh, dir, a.SessionID, asked, overAsk); err != nil {
+			stored, why, err := mc.grantException(ctx, rh, dir, a.SessionID, asked, overAsk)
+			if err != nil {
 				logf("permissions: could not record the exception for %s (this one is allowed once): %v", asked.Tool, err)
 				audited = backend.DecisionOnce
+			} else if !stored {
+				// No concrete file or command to scope it to: allowed once, said so.
+				audited, note = backend.DecisionOnce, why
 			}
 		} else {
 			audited = backend.DecisionOnce
@@ -1180,12 +1184,12 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 			// Already resolved (the machine answered it for a root that allows
 			// it, or the backend restarted): close the card, say so, no error.
 			mc.mat.WithdrawPermission(a.SessionID, a.RequestID)
-			mc.audit.permissionReply(a.SessionID, a.RequestID, tool, string(audited), actor, capped, false)
+			mc.audit.permissionReply(a.SessionID, a.RequestID, tool, string(audited), actor, capped, false, note)
 			return map[string]any{"alreadyResolved": true}, nil
 		}
 		return nil, backendErr(err)
 	}
-	mc.audit.permissionReply(a.SessionID, a.RequestID, tool, string(audited), actor, capped, true)
+	mc.audit.permissionReply(a.SessionID, a.RequestID, tool, string(audited), actor, capped, true, note)
 	return map[string]any{}, nil
 }
 
