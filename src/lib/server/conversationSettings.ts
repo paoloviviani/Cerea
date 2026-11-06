@@ -160,3 +160,25 @@ export async function applyConversationSettings(
 		{ $set: updateValues },
 	]);
 }
+
+/**
+ * Persists a title a model just wrote (with its source and attempt count).
+ * Conditional: a user's rename (`titleSource: "user"`) is final, so a title
+ * generation that finishes after it writes nothing.
+ */
+export async function saveGeneratedTitle(
+	convId: Conversation["_id"],
+	conv: Pick<Conversation, "title" | "titleSource" | "titleAttempts"> | undefined
+): Promise<UpdateResult> {
+	return collections.conversations.updateOne(
+		{ _id: convId, titleSource: { $ne: "user" } },
+		{
+			$set: {
+				title: conv?.title,
+				...(conv?.titleSource ? { titleSource: conv.titleSource } : {}),
+				...(conv?.titleAttempts !== undefined ? { titleAttempts: conv.titleAttempts } : {}),
+				updatedAt: new Date(),
+			},
+		}
+	);
+}
