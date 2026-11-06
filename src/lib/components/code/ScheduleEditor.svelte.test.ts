@@ -610,7 +610,9 @@ describe("ScheduleEditor for a chat", () => {
 		vi.stubGlobal("fetch", stub);
 		try {
 			const { screen } = mount({ prefill: { conversationId: "c1" } });
-			await expect.element(screen.getByTestId("grant-card")).toHaveTextContent("ask your administrator");
+			await expect
+				.element(screen.getByTestId("grant-card"))
+				.toHaveTextContent("ask your administrator");
 			await expect
 				.element(screen.getByTestId("grant-sign-in"))
 				.toHaveAttribute("href", expect.stringContaining("/login?next="));
