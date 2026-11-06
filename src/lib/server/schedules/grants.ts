@@ -37,7 +37,7 @@ export const SIGN_IN_AGAIN =
 export const LEGACY_SIGN_IN_AGAIN =
 	"Sign in again and turn it back on: the background access this schedule runs with stopped working.";
 export const NEEDS_GRANT =
-	"Sign in again to resume scheduled runs. If this message stays after you sign in, ask your administrator.";
+	"Scheduled runs need your background access, which comes from signing in. Sign in again; if this message stays, ask your administrator.";
 
 /** The grant is missing: nothing to refresh. */
 export class GrantMissingError extends Error {
