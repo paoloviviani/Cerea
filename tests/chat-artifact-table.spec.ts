@@ -101,3 +101,49 @@ test("a table artifact grids, sorts, filters and downloads as CSV", async ({
 		panelAfter.getByTestId("table-grid").getByRole("cell", { name: "second, place" })
 	).toBeVisible();
 });
+
+// Regression (C69): the grid renders the finished draft while the version is
+// still being typed in, and the download button was live then, so a click in
+// that window saved the version's truncated prefix (`...,"second, `). Click
+// the instant the grid is up, with no other step in between, and demand the
+// whole file; the download must carry what the grid shows.
+test("downloading the moment the grid appears still saves the whole CSV", async ({
+	page,
+	mockOpenAI,
+	db,
+	session,
+}) => {
+	await useModel(db, session, TOOL_MODEL);
+	await mockOpenAI.setDefaultScenario({
+		toolCalls: [
+			{
+				id: "call_table_early",
+				name: "artifact",
+				arguments: JSON.stringify({
+					command: "create",
+					identifier: "early",
+					type: "table",
+					title: "Early",
+					content: CSV_CONTENT,
+				}),
+			},
+		],
+		content: ["Here", " is", " your", " table", "."],
+		chunkDelayMs: 10,
+	});
+
+	await page.goto(`${E2E_APP_BASE}/`);
+	await send(page, "make me a table");
+	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
+
+	const panel = page.getByLabel(PANEL_LABEL, { exact: true });
+	const grid = panel.getByTestId("table-grid");
+	await expect(grid.getByRole("cell", { name: "second, place" })).toBeVisible({ timeout: 30_000 });
+
+	const downloadPromise = page.waitForEvent("download");
+	await panel.getByRole("button", { name: "Download early.csv" }).click();
+	const download = await downloadPromise;
+	const bytes = await readFile((await download.path()) as string, "utf-8");
+	// The finished version trims the closing newline; every row must be there.
+	expect(bytes.trimEnd()).toBe(CSV_CONTENT.trimEnd());
+});

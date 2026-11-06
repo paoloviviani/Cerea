@@ -188,6 +188,10 @@
 			identity: `draft:${source.toolCallId}`,
 		};
 	});
+	// What copy and download carry: what the preview shows. During the handover
+	// the version is a truncated prefix while the draft holds the finished
+	// content, so exporting `version.content` would hand over a cut-off file.
+	let exportContent = $derived(handoverDraft ? handoverDraft.content : version?.content);
 	let previewSource = $derived.by(() => {
 		if (handoverDraft && draftSource) return draftSource;
 		if (version) {
@@ -780,7 +784,7 @@
 
 	function download() {
 		if (!version) return;
-		const blob = new Blob([version.content], { type: "text/plain;charset=utf-8" });
+		const blob = new Blob([exportContent ?? version.content], { type: "text/plain;charset=utf-8" });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement("a");
 		a.href = url;
@@ -920,7 +924,7 @@
 		<div class="flex flex-none items-center gap-0.5 text-gray-500 dark:text-gray-400">
 			{#if version}
 				<CopyToClipBoardBtn
-					value={version.content}
+					value={exportContent ?? version.content}
 					classNames="btn rounded-md p-1.5 text-sm hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300 focus:ring-0"
 					iconClassNames="text-xs"
 				/>
