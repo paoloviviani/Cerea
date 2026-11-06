@@ -68,8 +68,6 @@ interface Entry {
 	originalBytes: number;
 	textBytes: number;
 	textPath?: string;
-	/** The attachment's number among its name's versions: 1 when it carries none. */
-	version: number;
 	/** When it was last sent (ms), when known: a re-sent file is the newest content of its name. */
 	sentAt?: number;
 	/** The stored hash (or inline bytes) mounted, to see another branch's file of that name. */
@@ -162,10 +160,8 @@ export class AttachmentMounter {
 			paths: [],
 			originalBytes: 0,
 			textBytes: 0,
-			version: 1,
 		};
 		this.#entries.set(planned.name, entry);
-		entry.version = planned.file.version ?? 1;
 		entry.sentAt = planned.sentAt;
 		// The same name now holds other content (the conversation's branch changed): the file
 		// mounted for the old content is taken out and this one mounted in its place.
@@ -276,18 +272,16 @@ export class AttachmentMounter {
 			const blocked = this.#blocked.get(file.sha256);
 			if (blocked !== undefined && this.#mountedBytes >= blocked) continue;
 			if (file.mime?.startsWith("image/") && !mentions(options.code, name)) continue;
-			// The mounted attachment is the current version of the name: a row
-			// with a lower number is an earlier version. A row with no number is
-			// treated as the newer one — the back-fill has not reached it, and an
-			// unnumbered row can only predate numbers, never a stamped upload.
+			// The current version of a name is the one that became newest last: a
+			// produced row by its latest `latestAt ?? createdAt` (a restore makes
+			// an older row current again), the attachment by when it was sent
+			// (a re-upload). The numbers do not say: a restored row keeps its
+			// old one. An attachment with no known send time is no newer than
+			// the rows, as on the server (`attachmentNamed`).
 			const attachment = this.#entries.get(name);
-			// An attachment sent after the file was made (a file attached again) is the newer content,
-			// whatever the numbers say; with no send time known the numbers decide.
 			if (attachment?.original) {
 				const liveAt = Date.parse(file.latestAt ?? file.createdAt) || 0;
-				if (attachment.sentAt !== undefined) {
-					if (attachment.sentAt > liveAt) continue;
-				} else if (file.version !== undefined && attachment.version > file.version) continue;
+				if (attachment.sentAt !== undefined && attachment.sentAt > liveAt) continue;
 			}
 			try {
 				await this.mountProduced(name, file, held);

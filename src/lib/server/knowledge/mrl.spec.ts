@@ -174,6 +174,25 @@ describe.skipIf(!TEST_DATABASE_URL)("wide embeddings", () => {
 		expect(doc.error).toContain("some-other-embedder");
 	});
 
+	it("answers a search 400, not a pg cast error, when the model's width differs from the base's", async () => {
+		embedMock.mockImplementation(async (_t: string, _m: string, texts: string[]) =>
+			texts.map(wide(1024))
+		);
+		const { owner, storeId, doc } = await indexOne("some-other-embedder");
+		expect(doc.status).toBe("ready");
+		// the base later records a width the model never answers at
+		await collections.vectorStores.updateOne(
+			{ _id: new ObjectId(storeId) },
+			{ $set: { dimensions: 3072 } }
+		);
+		await expect(
+			svc.search(storeId, caller(owner), "tok", { query: "quarterly plan" })
+		).rejects.toMatchObject({
+			status: 400,
+			message: expect.stringMatching(/3072.*1024.*(re-?embed|reindex)/is),
+		});
+	});
+
 	it("leaves a provider that honours `dimensions` alone", async () => {
 		embedMock.mockImplementation(async (_t: string, _m: string, texts: string[], dims?: number) => {
 			const full = texts.map(wide(4096));
