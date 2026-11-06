@@ -19,6 +19,7 @@ import (
 	backendacp "galopin/internal/backend/acp"
 	backendopencode "galopin/internal/backend/opencode"
 	"galopin/internal/decide"
+	"galopin/internal/filediff"
 	"galopin/internal/fsutil"
 	"galopin/internal/link"
 	"galopin/internal/policy"
@@ -283,6 +284,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 
 	mat := sessions.New(back, pol)
 	mat.UseLive(live)
+	sh.setSessionTag(sessionTagFunc(mat))
 	if err := mat.Start(ctx); err != nil {
 		return fmt.Errorf("subscribing to %s: %w", back.ID(), err)
 	}
@@ -302,6 +304,13 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	defer auditLog.Close()
 	mc.AttachAudit(auditLog)
 	mc.AttachReportState(stateDir)
+	if d, ok := back.(interface{ DroppedBroadExceptions() []string }); ok {
+		for _, x := range d.DroppedBroadExceptions() {
+			logf("permissions: dropped a saved approval that allowed every edit (%s); it asks again, one file at a time", x)
+			sess, perm, _ := strings.Cut(x, " ")
+			auditLog.permissionSavedDropped(sess, perm)
+		}
+	}
 	// The machine's local MCP connectors (mcp.json, PROTOCOL.md §10): served
 	// whenever the file exists, whatever the backend.
 	connectors := mc.startConnectors(stateDir, mcpPath)
@@ -435,6 +444,8 @@ type runningBackend interface {
 // selects (PROTOCOL.md §2: opencode is the default, richer implementation;
 // acp is the generic adapter any ACP agent can be plugged in behind).
 func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol policy.Policy, live *policy.Live, logf func(string, ...any)) (runningBackend, error) {
+	home, _ := os.UserHomeDir()
+	protect := diffProtect(decide.NewProtected(home, stateDir))
 	switch opts.backendKind {
 	case "", "opencode":
 		// galopin's own agent-coordination tools are installed unless the
@@ -460,6 +471,7 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 			// The machine's own rules and ceiling, read live: every session's
 			// rules and the agent-level floor are built from them.
 			Permissions: live.Layers,
+			Protect:     protect,
 			Logf:        func(format string, args ...any) { logf(format, args...) },
 		})
 		if err := ocBackend.Start(ctx); err != nil {
@@ -475,8 +487,9 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 			Command: cmd,
 			// galopin's coordination tools, offered over MCP when the agent can
 			// use an HTTP MCP server (PROTOCOL.md §6).
-			Tools: pol.AgentToolsAllowed(),
-			Logf:  func(format string, args ...any) { logf(format, args...) },
+			Tools:   pol.AgentToolsAllowed(),
+			Protect: protect,
+			Logf:    func(format string, args ...any) { logf(format, args...) },
 		})
 		if err := acpBackend.Start(ctx); err != nil {
 			return nil, fmt.Errorf("starting acp agent %q: %w", opts.acpCommand, err)
@@ -877,4 +890,48 @@ func buildConnectorsHello(pol policy.Policy) link.Hello {
 	h.Policy.BackgroundSubagents = policy.TerminalDenied
 	h.Policy.Warnings = nil
 	return h
+}
+
+// sessionTagFunc is the shim's resolver: the top-level session a gateway call
+// belongs to, so a subagent's usage counts toward its parent. An engine that
+// names its session on the request (opencode: x-session-id) is believed; one
+// that does not (an ACP agent) is attributed to the one session whose turn is
+// running, and to none when there are several, since a guess would put one
+// session's cost on another.
+func sessionTagFunc(mat *sessions.Materializer) func(string) string {
+	return func(engineSessionID string) string {
+		if engineSessionID != "" {
+			return mat.RootOf(engineSessionID)
+		}
+		roots := map[string]bool{}
+		for _, id := range mat.TrackedIDs() {
+			if st, ok := mat.Status(id); ok && (st == backend.StatusBusy || st == backend.StatusRetry) {
+				roots[mat.RootOf(id)] = true
+			}
+		}
+		if len(roots) != 1 {
+			return ""
+		}
+		for r := range roots {
+			return r
+		}
+		return ""
+	}
+}
+
+// diffProtect is the predicate galopin's own diffs use to avoid reading a path
+// into a diff: galopin's own state, the credential stores, and the files a
+// read of which is already sensitive (.env).
+func diffProtect(pr decide.Protected) filediff.Protect {
+	return func(workspace, path string) bool {
+		rq := decide.Request{Key: "read", Patterns: []string{path}, Workspace: workspace}
+		if _, hit := pr.SecretHit(rq); hit {
+			return true
+		}
+		if _, hit := pr.OwnHit(rq); hit {
+			return true
+		}
+		_, sensitive := decide.Classify(decide.Policy{Protected: pr}, rq)
+		return sensitive
+	}
 }

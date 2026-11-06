@@ -360,12 +360,12 @@ describe("AgentView permission selector", () => {
 		});
 		await arrive([ask("p-bash", "bash"), ask("p-edit", "edit")]);
 		await expect
-			.element(screen.getByRole("button", { name: "Always allow edits (this session)" }))
+			.element(screen.getByRole("button", { name: "Always allow edits to this file" }))
 			.toBeVisible();
 		// Both cards have it: edit's reads "Always allow edits", the capped bash's
 		// plain "Always allow" (a human's always is stored over an ask limit).
 		expect(
-			screen.getByRole("button", { name: "Always allow edits (this session)" }).elements()
+			screen.getByRole("button", { name: "Always allow edits to this file" }).elements()
 		).toHaveLength(1);
 		expect(
 			screen.getByRole("button", { name: "Always allow (this session)" }).elements()

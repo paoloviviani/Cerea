@@ -497,19 +497,190 @@ func newExceptionID() string {
 // exception on its ROOT session: the permission and the patterns opencode said
 // the approval would cover (its `always`, else the ask's own). The caller has
 // checked the ceiling does not cap the key.
-func (mc *machine) grantException(ctx context.Context, rh backend.RuleHost, dir, sessionID string, asked *backend.PermissionRequest, overAsk bool) error {
-	patterns := asked.Always
-	if len(patterns) == 0 {
-		patterns = asked.Patterns
+func (mc *machine) grantException(ctx context.Context, rh backend.RuleHost, dir, sessionID string, asked *backend.PermissionRequest, overAsk bool) (stored bool, note string, err error) {
+	key, askPatterns := asked.Tool, asked.Patterns
+	if n, ok := mc.back.(backend.AskNormalizer); ok {
+		key, askPatterns = n.NormalizeAsk(*asked)
 	}
+	patterns, note := alwaysPatterns(dir, key, askPatterns, asked)
 	if len(patterns) == 0 {
-		patterns = []string{"*"}
+		return false, note, nil
 	}
-	_, err := rh.AddException(ctx, dir, mc.mat.RootOf(sessionID), permrules.Exception{
-		ID: newExceptionID(), Permission: asked.Tool, Patterns: append([]string(nil), patterns...),
+	_, err = rh.AddException(ctx, dir, mc.mat.RootOf(sessionID), permrules.Exception{
+		ID: newExceptionID(), Permission: asked.Tool, Patterns: patterns,
 		GrantedAt: time.Now().UTC().Format(time.RFC3339), OverAsk: overAsk,
 	})
-	return err
+	return err == nil, "", err
+}
+
+// noAlwaysScope is the audit note when an "always" could not be scoped.
+const noAlwaysScope = "always-not-stored: no concrete scope"
+
+// alwaysPatterns is what an "always" on this ask may cover. opencode proposes
+// its own (`*` for an edit), which is never trusted as it stands:
+//   - edit and read (a .env): the concrete file(s) of the ask, exactly (the
+//     ask's metadata filepath / files, else its own patterns), workspace-relative;
+//     none usable -> nothing is stored.
+//   - external_directory: the directory (an absolute pattern naming one).
+//   - bash: opencode's command prefix when it is specific; never a pattern that
+//     matches everything, falling back to the exact command (none if the
+//     command itself holds a `*`).
+//   - webfetch, websearch, codesearch: the same, falling back to the exact ask.
+//   - everything else (agents, MCP tools): opencode's own, else the ask's, else
+//     `*` (the key already names the tool).
+func alwaysPatterns(dir, key string, askPatterns []string, asked *backend.PermissionRequest) ([]string, string) {
+	proposed := asked.Always
+	switch key {
+	case "edit", "read":
+		var out []string
+		seen := map[string]bool{}
+		add := func(p string) {
+			if p = scopedPath(dir, p); p != "" && !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+		meta := metaPaths(asked.Metadata)
+		for _, p := range meta {
+			add(p)
+		}
+		for _, p := range askPatterns {
+			add(p)
+		}
+		// A path that could not be made concrete (a glob, a symlink out of the
+		// workspace) spoils the whole ask: one bad file must not widen a patch.
+		for _, p := range append(append([]string(nil), meta...), askPatterns...) {
+			if scopedPath(dir, p) == "" {
+				return nil, noAlwaysScope
+			}
+		}
+		if len(out) == 0 {
+			return nil, noAlwaysScope
+		}
+		return out, ""
+	case "external_directory":
+		for _, set := range [][]string{proposed, askPatterns} {
+			if ok := dirPatterns(set); len(ok) > 0 {
+				return ok, ""
+			}
+		}
+		for _, p := range metaPaths(asked.Metadata) {
+			if filepath.IsAbs(p) {
+				d := filepath.Clean(filepath.Dir(p))
+				if d != "/" {
+					return []string{d + "/*"}, ""
+				}
+			}
+		}
+		return nil, noAlwaysScope
+	case "bash", "webfetch", "websearch", "codesearch":
+		var keep []string
+		for _, p := range proposed {
+			if !permrules.Overbroad(p) {
+				keep = append(keep, p)
+			}
+		}
+		if len(keep) > 0 && len(keep) == len(proposed) {
+			return keep, ""
+		}
+		var exact []string
+		for _, p := range askPatterns {
+			if p == "" || strings.Contains(p, "*") {
+				return nil, noAlwaysScope
+			}
+			exact = append(exact, p)
+		}
+		if len(exact) == 0 {
+			return nil, noAlwaysScope
+		}
+		return exact, ""
+	}
+	if len(proposed) == 0 {
+		proposed = askPatterns
+	}
+	if len(proposed) == 0 {
+		proposed = []string{"*"}
+	}
+	return append([]string(nil), proposed...), ""
+}
+
+// dirPatterns keeps the absolute directory patterns of an external_directory
+// ask that name a directory below the root.
+func dirPatterns(ps []string) []string {
+	var out []string
+	for _, p := range ps {
+		base := strings.TrimRight(strings.TrimSuffix(strings.TrimSuffix(p, "*"), "/"), "/")
+		if !filepath.IsAbs(p) || permrules.Overbroad(p) || base == "" || strings.ContainsAny(base, "*?") {
+			return nil
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// metaPaths reads the file path(s) an ask's metadata names: `files` (a patch:
+// each with filePath or relativePath), else `filepath`.
+func metaPaths(md map[string]any) []string {
+	var out []string
+	switch fs := md["files"].(type) {
+	case []any:
+		for _, f := range fs {
+			switch v := f.(type) {
+			case map[string]any:
+				p, _ := v["filePath"].(string)
+				if p == "" {
+					p, _ = v["relativePath"].(string)
+				}
+				if p != "" {
+					out = append(out, p)
+				}
+			case string:
+				out = append(out, v)
+			}
+		}
+	case []string:
+		out = append(out, fs...)
+	}
+	if len(out) == 0 {
+		if p, _ := md["filepath"].(string); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// scopedPath is the exact pattern for one file: workspace-relative when it is
+// inside the workspace (lexically, as decide.Classify reads it), absolute
+// otherwise. "" when it cannot be an exact pattern: empty, a glob, a path that
+// leaves the workspace through "..", or one that exists and resolves through a
+// symlink to somewhere outside the workspace.
+func scopedPath(dir, p string) string {
+	if p == "" || strings.ContainsAny(p, "*?") {
+		return ""
+	}
+	abs := p
+	if !filepath.IsAbs(p) {
+		abs = filepath.Join(dir, p)
+	}
+	abs = filepath.Clean(abs)
+	rel, err := filepath.Rel(dir, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+		if !filepath.IsAbs(p) {
+			return ""
+		}
+		return abs
+	}
+	if rel == "." {
+		return ""
+	}
+	realDir, err1 := evalExisting(dir)
+	realAbs, err2 := evalExisting(abs)
+	if err1 == nil && err2 == nil {
+		if r, err := filepath.Rel(realDir, realAbs); err != nil || r == ".." || strings.HasPrefix(r, "../") {
+			return ""
+		}
+	}
+	return rel
 }
 
 // policyTightened applies a permission policy that just got stricter. Nothing
@@ -627,4 +798,21 @@ func parseActor(raw *replyActor) (replyActor, *link.OpError) {
 		a.Reason = string(r[:maxActorReason])
 	}
 	return a, nil
+}
+
+// evalExisting resolves symlinks in the longest existing prefix of p (the file
+// an edit creates does not exist yet) and appends the rest.
+func evalExisting(p string) (string, error) {
+	rest := ""
+	for cur := p; ; {
+		if real, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(real, rest), nil
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return "", os.ErrNotExist
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
 }

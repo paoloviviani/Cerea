@@ -38,6 +38,12 @@ type fakeAgent struct {
 	// pi-acp); configOpts holds the params of every session/set_config_option.
 	noSetModel bool
 	configOpts chan map[string]any
+
+	// replay is what session/load replays (as session/update notifications,
+	// before its response); noResume drops sessionCapabilities.resume from
+	// initialize, as goose does.
+	replay   []map[string]any
+	noResume bool
 }
 
 type fakePromptReq struct {
@@ -61,17 +67,30 @@ func newFakeAgent(t *testing.T, w io.Writer) *fakeAgent {
 func (fa *fakeAgent) handleRequest(id json.RawMessage, method string, params json.RawMessage) {
 	switch method {
 	case "initialize":
+		sessCaps := map[string]any{"list": map[string]any{}, "close": map[string]any{}, "resume": map[string]any{}}
+		if fa.noResume {
+			delete(sessCaps, "resume")
+		}
 		fa.respond(id, map[string]any{
 			"protocolVersion": 1,
 			"agentCapabilities": map[string]any{
 				"loadSession":         true,
 				"promptCapabilities":  map[string]any{"image": true},
-				"sessionCapabilities": map[string]any{"list": map[string]any{}, "close": map[string]any{}, "resume": map[string]any{}},
+				"sessionCapabilities": sessCaps,
 				"mcpCapabilities":     map[string]any{"http": fa.mcpHTTP},
 			},
 			"agentInfo": map[string]any{"name": "FakeAgent", "version": "0.0.1-test"},
 		})
-	case "session/new", "session/load":
+	case "session/load":
+		var np map[string]any
+		_ = json.Unmarshal(params, &np)
+		fa.newParams <- np
+		sid := getStr(np, "sessionId")
+		for _, u := range fa.replay {
+			fa.update(sid, u)
+		}
+		fa.respond(id, map[string]any{"configOptions": []any{}})
+	case "session/new":
 		var np map[string]any
 		_ = json.Unmarshal(params, &np)
 		fa.newParams <- np
@@ -207,8 +226,11 @@ func TestHandshake(t *testing.T) {
 	if !caps.Images {
 		t.Error("Capabilities().Images = false, want true (fake agent advertised promptCapabilities.image)")
 	}
-	if caps.Diff || caps.Children || caps.Usage || caps.Compact || caps.Worktrees {
-		t.Errorf("Capabilities() = %+v, want Diff/Children/Usage/Compact/Worktrees all false", caps)
+	if !caps.Diff {
+		t.Error("Capabilities().Diff = false, want true (galopin's own diffs)")
+	}
+	if caps.Children || caps.Usage || caps.Compact || caps.Worktrees {
+		t.Errorf("Capabilities() = %+v, want Children/Usage/Compact/Worktrees all false", caps)
 	}
 }
 

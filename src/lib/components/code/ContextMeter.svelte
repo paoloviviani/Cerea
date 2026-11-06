@@ -8,9 +8,14 @@
 	compaction, and a manual "Compact now" — the same `DropdownMenu` idiom the
 	mode/model pills beside it already use.
 
-	Hidden entirely when the backend lacks the `usage` capability (the
-	caller's job to decide, via `supported`) or before any usage frame has
-	arrived — a meter with nothing to show would just be a blank ring.
+	The ring and the context numbers are the engine's (the `usage` side
+	channel). Cost and token counts are not: they are what the gateway metered
+	for this session's requests (`GET agents/:id/usage`, ADR 0108 item 2b),
+	the same for every engine, labelled as such, with the latest turn beside
+	the session total. When the engine reports no context figure (no `usage`
+	capability, or no frame yet) the ring falls back to the gateway's token
+	count rather than vanishing. Hidden entirely when neither source has
+	anything — a meter with nothing to show would just be a blank ring.
 
 	Below the context/compaction content, the popup also carries the
 	person's Pystino quotas (queued item,
@@ -32,7 +37,15 @@
 	import { DropdownMenu } from "bits-ui";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import { base } from "$app/paths";
-	import { CodeApiError, compactAgent } from "$lib/codeApi";
+	import { CodeApiError, compactAgent, getAgentGatewayUsage } from "$lib/codeApi";
+	import {
+		formatCost,
+		formatTokens,
+		toGatewayUsage,
+		totalTokens,
+		type GatewayUsage,
+		type TurnSpan,
+	} from "$lib/utils/gatewayUsage";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import type { AgentCompactionUpdate, AgentUsageUpdate } from "$lib/types/CodeAgent";
 	import type { UsageReport, UsageSection } from "$lib/types/UsageReport";
@@ -89,21 +102,55 @@
 
 	function onPopupOpenChange(open: boolean) {
 		quotaPopupOpen = open;
-		if (open) void loadQuotas();
+		if (open) {
+			void loadQuotas();
+			void loadGateway();
+		}
 	}
 
-	// A completed turn while the popup is open — the falling edge of
-	// `running`, the same signal the send button's stop-control swap uses.
-	// `previousRunning` starts undefined (never a completed turn yet) rather
-	// than snapshotting `running` outside the effect, which Svelte can't tell
-	// apart from a stale read.
+	let gateway = $state<GatewayUsage | null>(null);
+	/** The latest turn this page watched run: where its window starts and ends. */
+	let turnSpan: TurnSpan | null = null;
+	let gatewayLoad = 0;
+
+	async function loadGateway() {
+		const load = ++gatewayLoad;
+		try {
+			const res = await getAgentGatewayUsage(deviceId, agentId, turnSpan);
+			// A later read (the next turn ending) supersedes a slow earlier one.
+			if (load === gatewayLoad) gateway = toGatewayUsage(res) ?? gateway;
+		} catch {
+			/* no figures is not an error here: the engine's own meter still shows */
+		}
+	}
+
+	// The turn's edges, and what each does. `previousRunning` starts undefined
+	// (nothing seen yet) rather than snapshotting `running` outside the effect,
+	// which Svelte can't tell apart from a stale read: a page opened mid-turn
+	// has no start to report, so it asks for the session only.
 	let previousRunning: boolean | undefined;
 	$effect(() => {
 		const wasRunning = previousRunning;
 		previousRunning = running;
-		if (wasRunning && !running && quotaPopupOpen) {
-			void loadQuotas();
+		if (wasRunning === false && running) {
+			turnSpan = { startedAt: Date.now(), endedAt: null };
 		}
+		if (wasRunning && !running) {
+			if (turnSpan && turnSpan.endedAt === null) turnSpan = { ...turnSpan, endedAt: Date.now() };
+			// The gateway's rows land as each request finishes; this is the first
+			// moment the turn's whole cost is there.
+			void loadGateway();
+			if (quotaPopupOpen) void loadQuotas();
+		}
+	});
+
+	// Once on open, and again for another session shown by the same component.
+	$effect(() => {
+		void agentId;
+		void deviceId;
+		turnSpan = null;
+		gateway = null;
+		void loadGateway();
 	});
 
 	let compacting = $state(false);
@@ -113,10 +160,13 @@
 	 * front: `supported` only tells us about `usage`, a separate capability. */
 	let compactUnsupported = $state(false);
 
+	/** The engine's context figures, when it has reported any. */
+	let engine = $derived(supported ? usage : null);
+
 	let percent = $derived.by(() => {
-		if (!usage?.max) return null;
-		const used = usage.used ?? 0;
-		return Math.max(0, Math.min(100, Math.round((used / usage.max) * 100)));
+		if (!engine?.max) return null;
+		const used = engine.used ?? 0;
+		return Math.max(0, Math.min(100, Math.round((used / engine.max) * 100)));
 	});
 
 	type Tone = "grey" | "amber" | "red";
@@ -143,7 +193,15 @@
 		return formatNumber(value);
 	}
 
-	let label = $derived(percent !== null ? `${percent}%` : formatTokenCount(usage?.used));
+	let label = $derived(
+		percent !== null
+			? `${percent}%`
+			: engine
+				? formatTokenCount(engine.used)
+				: gateway?.session
+					? formatTokens(totalTokens(gateway.session))
+					: ""
+	);
 
 	let compactionNote = $derived.by(() => {
 		if (!lastCompaction) return null;
@@ -174,7 +232,7 @@
 		"z-50 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100";
 </script>
 
-{#if supported && usage}
+{#if engine || gateway}
 	<DropdownMenu.Root onOpenChange={onPopupOpenChange}>
 		<DropdownMenu.Trigger
 			class="flex h-7 flex-none items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 max-sm:h-6 max-sm:w-6 max-sm:justify-center max-sm:gap-0 max-sm:px-0 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
@@ -218,29 +276,31 @@
 				interactOutsideBehavior="defer-otherwise-close"
 			>
 				<div class="space-y-2 px-3 py-2.5 text-xs">
-					<div
-						class="flex items-center justify-between font-medium text-gray-800 dark:text-gray-100"
-					>
-						<span>{m["code.context.heading"]()}</span>
-						<span>
-							{usage.max
-								? m["code.context.tokens_of"]({
-										used: formatNumber(usage.used ?? 0),
-										max: formatNumber(usage.max),
-									})
-								: m["code.context.tokens"]({ used: formatNumber(usage.used ?? 0) })}
-						</span>
-					</div>
-					<dl class="grid grid-cols-2 gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400">
-						<dt>{m["code.context.input"]()}</dt>
-						<dd class="text-right">{formatNumber(usage.input ?? 0)}</dd>
-						<dt>{m["code.context.output"]()}</dt>
-						<dd class="text-right">{formatNumber(usage.output ?? 0)}</dd>
-						<dt>{m["code.context.cache_read"]()}</dt>
-						<dd class="text-right">{formatNumber(usage.cacheRead ?? 0)}</dd>
-						<dt>{m["code.context.reasoning"]()}</dt>
-						<dd class="text-right">{formatNumber(usage.reasoning ?? 0)}</dd>
-					</dl>
+					{#if engine}
+						<div
+							class="flex items-center justify-between font-medium text-gray-800 dark:text-gray-100"
+						>
+							<span>{m["code.context.heading"]()}</span>
+							<span>
+								{engine.max
+									? m["code.context.tokens_of"]({
+											used: formatNumber(engine.used ?? 0),
+											max: formatNumber(engine.max),
+										})
+									: m["code.context.tokens"]({ used: formatNumber(engine.used ?? 0) })}
+							</span>
+						</div>
+						<dl class="grid grid-cols-2 gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400">
+							<dt>{m["code.context.input"]()}</dt>
+							<dd class="text-right">{formatNumber(engine.input ?? 0)}</dd>
+							<dt>{m["code.context.output"]()}</dt>
+							<dd class="text-right">{formatNumber(engine.output ?? 0)}</dd>
+							<dt>{m["code.context.cache_read"]()}</dt>
+							<dd class="text-right">{formatNumber(engine.cacheRead ?? 0)}</dd>
+							<dt>{m["code.context.reasoning"]()}</dt>
+							<dd class="text-right">{formatNumber(engine.reasoning ?? 0)}</dd>
+						</dl>
+					{/if}
 					{#if compactionNote}
 						<div class="text-gray-500 dark:text-gray-400">{compactionNote}</div>
 					{/if}
@@ -259,6 +319,35 @@
 						>
 							{compacting ? m["code.context.compacting"]() : m["code.context.compact_now"]()}
 						</button>
+					{/if}
+
+					{#if gateway?.session}
+						<div class="space-y-1">
+							<div class="font-medium text-gray-800 dark:text-gray-100">
+								{m["code.context.cost_heading"]()}
+							</div>
+							<dl class="grid grid-cols-2 gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400">
+								<dt>{m["code.context.this_session"]()}</dt>
+								<dd class="text-right" data-testid="gateway-session">
+									{formatCost(gateway.session.cost, gateway.currency)}
+								</dd>
+								<dt class="col-span-2 -mt-0.5 text-[11px]">
+									{m["code.context.cost_tokens"]({
+										input: formatTokens(gateway.session.promptTokens),
+										output: formatTokens(gateway.session.completionTokens),
+									})}
+								</dt>
+								{#if gateway.turn}
+									<dt>{m["code.context.this_turn"]()}</dt>
+									<dd class="text-right" data-testid="gateway-turn">
+										{formatCost(gateway.turn.cost, gateway.currency)}
+									</dd>
+								{/if}
+							</dl>
+							<p class="text-[11px] text-gray-400 dark:text-gray-500">
+								{m["code.context.cost_note"]()}
+							</p>
+						</div>
 					{/if}
 
 					{#if quotaDisplay.kind !== "hidden"}

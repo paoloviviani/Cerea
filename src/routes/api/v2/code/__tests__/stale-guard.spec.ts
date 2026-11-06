@@ -211,6 +211,7 @@ const OTHER_SAMPLES: Array<[string, string]> = [
 	["PATCH", "devices?id=x"],
 	["DELETE", "devices?id=x"],
 	["GET", "agents/a1/stream?device=d1"],
+	["GET", "agents/a1/usage?device=d1"],
 	// Scheduled actions: list, create, one, edit, delete, run now, history, preview.
 	["GET", "schedules"],
 	["POST", "schedules"],
@@ -236,6 +237,7 @@ const OTHER_SAMPLES: Array<[string, string]> = [
 const KNOWN_ROUTE_FILES = [
 	"../[...path]/+server.ts",
 	"../agents/[id]/stream/+server.ts",
+	"../agents/[id]/usage/+server.ts",
 	"../attachments/[key]/+server.ts",
 	"../attachments/[key]/[sha256]/+server.ts",
 	"../auto-approval/+server.ts",

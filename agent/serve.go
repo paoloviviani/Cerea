@@ -59,10 +59,40 @@ type shim struct {
 	// {"type":"credential","state":"expired"} frame over the link before
 	// its socket necessarily dies (PROTOCOL.md §5).
 	onExpired func(message string)
+	// sessionTag, if set, names the coding-agent session a forwarded request
+	// belongs to (see setSessionTag). Guarded by s.mu.
+	sessionTag func(engineSessionID string) string
 }
 
 func newShim(creds *credentials, credsPath, statusPath string, port int) *shim {
 	return &shim{creds: creds, credsPath: credsPath, statusPath: statusPath, client: &http.Client{}, port: port}
+}
+
+// tagHeader is the label Pystino stores on a request's usage row (ADR 0108
+// item 2b), so Cerea can ask the gateway what a coding-agent session cost.
+const tagHeader = "x-pystino-tag"
+
+// setSessionTag installs the resolver `run` builds once the backend exists:
+// given the session id an engine put on its request (opencode sends
+// x-session-id; an engine that sends none passes ""), it returns the id of the
+// top-level session to tag the request with, or "" for none. Until it is set,
+// requests are forwarded untagged.
+func (s *shim) setSessionTag(fn func(engineSessionID string) string) {
+	s.mu.Lock()
+	s.sessionTag = fn
+	s.mu.Unlock()
+}
+
+// tagFor is the tag for a request carrying this headers, "" for none. The
+// resolver runs outside s.mu (it takes the materializer's own lock).
+func (s *shim) tagFor(h http.Header) string {
+	s.mu.Lock()
+	fn := s.sessionTag
+	s.mu.Unlock()
+	if fn == nil {
+		return ""
+	}
+	return fn(strings.TrimSpace(h.Get("x-session-id")))
 }
 
 // Token and ForceRefresh implement link.Credential: the shim is the single
@@ -523,7 +553,8 @@ func (s *shim) handler(w http.ResponseWriter, r *http.Request) {
 		canonical := http.CanonicalHeaderKey(name)
 		// Drop the caller's Authorization: the shim, not opencode, owns the
 		// credential. x-bill-to below is ours to set for the same reason.
-		if hopByHop[canonical] || canonical == "Authorization" {
+		// x-pystino-tag is ours too: an engine cannot label its own usage.
+		if hopByHop[canonical] || canonical == "Authorization" || canonical == "X-Pystino-Tag" {
 			continue
 		}
 		for _, v := range values {
@@ -541,6 +572,12 @@ func (s *shim) handler(w http.ResponseWriter, r *http.Request) {
 		outbound.Header.Set("x-bill-to", group)
 	} else {
 		outbound.Header.Del("x-bill-to")
+	}
+
+	// The coding-agent session this call belongs to, for the gateway's usage
+	// rows. Printable ASCII only: Pystino drops anything else.
+	if tag := s.tagFor(r.Header); tag != "" {
+		outbound.Header.Set(tagHeader, tag)
 	}
 
 	resp, err := s.client.Do(outbound)

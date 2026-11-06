@@ -251,6 +251,7 @@ func (b *Backend) RenameSession(ctx context.Context, _ string, sessionID, title 
 
 func (b *Backend) DeleteSession(ctx context.Context, _ string, sessionID string) error {
 	b.att.Forget(sessionID)
+	b.diffs.Forget(sessionID)
 	return b.doJSON(ctx, http.MethodDelete, "/session/"+url.PathEscape(sessionID), nil, nil)
 }
 
@@ -657,7 +658,7 @@ func opencodeCursor(messageID string, created time.Time) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(body), nil
 }
 
-func (b *Backend) Diff(ctx context.Context, _ string, sessionID string) ([]backend.FileDiff, error) {
+func (b *Backend) Diff(ctx context.Context, workspaceDir string, sessionID string) ([]backend.FileDiff, error) {
 	var raw []any
 	if err := b.doJSON(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID)+"/diff", nil, &raw); err != nil {
 		return nil, err
@@ -666,7 +667,7 @@ func (b *Backend) Diff(ctx context.Context, _ string, sessionID string) ([]backe
 	for _, m := range asMaps(raw) {
 		out = append(out, fileDiffFromMap(m))
 	}
-	return out, nil
+	return mergeOwnDiffs(workspaceDir, out, b.diffs.Diffs(sessionID)), nil
 }
 
 func (b *Backend) Children(ctx context.Context, _ string, sessionID string) ([]backend.Session, error) {

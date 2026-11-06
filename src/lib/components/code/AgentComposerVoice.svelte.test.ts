@@ -11,6 +11,8 @@ vi.mock("$env/dynamic/public", () => ({
 vi.mock("$lib/codeApi", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/codeApi")>()),
 	listAgentCommands: async () => ({ commands: [] }),
+	// The context meter reads this on mount; the test counts only its own fetches.
+	getAgentGatewayUsage: async () => ({ available: false }),
 }));
 
 class FakeRecorder {
