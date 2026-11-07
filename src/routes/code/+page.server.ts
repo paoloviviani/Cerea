@@ -11,19 +11,20 @@ import type { PageServerLoad } from "./$types";
  * is the backstop message, not the decision.
  */
 export const load: PageServerLoad = async ({ locals, url }) => {
-	// Agent schedules moved to the one Schedules page; old links keep working,
-	// with every other query parameter (the editor's prefill, a schedule id) intact.
-	if (url.searchParams.get("view") === "schedules") {
-		const query = new URLSearchParams(url.searchParams);
-		query.delete("view");
-		query.set("kind", "agent");
-		redirect(307, `${base}/schedules?${query}`);
-	}
 	if (!codeAgentsEnabled()) {
 		error(404, "Coding agents are not turned on here.");
 	}
 	if (!(await codeAgentsAllowedFor(locals))) {
 		error(404, "Coding agents are not available for your account.");
+	}
+
+	// Agent schedules moved to the one Schedules page; old links keep working,
+	// with every other query parameter (the editor's prefill, a schedule id) intact.
+	if (url?.searchParams.get("view") === "schedules") {
+		const query = new URLSearchParams(url.searchParams);
+		query.delete("view");
+		query.set("kind", "agent");
+		redirect(307, `${base}/schedules?${query}`);
 	}
 	return {};
 };
