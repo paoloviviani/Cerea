@@ -16,13 +16,17 @@
 	"admin.web.page_title": "[Ŵéƀ · áďḿíńíśťŕáťíóń]",
 	"app.model_picker.byok_badge": "[Ýóúŕ ķéý]",
 	"app.model_picker.byok_tooltip": "[Úśéś ýóúŕ óŵń ÁÞÍ ķéý. Ńóť ćóúńťéď áǧáíńśť ýóúŕ ǧŕóúþ'ś ľíḿíťś; úśáǧé íś śȟóŵń ťó ýóú óńľý.]",
+	"code.agent_dialog.auto": "[Áúťó]",
+	"code.agent_dialog.auto_hint": "[Ŕúńś ŵȟáť íś śáƒé áńď áśķś ýóú áƀóúť ťȟé ŕéśť.]",
+	"code.agent_dialog.allow": "[Áľľóŵ]",
+	"code.agent_dialog.allow_hint": "[Ďóéś ńóť áśķ. Óńľý á ƒéŵ ďáńǧéŕóúś áćťíóńś áŕé áľŵáýś ƀľóćķéď.]",
 	"code.agent_dialog.build": "[Áśķ]",
-	"code.agent_dialog.build_hint": "[Éďíťś áńď ŕúńś ćóḿḿáńďś, ƀúť áśķś ýóú ƒíŕśť. Śŵíťćȟ ťó Áúťó óŕ Áľľóŵ íńśíďé ťȟé śéśśíóń.]",
-	"code.agent_dialog.could_not_create": "[Ćóúľď ńóť ćŕéáťé ťȟé áǧéńť.]",
+	"code.agent_dialog.build_hint": "[Éďíťś áńď ŕúńś ćóḿḿáńďś, ƀúť áśķś ýóú ƒíŕśť.]",
+	"code.agent_dialog.could_not_create": "[Ćóúľď ńóť śťáŕť ťȟé śéśśíóń.]",
 	"code.agent_dialog.could_not_providers": "[Ćóúľď ńóť ŕéáď ťȟé ďáéḿóń'ś þŕóǚíďéŕś.]",
-	"code.agent_dialog.create": "[Ćŕéáťé áǧéńť]",
-	"code.agent_dialog.creating": "[Ćŕéáťíńǧ…]",
-	"code.agent_dialog.failed": "[Áǧéńť ƒáíľéď]",
+	"code.agent_dialog.create": "[Śťáŕť śéśśíóń]",
+	"code.agent_dialog.creating": "[Śťáŕťíńǧ…]",
+	"code.agent_dialog.failed": "[Ťȟé śéśśíóń ďíď ńóť śťáŕť]",
 	"code.agent_dialog.plan": "[Þľáń]",
 	"code.agent_dialog.plan_hint": "[Ŕéáďś áńď þľáńś. Ćȟáńǧéś ńóťȟíńǧ áńď ŕúńś ńóťȟíńǧ.]",
 	"code.agent_dialog.posture": "[Ḿóďé]",
@@ -32,12 +36,12 @@
 	"code.agent_dialog.reading_providers": "[Ŕéáďíńǧ ťȟé ďáéḿóń'ś þŕóǚíďéŕś…]",
 	"code.agent_dialog.runs_on": "[Ŕúńś óń {provider}]",
 	"code.agent_dialog.subtitle": "[Íń {name} — {path}]",
-	"code.agent_dialog.title": "[Ńéŵ áǧéńť]",
+	"code.agent_dialog.title": "[Ńéŵ śéśśíóń]",
 	"code.agent_dialog.title_label": "[Ťíťľé (óþťíóńáľ)]",
 	"code.agent_dialog.title_placeholder": "[Ŕéƒáćťóŕ ťȟé ľóǧíń ƒľóŵ]",
 	"code.agent_rename.could_not": "[Ćóúľď ńóť ŕéńáḿé ťȟé śéśśíóń.]",
 	"code.agent_rename.failed": "[Ŕéńáḿé ƒáíľéď]",
-	"code.agent_rename.hint": "[Śȟóŵń íń ťȟé śíďéƀáŕ'ś áǧéńť ľíśť.]",
+	"code.agent_rename.hint": "[Śȟóŵń íń ťȟé śíďéƀáŕ'ś śéśśíóń ľíśť.]",
 	"code.agent_rename.name": "[Ńáḿé]",
 	"code.agent_rename.placeholder": "[ďéƀúǧ śéśśíóń]",
 	"code.agent_rename.rename": "[Ŕéńáḿé]",
@@ -105,7 +109,7 @@
 	"code.composer.send_running": "[Śéńď ťó ťȟé ŕúńńíńǧ ťúŕń]",
 	"code.composer.stop_and_send": "[Śťóþ áńď śéńď]",
 	"code.composer.switch_model": "[Śŵíťćȟ ḿóďéľ]",
-	"code.composer.switch_model_subtitle": "[Ćȟáńǧéś ťȟíś áǧéńť óńľý.]",
+	"code.composer.switch_model_subtitle": "[Ćȟáńǧéś ťȟíś śéśśíóń óńľý.]",
 	"code.composer.undo_refused": "[Ťȟé ďáéḿóń ŕéƒúśéď ťó úńďó ťȟé ŕóľľƀáćķ.]",
 	"code.confirm.failed": "[Ƒáíľéď]",
 	"code.confirm.refused": "[Ťȟé ďáéḿóń ŕéƒúśéď.]",
@@ -228,11 +232,11 @@
 	"code.handoff.failed": "[Ƒóŕķ ƒáíľéď]",
 	"code.handoff.fork": "[Ƒóŕķ]",
 	"code.handoff.forking": "[Ƒóŕķíńǧ…]",
-	"code.handoff.hint": "[Ťȟé ńéŵ áǧéńť'ś ƒíŕśť ḿéśśáǧé ćáŕŕíéś á śúḿḿáŕý óƒ ťȟíś śéśśíóń áś áń áťťáćȟḿéńť.]",
+	"code.handoff.hint": "[Ťȟé ńéŵ śéśśíóń'ś ƒíŕśť ḿéśśáǧé ćáŕŕíéś á śúḿḿáŕý óƒ ťȟíś śéśśíóń áś áń áťťáćȟḿéńť.]",
 	"code.handoff.mode": "[Ḿóďé]",
 	"code.handoff.model": "[Ḿóďéľ]",
 	"code.handoff.prompt": "[Þŕóḿþť]",
-	"code.handoff.prompt_placeholder": "[Ŵȟáť śȟóúľď ťȟé ńéŵ áǧéńť ďó?]",
+	"code.handoff.prompt_placeholder": "[Ŵȟáť śȟóúľď ťȟé ńéŵ śéśśíóń ďó?]",
 	"code.handoff.reading_workspaces": "[Ŕéáďíńǧ ťȟáť ćóḿþúťéŕ'ś ŵóŕķśþáćéś…]",
 	"code.handoff.subtitle": "[Ƒŕóḿ {title}]",
 	"code.handoff.this_machine": "[{name} (ťȟíś ćóḿþúťéŕ)]",
@@ -270,9 +274,9 @@
 			}
 		}
 	],
-	"code.inbox.hint": "[Áńśŵéŕ ȟéŕé óŕ óń ťȟé áǧéńť — áńśŵéŕíńǧ áńýŵȟéŕé ćľéáŕś íť éǚéŕýŵȟéŕé.]",
+	"code.inbox.hint": "[Áńśŵéŕ ȟéŕé óŕ íń ťȟé śéśśíóń — áńśŵéŕíńǧ áńýŵȟéŕé ćľéáŕś íť éǚéŕýŵȟéŕé.]",
 	"code.inbox.label": "[Ńééďś ýóú]",
-	"code.inbox.open_agent": "[Óþéń áǧéńť]",
+	"code.inbox.open_agent": "[Óþéń śéśśíóń]",
 	"code.inbox.question": "[Ǫúéśťíóń]",
 	"code.nav.add_workspace": "[Áďď ŵóŕķśþáćé]",
 	"code.nav.add_workspace_title": "[Áďď á ŵóŕķśþáćé ťó ťȟíś ćóḿþúťéŕ]",
@@ -307,7 +311,7 @@
 	"code.nav.needs_you": "[Ńééďś ýóú]",
 	"code.nav.new_session": "[Ńéŵ śéśśíóń]",
 	"code.nav.new_worktree": "[Ńéŵ ŵóŕķťŕéé…]",
-	"code.nav.no_agents": "[Ńó áǧéńťś ýéť.]",
+	"code.nav.no_agents": "[Ńó śéśśíóńś ýéť.]",
 	"code.nav.no_devices": "[Ńó þáíŕéď ćóḿþúťéŕś]",
 	"code.nav.not_connected": "[Ńóť ćóńńéćťéď]",
 	"code.nav.offline": "[óƒƒľíńé]",
@@ -400,7 +404,10 @@
 	"code.panel.disabled_detail": "[Ťȟíś ďéþľóýḿéńť ȟáś ńó ćóḿþúťéŕ ľíńķ ćóńƒíǧúŕéď.]",
 	"code.panel.disabled_title": "[Ćóďíńǧ áǧéńťś áŕé ńóť éńáƀľéď]",
 	"code.panel.loading": "[Ĺóáďíńǧ…]",
-	"code.panel.no_agent": "[Ńó áǧéńť śéľéćťéď]",
+	"code.first_run.title": "[Áǧéńťś ŵóŕķ óń ýóúŕ ćóḿþúťéŕ]",
+	"code.first_run.body": "[Áń áǧéńť ŕéáďś ýóúŕ ƒíľéś, ḿáķéś ćȟáńǧéś áńď ŕúńś ćóḿḿáńďś óń á ćóḿþúťéŕ ýóú ćóńńéćť, áńď áśķś ýóú ƀéƒóŕé áńýťȟíńǧ ťȟáť ḿáťťéŕś. Ćóńńéćť óńé ťó śťáŕť ýóúŕ ƒíŕśť śéśśíóń.]",
+	"code.first_run.connect": "[Ćóńńéćť á ćóḿþúťéŕ]",
+	"code.panel.no_agent": "[Ńó śéśśíóń śéľéćťéď]",
 	"code.panel.no_devices": "[Ńó þáíŕéď ćóḿþúťéŕś]",
 	"code.panel.open_agents": "[Óþéń Áǧéńťś þáńéľ]",
 	"code.panel.pair_prompt": "[Þáíŕ ťȟé ćóḿþúťéŕ ýóúŕ ćóďíńǧ áǧéńťś ŕúń óń ťó ƀéǧíń.]",
@@ -773,7 +780,7 @@
 	"code.view.could_not_models": "[Ćóúľď ńóť ľóáď ťȟé ḿóďéľś.]",
 	"code.view.could_not_modes": "[Ćóúľď ńóť ľóáď ťȟé ḿóďéś.]",
 	"code.view.could_not_send": "[Ćóúľď ńóť śéńď ťȟé ƒóľľóŵ-úþ.]",
-	"code.view.could_not_stop": "[Ćóúľď ńóť śťóþ ťȟé áǧéńť.]",
+	"code.view.could_not_stop": "[Ćóúľď ńóť śťóþ ťȟé śéśśíóń.]",
 	"code.view.earlier_failed": "[Ćóúľďń'ť ľóáď éáŕľíéŕ ḿéśśáǧéś.]",
 	"code.view.enrollment_expired": "[Ťȟíś ćóḿþúťéŕ'ś éńŕóľľḿéńť éẋþíŕéď óŕ ŵáś ŕéǚóķéď — ŕé-éńŕóľľ ťó śéńď.]",
 	"code.view.files": "[Ƒíľéś]",
@@ -811,7 +818,7 @@
 	"code.view.state.idle": "[íďľé]",
 	"code.view.state.running": "[ŕúńńíńǧ]",
 	"code.view.state.waiting_permission": "[Ŵáíťíńǧ ƒóŕ ýóú]",
-	"code.view.stream_failed": "[Ťȟé áǧéńť śťŕéáḿ ƒáíľéď.]",
+	"code.view.stream_failed": "[Ťȟé śéśśíóń śťŕéáḿ ƒáíľéď.]",
 	"code.view.sub_badge": "[śúƀ]",
 	"code.view.subagent_of": "[Śúƀáǧéńť óƒ {title}]",
 	"code.view.tasks": "[Ťáśķś]",
@@ -823,7 +830,7 @@
 	"code.view.undo_confirm": "[Ŕóľľ ƀáćķ]",
 	"code.view.undo_message": "[Ťȟé śéśśíóń íś ŕóľľéď ƀáćķ ťó ƀéƒóŕé ťȟíś þŕóḿþť. {files}]",
 	"code.view.undo_title": "[Ŕóľľ ƀáćķ?]",
-	"code.view.workspace_not_loaded": "[Ťȟé áǧéńť'ś ŵóŕķśþáćé íś ńóť ľóáďéď ýéť.]",
+	"code.view.workspace_not_loaded": "[Ťȟíś śéśśíóń'ś ŵóŕķśþáćé íś ńóť ľóáďéď ýéť.]",
 	"code.workspace_dialog.add": "[Áďď ŵóŕķśþáćé]",
 	"code.workspace_dialog.adding": "[Áďďíńǧ…]",
 	"code.workspace_dialog.could_not": "[Ćóúľď ńóť ćŕéáťé ťȟé ŵóŕķśþáćé.]",
@@ -896,6 +903,8 @@
 	"app.errors.quota_group_periodic": "[Ýóúŕ ǧŕóúþ'ś {period} áľľóŵáńćé óƒ {amount} íś úśéď úþ.]",
 	"app.errors.quota_user_per": "[Ýóúŕ áľľóŵáńćé óƒ {amount} þéŕ {window} íś úśéď úþ.]",
 	"app.errors.quota_group_per": "[Ýóúŕ ǧŕóúþ'ś áľľóŵáńćé óƒ {amount} þéŕ {window} íś úśéď úþ.]",
+	"app.errors.quota_none_user": "[Ýóú ďóń'ť ȟáǚé áń áľľóŵáńćé ƒóŕ ťȟíś. Áśķ ýóúŕ áďḿíńíśťŕáťóŕ.]",
+	"app.errors.quota_none_group": "[Ýóúŕ ǧŕóúþ ďóéśń'ť ȟáǚé áń áľľóŵáńćé ƒóŕ ťȟíś. Áśķ ýóúŕ áďḿíńíśťŕáťóŕ.]",
 	"app.errors.quota_ask_admin": "[Áśķ ýóúŕ áďḿíńíśťŕáťóŕ.]",
 	"app.errors.quota_see_usage": "[Śéé Úśáǧé.]",
 	"app.expand_navigation.collapse": "[Ćóľľáþśé śíďéƀáŕ]",
@@ -1127,51 +1136,10 @@
 	"chat.approval.always_confirm": "[Áľŵáýś áľľóŵ ťȟíś?]",
 	"chat.approval.always_confirm_yes": "[Ýéś, áľŵáýś áľľóŵ]",
 	"chat.approval.always_confirm_no": "[Ćáńćéľ]",
-	"chat.approval.wait_hours": [
-		{
-			"declarations": [
-				"input count",
-				"local countPlural = count: plural"
-			],
-			"selectors": [
-				"countPlural"
-			],
-			"match": {
-				"countPlural=one": "[Ďéńíéď íń {count} ȟóúŕ]",
-				"countPlural=other": "[Ďéńíéď íń {count} ȟóúŕś]"
-			}
-		}
-	],
-	"chat.approval.wait_minutes": [
-		{
-			"declarations": [
-				"input count",
-				"local countPlural = count: plural"
-			],
-			"selectors": [
-				"countPlural"
-			],
-			"match": {
-				"countPlural=one": "[Ďéńíéď íń {count} ḿíńúťé]",
-				"countPlural=other": "[Ďéńíéď íń {count} ḿíńúťéś]"
-			}
-		}
-	],
-	"chat.approval.wait_seconds": [
-		{
-			"declarations": [
-				"input count",
-				"local countPlural = count: plural"
-			],
-			"selectors": [
-				"countPlural"
-			],
-			"match": {
-				"countPlural=one": "[Ďéńíéď íń {count} śéćóńď]",
-				"countPlural=other": "[Ďéńíéď íń {count} śéćóńďś]"
-			}
-		}
-	],
+	"chat.approval.wait_title": "[Íƒ ýóú ďó ńóť áńśŵéŕ íń ťíḿé, ťȟíś íś ďéńíéď áúťóḿáťíćáľľý.]",
+	"chat.approval.wait_hours": "[Áúťó-ďéńý íń {count} ȟ]",
+	"chat.approval.wait_minutes": "[Áúťó-ďéńý íń {count} ḿíń]",
+	"chat.approval.wait_seconds": "[Áúťó-ďéńý íń {count} ś]",
 	"chat.artifact.card.applying": "[Áþþľýíńǧ éďíť…]",
 	"chat.artifact.card.code_lang": "[Ćóďé · {language}]",
 	"chat.artifact.card.edit_interrupted": "[Éďíť íńťéŕŕúþťéď{version}]",
@@ -1430,6 +1398,10 @@
 	"admin.starters.title": "[Śťáŕťéŕ śúǧǧéśťíóńś]",
 	"admin.starters.label": "[Śťáŕťéŕ śúǧǧéśťíóńś óń ńéŵ ćȟáťś]",
 	"admin.starters.saved": "[Śáǚéď.]",
+	"chat.intro.gloss.how_is_it": "[Ȟóŵ'ś íť ǧóíńǧ?]",
+	"chat.intro.gloss.all_good": "[Áľľ ǧóóď]",
+	"chat.intro.gloss.shall_we": "[Śȟáľľ ŵé ǧéť śťáŕťéď?]",
+	"chat.intro.gloss.lets_go": "[Ĺéť'ś ǧó]",
 	"chat.intro.subline": "[Ŵȟáť ćáń Í ȟéľþ ýóú ŵíťȟ ťóďáý?]",
 	"chat.intro.subline_named": "[Ŵȟáť ćáń Í ȟéľþ ýóú ŵíťȟ ťóďáý, {name}?]",
 	"chat.intro.starters_label": "[Ŵáýś ťó śťáŕť]",
@@ -1712,7 +1684,7 @@
 	"chat.slash.cmd.effort": "[Śéť ťȟé ťȟíńķíńǧ éƒƒóŕť]",
 	"chat.slash.cmd.mode": "[Śŵíťćȟ ťȟé áǧéńť'ś ḿóďé]",
 	"chat.slash.cmd.model": "[Śŵíťćȟ ťȟé ḿóďéľ ťȟé áǧéńť ŕúńś]",
-	"chat.slash.cmd.new": "[Śťáŕť á ńéŵ áǧéńť óń ťȟíś ŵóŕķśþáćé]",
+	"chat.slash.cmd.new": "[Śťáŕť á ńéŵ śéśśíóń óń ťȟíś ŵóŕķśþáćé]",
 	"chat.slash.cmd.redo": "[Úńďó ťȟé ľáśť ŕóľľƀáćķ]",
 	"chat.slash.cmd.undo": "[Ŕóľľ ƀáćķ ťó ƀéƒóŕé ťȟé ľáśť þŕóḿþť]",
 	"chat.slash.group.machine": "[Ćóḿþúťéŕ]",

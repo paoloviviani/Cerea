@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { THINK_CLOSE, THINK_OPEN, thinkBlockPattern, thinkBlockWholePattern } from "$lib/utils/thinkTags";
+	import {
+		THINK_CLOSE,
+		THINK_OPEN,
+		thinkBlockPattern,
+		thinkBlockWholePattern,
+	} from "$lib/utils/thinkTags";
 	import { m } from "$lib/paraglide/messages";
 	import type { Message } from "$lib/types/Message";
 	import { ToolResultStatus } from "$lib/types/Tool";
