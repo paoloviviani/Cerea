@@ -228,6 +228,8 @@
 		pdfMenuOpen = false;
 		const form = document.createElement("form");
 		form.method = "post";
+		// /api accepts a body only as JSON or multipart (hooks), so the form is multipart
+		form.enctype = "multipart/form-data";
 		form.action = `${base}/api/v2/slides/print?print-pdf`;
 		form.target = "_blank";
 		form.setAttribute("rel", "noopener");

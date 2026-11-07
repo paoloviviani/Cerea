@@ -107,11 +107,14 @@ test("a slides artifact renders, steps, presents and downloads a PDF", async ({
 
 	// "Print or save as PDF" opens reveal's print layout in a tab of its own, sandboxed by its headers
 	const printTab = page.context().waitForEvent("page");
+	const printResponse = page
+		.context()
+		.waitForEvent("response", (r) => r.url().includes("/api/v2/slides/print"));
 	await panel.getByRole("button", { name: "More ways to make a PDF" }).click();
 	await panel.getByRole("menuitem", { name: "Print or save as PDF" }).click();
 	const tab = await printTab;
-	const response = await tab.waitForResponse((r) => r.url().includes("/api/v2/slides/print"));
-	const csp = response.headers()["content-security-policy"] ?? "";
+	const response = await printResponse;
+	const csp = (await response.allHeaders())["content-security-policy"] ?? "";
 	expect(csp).toContain("sandbox allow-scripts allow-modals");
 	expect(csp).not.toContain("allow-same-origin");
 	await tab.waitForSelector("html[data-print-ready]", { state: "attached" });

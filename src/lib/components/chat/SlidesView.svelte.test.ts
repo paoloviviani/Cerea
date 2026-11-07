@@ -337,7 +337,12 @@ describe("SlidesView", () => {
 		}
 
 		function captureForm() {
-			const sent: { action: string; target: string; fields: Record<string, string> }[] = [];
+			const sent: {
+				action: string;
+				target: string;
+				enctype: string;
+				fields: Record<string, string>;
+			}[] = [];
 			vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(function (
 				this: HTMLFormElement
 			) {
@@ -346,7 +351,12 @@ describe("SlidesView", () => {
 					const input = el as HTMLInputElement;
 					fields[input.name] = input.value;
 				}
-				sent.push({ action: this.getAttribute("action") ?? "", target: this.target, fields });
+				sent.push({
+					action: this.getAttribute("action") ?? "",
+					target: this.target,
+					enctype: this.enctype,
+					fields,
+				});
 			});
 			return sent;
 		}
@@ -360,6 +370,7 @@ describe("SlidesView", () => {
 			await vi.waitFor(() => expect(sent.length).toBe(1));
 			expect(sent[0].action).toContain("/api/v2/slides/print?print-pdf");
 			expect(sent[0].target).toBe("_blank");
+			expect(sent[0].enctype).toBe("multipart/form-data");
 			expect(sent[0].fields.content).toContain("<section>One</section>");
 			expect(sent[0].fields.notes).toBe("0");
 			expect(sent[0].fields.labelPrint).toBe("Print or save as PDF");
