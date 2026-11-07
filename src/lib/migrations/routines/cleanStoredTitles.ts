@@ -15,9 +15,9 @@ const CONTROL_TOKEN = /<\|[^|>]*\|>/;
  * that match those patterns, and nothing else: a title the user typed
  * (`titleSource: "user"`) and a title that passes are never touched. A title
  * the sanitiser cannot repair becomes the first words of the first message.
- * Conversations with no `titleSource` predate the field and may be the user's
- * own, so only a token or a refusal counts as bad there, never a language
- * mismatch. Returns how many titles changed.
+ * Conversations with no `titleSource` predate the field and may carry a name
+ * the user typed ("I can't log in" reads like a refusal), so there only a
+ * control token counts as bad. Returns how many titles changed.
  */
 export async function cleanStoredTitles(db: {
 	conversations: Collection<Conversation>;
@@ -54,6 +54,7 @@ export async function cleanStoredTitles(db: {
 	for await (const row of cursor) {
 		const prompt = typeof row.firstUser === "string" ? row.firstUser : "";
 		const hasToken = CONTROL_TOKEN.test(row.title);
+		if (!row.titleSource && !hasToken) continue;
 		// Without a titleSource only the language-free checks apply.
 		const repaired = sanitiseTitle(row.title, row.titleSource ? prompt : "");
 		if (!hasToken && repaired !== undefined) continue;

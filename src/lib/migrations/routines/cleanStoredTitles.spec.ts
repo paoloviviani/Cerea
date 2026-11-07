@@ -77,6 +77,7 @@ describe("cleaning stored titles", () => {
 		);
 		const userNamed = await chat("<|start|>mine", "Hello there friend", "user");
 		const legacyOwn = await chat("Confronto app", "What is the best note taking app for me");
+		const legacyRefusalLike = await chat("I can't log in", "Help with the VPN client");
 		expect(await cleanStoredTitles(collections)).toBe(4);
 		expect(await titleOf(token)).toBe("Plan a team offsite in Lisbon");
 		expect(await titleOf(tokenPlus)).toBe("Team offsite plan");
@@ -85,5 +86,6 @@ describe("cleaning stored titles", () => {
 		expect(await titleOf(good)).toBe("Quota policy recommendation");
 		expect(await titleOf(userNamed)).toBe("<|start|>mine");
 		expect(await titleOf(legacyOwn)).toBe("Confronto app");
+		expect(await titleOf(legacyRefusalLike)).toBe("I can't log in");
 	});
 });
