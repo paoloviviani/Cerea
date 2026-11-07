@@ -26,8 +26,8 @@ Decide before you write anything.
   1. **Slides to present or share here** - shown in this chat, present full screen, PDF download; quick to change
      by asking.
   2. **A PowerPoint file to edit** - a .pptx the user opens and edits in PowerPoint.
-  Then follow the answer. Ask nothing else first; take the topic, length and audience from the request and
-  proceed with sensible defaults.
+     Then follow the answer. Ask nothing else first; take the topic, length and audience from the request and
+     proceed with sensible defaults.
 - If the `powerpoint` skill is not in the Available skills list, do not ask: build the slides. If this skill is the
   only one of the two that is listed, the same. If you cannot create artifacts in this conversation, say so and
   offer the PowerPoint route instead.
@@ -72,13 +72,13 @@ Note: Welcome everyone. Say the headline first.
 
 ## Front matter (all optional)
 
-| Key | Values |
-| --- | --- |
-| `title` | Plain text, used for the PDF name |
-| `theme` | `cerea` (default), `cerea-dark`, or a reveal.js theme: `white`, `black`, `simple`, `moon`, `solarized`, `dracula` |
-| `accent` | A hex colour such as `#0a7e8c`; changes links, bullets, rules and highlights |
-| `font` | `sans`, `serif`, `humanist`, `mono` (system fonts); without it the theme's own font |
-| `logo` | File name of an image in the chat (png, jpg, svg, webp), shown bottom right |
+| Key      | Values                                                                                                            |
+| -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `title`  | Plain text, used for the PDF name                                                                                 |
+| `theme`  | `cerea` (default), `cerea-dark`, or a reveal.js theme: `white`, `black`, `simple`, `moon`, `solarized`, `dracula` |
+| `accent` | A hex colour such as `#0a7e8c`; changes links, bullets, rules and highlights                                      |
+| `font`   | `sans`, `serif`, `humanist`, `mono` (system fonts); without it the theme's own font                               |
+| `logo`   | File name of an image in the chat (png, jpg, svg, webp), shown bottom right                                       |
 
 Anything else is ignored. If the organisation has set a default look, decks use it unless the front matter
 overrides it, so only set `theme` or `accent` when the user asked for a look. Pick a theme other than `cerea` only
@@ -88,14 +88,14 @@ when asked; `cerea-dark` suits a dark room, `simple` and `white` a classic look.
 
 Use `<!-- .slide: class="NAME" -->`:
 
-| Class | Use it for |
-| --- | --- |
-| `title` | The opening slide: `# Title`, then a subtitle line |
-| `section` | A divider: `# Section name`, then one line |
-| `two-columns` | Heading, then two columns; put `***` on its own line between them |
-| `image-left` / `image-right` | A heading, a few lines of text and one image beside them |
-| `quote` | A `>` quote, then the attribution on its own line |
-| `big-number` | `# 24%`, then one line saying what it is |
+| Class                        | Use it for                                                        |
+| ---------------------------- | ----------------------------------------------------------------- |
+| `title`                      | The opening slide: `# Title`, then a subtitle line                |
+| `section`                    | A divider: `# Section name`, then one line                        |
+| `two-columns`                | Heading, then two columns; put `***` on its own line between them |
+| `image-left` / `image-right` | A heading, a few lines of text and one image beside them          |
+| `quote`                      | A `>` quote, then the attribution on its own line                 |
+| `big-number`                 | `# 24%`, then one line saying what it is                          |
 
 No class is the normal slide: a heading and up to six bullets, a short paragraph, a table or a code block.
 

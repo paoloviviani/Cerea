@@ -135,7 +135,6 @@
 				<span class="flex items-center gap-2">
 					<input
 						class="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-						placeholder="#7008e7"
 						maxlength="7"
 						bind:value={accent}
 						disabled={busy || !configurable}

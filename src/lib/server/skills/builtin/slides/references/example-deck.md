@@ -4,6 +4,7 @@ theme: cerea
 ---
 
 <!-- .slide: class="title" -->
+
 # Quarterly review
 
 Where we are and what comes next
@@ -23,6 +24,7 @@ Note: Say the numbers once; the next slides show them.
 ---
 
 <!-- .slide: class="big-number" -->
+
 # 24%
 
 Revenue growth, year on year
@@ -30,13 +32,14 @@ Revenue growth, year on year
 ---
 
 <!-- .slide: class="two-columns" -->
+
 ## What went well, what did not
 
 - Launch of the mobile app
 - Faster onboarding
 - Fewer escalations
 
-***
+---
 
 - Two senior roles still open
 - Reporting lags by a week
@@ -45,6 +48,7 @@ Revenue growth, year on year
 ---
 
 <!-- .slide: class="image-right" -->
+
 ## One picture, one point
 
 Put a chart or photo beside the text. Use an image already in the chat, or a `data:` URL.
@@ -54,6 +58,7 @@ Put a chart or photo beside the text. Use an image already in the chat, or a `da
 ---
 
 <!-- .slide: class="quote" -->
+
 > The best way to predict the future is to build it.
 
 Someone worth quoting
@@ -70,6 +75,7 @@ def growth(now, before):
 ---
 
 <!-- .slide: class="section" -->
+
 # Next steps
 
 Three decisions for today
