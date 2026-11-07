@@ -190,7 +190,7 @@ describe("validateTarget", () => {
 
 	it("refuses a workspace the machine does not have, and a session of another workspace", async () => {
 		await expect(make({}, { workspaceId: "nope" })).rejects.toMatchObject({
-			message: "That workspace is not on this machine.",
+			message: "That workspace is not on this computer.",
 		});
 		addWorkspace(machine, "ws2", "other");
 		machine.model.sessions.push(sessionRow("s2", "ws2", "elsewhere"));
@@ -198,7 +198,7 @@ describe("validateTarget", () => {
 			message: "That session is not a session of this workspace.",
 		});
 		await expect(make({}, { sessionMode: "existing", sessionId: "ghost" })).rejects.toMatchObject({
-			message: "That session is not on this machine.",
+			message: "That session is not on this computer.",
 		});
 	});
 

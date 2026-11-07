@@ -90,7 +90,7 @@ describe("NewAgentSession", () => {
 		api.listWorkspaces.mockResolvedValue({ workspaces: [] });
 		const screen = renderWithApp(NewAgentSession, { onclose: () => {} });
 		await expect
-			.element(screen.getByText("No folders on this machine yet", { exact: false }))
+			.element(screen.getByText("No folders on this computer yet", { exact: false }))
 			.toBeVisible();
 		await expect.element(screen.getByTestId("new-agent-continue")).toBeDisabled();
 		await expect.element(screen.getByText("Add a folder…")).toBeEnabled();

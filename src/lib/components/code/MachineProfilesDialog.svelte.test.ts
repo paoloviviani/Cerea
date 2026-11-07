@@ -169,7 +169,7 @@ describe("MachineProfilesDialog", () => {
 		const screen = mount(device({ machine: { capabilities: {} } }));
 		await expect
 			.element(screen.getByTestId("profiles-unavailable"))
-			.toHaveTextContent("update galopin on this machine");
+			.toHaveTextContent("update galopin on this computer");
 		await expect.element(screen.getByRole("button", { name: "Save" })).toBeDisabled();
 		await expect.element(screen.getByRole("button", { name: "Add profile" })).toBeDisabled();
 		expect(api.getDelegateProfiles).not.toHaveBeenCalled();

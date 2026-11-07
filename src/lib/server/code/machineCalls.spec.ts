@@ -396,7 +396,7 @@ describe("schedule.create", () => {
 		expect(item.coordination).toEqual(all);
 	});
 
-	it("refuses a workspace that is not on this machine", async () => {
+	it("refuses a workspace that is not on this computer", async () => {
 		refused(
 			await machine.call("schedule.create", createArgs({ workspaceId: "elsewhere" })),
 			"invalid",

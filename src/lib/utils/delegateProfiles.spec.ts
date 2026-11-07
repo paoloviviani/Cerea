@@ -27,7 +27,7 @@ describe("delegateProfilesSupport", () => {
 			const got = delegateProfilesSupport({ online: true, machine });
 			expect(got).toEqual({ ok: false, reason: "too-old", detail: PROFILES_TOO_OLD_DETAIL });
 		}
-		expect(PROFILES_TOO_OLD_DETAIL).toContain("update galopin on this machine");
+		expect(PROFILES_TOO_OLD_DETAIL).toContain("update galopin on this computer");
 	});
 
 	it("says offline before anything else", () => {

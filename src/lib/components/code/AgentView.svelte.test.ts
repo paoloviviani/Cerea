@@ -282,7 +282,7 @@ describe("AgentView stale-Deny banner", () => {
 		const screen = mount();
 		await expect
 			.element(screen.getByTestId("stale-policy"))
-			.toHaveTextContent("An earlier machine policy is stuck");
+			.toHaveTextContent("An earlier computer policy is stuck");
 		expect(screen.getByTestId("stale-deny").elements()).toHaveLength(0);
 	});
 });

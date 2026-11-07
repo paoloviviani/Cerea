@@ -137,7 +137,7 @@ const offline = (device: CodeDevice) =>
 function opMessage(err: unknown, what: string): string {
 	if (err instanceof OpError) {
 		return err.code === "unavailable"
-			? `The machine went offline while ${what}.`
+			? `The computer went offline while ${what}.`
 			: `${what}: ${err.message}`;
 	}
 	return `${what}: ${err instanceof Error ? err.message : String(err)}`;
@@ -280,7 +280,7 @@ async function startSession(
 		return { error: opMessage(err, "listing the machine's workspaces") };
 	}
 	if (workspace === null) {
-		return { error: "That workspace is not on this machine. Use agent_sessions to see them." };
+		return { error: "That workspace is not on this computer. Use agent_sessions to see them." };
 	}
 
 	const title = input.title ?? clip(input.prompt.split("\n")[0], 80);

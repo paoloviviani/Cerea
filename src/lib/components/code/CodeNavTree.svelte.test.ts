@@ -858,7 +858,7 @@ describe("CodeNavTree session Permissions menu", () => {
 		await screen.getByRole("menuitem", { name: "Profiles" }).click();
 		await expect
 			.element(screen.getByTestId("profiles-unavailable"))
-			.toHaveTextContent("update galopin on this machine");
+			.toHaveTextContent("update galopin on this computer");
 		expect(apiMock.getDelegateProfiles).not.toHaveBeenCalled();
 	});
 

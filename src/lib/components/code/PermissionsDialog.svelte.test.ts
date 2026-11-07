@@ -249,7 +249,7 @@ describe("the Exceptions list", () => {
 		expect(items.map((el) => el.textContent?.replace(/\s+/g, " ").trim())).toEqual([
 			"Allowed for this session: npm test Remove",
 			"Allowed for this session: ls Remove",
-			"Allowed for this session: src/** (edit) held by the machine",
+			"Allowed for this session: src/** (edit) held by the computer",
 		]);
 		await expect.element(screen.getByText("held by the computer")).toBeVisible();
 	});

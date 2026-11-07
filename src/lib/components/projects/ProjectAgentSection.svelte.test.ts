@@ -231,7 +231,7 @@ describe("ProjectAgentSection", () => {
 	});
 
 	it("shows the API's reason when the save is refused, and keeps the choice", async () => {
-		putFailure = { status: 400, message: "That workspace is not on this machine." };
+		putFailure = { status: 400, message: "That workspace is not on this computer." };
 		const screen = mount();
 		await screen.getByLabelText("Computer").selectOptions("d1");
 		await expect.element(screen.getByRole("option", { name: "docs" })).toBeInTheDocument();
@@ -239,7 +239,7 @@ describe("ProjectAgentSection", () => {
 		await screen.getByRole("button", { name: "Save" }).click();
 		await expect
 			.element(screen.getByRole("alert"))
-			.toHaveTextContent("That workspace is not on this machine.");
+			.toHaveTextContent("That workspace is not on this computer.");
 		await expect.element(screen.getByLabelText("Workspace")).toHaveValue("w2");
 		await expect.element(screen.getByText("Saved.")).not.toBeInTheDocument();
 	});

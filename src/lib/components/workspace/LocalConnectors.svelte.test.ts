@@ -129,7 +129,7 @@ describe("LocalConnectors", () => {
 		stubApi(() => [machine({ id: "m1" })]);
 		const screen = mount();
 
-		await expect.element(screen.getByText("Your machines (1)")).toBeInTheDocument();
+		await expect.element(screen.getByText("Your computers (1)")).toBeInTheDocument();
 		expect(screen.baseElement.querySelector('[data-testid="local-howto"]')).toBeNull();
 		await screen.getByRole("button", { name: "Add a computer" }).click();
 		await expect
@@ -156,7 +156,7 @@ describe("LocalConnectors", () => {
 		expect(seen[0].method).toBe("PATCH");
 		expect(seen[0].url).toContain("/api/v2/local-connectors/machines/m1");
 		expect(JSON.parse(seen[0].body as string)).toEqual({ action: "confirm" });
-		await expect.element(screen.getByText("Your machines (1)")).toBeInTheDocument();
+		await expect.element(screen.getByText("Your computers (1)")).toBeInTheDocument();
 	});
 
 	it("asks for a fresh sign-in when approval is refused for an old one", async () => {
@@ -217,7 +217,7 @@ describe("LocalConnectors", () => {
 			}),
 		]);
 		const screen = mount();
-		await expect.element(screen.getByText("Your machines (2)")).toBeInTheDocument();
+		await expect.element(screen.getByText("Your computers (2)")).toBeInTheDocument();
 		const body = text(screen);
 		for (const word of ["Ready", "Needs sign-in", "Disabled", "Invalid", "Offline", "Connected"]) {
 			expect(body, word).toContain(word);
@@ -235,7 +235,7 @@ describe("LocalConnectors", () => {
 			seen
 		);
 		const screen = mount();
-		await expect.element(screen.getByText("Your machines (2)")).toBeInTheDocument();
+		await expect.element(screen.getByText("Your computers (2)")).toBeInTheDocument();
 		const revokes = screen.getByRole("button", { name: "Revoke" });
 		await expect.element(revokes).toBeInTheDocument();
 		expect(screen.baseElement.querySelectorAll("button").length).toBeGreaterThan(0);
