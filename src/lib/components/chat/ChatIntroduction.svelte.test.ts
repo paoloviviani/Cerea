@@ -32,6 +32,8 @@ describe("ChatIntroduction", () => {
 	});
 
 	it("explains a built-in greeting on hover and on tap", async () => {
+		// The name leads the rotation; the last pick is the phrase.
+		const random = vi.spyOn(Math, "random").mockReturnValue(0.99);
 		const screen = renderWithApp(
 			ChatIntroduction,
 			{ currentModel: model },
@@ -49,6 +51,7 @@ describe("ChatIntroduction", () => {
 				screen.baseElement.querySelector('[data-testid="intro-gloss"]')?.textContent
 			).toContain("All good")
 		);
+		random.mockRestore();
 	});
 
 	it("prints an operator's own phrase plain, with no gloss", async () => {
