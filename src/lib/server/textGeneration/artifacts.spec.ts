@@ -168,3 +168,18 @@ describe("artifact builtin enablement", () => {
 		expect(tools.map((t) => t.name)).not.toContain("artifact");
 	});
 });
+
+describe("slides in the artifact prompts", () => {
+	it("both prompts say HTML sections are the main format and Markdown the shortcut", () => {
+		for (const text of [ARTIFACTS_SYSTEM_PROMPT, ARTIFACT_TOOL_GUIDANCE]) {
+			const at = text.indexOf('"slides"');
+			expect(at).toBeGreaterThan(-1);
+			const slide = text.slice(at, at + 520);
+			expect(slide).toMatch(/HTML/);
+			expect(slide).toContain("<section>");
+			expect(slide).toContain('<aside class="notes">');
+			expect(slide).toMatch(/Markdown/);
+			expect(slide.indexOf("HTML")).toBeLessThan(slide.indexOf("Markdown"));
+		}
+	});
+});

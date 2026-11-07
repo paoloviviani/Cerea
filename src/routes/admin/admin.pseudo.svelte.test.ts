@@ -98,6 +98,7 @@ describe("Administration, in the pseudo-locale", () => {
 				configurable: false,
 			},
 			"/admin/hidden-models": { configurable: false, models: [] },
+			"/admin/slides": { defaults: {}, configurable: false },
 			"/admin/starters": { enabled: false, configurable: false },
 			"/admin/dictation": {
 				mode: "browser",

@@ -108,6 +108,17 @@ describe("renderAnswerBody", () => {
 		expect(body).toContain("```csv\nmonth,amount\njan,10\n```");
 	});
 
+	it("fences an HTML deck as html and a Markdown deck as markdown", () => {
+		const html = renderAnswerBody(
+			'<artifact identifier="d" type="slides" title="D"><section>One</section></artifact>'
+		);
+		expect(html).toContain("```html\n<section>One</section>\n```");
+		const md = renderAnswerBody(
+			'<artifact identifier="d" type="slides" title="D"># One\n\n---\n\n# Two</artifact>'
+		);
+		expect(md).toContain("```markdown\n# One");
+	});
+
 	it("summarizes artifact updates instead of dumping diff pairs", () => {
 		const body = renderAnswerBody(
 			'<artifact identifier="app" type="update"><old_str>a</old_str><new_str>b</new_str></artifact>'

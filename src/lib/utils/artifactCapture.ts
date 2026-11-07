@@ -23,7 +23,7 @@ const PNG_DATA_URL_PREFIX = "data:image/png;base64,";
 
 let snapdomSourcePromise: Promise<string> | undefined;
 
-function loadCaptureLibrarySource(): Promise<string> {
+export function loadCaptureLibrarySource(): Promise<string> {
 	// Direct file import: the package's `exports` map doesn't expose ./dist/*,
 	// and we need the text of the browser build (it assigns window.snapdom) to
 	// inject into the sandboxed iframe. `?url` emits the file as a hashed

@@ -17,6 +17,7 @@
 import { existsSync } from "node:fs";
 import { defineConfig, devices } from "playwright/test";
 import { MOCK_DOCUMENTS_PORT, MOCK_DOCUMENTS_SECRET } from "./tests/mock-documents.ts";
+import { MOCK_RENDERER_PORT } from "./tests/mock-renderer-port.ts";
 import {
 	E2E_APP_BASE,
 	E2E_APP_ORIGIN,
@@ -127,6 +128,16 @@ export default defineConfig({
 			stderr: "pipe",
 		},
 		{
+			// The page renderer (the kit's fetch profile), stood in by a local Chromium: it turns on the
+			// server-side vector PDF for slides. Nothing else in the app uses it unless a spec asks.
+			command: `${NODE_TS} tests/mock-renderer.ts`,
+			port: MOCK_RENDERER_PORT,
+			reuseExistingServer: !isCI,
+			timeout: 60_000,
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+		{
 			// The app last, through `server.js` — the same entry point production uses, rather than
 			// `vite preview`. Two reasons: it exercises the polka compression config that keeps
 			// `application/jsonl` unbuffered, and it loads no vite/svelte config, so the
@@ -193,6 +204,9 @@ export default defineConfig({
 				]),
 				// Without this the SSRF guard drops every loopback MCP URL a spec passes.
 				MCP_ALLOW_INSECURE_URLS: "true",
+				// The slides PDF export reaches the mock renderer; the web-fetch browser backend is
+				// opt-in per admin setting, so no other spec uses it.
+				PLAYWRIGHT_WS_ENDPOINT: `ws://127.0.0.1:${MOCK_RENDERER_PORT}/`,
 				// The document tools (doc_outline, doc_read, doc_edit) reach the mock service.
 				CHAT_DOCUMENTS_URL: `http://127.0.0.1:${MOCK_DOCUMENTS_PORT}`,
 				CHAT_DOCUMENTS_SECRET: MOCK_DOCUMENTS_SECRET,

@@ -12,6 +12,7 @@
 	import CarbonWarning from "~icons/carbon/warning";
 	import LucideAppWindow from "~icons/lucide/app-window";
 	import LucideWorkflow from "~icons/lucide/workflow";
+	import LucidePresentation from "~icons/lucide/presentation";
 	import EosIconsLoading from "~icons/eos-icons/loading";
 
 	interface Props {
@@ -49,6 +50,7 @@
 		svg: m["chat.artifact.kind.svg"],
 		markdown: m["chat.artifact.kind.markdown"],
 		mermaid: m["chat.artifact.kind.mermaid"],
+		slides: m["chat.artifact.kind.slides"],
 		table: m["chat.artifact.kind.table"],
 		code: m["chat.artifact.kind.code"],
 	};
@@ -130,6 +132,8 @@
 			<CarbonDocument class="text-base" />
 		{:else if version?.type === "mermaid"}
 			<LucideWorkflow class="text-base" />
+		{:else if version?.type === "slides"}
+			<LucidePresentation class="text-base" />
 		{:else if version?.type === "table"}
 			<CarbonTable class="text-base" />
 		{:else}
