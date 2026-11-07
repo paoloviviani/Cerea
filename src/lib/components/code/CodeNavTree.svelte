@@ -985,7 +985,7 @@
 													href="{base}/code?device={device.id}&ws={ws.id}&agent={agent.id}"
 													class="min-w-0 {row(agentActive)} {kind === 'subtask'
 														? 'text-[0.8rem]'
-														: ''}"
+														: 'max-sm:text-[14px]'}"
 													title={agent.title}
 												>
 													<span class="min-w-0 flex-1 truncate">{agent.title}</span>

@@ -98,7 +98,7 @@
 		"flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-left bg-gray-100 font-semibold text-gray-900 max-sm:h-10 dark:bg-gray-700 dark:text-white";
 
 	const NEW_BUTTON =
-		"flex h-8 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 text-sm font-medium text-gray-800 shadow-xs hover:bg-gray-50 max-sm:h-10 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700";
+		"flex h-8 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 text-sm font-medium text-gray-800 shadow-xs hover:bg-gray-50 max-sm:h-9 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700";
 
 	const publicConfig = usePublicConfig();
 	const client = useAPIClient();
@@ -293,10 +293,13 @@
 		     Two boxes of padding rather than margins: +layout.svelte pins every
 		     NavMenu child to the nav's column (`--nav-width`), so horizontal insets
 		     must be padding inside that box. -->
-		<div class="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
+		<div
+			class="flex h-8 rounded-lg bg-gray-100 p-0.5 max-sm:h-9 dark:bg-gray-800"
+			data-testid="sidebar-switch"
+		>
 			<button
 				data-testid="sidebar-view-chats"
-				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {effectiveView ===
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
 				'chats'
 					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
 					: 'text-ink-muted hover:text-ink'}"
@@ -307,7 +310,7 @@
 			</button>
 			<button
 				data-testid="sidebar-view-agents"
-				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {effectiveView ===
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
 				'agents'
 					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
 					: 'text-ink-muted hover:text-ink'}"

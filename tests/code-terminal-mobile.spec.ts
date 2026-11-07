@@ -17,6 +17,7 @@
  * session".
  */
 import { randomUUID } from "node:crypto";
+import { paneButton } from "./codePanes";
 import { test, expect, E2E_APP_BASE, E2E_APP_URL, MOCK_OIDC_ISSUER } from "./fixtures";
 import { seedUser } from "./machineHarness";
 import { FakeMachine } from "./fake-machine";
@@ -95,7 +96,7 @@ async function pairAndOpenWorkspace(page: Page, name: string) {
 }
 
 async function openTerminalTab(page: Page) {
-	await page.getByRole("button", { name: "Terminal", exact: true }).click();
+	await (await paneButton(page, "Terminal")).click();
 }
 
 async function clickNewTerminal(page: Page) {

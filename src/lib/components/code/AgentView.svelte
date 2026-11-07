@@ -65,6 +65,7 @@
 		fetchAgentHistory,
 		fetchSubagentTimeline,
 		getAgent,
+		getAgentDiff,
 		getPermissionRules,
 		getAutoApproval,
 		listProviderModes,
@@ -102,7 +103,7 @@
 	} from "$lib/utils/codeSessionLinks";
 	import ChatMessageColumn from "$lib/components/chat/ChatMessageColumn.svelte";
 	import SidePane from "$lib/components/chat/SidePane.svelte";
-	import TogglePill from "$lib/components/TogglePill.svelte";
+	import AgentHeaderRow, { type PaneId, type PaneItem } from "./AgentHeaderRow.svelte";
 	import AgentComposer from "./AgentComposer.svelte";
 	import AgentDialog from "./AgentDialog.svelte";
 	import AgentDiff from "./AgentDiff.svelte";
@@ -115,9 +116,6 @@
 	import CodeTerminals from "./CodeTerminals.svelte";
 	import CodeTasks from "./CodeTasks.svelte";
 	import { latestPlan, planIsActive, planKey, planProgress } from "$lib/utils/codeTasks";
-	import IconTaskComplete from "~icons/carbon/task-complete";
-	import IconFolder from "~icons/carbon/folder";
-	import IconTerminal from "~icons/carbon/terminal";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
 	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
@@ -125,7 +123,6 @@
 	import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
 	import IconCode from "~icons/carbon/code";
 	import IconRenew from "~icons/carbon/renew";
-	import IconDiff from "~icons/lucide/diff";
 	import IconFork from "~icons/carbon/fork";
 	import * as s from "$lib/components/overlay/styles";
 
@@ -1132,6 +1129,72 @@
 		return "neutral";
 	}
 
+	/** The panels the header offers, with their live figures. */
+	let changesCount = $state<number | null>(null);
+	let paneItems = $derived.by<PaneItem[]>(() => {
+		const items: PaneItem[] = [
+			{
+				id: "tasks",
+				word: m["code.view.tasks"](),
+				label:
+					tasksProgress.total > 0
+						? m["code.view.tasks_progress"]({
+								done: tasksProgress.done,
+								total: tasksProgress.total,
+							})
+						: m["code.view.tasks"](),
+				badge: tasksProgress.total > 0 ? `${tasksProgress.done}/${tasksProgress.total}` : undefined,
+				title: m["code.view.tasks_title"](),
+				pressed: sidePane.open && sidePane.view === "tasks",
+			},
+			{
+				id: "diff",
+				word: m["code.view.changes"](),
+				label: m["code.view.changes"](),
+				badge: changesCount ? String(changesCount) : undefined,
+				title: m["code.view.changes_title"](),
+				pressed: sidePane.open && sidePane.view === "diff",
+			},
+		];
+		if (filesOffered && (workspace?.id ?? workspaceId)) {
+			items.push({
+				id: "files",
+				word: m["code.view.files"](),
+				label: m["code.view.files"](),
+				title: filesVetoed ? m["code.view.files_vetoed"]() : m["code.view.files_title"](),
+				pressed: sidePane.open && sidePane.view === "files",
+				disabled: filesVetoed,
+				reason: filesVetoed ? m["code.view.files_vetoed"]() : undefined,
+			});
+		}
+		if (terminalOffered && (workspace?.id ?? workspaceId)) {
+			items.push({
+				id: "terminal",
+				word: m["code.view.terminal"](),
+				label: m["code.view.terminal"](),
+				title: terminalVetoed ? m["code.view.terminal_vetoed"]() : m["code.view.terminal_title"](),
+				pressed: sidePane.open && sidePane.view === "terminal",
+				disabled: terminalVetoed,
+				reason: terminalVetoed ? m["code.view.terminal_vetoed"]() : undefined,
+			});
+		}
+		return items;
+	});
+	/** The panels sheet shows "Changes 3": read the count when it opens. */
+	async function refreshChangesCount() {
+		try {
+			changesCount = (await getAgentDiff(deviceId, agentId)).files.length;
+		} catch {
+			changesCount = null;
+		}
+	}
+	function selectPane(id: PaneId) {
+		if (id === "tasks") sidePane.toggleTasks();
+		else if (id === "diff") sidePane.toggleDiff();
+		else if (id === "files") sidePane.toggleFiles();
+		else sidePane.toggleTerminal();
+	}
+
 	// The workspace's own name, from the daemon's list; unknown means the
 	// strip simply carries the pills.
 	let workspaceName = $derived(workspace?.name ?? "");
@@ -1344,69 +1407,16 @@
 				>
 			</a>
 		{/if}
-		<!-- The pane buttons keep their words on a phone: the row wraps, an icon-only
-		     row left four unlabelled glyphs. -->
-		<div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-			<IconCode class="size-4 shrink-0 text-ink-muted" />
-			{#if workspaceName}
-				<span class="min-w-0 truncate text-sm font-medium text-ink" title={workspace?.path}>
-					{workspaceName}
-				</span>
-			{/if}
-			<span class="min-w-0 flex-1 max-sm:hidden"></span>
-			{#if agent}
-				<span class="{s.PILL} {s.PILL_TONES.neutral} max-sm:ml-6">{agent.provider}</span>
-				<span class="{s.PILL} {s.PILL_TONES[stateTone(shownState)]}"
-					>{STATE_LABELS[shownState]()}</span
-				>
-			{/if}
-			<TogglePill
-				pressed={sidePane.open && sidePane.view === "tasks"}
-				label={tasksProgress.total > 0
-					? m["code.view.tasks_progress"]({
-							done: tasksProgress.done,
-							total: tasksProgress.total,
-						})
-					: m["code.view.tasks"]()}
-				badge={tasksProgress.total > 0 ? `${tasksProgress.done}/${tasksProgress.total}` : undefined}
-				title={m["code.view.tasks_title"]()}
-				onclick={() => sidePane.toggleTasks()}
-			>
-				{#snippet icon()}<IconTaskComplete class="size-3.5" />{/snippet}
-			</TogglePill>
-			<TogglePill
-				pressed={sidePane.open && sidePane.view === "diff"}
-				label={m["code.view.changes"]()}
-				title={m["code.view.changes_title"]()}
-				onclick={() => sidePane.toggleDiff()}
-			>
-				{#snippet icon()}<IconDiff class="size-3.5" />{/snippet}
-			</TogglePill>
-			{#if filesOffered && (workspace?.id ?? workspaceId)}
-				<TogglePill
-					pressed={sidePane.open && sidePane.view === "files"}
-					label={m["code.view.files"]()}
-					disabled={filesVetoed}
-					title={filesVetoed ? m["code.view.files_vetoed"]() : m["code.view.files_title"]()}
-					onclick={() => sidePane.toggleFiles()}
-				>
-					{#snippet icon()}<IconFolder class="size-3.5" />{/snippet}
-				</TogglePill>
-			{/if}
-			{#if terminalOffered && (workspace?.id ?? workspaceId)}
-				<TogglePill
-					pressed={sidePane.open && sidePane.view === "terminal"}
-					label={m["code.view.terminal"]()}
-					disabled={terminalVetoed}
-					title={terminalVetoed
-						? m["code.view.terminal_vetoed"]()
-						: m["code.view.terminal_title"]()}
-					onclick={() => sidePane.toggleTerminal()}
-				>
-					{#snippet icon()}<IconTerminal class="size-3.5" />{/snippet}
-				</TogglePill>
-			{/if}
-		</div>
+		<AgentHeaderRow
+			name={workspaceName}
+			path={workspace?.path}
+			turnState={agent ? shownState : null}
+			stateLabel={STATE_LABELS[shownState]()}
+			engine={agent?.provider}
+			items={paneItems}
+			onselect={selectPane}
+			onopenpanels={refreshChangesCount}
+		/>
 		{#if handedOffFromTitle}
 			<!-- A title-based link, not a fetched one (spec's "keep it simple") —
 			     see the `handedOffFromTitle` derivation above. -->

@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **A one-row agent header on a phone, and a denser sidebar.** The session name now carries a small status dot (green done, blue working, amber waiting, red error) instead of the engine name and a status pill; "Waiting for you" and errors keep their words. The Tasks, Changes, Files and Terminal buttons fold into one **Panels** button that opens a sheet with live counts; on a wide screen they stay inline until they would not fit. In the sidebar the **New chat** and **New session** buttons match the Chats/Agents switch in height, and on a phone the chat and session titles are a little smaller with tighter rows. Desktop sizes are unchanged.
 - **In Auto, an approval card no longer flashes before the reviewer decides.** While the reviewer is deciding, the turn shows a quiet "Checking with the reviewer…" line with no buttons, and the Needs you list, its badge and notifications leave it out. The card appears if the reviewer escalates or gives up; if it allows, the line becomes "Auto-allowed by reviewer model", and a reload mid-review shows the right state.
 - When the reviewer takes too long and the question goes to you, a late answer from the reviewer no longer approves it on its own.
 - A computer you have not confirmed yet can no longer trigger reviews or notifications.

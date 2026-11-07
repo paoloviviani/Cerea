@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { page as browserPage } from "@vitest/browser/context";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import NavConversationItem from "./NavConversationItem.svelte";
 import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
@@ -61,5 +62,29 @@ describe("NavConversationItem Regenerate title", () => {
 		const screen = await openMenu({});
 		await expect.element(screen.getByRole("menuitem", { name: "Rename" })).toBeVisible();
 		expect(screen.getByRole("menuitem", { name: "Regenerate title" }).elements()).toHaveLength(0);
+	});
+});
+
+describe("NavConversationItem sizes", () => {
+	async function rowAt(width: number) {
+		await browserPage.viewport(width, 800);
+		const screen = renderWithApp(NavConversationItem, { conv } as never, {
+			page: { params: { id: "other" }, data: {} },
+			context,
+		});
+		const link = screen.getByText("Weekly notes").element().closest("a") as HTMLElement;
+		return link.parentElement as HTMLElement;
+	}
+
+	it("steps the title down one size and tightens the row on a phone", async () => {
+		const row = await rowAt(390);
+		expect(getComputedStyle(row).fontSize).toBe("16px");
+		expect(row.getBoundingClientRect().height).toBe(36);
+	});
+
+	it("leaves the desktop size and row height alone", async () => {
+		const row = await rowAt(1200);
+		expect(getComputedStyle(row).fontSize).toBe("15px");
+		expect(row.getBoundingClientRect().height).toBe(32);
 	});
 });

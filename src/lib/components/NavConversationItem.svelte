@@ -107,7 +107,7 @@
 		event.dataTransfer.effectAllowed = "move";
 	}}
 	ondragend={() => (chatDrag.current = null)}
-	class="group flex h-8 flex-none items-center gap-1.5 rounded-lg pr-1.5 pl-2 text-base max-sm:h-10 sm:text-sm
+	class="group flex h-8 flex-none items-center gap-1.5 rounded-lg pr-1.5 pl-2 text-smd max-sm:h-9 sm:text-sm
 		{conv.id === page.params.id
 		? 'bg-accent-subtle font-medium text-accent'
 		: 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'}"

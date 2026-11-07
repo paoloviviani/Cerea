@@ -6,6 +6,7 @@
  * session turn, and a policy-denied machine's disabled entry.
  */
 import { randomUUID } from "node:crypto";
+import { paneButton } from "./codePanes";
 import { test, expect, E2E_APP_BASE } from "./fixtures";
 import { opencodeAvailable, seedUser, startMachine, type Machine } from "./machineHarness";
 
@@ -43,7 +44,7 @@ test.describe("the terminal on a real machine", () => {
 	 * terminal only exists once "+ New" is clicked, and opening asks
 	 * nothing. */
 	async function openTerminalTab(page: import("playwright/test").Page) {
-		await page.getByRole("button", { name: "Terminal", exact: true }).click();
+		await (await paneButton(page, "Terminal")).click();
 		await page.getByRole("button", { name: "New", exact: true }).click();
 		// The one-time "a terminal is a full shell" acknowledgement no
 		// longer exists; assert its absence so a regression fails loudly.
@@ -196,7 +197,7 @@ test.describe("the terminal on a real machine", () => {
 		machine = await startMachine({ sub, policy: { terminal: "denied" } });
 
 		await pairAndOpenWorkspace(page, machine);
-		const terminalButton = page.getByRole("button", { name: "Terminal", exact: true });
+		const terminalButton = await paneButton(page, "Terminal");
 		await expect(terminalButton).toBeVisible();
 		await expect(terminalButton).toBeDisabled();
 	});
@@ -207,8 +208,8 @@ test.describe("the terminal on a real machine", () => {
 	 * back in the roster fetched on that fresh mount, not from anything the
 	 * component remembered in memory. */
 	async function closeAndReopenPane(page: import("playwright/test").Page) {
-		await page.getByRole("button", { name: "Terminal", exact: true }).click();
-		await page.getByRole("button", { name: "Terminal", exact: true }).click();
+		await (await paneButton(page, "Terminal")).click();
+		await (await paneButton(page, "Terminal")).click();
 	}
 
 	test("exit, close the pane, reopen it: the exited terminal never comes back live", async ({
