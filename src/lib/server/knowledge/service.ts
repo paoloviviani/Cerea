@@ -28,6 +28,7 @@ import {
 	type ExtractorSource,
 } from "./extractorResolution";
 import type { KnowledgeConfig, KnowledgeDocument, VectorStore } from "$lib/types/VectorStore";
+import { indexErrorForUser } from "./indexError";
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
@@ -302,7 +303,7 @@ function documentObject(
 		file_id: document.fileId?.toString() ?? null,
 		source_ref: document.sourceRef ?? null,
 		chunk_count: document.chunkCount,
-		error: document.error || null,
+		error: indexErrorForUser(document.error),
 	};
 }
 
@@ -1454,15 +1455,41 @@ export async function search(
 	}
 }
 
+/**
+ * The base a reindex acts on. A user may reindex only a base they own (the
+ * share rules decide whether they even see it). An administrator, from
+ * Admin → Knowledge, may reindex any base: that screen lists every user's
+ * bases and moves them to the deployment's model, and the embeddings carry the
+ * administrator's own token, so the ledger shows who paid. The caller's admin
+ * right is checked by the route (`requireAdmin`), not here.
+ */
+export async function reindexTarget(
+	storeId: string,
+	caller: Caller,
+	opts: { asAdmin?: boolean } = {}
+): Promise<VectorStore> {
+	if (!opts.asAdmin) {
+		const base = await reachableStore(storeId, caller, "editor");
+		if (!base.ownerId.equals(caller.userId)) {
+			throw new KnowledgeError(403, "Only the owner can reindex a vector store.");
+		}
+		return base;
+	}
+	if (!/^[0-9a-f]{24}$/.test(storeId)) {
+		throw new KnowledgeError(404, `No such vector store: ${storeId}`);
+	}
+	const base = await collections.vectorStores.findOne({ _id: new ObjectId(storeId) });
+	if (!base) throw new KnowledgeError(404, `No such vector store: ${storeId}`);
+	return base;
+}
+
 export async function reindex(
 	storeId: string,
 	caller: Caller,
-	token: string
+	token: string,
+	opts: { asAdmin?: boolean } = {}
 ): Promise<{ data: ReturnType<typeof documentObject>[] }> {
-	const base = await reachableStore(storeId, caller, "editor");
-	if (!base.ownerId.equals(caller.userId)) {
-		throw new KnowledgeError(403, "Only the owner can reindex a vector store.");
-	}
+	const base = await reindexTarget(storeId, caller, opts);
 	const config = await readConfig();
 	if (!configReady(config)) {
 		throw new KnowledgeError(400, "No embedding model has been configured.");
