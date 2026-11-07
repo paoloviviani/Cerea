@@ -27,6 +27,7 @@
 	import CarbonTable from "~icons/carbon/table";
 	import LucideAppWindow from "~icons/lucide/app-window";
 	import LucideWorkflow from "~icons/lucide/workflow";
+	import LucidePresentation from "~icons/lucide/presentation";
 
 	// How long produced files are kept (Administration → Storage), 0 when they never expire.
 	const retentionDays = $derived(
@@ -152,6 +153,7 @@
 		svg: m["chat.artifact.kind.svg"],
 		markdown: m["chat.artifact.kind.markdown"],
 		mermaid: m["chat.artifact.kind.mermaid"],
+		slides: m["chat.artifact.kind.slides"],
 		table: m["chat.artifact.kind.table"],
 		code: m["chat.artifact.kind.code"],
 	};
@@ -162,6 +164,7 @@
 		svg: CarbonImage,
 		markdown: CarbonDocument,
 		mermaid: LucideWorkflow,
+		slides: LucidePresentation,
 		table: CarbonTable,
 		code: CarbonCode,
 	} as const;

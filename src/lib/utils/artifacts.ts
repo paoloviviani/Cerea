@@ -19,7 +19,8 @@ import type { Message } from "$lib/types/Message";
  * out of the rendered markdown.
  */
 
-export type ArtifactKind = "html" | "svg" | "code" | "markdown" | "react" | "mermaid" | "table";
+export type ArtifactKind =
+	"html" | "svg" | "code" | "markdown" | "react" | "mermaid" | "table" | "slides";
 
 const KIND_ALIASES: Record<string, ArtifactKind> = {
 	html: "html",
@@ -37,6 +38,9 @@ const KIND_ALIASES: Record<string, ArtifactKind> = {
 	"application/vnd.ant.react": "react",
 	mermaid: "mermaid",
 	"application/vnd.ant.mermaid": "mermaid",
+	slides: "slides",
+	deck: "slides",
+	"application/vnd.cerea.slides": "slides",
 	table: "table",
 	csv: "table",
 	"text/csv": "table",
@@ -501,6 +505,7 @@ function fileExtension(version: ArtifactVersion): string {
 		case "svg":
 			return "svg";
 		case "markdown":
+		case "slides":
 			return "md";
 		case "mermaid":
 			return "mmd";

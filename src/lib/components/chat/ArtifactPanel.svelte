@@ -25,6 +25,8 @@
 	import RunOutput from "./RunOutput.svelte";
 	import ExecutionFiles from "./ExecutionFiles.svelte";
 	import MountedChips from "./MountedChips.svelte";
+	import SlidesView from "./SlidesView.svelte";
+	import type { OrgSlideDefaults } from "$lib/utils/slides/themes";
 	import { diffLines, diffStats, renderDiffHtml } from "$lib/utils/artifactDiff";
 	import {
 		buildArtifactSrcdoc,
@@ -278,6 +280,8 @@
 			case "table":
 				// CSV has no highlighter: the code view shows escaped plain text.
 				return undefined;
+			case "slides":
+				return "markdown";
 		}
 	}
 
@@ -461,7 +465,12 @@
 
 	let srcdoc = $derived.by(() => {
 		if (!previewedKind || previewedContent === undefined) return undefined;
-		if (previewedKind === "markdown" || previewedKind === "code" || previewedKind === "table")
+		if (
+			previewedKind === "markdown" ||
+			previewedKind === "code" ||
+			previewedKind === "table" ||
+			previewedKind === "slides"
+		)
 			return undefined;
 		return buildArtifactSrcdoc(previewedKind, previewedContent, previewChannel);
 	});
@@ -779,8 +788,33 @@
 			version.complete &&
 			version.type !== "markdown" &&
 			version.type !== "code" &&
-			version.type !== "table"
+			version.type !== "table" &&
+			version.type !== "slides"
 	);
+
+	/**
+	 * A logo named in a deck's front matter: an image in this chat (a file a
+	 * run produced), read into a data: URL because the preview sandbox can
+	 * load nothing else.
+	 */
+	async function resolveLogo(name: string): Promise<string | undefined> {
+		const found = fileRegistry.artifacts.get(name)?.versions.at(-1);
+		if (!found || !conversationId || found.uploaded === false) return undefined;
+		const res = await fetch(
+			`${base}/conversation/${conversationId}/code-execution/output/${found.sha256}`
+		);
+		if (!res.ok) return undefined;
+		const blob = await res.blob();
+		const type = blob.type || "";
+		if (blob.size > 300_000 || !/^image\/(png|jpeg|webp|gif|svg\+xml)$/.test(type))
+			return undefined;
+		return await new Promise<string | undefined>((resolve) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : undefined);
+			reader.onerror = () => resolve(undefined);
+			reader.readAsDataURL(blob);
+		});
+	}
 
 	function download() {
 		if (!version) return;
@@ -835,6 +869,7 @@
 		svg: m["chat.panel.type.svg"],
 		markdown: m["chat.panel.type.markdown"],
 		mermaid: m["chat.panel.type.mermaid"],
+		slides: m["chat.panel.type.slides"],
 		table: m["chat.panel.type.table"],
 		code: m["chat.panel.type.code"],
 	};
@@ -982,6 +1017,13 @@
 						<MarkdownRenderer content={previewedContent} />
 					</div>
 				</div>
+			{:else if previewedKind === "slides" && previewedContent !== undefined}
+				<SlidesView
+					content={previewedContent}
+					org={(page.data as { slideDefaults?: OrgSlideDefaults }).slideDefaults}
+					{resolveLogo}
+					{resizing}
+				/>
 			{:else if previewedKind === "table" && previewedContent !== undefined}
 				<div bind:this={previewScrollEl} class="h-full overflow-hidden">
 					<TableGrid content={previewedContent} />

@@ -220,7 +220,7 @@ export function composeFixRequest(errors: CapturedPreviewError[]): string {
 	return `it's not working, I see ${errors.length} errors:\n${list}${tail}\ncan you fix them?`;
 }
 
-function buildPreviewHookScript(channel: string): string {
+export function buildPreviewHookScript(channel: string): string {
 	// Deployed artifacts (a static Space) pass an empty channel: there is no
 	// parent window to postMessage to, so the hook is omitted entirely and the
 	// shipped document is just the artifact itself.

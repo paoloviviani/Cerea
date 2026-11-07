@@ -1,15 +1,26 @@
 ---
 name: powerpoint
 description: >
-  Create and edit PowerPoint (.pptx) decks with the doc_* tools - slides built in real layouts and placeholders,
-  native charts, tables and images, or in the person's own uploaded template. Use when the person wants slides or
-  a deck, wants their own .pptx used as a template, or asks to change or check a deck.
+  Create and edit PowerPoint (.pptx) files with the doc_* tools - slides built in real layouts and placeholders,
+  native charts, tables and images, or in the person's own uploaded template. Use when the person wants a
+  PowerPoint file to edit, wants their own .pptx used as a template, or asks to change or check a .pptx. For slides
+  to present or share in the chat without an Office file, use the slides skill; if it is unclear which they want,
+  ask first (see "Slides or a PowerPoint file?").
 ---
 
 # PowerPoint from layouts
 
 **Core principle: fill real layouts and placeholders; never overlay text boxes on slides.** Text placed in a
 layout's own placeholders inherits the master's branding; text laid over a slide ignores it. The tools work this way.
+
+## Slides or a PowerPoint file?
+
+When the person asks for slides, a deck or a presentation and it is unclear whether they need an editable
+PowerPoint file, ask once with `ask_user_question` before building anything, with two options: "Slides to present
+or share here" (the `slides` skill: shown in the chat, present full screen, PDF download) and "A PowerPoint file
+to edit" (this skill). No question when they said "PowerPoint", "pptx" or "file to edit" (stay here), or "just
+slides" or "present" (load `slides` instead). Also no question, and stay here, when the `slides` skill is not in
+the Available skills list.
 
 ## One rule
 

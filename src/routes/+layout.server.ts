@@ -28,6 +28,7 @@ import { resolveWebSearchFor } from "$lib/server/webSearch/config";
 import { starterSuggestionsEnabled } from "$lib/server/starterSuggestions";
 import { pseudoLocaleEnabled } from "$lib/server/localeSettings";
 import { baseLocale } from "$lib/i18n/resolve";
+import { slideDefaults } from "$lib/server/slideDefaults";
 import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = async ({ locals }) => {
@@ -55,6 +56,8 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		// Whether the pseudo-locale may be offered in the language selector.
 		pseudoLocaleEnabled: pseudoLocaleEnabled(),
 		webSearchAvailable,
+		// The organisation's default look for slide decks (empty when the admin set none)
+		slideDefaults: slideDefaults(),
 		// The empty chat shows its starter chips only when the administrator turned them on.
 		starterSuggestionsEnabled: starterSuggestionsEnabled(),
 		gatewayIsAdmin: identity?.isAdmin === true,

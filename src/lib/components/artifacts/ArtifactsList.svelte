@@ -39,6 +39,7 @@
 	import LucideAppWindow from "~icons/lucide/app-window";
 	import LucideShapes from "~icons/lucide/shapes";
 	import LucideWorkflow from "~icons/lucide/workflow";
+	import LucidePresentation from "~icons/lucide/presentation";
 
 	interface Row {
 		kind: "file" | "artifact";
@@ -137,7 +138,16 @@
 			? `${base}/conversation/${row.conversationId}/code-execution/output/${row.sha256}`
 			: `${base}/api/v2/artifacts/download?conversation=${row.conversationId}&identifier=${encodeURIComponent(row.identifier)}`;
 
-	const ARTIFACT_KINDS = ["code", "html", "markdown", "mermaid", "react", "svg", "table"] as const;
+	const ARTIFACT_KINDS = [
+		"code",
+		"html",
+		"markdown",
+		"mermaid",
+		"react",
+		"slides",
+		"svg",
+		"table",
+	] as const;
 	type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 	const artifactKind = (type: string): ArtifactKind =>
 		(ARTIFACT_KINDS as readonly string[]).includes(type) ? (type as ArtifactKind) : "code";
@@ -157,6 +167,8 @@
 					return CarbonLogoReact;
 				case "mermaid":
 					return LucideWorkflow;
+				case "slides":
+					return LucidePresentation;
 				case "table":
 					return CarbonTable;
 				case "svg":

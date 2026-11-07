@@ -1,0 +1,146 @@
+/* The Cerea themes' typography (ADR 0111). The reveal.js built-in themes bring their own. */
+.reveal {
+	font-family: var(--r-main-font);
+	font-size: 38px;
+	font-weight: 400;
+	color: var(--r-main-color);
+}
+.reveal .slides {
+	text-align: left;
+}
+.reveal .slides section {
+	line-height: 1.35;
+}
+.reveal h1,
+.reveal h2,
+.reveal h3,
+.reveal h4 {
+	margin: 0 0 0.45em;
+	font-family: var(--r-heading-font);
+	color: var(--r-heading-color);
+	font-weight: 650;
+	line-height: 1.15;
+	letter-spacing: -0.01em;
+	text-transform: none;
+	text-shadow: none;
+}
+.reveal h1 {
+	font-size: 2.1em;
+}
+.reveal h2 {
+	font-size: 1.6em;
+}
+.reveal h3 {
+	font-size: 1.2em;
+}
+.reveal h4 {
+	font-size: 1em;
+}
+.reveal p {
+	margin: 0 0 0.7em;
+}
+.reveal ul,
+.reveal ol {
+	display: block;
+	margin: 0 0 0.7em 1.1em;
+	padding: 0;
+}
+.reveal li {
+	margin: 0.28em 0;
+}
+.reveal li::marker {
+	color: var(--cerea-accent);
+}
+.reveal a {
+	color: var(--r-link-color);
+	text-decoration: underline;
+	text-underline-offset: 0.15em;
+}
+.reveal strong {
+	font-weight: 650;
+	color: var(--r-heading-color);
+}
+.reveal small {
+	color: var(--cerea-muted);
+	font-size: 0.65em;
+}
+.reveal hr {
+	border: 0;
+	border-top: 2px solid var(--cerea-surface);
+	margin: 0.8em 0;
+}
+.reveal img {
+	max-width: 100%;
+	max-height: 60vh;
+	margin: 0.3em 0;
+	border: 0;
+	background: none;
+	box-shadow: none;
+	border-radius: 10px;
+}
+.reveal blockquote {
+	display: block;
+	width: auto;
+	margin: 0.6em 0;
+	padding: 0.4em 0.9em;
+	background: var(--cerea-surface);
+	border-left: 6px solid var(--cerea-accent);
+	border-radius: 6px;
+	box-shadow: none;
+	font-style: normal;
+}
+.reveal blockquote p {
+	margin: 0.2em 0;
+}
+.reveal code {
+	font-family: var(--r-code-font);
+	font-size: 0.85em;
+	background: var(--cerea-surface);
+	padding: 0.05em 0.3em;
+	border-radius: 4px;
+}
+.reveal pre {
+	display: block;
+	width: 100%;
+	margin: 0.6em 0;
+	background: var(--cerea-surface);
+	border-radius: 10px;
+	box-shadow: none;
+	font-size: 0.6em;
+	line-height: 1.45;
+	text-align: left;
+}
+.reveal pre code {
+	display: block;
+	padding: 0.8em 1em;
+	max-height: 480px;
+	overflow: hidden;
+	background: none;
+	font-size: 1em;
+	color: var(--r-main-color);
+}
+.reveal table {
+	border-collapse: collapse;
+	margin: 0.5em 0;
+	font-size: 0.8em;
+}
+.reveal th,
+.reveal td {
+	padding: 0.35em 0.8em;
+	border-bottom: 2px solid var(--cerea-surface);
+	text-align: left;
+}
+.reveal th {
+	color: var(--r-heading-color);
+	border-bottom-color: var(--cerea-accent);
+}
+.reveal aside.notes {
+	display: none;
+}
+.reveal .progress {
+	color: var(--cerea-accent);
+	height: 5px;
+}
+.reveal-viewport {
+	background: var(--r-background-color);
+}

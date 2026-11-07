@@ -60,6 +60,7 @@ const LANGUAGE_FOR_ARTIFACT_KIND: Record<string, string> = {
 	react: "jsx",
 	mermaid: "mermaid",
 	table: "csv",
+	slides: "markdown",
 };
 
 /** `My Chat Title!` → `my-chat-title`; empty titles fall back to `conversation`. */
