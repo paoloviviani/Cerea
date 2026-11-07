@@ -279,7 +279,7 @@ test.describe("Auto with a reviewer", () => {
 		await page.getByRole("combobox").fill("write the file");
 		await page.getByRole("button", { name: "Send message" }).click();
 
-		await expect(page.getByLabel("Chat messages").getByText("wants to call")).toBeVisible({
+		await expect(page.getByLabel("Chat messages").getByTestId("approval-title")).toBeVisible({
 			timeout: 90_000,
 		});
 		await expect

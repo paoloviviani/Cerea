@@ -67,7 +67,7 @@ test.describe("owned machine agent (P0)", () => {
 
 		await page.getByRole("button", { name: "Start a session in this workspace" }).click();
 		await page.getByRole("button", { name: "Ask", exact: true }).click();
-		await page.getByRole("button", { name: "Create agent" }).click();
+		await page.getByRole("button", { name: "Start session" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 
 		// ── Prompt → streamed reply ────────────────────────────────────────────
@@ -97,7 +97,7 @@ test.describe("owned machine agent (P0)", () => {
 		});
 		await box.fill("write the file");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByLabel("Chat messages").getByText("wants to call")).toBeVisible({
+		await expect(page.getByLabel("Chat messages").getByTestId("approval-title")).toBeVisible({
 			timeout: 60_000,
 		});
 		// The Needs-you banner shows the same approval card with its own "Allow once"

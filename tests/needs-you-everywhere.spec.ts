@@ -93,7 +93,7 @@ test("asks show on every page, pinned above the composer of the chat that starte
 	// Another page: the app-wide bar, collapsed, then opened; the sidebar badge counts both.
 	await page.goto(`${E2E_APP_BASE}/projects`);
 	const bar = page.getByTestId("needs-you-inbox");
-	await expect(bar).toContainText("2 need you", { timeout: 30_000 });
+	await expect(bar).toContainText("2 waiting for you", { timeout: 30_000 });
 	await expect(page.getByTestId("needs-you-item")).toHaveCount(0);
 	await expect(page.getByTestId("sidebar-agents-badge").first()).toHaveText("2");
 	await expect(page.getByRole("button", { name: "Agents, 2 need you" }).first()).toBeAttached();
@@ -104,7 +104,7 @@ test("asks show on every page, pinned above the composer of the chat that starte
 	await expect(pinned).toBeVisible({ timeout: 30_000 });
 	await expect(pinned.getByTestId("needs-you-item")).toHaveCount(1);
 	await expect(pinned).toContainText("chat-started");
-	await expect(bar).toContainText("1 needs you");
+	await expect(bar).toContainText("1 waiting for you");
 	const composer = page.getByPlaceholder("Ask anything");
 	const above = await pinned.evaluate((el, sel) => {
 		const form = document.querySelector(sel);
@@ -117,7 +117,7 @@ test("asks show on every page, pinned above the composer of the chat that starte
 	await pinned.getByRole("button", { name: "Allow once" }).click();
 	await expect.poll(() => replies).toEqual(["perm-mine"]);
 	await expect(pinned).toHaveCount(0);
-	await expect(bar).toContainText("1 needs you");
+	await expect(bar).toContainText("1 waiting for you");
 
 	// /code draws its own inbox, never a second one from the shell.
 	await page.goto(`${E2E_APP_BASE}/code`);
