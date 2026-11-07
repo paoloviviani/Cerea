@@ -51,7 +51,8 @@
 	import Modal from "$lib/components/Modal.svelte";
 	import IconCode from "~icons/carbon/code";
 	import IconWarning from "~icons/carbon/warning-filled";
-	import { createAgent, listProviders } from "$lib/codeApi";
+	import { createAgent, listProviders, setPermissionMode } from "$lib/codeApi";
+	import { stepToWire } from "$lib/types/machineProtocol";
 	import type { CodeAgentSession, CodeWorkspace } from "$lib/types/CodeAgent";
 	import * as s from "$lib/components/overlay/styles";
 
@@ -66,7 +67,22 @@
 
 	let providers = $state<Array<{ id: string; available: boolean }>>([]);
 	let provider = $state("");
-	let posture = $state<"plan" | "build">("plan");
+	// Plan · Ask · Auto · Allow, as in the session's own selector. The session starts on the
+	// plan or build agent; Auto and Allow set its permission word right after.
+	let posture = $state<"plan" | "ask" | "auto" | "allow">("plan");
+	const POSTURES = ["plan", "ask", "auto", "allow"] as const;
+	const LABELS = {
+		plan: () => m["code.agent_dialog.plan"](),
+		ask: () => m["code.agent_dialog.build"](),
+		auto: () => m["code.agent_dialog.auto"](),
+		allow: () => m["code.agent_dialog.allow"](),
+	};
+	const HINTS = {
+		plan: () => m["code.agent_dialog.plan_hint"](),
+		ask: () => m["code.agent_dialog.build_hint"](),
+		auto: () => m["code.agent_dialog.auto_hint"](),
+		allow: () => m["code.agent_dialog.allow_hint"](),
+	};
 	let title = $state("");
 	let busy = $state(true);
 	let failure = $state<string | null>(null);
@@ -90,10 +106,20 @@
 		try {
 			const created = await createAgent(deviceId, {
 				provider,
-				posture,
+				posture: posture === "plan" ? "plan" : "build",
 				...(title.trim() ? { title: title.trim() } : {}),
 				workspaceId: workspace.id,
 			});
+			if (posture === "auto" || posture === "allow") {
+				try {
+					await setPermissionMode(deviceId, created.agent.id, stepToWire(posture, undefined).mode, {
+						auto: posture === "auto",
+					});
+				} catch {
+					// The session exists and starts on Ask, the safe word; the selector
+					// inside it shows what it is and can change it.
+				}
+			}
 			oncreated(created.agent);
 			onclose();
 		} catch (err) {
@@ -186,29 +212,20 @@
 			/>
 
 			<span class="{s.LABEL} mt-4">{m["code.agent_dialog.posture"]()}</span>
-			<div class="flex flex-wrap gap-2">
-				<button
-					type="button"
-					class={posture === "plan" ? s.PRIMARY : s.SECONDARY}
-					onclick={() => (posture = "plan")}
-					disabled={busy}
-				>
-					{m["code.agent_dialog.plan"]()}
-				</button>
-				<button
-					type="button"
-					class={posture === "build" ? s.PRIMARY : s.SECONDARY}
-					onclick={() => (posture = "build")}
-					disabled={busy}
-				>
-					{m["code.agent_dialog.build"]()}
-				</button>
+			<div class="flex flex-wrap gap-2" role="group" aria-label={m["code.agent_dialog.posture"]()}>
+				{#each POSTURES as step (step)}
+					<button
+						type="button"
+						class={posture === step ? s.PRIMARY : s.SECONDARY}
+						aria-pressed={posture === step}
+						onclick={() => (posture = step)}
+						disabled={busy}
+					>
+						{LABELS[step]()}
+					</button>
+				{/each}
 			</div>
-			<p class={s.HINT}>
-				{posture === "plan"
-					? m["code.agent_dialog.plan_hint"]()
-					: m["code.agent_dialog.build_hint"]()}
-			</p>
+			<p class={s.HINT}>{HINTS[posture]()}</p>
 
 			<!-- flex-wrap, not fixed widths: side-by-side whenever both buttons
 			     fit (they do from ~264px viewports up with the reduced

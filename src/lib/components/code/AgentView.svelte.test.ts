@@ -235,8 +235,11 @@ describe("AgentView Tasks pane", () => {
 		const screen = mount();
 		await arrive([ACTIVE]);
 		await expect.element(screen.getByRole("button", { name: "Tasks 0/2" })).toBeVisible();
-		// The label is folded away here; the count stays visible.
-		await expect.element(screen.getByTestId("pill-badge")).toHaveTextContent("0/2");
+		// The word stays on a phone, with its count: no unlabelled icon row.
+		await expect
+			.element(screen.getByRole("button", { name: "Tasks 0/2" }))
+			.toHaveTextContent("Tasks 0/2");
+		await expect.element(screen.getByRole("button", { name: "Changes" })).toBeVisible();
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(sidePane.open).toBe(false);
 	});

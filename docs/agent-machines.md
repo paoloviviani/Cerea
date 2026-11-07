@@ -17,6 +17,8 @@ you run the deployment, [The `/code` panel](code-panel.md) is the page for that.
 
 ## Pair a computer in three steps
 
+![The Pair a computer dialog with the command to run on the computer.](assets/screenshots/agents-pair-dialog.webp)
+
 The commands on this page use three variables for your deployment's addresses:
 
 ```sh
@@ -55,6 +57,11 @@ settings mean and how to update galopin; the dialog's options and everything els
 are in the [reference](agent-machines-reference.md).
 
 ## The panel
+
+![An agent session waiting for you: an edit approval card, the Plan, Ask, Auto and Allow selector and the pane buttons.](assets/screenshots/agents-session-waiting.webp#only-light)
+![An agent session waiting for you: an edit approval card, the Plan, Ask, Auto and Allow selector and the pane buttons.](assets/screenshots/agents-session-waiting-dark.webp#only-dark)
+
+![The Agents panel on a phone.](assets/screenshots/agents-phone.webp)
 
 **Chats | Agents**, at the top of the sidebar under the logo, switches it between
 the two, and the button below it follows: **New session** asks for the

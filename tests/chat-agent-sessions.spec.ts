@@ -161,7 +161,12 @@ test.describe("chat drives agent sessions: real machine", () => {
 		};
 		const approve = async (toolName: string) => {
 			const last = assistant(page).last();
-			await expect(last.getByText(`wants to call ${toolName}`)).toBeVisible({ timeout: 60_000 });
+			await expect(last.getByRole("button", { name: "Allow once" })).toBeVisible({
+				timeout: 60_000,
+			});
+			// The tool's name sits behind "Show details" now.
+			await last.getByRole("button", { name: "Show details" }).click();
+			await expect(last.getByText(`wants to call ${toolName}`)).toBeVisible();
 			await last.getByRole("button", { name: "Allow once" }).click();
 		};
 
@@ -195,7 +200,11 @@ test.describe("chat drives agent sessions: real machine", () => {
 		);
 		// The approval card comes first, and nothing exists on the machine until it is allowed.
 		const turnTwo = assistant(page).last();
-		await expect(turnTwo.getByText("wants to call agent_start")).toBeVisible({ timeout: 60_000 });
+		await expect(turnTwo.getByRole("button", { name: "Allow once" })).toBeVisible({
+			timeout: 60_000,
+		});
+		await turnTwo.getByRole("button", { name: "Show details" }).click();
+		await expect(turnTwo.getByText("wants to call agent_start")).toBeVisible();
 		expect(await agents()).toHaveLength(0);
 		await turnTwo.getByRole("button", { name: "Allow once" }).click();
 		await expect(turnTwo).toContainText("Started the session.", { timeout: 60_000 });

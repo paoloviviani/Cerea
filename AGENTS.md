@@ -111,6 +111,21 @@ must have been built with the same `APP_BASE`; on a small machine, build once
 (`npm run build`) and then run the tests with `E2E_SKIP_BUILD=1`, so the build
 and the browsers do not compete for memory.
 
+**Pull requests run the whole suite too.** `ci.yml` runs `e2e-full` (4 shards
+on 4 runners, merged into one report and one `e2e-full` result) on a PR that
+touches `src/`, `messages/`, `tests/`, `agent/`, `static/`, `playwright.config.ts`,
+`package*.json` or the workflow itself; a docs-only or changelog-only PR keeps
+only the smoke run. Nightly and `-f full=true` dispatches run it as before.
+Sharding splits spec files (workers stay 1 inside a shard), so a spec must not
+rely on state left by another spec. Before opening a UI PR, run
+`scripts/e2e-affected.sh`: it maps `git diff origin/main...HEAD` (and the
+working tree) to the specs likely to be affected, by feature words in the
+changed file's name and path, plus any spec you changed, and runs them under
+`flock /tmp/heavy.lock` (`LOCK_FILE=/tmp/heavy.lock.a` picks another slot,
+`E2E_SKIP_BUILD=1` reuses `build/`, `--base REF` changes the diff base).
+`scripts/e2e-affected.sh --list` only prints the specs. It is a heuristic: CI's
+`e2e-full` is the gate.
+
 ## Verifying a change
 
 The rules every change follows before it merges, and how a release is proven.

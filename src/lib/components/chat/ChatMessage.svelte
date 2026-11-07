@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { THINK_CLOSE, THINK_OPEN, thinkBlockWholePattern } from "$lib/utils/thinkTags";
+	import {
+		THINK_CLOSE,
+		THINK_OPEN,
+		thinkBlockPattern,
+		thinkBlockWholePattern,
+	} from "$lib/utils/thinkTags";
 	import { m } from "$lib/paraglide/messages";
 	import type { Message } from "$lib/types/Message";
 	import { ToolResultStatus } from "$lib/types/Tool";
@@ -468,7 +473,9 @@
 	// "Used 1 tool" pill with copy/retry icons beside it only made the chat look
 	// broken, so the message stays out of the thread until the answer arrives.
 	let pendingAskOnly = $derived.by(() => {
-		if (!isLast || message.content?.trim()) return false;
+		// Reasoning is not an answer: a turn that only thought aloud before asking
+		// still has nothing to show beside the card.
+		if (!isLast || message.content?.replace(thinkBlockPattern("g"), "").trim()) return false;
 		const updates = message.updates ?? [];
 		const calls = updates.filter(isMessageToolCallUpdate);
 		const asks = calls.filter((u) => u.call.name === "ask_user_question");
@@ -977,7 +984,19 @@
 </script>
 
 {#if message.from === "assistant" && pendingAskOnly}
-	<!-- Held back while the question card is open: see pendingAskOnly. -->
+	<!-- Held back while the question card is open: see pendingAskOnly. The form
+	     itself stays mounted (it draws nothing while the composer shows the card)
+	     because it is what registers the question the composer draws. -->
+	{#each blocks as block, i (i)}
+		{#if block.type === "elicitation"}
+			<ElicitationForm
+				conversationId={convId}
+				request={block.request}
+				expiresAt={block.expiresAt}
+				resolved={block.resolved}
+			/>
+		{/if}
+	{/each}
 {:else if message.from === "assistant"}
 	<div
 		bind:offsetWidth={messageWidth}

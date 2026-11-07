@@ -574,6 +574,24 @@ describe("a turn that is only a pending question", () => {
 		expect(baseElement.querySelector('[data-message-role="assistant"]')).toBeNull();
 	});
 
+	it("still registers its question for the composer's card while held back", async () => {
+		const { get } = await import("svelte/store");
+		const { pendingQuestions } = await import("$lib/stores/pendingQuestion");
+		const { baseElement } = mount([call("u1"), answeredQuestion[0]]);
+		expect(baseElement.querySelector('[data-message-role="assistant"]')).toBeNull();
+		await vi.waitFor(() =>
+			expect(get(pendingQuestions).map((q) => q.request.elicitationId)).toContain("e1")
+		);
+	});
+
+	it("stays out of the thread when it only thought aloud before asking", () => {
+		const { baseElement } = mount(
+			[call("u1")],
+			"<think>We need to ask the user a question.</think>"
+		);
+		expect(baseElement.querySelector('[data-message-role="assistant"]')).toBeNull();
+	});
+
 	it("comes back once the question is answered", () => {
 		const { baseElement } = mount([call("u1"), result("u1")]);
 		expect(baseElement.querySelector('[data-message-role="assistant"]')).not.toBeNull();

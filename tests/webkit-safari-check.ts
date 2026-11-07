@@ -1,5 +1,5 @@
 /**
- * A real-WebKit check for the "New agent" dialog, run outside `playwright test`
+ * A real-WebKit check for the "New session" dialog, run outside `playwright test`
  * because this host has no local WebKit binary — only a remote Playwright
  * server container reachable at `WEBKIT_WS` speaks the real engine.
  *
@@ -177,7 +177,7 @@ async function runViewport(context: BrowserContext, name: string, width: number,
 	const dialogBefore = await openAgentDialog(page);
 	await page.screenshot({ path: `test-results/webkit-safari-${width}-before.png` });
 	await dialogBefore.getByLabel("Title (optional)").fill("Refactor the login flow");
-	await dialogBefore.getByRole("button", { name: "Create agent" }).click();
+	await dialogBefore.getByRole("button", { name: "Start session" }).click();
 	await page.waitForTimeout(500); // let the busy state settle
 	await page.screenshot({ path: `test-results/webkit-safari-${width}-busy.png` });
 
@@ -205,7 +205,7 @@ async function runViewport(context: BrowserContext, name: string, width: number,
 	await page2.setViewportSize({ width, height });
 	await stubCodePanel(page2, { createBehavior: "fail" });
 	const dialogFail = await openAgentDialog(page2);
-	await dialogFail.getByRole("button", { name: "Create agent" }).click();
+	await dialogFail.getByRole("button", { name: "Start session" }).click();
 	await dialogFail.getByText("Could not create the agent").waitFor({ state: "visible" });
 	await page2.screenshot({ path: `test-results/webkit-safari-${width}-after-fail.png` });
 
@@ -217,7 +217,7 @@ async function runViewport(context: BrowserContext, name: string, width: number,
 	await check(`${name}: footer buttons inside the viewport after a failed create`, async () => {
 		const cancel = await boxOf(dialogFail, "Cancel");
 		assertInsideViewport("Cancel", cancel, width, height);
-		const create = await boxOf(dialogFail, "Create agent");
+		const create = await boxOf(dialogFail, "Start session");
 		assertInsideViewport("Create agent button", create, width, height);
 		// Side by side, not stacked past a wrap that pushes one off-canvas.
 		assert.ok(Math.abs(cancel.y - create.y) < 4 || create.x < width, "footer buttons misplaced");

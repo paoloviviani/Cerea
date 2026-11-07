@@ -61,6 +61,8 @@ keep the click-to-preview and the download.
 
 ## The Artifacts panel
 
+![A table artifact open in the side panel next to the chat.](assets/screenshots/chat-artifact-table.webp)
+
 The chat's menu opens the **Artifacts** panel in the same side pane the
 previews use, so the list sits beside the chat instead of replacing it. It lists
 everything this chat produced, in the order it appeared: the text

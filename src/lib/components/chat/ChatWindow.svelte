@@ -808,7 +808,12 @@
 				<!-- A fixed row, outside the scroller: the way back (and, from md up, the
 				     chat's own title, which the phone shows in its top bar) stays in view
 				     at any scroll. -->
-				<div class="pointer-events-auto z-10 h-8 shrink-0 md:h-14 {crumb ? '' : 'max-md:hidden'}">
+				<!-- pointer-events-none: the row spans the column, and the files button sits at its
+				     right edge (same z-index, later in the tree): only the link and the title take clicks. -->
+				<div
+					data-testid="chat-header-row"
+					class="pointer-events-none z-10 h-8 shrink-0 md:h-14 {crumb ? '' : 'max-md:hidden'}"
+				>
 					<div
 						class="mx-auto flex h-full max-w-3xl items-center gap-2 px-3 sm:px-5 md:pt-4 md:pr-16 xl:max-w-4xl"
 					>
@@ -817,7 +822,7 @@
 								href="{base}/projects/{projectId}"
 								data-testid="project-back"
 								aria-label={m["chat.project.back_label"]({ name: projectName ?? "" })}
-								class="flex w-fit max-w-[40%] shrink-0 items-center gap-1 text-xs text-ink-muted no-underline hover:text-ink"
+								class="pointer-events-auto flex w-fit max-w-[40%] shrink-0 items-center gap-1 text-xs text-ink-muted no-underline hover:text-ink"
 							>
 								<IconArrowLeft class="size-3 shrink-0" />
 								<span class="truncate">{projectName}</span>
@@ -826,7 +831,7 @@
 						{#if shownTitle}
 							<span
 								data-testid="chat-header-title"
-								class="min-w-0 truncate text-sm font-medium text-ink max-md:hidden"
+								class="pointer-events-auto min-w-0 truncate text-sm font-medium text-ink max-md:hidden"
 							>
 								{#if crumb}<span class="mr-2 text-ink-faint">·</span>{/if}{conversationTitle}
 							</span>
