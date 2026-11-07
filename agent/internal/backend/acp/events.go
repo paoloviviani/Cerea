@@ -357,3 +357,28 @@ func (b *Backend) handleModeUpdate(st *sessionState, upd map[string]any) {
 		}()
 	}
 }
+
+// RecordUsage sets a session's latest usage and tells subscribers, the same
+// event opencode's backend emits after each assistant step. It is how the
+// caller supplies what the agent does not report over ACP (Config.Usage).
+func (b *Backend) RecordUsage(sessionID string, u backend.Usage) {
+	st, ok := b.reg.get(sessionID)
+	if !ok {
+		return
+	}
+	st.mu.Lock()
+	st.usage = &u
+	workspaceDir := st.workspaceDir
+	st.mu.Unlock()
+	b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventUsage, Usage: &u})
+}
+
+// Compact compacts the session's context by running the agent's own compaction
+// command as a prompt (Config.CompactCommand). The agent answers in the
+// transcript, like any turn.
+func (b *Backend) Compact(ctx context.Context, workspaceDir, sessionID string) error {
+	if b.cfg.CompactCommand == "" {
+		return fmt.Errorf("acp: this agent has no compaction command")
+	}
+	return b.Prompt(ctx, workspaceDir, sessionID, backend.Prompt{Text: b.cfg.CompactCommand})
+}

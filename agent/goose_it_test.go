@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"galopin/internal/backend"
+	backendacp "galopin/internal/backend/acp"
 	"galopin/internal/localmcp"
 	"galopin/internal/mcpserve"
 	"galopin/internal/mockllm"
@@ -36,7 +37,12 @@ type gooseRig struct {
 	mockURL string
 }
 
-func newGooseRig(t *testing.T) *gooseRig {
+func newGooseRig(t *testing.T) *gooseRig { return newGooseRigVia(t, nil) }
+
+// newGooseRigVia is newGooseRig with goose's provider pointed at a real galopin
+// shim in front of the mock (the path a real machine uses), returned through
+// *via, so usage read off the proxy can be seen.
+func newGooseRigVia(t *testing.T, via **shim) *gooseRig {
 	t.Helper()
 	if os.Getenv("GALOPIN_GOOSE_IT") == "" {
 		t.Skip("set GALOPIN_GOOSE_IT=1 (and have goose on PATH) to run the goose engine tests")
@@ -58,6 +64,25 @@ func newGooseRig(t *testing.T) *gooseRig {
 	stateDir := t.TempDir()
 	credsPath := filepath.Join(stateDir, "credentials.json")
 	creds := &credentials{ShimPort: port, ShimSecret: "it-secret"}
+	var proxy *shim
+	if via != nil {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		shimPort := ln.Addr().(*net.TCPAddr).Port
+		gwCreds := &credentials{Gateway: mock.URL + "/v1", AccessToken: "tok", RefreshToken: "r", ExpiresIn: 3600,
+			ObtainedAt: time.Now().Unix(), ShimPort: shimPort, ShimSecret: "it-secret"}
+		if err := saveCredentials(credsPath, gwCreds); err != nil {
+			t.Fatal(err)
+		}
+		proxy = newShim(gwCreds, credsPath, statusPathFor(credsPath), shimPort)
+		srv := &httptest.Server{Listener: ln, Config: &http.Server{Handler: http.HandlerFunc(proxy.requireLocalAuth(proxy.handler))}}
+		srv.Start()
+		t.Cleanup(srv.Close)
+		creds = gwCreds
+		*via = proxy
+	}
 	if err := writeGooseEngineConfig(gooseRootFor(credsPath), creds, []gatewayModel{{ID: "mock-model"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +93,9 @@ func newGooseRig(t *testing.T) *gooseRig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = b.Stop() })
+	if proxy != nil {
+		proxy.setUsageSink(gooseUsageSink(b.(*backendacp.Backend), gooseProviderPath(filepath.Join(gooseRootFor(credsPath), "config"))))
+	}
 	events, err := b.Subscribe(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -366,5 +394,84 @@ func TestGooseSessionsGetGalopinsMCPEndpoint(t *testing.T) {
 	}
 	if len(asks) == 0 {
 		t.Error("goose called an MCP tool without asking: approve mode must ask for every tool")
+	}
+}
+
+// Usage is derived from galopin's proxy: goose reports none over ACP, but the
+// session gets a usage event after a turn, with the model's context window from
+// the provider file the catalogue wrote.
+func TestGooseEngineUsageComesFromTheProxy(t *testing.T) {
+	var proxy *shim
+	r := newGooseRigVia(t, &proxy)
+	ctx := context.Background()
+	if !r.b.Capabilities().Usage {
+		t.Fatal("the goose backend does not advertise usage")
+	}
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "usage"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy.setSessionTag(func(string) string { return sess.ID })
+	if err := r.b.Prompt(ctx, r.work, sess.ID, backend.Prompt{Text: "say hello"}); err != nil {
+		t.Fatal(err)
+	}
+	var got *backend.Usage
+	deadline := time.After(2 * time.Minute)
+	for got == nil {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID == sess.ID && ev.Event.Kind == backend.EventUsage {
+				got = ev.Event.Usage
+			}
+		case <-deadline:
+			t.Fatal("no usage event for the turn")
+		}
+	}
+	if got.Input != 80 || got.CacheRead != 40 || got.Output != 7 || got.ContextUsed != 127 {
+		t.Errorf("usage = %+v, want input 80, cache 40, output 7, context 127", got)
+	}
+	if got.ContextMax == nil || *got.ContextMax <= 0 {
+		t.Errorf("no context window: %+v", got)
+	}
+}
+
+// Compaction over ACP: goose's own /compact, run as a prompt through the
+// Compactor the backend offers.
+func TestGooseEngineCompacts(t *testing.T) {
+	r := newGooseRig(t)
+	ctx := context.Background()
+	if !r.b.Capabilities().Compact {
+		t.Fatal("the goose backend does not advertise compact")
+	}
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "compact"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.turn(sess.ID, "say hello", backend.DecisionOnce)
+	if err := r.b.(backend.Compactor).Compact(ctx, r.work, sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(time.Minute)
+	for {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID == sess.ID && ev.Event.Kind == backend.EventStatus && ev.Event.Status == backend.StatusIdle {
+				tr, err := r.b.Transcript(ctx, r.work, sess.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				last := tr.Messages[len(tr.Messages)-1]
+				var text string
+				for _, p := range last.Parts {
+					text += p.Text
+				}
+				if !strings.Contains(strings.ToLower(text), "compaction") {
+					t.Errorf("last message after compact = %q", text)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("compaction did not finish")
+		}
 	}
 }

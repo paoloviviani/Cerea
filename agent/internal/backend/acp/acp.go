@@ -62,6 +62,14 @@ type Config struct {
 	HiddenModes []string
 	// ForceMode is the mode a session is put back in (see HiddenModes).
 	ForceMode string
+	// Usage says the caller feeds token usage in with RecordUsage (goose reports
+	// none over ACP; galopin reads it off its own provider proxy). It turns the
+	// usage capability on.
+	Usage bool
+	// CompactCommand, when set, is the slash command that compacts a session's
+	// context (goose: "/compact", sent as an ordinary prompt). It turns the
+	// compact capability on.
+	CompactCommand string
 	// Logf receives lifecycle-only messages: started, ready, restarting,
 	// exited (R6 — never frame or response bodies, which may carry a
 	// user's prompt text).
@@ -187,7 +195,7 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	// session/request_permission asks go through the same decision function as
 	// opencode's (permissions.go), so the Plan/Ask/Allow selector works here too.
 	return backend.Capabilities{
-		Diff: true, Children: false, Usage: false, Compact: false, Permissions: true,
+		Diff: true, Children: false, Usage: b.cfg.Usage, Compact: b.cfg.CompactCommand != "", Permissions: true,
 		Images: images, Files: false, Worktrees: false,
 		Questions: false,
 		// Commands: always — the agent's available_commands_update carries

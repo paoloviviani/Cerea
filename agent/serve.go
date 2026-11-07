@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -62,6 +64,9 @@ type shim struct {
 	// sessionTag, if set, names the coding-agent session a forwarded request
 	// belongs to (see setSessionTag). Guarded by s.mu.
 	sessionTag func(engineSessionID string) string
+	// usageSink, if set, receives each chat-completion's token usage (see
+	// setUsageSink in shimusage.go). Guarded by s.mu.
+	usageSink func(sessionID string, u usageSample)
 }
 
 func newShim(creds *credentials, credsPath, statusPath string, port int) *shim {
@@ -544,10 +549,32 @@ func (s *shim) handler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
-	outbound, err := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
+	// Usage: when a sink is set and this is a chat completion, the body is read
+	// (bounded) so a streamed call can ask the gateway for its usage.
+	sink := s.usageSinkFn()
+	var ur *usageRequest
+	var reqBody io.Reader = r.Body
+	if sink != nil && r.Method == http.MethodPost && isChatCompletions(r.URL.Path) {
+		raw, rerr := io.ReadAll(io.LimitReader(r.Body, maxUsageRequestBody+1))
+		if rerr != nil {
+			http.Error(w, "reading the request: "+rerr.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(raw) > maxUsageRequestBody {
+			reqBody = io.MultiReader(bytes.NewReader(raw), r.Body)
+		} else {
+			p := prepareUsageRequest(raw)
+			ur = &p
+			reqBody = bytes.NewReader(p.body)
+		}
+	}
+	outbound, err := http.NewRequestWithContext(r.Context(), r.Method, target, reqBody)
 	if err != nil {
 		http.Error(w, "building the upstream request: "+err.Error(), http.StatusBadGateway)
 		return
+	}
+	if ur != nil {
+		outbound.ContentLength = int64(len(ur.body))
 	}
 	for name, values := range r.Header {
 		canonical := http.CanonicalHeaderKey(name)
@@ -562,6 +589,10 @@ func (s *shim) handler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	outbound.Header.Set("Authorization", "Bearer "+accessToken)
+	if ur != nil {
+		// Read the response as plain bytes: the transport asks for gzip itself and undoes it.
+		outbound.Header.Del("Accept-Encoding")
+	}
 	// An OIDC-token caller names its billing group per request (ADR 0061);
 	// a key could not, which is why enrollment mints a token, not a key.
 	// No pinned group (follow-default mode, or an old file that never
@@ -576,7 +607,8 @@ func (s *shim) handler(w http.ResponseWriter, r *http.Request) {
 
 	// The coding-agent session this call belongs to, for the gateway's usage
 	// rows. Printable ASCII only: Pystino drops anything else.
-	if tag := s.tagFor(r.Header); tag != "" {
+	tag := s.tagFor(r.Header)
+	if tag != "" {
 		outbound.Header.Set(tagHeader, tag)
 	}
 
@@ -596,6 +628,28 @@ func (s *shim) handler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
+
+	if ur != nil && resp.StatusCode == http.StatusOK {
+		report := func(u usageSample, model string) {
+			if tag == "" {
+				return
+			}
+			if u.Model = ur.model; u.Model == "" {
+				u.Model = model
+			}
+			sink(tag, u)
+		}
+		if ur.stream {
+			copyUsageStream(w, resp.Body, ur.injected, report)
+			return
+		}
+		kept := &cappedBuffer{limit: maxUsageResponseBody}
+		_, _ = io.Copy(w, io.TeeReader(resp.Body, kept))
+		if u, model, ok := usageFromBody(kept.buf.Bytes()); ok && !kept.over {
+			report(u, model)
+		}
+		return
+	}
 
 	flusher, _ := w.(http.Flusher)
 	buffer := make([]byte, 32*1024)

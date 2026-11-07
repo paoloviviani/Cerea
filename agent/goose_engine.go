@@ -347,6 +347,8 @@ func startGooseBackend(ctx context.Context, opts *runOptions, credsPath, stateDi
 		Tools:          pol.AgentToolsAllowed(),
 		Protect:        protect,
 		SessionMeta:    map[string]any{"client": "galopin"},
+		Usage:          true,
+		CompactCommand: "/compact",
 		HiddenModes:    gooseHiddenModes,
 		ForceMode:      gooseModeApprove,
 		Logf:           func(format string, args ...any) { logf(format, args...) },

@@ -298,6 +298,9 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	mat := sessions.New(back, pol)
 	mat.UseLive(live)
 	sh.setSessionTag(sessionTagFunc(mat))
+	if ab, ok := back.(*backendacp.Backend); ok && opts.backendKind == backendGoose {
+		sh.setUsageSink(gooseUsageSink(ab, gooseProviderPath(filepath.Join(gooseRootFor(credsPath), "config"))))
+	}
 	if err := mat.Start(ctx); err != nil {
 		return fmt.Errorf("subscribing to %s: %w", back.ID(), err)
 	}
