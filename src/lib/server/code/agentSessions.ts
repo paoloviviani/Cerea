@@ -8,6 +8,7 @@
  * Also here: resolving a device the caller owns (any other id is refused as if it did not exist)
  * and the session-state words shared by the tools.
  */
+import { visiblePendingPermissions } from "$lib/server/review/wording";
 import { randomUUID } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
@@ -63,7 +64,7 @@ export async function workspaceNameOn(
 
 /** Why a session cannot take a prompt right now, or `null` when it can. */
 export function busyReason(session: Session): string | null {
-	if (session.pendingPermissions > 0) return "is waiting for an approval";
+	if (visiblePendingPermissions(session) > 0) return "is waiting for an approval";
 	if (session.status === "busy" || session.status === "retry") return "is still working";
 	return null;
 }
@@ -72,7 +73,7 @@ export function busyReason(session: Session): string | null {
 export type AgentSessionState = "idle" | "working" | "needs-you" | "error" | "offline";
 
 export function sessionState(session: Session, openQuestions = 0): AgentSessionState {
-	if (session.pendingPermissions > 0 || openQuestions > 0) return "needs-you";
+	if (visiblePendingPermissions(session) > 0 || openQuestions > 0) return "needs-you";
 	if (session.status === "busy" || session.status === "retry") return "working";
 	if (session.status === "error") return "error";
 	return "idle";

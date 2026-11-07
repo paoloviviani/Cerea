@@ -438,7 +438,7 @@ export function buildReactSrcdoc(code: string, channel: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<base target="_blank">${previewCspMeta(channel)}${previewHook}
+${previewCspMeta(channel)}<base target="_blank">${previewHook}
 <script src="https://cdn.tailwindcss.com">${END_SCRIPT_TAG}
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js">${END_SCRIPT_TAG}
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js">${END_SCRIPT_TAG}
@@ -497,7 +497,7 @@ export function buildMermaidSrcdoc(code: string, channel: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<base target="_blank">${previewCspMeta(channel)}${previewHook}
+${previewCspMeta(channel)}<base target="_blank">${previewHook}
 <style>
 html, body { margin: 0; min-height: 100%; background: #fff; }
 #artifact-root { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; box-sizing: border-box; }

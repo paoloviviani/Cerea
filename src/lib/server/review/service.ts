@@ -405,8 +405,36 @@ async function lateAnswer(ctx: Ctx, probability: number | null): Promise<void> {
 	});
 }
 
+/**
+ * The mode was read once, before the judging: the user may have left Auto since. Read again right
+ * before an allow goes out; anything but Auto (or an unreadable session) is the user's to answer.
+ */
+async function stillAuto(ctx: Ctx): Promise<boolean> {
+	try {
+		const { session } = await ctx.link.sessionGet({
+			sessionId: ctx.request.sessionId || ctx.envelope.sessionId,
+		});
+		return session.permissionMode === "ask" && !!session.autoClasses;
+	} catch {
+		return false;
+	}
+}
+
+async function leftAuto(ctx: Ctx, probability: number | null, send: (note?: string) => void) {
+	await record(ctx, {
+		outcome: "escalated",
+		probability,
+		reason: "the session left Auto while the reviewer judged: left to you",
+		applied: false,
+	});
+	send();
+}
+
 async function allow(ctx: Ctx, p: number, send: (note?: string) => void): Promise<void> {
 	const { request, settings } = ctx;
+	if (ctx.handedOver()) return lateAnswer(ctx, p);
+	if (!(await stillAuto(ctx)))
+		return ctx.handedOver() ? lateAnswer(ctx, p) : leftAuto(ctx, p, send);
 	if (ctx.handedOver()) return lateAnswer(ctx, p);
 	const model = settings.decisionModelId ?? "";
 	// The note is in place before the machine's `permission.replied` reaches the card.
@@ -439,6 +467,9 @@ async function allow(ctx: Ctx, p: number, send: (note?: string) => void): Promis
 /** A plain read (ADR 0107 amendment): allowed once by rule. No model call, no rate-cap use. */
 async function allowReadOnly(ctx: Ctx, send: (note?: string) => void): Promise<void> {
 	const { request } = ctx;
+	if (ctx.handedOver()) return lateAnswer(ctx, null);
+	if (!(await stillAuto(ctx)))
+		return ctx.handedOver() ? lateAnswer(ctx, null) : leftAuto(ctx, null, send);
 	if (ctx.handedOver()) return lateAnswer(ctx, null);
 	const reason = "a plain read inside the workspace";
 	setReviewNote(request.id, { text: readOnlyNote(), allowed: true });

@@ -7,7 +7,7 @@
  * things a person names; the Postgres chunks carry only what a ranking query
  * reads.
  */
-import { sharingEmail } from "$lib/server/identity/sharingEmail";
+import { sharingEmailFor } from "$lib/server/identity/sharingEmail";
 import { createHash, randomUUID } from "node:crypto";
 import { ObjectId } from "bson";
 
@@ -138,8 +138,9 @@ export async function callerFrom(locals: App.Locals): Promise<Caller> {
 	return {
 		userId: locals.user._id,
 		email:
-			sharingEmail(locals.user) ??
-			(locals.user.emailVerified === false ? null : identity?.email) ??
+			(await sharingEmailFor(locals.user)) ??
+			// the gateway's address only stands in when the row has none of its own
+			(locals.user.email ? null : identity?.email) ??
 			null,
 		groups: identity?.groups ?? [],
 		isAdmin: identity?.isAdmin === true,

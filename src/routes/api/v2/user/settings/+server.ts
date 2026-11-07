@@ -1,4 +1,5 @@
 import type { RequestHandler } from "@sveltejs/kit";
+import { guardAnonymousSettingsRow } from "$lib/server/anonymousSettings";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
@@ -129,7 +130,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 	});
 };
 
-export const POST: RequestHandler = async ({ locals, request }) => {
+export const POST: RequestHandler = async ({ locals, request, getClientAddress }) => {
 	requireAuth(locals);
 	const body: unknown = await request.json().catch(() => undefined);
 	if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -154,6 +155,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		streamingMode,
 	} satisfies SettingsEditable;
 
+	await guardAnonymousSettingsRow(locals, getClientAddress());
 	await collections.settings.updateOne(
 		authCondition(locals),
 		{

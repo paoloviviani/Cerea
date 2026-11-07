@@ -3,6 +3,7 @@ import { z } from "zod";
 import { locationSettingsFields } from "$lib/utils/location";
 import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
 import { localeFields, localePatch } from "$lib/server/localeSettings";
+import { guardAnonymousSettingsRow } from "$lib/server/anonymousSettings";
 import { authCondition, loginEnabled } from "$lib/server/auth";
 import { GLOBAL_SYSTEM_PROMPT_MAX } from "$lib/types/CustomModel";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
@@ -12,7 +13,6 @@ import { error, type RequestHandler } from "@sveltejs/kit";
 /** Settings are a handful of flags per model; nothing legitimate comes near these. */
 const SETTINGS_MAX_BODY_BYTES = 64 * 1024;
 const SETTINGS_RECORD_MAX_KEYS = 500;
-const ANON_SETTINGS_MAX_ROWS = 10_000;
 
 function boundedRecord<V extends z.ZodTypeAny>(value: V) {
 	return z
@@ -62,23 +62,16 @@ const settingsSchema = z.object({
 	...localeFields,
 });
 
-export const POST: RequestHandler = async ({ request, locals }) => {
+export const POST: RequestHandler = async ({ request, locals, getClientAddress }) => {
 	// A settings row belongs to a signed-in user. Where sign-in is configured an
 	// anonymous write only mints orphan rows (audit M2), so it is refused. Where
 	// it is not (anonymous deployments) the row is keyed by the session cookie,
 	// which a client can mint at will: an existing row may be updated freely, a
-	// new one only while the anonymous population is under a global cap (the
+	// new one only under the per-address and global caps (the
 	// TTL index in database.ts sweeps the rest).
 	if (!locals.user) {
 		if (loginEnabled || !locals.sessionId) error(401, "Sign in to save settings");
-		const mine = await collections.settings.countDocuments(authCondition(locals), { limit: 1 });
-		if (!mine) {
-			const anon = await collections.settings.countDocuments(
-				{ sessionId: { $exists: true } },
-				{ limit: ANON_SETTINGS_MAX_ROWS }
-			);
-			if (anon >= ANON_SETTINGS_MAX_ROWS) error(429, "Too many anonymous sessions");
-		}
+		await guardAnonymousSettingsRow(locals, getClientAddress());
 	}
 
 	const declared = Number(request.headers.get("content-length") ?? 0);

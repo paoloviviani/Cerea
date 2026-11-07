@@ -138,7 +138,7 @@ export function observeMachineEvent(
 				// The card is held too, not only the push: it is shown (and counted) when the reviewer
 				// escalates or gives up, never in the instant before it decides. Set here, before the
 				// watchers of this envelope run, so none can show it first.
-				holdAsk(id);
+				holdAsk(id, [event.request.sessionId, sessionId, envelope.rootSessionId]);
 				// Whatever goes wrong inside, the user is told: a held push must never be lost.
 				deps.review(userId, deviceId, envelope, push).catch((err) => {
 					logger.warn({ err: String(err) }, "review: failed, pushing");

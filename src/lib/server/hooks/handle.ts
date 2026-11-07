@@ -1,3 +1,4 @@
+import { touchAnonymousSettings } from "$lib/server/anonymousSettings";
 import { frameAncestorsPolicy } from "./frameAncestors";
 import type { Handle, RequestEvent } from "@sveltejs/kit";
 import { collections } from "$lib/server/database";
@@ -237,6 +238,11 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 			const auth = await authenticateRequest(event.cookies, event.url);
 
 			event.locals.sessionId = auth.sessionId;
+			// A visitor on a deployment with no sign-in keeps their settings row while they keep
+			// coming back (its TTL counts from `updatedAt`); best-effort, once a day.
+			if (!loginEnabled && !auth.user && event.cookies.get(config.COOKIE_NAME)) {
+				void touchAnonymousSettings(auth.sessionId).catch(() => undefined);
+			}
 
 			if (
 				loginEnabled &&

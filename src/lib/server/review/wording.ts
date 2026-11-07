@@ -62,18 +62,35 @@ export function reviewNoteFor(requestId: string): ReviewNote | undefined {
  * watchdog fired, the review failed or was not ours to do), and also when the reviewer allowed it
  * (the machine's reply then settles the line). Bounded like the notes.
  */
-const holds = new Set<string>();
+const holds = new Map<string, string[]>();
 const releaseListeners = new Set<(requestId: string) => void>();
 
-export function holdAsk(requestId: string): void {
+export function holdAsk(requestId: string, sessionIds: Array<string | undefined> = []): void {
 	holds.delete(requestId);
-	holds.add(requestId);
+	holds.set(
+		requestId,
+		sessionIds.filter((id): id is string => !!id)
+	);
 	if (holds.size > MAX_NOTES) {
-		for (const k of holds) {
+		// An evicted hold is released, not forgotten: open streams then show the card.
+		for (const k of [...holds.keys()]) {
 			if (holds.size <= MAX_NOTES / 2) break;
-			holds.delete(k);
+			releaseAsk(k);
 		}
 	}
+}
+/** How many held asks belong to this session (or hang under it as a subagent's). */
+export function heldCountFor(sessionId: string): number {
+	let n = 0;
+	for (const ids of holds.values()) if (ids.includes(sessionId)) n += 1;
+	return n;
+}
+/** The machine's pending-permission count less what the reviewer is still deciding: only the rest is the user's. */
+export function visiblePendingPermissions(session: {
+	id: string;
+	pendingPermissions: number;
+}): number {
+	return Math.max(0, session.pendingPermissions - heldCountFor(session.id));
 }
 export function isAskHeld(requestId: string): boolean {
 	return holds.has(requestId);

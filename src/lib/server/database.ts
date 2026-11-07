@@ -791,9 +791,11 @@ export class Database {
 		settings
 			.createIndex({ userId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e, "Error creating index for settings by userId"));
-		// Rows keyed by a bare sessionId belong to a visitor who never signed in
-		// (login moves the row to the user and unsets `sessionId`). Nothing writes
-		// them any more (audit M2); this sweeps what an earlier version let pile up.
+		// Rows keyed by a bare sessionId belong to a visitor who never signed in (login moves
+		// the row to the user and unsets `sessionId`). Where sign-in is configured nothing writes
+		// them any more (audit M2); on an anonymous deployment they are live settings, so
+		// `touchAnonymousSettings` refreshes `updatedAt` (daily) while the visitor returns, and
+		// only a row unused for 7 days is swept.
 		settings
 			.createIndex(
 				{ updatedAt: 1 },

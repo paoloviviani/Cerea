@@ -22,6 +22,7 @@
  *   sessions, not machines.
  */
 
+import { visiblePendingPermissions } from "$lib/server/review/wording";
 import { createHash, randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
@@ -239,7 +240,7 @@ function toSession(session: Session): CodeAgentSession {
 	let state: CodeTurnState;
 	switch (session.status) {
 		case "busy":
-			state = session.pendingPermissions > 0 ? "waiting-permission" : "running";
+			state = visiblePendingPermissions(session) > 0 ? "waiting-permission" : "running";
 			break;
 		case "retry":
 			state = "running";

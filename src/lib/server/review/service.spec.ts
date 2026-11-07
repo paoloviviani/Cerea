@@ -421,7 +421,65 @@ describe("dedup, watchdog, rate cap, health", () => {
 		expect(h.reply).not.toHaveBeenCalled();
 	});
 
+	it("an allow is not sent when the session left Auto while the reviewer judged (read again before the reply)", async () => {
+		const h = harness();
+		let release: (r: DecisionResult) => void = () => undefined;
+		h.state.result = () => new Promise((r) => (release = r));
+		const done = run(h, ask({ id: "mode_1" }));
+		await vi.waitFor(() => expect(h.call).toHaveBeenCalled());
+		h.state.mode = "allow"; // the user switched away from Auto
+		h.state.autoClasses = undefined;
+		release({ ok: true, probability: 0.99 });
+		await done;
+		expect(h.reply).not.toHaveBeenCalled();
+		expect(h.push).toHaveBeenCalledTimes(1);
+		const row = (h.log.mock.calls[0] as unknown as [{ outcome: string; reason: string }])[0];
+		expect(row.outcome).toBe("escalated");
+		expect(row.reason).toMatch(/left Auto/);
+	});
+
+	it("the same for a read-only rule answer", async () => {
+		const h = harness();
+		let calls = 0;
+		const base = h.deps.link;
+		h.deps.link = (id) => ({
+			...base(id),
+			sessionGet: async (a: { sessionId: string }) => {
+				calls += 1;
+				const r = await base(id).sessionGet(a);
+				return calls > 1
+					? { session: { ...r.session, permissionMode: "ask", autoClasses: undefined } }
+					: r;
+			},
+		});
+		await run(h, ask({ id: "mode_2", readOnly: true, patterns: ["ls"] }));
+		expect(h.reply).not.toHaveBeenCalled();
+		expect(h.push).toHaveBeenCalledTimes(1);
+	});
+
 	describe("holding the card while the reviewer decides", () => {
+		it("a held ask does not count as the session waiting for the user", async () => {
+			const { holdAsk, releaseAsk, visiblePendingPermissions } = await import("./wording");
+			holdAsk("sess_held", ["sesX"]);
+			expect(visiblePendingPermissions({ id: "sesX", pendingPermissions: 1 })).toBe(0);
+			expect(visiblePendingPermissions({ id: "sesX", pendingPermissions: 2 })).toBe(1);
+			expect(visiblePendingPermissions({ id: "other", pendingPermissions: 1 })).toBe(1);
+			releaseAsk("sess_held");
+			expect(visiblePendingPermissions({ id: "sesX", pendingPermissions: 1 })).toBe(1);
+		});
+
+		it("evicting a hold past the bound releases it (listeners are told)", async () => {
+			const { holdAsk, isAskHeld, onAskReleased, releaseAsk } = await import("./wording");
+			const released: string[] = [];
+			const off = onAskReleased((id) => released.push(id));
+			for (let i = 0; i < 2100; i++) holdAsk(`ev_${i}`);
+			off();
+			expect(released.length).toBeGreaterThan(0);
+			expect(released[0]).toBe("ev_0");
+			expect(isAskHeld("ev_0")).toBe(false);
+			for (let i = 0; i < 2100; i++) releaseAsk(`ev_${i}`);
+		});
+
 		it("is held until it allows, and released once the reply is sent", async () => {
 			const h = harness();
 			holdAsk("per_1");
