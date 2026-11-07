@@ -984,7 +984,19 @@
 </script>
 
 {#if message.from === "assistant" && pendingAskOnly}
-	<!-- Held back while the question card is open: see pendingAskOnly. -->
+	<!-- Held back while the question card is open: see pendingAskOnly. The form
+	     itself stays mounted (it draws nothing while the composer shows the card)
+	     because it is what registers the question the composer draws. -->
+	{#each blocks as block, i (i)}
+		{#if block.type === "elicitation"}
+			<ElicitationForm
+				conversationId={convId}
+				request={block.request}
+				expiresAt={block.expiresAt}
+				resolved={block.resolved}
+			/>
+		{/if}
+	{/each}
 {:else if message.from === "assistant"}
 	<div
 		bind:offsetWidth={messageWidth}
