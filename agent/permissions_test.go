@@ -327,8 +327,8 @@ func TestAlwaysUsesTheAsksAlwaysPatternsAndSkipsGalopinAsks(t *testing.T) {
 		}
 	}
 	ex := rb.Exceptions("s1")
-	if len(ex) != 1 || ex[0].Permission != "bash" || len(ex[0].Patterns) != 1 || ex[0].Patterns[0] != "git status *" {
-		t.Errorf("exceptions = %+v, want the one for git status *, none for the gp_ ask", ex)
+	if len(ex) != 1 || ex[0].Permission != "bash" || len(ex[0].Patterns) != 1 || ex[0].Patterns[0] != "git status --short" {
+		t.Errorf("exceptions = %+v, want the one for the exact git status --short, none for the gp_ ask", ex)
 	}
 	// The same "always" twice is one entry.
 	mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: "/x", SessionID: "s1", Event: backend.Event{
@@ -943,7 +943,8 @@ func TestOverbroadAlwaysIsNeverStoredPerClass(t *testing.T) {
 		want      []string // nil: nothing stored
 	}{
 		{"bash star falls back to the command", "bash", []string{"git status"}, []string{"*"}, []string{"git status"}},
-		{"bash keeps a specific prefix", "bash", []string{"go test ./..."}, []string{"go test *"}, []string{"go test *"}},
+		{"bash stores the exact command, not opencode's prefix", "bash", []string{"go test ./..."}, []string{"go test *"}, []string{"go test ./..."}},
+		{"bash stores each exact command of a chain", "bash", []string{"ls", "rm -rf build"}, []string{"ls *", "rm *"}, []string{"ls", "rm -rf build"}},
 		{"bash star command stores nothing", "bash", []string{"rm *"}, []string{"*"}, nil},
 		{"webfetch star falls back to the url", "webfetch", []string{"https://example.com/a"}, []string{"*"}, []string{"https://example.com/a"}},
 		{"external_directory keeps the directory", "external_directory", []string{"/opt/x/*"}, []string{"/opt/x/*"}, []string{"/opt/x/*"}},

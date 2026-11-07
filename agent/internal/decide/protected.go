@@ -77,6 +77,10 @@ func NewProtected(home, stateDir string, extraOwn ...string) Protected {
 			// the gateway's and the kit's conventional config homes
 			j(".config", "pystino"), j(".pystino"), j(".config", "cerea"), j(".cerea"),
 		)
+		// Local MCP servers' token caches and logs. A connector's OAuth tokens live in
+		// plain files in its own config home, so a session reading them could act as the
+		// user in that service; list the common ones here, in this one place.
+		add(&pr.SecretDirs, MCPSecretDirs(home)...)
 		// The user's own goose (ADR 0110): its config holds the local-endpoint bearer and
 		// the proxy secret 'galopin goose setup' writes, and a write there could set
 		// GOOSE_MODE: auto. Treated like galopin's own files, and as credential stores for reads.
@@ -104,6 +108,23 @@ func NewProtected(home, stateDir string, extraOwn ...string) Protected {
 	return pr
 }
 
+// MCPSecretDirs are the config homes of common local MCP servers that keep OAuth
+// token caches (and audit logs) in plain files: Softeria's ms-365-mcp-server
+// (`.token-cache.json`; the macOS Application Support form, and, on Windows,
+// %APPDATA%), and outlook-mcp. Reading them is a secrets ask and writing them is
+// protected. Add further servers here.
+func MCPSecretDirs(home string) []string {
+	j := func(e ...string) string { return filepath.Join(append([]string{home}, e...)...) }
+	dirs := []string{
+		j(".config", "ms-365-mcp-server"), j(".ms-365-mcp-server"), j(".outlook-mcp"),
+		j("Library", "Application Support", "ms-365-mcp-server"),
+	}
+	if ad := os.Getenv("APPDATA"); ad != "" {
+		dirs = append(dirs, filepath.Join(ad, "ms-365-mcp-server"))
+	}
+	return dirs
+}
+
 // withResolved returns dirs plus, for each, its form with symlinks resolved
 // (when it exists and differs).
 func withResolved(dirs []string) []string {
@@ -126,11 +147,20 @@ func (pr Protected) OwnHit(r Request) (string, bool) { return pr.hit(pr.OwnDirs,
 
 // SecretHit reports whether the request reaches a credential store.
 func (pr Protected) SecretHit(r Request) (string, bool) {
+	if r.Key == "bash" {
+		if why, ok := pr.bashUnknown(r); ok {
+			return why, true
+		}
+	}
 	if d, ok := pr.hit(pr.SecretDirs, r); ok {
 		return d, true
 	}
 	// /proc/<pid>/environ holds a process's environment: credentials in plain text
-	for _, pat := range r.Patterns {
+	pats := r.Patterns
+	if r.Key == "bash" {
+		pats = r.commandTexts()
+	}
+	for _, pat := range pats {
 		if procEnviron.MatchString(filepath.Clean(pat)) || (r.Key == "bash" && procEnvironText.MatchString(pat)) {
 			return "/proc/*/environ", true
 		}
@@ -183,19 +213,11 @@ func (pr Protected) abs(pat, workspace string) string {
 // the absolute, ~/ and $HOME/ spellings. It does not parse shell: an obfuscated
 // command passes, which is why a command stays behind its own limit.
 func (pr Protected) hit(dirs []string, r Request) (string, bool) {
+	if r.Key == "bash" {
+		return pr.bashHit(dirs, r)
+	}
 	for _, pat := range r.Patterns {
 		if strings.HasPrefix(pat, "mcp:") {
-			continue
-		}
-		if r.Key == "bash" {
-			text := pr.cmp(pat)
-			for _, d := range dirs {
-				for _, form := range pr.shellForms(d) {
-					if strings.Contains(text, pr.cmp(form)) {
-						return d, true
-					}
-				}
-			}
 			continue
 		}
 		abs := pr.abs(pat, r.Workspace)
@@ -209,6 +231,46 @@ func (pr Protected) hit(dirs []string, r Request) (string, bool) {
 					return d, true
 				}
 			}
+		}
+	}
+	return "", false
+}
+
+// bashHit is hit for a command: the raw text (absolute, ~/, $HOME/ and ${HOME}/
+// spellings as substrings, which catches what the parser cannot expand) and every
+// word the parser resolves to a path, against each directory a `cd` reaches.
+func (pr Protected) bashHit(dirs []string, r Request) (string, bool) {
+	for _, pat := range r.commandTexts() {
+		if strings.HasPrefix(pat, "mcp:") {
+			continue
+		}
+		text := pr.cmp(pat)
+		for _, d := range dirs {
+			for _, form := range pr.shellForms(d) {
+				if strings.Contains(text, pr.cmp(form)) {
+					return d, true
+				}
+			}
+		}
+	}
+	an := pr.analysis(r)
+	for _, p := range an.paths {
+		for _, d := range dirs {
+			if under(pr.cmp(d), pr.cmp(p)) {
+				return d, true
+			}
+		}
+	}
+	for _, g := range an.globs {
+		for _, d := range dirs {
+			if pr.globCouldReach(g, d) {
+				return d, true
+			}
+		}
+	}
+	for _, lit := range an.unknown {
+		if d, ok := pr.unknownReaches(lit, dirs); ok {
+			return d, true
 		}
 	}
 	return "", false

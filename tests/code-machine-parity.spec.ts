@@ -241,15 +241,14 @@ test.describe("owned machine agent: parity", () => {
 
 		// The Permissions dialog lists it, from the details button beside the
 		// selector, and Remove takes it away.
-		// The exception reads "bash echo *": opencode scopes a bash
-		// "always" to "<command> *", and galopin stores its patterns
-		// verbatim (probed live: "echo same" arrives as always ["echo *"],
-		// "git status" as ["git status *"]) — the panel shows what is in
-		// force, never a narrower promise.
+		// The exception reads "echo same": galopin stores the exact command of the
+		// ask, not opencode's proposed prefix ("echo *"), so a later "echo anything"
+		// still asks (audit L4).
 		await page.getByTestId("permission-details").click();
 		const item = page.getByTestId("permission-exception-item");
 		await expect(item).toHaveCount(1, { timeout: 30_000 });
-		await expect(item).toContainText("echo *");
+		await expect(item).toContainText("echo same");
+		await expect(item).not.toContainText("echo *");
 		await item.getByRole("button", { name: /Remove exception/ }).click();
 		await expect(page.getByTestId("permission-exception-item")).toHaveCount(0, { timeout: 30_000 });
 

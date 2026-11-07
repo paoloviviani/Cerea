@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { page as browserPage } from "@vitest/browser/context";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import PairDeviceDialog from "./PairDeviceDialog.svelte";
-import { OPENCODE_VERSION, buildEnrollCommand } from "$lib/codeEnrollCommand";
+import { buildEnrollCommand } from "$lib/codeEnrollCommand";
 import { ENROLL_FLAGS } from "$lib/enrollFlags";
 import { FLAG_CONTROLS, exposedFlags } from "$lib/codeEnrollPolicy";
 
@@ -181,12 +181,10 @@ describe("each control emits exactly its flag", () => {
 		expect(command(screen)).toBe(PLAIN);
 	});
 
-	it("Install opencode adds the install line, and is not a policy flag", async () => {
+	it("Install opencode has the served installer fetch the pinned release, and is not a policy flag", async () => {
 		const screen = mount();
 		await screen.getByTestId("enroll-install-opencode").click();
-		expect(command(screen)).toContain(
-			` &&\ncurl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION} &&\n`
-		);
+		expect(command(screen)).toContain("install.sh' | sh -s -- --with-opencode &&\n");
 		expect(policyPart(screen)).toBe("--default-group");
 	});
 
