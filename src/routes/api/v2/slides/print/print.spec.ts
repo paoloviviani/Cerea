@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { POST, PRINT_HEADERS } from "./+server";
+import { POST } from "./+server";
+import { PRINT_HEADERS } from "$lib/server/slides/printHeaders";
 
 function formRequest(fields: Record<string, string>): Request {
 	const form = new FormData();
