@@ -67,6 +67,19 @@ prints the local commands to run (install that release, the full suite, the
 TS spec). Review the opencode release notes too: the suite cannot see a new
 behaviour it does not test. Commit; the `pinned` job re-runs on the merge.
 
+## goose releases
+
+`galopin enroll --engine goose` runs goose (`goose acp`) instead of opencode
+(ADR 0110). The pinned release is `packaging/goose-version`, with archive
+checksums in `packaging/goose-sha256` (upstream publishes none).
+`.github/workflows/goose.yml` runs the goose suite (`GALOPIN_GOOSE_IT=1`, a fake
+OpenAI-compatible model, no secrets) on the pinned release for changes under
+`agent/` and weekly, and on goose's latest daily, keeping one issue ("breaks
+galopin" or "ready to bump the pin"). Bump with `packaging/bump-goose.sh
+<version>`. Locally: install that goose, then `GALOPIN_GOOSE_IT=1 go test -run
+Goose .`. `galopin goose setup` configures a user's own goose; see the
+agent-machines reference.
+
 ## Running
 
 ```
