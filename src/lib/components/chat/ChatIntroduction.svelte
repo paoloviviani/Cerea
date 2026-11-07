@@ -20,6 +20,8 @@
 		 * ("Help me plan ") that belongs in the composer for the user to finish.
 		 */
 		onstarter?: (text: string, send: boolean) => void;
+		/** Show the starter chips (an administrator's switch, off by default). */
+		showStarters?: boolean;
 		children?: import("svelte").Snippet;
 	}
 
@@ -27,6 +29,7 @@
 		currentModel: _currentModel,
 		onmessage,
 		firstName = "",
+		showStarters = false,
 		onstarter,
 		children,
 	}: Props = $props();
@@ -136,23 +139,25 @@
 	<p class="-mt-5 text-base text-ink-muted" data-testid="intro-subline">
 		{firstName ? m["chat.intro.subline_named"]({ name: firstName }) : m["chat.intro.subline"]()}
 	</p>
-	<ul
-		class="flex flex-wrap items-center justify-center gap-2"
-		aria-label={m["chat.intro.starters_label"]()}
-	>
-		{#each starters as starter (starter.id)}
-			<li>
-				<button
-					type="button"
-					data-testid="starter-{starter.id}"
-					class="rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-					onclick={() => onstarter?.(starter.prompt, starter.send)}
-				>
-					{starter.label}
-				</button>
-			</li>
-		{/each}
-	</ul>
+	{#if showStarters}
+		<ul
+			class="flex flex-wrap items-center justify-center gap-2"
+			aria-label={m["chat.intro.starters_label"]()}
+		>
+			{#each starters as starter (starter.id)}
+				<li>
+					<button
+						type="button"
+						data-testid="starter-{starter.id}"
+						class="rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+						onclick={() => onstarter?.(starter.prompt, starter.send)}
+					>
+						{starter.label}
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{/if}
 	{@render children?.()}
 	<!-- <div class="lg:col-span-1">
 		<div>

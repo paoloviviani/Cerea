@@ -25,6 +25,7 @@ import { schedulesEnabled } from "$lib/server/schedules/limits";
 import { fileRetentionDays } from "$lib/server/execution/deliverables";
 import { isGotenbergEnabled } from "$lib/server/office/gotenberg";
 import { resolveWebSearchFor } from "$lib/server/webSearch/config";
+import { starterSuggestionsEnabled } from "$lib/server/starterSuggestions";
 import { pseudoLocaleEnabled } from "$lib/server/localeSettings";
 import { baseLocale } from "$lib/i18n/resolve";
 import type { LayoutServerLoad } from "./$types";
@@ -54,6 +55,8 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		// Whether the pseudo-locale may be offered in the language selector.
 		pseudoLocaleEnabled: pseudoLocaleEnabled(),
 		webSearchAvailable,
+		// The empty chat shows its starter chips only when the administrator turned them on.
+		starterSuggestionsEnabled: starterSuggestionsEnabled(),
 		gatewayIsAdmin: identity?.isAdmin === true,
 		// Threaded the same way `gatewayIsAdmin` is (see +layout.ts): the
 		// sidebar's `/code` row reads it, and the route's guard re-checks it

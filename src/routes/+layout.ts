@@ -119,6 +119,7 @@ export const load = async ({ fetch, url, data }) => {
 		pseudoLocaleEnabled: data.pseudoLocaleEnabled,
 		gatewayIsAdmin: data.gatewayIsAdmin,
 		webSearchAvailable: data.webSearchAvailable,
+		starterSuggestionsEnabled: data.starterSuggestionsEnabled,
 		codeFilesEnabled: data.codeFilesEnabled,
 		codeFileWriteEnabled: data.codeFileWriteEnabled,
 		codeTerminalEnabled: data.codeTerminalEnabled,

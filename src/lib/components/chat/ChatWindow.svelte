@@ -795,6 +795,8 @@
 			<ChatIntroduction
 				{currentModel}
 				{firstName}
+				showStarters={(page.data as { starterSuggestionsEnabled?: boolean })
+					.starterSuggestionsEnabled === true}
 				onstarter={pickStarter}
 				onmessage={(content) => {
 					onmessage?.(content);

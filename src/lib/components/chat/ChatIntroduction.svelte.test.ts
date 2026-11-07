@@ -113,10 +113,16 @@ describe("ChatIntroduction", () => {
 		);
 	});
 
+	it("shows no starters unless the administrator switched them on", () => {
+		const screen = renderWithApp(ChatIntroduction, { currentModel: model });
+		expect(screen.getByTestId("starter-draft").elements()).toHaveLength(0);
+	});
+
 	it("offers four starters: three beginnings for the composer, one question to send", async () => {
 		const picked: Array<[string, boolean]> = [];
 		const screen = renderWithApp(ChatIntroduction, {
 			currentModel: model,
+			showStarters: true,
 			onstarter: (text: string, send: boolean) => picked.push([text, send]),
 		});
 		for (const id of ["draft", "analyse", "plan", "cerea"]) {
