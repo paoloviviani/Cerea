@@ -88,17 +88,47 @@ export const sameSite = z
 	)
 	.parse(config.COOKIE_SAMESITE === "" ? undefined : config.COOKIE_SAMESITE);
 
-export function sanitizeReturnPath(path: string | undefined | null): string | undefined {
-	if (!path) {
+/**
+ * A post-login return path is accepted only when it is a same-origin path under
+ * the app's base. Browsers treat `\` as `/` and drop tabs and newlines inside a
+ * URL, so `/\evil.com`, `/%5Cevil.com` and `/\t/evil.com` all end up as
+ * `//evil.com`; anything that could is refused rather than repaired (audit M3).
+ */
+export function sanitizeReturnPath(
+	path: string | undefined | null,
+	appBase: string = base
+): string | undefined {
+	if (!path || !path.startsWith("/")) {
 		return undefined;
 	}
-	if (path.startsWith("//")) {
+	// eslint-disable-next-line no-control-regex
+	const unsafe = /[\\\u0000-\u0020\u007f-\u009f]/;
+	if (unsafe.test(path)) {
 		return undefined;
 	}
-	if (!path.startsWith("/")) {
+	let decoded: string;
+	try {
+		decoded = decodeURIComponent(path.split(/[?#]/)[0]);
+	} catch {
 		return undefined;
 	}
-	return path;
+	// eslint-disable-next-line no-control-regex
+	if (/[\\\u0000-\u001f\u007f-\u009f]/.test(decoded) || decoded.startsWith("//")) {
+		return undefined;
+	}
+	let url: URL;
+	try {
+		url = new URL(path, "http://sanitize.invalid");
+	} catch {
+		return undefined;
+	}
+	if (url.origin !== "http://sanitize.invalid" || url.pathname.startsWith("//")) {
+		return undefined;
+	}
+	if (appBase && url.pathname !== appBase && !url.pathname.startsWith(`${appBase}/`)) {
+		return undefined;
+	}
+	return `${url.pathname}${url.search}${url.hash}`;
 }
 
 /**
