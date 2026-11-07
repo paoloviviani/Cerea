@@ -12,6 +12,8 @@ knowledge.
 
 ## Knowledge bases
 
+![The Knowledge tab of the Workspace page.](assets/screenshots/workspace-knowledge.webp)
+
 Create and fill a base from the **Workspace** page, under **Knowledge**
 (`/workspace?tab=kb`). Upload PDFs, Office documents or text files. Each is
 **read once, at upload**, and you can open a document to see the text that
