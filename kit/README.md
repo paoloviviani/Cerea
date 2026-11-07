@@ -1087,8 +1087,7 @@ this deployment's issuer, gateway and client: install, enroll and run, one step
 per line, each continuing only if the one before succeeded.
 
 ```sh
-curl -fsSL '<origin>/chat/galopin/install.sh' | sh &&
-curl -fsSL https://opencode.ai/install | bash -s -- --version 1.18.34 &&
+curl -fsSL '<origin>/chat/galopin/install.sh' | sh -s -- --with-opencode &&
 ~/.local/bin/galopin enroll \
   --issuer '<issuer>' \
   --gateway '<origin>' \

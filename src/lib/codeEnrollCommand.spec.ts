@@ -6,6 +6,7 @@ import {
 	GALOPIN_BIN,
 	OPENCODE_VERSION,
 } from "./codeEnrollCommand";
+import { OPENCODE_SHA256 } from "./opencodeVersion";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -45,14 +46,13 @@ describe("buildEnrollCommand", () => {
 		expect(command).not.toMatch(/(^|\n| )galopin /);
 	});
 
-	it("adds the opencode install line only when asked, between the two installs", () => {
+	it("has the served installer install the pinned opencode only when asked, never opencode.ai's script", () => {
 		const off = buildEnrollCommand(BASE_OPTIONS);
 		const on = buildEnrollCommand({ ...BASE_OPTIONS, installOpencode: true });
 
-		expect(off).not.toContain("opencode.ai");
-		expect(on).toContain(
-			` &&\ncurl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION} &&\n`
-		);
+		expect(off).not.toContain("--with-opencode");
+		expect(on).toContain("install.sh' | sh -s -- --with-opencode &&\n");
+		expect(on).not.toContain("opencode.ai");
 	});
 
 	it("never prints --allow-auto-accept: the selector replaced it", () => {
@@ -150,7 +150,7 @@ describe("the goose engine", () => {
 			"curl -fsSL 'https://cerea.example.org/chat/galopin/install.sh' | sh -s -- --engine goose &&"
 		);
 		// The opencode install line is not wanted with goose, even when ticked.
-		expect(command).not.toContain("opencode.ai");
+		expect(command).not.toContain("--with-opencode");
 		expect(command).toContain("  --engine goose \\\n");
 	});
 
@@ -167,5 +167,35 @@ describe("the pinned opencode release", () => {
 		);
 		expect(pinned).toMatch(/^\d+\.\d+\.\d+\n$/);
 		expect(OPENCODE_VERSION).toBe(pinned.trim());
+	});
+});
+
+describe("the pinned opencode archives' checksums", () => {
+	it("are the ones in agent/packaging/opencode-sha256", () => {
+		const file = new Map(
+			readFileSync(
+				fileURLToPath(new URL("../../agent/packaging/opencode-sha256", import.meta.url)),
+				"utf8"
+			)
+				.trim()
+				.split("\n")
+				.map((line) => {
+					const [sum, name] = line.split(/\s+/);
+					return [name, sum] as const;
+				})
+		);
+		expect(Object.fromEntries(file)).toEqual(OPENCODE_SHA256);
+		expect([...file.keys()].sort()).toEqual([
+			"opencode-darwin-arm64.zip",
+			"opencode-darwin-x64-baseline.zip",
+			"opencode-darwin-x64.zip",
+			"opencode-linux-arm64-musl.tar.gz",
+			"opencode-linux-arm64.tar.gz",
+			"opencode-linux-x64-baseline-musl.tar.gz",
+			"opencode-linux-x64-baseline.tar.gz",
+			"opencode-linux-x64-musl.tar.gz",
+			"opencode-linux-x64.tar.gz",
+		]);
+		for (const sum of file.values()) expect(sum).toMatch(/^[0-9a-f]{64}$/);
 	});
 });

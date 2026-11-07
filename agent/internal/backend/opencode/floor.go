@@ -6,7 +6,9 @@ package opencode
 // call of every agent, from its first call and in every child session, reach
 // galopin as a permission.asked.
 //
-// Verified against opencode v1.18.34 (agent/agent.ts): the global `permission`
+// Read from opencode v1.18.34 (agent/agent.ts) and re-run green on the pinned
+// release (agent/packaging/opencode-version, 1.19.3; floor_it_test.go and the
+// upgrade canaries, 2026-11-07), so the pin and the floor agree: the global `permission`
 // config ("user") is merged LAST inside every built-in agent, so a bare `*: ask`
 // also turns plan's `edit: deny`, explore's `"*": deny` and the hidden agents'
 // `"*": deny` into asks (and un-hides their tools). A per-agent config block is

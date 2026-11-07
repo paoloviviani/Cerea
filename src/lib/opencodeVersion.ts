@@ -1,0 +1,24 @@
+/**
+ * sha256 of the pinned opencode release archives (`OPENCODE_VERSION` in
+ * `codeEnrollCommand.ts`), which the served install script (`galopinDist.ts`,
+ * `--with-opencode`) verifies before installing. The source of truth is
+ * `agent/packaging/opencode-sha256`; this is the copy the script bakes in, kept
+ * equal by `codeEnrollCommand.spec.ts`. Change all of them with
+ * `agent/packaging/bump-opencode.sh <version>`.
+ */
+export const OPENCODE_SHA256: Record<string, string> = {
+	"opencode-linux-x64.tar.gz": "13a8fb2978302071b86f9d7e00da9c8895f9cd846978379c3bdc6a5333536c9b",
+	"opencode-linux-x64-baseline.tar.gz":
+		"531cff2441129c30f0edd5878af494108ad07f5feb46d7ee29a2a5b830a5765d",
+	"opencode-linux-x64-musl.tar.gz":
+		"6c84c607077057cf5c8c63704e373d0053684bf29b397979f661d7fe68925487",
+	"opencode-linux-x64-baseline-musl.tar.gz":
+		"738506562666cc67e3512f04ecac50c0bae833c5bf44e1a59c99e5827a851778",
+	"opencode-linux-arm64.tar.gz": "7900818a6a98881edbbadab4b7525940eff3b9750040c200481f9f56cacee405",
+	"opencode-linux-arm64-musl.tar.gz":
+		"39c9ff1ea47fd59752613079f97bef40a2d14c30bc6bb5772a91d9d708e2d0b3",
+	"opencode-darwin-x64.zip": "4e29dbe2f61ace728370523c88027d0742b3a79edcdd2c70e404f616d4ef8f36",
+	"opencode-darwin-x64-baseline.zip":
+		"03f8c32f81a2c35429afedfb8f63978af32329febcebf800d52486f6ba568151",
+	"opencode-darwin-arm64.zip": "c2d0fecd27acf6e08be02c1f5d384614d07495587766bcc4a6bff3971749bb64",
+};

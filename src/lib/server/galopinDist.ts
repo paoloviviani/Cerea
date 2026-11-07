@@ -16,7 +16,9 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { config } from "$lib/server/config";
+import { OPENCODE_VERSION } from "$lib/codeEnrollCommand";
 import { GOOSE_SHA256, GOOSE_VERSION } from "$lib/gooseVersion";
+import { OPENCODE_SHA256 } from "$lib/opencodeVersion";
 
 export const GALOPIN_TARGETS = [
 	"linux-amd64",
@@ -72,9 +74,17 @@ function shellQuote(value: string): string {
  * enroll command carries `--engine goose`:
  *
  *   curl -fsSL https://<origin><base>/galopin/install.sh | sh -s -- --engine goose
+ *
+ * With `--with-opencode` (or GALOPIN_WITH_OPENCODE=1) it installs the pinned
+ * opencode release (`OPENCODE_VERSION`) from opencode's own GitHub release
+ * archive into $HOME/.opencode/bin, verified against the sha256 recorded in
+ * this repo (`opencodeVersion.ts`), the same way.
  */
 export function renderInstallScript(origin: string): string {
 	const gooseSums = Object.entries(GOOSE_SHA256)
+		.map(([name, sum]) => `\t\t${name}) want=${sum} ;;`)
+		.join("\n");
+	const opencodeSums = Object.entries(OPENCODE_SHA256)
 		.map(([name, sum]) => `\t\t${name}) want=${sum} ;;`)
 		.join("\n");
 	return `#!/bin/sh
@@ -84,9 +94,11 @@ set -eu
 origin=${shellQuote(origin)}
 dir="\${GALOPIN_INSTALL_DIR:-$HOME/.local/bin}"
 engine="\${GALOPIN_ENGINE:-opencode}"
+withopencode="\${GALOPIN_WITH_OPENCODE:-}"
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--engine) [ $# -ge 2 ] || { echo "galopin install: --engine needs opencode or goose" >&2; exit 1; }; engine=$2; shift 2 ;;
+		--with-opencode) withopencode=1; shift ;;
 		--engine=*) engine=\${1#--engine=}; shift ;;
 		*) echo "galopin install: unknown option $1" >&2; exit 1 ;;
 	esac
@@ -146,6 +158,48 @@ if [ "$os" = darwin ] && command -v xattr >/dev/null 2>&1; then
 fi
 
 printf 'Installed galopin to %s/galopin (checksum verified).\\n' "$dir"
+
+if [ "$engine" = opencode ] && [ -n "$withopencode" ]; then
+	# The same variant choice opencode's own installer makes: the -baseline build
+	# for a CPU without AVX2, the -musl build on Alpine or another musl system.
+	musl=
+	baseline=
+	if [ "$os" = linux ]; then
+		[ -f /etc/alpine-release ] && musl=-musl
+		if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then musl=-musl; fi
+		if [ "$arch" = amd64 ] && ! grep -qwi avx2 /proc/cpuinfo 2>/dev/null; then baseline=-baseline; fi
+	fi
+	ocarch=$arch
+	if [ "$os" = darwin ]; then
+		[ "$arch" = amd64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ] && ocarch=arm64
+		if [ "$ocarch" = amd64 ] && [ "$(sysctl -n hw.optional.avx2_0 2>/dev/null || echo 0)" != 1 ]; then baseline=-baseline; fi
+	fi
+	case "$ocarch" in amd64) ocarch=x64 ;; esac
+	ext=.tar.gz
+	[ "$os" = darwin ] && ext=.zip
+	archive="opencode-$os-$ocarch$baseline$musl$ext"
+	case "$archive" in
+${opencodeSums}
+		*) fail "opencode publishes no $archive build for this computer: install opencode yourself, then run galopin enroll" ;;
+	esac
+	fetch "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/$archive" "$tmp/$archive" || fail "could not download opencode ${OPENCODE_VERSION} ($archive)"
+	got=$(sha256 "$tmp/$archive")
+	[ "$got" = "$want" ] || fail "checksum mismatch for $archive (expected $want, got $got); opencode not installed"
+	mkdir -p "$tmp/oc-x" "$HOME/.opencode/bin"
+	case "$archive" in
+		*.zip) command -v unzip >/dev/null 2>&1 || fail "needs unzip to unpack $archive"; unzip -q -o "$tmp/$archive" -d "$tmp/oc-x" || fail "could not unpack $archive" ;;
+		*) tar -xzf "$tmp/$archive" -C "$tmp/oc-x" || fail "could not unpack $archive" ;;
+	esac
+	[ -f "$tmp/oc-x/opencode" ] || fail "$archive holds no opencode binary"
+	chmod 755 "$tmp/oc-x/opencode"
+	# never report success for a binary that cannot run here (a wrong CPU or libc build)
+	"$tmp/oc-x/opencode" --version >/dev/null 2>&1 || fail "the opencode build $archive does not run on this computer; opencode not installed. Install opencode yourself, then run galopin enroll"
+	mv "$tmp/oc-x/opencode" "$HOME/.opencode/bin/opencode"
+	if [ "$os" = darwin ] && command -v xattr >/dev/null 2>&1; then
+		xattr -d com.apple.quarantine "$HOME/.opencode/bin/opencode" 2>/dev/null || true
+	fi
+	printf 'Installed opencode ${OPENCODE_VERSION} to %s/.opencode/bin/opencode (checksum verified; galopin finds it there).\\n' "$HOME"
+fi
 
 if [ "$engine" = goose ]; then
 	case "$os-$arch" in
