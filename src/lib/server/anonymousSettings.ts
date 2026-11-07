@@ -39,10 +39,16 @@ function overIpAllowance(ip: string, now: number): boolean {
 /** Throws 429 when a new anonymous row may not be created; a no-op for a signed-in user or an existing row. */
 export async function guardAnonymousSettingsRow(
 	locals: App.Locals,
-	ip: string | undefined,
+	address: string | undefined | (() => string),
 	now = Date.now()
 ): Promise<void> {
 	if (locals.user) return;
+	let ip: string | undefined;
+	try {
+		ip = typeof address === "function" ? address() : address;
+	} catch {
+		ip = undefined;
+	}
 	if (!locals.sessionId) error(401, "Unauthorized");
 	if (await collections.settings.countDocuments(authCondition(locals), { limit: 1 })) return;
 	const who = ip ?? "unknown";

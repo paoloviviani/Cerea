@@ -37,27 +37,17 @@ describe("viewerPrincipals uses it", () => {
 
 describe("a row from before the claim was stored (stale emailVerified)", () => {
 	it("is trusted where the issuer never sends the claim, unproven where it does", async () => {
-		const { sharingEmailFor, _resetIssuerClaimCache } = await import("./sharingEmail");
-		const { collections, ready } = await import("$lib/server/database");
-		await ready;
-		const issuer = `https://idp-${Date.now()}.example`;
-		const stale = { email: "a@corp.com", issuer } as never;
-		_resetIssuerClaimCache();
+		const { sharingEmailFor, _seedIssuerClaim } = await import("./sharingEmail");
+		const stale = { email: "a@corp.com", issuer: "https://idp.test" } as never;
+		_seedIssuerClaim("https://idp.test", false);
 		expect(await sharingEmailFor(stale)).toBe("a@corp.com");
-		await collections.users.insertOne({
-			name: "n",
-			hfUserId: `h-${issuer}`,
-			issuer,
-			emailVerified: true,
-			avatarUrl: undefined,
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		} as never);
-		_resetIssuerClaimCache();
+		_seedIssuerClaim("https://idp.test", true);
 		expect(await sharingEmailFor(stale)).toBeUndefined();
 		expect(await sharingEmailFor({ ...(stale as object), emailVerified: true } as never)).toBe(
 			"a@corp.com"
 		);
-		await collections.users.deleteMany({ issuer });
+		expect(
+			await sharingEmailFor({ ...(stale as object), emailVerified: false } as never)
+		).toBeUndefined();
 	});
 });

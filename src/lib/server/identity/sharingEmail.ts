@@ -27,16 +27,22 @@ const known = new Map<string, { at: number; value: boolean }>();
 
 /** Whether this issuer has ever sent `email_verified` (cached a minute). */
 export async function issuerSendsEmailVerified(issuer: string | undefined): Promise<boolean> {
-	const key = issuer ?? "";
+	if (!issuer) return false;
+	const key = issuer;
 	const hit = known.get(key);
 	if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
 	const found = await collections.users.findOne(
-		{ ...(issuer ? { issuer } : {}), emailVerified: { $type: "bool" } },
+		{ issuer, emailVerified: { $type: "bool" } },
 		{ projection: { _id: 1 } }
 	);
 	const value = found !== null;
 	known.set(key, { at: Date.now(), value });
 	return value;
+}
+
+/** Test seam: state what an issuer is known to do without touching the shared database. */
+export function _seedIssuerClaim(issuer: string, sends: boolean): void {
+	known.set(issuer, { at: Date.now(), value: sends });
 }
 
 export function _resetIssuerClaimCache(): void {

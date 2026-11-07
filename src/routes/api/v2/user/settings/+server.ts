@@ -155,7 +155,7 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 		streamingMode,
 	} satisfies SettingsEditable;
 
-	await guardAnonymousSettingsRow(locals, getClientAddress());
+	await guardAnonymousSettingsRow(locals, getClientAddress);
 	await collections.settings.updateOne(
 		authCondition(locals),
 		{

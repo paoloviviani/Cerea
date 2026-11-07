@@ -71,7 +71,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 	// TTL index in database.ts sweeps the rest).
 	if (!locals.user) {
 		if (loginEnabled || !locals.sessionId) error(401, "Sign in to save settings");
-		await guardAnonymousSettingsRow(locals, getClientAddress());
+		await guardAnonymousSettingsRow(locals, getClientAddress);
 	}
 
 	const declared = Number(request.headers.get("content-length") ?? 0);

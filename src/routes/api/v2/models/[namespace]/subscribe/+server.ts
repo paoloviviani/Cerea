@@ -9,7 +9,7 @@ export const POST: RequestHandler = async ({ params, locals, getClientAddress })
 		error(401, "Unauthorized");
 	}
 
-	await guardAnonymousSettingsRow(locals, getClientAddress());
+	await guardAnonymousSettingsRow(locals, getClientAddress);
 
 	const model = await resolveModel(params.namespace ?? "");
 
