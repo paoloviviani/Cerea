@@ -204,8 +204,10 @@ export default defineConfig({
 				]),
 				// Without this the SSRF guard drops every loopback MCP URL a spec passes.
 				MCP_ALLOW_INSECURE_URLS: "true",
-				// The document tools (doc_outline, doc_read, doc_edit) reach the mock service.
+				// The slides PDF export reaches the mock renderer; the web-fetch browser backend is
+				// opt-in per admin setting, so no other spec uses it.
 				PLAYWRIGHT_WS_ENDPOINT: `ws://127.0.0.1:${MOCK_RENDERER_PORT}/`,
+				// The document tools (doc_outline, doc_read, doc_edit) reach the mock service.
 				CHAT_DOCUMENTS_URL: `http://127.0.0.1:${MOCK_DOCUMENTS_PORT}`,
 				CHAT_DOCUMENTS_SECRET: MOCK_DOCUMENTS_SECRET,
 				// The execute_code tool runs live in the sandbox specs.
