@@ -3,7 +3,7 @@
 Cerea keeps the files it handles in one place, called the blob store: message
 attachments and the text read out of them, files the assistant produces,
 knowledge-base uploads, project documents and Office previews. What goes in
-MongoDB regardless (conversations, settings, the index of files) is unchanged.
+MongoDB regardless (chats, settings, the index of files) is unchanged.
 
 There are two backends. You choose one for the whole deployment with
 environment variables; there is no screen for it, because where bytes live is
@@ -22,12 +22,12 @@ independently of the database.
 ## How it works
 
 Every question Cerea asks about a file (which files belong to this
-conversation, which uploads are older than a day, which previews name this
+chat, which uploads are older than a day, which previews name this
 file) is answered from a record in MongoDB, never by the storage backend's own
 search. With GridFS that record is GridFS's own file document, so an existing
 database needs no migration to keep working. With S3 it is a document in the
 `blobs` collection, written beside the object and removed with it. Object keys
-are `<prefix><bucket>/<id>`; they contain no name, owner or conversation.
+are `<prefix><bucket>/<id>`; they contain no name, owner or chat.
 
 Bytes are streamed in and out; large files are uploaded in parts. Downloads are
 served through the chat, as they always were, so the browser never talks to the
@@ -183,7 +183,7 @@ idempotent and resumable, and it never deletes anything unless you ask.
 
 6. **Switch and start.** Set `CHAT_BLOB_STORE=s3` and start the chat
    (`docker compose up -d`). The start-up check must pass.
-7. **Verify** in the app: open an old conversation with an attachment, download a
+7. **Verify** in the app: open an old chat with an attachment, download a
    generated file, open a knowledge-base document. Nothing should be missing.
 8. **Clean up**, once you are satisfied and have a backup of the bucket. With the
    chat on s3 the tool copies nothing: it reads both copies back, compares size

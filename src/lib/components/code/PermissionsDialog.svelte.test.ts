@@ -251,7 +251,7 @@ describe("the Exceptions list", () => {
 			"Allowed for this session: ls Remove",
 			"Allowed for this session: src/** (edit) held by the machine",
 		]);
-		await expect.element(screen.getByText("held by the machine")).toBeVisible();
+		await expect.element(screen.getByText("held by the computer")).toBeVisible();
 	});
 
 	it("says exceptions last for this session, that Plan holds them back and that Ask restores them", async () => {

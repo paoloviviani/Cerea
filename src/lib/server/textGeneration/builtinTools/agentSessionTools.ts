@@ -123,7 +123,7 @@ async function deviceFor(
 	if (!checked.ok) {
 		return {
 			error:
-				checked.error === "That machine is not one of yours."
+				checked.error === "That computer is not one of yours."
 					? "No such machine. Use agent_sessions to see the user's machines."
 					: checked.error,
 		};

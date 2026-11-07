@@ -62,7 +62,7 @@ test("@smoke an offline device's open agent shows a clean offline state and asks
 	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}&agent=${AGENT}`);
 	await openAgentsPanel(page);
 
-	await expect(page.getByText("This machine is offline.").first()).toBeVisible();
+	await expect(page.getByText("This computer is offline.").first()).toBeVisible();
 	await expect(page.getByPlaceholder("Follow up with the agent…")).toBeVisible();
 	await page.getByPlaceholder("Follow up with the agent…").fill("are you there?");
 	await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();

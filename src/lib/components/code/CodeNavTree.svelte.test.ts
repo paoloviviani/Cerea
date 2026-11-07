@@ -436,9 +436,11 @@ describe("CodeNavTree machine rows", () => {
 		await expect.element(screen.getByText("access revoked", { exact: true })).toBeVisible();
 		// A pending machine keeps its two decisions on the row.
 		await expect
-			.element(screen.getByRole("button", { name: "Confirm this machine" }))
+			.element(screen.getByRole("button", { name: "Confirm this computer" }))
 			.toBeVisible();
-		await expect.element(screen.getByRole("button", { name: "Reject this machine" })).toBeVisible();
+		await expect
+			.element(screen.getByRole("button", { name: "Reject this computer" }))
+			.toBeVisible();
 	});
 
 	it("holds every machine action in one ⋯ menu, Remove last and destructive, and no trash on the row", async () => {
@@ -446,9 +448,9 @@ describe("CodeNavTree machine rows", () => {
 		const screen = mount([device("d1")]);
 		await expect.element(screen.getByText("Box d1")).toBeVisible();
 		expect(screen.getByTitle("Remove this pairing").elements()).toHaveLength(0);
-		expect(screen.getByRole("button", { name: "Machine settings" }).elements()).toHaveLength(1);
+		expect(screen.getByRole("button", { name: "Computer settings" }).elements()).toHaveLength(1);
 
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		await expect.element(screen.getByRole("menuitem", { name: "Remove" })).toBeVisible();
 		const items = [...document.querySelectorAll('[role="menuitem"]')];
 		expect(items.map((i) => i.textContent?.trim())).toEqual([
@@ -469,13 +471,13 @@ describe("CodeNavTree machine rows", () => {
 		go("");
 		const screen = mount([device("d1"), device("d2", { online: false })]);
 		await expect.element(screen.getByText("Box d1")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).first().click();
+		await screen.getByRole("button", { name: "Computer settings" }).first().click();
 		await screen.getByRole("menuitem", { name: "Add workspace" }).click();
 		await expect.element(screen.getByRole("dialog")).toBeVisible();
 		window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 		await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
 
-		await screen.getByRole("button", { name: "Machine settings" }).nth(1).click();
+		await screen.getByRole("button", { name: "Computer settings" }).nth(1).click();
 		await expect
 			.element(screen.getByRole("menuitem", { name: "Add workspace" }))
 			.toHaveAttribute("data-disabled");
@@ -485,7 +487,7 @@ describe("CodeNavTree machine rows", () => {
 		go("");
 		const screen = mount([device("d3", { reenroll: "revoked" })]);
 		await expect.element(screen.getByText("Box d3")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		const items = [...document.querySelectorAll('[role="menuitem"]')];
 		expect(items.map((i) => i.textContent?.trim())).toEqual(["Remove"]);
 	});
@@ -525,7 +527,7 @@ describe("CodeNavTree workspace rows", () => {
 		go("");
 		const screen = mount([device("d1")]);
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		await screen.getByRole("button", { name: "Start a coding session in this workspace" }).click();
+		await screen.getByRole("button", { name: "Start a session in this workspace" }).click();
 		await expect.element(screen.getByRole("dialog")).toBeVisible();
 	});
 });
@@ -779,7 +781,7 @@ describe("CodeNavTree session Permissions menu", () => {
 		go("");
 		const screen = mount([device("d1"), device("d2", { neverReview: true })]);
 		await expect.element(screen.getByText("Box d1")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).first().click();
+		await screen.getByRole("button", { name: "Computer settings" }).first().click();
 		const item = screen.getByRole("menuitemcheckbox", {
 			name: "Never auto review requests",
 		});
@@ -792,7 +794,7 @@ describe("CodeNavTree session Permissions menu", () => {
 		go("");
 		const screen = mount([device("d2", { neverReview: true })]);
 		await expect.element(screen.getByText("Box d2")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		await expect
 			.element(
 				screen.getByRole("menuitemcheckbox", {
@@ -816,7 +818,7 @@ describe("CodeNavTree session Permissions menu", () => {
 			}),
 		]);
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		await screen.getByRole("menuitem", { name: "Profiles" }).click();
 		await expect.element(screen.getByRole("heading", { name: "Delegate profiles" })).toBeVisible();
 		await expect.element(screen.getByLabelText("Profile 1 name")).toHaveValue("fast");
@@ -834,7 +836,7 @@ describe("CodeNavTree session Permissions menu", () => {
 			}),
 		]);
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		await screen.getByRole("menuitem", { name: "Profiles" }).click();
 		await screen.getByRole("button", { name: "Add profile" }).click();
 		const name = screen.getByLabelText("Profile 1 name");
@@ -852,7 +854,7 @@ describe("CodeNavTree session Permissions menu", () => {
 		go("?device=d1&ws=w1");
 		const screen = mount([device("d1")]);
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		await screen.getByRole("menuitem", { name: "Profiles" }).click();
 		await expect
 			.element(screen.getByTestId("profiles-unavailable"))

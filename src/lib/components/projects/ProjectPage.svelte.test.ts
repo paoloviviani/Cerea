@@ -254,11 +254,7 @@ describe("ProjectPage tabs", () => {
 
 		// The tab bar is the workspace's: two links, the active one marked.
 		const tabs = [...document.body.querySelectorAll('nav[aria-label="Project sections"] a')];
-		expect(tabs.map((a) => a.textContent?.trim())).toEqual([
-			"Conversations",
-			"Artifacts",
-			"Settings",
-		]);
+		expect(tabs.map((a) => a.textContent?.trim())).toEqual(["Chats", "Artifacts", "Settings"]);
 		expect(tabs[0].getAttribute("aria-current")).toBe("page");
 		expect(tabs[0].getAttribute("href")).toBe("/projects/proj-1");
 		expect(tabs[1].getAttribute("href")).toBe("/projects/proj-1?tab=artifacts");

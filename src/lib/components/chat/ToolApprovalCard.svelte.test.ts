@@ -263,9 +263,7 @@ describe("ToolApprovalCard, galopin approvals", () => {
 	it("does not trust a galopin flag in chat, where the arguments are a model's own", async () => {
 		const screen = render(ToolApprovalCard, { conversationId: "c1", request: spawn });
 		expect(screen.getByTestId("galopin-approval").elements()).toHaveLength(0);
-		await expect
-			.element(screen.getByRole("button", { name: "Allow for this conversation" }))
-			.toBeVisible();
+		await expect.element(screen.getByRole("button", { name: "Allow for this chat" })).toBeVisible();
 	});
 
 	describe("a new subagent's first turn", () => {
@@ -496,9 +494,7 @@ describe("ToolApprovalCard, the assistant's schedule proposal", () => {
 	it("has no way to allow it for the whole conversation", async () => {
 		const screen = render(ToolApprovalCard, { conversationId: "c1", request: proposal });
 		await expect.element(screen.getByRole("button", { name: "Deny" })).toBeVisible();
-		expect(
-			screen.getByRole("button", { name: "Allow for this conversation" }).elements()
-		).toHaveLength(0);
+		expect(screen.getByRole("button", { name: "Allow for this chat" }).elements()).toHaveLength(0);
 	});
 
 	it("reads a new chat each time as such", async () => {

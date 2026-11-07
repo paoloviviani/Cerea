@@ -110,7 +110,7 @@ describe("ScheduleEditor permission mode", () => {
 describe("ScheduleEditor target picker", () => {
 	it("lists the machines with online/offline, then that machine's workspaces and sessions", async () => {
 		const { screen } = mount();
-		const machine = screen.getByLabelText("1. Machine");
+		const machine = screen.getByLabelText("1. Computer");
 		await expect
 			.element(machine.getByRole("option", { name: "Build box · online" }))
 			.toBeInTheDocument();
@@ -138,7 +138,7 @@ describe("ScheduleEditor target picker", () => {
 
 	it("lets an offline machine be chosen, says what will happen, and offers no new workspace", async () => {
 		const { screen } = mount();
-		await screen.getByLabelText("1. Machine").selectOptions("d2");
+		await screen.getByLabelText("1. Computer").selectOptions("d2");
 		await expect.element(screen.getByTestId("machine-offline-note")).toHaveTextContent("offline");
 		await expect.element(screen.getByTestId("machine-offline-note")).toHaveTextContent("missed");
 		expect(api.listWorkspaces).not.toHaveBeenCalled();
@@ -191,14 +191,14 @@ describe("ScheduleEditor target picker", () => {
 
 describe("ScheduleEditor new workspace", () => {
 	async function fillNewWorkspace(screen: ReturnType<typeof mount>["screen"]) {
-		await screen.getByLabelText("1. Machine").selectOptions("d1");
+		await screen.getByLabelText("1. Computer").selectOptions("d1");
 		await expect
 			.element(screen.getByLabelText("2. Workspace").getByRole("option", { name: "repo" }))
 			.toBeInTheDocument();
 		await screen.getByLabelText("2. Workspace").selectOptions("__new__");
 		await screen.getByLabelText("Name", { exact: true }).fill("Fresh");
 		await screen.getByLabelText("Prompt", { exact: true }).fill("build it");
-		await screen.getByLabelText("Directory on the machine").fill("/work/fresh");
+		await screen.getByLabelText("Directory on the computer").fill("/work/fresh");
 		await screen.getByLabelText("Title (optional)").fill("fresh");
 	}
 
@@ -520,7 +520,7 @@ describe("ScheduleEditor for a chat", () => {
 		const { screen } = mount({ prefill: { conversationId: "c1" } });
 
 		await expect.element(screen.getByLabelText("Chat", { exact: true })).toHaveValue("c1");
-		expect(screen.getByLabelText("1. Machine").elements()).toHaveLength(0);
+		expect(screen.getByLabelText("1. Computer").elements()).toHaveLength(0);
 		await expect
 			.element(screen.getByTestId("chat-unattended-hint"))
 			.toHaveTextContent("cannot run Python");
@@ -672,13 +672,13 @@ describe("ScheduleEditor for a chat", () => {
 		setPage({ data: { codeSchedulesEnabled: true, conversations: [], models: [] } });
 		const chat = mount({ kind: "chat" });
 		expect(chat.screen.getByTestId("kind-chat").elements()).toHaveLength(0);
-		expect(chat.screen.getByLabelText("1. Machine").elements()).toHaveLength(0);
+		expect(chat.screen.getByLabelText("1. Computer").elements()).toHaveLength(0);
 		await expect.element(chat.screen.getByTestId("chat-unattended-hint")).toBeVisible();
 		chat.screen.unmount();
 
 		const agent = mount({ kind: "agent" });
 		expect(agent.screen.getByTestId("kind-agent").elements()).toHaveLength(0);
-		await expect.element(agent.screen.getByLabelText("1. Machine")).toBeVisible();
+		await expect.element(agent.screen.getByLabelText("1. Computer")).toBeVisible();
 	});
 
 	it("keeps the kind of the schedule it edits and shows its stored target", async () => {

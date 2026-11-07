@@ -140,7 +140,7 @@ test.describe("a machine reporting an expired credential", () => {
 		// Its own re-enroll link opens the pairing dialog — a fresh
 		// enrollment is a new pending machine, not an in-place fix.
 		await page.getByRole("button", { name: "Re-enroll", exact: true }).click();
-		await expect(page.getByRole("heading", { name: "Pair a machine" })).toBeVisible();
+		await expect(page.getByRole("heading", { name: "Pair a computer" })).toBeVisible();
 	});
 });
 

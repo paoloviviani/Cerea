@@ -59,14 +59,14 @@ async function pairAndStartSession(page: Page, name: string) {
 	await page.goto(`${E2E_APP_BASE}/code`);
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
 	await expect(page.getByText(name)).toBeVisible({ timeout: 15_000 });
-	await page.getByRole("button", { name: "Confirm this machine" }).click();
-	await page.getByRole("button", { name: "Add a workspace to this device" }).click();
-	await page.getByLabel("Directory on the machine").fill("/repo");
+	await page.getByRole("button", { name: "Confirm this computer" }).click();
+	await page.getByRole("button", { name: "Add a workspace to this computer" }).click();
+	await page.getByLabel("Directory on the computer").fill("/repo");
 	await page.getByLabel("Title (optional)").fill("repo");
 	await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 	await expect(page.getByText("repo", { exact: true })).toBeVisible();
-	await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
-	await page.getByRole("button", { name: "Build" }).click();
+	await page.getByRole("button", { name: "Start a session in this workspace" }).click();
+	await page.getByRole("button", { name: "Ask", exact: true }).click();
 	await page.getByRole("button", { name: "Create agent" }).click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 }
@@ -129,7 +129,7 @@ function seededTranscript(turns: number): Transcript {
 async function viewportOffset(page: Page, needle: string): Promise<number | null> {
 	return page.evaluate(
 		([text]) => {
-			const scroller = document.querySelector('[aria-label="Conversation messages"]');
+			const scroller = document.querySelector('[aria-label="Chat messages"]');
 			if (!scroller) return null;
 			const box = scroller.getBoundingClientRect();
 			const walker = document.createTreeWalker(scroller, NodeFilter.SHOW_TEXT);
@@ -159,7 +159,7 @@ async function landedAtBottom(page: Page): Promise<void> {
 		.poll(
 			async () => {
 				const now = await page.evaluate(() => {
-					const el = document.querySelector('[aria-label="Conversation messages"]');
+					const el = document.querySelector('[aria-label="Chat messages"]');
 					if (!el) return "none";
 					const gap = el.scrollHeight - el.clientHeight - el.scrollTop;
 					return gap < 2 ? `bottom:${el.scrollHeight}` : `gap:${Math.round(gap)}`;
@@ -179,15 +179,13 @@ async function landedAtBottom(page: Page): Promise<void> {
  * `scrollTo` is gestureless, so any late mutation (a status pill, a settling tool row) made the
  * scroll bounce back; a wheel is the input the controller honours. */
 async function scrollToTop(page: Page): Promise<void> {
-	const box = await page.locator('[aria-label="Conversation messages"]').boundingBox();
+	const box = await page.locator('[aria-label="Chat messages"]').boundingBox();
 	if (!box) throw new Error("the transcript has no box");
 	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 	await page.mouse.wheel(0, -1_000_000);
 	await expect
 		.poll(() =>
-			page.evaluate(
-				() => document.querySelector('[aria-label="Conversation messages"]')?.scrollTop ?? -1
-			)
+			page.evaluate(() => document.querySelector('[aria-label="Chat messages"]')?.scrollTop ?? -1)
 		)
 		.toBeLessThanOrEqual(1);
 }

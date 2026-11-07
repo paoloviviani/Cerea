@@ -153,7 +153,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		if (!(err instanceof OpError) || err.code !== "unavailable") {
 			logger.warn({ err, deviceId, sessionId }, "agent stream: session.sync failed");
 		}
-		error(502, "The paired machine could not be reached.");
+		error(502, "The paired computer could not be reached.");
 	}
 
 	const epochChangedAtOpen = clientEpoch !== undefined && clientEpoch !== sync.epoch;

@@ -8,13 +8,13 @@ When someone asks Cerea to read a page at a URL, the chat fetches it. By
 default it fetches directly over HTTPS (`FETCH_BACKEND=direct`). That returns
 nothing useful for the growing share of pages that are empty until
 JavaScript has run. With the **headless browser** turned on, the chat renders
-the page in a real browser and reads what a person would see.
+the page in a real browser and reads what a user would see.
 
 ## PDFs, documents and long pages
 
 With either backend, a URL that is a PDF, Word, Excel, PowerPoint or epub file
 is not read as text: it is fetched as a file and read with the same document
-reader an attached file uses, as the person asking, so it is metered and
+reader an attached file uses, as the user asking, so it is metered and
 access-checked the same way. If the reader cannot read it, the assistant is
 told why. Long pages and documents arrive in chunks of about 24,000 characters;
 the assistant reads on by calling `web_fetch` again with an `offset`. The text

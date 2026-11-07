@@ -2,15 +2,15 @@
 
 !!! info "For everyone"
 
-    Adding remote MCP servers the assistant can use, signing in to them, and what asks your approval. Servers on your own machine: see [Local connectors](local-connectors.md).
+    Adding remote MCP servers the assistant can use, signing in to them, and what asks your approval. Servers on your own computer: see [Local connectors](local-connectors.md).
 
 A **connector** is a remote [MCP](https://modelcontextprotocol.io) server you
 add to Cerea so the assistant can use its tools: your notes, a tracker, a
 search service. You manage them under **Workspace → Connectors**. Servers
 added here are _remote_; Cerea does not run MCP servers itself. A server that
 runs on your own laptop or server is a [local connector](local-connectors.md):
-you enroll that machine under **Workspace → Connectors → On your machines**, and its servers
-then appear in the same MCP panel, labelled "name · on machine".
+you enroll that computer under **Workspace → Connectors → On your computers**, and its servers
+then appear in the same MCP panel, labelled "name · on computer".
 
 ## Adding one
 
@@ -25,16 +25,16 @@ it authenticates, so you never declare that yourself. There are three outcomes:
   as a bearer token).
 - **None**, for a server on a private network or a public one.
 
-**Your credential never comes back to the browser.** OAuth tokens and static tokens are kept on the server, encrypted, and never sent back to your browser; the connector row only knows _whether you are connected_. An OAuth sign-in is yours alone: when an administrator publishes a connector to everybody, each person signs in to it as themselves and sees their own data.
+**Your credential never comes back to the browser.** OAuth tokens and static tokens are kept on the server, encrypted, and never sent back to your browser; the connector row only knows _whether you are connected_. An OAuth sign-in is yours alone: when an administrator publishes a connector to everybody, each user signs in to it as themselves and sees their own data.
 
 Only connect to servers you trust.
 
 ## Coding agents
 
-Your connectors can also reach a coding agent on one of your machines, off by
+Your connectors can also reach a coding agent on one of your computers, off by
 default: switch them on for one session or as a project's default. The agent
 then has `connector_list` and `connector_call`, Cerea runs each call with your
-own sign-in or key, and the credential never reaches the machine. See
+own sign-in or key, and the credential never reaches the computer. See
 [Connectors for an agent](code-panel.md#connectors-for-an-agent).
 
 ## Using them
@@ -42,13 +42,13 @@ own sign-in or key, and the credential never reaches the machine. See
 Switch connectors on and off in one place: **Workspace → Connectors**. Each
 connector there has a switch, and a connector that is on is available to the
 assistant in every chat. There is nothing to choose in the composer or per
-conversation.
+chat.
 
 You do not need to say which connector to use. The assistant sees a short list
 of the connectors that are on (a name, a sentence, the tools each offers) and
 **loads a connector's tools when a request needs them**. You see a quiet line
-such as "Loaded Maps" in the conversation. Once loaded, a connector stays
-loaded for the rest of that conversation. Turning a connector off in Workspace
+such as "Loaded Maps" in the chat. Once loaded, a connector stays
+loaded for the rest of that chat. Turning a connector off in Workspace
 means the assistant no longer sees it, from your next message.
 
 A connector you added that needs a sign-in is not offered to the assistant
@@ -56,10 +56,10 @@ until you have signed in.
 
 **Every call to an MCP tool asks first, by default.** The approval card shows
 the tool and its arguments, and you can allow that one call, allow the tool for
-the rest of the conversation, or deny it; the composer's **Tools ask first**
+the rest of the chat, or deny it; the composer's **Tools ask first**
 pill changes that for the current chat. See [Tool approvals](chat.md#tool-approvals).
 A server may also ask _you_ for something mid-turn (a choice, a confirmation),
-which appears as a form in the conversation.
+which appears as a form in the chat.
 
 ## Connectors for coding agents
 
@@ -68,7 +68,7 @@ A coding session ([/code](code-panel.md#connectors-for-an-agent)) can use your c
 ## Files a connector returns
 
 When a connector's tool returns a file, Cerea keeps it as a file of the
-conversation instead of showing its contents to the model. It appears in the
+chat instead of showing its contents to the model. It appears in the
 **Files** panel with a download card, the code sandbox has it at
 `/mnt/data/<name>` from the next run, and `doc_read`, `doc_edit`, `look_doc` and
 `convert_document` open it by name. The model reads a short note in place of the
@@ -88,7 +88,7 @@ Cerea recognises a file in three forms:
 A file over 50 MB is not kept, and the result says so. If a file cannot be
 saved, the result says that instead; the call itself still succeeds. A file
 with the same name and different content becomes a new version, as for any
-other file in the conversation.
+other file in the chat.
 
 ## Connectors for everybody
 
@@ -99,13 +99,13 @@ Workspace under **Built-in connectors**. Each is either on with a switch you can
 turn off, or, when your administrator offers it as **On, locked**, marked
 **Always on** with a lock and no switch: it stays on for everyone. A connector the administrator has switched off is not shown.
 
-The **definition** is shared and the **credential is not**: each person signs in
+The **definition** is shared and the **credential is not**: each user signs in
 to a shared OAuth connector themselves. An administrator publishes a connector
 in one of three ways, and they differ in who holds the credential:
 
 | Mode                                 | The administrator sets                                     | Who holds the credential                                                                                                         |
 | ------------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **Each person signs in** (OAuth)     | the address                                                | each person's own sign-in, kept encrypted on the server                                                                          |
+| **Each user signs in** (OAuth)       | the address                                                | each user's own sign-in, kept encrypted on the server                                                                            |
 | **Each user provides their own key** | the address, which header carries the key, and a help line | each user's own key, kept encrypted on the server                                                                                |
 | **Shared access key**                | the address and one key                                    | the connector: **everyone uses the administrator's key**. The admin screen says so, because it is a decision and not an accident |
 
@@ -151,7 +151,7 @@ checked yet", or why listing them failed. Users who are not administrators
 see the address without its query string, and a generic "Could not list its
 tools" instead of the server's own error: those are for the administrator.
 
-For a connector each person signs in to (OAuth), the tool list comes from the
+For a connector each user signs in to (OAuth), the tool list comes from the
 checking administrator's own sign-in, so it reflects what that administrator's
 account can use.
 

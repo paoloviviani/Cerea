@@ -55,14 +55,14 @@ async function pairAndStartSession(page: Page, name: string) {
 	await page.goto(`${E2E_APP_BASE}/code`);
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
 	await expect(page.getByText(name)).toBeVisible({ timeout: 15_000 });
-	await page.getByRole("button", { name: "Confirm this machine" }).click();
-	await page.getByRole("button", { name: "Add a workspace to this device" }).click();
-	await page.getByLabel("Directory on the machine").fill("/repo");
+	await page.getByRole("button", { name: "Confirm this computer" }).click();
+	await page.getByRole("button", { name: "Add a workspace to this computer" }).click();
+	await page.getByLabel("Directory on the computer").fill("/repo");
 	await page.getByLabel("Title (optional)").fill("repo");
 	await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 	await expect(page.getByText("repo", { exact: true })).toBeVisible();
-	await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
-	await page.getByRole("button", { name: "Build" }).click();
+	await page.getByRole("button", { name: "Start a session in this workspace" }).click();
+	await page.getByRole("button", { name: "Ask", exact: true }).click();
 	await page.getByRole("button", { name: "Create agent" }).click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 }
@@ -128,7 +128,7 @@ function seededTranscript(turns: number): Transcript {
 async function textInViewport(page: Page, needle: string): Promise<boolean> {
 	return page.evaluate(
 		([text]) => {
-			const scroller = document.querySelector('[aria-label="Conversation messages"]');
+			const scroller = document.querySelector('[aria-label="Chat messages"]');
 			if (!scroller) return false;
 			const box = scroller.getBoundingClientRect();
 			const walker = document.createTreeWalker(scroller, NodeFilter.SHOW_TEXT);

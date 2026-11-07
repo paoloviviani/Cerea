@@ -25,12 +25,12 @@ test("@smoke the workspace tabs navigate between managers, with Custom models an
 
 	await page.getByRole("link", { name: "Connectors", exact: true }).click();
 	await expect(page).toHaveURL(/\/workspace\?tab=mcp$/);
-	await expect(page.getByRole("heading", { name: "On your machines", level: 2 })).toBeVisible();
-	await expect(page.getByRole("heading", { name: "Connect a machine" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "On your computers", level: 2 })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Connect a computer" })).toBeVisible();
 
 	// The address alone selects a tab, so a reload lands on the same one.
 	await page.reload();
-	await expect(page.getByRole("heading", { name: "Connect a machine" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Connect a computer" })).toBeVisible();
 });
 
 test("the old ?tab=local and ?tab=custom addresses redirect to their sections", async ({
@@ -38,7 +38,7 @@ test("the old ?tab=local and ?tab=custom addresses redirect to their sections", 
 }) => {
 	await page.goto(`${E2E_APP_BASE}/workspace?tab=local`);
 	await expect(page).toHaveURL(/\/workspace\?tab=mcp#on-your-machines$/);
-	await expect(page.getByRole("heading", { name: "On your machines", level: 2 })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "On your computers", level: 2 })).toBeVisible();
 
 	await page.goto(`${E2E_APP_BASE}/workspace?tab=custom`);
 	await expect(page).toHaveURL(/\/workspace\?tab=models#custom-models$/);

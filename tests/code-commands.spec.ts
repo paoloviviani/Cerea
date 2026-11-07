@@ -477,7 +477,7 @@ test.describe("backend commands", () => {
 		await typeDraft(page, "/whoami");
 		await expect(option(page, "/whoami")).toBeVisible();
 		// The group heading the machine origin lands under.
-		await expect(menu(page).getByText("Machine", { exact: true })).toBeVisible();
+		await expect(menu(page).getByText("Computer", { exact: true })).toBeVisible();
 
 		await page.keyboard.press("Enter");
 		await expect.poll(() => h.commandBodies, { timeout: 10_000 }).toHaveLength(1);
@@ -519,7 +519,7 @@ test.describe("backend commands", () => {
 				status: 409,
 				contentType: "application/json",
 				body: JSON.stringify({
-					message: "This command changed on the machine; review it again.",
+					message: "This command changed on the computer; review it again.",
 				}),
 			})
 		);
@@ -529,7 +529,7 @@ test.describe("backend commands", () => {
 		await page.keyboard.press("Enter");
 
 		await expect(
-			page.getByText("This command changed on the machine; review it again.")
+			page.getByText("This command changed on the computer; review it again.")
 		).toBeVisible({
 			timeout: 10_000,
 		});

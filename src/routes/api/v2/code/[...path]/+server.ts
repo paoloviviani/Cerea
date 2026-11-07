@@ -193,7 +193,7 @@ async function callOp<T>(fn: () => Promise<T>): Promise<T> {
 async function resolveWorkspace(link: MachineLink, workspaceId: string): Promise<Workspace> {
 	const { workspaces } = await callOp(() => link.workspaceList());
 	const found = workspaces.find((workspace) => workspace.id === workspaceId);
-	if (!found) error(404, "No such workspace on this machine.");
+	if (!found) error(404, "No such workspace on this computer.");
 	return found;
 }
 
@@ -216,7 +216,7 @@ async function resolveReplyTarget(
 		const { session } = await link.sessionGet({ sessionId: childSessionId });
 		return session.id;
 	} catch {
-		error(404, "No such session on this machine.");
+		error(404, "No such session on this computer.");
 	}
 }
 
@@ -332,7 +332,7 @@ async function requireFileWriteAllowed(
 	}
 	if (device.machine?.capabilities.fileWrite !== true) {
 		await recordCodeAudit(event, { action: "files.write.refused", deviceId, workspaceId });
-		error(403, "galopin on this machine cannot save files yet: update it to save files here.");
+		error(403, "galopin on this computer cannot save files yet: update it to save files here.");
 	}
 	if (device.policy?.fileWrite !== "allowed") {
 		await recordCodeAudit(event, { action: "files.write.refused", deviceId, workspaceId });
@@ -1057,7 +1057,7 @@ export const POST: RequestHandler = async (event) => {
 			error(400, "Expected { workspaceId, provider?, posture?, modeId?, modelId?, title? }.");
 		}
 		if (parsed.data.modelId && !allowsModel(device, parsed.data.modelId)) {
-			error(403, "This machine was enrolled without --allow-free-models.");
+			error(403, "This computer was enrolled without --allow-free-models.");
 		}
 		const { session } = await callOp(() =>
 			link.sessionCreate({
@@ -1192,7 +1192,7 @@ export const POST: RequestHandler = async (event) => {
 				: new MachineLink(targetDevice._id.toString());
 
 		if (parsed.data.modelId && !allowsModel(targetDevice, parsed.data.modelId)) {
-			error(403, "The target machine was enrolled without --allow-free-models.");
+			error(403, "The target computer was enrolled without --allow-free-models.");
 		}
 
 		const { session: sourceSession } = await callOp(() =>
@@ -1261,7 +1261,7 @@ export const POST: RequestHandler = async (event) => {
 		if (!parsed.success) error(400, "Expected { modelId: string | null }.");
 		if (parsed.data.modelId) {
 			if (!allowsModel(device, parsed.data.modelId)) {
-				error(403, "This machine was enrolled without --allow-free-models.");
+				error(403, "This computer was enrolled without --allow-free-models.");
 			}
 			await callOp(() =>
 				link.sessionSetModel({
