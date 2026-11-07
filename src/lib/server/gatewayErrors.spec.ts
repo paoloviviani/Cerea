@@ -88,9 +88,7 @@ describe("quota wording", () => {
 		const f = classifyGatewayError(gatewayBody);
 		if (f.kind !== "quota") throw new Error("expected quota");
 		const text = quotaMessageForUser(f, { currency: "EUR", usageEnabled: true, now });
-		expect(text).toBe(
-			"Your monthly allowance of €0.00 is used up. It resets on 1 December. Ask your administrator if you need more. See Settings → Usage."
-		);
+		expect(text).toBe("Your monthly allowance of €0.00 is used up. See Usage.");
 		expect(text).not.toContain("0E-12");
 		expect(text).not.toContain("current");
 	});
@@ -108,7 +106,7 @@ describe("quota wording", () => {
 		if (f.kind !== "quota") throw new Error("expected quota");
 		const text = quotaMessageForUser(f, { currency: "EUR", now });
 		expect(text).toBe(
-			"Your group's monthly allowance of €10.00 is used up. It resets in about 2 h. Ask your administrator if you need more."
+			"Your group's monthly allowance of €10.00 is used up. Ask your administrator."
 		);
 	});
 
@@ -127,7 +125,7 @@ describe("quota wording", () => {
 				retryAfterSeconds: null,
 				figures: null,
 			})
-		).toBe("You've used up your allowance. Ask your administrator if you need more.");
+		).toBe("You've used up your allowance. Ask your administrator.");
 	});
 
 	it("tells the model not to retry", () => {

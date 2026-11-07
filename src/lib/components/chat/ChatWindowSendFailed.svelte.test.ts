@@ -162,7 +162,7 @@ describe("a chat whose model was removed", () => {
 		);
 		const notice = screen.container.querySelector('[data-testid="model-retired"]');
 		if (!notice) throw new Error("no retired-model notice");
-		expect(notice.textContent).toContain("no longer available");
+		expect(notice.textContent).toContain("model is gone");
 		expect(notice.textContent).toContain("Change model");
 		expect(notice.textContent).not.toContain("mistral-small-2503");
 		const dismiss = notice.querySelector('button[aria-label="Dismiss"]') as HTMLElement;

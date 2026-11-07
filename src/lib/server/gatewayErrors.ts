@@ -159,21 +159,6 @@ function money(value: number, currency: string | undefined): string {
 	return new Intl.NumberFormat("en", { maximumFractionDigits: 4 }).format(value);
 }
 
-/** "resets on 1 December" from a day out, "in about 3 h" before that. */
-function resetText(seconds: number, now: Date): string {
-	if (seconds >= 172800) {
-		const date = new Date(now.getTime() + seconds * 1000);
-		return m["app.errors.quota_resets_on"]({
-			date: new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" }).format(date),
-		});
-	}
-	const when =
-		seconds < 5400
-			? `${Math.max(1, Math.round(seconds / 60))} min`
-			: `${Math.round(seconds / 3600)} h`;
-	return m["app.errors.quota_resets"]({ when });
-}
-
 export type QuotaMessageOptions = {
 	/** The deployment's currency code, for a money limit. */
 	currency?: string;
@@ -215,10 +200,10 @@ export function quotaMessageForUser(
 	} else {
 		parts.push(group ? m["app.errors.quota_group"]() : m["app.errors.quota_user"]());
 	}
-	if (failure.retryAfterSeconds) {
-		parts.push(resetText(failure.retryAfterSeconds, options.now ?? new Date()));
-	}
-	parts.push(m["app.errors.quota_ask_admin"]());
-	if (options.usageEnabled) parts.push(m["app.errors.quota_see_usage"]());
+	// One short sentence and one way on: the Usage page where it exists, the
+	// administrator where it does not.
+	parts.push(
+		options.usageEnabled ? m["app.errors.quota_see_usage"]() : m["app.errors.quota_ask_admin"]()
+	);
 	return parts.join(" ");
 }

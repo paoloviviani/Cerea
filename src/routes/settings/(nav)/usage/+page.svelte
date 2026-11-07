@@ -160,11 +160,6 @@
 								style="width: {summary.percent}%"
 							></div>
 						</div>
-						{#if summary.near}
-							<p class="mt-2 text-[12px] text-gray-500 dark:text-gray-400">
-								{m["settings.usage.summary_more"]()}
-							</p>
-						{/if}
 					{:else}
 						<p class="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">
 							{m["nav.user_menu.quota_spent"]({ used: money(summary.used, summary.entry.unit) })}
