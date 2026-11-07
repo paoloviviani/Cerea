@@ -12,6 +12,10 @@ below are all per user.
 
 ## Your billing group
 
+![The user menu shows your allowance for the period.](assets/screenshots/user-menu-quota.webp)
+
+![Settings, Usage tab: your allowance, quotas and spending.](assets/screenshots/settings-usage.webp)
+
 Every request is billed to one of your groups, and that group decides what
 you are offered: **the model list shows exactly what your current billing
 group can use** — not every model your groups collectively hold. You choose
@@ -29,6 +33,8 @@ totals are not yours to see. If you manage a computer through the
 there it can also be set to follow this choice.
 
 ## Chats
+
+![A new chat with the greeting, the starter suggestions and the composer.](assets/screenshots/chat-new-chat.webp)
 
 The sidebar has the logo at the top (it goes home), then the **Chats | Agents**
 switch (only where [coding agents](agent-machines.md) are on) and a **New chat**
@@ -307,6 +313,8 @@ When your account has an image model, the assistant can draw pictures: ask for o
 
 ## Web search and web fetch
 
+![A chat answered with web search, showing the cited source.](assets/screenshots/chat-web-search.webp)
+
 The **Web search** pill in the composer switches search on **for this
 chat**. It is your consent to spend: the search runs through the
 deployment's search backends and is metered to you.
@@ -342,6 +350,8 @@ operator who must fetch from an internal host can allow the first two with
 rule applies to **Attach from URL**.
 
 ## Tool approvals
+
+![An approval card in a chat: what the tool wants to do, a risk tag, and Allow once, Deny or Allow for this chat.](assets/screenshots/chat-approval-card.webp)
 
 Some tools act outside the chat, so by default (**Tools ask first**) they wait for you. (A [sub-agent](#plans-and-sub-agents) cannot wait for you, so it only uses what you have already allowed.) When the assistant wants to open a page that neither you nor a search result supplied, or to use a tool from a [connector](connectors.md), the answer pauses on an approval card showing what it wants to do and with what. You choose: allow this once, allow this tool for the rest of the chat, or deny. If it wants several, you approve each one. A card you leave unanswered is **denied** when its time runs out.
 
@@ -425,6 +435,8 @@ computers have their own, separate kind of delegation: see
 [Delegating work](agent-machines-reference.md#delegating-work).
 
 ## Scheduled chats
+
+![The Schedules page with a chat schedule and an agent schedule.](assets/screenshots/schedules.webp)
 
 A **scheduled chat** sends a prompt of yours again on a timetable and lets the
 assistant answer, with nobody at the screen: "every Monday at 08:00, summarise
