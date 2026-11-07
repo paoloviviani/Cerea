@@ -56,7 +56,7 @@ jobs:
           [ -n "$want" ] || { echo "::error::goose-sha256 lists no $archive"; exit 1; }
           got=$(sha256sum "$RUNNER_TEMP/$archive" | cut -d ' ' -f 1)
           [ "$got" = "$want" ] || { echo "::error::checksum mismatch for $archive (want $want, got $got)"; exit 1; }
-          mkdir -p "$HOME/.local/bin" && tar -xzf "$RUNNER_TEMP/$archive" -C "$HOME/.local/bin" goose
+          mkdir -p "$HOME/.local/bin" && tar -xzf "$RUNNER_TEMP/$archive" -C "$HOME/.local/bin" ./goose
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/goose" --version
           [ "$("$HOME/.local/bin/goose" --version)" = "$version" ] || { echo "::error::installed goose is not $version"; exit 1; }
@@ -110,7 +110,7 @@ jobs:
         run: |
           archive=goose-x86_64-unknown-linux-gnu.tar.gz
           curl -fsSL -o "$RUNNER_TEMP/$archive" "https://github.com/block/goose/releases/download/v${{ steps.v.outputs.version }}/${archive}"
-          mkdir -p "$HOME/.local/bin" && tar -xzf "$RUNNER_TEMP/$archive" -C "$HOME/.local/bin" goose
+          mkdir -p "$HOME/.local/bin" && tar -xzf "$RUNNER_TEMP/$archive" -C "$HOME/.local/bin" ./goose
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/goose" --version
       - name: goose engine suite

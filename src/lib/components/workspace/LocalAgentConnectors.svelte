@@ -36,8 +36,8 @@
 	async function load() {
 		try {
 			const data = await read(await fetch(`${base}/api/v2/code/local-agents`));
-			options = data.options as Option[];
-			selected = data.selected as string[];
+			options = Array.isArray(data.options) ? (data.options as Option[]) : [];
+			selected = Array.isArray(data.selected) ? (data.selected as string[]) : [];
 		} catch (err) {
 			loadFailure = err instanceof Error ? err.message : m["workspace.agents.read_failed"]();
 		} finally {
