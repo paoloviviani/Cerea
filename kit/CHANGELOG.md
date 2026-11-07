@@ -12,6 +12,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## v0.44.0 — 2026-11-06
 
+- **`galopin launch opencode`.** Start your own interactive opencode wired to the gateway exactly as galopin sets it up (the enrolled config, the same proxy and billing group, the machine's project-config setting), without connecting to Cerea: no pairing, nothing in the Agents panel. Provider keys in your shell are removed from its environment. It is not supervised: opencode asks you in the terminal, and galopin's own-state protections, Plan/Ask/Auto and the review log do not apply. Update galopin on the machine to get it.
 Pins: Cerea `0.44.0` (chat and `cerea-documents`), Pystino `0.29.0`.
 **To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
 `docker compose pull && docker compose up -d`. The kit now pins Pystino 0.29.0 (Melious, reranking models, decision dialects). Optional: in Administration → Assistant, pick a small model for titles and hide it from the chat picker.
