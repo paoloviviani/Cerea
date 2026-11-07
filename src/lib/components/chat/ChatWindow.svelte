@@ -118,6 +118,12 @@
 		 * model; cleared by the page on the next send. Bound.
 		 */
 		modelGoneMessage?: string | null;
+		/**
+		 * The model id the chat was saved with. When it is no longer in `models`
+		 * the chat quietly runs on `currentModel` (the default); a one-off notice
+		 * says so, once per chat.
+		 */
+		chatModelId?: string;
 		/** Knowledge bases attached to THIS conversation; bound through to the composer. */
 		knowledgeBases?: { id: string; name: string }[];
 		/**
@@ -155,6 +161,7 @@
 		draft = $bindable(""),
 		sendFailedText = $bindable<string | null>(null),
 		modelGoneMessage = $bindable<string | null>(null),
+		chatModelId,
 		onmessage,
 		onstop,
 		onretry,
@@ -167,6 +174,33 @@
 		projectId,
 		projectName,
 	}: Props = $props();
+
+	// The chat's own model was removed: say so once, then stay quiet. Dismissal
+	// is kept per chat on this device.
+	const retiredKey = (id: string | undefined) => `cerea:model-retired-seen:${id}`;
+	let retiredDismissed = $state(false);
+	let retiredNoticeFor = $state<string | undefined>(undefined);
+	$effect(() => {
+		const id = page.params.id;
+		if (retiredNoticeFor === id) return;
+		retiredNoticeFor = id;
+		try {
+			retiredDismissed = browser && localStorage.getItem(retiredKey(id)) === "1";
+		} catch {
+			retiredDismissed = false;
+		}
+	});
+	let modelRetired = $derived(
+		!!chatModelId && !models.some((model) => model.id === chatModelId) && !retiredDismissed
+	);
+	function dismissRetired() {
+		retiredDismissed = true;
+		try {
+			localStorage.setItem(retiredKey(page.params.id), "1");
+		} catch {
+			// Private window: the notice just comes back next visit.
+		}
+	}
 
 	let isReadOnly = $derived(!models.some((model) => model.id === currentModel.id));
 
@@ -791,6 +825,35 @@
 				{#if askQuestion}
 					<AskQuestion conversationId={askQuestion.conversationId} request={askQuestion.request} />
 				{/if}
+				{#if modelRetired}
+					<div
+						role="status"
+						data-testid="model-retired"
+						class="mb-3 flex w-full max-w-4xl flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-300"
+					>
+						<span class="min-w-0 flex-1"
+							>{m["chat.window.model_retired"]({ model: modelLabel(currentModel) })}</span
+						>
+						<button
+							type="button"
+							class="btn shrink-0 rounded-lg px-2 py-1 text-sm font-medium underline"
+							onclick={() => {
+								if (requireAuthUser()) return;
+								pickerOpen = true;
+							}}
+						>
+							{m["chat.window.model_retired_change"]()}
+						</button>
+						<button
+							type="button"
+							class="btn shrink-0 rounded-lg px-2 py-1 text-sm text-gray-500"
+							aria-label={m["chat.window.model_retired_dismiss"]()}
+							onclick={dismissRetired}
+						>
+							&times;
+						</button>
+					</div>
+				{/if}
 				{#if modelGoneMessage}
 					<div
 						role="alert"
@@ -870,7 +933,7 @@
 								class:paste-glow={pastedLongContent}
 							>
 								{#if lastIsError}
-									<ChatInput value={m["chat.window.error_reply"]()} disabled={true} />
+									<ChatInput placeholder={m["chat.window.ask"]()} disabled={true} />
 								{:else}
 									<ChatInput
 										placeholder={isReadOnly ? m["chat.window.read_only"]() : m["chat.window.ask"]()}

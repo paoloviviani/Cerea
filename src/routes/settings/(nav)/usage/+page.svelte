@@ -18,12 +18,15 @@
 	import { m } from "$lib/paraglide/messages";
 	import UsageBar from "$lib/components/settings/UsageBar.svelte";
 	import type { UsageReport, UsageSection } from "$lib/types/UsageReport";
+	import { summariseQuota, type QuotaSummary } from "$lib/utils/quotaSummary";
+	import { formatCurrency, formatNumber } from "$lib/i18n/format";
 	import CarbonArrowUpRight from "~icons/carbon/arrow-up-right";
 
 	const client = useAPIClient();
 	const settings = useSettingsStore();
 
 	let sections = $state<UsageSection[]>([]);
+	let summary = $state<QuotaSummary | null>(null);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 
@@ -56,10 +59,14 @@
 		await invalidateAll();
 	}
 
+	const money = (value: number, unit: string) =>
+		/^[A-Z]{3}$/.test(unit) ? formatCurrency(value, unit) : `${formatNumber(value)} ${unit}`;
+
 	onMount(async () => {
 		try {
 			const report = (await client.usage.get().then(handleResponse)) as UsageReport | null;
 			sections = report?.sections ?? [];
+			summary = summariseQuota(report);
 		} catch {
 			loadError = m["settings.usage.load_failed"]();
 		} finally {
@@ -78,7 +85,10 @@
 					currentBillingOrg?: string;
 				};
 				billingOrgs = data.organizations ?? [];
-				if (data.currentBillingOrg !== getBillingOrganization()) {
+				// Normalised: no group at all comes back absent, the store holds "".
+				// An unnormalised compare wrote "" back and raised a "Saved" toast
+				// on every visit.
+				if ((data.currentBillingOrg ?? "") !== getBillingOrganization()) {
 					setBillingOrganization(data.currentBillingOrg ?? "");
 				}
 			} catch {
@@ -113,6 +123,55 @@
 		{:else if sections.length === 0}
 			<p class="text-sm text-gray-500 dark:text-gray-400">{m["settings.usage.none"]()}</p>
 		{:else}
+			{#if summary}
+				<div
+					data-testid="usage-summary"
+					class="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
+				>
+					<h2 class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+						{m["settings.usage.summary_title"]()}
+					</h2>
+					{#if summary.kind === "limit"}
+						<p class="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">
+							{m["settings.usage.summary_of"]({
+								used: money(summary.used, summary.entry.unit),
+								limit: money(summary.limit, summary.entry.unit),
+							})}
+							{#if summary.entry.period}
+								<span class="text-[13px] font-normal text-gray-500 dark:text-gray-400"
+									>{summary.entry.period}</span
+								>
+							{/if}
+						</p>
+						<div
+							role="progressbar"
+							aria-label={m["settings.usage.summary_title"]()}
+							aria-valuemin={0}
+							aria-valuemax={summary.limit}
+							aria-valuenow={summary.used}
+							class="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700"
+						>
+							<div
+								class="h-full rounded-full {summary.percent >= 100
+									? 'bg-red-500'
+									: summary.near
+										? 'bg-amber-500'
+										: 'bg-blue-600'}"
+								style="width: {summary.percent}%"
+							></div>
+						</div>
+						{#if summary.near}
+							<p class="mt-2 text-[12px] text-gray-500 dark:text-gray-400">
+								{m["settings.usage.summary_more"]()}
+							</p>
+						{/if}
+					{:else}
+						<p class="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">
+							{m["nav.user_menu.quota_spent"]({ used: money(summary.used, summary.entry.unit) })}
+						</p>
+					{/if}
+				</div>
+			{/if}
 			{#each sections as section (section.title)}
 				<div
 					class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"

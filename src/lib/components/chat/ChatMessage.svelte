@@ -23,7 +23,12 @@
 	import ToolUpdate from "./ToolUpdate.svelte";
 	import TurnWaitBanner from "./TurnWaitBanner.svelte";
 	import TurnFailedBanner from "./TurnFailedBanner.svelte";
-	import { failedTurnReasonOf, loopStoppedOf, turnStateOf } from "$lib/utils/generationState";
+	import {
+		failedTurnReasonOf,
+		loopStoppedOf,
+		streamErrorOf,
+		turnStateOf,
+	} from "$lib/utils/generationState";
 	import TurnStoppedNote from "./TurnStoppedNote.svelte";
 	import ToolCallsSummary from "./ToolCallsSummary.svelte";
 	import ArtifactCard from "./ArtifactCard.svelte";
@@ -877,6 +882,12 @@
 	let awaitingFirstContent = $derived(
 		isLast && loading && blocks.length === 0 && !message.files?.length
 	);
+	// A turn that died on the stream with nothing to show (a spent quota, say):
+	// no empty bubble, just the reason, where the answer would have been.
+	let streamError = $derived(failedReason ? undefined : streamErrorOf(message));
+	let errorOnly = $derived(
+		!!streamError && !loading && blocks.length === 0 && !message.content && !message.files?.length
+	);
 	// Which Thinking blocks the reader has opened, by position in `blocks`. The
 	// streaming branch and the finished-turn branch mount separate blocks, so
 	// without this one an expanded block snapped shut when the turn ended.
@@ -947,7 +958,7 @@
 		     instead — alone while nothing has arrived yet, then inline where the
 		     three dots used to be. -->
 		<div
-			class="relative flex min-w-[60px] flex-col gap-2 wrap-break-word text-gray-600 dark:text-gray-300 prose-pre:my-2 {awaitingFirstContent
+			class="relative flex min-w-[60px] flex-col gap-2 wrap-break-word text-gray-600 dark:text-gray-300 prose-pre:my-2 {awaitingFirstContent || errorOnly
 				? 'py-2.5'
 				: 'rounded-2xl border border-line bg-linear-to-br from-page px-3 py-2.5 sm:px-4 sm:py-3 dark:from-surface dark:to-surface/60'}"
 		>
@@ -1192,6 +1203,8 @@
 				/>
 			{:else if failedReason}
 				<TurnFailedBanner reason={failedReason} isLatest={isLatestFailedTurn} />
+			{:else if streamError}
+				<TurnFailedBanner reason={streamError} isLatest />
 			{:else if loopStopped}
 				<TurnStoppedNote />
 			{/if}

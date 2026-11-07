@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
 	import { goto, replaceState } from "$app/navigation";
+	import { takeAbandonedFirstChat } from "$lib/stores/abandonedChat";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
@@ -52,6 +53,18 @@
 	async function createConversation(message: string) {
 		try {
 			$loading = true;
+
+			// The last first-send that failed left an empty chat behind: drop it so
+			// retrying here does not pile up chats with the same title.
+			const leftover = takeAbandonedFirstChat();
+			if (leftover) {
+				try {
+					await fetch(`${base}/conversation/${leftover}`, { method: "DELETE" });
+					convsStore.remove(leftover);
+				} catch {
+					// Best effort: a stray empty chat is only clutter.
+				}
+			}
 
 			// check if $settings.activeModel is a valid model
 			// else check if it's an assistant, and use that model
