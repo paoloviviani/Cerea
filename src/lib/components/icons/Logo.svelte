@@ -22,7 +22,7 @@
 	// Bump when any served logo file changes: the assets carry no
 	// Cache-Control, so browsers heuristic-cache them for hours and a swap
 	// otherwise keeps showing the old drawing to returning visitors.
-	const ASSET_VERSION = "9";
+	const ASSET_VERSION = "10";
 
 	const file = $derived(variant === "small" ? "logo-thick" : "logo");
 	const w = $derived(variant === "small" ? 81 : 337);

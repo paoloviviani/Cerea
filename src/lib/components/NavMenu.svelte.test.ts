@@ -160,6 +160,13 @@ describe("NavMenu's foot", () => {
 		expect(host.querySelector("form")).toBeNull();
 	});
 
+	it("shows the app name as a wordmark beside the ridge, hidden from screen readers", () => {
+		mount({ username: "ada" });
+		const word = host.querySelector('[data-testid="sidebar-wordmark"]') as HTMLElement;
+		expect(word.textContent?.trim()).toBe("chat-ui");
+		expect(word.getAttribute("aria-hidden")).toBe("true");
+	});
+
 	it("puts New chat under the logo, in the top block, as a link to the start page", () => {
 		mount({ username: "ada" });
 		const link = host.querySelector('[data-testid="new-chat"]') as HTMLAnchorElement;
