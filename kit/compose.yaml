@@ -95,7 +95,7 @@ services:
     image: ${CADDY_IMAGE:-caddy:2.11-alpine}
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:19f552f754158415"
+      cerea.config-rev: "sha256:103e628e7e72e24c"
     ports:
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
@@ -366,7 +366,7 @@ services:
     command: ["--config", "/etc/authelia/configuration.yml"]
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:84b7a833d18469c6"
+      cerea.config-rev: "sha256:ccf028a9188892ac"
     environment:
       X_AUTHELIA_CONFIG_FILTERS: template
       # The gateway's uid: the console manages the bundled users file,

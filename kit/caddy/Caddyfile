@@ -60,6 +60,28 @@
 	}
 	redir /chat /chat/
 
+	# Cerea's look for the bundled Authelia's sign-in page. Authelia lets an
+	# operator replace the logo, the favicon and the wording (authelia/assets)
+	# but not the stylesheet, so its stylesheet is served here with
+	# authelia-brand.css appended: sentence-case buttons, the app's colours.
+	# The template fetches the stock file through /authelia-src, a plain mirror
+	# of /authelia, and adds ours. With an external IdP nothing asks for any of
+	# this: the routes answer 502 like /authelia itself.
+	handle /authelia-src/* {
+		uri replace /authelia-src /authelia 1
+		reverse_proxy authelia:9091 {
+			import to_app
+		}
+	}
+	handle /authelia/static/css/* {
+		header Content-Type text/css
+		templates {
+			mime text/css
+			root /etc/caddy
+		}
+		respond `{{ httpInclude (printf "/authelia-src%s" (trimPrefix "/authelia" .OriginalReq.URL.Path)) }}
+{{ include "authelia-brand.css" }}`
+	}
 	handle /authelia/* {
 		reverse_proxy authelia:9091 {
 			import to_app

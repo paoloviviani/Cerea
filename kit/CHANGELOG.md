@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **The bundled sign-in page looks like Cerea.** The Authelia page for the chat and the console now shows the ridge and the name instead of the anonymous head icon, says **Sign in** in sentence case, uses the app's blue, and follows the browser's light or dark setting. The logo and favicon are `authelia/assets/`; the colours are `caddy/authelia-brand.css`, appended to Authelia's stylesheet by a proxy route. The browser tab still reads "Login - Authelia" (Authelia fixes that wording). Nothing changes with an external identity provider.
 - **The Workspace page has six tabs, not eight.** Local connectors is now the **On your machines** section at the foot of **Connectors**, and Custom models the **Your custom models** section at the foot of **Models**. The old addresses (`?tab=local`, `?tab=custom`) still work and take you to the section.
 - **Project settings: the table of contents no longer moves the whole window.** Clicking an entry scrolls the page's own column only, so the sidebar stays put. The full-width **Save changes** band is replaced by a small floating bar, **Unsaved changes · Discard · Save**, shown only while there are unsaved changes.
 - **Removed the stale "Re-enroll this machine to set limits…" notice** in the agents panel: machine limits went away in 0.43.0, so the notice no longer applied.
