@@ -27,4 +27,20 @@ describe("TableGrid on a narrow panel", () => {
 		const screen = render(TableGrid, { content: "A,B\n1,2\n" });
 		expect(screen.container.querySelector('[data-testid="table-fade-right"]')).toBeNull();
 	});
+
+	it("keeps the wide table inside its panel: the scroller is the table's own and cells wrap", async () => {
+		await page.viewport(390, 700);
+		const screen = render(TableGrid, { content: wide(8) });
+		const grid = screen.container.querySelector('[data-testid="table-grid"]') as HTMLElement;
+		const scroller = screen.container.querySelector(
+			'[data-testid="table-scroller"]'
+		) as HTMLElement;
+		// The scroller never grows past the panel; the overflow is inside it.
+		expect(scroller.getBoundingClientRect().right).toBeLessThanOrEqual(
+			grid.getBoundingClientRect().right + 1
+		);
+		expect(scroller.scrollWidth).toBeGreaterThan(scroller.clientWidth);
+		const cell = screen.container.querySelector("tbody td") as HTMLElement;
+		expect(getComputedStyle(cell).textOverflow).not.toBe("ellipsis");
+	});
 });
