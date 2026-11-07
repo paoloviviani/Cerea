@@ -80,3 +80,15 @@ export function allTimezones(): string[] {
 	}
 	return ["UTC"];
 }
+
+/** A schedule the user should look at: its last run failed, it was switched off
+ * with a reason, or it is on but has no access to run. Quiet otherwise. */
+export function scheduleNeedsAttention(schedule: {
+	enabled: boolean;
+	lastStatus?: ScheduleRunStatus;
+	disabledReason?: string;
+	accessIssue?: string;
+}): boolean {
+	if (!schedule.enabled) return Boolean(schedule.disabledReason);
+	return schedule.lastStatus === "failed" || Boolean(schedule.accessIssue);
+}

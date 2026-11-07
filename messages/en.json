@@ -315,7 +315,6 @@
 	"code.nav.revoking": "Revoking…",
 	"code.nav.schedule_this": "Schedule this…",
 	"code.nav.scheduled_title": "Started by a schedule",
-	"code.nav.schedules": "Schedules",
 	"code.nav.session_actions": "Session actions",
 	"code.nav.session_count": [
 		{
@@ -2757,8 +2756,6 @@
 	"nav.footer.reload": "Reload",
 	"nav.footer.reload_label": "Reload the app",
 	"nav.footer.sign_out": "Sign out",
-	"nav.footer.to_dark": "Switch to dark theme",
-	"nav.footer.to_light": "Switch to light theme",
 	"nav.projects.chats_failed": "Could not load chats",
 	"nav.projects.delete": "Delete",
 	"nav.projects.delete_chat_failed": "Could not delete the chat. Try again.",
@@ -3270,5 +3267,36 @@
 	"chat.list.tab.artifacts": "Artifacts",
 	"chat.list.tab.chats": "Chats",
 	"chat.list.tabs_label": "Chats sections",
-	"projects.page.tab.artifacts": "Artifacts"
+	"projects.page.tab.artifacts": "Artifacts",
+	"app.nav.new_agent_session": "New agent session",
+	"app.nav.schedules_attention": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Schedules, {count} needs attention",
+				"countPlural=other": "Schedules, {count} need attention"
+			}
+		}
+	],
+	"nav.user_menu.quota_of": "{used} of {limit}",
+	"nav.user_menu.quota_spent": "{used} spent",
+	"nav.user_menu.quota_label": "Usage",
+	"code.new_session.title": "New agent session",
+	"code.new_session.subtitle": "Choose the machine and the folder the agent works in.",
+	"code.new_session.machine": "Machine",
+	"code.new_session.folder": "Folder",
+	"code.new_session.offline": "offline",
+	"code.new_session.no_folders": "No folders on this machine yet. Add one to start a session.",
+	"code.new_session.add_folder": "Add a folder…",
+	"code.new_session.continue": "Continue",
+	"code.new_session.could_not_load": "Could not load this machine's folders. Try again.",
+	"code.schedules.subtitle_all": "Prompts sent to your chats and coding sessions on a timetable.",
+	"code.schedules.empty_detail_all": "Make one here, or choose “Schedule…” in a chat's menu or “Schedule this…” in a session's menu to start from it.",
+	"code.schedules.filter_label": "Show schedules for",
+	"code.schedules.filter_all": "All",
+	"code.schedules.filter_chats": "Chats",
+	"code.schedules.filter_agents": "Agents",
+	"code.schedules.kind_chat": "Chat",
+	"code.schedules.kind_agent": "Agent"
 }

@@ -81,25 +81,90 @@ describe("SchedulesPanel list rows", () => {
 		await expect.element(screen.getByTestId("run-progress")).toHaveTextContent("0/12 run");
 	});
 
-	it("lists only its own area's kind: agent schedules in /code, chat schedules at /schedules", async () => {
-		const chat = row({
-			id: "c1",
-			kind: "chat",
-			name: "Weekly news",
-			target: { mode: "continue", conversationId: "x", permissionMode: "ask" },
-			targetLabel: "Chat › News",
-		});
-		api.listSchedules.mockResolvedValue({ schedules: [row(), chat], limit: 20 });
-		const inCode = renderWithApp(SchedulesPanel);
-		await expect.element(inCode.getByText("Nightly check")).toBeVisible();
-		expect(inCode.getByText("Weekly news").elements()).toHaveLength(0);
-		inCode.unmount();
+	const chat = row({
+		id: "c1",
+		kind: "chat",
+		name: "Weekly news",
+		target: { mode: "continue", conversationId: "x", permissionMode: "ask" },
+		targetLabel: "Chat › News",
+	});
 
-		const inChat = renderWithApp(SchedulesPanel, { standalone: true });
-		await expect.element(inChat.getByText("Weekly news")).toBeVisible();
-		expect(inChat.getByText("Nightly check").elements()).toHaveLength(0);
+	function mountAt(
+		search: string,
+		flags = { chatSchedulesEnabled: true, codeSchedulesEnabled: true }
+	) {
+		return renderWithApp(SchedulesPanel, undefined, {
+			page: { url: new URL(`http://localhost:3000/schedules${search}`), data: flags },
+		});
+	}
+
+	it("lists both kinds under All, each with its Chat or Agent badge", async () => {
+		api.listSchedules.mockResolvedValue({ schedules: [row(), chat], limit: 20 });
+		const screen = mountAt("");
+		await expect.element(screen.getByText("Nightly check")).toBeVisible();
+		await expect.element(screen.getByText("Weekly news")).toBeVisible();
+		const badges = screen
+			.getByTestId("schedule-kind")
+			.elements()
+			.map((el) => el.textContent?.trim());
+		expect(badges.sort()).toEqual(["Agent", "Chat"]);
 		await expect
-			.element(inChat.getByText("Prompts sent to your chats on a timetable."))
-			.toBeVisible();
+			.element(screen.getByTestId("schedules-filter-all"))
+			.toHaveAttribute("aria-current", "true");
+	});
+
+	it("preselects the filter from the address: ?kind=chat lists chats only, ?kind=agent agents only", async () => {
+		api.listSchedules.mockResolvedValue({ schedules: [row(), chat], limit: 20 });
+		const chats = mountAt("?kind=chat");
+		await expect.element(chats.getByText("Weekly news")).toBeVisible();
+		expect(chats.getByText("Nightly check").elements()).toHaveLength(0);
+		await expect
+			.element(chats.getByTestId("schedules-filter-chat"))
+			.toHaveAttribute("aria-current", "true");
+		chats.unmount();
+
+		const agents = mountAt("?kind=agent");
+		await expect.element(agents.getByText("Nightly check")).toBeVisible();
+		expect(agents.getByText("Weekly news").elements()).toHaveLength(0);
+	});
+
+	it("the filter options are links that change the address", async () => {
+		api.listSchedules.mockResolvedValue({ schedules: [row(), chat], limit: 20 });
+		const screen = mountAt("?kind=chat");
+		await expect.element(screen.getByTestId("schedules-filter")).toBeVisible();
+		await expect
+			.element(screen.getByTestId("schedules-filter-all"))
+			.toHaveAttribute("href", "/schedules");
+		await expect
+			.element(screen.getByTestId("schedules-filter-agent"))
+			.toHaveAttribute("href", "/schedules?kind=agent");
+		// New schedule keeps the filter, so it is made as that kind.
+		await expect
+			.element(screen.getByTestId("new-schedule"))
+			.toHaveAttribute("href", "/schedules?kind=chat&new=1");
+	});
+
+	it("has no filter, and only that kind, when the deployment offers just one", async () => {
+		api.listSchedules.mockResolvedValue({ schedules: [row(), chat], limit: 20 });
+		const screen = mountAt("", { chatSchedulesEnabled: true, codeSchedulesEnabled: false });
+		await expect.element(screen.getByText("Weekly news")).toBeVisible();
+		expect(screen.getByTestId("schedules-filter").elements()).toHaveLength(0);
+		expect(screen.getByText("Nightly check").elements()).toHaveLength(0);
+	});
+
+	it("feeds the sidebar's attention badge: only failing or blocked schedules count", async () => {
+		const { scheduleAttention } = await import("$lib/stores/scheduleAttention.svelte");
+		api.listSchedules.mockResolvedValue({
+			schedules: [
+				row({ id: "ok", lastStatus: "sent" }),
+				row({ id: "bad", lastStatus: "failed" }),
+				row({ id: "blocked", enabled: false, disabledReason: "Failed three times" }),
+				row({ id: "off", enabled: false }),
+			],
+			limit: 20,
+		});
+		const screen = mountAt("");
+		await expect.element(screen.getByText("Nightly check").first()).toBeVisible();
+		expect(scheduleAttention.count).toBe(2);
 	});
 });

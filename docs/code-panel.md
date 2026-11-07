@@ -401,7 +401,8 @@ sign-in:
   twice (the same rule it applies to the session open in the agent view).
 
 The **Agents** option of the sidebar's Chats | Agents switch carries a count
-badge while asks are pending. Push notifications (below) are unchanged.
+badge while asks are pending (that badge is all: there is no separate "Needs you"
+line in the sidebar). Push notifications (below) are unchanged.
 
 ## Notifications for agents
 
@@ -427,8 +428,9 @@ notification and never sends a wrong one.
 
 ## Scheduled actions
 
-Users can put a prompt on a timetable: **Schedules**, under the devices in the
-Agents sidebar. A schedule names a machine, a workspace on it and either "a new
+Users can put a prompt on a timetable: **Schedules**, at the foot of the
+sidebar (the same row in Chats and Agents; `/code?view=schedules` redirects to
+`/schedules?kind=agent`). A schedule names a machine, a workspace on it and either "a new
 session each run" or one existing session, and sends its prompt at the times
 set (every N hours, daily, weekdays, weekly, or a cron expression; at least 15
 minutes apart; read in the schedule's timezone, DST included). A schedule can
@@ -527,8 +529,11 @@ agent in ‹session›** linking to it, and each change is a `schedule.create` /
 **Scheduled chats share all of this.** The same list, switch, limit, timetable and
 history also run prompts in the chat itself, for every signed-in user, whether or
 not the Agents panel is on for them: see [Scheduled chats](chat-admin.md#scheduled-chats).
-They are listed here marked **Chat**, and a person without the Agents panel sees
-only those (at `/schedules`).
+They are listed on the same page (`/schedules`) marked **Chat** or **Agent**, with
+a filter **All · Chats · Agents** that starts on the side of the sidebar you came
+from; a person without the Agents panel sees only chats and no filter. The row in
+the sidebar carries a badge only while a schedule needs attention (its last run
+failed, or it was switched off with a reason).
 
 **Limits and the switch.** `CHAT_SCHEDULES_MAX_PER_USER` (default 20) caps a
 person's schedules, of every kind. `CHAT_SCHEDULES_ENABLED` is on unless exactly
