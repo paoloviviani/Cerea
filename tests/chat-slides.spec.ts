@@ -99,7 +99,10 @@ test("a slides artifact renders, steps, presents and downloads a PDF", async ({
 	// Present: full screen, or the in-page overlay where the browser refuses
 	await panel.getByRole("button", { name: "Present full screen" }).click();
 	await expect(frame.getByRole("heading", { name: "Team update", level: 1 })).toBeVisible();
-	await page.keyboard.press("Escape");
+	// Leave: the browser's own full screen, or the overlay's exit button
+	await page.evaluate(() => (document.fullscreenElement ? document.exitFullscreen() : undefined));
+	const exit = page.getByRole("button", { name: "Exit presentation" });
+	if (await exit.isVisible()) await exit.click();
 
 	// The PDF is made in the browser and downloads as a real PDF with a page per slide
 	const downloading = page.waitForEvent("download");
