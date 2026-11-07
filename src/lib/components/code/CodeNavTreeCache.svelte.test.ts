@@ -186,6 +186,8 @@ describe("the cache belongs to one person", () => {
 		expect(codeDeviceList.devices).toHaveLength(1);
 
 		const footer = renderWithApp(NavFooter, { user: { username: "ada" } } as never);
+		// The sign-out form lives in the user menu: open it first.
+		await footer.getByTestId("user-menu-button").click();
 		const form = footer.baseElement.querySelector("form");
 		form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
@@ -220,6 +222,7 @@ describe("the cache belongs to one person", () => {
 		apiMock.listWorkspaces.mockReturnValueOnce(new Promise((r) => (resolve = r)));
 		const pending = loadDeviceTree("d1");
 		const footer = renderWithApp(NavFooter, { user: { username: "ada" } } as never);
+		await footer.getByTestId("user-menu-button").click();
 		footer.baseElement
 			.querySelector("form")
 			?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));

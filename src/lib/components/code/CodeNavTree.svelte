@@ -44,7 +44,6 @@
 	import IconClose from "~icons/carbon/close";
 	import IconChevronRight from "~icons/carbon/chevron-right";
 	import IconTime from "~icons/carbon/time";
-	import { SIDEBAR_ITEM, SIDEBAR_ITEM_ACTIVE } from "$lib/components/nav/sidebarItem";
 	import IconPermissions from "~icons/carbon/security";
 	import {
 		bindCodeCacheOwner,
@@ -138,12 +137,12 @@
 		| null
 	>(null);
 
-	// On the Schedules pages `device`/`ws`/`agent` prefill the editor instead of
-	// naming a selection, so the tree highlights the Schedules row alone.
-	const schedulesActive = $derived(page.url.searchParams.get("view") === "schedules");
-	const selectedDeviceId = $derived(schedulesActive ? null : page.url.searchParams.get("device"));
-	const selectedWorkspaceId = $derived(schedulesActive ? null : page.url.searchParams.get("ws"));
-	const selectedAgentId = $derived(schedulesActive ? null : page.url.searchParams.get("agent"));
+	// Only on /code do `device`/`ws`/`agent` name a selection: on the Schedules
+	// page they prefill the editor, and the tree must not highlight them.
+	const onCodePage = $derived(page.route.id === "/code");
+	const selectedDeviceId = $derived(onCodePage ? page.url.searchParams.get("device") : null);
+	const selectedWorkspaceId = $derived(onCodePage ? page.url.searchParams.get("ws") : null);
+	const selectedAgentId = $derived(onCodePage ? page.url.searchParams.get("agent") : null);
 
 	// The same one-liner the pairing dialog prints (§12): a device flagged
 	// `reenroll` shows it too, rather than a bare "go re-pair" pointer with
@@ -512,18 +511,6 @@
 </script>
 
 <div class="flex flex-col gap-px">
-	{#if page.data.codeSchedulesEnabled === true && codeDeviceList.devices.length > 0}
-		<!-- The top of the sidebar: one address, not a branch. The pane it
-		     opens holds the list, the editor and each schedule's history. -->
-		<a
-			href="{base}/code?view=schedules"
-			class="mb-1.5 {schedulesActive ? SIDEBAR_ITEM_ACTIVE : SIDEBAR_ITEM}"
-			data-testid="schedules-link"
-		>
-			<IconTime class="size-3.5 shrink-0" />
-			{m["code.nav.schedules"]()}
-		</a>
-	{/if}
 	<div class="flex items-center justify-between px-2 pt-1">
 		<span class="text-xs font-semibold text-gray-400 dark:text-gray-500"
 			>{m["code.nav.devices"]()}</span
@@ -1068,7 +1055,7 @@
 															class={MENU_ITEM}
 															onSelect={() =>
 																goto(
-																	`${base}/code?view=schedules&new=1&device=${device.id}&ws=${agent.workspaceId}&agent=${agent.id}`
+																	`${base}/schedules?kind=agent&new=1&device=${device.id}&ws=${agent.workspaceId}&agent=${agent.id}`
 																)}
 														>
 															<IconTime class="size-4 opacity-90 dark:opacity-80" />

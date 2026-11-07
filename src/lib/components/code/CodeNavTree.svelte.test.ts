@@ -678,30 +678,27 @@ describe("CodeNavTree scheduled actions", () => {
 		Object.assign(livePage.data, { codeSchedulesEnabled: on });
 	}
 
-	it("offers a Schedules row above the devices only when the deployment has them on", async () => {
-		withSchedules(false);
-		go("");
-		const off = mount();
-		await expect.element(off.getByText("Box d1")).toBeVisible();
-		expect(off.getByTestId("schedules-link").elements()).toHaveLength(0);
-		off.unmount();
-
+	it("has no Schedules row: it moved to the sidebar's foot, one row for both modes", async () => {
 		withSchedules(true);
-		const on = mount();
-		const link = on.getByTestId("schedules-link");
-		await expect.element(link).toBeVisible();
-		await expect.element(link).toHaveAttribute("href", "/code?view=schedules");
+		go("");
+		const screen = mount();
+		await expect.element(screen.getByText("Box d1")).toBeVisible();
+		expect(screen.getByTestId("schedules-link").elements()).toHaveLength(0);
 		withSchedules(false);
 	});
 
-	it("highlights the Schedules row alone while the schedules pages are open, whatever they prefill", async () => {
+	it("selects nothing on the schedules page, whatever the editor's prefill names", async () => {
 		withSchedules(true);
-		go("?view=schedules&new=1&device=d1&ws=w1&agent=a1");
+		livePage.route = { id: "/schedules" };
+		livePage.url = new URL(
+			"http://localhost:3000/schedules?kind=agent&new=1&device=d1&ws=w1&agent=a1"
+		);
+		flushSync();
 		const screen = mount();
 		await expect.element(screen.getByText("Agent a1")).toBeVisible();
-		expect(screen.getByTestId("schedules-link").element().className).toContain("font-semibold");
 		const row = screen.getByRole("link", { name: "Agent a1" }).element();
 		expect(row.className).not.toContain("font-semibold");
+		livePage.route = { id: "/code" };
 		withSchedules(false);
 	});
 
@@ -714,7 +711,7 @@ describe("CodeNavTree scheduled actions", () => {
 		await screen.getByRole("button", { name: "Session actions" }).first().click();
 		await screen.getByRole("menuitem", { name: "Schedule this…" }).click();
 		expect(appNavigation().goto).toHaveBeenCalledWith(
-			"/code?view=schedules&new=1&device=d1&ws=w1&agent=a1"
+			"/schedules?kind=agent&new=1&device=d1&ws=w1&agent=a1"
 		);
 		withSchedules(false);
 	});

@@ -43,7 +43,10 @@ describe("NavFooter sign-out clears composer drafts", () => {
 		return screen;
 	}
 
-	function submitSignOut() {
+	async function submitSignOut() {
+		// The form lives in the user menu: open it first.
+		await browserPage.getByTestId("user-menu-button").click();
+		await vi.waitFor(() => expect(host.querySelector("form")).not.toBeNull());
 		const form = host.querySelector("form");
 		if (!form) throw new Error("no sign-out form");
 		// A synthetic submit runs the listeners without navigating away from
@@ -63,7 +66,7 @@ describe("NavFooter sign-out clears composer drafts", () => {
 			writeComposerDraft(codeDraftKey("d1", "a1"), "unsent follow-up");
 			localStorage.setItem("theme", "dark");
 
-			submitSignOut();
+			await submitSignOut();
 
 			expect(localStorage.getItem(chatDraftKey("home"))).toBeNull();
 			expect(localStorage.getItem(chatDraftKey("conv123"))).toBeNull();
@@ -77,7 +80,7 @@ describe("NavFooter sign-out clears composer drafts", () => {
 			mount();
 			localStorage.setItem("theme", "light");
 
-			expect(() => submitSignOut()).not.toThrow();
+			await expect(submitSignOut()).resolves.toBeUndefined();
 			expect(localStorage.getItem("theme")).toBe("light");
 		});
 	}

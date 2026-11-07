@@ -13,6 +13,7 @@ interface ConversationListItem {
 	model?: string;
 	projectId?: string;
 	unread?: boolean;
+	titleByUser?: boolean;
 }
 
 interface UserInfo {
@@ -101,6 +102,7 @@ export const load = async ({ fetch, url, data }) => {
 			model: conv.model ?? defaultModel?.id,
 			updatedAt: new Date(conv.updatedAt),
 			...(conv.projectId ? { projectId: conv.projectId } : {}),
+			...(conv.titleByUser ? { titleByUser: true as const } : {}),
 			...(conv.unread ? { unread: true as const } : {}),
 		} satisfies ConvSidebar;
 	});

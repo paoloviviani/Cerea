@@ -323,7 +323,6 @@
 	"code.nav.revoking": "[Ŕéǚóķíńǧ…]",
 	"code.nav.schedule_this": "[Śćȟéďúľé ťȟíś…]",
 	"code.nav.scheduled_title": "[Śťáŕťéď ƀý á śćȟéďúľé]",
-	"code.nav.schedules": "[Śćȟéďúľéś]",
 	"code.nav.session_actions": "[Śéśśíóń áćťíóńś]",
 	"code.nav.session_count": [
 		{
@@ -3003,8 +3002,6 @@
 	"nav.footer.reload": "[Ŕéľóáď]",
 	"nav.footer.reload_label": "[Ŕéľóáď ťȟé áþþ]",
 	"nav.footer.sign_out": "[Śíǧń óúť]",
-	"nav.footer.to_dark": "[Śŵíťćȟ ťó ďáŕķ ťȟéḿé]",
-	"nav.footer.to_light": "[Śŵíťćȟ ťó ľíǧȟť ťȟéḿé]",
 	"nav.projects.chats_failed": "[Ćóúľď ńóť ľóáď ćȟáťś]",
 	"nav.projects.delete": "[Ďéľéťé]",
 	"nav.projects.delete_chat_failed": "[Ćóúľď ńóť ďéľéťé ťȟé ćȟáť. Ťŕý áǧáíń.]",
@@ -3555,5 +3552,52 @@
 	"settings.save_bar.unsaved": "[Úńśáǚéď ćȟáńǧéś]",
 	"settings.save_bar.discard": "[Ďíśćáŕď]",
 	"settings.save_bar.save": "[Śáǚé]",
-	"settings.save_bar.saved": "[Śáǚéď]"
+	"settings.save_bar.saved": "[Śáǚéď]",
+	"app.nav.new_agent_session": "[Ńéŵ áǧéńť śéśśíóń]",
+	"app.nav.schedules_attention": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[Śćȟéďúľéś, {count} ńééďś áťťéńťíóń]",
+				"countPlural=other": "[Śćȟéďúľéś, {count} ńééď áťťéńťíóń]"
+			}
+		}
+	],
+	"nav.user_menu.quota_of": "[{used} óƒ {limit}]",
+	"nav.user_menu.quota_spent": "[{used} śþéńť]",
+	"nav.user_menu.quota_label": "[Úśáǧé]",
+	"code.new_session.title": "[Ńéŵ áǧéńť śéśśíóń]",
+	"code.new_session.subtitle": "[Ćȟóóśé ťȟé ḿáćȟíńé áńď ťȟé ƒóľďéŕ ťȟé áǧéńť ŵóŕķś íń.]",
+	"code.new_session.machine": "[Ḿáćȟíńé]",
+	"code.new_session.folder": "[Ƒóľďéŕ]",
+	"code.new_session.offline": "[óƒƒľíńé]",
+	"code.new_session.no_folders": "[Ńó ƒóľďéŕś óń ťȟíś ḿáćȟíńé ýéť. Áďď óńé ťó śťáŕť á śéśśíóń.]",
+	"code.new_session.add_folder": "[Áďď á ƒóľďéŕ…]",
+	"code.new_session.continue": "[Ćóńťíńúé]",
+	"code.new_session.could_not_load": "[Ćóúľď ńóť ľóáď ťȟíś ḿáćȟíńé'ś ƒóľďéŕś. Ťŕý áǧáíń.]",
+	"code.schedules.subtitle_all": "[Þŕóḿþťś śéńť ťó ýóúŕ ćȟáťś áńď ćóďíńǧ śéśśíóńś óń á ťíḿéťáƀľé.]",
+	"code.schedules.empty_detail_all": "[Ḿáķé óńé ȟéŕé, óŕ ćȟóóśé “Śćȟéďúľé…” íń á ćȟáť'ś ḿéńú óŕ “Śćȟéďúľé ťȟíś…” íń á śéśśíóń'ś ḿéńú ťó śťáŕť ƒŕóḿ íť.]",
+	"code.schedules.filter_label": "[Śȟóŵ śćȟéďúľéś ƒóŕ]",
+	"code.schedules.filter_all": "[Áľľ]",
+	"code.schedules.filter_chats": "[Ćȟáťś]",
+	"code.schedules.filter_agents": "[Áǧéńťś]",
+	"code.schedules.kind_chat": "[Ćȟáť]",
+	"code.schedules.kind_agent": "[Áǧéńť]",
+	"palette.title": "[Ĵúḿþ ťó]",
+	"palette.placeholder": "[Śéáŕćȟ ćȟáťś, þŕóĵéćťś, áǧéńťś, śćȟéďúľéś áńď śéťťíńǧś…]",
+	"palette.empty": "[Ńóťȟíńǧ ḿáťćȟéś.]",
+	"palette.group.pages": "[Þáǧéś]",
+	"palette.group.chats": "[Ćȟáťś]",
+	"palette.group.projects": "[Þŕóĵéćťś]",
+	"palette.group.agents": "[Áǧéńť śéśśíóńś]",
+	"palette.group.schedules": "[Śćȟéďúľéś]",
+	"app.nav_item.regenerate_title": "[Ŕéǧéńéŕáťé ťíťľé]",
+	"app.nav_item.regenerate_failed": "[Á ťíťľé ćóúľď ńóť ƀé ŵŕíťťéń. Ťŕý áǧáíń.]",
+	"nav.projects.regenerate_failed": "[Á ťíťľé ćóúľď ńóť ƀé ŵŕíťťéń. Ťŕý áǧáíń.]"
 }

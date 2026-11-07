@@ -8,6 +8,7 @@ import {
 	flagCodeReauth,
 	signOutRedirect,
 } from "$lib/stores/codeReauth.svelte";
+import { clearCodeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 import { codeNav } from "$lib/stores/codeNav.svelte";
 import { codeNeedsYou, publishPending, clearPending } from "$lib/stores/codeNeedsYou.svelte";
 import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
@@ -61,29 +62,38 @@ describe("NavMenu's foot", () => {
 		});
 	}
 
-	it("has a Schedules row at the top of the tree for a signed-in person when scheduled actions are on, and not otherwise", () => {
+	it("has one Schedules row in the foot group, above Workspace, when scheduled actions are on, and not otherwise", () => {
 		mount({ username: "ada" }, false, { chatSchedulesEnabled: true });
 		const row = host.querySelector('[data-testid="schedules-link"]');
 		expect(row?.getAttribute("href")).toBe("/schedules");
-		// The first thing in the tree, above Projects and Chats, and not among the foot rows.
+		// Not at the top of the tree any more: after Projects and Chats, before Workspace.
 		const links = [...host.querySelectorAll("a")];
 		const rowIndex = links.findIndex((a) => a === row);
-		const projects = links.findIndex((a) => a.getAttribute("href") === "/projects");
 		const chats = links.findIndex((a) => a.getAttribute("href") === "/chats");
-		expect(rowIndex).toBeGreaterThanOrEqual(0);
-		expect(rowIndex).toBeLessThan(projects);
-		expect(rowIndex).toBeLessThan(chats);
-		expect(host.querySelectorAll('a[href="/schedules"]')).toHaveLength(1);
+		const workspace = links.findIndex((a) => a.getAttribute("href") === "/workspace");
+		expect(rowIndex).toBeGreaterThan(chats);
+		expect(rowIndex).toBeLessThan(workspace);
+		expect(host.querySelectorAll('a[href^="/schedules"]')).toHaveLength(1);
 		host.innerHTML = "";
 		mount({ username: "ada" }, false, { chatSchedulesEnabled: false });
 		expect(host.querySelector('[data-testid="schedules-link"]')).toBeNull();
 		host.innerHTML = "";
 		mount(null, false, { chatSchedulesEnabled: true });
 		expect(host.querySelector('[data-testid="schedules-link"]')).toBeNull();
+		host.innerHTML = "";
+		// Agent schedules alone are enough to show the row.
+		mount({ username: "ada" }, false, { codeSchedulesEnabled: true });
+		expect(host.querySelector('[data-testid="schedules-link"]')).not.toBeNull();
 	});
 
-	it("marks the Schedules row active on the schedules page, with the agents tree's own classes", async () => {
-		const { SIDEBAR_ITEM, SIDEBAR_ITEM_ACTIVE } = await import("./nav/sidebarItem");
+	it("opens the Schedules page filtered to Chats from the chats list when both kinds exist", () => {
+		mount({ username: "ada" }, false, { chatSchedulesEnabled: true, codeSchedulesEnabled: true });
+		expect(host.querySelector('[data-testid="schedules-link"]')?.getAttribute("href")).toBe(
+			"/schedules?kind=chat"
+		);
+	});
+
+	it("marks the Schedules row active on the schedules page", () => {
 		mount(
 			{ username: "ada" },
 			false,
@@ -91,48 +101,74 @@ describe("NavMenu's foot", () => {
 			new URL("http://localhost/schedules")
 		);
 		const active = host.querySelector('[data-testid="schedules-link"]');
-		expect(active?.className).toContain("mb-1.5");
-		expect(active?.className).toContain(SIDEBAR_ITEM_ACTIVE);
+		expect(active?.className).toContain("font-semibold");
 		expect(active?.className).not.toContain("hover:bg-gray-100");
-		expect(SIDEBAR_ITEM).toContain("hover:bg-gray-100");
 	});
 
-	it("rows point at the workspace and the settings, and no manager rows remain", () => {
-		mount({ username: "ada" });
+	it("draws the attention badge on the Schedules row only when a run needs attention", async () => {
+		const { scheduleAttention } = await import("$lib/stores/scheduleAttention.svelte");
+		scheduleAttention.count = 0;
+		mount({ username: "ada" }, false, { chatSchedulesEnabled: true });
+		expect(host.querySelector('[data-testid="schedules-attention"]')).toBeNull();
+		scheduleAttention.count = 2;
+		await vi.waitFor(() =>
+			expect(host.querySelector('[data-testid="schedules-attention"]')?.textContent).toBe("2")
+		);
+		expect(host.querySelector('[data-testid="schedules-link"]')?.getAttribute("aria-label")).toBe(
+			"Schedules, 2 need attention"
+		);
+		scheduleAttention.count = 0;
+	});
 
-		expect(host.querySelector('a[href="/workspace"]')).not.toBeNull();
-		expect(host.querySelector('a[href="/settings/application"]')).not.toBeNull();
-		// Strip the tags: a row's label may be followed by other nodes.
+	it("the foot has Schedules and Workspace rows with icons, and Settings and Admin only in the user menu", async () => {
+		const screen = mount({ username: "ada" }, true, { chatSchedulesEnabled: true });
+
+		const workspace = host.querySelector('a[href="/workspace"]');
+		expect(workspace?.querySelector("svg")).not.toBeNull();
+		expect(host.querySelector('[data-testid="schedules-link"] svg')).not.toBeNull();
+		// Same shape: one class string for both rows (the active variant aside).
+		expect(workspace?.className).toBe(
+			host.querySelector('[data-testid="schedules-link"]')?.className
+		);
+		// No manager rows, and Settings/Admin are not rows any more.
 		const text = (host.textContent ?? "").replace(/\s+/g, " ");
 		expect(text).not.toContain("Knowledge");
 		expect(text).not.toContain("MCP Servers");
-		expect(host.querySelector("[aria-haspopup]")).toBeNull();
+		expect(host.querySelector('a[href="/settings/application"]')).toBeNull();
+		expect(host.querySelector('a[href="/admin"]')).toBeNull();
+		await screen.getByTestId("user-menu-button").click();
+		await vi.waitFor(() =>
+			expect(
+				host.querySelector('[data-testid="user-menu"] a[href="/settings/application"]')
+			).not.toBeNull()
+		);
+		expect(host.querySelector('[data-testid="user-menu"] a[href="/admin"]')).not.toBeNull();
 	});
 
-	it("the Admin row renders only for an administrator", () => {
-		const notAdmin = mount({ username: "ada" }, false);
-		expect((host.textContent ?? "").includes("Admin")).toBe(false);
-		notAdmin.unmount();
-
-		mount({ username: "ada" }, true);
-		expect(host.querySelector('a[href="/admin"]')).not.toBeNull();
+	it("keeps the old icon row out: no inline theme, reload or sign-out buttons outside the menu", () => {
+		mount({ username: "ada" });
+		expect(host.querySelector("form")).toBeNull();
+		expect(host.querySelector('button[title="Reload"]')).toBeNull();
 	});
 
-	it("the signed-out panel keeps the rows and has no footer", () => {
+	it("the signed-out panel keeps Workspace and a plain Settings row, and no user menu", () => {
 		mount(null);
 
 		expect(host.querySelector('a[href="/workspace"]')).not.toBeNull();
 		expect(host.querySelector('a[href="/settings/application"]')).not.toBeNull();
+		expect(host.querySelector('[data-testid="user-menu-button"]')).toBeNull();
 		expect(host.querySelector("form")).toBeNull();
 	});
 
-	it("the footer names the person and posts the sign-out", () => {
-		const screen = mount({ username: "ada" });
-
-		expect(screen.getByText("ada")).toBeInTheDocument();
-		const form = host.querySelector('form[action="/logout"]');
-		expect(form).not.toBeNull();
-		expect(form?.getAttribute("method")).toBe("POST");
+	it("puts New chat under the logo, in the top block, as a link to the start page", () => {
+		mount({ username: "ada" });
+		const link = host.querySelector('[data-testid="new-chat"]') as HTMLAnchorElement;
+		expect(link.getAttribute("href")).toBe("/");
+		expect(link.textContent?.trim()).toBe("New chat");
+		const links = [...host.querySelectorAll("a")];
+		expect(links.indexOf(link)).toBeLessThan(
+			links.findIndex((a) => a.getAttribute("href") === "/projects")
+		);
 	});
 });
 
@@ -265,6 +301,8 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 
 	beforeEach(() => {
 		resetCodeReauth();
+		// The device list is a module-level store that skips a re-read while fresh.
+		clearCodeDeviceList();
 		codeNav.view = "auto";
 		listDevices.mockReset();
 		listDevices.mockResolvedValue({ devices: [] });
@@ -354,6 +392,38 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		// No tree: the tree's own markers and its pairing control are absent.
 		expect(host.querySelector('[data-testid="device-rail"]')).toBeNull();
 		expect((host.textContent ?? "").replace(/\s+/g, " ")).not.toContain("Pair a machine");
+	});
+
+	it("puts the switch under the logo and above the list, and New agent session follows it in Agents mode", async () => {
+		stubFetch({
+			enabled: true,
+			fresh: true,
+			reauthPath: "/login?reauth=1&next=/code",
+			freshUntil: new Date(Date.now() + 3_600_000).toISOString(),
+		});
+		codeNav.view = "chats";
+		mount("/");
+		const sw = () => host.querySelector('[data-testid="sidebar-view-chats"]') as HTMLElement;
+		await vi.waitFor(() => expect(sw()).not.toBeNull());
+		// Chats mode: New chat, and the switch is above the Projects tree.
+		expect(host.querySelector('[data-testid="new-chat"]')).not.toBeNull();
+		expect(host.querySelector('[data-testid="new-agent-session"]')).toBeNull();
+		const all = [...host.querySelectorAll("*")];
+		const projects = host.querySelector('a[href="/projects"]') as Element;
+		expect(all.indexOf(sw())).toBeLessThan(all.indexOf(projects));
+		// Agents mode: the button follows the switch.
+		(host.querySelector('[data-testid="sidebar-view-agents"]') as HTMLElement).click();
+		await vi.waitFor(() =>
+			expect(host.querySelector('[data-testid="new-agent-session"]')).not.toBeNull()
+		);
+		expect(host.querySelector('[data-testid="new-chat"]')).toBeNull();
+		expect(host.querySelector('[data-testid="new-agent-session"]')?.textContent?.trim()).toBe(
+			"New agent session"
+		);
+		// No machine is paired: the button opens the Pair dialog, not the chooser.
+		(host.querySelector('[data-testid="new-agent-session"]') as HTMLElement).click();
+		await vi.waitFor(() => expect(document.body.textContent).toContain("Pair"));
+		expect(document.querySelector('[data-testid="new-agent-machine"]')).toBeNull();
 	});
 
 	it("badges the Agents option with the asks waiting, and names the count for a screen reader", async () => {

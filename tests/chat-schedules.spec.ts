@@ -43,7 +43,8 @@ test("schedule a chat from its menu, run it now, and read the answer in the same
 	const { conversationId, rootMessageId } = await api.createConversation();
 	await api.sendMessage({ conversationId, parentId: rootMessageId, content: "hello there" });
 
-	// The Schedules row is the first thing in the chat tree, above Projects and Chats.
+	// The Schedules row is in the foot group now: below the Projects and Chats trees,
+	// above Workspace, and the same row in both modes.
 	await page.goto(`${E2E_APP_BASE}/`);
 	const nav = page.getByRole("navigation").first();
 	const link = nav.getByTestId("schedules-link");
@@ -51,9 +52,9 @@ test("schedule a chat from its menu, run it now, and read the answer in the same
 	const order = await nav
 		.locator("a")
 		.evaluateAll((els) => els.map((el) => el.getAttribute("href") ?? ""));
-	expect(order.findIndex((h) => h.endsWith("/schedules"))).toBeLessThan(
-		order.findIndex((h) => h.endsWith("/projects"))
-	);
+	const at = (suffix: string) => order.findIndex((h) => h.includes(suffix));
+	expect(at("/schedules")).toBeGreaterThan(at("/projects"));
+	expect(at("/schedules")).toBeLessThan(at("/workspace"));
 
 	// The sidebar row's menu offers "Schedule…" and opens the editor on this chat.
 	await page.goto(`${E2E_APP_BASE}/conversation/${conversationId}`);

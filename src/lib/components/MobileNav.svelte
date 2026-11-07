@@ -304,7 +304,7 @@
 		: tween.current}%); width: {drawerWidthPercentage}%; will-change: transform;"
 	class:shadow-[5px_0_15px_0_rgba(0,0,0,0.3)]={isOpen || isDragging}
 	class="fixed top-0 bottom-0 left-0 z-30 grid max-h-dvh grid-cols-1
-	grid-rows-[auto_1fr_auto_auto] rounded-r-xl bg-white pt-4 md:hidden dark:bg-gray-900"
+	grid-rows-[auto_1fr_auto] rounded-r-xl bg-white pt-4 md:hidden dark:bg-gray-900"
 >
 	{#if hasOpenedDrawer}
 		{@render children?.()}

@@ -23,8 +23,15 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	const [conversations, totalCount] = await Promise.all([
 		collections.conversations
 			.find(own)
-			.project<{ _id: object; title: string; model: string; updatedAt: Date }>({
+			.project<{
+				_id: object;
+				title: string;
+				titleSource?: string;
+				model: string;
+				updatedAt: Date;
+			}>({
 				title: 1,
+				titleSource: 1,
 				model: 1,
 				updatedAt: 1,
 			})
@@ -40,6 +47,7 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 			title: conversation.title,
 			model: conversation.model,
 			updatedAt: conversation.updatedAt.toISOString(),
+			...(conversation.titleSource === "user" ? { titleByUser: true } : {}),
 		})),
 		othersCount: Math.max(0, totalCount - conversations.length),
 	});

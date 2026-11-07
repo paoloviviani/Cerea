@@ -30,9 +30,18 @@ there it can also be set to follow this choice.
 
 ## Conversations
 
-The sidebar has two trees, **Projects** and **Chats**, then a few single
-entries at the foot: **Workspace**, **Settings** and, for administrators,
-**Admin** ([Administering the chat](chat-admin.md)). A conversation keeps
+The sidebar has the logo at the top (it goes home), then the **Chats | Agents**
+switch (only where [coding agents](agent-machines.md) are on) and a **New chat**
+button that follows it: in Agents it reads **New agent session**. Below are two
+trees, **Projects** and **Chats**. At the foot are **Schedules** and
+**Workspace**, then your name. Click your name for your menu: a small quota
+summary (what you have spent against your limit, or the spend alone when there
+is none; it links to Settings → Usage & billing), **Settings**, **Admin** for
+administrators ([Administering the chat](chat-admin.md)), **Console** where the
+deployment has one and you may open it, the theme switch, **Reload** and
+**Sign out**. Counts beside a tree's name appear when you point at the row.
+Press Ctrl-K (⌘K on a Mac) anywhere to jump to a chat, project, agent session,
+schedule or settings page by typing part of its name. A conversation keeps
 the model it was started with. Projects group conversations that share
 standing context and knowledge; each project has a page of its own, opened from
 its row's `⋯` menu (**Project settings**). See [Knowledge and projects](knowledge.md).
@@ -65,6 +74,13 @@ in a project shared with you are in that project's page, not here. Click a row
 to open the conversation. Each row's `⋯` menu offers **Move to project…**,
 **Remove from project** when the chat is in one, and **Delete**, which asks for
 confirmation first, exactly as the sidebar's menu does.
+
+**Titles.** Cerea names a chat after its first turn. If you do not like the
+name, open the chat's `⋯` menu in the sidebar and choose **Regenerate title**:
+it asks again, this time with the start of the reply to read. The item is not
+there for a title you typed yourself, which Cerea never replaces. If a title
+cannot be written (the model gives nothing, or titles are off in this
+deployment) the current one stays and you are told.
 
 Everything a conversation does that has a cost is metered against your token:
 the reply, the title Cerea generates from the first turn, reading a document,
@@ -419,7 +435,7 @@ signed-in user has them; they are not part of the coding agents.
 
 - Open a conversation's **⋯** menu in the sidebar and choose **Schedule…**. The
   editor opens on that chat.
-- Open **Schedules** in the sidebar and choose **New schedule**.
+- Open **Schedules** at the foot of the sidebar and choose **New schedule**. One page lists chat and agent schedules, each marked **Chat** or **Agent**; the filter (**All · Chats · Agents**) starts on the side you came from.
 - Ask the assistant: "remind me every Friday at 4 pm to send the weekly report".
   It proposes the schedule on a card, with its name, timetable, where it runs
   and the prompt it will send, and the schedule exists only if you press
