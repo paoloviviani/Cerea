@@ -119,6 +119,9 @@ describe("install.sh", () => {
 		for (const [archive, sum] of Object.entries(GOOSE_SHA256)) {
 			expect(script).toContain(`${archive}) want=${sum} ;;`);
 		}
+		// into galopin's own directory: never over a goose the user installed themselves
+		expect(script).toContain('mv "$tmp/goose-x/goose" "$dir/galopin-goose/goose"');
+		expect(script).not.toContain('"$dir/goose"');
 		expect(script).toContain("--engine) [ $# -ge 2 ]");
 		expect(script).toContain("galopin enroll --cerea %s%s");
 	});

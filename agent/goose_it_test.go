@@ -24,7 +24,7 @@ import (
 
 // Real goose against galopin's goose engine, with a fake OpenAI-compatible model
 // (internal/mockllm) as the proxy's upstream: no key, no network. Gated on
-// GALOPIN_GOOSE_IT=1 and a `goose` on PATH (or GALOPIN_GOOSE_BIN); CI's goose
+// GALOPIN_GOOSE_IT=1 and a `goose` on PATH (galopin is pointed at it with GALOPIN_GOOSE_BIN); CI's goose
 // workflow runs it against the pinned and the latest goose.
 
 type gooseRig struct {
@@ -47,6 +47,7 @@ func newGooseRigVia(t *testing.T, via **shim) *gooseRig {
 	if os.Getenv("GALOPIN_GOOSE_IT") == "" {
 		t.Skip("set GALOPIN_GOOSE_IT=1 (and have goose on PATH) to run the goose engine tests")
 	}
+	useITGoose(t)
 	if _, err := gooseBinary(); err != nil {
 		t.Skip(err)
 	}
@@ -219,8 +220,21 @@ func TestGooseEngineModesAndSessionsAreGalopins(t *testing.T) {
 	}
 }
 
+// useITGoose points galopin at the goose on PATH (CI installs the pinned or the
+// latest one there): the only way to run a goose other than the verified copy.
+func useITGoose(t *testing.T) {
+	t.Helper()
+	if os.Getenv(gooseEnvOverride) != "" {
+		return
+	}
+	if p, err := exec.LookPath("goose"); err == nil {
+		t.Setenv(gooseEnvOverride, p)
+	}
+}
+
 func mustGooseBin(t *testing.T) string {
 	t.Helper()
+	useITGoose(t)
 	b, err := gooseBinary()
 	if err != nil {
 		t.Skip(err)
@@ -320,7 +334,11 @@ func TestGooseSetupProviderAndLocalAgentsExtension(t *testing.T) {
 	if err := os.WriteFile(gooseProviderPath(cfgDir), provider, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := setGooseExtension(setGooseDefault("", gooseProviderID, "mock-model"), ext.URL+localmcp.Path, "ext-secret")
+	spec := newGooseExt(ext.URL+localmcp.Path, "ext-secret")
+	cfg, err := applyGooseConfig("", &gooseSidecar{Was: map[string]*string{}, Set: map[string]string{}}, true, gooseProviderID, "mock-model", &spec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}

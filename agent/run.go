@@ -178,10 +178,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		}
 	}
 
-	stateDir := opts.stateDir
-	if stateDir == "" {
-		stateDir = filepath.Dir(credsPath)
-	}
+	stateDir := resolveStateDir(opts.stateDir, credsPath)
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return fmt.Errorf("creating state dir: %w", err)
 	}

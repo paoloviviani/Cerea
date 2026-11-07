@@ -162,15 +162,15 @@ ${gooseSums}
 	fetch "https://github.com/block/goose/releases/download/v${GOOSE_VERSION}/$archive" "$tmp/$archive" || fail "could not download goose ${GOOSE_VERSION} ($archive)"
 	got=$(sha256 "$tmp/$archive")
 	[ "$got" = "$want" ] || fail "checksum mismatch for $archive (expected $want, got $got); goose not installed"
-	mkdir -p "$tmp/goose-x"
+	mkdir -p "$tmp/goose-x" "$dir/galopin-goose"
 	tar -xzf "$tmp/$archive" -C "$tmp/goose-x" || fail "could not unpack $archive"
 	[ -f "$tmp/goose-x/goose" ] || fail "$archive holds no goose binary"
 	chmod 755 "$tmp/goose-x/goose"
-	mv "$tmp/goose-x/goose" "$dir/goose"
+	mv "$tmp/goose-x/goose" "$dir/galopin-goose/goose"
 	if [ "$os" = darwin ] && command -v xattr >/dev/null 2>&1; then
-		xattr -d com.apple.quarantine "$dir/goose" 2>/dev/null || true
+		xattr -d com.apple.quarantine "$dir/galopin-goose/goose" 2>/dev/null || true
 	fi
-	printf 'Installed goose ${GOOSE_VERSION} to %s/goose (checksum verified).\\n' "$dir"
+	printf 'Installed goose ${GOOSE_VERSION} to %s/galopin-goose/goose (checksum verified; a goose you installed yourself is left alone).\\n' "$dir"
 fi
 case ":$PATH:" in
 	*":$dir:"*) ;;

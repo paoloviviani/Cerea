@@ -44,6 +44,32 @@ const (
 type localAgentsConfig struct {
 	Port   int    `json:"port"`
 	Secret string `json:"secret"`
+	// LocalConnectors is set by 'galopin goose setup': the user opted in to this
+	// machine's own connectors (mcp.json) being offered at the endpoint.
+	LocalConnectors bool `json:"localConnectors,omitempty"`
+}
+
+// resolveStateDir is the one answer to "where is galopin's state": --state-dir,
+// else the directory of the credential file. 'run' and 'goose setup' both use it.
+func resolveStateDir(explicit, credsPath string) string {
+	if explicit != "" {
+		return explicit
+	}
+	return filepath.Dir(credsPath)
+}
+
+// readLocalAgentsConfig reads <stateDir>/local-agents.json; ok is false when
+// setup has not been run (or the file is unusable).
+func readLocalAgentsConfig(stateDir string) (localAgentsConfig, bool) {
+	body, err := os.ReadFile(filepath.Join(stateDir, localAgentsFileName))
+	if err != nil {
+		return localAgentsConfig{}, false
+	}
+	var c localAgentsConfig
+	if json.Unmarshal(body, &c) != nil || c.Port <= 0 || c.Secret == "" {
+		return localAgentsConfig{}, false
+	}
+	return c, true
 }
 
 func (c localAgentsConfig) URL() string {
@@ -54,11 +80,15 @@ func (c localAgentsConfig) URL() string {
 // with a free port and a fresh secret when it is absent.
 func ensureLocalAgentsConfig(stateDir string) (localAgentsConfig, error) {
 	path := filepath.Join(stateDir, localAgentsFileName)
-	if body, err := os.ReadFile(path); err == nil {
-		var c localAgentsConfig
-		if json.Unmarshal(body, &c) == nil && c.Port > 0 && c.Secret != "" {
-			return c, nil
+	if c, ok := readLocalAgentsConfig(stateDir); ok {
+		if !c.LocalConnectors {
+			c.LocalConnectors = true
+			body, _ := json.MarshalIndent(c, "", "  ")
+			if err := writeFileAtomic(path, append(body, '\n'), 0o600); err != nil {
+				return c, err
+			}
 		}
+		return c, nil
 	}
 	port := 0
 	for p := defaultLocalAgentsPort; p < defaultLocalAgentsPort+100; p++ {
@@ -76,7 +106,7 @@ func ensureLocalAgentsConfig(stateDir string) (localAgentsConfig, error) {
 	if err != nil {
 		return localAgentsConfig{}, err
 	}
-	c := localAgentsConfig{Port: port, Secret: secret}
+	c := localAgentsConfig{Port: port, Secret: secret, LocalConnectors: true}
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return c, err
 	}
@@ -241,13 +271,18 @@ func (s *localAgentSource) Call(ctx context.Context, name string, args json.RawM
 	return text, nil
 }
 
-// startLocalAgentEndpoint serves the endpoint until ctx ends. A missing or busy
-// port is logged, not fatal: the rest of galopin does not depend on it.
+// startLocalAgentEndpoint serves the endpoint until ctx ends, but only once
+// 'galopin goose setup' has written local-agents.json: a machine that never ran
+// setup opens no port. This machine's own connectors are served only if setup
+// opted in. A busy port is logged, not fatal: the rest of galopin does not
+// depend on it.
 func startLocalAgentEndpoint(ctx context.Context, stateDir string, src *localAgentSource) {
-	cfg, err := ensureLocalAgentsConfig(stateDir)
-	if err != nil {
-		logf("local agents endpoint not started: %v", err)
+	cfg, ok := readLocalAgentsConfig(stateDir)
+	if !ok {
 		return
+	}
+	if !cfg.LocalConnectors {
+		src.hub = nil
 	}
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", cfg.Port))
 	if err != nil {

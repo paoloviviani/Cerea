@@ -76,7 +76,7 @@ checksums in `packaging/goose-sha256` (upstream publishes none).
 OpenAI-compatible model, no secrets) on the pinned release for changes under
 `agent/` and weekly, and on goose's latest daily, keeping one issue ("breaks
 galopin" or "ready to bump the pin"). Bump with `packaging/bump-goose.sh
-<version>`. Locally: install that goose, then `GALOPIN_GOOSE_IT=1 go test -run
+<version>`. Locally: install that goose, then `GALOPIN_GOOSE_IT=1 GALOPIN_GOOSE_BIN=$(command -v goose) go test -run
 Goose .`. `galopin goose setup` configures a user's own goose; see the
 agent-machines reference.
 

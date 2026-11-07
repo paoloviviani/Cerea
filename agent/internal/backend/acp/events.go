@@ -345,7 +345,24 @@ func (b *Backend) handleModeUpdate(st *sessionState, upd map[string]any) {
 	st.mu.Unlock()
 	b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventSession, Session: &sess})
 	if b.modeHidden(modeID) && b.cfg.ForceMode != "" {
+		// The session is in a mode that skips asks. The read loop must not block (a
+		// response it is carrying may be the one the set_mode call waits for), so the
+		// put-back runs on its own goroutine; but it is registered here, in order,
+		// and no permission answer is given until it is done (waitReasserted), and
+		// a prompt runs assertMode itself.
+		done := make(chan struct{})
+		st.mu.Lock()
+		st.reasserting = done
+		st.mu.Unlock()
 		go func() {
+			defer func() {
+				st.mu.Lock()
+				if st.reasserting == done {
+					st.reasserting = nil
+				}
+				st.mu.Unlock()
+				close(done)
+			}()
 			ctx, cancel := context.WithTimeout(context.Background(), rpcCallTimeout)
 			defer cancel()
 			now := b.assertMode(ctx, st.id, modeID)

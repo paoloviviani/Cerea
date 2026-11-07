@@ -69,9 +69,27 @@ func NewProtected(home, stateDir string) Protected {
 			// the gateway's and the kit's conventional config homes
 			j(".config", "pystino"), j(".pystino"), j(".config", "cerea"), j(".cerea"),
 		)
-		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-			add(&pr.OwnDirs, filepath.Join(xdg, "galopin"), filepath.Join(xdg, "opencode"))
+		// The user's own goose (ADR 0110): its config holds the local-endpoint bearer and
+		// the proxy secret 'galopin goose setup' writes, and a write there could set
+		// GOOSE_MODE: auto. Treated like galopin's own files, and as credential stores for reads.
+		goose := []string{
+			j(".config", "goose"), j(".local", "share", "goose"),
+			j("Library", "Application Support", "Block", "goose"),
 		}
+		add(&pr.OwnDirs, goose...)
+		add(&pr.SecretDirs, goose...)
+		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+			add(&pr.OwnDirs, filepath.Join(xdg, "galopin"), filepath.Join(xdg, "opencode"), filepath.Join(xdg, "goose"))
+			add(&pr.SecretDirs, filepath.Join(xdg, "goose"))
+		}
+		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+			add(&pr.OwnDirs, filepath.Join(xdg, "goose"))
+			add(&pr.SecretDirs, filepath.Join(xdg, "goose"))
+		}
+	}
+	if root := os.Getenv("GOOSE_PATH_ROOT"); root != "" {
+		add(&pr.OwnDirs, root)
+		add(&pr.SecretDirs, root)
 	}
 	return pr
 }

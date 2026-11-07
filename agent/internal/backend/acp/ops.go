@@ -411,6 +411,9 @@ func (b *Backend) ReplyPermission(ctx context.Context, workspaceDir, sessionID, 
 	if !ok {
 		return fmt.Errorf("acp: unknown session %q", sessionID)
 	}
+	if err := b.waitReasserted(ctx, st, decision); err != nil {
+		return err
+	}
 	st.mu.Lock()
 	pending, ok := st.pending[requestID]
 	if ok {

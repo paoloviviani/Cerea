@@ -141,7 +141,7 @@ jobs:
             if [ -n "$n" ]; then gh issue edit "$n" --body "$2" > /dev/null; else gh issue create --label goose-pipeline --title "$1" --body "$2"; fi
           }
           if [ "$CODE" != "0" ]; then
-            upsert "goose $VERSION breaks galopin" "galopin's goose engine suite fails against **goose $VERSION** (pinned: $PINNED). Run: $RUN_URL. Reproduce: install goose $VERSION, then \`cd agent && GALOPIN_GOOSE_IT=1 go test -count=1 -v -run Goose .\`. The pin stays at $PINNED until someone bumps it."
+            upsert "goose $VERSION breaks galopin" "galopin's goose engine suite fails against **goose $VERSION** (pinned: $PINNED). Run: $RUN_URL. Reproduce: install goose $VERSION, then \`cd agent && GALOPIN_GOOSE_IT=1 GALOPIN_GOOSE_BIN=$(command -v goose) go test -count=1 -v -run Goose .\`. The pin stays at $PINNED until someone bumps it."
           else
             upsert "goose $VERSION passes galopin's goose suite: ready to bump the pin" "The goose engine suite passes against **goose $VERSION** (pinned: $PINNED). Run: $RUN_URL. Bump: \`agent/packaging/bump-goose.sh $VERSION\`, then the printed checks, then update prose naming the release."
           fi

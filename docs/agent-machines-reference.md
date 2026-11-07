@@ -148,10 +148,23 @@ What galopin sets up for goose:
   Use one driver at a time: a turn you drive in goose Desktop bypasses Cerea's
   rules and its review log.
 
-What differs from opencode: no usage figures in the session, no subagent cards
-and no compaction control (goose offers none over its protocol), so the panel
-hides them. Cost is still counted on the gateway, per session. Changes, history,
+What differs from opencode: no subagent cards (goose has none over its protocol),
+and compaction is goose's own `/compact`, run as a turn (its answer appears in the
+transcript). Usage works: goose reports none over its protocol, so galopin reads
+each model call's token counts off its own proxy and feeds the context meter and
+the session's usage the same way it does for opencode. The context window comes
+from the gateway's model list (`galopin models refresh`), so the meter shows the
+share used. Cost is the gateway's, per session, as for opencode. Changes, history,
 model choice, connectors and the task list work as they do elsewhere.
+
+The goose that runs is the pinned copy the install line puts in
+`galopin-goose/` beside the galopin binary. A goose on your PATH is never used.
+To run another one anyway (a build you are testing), set `GALOPIN_GOOSE_BIN`;
+`run` then logs a warning at every start.
+
+Sessions cannot reach your own goose's settings: `~/.config/goose` and
+`~/.local/share/goose` (and the XDG, `GOOSE_PATH_ROOT` and macOS forms) are
+protected like galopin's own files, and reading them is a secrets request.
 
 ### Your own goose, through galopin
 
@@ -173,8 +186,16 @@ connectors**, served by galopin on loopback with a secret. It offers this
 computer's own connectors and the Cerea connectors you switched on in
 **Workspace → Agents → Connectors for your local agents**. None is on by default.
 These calls are not governed by a session's Plan, Ask or Allow (your agent's own
-approval applies), and each one is recorded in the review log. `--remove` takes
-the provider and the extension out again.
+approval applies), and each one is recorded in the review log.
+
+The endpoint exists only after setup: `run` opens it when `local-agents.json` is in
+the state directory, which setup writes (`--state-dir` is the same option `run`
+takes, and defaults to the same place). goose Desktop and the CLI rewrite
+`config.yaml` and drop its comments, so setup edits it by key and keeps a record
+of what it replaced in `goose-setup.json` in the state directory. Running setup
+again changes nothing more; your other extensions stay. `--remove` takes out the
+provider and the extension, puts back a default provider that `--default` had
+changed, deletes the record and the endpoint's secret.
 
 Over an ACP backend the coordination tools reach the agent as an MCP server galopin
 runs on loopback: see [Coordination tools over MCP](#coordination-tools-over-mcp).

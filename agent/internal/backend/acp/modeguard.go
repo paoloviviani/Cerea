@@ -8,6 +8,7 @@ package acp
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"galopin/internal/backend"
@@ -49,4 +50,28 @@ func (b *Backend) assertMode(ctx context.Context, sessionID, current string) str
 	}
 	b.cfg.Logf("acp: a session was in mode %q, which skips asks: set back to %q", current, b.cfg.ForceMode)
 	return b.cfg.ForceMode
+}
+
+// waitReasserted blocks until a pending put-back of a hidden mode on st has
+// finished, and refuses an allow if the session is still in such a mode: an
+// answer given while the agent could be running without asking is the walk-around
+// the guard exists to prevent. A reject is always fine.
+func (b *Backend) waitReasserted(ctx context.Context, st *sessionState, decision backend.Decision) error {
+	st.mu.Lock()
+	done := st.reasserting
+	st.mu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	st.mu.Lock()
+	mode := st.modeID
+	st.mu.Unlock()
+	if decision != backend.DecisionReject && b.modeHidden(mode) {
+		return fmt.Errorf("acp: the session is in mode %q, which skips asks, and could not be put back; not answering", mode)
+	}
+	return nil
 }

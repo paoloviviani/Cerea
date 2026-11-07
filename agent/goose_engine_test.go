@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestEnrollEngineIsRecordedKeptAndValidated(t *testing.T) {
@@ -153,54 +155,133 @@ func TestSetupWritesOnlyTheUsersProviderAndLeavesDefaultsAlone(t *testing.T) {
 	if err := writeGooseEngineConfig(gooseRootFor(credsPath), creds, []gatewayModel{{ID: "m1"}, {ID: "m2"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := gooseSetup(context.Background(), creds, credsPath, cfgDir, false, true); err != nil {
-		t.Fatal(err)
+	setup := func(makeDefault bool) {
+		t.Helper()
+		if err := gooseSetup(context.Background(), creds, credsPath, stateDir, cfgDir, makeDefault, true); err != nil {
+			t.Fatal(err)
+		}
 	}
+	read := func() map[string]any {
+		t.Helper()
+		body, err := os.ReadFile(cfgPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := yaml.Unmarshal(body, &m); err != nil {
+			t.Fatalf("config.yaml is not valid YAML: %v\n%s", err, body)
+		}
+		return m
+	}
+	// goose Desktop and the CLI rewrite config.yaml with serde, which drops comments.
+	serde := func() {
+		t.Helper()
+		body, _ := os.ReadFile(cfgPath)
+		var m map[string]any
+		if err := yaml.Unmarshal(body, &m); err != nil {
+			t.Fatal(err)
+		}
+		out, _ := yaml.Marshal(m)
+		if err := os.WriteFile(cfgPath, out, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exts := func(m map[string]any) map[string]any {
+		e, _ := m["extensions"].(map[string]any)
+		return e
+	}
+
+	setup(false)
 	body, _ := os.ReadFile(gooseProviderPath(cfgDir))
 	if strings.Contains(string(body), "session_id_header_override") || !strings.Contains(string(body), "Bearer s3cret") {
 		t.Errorf("provider file:\n%s", body)
 	}
-	got, _ := os.ReadFile(cfgPath)
-	if !strings.Contains(string(got), "GOOSE_PROVIDER: openai\n") || !strings.Contains(string(got), "GOOSE_MODEL: gpt-x # mine\n") {
-		t.Errorf("setup without --default touched the defaults:\n%s", got)
+	m := read()
+	if m["GOOSE_PROVIDER"] != "openai" || m["GOOSE_MODEL"] != "gpt-x" {
+		t.Errorf("setup without --default touched the defaults: %v", m)
 	}
-	if !strings.Contains(string(got), "cerea_connectors:") || !strings.Contains(string(got), "  developer:") {
-		t.Errorf("extension block missing or other extension lost:\n%s", got)
+	if exts(m)["cerea_connectors"] == nil || exts(m)["developer"] == nil {
+		t.Errorf("extension missing or other extension lost: %v", m)
 	}
-	// Again, with --default: idempotent, and remove restores everything.
-	for i := 0; i < 2; i++ {
-		if err := gooseSetup(context.Background(), creds, credsPath, cfgDir, true, true); err != nil {
-			t.Fatal(err)
-		}
+	// With --default, then goose rewrites the file (comments gone), then setup again:
+	// still one extension, and the originals recorded by the first run survive.
+	setup(true)
+	serde()
+	setup(true)
+	serde()
+	setup(true)
+	m = read()
+	if m["GOOSE_PROVIDER"] != "galopin" || len(exts(m)) != 2 {
+		t.Errorf("after setup, a serde rewrite and setup again: %v", m)
 	}
-	got, _ = os.ReadFile(cfgPath)
-	if strings.Count(string(got), "cerea_connectors:") != 1 || !strings.Contains(string(got), "GOOSE_PROVIDER: galopin") {
-		t.Errorf("after --default twice:\n%s", got)
-	}
-	if err := gooseSetupRemove(cfgDir); err != nil {
+	// A second pass of serde-then-remove restores the user's own values, with no secret left.
+	serde()
+	if err := gooseSetupRemove(cfgDir, stateDir); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = os.ReadFile(cfgPath)
-	if string(got) != orig {
-		t.Errorf("remove did not restore the file.\nwant:\n%s\ngot:\n%s", orig, got)
+	m = read()
+	if m["GOOSE_PROVIDER"] != "openai" || m["GOOSE_MODEL"] != "gpt-x" || len(exts(m)) != 1 || exts(m)["developer"] == nil {
+		t.Errorf("remove did not restore the originals: %v", m)
 	}
-	if _, err := os.Stat(gooseProviderPath(cfgDir)); err == nil {
-		t.Error("remove left the provider file")
+	got, _ := os.ReadFile(cfgPath)
+	if strings.Contains(string(got), "Bearer") || strings.Contains(string(got), "galopin") {
+		t.Errorf("remove left setup's traces:\n%s", got)
+	}
+	for _, p := range []string{gooseProviderPath(cfgDir), filepath.Join(stateDir, gooseSidecarName), filepath.Join(stateDir, localAgentsFileName)} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("remove left %s", p)
+		}
 	}
 }
 
-func TestGooseYAMLEditsWithoutExtensionsOrFile(t *testing.T) {
-	text := setGooseExtension("", "http://127.0.0.1:1/local-agents", "tok")
-	if !strings.HasPrefix(text, "extensions:\n  # >>> ") {
-		t.Errorf("fresh file:\n%s", text)
+func TestGooseYAMLMergesInlineExtensionsAndHandlesEmptyFiles(t *testing.T) {
+	sc := &gooseSidecar{Was: map[string]*string{}, Set: map[string]string{}}
+	ext := newGooseExt("http://127.0.0.1:1/local-agents", "tok")
+	out, err := applyGooseConfig("extensions: {developer: {enabled: true, type: builtin, name: developer}}\nGOOSE_MODE: approve\n", sc, false, "", "", &ext)
+	if err != nil {
+		t.Fatal(err)
 	}
-	back, changed := removeGooseManaged(text)
-	if !changed || strings.TrimSpace(back) != "" {
-		t.Errorf("remove from a file setup created = %q (changed %v)", back, changed)
+	var m struct {
+		Extensions map[string]any `yaml:"extensions"`
+		Mode       string         `yaml:"GOOSE_MODE"`
 	}
-	flow := setGooseExtension("extensions: {}\nGOOSE_MODE: approve\n", "u", "t")
-	if !strings.HasPrefix(flow, "extensions:\n") || !strings.Contains(flow, "GOOSE_MODE: approve") {
-		t.Errorf("flow-style extensions:\n%s", flow)
+	if err := yaml.Unmarshal([]byte(out), &m); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if m.Extensions["developer"] == nil || m.Extensions["cerea_connectors"] == nil || m.Mode != "approve" {
+		t.Errorf("an inline extensions map was overwritten instead of merged:\n%s", out)
+	}
+	// An empty file and a null extensions key.
+	for _, in := range []string{"", "extensions:\nGOOSE_MODE: approve\n", "extensions: {}\n"} {
+		sc := &gooseSidecar{Was: map[string]*string{}, Set: map[string]string{}}
+		out, err := applyGooseConfig(in, sc, false, "", "", &ext)
+		if err != nil || !strings.Contains(out, "cerea_connectors:") {
+			t.Fatalf("%q: %v\n%s", in, err, out)
+		}
+		back, changed, err := removeGooseConfig(out, sc)
+		if err != nil || !changed || strings.Contains(back, "cerea") || strings.Contains(back, "tok") {
+			t.Errorf("%q: remove = %q (changed %v, %v)", in, back, changed, err)
+		}
+	}
+	// Not YAML, or not a map: refused, nothing rewritten.
+	for _, in := range []string{"a: [", "- a\n- b\n"} {
+		if _, err := applyGooseConfig(in, &gooseSidecar{Was: map[string]*string{}, Set: map[string]string{}}, false, "", "", &ext); err == nil {
+			t.Errorf("%q was accepted", in)
+		}
+	}
+}
+
+func TestGooseRemoveWithoutARecordDropsADanglingDefault(t *testing.T) {
+	sc := &gooseSidecar{Was: map[string]*string{}, Set: map[string]string{}}
+	out, changed, err := removeGooseConfig("GOOSE_PROVIDER: galopin\nGOOSE_MODEL: m1\nother: 1\n", sc)
+	if err != nil || !changed || strings.Contains(out, "galopin") || strings.Contains(out, "GOOSE_MODEL") || !strings.Contains(out, "other: 1") {
+		t.Errorf("out=%q changed=%v err=%v", out, changed, err)
+	}
+	// A default the user has since changed is theirs.
+	sc = &gooseSidecar{Was: map[string]*string{"GOOSE_PROVIDER": nil}, Set: map[string]string{"GOOSE_PROVIDER": "galopin"}}
+	out, changed, _ = removeGooseConfig("GOOSE_PROVIDER: anthropic\n", sc)
+	if changed || !strings.Contains(out, "anthropic") {
+		t.Errorf("a changed default was touched: %q", out)
 	}
 }
 
@@ -211,5 +292,28 @@ func TestToolNamesAreModelSafe(t *testing.T) {
 	long := toolName(strings.Repeat("a", 50), strings.Repeat("b", 50))
 	if len(long) > 64 {
 		t.Errorf("long name %d chars", len(long))
+	}
+}
+
+func TestGooseBinaryIsTheVerifiedCopyNotPATH(t *testing.T) {
+	bin := t.TempDir()
+	fake := filepath.Join(bin, "goose")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho 'goose 9'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(gooseEnvOverride, "")
+	if got, err := gooseBinary(); err == nil {
+		t.Errorf("a goose on PATH was used: %s", got)
+	}
+	if gooseOverrideWarning() != "" {
+		t.Error("a warning without an override")
+	}
+	t.Setenv(gooseEnvOverride, fake)
+	if got, err := gooseBinary(); err != nil || got != fake {
+		t.Errorf("override: %q, %v", got, err)
+	}
+	if w := gooseOverrideWarning(); !strings.Contains(w, "WARNING") || !strings.Contains(w, fake) {
+		t.Errorf("override warning = %q", w)
 	}
 }

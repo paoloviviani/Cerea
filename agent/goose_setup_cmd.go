@@ -21,8 +21,8 @@ import (
 const gooseSetupUsage = `galopin goose — use galopin's proxy from your own goose.
 
 Usage:
-  galopin goose setup [--default] [--no-connectors] [--creds PATH]
-  galopin goose setup --remove [--creds PATH]
+  galopin goose setup [--default] [--no-connectors] [--creds PATH] [--state-dir PATH]
+  galopin goose setup --remove [--creds PATH] [--state-dir PATH]
 
   setup    Add the provider "galopin" to YOUR goose config (goose Desktop, the
            goose CLI and the goose editor extensions read it): Cerea's models and
@@ -38,6 +38,8 @@ Usage:
   --remove Undo setup: delete the provider file and the extension entry, and
            restore the default provider if --default had changed it.
   --creds  Credential file (default <config-dir>/galopin/credentials.json).
+  --state-dir  galopin's state directory (default: beside --creds), where setup
+           records what it changed and the endpoint's secret; the same as 'run' uses.
 
 The proxy must be running for goose to reach it: keep 'galopin run' (or
 'galopin serve') going. 'galopin models refresh' updates the model list here.
@@ -65,6 +67,7 @@ func runGoose(args []string) error {
 	makeDefault := fs.Bool("default", false, "")
 	remove := fs.Bool("remove", false, "")
 	noConnectors := fs.Bool("no-connectors", false, "")
+	stateFlag := fs.String("state-dir", "", "")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -86,14 +89,15 @@ func runGoose(args []string) error {
 	if err != nil {
 		return err
 	}
+	stateDir := resolveStateDir(*stateFlag, path)
 	if *remove {
-		return gooseSetupRemove(cfgDir)
+		return gooseSetupRemove(cfgDir, stateDir)
 	}
 	creds, err := loadCredentials(path)
 	if err != nil {
 		return err
 	}
-	return gooseSetup(context.Background(), creds, path, cfgDir, *makeDefault, !*noConnectors)
+	return gooseSetup(context.Background(), creds, path, stateDir, cfgDir, *makeDefault, !*noConnectors)
 }
 
 func gooseProviderPath(cfgDir string) string {
@@ -118,7 +122,7 @@ func readGooseProviderModels(path string) (map[string]int, error) {
 	return out, nil
 }
 
-func gooseSetup(ctx context.Context, creds *credentials, credsPath, cfgDir string, makeDefault, connectors bool) error {
+func gooseSetup(ctx context.Context, creds *credentials, credsPath, stateDir, cfgDir string, makeDefault, connectors bool) error {
 	if creds.ShimPort == 0 || creds.ShimSecret == "" {
 		return fmt.Errorf("the credential file records no proxy port or secret: re-run 'galopin enroll'")
 	}
@@ -143,26 +147,38 @@ func gooseSetup(ctx context.Context, creds *credentials, credsPath, cfgDir strin
 
 	cfgPath := filepath.Join(cfgDir, "config.yaml")
 	body, _ := os.ReadFile(cfgPath)
-	text := string(body)
-	if makeDefault {
-		text = setGooseDefault(text, gooseProviderID, gooseDefaultModel(models))
-		fmt.Fprintf(os.Stderr, "made %q (model %s) goose's default provider\n", gooseProviderID, gooseDefaultModel(models))
+	sc, err := loadGooseSidecar(stateDir)
+	if err != nil {
+		return err
 	}
+	var ext *gooseExtSpec
 	if connectors {
-		stateDir := filepath.Dir(credsPath)
 		la, err := ensureLocalAgentsConfig(stateDir)
 		if err != nil {
 			return err
 		}
-		text = setGooseExtension(text, la.URL(), la.Secret)
-		fmt.Fprintf(os.Stderr, "added the goose extension \"Cerea connectors\" (%s)\n", la.URL())
+		e := newGooseExt(la.URL(), la.Secret)
+		ext = &e
 	}
 	if makeDefault || connectors {
+		text, err := applyGooseConfig(string(body), sc, makeDefault, gooseProviderID, gooseDefaultModel(models), ext)
+		if err != nil {
+			return err
+		}
 		if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+			return err
+		}
+		if err := sc.save(stateDir); err != nil {
 			return err
 		}
 		if err := writeFileAtomic(cfgPath, []byte(text), 0o600); err != nil {
 			return fmt.Errorf("writing %s: %w", cfgPath, err)
+		}
+		if makeDefault {
+			fmt.Fprintf(os.Stderr, "made %q (model %s) goose's default provider\n", gooseProviderID, gooseDefaultModel(models))
+		}
+		if ext != nil {
+			fmt.Fprintf(os.Stderr, "added the goose extension \"Cerea connectors\" (%s)\n", ext.URI)
 		}
 	}
 	fmt.Fprintln(os.Stderr, "note: the proxy must be running for goose to reach it ('galopin run' or 'galopin serve').")
@@ -207,7 +223,7 @@ func discoverForGoose(ctx context.Context, creds *credentials, credsPath string)
 	return nil, fmt.Errorf("model discovery failed or listed no chat model (GET %s/models): nothing written", strings.TrimSuffix(creds.Gateway, "/"))
 }
 
-func gooseSetupRemove(cfgDir string) error {
+func gooseSetupRemove(cfgDir, stateDir string) error {
 	removed := false
 	if err := os.Remove(gooseProviderPath(cfgDir)); err == nil {
 		removed = true
@@ -217,7 +233,14 @@ func gooseSetupRemove(cfgDir string) error {
 	}
 	cfgPath := filepath.Join(cfgDir, "config.yaml")
 	if body, err := os.ReadFile(cfgPath); err == nil {
-		text, changed := removeGooseManaged(string(body))
+		sc, err := loadGooseSidecar(stateDir)
+		if err != nil {
+			return err
+		}
+		text, changed, err := removeGooseConfig(string(body), sc)
+		if err != nil {
+			return err
+		}
 		if changed {
 			if err := writeFileAtomic(cfgPath, []byte(text), 0o600); err != nil {
 				return err
@@ -226,6 +249,10 @@ func gooseSetupRemove(cfgDir string) error {
 			fmt.Fprintf(os.Stderr, "removed what 'galopin goose setup' added to %s\n", cfgPath)
 		}
 	}
+	removeGooseSidecar(stateDir)
+	// The endpoint's secret is no longer in any goose config: retire it, so the
+	// next setup mints a new one and a restarted 'run' opens no endpoint.
+	_ = os.Remove(filepath.Join(stateDir, localAgentsFileName))
 	if !removed {
 		fmt.Fprintln(os.Stderr, "nothing to remove: 'galopin goose setup' had not been run here.")
 	}

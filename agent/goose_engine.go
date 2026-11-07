@@ -272,28 +272,37 @@ func gooseEnv(root string, base []string) []string {
 	)
 }
 
-// gooseBinary finds goose: GALOPIN_GOOSE_BIN, else PATH, else the places the
-// install line puts it (beside galopin, ~/.local/bin).
+// gooseEnvOverride names the one way to run a goose other than the verified copy.
+const gooseEnvOverride = "GALOPIN_GOOSE_BIN"
+
+// gooseInstallDirName is where the install line puts the pinned goose, beside
+// galopin and in a directory of galopin's own: it never replaces a goose the
+// user installed themselves (~/.local/bin/goose, Homebrew).
+const gooseInstallDirName = "galopin-goose"
+
+// gooseBinary is the goose galopin runs: the verified, pinned copy the install
+// line put in galopin's own directory. A goose from PATH is not used, whatever it
+// is. An override is possible only by setting GALOPIN_GOOSE_BIN, which `run` logs
+// loudly (see gooseOverrideWarning).
 func gooseBinary() (string, error) {
-	if b := os.Getenv("GALOPIN_GOOSE_BIN"); b != "" {
+	if b := os.Getenv(gooseEnvOverride); b != "" {
 		return b, nil
 	}
-	if p, err := exec.LookPath("goose"); err == nil {
-		return p, nil
-	}
-	var tries []string
 	if exe, err := os.Executable(); err == nil {
-		tries = append(tries, filepath.Join(filepath.Dir(exe), "goose"))
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		tries = append(tries, filepath.Join(home, ".local", "bin", "goose"))
-	}
-	for _, t := range tries {
-		if fi, err := os.Stat(t); err == nil && !fi.IsDir() {
-			return t, nil
+		p := filepath.Join(filepath.Dir(exe), gooseInstallDirName, "goose")
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p, nil
 		}
 	}
-	return "", fmt.Errorf("goose is not installed: run the install line with '--engine goose' (curl ... | sh -s -- --engine goose), or put goose %s on PATH", packaging.GooseVersion())
+	return "", fmt.Errorf("goose %s is not installed for galopin: run the install line with '--engine goose' (curl ... | sh -s -- --engine goose); a goose elsewhere is used only if you set %s", packaging.GooseVersion(), gooseEnvOverride)
+}
+
+// gooseOverrideWarning is non-empty when goose comes from the override, and says so.
+func gooseOverrideWarning() string {
+	if b := os.Getenv(gooseEnvOverride); b != "" {
+		return fmt.Sprintf("WARNING: running goose from %s=%s, not the verified pinned copy galopin installs. It is not checked by galopin and may behave differently (permissions, modes, protocol).", gooseEnvOverride, b)
+	}
+	return ""
 }
 
 // gooseInstalledNote says whether goose is there and whether it is the pinned release.
@@ -328,6 +337,9 @@ func startGooseBackend(ctx context.Context, opts *runOptions, credsPath, stateDi
 	bin, err := gooseBinary()
 	if err != nil {
 		return nil, err
+	}
+	if w := gooseOverrideWarning(); w != "" {
+		logf("%s", w)
 	}
 	if v := gooseVersionOf(bin); v != "" && v != packaging.GooseVersion() {
 		logf("warning: goose %s found, galopin is tested with %s (agent/packaging/goose-version)", v, packaging.GooseVersion())
