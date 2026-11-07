@@ -52,9 +52,15 @@ type sessionState struct {
 	title        string
 	modeID       string
 	modelID      string
-	status       backend.SessionStatus
-	createdAt    time.Time
-	updatedAt    time.Time
+	usage        *backend.Usage
+	// reasserting is non-nil while a hidden mode is being put back (modeguard.go);
+	// closed when it is done. Permission answers wait on it.
+	reasserting chan struct{}
+	// modeGen counts mode changes, so a put-back that a newer change overtook is dropped.
+	modeGen   int
+	status    backend.SessionStatus
+	createdAt time.Time
+	updatedAt time.Time
 
 	messages  []backend.TranscriptEntry
 	msgIndex  map[string]int // message id -> index into messages
@@ -154,7 +160,7 @@ func (s *sessionState) appendDelta(partID, text string) {
 func (s *sessionState) toSession(backendID string) backend.Session {
 	return backend.Session{
 		ID: s.id, Backend: backendID, Title: s.title, Status: s.status,
-		PendingPermissions: len(s.pending), ModeID: s.modeID, ModelID: s.modelID,
+		PendingPermissions: len(s.pending), ModeID: s.modeID, ModelID: s.modelID, Usage: s.usage,
 		CreatedAt: s.createdAt, UpdatedAt: s.updatedAt, SpawnedBy: s.spawnedBy,
 	}
 }

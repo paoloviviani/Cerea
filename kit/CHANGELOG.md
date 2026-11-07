@@ -17,6 +17,9 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 - Security: sharing ignores an email address the sign-in provider reports as unverified.
 - Security: address checks for fetched pages cover more special-purpose ranges, and account responses are no longer cached.
 
+- **goose as a coding engine.** A computer can run goose instead of opencode: pair it with the **Coding engine** option under Advanced (or `galopin enroll --engine goose`). galopin installs a pinned goose, runs it with its own settings, and keeps every tool call asking, so Plan, Ask, Allow and Auto work as before. Its sessions also show up in goose Desktop and the goose editor extension. Usage and the context meter work on goose (read off galopin's own proxy), and the compaction button runs goose's `/compact`. galopin runs only its own pinned copy of goose, installed beside it (set `GALOPIN_GOOSE_BIN` to use another, with a warning). Sessions cannot read or change your own goose settings. opencode stays the default.
+- **`galopin goose setup`** adds galopin's models to your own goose (Desktop, the command line, the editor extension), and an extension, **Cerea connectors**, that lets your goose use the Cerea connectors you choose. Choose them in **Workspace → Agents → Connectors for your local agents**; none is on by default, and each call is recorded. `galopin goose setup --remove` undoes it, even after goose Desktop has rewritten its settings file. The endpoint exists only after you run setup.
+
 ## v0.45.0 — 2026-11-07
 
 Pins: Cerea `0.45.0` (chat and `cerea-documents`), Pystino `0.29.2`.

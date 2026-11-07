@@ -211,6 +211,9 @@ const OTHER_SAMPLES: Array<[string, string]> = [
 	// A session's connector opt-in (ADR 0108).
 	["GET", "connectors?device=d1&session=s1"],
 	["PUT", "connectors"],
+	// The connectors a user's own agents may use (ADR 0110).
+	["GET", "local-agents"],
+	["PUT", "local-agents"],
 	["PATCH", "devices?id=x"],
 	["DELETE", "devices?id=x"],
 	["GET", "agents/a1/stream?device=d1"],
@@ -248,6 +251,7 @@ const KNOWN_ROUTE_FILES = [
 	"../auto-approval/test/+server.ts",
 	"../connectors/+server.ts",
 	"../devices/+server.ts",
+	"../local-agents/+server.ts",
 	"../review-log/+server.ts",
 	"../schedules/+server.ts",
 	"../schedules/[id]/+server.ts",

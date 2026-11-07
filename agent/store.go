@@ -60,6 +60,10 @@ type credentials struct {
 	// (PROTOCOL.md §10.2): `run` then starts no backend. Empty is an agent
 	// machine.
 	Mode string `json:"mode,omitempty"`
+	// Engine is the coding engine `enroll --engine` chose (ADR 0110): "goose"
+	// makes a plain `run` supervise `goose acp` with galopin's own goose
+	// config. Empty means opencode, the default, and is what older files hold.
+	Engine string `json:"engine,omitempty"`
 }
 
 // refreshSkew makes serve refresh a little before expiry, so no proxied
