@@ -485,7 +485,7 @@ export async function resolveMachineUser(
 			: {
 					ok: false,
 					status: 403,
-					message: "Sign in to Cerea once before connecting a machine.",
+					message: "Sign in to Cerea once before connecting a computer.",
 					refused: true,
 				};
 	}
@@ -540,7 +540,7 @@ export async function resolveMachineUser(
 			resolution = {
 				ok: false,
 				status: 403,
-				message: "Sign in to Cerea once before connecting a machine.",
+				message: "Sign in to Cerea once before connecting a computer.",
 				refused: true,
 			};
 		}

@@ -68,7 +68,7 @@ test("schedule a chat from its menu, run it now, and read the answer in the same
 	await expect(page).toHaveURL(/\/schedules\?new=1&conversation=/);
 	await expect(editor.getByLabel("Chat", { exact: true })).toHaveValue(conversationId);
 	// A chat schedule has no machine to pick, and says what an unattended run cannot do.
-	await expect(editor.getByLabel("1. Machine")).toHaveCount(0);
+	await expect(editor.getByLabel("1. Computer")).toHaveCount(0);
 	await expect(editor.getByTestId("chat-unattended-hint")).toContainText("cannot run Python");
 
 	// Phone width: the editor and the list do not scroll sideways.

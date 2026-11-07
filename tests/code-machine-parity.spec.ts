@@ -66,13 +66,13 @@ test.describe("owned machine agent: parity", () => {
 		await page.goto(`${E2E_APP_BASE}/code`);
 		await page.getByRole("button", { name: "Agents", exact: true }).click();
 		await expect(page.getByText(started.name)).toBeVisible({ timeout: 60_000 });
-		await page.getByRole("button", { name: "Confirm this machine" }).click();
-		await page.getByRole("button", { name: "Add a workspace to this device" }).click();
-		await page.getByLabel("Directory on the machine").fill(started.workspace);
+		await page.getByRole("button", { name: "Confirm this computer" }).click();
+		await page.getByRole("button", { name: "Add a workspace to this computer" }).click();
+		await page.getByLabel("Directory on the computer").fill(started.workspace);
 		await page.getByLabel("Title (optional)").fill("repo");
 		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
-		await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
-		await page.getByRole("button", { name: "Build" }).click();
+		await page.getByRole("button", { name: "Start a session in this workspace" }).click();
+		await page.getByRole("button", { name: "Ask", exact: true }).click();
 		await page.getByRole("button", { name: "Create agent" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 		await expect(page.getByRole("combobox")).toBeEnabled({ timeout: 30_000 });
@@ -90,7 +90,7 @@ test.describe("owned machine agent: parity", () => {
 	 * up a page-global button lookup goes ambiguous and strict-mode fails
 	 * depending on poll timing. Answering here is the same backend call.
 	 */
-	const transcriptCard = (page: Page) => page.getByLabel("Conversation messages");
+	const transcriptCard = (page: Page) => page.getByLabel("Chat messages");
 
 	/**
 	 * A file write through opencode's own write tool (permission key `edit`).
@@ -183,7 +183,7 @@ test.describe("owned machine agent: parity", () => {
 		// (the machine stores it over the limit). Scoped to the transcript: the Needs-you
 		// inbox mirrors the same ask, so a page-global lookup goes ambiguous
 		// once its poll picks the ask up.
-		const transcript = page.getByLabel("Conversation messages");
+		const transcript = page.getByLabel("Chat messages");
 		await expect(transcript.getByRole("button", { name: "Allow once" })).toBeVisible();
 		await expect(
 			transcript.getByRole("button", { name: "Always allow (this session)" })
@@ -472,9 +472,9 @@ test.describe("owned machine agent: parity", () => {
 		const row = (name: string) => tree.getByRole("button", { name: new RegExp(`^${name}`) });
 		await expect(row("app.ts")).toContainText("M");
 		await expect(row(".env")).toBeVisible();
-		await expect(row(".env").getByLabel("Hidden by this machine's policy")).toHaveCount(0);
+		await expect(row(".env").getByLabel("Hidden by this computer's policy")).toHaveCount(0);
 		await expect(row("server.key")).toBeVisible();
-		await expect(row("server.key").getByLabel("Hidden by this machine's policy")).toBeVisible();
+		await expect(row("server.key").getByLabel("Hidden by this computer's policy")).toBeVisible();
 
 		// Opening a file shows its content; the secret shows why it does not.
 		await row("app.ts").click();
@@ -490,7 +490,7 @@ test.describe("owned machine agent: parity", () => {
 		});
 		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
 		await row("server.key").click();
-		await expect(page.getByTestId("code-files")).toContainText("Hidden by this machine's policy");
+		await expect(page.getByTestId("code-files")).toContainText("Hidden by this computer's policy");
 		await expect(page.getByTestId("code-files")).not.toContainText("hunter2");
 		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
 		// The link out of the workspace is listed but never read through.

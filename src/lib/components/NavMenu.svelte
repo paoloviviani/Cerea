@@ -274,8 +274,17 @@
 		class="flex items-center rounded-xl pl-2.5 text-lg font-semibold select-none"
 		href="{publicConfig.PUBLIC_ORIGIN}{base}/"
 	>
-		<!-- The mark alone: its alt carries the app name for screen readers. -->
+		<!-- The ridge and the name beside it: the product's name has to appear
+		     somewhere in the chrome. The mark's alt already says it, so the
+		     visible word is hidden from screen readers to avoid a double read. -->
 		<Logo variant="small" classNames="h-[27px] w-auto" />
+		<span
+			class="ml-2 text-lg font-semibold tracking-tight"
+			aria-hidden="true"
+			data-testid="sidebar-wordmark"
+		>
+			{publicConfig.PUBLIC_APP_NAME}
+		</span>
 	</a>
 
 	{#if codeAgentsEnabled}

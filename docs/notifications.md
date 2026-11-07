@@ -33,13 +33,13 @@ notifications for the site in the browser's own site settings, then come back.
 
 ## What you can be told about
 
-| Event                           | When                                                                                                                                                                                    | Default |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| **An agent needs you**          | A coding agent asks for an approval or has a question. The same cards as the _Needs you_ inbox.                                                                                         | on      |
-| **A long agent turn finishes**  | A coding agent worked for more than a minute and a half and stopped (with an error, if it failed).                                                                                      | on      |
-| **A scheduled run finishes**    | A [scheduled action](code-panel.md) ran to its end, failed, or could not start because the machine was offline. A [scheduled chat](chat.md#scheduled-chats) says it answered or failed. | on      |
-| **A background task fails**     | A task an agent started in the background ended with an error.                                                                                                                          | on      |
-| **A long chat answer is ready** | A chat reply that took more than a minute and a half completed.                                                                                                                         | off     |
+| Event                           | When                                                                                                                                                                                     | Default |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| **An agent needs you**          | A coding agent asks for an approval or has a question. The same cards as the _Needs you_ inbox.                                                                                          | on      |
+| **A long agent turn finishes**  | A coding agent worked for more than a minute and a half and stopped (with an error, if it failed).                                                                                       | on      |
+| **A scheduled run finishes**    | A [scheduled action](code-panel.md) ran to its end, failed, or could not start because the computer was offline. A [scheduled chat](chat.md#scheduled-chats) says it answered or failed. | on      |
+| **A background task fails**     | A task an agent started in the background ended with an error.                                                                                                                           | on      |
+| **A long chat answer is ready** | A chat reply that took more than a minute and a half completed.                                                                                                                          | off     |
 
 The switches apply to all your devices.
 
@@ -52,7 +52,7 @@ Two things worth knowing:
 - **A stopped run is not a failure.** Cancelling a session cancels its
   background tasks; that is not reported.
 
-A person is sent at most twelve notifications in five minutes, so a loop of
+A user is sent at most twelve notifications in five minutes, so a loop of
 approvals cannot flood a phone.
 
 ## What a notification contains
@@ -68,7 +68,7 @@ Push needs a key pair (VAPID, RFC 8292) that identifies this deployment to the
 push services. On the deploy kit `./configure` creates it **once** and writes
 `CHAT_VAPID_PUBLIC_KEY`, `CHAT_VAPID_PRIVATE_KEY` and `CHAT_VAPID_SUBJECT` to
 `.env`; an upgrade that re-runs it never replaces an existing pair, because a
-new pair strands every subscribed browser (each person would have to turn
+new pair strands every subscribed browser (each user would have to turn
 notifications on again). An install from before this feature gets the pair the
 next time you run `./configure`, then `docker compose up -d`.
 
@@ -81,7 +81,7 @@ Generate a pair with any ES256/P-256 tool; both halves are base64url without
 padding, the public one the 65-byte uncompressed point.
 
 - Each device's address at its push service is a capability, so the app stores
-  it with the person, never shows it back, and sends only to `https` addresses
+  it with the user, never shows it back, and sends only to `https` addresses
   that resolve to a public address (no private, loopback or link-local ranges,
   checked again when connecting).
 - A push service that answers 404 or 410 has dropped the subscription, and it is

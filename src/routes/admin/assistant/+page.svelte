@@ -11,6 +11,7 @@
 	import VoiceSection from "$lib/components/admin/VoiceSection.svelte";
 	import ImagesSection from "$lib/components/admin/ImagesSection.svelte";
 	import TitleModelSection from "$lib/components/admin/TitleModelSection.svelte";
+	import StartersSection from "$lib/components/admin/StartersSection.svelte";
 	import HiddenModelsSection from "$lib/components/admin/HiddenModelsSection.svelte";
 </script>
 
@@ -23,4 +24,5 @@
 	<ImagesSection />
 	<TitleModelSection />
 	<HiddenModelsSection />
+	<StartersSection />
 </div>

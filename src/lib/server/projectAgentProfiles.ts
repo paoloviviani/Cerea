@@ -70,7 +70,7 @@ export async function saveProjectAgentProfile(
 	if (isMachineOnline(input.deviceId)) {
 		try {
 			const name = await workspaceNameOn(new MachineLink(input.deviceId), input.workspaceId);
-			if (name === null) return { ok: false, error: "That workspace is not on this machine." };
+			if (name === null) return { ok: false, error: "That workspace is not on this computer." };
 			workspaceLabel = name;
 		} catch (err) {
 			if (!(err instanceof OpError && err.code === "unavailable")) {

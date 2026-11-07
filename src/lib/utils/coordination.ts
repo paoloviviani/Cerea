@@ -49,7 +49,7 @@ export function coordinationOptions(keys: readonly string[]): CoordinationOption
 }
 
 /** What the run row and the editor say about a galopin that cannot grant. */
-export const TOO_OLD_DETAIL = "this machine's galopin is too old to grant coordination; update it";
+export const TOO_OLD_DETAIL = "this computer's galopin is too old to grant coordination; update it";
 export const TOOLS_OFF_DETAIL =
 	"this machine was enrolled without agent tools, so coordination cannot be granted";
 

@@ -1,6 +1,6 @@
 /**
  * The Local connectors tab (ADR 0102): the complete how-to while there is no paired machine,
- * collapsed behind "Add a machine" once there is one; approval of a machine that checked in;
+ * collapsed behind "Add a computer" once there is one; approval of a machine that checked in;
  * and each machine's servers with their states.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -77,7 +77,7 @@ describe("LocalConnectors", () => {
 			)
 			.toBeInTheDocument();
 		expect(screen.baseElement.querySelector('[data-testid="local-howto"]')).toBeNull();
-		expect(text(screen)).not.toContain("Connect a machine");
+		expect(text(screen)).not.toContain("Connect a computer");
 	});
 
 	it("says the gateway is not configured for the chat when it reports neither capability", async () => {
@@ -92,7 +92,7 @@ describe("LocalConnectors", () => {
 		const screen = mount();
 
 		await expect
-			.element(screen.getByRole("heading", { name: "Connect a machine" }))
+			.element(screen.getByRole("heading", { name: "Connect a computer" }))
 			.toBeInTheDocument();
 		const byId = (id: string) =>
 			screen.baseElement.querySelector(`[data-testid="${id}"]`)?.textContent ?? "";
@@ -117,7 +117,7 @@ describe("LocalConnectors", () => {
 		expect(byId("local-mcp-json")).toContain('"type": "http"');
 		expect(text(screen)).toContain("allowedTools");
 		expect(text(screen)).toContain("picked up without a restart");
-		expect(text(screen)).toContain("Approve the machine below");
+		expect(text(screen)).toContain("Approve the computer below");
 		expect(text(screen)).toContain("systemctl --user enable --now galopin");
 		// Copy buttons beside the commands.
 		expect(
@@ -129,11 +129,11 @@ describe("LocalConnectors", () => {
 		stubApi(() => [machine({ id: "m1" })]);
 		const screen = mount();
 
-		await expect.element(screen.getByText("Your machines (1)")).toBeInTheDocument();
+		await expect.element(screen.getByText("Your computers (1)")).toBeInTheDocument();
 		expect(screen.baseElement.querySelector('[data-testid="local-howto"]')).toBeNull();
-		await screen.getByRole("button", { name: "Add a machine" }).click();
+		await screen.getByRole("button", { name: "Add a computer" }).click();
 		await expect
-			.element(screen.getByRole("heading", { name: "Connect a machine" }))
+			.element(screen.getByRole("heading", { name: "Connect a computer" }))
 			.toBeInTheDocument();
 	});
 
@@ -156,7 +156,7 @@ describe("LocalConnectors", () => {
 		expect(seen[0].method).toBe("PATCH");
 		expect(seen[0].url).toContain("/api/v2/local-connectors/machines/m1");
 		expect(JSON.parse(seen[0].body as string)).toEqual({ action: "confirm" });
-		await expect.element(screen.getByText("Your machines (1)")).toBeInTheDocument();
+		await expect.element(screen.getByText("Your computers (1)")).toBeInTheDocument();
 	});
 
 	it("asks for a fresh sign-in when approval is refused for an old one", async () => {
@@ -171,7 +171,7 @@ describe("LocalConnectors", () => {
 		const screen = mount();
 		await screen.getByRole("button", { name: "Approve" }).click();
 		await expect
-			.element(screen.getByText("Sign in again to approve a machine."))
+			.element(screen.getByText("Sign in again to approve a computer."))
 			.toBeInTheDocument();
 		const link = screen.getByRole("link", { name: "Sign in again" });
 		await expect.element(link).toHaveAttribute("href", expect.stringContaining("reauth=1"));
@@ -217,7 +217,7 @@ describe("LocalConnectors", () => {
 			}),
 		]);
 		const screen = mount();
-		await expect.element(screen.getByText("Your machines (2)")).toBeInTheDocument();
+		await expect.element(screen.getByText("Your computers (2)")).toBeInTheDocument();
 		const body = text(screen);
 		for (const word of ["Ready", "Needs sign-in", "Disabled", "Invalid", "Offline", "Connected"]) {
 			expect(body, word).toContain(word);
@@ -235,7 +235,7 @@ describe("LocalConnectors", () => {
 			seen
 		);
 		const screen = mount();
-		await expect.element(screen.getByText("Your machines (2)")).toBeInTheDocument();
+		await expect.element(screen.getByText("Your computers (2)")).toBeInTheDocument();
 		const revokes = screen.getByRole("button", { name: "Revoke" });
 		await expect.element(revokes).toBeInTheDocument();
 		expect(screen.baseElement.querySelectorAll("button").length).toBeGreaterThan(0);

@@ -11,7 +11,7 @@ kept where they live, so there is one copy of each.
 
 - [`agent/PROTOCOL.md`](https://github.com/paoloviviani/Cerea/blob/main/agent/PROTOCOL.md):
   the wire protocol between the chat and galopin (transport, pairing and
-  authorization, operations, events, machine powers). Binding for both ends.
+  authorization, operations, events, computer powers). Binding for both ends.
 - [`agent/README.md`](https://github.com/paoloviviani/Cerea/blob/main/agent/README.md):
   building and testing galopin.
 - [`CONTRIBUTING.md`](https://github.com/paoloviviani/Cerea/blob/main/CONTRIBUTING.md),

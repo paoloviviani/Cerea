@@ -29,25 +29,25 @@ runs on the deployment, and the files the code opens never leave your browser.
   disclosure. Only files the code saves to the **output folder**
   (`/mnt/output`) are offered; scratch files it writes anywhere else (the
   working directory, `/tmp`) stay in the sandbox and never become cards. A run
-  lists only the files it **created or changed**. Every listed file is kept with the conversation for 30 days (or what Administration → Storage says) and shows up as an
+  lists only the files it **created or changed**. Every listed file is kept with the chat for 30 days (or what Administration → Storage says) and shows up as an
   [artifact](artifacts.md).
 - **Ask for charts.** See [Charts](#charts) below.
 
 ## Files you attach
 
-The first time code runs in a chat conversation, the files attached to its
+The first time code runs in a chat chat, the files attached to its
 messages are put in the sandbox, and any attached later are added before the
 next run. Each one is at `/mnt/data/<its original name>` with its original
 bytes, so `pd.read_excel("/mnt/data/sales.xlsx")` works even when the
 assistant could not read the file's text. When the app extracted text from it
 (a PDF, a Word file), that text is beside it as `<name>.md`. They show as chips
-under the conversation, like knowledge files.
+under the chat, like knowledge files.
 
 - **When the assistant can run code**, the text it sees for an attachment starts
   with one line saying where the file is: "The file is available to code at
   `/mnt/data/<name>` (its latest version, if it has been edited)." Without the
   code tool the line is left out.
-- **Files made in the conversation are there too.** What the document tools
+- **Files made in the chat are there too.** What the document tools
   saved (a Word file it made, a filled PDF) and what earlier runs saved to
   `/mnt/output` are mounted at `/mnt/data/<name>`, the latest version of each
   name, and a version saved between two runs replaces the older one before the
@@ -58,7 +58,7 @@ under the conversation, like knowledge files.
   unless the code names them; every run waits at most five seconds for the
   list of files, and a download that stalls is skipped with a note and tried
   again on the next run.
-- **The chat page registers its conversation while it is created**, not in an
+- **The chat page registers its chat while it is created**, not in an
   effect after it: a code card that is already on screen starts its run before
   the page's own effects, and the first run used to find `/mnt/data` empty.
 - **Same name twice**: attaching the same file again (same content) does not
@@ -75,8 +75,8 @@ under the conversation, like knowledge files.
   assistant is not told a path for it.
 - **Not mounted**: page images of scanned PDFs, pasted text, and anything in
   shared or read-only views or the [code panel](code-panel.md),
-  which has its own machine.
-- **Switching conversations** takes that conversation's files out of the
+  which has its own computer.
+- **Switching chats** takes that chat's files out of the
   sandbox, so one chat's files are never visible from another. Knowledge files
   you mounted yourself stay.
 

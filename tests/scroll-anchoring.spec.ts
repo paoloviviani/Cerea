@@ -9,7 +9,7 @@
 import type { Page } from "playwright/test";
 import { test, expect, E2E_APP_BASE } from "./fixtures.ts";
 
-const CONTAINER = '[aria-label="Conversation messages"]';
+const CONTAINER = '[aria-label="Chat messages"]';
 const ANCHOR_OFFSET_PX = 50;
 
 /** Several viewports of history so the anchor position is reachable. The

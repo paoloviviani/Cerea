@@ -22,6 +22,13 @@
 
 server:
   address: 'tcp://:9091/authelia'
+  # Cerea's logo, favicon and sign-in wording (assets/). Read at start.
+  # The stylesheet cannot be replaced this way: caddy/Caddyfile appends
+  # caddy/authelia-brand.css to it.
+  asset_path: '/etc/authelia/assets'
+
+# Light or dark by the browser's own setting, like the chat.
+theme: 'auto'
 
 log:
   level: 'info'

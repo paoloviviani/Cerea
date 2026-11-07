@@ -406,7 +406,7 @@ describe("agent_start", () => {
 	it("refuses a workspace the machine does not have", async () => {
 		expect(
 			errorOf(await run(AGENT_START_TOOL_NAME, { deviceId, workspaceId: "nope", prompt: "x" }))
-		).toContain("workspace is not on this machine");
+		).toContain("workspace is not on this computer");
 		expect(ops("session.create")).toHaveLength(0);
 	});
 

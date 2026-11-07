@@ -160,6 +160,13 @@ describe("NavMenu's foot", () => {
 		expect(host.querySelector("form")).toBeNull();
 	});
 
+	it("shows the app name as a wordmark beside the ridge, hidden from screen readers", () => {
+		mount({ username: "ada" });
+		const word = host.querySelector('[data-testid="sidebar-wordmark"]') as HTMLElement;
+		expect(word.textContent?.trim()).toBe("chat-ui");
+		expect(word.getAttribute("aria-hidden")).toBe("true");
+	});
+
 	it("puts New chat under the logo, in the top block, as a link to the start page", () => {
 		mount({ username: "ada" });
 		const link = host.querySelector('[data-testid="new-chat"]') as HTMLAnchorElement;
@@ -374,7 +381,7 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 			freshUntil: new Date(Date.now() + 3_600_000).toISOString(),
 		});
 		mount();
-		await vi.waitFor(() => expect(host.textContent).toContain("Pair a device"));
+		await vi.waitFor(() => expect(host.textContent).toContain("Pair a computer"));
 		expect(host.querySelector('[data-testid="code-reauth-card"]')).toBeNull();
 	});
 
@@ -391,10 +398,10 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		expect(listDevices).not.toHaveBeenCalled();
 		// No tree: the tree's own markers and its pairing control are absent.
 		expect(host.querySelector('[data-testid="device-rail"]')).toBeNull();
-		expect((host.textContent ?? "").replace(/\s+/g, " ")).not.toContain("Pair a machine");
+		expect((host.textContent ?? "").replace(/\s+/g, " ")).not.toContain("Pair a computer");
 	});
 
-	it("puts the switch under the logo and above the list, and New agent session follows it in Agents mode", async () => {
+	it("puts the switch under the logo and above the list, and New session follows it in Agents mode", async () => {
 		stubFetch({
 			enabled: true,
 			fresh: true,
@@ -418,7 +425,7 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		);
 		expect(host.querySelector('[data-testid="new-chat"]')).toBeNull();
 		expect(host.querySelector('[data-testid="new-agent-session"]')?.textContent?.trim()).toBe(
-			"New agent session"
+			"New session"
 		);
 		// No machine is paired: the button opens the Pair dialog, not the chooser.
 		(host.querySelector('[data-testid="new-agent-session"]') as HTMLElement).click();
@@ -466,10 +473,10 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		});
 		mount();
 		await vi.waitFor(() => expect(listDevices).toHaveBeenCalled());
-		await vi.waitFor(() => expect(host.textContent).toContain("Pair a device"));
+		await vi.waitFor(() => expect(host.textContent).toContain("Pair a computer"));
 		const calls = listDevices.mock.calls.length;
 		flagCodeReauth();
-		await vi.waitFor(() => expect(host.textContent).not.toContain("Pair a device"));
+		await vi.waitFor(() => expect(host.textContent).not.toContain("Pair a computer"));
 		expect(host.querySelector('[data-testid="sidebar-view-agents"]')).not.toBeNull();
 		expect(listDevices.mock.calls.length).toBe(calls);
 	});

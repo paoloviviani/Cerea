@@ -184,13 +184,13 @@ describe("validateTarget", () => {
 				timezone: "UTC",
 				target: target(),
 			})
-		).rejects.toMatchObject({ status: 400, message: "That machine is not one of yours." });
+		).rejects.toMatchObject({ status: 400, message: "That computer is not one of yours." });
 		await expect(make({}, { deviceId: "not-an-id" })).rejects.toMatchObject({ status: 400 });
 	});
 
 	it("refuses a workspace the machine does not have, and a session of another workspace", async () => {
 		await expect(make({}, { workspaceId: "nope" })).rejects.toMatchObject({
-			message: "That workspace is not on this machine.",
+			message: "That workspace is not on this computer.",
 		});
 		addWorkspace(machine, "ws2", "other");
 		machine.model.sessions.push(sessionRow("s2", "ws2", "elsewhere"));
@@ -198,7 +198,7 @@ describe("validateTarget", () => {
 			message: "That session is not a session of this workspace.",
 		});
 		await expect(make({}, { sessionMode: "existing", sessionId: "ghost" })).rejects.toMatchObject({
-			message: "That session is not on this machine.",
+			message: "That session is not on this computer.",
 		});
 	});
 
@@ -208,7 +208,7 @@ describe("validateTarget", () => {
 			status: 400,
 		});
 		await expect(make({}, { modelId: "opencode/free" })).rejects.toMatchObject({
-			message: "This machine was enrolled without --allow-free-models.",
+			message: "This computer was enrolled without --allow-free-models.",
 		});
 		await expect(make({}, { permissionMode: "yolo" })).rejects.toMatchObject({ status: 400 });
 	});
@@ -617,7 +617,7 @@ describe("coordination", () => {
 		expect(grants()).toHaveLength(0);
 		expect(ops("session.prompt")).toHaveLength(1);
 		expect(run.detail).toContain(
-			"this machine's galopin is too old to grant coordination; update it"
+			"this computer's galopin is too old to grant coordination; update it"
 		);
 	});
 
@@ -630,7 +630,7 @@ describe("coordination", () => {
 		expect(run.status).toBe("sent");
 		expect(ops("session.prompt")).toHaveLength(1);
 		expect(run.detail).toContain(
-			"this machine's galopin is too old to grant coordination; update it"
+			"this computer's galopin is too old to grant coordination; update it"
 		);
 		const stored = await getSchedule(person.user._id, row._id.toString());
 		expect(stored.consecutiveFailures).toBe(0);

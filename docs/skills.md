@@ -50,7 +50,7 @@ Three more built-ins handle data shaping: `csv-shaping`, `json-shaping` and
 `report-writing`. A last one, `cerea`, answers "what can you do?", "what is
 Cerea?" and "how do I use this?": it describes the assistant's capabilities for
 users and administrators, lists the tools and connectors actually available in
-the conversation, and points to these documentation pages.
+the chat, and points to these documentation pages.
 
 ### word
 
@@ -142,7 +142,7 @@ observational data, and Bayesian methods are out of reach in the sandbox.
 
 3P updates, company newsletters, FAQ answers, status and leadership updates,
 incident reports — each with a bundled format guide the assistant follows.
-Every claim in the document traces to your conversation or a computed
+Every claim in the document traces to your chat or a computed
 result; nothing is invented.
 
 ### themes

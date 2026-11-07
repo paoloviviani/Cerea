@@ -103,17 +103,17 @@ describe("the workspace panel", () => {
 			vi.fn(async () => Response.json({ machines: [], data: [] }))
 		);
 		const off = mountWorkspace("?tab=mcp", { localConnectorsEnabled: false });
-		expect(off.baseElement.textContent).not.toContain("On your machines");
+		expect(off.baseElement.textContent).not.toContain("On your computers");
 		expect(off.baseElement.querySelector("#on-your-machines")).toBeNull();
 		off.unmount();
 		document.getElementById("app")?.remove();
 
 		const on = mountWorkspace("?tab=mcp", { localConnectorsEnabled: true });
 		await expect
-			.element(on.getByRole("heading", { name: "On your machines", level: 2 }))
+			.element(on.getByRole("heading", { name: "On your computers", level: 2 }))
 			.toBeInTheDocument();
 		await expect
-			.element(on.getByRole("heading", { name: "Connect a machine" }))
+			.element(on.getByRole("heading", { name: "Connect a computer" }))
 			.toBeInTheDocument();
 		// Under the connectors, in the same tab, addressable.
 		const connectors = on.getByRole("heading", { name: "Connectors", exact: true }).element();

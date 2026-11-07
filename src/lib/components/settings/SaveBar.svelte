@@ -35,6 +35,12 @@
 		ondiscard?: () => void;
 		/** Hide the "Unsaved changes" words (a create form is unsaved by nature). */
 		quiet?: boolean;
+		/**
+		 * A footer bar instead of a floating pill: full width of the column, a line
+		 * above it, the button at the right. For a create form, where the button is
+		 * the page's one action and must not float over the fields it follows.
+		 */
+		docked?: boolean;
 	}
 
 	let {
@@ -47,10 +53,29 @@
 		saveDisabled = false,
 		ondiscard,
 		quiet = false,
+		docked = false,
 	}: Props = $props();
 </script>
 
-{#if dirty || saved}
+{#if docked && dirty}
+	<div
+		data-testid="save-bar"
+		data-docked="true"
+		class="sticky bottom-0 z-10 -mx-1 flex justify-end border-t border-line bg-surface/95 px-1 py-3 backdrop-blur"
+	>
+		<button
+			type="submit"
+			{form}
+			disabled={busy || saveDisabled}
+			class={s.PRIMARY}
+			data-testid="save-bar-save"
+		>
+			{busy
+				? (busyLabel ?? saveLabel ?? m["settings.save_bar.save"]())
+				: (saveLabel ?? m["settings.save_bar.save"]())}
+		</button>
+	</div>
+{:else if dirty || saved}
 	<div class="pointer-events-none sticky bottom-3 z-10 flex justify-center px-2">
 		<div
 			role="group"

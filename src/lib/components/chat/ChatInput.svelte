@@ -971,6 +971,7 @@
 			class:text-ink-faint={disabled}
 			bind:value
 			bind:this={textareaElement}
+			data-testid="chat-input"
 			oninput={handleInput}
 			onkeydown={handleKeydown}
 			onkeyup={(event) => {

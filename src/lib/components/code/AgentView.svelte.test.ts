@@ -282,7 +282,7 @@ describe("AgentView stale-Deny banner", () => {
 		const screen = mount();
 		await expect
 			.element(screen.getByTestId("stale-policy"))
-			.toHaveTextContent("An earlier machine policy is stuck");
+			.toHaveTextContent("An earlier computer policy is stuck");
 		expect(screen.getByTestId("stale-deny").elements()).toHaveLength(0);
 	});
 });
@@ -566,7 +566,7 @@ describe("AgentView transcript loading", () => {
 		// The stream is held: nothing has arrived yet, and the pane must say
 		// so — not the empty-session introduction, and not a blank pane.
 		await expect.element(screen.getByTestId("transcript-loading")).toBeVisible();
-		await expect.element(screen.getByText("Loading conversation…")).toBeVisible();
+		await expect.element(screen.getByText("Loading session…")).toBeVisible();
 		await expect.element(screen.getByText("Ready when you are")).not.toBeInTheDocument();
 		// Folded while gated: no half-built transcript leaks either.
 		await arrive([

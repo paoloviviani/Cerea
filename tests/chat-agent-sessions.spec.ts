@@ -67,13 +67,13 @@ test.describe("chat drives agent sessions: real machine", () => {
 		await page.goto(`${E2E_APP_BASE}/code`);
 		await page.getByRole("button", { name: "Agents", exact: true }).click();
 		await expect(page.getByText(started.name)).toBeVisible({ timeout: 90_000 });
-		await page.getByRole("button", { name: "Confirm this machine" }).click();
-		await page.getByRole("button", { name: "Add a workspace to this device" }).click();
-		await page.getByLabel("Directory on the machine").fill(started.workspace);
+		await page.getByRole("button", { name: "Confirm this computer" }).click();
+		await page.getByRole("button", { name: "Add a workspace to this computer" }).click();
+		await page.getByLabel("Directory on the computer").fill(started.workspace);
 		await page.getByLabel("Title (optional)").fill("repo");
 		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 		await expect(
-			page.getByRole("button", { name: "Start a coding session in this workspace" })
+			page.getByRole("button", { name: "Start a session in this workspace" })
 		).toBeVisible({ timeout: 30_000 });
 
 		const device = await db.collection("codeDevices").findOne({ name: started.name });

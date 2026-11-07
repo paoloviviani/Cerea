@@ -59,7 +59,7 @@ test("removing a paired device sends a real DELETE and the row goes away", async
 	await expect(page.getByText("real e2e box")).toBeVisible();
 
 	// The machine's ⋯ menu holds the removal (no trash on the row any more).
-	await page.getByRole("button", { name: "Machine settings" }).click();
+	await page.getByRole("button", { name: "Computer settings" }).click();
 	await page.getByRole("menuitem", { name: "Remove" }).click();
 	// Revoking is confirmed first: the dialog names the machine and says what ends.
 	await page.getByRole("dialog").getByRole("button", { name: "Revoke pairing" }).click();
@@ -95,8 +95,8 @@ test("rejecting a pending device sends a real DELETE and the row goes away", asy
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
 	await expect(page.getByText("real e2e box")).toBeVisible();
 
-	await page.getByTitle("Reject this machine").click();
-	await page.getByRole("dialog").getByRole("button", { name: "Reject machine" }).click();
+	await page.getByTitle("Reject this computer").click();
+	await page.getByRole("dialog").getByRole("button", { name: "Reject computer" }).click();
 	await expect(page.getByText("real e2e box")).toHaveCount(0, { timeout: 10_000 });
 
 	// The listener records the status after awaiting the response, a beat after

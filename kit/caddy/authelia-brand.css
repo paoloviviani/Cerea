@@ -1,0 +1,50 @@
+/*
+ * Cerea's look for the bundled Authelia sign-in page. Appended to Authelia's
+ * own stylesheet by the Caddyfile (the /authelia/static/css/* route), because
+ * Authelia 4.39 lets an operator swap the logo, favicon and wording but not the
+ * stylesheet. Only the page's own colour variables and a few rules are set;
+ * nothing here depends on a class name Authelia generates.
+ */
+:root,
+[data-theme="light"] {
+	--background: #fafafa;
+	--foreground: #0a0a0a;
+	--primary: #2563eb;
+	--ring: #2563eb;
+	--border: #e5e5e5;
+	--input: #d4d4d4;
+	--muted-foreground: #525252;
+}
+[data-theme="dark"] {
+	--background: #0a0a0a;
+	--foreground: #fafafa;
+	--card: #1a1a1a;
+	--primary: #3b82f6;
+	--ring: #3b82f6;
+	--border: #2e2e2e;
+	--input: #3a3a3a;
+	--muted-foreground: #a3a3a3;
+	/* The logo is drawn black on transparent: white on the dark page. */
+	--custom-icon: #fafafa;
+}
+body {
+	background-color: var(--background);
+}
+/* The logo is the ridge and the name, wider than Authelia's square slot. */
+#first-factor-stage img[alt="Logo"],
+img[alt="Logo"] {
+	width: 11rem;
+	max-width: 70%;
+}
+[data-theme="dark"] img[alt="Logo"] {
+	filter: invert(1);
+}
+/* Sentence case: "Sign in", not "SIGN IN". */
+button {
+	text-transform: none !important;
+	letter-spacing: normal !important;
+	font-weight: 500;
+}
+h5 {
+	font-weight: 600;
+}

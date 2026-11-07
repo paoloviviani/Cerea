@@ -479,13 +479,28 @@
 			!creating &&
 			!!project
 	);
+	/**
+	 * The level numbers a user sees, counted over the levels that are actually on
+	 * the page: a create form has no Files or Notes yet, so its Knowledge bases
+	 * are 2 and Past chats 3, not 4 and 5. The element ids keep their fixed
+	 * names (project-level-4 …): links and tests address those.
+	 */
+	const levelNo = $derived.by(() => {
+		const shown = [
+			"instructions",
+			...(!creating && project ? ["files"] : []),
+			...(!creating && project && memoryOn ? ["notes"] : []),
+			...(knowledgeOn ? ["knowledge", "past_chats"] : []),
+		];
+		return (level: string) => shown.indexOf(level) + 1;
+	});
 	/** The settings tab's index: the groups, and the numbered levels under them. */
 	const settingsIndex = $derived([
 		{ id: "project-group-full", label: m["projects.page.group.full"]() },
 		{
 			id: "project-level-1",
 			label: m["projects.page.index.level"]({
-				n: 1,
+				n: levelNo("instructions"),
 				title: m["projects.page.level.instructions"](),
 			}),
 			nested: true,
@@ -495,7 +510,7 @@
 					{
 						id: "project-level-2",
 						label: m["projects.page.index.level"]({
-							n: 2,
+							n: levelNo("files"),
 							title: m["projects.page.level.files"](),
 						}),
 						nested: true,
@@ -505,7 +520,7 @@
 								{
 									id: "project-level-3",
 									label: m["projects.page.index.level"]({
-										n: 3,
+										n: levelNo("notes"),
 										title: m["projects.page.level.notes"](),
 									}),
 									nested: true,
@@ -520,7 +535,7 @@
 					{
 						id: "project-level-4",
 						label: m["projects.page.index.level"]({
-							n: 4,
+							n: levelNo("knowledge"),
 							title: m["projects.page.level.knowledge"](),
 						}),
 						nested: true,
@@ -528,7 +543,7 @@
 					{
 						id: "project-level-5",
 						label: m["projects.page.index.level"]({
-							n: 5,
+							n: levelNo("past_chats"),
 							title: m["projects.page.level.past_chats"](),
 						}),
 						nested: true,
@@ -682,7 +697,7 @@
 				>
 					<SettingsSection
 						id="project-level-1"
-						pill={m["projects.page.pill.full"]({ n: 1 })}
+						pill={m["projects.page.pill.full"]({ n: levelNo("instructions") })}
 						title={m["projects.page.level.instructions"]()}
 					>
 						<textarea
@@ -698,14 +713,20 @@
 					</SettingsSection>
 
 					{#if !creating && project}
-						<SettingsSection id="project-level-2" pill={m["projects.page.pill.full"]({ n: 2 })}>
+						<SettingsSection
+							id="project-level-2"
+							pill={m["projects.page.pill.full"]({ n: levelNo("files") })}
+						>
 							{#key project.id}
 								<ProjectDocumentsSection projectId={project.id} />
 							{/key}
 						</SettingsSection>
 
 						{#if memoryOn}
-							<SettingsSection id="project-level-3" pill={m["projects.page.pill.full"]({ n: 3 })}>
+							<SettingsSection
+								id="project-level-3"
+								pill={m["projects.page.pill.full"]({ n: levelNo("notes") })}
+							>
 								{#key project.id}
 									<ProjectMemorySection projectId={project.id} />
 								{/key}
@@ -724,7 +745,7 @@
 							id="project-level-4"
 							testid="project-knowledge"
 							active={attached.length > 0}
-							pill={m["projects.page.pill.searched"]({ n: 4 })}
+							pill={m["projects.page.pill.searched"]({ n: levelNo("knowledge") })}
 							title={m["projects.page.kb.title"]({ count: attached.length })}
 						>
 							{#snippet actions()}
@@ -820,7 +841,7 @@
 						<SettingsSection
 							id="project-level-5"
 							active={indexPastChats}
-							pill={m["projects.page.pill.searched"]({ n: 5 })}
+							pill={m["projects.page.pill.searched"]({ n: levelNo("past_chats") })}
 							title={m["projects.page.level.past_chats"]()}
 						>
 							<div class="space-y-3">
@@ -975,6 +996,7 @@
 						form="project-form"
 						dirty={creating || dirty}
 						quiet={creating}
+						docked={creating}
 						saved={saved && !dirty}
 						{busy}
 						saveDisabled={!name.trim()}

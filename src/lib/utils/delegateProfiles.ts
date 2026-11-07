@@ -12,7 +12,7 @@ import type { Policy } from "$lib/types/machineProtocol";
 export const PROFILES_OFFLINE_DETAIL =
 	"This machine is offline. Connect it to edit its delegate profiles.";
 export const PROFILES_TOO_OLD_DETAIL =
-	"This machine's galopin is too old for delegate profiles: update galopin on this machine.";
+	"This computer's galopin is too old for delegate profiles: update galopin on this computer.";
 export const PROFILES_TOOLS_OFF_DETAIL =
 	"This machine was enrolled without agent tools, so delegate profiles do not apply to it.";
 

@@ -134,7 +134,7 @@ function sessionTitle(schedule: Schedule, at: Date): string {
 function failedFrom(err: unknown, what: string): ExecutorOutcome {
 	if (err instanceof OpError) {
 		if (err.code === "unavailable") {
-			return { status: "missed-offline", detail: `The machine went offline while ${what}.` };
+			return { status: "missed-offline", detail: `The computer went offline while ${what}.` };
 		}
 		return { status: "failed", detail: `${what}: ${err.message}` };
 	}
@@ -169,7 +169,7 @@ registerExecutor({
 			try {
 				const workspaceName = await workspaceNameOn(link, target.workspaceId);
 				if (workspaceName === null) {
-					return { ok: false, error: "That workspace is not on this machine." };
+					return { ok: false, error: "That workspace is not on this computer." };
 				}
 				target.labels.workspace = workspaceName;
 				if (target.sessionMode === "existing" && target.sessionId) {
@@ -181,7 +181,7 @@ registerExecutor({
 				}
 			} catch (err) {
 				if (err instanceof OpError && err.code === "not_found") {
-					return { ok: false, error: "That session is not on this machine." };
+					return { ok: false, error: "That session is not on this computer." };
 				}
 				if (!(err instanceof OpError && err.code === "unavailable")) {
 					return { ok: false, error: err instanceof Error ? err.message : "The machine refused." };

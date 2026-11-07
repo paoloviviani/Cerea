@@ -65,7 +65,7 @@
 	}
 
 	const BTN =
-		"rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900";
+		"btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50";
 </script>
 
 <div class="flex flex-col gap-8" data-testid="agent-review">

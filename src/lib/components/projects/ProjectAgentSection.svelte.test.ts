@@ -123,7 +123,7 @@ describe("ProjectAgentSection", () => {
 	it("loads the saved profile into the pickers", async () => {
 		stored = PROFILE;
 		const screen = mount();
-		await expect.element(screen.getByLabelText("Machine")).toHaveValue("d1");
+		await expect.element(screen.getByLabelText("Computer")).toHaveValue("d1");
 		await expect.element(screen.getByLabelText("Workspace")).toHaveValue("w1");
 		await expect
 			.element(screen.getByRole("radio", { name: "Allow" }))
@@ -133,7 +133,7 @@ describe("ProjectAgentSection", () => {
 
 	it("offers the connectors with none on, and saves the ones switched on as the default", async () => {
 		const screen = mount();
-		await screen.getByLabelText("Machine").selectOptions("d1");
+		await screen.getByLabelText("Computer").selectOptions("d1");
 		await expect.element(screen.getByRole("option", { name: "docs" })).toBeInTheDocument();
 		await screen.getByLabelText("Workspace").selectOptions("w2");
 		const tracker = screen.getByTestId("connector-switch-Tracker");
@@ -157,7 +157,7 @@ describe("ProjectAgentSection", () => {
 			.element(screen.getByRole("radio", { name: "Ask" }))
 			.toHaveAttribute("aria-checked", "true");
 		await expect.element(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-		await screen.getByLabelText("Machine").selectOptions("d1");
+		await screen.getByLabelText("Computer").selectOptions("d1");
 		await expect.element(screen.getByRole("option", { name: "docs" })).toBeInTheDocument();
 		await screen.getByLabelText("Workspace").selectOptions("w2");
 		await screen.getByRole("button", { name: "Save" }).click();
@@ -179,7 +179,7 @@ describe("ProjectAgentSection", () => {
 				.elements()
 				.map((el) => el.textContent?.trim())
 		).toEqual(["Plan", "Ask", "Auto", "Allow"]);
-		await screen.getByLabelText("Machine").selectOptions("d1");
+		await screen.getByLabelText("Computer").selectOptions("d1");
 		await screen.getByLabelText("Workspace").selectOptions("w2");
 		await screen.getByRole("radio", { name: "Auto" }).click();
 		await screen.getByRole("button", { name: "Save" }).click();
@@ -210,7 +210,7 @@ describe("ProjectAgentSection", () => {
 		await screen.getByRole("button", { name: "Remove" }).click();
 		await expect.element(screen.getByText("Removed.")).toBeVisible();
 		expect(calls.some((c) => c.method === "DELETE")).toBe(true);
-		await expect.element(screen.getByLabelText("Machine")).toHaveValue("");
+		await expect.element(screen.getByLabelText("Computer")).toHaveValue("");
 		await expect
 			.element(screen.getByRole("radio", { name: "Ask" }))
 			.toHaveAttribute("aria-checked", "true");
@@ -231,15 +231,15 @@ describe("ProjectAgentSection", () => {
 	});
 
 	it("shows the API's reason when the save is refused, and keeps the choice", async () => {
-		putFailure = { status: 400, message: "That workspace is not on this machine." };
+		putFailure = { status: 400, message: "That workspace is not on this computer." };
 		const screen = mount();
-		await screen.getByLabelText("Machine").selectOptions("d1");
+		await screen.getByLabelText("Computer").selectOptions("d1");
 		await expect.element(screen.getByRole("option", { name: "docs" })).toBeInTheDocument();
 		await screen.getByLabelText("Workspace").selectOptions("w2");
 		await screen.getByRole("button", { name: "Save" }).click();
 		await expect
 			.element(screen.getByRole("alert"))
-			.toHaveTextContent("That workspace is not on this machine.");
+			.toHaveTextContent("That workspace is not on this computer.");
 		await expect.element(screen.getByLabelText("Workspace")).toHaveValue("w2");
 		await expect.element(screen.getByText("Saved.")).not.toBeInTheDocument();
 	});

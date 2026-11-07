@@ -222,13 +222,12 @@
 
 {#snippet code(text: string)}<code class="text-xs">{text}</code>{/snippet}
 
-<div class="mx-auto flex max-w-4xl flex-col gap-6 p-6">
-	<header class="flex flex-col gap-1">
-		<h1 class="text-xl font-semibold">{m["admin.knowledge.title"]()}</h1>
-		<p class="text-sm text-gray-500 dark:text-gray-400">
-			{m["admin.knowledge.description"]()}
-		</p>
-	</header>
+<!-- No title of its own and no inset of its own: the tab strip above already says
+     "Knowledge", and the other admin tabs start straight at their first card. -->
+<div class="flex flex-col gap-6">
+	<p class="text-sm text-gray-500 dark:text-gray-400">
+		{m["admin.knowledge.description"]()}
+	</p>
 
 	{#if loadError}
 		<div
@@ -254,13 +253,19 @@
 			<div class="flex flex-col gap-1">
 				<h2 class="font-medium">{m["admin.knowledge.pipeline.title"]()}</h2>
 				<p class="text-xs text-gray-500 dark:text-gray-400">
-					{status.source === "console"
-						? m["admin.knowledge.pipeline.decided_here"]({
-								seconds: Math.round(status.propagation_seconds),
-							})
-						: m["admin.knowledge.pipeline.decided_env"]({
-								seconds: Math.round(status.propagation_seconds),
-							})}
+					{#if Math.round(status.propagation_seconds) <= 0}
+						{status.source === "console"
+							? m["admin.knowledge.pipeline.decided_here_now"]()
+							: m["admin.knowledge.pipeline.decided_env_now"]()}
+					{:else}
+						{status.source === "console"
+							? m["admin.knowledge.pipeline.decided_here"]({
+									seconds: Math.round(status.propagation_seconds),
+								})
+							: m["admin.knowledge.pipeline.decided_env"]({
+									seconds: Math.round(status.propagation_seconds),
+								})}
+					{/if}
 				</p>
 			</div>
 
@@ -359,7 +364,7 @@
 				<button
 					type="submit"
 					disabled={saving}
-					class="rounded-full bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
+					class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 				>
 					{saving ? m["admin.common.saving"]() : m["admin.common.save"]()}
 				</button>

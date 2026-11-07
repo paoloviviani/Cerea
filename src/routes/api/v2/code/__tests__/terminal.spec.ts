@@ -398,7 +398,7 @@ describe("terminal tickets", () => {
 		);
 		expect(vetoRes.status).toBe(403);
 		expect(await vetoRes.text()).toContain(
-			"This machine was enrolled with terminals off. Re-enroll it (terminals are on by default) to use them here."
+			"This computer was enrolled with terminals off. Re-enroll it (terminals are on by default) to use them here."
 		);
 		const audited = await collections.codeAudit.findOne({
 			deviceId: new ObjectId(deniedDeviceId),

@@ -19,6 +19,8 @@ interface ConversationListItem {
 interface UserInfo {
 	id: string;
 	username?: string;
+	/** The display name the identity provider sent ("Ada Lovelace"). */
+	name?: string;
 	avatarUrl?: string;
 	email?: string;
 	isAdmin: boolean;
@@ -117,6 +119,7 @@ export const load = async ({ fetch, url, data }) => {
 		pseudoLocaleEnabled: data.pseudoLocaleEnabled,
 		gatewayIsAdmin: data.gatewayIsAdmin,
 		webSearchAvailable: data.webSearchAvailable,
+		starterSuggestionsEnabled: data.starterSuggestionsEnabled,
 		codeFilesEnabled: data.codeFilesEnabled,
 		codeFileWriteEnabled: data.codeFileWriteEnabled,
 		codeTerminalEnabled: data.codeTerminalEnabled,

@@ -44,10 +44,10 @@ export async function checkOwnedTarget(
 	input: { deviceId: string; modelId?: string }
 ): Promise<{ ok: true; device: CodeDevice } | { ok: false; error: string }> {
 	const device = await ownedDevice(userId, input.deviceId);
-	if (!device) return { ok: false, error: "That machine is not one of yours." };
+	if (!device) return { ok: false, error: "That computer is not one of yours." };
 	if (device.status !== "paired") return { ok: false, error: "That machine is not paired." };
 	if (input.modelId && !allowsModel(device, input.modelId)) {
-		return { ok: false, error: "This machine was enrolled without --allow-free-models." };
+		return { ok: false, error: "This computer was enrolled without --allow-free-models." };
 	}
 	return { ok: true, device };
 }
