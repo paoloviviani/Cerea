@@ -8,7 +8,9 @@
 	import CarbonClose from "~icons/carbon/close";
 	import LucideStickyNote from "~icons/lucide/sticky-note";
 	import EosIconsLoading from "~icons/eos-icons/loading";
+	import CarbonChevronDown from "~icons/carbon/chevron-down";
 	import ExternalLinkModal from "../ExternalLinkModal.svelte";
+	import { base } from "$app/paths";
 	import { PREVIEW_ALLOW, PREVIEW_SANDBOX } from "$lib/utils/previewSrcdoc";
 	import { parseExternalUrl } from "$lib/utils/externalLink";
 	import type { OrgSlideDefaults, OrgSlidePublic } from "$lib/utils/slides/themes";
@@ -40,7 +42,11 @@
 	/** True when the browser took the iframe full screen; false means the in-page overlay */
 	let fullscreenNative = $state(false);
 	let pdfProgress = $state<{ done: number; total: number } | null>(null);
-	let pdfFailed = $state<"failed" | "large" | null>(null);
+	let pdfFailed = $state<"failed" | "large" | "server" | null>(null);
+	/** The server can make a vector PDF (the kit's fetch profile): found out on mount, false until then */
+	let serverPdf = $state(false);
+	let serverBusy = $state(false);
+	let pdfMenuOpen = $state(false);
 	let pdfErrorKinds:
 		| Pick<typeof import("$lib/utils/slides/slidesPdf"), "isAbortError" | "PdfTooLargeError">
 		| undefined;
@@ -144,6 +150,7 @@
 	}
 
 	function onWindowKeydown(ev: KeyboardEvent) {
+		if (ev.key === "Escape" && pdfMenuOpen) pdfMenuOpen = false;
 		if (ev.key === "Escape" && presenting && !fullscreenNative) exitPresenting();
 	}
 
@@ -153,7 +160,106 @@
 		pdfAbort?.abort();
 	}
 
-	async function downloadPdf() {
+	onMount(() => {
+		// Whether the server can make the PDF decides what the PDF button does
+		fetch(`${base}/api/v2/slides/pdf`)
+			.then((r) => (r.ok ? r.json() : { available: false }))
+			.then((d: { available?: boolean }) => (serverPdf = d.available === true))
+			.catch(() => {});
+	});
+
+	async function deckLogo(): Promise<string | undefined> {
+		const { parseDeck } = await import("$lib/utils/slides/deck");
+		const logo = parseDeck(content).meta.logo;
+		if (!logo) return undefined;
+		if (logo.startsWith("data:")) return logo;
+		return resolveLogo ? await resolveLogo(logo).catch(() => undefined) : undefined;
+	}
+
+	function saveBlob(blob: Blob, name: string) {
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = name;
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		setTimeout(() => URL.revokeObjectURL(url), 60_000);
+	}
+
+	async function pdfFileName(): Promise<string> {
+		const { parseDeck, deckTitle } = await import("$lib/utils/slides/deck");
+		const title = deckTitle(parseDeck(content));
+		return `${
+			title
+				.replace(/[^\p{L}\p{N} _-]+/gu, "")
+				.trim()
+				.replace(/\s+/g, "-") || "slides"
+		}.pdf`;
+	}
+
+	/** The server's vector PDF, with text you can select. */
+	async function downloadServerPdf() {
+		if (pdfProgress || serverBusy) return;
+		pdfFailed = null;
+		pdfMenuOpen = false;
+		const abort = new AbortController();
+		pdfAbort = abort;
+		serverBusy = true;
+		try {
+			const res = await fetch(`${base}/api/v2/slides/pdf`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ content, logo: await deckLogo() }),
+				signal: abort.signal,
+			});
+			if (!res.ok) throw new Error(String(res.status));
+			saveBlob(await res.blob(), await pdfFileName());
+		} catch (err) {
+			if (!(err instanceof DOMException && err.name === "AbortError")) pdfFailed = "server";
+		} finally {
+			serverBusy = false;
+			pdfAbort = undefined;
+		}
+	}
+
+	/** The deck in its own tab with reveal's print layout; the browser's print dialog saves it as a PDF. */
+	async function printTab(notes = false) {
+		pdfMenuOpen = false;
+		const form = document.createElement("form");
+		form.method = "post";
+		form.action = `${base}/api/v2/slides/print?print-pdf`;
+		form.target = "_blank";
+		form.setAttribute("rel", "noopener");
+		form.style.display = "none";
+		const logo = await deckLogo();
+		const fields: Record<string, string> = {
+			content,
+			notes: notes ? "1" : "0",
+			labelPrint: m["chat.slides.print_label"](),
+			labelHint: m["chat.slides.print_hint"](),
+			...(logo ? { logo } : {}),
+		};
+		for (const [name, value] of Object.entries(fields)) {
+			const input = document.createElement("input");
+			input.type = "hidden";
+			input.name = name;
+			input.value = value;
+			form.appendChild(input);
+		}
+		document.body.appendChild(form);
+		form.submit();
+		form.remove();
+	}
+
+	/** What the PDF button does on its own: the best way this deployment has. */
+	function pdfDefault() {
+		if (serverPdf) void downloadServerPdf();
+		else void printTab(false);
+	}
+
+	async function downloadImagePdf() {
+		pdfMenuOpen = false;
 		if (pdfProgress) return;
 		pdfFailed = null;
 		const abort = new AbortController();
@@ -179,19 +285,7 @@
 				highlight: marked?.highlightCode,
 				onProgress: (done, count) => (pdfProgress = { done, total: count }),
 			});
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = `${
-				title
-					.replace(/[^\p{L}\p{N} _-]+/gu, "")
-					.trim()
-					.replace(/\s+/g, "-") || "slides"
-			}.pdf`;
-			document.body.appendChild(a);
-			a.click();
-			a.remove();
-			setTimeout(() => URL.revokeObjectURL(url), 60_000);
+			saveBlob(blob, await pdfFileName());
 		} catch (err) {
 			if (pdfErrorKinds?.isAbortError(err)) pdfFailed = null;
 			else
@@ -238,6 +332,18 @@
 		{/if}
 	</div>
 
+	{#if pdfFailed}
+		<p
+			class="flex-none border-t border-gray-200 bg-white px-3 py-1 text-xs text-red-600 dark:border-gray-800 dark:bg-gray-900 dark:text-red-400"
+			role="alert"
+		>
+			{pdfFailed === "large"
+				? m["chat.slides.pdf_too_large"]()
+				: pdfFailed === "server"
+					? m["chat.slides.pdf_server_failed"]()
+					: m["chat.slides.pdf_failed"]()}
+		</p>
+	{/if}
 	<div
 		class="flex flex-none items-center gap-1 border-t border-gray-200 bg-white px-2 py-1 dark:border-gray-800 dark:bg-gray-900"
 		data-testid="slides-bar"
@@ -270,11 +376,6 @@
 			<CarbonChevronRight />
 		</button>
 		<span class="flex-1"></span>
-		{#if pdfFailed}
-			<span class="hidden truncate text-xs text-red-600 sm:inline dark:text-red-400" role="alert">
-				{pdfFailed === "large" ? m["chat.slides.pdf_too_large"]() : m["chat.slides.pdf_failed"]()}
-			</span>
-		{/if}
 		<button
 			type="button"
 			class="{btn} {notesOpen ? 'bg-gray-100 dark:bg-gray-800' : ''}"
@@ -286,19 +387,80 @@
 		>
 			<LucideStickyNote />
 		</button>
-		<button
-			type="button"
-			class={btn}
-			title={pdfProgress
-				? m["chat.slides.pdf_busy"]({ done: pdfProgress.done, total: pdfProgress.total })
-				: m["chat.slides.pdf"]()}
-			aria-label={m["chat.slides.pdf"]()}
-			disabled={!!pdfProgress || total === 0}
-			onclick={downloadPdf}
-		>
-			{#if pdfProgress}<EosIconsLoading />{:else}<CarbonDocumentPdf />{/if}
-		</button>
-		{#if pdfProgress}
+		<div class="relative flex items-center">
+			<button
+				type="button"
+				class={btn}
+				title={pdfProgress
+					? m["chat.slides.pdf_busy"]({ done: pdfProgress.done, total: pdfProgress.total })
+					: serverPdf
+						? m["chat.slides.pdf_server"]()
+						: m["chat.slides.pdf_print"]()}
+				aria-label={m["chat.slides.pdf"]()}
+				disabled={!!pdfProgress || serverBusy || total === 0}
+				onclick={pdfDefault}
+			>
+				{#if pdfProgress || serverBusy}<EosIconsLoading />{:else}<CarbonDocumentPdf />{/if}
+			</button>
+			<button
+				type="button"
+				class="{btn} -ml-1 w-5"
+				title={m["chat.slides.pdf_menu"]()}
+				aria-label={m["chat.slides.pdf_menu"]()}
+				aria-haspopup="menu"
+				aria-expanded={pdfMenuOpen}
+				disabled={!!pdfProgress || serverBusy || total === 0}
+				onclick={() => (pdfMenuOpen = !pdfMenuOpen)}
+			>
+				<CarbonChevronDown class="text-xs" />
+			</button>
+			{#if pdfMenuOpen}
+				<div
+					role="menu"
+					class="absolute right-0 bottom-full z-20 mb-1 flex w-60 flex-col rounded-lg border border-gray-200 bg-white p-1 text-sm shadow-lg dark:border-gray-700 dark:bg-gray-800"
+					data-testid="slides-pdf-menu"
+				>
+					{#if serverPdf}
+						<button
+							type="button"
+							role="menuitem"
+							class="rounded-md px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
+							onclick={downloadServerPdf}
+						>
+							{m["chat.slides.pdf_server"]()}
+						</button>
+					{/if}
+					<button
+						type="button"
+						role="menuitem"
+						class="rounded-md px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
+						onclick={() => printTab(false)}
+					>
+						{m["chat.slides.pdf_print"]()}
+					</button>
+					<button
+						type="button"
+						role="menuitem"
+						class="rounded-md px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
+						onclick={() => printTab(true)}
+					>
+						{m["chat.slides.pdf_print_notes"]()}
+					</button>
+					<button
+						type="button"
+						role="menuitem"
+						class="rounded-md px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
+						onclick={downloadImagePdf}
+					>
+						{m["chat.slides.pdf_images"]()}
+						<span class="block text-xs text-gray-500 dark:text-gray-400">
+							{m["chat.slides.pdf_images_note"]()}
+						</span>
+					</button>
+				</div>
+			{/if}
+		</div>
+		{#if pdfProgress || serverBusy}
 			<button
 				type="button"
 				class={btn}

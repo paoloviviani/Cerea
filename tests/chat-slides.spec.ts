@@ -94,13 +94,101 @@ test("a slides artifact renders, steps, presents and downloads a PDF", async ({
 	const exit = page.getByRole("button", { name: "Exit presentation" });
 	if (await exit.isVisible()) await exit.click();
 
-	// The PDF is made in the browser and downloads as a real PDF with a page per slide
+	// The stack has a renderer, so the PDF button makes the vector PDF on the server:
+	// a page per slide, with text that can be selected
+	const serverPdf = page.waitForEvent("download");
+	await panel.getByRole("button", { name: "PDF", exact: true }).click();
+	const vector = await serverPdf;
+	expect(vector.suggestedFilename()).toBe("Fewer-escalations-faster-onboarding.pdf");
+	const parsed = await readPdf(await vector.path());
+	expect(parsed.pages).toBe(5);
+	expect(parsed.text).toContain("Fewer escalations");
+	expect(parsed.text).toContain("Revenue growth");
+
+	// "Print or save as PDF" opens reveal's print layout in a tab of its own, sandboxed by its headers
+	const printTab = page.context().waitForEvent("page");
+	await panel.getByRole("button", { name: "More ways to make a PDF" }).click();
+	await panel.getByRole("menuitem", { name: "Print or save as PDF" }).click();
+	const tab = await printTab;
+	const response = await tab.waitForResponse((r) => r.url().includes("/api/v2/slides/print"));
+	const csp = response.headers()["content-security-policy"] ?? "";
+	expect(csp).toContain("sandbox allow-scripts allow-modals");
+	expect(csp).not.toContain("allow-same-origin");
+	await tab.waitForSelector("html[data-print-ready]", { state: "attached" });
+	await expect(tab.locator(".pdf-page")).toHaveCount(5);
+	// An opaque origin: the app's cookies and storage are out of reach
+	await expect(tab.evaluate(() => document.cookie)).rejects.toThrow(/sandbox|SecurityError/i);
+	await tab.close();
+
+	// The picture PDF is the last option: made in the browser, a page per slide
 	const downloading = page.waitForEvent("download");
-	await panel.getByRole("button", { name: "Download PDF" }).click();
+	await panel.getByRole("button", { name: "More ways to make a PDF" }).click();
+	await panel.getByRole("menuitem", { name: /as pictures/ }).click();
 	const download = await downloading;
 	expect(download.suggestedFilename()).toBe("Fewer-escalations-faster-onboarding.pdf");
-	const path = await download.path();
-	const pdf = (await readFile(path)).toString("latin1");
+	const pdf = (await readFile(await download.path())).toString("latin1");
 	expect(pdf.startsWith("%PDF-1.4")).toBe(true);
 	expect(pdf).toContain("/Count 5");
 });
+
+const MATH_DECK = [
+	"<section>Intro $E=mc^2$ and it costs $5 and $10 in total</section>",
+	"<section><section>Stack a</section><section>Stack b $\\ce{H2O}$</section></section>",
+	"<section>$$\\int_0^1 x\\,dx = \\tfrac12$$</section>",
+].join("\n");
+
+test("@smoke the server PDF counts vertical slides and keeps math as text", async ({
+	page,
+	mockOpenAI,
+	db,
+	session,
+}) => {
+	await useModel(db, session, TOOL_MODEL);
+	await mockOpenAI.setDefaultScenario({
+		toolCalls: [
+			{
+				id: "call_math",
+				name: "artifact",
+				arguments: JSON.stringify({
+					command: "create",
+					identifier: "math-deck",
+					type: "slides",
+					title: "Math deck",
+					content: MATH_DECK,
+				}),
+			},
+		],
+		content: ["Here is the math deck."],
+		chunkDelayMs: 10,
+	});
+	await page.goto(`${E2E_APP_BASE}/`);
+	await send(page, "slides with a formula");
+	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
+	await expect(page.getByText("Here is the math deck.")).toBeVisible({ timeout: 30_000 });
+	const panel = page.getByLabel(PANEL_LABEL, { exact: true });
+	await expect(panel.getByTestId("slides-counter")).toHaveText("1 / 4", { timeout: 30_000 });
+	const serverPdf = page.waitForEvent("download");
+	await panel.getByRole("button", { name: "PDF", exact: true }).click();
+	const parsed = await readPdf(await (await serverPdf).path());
+	expect(parsed.pages).toBe(4);
+	expect(parsed.text).toContain("Stack a");
+	expect(parsed.text).toContain("Stack b");
+	// Currency stayed text; the formula became real glyphs
+	expect(parsed.text).toContain("costs $5 and $10");
+	expect(parsed.text.replace(/\s+/g, "")).toContain("mc");
+});
+
+/** Page count and the text of a PDF, read the way a viewer would. */
+async function readPdf(path: string): Promise<{ pages: number; text: string }> {
+	const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+	const doc = await pdfjs.getDocument({
+		data: new Uint8Array(await readFile(path)),
+		useSystemFonts: true,
+	}).promise;
+	let text = "";
+	for (let i = 1; i <= doc.numPages; i++) {
+		const content = await (await doc.getPage(i)).getTextContent();
+		text += content.items.map((it) => ("str" in it ? it.str : "")).join(" ") + "\n";
+	}
+	return { pages: doc.numPages, text };
+}

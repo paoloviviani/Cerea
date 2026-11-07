@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import katex from "katex";
 import { buildSlidesSrcdoc, engineCss, stripImports } from "./srcdoc";
 import { BUILTIN_THEME_IDS } from "./themes";
 import { PREVIEW_SANDBOX } from "../previewSrcdoc";
+import { buildKatexCss, type KatexLike, type MathSupport } from "./math";
 
 describe("stripImports", () => {
 	it("removes @import rules, remote and local", () => {
@@ -133,5 +135,88 @@ describe("buildSlidesSrcdoc, HTML", () => {
 
 	it("binds the S key to the notes drawer", () => {
 		expect(doc).toContain("ev.key === 's'");
+	});
+});
+
+describe("buildSlidesSrcdoc, math", () => {
+	const root = new URL("../../../../node_modules/katex/dist/", import.meta.url);
+	const css = readFileSync(new URL("katex.min.css", root), "utf8");
+	const fonts = Object.fromEntries(
+		readdirSync(new URL("fonts/", root))
+			.filter((f) => f.endsWith(".woff2"))
+			.map((f) => [
+				f,
+				`data:font/woff2;base64,${readFileSync(new URL(`fonts/${f}`, root)).toString("base64")}`,
+			])
+	);
+	const math: MathSupport = {
+		katex: katex as unknown as KatexLike,
+		css: (rendered) => buildKatexCss(css, fonts, rendered),
+	};
+
+	it("renders formulas in an HTML deck and inlines the stylesheet with data: fonts", () => {
+		const d = buildSlidesSrcdoc("<section>Energy $E=mc^2$</section>", "c", { math });
+		const markup = markupOf(d);
+		expect(markup).toContain('<span class="katex">');
+		expect(d).toContain("data:font/woff2;base64,");
+		expect(d).not.toMatch(/url\(fonts\//);
+		expect(d).not.toMatch(/src:url\(https?:/);
+	});
+
+	it("renders formulas in a Markdown deck, inside the escaped textarea", () => {
+		const d = buildSlidesSrcdoc("# Math\n\n$$x^2$$\n\n---\n\nand $y$", "c", { math });
+		const area = d.slice(d.indexOf("<textarea data-template>"), d.indexOf("</textarea>"));
+		expect(area).toContain("&lt;span class=");
+		expect(area).toContain("katex-display");
+		expect(area).not.toContain("<span");
+	});
+
+	it("adds no KaTeX CSS to a deck without formulas, nor without the support", () => {
+		const plain = buildSlidesSrcdoc("<section>costs $5 and $10</section>", "c", { math });
+		expect(plain).not.toContain("data:font/woff2");
+		expect(plain).toContain("costs $5 and $10");
+		const without = buildSlidesSrcdoc("<section>$x$</section>", "c");
+		expect(without).toContain("$x$");
+	});
+
+	it("keeps the deck whole when a formula is broken: the source shows in red", () => {
+		const d = buildSlidesSrcdoc(
+			"<section>ok $x$ bad $\\notacommand{$</section><section>next</section>",
+			"c",
+			{
+				math,
+			}
+		);
+		expect(markupOf(d)).toContain("katex-error");
+		expect(markupOf(d)).toContain("<section>next</section>");
+	});
+
+	it("also renders math in the print variant (and the picture-PDF frame)", () => {
+		for (const opts of [{ print: { notes: false } }, { pdf: true }]) {
+			const d = buildSlidesSrcdoc("<section>$a+b$</section>", "c", { math, ...opts });
+			expect(markupOf(d)).toContain('<span class="katex">');
+		}
+	});
+});
+
+describe("buildSlidesSrcdoc, print", () => {
+	it("carries its own content policy and starts reveal's print layout wait", () => {
+		const d = buildSlidesSrcdoc("<section>a</section><section>b</section>", "", {
+			print: { notes: true, auto: true, labels: { print: "Print <it>", hint: "hint" } },
+		});
+		expect(d).toContain('http-equiv="Content-Security-Policy"');
+		expect(d).toContain("default-src 'none'");
+		expect(d).toContain('"notes":true');
+		expect(d).toContain("showNotes: PRINT && PRINT.notes ? 'separate-page'");
+		expect(d).toContain("data-print-ready");
+		expect(d).toContain("cerea-print");
+		expect(d).toContain("Print &lt;it&gt;");
+		expect(d).not.toContain("chatui.preview.error");
+	});
+
+	it("has no print bar unless asked, and no preview hook without a channel", () => {
+		const d = buildSlidesSrcdoc("<section>a</section>", "", { print: { auto: false } });
+		expect(d).not.toContain('id="cerea-print"');
+		expect(d).toContain('"auto":false');
 	});
 });

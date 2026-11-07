@@ -1,6 +1,6 @@
 import SlidesView from "./SlidesView.svelte";
 import { render } from "vitest-browser-svelte";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const DECK = "---\ntheme: cerea\n---\n# One\n\n---\n\n# Two\n\nNote: hi\n";
 
@@ -9,6 +9,14 @@ async function mount(props: Record<string, unknown> = {}) {
 	await vi.waitFor(() => expect(document.querySelector("iframe")).toBeTruthy());
 	const iframe = document.querySelector("iframe") as HTMLIFrameElement;
 	return { screen, iframe };
+}
+
+/** The picture PDF is the last option in the PDF menu (the default button prints or asks the server). */
+async function startImagePdf(screen: {
+	getByRole: (role: string, options: Record<string, unknown>) => { click(): Promise<void> | void };
+}) {
+	await screen.getByRole("button", { name: "More ways to make a PDF" }).click();
+	await screen.getByRole("menuitem", { name: /as pictures/ }).click();
 }
 
 describe("SlidesView", () => {
@@ -92,7 +100,7 @@ describe("SlidesView", () => {
 		const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 		const { screen } = await mount();
 		await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 2");
-		await screen.getByRole("button", { name: "Download PDF" }).click();
+		await startImagePdf(screen);
 		await vi.waitFor(() => expect(blobs.length).toBe(1), { timeout: 30_000 });
 		const text = new TextDecoder("latin1").decode(await blobs[0].arrayBuffer());
 		expect(blobs[0].type).toBe("application/pdf");
@@ -119,7 +127,7 @@ describe("SlidesView", () => {
 		await expect.element(screen.getByRole("button", { name: "Speaker notes (N)" })).toBeEnabled();
 		await screen.getByRole("button", { name: "Next slide" }).click();
 		await expect.element(counter).toHaveTextContent("2 / 5");
-		await screen.getByRole("button", { name: "Download PDF" }).click();
+		await startImagePdf(screen);
 		await vi.waitFor(() => expect(blobs.length).toBe(1), { timeout: 60_000 });
 		const text = new TextDecoder("latin1").decode(await blobs[0].arrayBuffer());
 		expect(text).toContain("/Count 5");
@@ -187,7 +195,7 @@ describe("SlidesView", () => {
 			const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 			const { screen } = await mount({ content: STACK });
 			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 4");
-			await screen.getByRole("button", { name: "Download PDF" }).click();
+			await startImagePdf(screen);
 			await vi.waitFor(() => expect(blobs.length).toBe(1), { timeout: 60_000 });
 			const bytes = new Uint8Array(await blobs[0].arrayBuffer());
 			expect(new TextDecoder("latin1").decode(bytes)).toContain("/Count 4");
@@ -214,9 +222,9 @@ describe("SlidesView", () => {
 			const create = vi.spyOn(URL, "createObjectURL");
 			const { screen } = await mount({ content: LONG });
 			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 30");
-			await screen.getByRole("button", { name: "Download PDF" }).click();
+			await startImagePdf(screen);
 			await screen.getByRole("button", { name: "Cancel PDF" }).click();
-			await expect.element(screen.getByRole("button", { name: "Download PDF" })).toBeEnabled();
+			await expect.element(screen.getByRole("button", { name: "PDF", exact: true })).toBeEnabled();
 			await vi.waitFor(() => expect(hiddenFrames()).toBe(0));
 			expect(create).not.toHaveBeenCalled();
 			// No error is shown for a cancel
@@ -228,7 +236,7 @@ describe("SlidesView", () => {
 			const create = vi.spyOn(URL, "createObjectURL");
 			const { screen } = await mount({ content: LONG });
 			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 30");
-			await screen.getByRole("button", { name: "Download PDF" }).click();
+			await startImagePdf(screen);
 			await vi.waitFor(() => expect(hiddenFrames()).toBe(1));
 			screen.unmount();
 			await vi.waitFor(() => expect(hiddenFrames()).toBe(0));
@@ -250,5 +258,196 @@ describe("SlidesView", () => {
 			timeout: 5000,
 		});
 		expect(document.querySelector("iframe")?.srcdoc).toContain("Four");
+	});
+
+	describe("math", () => {
+		const MATH = "<section>Energy: $E=mc^2$ costs $5 and $10 \\[x^2\\]</section>";
+
+		it("renders formulas before the frame is built, with the fonts inline", async () => {
+			const { iframe } = await mount({ content: MATH });
+			const markup = iframe.srcdoc.slice(iframe.srcdoc.indexOf('<div class="reveal">'));
+			expect(markup).toContain('<span class="katex">');
+			expect(markup).toContain("katex-display");
+			expect(markup).toContain("costs $5 and $10");
+			expect(iframe.srcdoc).toContain("data:font/woff2;base64,");
+			expect(iframe.srcdoc).not.toMatch(/url\(fonts\//);
+		});
+
+		it("builds a deck that is still half written (an open formula stays text)", async () => {
+			const { iframe, screen } = await mount({ content: "<section>so $$x^2 + \\frac{1</section>" });
+			expect(iframe.srcdoc).toContain("so $$x^2");
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 1");
+		});
+
+		it("draws the formula into the picture PDF", async () => {
+			const blobs: Blob[] = [];
+			const create = vi.spyOn(URL, "createObjectURL").mockImplementation((b) => {
+				blobs.push(b as Blob);
+				return "blob:test";
+			});
+			const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+			const { screen } = await mount({
+				content: '<section style="font-size:120px;padding:80px">$$\\int_0^1 x\\,dx$$</section>',
+			});
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 1");
+			await startImagePdf(screen);
+			await vi.waitFor(() => expect(blobs.length).toBe(1), { timeout: 60_000 });
+			const bytes = new Uint8Array(await blobs[0].arrayBuffer());
+			const start = bytes.findIndex(
+				(b, i) => b === 0xff && bytes[i + 1] === 0xd8 && bytes[i + 2] === 0xff
+			);
+			const bitmap = await createImageBitmap(
+				new Blob([bytes.slice(start)], { type: "image/jpeg" })
+			);
+			const canvas = document.createElement("canvas");
+			canvas.width = bitmap.width;
+			canvas.height = bitmap.height;
+			const ctx = canvas.getContext("2d");
+			if (!ctx) throw new Error("no 2d context");
+			ctx.drawImage(bitmap, 0, 0);
+			const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+			let dark = 0;
+			for (let i = 0; i < data.length; i += 4) if (data[i] < 90 && data[i + 1] < 90) dark++;
+			expect(dark).toBeGreaterThan(500);
+			create.mockRestore();
+			click.mockRestore();
+		}, 90_000);
+	});
+
+	describe("the PDF control", () => {
+		const realFetch = globalThis.fetch;
+		afterEach(() => {
+			vi.stubGlobal("fetch", realFetch);
+			vi.restoreAllMocks();
+		});
+
+		function stubServer(available: boolean, pdf?: (body: Record<string, unknown>) => Response) {
+			const calls: { url: string; init?: RequestInit }[] = [];
+			vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+				calls.push({ url: String(url), init });
+				if (String(url).endsWith("/api/v2/slides/pdf") && !init?.method) {
+					return new Response(JSON.stringify({ available }), { status: 200 });
+				}
+				if (String(url).endsWith("/api/v2/slides/pdf") && init?.method === "POST") {
+					return pdf?.(JSON.parse(String(init.body))) ?? new Response("nope", { status: 500 });
+				}
+				return realFetch(url, init);
+			});
+			return calls;
+		}
+
+		function captureForm() {
+			const sent: { action: string; target: string; fields: Record<string, string> }[] = [];
+			vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(function (
+				this: HTMLFormElement
+			) {
+				const fields: Record<string, string> = {};
+				for (const el of Array.from(this.elements)) {
+					const input = el as HTMLInputElement;
+					fields[input.name] = input.value;
+				}
+				sent.push({ action: this.getAttribute("action") ?? "", target: this.target, fields });
+			});
+			return sent;
+		}
+
+		it("opens the print tab by default where the server cannot make the PDF", async () => {
+			stubServer(false);
+			const sent = captureForm();
+			const { screen } = await mount({ content: "<section>One</section><section>Two</section>" });
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 2");
+			await screen.getByRole("button", { name: "PDF", exact: true }).click();
+			await vi.waitFor(() => expect(sent.length).toBe(1));
+			expect(sent[0].action).toContain("/api/v2/slides/print?print-pdf");
+			expect(sent[0].target).toBe("_blank");
+			expect(sent[0].fields.content).toContain("<section>One</section>");
+			expect(sent[0].fields.notes).toBe("0");
+			expect(sent[0].fields.labelPrint).toBe("Print or save as PDF");
+			expect(sent[0].fields.labelHint).toContain("background graphics");
+		});
+
+		it("prints with notes from the menu, and lists only what this deployment can do", async () => {
+			stubServer(false);
+			const sent = captureForm();
+			const { screen } = await mount({ content: "<section>One</section>" });
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 1");
+			await screen.getByRole("button", { name: "More ways to make a PDF" }).click();
+			const items = Array.from(screen.baseElement.querySelectorAll("[role=menuitem]")).map((e) =>
+				(e.textContent ?? "").replace(/\s+/g, " ").trim()
+			);
+			expect(items).toEqual([
+				"Print or save as PDF",
+				"Print with speaker notes",
+				"Download PDF as pictures Text in it cannot be selected",
+			]);
+			await screen.getByRole("menuitem", { name: "Print with speaker notes" }).click();
+			await vi.waitFor(() => expect(sent.length).toBe(1));
+			expect(sent[0].fields.notes).toBe("1");
+		});
+
+		it("makes the PDF on the server by default where it can, and offers it first in the menu", async () => {
+			const blobs: Blob[] = [];
+			vi.spyOn(URL, "createObjectURL").mockImplementation((b) => {
+				blobs.push(b as Blob);
+				return "blob:test";
+			});
+			vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+			const calls = stubServer(true, (body) => {
+				expect(body.content).toContain("<h1>Quarterly review</h1>");
+				return new Response("%PDF-1.7 vector", { status: 200 });
+			});
+			const sent = captureForm();
+			const { screen } = await mount({ content: "<section><h1>Quarterly review</h1></section>" });
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 1");
+			await vi.waitFor(() => expect(calls.some((c) => !c.init?.method)).toBe(true));
+			await screen.getByRole("button", { name: "More ways to make a PDF" }).click();
+			const first = screen.baseElement.querySelector("[role=menuitem]");
+			expect(first?.textContent?.trim()).toBe("Download PDF");
+			await screen.getByRole("button", { name: "More ways to make a PDF" }).click();
+			await screen.getByRole("button", { name: "PDF", exact: true }).click();
+			await vi.waitFor(() => expect(blobs.length).toBe(1));
+			expect(await blobs[0].text()).toBe("%PDF-1.7 vector");
+			expect(sent.length).toBe(0);
+		});
+
+		it("says so when the server cannot make it, and the print tab is still there", async () => {
+			stubServer(true);
+			const { screen } = await mount({ content: "<section>One</section>" });
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 1");
+			await vi.waitFor(async () => {
+				await screen.getByRole("button", { name: "PDF", exact: true }).click();
+				expect(screen.baseElement.querySelector("[role=alert]")).toBeTruthy();
+			});
+			expect(screen.baseElement.querySelector("[role=alert]")?.textContent).toContain(
+				"Try Print or save as PDF"
+			);
+			await expect.element(screen.getByRole("button", { name: "PDF", exact: true })).toBeEnabled();
+		});
+
+		it("can cancel the server's PDF", async () => {
+			let release: (r: Response) => void = () => {};
+			vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+				if (String(url).endsWith("/api/v2/slides/pdf") && !init?.method) {
+					return new Response(JSON.stringify({ available: true }), { status: 200 });
+				}
+				if (!String(url).endsWith("/api/v2/slides/pdf")) return realFetch(url, init);
+				return new Promise<Response>((resolve, reject) => {
+					release = resolve;
+					init?.signal?.addEventListener("abort", () =>
+						reject(new DOMException("aborted", "AbortError"))
+					);
+				});
+			});
+			const { screen } = await mount({ content: "<section>One</section>" });
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 1");
+			await vi.waitFor(async () => {
+				await screen.getByRole("button", { name: "PDF", exact: true }).click();
+				await expect.element(screen.getByRole("button", { name: "Cancel PDF" })).toBeVisible();
+			});
+			await screen.getByRole("button", { name: "Cancel PDF" }).click();
+			await expect.element(screen.getByRole("button", { name: "PDF", exact: true })).toBeEnabled();
+			expect(screen.baseElement.querySelector("[role=alert]")).toBeNull();
+			release(new Response(""));
+		});
 	});
 });

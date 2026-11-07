@@ -23,8 +23,9 @@ import simpleCss from "reveal.js/dist/theme/simple.css?raw";
 import moonCss from "reveal.js/dist/theme/moon.css?raw";
 import solarizedCss from "reveal.js/dist/theme/solarized.css?raw";
 import draculaCss from "reveal.js/dist/theme/dracula.css?raw";
-import { buildPreviewHookScript, previewCspMeta } from "../previewSrcdoc";
+import { buildPreviewHookScript, previewCspMeta, PREVIEW_CSP } from "../previewSrcdoc";
 import { highlightFences, parseDeck, type ParsedDeck } from "./deck";
+import { renderMath, type MathSupport } from "./math";
 import { isBuiltinTheme, resolveTheme, type OrgSlideDefaults, type ThemeId } from "./themes";
 
 const BUILTIN_CSS: Record<string, string> = {
@@ -65,8 +66,25 @@ export interface SlidesSrcdocOptions {
 	logoDataUrl?: string;
 	/** The code highlighter (the app's own); plain text without it */
 	highlight?: (code: string, lang?: string) => string;
+	/** KaTeX and its stylesheet; absent means formulas stay as the text they were written as */
+	math?: MathSupport;
 	/** Offscreen render for the PDF: no transitions, controls, keyboard or fragments */
 	pdf?: boolean;
+	/**
+	 * Reveal's print layout (one 1280x720 page per slide, stacks included) for
+	 * the "Print / save as PDF" tab and the server's vector PDF. The document
+	 * carries its own content policy (there is no embedding page to add one).
+	 */
+	print?: PrintOptions;
+}
+
+export interface PrintOptions {
+	/** Notes on pages of their own, after each slide */
+	notes?: boolean;
+	/** Open the print dialog as soon as the pages are laid out */
+	auto?: boolean;
+	/** A bar with a print button above the pages (the tab has one, the server render does not) */
+	labels?: { print: string; hint: string };
 }
 
 const END_SCRIPT = "</scr" + "ipt>";
@@ -81,21 +99,28 @@ function attr(value: string): string {
 }
 
 /** The script that starts reveal and talks to the app (state out, commands in, captures for the PDF). */
-function runtimeScript(channel: string, pdf: boolean, markdown: boolean): string {
+function runtimeScript(
+	channel: string,
+	pdf: boolean,
+	markdown: boolean,
+	print: PrintOptions | undefined
+): string {
 	return `\n<script>
 (function(){
   var CH = ${JSON.stringify(channel)};
   var PDF = ${pdf ? "true" : "false"};
   var MD = ${markdown ? "true" : "false"};
+  var PRINT = ${print ? JSON.stringify({ notes: !!print.notes, auto: !!print.auto, bar: !!print.labels }) : "null"};
   function send(type, detail){ try { parent.postMessage({ type: type, channel: CH, detail: detail }, '*'); } catch (e) {} }
   var notesEl = document.querySelector('.cerea-notes');
   var notesOpen = false;
   var deck = new Reveal({
     plugins: [RevealMarkdown],
     width: 1280, height: 720, margin: MD && !PDF ? 0.04 : 0, minScale: PDF ? 1 : 0.1, maxScale: PDF ? 1 : 2,
-    center: MD, hash: false, history: false, controls: false, progress: !PDF, slideNumber: false,
-    transition: PDF ? 'none' : 'slide', backgroundTransition: 'none', keyboard: !PDF, touch: !PDF,
-    fragments: !PDF, help: true, overview: !PDF, mouseWheel: false, respondToHashChanges: false, scrollActivationWidth: null, view: null
+    center: MD, hash: false, history: false, controls: false, progress: !PDF && !PRINT, slideNumber: false,
+    showNotes: PRINT && PRINT.notes ? 'separate-page' : false, pdfSeparateFragments: false,
+    transition: PDF || PRINT ? 'none' : 'slide', backgroundTransition: 'none', keyboard: !PDF, touch: !PDF,
+    fragments: !PDF && !PRINT, help: true, overview: !PDF, mouseWheel: false, respondToHashChanges: false, scrollActivationWidth: null, view: null
   });
   function notes(){
     try {
@@ -134,6 +159,20 @@ function runtimeScript(channel: string, pdf: boolean, markdown: boolean): string
     send('chatui.slides.state', {
       index: position(list), total: list.length, notes: !!text, notesOpen: notesOpen
     });
+  }
+  if (PRINT) {
+    // Reveal lays the pages out when the URL says print-pdf; wait for the pages, then say so
+    var waited = 0;
+    var iv = setInterval(function(){
+      waited++;
+      if (document.querySelector('.pdf-page')) {
+        clearInterval(iv);
+        document.documentElement.setAttribute('data-print-ready', '1');
+        if (PRINT.auto) setTimeout(function(){ try { window.print(); } catch (e) {} }, 400);
+      } else if (waited > 300) clearInterval(iv);
+    }, 100);
+    var printBtn = document.getElementById('cerea-print');
+    if (printBtn) printBtn.addEventListener('click', function(){ window.print(); });
   }
   deck.initialize().then(function(){
     deck.on('slidechanged', publish); deck.on('fragmentshown', publish); deck.on('fragmenthidden', publish);
@@ -199,33 +238,48 @@ export function buildSlidesSrcdocFrom(
 	const brand =
 		logoUrl && logoUrl !== theme.logo ? `:root{--brand-logo-url:url("${logoUrl}");}` : "";
 	const title = (parsed.meta.title ?? "Slides").replace(/[<>&"]/g, "");
+	// Math is rendered here, before the deck goes into the frame, like code is highlighted
+	let deckBody = parsed.body;
+	let mathCss = "";
+	if (opts.math) {
+		const rendered = renderMath(deckBody, opts.math.katex, {
+			mode: markdown ? "markdown" : "html",
+		});
+		if (rendered.count > 0) {
+			deckBody = rendered.text;
+			mathCss = opts.math.css(rendered.text);
+		}
+	}
 	const slides = markdown
 		? `<div class="slides md">
 <section data-markdown data-separator="\\r?\\n---[ \\t]*\\r?\\n" data-separator-notes="^Note:" data-charset="utf-8"><textarea data-template>${textareaSafe(
-				opts.highlight ? highlightFences(parsed.body, opts.highlight) : parsed.body
+				opts.highlight ? highlightFences(deckBody, opts.highlight) : deckBody
 			)}</textarea></section>
 </div>`
-		: `<div class="slides">\n${parsed.body}\n</div>`;
+		: `<div class="slides">\n${deckBody}\n</div>`;
 	// The logo image is a Markdown-deck nicety; an HTML deck places --brand-logo-url itself
 	const logoImg =
 		markdown && logoUrl ? `<img class="cerea-logo" alt="" src="${attr(logoUrl)}">` : "";
+	const printBar = opts.print?.labels
+		? `<div class="cerea-printbar"><button id="cerea-print" type="button">${textareaSafe(opts.print.labels.print)}</button><span>${textareaSafe(opts.print.labels.hint)}</span></div>\n`
+		: "";
 	return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<base target="_blank">${previewCspMeta(channel)}
+<base target="_blank">${channel ? previewCspMeta(channel) : opts.print ? `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">` : ""}
 <title>${title}</title>
 <style>${resetCss}</style>
 <style>${engineCss(revealCss)}</style>
 <style>${neutralCss}</style>
 <style>${themeCss(theme.theme)}</style>
 <style>${theme.css}${brand}</style>
-<style>${baseCss}</style>${buildPreviewHookScript(channel)}
+<style>${baseCss}</style>${mathCss ? `\n<style>${mathCss}</style>` : ""}${buildPreviewHookScript(channel)}
 </head>
 <body>
-<div class="reveal">${slides}${logoImg}<div class="cerea-notes" hidden></div></div>
+${printBar}<div class="reveal">${slides}${opts.print ? "" : logoImg}<div class="cerea-notes" hidden></div></div>
 <script>${revealJs.replace(/<\/script/gi, "<\\/script")}${END_SCRIPT}
-<script>${markdownJs.replace(/<\/script/gi, "<\\/script")}${END_SCRIPT}${runtimeScript(channel, !!opts.pdf, markdown)}
+<script>${markdownJs.replace(/<\/script/gi, "<\\/script")}${END_SCRIPT}${runtimeScript(channel, !!opts.pdf, markdown, opts.print)}
 </body></html>`;
 }
 

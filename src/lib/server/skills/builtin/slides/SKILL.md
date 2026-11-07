@@ -69,6 +69,10 @@ the first section. Nested sections make vertical stacks. Put notes in `<aside cl
 - **No theme is applied unless you name one.** Optional: `data-theme="dracula"` on the first section (or `theme:
 dracula` in front matter) gives reveal.js styling. Names: `cerea`, `cerea-dark`, `white`, `black`, `simple`, `moon`,
   `solarized`, `dracula`. Skip it when you are designing the look yourself.
+- **Math:** write LaTeX with `$x^2$` or `\(x^2\)` inline and `$$...$$` or `\[...\]` for display; Cerea renders it
+  with KaTeX before the deck is shown (matrices, `aligned`, `cases`, `\newcommand` and chemistry with `\ce{H2O}` work).
+  Use it where the topic calls for formulas. Prices are safe (`$5 and $10` stays text); write `\$` for a literal
+  dollar next to a formula. Code blocks are left alone.
 - **Readable:** body text at least 24px, headings 44px or more, strong contrast, at most about six lines per slide.
 
 ### Markdown shortcut

@@ -15,6 +15,7 @@ import { loadCaptureLibrarySource } from "../artifactCapture";
 import { buildPdf, dataUrlToBytes, jpegSize, type PdfPage } from "./pdf";
 import { buildSlidesSrcdocFrom, type SlidesSrcdocOptions } from "./srcdoc";
 import { parseDeck } from "./deck";
+import { loadMathFor } from "./load";
 
 const SLIDE_WIDTH = 1280;
 const SLIDE_HEIGHT = 720;
@@ -113,7 +114,8 @@ export async function exportSlidesPdf(content: string, opts: SlidesPdfOptions = 
 
 	window.addEventListener("message", onMessage);
 	try {
-		iframe.srcdoc = buildSlidesSrcdocFrom(parsed, channel, { ...opts, pdf: true });
+		const math = opts.math ?? (await loadMathFor(content).catch(() => undefined));
+		iframe.srcdoc = buildSlidesSrcdocFrom(parsed, channel, { ...opts, math, pdf: true });
 		const ready = waitFor((t) => t === "chatui.slides.state", READY_TIMEOUT_MS, "the slides");
 		document.body.appendChild(iframe);
 		const state = await ready;

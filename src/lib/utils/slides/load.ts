@@ -3,6 +3,12 @@
  * deck is shown. The code highlighter is the app's own (also lazy).
  */
 import type { OrgSlideDefaults } from "./themes";
+import { mightHaveMath, type MathSupport } from "./math";
+
+/** KaTeX and its fonts, fetched only for a deck that can contain math. */
+export async function loadMathFor(source: string): Promise<MathSupport | undefined> {
+	return mightHaveMath(source) ? (await import("./mathSupport")).math : undefined;
+}
 
 export interface LoadSlidesOptions {
 	org?: OrgSlideDefaults;
@@ -14,6 +20,7 @@ export async function loadSlidesSrcdoc(
 	channel: string,
 	{ org, resolveLogo }: LoadSlidesOptions = {}
 ): Promise<string> {
+	const math = await loadMathFor(content).catch(() => undefined);
 	const [srcdoc, deck, marked] = await Promise.all([
 		import("./srcdoc"),
 		import("./deck"),
@@ -27,6 +34,7 @@ export async function loadSlidesSrcdoc(
 	}
 	return srcdoc.buildSlidesSrcdocFrom(parsed, channel, {
 		org,
+		math,
 		logoDataUrl,
 		highlight: marked?.highlightCode,
 	});
