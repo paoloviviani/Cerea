@@ -200,14 +200,14 @@ describe("asks pinned above the composer", () => {
 		await vi.waitFor(() =>
 			expect(
 				document.body.querySelector('[data-testid="needs-you-inbox"]')?.textContent ?? ""
-			).toContain("2 need you")
+			).toContain("2 waiting for you")
 		);
 		mount([sessionUpdate]);
 		await vi.waitFor(() => expect(pinned()).not.toBeNull());
 		await vi.waitFor(() =>
 			expect(
 				document.body.querySelector('[data-testid="needs-you-inbox"]')?.textContent ?? ""
-			).toContain("1 needs you")
+			).toContain("1 waiting for you")
 		);
 	});
 

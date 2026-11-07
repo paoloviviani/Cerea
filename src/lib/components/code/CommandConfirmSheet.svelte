@@ -127,7 +127,7 @@
 			{/if}
 		</div>
 
-		<div class="sticky mt-6 flex justify-end gap-2">
+		<div class={s.SHEET_FOOTER}>
 			<button class="btn rounded-lg px-3 py-1.5 text-sm" type="button" onclick={onclose}>
 				{m["code.common.cancel"]()}
 			</button>

@@ -6,9 +6,12 @@
 		classNames?: string;
 		onClick?: () => void;
 		showBorder?: boolean;
+		/** Show the word "Stop" beside the square from `md` up; below it the button
+		 * stays a square and the word stays for a screen reader. */
+		showText?: boolean;
 	}
 
-	let { classNames = "", onClick, showBorder = false }: Props = $props();
+	let { classNames = "", onClick, showBorder = false, showText = false }: Props = $props();
 </script>
 
 <button
@@ -17,7 +20,9 @@
 	class={`stop-generating-btn btn ${showBorder ? "stop-generating-btn--spinning" : ""} ${classNames}`}
 	aria-label={m["app.stop_generating"]()}
 >
-	<span class="sr-only">{m["app.stop_generating"]()}</span>
+	<span class={showText ? "text-xs font-medium max-md:sr-only md:order-2 md:ml-1.5" : "sr-only"}
+		>{showText ? m["app.stop_short"]() : m["app.stop_generating"]()}</span
+	>
 	<CarbonStopFilledAlt class="size-3.5 text-gray-500" />
 </button>
 
