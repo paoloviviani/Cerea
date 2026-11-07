@@ -7,7 +7,6 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
-<<<<<<< HEAD
 - **One set of words across the app.** Chats (not conversations), computer (not machine or device), session (not agent, for one run), and Plan · Ask · Auto · Allow everywhere, including the new session dialog, which says **New session** and **Start session** and offers all four modes.
 - **A friendlier first screen.** The Piedmontese greeting stays, with its translation on hover or tap, and a plain line under it greets you by first name ("What can I help you with today, Ada?"). Admins can turn on four starter suggestions under **Admin → Assistant** (off by default).
 - **The logo has a name.** The ridge in the sidebar is a little thicker, with "Cerea" beside it; the pixel mark stays as the favicon and app icon.
