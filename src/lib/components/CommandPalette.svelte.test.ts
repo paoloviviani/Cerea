@@ -124,9 +124,7 @@ describe("CommandPalette", () => {
 			return el;
 		})) as HTMLInputElement;
 		await userEvent.type(input, "usage");
-		await vi.waitFor(() =>
-			expect(options().map((o) => o.text)).toEqual(["Usage & billing Settings"])
-		);
+		await vi.waitFor(() => expect(options().map((o) => o.text)).toEqual(["Usage Settings"]));
 		await userEvent.clear(input);
 		await userEvent.type(input, "admin");
 		await vi.waitFor(() => expect(options()).toEqual([]));

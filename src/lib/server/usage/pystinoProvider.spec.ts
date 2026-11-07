@@ -155,8 +155,13 @@ describe("pystinoUsageProvider.isEnabled", () => {
 		expect(pystinoUsageProvider.isEnabled?.({ locals: {} as App.Locals })).toBe(true);
 	});
 
-	it("is disabled when the flag is off", () => {
+	it("is enabled when the flag is unset, so a gateway with quotas shows its usage", () => {
 		configState.usageEnabled = "";
+		expect(pystinoUsageProvider.isEnabled?.({ locals: {} as App.Locals })).toBe(true);
+	});
+
+	it("is disabled when the flag is false", () => {
+		configState.usageEnabled = "false";
 		expect(pystinoUsageProvider.isEnabled?.({ locals: {} as App.Locals })).toBe(false);
 	});
 
@@ -291,10 +296,11 @@ describe("pystinoUsageProvider.getReport", () => {
 
 		const quotas = report.sections.find((s) => s.title === "Quotas");
 		expect(quotas?.entries[0]).toEqual({
-			label: "Everyone's ceiling · per month · per person",
+			label: "Everyone's ceiling · per person",
 			used: 7.5,
 			limit: 20,
 			unit: "spend",
+			period: "per month",
 			scope: "global",
 		});
 		// The deployment-wide aggregate beside it still shows no figures.
@@ -311,17 +317,19 @@ describe("pystinoUsageProvider.getReport", () => {
 		const quotas = report.sections.find((s) => s.title === "Quotas");
 		expect(quotas?.entries).toEqual([
 			{
-				label: "Monthly tokens · per month",
+				label: "Monthly tokens",
 				used: 250,
 				limit: 1000,
 				unit: "tokens",
+				period: "per month",
 				scope: "user",
 			},
 			{
-				label: "Team spend · per month · per member",
+				label: "Team spend · per member",
 				used: 5,
 				limit: 50,
 				unit: "spend",
+				period: "per month",
 				scope: "group",
 			},
 		]);
@@ -350,8 +358,8 @@ describe("pystinoUsageProvider.getReport", () => {
 		});
 		const quotas = report.sections.find((s) => s.title === "Quotas");
 		expect(quotas?.entries.map((e) => e.label)).toEqual([
-			"Monthly tokens · per month",
-			"Team spend · per month · per member",
+			"Monthly tokens",
+			"Team spend · per member",
 			"Team requests · per day · shared by your group",
 			"Deployment spend · per day · shared by everyone",
 		]);

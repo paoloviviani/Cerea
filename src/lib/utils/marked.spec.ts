@@ -382,3 +382,32 @@ describe("fallbackBlocks (SSR / initial render)", () => {
 		expect(a[0].tokens).toEqual(b[0].tokens);
 	});
 });
+
+describe("【…】 citations", () => {
+	test("a URL citation becomes a source chip with the site name", () => {
+		const html = renderHtml("Use npm workspaces 【https://www.npmjs.com/package/foo】.");
+		expect(html).toContain("data-citation-chip");
+		expect(html).toContain('href="https://www.npmjs.com/package/foo"');
+		expect(html).toContain(">npmjs.com</a>");
+		expect(html).not.toContain("【");
+	});
+
+	test("a numbered citation links to that source; one that names nothing is dropped", () => {
+		const tokens = processTokensSync("A claim 【2†source】 and another 【9†source】.", [
+			{ link: "https://a.example/x" },
+			{ link: "https://www.b.example/y" },
+		]);
+		const text = tokens.find((t) => t.type === "text");
+		const html = text && text.type === "text" ? String(text.html) : "";
+		expect(html).toContain('href="https://www.b.example/y"');
+		expect(html).toContain(">b.example</a>");
+		expect(html).not.toContain("【");
+		expect(html).not.toContain("9†");
+	});
+
+	test("leaves brackets inside code fences alone", () => {
+		const tokens = processTokensSync("```\n【https://x.example】\n```", []);
+		expect(JSON.stringify(tokens)).toContain("【https://x.example】");
+		expect(JSON.stringify(tokens)).not.toContain("data-citation-chip");
+	});
+});

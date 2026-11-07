@@ -10,6 +10,8 @@ const { version } = JSON.parse(readFileSync(new URL("../package.json", import.me
 
 test("@smoke the Application settings page shows the release version", async ({ page }) => {
 	await page.goto(`${E2E_APP_BASE}/settings/application`);
+	// The version sits in the folded "About this server" row.
+	await page.getByTestId("about-server").locator("summary").click();
 	const line = page.getByTestId("app-version");
 	await expect(line).toContainText(`Cerea ${version}`);
 	await expect(line.getByRole("link", { name: `Cerea ${version}` })).toHaveAttribute(

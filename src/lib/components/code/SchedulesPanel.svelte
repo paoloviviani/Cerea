@@ -325,9 +325,13 @@
 										<div class="min-w-0">
 											<dt class="text-ink-faint">{m["code.schedules.next_run"]()}</dt>
 											<dd class="text-ink" data-testid="next-run">
-												{schedule.enabled
-													? formatWhen(schedule.nextRunAt)
-													: m["code.schedules.off"]()}
+												{#if schedule.enabled}
+													<!-- In the schedule's own zone, named: the browser's zone may differ. -->
+													{formatWhen(schedule.nextRunAt, schedule.timezone)}
+													<span class="text-ink-muted">· {schedule.timezone}</span>
+												{:else}
+													{m["code.schedules.off"]()}
+												{/if}
 											</dd>
 										</div>
 										<div class="min-w-0">
@@ -341,7 +345,9 @@
 														{runStatusLabel(schedule.lastStatus)}
 													</span>
 													{#if schedule.lastRunAt}
-														<span class="text-ink-muted">{formatWhen(schedule.lastRunAt)}</span>
+														<span class="text-ink-muted"
+															>{formatWhen(schedule.lastRunAt, schedule.timezone)}</span
+														>
 													{/if}
 												{:else}
 													<span class="text-ink-muted">{m["code.schedules.never"]()}</span>

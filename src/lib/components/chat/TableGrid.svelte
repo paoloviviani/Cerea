@@ -54,6 +54,28 @@
 		return [...matching].sort((a, b) => dir * compareTableCells(a[col] ?? "", b[col] ?? ""));
 	});
 
+	// More to the right (or left) than fits: a fade on that edge says so, since
+	// a thin scrollbar alone does not.
+	let scroller: HTMLDivElement | undefined = $state();
+	let moreRight = $state(false);
+	let moreLeft = $state(false);
+	function measure() {
+		if (!scroller) return;
+		moreLeft = scroller.scrollLeft > 1;
+		moreRight = scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1;
+	}
+	$effect(() => {
+		// Re-measure when the content, filter or width changes.
+		void shown;
+		if (!scroller) return;
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(scroller);
+		const inner = scroller.firstElementChild;
+		if (inner) observer.observe(inner);
+		return () => observer.disconnect();
+	});
+
 	let totalRows = $derived(table?.rows.length ?? 0);
 	let capped = $derived(filtered.length > MAX_TABLE_RENDER_ROWS);
 	let shown = $derived(capped ? filtered.slice(0, MAX_TABLE_RENDER_ROWS) : filtered);
@@ -105,69 +127,99 @@
 				{countLabel}
 			</span>
 		</div>
-		<div class="scrollbar-custom min-h-0 flex-1 overflow-auto px-6 pb-5">
-			<table class="w-full border-collapse text-xs">
-				<thead class="sticky top-0 z-10">
-					<tr>
-						{#each table.header as head, col (col)}
-							<th
-								scope="col"
-								aria-sort={sortCol === col ? (sortDir === 1 ? "ascending" : "descending") : "none"}
-								class="border border-gray-200 bg-gray-100 p-0 text-left font-semibold text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-							>
-								<button
-									type="button"
-									class="btn flex w-full cursor-pointer items-center gap-1 px-2 py-1.5 text-left hover:bg-gray-200/70 dark:hover:bg-gray-700/70"
-									title={sortCol === col
+		<div class="relative min-h-0 flex-1">
+			{#if moreLeft}
+				<div
+					aria-hidden="true"
+					data-testid="table-fade-left"
+					class="pointer-events-none absolute inset-y-0 left-0 z-20 w-6 bg-linear-to-r from-black/10 to-transparent dark:from-black/40"
+				></div>
+			{/if}
+			{#if moreRight}
+				<div
+					aria-hidden="true"
+					data-testid="table-fade-right"
+					class="pointer-events-none absolute inset-y-0 right-0 z-20 w-8 bg-linear-to-l from-black/15 to-transparent dark:from-black/50"
+				></div>
+			{/if}
+			<div
+				bind:this={scroller}
+				onscroll={measure}
+				class="scrollbar-custom h-full overflow-auto px-6 pb-5"
+			>
+				<table class="w-full border-collapse text-[13px]">
+					<thead class="sticky top-0 z-10">
+						<tr>
+							{#each table.header as head, col (col)}
+								<th
+									scope="col"
+									aria-sort={sortCol === col
 										? sortDir === 1
-											? m["chat.table.sorted_asc"]()
-											: m["chat.table.sorted_desc"]()
-										: m["chat.table.sort_by"]({
-												column: head || m["chat.table.column_lower"]({ number: col + 1 }),
-											})}
-									onclick={() => toggleSort(col)}
+											? "ascending"
+											: "descending"
+										: "none"}
+									class="border border-gray-200 bg-gray-100 p-0 text-left font-semibold text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 {col ===
+									0
+										? 'sticky left-0 z-10'
+										: ''}"
 								>
-									<span class="min-w-0 flex-1 truncate"
-										>{head || m["chat.table.column"]({ number: col + 1 })}</span
+									<button
+										type="button"
+										class="btn flex w-full cursor-pointer items-center gap-1 px-2 py-1.5 text-left hover:bg-gray-200/70 dark:hover:bg-gray-700/70"
+										title={sortCol === col
+											? sortDir === 1
+												? m["chat.table.sorted_asc"]()
+												: m["chat.table.sorted_desc"]()
+											: m["chat.table.sort_by"]({
+													column: head || m["chat.table.column_lower"]({ number: col + 1 }),
+												})}
+										onclick={() => toggleSort(col)}
 									>
-									{#if sortCol === col}
-										{#if sortDir === 1}
-											<CarbonArrowUp class="flex-none text-xxs" />
-										{:else}
-											<CarbonArrowDown class="flex-none text-xxs" />
+										<span class="min-w-0 flex-1 truncate"
+											>{head || m["chat.table.column"]({ number: col + 1 })}</span
+										>
+										{#if sortCol === col}
+											{#if sortDir === 1}
+												<CarbonArrowUp class="flex-none text-xxs" />
+											{:else}
+												<CarbonArrowDown class="flex-none text-xxs" />
+											{/if}
 										{/if}
-									{/if}
-								</button>
-							</th>
-						{/each}
-					</tr>
-				</thead>
-				<tbody>
-					{#each shown as row, r (`${r}:${row.join("|")}`)}
-						<tr
-							class="odd:bg-white even:bg-gray-50/60 dark:odd:bg-gray-900 dark:even:bg-gray-800/40"
-						>
-							{#each row as cell (cell)}
-								<td
-									class="max-w-64 truncate border border-gray-200 px-2 py-1 text-gray-800 dark:border-gray-700/70 dark:text-gray-200"
-									title={cell}
-								>
-									{cell}
-								</td>
+									</button>
+								</th>
 							{/each}
 						</tr>
-					{:else}
-						<tr>
-							<td
-								colspan={table.header.length}
-								class="border border-gray-200 px-2 py-6 text-center text-gray-400 dark:border-gray-700/70"
+					</thead>
+					<tbody>
+						{#each shown as row, r (`${r}:${row.join("|")}`)}
+							<tr
+								class="odd:bg-white even:bg-gray-50/60 dark:odd:bg-gray-900 dark:even:bg-gray-800/40"
 							>
-								{query.trim() ? m["chat.table.no_match"]() : m["chat.table.no_rows"]()}
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
+								{#each row as cell, col (col)}
+									<td
+										class="max-w-64 truncate border border-gray-200 px-2 py-1 text-gray-800 dark:border-gray-700/70 dark:text-gray-200 {col ===
+										0
+											? 'sticky left-0 bg-gray-50 font-medium dark:bg-gray-900'
+											: ''}"
+										title={cell}
+									>
+										{cell}
+									</td>
+								{/each}
+							</tr>
+						{:else}
+							<tr>
+								<td
+									colspan={table.header.length}
+									class="border border-gray-200 px-2 py-6 text-center text-gray-400 dark:border-gray-700/70"
+								>
+									{query.trim() ? m["chat.table.no_match"]() : m["chat.table.no_rows"]()}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		</div>
 	</div>
 {/if}

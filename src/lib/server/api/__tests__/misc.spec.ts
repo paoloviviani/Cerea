@@ -26,7 +26,7 @@ vi.mock("$lib/server/config", async (importOriginal) => {
 						return configState.pyodidePyPiDisabled ? "true" : "";
 					}
 					if (prop === "CHAT_USAGE_ENABLED" && configState.usageEnabled !== undefined) {
-						return configState.usageEnabled ? "true" : "";
+						return configState.usageEnabled ? "true" : "false";
 					}
 					if (prop === "CHAT_KNOWLEDGE_ENABLED" && configState.knowledgeEnabled !== undefined) {
 						return configState.knowledgeEnabled ? "true" : "false";
@@ -141,7 +141,7 @@ describe("GET /api/v2/feature-flags", () => {
 		expect(data.pyodidePyPiInstallAllowed).toBe(false);
 	});
 
-	it("hides the usage tab (usageEnabled: false) when CHAT_USAGE_ENABLED is unset", async () => {
+	it("hides the usage tab when CHAT_USAGE_ENABLED is set to false", async () => {
 		configState.usageEnabled = false;
 		configState.openaiBaseUrl = "https://gateway.example/v1";
 		const res = await testRequest(featureFlagsGET, {

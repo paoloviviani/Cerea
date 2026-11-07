@@ -51,6 +51,17 @@ describe("SchedulesPanel list rows", () => {
 		expect(screen.getByTestId("run-progress").elements()).toHaveLength(1);
 	});
 
+	it("shows the next run in the schedule's own zone, and names it", async () => {
+		api.listSchedules.mockResolvedValue({
+			schedules: [row({ timezone: "Asia/Tokyo", nextRunAt: new Date("2026-10-12T09:00:00Z") })],
+			limit: 20,
+		});
+		const screen = renderWithApp(SchedulesPanel);
+		// 09:00 UTC is 18:00 in Tokyo, whatever zone the browser is in.
+		await expect.element(screen.getByTestId("next-run")).toHaveTextContent(/18:00|0?6:00/);
+		await expect.element(screen.getByTestId("next-run")).toHaveTextContent("Asia/Tokyo");
+	});
+
 	it("shows the sign-in warning on an enabled schedule while access is expired, and not once it is back", async () => {
 		const issue = "Sign in again: the background access stopped working.";
 		api.listSchedules.mockResolvedValueOnce({

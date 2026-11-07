@@ -15,6 +15,7 @@
 	import { safeInvalidate } from "$lib/utils/safeInvalidate";
 	import { base } from "$app/paths";
 	import { ERROR_MESSAGES, error } from "$lib/stores/errors";
+	import { keepChat, markAbandonedFirstChat } from "$lib/stores/abandonedChat";
 	import { findCurrentModel } from "$lib/utils/models";
 	import type { Message } from "$lib/types/Message";
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
@@ -40,7 +41,11 @@
 	import { loading } from "$lib/stores/loading.js";
 	import { streamStart } from "$lib/utils/haptics";
 	import { requireAuthUser } from "$lib/utils/auth.js";
-	import { isConversationGenerationActive, isTurnSubscribable } from "$lib/utils/generationState";
+	import {
+		isConversationGenerationActive,
+		isTurnSubscribable,
+		streamErrorOf,
+	} from "$lib/utils/generationState";
 	import { noteServerNow } from "$lib/utils/clockSkew.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { trackAttachmentSource } from "$lib/utils/execution/attachmentMounts.svelte";
@@ -210,6 +215,8 @@
 		resumeElicitationId?: string;
 	}): Promise<void> {
 		modelGoneMessage = null;
+		// Retrying in place makes this chat the user's again.
+		if (isRetry) keepChat(convId);
 		// True once the server accepted the request and its reply stream is
 		// open: from then on the message is in the thread, whatever happens to
 		// the stream.
@@ -409,11 +416,21 @@
 						// Restart the OAuth flow and return to this conversation afterwards.
 						const next = encodeURIComponent(`${base}/conversation/${convId}`);
 						window.location.assign(`${base}/login?next=${next}`);
-					} else {
-						$error = update.message ?? ERROR_MESSAGES.default;
 					}
+					// Anything else is shown on the message itself (ChatMessage reads
+					// the same status update): a toast would cover the composer.
 				},
 			});
+			// A first send that died before any text arrived leaves an empty
+			// chat; the home page removes it when the next one is created.
+			if (
+				!isRetry &&
+				messages.length <= 2 &&
+				!messageToWriteTo.content &&
+				streamErrorOf(messageToWriteTo)
+			) {
+				markAbandonedFirstChat(convId);
+			}
 		} catch (err) {
 			if ($isAborted || (err instanceof DOMException && err.name === "AbortError")) {
 				// User-initiated abort, not an error
@@ -819,6 +836,7 @@
 	onstop={stopGeneration}
 	models={data.models}
 	currentModel={findCurrentModel(data.models, data.oldModels, data.model)}
+	chatModelId={data.model}
 	conversationTitle={title}
 	projectId={data.projectId}
 	projectName={data.projectName}
