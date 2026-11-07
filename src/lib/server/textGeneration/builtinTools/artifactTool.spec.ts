@@ -62,6 +62,7 @@ describe("artifact tool schema", () => {
 			"markdown",
 			"code",
 			"table",
+			"slides",
 		]);
 	});
 

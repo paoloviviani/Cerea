@@ -25,6 +25,8 @@
 	import RunOutput from "./RunOutput.svelte";
 	import ExecutionFiles from "./ExecutionFiles.svelte";
 	import MountedChips from "./MountedChips.svelte";
+	import SlidesView from "./SlidesView.svelte";
+	import type { OrgSlidePublic } from "$lib/utils/slides/themes";
 	import { diffLines, diffStats, renderDiffHtml } from "$lib/utils/artifactDiff";
 	import {
 		buildArtifactSrcdoc,
@@ -278,6 +280,8 @@
 			case "table":
 				// CSV has no highlighter: the code view shows escaped plain text.
 				return undefined;
+			case "slides":
+				return "markdown";
 		}
 	}
 
@@ -461,7 +465,12 @@
 
 	let srcdoc = $derived.by(() => {
 		if (!previewedKind || previewedContent === undefined) return undefined;
-		if (previewedKind === "markdown" || previewedKind === "code" || previewedKind === "table")
+		if (
+			previewedKind === "markdown" ||
+			previewedKind === "code" ||
+			previewedKind === "table" ||
+			previewedKind === "slides"
+		)
 			return undefined;
 		return buildArtifactSrcdoc(previewedKind, previewedContent, previewChannel);
 	});
@@ -779,8 +788,57 @@
 			version.complete &&
 			version.type !== "markdown" &&
 			version.type !== "code" &&
-			version.type !== "table"
+			version.type !== "table" &&
+			version.type !== "slides"
 	);
+
+	/** A fetched image as a data: URL, or undefined when it is not a small image. */
+	async function imageDataUrl(url: string): Promise<string | undefined> {
+		const res = await fetch(url);
+		if (!res.ok) return undefined;
+		const blob = await res.blob();
+		const type = blob.type || "";
+		if (blob.size > 300_000 || !/^image\/(png|jpeg|webp|gif|svg\+xml)$/.test(type))
+			return undefined;
+		return await new Promise<string | undefined>((resolve) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : undefined);
+			reader.onerror = () => resolve(undefined);
+			reader.readAsDataURL(blob);
+		});
+	}
+
+	// Each logo is fetched once per panel: a deck rebuild or a PDF export reuses it
+	const logoCache = new Map<string, Promise<string | undefined>>();
+	const cachedLogo = (key: string, load: () => Promise<string | undefined>) => {
+		let hit = logoCache.get(key);
+		if (!hit) {
+			hit = load().catch(() => undefined);
+			logoCache.set(key, hit);
+			// A failure is not remembered: the next build tries again
+			void hit.then((v) => {
+				if (v === undefined) logoCache.delete(key);
+			});
+		}
+		return hit;
+	};
+
+	/**
+	 * A logo named in a deck's front matter: an image in this chat (a file a
+	 * run produced), read into a data: URL because the preview sandbox can
+	 * load nothing else. Cached by the file's hash.
+	 */
+	function resolveLogo(name: string): Promise<string | undefined> {
+		const found = fileRegistry.artifacts.get(name)?.versions.at(-1);
+		if (!found || !conversationId || found.uploaded === false) return Promise.resolve(undefined);
+		const url = `${base}/conversation/${conversationId}/code-execution/output/${found.sha256}`;
+		return cachedLogo(`file:${found.sha256}`, () => imageDataUrl(url));
+	}
+
+	/** The organisation logo, from its own small endpoint rather than the page data. */
+	function loadOrgLogo(): Promise<string | undefined> {
+		return cachedLogo("org", () => imageDataUrl(`${base}/api/v2/slides/logo`));
+	}
 
 	function download() {
 		if (!version) return;
@@ -835,6 +893,7 @@
 		svg: m["chat.panel.type.svg"],
 		markdown: m["chat.panel.type.markdown"],
 		mermaid: m["chat.panel.type.mermaid"],
+		slides: m["chat.panel.type.slides"],
 		table: m["chat.panel.type.table"],
 		code: m["chat.panel.type.code"],
 	};
@@ -989,6 +1048,14 @@
 						<MarkdownRenderer content={previewedContent} />
 					</div>
 				</div>
+			{:else if previewedKind === "slides" && previewedContent !== undefined}
+				<SlidesView
+					content={previewedContent}
+					org={(page.data as { slideDefaults?: OrgSlidePublic }).slideDefaults}
+					{loadOrgLogo}
+					{resolveLogo}
+					{resizing}
+				/>
 			{:else if previewedKind === "table" && previewedContent !== undefined}
 				<div bind:this={previewScrollEl} class="h-full overflow-hidden">
 					<TableGrid content={previewedContent} />

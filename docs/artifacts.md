@@ -23,6 +23,7 @@ answer. The kinds are:
 | **SVG**         | a preview                              |
 | **Markdown**    | rendered text                          |
 | **Table** (CSV) | a grid                                 |
+| **Slides**      | a slide deck you can present           |
 | **Code**        | source, not previewed                  |
 
 Previews run in **sandboxed frames with no network access**: no cookies, no
@@ -37,6 +38,30 @@ sentence. The panel keeps the history and lets you move between versions.
 Whether a model makes artifacts follows the model's setting in the
 **Workspace → Models** tab: on for a model that can call tools unless the
 setting says otherwise.
+
+### Slides
+
+A **slides** artifact is a deck the assistant writes as HTML slides and Cerea
+shows with [reveal.js](https://revealjs.com), inside the same sandboxed frame as
+every other preview, so it works offline. The assistant designs the slides
+freely (colours, grids, diagrams); Cerea supplies the controls. Ask for "slides
+on X" and, if it is not clear whether you want something to present here or a
+PowerPoint file to edit, the assistant asks first.
+
+- **Step through it** with the arrows under the slides, or the arrow keys, or swipe. The counter shows where you are; **Esc** (or **O**) shows an overview.
+- **Present** takes the deck full screen (on a phone it fills the window).
+- **Speaker notes** show in a drawer under the slide (the notes button, or **N** or **S**). Cerea cannot open a separate speaker window, because the frame blocks pop-ups.
+- **Formulas.** LaTeX written between dollar signs (`$x^2$`, `$$...$$`) or `\(...\)` and `\[...\]` is typeset, including matrices, `cases`, `\newcommand` and chemistry with `\ce{}`. A price such as `$5 and $10` stays text. A formula that cannot be read shows as its source, in red, and the deck carries on.
+- **PDF.** The **PDF** button makes the best PDF your deployment can: where an administrator runs the [page renderer](browser.md) (the stack's `fetch` profile) it downloads a PDF with real text you can select, one page per slide. Without it, the button opens the deck in a new tab in print layout, ready for your browser's **Print** dialog (choose _Save as PDF_; turn on background graphics to keep the colours). The small arrow beside it lists the others: print with speaker notes on their own pages, and **Download PDF as pictures**, made in your browser with no server at all, where the text cannot be selected. Vertical slides get a page each.
+- **Download** in the panel header saves the slides' source.
+- **Look.** Nothing is imposed. If your organisation has set a brand colour, font or logo, the assistant can use them. You can ask for a theme: **Cerea**, **Cerea dark**, or reveal.js's **white**, **black**, **simple**, **moon**, **solarized** or **dracula**.
+- **What is tidied away.** A deck's own scripts, event handlers (`onclick`), remote images and styles, and `<link>`, `<iframe>`, `<object>` and similar are taken out before it is shown, in HTML decks and in HTML inside Markdown ones. That is tidying, not the safeguard: the frame itself (no access to Cerea, no network) is what keeps a deck contained.
+- For a quick plain deck the assistant can write Markdown instead (slides separated by `---`).
+
+An administrator can set the brand colour, font and logo under
+[Administration → Assistant](chat-admin.md#slides), off until set. A slides
+artifact cannot be opened in PowerPoint: ask for a [PowerPoint file](office.md)
+when you need one to edit.
 
 ## File artifacts
 

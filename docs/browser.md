@@ -135,6 +135,15 @@ the renderer answers:
 You can select `playwright` before the service is up; the tool that uses it
 is only offered to the model while the renderer answers.
 
+## Slide decks as PDF
+
+The same browser makes the PDF of a [slides artifact](artifacts.md#slides) with
+selectable text, one page per slide. The chat hands the deck to the browser as a
+page it never fetches (so it carries no credentials and cannot reach the chat),
+every other request the page makes is refused, and a PDF is limited in size and
+time and to two at once. Nothing needs turning on beyond this profile: without
+it the PDF button opens a print tab in the user's own browser instead.
+
 ## Never publish it
 
 `run-server` has **no authentication of any kind**: no token, no password, no

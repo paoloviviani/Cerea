@@ -123,6 +123,20 @@ ships a demonstration template, picks visual types from a markdown outline and
 validates structurally (empty placeholders, estimated overflow, off-slide
 shapes). Either way the visual verdict is yours to make when you open the deck.
 
+### slides
+
+Writes a **slides** [artifact](artifacts.md#slides): HTML `<section>` slides,
+designed freely at 1280 x 720 with the assistant's own CSS, speaker notes in
+`<aside class="notes">`, and the organisation's brand colour, font and logo
+available as `--brand-accent`, `--brand-font` and `--brand-logo-url`. LaTeX formulas
+(`$x^2$`, `$$...$$`) are typeset. A Markdown shortcut exists for quick decks, and
+the skill lists the optional themes. The
+assistant asks one question first when it is unclear whether you want slides to
+present here or a PowerPoint file to edit; saying "PowerPoint", "pptx" or "file
+to edit" goes to the powerpoint skill, and "just slides" or "present" goes
+straight to this one. If an administrator turns one of the two skills off, the
+question is not asked.
+
 ### charts
 
 Figures that keep the data honest: zero-baseline bars, labelled axes,

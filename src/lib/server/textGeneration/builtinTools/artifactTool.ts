@@ -9,7 +9,16 @@ import type { BuiltinTool } from "./types";
 
 export const ARTIFACT_TOOL_NAME = "artifact";
 
-const ARTIFACT_TYPES = ["html", "react", "svg", "mermaid", "markdown", "code", "table"] as const;
+const ARTIFACT_TYPES = [
+	"html",
+	"react",
+	"svg",
+	"mermaid",
+	"markdown",
+	"code",
+	"table",
+	"slides",
+] as const;
 type ArtifactType = (typeof ARTIFACT_TYPES)[number];
 
 const IDENTIFIER_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -42,7 +51,7 @@ export const artifactToolDefinition = {
 					type: "string",
 					enum: [...ARTIFACT_TYPES],
 					description:
-						'Required for create. One of "html", "react", "svg", "mermaid", "markdown", "code", "table".',
+						'Required for create. One of "html", "react", "svg", "mermaid", "markdown", "code", "table", "slides".',
 				},
 				language: {
 					type: "string",

@@ -19,7 +19,8 @@ import type { Message } from "$lib/types/Message";
  * out of the rendered markdown.
  */
 
-export type ArtifactKind = "html" | "svg" | "code" | "markdown" | "react" | "mermaid" | "table";
+export type ArtifactKind =
+	"html" | "svg" | "code" | "markdown" | "react" | "mermaid" | "table" | "slides";
 
 const KIND_ALIASES: Record<string, ArtifactKind> = {
 	html: "html",
@@ -37,6 +38,9 @@ const KIND_ALIASES: Record<string, ArtifactKind> = {
 	"application/vnd.ant.react": "react",
 	mermaid: "mermaid",
 	"application/vnd.ant.mermaid": "mermaid",
+	slides: "slides",
+	deck: "slides",
+	"application/vnd.cerea.slides": "slides",
 	table: "table",
 	csv: "table",
 	"text/csv": "table",
@@ -494,6 +498,11 @@ const CODE_LANGUAGE_EXTENSIONS: Record<string, string> = {
 	html: "html",
 };
 
+/** Whether a slides artifact is HTML `<section>` slides rather than Markdown. */
+export function isHtmlDeck(content: string): boolean {
+	return /<section[\s>]/i.test(content);
+}
+
 function fileExtension(version: ArtifactVersion): string {
 	switch (version.type) {
 		case "html":
@@ -502,6 +511,9 @@ function fileExtension(version: ArtifactVersion): string {
 			return "svg";
 		case "markdown":
 			return "md";
+		case "slides":
+			// HTML <section> slides are the main format; Markdown is the shortcut
+			return isHtmlDeck(version.content) ? "html" : "md";
 		case "mermaid":
 			return "mmd";
 		case "table":

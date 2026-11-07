@@ -8,6 +8,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import InstructionsSection from "$lib/components/admin/InstructionsSection.svelte";
 	import SubAgentsSection from "$lib/components/admin/SubAgentsSection.svelte";
+	import SlidesSection from "$lib/components/admin/SlidesSection.svelte";
 	import VoiceSection from "$lib/components/admin/VoiceSection.svelte";
 	import ImagesSection from "$lib/components/admin/ImagesSection.svelte";
 	import TitleModelSection from "$lib/components/admin/TitleModelSection.svelte";
@@ -22,6 +23,7 @@
 	<SubAgentsSection />
 	<VoiceSection />
 	<ImagesSection />
+	<SlidesSection />
 	<TitleModelSection />
 	<HiddenModelsSection />
 	<StartersSection />

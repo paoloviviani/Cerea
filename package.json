@@ -130,6 +130,7 @@
 		"prom-client": "^15.1.3",
 		"pyodide": "314.0.7",
 		"remend": "^1.3.0",
+		"reveal.js": "5.2.1",
 		"satori": "^0.10.11",
 		"satori-html": "^0.3.2",
 		"sharp": "^0.33.4",

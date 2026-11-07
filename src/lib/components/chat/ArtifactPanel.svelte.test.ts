@@ -545,3 +545,48 @@ describe("html preview: errors reported while the version streams", () => {
 		expect(hasProblems(body(screen))).toBe(false);
 	});
 });
+
+describe("slides artifacts", () => {
+	const deck = "---\ntheme: dracula\n---\n# One\n\n---\n\n# Two\n";
+
+	it("shows the code while the deck streams and the slides once it completes, with the organisation default", async () => {
+		sidePane.openArtifact("deck");
+		const screen = mountPanel({
+			registry: registryWith(
+				version({
+					identifier: "deck",
+					type: "slides",
+					title: "Deck",
+					content: deck,
+					complete: false,
+				})
+			),
+			loading: true,
+		});
+		await expect.element(screen.getByRole("button", { name: "Preview" })).toBeDisabled();
+		expect(codeText(body(screen))).toBe(deck);
+		expect(screen.baseElement.querySelector("[data-testid=slides-view]")).toBeNull();
+
+		await screen.rerender({
+			registry: registryWith(
+				version({
+					identifier: "deck",
+					type: "slides",
+					title: "Deck",
+					content: deck,
+					complete: true,
+				})
+			),
+			fileRegistry: emptyFileRegistry,
+			items: [],
+			loading: false,
+			drafts: [],
+		});
+		await vi.waitFor(() => expect(previewSrcdoc(body(screen))).not.toBeNull(), { timeout: 10_000 });
+		const iframe = body(screen).querySelector("iframe")!;
+		expect(iframe.getAttribute("sandbox")).not.toContain("allow-same-origin");
+		await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 2");
+		// Download carries the Markdown, named .md
+		expect(screen.getByRole("button", { name: "Download deck.md" }).element()).toBeTruthy();
+	});
+});
