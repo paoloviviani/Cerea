@@ -1,6 +1,6 @@
 import SlidesView from "./SlidesView.svelte";
 import { render } from "vitest-browser-svelte";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const DECK = "---\ntheme: cerea\n---\n# One\n\n---\n\n# Two\n\nNote: hi\n";
 
@@ -19,7 +19,20 @@ async function startImagePdf(screen: {
 	await screen.getByRole("menuitem", { name: /as pictures/ }).click();
 }
 
-describe("SlidesView", () => {
+// The picture PDF loads its renderer on first use; on a cold dev server that alone can pass the 15 s default.
+describe("SlidesView", { timeout: 60_000 }, () => {
+	// The component asks the server whether it can make the PDF; without a stub that request reaches the
+	// test dev server, which has no app behind it (and logs a hooks error on teardown).
+	const pageFetch = globalThis.fetch;
+	beforeEach(() => {
+		vi.stubGlobal("fetch", async (url: RequestInfo | URL, init?: RequestInit) =>
+			String(url).endsWith("/api/v2/slides/pdf") && !init?.method
+				? new Response(JSON.stringify({ available: false }), { status: 200 })
+				: pageFetch(url, init)
+		);
+	});
+	afterEach(() => vi.stubGlobal("fetch", pageFetch));
+
 	it("renders the deck in a sandbox without same-origin access", async () => {
 		const { iframe } = await mount();
 		const sandbox = iframe.getAttribute("sandbox") ?? "";
