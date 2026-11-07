@@ -141,7 +141,7 @@
 		     it. Empty until onMount picks, so the SSR payload (pinned by
 		     the SSR test) carries the name only. -->
 		{#if phrase && gloss}
-			<span class="relative">
+			<span>
 				<button
 					type="button"
 					class="cursor-help font-[inherit] underline decoration-dotted decoration-1 underline-offset-8 select-none"
@@ -153,15 +153,6 @@
 				>
 					{phrase}
 				</button>
-				{#if glossOpen}
-					<span
-						role="status"
-						class="absolute top-full left-1/2 mt-3 -translate-x-1/2 text-sm font-normal whitespace-nowrap text-ink-muted"
-						data-testid="intro-gloss"
-					>
-						{gloss}
-					</span>
-				{/if}
 			</span>
 		{:else if phrase}
 			{phrase}
@@ -169,6 +160,11 @@
 			{publicConfig.PUBLIC_APP_NAME}
 		{/if}
 	</div>
+	{#if glossOpen}
+		<span role="status" class="-mt-5 text-sm text-ink-muted" data-testid="intro-gloss">
+			{gloss}
+		</span>
+	{/if}
 	<!-- The plain line under the greeting: the phrase may be Piedmontese, this
 	     is the sentence that says what the page is for. -->
 	<p class="-mt-5 text-base text-ink-muted" data-testid="intro-subline">
