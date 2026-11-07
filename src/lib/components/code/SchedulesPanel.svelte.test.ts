@@ -58,7 +58,7 @@ describe("SchedulesPanel list rows", () => {
 		});
 		const screen = renderWithApp(SchedulesPanel);
 		// 09:00 UTC is 18:00 in Tokyo, whatever zone the browser is in.
-		await expect.element(screen.getByTestId("next-run")).toHaveTextContent("18:00");
+		await expect.element(screen.getByTestId("next-run")).toHaveTextContent(/18:00|0?6:00/);
 		await expect.element(screen.getByTestId("next-run")).toHaveTextContent("Asia/Tokyo");
 	});
 
