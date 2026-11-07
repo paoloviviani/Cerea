@@ -1,2 +1,11 @@
-set -e
-npx lint-staged --config ./.husky/lint-stage-config.js
+# --no-stash: lint-staged's default backup goes on the git stash stack, which every
+# worktree of this repository shares, so concurrent commits in different worktrees
+# can drop or fail on each other's entry. Without it nothing is stashed: a failed
+# task leaves the working tree as the tasks left it, and unstaged hunks of a
+# partially staged file get staged. Stage whole files.
+if ! npx lint-staged --no-stash --config ./.husky/lint-stage-config.js; then
+	echo >&2
+	echo "pre-commit: lint-staged failed, so the commit was refused. Your changes are" >&2
+	echo "still in the working tree; fix what is listed above, 'git add' the files and commit again." >&2
+	exit 1
+fi
