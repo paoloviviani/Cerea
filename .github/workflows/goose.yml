@@ -59,7 +59,7 @@ jobs:
           mkdir -p "$HOME/.local/bin" && tar -xzf "$RUNNER_TEMP/$archive" -C "$HOME/.local/bin" ./goose
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/goose" --version
-          [ "$("$HOME/.local/bin/goose" --version)" = "$version" ] || { echo "::error::installed goose is not $version"; exit 1; }
+          [ "$("$HOME/.local/bin/goose" --version | tr -d ' ')" = "$version" ] || { echo "::error::installed goose is not $version"; exit 1; }
       - name: goose engine suite
         working-directory: agent
         env:
