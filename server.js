@@ -69,7 +69,7 @@ const EXECUTION_WORKER_CSP =
 
 function executionWorkerPolicy(req, res, next) {
 	const path = (req.url ?? "").split("?")[0];
-	if (/\/_app\/immutable\/workers\/[^/]+\.js$/.test(path)) {
+	if (/\/_app\/immutable\/workers\/pyodide\.worker[^/]*\.js$/.test(path)) {
 		res.setHeader("Content-Security-Policy", EXECUTION_WORKER_CSP);
 	}
 	next();

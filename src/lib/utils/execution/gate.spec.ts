@@ -162,6 +162,6 @@ describe("network gate", () => {
 		// server.js is plain JS and cannot import this module; it must carry the same string
 		const server = readFileSync(new URL("../../../../server.js", import.meta.url), "utf8");
 		expect(server).toContain(csp);
-		expect(server).toContain("immutable\\/workers\\/");
+		expect(server).toContain("immutable\\/workers\\/pyodide\\.worker");
 	});
 });
