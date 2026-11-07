@@ -31,7 +31,7 @@ Around the chat it offers:
 **Chat and models.** Conversations keep the model they started with; the model
 list shows what the user's billing group may use. Example: "Explain this
 contract clause in plain language." Tip: ask for the form you want (a table, a
-short summary, steps). Settings → Usage & billing shows the user's own spend.
+short summary, steps). Settings → Usage shows the user's own spend.
 
 **Web search and fetch.** The Web search pill in the composer turns search on
 for the conversation. The assistant can also read a pasted link. Example:

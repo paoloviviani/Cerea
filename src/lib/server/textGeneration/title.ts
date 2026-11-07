@@ -9,6 +9,7 @@ import { getReturnFromGenerator } from "$lib/utils/getReturnFromGenerator";
 import { stripThink } from "$lib/utils/stripThink";
 import { pickTitleModel, storedTitleModel, type TitleModelCandidate } from "$lib/server/titleModel";
 import { fallbackTitle } from "./titleFallback";
+import { sanitiseTitle } from "./titleSanitize";
 
 /** Times a model is asked to title one chat: the first message, the first reply, one more turn. */
 export const MAX_TITLE_ATTEMPTS = 3;
@@ -231,11 +232,8 @@ Return only the title text.`,
 		// nothing, so it counts as no title rather than showing the trace.
 		const first = stripThink(String(summary ?? ""))
 			.trim()
-			.split("\n")[0]
-			?.trim()
-			.replace(/^["'“”«]+|["'“”»]+$/g, "")
-			.trim();
-		return first ? first.slice(0, 100) : undefined;
+			.split("\n")[0];
+		return sanitiseTitle(first ?? "", prompt);
 	} catch (e) {
 		logger.error(e, "Error generating title");
 		return undefined;

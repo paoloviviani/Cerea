@@ -24,7 +24,7 @@
  * explains the refusal; this page is not the place to hint at the total.
  */
 
-import { config } from "$lib/server/config";
+import { usageEnabled } from "./enabled";
 import { consoleAllowedFor } from "$lib/server/codeEnabled";
 import { gateway } from "$lib/server/gatewayServer";
 import { logger } from "$lib/server/logger";
@@ -116,14 +116,20 @@ function sharedLimitEntry(limit: MyLimitResponse): UsageEntry {
 	};
 }
 
-function limitEntry(limit: MyLimitResponse): UsageEntry {
+/** "month" -> "per month"; a label that already says "per ..." stays. */
+function periodOf(label: string): string | undefined {
+	if (!label) return undefined;
+	return /^per\s/i.test(label) ? label : `per ${label}`;
+}
+
+/** A money limit counts in the deployment's currency, not in the word "cost". */
+function limitEntry(limit: MyLimitResponse, currency?: string): UsageEntry {
 	if (isSharedRule(limit)) return sharedLimitEntry(limit);
 
 	const unknown = limit.current_value === null;
 	const entry: UsageEntry = {
 		label: [
 			limit.name,
-			limit.window_label,
 			// Say which kind of budget this bar is: a per-member rule sits
 			// beside the group's aggregate rule with the same name and window,
 			// and without the marker one of the two numbers reads as a bug.
@@ -136,7 +142,8 @@ function limitEntry(limit: MyLimitResponse): UsageEntry {
 		// `unknown`, not read this as a real 0%.
 		used: unknown ? 0 : Number(limit.current_value),
 		limit: Number(limit.limit_value),
-		unit: limit.metric,
+		unit: limit.metric === "cost" && currency ? currency : limit.metric,
+		period: periodOf(limit.window_label),
 		scope: limit.scope,
 	};
 	if (unknown) entry.unknown = true;
@@ -167,7 +174,7 @@ export const pystinoUsageProvider: UsageProvider = {
 	id: "pystino",
 
 	isEnabled() {
-		return config.CHAT_USAGE_ENABLED === "true" && !!config.OPENAI_BASE_URL;
+		return usageEnabled();
 	},
 
 	async getReport(ctx: UsageContext): Promise<UsageReport> {
@@ -197,7 +204,7 @@ export const pystinoUsageProvider: UsageProvider = {
 
 			const quotas: UsageSection = {
 				title: "Quotas",
-				entries: (bundle.limits ?? []).map(limitEntry),
+				entries: (bundle.limits ?? []).map((l) => limitEntry(l, bundle.usage?.currency)),
 			};
 
 			const spend: UsageSection = {
@@ -225,3 +232,17 @@ export const pystinoUsageProvider: UsageProvider = {
 		}
 	},
 };
+
+/**
+ * The deployment's currency code, for wording a money limit ("€10.00") in an
+ * error. Never throws: the message falls back to the plain number.
+ */
+export async function gatewayCurrency(locals: { token?: string }): Promise<string | undefined> {
+	if (!locals.token) return undefined;
+	try {
+		const bundle = await gateway.get<PystinoUsageBundle>(locals.token, "pystino/usage");
+		return bundle.usage?.currency ?? undefined;
+	} catch {
+		return undefined;
+	}
+}

@@ -526,6 +526,14 @@ describe("ScheduleEditor for a chat", () => {
 			.toHaveTextContent("cannot run Python");
 	});
 
+	it("words the subtitle for a chat, not for a coding session", async () => {
+		const { screen } = mount({ prefill: { conversationId: "c1" } });
+		await expect
+			.element(screen.getByTestId("schedule-subtitle"))
+			.toHaveTextContent("Sends a prompt to one of your chats, on a timetable.");
+		await expect.element(screen.getByTestId("schedule-subtitle")).not.toHaveTextContent("coding");
+	});
+
 	it("saves a chat schedule with its mode and target, the default being the same chat", async () => {
 		const { screen, onsaved } = mount({ prefill: { conversationId: "c1" } });
 		await screen.getByLabelText("Name", { exact: true }).fill("Weekly news");

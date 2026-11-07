@@ -136,7 +136,7 @@ describe("NavFooter user menu", () => {
 			expect(usageCalls).toBe(0);
 		});
 
-		it("shows spend against the limit with a thin bar, the period, and a link to Usage & billing", async () => {
+		it("shows spend against the limit with a thin bar, the period, and a link to Usage", async () => {
 			usage = {
 				sections: [
 					{

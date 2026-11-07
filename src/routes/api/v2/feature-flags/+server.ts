@@ -1,3 +1,4 @@
+import { usageEnabled } from "$lib/server/usage/enabled";
 import { resolveImageModel } from "$lib/server/imageGeneration";
 import { resolveTranscriptionModel } from "$lib/server/transcription";
 import type { RequestHandler } from "@sveltejs/kit";
@@ -61,7 +62,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		// Also requires a configured gateway (mirrored in pystinoProvider.ts's
 		// own isEnabled): a flag with no OPENAI_BASE_URL would show a tab whose
 		// only provider can never answer.
-		usageEnabled: config.CHAT_USAGE_ENABLED === "true" && !!config.OPENAI_BASE_URL,
+		usageEnabled: usageEnabled(),
 		knowledgeEnabled: knowledgeEnabled(),
 		memoryEnabled: memoryEnabled(),
 		delegationEnabled: delegationEnabled(),

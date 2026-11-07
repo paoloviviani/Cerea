@@ -418,10 +418,70 @@ function sanitizeHtmlForMultimedia(html: string): string {
 	return sanitized;
 }
 
+/**
+ * Some models write citations as `【https://example.com/page】` or `【4†source】`
+ * (CJK lenticular brackets). Raw, they read as noise. Each one becomes a small
+ * source chip: a link showing the site's name when the marker holds a URL, the
+ * numbered source when it names one of `sources`, and nothing otherwise (a
+ * marker that points nowhere is not worth showing).
+ */
+const CITE_OPEN = "\uE000";
+const CITE_CLOSE = "\uE001";
+const CHIP_STYLE =
+	"display:inline-block;margin:0 .15em;padding:0 .5em;border-radius:9999px;background:rgba(127,127,127,.16);color:inherit;font-size:.75em;line-height:1.6;text-decoration:none;vertical-align:baseline;white-space:nowrap;max-width:14em;overflow:hidden;text-overflow:ellipsis;";
+
+function chipFor(inner: string, sources: SimpleSource[]): string {
+	const url = /https?:\/\/[^\s】]+/i.exec(inner)?.[0];
+	let href: string | undefined;
+	let label = "";
+	if (url) {
+		href = sanitizeHref(url);
+		try {
+			label = new URL(url).hostname.replace(/^www\./, "");
+		} catch {
+			label = "";
+		}
+	} else {
+		const n = Number(/^\s*(\d+)/.exec(inner)?.[1]);
+		const source = Number.isInteger(n) && n > 0 ? sources[n - 1] : undefined;
+		if (source) {
+			href = sanitizeHref(source.link);
+			try {
+				label = new URL(source.link).hostname.replace(/^www\./, "");
+			} catch {
+				label = String(n);
+			}
+		}
+	}
+	if (!href || !label) return "";
+	return `<a href="${escapeHTML(href)}" target="_blank" rel="noreferrer" data-citation-chip style="${CHIP_STYLE}">${escapeHTML(label)}</a>`;
+}
+
+/** Swap `【…】` for markers the markdown parser leaves alone, outside code fences. */
+function protectCitations(md: string, found: string[]): string {
+	return md
+		.split(/(```[\s\S]*?(?:```|$))/)
+		.map((part, i) =>
+			i % 2 === 1
+				? part
+				: part.replace(/【([^】\n]*)】/g, (_m, inner: string) => {
+						found.push(inner);
+						return `${CITE_OPEN}${found.length - 1}${CITE_CLOSE}`;
+					})
+		)
+		.join("");
+}
+
 function createMarkedInstance(sources: SimpleSource[]): Marked {
+	const citations: string[] = [];
 	return new Marked({
 		hooks: {
-			postprocess: (html) => addInlineCitations(html, sources),
+			preprocess: (md) => protectCitations(md, citations),
+			postprocess: (html) =>
+				addInlineCitations(html, sources).replace(
+					new RegExp(`${CITE_OPEN}(\\d+)${CITE_CLOSE}`, "g"),
+					(_m, i: string) => chipFor(citations[Number(i)] ?? "", sources)
+				),
 		},
 		extensions: [katexBlockExtension, katexInlineExtension],
 		renderer: {

@@ -194,40 +194,6 @@
 {/snippet}
 
 <div class="flex w-full flex-col gap-4">
-	{#if OPENAI_BASE_URL !== null}
-		<div
-			class="mt-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] text-gray-700 dark:border-gray-700 dark:bg-gray-700/80 dark:text-gray-300"
-		>
-			<span class="font-medium">{m["settings.application.api_base_url"]()}</span>
-			<code class="ml-1 font-mono text-[12px] break-all text-gray-800 dark:text-gray-100"
-				>{OPENAI_BASE_URL}</code
-			>
-		</div>
-	{/if}
-	<p class="text-sm font-light text-gray-500 dark:text-gray-400" data-testid="app-version">
-		<a
-			href={`${CEREA_REPO}/releases/tag/v${APP_VERSION}`}
-			target="_blank"
-			rel="noreferrer"
-			class="hover:underline">{PRODUCT_NAME} {APP_VERSION}</a
-		>{#if commitSha}
-			·
-			<a
-				href={`${CEREA_REPO}/commit/${commitSha}`}
-				target="_blank"
-				rel="noreferrer"
-				class="font-mono hover:underline">{commitSha.slice(0, 7)}</a
-			>{/if}
-	</p>
-	{#if page.data.isAdmin}
-		<div class="flex items-center gap-2">
-			<p
-				class="rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700 dark:bg-red-500/10 dark:text-red-300"
-			>
-				{m["settings.application.admin_mode"]()}
-			</p>
-		</div>
-	{/if}
 	<div class="flex h-full flex-col gap-4 max-sm:pt-0">
 		<section
 			aria-labelledby="appearance-heading"
@@ -461,6 +427,51 @@
 		{#if page.data.user && page.data.chatSchedulesEnabled === true}
 			<ScheduleAccessSettings />
 		{/if}
+
+		<!-- Developer strings (version, commit, gateway URL) live here, folded away:
+		     the first thing on a settings page should be a setting. -->
+		<details
+			data-testid="about-server"
+			class="rounded-xl border border-gray-200 bg-white px-3 py-2 text-[13px] shadow-xs dark:border-gray-700 dark:bg-gray-800"
+		>
+			<summary
+				class="cursor-pointer text-[13px] font-medium text-gray-800 select-none dark:text-gray-200"
+			>
+				{m["settings.application.about"]()}
+			</summary>
+			<div class="mt-2 flex flex-col gap-2 text-[12px] text-gray-600 dark:text-gray-400">
+				<p data-testid="app-version">
+					<a
+						href={`${CEREA_REPO}/releases/tag/v${APP_VERSION}`}
+						target="_blank"
+						rel="noreferrer"
+						class="hover:underline">{PRODUCT_NAME} {APP_VERSION}</a
+					>{#if commitSha}<span aria-hidden="true">{"\u00a0·\u00a0"}</span><a
+							href={`${CEREA_REPO}/commit/${commitSha}`}
+							target="_blank"
+							rel="noreferrer"
+							class="font-mono hover:underline">{commitSha.slice(0, 7)}</a
+						>{/if}
+				</p>
+				{#if OPENAI_BASE_URL !== null}
+					<p>
+						<span class="font-medium">{m["settings.application.api_base_url"]()}</span>
+						<code class="ml-1 font-mono text-[12px] break-all text-gray-800 dark:text-gray-100"
+							>{OPENAI_BASE_URL}</code
+						>
+					</p>
+				{/if}
+				{#if page.data.isAdmin}
+					<p>
+						<span
+							class="inline-block rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+						>
+							{m["settings.application.admin_mode"]()}
+						</span>
+					</p>
+				{/if}
+			</div>
+		</details>
 
 		<div class="mt-6 flex flex-col gap-2 self-start text-[13px]">
 			<button
