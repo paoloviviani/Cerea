@@ -31,6 +31,7 @@
 	} from "$lib/gateway";
 	import IconAddLarge from "~icons/carbon/add-large";
 	import IconRefresh from "~icons/carbon/renew";
+	import RowMenu from "$lib/components/nav/RowMenu.svelte";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -229,6 +230,9 @@
 
 	let current = $state<VectorStore | null>(null);
 	let documents = $state<KnowledgeDocument[]>([]);
+	// A reindex answers when every document is done, so the list is polled
+	// meanwhile: pending, then ready or failed, document by document.
+	let reindexing = $state(false);
 
 	/**
 	 * Whether anything is still being indexed.
@@ -241,7 +245,8 @@
 	 * happened, invisibly, until a base held an indexed document.
 	 */
 	const indexing = $derived(
-		working > 0 ||
+		reindexing ||
+			working > 0 ||
 			documents.some((document) => document.status !== "ready" && document.status !== "failed")
 	);
 
@@ -351,6 +356,20 @@
 	}
 
 	const canEdit = $derived(current !== null && (current.owned || current.role === "editor"));
+	// Built with another embedding model than the deployment uses now. Nothing
+	// to compare while the deployment's own model is unknown.
+	const olderModel = $derived(
+		current !== null &&
+			Boolean(status?.embedding_model) &&
+			current.embedding_model !== status?.embedding_model
+	);
+	const anyFailed = $derived(
+		documents.some((document) => document.status === "failed") ||
+			(current?.file_counts.failed ?? 0) > 0
+	);
+	// The owner is offered Reindex up front when it would help, and in the ⋯
+	// menu otherwise. Only the owner may run it (the server says so too).
+	const reindexNeeded = $derived(olderModel || anyFailed);
 
 	async function addFiles() {
 		if (!current || pending.length === 0) return;
@@ -474,13 +493,36 @@
 
 	async function reindex() {
 		if (!current) return;
+		const count = documents.length;
+		if (!confirm(m["knowledge.manager.reindex_confirm"]({ count }))) return;
+		const id = current.id;
 		busy = true;
+		failure = null;
+		reindexing = true;
 		try {
-			await gwPost(`vector_stores/${current.id}/reindex`);
-			notice = m["knowledge.manager.updating_notice"]();
-			await openDetail(current.id);
+			await gwPost(`vector_stores/${id}/reindex`);
+			notice = null;
 		} catch (err) {
 			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.update_failed"]();
+		} finally {
+			reindexing = false;
+		}
+		try {
+			await openDetail(id);
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function retryDocument(id: string) {
+		if (!current) return;
+		busy = true;
+		failure = null;
+		try {
+			await gwPost(`vector_stores/${current.id}/files/${id}/retry`);
+			await openDetail(current.id);
+		} catch (err) {
+			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.retry_failed"]();
 		} finally {
 			busy = false;
 		}
@@ -827,12 +869,14 @@
 							<IconArrowLeft class="size-4" />
 							{m["knowledge.manager.detail.all"]()}
 						</button>
-						{#if canEdit}
+						{#if current.owned && reindexNeeded}
 							<button onclick={reindex} disabled={busy} class={s.SECONDARY}>
 								<IconRefresh class="size-4" />
-								{m["knowledge.manager.detail.update"]()}
+								{m["knowledge.manager.detail.reindex"]()}
 							</button>
-							<!-- Beside Update, where the person looking for it is:
+						{/if}
+						{#if canEdit}
+							<!-- Next to Reindex, where the person looking for it is:
 							     the bottom-of-page placement hid it under Share, and
 							     a base's owner deletes it once but looks for it more
 							     often than that. The confirm says what "everything
@@ -842,9 +886,33 @@
 								{m["knowledge.manager.detail.delete"]()}
 							</button>
 						{/if}
+						{#if current.owned && !reindexNeeded}
+							<RowMenu label={current.name}>
+								{#snippet children(close)}
+									<button
+										type="button"
+										role="menuitem"
+										disabled={busy}
+										onclick={() => {
+											close();
+											void reindex();
+										}}
+										class="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-300 dark:hover:bg-gray-700"
+									>
+										<IconRefresh class="size-3.5" />
+										{m["knowledge.manager.detail.reindex"]()}
+									</button>
+								{/snippet}
+							</RowMenu>
+						{/if}
 					</div>
 				</div>
 
+				{#if olderModel}
+					<p class={s.NOTICE} data-testid="kb-older-model">
+						{m["knowledge.manager.older_model"]()}
+					</p>
+				{/if}
 				{#if notice}
 					<p class={s.NOTICE}>{notice}</p>
 				{/if}
@@ -955,6 +1023,22 @@
 												>
 													<IconDownload class="size-3" />
 													{m["knowledge.manager.docs.download"]()}
+												</button>
+											{/if}
+											{#if canEdit && document.status === "failed"}
+												<button
+													onclick={() => retryDocument(document.id)}
+													disabled={busy}
+													class={s.CARD_ACTION}
+													aria-label={m["knowledge.manager.docs.retry_label"]({
+														name:
+															document.title ||
+															document.filename ||
+															m["knowledge.manager.document"](),
+													})}
+												>
+													<IconRefresh class="size-3" />
+													{m["knowledge.manager.docs.retry"]()}
 												</button>
 											{/if}
 											{#if canEdit}

@@ -1352,6 +1352,47 @@ export async function deleteDocument(
 	await deleteDerived({ documentIds: document._id });
 }
 
+/**
+ * Index one failed document again. Same permission as uploading (editor or
+ * owner), scoped to the base so a document id from another base is a 404. The
+ * row is claimed (`failed` -> `pending`) before the work starts, so two quick
+ * clicks pay once; the ingest then runs behind the response and the status is
+ * the progress record.
+ */
+export async function retryDocument(
+	storeId: string,
+	documentId: string,
+	caller: Caller,
+	token: string
+): Promise<ReturnType<typeof documentObject>> {
+	const base = await reachableStore(storeId, caller, "editor");
+	if (!/^[0-9a-f]{24}$/.test(documentId)) throw new KnowledgeError(404, "No such document.");
+	const config = await readConfig();
+	if (!configReady(config)) {
+		throw new KnowledgeError(
+			400,
+			"No search model is set up yet, so documents cannot be made searchable. Ask your administrator."
+		);
+	}
+	const document = await collections.knowledgeDocuments.findOne({
+		_id: new ObjectId(documentId),
+		storeId: base._id,
+	});
+	if (!document) throw new KnowledgeError(404, "No such document.");
+	if (document.status === "failed") {
+		const claimed = await collections.knowledgeDocuments.updateOne(
+			{ _id: document._id, status: "failed" },
+			{ $set: { status: "pending", error: "", updatedAt: new Date() } }
+		);
+		if (claimed.modifiedCount === 1) startIngest(document._id, token);
+	}
+	const current = await collections.knowledgeDocuments.findOne({ _id: document._id });
+	return documentObject(current ?? document, null);
+}
+
+/** What a base built with an older embedding model says when it cannot be searched. */
+export const OLD_MODEL_MESSAGE = "Built with an older embedding model. Reindex to search it.";
+
 export async function search(
 	storeId: string,
 	caller: Caller,
@@ -1448,6 +1489,15 @@ export async function search(
 				}),
 		};
 	} catch (err) {
+		// A base built with another embedding model than the deployment's now
+		// uses may not be searchable at all (the old model can be gone, or
+		// answer at another width). Say what to do rather than the raw error.
+		if (err instanceof GatewayCallFailed || (err instanceof KnowledgeError && err.status === 400)) {
+			const current = (await readConfig()).embeddingModel;
+			if (current && base.embeddingModel !== current) {
+				throw new KnowledgeError(409, OLD_MODEL_MESSAGE);
+			}
+		}
 		if (err instanceof GatewayCallFailed) {
 			throw new KnowledgeError(502, `Search is unavailable: ${err.message}`);
 		}
