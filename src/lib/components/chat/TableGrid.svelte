@@ -127,7 +127,7 @@
 				{countLabel}
 			</span>
 		</div>
-		<div class="relative min-h-0 flex-1">
+		<div class="relative min-h-0 min-w-0 flex-1">
 			{#if moreLeft}
 				<div
 					aria-hidden="true"
@@ -145,7 +145,8 @@
 			<div
 				bind:this={scroller}
 				onscroll={measure}
-				class="scrollbar-custom h-full overflow-auto px-6 pb-5"
+				data-testid="table-scroller"
+				class="table-scroll max-h-full max-w-full overflow-auto px-6 pb-3"
 			>
 				<table class="w-full border-collapse text-[13px]">
 					<thead class="sticky top-0 z-10">
@@ -175,7 +176,7 @@
 												})}
 										onclick={() => toggleSort(col)}
 									>
-										<span class="min-w-0 flex-1 truncate"
+										<span class="min-w-0 flex-1 break-words"
 											>{head || m["chat.table.column"]({ number: col + 1 })}</span
 										>
 										{#if sortCol === col}
@@ -197,7 +198,7 @@
 							>
 								{#each row as cell, col (col)}
 									<td
-										class="max-w-64 truncate border border-gray-200 px-2 py-1 text-gray-800 dark:border-gray-700/70 dark:text-gray-200 {col ===
+										class="max-w-64 min-w-24 border border-gray-200 px-2 py-1 align-top break-words text-gray-800 dark:border-gray-700/70 dark:text-gray-200 {col ===
 										0
 											? 'sticky left-0 bg-gray-50 font-medium dark:bg-gray-900'
 											: ''}"
@@ -223,3 +224,29 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	/* A scrollbar you can see: the table's own, right under its last row, because
+	   the thin transparent one used elsewhere left the cut-off column unexplained. */
+	.table-scroll::-webkit-scrollbar {
+		height: 12px;
+		width: 12px;
+	}
+	.table-scroll::-webkit-scrollbar-track {
+		background: rgba(0, 0, 0, 0.06);
+		border-radius: 9999px;
+	}
+	.table-scroll::-webkit-scrollbar-thumb {
+		background: rgba(100, 100, 100, 0.55);
+		border-radius: 9999px;
+		border: 2px solid transparent;
+		background-clip: padding-box;
+	}
+	:global(.dark) .table-scroll::-webkit-scrollbar-track {
+		background: rgba(255, 255, 255, 0.08);
+	}
+	:global(.dark) .table-scroll::-webkit-scrollbar-thumb {
+		background: rgba(200, 200, 200, 0.5);
+		background-clip: padding-box;
+	}
+</style>

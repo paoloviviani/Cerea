@@ -577,7 +577,10 @@ describe("ToolApprovalCard, plain words", () => {
 		await expect.element(screen.getByTestId("approval-details")).toHaveTextContent('"query"');
 		await expect
 			.element(screen.getByTestId("approval-timer"))
-			.toHaveTextContent(/Denied in 2[45] minutes/);
+			.toHaveTextContent(/Auto-deny in 2[45] min/);
+		await expect
+			.element(screen.getByTestId("approval-timer"))
+			.toHaveAttribute("title", "If you do not answer in time, this is denied automatically.");
 	});
 
 	it("offers Deny as a bordered button", async () => {
