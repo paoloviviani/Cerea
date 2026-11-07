@@ -71,6 +71,13 @@ on the staged files:
 | `*.js`, `*.jsx`, `*.ts`, `*.tsx` | `prettier --write`, `eslint --fix`, then `eslint` (a commit is refused if anything is left) |
 | `*.json`                         | `prettier --write`                                                                          |
 
+The hook runs lint-staged with `--no-stash`: the default backup lives on the git
+stash stack, which all worktrees of the repository share, so concurrent commits
+in different worktrees could drop each other's entry. The consequences: stage
+whole files (unstaged hunks of a partially staged file get staged by the
+formatter), and a refused commit leaves the working tree as the tasks left it
+(there is no automatic revert).
+
 Nothing else runs on commit: **Svelte, CSS, Markdown and Go files are not touched
 by the hook**, and neither is the type check. CI covers them (below), so run
 `npx prettier --check <your files>` yourself for anything the hook skips, and
