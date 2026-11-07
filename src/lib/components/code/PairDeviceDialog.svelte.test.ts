@@ -190,6 +190,19 @@ describe("each control emits exactly its flag", () => {
 		expect(policyPart(screen)).toBe("--default-group");
 	});
 
+	it("the engine: opencode by default and printing nothing; goose adds --engine goose and swaps the install line", async () => {
+		const screen = mount();
+		await openAdvanced(screen);
+		const engine = screen.getByTestId("enroll-engine");
+		await expect.element(engine).toHaveValue("opencode");
+		expect(command(screen)).not.toContain("--engine");
+		await engine.selectOptions("goose");
+		expect(command(screen)).toContain("install.sh' | sh -s -- --engine goose &&");
+		expect(policyPart(screen)).toBe("--engine goose --default-group");
+		await engine.selectOptions("opencode");
+		expect(command(screen)).toBe(PLAIN);
+	});
+
 	it("max terminals: shown while terminals are on, emitted when not 8", async () => {
 		const screen = mount();
 		await openAdvanced(screen);

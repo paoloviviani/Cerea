@@ -497,6 +497,8 @@ export interface CodeAuditEntry {
 	/** A command's name (`code.command`), a schedule's, or the default
 	 * profile's (`profiles.set`) — never content. */
 	name?: string;
+	/** Who made the call: "agent" (a session), "local-agent" (the user's own agent), ... */
+	origin?: string;
 	/** How many rules a `permission.rules.set` carried — only on rows written
 	 * before that action was retired. */
 	count?: number;

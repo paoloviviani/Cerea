@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"galopin/internal/policy"
+	"galopin/packaging"
 )
 
 const enrollUsage = `galopin enroll — sign in and write the opencode setup.
@@ -22,7 +23,17 @@ Usage:
                 [--device | --loopback] [--device-endpoint URL]
                 [--group NAME | --default-group] [--output PATH]
                 [--creds PATH] [--shim-port PORT] [--no-discover]
-                [--allow-opencode-provider] [--connectors-only] [--yes]
+                [--allow-opencode-provider] [--connectors-only]
+                [--engine opencode|goose] [--yes]
+
+  --engine     The coding engine this machine runs: opencode (default) or goose
+               (ADR 0110; needs the pinned goose release, which the install
+               line fetches with 'install.sh | sh -s -- --engine goose').
+               Recorded in the credential file, used by 'run', and kept when
+               you re-enroll without the flag. With goose, enroll writes
+               galopin's own goose config (never ~/.config/goose) instead of
+               opencode.json; --allow-opencode-provider, --allow-project-config
+               and --no-background-subagents are opencode's and do nothing.
 
   --connectors-only  This machine only offers its local MCP servers (mcp.json)
                to the chat, with no coding agent. It signs in the same way but
@@ -172,6 +183,7 @@ const defaultShimPort = 41871
 type enrollOptions struct {
 	// mode is "agent" or "connectors" (PROTOCOL.md §10.2).
 	connectorsOnly bool
+	engine         string
 	issuer         string
 	gateway        string
 	cerea          string
@@ -252,6 +264,7 @@ func (f stringListFlag) Set(v string) error {
 func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) {
 	fs = flagSetWithHelp("enroll", enrollUsage)
 	fs.BoolVar(&opts.connectorsOnly, "connectors-only", false, "")
+	fs.StringVar(&opts.engine, "engine", engineOpencode, "")
 	fs.StringVar(&opts.issuer, "issuer", "", "")
 	fs.StringVar(&opts.gateway, "gateway", "", "")
 	fs.StringVar(&opts.cerea, "cerea", "", "")
@@ -323,6 +336,9 @@ func runEnroll(args []string) error {
 	if opts.device && opts.loopback {
 		return fmt.Errorf("--device and --loopback conflict: pick one flow")
 	}
+	if !validEngine(opts.engine) {
+		return fmt.Errorf("--engine %q: want %q or %q", opts.engine, engineOpencode, engineGoose)
+	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	if len(positional) == 1 {
@@ -352,6 +368,9 @@ func runEnroll(args []string) error {
 	}
 	if err := reconcileBillingMode(&opts, set); err != nil {
 		return err
+	}
+	if opts.connectorsOnly && set["engine"] && opts.engine != engineOpencode {
+		return fmt.Errorf("--connectors-only runs no coding agent: it conflicts with --engine %s", opts.engine)
 	}
 	return enroll(context.Background(), &opts)
 }
@@ -400,6 +419,9 @@ func applyRecordedDefaults(opts *enrollOptions, set map[string]bool) bool {
 	fill("gateway", &opts.gateway, rec.Gateway)
 	fill("cerea", &opts.cerea, rec.CereaOrigin)
 	fill("output", &opts.output, rec.OpencodeConfig)
+	if !set["engine"] && validEngine(rec.Engine) && rec.Engine != "" {
+		opts.engine = rec.Engine
+	}
 	if !set["client-id"] && rec.ClientID != "" {
 		opts.clientID = rec.ClientID
 	}
@@ -423,7 +445,12 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	// credential, and nothing of opencode: no config, no gateway, no group.
 	connectors := opts.connectorsOnly
 	var err error
-	if !connectors {
+	goose := !connectors && opts.engine == engineGoose
+	if goose {
+		// goose has its own config (goose_engine.go), written under the
+		// state directory: no opencode.json.
+		opts.output = ""
+	} else if !connectors {
 		// The opencode.json lives beside the credentials unless --output says
 		// otherwise, and its absolute path is what gets recorded for 'run'.
 		if opts.output == "" {
@@ -550,16 +577,25 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	if connectors {
 		creds.Mode = modeConnectors
 	}
+	if goose {
+		creds.Engine = engineGoose
+	}
 	if err := saveCredentials(opts.creds, creds); err != nil {
 		return err
 	}
 	if connectors {
 		return finishConnectorsEnroll(opts)
 	}
-	ocConfig := buildOpencodeConfig(shimAddr, shimSecret, models, opts.allowOpencodeProviders, opts.allowFreeModels)
-	ocConfig.Permission = staticPermission()
-	if err := writeOpencodeConfig(opts.output, ocConfig); err != nil {
-		return err
+	if goose {
+		if err := writeGooseEngineConfig(gooseRootFor(opts.creds), creds, models); err != nil {
+			return err
+		}
+	} else {
+		ocConfig := buildOpencodeConfig(shimAddr, shimSecret, models, opts.allowOpencodeProviders, opts.allowFreeModels)
+		ocConfig.Permission = staticPermission()
+		if err := writeOpencodeConfig(opts.output, ocConfig); err != nil {
+			return err
+		}
 	}
 
 	// The machine's own veto (PROTOCOL.md §4): written once here, never
@@ -600,8 +636,10 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	// model pinned there outside Pystino would bypass this gateway (or break
 	// background results once the provider is unreachable). Warn now, while
 	// the files can still be fixed; run reports them again at every start.
-	for _, p := range scanModelPins(opts.allowFreeModels) {
-		fmt.Fprintf(os.Stderr, "warning: %s\n", p.Warning())
+	if !goose {
+		for _, p := range scanModelPins(opts.allowFreeModels) {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", p.Warning())
+		}
 	}
 	if opts.allowAutoAccept {
 		fmt.Fprintln(os.Stderr, "warning: --allow-auto-accept does nothing any more: auto-accept was replaced by the Deny / Ask / Allow selector in the /code composer. Nothing was written for it; drop the flag.")
@@ -614,8 +652,14 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 		return fmt.Errorf("minting a new machine id: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "wrote opencode config %s (provider pystino via shim %s) and credentials %s\n", opts.output, shimAddr, opts.creds)
-	fmt.Fprintf(os.Stderr, "'galopin run' finds the opencode config through the credentials, from any directory.\n")
+	if goose {
+		fmt.Fprintf(os.Stderr, "wrote galopin's goose config under %s (provider galopin via shim %s; never ~/.config/goose) and credentials %s\n", gooseRootFor(opts.creds), shimAddr, opts.creds)
+		fmt.Fprintf(os.Stderr, "engine: goose %s. %s\n", packaging.GooseVersion(), gooseInstalledNote())
+		fmt.Fprintf(os.Stderr, "'galopin goose setup' also points your own goose (Desktop, CLI, editor extension) at the same proxy.\n")
+	} else {
+		fmt.Fprintf(os.Stderr, "wrote opencode config %s (provider pystino via shim %s) and credentials %s\n", opts.output, shimAddr, opts.creds)
+		fmt.Fprintf(os.Stderr, "'galopin run' finds the opencode config through the credentials, from any directory.\n")
+	}
 	fmt.Fprintf(os.Stderr, "%s\n", billingStartupLine(creds))
 	fmt.Fprintf(os.Stderr, "next: run 'galopin run', then confirm this machine in the chat's /code panel.\n")
 	fmt.Fprintf(os.Stderr, "      (for opencode on its own without the panel, 'galopin serve' runs just the gateway shim.)\n")

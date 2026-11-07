@@ -121,7 +121,7 @@ here lists every variable the app understands.
 
 ## Agents
 
-galopin runs next to the coding agent (opencode) on a person's machine, dials out to Cerea with
+galopin runs next to the coding agent (opencode, or goose) on a person's machine, dials out to Cerea with
 its own OIDC credential, and is confirmed by its owner in `/code`. What a
 machine allows (the permission ceiling, workspace roots, files, the terminal) is fixed on
 the machine at enroll time; the terminal also needs `CODE_TERMINAL_ENABLED=true`

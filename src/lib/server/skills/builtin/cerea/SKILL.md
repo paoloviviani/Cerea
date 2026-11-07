@@ -88,7 +88,7 @@ screen. Example: "Every Monday at 08:00, summarise the news on space travel."
 Made from a conversation's menu (Schedule…).
 
 **Coding agents on the user's machines.** The Agents panel in the sidebar
-drives coding agents that run on the user's own machine under `galopin`; a chat
+drives coding agents that run on the user's own machine under `galopin` (opencode, or goose when the machine was paired with that engine); a chat
 can also start and steer an agent session. The composer offers Plan, Ask and
 Auto: in Auto, each kind of action runs, goes to a reviewer model the user set
 up, or reaches the user's Needs-you inbox, as the user sets in Workspace → Agents

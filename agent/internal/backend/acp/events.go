@@ -339,9 +339,70 @@ func (b *Backend) handleModeUpdate(st *sessionState, upd map[string]any) {
 	}
 	st.mu.Lock()
 	st.modeID = modeID
+	st.modeGen++
+	gen := st.modeGen
 	st.updatedAt = time.Now()
 	sess := st.toSession(b.ID())
 	workspaceDir := st.workspaceDir
 	st.mu.Unlock()
 	b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventSession, Session: &sess})
+	if b.modeHidden(modeID) && b.cfg.ForceMode != "" {
+		// The session is in a mode that skips asks. The read loop must not block (a
+		// response it is carrying may be the one the set_mode call waits for), so the
+		// put-back runs on its own goroutine; but it is registered here, in order,
+		// and no permission answer is given until it is done (waitReasserted), and
+		// a prompt runs assertMode itself.
+		done := make(chan struct{})
+		st.mu.Lock()
+		st.reasserting = done
+		st.mu.Unlock()
+		go func() {
+			defer func() {
+				st.mu.Lock()
+				if st.reasserting == done {
+					st.reasserting = nil
+				}
+				st.mu.Unlock()
+				close(done)
+			}()
+			ctx, cancel := context.WithTimeout(context.Background(), rpcCallTimeout)
+			defer cancel()
+			now := b.assertMode(ctx, st.id, modeID)
+			st.mu.Lock()
+			if st.modeGen != gen {
+				// A newer mode change came in meanwhile; it owns the session's mode now.
+				st.mu.Unlock()
+				return
+			}
+			st.modeID = now
+			sess := st.toSession(b.ID())
+			st.mu.Unlock()
+			b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventSession, Session: &sess})
+		}()
+	}
+}
+
+// RecordUsage sets a session's latest usage and tells subscribers, the same
+// event opencode's backend emits after each assistant step. It is how the
+// caller supplies what the agent does not report over ACP (Config.Usage).
+func (b *Backend) RecordUsage(sessionID string, u backend.Usage) {
+	st, ok := b.reg.get(sessionID)
+	if !ok {
+		return
+	}
+	st.mu.Lock()
+	st.usage = &u
+	workspaceDir := st.workspaceDir
+	st.mu.Unlock()
+	b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventUsage, Usage: &u})
+}
+
+// Compact compacts the session's context by running the agent's own compaction
+// command as a prompt (Config.CompactCommand). The agent answers in the
+// transcript, like any turn.
+func (b *Backend) Compact(ctx context.Context, workspaceDir, sessionID string) error {
+	if b.cfg.CompactCommand == "" {
+		return fmt.Errorf("acp: this agent has no compaction command")
+	}
+	return b.Prompt(ctx, workspaceDir, sessionID, backend.Prompt{Text: b.cfg.CompactCommand})
 }

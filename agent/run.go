@@ -52,8 +52,10 @@ Usage:
   --no-shim           Don't start the local shim; --opencode-config must
                       already point opencode at a reachable provider (used
                       by tests, e.g. a mock LLM).
-  --backend NAME      Which backend to run: "opencode" (default), "acp"
-                      (any ACP agent — PROTOCOL.md §2).
+  --backend NAME      Which backend to run: "opencode" (default), "goose"
+                      (goose with galopin's own config; what a machine enrolled
+                      with --engine goose runs by itself), "acp" (any ACP
+                      agent — PROTOCOL.md §2).
   --connectors-only   Run no coding agent: only this machine's MCP servers
                       (mcp.json, beside the credentials) are offered to the
                       chat. A machine enrolled with 'enroll --connectors-only'
@@ -116,9 +118,9 @@ func runRun(args []string) error {
 	}
 
 	switch opts.backendKind {
-	case "", "opencode", "acp":
+	case "", "opencode", "acp", backendGoose:
 	default:
-		return fmt.Errorf("unknown --backend %q (want \"opencode\" or \"acp\"; --connectors-only runs no backend)", opts.backendKind)
+		return fmt.Errorf("unknown --backend %q (want \"opencode\", \"goose\" or \"acp\"; --connectors-only runs no backend)", opts.backendKind)
 	}
 	if opts.connectorsOnly {
 		conflict := opts.backendKind != ""
@@ -167,6 +169,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	runOpts := *opts
 	opts = &runOpts
 	opts.backendKind = resolveBackendKind(opts.backendKind, opts.connectorsOnly, creds)
+	opts.credsPath = credsPath
 	if opts.backendKind == "" || opts.backendKind == "opencode" {
 		var warning string
 		opts.opencodeConfig, warning = resolveOpencodeConfig(opts.opencodeConfig, creds)
@@ -175,10 +178,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		}
 	}
 
-	stateDir := opts.stateDir
-	if stateDir == "" {
-		stateDir = filepath.Dir(credsPath)
-	}
+	stateDir := resolveStateDir(opts.stateDir, credsPath)
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return fmt.Errorf("creating state dir: %w", err)
 	}
@@ -269,6 +269,13 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		refreshModelsAtStart(ctx, &snapshot, sh.Token)
 	}
 
+	// goose reads its config once at start, too: rewrite it from a fresh model
+	// list (best effort; a failure keeps the config as it is).
+	if opts.backendKind == backendGoose && !opts.noRefreshModels && !opts.noShim {
+		snapshot := *creds
+		refreshGooseAtStart(ctx, &snapshot, credsPath, sh.Token)
+	}
+
 	if opts.backendKind == backendNone {
 		return runConnectorsOnly(ctx, opts, credsPath, stateDir, mcpPath, cereaOrigin, machineID, machineName, sh, pol)
 	}
@@ -288,6 +295,9 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	mat := sessions.New(back, pol)
 	mat.UseLive(live)
 	sh.setSessionTag(sessionTagFunc(mat))
+	if ab, ok := back.(*backendacp.Backend); ok && opts.backendKind == backendGoose {
+		sh.setUsageSink(gooseUsageSink(ab, gooseProviderPath(filepath.Join(gooseRootFor(credsPath), "config"))))
+	}
 	if err := mat.Start(ctx); err != nil {
 		return fmt.Errorf("subscribing to %s: %w", back.ID(), err)
 	}
@@ -299,7 +309,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 
 	mc := newMachine(reg, back, mat, pol)
 	home, _ := os.UserHomeDir()
-	mc.protected = decide.NewProtected(home, stateDir)
+	mc.protected = decide.NewProtected(home, stateDir, gooseRootFor(credsPath))
 	auditLog, err := newAuditLogger(stateDir)
 	if err != nil {
 		return err
@@ -326,6 +336,12 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	if mcpSrv != nil {
 		defer mcpSrv.Close()
 	}
+	startLocalAgentEndpoint(ctx, stateDir, &localAgentSource{hub: connectors, calls: func() machineCaller {
+		if mc.lnk == nil {
+			return nil
+		}
+		return mc.lnk
+	}})
 	// Model pins outside Pystino in opencode's global config (modelpins.go):
 	// logged, audited and filed in status.json at every start (and carried
 	// on every hello by buildHello). The files are the user's, never edited.
@@ -448,7 +464,7 @@ type runningBackend interface {
 // acp is the generic adapter any ACP agent can be plugged in behind).
 func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol policy.Policy, live *policy.Live, logf func(string, ...any)) (runningBackend, error) {
 	home, _ := os.UserHomeDir()
-	protect := diffProtect(decide.NewProtected(home, stateDir))
+	protect := diffProtect(decide.NewProtected(home, stateDir, gooseRootFor(opts.credsPath)))
 	switch opts.backendKind {
 	case "", "opencode":
 		// galopin's own agent-coordination tools are installed unless the
@@ -481,6 +497,8 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 			return nil, fmt.Errorf("starting opencode: %w", err)
 		}
 		return ocBackend, nil
+	case backendGoose:
+		return startGooseBackend(ctx, opts, opts.credsPath, stateDir, pol, protect, logf)
 	case "acp":
 		cmd := strings.Fields(opts.acpCommand)
 		if len(cmd) == 0 {
@@ -618,9 +636,7 @@ func modelPinWarnings(pol policy.Policy) []string {
 // credential file's own directory) holds a revoked marker for its current
 // machine id. It never mints an id.
 func revokedAt(stateDir, credsPath string) bool {
-	if stateDir == "" {
-		stateDir = filepath.Dir(credsPath)
-	}
+	stateDir = resolveStateDir(stateDir, credsPath)
 	body, err := fsutil.ReadFileOrEmpty(filepath.Join(stateDir, machineIDFileName))
 	if err != nil || body == nil {
 		return false
@@ -794,6 +810,9 @@ func resolveBackendKind(flag string, connectorsOnly bool, creds *credentials) st
 	if connectorsOnly || (flag == "" && creds.Mode == modeConnectors) {
 		return backendNone
 	}
+	if flag == "" && creds.Engine == engineGoose {
+		return backendGoose
+	}
 	return flag
 }
 
@@ -838,6 +857,12 @@ func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDi
 	if !connectors.Configured() {
 		logf("no %s yet: create %s to offer MCP servers to the chat (docs: local connectors)", mcpConfigFileName, mcpPath)
 	}
+	startLocalAgentEndpoint(ctx, stateDir, &localAgentSource{hub: connectors, calls: func() machineCaller {
+		if mc.lnk == nil {
+			return nil
+		}
+		return mc.lnk
+	}})
 
 	lnk := link.New(link.Config{
 		CereaOrigin: cereaOrigin,

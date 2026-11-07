@@ -18,13 +18,20 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { recordCodeAuditRow } from "$lib/server/code/audit";
 import { CallError } from "$lib/server/code/machineCallError";
-import { connectorsNow } from "$lib/server/code/sessionConnectors";
+import { connectorsNow, localAgentConnectorsNow } from "$lib/server/code/sessionConnectors";
 import { callMcpTool } from "$lib/server/mcp/httpClient";
 import { listMcpServerTools } from "$lib/server/mcp/tools";
 import type { TurnConnector } from "$lib/server/mcp/turnConnectors";
 import type { CallErrorCode, CallFrame, CallResFrame } from "$lib/types/machineProtocol";
 
 export const CONNECTOR_CALL_OPS: string[] = ["connector.list", "connector.call"];
+
+/**
+ * A call carrying `args.source === "local-agent"` comes from the user's own agent through
+ * galopin's local endpoint (`galopin goose setup`), not from a Cerea session: the connectors it
+ * may use are the user's "local agents" list (Workspace, Agents), and the audit row says so.
+ */
+export const LOCAL_AGENT_SOURCE = "local-agent";
 
 /** Cerea's bound on one call; the machine waits a little longer, so this answer arrives first. */
 export const CONNECTOR_CALL_TIMEOUT_MS = 80_000;
@@ -85,8 +92,15 @@ async function listOne(c: TurnConnector): Promise<{
 	}
 }
 
+const fromLocalAgent = (ctx: Ctx) => ctx.frame.args?.source === LOCAL_AGENT_SOURCE;
+
+const connectorsFor = (ctx: Ctx) =>
+	fromLocalAgent(ctx)
+		? localAgentConnectorsNow(ctx.userId)
+		: connectorsNow(ctx.userId, ctx.deviceId, ctx.frame.rootSessionId);
+
 async function opList(ctx: Ctx) {
-	const now = await connectorsNow(ctx.userId, ctx.deviceId, ctx.frame.rootSessionId);
+	const now = await connectorsFor(ctx);
 	return {
 		// One bad connector does not fail the list: it carries a note instead.
 		connectors: await Promise.all(now.cerea.map(listOne)),
@@ -141,12 +155,14 @@ async function opCall(ctx: Ctx) {
 		);
 	}
 	const { connector: key, tool, arguments: args } = parsed.data;
-	const now = await connectorsNow(ctx.userId, ctx.deviceId, ctx.frame.rootSessionId);
+	const now = await connectorsFor(ctx);
 	const connector = now.cerea.find((c) => c.key === key);
 	if (!connector) {
 		throw new CallError(
 			"forbidden",
-			"That connector is not switched on for this session, or is not available to the user right now. Use connector_list."
+			fromLocalAgent(ctx)
+				? "That connector is not switched on for local agents, or is not available to the user right now."
+				: "That connector is not switched on for this session, or is not available to the user right now. Use connector_list."
 		);
 	}
 	if (!underRate(ctx.deviceId)) {
@@ -195,9 +211,9 @@ async function audit(ctx: Ctx, outcome: string, name: string): Promise<void> {
 		action: "connector.call",
 		deviceId: ctx.deviceId,
 		sessionId: ctx.frame.sessionId,
-		origin: "agent",
+		origin: fromLocalAgent(ctx) ? "local-agent" : "agent",
 		outcome,
-		name: name.slice(0, 80),
+		name: (fromLocalAgent(ctx) ? `local agent: ${name}` : name).slice(0, 80),
 	});
 }
 

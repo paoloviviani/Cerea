@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -94,10 +93,8 @@ func runConnectors(args []string) error {
 // else beside --creds, else the default state directory.
 func connectorsStateDir(o *connectorsOptions) (string, error) {
 	switch {
-	case o.stateDir != "":
-		return o.stateDir, nil
-	case o.creds != "":
-		return filepath.Dir(o.creds), nil
+	case o.stateDir != "" || o.creds != "":
+		return resolveStateDir(o.stateDir, o.creds), nil
 	}
 	return defaultStateDir()
 }

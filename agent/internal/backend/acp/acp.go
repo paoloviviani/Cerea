@@ -50,6 +50,26 @@ type Config struct {
 	// Tools offers galopin's coordination tools to the agent over MCP (tools.go)
 	// when the agent can use an HTTP MCP server. The machine's policy decides.
 	Tools bool
+	// SessionMeta is sent as _meta on session/new and session/load. goose reads
+	// _meta.client (a string) and files the session as a user session, which
+	// goose Desktop and the editor extensions list (ADR 0110).
+	SessionMeta map[string]any
+	// HiddenModes are agent modes galopin never lets a session sit in, because
+	// they skip the ask (goose's auto and smart_approve): they are left out of
+	// Modes, SetMode refuses them, and ForceMode is set again whenever a
+	// session reports one (on new, load, after set_mode, on a mode update and
+	// before a prompt).
+	HiddenModes []string
+	// ForceMode is the mode a session is put back in (see HiddenModes).
+	ForceMode string
+	// Usage says the caller feeds token usage in with RecordUsage (goose reports
+	// none over ACP; galopin reads it off its own provider proxy). It turns the
+	// usage capability on.
+	Usage bool
+	// CompactCommand, when set, is the slash command that compacts a session's
+	// context (goose: "/compact", sent as an ordinary prompt). It turns the
+	// compact capability on.
+	CompactCommand string
 	// Logf receives lifecycle-only messages: started, ready, restarting,
 	// exited (R6 — never frame or response bodies, which may carry a
 	// user's prompt text).
@@ -175,7 +195,7 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	// session/request_permission asks go through the same decision function as
 	// opencode's (permissions.go), so the Plan/Ask/Allow selector works here too.
 	return backend.Capabilities{
-		Diff: true, Children: false, Usage: false, Compact: false, Permissions: true,
+		Diff: true, Children: false, Usage: b.cfg.Usage, Compact: b.cfg.CompactCommand != "", Permissions: true,
 		Images: images, Files: false, Worktrees: false,
 		Questions: false,
 		// Commands: always — the agent's available_commands_update carries
