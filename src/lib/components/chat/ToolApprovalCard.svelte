@@ -366,6 +366,19 @@
 
 {#if !toolApproval}
 	<!-- Malformed payload; nothing safe to render. -->
+{:else if request.reviewing && !outcome}
+	<!-- The reviewer is still deciding: not the user's to answer yet, so no card and no buttons,
+	     only a quiet line. It becomes the card if the reviewer escalates or gives up, and the
+	     "Auto-allowed" line if it allows. -->
+	<BlockWrapper>
+		<p
+			class="text-sm text-gray-500 select-none dark:text-gray-400"
+			data-testid="review-pending"
+			aria-live="polite"
+		>
+			{m["chat.approval.reviewing"]()}
+		</p>
+	</BlockWrapper>
 {:else if !open}
 	<BlockWrapper>
 		<div class="flex max-w-full flex-col items-start gap-1 select-none">

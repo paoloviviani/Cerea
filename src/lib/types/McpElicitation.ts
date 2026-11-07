@@ -94,6 +94,8 @@ export interface ElicitationRequestPayload {
 	childTitle?: string | null;
 	/** Why the reviewer did not settle this ask (ADR 0107): shown on the card. */
 	reviewNote?: string;
+	/** The reviewer is still deciding: shown as a quiet status, with no buttons and not counted as waiting on the user. */
+	reviewing?: boolean;
 	/** The machine's permission class for an agent ask (ADR 0107): the card's risk tags read it. */
 	permissionClass?: string;
 	/** The machine's read-only stamp on a bash ask; null on the wire is absent. */

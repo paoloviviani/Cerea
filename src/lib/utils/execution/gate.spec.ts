@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { gateAllows, installNetworkGate } from "./gate";
+import { executionWorkerCsp, gateAllows, installNetworkGate } from "./gate";
 import { pyodideBasePath } from "./protocol";
 
 describe("network gate", () => {
@@ -124,5 +125,43 @@ describe("network gate", () => {
 			/execution sandbox/
 		);
 		expect(inner).toHaveBeenCalledTimes(2);
+	});
+
+	it("removes WebTransport and the WebRTC surfaces (audit M5)", () => {
+		const scope = {
+			location: { href: "https://chat.example.org/w.js", origin: "https://chat.example.org" },
+			fetch: vi.fn(),
+			navigator: {},
+			WebTransport: function T() {},
+			WebSocketStream: function S() {},
+			RTCPeerConnection: function P() {},
+			webkitRTCPeerConnection: function P() {},
+			RTCDataChannel: function D() {},
+			importScripts: () => {},
+		} as unknown as Record<string, unknown>;
+		installNetworkGate(scope as unknown as typeof globalThis);
+		for (const name of [
+			"WebTransport",
+			"WebSocketStream",
+			"RTCPeerConnection",
+			"webkitRTCPeerConnection",
+			"RTCDataChannel",
+			"importScripts",
+		]) {
+			expect(scope[name], name).toBeUndefined();
+		}
+	});
+
+	it("serves the worker with a CSP that closes dynamic import() and WebTransport (audit M5)", () => {
+		const csp = executionWorkerCsp();
+		expect(csp).toMatch(/script-src 'self' /);
+		expect(csp).not.toMatch(/script-src[^;]*(https?:|\*)/);
+		expect(csp).toMatch(
+			/connect-src 'self' https:\/\/pypi\.org https:\/\/files\.pythonhosted\.org/
+		);
+		// server.js is plain JS and cannot import this module; it must carry the same string
+		const server = readFileSync(new URL("../../../../server.js", import.meta.url), "utf8");
+		expect(server).toContain(csp);
+		expect(server).toContain("immutable\\/workers\\/pyodide\\.worker");
 	});
 });

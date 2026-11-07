@@ -39,6 +39,7 @@ import {
 	clearReviewNote,
 	readOnlyNote,
 	noAccessNote,
+	releaseAsk,
 	refusedNote,
 	ruleNote,
 	setReviewNote,
@@ -205,6 +206,9 @@ export async function reviewPermissionAsk(
 	const send = (note?: string) => {
 		if (pushed) return;
 		pushed = true;
+		// The decision is the user's from here: the card is shown, and nothing the reviewer
+		// answers later may allow it (`allow` and `allowReadOnly` check `handedOver`).
+		releaseAsk(request.id);
 		push(note);
 	};
 	const watchdog = setTimeout(() => {
@@ -248,7 +252,18 @@ export async function reviewPermissionAsk(
 		// its per-class map, PROTOCOL.md §6) is routed.
 		if (session.permissionMode !== "ask" || !session.autoClasses) return send();
 
-		const ctx: Ctx = { userId, deviceId, envelope, request, cls, settings, session, link, deps };
+		const ctx: Ctx = {
+			userId,
+			deviceId,
+			envelope,
+			request,
+			cls,
+			settings,
+			session,
+			link,
+			deps,
+			handedOver: () => pushed,
+		};
 		if (fast) return await allowReadOnly(ctx, send);
 		const verdict = await judge(ctx);
 		if (verdict.kind === "pass") return send();
@@ -263,6 +278,7 @@ export async function reviewPermissionAsk(
 			// Past the hourly cap pushes are paced: the cards stay in the inbox.
 			if (verdict.note === cappedNote() && !capPushDue(deviceId, deps.now())) {
 				pushed = true;
+				releaseAsk(request.id);
 				return;
 			}
 			return send(verdict.note);
@@ -274,6 +290,7 @@ export async function reviewPermissionAsk(
 	} finally {
 		clearTimeout(watchdog);
 		inflight.delete(key);
+		releaseAsk(request.id);
 	}
 }
 
@@ -287,6 +304,8 @@ interface Ctx {
 	session: SessionFacts;
 	link: ReturnType<ReviewDeps["link"]>;
 	deps: ReviewDeps;
+	/** True once the ask went to the user (the watchdog, or any other path): the reviewer may no longer allow it. */
+	handedOver: () => boolean;
 }
 
 function capPushDue(deviceId: string, now: number): boolean {
@@ -376,8 +395,47 @@ async function judge(ctx: Ctx): Promise<Verdict> {
 	return esc(belowNote(result.probability, settings.threshold), "escalated", result.probability);
 }
 
+/** A late answer after the ask went to the user: logged, never applied (audit M6). */
+async function lateAnswer(ctx: Ctx, probability: number | null): Promise<void> {
+	await record(ctx, {
+		outcome: "escalated",
+		probability,
+		reason: "timed out, left to you",
+		applied: false,
+	});
+}
+
+/**
+ * The mode was read once, before the judging: the user may have left Auto since. Read again right
+ * before an allow goes out; anything but Auto (or an unreadable session) is the user's to answer.
+ */
+async function stillAuto(ctx: Ctx): Promise<boolean> {
+	try {
+		const { session } = await ctx.link.sessionGet({
+			sessionId: ctx.request.sessionId || ctx.envelope.sessionId,
+		});
+		return session.permissionMode === "ask" && !!session.autoClasses;
+	} catch {
+		return false;
+	}
+}
+
+async function leftAuto(ctx: Ctx, probability: number | null, send: (note?: string) => void) {
+	await record(ctx, {
+		outcome: "escalated",
+		probability,
+		reason: "the session left Auto while the reviewer judged: left to you",
+		applied: false,
+	});
+	send();
+}
+
 async function allow(ctx: Ctx, p: number, send: (note?: string) => void): Promise<void> {
 	const { request, settings } = ctx;
+	if (ctx.handedOver()) return lateAnswer(ctx, p);
+	if (!(await stillAuto(ctx)))
+		return ctx.handedOver() ? lateAnswer(ctx, p) : leftAuto(ctx, p, send);
+	if (ctx.handedOver()) return lateAnswer(ctx, p);
 	const model = settings.decisionModelId ?? "";
 	// The note is in place before the machine's `permission.replied` reaches the card.
 	setReviewNote(request.id, { text: allowedNote(), allowed: true });
@@ -409,6 +467,10 @@ async function allow(ctx: Ctx, p: number, send: (note?: string) => void): Promis
 /** A plain read (ADR 0107 amendment): allowed once by rule. No model call, no rate-cap use. */
 async function allowReadOnly(ctx: Ctx, send: (note?: string) => void): Promise<void> {
 	const { request } = ctx;
+	if (ctx.handedOver()) return lateAnswer(ctx, null);
+	if (!(await stillAuto(ctx)))
+		return ctx.handedOver() ? lateAnswer(ctx, null) : leftAuto(ctx, null, send);
+	if (ctx.handedOver()) return lateAnswer(ctx, null);
 	const reason = "a plain read inside the workspace";
 	setReviewNote(request.id, { text: readOnlyNote(), allowed: true });
 	let applied = false;

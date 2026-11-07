@@ -87,6 +87,9 @@ interface PendingRequest {
 
 interface ConnectionState {
 	deviceId: string;
+	/** The device row's status at hello, moved to `paired` by `notifyDevicePaired`. A machine that
+	 * is not paired is observed and called by nobody on this side: no reviewer, no push, no op. */
+	status: CodeDevice["status"];
 	ws: WebSocket;
 	principal: MachinePrincipal;
 	/** The current bearer, kept for the periodic gateway revalidation tick
@@ -388,6 +391,7 @@ export function startMachineRevalidationLoop(): void {
 export function notifyDevicePaired(deviceId: string): void {
 	const state = registry.get(deviceId);
 	if (!state) return;
+	state.status = "paired";
 	try {
 		state.ws.send(JSON.stringify({ type: "status", status: "paired" }));
 	} catch (err) {
@@ -438,6 +442,11 @@ export class MachineLink {
 		const state = registry.get(this.deviceId);
 		if (!state) {
 			return Promise.reject(new OpError("unavailable", "This machine is not connected."));
+		}
+		// The browser routes already refuse an unpaired device; this is the same gate for the
+		// callers that start on the server (the reviewer, pushes), which have no browser to ask.
+		if (state.status !== "paired") {
+			return Promise.reject(new OpError("unavailable", "This machine is not confirmed yet."));
 		}
 		return sendRequest<TResult>(state, op, args);
 	}
@@ -1077,7 +1086,10 @@ export function acceptMachineConnection(
 				// Before the "nobody is watching" return below: the person who
 				// most needs a push is the one with no tab open.
 				const owner = state;
-				safely(() => observeMachineEvent(owner.principal.userId, owner.deviceId, envelope));
+				// An unconfirmed machine's events start nothing here: no reviewer run, no token
+				// minted, no push (its own agent already refuses every op until it is paired).
+				if (owner.status === "paired")
+					safely(() => observeMachineEvent(owner.principal.userId, owner.deviceId, envelope));
 				if ((!listeners || listeners.size === 0) && treeListeners.size === 0) return;
 				if (listeners) for (const listener of listeners) listener(envelope);
 				for (const listener of treeListeners) listener(envelope);
@@ -1301,6 +1313,7 @@ async function onHello(
 
 	const state: ConnectionState = {
 		deviceId,
+		status,
 		ws,
 		principal,
 		token,

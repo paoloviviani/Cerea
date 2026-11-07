@@ -3,11 +3,25 @@ import { z } from "zod";
 import { locationSettingsFields } from "$lib/utils/location";
 import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
 import { localeFields, localePatch } from "$lib/server/localeSettings";
-import { authCondition } from "$lib/server/auth";
+import { guardAnonymousSettingsRow } from "$lib/server/anonymousSettings";
+import { authCondition, loginEnabled } from "$lib/server/auth";
 import { GLOBAL_SYSTEM_PROMPT_MAX } from "$lib/types/CustomModel";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
 import { resolveStreamingMode } from "$lib/utils/messageUpdates";
-import type { RequestHandler } from "@sveltejs/kit";
+import { error, type RequestHandler } from "@sveltejs/kit";
+
+/** Settings are a handful of flags per model; nothing legitimate comes near these. */
+const SETTINGS_MAX_BODY_BYTES = 64 * 1024;
+const SETTINGS_RECORD_MAX_KEYS = 500;
+
+function boundedRecord<V extends z.ZodTypeAny>(value: V) {
+	return z
+		.record(z.string().max(200), value)
+		.refine((r) => Object.keys(r).length <= SETTINGS_RECORD_MAX_KEYS, {
+			message: `at most ${SETTINGS_RECORD_MAX_KEYS} entries`,
+		})
+		.default({});
+}
 
 const settingsSchema = z.object({
 	// On by default for new accounts (DEFAULT_SETTINGS); the field is the
@@ -29,27 +43,47 @@ const settingsSchema = z.object({
 	// standing facts about themselves. The deployment flag
 	// (CHAT_MEMORY_ENABLED) can withdraw the feature over the top of it.
 	memoryEnabled: z.boolean().optional(),
-	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),
+	activeModel: z.string().max(200).default(DEFAULT_SETTINGS.activeModel),
 	// Unknown keys are stripped, so an old client still posting the retired
 	// per-model `customPrompts` / `customPromptsEnabled` is ignored, not refused.
 	globalSystemPrompt: z.string().max(GLOBAL_SYSTEM_PROMPT_MAX).optional(),
-	multimodalOverrides: z.record(z.boolean()).default({}),
-	toolsOverrides: z.record(z.boolean()).default({}),
-	artifactsOverrides: z.record(z.boolean()).default({}),
-	reasoningEffortOverrides: z.record(z.enum(["low", "medium", "high"])).default({}),
-	reasoningOverrides: z.record(z.boolean()).default({}),
+	multimodalOverrides: boundedRecord(z.boolean()),
+	toolsOverrides: boundedRecord(z.boolean()),
+	artifactsOverrides: boundedRecord(z.boolean()),
+	reasoningEffortOverrides: boundedRecord(z.enum(["low", "medium", "high"])),
+	reasoningOverrides: boundedRecord(z.boolean()),
 	streamingMode: z.enum(["raw", "smooth"]).optional(),
 	directPaste: z.boolean().default(false),
 	hapticsEnabled: z.boolean().default(true),
-	hidePromptExamples: z.record(z.boolean()).default({}),
-	billingOrganization: z.string().optional(),
+	hidePromptExamples: boundedRecord(z.boolean()),
+	billingOrganization: z.string().max(200).optional(),
 	...locationSettingsFields,
 	...paletteFields,
 	...localeFields,
 });
 
-export const POST: RequestHandler = async ({ request, locals }) => {
-	const body = await request.json();
+export const POST: RequestHandler = async ({ request, locals, getClientAddress }) => {
+	// A settings row belongs to a signed-in user. Where sign-in is configured an
+	// anonymous write only mints orphan rows (audit M2), so it is refused. Where
+	// it is not (anonymous deployments) the row is keyed by the session cookie,
+	// which a client can mint at will: an existing row may be updated freely, a
+	// new one only under the per-address and global caps (the
+	// TTL index in database.ts sweeps the rest).
+	if (!locals.user) {
+		if (loginEnabled || !locals.sessionId) error(401, "Sign in to save settings");
+		await guardAnonymousSettingsRow(locals, getClientAddress);
+	}
+
+	const declared = Number(request.headers.get("content-length") ?? 0);
+	if (declared > SETTINGS_MAX_BODY_BYTES) error(413, "Settings body too large");
+	const text = await request.text();
+	if (text.length > SETTINGS_MAX_BODY_BYTES) error(413, "Settings body too large");
+	let body: unknown;
+	try {
+		body = JSON.parse(text);
+	} catch {
+		error(400, "Invalid JSON");
+	}
 
 	const { accent, neutral, locale, ...parsedSettings } = settingsSchema.parse(body);
 	const streamingMode = resolveStreamingMode(parsedSettings);

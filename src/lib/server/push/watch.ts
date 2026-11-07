@@ -23,6 +23,7 @@
 import type { ObjectId } from "mongodb";
 import { logger } from "$lib/server/logger";
 import { parseBackgroundTaskXml } from "$lib/server/code/machineTimeline";
+import { holdAsk, releaseAsk } from "$lib/server/review/wording";
 import type { Envelope } from "$lib/types/machineProtocol";
 import type { ScheduleRun } from "$lib/types/Schedule";
 import { LONG_TURN_MS, type PushEvent } from "$lib/utils/pushEvents";
@@ -134,9 +135,14 @@ export function observeMachineEvent(
 			};
 			// A permission ask on an Auto session is held for the reviewer; a question never is.
 			if (event.kind === "permission.asked" && deps.review) {
+				// The card is held too, not only the push: it is shown (and counted) when the reviewer
+				// escalates or gives up, never in the instant before it decides. Set here, before the
+				// watchers of this envelope run, so none can show it first.
+				holdAsk(id, [event.request.sessionId, sessionId, envelope.rootSessionId]);
 				// Whatever goes wrong inside, the user is told: a held push must never be lost.
 				deps.review(userId, deviceId, envelope, push).catch((err) => {
 					logger.warn({ err: String(err) }, "review: failed, pushing");
+					releaseAsk(id);
 					push();
 				});
 				return;

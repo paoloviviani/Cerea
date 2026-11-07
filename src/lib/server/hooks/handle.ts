@@ -1,3 +1,4 @@
+import { touchAnonymousSettings } from "$lib/server/anonymousSettings";
 import { frameAncestorsPolicy } from "./frameAncestors";
 import type { Handle, RequestEvent } from "@sveltejs/kit";
 import { collections } from "$lib/server/database";
@@ -237,6 +238,11 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 			const auth = await authenticateRequest(event.cookies, event.url);
 
 			event.locals.sessionId = auth.sessionId;
+			// A visitor on a deployment with no sign-in keeps their settings row while they keep
+			// coming back (its TTL counts from `updatedAt`); best-effort, once a day.
+			if (!loginEnabled && !auth.user && event.cookies.get(config.COOKIE_NAME)) {
+				void touchAnonymousSettings(auth.sessionId).catch(() => undefined);
+			}
 
 			if (
 				loginEnabled &&
@@ -440,12 +446,12 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				// that is already gone is refusing to clean up after it.
 				event.url.pathname !== `${base}/logout` &&
 				// Deny by default. A read is let through only when its route is
-				// on the allow-list; a write only under `/settings`, as before.
-				// This used to be `!== GET`, which left every GET public unless
-				// the route happened to guard itself.
+				// on the allow-list; every write needs a signed-in user. (Writes
+				// under `/settings` used to be exempt, which let a signed-out
+				// client mint unbounded settings documents: audit M2.)
 				(isReadMethod(event.request.method)
 					? !SIGNED_OUT_GET_ROUTES.has(event.route.id ?? "")
-					: !event.url.pathname.startsWith(`${base}/settings`))
+					: true)
 			) {
 				// An /api caller always gets JSON, whatever Accept it sent: the
 				// wall now answers reads too, and a bare fetch has no Accept.
@@ -535,6 +541,15 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 			}
 
 			if (event.url.pathname.startsWith(`${base}/api/`)) {
+				// Account-scoped JSON (minted keys, one-time passwords and tickets pass through
+				// here) must not be stored by a shared cache or the browser's history. A route
+				// that set its own Cache-Control keeps it.
+				if (
+					!response.headers.has("Cache-Control") &&
+					(response.headers.get("content-type") ?? "").includes("json")
+				) {
+					response.headers.set("Cache-Control", "no-store");
+				}
 				// get origin from the request
 				const requestOrigin = event.request.headers.get("origin");
 

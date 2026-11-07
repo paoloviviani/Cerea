@@ -80,6 +80,34 @@ describe("isValidUrl", () => {
 	});
 });
 
+describe("isValidUrl refuses the rest of the special-use ranges (audit)", () => {
+	it.each([
+		"https://168.63.129.16",
+		"https://192.0.0.8",
+		"https://198.18.0.1",
+		"https://198.19.255.255",
+		"https://224.0.0.1",
+		"https://239.255.255.250",
+		"https://240.0.0.1",
+		"https://255.255.255.255",
+		"https://[64:ff9b::7f00:1]",
+		"https://[64:ff9b::a9fe:a9fe]",
+		"https://[2002:7f00:1::1]",
+		"https://[ff02::1]",
+		"https://[fec0::1]",
+	])("rejects %s", (url) => {
+		expect(isValidUrl(url)).toBe(false);
+		expect(isValidUrl(url, { blockInternalNetworks: true })).toBe(false);
+	});
+
+	it("still allows neighbours of those ranges", () => {
+		expect(isValidUrl("https://198.20.0.1")).toBe(true);
+		expect(isValidUrl("https://168.63.129.17")).toBe(true);
+		expect(isValidUrl("https://223.255.255.255")).toBe(true);
+		expect(isValidUrl("https://[2606:4700::1111]")).toBe(true);
+	});
+});
+
 describe("ssrfSafeFetch", () => {
 	// undici only calls the agent's `lookup` hook for hosts needing DNS resolution, so IP
 	// literals reached the network without any safety check until the host was validated

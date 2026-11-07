@@ -37,6 +37,7 @@
  * `Project.memoryBaseId`, which is what makes acting as the base's owner safe.
  */
 
+import { sharingEmailFor } from "$lib/server/identity/sharingEmail";
 import { ObjectId } from "mongodb";
 import { error } from "@sveltejs/kit";
 import { z } from "zod";
@@ -91,7 +92,8 @@ export async function viewerPrincipals(
 	token: string | undefined
 ): Promise<ViewerPrincipals> {
 	const principals: ViewerPrincipals = { groups: [] };
-	if (user?.email) principals.email = user.email.toLowerCase();
+	const email = await sharingEmailFor(user);
+	if (email) principals.email = email.toLowerCase();
 	if (!token) return principals;
 	try {
 		const answer = await gateway.get<{ data: GatewayGroup[] }>(token, "billing/groups");

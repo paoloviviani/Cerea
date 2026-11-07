@@ -108,7 +108,11 @@ async function relay(response: Response): Promise<Response> {
 	// vector store"), and a generic "request failed" would throw that away.
 	return new Response(body, {
 		status: response.status,
-		headers: { "content-type": response.headers.get("content-type") ?? "application/json" },
+		headers: {
+			"content-type": response.headers.get("content-type") ?? "application/json",
+			// Minted keys and one-time passwords come back through here.
+			"cache-control": "no-store",
+		},
 	});
 }
 
@@ -249,6 +253,7 @@ async function handleInternal(
 					"Content-Disposition": `attachment; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
 					"Content-Length": file.size.toString(),
 					"X-Content-Type-Options": "nosniff",
+					"Cache-Control": "private, no-store",
 					"Content-Security-Policy": "default-src 'none'; sandbox;",
 				},
 			});

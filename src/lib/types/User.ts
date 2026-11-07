@@ -28,6 +28,12 @@ export interface User extends Timestamps {
 	 * touched since this field started being written.
 	 */
 	emailNormalized?: string;
+	/**
+	 * What the issuer's `email_verified` claim said at the last login. Absent means the issuer
+	 * does not send the claim (or the row predates it), which is trusted as before; `false`
+	 * means the address is unproven, so nothing is shared to it (`sharingEmail`).
+	 */
+	emailVerified?: boolean;
 	/** The previous `sub`, when a login moved this account to a new issuer. */
 	migratedFromSub?: string;
 	isAdmin?: boolean;

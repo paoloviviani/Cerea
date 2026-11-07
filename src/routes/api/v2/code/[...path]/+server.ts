@@ -22,6 +22,7 @@
  *   sessions, not machines.
  */
 
+import { visiblePendingPermissions } from "$lib/server/review/wording";
 import { createHash, randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
@@ -239,7 +240,7 @@ function toSession(session: Session): CodeAgentSession {
 	let state: CodeTurnState;
 	switch (session.status) {
 		case "busy":
-			state = session.pendingPermissions > 0 ? "waiting-permission" : "running";
+			state = visiblePendingPermissions(session) > 0 ? "waiting-permission" : "running";
 			break;
 		case "retry":
 			state = "running";
@@ -544,11 +545,16 @@ export const GET: RequestHandler = async (event) => {
 	if (path === "v1/permissions/pending") {
 		const pending = await callOp(() => link.permissionsPending());
 		const { withReviewNote } = await import("$lib/server/code/machineTimeline");
+		const { isAskHeld } = await import("$lib/server/review/wording");
 		return superjsonResponse({
-			permissions: (pending.permissions ?? []).map((p) => ({
-				...p,
-				request: withReviewNote(p.request),
-			})),
+			// An ask the reviewer is still deciding is not the user's yet: it is not listed (and
+			// so not counted, badged or notified) until it escalates or the watchdog hands it over.
+			permissions: (pending.permissions ?? [])
+				.filter((p) => !isAskHeld(p.request.id))
+				.map((p) => ({
+					...p,
+					request: withReviewNote(p.request),
+				})),
 			questions: pending.questions ?? [],
 		});
 	}
