@@ -6,7 +6,6 @@ import { livePage } from "./codeNavPage.svelte";
 import { CODE_TREE_COLLAPSE_KEY } from "$lib/utils/codeTreeCollapse";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 import { clearCodePanelCache } from "$lib/stores/codeTreeCache.svelte";
-import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 
 /**
  * The daemon side is a fake; what is under test is the tree's own decisions:
@@ -674,32 +673,6 @@ describe("CodeNavTree row actions", () => {
 	});
 });
 
-describe("CodeNavTree legacy machines", () => {
-	it("marks the row of a machine found to predate ceilings, with the enroll command, and only that one", async () => {
-		for (const id of Object.keys(codeLegacyMachines)) delete codeLegacyMachines[id];
-		codeLegacyMachines.d1 = true;
-		codeLegacyMachines.d2 = false;
-		go("");
-		const screen = mount();
-		await expect.element(screen.getByText("Box d1")).toBeVisible();
-		const flags = screen.getByTestId("legacy-machine-row-flag");
-		await expect.element(flags).toBeVisible();
-		expect(flags.elements()).toHaveLength(1);
-		await expect.element(flags).toHaveTextContent("predates ceilings");
-		await expect.element(flags).toHaveTextContent("One re-enroll tightens it");
-		await expect.element(flags).toHaveTextContent("enroll");
-		for (const id of Object.keys(codeLegacyMachines)) delete codeLegacyMachines[id];
-	});
-
-	it("shows no flag on a tree where no machine has been found legacy", async () => {
-		for (const id of Object.keys(codeLegacyMachines)) delete codeLegacyMachines[id];
-		go("");
-		const screen = mount();
-		await expect.element(screen.getByText("Box d1")).toBeVisible();
-		expect(screen.getByTestId("legacy-machine-row-flag").elements()).toHaveLength(0);
-	});
-});
-
 describe("CodeNavTree scheduled actions", () => {
 	function withSchedules(on: boolean) {
 		Object.assign(livePage.data, { codeSchedulesEnabled: on });
@@ -907,24 +880,5 @@ describe("CodeNavTree session Permissions menu", () => {
 		await second.getByRole("button", { name: "Session actions" }).first().click();
 		await expect.element(second.getByRole("menuitem", { name: "Permissions…" })).toBeVisible();
 		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
-	});
-
-	it("shows the re-enroll content for a machine that predates ceilings", async () => {
-		apiMock.getPermissionRules.mockResolvedValue({
-			rules: [{ permission: "*", pattern: "*", action: "allow", source: "opencode" }],
-			savedApprovals: [],
-			ceiling: {},
-		});
-		const legacyPolicy = { workspaceRoots: [], allowFreeModels: false, permission: { max: {} } };
-		go("?device=d1&ws=w1&agent=a1");
-		const screen = mount([device("d1", { policy: legacyPolicy }), device("d2")]);
-		await expect.element(screen.getByText("Agent a1", { exact: true })).toBeVisible();
-
-		await screen.getByRole("button", { name: "Session actions" }).first().click();
-		await screen.getByRole("menuitem", { name: "Permissions…" }).click();
-		await expect.element(screen.getByTestId("legacy-machine-flag")).toBeVisible();
-		await expect
-			.element(screen.getByTestId("legacy-machine-flag"))
-			.toHaveTextContent("Re-enroll this machine to set limits");
 	});
 });

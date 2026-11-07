@@ -5,6 +5,12 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **The Workspace page has six tabs, not eight.** Local connectors is now the **On your machines** section at the foot of **Connectors**, and Custom models the **Your custom models** section at the foot of **Models**. The old addresses (`?tab=local`, `?tab=custom`) still work and take you to the section.
+- **Project settings: the table of contents no longer moves the whole window.** Clicking an entry scrolls the page's own column only, so the sidebar stays put. The full-width **Save changes** band is replaced by a small floating bar, **Unsaved changes · Discard · Save**, shown only while there are unsaved changes.
+- **Removed the stale "Re-enroll this machine to set limits…" notice** in the agents panel: machine limits went away in 0.43.0, so the notice no longer applied.
+
 ## v0.44.0 — 2026-11-06
 
 - **`galopin launch opencode`.** Start your own interactive opencode wired to the gateway exactly as galopin sets it up (the enrolled config, the same proxy and billing group, the machine's project-config setting), without connecting to Cerea: no pairing, nothing in the Agents panel. Provider keys in your shell are removed from its environment. It is not supervised: opencode asks you in the terminal, and galopin's own-state protections, Plan/Ask/Auto and the review log do not apply. Update galopin on the machine to get it.

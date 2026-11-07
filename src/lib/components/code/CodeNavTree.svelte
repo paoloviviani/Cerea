@@ -76,7 +76,6 @@
 		dropCodeDevice,
 		useCodeDevicePoll,
 	} from "$lib/stores/codeDeviceList.svelte";
-	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
@@ -824,30 +823,6 @@
 						</div>
 					</div>
 				{/if}
-				{#if !device.reenroll && !isDead && codeLegacyMachines[device.id]}
-					<!-- Learned from a session's rules (the Permissions dialog): this machine's
-					     policy predates ceilings and its opencode.json has no ask block, so
-					     it allows everything until re-enrolled. The same one-liner as the
-					     `reenroll` banner above, since it is the same fix. -->
-					<div
-						class="mb-1.5 ml-7 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
-						data-testid="legacy-machine-row-flag"
-					>
-						<p class="mb-1.5 flex items-center gap-1.5 font-medium">
-							<IconWarning class="size-3.5 shrink-0" />
-							{m["code.nav.reenroll_legacy"]()}
-						</p>
-						<p class="mb-1.5">{m["code.nav.legacy_detail"]()}</p>
-						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
-							<pre
-								class="min-w-0 flex-1 overflow-x-auto font-mono text-[.65rem] whitespace-pre text-ink">{reenrollCommand}</pre>
-							<CopyToClipBoardBtn
-								classNames="flex size-7 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
-								value={reenrollCommand}
-							/>
-						</div>
-					</div>
-				{/if}
 				{#if device.status === "paired" && !isDead && deviceExpanded}
 					<!-- No gutter here: the machine row is the group's heading and
 					     its workspaces start at the left edge, so the guide that
@@ -1288,8 +1263,6 @@
 		mode={stepOf(permissionsFor.agent.permissionMode, permissionsFor.agent.autoClasses)}
 		device={permissionsFor.device}
 		subagent={Boolean(permissionsFor.agent.parentId)}
-		policy={permissionsFor.device.policy}
-		onreenroll={() => (pairingOpen = true)}
 		onclose={() => (permissionsFor = null)}
 	/>
 {/if}

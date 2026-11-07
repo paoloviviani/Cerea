@@ -74,7 +74,7 @@ describe("the workspace panel", () => {
 		);
 		const screen = mountWorkspace("");
 
-		expect(screen.getByRole("heading", { name: "Models" })).toBeInTheDocument();
+		expect(screen.getByRole("heading", { name: "Models", exact: true })).toBeInTheDocument();
 		expect(screen.baseElement.textContent).toContain("Every model available to you.");
 		// The other two managers are not mounted beside it.
 		expect(screen.baseElement.textContent).not.toContain(
@@ -97,23 +97,43 @@ describe("the workspace panel", () => {
 		expect(kb.getByRole("heading", { name: "Knowledge bases" })).toBeInTheDocument();
 	});
 
-	it("offers the Local connectors tab only when LOCAL_CONNECTORS_ENABLED is on (ADR 0102)", async () => {
+	it("draws the On your machines section under Connectors only when LOCAL_CONNECTORS_ENABLED is on (ADR 0102)", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => Response.json({ machines: [], data: [] }))
 		);
-		const off = mountWorkspace("?tab=local", { localConnectorsEnabled: false });
-		expect(off.baseElement.textContent).not.toContain("Local connectors");
-		// A hidden tab's address lands on Models, like Knowledge with its pipeline off.
-		expect(off.getByRole("heading", { name: "Models" })).toBeInTheDocument();
+		const off = mountWorkspace("?tab=mcp", { localConnectorsEnabled: false });
+		expect(off.baseElement.textContent).not.toContain("On your machines");
+		expect(off.baseElement.querySelector("#on-your-machines")).toBeNull();
 		off.unmount();
 		document.getElementById("app")?.remove();
 
-		const on = mountWorkspace("?tab=local", { localConnectorsEnabled: true });
-		await expect.element(on.getByRole("link", { name: "Local connectors" })).toBeInTheDocument();
+		const on = mountWorkspace("?tab=mcp", { localConnectorsEnabled: true });
+		await expect
+			.element(on.getByRole("heading", { name: "On your machines", level: 2 }))
+			.toBeInTheDocument();
 		await expect
 			.element(on.getByRole("heading", { name: "Connect a machine" }))
 			.toBeInTheDocument();
+		// Under the connectors, in the same tab, addressable.
+		const connectors = on.getByRole("heading", { name: "Connectors", exact: true }).element();
+		const machines = on.baseElement.querySelector("#on-your-machines") as HTMLElement;
+		expect(
+			connectors.compareDocumentPosition(machines) & Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+	});
+
+	it("the old ?tab=local and ?tab=custom addresses land on Models when they reach the panel", () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => Response.json({ data: [] }))
+		);
+		for (const tab of ["local", "custom"]) {
+			const screen = mountWorkspace(`?tab=${tab}`, { localConnectorsEnabled: true });
+			expect(screen.getByRole("heading", { name: "Models", exact: true })).toBeInTheDocument();
+			screen.unmount();
+			document.getElementById("app")?.remove();
+		}
 	});
 
 	it("offers the Agents tab (the user's own auto-approval, ADR 0109) only for a signed-in user where coding agents exist", async () => {
@@ -137,7 +157,7 @@ describe("the workspace panel", () => {
 		);
 		const off = mountWorkspace("?tab=agents", { user: { id: "u" }, codeAgentsEnabled: false });
 		expect(off.baseElement.textContent).not.toContain("Auto-approval");
-		expect(off.getByRole("heading", { name: "Models" })).toBeInTheDocument();
+		expect(off.getByRole("heading", { name: "Models", exact: true })).toBeInTheDocument();
 		off.unmount();
 		document.getElementById("app")?.remove();
 
@@ -152,7 +172,7 @@ describe("the workspace panel", () => {
 			vi.fn(async () => Response.json({ data: [] }))
 		);
 		const screen = mountWorkspace("?tab=nonsense");
-		expect(screen.getByRole("heading", { name: "Models" })).toBeInTheDocument();
+		expect(screen.getByRole("heading", { name: "Models", exact: true })).toBeInTheDocument();
 	});
 
 	it("an ?id= opens the manager straight onto that item", async () => {
@@ -167,24 +187,44 @@ describe("the workspace panel", () => {
 		await expect
 			.element(screen.getByRole("heading", { name: "What it may do" }))
 			.toBeInTheDocument();
-		expect(screen.baseElement.textContent).not.toContain("Instructions");
 	});
 
-	it("renders Custom models on ?tab=custom, and links it from the tab bar", async () => {
+	it("renders Your custom models as a section of the Models tab, not a tab of its own", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => Response.json({ data: [] }))
 		);
-		const screen = mountWorkspace("?tab=custom");
+		const screen = mountWorkspace("?tab=models");
 
 		await expect
-			.element(screen.getByRole("heading", { name: "Custom models", level: 2 }))
+			.element(screen.getByRole("heading", { name: "Your custom models", level: 2 }))
 			.toBeInTheDocument();
 		expect(screen.baseElement.textContent).toContain("Instructions for every chat");
-		expect(screen.baseElement.querySelector('a[href="/workspace?tab=custom"]')).not.toBeNull();
-		expect(
-			screen.baseElement.querySelector('a[href="/workspace?tab=custom"][aria-current="page"]')
-		).not.toBeNull();
+		expect(screen.baseElement.querySelector("#custom-models")).not.toBeNull();
+		expect(screen.baseElement.querySelector('a[href="/workspace?tab=custom"]')).toBeNull();
+	});
+
+	it("has six tabs at most: Models, Memory, Knowledge, Skills, Connectors and Agents", () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => Response.json({ data: [] }))
+		);
+		const screen = mountWorkspace("", {
+			user: { id: "u" },
+			codeAgentsEnabled: true,
+			localConnectorsEnabled: true,
+		});
+		const hrefs = [...screen.baseElement.querySelectorAll("nav[aria-label] a")].map((a) =>
+			a.getAttribute("href")
+		);
+		expect(hrefs).toEqual([
+			"/workspace?tab=models",
+			"/workspace?tab=memory",
+			"/workspace?tab=kb",
+			"/workspace?tab=skills",
+			"/workspace?tab=mcp",
+			"/workspace?tab=agents",
+		]);
 	});
 
 	it("the tab bar links the three addresses, marking the active one", () => {

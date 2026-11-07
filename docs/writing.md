@@ -67,10 +67,10 @@ adds it in brackets.
 
 ## Kept terms
 
-The agent (Code) area, and the Local connectors page that goes with it, are
+The agent (Code) area, and the local connectors section that goes with it, are
 for power users. They keep their technical vocabulary on purpose:
 
-- **local connector**: the tab, the section and the page name. Not "connector on
+- **local connector**: the section and the page name. Not "connector on
   your computer".
 - **machine** and **pair** ("Pair a machine"), device, daemon, enroll,
   workspace (a folder on a machine), session, worktree, posture, ceiling,

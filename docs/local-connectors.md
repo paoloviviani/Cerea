@@ -21,11 +21,11 @@ On a deployment with the Pystino gateway, local connectors are their own per-gro
 capability, `local_connectors` (set in the gateway console under Groups, on by default for new
 groups; separate from `code_agents`). A connectors machine needs it, an agent machine needs
 `code_agents`, and the machine's kind is only known at its first message, so it is checked there
-and again every minute. Without it the Local connectors tab says "Your administrator has not
+and again every minute. Without it the **On your machines** section of Workspace → Connectors says "Your administrator has not
 enabled local connectors for your groups" instead of the how-to, the machine is closed with
 `4404` and its MCP channels with it, and nothing is revoked: it reconnects by itself once a group
 grants the flag. If the gateway reports neither capability because it has no chat configured
-(`GATEWAY_CHAT__ENABLED` unset on a standalone Pystino), the tab and the machine say the gateway
+(`GATEWAY_CHAT__ENABLED` unset on a standalone Pystino), the section and the machine say the gateway
 is not configured for the chat. Without a gateway nothing changes.
 
 ## Enroll a connectors-only machine
@@ -49,7 +49,7 @@ device), stores the refresh credential in `<config-dir>/galopin/credentials.json
 and writes nothing else: no opencode config, no gateway, no policy file. It
 records that this is a connectors machine, so a plain `galopin run` starts no
 backend. The machine then appears under
-**Local connectors** in the chat's workspace settings, where you approve it
+**On your machines** (Workspace → Connectors), where you approve it
 (a connectors machine is never listed in the Agents panel).
 
 A machine that already runs a coding agent needs no second enrollment: it offers

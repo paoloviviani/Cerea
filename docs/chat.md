@@ -184,8 +184,9 @@ group's limits, and the usage is shown to you only.
 
 ### Custom models
 
-The **Custom models** tab of the Workspace page (`/workspace?tab=custom`)
-holds two things you write yourself.
+The **Your custom models** section of the Models tab (Workspace → Models) holds
+two things you write yourself. (Custom models used to be a tab of their own; the
+old address `/workspace?tab=custom` still opens here.)
 
 **A global system prompt.** One text box, saved on your settings and sent with
 **every chat message**, whatever the model. It is for chat only: the
