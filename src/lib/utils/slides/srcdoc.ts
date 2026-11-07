@@ -104,11 +104,35 @@ function runtimeScript(channel: string, pdf: boolean, markdown: boolean): string
       return aside ? (aside.textContent || '').trim() : '';
     } catch (e) { return ''; }
   }
+  // Every slide you can land on, in the order you meet it: the top-level
+  // sections, and the sections inside a vertical stack one by one. This is
+  // the number the counter and the PDF use; reveal's own horizontal index
+  // would skip the stacks' inner slides.
+  function leaves(){
+    var out = [];
+    var tops = document.querySelectorAll('.reveal .slides > section');
+    for (var h = 0; h < tops.length; h++) {
+      var kids = tops[h].querySelectorAll(':scope > section');
+      if (kids.length) { for (var v = 0; v < kids.length; v++) out.push([h, v]); }
+      else out.push([h, 0]);
+    }
+    return out;
+  }
+  function position(list){
+    var at = deck.getIndices();
+    for (var i = 0; i < list.length; i++) if (list[i][0] === at.h && list[i][1] === (at.v || 0)) return i;
+    return 0;
+  }
+  function goTo(list, i){
+    var t = list[Math.max(0, Math.min(list.length - 1, i))];
+    if (t) deck.slide(t[0], t[1]);
+  }
   function publish(){
     var text = notes();
+    var list = leaves();
     if (notesEl) { notesEl.textContent = text || ''; notesEl.hidden = !(notesOpen && text); }
     send('chatui.slides.state', {
-      index: deck.getState().indexh || 0, total: deck.getTotalSlides(), notes: !!text, notesOpen: notesOpen
+      index: position(list), total: list.length, notes: !!text, notesOpen: notesOpen
     });
   }
   deck.initialize().then(function(){
@@ -127,8 +151,8 @@ function runtimeScript(channel: string, pdf: boolean, markdown: boolean): string
     if (data.type === 'chatui.slides.cmd') {
       if (d.cmd === 'prev') deck.prev();
       else if (d.cmd === 'next') deck.next();
-      else if (d.cmd === 'first') deck.slide(0);
-      else if (d.cmd === 'last') deck.slide(deck.getTotalSlides() - 1);
+      else if (d.cmd === 'first') goTo(leaves(), 0);
+      else if (d.cmd === 'last') goTo(leaves(), 1e9);
       else if (d.cmd === 'notes') { notesOpen = !notesOpen; publish(); }
     } else if (data.type === 'chatui.slides.capture') {
       var id = typeof d.id === 'string' ? d.id : '';
@@ -142,7 +166,7 @@ function runtimeScript(channel: string, pdf: boolean, markdown: boolean): string
           s.remove();
           if (!window.snapdom) { fail('capture library failed to initialize'); return; }
         }
-        deck.slide(Number(d.index) || 0);
+        goTo(leaves(), Number(d.index) || 0);
         var fonts = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
         fonts.then(function(){
           // Timers, not requestAnimationFrame: an offscreen cross-origin frame gets no animation frames

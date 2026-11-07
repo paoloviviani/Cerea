@@ -1512,6 +1512,8 @@
 	"chat.slides.exit": "Exit presentation",
 	"chat.slides.pdf": "Download PDF",
 	"chat.slides.pdf_busy": "Making the PDF… {done} of {total}",
+	"chat.slides.pdf_cancel": "Cancel PDF",
+	"chat.slides.pdf_too_large": "This deck is too large for a PDF. Download the source instead.",
 	"chat.slides.pdf_failed": "The PDF could not be made. Try again, or use the Markdown download.",
 	"chat.panel.type.react": "react",
 	"chat.panel.type.svg": "svg",

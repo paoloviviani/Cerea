@@ -35,7 +35,8 @@ Decide before you write anything.
 ## The format
 
 Write `<section>` elements, one per slide, nothing else around them: no `<html>`, `<head>`, `<body>` or `<script>`
-(the engine is Cerea's; scripts, remote files and event handlers are removed). Put CSS in a `<style>` block before
+(the engine is Cerea's: it removes `<script>`, `on...` handlers, remote files and frames from your HTML, so do not
+rely on them). Put CSS in a `<style>` block before
 the first section. Nested sections make vertical stacks. Put notes in `<aside class="notes">` inside the section.
 
 ```html

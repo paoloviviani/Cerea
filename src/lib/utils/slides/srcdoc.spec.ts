@@ -51,9 +51,9 @@ describe("buildSlidesSrcdoc, Markdown", () => {
 	});
 
 	it("carries the Markdown in a textarea, escaped so it cannot close it", () => {
-		const hostile = buildSlidesSrcdoc("# x </textarea><script>alert(1)</script> & y", "c");
+		const hostile = buildSlidesSrcdoc("# x </textarea><b>bold</b> & y", "c");
 		const body = hostile.slice(hostile.indexOf("<textarea data-template>"));
-		expect(body).toContain("&lt;/textarea&gt;&lt;script&gt;alert(1)&lt;/script&gt; &amp; y");
+		expect(body).toContain("&lt;/textarea&gt;&lt;b&gt;bold&lt;/b&gt; &amp; y");
 		expect(body.indexOf("</textarea>")).toBeGreaterThan(body.indexOf("&amp; y"));
 	});
 

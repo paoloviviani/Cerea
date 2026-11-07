@@ -1610,6 +1610,8 @@
 	"chat.slides.exit": "[Éẋíť þŕéśéńťáťíóń]",
 	"chat.slides.pdf": "[Ďóŵńľóáď ÞĎƑ]",
 	"chat.slides.pdf_busy": "[Ḿáķíńǧ ťȟé ÞĎƑ… {done} óƒ {total}]",
+	"chat.slides.pdf_cancel": "[Ćáńćéľ ÞĎƑ]",
+	"chat.slides.pdf_too_large": "[Ťȟíś ďéćķ íś ťóó ľáŕǧé ƒóŕ á ÞĎƑ. Ďóŵńľóáď ťȟé śóúŕćé íńśťéáď.]",
 	"chat.slides.pdf_failed": "[Ťȟé ÞĎƑ ćóúľď ńóť ƀé ḿáďé. Ťŕý áǧáíń, óŕ úśé ťȟé Ḿáŕķďóŵń ďóŵńľóáď.]",
 	"chat.panel.type.react": "[ŕéáćť]",
 	"chat.panel.type.svg": "[śǚǧ]",

@@ -147,3 +147,46 @@ describe("sanitizeHtmlDeck", () => {
 		});
 	});
 });
+
+describe("sanitizer edge cases", () => {
+	it("removes a handler after a slash or a closing quote", () => {
+		const { html, report } = sanitizeHtmlDeck(
+			'<section><img/onerror=alert(1)><a href="#"onclick="x()">a</a><svg/onload=y()></svg></section>'
+		);
+		expect(html).not.toMatch(/onerror|onclick|onload/i);
+		expect(html).toContain('href="#"');
+		expect(report.handlers).toBe(3);
+	});
+
+	it("leaves attributes that merely contain 'on' alone", () => {
+		const { html, report } = sanitizeHtmlDeck(
+			'<section data-transition="zoom" class="monster-icon" style="content:\'on=1\'"></section>'
+		);
+		expect(html).toContain('data-transition="zoom"');
+		expect(html).toContain("monster-icon");
+		expect(report.handlers).toBe(0);
+	});
+});
+
+describe("Markdown decks get the same hygiene", () => {
+	it("cleans HTML in the prose and counts it", () => {
+		const deck = parseDeck(
+			'# Hi\n\n<img src="https://x.test/a.png" onerror="bad()">\n\n<script>alert(1)</script>\n\n---\n\n# Two\n'
+		);
+		expect(deck.mode).toBe("markdown");
+		expect(deck.body).not.toMatch(/<script|onerror|x\.test/);
+		expect(deck.body).toContain("# Hi");
+		expect(deck.stripped.scripts).toBe(1);
+		expect(deck.stripped.handlers).toBe(1);
+		expect(deck.stripped.externalResources).toBe(1);
+		expect(deck.slideCount).toBe(2);
+	});
+
+	it("leaves code fences and inline code alone, so a deck can show a script as text", () => {
+		const md =
+			"# Code\n\n```html\n<script>alert(1)</script>\n```\n\nUse `<script src=x>` carefully.\n";
+		const deck = parseDeck(md);
+		expect(deck.body).toBe(md.trimEnd() + "\n");
+		expect(deck.stripped.scripts).toBe(0);
+	});
+});

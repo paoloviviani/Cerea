@@ -125,6 +125,18 @@ export interface OrgSlideDefaults {
 	logo?: string;
 }
 
+/**
+ * What the page data carries about the organisation default: the small
+ * fields, and only a flag for the logo (up to 400 kB), which is fetched on
+ * demand from `/api/v2/slides/logo` instead of riding every navigation.
+ */
+export type OrgSlidePublic = Omit<OrgSlideDefaults, "logo"> & { hasLogo?: boolean };
+
+export function publicOrgDefaults(org: OrgSlideDefaults): OrgSlidePublic {
+	const { logo, ...rest } = org;
+	return logo ? { ...rest, hasLogo: true } : rest;
+}
+
 export function sanitizeOrgDefaults(value: unknown): OrgSlideDefaults {
 	if (!value || typeof value !== "object") return {};
 	const raw = value as Record<string, unknown>;

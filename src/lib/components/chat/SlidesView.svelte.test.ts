@@ -47,10 +47,16 @@ describe("SlidesView", () => {
 		await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 2");
 	});
 
-	it("puts the organisation logo into the deck", async () => {
+	it("loads the organisation logo lazily, and only when the data says there is one", async () => {
 		const logo = "data:image/png;base64,iVBORw0KGgo=";
-		const { iframe } = await mount({ org: { logo } });
+		const loadOrgLogo = vi.fn(async () => logo);
+		const { iframe } = await mount({ org: { hasLogo: true, accent: "#112233" }, loadOrgLogo });
+		expect(loadOrgLogo).toHaveBeenCalledTimes(1);
 		expect(iframe.srcdoc).toContain(`class="cerea-logo"`);
+		expect(iframe.srcdoc).toContain("--brand-accent:#112233");
+		loadOrgLogo.mockClear();
+		await mount({ org: { accent: "#112233" }, loadOrgLogo });
+		expect(loadOrgLogo).not.toHaveBeenCalled();
 	});
 
 	it("resolves a logo named in the front matter through resolveLogo", async () => {
@@ -121,4 +127,128 @@ describe("SlidesView", () => {
 		create.mockRestore();
 		click.mockRestore();
 	}, 90_000);
+
+	describe("vertical stacks and long exports", () => {
+		const STACK =
+			'<section data-background-color="#ff0000">a</section>' +
+			'<section><section data-background-color="#00ff00">b1</section><section data-background-color="#0000ff">b2</section></section>' +
+			'<section data-background-color="#ffff00">c</section>';
+
+		/** The JPEG pictures of a PDF, in page order. */
+		function pagesOf(bytes: Uint8Array): Uint8Array[] {
+			const out: Uint8Array[] = [];
+			for (let i = 0; i + 3 < bytes.length; i++) {
+				if (bytes[i] === 0xff && bytes[i + 1] === 0xd8 && bytes[i + 2] === 0xff) {
+					let j = i + 2;
+					while (j + 1 < bytes.length && !(bytes[j] === 0xff && bytes[j + 1] === 0xd9)) j++;
+					out.push(bytes.slice(i, j + 2));
+					i = j;
+				}
+			}
+			return out;
+		}
+
+		async function centre(jpeg: Uint8Array): Promise<[number, number, number]> {
+			const bitmap = await createImageBitmap(new Blob([jpeg as BlobPart], { type: "image/jpeg" }));
+			const canvas = document.createElement("canvas");
+			canvas.width = bitmap.width;
+			canvas.height = bitmap.height;
+			const ctx = canvas.getContext("2d");
+			if (!ctx) throw new Error("no 2d context");
+			ctx.drawImage(bitmap, 0, 0);
+			const px = ctx.getImageData(
+				Math.round(bitmap.width / 2),
+				Math.round(bitmap.height * 0.9),
+				1,
+				1
+			).data;
+			return [px[0], px[1], px[2]];
+		}
+
+		it("counts every slide of a vertical stack, in reading order", async () => {
+			const { screen } = await mount({ content: STACK });
+			const counter = screen.getByTestId("slides-counter");
+			await expect.element(counter).toHaveTextContent("1 / 4");
+			const next = screen.getByRole("button", { name: "Next slide" });
+			for (const n of [2, 3, 4]) {
+				await next.click();
+				await expect.element(counter).toHaveTextContent(`${n} / 4`);
+			}
+			await screen.getByRole("button", { name: "Previous slide" }).click();
+			await expect.element(counter).toHaveTextContent("3 / 4");
+		});
+
+		it("exports one PDF page per slide, stack slides included, in order", async () => {
+			const blobs: Blob[] = [];
+			const create = vi.spyOn(URL, "createObjectURL").mockImplementation((b) => {
+				blobs.push(b as Blob);
+				return "blob:test";
+			});
+			const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+			const { screen } = await mount({ content: STACK });
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 4");
+			await screen.getByRole("button", { name: "Download PDF" }).click();
+			await vi.waitFor(() => expect(blobs.length).toBe(1), { timeout: 60_000 });
+			const bytes = new Uint8Array(await blobs[0].arrayBuffer());
+			expect(new TextDecoder("latin1").decode(bytes)).toContain("/Count 4");
+			const pages = pagesOf(bytes);
+			expect(pages.length).toBe(4);
+			const [red, green, blue, yellow] = await Promise.all(pages.map(centre));
+			expect(red[0]).toBeGreaterThan(200);
+			expect(red[1]).toBeLessThan(60);
+			expect(green[1]).toBeGreaterThan(200);
+			expect(green[0]).toBeLessThan(60);
+			expect(blue[2]).toBeGreaterThan(200);
+			expect(blue[0]).toBeLessThan(60);
+			expect(yellow[0]).toBeGreaterThan(200);
+			expect(yellow[1]).toBeGreaterThan(200);
+			expect(yellow[2]).toBeLessThan(80);
+			create.mockRestore();
+			click.mockRestore();
+		}, 90_000);
+
+		const LONG = Array.from({ length: 30 }, (_, i) => `<section>slide ${i + 1}</section>`).join("");
+		const hiddenFrames = () => document.querySelectorAll("iframe[aria-hidden='true']").length;
+
+		it("cancels a running export from the Cancel control and leaves nothing behind", async () => {
+			const create = vi.spyOn(URL, "createObjectURL");
+			const { screen } = await mount({ content: LONG });
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 30");
+			await screen.getByRole("button", { name: "Download PDF" }).click();
+			await screen.getByRole("button", { name: "Cancel PDF" }).click();
+			await expect.element(screen.getByRole("button", { name: "Download PDF" })).toBeEnabled();
+			await vi.waitFor(() => expect(hiddenFrames()).toBe(0));
+			expect(create).not.toHaveBeenCalled();
+			// No error is shown for a cancel
+			expect(screen.baseElement.querySelector("[role=alert]")).toBeNull();
+			create.mockRestore();
+		}, 60_000);
+
+		it("stops the export when the panel goes away", async () => {
+			const create = vi.spyOn(URL, "createObjectURL");
+			const { screen } = await mount({ content: LONG });
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 30");
+			await screen.getByRole("button", { name: "Download PDF" }).click();
+			await vi.waitFor(() => expect(hiddenFrames()).toBe(1));
+			screen.unmount();
+			await vi.waitFor(() => expect(hiddenFrames()).toBe(0));
+			await new Promise((r) => setTimeout(r, 500));
+			expect(create).not.toHaveBeenCalled();
+			create.mockRestore();
+		}, 60_000);
+	});
+
+	it("waits for a changing deck to settle before rebuilding the frame", async () => {
+		const { screen, iframe } = await mount({ content: "# One\n\n---\n\n# Two\n" });
+		const first = iframe.srcdoc;
+		await screen.rerender({ content: "# One\n\n---\n\n# Two\n\n---\n\n# Three\n" });
+		await screen.rerender({
+			content: "# One\n\n---\n\n# Two\n\n---\n\n# Three\n\n---\n\n# Four\n",
+		});
+		expect(document.querySelector("iframe")?.srcdoc).toBe(first);
+		await vi.waitFor(() => expect(document.querySelector("iframe")?.srcdoc).not.toBe(first), {
+			timeout: 5000,
+		});
+		expect(document.querySelector("iframe")?.srcdoc).toContain("Four");
+	});
 });

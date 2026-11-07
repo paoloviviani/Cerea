@@ -456,7 +456,12 @@ describe("misc helpers", () => {
 		expect(artifactFileName({ ...base, type: "code", language: "python" })).toBe("my-app.py");
 		expect(artifactFileName({ ...base, type: "code", language: "weird" })).toBe("my-app.txt");
 		expect(artifactFileName({ ...base, type: "mermaid" })).toBe("my-app.mmd");
-		expect(artifactFileName({ ...base, type: "slides" })).toBe("my-app.md");
+		expect(artifactFileName({ ...base, type: "slides", content: "# Hi\n\n---\n\n# There" })).toBe(
+			"my-app.md"
+		);
+		expect(
+			artifactFileName({ ...base, type: "slides", content: "<style></style><section>x</section>" })
+		).toBe("my-app.html");
 		expect(normalizeArtifactKind("slides")).toBe("slides");
 		expect(normalizeArtifactKind("deck")).toBe("slides");
 		expect(artifactFileName({ ...base, type: "table" })).toBe("my-app.csv");

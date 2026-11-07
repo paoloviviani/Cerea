@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
 	BUILTIN_THEME_IDS,
 	THEME_IDS,
+	publicOrgDefaults,
 	resolveTheme,
 	sanitizeAccent,
 	sanitizeFont,
@@ -47,6 +48,16 @@ describe("sanitizers", () => {
 			})
 		).toEqual({ accent: "#ffffff", font: "serif" });
 		expect(sanitizeOrgDefaults("nope")).toEqual({});
+	});
+});
+
+describe("publicOrgDefaults", () => {
+	it("keeps the small fields and turns the logo into a flag", () => {
+		const big = `data:image/png;base64,${"A".repeat(300_000)}`;
+		const out = publicOrgDefaults({ accent: "#112233", font: "serif", logo: big });
+		expect(out).toEqual({ accent: "#112233", font: "serif", hasLogo: true });
+		expect(JSON.stringify(out).length).toBeLessThan(200);
+		expect(publicOrgDefaults({ accent: "#112233" })).toEqual({ accent: "#112233" });
 	});
 });
 

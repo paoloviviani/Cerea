@@ -26,7 +26,7 @@
 	import ExecutionFiles from "./ExecutionFiles.svelte";
 	import MountedChips from "./MountedChips.svelte";
 	import SlidesView from "./SlidesView.svelte";
-	import type { OrgSlideDefaults } from "$lib/utils/slides/themes";
+	import type { OrgSlidePublic } from "$lib/utils/slides/themes";
 	import { diffLines, diffStats, renderDiffHtml } from "$lib/utils/artifactDiff";
 	import {
 		buildArtifactSrcdoc,
@@ -792,17 +792,9 @@
 			version.type !== "slides"
 	);
 
-	/**
-	 * A logo named in a deck's front matter: an image in this chat (a file a
-	 * run produced), read into a data: URL because the preview sandbox can
-	 * load nothing else.
-	 */
-	async function resolveLogo(name: string): Promise<string | undefined> {
-		const found = fileRegistry.artifacts.get(name)?.versions.at(-1);
-		if (!found || !conversationId || found.uploaded === false) return undefined;
-		const res = await fetch(
-			`${base}/conversation/${conversationId}/code-execution/output/${found.sha256}`
-		);
+	/** A fetched image as a data: URL, or undefined when it is not a small image. */
+	async function imageDataUrl(url: string): Promise<string | undefined> {
+		const res = await fetch(url);
 		if (!res.ok) return undefined;
 		const blob = await res.blob();
 		const type = blob.type || "";
@@ -814,6 +806,38 @@
 			reader.onerror = () => resolve(undefined);
 			reader.readAsDataURL(blob);
 		});
+	}
+
+	// Each logo is fetched once per panel: a deck rebuild or a PDF export reuses it
+	const logoCache = new Map<string, Promise<string | undefined>>();
+	const cachedLogo = (key: string, load: () => Promise<string | undefined>) => {
+		let hit = logoCache.get(key);
+		if (!hit) {
+			hit = load().catch(() => undefined);
+			logoCache.set(key, hit);
+			// A failure is not remembered: the next build tries again
+			void hit.then((v) => {
+				if (v === undefined) logoCache.delete(key);
+			});
+		}
+		return hit;
+	};
+
+	/**
+	 * A logo named in a deck's front matter: an image in this chat (a file a
+	 * run produced), read into a data: URL because the preview sandbox can
+	 * load nothing else. Cached by the file's hash.
+	 */
+	function resolveLogo(name: string): Promise<string | undefined> {
+		const found = fileRegistry.artifacts.get(name)?.versions.at(-1);
+		if (!found || !conversationId || found.uploaded === false) return Promise.resolve(undefined);
+		const url = `${base}/conversation/${conversationId}/code-execution/output/${found.sha256}`;
+		return cachedLogo(`file:${found.sha256}`, () => imageDataUrl(url));
+	}
+
+	/** The organisation logo, from its own small endpoint rather than the page data. */
+	function loadOrgLogo(): Promise<string | undefined> {
+		return cachedLogo("org", () => imageDataUrl(`${base}/api/v2/slides/logo`));
 	}
 
 	function download() {
@@ -1027,7 +1051,8 @@
 			{:else if previewedKind === "slides" && previewedContent !== undefined}
 				<SlidesView
 					content={previewedContent}
-					org={(page.data as { slideDefaults?: OrgSlideDefaults }).slideDefaults}
+					org={(page.data as { slideDefaults?: OrgSlidePublic }).slideDefaults}
+					{loadOrgLogo}
 					{resolveLogo}
 					{resizing}
 				/>

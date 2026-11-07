@@ -1,7 +1,7 @@
 import type { Message } from "$lib/types/Message";
 import { MessageCodeExecutionUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 import { extractThink, stripThink } from "$lib/utils/stripThink";
-import { splitArtifactSegments } from "$lib/utils/artifacts";
+import { isHtmlDeck, splitArtifactSegments } from "$lib/utils/artifacts";
 import { isMessageToolCallUpdate } from "$lib/utils/messageUpdates";
 
 /**
@@ -182,7 +182,12 @@ export function renderAnswerBody(content: string): string {
 		}
 		const op = segment.op;
 		if (op.kind === "create") {
-			const fence = op.language?.trim() || LANGUAGE_FOR_ARTIFACT_KIND[op.type] || "";
+			const fence =
+				op.language?.trim() ||
+				(op.type === "slides" && isHtmlDeck(op.content)
+					? "html"
+					: LANGUAGE_FOR_ARTIFACT_KIND[op.type]) ||
+				"";
 			rendered.push(
 				`**Artifact: ${op.title} (\`${op.identifier}\`)**\n\n\`\`\`${fence}\n${op.content}\n\`\`\``
 			);

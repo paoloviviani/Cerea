@@ -21,16 +21,44 @@ const SLIDE_HEIGHT = 720;
 const READY_TIMEOUT_MS = 20_000;
 const SLIDE_TIMEOUT_MS = 15_000;
 const MAX_SLIDES = 200;
+/** Total size of the page pictures kept in memory before the PDF is written. */
+export const MAX_PDF_BYTES = 150 * 1024 * 1024;
 const MAX_JPEG_DATA_URL = 8_000_000;
 const JPEG_PREFIX = "data:image/jpeg;base64,";
 
 export interface SlidesPdfOptions extends Omit<SlidesSrcdocOptions, "pdf"> {
 	title?: string;
 	onProgress?: (done: number, total: number) => void;
+	/** Aborting stops the export and removes the offscreen frame; the promise rejects with an AbortError. */
+	signal?: AbortSignal;
+	/** Cap on the page pictures held at once (default 150 MB); beyond it the export fails with PdfTooLargeError. */
+	maxBytes?: number;
+}
+
+/** The deck needs more memory than a PDF export may use (too many slides, or very heavy ones). */
+export class PdfTooLargeError extends Error {
+	constructor(message = "This deck is too large to export as a PDF") {
+		super(message);
+		this.name = "PdfTooLargeError";
+	}
+}
+
+function abortError(): Error {
+	const e = new Error("The PDF export was cancelled");
+	e.name = "AbortError";
+	return e;
+}
+
+export function isAbortError(err: unknown): boolean {
+	return err instanceof Error && err.name === "AbortError";
 }
 
 export async function exportSlidesPdf(content: string, opts: SlidesPdfOptions = {}): Promise<Blob> {
+	const { signal } = opts;
+	const maxBytes = opts.maxBytes ?? MAX_PDF_BYTES;
+	if (signal?.aborted) throw abortError();
 	const source = await loadCaptureLibrarySource();
+	if (signal?.aborted) throw abortError();
 	const channel = `slidespdf_${Math.random().toString(36).slice(2)}`;
 	const parsed = parseDeck(content);
 	const iframe = document.createElement("iframe");
@@ -62,14 +90,22 @@ export async function exportSlidesPdf(content: string, opts: SlidesPdfOptions = 
 	};
 	const waitFor = (match: Waiter["match"], ms: number, what: string) =>
 		new Promise<Record<string, unknown>>((resolve, reject) => {
+			const onAbort = () => {
+				clearTimeout(timer);
+				waiter = undefined;
+				reject(abortError());
+			};
 			const timer = setTimeout(() => {
 				waiter = undefined;
+				signal?.removeEventListener("abort", onAbort);
 				reject(new Error(`Timed out waiting for ${what}`));
 			}, ms);
+			signal?.addEventListener("abort", onAbort, { once: true });
 			waiter = {
 				match,
 				resolve: (d) => {
 					clearTimeout(timer);
+					signal?.removeEventListener("abort", onAbort);
 					resolve(d);
 				},
 			};
@@ -81,9 +117,13 @@ export async function exportSlidesPdf(content: string, opts: SlidesPdfOptions = 
 		const ready = waitFor((t) => t === "chatui.slides.state", READY_TIMEOUT_MS, "the slides");
 		document.body.appendChild(iframe);
 		const state = await ready;
-		const total = Math.min(Number(state.total) || 1, MAX_SLIDES);
+		const total = Number(state.total) || 1;
+		if (total > MAX_SLIDES)
+			throw new PdfTooLargeError(`A PDF can have at most ${MAX_SLIDES} slides`);
 		const pages: PdfPage[] = [];
+		let bytes = 0;
 		for (let index = 0; index < total; index++) {
+			if (signal?.aborted) throw abortError();
 			const id = `p${index}`;
 			const result = waitFor(
 				(t, d) => t === "chatui.slides.captureResult" && d.id === id,
@@ -107,6 +147,8 @@ export async function exportSlidesPdf(content: string, opts: SlidesPdfOptions = 
 			const jpeg = dataUrlToBytes(dataUrl);
 			const size = jpegSize(jpeg);
 			if (!size) throw new Error(`Slide ${index + 1} did not render`);
+			bytes += jpeg.length;
+			if (bytes > maxBytes) throw new PdfTooLargeError();
 			pages.push({ jpeg, ...size });
 			opts.onProgress?.(index + 1, total);
 		}

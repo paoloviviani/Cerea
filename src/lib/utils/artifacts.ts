@@ -498,6 +498,11 @@ const CODE_LANGUAGE_EXTENSIONS: Record<string, string> = {
 	html: "html",
 };
 
+/** Whether a slides artifact is HTML `<section>` slides rather than Markdown. */
+export function isHtmlDeck(content: string): boolean {
+	return /<section[\s>]/i.test(content);
+}
+
 function fileExtension(version: ArtifactVersion): string {
 	switch (version.type) {
 		case "html":
@@ -505,8 +510,10 @@ function fileExtension(version: ArtifactVersion): string {
 		case "svg":
 			return "svg";
 		case "markdown":
-		case "slides":
 			return "md";
+		case "slides":
+			// HTML <section> slides are the main format; Markdown is the shortcut
+			return isHtmlDeck(version.content) ? "html" : "md";
 		case "mermaid":
 			return "mmd";
 		case "table":

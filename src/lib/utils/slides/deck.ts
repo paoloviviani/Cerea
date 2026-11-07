@@ -10,7 +10,7 @@ export interface DeckMeta extends DeckLook {
 }
 
 export interface StripReport {
-	/** `<script>` elements removed (the engine is Cerea's) */
+	/** `<script>` elements removed (the engine is Cerea's; the sandbox is what stops script, not this) */
 	scripts: number;
 	/** Inline event handlers (`onclick=` ...) and `javascript:` URLs removed */
 	handlers: number;
@@ -28,7 +28,7 @@ export interface ParsedDeck {
 	mode: DeckMode;
 	/** The slides after the front matter; for HTML, already cleaned */
 	body: string;
-	/** What cleaning an HTML deck removed (zeros for Markdown) */
+	/** What tidying the deck's HTML removed (an HTML deck, or HTML inside a Markdown one) */
 	stripped: StripReport;
 	/** Number of slides: `<section>` count for HTML, `---` separators for Markdown */
 	slideCount: number;
@@ -37,11 +37,13 @@ export interface ParsedDeck {
 const NO_STRIP: StripReport = { scripts: 0, handlers: 0, externalResources: 0, blockedTags: 0 };
 
 /**
- * Clean the model's HTML slides. The sandbox and its CSP already refuse
- * scripts from outside and every remote load; this removes them up front so
- * a deck cannot depend on them, and says how much it removed. Document
- * wrappers (`<html>`, `<head>`, `<body>`, doctype, `<title>`) are dropped but
- * `<style>` blocks stay.
+ * Tidy the model's HTML slides: the engine is Cerea's, so a deck's own
+ * `<script>`, inline handlers, remote loads and frames are taken out up
+ * front, and the report says how much. This is hygiene, not the security
+ * boundary: the sandbox (no same-origin access, no modals) and the CSP (no
+ * network) are, and they hold whatever this misses. Document wrappers
+ * (`<html>`, `<head>`, `<body>`, doctype, `<title>`) are dropped but `<style>`
+ * blocks stay.
  */
 export function sanitizeHtmlDeck(html: string): { html: string; report: StripReport } {
 	const report: StripReport = { ...NO_STRIP };
@@ -61,13 +63,14 @@ export function sanitizeHtmlDeck(html: string): { html: string; report: StripRep
 			count("blockedTags")
 		)
 		.replace(/<\/?(?:iframe|object|embed|frame|frameset|applet)\b[^>]*>/gi, count("blockedTags"))
-		.replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, count("handlers"))
+		// An attribute can follow whitespace, a slash (<img/onerror=...>) or a closing quote
+		.replace(/(?<=[\s/"'])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, count("handlers"))
 		.replace(
-			/\s(?:href|xlink:href|action|formaction)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*')/gi,
+			/(?<=[\s/"'])(?:href|xlink:href|action|formaction)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*')/gi,
 			count("handlers")
 		)
 		.replace(
-			/\s(?:src|poster|srcset)\s*=\s*(?:"\s*(?:https?:)?\/\/[^"]*"|'\s*(?:https?:)?\/\/[^']*')/gi,
+			/(?<=[\s/"'])(?:src|poster|srcset)\s*=\s*(?:"\s*(?:https?:)?\/\/[^"]*"|'\s*(?:https?:)?\/\/[^']*')/gi,
 			count("externalResources")
 		)
 		.replace(/@import\b[^;{}]*;?/gi, count("externalResources"))
@@ -76,6 +79,26 @@ export function sanitizeHtmlDeck(html: string): { html: string; report: StripRep
 			return "none";
 		});
 	return { html: out.trim(), report };
+}
+
+/**
+ * The same tidying for HTML embedded in a Markdown deck (reveal's Markdown
+ * passes raw HTML through). Fenced code and inline code are left alone, so a
+ * deck can still show `<script>` as text.
+ */
+export function sanitizeMarkdownDeck(md: string): { md: string; report: StripReport } {
+	const total: StripReport = { ...NO_STRIP };
+	const parts = md.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/);
+	const out = parts.map((part, i) => {
+		if (i % 2 === 1 || !part.includes("<")) return part;
+		const { html, report } = sanitizeHtmlDeck(part);
+		for (const k of Object.keys(total) as (keyof StripReport)[]) total[k] += report[k];
+		// Whitespace around the pieces matters in Markdown: keep the originals' edges
+		const lead = /^\s*/.exec(part)?.[0] ?? "";
+		const trail = /\s*$/.exec(part)?.[0] ?? "";
+		return lead + html + trail;
+	});
+	return { md: out.join(""), report: total };
 }
 
 const DATA_THEME = /\sdata-theme\s*=\s*["']([\w -]+)["']/i;
@@ -162,7 +185,14 @@ export function parseDeck(source: string): ParsedDeck {
 		const slideCount = Math.max(1, (cleaned.html.match(/<section[\s>]/gi) ?? []).length);
 		return { meta, mode: "html", body: cleaned.html, stripped: cleaned.report, slideCount };
 	}
-	return { meta, mode: "markdown", body, stripped: { ...NO_STRIP }, slideCount: countSlides(body) };
+	const cleanedMd = sanitizeMarkdownDeck(body);
+	return {
+		meta,
+		mode: "markdown",
+		body: cleanedMd.md,
+		stripped: cleanedMd.report,
+		slideCount: countSlides(cleanedMd.md),
+	};
 }
 
 /** A name for the downloaded file and the PDF: the first heading, else the title, else "slides". */

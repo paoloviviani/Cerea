@@ -53,7 +53,7 @@ PowerPoint file to edit, the assistant asks first.
 - **Speaker notes** show in a drawer under the slide (the notes button, or **N** or **S**). Cerea cannot open a separate speaker window, because the frame blocks pop-ups.
 - **Download PDF** makes one page per slide in your browser, so it needs no server; the pages are pictures, so text in the PDF cannot be selected. **Download** in the panel header saves the slides' source.
 - **Look.** Nothing is imposed. If your organisation has set a brand colour, font or logo, the assistant can use them. You can ask for a theme: **Cerea**, **Cerea dark**, or reveal.js's **white**, **black**, **simple**, **moon**, **solarized** or **dracula**.
-- **What is removed.** Scripts, event handlers (`onclick`), remote images and styles, and `<link>`, `<iframe>`, `<object>` and similar are taken out of a deck before it is shown; the frame would block them anyway.
+- **What is tidied away.** A deck's own scripts, event handlers (`onclick`), remote images and styles, and `<link>`, `<iframe>`, `<object>` and similar are taken out before it is shown, in HTML decks and in HTML inside Markdown ones. That is tidying, not the safeguard: the frame itself (no access to Cerea, no network) is what keeps a deck contained.
 - For a quick plain deck the assistant can write Markdown instead (slides separated by `---`).
 
 An administrator can set the brand colour, font and logo under

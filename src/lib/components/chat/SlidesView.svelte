@@ -11,21 +11,23 @@
 	import ExternalLinkModal from "../ExternalLinkModal.svelte";
 	import { PREVIEW_ALLOW, PREVIEW_SANDBOX } from "$lib/utils/previewSrcdoc";
 	import { parseExternalUrl } from "$lib/utils/externalLink";
-	import type { OrgSlideDefaults } from "$lib/utils/slides/themes";
+	import type { OrgSlideDefaults, OrgSlidePublic } from "$lib/utils/slides/themes";
 	import { loadSlidesSrcdoc } from "$lib/utils/slides/load";
 
 	interface Props {
 		/** The deck: front matter plus reveal.js Markdown */
 		content: string;
-		/** Organisation default look from the admin settings */
-		org?: OrgSlideDefaults;
+		/** The organisation's brand from the admin settings; the logo is only a flag here */
+		org?: OrgSlidePublic;
+		/** Fetches the organisation logo as a data: URL (cached by the caller) */
+		loadOrgLogo?: () => Promise<string | undefined>;
 		/** Turns a logo file name from the front matter into a data: URL */
 		resolveLogo?: (name: string) => Promise<string | undefined>;
 		/** Pointer events pass through while the panel is being resized */
 		resizing?: boolean;
 	}
 
-	let { content, org, resolveLogo, resizing = false }: Props = $props();
+	let { content, org, loadOrgLogo, resolveLogo, resizing = false }: Props = $props();
 
 	const channel = `slides_${Math.random().toString(36).slice(2)}`;
 	let iframeEl: HTMLIFrameElement | undefined = $state();
@@ -38,21 +40,45 @@
 	/** True when the browser took the iframe full screen; false means the in-page overlay */
 	let fullscreenNative = $state(false);
 	let pdfProgress = $state<{ done: number; total: number } | null>(null);
-	let pdfFailed = $state(false);
+	let pdfFailed = $state<"failed" | "large" | null>(null);
+	let pdfErrorKinds:
+		| Pick<typeof import("$lib/utils/slides/slidesPdf"), "isAbortError" | "PdfTooLargeError">
+		| undefined;
 	let externalLinkUrl = $state<URL | null>(null);
 
-	// Rebuild whenever the deck, the organisation default or the logo changes
+	/** Brand with the logo loaded: the page data only says whether there is one */
+	async function fullOrg(): Promise<OrgSlideDefaults | undefined> {
+		if (!org) return undefined;
+		const { hasLogo, ...rest } = org;
+		const logo = hasLogo && loadOrgLogo ? await loadOrgLogo().catch(() => undefined) : undefined;
+		return logo ? { ...rest, logo } : rest;
+	}
+
+	// Rebuild when the deck or the brand changes. The first build is immediate;
+	// later ones wait for the content to hold still, so a deck that is still
+	// being written (or edited) does not rebuild the frame on every change.
+	const REBUILD_DEBOUNCE_MS = 400;
+	let built = false;
 	$effect(() => {
 		const source = content;
-		const defaults = org;
+		const brand = org;
+		void brand;
 		let cancelled = false;
-		loadSlidesSrcdoc(source, channel, { org: defaults, resolveLogo })
-			.then((doc) => {
-				if (!cancelled) srcdoc = doc;
-			})
-			.catch(() => {});
+		const build = () => {
+			fullOrg()
+				.then((full) => loadSlidesSrcdoc(source, channel, { org: full, resolveLogo }))
+				.then((doc) => {
+					if (!cancelled) {
+						srcdoc = doc;
+						built = true;
+					}
+				})
+				.catch(() => {});
+		};
+		const timer = setTimeout(build, built ? REBUILD_DEBOUNCE_MS : 0);
 		return () => {
 			cancelled = true;
+			clearTimeout(timer);
 		};
 	});
 
@@ -94,6 +120,8 @@
 	});
 	onDestroy(() => {
 		if (typeof window !== "undefined") window.removeEventListener("message", onMessage);
+		// Leaving the panel stops a PDF export that is still running
+		pdfAbort?.abort();
 	});
 
 	async function present() {
@@ -119,12 +147,22 @@
 		if (ev.key === "Escape" && presenting && !fullscreenNative) exitPresenting();
 	}
 
+	let pdfAbort: AbortController | undefined;
+
+	function cancelPdf() {
+		pdfAbort?.abort();
+	}
+
 	async function downloadPdf() {
 		if (pdfProgress) return;
-		pdfFailed = false;
+		pdfFailed = null;
+		const abort = new AbortController();
+		pdfAbort = abort;
 		pdfProgress = { done: 0, total: total || 1 };
 		try {
-			const { exportSlidesPdf } = await import("$lib/utils/slides/slidesPdf");
+			const { exportSlidesPdf, isAbortError, PdfTooLargeError } =
+				await import("$lib/utils/slides/slidesPdf");
+			pdfErrorKinds = { isAbortError, PdfTooLargeError };
 			const { parseDeck, deckTitle } = await import("$lib/utils/slides/deck");
 			const parsed = parseDeck(content);
 			const title = deckTitle(parsed);
@@ -134,7 +172,8 @@
 				logoDataUrl = await resolveLogo(parsed.meta.logo).catch(() => undefined);
 			}
 			const blob = await exportSlidesPdf(content, {
-				org,
+				org: await fullOrg(),
+				signal: abort.signal,
 				title,
 				logoDataUrl,
 				highlight: marked?.highlightCode,
@@ -153,10 +192,14 @@
 			a.click();
 			a.remove();
 			setTimeout(() => URL.revokeObjectURL(url), 60_000);
-		} catch {
-			pdfFailed = true;
+		} catch (err) {
+			if (pdfErrorKinds?.isAbortError(err)) pdfFailed = null;
+			else
+				pdfFailed =
+					pdfErrorKinds && err instanceof pdfErrorKinds.PdfTooLargeError ? "large" : "failed";
 		} finally {
 			pdfProgress = null;
+			pdfAbort = undefined;
 		}
 	}
 
@@ -229,7 +272,7 @@
 		<span class="flex-1"></span>
 		{#if pdfFailed}
 			<span class="hidden truncate text-xs text-red-600 sm:inline dark:text-red-400" role="alert">
-				{m["chat.slides.pdf_failed"]()}
+				{pdfFailed === "large" ? m["chat.slides.pdf_too_large"]() : m["chat.slides.pdf_failed"]()}
 			</span>
 		{/if}
 		<button
@@ -255,6 +298,17 @@
 		>
 			{#if pdfProgress}<EosIconsLoading />{:else}<CarbonDocumentPdf />{/if}
 		</button>
+		{#if pdfProgress}
+			<button
+				type="button"
+				class={btn}
+				title={m["chat.slides.pdf_cancel"]()}
+				aria-label={m["chat.slides.pdf_cancel"]()}
+				onclick={cancelPdf}
+			>
+				<CarbonClose />
+			</button>
+		{/if}
 		<button
 			type="button"
 			class={btn}
