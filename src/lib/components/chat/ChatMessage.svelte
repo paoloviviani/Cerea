@@ -873,6 +873,13 @@
 		return units;
 	});
 
+	/** The turn is parked on a question or approval nobody has answered: nothing is
+	 * moving, so the ridge loader (which loops and fades, and reads as a stray dash
+	 * mid-cycle) is not drawn under the card. */
+	let waitingOnUser = $derived.by(() => {
+		const last = blocks.at(-1);
+		return last?.type === "elicitation" && !last.resolved;
+	});
 	/** Reasoning, a running tool and growing text animate; a finished tool, a
 	 * settled question and a terminal subagent do not. A subagent still
 	 * running — polled or merely unpaired — keeps the shimmer. */
@@ -1109,7 +1116,7 @@
 							</div>
 						{/if}
 					{/each}
-					{#if !trailingBlockShowsProgress}
+					{#if !trailingBlockShowsProgress && !waitingOnUser}
 						<MessageAvatar
 							animating
 							classNames="loading mt-1 inline-block h-3 md:h-4 w-auto select-none"
