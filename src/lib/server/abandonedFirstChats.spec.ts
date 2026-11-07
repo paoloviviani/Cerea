@@ -48,6 +48,15 @@ describe("isAbandonedFirstChat", () => {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		expect(isAbandonedFirstChat(conv({ titleSource: "user" }) as any)).toBe(false);
 	});
+
+	it("keeps a failed first chat whose message carries files", () => {
+		const withFile = {
+			...user,
+			files: [{ type: "hash", value: "abc", mime: "text/plain", name: "a.txt" }],
+		};
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		expect(isAbandonedFirstChat(conv({ messages: [sys, withFile, failed()] }) as any)).toBe(false);
+	});
 	it("is not one still generating (no error yet)", () => {
 		const running = { ...failed(), updates: [] };
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any

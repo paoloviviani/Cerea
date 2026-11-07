@@ -381,7 +381,7 @@
 	"code.panel.loading": "Loading…",
 	"code.first_run.title": "Agents work on your computer",
 	"code.first_run.body": "An agent reads your files, makes changes and runs commands on a computer you connect, and asks you before anything that matters. Connect one to start your first session.",
-	"code.first_run.connect": "Connect a computer",
+	"code.first_run.connect": "Pair a computer",
 	"code.panel.no_agent": "No session selected",
 	"code.panel.no_devices": "No paired computers",
 	"code.panel.open_agents": "Open Agents panel",

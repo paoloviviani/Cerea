@@ -7,7 +7,9 @@
  * Creating a chat removes this owner's failed first chats first, so one
  * failed attempt never becomes two. A chat the user went on with (any reply
  * with text, a rename, more than one exchange) is never touched, and neither
- * is one still generating: it has no error yet. Project chats are left alone.
+ * is one still generating: it has no error yet. Project chats are left alone,
+ * and so is a chat whose message carries files: an upload is the user's work
+ * and stays until they delete it.
  */
 import type { Filter } from "mongodb";
 import { collections } from "$lib/server/database";
@@ -35,7 +37,12 @@ export function isAbandonedFirstChat(
 	if (conv.titleSource === "user") return false;
 	const messages = conv.messages ?? [];
 	const exchange = messages.filter((m) => m.from !== "system");
-	return exchange.length === 2 && exchange[0].from === "user" && failedWithoutText(exchange[1]);
+	return (
+		exchange.length === 2 &&
+		exchange[0].from === "user" &&
+		!(exchange[0].files?.length ?? 0) &&
+		failedWithoutText(exchange[1])
+	);
 }
 
 /** Delete the owner's failed first chats; returns their ids so the client can drop them. */

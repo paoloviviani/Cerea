@@ -15,7 +15,7 @@ describe("the Agents first screen with no computer", () => {
 		const screen = renderWithApp(AgentsFirstRun, {});
 		await expect.element(screen.getByText("Agents work on your computer")).toBeVisible();
 		await expect.element(screen.getByText(/asks you before anything that matters/)).toBeVisible();
-		await expect.element(screen.getByRole("button", { name: "Connect a computer" })).toBeVisible();
+		await expect.element(screen.getByRole("button", { name: "Pair a computer" })).toBeVisible();
 	});
 
 	it("opens the pair dialog from the button", async () => {
@@ -32,7 +32,7 @@ describe("the Agents first screen with no computer", () => {
 				publicConfig: { PUBLIC_ORIGIN: "https://chat.example" },
 			}
 		);
-		await screen.getByRole("button", { name: "Connect a computer" }).click();
+		await screen.getByRole("button", { name: "Pair a computer" }).click();
 		await expect.element(screen.getByRole("dialog")).toBeVisible();
 	});
 });
