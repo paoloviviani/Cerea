@@ -497,7 +497,7 @@ test.describe("backend commands", () => {
 
 		const sheet = page.getByRole("dialog");
 		await expect(sheet).toBeVisible();
-		await expect(sheet).toContainText("This command runs on your machine");
+		await expect(sheet).toContainText("This command runs on your computer");
 		await expect(sheet).toContainText("echo DEPLOY_RAN");
 		// Nothing ran yet: the sheet is the only thing that happened.
 		expect(h.commandBodies).toEqual([]);
@@ -574,6 +574,6 @@ test.describe("backend commands", () => {
 		await expect(option(page, "/whoami")).toHaveCount(0);
 		// No error surfaced: the fallback is silent by design.
 		await page.keyboard.press("Escape");
-		await expect(page.getByText("This command runs on your machine")).toHaveCount(0);
+		await expect(page.getByText("This command runs on your computer")).toHaveCount(0);
 	});
 });

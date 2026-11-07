@@ -345,7 +345,10 @@ test("a code block's file is a file artifact too, and comes back after a reload"
 		await waitForHydration(page);
 
 		// Under the block, the stored file stands in for the sandbox's (dead) one.
-		await expect(page.getByText("hello_world.docx").first(), pass).toBeVisible({
+		await expect(
+			page.getByTestId("file-artifact-card").getByText("hello_world.docx").first(),
+			pass
+		).toBeVisible({
 			timeout: 30_000,
 		});
 

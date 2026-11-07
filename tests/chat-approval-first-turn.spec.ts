@@ -66,7 +66,10 @@ test("an approval answered on a conversation's first turn resumes it, every time
 		await page.getByPlaceholder("Ask anything").fill("go");
 		await page.getByRole("button", { name: "Send message" }).click();
 		const last = page.locator('[data-message-role="assistant"]').last();
-		await expect(last.getByText("wants to call agent_start")).toBeVisible({ timeout: 60_000 });
+		await expect(last.getByRole("button", { name: "Allow once" })).toBeVisible({ timeout: 60_000 });
+		// The tool's name sits behind "Show details" now.
+		await last.getByRole("button", { name: "Show details" }).click();
+		await expect(last.getByText("wants to call agent_start")).toBeVisible();
 		await last.getByRole("button", { name: "Allow once" }).click();
 		await expect(page.locator('[data-message-role="assistant"]').last()).toContainText(
 			`Round ${round} done.`,

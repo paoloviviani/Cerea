@@ -206,6 +206,12 @@ describe("the desktop chat header", () => {
 		expect(screen.container.querySelector('[data-testid="project-back"]')?.textContent).toContain(
 			"Q4 launch"
 		);
+		// The row spans the column and the files button sits at its right edge: the row itself
+		// must not take clicks (it did, and the button could not be pressed), only the link does.
+		const row = screen.container.querySelector('[data-testid="chat-header-row"]') as HTMLElement;
+		expect(getComputedStyle(row).pointerEvents).toBe("none");
+		const back = screen.container.querySelector('[data-testid="project-back"]') as HTMLElement;
+		expect(getComputedStyle(back).pointerEvents).toBe("auto");
 		screen.unmount();
 	});
 });

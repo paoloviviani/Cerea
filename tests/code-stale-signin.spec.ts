@@ -38,7 +38,9 @@ test.describe("a stale /code sign-in", () => {
 				const url = new URL(request.url());
 				if (
 					url.pathname.includes("/api/v2/code/") &&
-					!url.pathname.endsWith("/api/v2/code/status")
+					!url.pathname.endsWith("/api/v2/code/status") &&
+					// Cerea's own timetable (the sidebar's Schedules badge), not a machine.
+					!url.pathname.endsWith("/api/v2/code/schedules")
 				) {
 					machineRequests.push(`${request.method()} ${url.pathname}`);
 				}

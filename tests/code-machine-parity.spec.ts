@@ -73,7 +73,7 @@ test.describe("owned machine agent: parity", () => {
 		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 		await page.getByRole("button", { name: "Start a session in this workspace" }).click();
 		await page.getByRole("button", { name: "Ask", exact: true }).click();
-		await page.getByRole("button", { name: "Create agent" }).click();
+		await page.getByRole("button", { name: "Start session" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 		await expect(page.getByRole("combobox")).toBeEnabled({ timeout: 30_000 });
 		return started;
@@ -178,7 +178,9 @@ test.describe("owned machine agent: parity", () => {
 		await openSession(page, db, session.sessionId);
 		await mockOpenAI.setDefaultScenario(bashWriteScenario("call_a", "a", ["First", " done", "."]));
 		await send(page, "write a");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByTestId("approval-title")).toBeVisible({
+			timeout: 60_000,
+		});
 		// The ceiling holds bash at ask, and a human's "always" is still offered
 		// (the machine stores it over the limit). Scoped to the transcript: the Needs-you
 		// inbox mirrors the same ask, so a page-global lookup goes ambiguous
@@ -193,7 +195,9 @@ test.describe("owned machine agent: parity", () => {
 
 		await mockOpenAI.setDefaultScenario(bashWriteScenario("call_b", "b", ["Second", " done", "."]));
 		await send(page, "write b");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByTestId("approval-title")).toBeVisible({
+			timeout: 60_000,
+		});
 		await transcript.getByRole("button", { name: "Allow once" }).click();
 		await expect(transcriptCard(page).getByText("Second done.")).toBeVisible({ timeout: 60_000 });
 	});
@@ -223,7 +227,9 @@ test.describe("owned machine agent: parity", () => {
 		});
 		await mockOpenAI.setDefaultScenario(bashScenario("call_a", "a", ["First", " done", "."]));
 		await send(page, "run it");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByTestId("approval-title")).toBeVisible({
+			timeout: 60_000,
+		});
 		await transcriptCard(page).getByRole("button", { name: "Always allow (this session)" }).click();
 		await expect(transcriptCard(page).getByText("First done.")).toBeVisible({ timeout: 60_000 });
 
@@ -231,7 +237,7 @@ test.describe("owned machine agent: parity", () => {
 		await mockOpenAI.setDefaultScenario(bashScenario("call_b", "b", ["Second", " done", "."]));
 		await send(page, "run it again");
 		await expect(transcriptCard(page).getByText("Second done.")).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByText("wants to call")).toHaveCount(0);
+		await expect(page.getByTestId("approval-title")).toHaveCount(0);
 
 		// The Permissions dialog lists it, from the details button beside the
 		// selector, and Remove takes it away.
@@ -255,7 +261,9 @@ test.describe("owned machine agent: parity", () => {
 		// Removed: that command asks again.
 		await mockOpenAI.setDefaultScenario(bashScenario("call_c", "c", ["Third", " done", "."]));
 		await send(page, "and once more");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByTestId("approval-title")).toBeVisible({
+			timeout: 60_000,
+		});
 		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
 		await expect(transcriptCard(page).getByText("Third done.")).toBeVisible({ timeout: 60_000 });
 	});
@@ -271,7 +279,7 @@ test.describe("owned machine agent: parity", () => {
 		await mockOpenAI.setDefaultScenario(bashWriteScenario("call_c", "c", ["Wrote", " c", "."]));
 		await send(page, "write c");
 		await expect(transcriptCard(page).getByText("Wrote c.")).toBeVisible({ timeout: 60_000 });
-		await expect(transcriptCard(page).getByText("wants to call")).toHaveCount(0);
+		await expect(transcriptCard(page).getByTestId("approval-title")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "c.txt"))).toBe(true);
 	});
 
@@ -286,7 +294,7 @@ test.describe("owned machine agent: parity", () => {
 		await mockOpenAI.setDefaultScenario(writeFileScenario);
 		await send(page, "write the file");
 		await expect(page.getByText("Wrote it.")).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByText("wants to call")).toHaveCount(0);
+		await expect(page.getByTestId("approval-title")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "out.txt"))).toBe(true);
 
 		await page.getByRole("button", { name: "Changes" }).click();
@@ -302,7 +310,9 @@ test.describe("owned machine agent: parity", () => {
 		const m = await openSession(page, db, session.sessionId);
 		await mockOpenAI.setDefaultScenario(writeFileScenario);
 		await send(page, "write the file");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByTestId("approval-title")).toBeVisible({
+			timeout: 60_000,
+		});
 		expect(existsSync(join(m.workspace, "out.txt"))).toBe(false);
 		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
 		await expect(page.getByText("Wrote it.")).toBeVisible({ timeout: 60_000 });
@@ -320,7 +330,7 @@ test.describe("owned machine agent: parity", () => {
 		await mockOpenAI.setDefaultScenario(writeFileScenario);
 		await send(page, "write the file");
 		await expect(page.getByText("Wrote it.")).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByText("wants to call")).toHaveCount(0);
+		await expect(page.getByTestId("approval-title")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "out.txt"))).toBe(false);
 	});
 
@@ -518,7 +528,9 @@ test.describe("owned machine agent: parity", () => {
 			finishReason: "stop",
 		});
 		await send(page, "write a file");
-		await expect(transcriptCard(page).getByText("wants to call")).toBeVisible({ timeout: 60_000 });
+		await expect(transcriptCard(page).getByTestId("approval-title")).toBeVisible({
+			timeout: 60_000,
+		});
 		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
 		await expect(
 			page.locator('[data-message-role="assistant"]').getByText("Wrote it.")
@@ -682,7 +694,11 @@ test.describe("owned machine agent: parity", () => {
 
 		// The child's card arrives mid-turn (the turn is still held on it),
 		// labelled as the subagent's — a parent's own ask never says "Subagent".
-		await expect(transcriptCard(page).getByText(/Subagent .*Tool approval/)).toBeVisible({
+		await expect(
+			transcriptCard(page)
+				.getByTestId("approval-title")
+				.filter({ hasText: /Subagent/ })
+		).toBeVisible({
 			timeout: 60_000,
 		});
 		await transcriptCard(page).getByRole("button", { name: "Allow once" }).click();
@@ -710,7 +726,11 @@ test.describe("owned machine agent: parity", () => {
 		const m = await openSession(page, db, session.sessionId);
 		await mockOpenAI.setDefaultScenario(subagentApprovalScenario(m.workspace));
 		await send(page, "delegate this");
-		await expect(transcriptCard(page).getByText(/Subagent .*Tool approval/)).toBeVisible({
+		await expect(
+			transcriptCard(page)
+				.getByTestId("approval-title")
+				.filter({ hasText: /Subagent/ })
+		).toBeVisible({
 			timeout: 60_000,
 		});
 
@@ -767,7 +787,7 @@ test.describe("owned machine agent: parity", () => {
 		await expect(
 			page.locator('[data-message-role="assistant"]').getByText("Child done.").first()
 		).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByText("wants to call")).toHaveCount(0);
+		await expect(page.getByTestId("approval-title")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
 	});
 
@@ -855,7 +875,7 @@ test.describe("owned machine agent: parity", () => {
 			timeout: 60_000,
 		});
 		// The tool call itself settles rather than hanging pending forever.
-		await expect(page.getByText("wants to call")).toHaveCount(0);
+		await expect(page.getByTestId("approval-title")).toHaveCount(0);
 		// It collapses to what was asked and chosen, not the "server" (it read
 		// "Answered pystino" for every question).
 		await expect(page.getByText("Approach → A").first()).toBeVisible();
