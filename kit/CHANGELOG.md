@@ -5,8 +5,14 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.45.0 — 2026-11-07
 
+Pins: Cerea `0.45.0` (chat and `cerea-documents`), Pystino `0.29.2`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. 
+
+- The kit pins Pystino 0.29.2: the console folds `.env` notes and endpoint names into its **About this server** and **How it works** sections, and (since 0.29.1) a model whose upstream id another provider already serves (for example Melious and Cortecs both offering `clef-flash`) can now be imported under its own name.
+- Documentation pass: the coding-agent pages describe the current permission model (no machine limits, Plan · Ask · Auto · Allow, the fixed floor, local `--deny`), the review log, diffs, cost and connectors for agents; quota messages and the Workspace → Agents settings are documented as they are.
 - **One set of words across the app.** Chats (not conversations), computer (not machine or device), session (not agent, for one run), and Plan · Ask · Auto · Allow everywhere, including the new session dialog, which says **New session** and **Start session** and offers all four modes.
 - **A friendlier first screen.** The Piedmontese greeting stays, with its translation on hover or tap, and a plain line under it greets you by first name ("What can I help you with today, Ada?"). Admins can turn on four starter suggestions under **Admin → Assistant** (off by default).
 - **The logo has a name.** The ridge in the sidebar is a little thicker, with "Cerea" beside it; the pixel mark stays as the favicon and app icon.
