@@ -90,7 +90,7 @@ async function pairAndOpenWorkspace(page: Page, name: string) {
 
 	await openAgentsPanel(page);
 	await visibleTreeButton(page, "Start a session in this workspace").click();
-	await page.getByRole("dialog").getByRole("button", { name: "Create agent" }).click();
+	await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 }
 
@@ -363,7 +363,7 @@ test.describe("the terminal on desktop", () => {
 		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 		await expect(page.getByText("repo", { exact: true })).toBeVisible();
 		await page.getByRole("button", { name: "Start a session in this workspace" }).click();
-		await page.getByRole("button", { name: "Create agent" }).click();
+		await page.getByRole("button", { name: "Start session" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 
 		await openOneTerminal(page, fake);

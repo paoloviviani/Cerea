@@ -1096,7 +1096,7 @@ func (mc *machine) opSessionCompact(ctx context.Context, args json.RawMessage) (
 		return nil, operr
 	}
 	compactor, ok := mc.back.(backend.Compactor)
-	if !ok {
+	if !ok || !mc.back.Capabilities().Compact {
 		return nil, opErrf("unsupported", "backend %s has no compact capability", mc.back.ID())
 	}
 	if err := compactor.Compact(ctx, dir, a.SessionID); err != nil {

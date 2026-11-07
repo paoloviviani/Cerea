@@ -219,7 +219,7 @@ func TestHumanAlwaysIsStoredAndRuns(t *testing.T) {
 		}
 	}
 	ex := rb.Exceptions("s1")
-	if len(ex) != 1 || ex[0].OverAsk || ex[0].Patterns[0] != "go test *" {
+	if len(ex) != 1 || ex[0].OverAsk || ex[0].Patterns[0] != "go test ./..." {
 		t.Fatalf("exceptions = %+v, want one plain go test exception", ex)
 	}
 	for _, d := range rb.replies {

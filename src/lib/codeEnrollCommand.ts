@@ -28,8 +28,9 @@ export const DEFAULT_CODE_CLIENT_ID = "opencode-enrollment";
 /** The opencode release galopin is built and tested against. The source of
  * truth is `agent/packaging/opencode-version`: the Go backend embeds it and
  * reports it in its hello, and CI installs it for the live integration tests.
- * The install line asks opencode's installer for exactly this release rather
- * than the newest, which may change a wire galopin depends on.
+ * The served installer installs exactly this release (checksum-verified, see
+ * `opencodeVersion.ts`) rather than the newest, which may change a wire
+ * galopin depends on.
  * `codeEnrollCommand.spec.ts` fails if this drifts from the file; change both
  * with `agent/packaging/bump-opencode.sh <version>`. */
 export const OPENCODE_VERSION = "1.19.3";
@@ -80,15 +81,18 @@ function policyChoicesOf(opts: EnrollCommandOptions): EnrollPolicyChoices {
 
 export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	const origin = opts.origin.replace(/\/+$/, "");
-	const install = `curl -fsSL ${quoteShellArg(`${origin}/galopin/install.sh`)} | sh`;
-	// opencode's own installer: it appends $HOME/.opencode/bin to PATH in
-	// the rc files but NOT in this shell, so the same fresh-machine trap as
-	// galopin's applies — galopin falls back to $HOME/.opencode/bin/opencode
-	// itself (agent opencode.go's Start), which is why no export is needed
-	// here and the line stays honest on both a fresh and a loaded PATH.
-	const installOpencode = opts.installOpencode
-		? `curl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION}`
-		: null;
+	const goose = policyChoicesOf(opts).engine === "goose";
+	// The served installer also installs the engine: the pinned goose release, or,
+	// with `--with-opencode`, the pinned opencode release; both are verified
+	// against checksums recorded in this repo. opencode lands in
+	// $HOME/.opencode/bin, which galopin finds itself (agent opencode.go's
+	// Start), so no PATH export is needed here.
+	const engineArgs = goose
+		? " -s -- --engine goose"
+		: opts.installOpencode
+			? " -s -- --with-opencode"
+			: "";
+	const install = `curl -fsSL ${quoteShellArg(`${origin}/galopin/install.sh`)} | sh${engineArgs}`;
 
 	// One flag per line, its value beside it: the args come flat, and a new
 	// line starts at every `--flag`.
@@ -112,9 +116,6 @@ export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	// One step per line; a line ending in `&&` continues without a backslash,
 	// and a failed step still never runs the next one.
 	const steps = [install];
-	if (installOpencode) {
-		steps.push(installOpencode);
-	}
 	steps.push(enroll, `${GALOPIN_BIN} run`);
 	return steps.join(" &&\n");
 }

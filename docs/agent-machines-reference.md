@@ -37,10 +37,10 @@ an amber tone is one that opens something up.)
 
 **Common options**, at the top:
 
-| Control                                        | What it adds to the printed command                                                                                                                                       | Default | Use it when                                                                                                                |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
-| **Use a project's own opencode setup** (amber) | `--allow-project-config`                                                                                                                                                  | off     | the computer opens repositories you trust, and you want their own opencode setup to load                                   |
-| **Install opencode**                           | opencode's own installer line, pinned to the release galopin is tested against (`curl -fsSL https://opencode.ai/install \| bash -s -- --version 1.19.3`), before `enroll` | off     | the computer is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
+| Control                                        | What it adds to the printed command                                                                                                                                                                                                                                                                 | Default | Use it when                                                                                                                |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Use a project's own opencode setup** (amber) | `--allow-project-config`                                                                                                                                                                                                                                                                            | off     | the computer opens repositories you trust, and you want their own opencode setup to load                                   |
+| **Install opencode**                           | the served installer fetches the opencode release galopin is tested against (1.19.3) from opencode's GitHub releases and checks its sha256 against the one recorded in the Cerea repository before installing it into `~/.opencode/bin` (`install.sh \| sh -s -- --with-opencode`), before `enroll` | off     | the computer is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
 
 **The computer has no limits of its own** (ADR 0109). What a session may do is its Plan · Ask · Allow · Auto word in the composer (and, for Auto, the rows in Workspace → Agents), plus a fixed floor in galopin. The dialog prints no limit flag; `enroll` still accepts the retired `--limit`, `--permission-max` and `--permission-rule` for one more release, ignores them and warns.
 
@@ -55,6 +55,7 @@ the printed line carries every changed value whether it is open or not):
 | **Background subagents**                  | unticked: `--no-background-subagents`                                 | on                                  | a task can keep running after its parent turn ends                                                                                                                                                             |
 | **No agent tools**                        | `--no-agent-tools`                                                    | installed                           | installs none of the agent tools (`session_*` and `schedule_*`), so sessions cannot start or message each other, and agents cannot make schedules                                                              |
 | **Local deny** (not in the dialog)        | `--deny CLASS`, repeatable (advanced, by hand)                        | none                                | refuses a class (`edit`, `command`, `web`, `outside`, `secrets`, `agents`, `tools`) on this computer whatever any session says; for an owner who does not fully trust the Cerea server                         |
+| **Coding engine**                         | `--engine goose` (opencode adds no flag)                              | opencode                            | the computer runs goose instead of opencode (see [The goose engine](#the-goose-engine)); in the dialog it is under Advanced                                                                                    |
 | **Allow free models**                     | `--allow-free-models`                                                 | the gateway's models only           | models from providers other than the gateway's may be listed and used                                                                                                                                          |
 | **Keep opencode's own providers**         | `--allow-opencode-provider`                                           | gateway only                        | opencode's built-in providers stay enabled next to the gateway's                                                                                                                                               |
 | **Workspace folders** (a list)            | `--workspace-root PATH`, one per entry                                | anywhere                            | workspaces may only be created under these folders                                                                                                                                                             |
@@ -119,6 +120,84 @@ opencode config goes (default `<config-dir>/galopin/opencode.json`), and `--yes`
 Pi through `pi-acp`. An ACP backend reports fewer capabilities (no usage,
 compaction or subagents), and the chat panel hides those controls. The
 Changes pane works for either backend, because the agent reads it from git.
+
+### The goose engine
+
+A computer can run **goose** instead of opencode. opencode stays the default.
+Choose it when you pair: `galopin enroll --engine goose` (the Pair dialog's
+**Coding engine**, under Advanced, prints the flag). The choice is kept in the
+computer's config; a re-enroll keeps it unless you pass `--engine` again, and
+`run` follows it. The install line fetches goose's release binary, pinned to the
+version galopin is tested against and checked against a checksum recorded in the
+repository, when the engine is goose.
+
+What galopin sets up for goose:
+
+- **Its own configuration.** goose runs with a config under galopin's config
+  directory, never your `~/.config/goose`. The provider is galopin's local proxy,
+  so the models and the billing are the gateway's; the model list comes from the
+  discovery `enroll` does (`galopin models refresh` and every `run` start update it).
+  Keyring and telemetry are off, and provider credentials in galopin's environment
+  are not passed on.
+- **Every tool call asks.** goose runs in its `approve` mode, and galopin re-checks
+  it after every mode change and when a session loads. goose's `auto` (and any mode
+  that skips the ask) is not offered in Cerea. Plan, Ask, Allow, Auto and the
+  fixed floor apply exactly as they do on opencode.
+- **Your normal goose session store.** Sessions are filed where goose Desktop and
+  the goose editor extension read them, marked as galopin's, so you see them there.
+  Use one driver at a time: a turn you drive in goose Desktop bypasses Cerea's
+  rules and its review log.
+
+What differs from opencode: no subagent cards (goose has none over its protocol),
+and compaction is goose's own `/compact`, run as a turn (its answer appears in the
+transcript). Usage works: goose reports none over its protocol, so galopin reads
+each model call's token counts off its own proxy and feeds the context meter and
+the session's usage the same way it does for opencode. The context window comes
+from the gateway's model list (`galopin models refresh`), so the meter shows the
+share used. Only the session's own turns move the meter: a side call goose makes (a title) does not, though the gateway's cost counts it. After `/compact` the meter updates at the next turn. Cost is the gateway's, per session, as for opencode. Changes, history,
+model choice, connectors and the task list work as they do elsewhere.
+
+The goose that runs is the pinned copy the install line puts in
+`galopin-goose/` beside the galopin binary. A goose on your PATH is never used.
+To run another one anyway (a build you are testing), set `GALOPIN_GOOSE_BIN`;
+`run` then logs a warning at every start.
+
+Sessions cannot reach your own goose's settings: `~/.config/goose` and
+`~/.local/share/goose` (and the XDG, `GOOSE_PATH_ROOT` and macOS forms) are
+protected like galopin's own files, and reading them is a secrets request. Links are followed: a settings folder linked into a workspace is still protected.
+
+### Your own goose, through galopin
+
+`galopin goose setup` puts galopin's proxy into **your own** goose, so goose
+Desktop, the goose CLI and the editor extension can use the gateway's models:
+
+```
+galopin goose setup [--default] [--no-connectors]
+galopin goose setup --remove
+```
+
+It writes a provider named `galopin` into your goose config (your default
+provider is untouched unless you pass `--default`). It is safe to run again, and
+`galopin models refresh` keeps its model list current. The proxy must be running:
+keep `galopin run` going.
+
+Unless you pass `--no-connectors`, it also adds a goose extension, **Cerea
+connectors**, served by galopin on loopback with a secret. It offers this
+computer's own connectors and the Cerea connectors you switched on in
+**Workspace → Agents → Connectors for your local agents**. None is on by default.
+These calls are not governed by a session's Plan, Ask or Allow (your agent's own
+approval applies), and each one is recorded in the review log.
+
+The endpoint exists only after setup: `run` opens it when `local-agents.json` is in
+the state directory, which setup writes (`--state-dir` is the same option `run`
+takes, and defaults to the same place). goose Desktop and the CLI rewrite
+`config.yaml` and drop its comments, so setup edits it by key and keeps a record
+of what it replaced in `goose-setup.json` in the state directory. Running setup
+again changes nothing more; your other extensions stay. `setup --no-connectors`
+withdraws an earlier opt-in (the extension goes, and the endpoint stops offering
+this machine's connectors). `--remove` takes out the
+provider and the extension, puts back a default provider that `--default` had
+changed, deletes the record and the endpoint's secret.
 
 Over an ACP backend the coordination tools reach the agent as an MCP server galopin
 runs on loopback: see [Coordination tools over MCP](#coordination-tools-over-mcp).
@@ -276,7 +355,11 @@ lower the cap, or add a `--file-deny` entry. Loosening anything back requires
 
 _(ADR 0107, amended by ADR 0109.)_ Every request that is not an in-project read belongs to a **class** of action: `edit`, `command`, `web`, `outside`, `secrets`, `agents`, `tools`, `loop`. The class labels the card, routes it (to you or to the reviewing model your deployment runs, per your Workspace → Agents rows) and fills the audit; **the computer does not limit it**. galopin decides from the session's word: **Plan** refuses, **Ask** raises a card, **Allow** runs, and **Auto** runs the classes the user chose to run (Cerea sends that per-class map with the word) and raises a card for the others.
 
-A **fixed floor** in galopin's code, not configurable: galopin's own state and configuration (the state directory, `policy.json`, the credentials, the opencode config it owns) are refused in every word; a write into `.git` or a CI configuration file, a `.env` file or a credential store, and a repeating agent are a card even on Allow and Auto (a human's own "Always allow" on a credential card stands); read-only commands always run.
+A **fixed floor** in galopin's code, not configurable: galopin's own state and configuration (the state directory, `policy.json`, the credentials, `mcp.json`, the opencode config it owns) are refused in every word; a write into `.git` or a CI configuration file, a `.env` file or a credential store, the saved sign-ins of common local MCP servers (`~/.config/ms-365-mcp-server`, `~/.ms-365-mcp-server`, `~/.outlook-mcp`) and a repeating agent are a card even on Allow and Auto (a human's own "Always allow" on a credential card stands); read-only commands always run.
+
+The floor applies to **commands** as well as to the file tools. galopin parses the command line the agent sent (not only the short patterns opencode derives from it) and looks at every word: `cat .env`, `less ~/.ssh/id_ed25519`, `base64 $HOME/.aws/credentials`, `head ${HOME}/.config/galopin/policy.json`, `git show HEAD:.env` and `cd ~/.ssh && cat id_rsa` are judged like the same read through the read tool. `~`, `~user`, `$HOME`, `${HOME}`, a `cd` earlier in the same line, letter case on macOS and symlinks are all followed. A command that names a credential store is a card on Allow and Auto, and one that names galopin's own files is refused. This is still a heuristic on shell text, not a sandbox: a command built from variables or substitutions it cannot expand can name a path it does not see (ADR 0107's threat model).
+
+**The read-only mark** (commands that always run) is given only when both the agent's full command line and every pattern pass: no redirect to a file, no command substitution, no background job, no pipe into a writer, no secret path, and no `git show REV:path`, `git log -p` or `git cat-file` that can print a committed secret.
 
 **Local deny (advanced).** An owner who does not fully trust the Cerea server can refuse a class on the computer: `galopin enroll <cerea-url> --deny command` (repeatable), `galopin policy set --deny web` and `--no-deny web`. It is refuse-only, stored locally in `policy.json`, never settable over the link, and listed by `galopin policy show`. It is not in the Pair dialog. `loop` cannot be denied.
 
@@ -400,8 +483,10 @@ unchanged to galopin, which answers opencode once.
   workspace. The button is **not offered** where an exception would store
   nothing (a call with no concrete file, command or directory to scope it to):
   those cards offer Allow once and Deny. An exception is scoped to what the card
-  shows: an edit to that file, a command prefix or the exact command, or an
-  outside path's directory.
+  shows: an edit to that file, the exact command, or an outside path's directory.
+  "Always allow" on a command stores the command itself, never opencode's
+  broad prefix such as `git *`, and only applies to a plain command line (no
+  redirect, substitution or background job riding along).
 - **Deny** refuses that call and tells the agent. It ends every other pending
   ask in the session.
 
@@ -1088,8 +1173,9 @@ in `agent/`.
 
 **Prerequisite:** `opencode` on the PATH, at the release galopin is tested
 against (currently 1.19.3; the one place it is written is
-`agent/packaging/opencode-version`): `npm i -g opencode-ai@1.19.3`, or
-`curl -fsSL https://opencode.ai/install | bash -s -- --version 1.19.3`. A newer
+`agent/packaging/opencode-version`): `npm i -g opencode-ai@1.19.3`, or the pairing dialog's **Install opencode**
+option, which has the served installer download that release and verify its
+sha256 (recorded in `agent/packaging/opencode-sha256`) before installing it. A newer
 opencode usually works, but it can change something galopin relies on; a daily
 CI job runs galopin's real-opencode suite against each new release
 (`agent/README.md`, "opencode releases"). `galopin run` supervises

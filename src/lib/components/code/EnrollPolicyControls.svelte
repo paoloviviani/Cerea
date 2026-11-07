@@ -151,6 +151,21 @@
 			{/if}
 		</summary>
 		<div class="mt-3">
+			<label class="mb-3 flex items-start gap-2 text-xs text-ink-muted">
+				<select
+					class="{FIELD} mt-0.5"
+					data-testid="enroll-engine"
+					aria-label={m["code.enroll.engine_label"]()}
+					bind:value={choices.engine}
+				>
+					<option value="opencode">{m["code.enroll.engine_opencode"]()}</option>
+					<option value="goose">{m["code.enroll.engine_goose"]()}</option>
+				</select>
+				<span>
+					<span class="font-medium text-ink">{m["code.enroll.engine_label"]()}</span>
+					{m["code.enroll.engine_text"]()}
+				</span>
+			</label>
 			{@render flag(
 				"billToDefault",
 				"enroll-bill-to-default",

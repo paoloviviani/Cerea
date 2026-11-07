@@ -38,6 +38,18 @@ function stub(v: unknown, opts: { testStatus?: number; testBody?: unknown } = {}
 		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const url = String(input);
 			calls.push({ url, init });
+			if (url.includes("/code/local-agents")) {
+				if (init?.method === "PUT") {
+					return Response.json({ selected: JSON.parse(String(init.body)).keys });
+				}
+				return Response.json({
+					options: [
+						{ key: "connector:a", name: "Tracker", summary: "Issues" },
+						{ key: "connector:b", name: "Notes", summary: "", unavailable: "needs sign-in" },
+					],
+					selected: [],
+				});
+			}
 			if (url.includes("/auto-approval/test")) {
 				if (opts.testStatus && opts.testStatus !== 200) {
 					return Response.json({ message: "no" }, { status: opts.testStatus });
@@ -67,6 +79,18 @@ describe("Workspace -> Agents (the user's own auto-approval, ADR 0109)", () => {
 		expect(document.querySelector('[data-testid="agents-row-loop-reviewer"]')).toBeNull();
 		expect(document.querySelector('[data-testid="agents-row-secrets-run"]')).toBeNull();
 		await expect.element(page.getByTestId("agents-never-review")).toBeVisible();
+	});
+
+	it("lets the user switch Cerea connectors on for their own local agents, none by default", async () => {
+		stub(view());
+		renderWithApp(AgentsSettings, {});
+		const tracker = page.getByTestId("local-agent-connector:a");
+		await expect.element(tracker).not.toBeChecked();
+		await expect.element(page.getByTestId("local-agent-connector:b")).toBeDisabled();
+		await tracker.click();
+		await expect.element(tracker).toBeChecked();
+		const put = calls.find((c) => c.url.includes("/code/local-agents") && c.init?.method === "PUT");
+		expect(JSON.parse(String(put?.init?.body))).toEqual({ keys: ["connector:a"] });
 	});
 
 	it("links the user's own review log", async () => {

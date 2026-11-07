@@ -77,10 +77,18 @@ func runModels(args []string) error {
 	// cross-process lock, adopts a rotation another process already did and
 	// persists a rotated refresh token.
 	token := func(context.Context) (string, error) { return accessTokenFor(path, creds) }
+	if creds.Engine == engineGoose {
+		if err := refreshGooseModelsCmd(ctx, creds, path, token); err != nil {
+			return err
+		}
+		refreshGooseSetupProvider(ctx, creds, path)
+		return nil
+	}
 	diff, err := refreshModels(ctx, creds, token)
 	if err != nil {
 		return err
 	}
+	refreshGooseSetupProvider(ctx, creds, path)
 	fmt.Fprint(os.Stderr, diff.Summary(creds.OpencodeConfig))
 	for _, w := range diff.Warnings {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", w)

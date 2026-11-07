@@ -64,6 +64,10 @@ const (
 type Request struct {
 	Key      string
 	Patterns []string
+	// Command is a bash ask's full command line (opencode's metadata.command),
+	// which can name more than its patterns do (a redirect, a substitution, a
+	// background job). Empty when the agent sent none.
+	Command string
 	// Workspace is the root directory of the session's workspace.
 	Workspace string
 }
@@ -131,7 +135,7 @@ func Classify(p Policy, r Request) (cat Category, sensitive bool) {
 			if isSensitive(pat) {
 				sensitive = true
 			}
-			if filepath.IsAbs(pat) && !p.within(r.Workspace, pat) {
+			if !p.withinPattern(r.Workspace, pat) {
 				return Outside, sensitive
 			}
 		}
@@ -140,13 +144,13 @@ func Classify(p Policy, r Request) (cat Category, sensitive bool) {
 		return Read, false
 	case "edit":
 		for _, pat := range r.Patterns {
-			if filepath.IsAbs(pat) && !p.within(r.Workspace, pat) {
+			if !p.withinPattern(r.Workspace, pat) {
 				return Outside, false
 			}
 		}
 		return Edit, false
 	case "bash":
-		return Bash, false
+		return Bash, p.Protected.bashSensitive(r)
 	case "webfetch", "websearch", "codesearch":
 		return Web, false
 	case "external_directory":
@@ -182,20 +186,57 @@ func isSensitive(path string) bool {
 	if strings.HasSuffix(base, ".env.example") {
 		return false
 	}
-	return strings.HasSuffix(base, ".env") || strings.Contains(base, ".env.")
+	// .envrc is direnv's: it exports secrets (and runs code) for the directory
+	return strings.HasSuffix(base, ".env") || strings.Contains(base, ".env.") || base == ".envrc"
 }
 
-// within reports whether path is inside the workspace or a safe directory.
+// withinPattern is within for a read or edit pattern: a relative one (`../x`)
+// is taken from the session's directory, and `~/` from the home directory, so
+// neither slips past as "not absolute".
+func (p Policy) withinPattern(workspace, pat string) bool {
+	abs := pat
+	if strings.HasPrefix(pat, "~") {
+		abs = p.Protected.abs(pat, workspace)
+	} else if !filepath.IsAbs(pat) {
+		if workspace == "" {
+			return true // nothing to resolve against
+		}
+		abs = filepath.Join(workspace, pat)
+	}
+	return p.within(workspace, abs)
+}
+
+// within reports whether path is inside the workspace or a safe directory. It is
+// judged on where the path really is: a symlink inside the workspace that points
+// outside is outside (audit L2), so both the lexical and the symlink-resolved
+// forms must be inside.
 func (p Policy) within(workspace, path string) bool {
-	if workspace != "" && under(workspace, path) {
+	if workspace != "" && underReal(workspace, path) {
 		return true
 	}
 	for _, d := range p.SafeDirs {
-		if under(d, path) {
+		if underReal(d, path) {
 			return true
 		}
 	}
 	return false
+}
+
+// underReal is under on the paths as written and, when they can be resolved, on
+// their symlink-resolved forms.
+func underReal(dir, path string) bool {
+	if !under(dir, path) {
+		return false
+	}
+	rp, ok := resolve(strings.TrimSuffix(path, "/*"))
+	if !ok {
+		return true
+	}
+	rd, ok := resolve(dir)
+	if !ok {
+		rd = filepath.Clean(dir)
+	}
+	return under(rd, rp)
 }
 
 func under(dir, path string) bool {
@@ -219,6 +260,16 @@ func (p Policy) planPath(workspace, pat string) bool {
 	return false
 }
 
+// coveredBy reports whether one of an exception's patterns matches s.
+func coveredBy(patterns []string, s string) bool {
+	for _, ep := range patterns {
+		if ep == "*" || permrules.Match(s, ep) {
+			return true
+		}
+	}
+	return false
+}
+
 func excepted(exs []permrules.Exception, r Request, overAskOnly ...bool) bool {
 	overAsk := len(overAskOnly) > 0 && overAskOnly[0]
 	pats := r.Patterns
@@ -230,7 +281,32 @@ func excepted(exs []permrules.Exception, r Request, overAskOnly ...bool) bool {
 			continue
 		}
 		covered := true
+		// A bash exception names the commands that run: every text of the ask
+		// (the full command line and each pattern) must be a plain line (no
+		// redirect to a file, substitution, background job, env assignment that
+		// runs code), and every simple command of the full line must itself be
+		// covered, so nothing rides along a pattern the pattern does not show
+		// (audit H1).
+		if r.Key == "bash" {
+			for _, text := range r.commandTexts() {
+				calls, ok := plainCalls(text)
+				if !ok {
+					covered = false
+					break
+				}
+				if text == r.Command {
+					for _, call := range calls {
+						if !coveredBy(e.Patterns, call) {
+							covered = false
+						}
+					}
+				}
+			}
+		}
 		for _, pat := range pats {
+			if !covered {
+				break
+			}
 			ok := false
 			for _, ep := range e.Patterns {
 				if ep == "*" || permrules.Match(pat, ep) {

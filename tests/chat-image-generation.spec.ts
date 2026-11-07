@@ -188,10 +188,12 @@ test("with the administrator's switch on, the approval card comes first", async 
 
 	await ask(page, "draw a red fox on a hill");
 	const assistant = page.locator('[data-message-role="assistant"]').last();
-	await expect(assistant.getByText("wants to call generate_image")).toBeVisible({
+	await expect(assistant.getByRole("button", { name: "Allow once" })).toBeVisible({
 		timeout: 60_000,
 	});
-	await expect(assistant.getByRole("button", { name: "Allow once" })).toBeVisible();
+	// The tool's name sits behind "Show details" now.
+	await assistant.getByRole("button", { name: "Show details" }).click();
+	await expect(assistant.getByText("wants to call generate_image")).toBeVisible();
 	expect(imageRequests(await mockOpenAI.requests())).toHaveLength(0);
 
 	await assistant.getByRole("button", { name: "Allow once" }).click();

@@ -128,10 +128,7 @@ func launchOpencode(ctx context.Context, opts launchOptions) error {
 	if creds.ShimSecret == "" {
 		return errors.New("creds file has no shim secret: re-run 'galopin enroll'")
 	}
-	stateDir := opts.stateDir
-	if stateDir == "" {
-		stateDir = filepath.Dir(credsPath)
-	}
+	stateDir := resolveStateDir(opts.stateDir, credsPath)
 	pol, err := policy.Load(filepath.Join(stateDir, policyFileName))
 	if err != nil {
 		return err

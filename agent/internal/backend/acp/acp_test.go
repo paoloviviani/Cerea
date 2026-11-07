@@ -42,8 +42,10 @@ type fakeAgent struct {
 	// replay is what session/load replays (as session/update notifications,
 	// before its response); noResume drops sessionCapabilities.resume from
 	// initialize, as goose does.
-	replay   []map[string]any
-	noResume bool
+	replay []map[string]any
+	// setModeHold, when set, delays every session/set_mode answer until it is closed.
+	setModeHold chan struct{}
+	noResume    bool
 }
 
 type fakePromptReq struct {
@@ -117,6 +119,12 @@ func (fa *fakeAgent) handleRequest(id json.RawMessage, method string, params jso
 		fa.configOpts <- p
 		fa.respond(id, map[string]any{"configOptions": []any{}})
 	case "session/set_mode", "session/close":
+		if method == "session/set_mode" && fa.setModeHold != nil {
+			// answered later by the test, off the read loop
+			hold := fa.setModeHold
+			go func() { <-hold; fa.respond(id, map[string]any{}) }()
+			return
+		}
 		fa.respond(id, map[string]any{})
 	case "session/list":
 		fa.respond(id, map[string]any{"sessions": []any{}})
@@ -186,10 +194,18 @@ func newTestBackend(t *testing.T) (*Backend, *fakeAgent) {
 // HTTP MCP capability as given.
 func newTestBackendWith(t *testing.T, tools, mcpHTTP bool) (*Backend, *fakeAgent) {
 	t.Helper()
+	return newTestBackendCfg(t, mcpHTTP, func(c *Config) { c.Tools = tools })
+}
+
+// newTestBackendCfg is newTestBackendWith with the Config open to the test.
+func newTestBackendCfg(t *testing.T, mcpHTTP bool, mutate func(*Config)) (*Backend, *fakeAgent) {
+	t.Helper()
 	agentReads, backendWrites := io.Pipe() // client(backend) -> agent
 	backendReads, agentWrites := io.Pipe() // agent -> client(backend)
 
-	b := New(Config{Command: []string{"fake-agent"}, Tools: tools, Logf: t.Logf})
+	cfg := Config{Command: []string{"fake-agent"}, Logf: t.Logf}
+	mutate(&cfg)
+	b := New(cfg)
 	fa := newFakeAgent(t, agentWrites)
 	fa.mcpHTTP = mcpHTTP
 	go fa.conn.readLoop(agentReads)

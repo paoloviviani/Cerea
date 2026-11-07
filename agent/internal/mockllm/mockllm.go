@@ -79,6 +79,13 @@ type Server struct {
 	tools map[string]string
 }
 
+// MockUsage is the usage every completion reports (a streamed one only when the
+// client sent stream_options.include_usage, as OpenAI-compatible upstreams do).
+var MockUsage = map[string]any{
+	"prompt_tokens": 120, "completion_tokens": 7, "total_tokens": 127,
+	"prompt_tokens_details": map[string]any{"cached_tokens": 40},
+}
+
 func New() *Server { return &Server{scenario: defaultScenario} }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -164,8 +171,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Model    string           `json:"model"`
-		Stream   bool             `json:"stream"`
+		Model         string `json:"model"`
+		Stream        bool   `json:"stream"`
+		StreamOptions struct {
+			IncludeUsage bool `json:"include_usage"`
+		} `json:"stream_options"`
 		Messages []map[string]any `json:"messages"`
 		Tools    []struct {
 			Function struct {
@@ -261,7 +271,7 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 			msg["tool_calls"] = wireCalls(calls)
 		}
 		writeJSON(w, map[string]any{"id": "chatcmpl-mock", "object": "chat.completion", "model": req.Model,
-			"choices": []map[string]any{{"index": 0, "message": msg, "finish_reason": finish}}})
+			"choices": []map[string]any{{"index": 0, "message": msg, "finish_reason": finish}}, "usage": MockUsage})
 		return
 	}
 
@@ -290,6 +300,11 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	send(map[string]any{}, finish)
+	if req.StreamOptions.IncludeUsage {
+		body, _ := json.Marshal(map[string]any{"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 0,
+			"model": req.Model, "choices": []map[string]any{}, "usage": MockUsage})
+		fmt.Fprintf(w, "data: %s\n\n", body)
+	}
 	fmt.Fprint(w, "data: [DONE]\n\n")
 	if flusher != nil {
 		flusher.Flush()

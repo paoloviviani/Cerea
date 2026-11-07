@@ -132,7 +132,7 @@ test.describe("the new-agent dialog on a phone", () => {
 			// The footer buttons sit side by side — one row, disjoint x
 			// ranges — and both inside the viewport.
 			const cancel = await boxOf(dialog.getByRole("button", { name: "Cancel" }));
-			const create = await boxOf(dialog.getByRole("button", { name: "Create agent" }));
+			const create = await boxOf(dialog.getByRole("button", { name: "Start session" }));
 			expect(Math.abs(cancel.y - create.y)).toBeLessThan(4);
 			expect(create.x).toBeGreaterThanOrEqual(cancel.x + cancel.width - 0.5);
 			expectInsideViewport(cancel, width);
@@ -169,12 +169,12 @@ test.describe("the new-agent dialog after a failed create", () => {
 		await openAgentDialog(page);
 
 		const dialog = page.getByRole("dialog");
-		await dialog.getByRole("button", { name: "Create agent" }).click();
-		await expect(dialog.getByText("Agent failed")).toBeVisible();
+		await dialog.getByRole("button", { name: "Start session" }).click();
+		await expect(dialog.getByText("The session did not start")).toBeVisible();
 
 		expectInsideViewportBox(await boxOf(dialog.getByRole("button", { name: "Cancel" })), 264, 568);
 		expectInsideViewportBox(
-			await boxOf(dialog.getByRole("button", { name: "Create agent" })),
+			await boxOf(dialog.getByRole("button", { name: "Start session" })),
 			264,
 			568
 		);
@@ -277,9 +277,10 @@ test("New Chat keeps its address and carries the switcher's small icon idiom", a
 	deviceRows = [{ id: DEVICE, name: "e2e box", status: "paired" }];
 	await stubCodePanel(page);
 	await page.setViewportSize({ width: 1280, height: 800 });
-	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}`);
+	// The Agents view has "New session" in this spot now; New chat is the Chats view's.
+	await page.goto(`${E2E_APP_BASE}/`);
 
-	const newChat = page.getByRole("link", { name: "New Chat" });
+	const newChat = page.getByRole("link", { name: "New chat" });
 	await expect(newChat).toBeVisible();
 	// Same address and shortcut tooltip as before; the icon is the
 	// switcher's own affordance (an svg inside the link). The href carries
