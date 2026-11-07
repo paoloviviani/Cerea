@@ -135,7 +135,7 @@ func Classify(p Policy, r Request) (cat Category, sensitive bool) {
 			if isSensitive(pat) {
 				sensitive = true
 			}
-			if filepath.IsAbs(pat) && !p.within(r.Workspace, pat) {
+			if !p.withinPattern(r.Workspace, pat) {
 				return Outside, sensitive
 			}
 		}
@@ -144,7 +144,7 @@ func Classify(p Policy, r Request) (cat Category, sensitive bool) {
 		return Read, false
 	case "edit":
 		for _, pat := range r.Patterns {
-			if filepath.IsAbs(pat) && !p.within(r.Workspace, pat) {
+			if !p.withinPattern(r.Workspace, pat) {
 				return Outside, false
 			}
 		}
@@ -186,7 +186,24 @@ func isSensitive(path string) bool {
 	if strings.HasSuffix(base, ".env.example") {
 		return false
 	}
-	return strings.HasSuffix(base, ".env") || strings.Contains(base, ".env.")
+	// .envrc is direnv's: it exports secrets (and runs code) for the directory
+	return strings.HasSuffix(base, ".env") || strings.Contains(base, ".env.") || base == ".envrc"
+}
+
+// withinPattern is within for a read or edit pattern: a relative one (`../x`)
+// is taken from the session's directory, and `~/` from the home directory, so
+// neither slips past as "not absolute".
+func (p Policy) withinPattern(workspace, pat string) bool {
+	abs := pat
+	if strings.HasPrefix(pat, "~") {
+		abs = p.Protected.abs(pat, workspace)
+	} else if !filepath.IsAbs(pat) {
+		if workspace == "" {
+			return true // nothing to resolve against
+		}
+		abs = filepath.Join(workspace, pat)
+	}
+	return p.within(workspace, abs)
 }
 
 // within reports whether path is inside the workspace or a safe directory. It is
@@ -243,6 +260,16 @@ func (p Policy) planPath(workspace, pat string) bool {
 	return false
 }
 
+// coveredBy reports whether one of an exception's patterns matches s.
+func coveredBy(patterns []string, s string) bool {
+	for _, ep := range patterns {
+		if ep == "*" || permrules.Match(s, ep) {
+			return true
+		}
+	}
+	return false
+}
+
 func excepted(exs []permrules.Exception, r Request, overAskOnly ...bool) bool {
 	overAsk := len(overAskOnly) > 0 && overAskOnly[0]
 	pats := r.Patterns
@@ -254,12 +281,27 @@ func excepted(exs []permrules.Exception, r Request, overAskOnly ...bool) bool {
 			continue
 		}
 		covered := true
-		// A bash exception names the commands that run: when the agent's full
-		// command line is known it must be plain (no redirect to a file, no
-		// substitution, no background job), so that nothing rides along a
-		// pattern the pattern does not show (audit H1).
-		if r.Key == "bash" && r.Command != "" && !plainShell(r.Command) {
-			covered = false
+		// A bash exception names the commands that run: every text of the ask
+		// (the full command line and each pattern) must be a plain line (no
+		// redirect to a file, substitution, background job, env assignment that
+		// runs code), and every simple command of the full line must itself be
+		// covered, so nothing rides along a pattern the pattern does not show
+		// (audit H1).
+		if r.Key == "bash" {
+			for _, text := range r.commandTexts() {
+				calls, ok := plainCalls(text)
+				if !ok {
+					covered = false
+					break
+				}
+				if text == r.Command {
+					for _, call := range calls {
+						if !coveredBy(e.Patterns, call) {
+							covered = false
+						}
+					}
+				}
+			}
 		}
 		for _, pat := range pats {
 			if !covered {

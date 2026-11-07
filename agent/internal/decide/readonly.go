@@ -60,8 +60,8 @@ func (ro *roCheck) script(src string) bool {
 		return false
 	}
 	f, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(src), "")
-	if err != nil || len(f.Stmts) == 0 {
-		return false
+	if err != nil || len(f.Stmts) == 0 || len(f.Stmts) > 200 {
+		return false // a line this long is not worth vouching for
 	}
 	for _, st := range f.Stmts {
 		if !ro.stmt(st) {

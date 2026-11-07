@@ -187,8 +187,13 @@ describe("the pinned opencode archives' checksums", () => {
 		expect(Object.fromEntries(file)).toEqual(OPENCODE_SHA256);
 		expect([...file.keys()].sort()).toEqual([
 			"opencode-darwin-arm64.zip",
+			"opencode-darwin-x64-baseline.zip",
 			"opencode-darwin-x64.zip",
+			"opencode-linux-arm64-musl.tar.gz",
 			"opencode-linux-arm64.tar.gz",
+			"opencode-linux-x64-baseline-musl.tar.gz",
+			"opencode-linux-x64-baseline.tar.gz",
+			"opencode-linux-x64-musl.tar.gz",
 			"opencode-linux-x64.tar.gz",
 		]);
 		for (const sum of file.values()) expect(sum).toMatch(/^[0-9a-f]{64}$/);

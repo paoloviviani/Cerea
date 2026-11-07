@@ -2,7 +2,7 @@
 # Move the pinned opencode release: rewrites agent/packaging/opencode-version
 # (embedded into galopin, installed by CI) and OPENCODE_VERSION in
 # src/lib/codeEnrollCommand.ts (the panel's install line), then prints what to
-# run before committing. It also records the sha256 of the four release archives
+# run before committing. It also records the sha256 of the nine release archives (baseline and musl builds included)
 # the served installer verifies. See "opencode releases" in agent/README.md.
 #
 #   agent/packaging/bump-opencode.sh <version>      e.g. 1.18.33
@@ -21,7 +21,9 @@ base=${OPENCODE_DL_BASE:-https://github.com/anomalyco/opencode/releases/download
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 : > "$tmp/sums"
-for name in opencode-linux-x64.tar.gz opencode-linux-arm64.tar.gz opencode-darwin-x64.zip opencode-darwin-arm64.zip; do
+for name in opencode-linux-x64.tar.gz opencode-linux-x64-baseline.tar.gz opencode-linux-x64-musl.tar.gz \
+    opencode-linux-x64-baseline-musl.tar.gz opencode-linux-arm64.tar.gz opencode-linux-arm64-musl.tar.gz \
+    opencode-darwin-x64.zip opencode-darwin-x64-baseline.zip opencode-darwin-arm64.zip; do
     echo "downloading $name ..." >&2
     curl -fsSL -o "$tmp/$name" "$base/v$version/$name"
     sum=$(sha256sum "$tmp/$name" | cut -d ' ' -f 1)

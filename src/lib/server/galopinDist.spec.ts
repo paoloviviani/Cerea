@@ -137,6 +137,11 @@ describe("install.sh", () => {
 			expect(script).toContain(`${archive}) want=${sum} ;;`);
 		}
 		expect(script).toContain("--with-opencode) withopencode=1; shift ;;");
+		// the variants opencode's own installer picks, and a run check before success
+		expect(script).toContain('archive="opencode-$os-$ocarch$baseline$musl$ext"');
+		expect(script).toContain("grep -qwi avx2 /proc/cpuinfo");
+		expect(script).toContain("/etc/alpine-release");
+		expect(script).toContain('"$tmp/oc-x/opencode" --version');
 		expect(script).not.toContain("opencode.ai");
 	});
 

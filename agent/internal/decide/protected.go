@@ -147,6 +147,11 @@ func (pr Protected) OwnHit(r Request) (string, bool) { return pr.hit(pr.OwnDirs,
 
 // SecretHit reports whether the request reaches a credential store.
 func (pr Protected) SecretHit(r Request) (string, bool) {
+	if r.Key == "bash" {
+		if why, ok := pr.bashUnknown(r); ok {
+			return why, true
+		}
+	}
 	if d, ok := pr.hit(pr.SecretDirs, r); ok {
 		return d, true
 	}
@@ -248,17 +253,24 @@ func (pr Protected) bashHit(dirs []string, r Request) (string, bool) {
 			}
 		}
 	}
-	for _, p := range pr.bashPaths(r) {
-		forms := []string{p}
-		if real, ok := resolve(p); ok && real != p {
-			forms = append(forms, real)
-		}
+	an := pr.analysis(r)
+	for _, p := range an.paths {
 		for _, d := range dirs {
-			for _, f := range forms {
-				if under(pr.cmp(d), pr.cmp(f)) {
-					return d, true
-				}
+			if under(pr.cmp(d), pr.cmp(p)) {
+				return d, true
 			}
+		}
+	}
+	for _, g := range an.globs {
+		for _, d := range dirs {
+			if pr.globCouldReach(g, d) {
+				return d, true
+			}
+		}
+	}
+	for _, lit := range an.unknown {
+		if d, ok := pr.unknownReaches(lit, dirs); ok {
+			return d, true
 		}
 	}
 	return "", false

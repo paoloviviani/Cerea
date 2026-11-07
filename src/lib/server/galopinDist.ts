@@ -160,15 +160,27 @@ fi
 printf 'Installed galopin to %s/galopin (checksum verified).\\n' "$dir"
 
 if [ "$engine" = opencode ] && [ -n "$withopencode" ]; then
-	case "$os-$arch" in
-		linux-amd64) archive=opencode-linux-x64.tar.gz ;;
-		linux-arm64) archive=opencode-linux-arm64.tar.gz ;;
-		darwin-amd64) archive=opencode-darwin-x64.zip ;;
-		darwin-arm64) archive=opencode-darwin-arm64.zip ;;
-	esac
+	# The same variant choice opencode's own installer makes: the -baseline build
+	# for a CPU without AVX2, the -musl build on Alpine or another musl system.
+	musl=
+	baseline=
+	if [ "$os" = linux ]; then
+		[ -f /etc/alpine-release ] && musl=-musl
+		if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then musl=-musl; fi
+		if [ "$arch" = amd64 ] && ! grep -qwi avx2 /proc/cpuinfo 2>/dev/null; then baseline=-baseline; fi
+	fi
+	ocarch=$arch
+	if [ "$os" = darwin ]; then
+		[ "$arch" = amd64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ] && ocarch=arm64
+		if [ "$ocarch" = amd64 ] && [ "$(sysctl -n hw.optional.avx2_0 2>/dev/null || echo 0)" != 1 ]; then baseline=-baseline; fi
+	fi
+	case "$ocarch" in amd64) ocarch=x64 ;; esac
+	ext=.tar.gz
+	[ "$os" = darwin ] && ext=.zip
+	archive="opencode-$os-$ocarch$baseline$musl$ext"
 	case "$archive" in
 ${opencodeSums}
-		*) fail "no recorded checksum for $archive" ;;
+		*) fail "opencode publishes no $archive build for this computer: install opencode yourself, then run galopin enroll" ;;
 	esac
 	fetch "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/$archive" "$tmp/$archive" || fail "could not download opencode ${OPENCODE_VERSION} ($archive)"
 	got=$(sha256 "$tmp/$archive")
@@ -180,6 +192,8 @@ ${opencodeSums}
 	esac
 	[ -f "$tmp/oc-x/opencode" ] || fail "$archive holds no opencode binary"
 	chmod 755 "$tmp/oc-x/opencode"
+	# never report success for a binary that cannot run here (a wrong CPU or libc build)
+	"$tmp/oc-x/opencode" --version >/dev/null 2>&1 || fail "the opencode build $archive does not run on this computer; opencode not installed. Install opencode yourself, then run galopin enroll"
 	mv "$tmp/oc-x/opencode" "$HOME/.opencode/bin/opencode"
 	if [ "$os" = darwin ] && command -v xattr >/dev/null 2>&1; then
 		xattr -d com.apple.quarantine "$HOME/.opencode/bin/opencode" 2>/dev/null || true

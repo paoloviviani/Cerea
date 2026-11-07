@@ -150,6 +150,12 @@ func TestAcpKindIsOnlyAHint(t *testing.T) {
 		{"read with no path is outside: refused on plan", ask("read", nil, nil), permrules.Deny, decide.Reject, "external_directory"},
 		{"read with no path is a card on ask", ask("read", nil, nil), permrules.Ask, decide.Card, "external_directory"},
 		{"edit with no path is a card on ask", ask("edit", nil, nil), permrules.Ask, decide.Card, "external_directory"},
+		{"search of /etc is outside: refused on plan", ask("search", []any{map[string]any{"path": "/etc"}}, nil), permrules.Deny, decide.Reject, "read"},
+		{"search of /etc is a card on ask", ask("search", []any{map[string]any{"path": "/etc"}}, nil), permrules.Ask, decide.Card, "read"},
+		{"search of the project runs on plan", ask("search", []any{map[string]any{"path": "/w/src"}}, nil), permrules.Deny, decide.Once, "read"},
+		{"search of ../x is outside", ask("search", []any{map[string]any{"path": "../x"}}, nil), permrules.Deny, decide.Reject, "read"},
+		{"search with no path is outside", ask("search", nil, nil), permrules.Deny, decide.Reject, "external_directory"},
+		{"read of ../x is outside", ask("read", []any{map[string]any{"path": "../x"}}, nil), permrules.Deny, decide.Reject, "read"},
 		{"edit with a path stays an edit", ask("edit", []any{map[string]any{"path": "/w/a.go"}}, nil), permrules.Ask, decide.Card, "edit"},
 	}
 	for _, c := range cases {
