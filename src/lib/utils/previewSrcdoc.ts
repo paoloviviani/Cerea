@@ -379,7 +379,7 @@ function embedAsJsString(source: string): string {
 export function buildHtmlSrcdoc(content: string, channel: string): string {
 	const trimmed = content.trimStart();
 	const svgPattern = /^(?:<\?xml[^>]*>\s*)?(?:<!doctype\s+svg[^>]*>\s*)?<svg[\s>]/i;
-	const baseTag = `<base target="_blank">${previewCspMeta(channel)}`;
+	const baseTag = `${previewCspMeta(channel)}<base target="_blank">`;
 	const previewHook = buildPreviewHookScript(channel);
 
 	if (svgPattern.test(trimmed)) {
@@ -392,25 +392,15 @@ export function buildHtmlSrcdoc(content: string, channel: string): string {
 		return `<!doctype html><html><head>${baseTag}${svgBackground}${previewHook}</head><body>${svgContent}</body></html>`;
 	}
 
-	const headMatch = content.match(/<head[^>]*>/i);
-	if (headMatch) {
-		return content.replace(headMatch[0], headMatch[0] + baseTag + previewHook);
-	}
-	const htmlTagMatch = content.match(/<html[^>]*>/i);
-	if (htmlTagMatch) {
-		return content.replace(
-			htmlTagMatch[0],
-			htmlTagMatch[0] + "\n<head>" + baseTag + previewHook + "</head>"
-		);
-	}
-	const doctypeMatch = content.match(/<!doctype[^>]*>/i);
-	if (doctypeMatch) {
-		const idx = content.indexOf(doctypeMatch[0]) + doctypeMatch[0].length;
-		return (
-			content.slice(0, idx) + "\n<head>" + baseTag + previewHook + "</head>" + content.slice(idx)
-		);
-	}
-	return "<head>" + baseTag + previewHook + "</head>\n" + content;
+	// The wrapper is built here, never patched into the artifact's markup: the
+	// CSP meta, the <base> and the hook are the first things the parser sees, so
+	// nothing the artifact contains (a comment holding `<head>`, a `<header>`,
+	// a `<head` inside a script string) can come before them or hide them. The
+	// artifact's own doctype, <html>, <head> and <body> tags follow the closed
+	// head: the parser ignores a second doctype or <head>, merges <html>
+	// attributes, and still processes head content (<style>, <script>, <meta>)
+	// found after it. Audit M4.
+	return `<!doctype html><html><head>${baseTag}${previewHook}</head>${content}`;
 }
 
 const REACT_HOOK_PRELUDE = [
@@ -448,7 +438,7 @@ export function buildReactSrcdoc(code: string, channel: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<base target="_blank">${previewCspMeta(channel)}${previewHook}
+${previewCspMeta(channel)}<base target="_blank">${previewHook}
 <script src="https://cdn.tailwindcss.com">${END_SCRIPT_TAG}
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js">${END_SCRIPT_TAG}
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js">${END_SCRIPT_TAG}
@@ -507,7 +497,7 @@ export function buildMermaidSrcdoc(code: string, channel: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<base target="_blank">${previewCspMeta(channel)}${previewHook}
+${previewCspMeta(channel)}<base target="_blank">${previewHook}
 <style>
 html, body { margin: 0; min-height: 100%; background: #fff; }
 #artifact-root { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; box-sizing: border-box; }
@@ -616,6 +606,6 @@ ${END_SCRIPT_TAG}`;
 
 /** Build the srcdoc for a docx-preview render (sanitized HTML, no `<head>`). */
 export function buildDocxSrcdoc(content: string, channel: string): string {
-	const baseTag = `<base target="_blank">${previewCspMeta(channel)}`;
+	const baseTag = `${previewCspMeta(channel)}<base target="_blank">`;
 	return `<head>${baseTag}${buildPreviewHookScript(channel)}${buildDocxFitScript()}</head>\n${content}`;
 }

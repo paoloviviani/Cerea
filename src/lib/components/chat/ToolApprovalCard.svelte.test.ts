@@ -553,6 +553,81 @@ describe("ToolApprovalCard, the reviewer's words (ADR 0107)", () => {
 	});
 });
 
+describe("ToolApprovalCard, held while the reviewer decides", () => {
+	const held = {
+		...request("bash", { command: "npm test" }),
+		reviewing: true,
+	} as ElicitationRequestPayload;
+
+	it("draws no card, no buttons and no timer: only a quiet status line", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: held,
+			expiresAt: Date.now() + 25 * 60_000,
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect
+			.element(screen.getByTestId("review-pending"))
+			.toHaveTextContent("Checking with the reviewer…");
+		expect(screen.getByRole("button").elements()).toHaveLength(0);
+		expect(screen.getByTestId("approval-timer").elements()).toHaveLength(0);
+		expect(screen.getByTestId("approval-title").elements()).toHaveLength(0);
+	});
+
+	it("becomes the card, with its reason and a running clock, when the reviewer escalates", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: held,
+			expiresAt: Date.now() + 25 * 60_000,
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect.element(screen.getByTestId("review-pending")).toBeVisible();
+		await screen.rerender({
+			request: {
+				...request("bash", { command: "npm test" }),
+				reviewNote: "The reviewer wasn't sure enough (51%; it allows at 90%)",
+			} as ElicitationRequestPayload,
+		});
+		expect(screen.getByTestId("review-pending").elements()).toHaveLength(0);
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await expect.element(screen.getByTestId("review-note")).toBeVisible();
+		await expect.element(screen.getByTestId("approval-timer")).toBeVisible();
+	});
+
+	it("becomes the card when the watchdog hands it over (no note, hold released)", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: held,
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect.element(screen.getByTestId("review-pending")).toBeVisible();
+		await screen.rerender({ request: request("bash", { command: "npm test" }) });
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		expect(screen.getByTestId("review-pending").elements()).toHaveLength(0);
+	});
+
+	it("settles as 'Auto-allowed by reviewer model' when the reviewer allows", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: held,
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect.element(screen.getByTestId("review-pending")).toBeVisible();
+		await screen.rerender({
+			resolved: {
+				type: "elicitation",
+				subtype: "resolved",
+				elicitationId: "gp_1",
+				action: "accept",
+				resolution: "user",
+				note: "Auto-allowed by reviewer model",
+			} as never,
+		});
+		await expect.element(screen.getByText("Auto-allowed by reviewer model")).toBeVisible();
+		expect(screen.getByTestId("review-pending").elements()).toHaveLength(0);
+	});
+});
+
 describe("ToolApprovalCard, plain words", () => {
 	const connector = {
 		elicitationId: "e1",

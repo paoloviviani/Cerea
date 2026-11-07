@@ -44,7 +44,7 @@ vi.mock("openid-client", () => {
 	};
 });
 
-const { getOIDCAuthorizationUrl } = await import("./auth");
+const { getOIDCAuthorizationUrl, sanitizeReturnPath } = await import("./auth");
 
 function fakeCookies() {
 	return {
@@ -106,5 +106,51 @@ describe("getOIDCAuthorizationUrl's reauth flag", () => {
 		// path, never `//…` or a foreign origin — `sanitizeReturnPath`, unit
 		// tested on its own callers already).
 		expect(typeof authorizationUrlCalls[0].state).toBe("string");
+	});
+});
+
+describe("sanitizeReturnPath (audit M3)", () => {
+	const cases: Array<[string, string | undefined | null, string | undefined]> = [
+		["a plain path", "/", "/"],
+		[
+			"a nested path with a query",
+			"/conversation/abc?x=1&y=hello%20world",
+			"/conversation/abc?x=1&y=hello%20world",
+		],
+		["a hash", "/settings#tools", "/settings#tools"],
+		["empty", "", undefined],
+		["null", null, undefined],
+		["undefined", undefined, undefined],
+		["relative", "settings", undefined],
+		["absolute URL", "https://evil.com/", undefined],
+		["scheme-relative", "//evil.com", undefined],
+		["backslash host", "/\\evil.com", undefined],
+		["double backslash", "\\\\evil.com", undefined],
+		["slash backslash after path", "/a/\\evil.com", undefined],
+		["encoded backslash", "/%5Cevil.com", undefined],
+		["encoded backslash lowercase", "/%5cevil.com", undefined],
+		["encoded double slash", "/%2F%2Fevil.com", undefined],
+		["dot-segment collapse to //", "/.//evil.com", undefined],
+		["dot-dot collapse to //", "/a/..//evil.com", undefined],
+		["tab", "/\t/evil.com", undefined],
+		["newline", "/\n/evil.com", undefined],
+		["encoded tab", "/%09/evil.com", undefined],
+		["encoded newline", "/%0a/evil.com", undefined],
+		["NUL", "/\u0000evil", undefined],
+		["space", "/ /evil.com", undefined],
+		["javascript scheme", "javascript:alert(1)", undefined],
+		["slash then javascript", "/javascript:alert(1)", "/javascript:alert(1)"],
+		["malformed escape", "/%E0%A4%A", undefined],
+	];
+	it.each(cases)("%s", (_name, input, expected) => {
+		expect(sanitizeReturnPath(input, "")).toBe(expected);
+	});
+
+	it("keeps only paths under the app base", () => {
+		expect(sanitizeReturnPath("/chat/conversation/1", "/chat")).toBe("/chat/conversation/1");
+		expect(sanitizeReturnPath("/chat", "/chat")).toBe("/chat");
+		expect(sanitizeReturnPath("/chatter", "/chat")).toBeUndefined();
+		expect(sanitizeReturnPath("/other/x", "/chat")).toBeUndefined();
+		expect(sanitizeReturnPath("/chat/../other", "/chat")).toBeUndefined();
 	});
 });

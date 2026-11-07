@@ -60,11 +60,27 @@ function keepVaryAcceptEncoding(res) {
 	setHeader("Vary", "Accept-Encoding");
 }
 
+// The Pyodide execution worker must not be able to phone home. Its own policy is
+// the one on its script's response; the gate inside it cannot see dynamic
+// `import()`. Keep in step with `executionWorkerCsp()` (gate.ts); a spec compares
+// the two. Audit M5.
+const EXECUTION_WORKER_CSP =
+	"script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self' https://pypi.org https://files.pythonhosted.org";
+
+function executionWorkerPolicy(req, res, next) {
+	const path = (req.url ?? "").split("?")[0];
+	if (/\/_app\/immutable\/workers\/pyodide\.worker[^/]*\.js$/.test(path)) {
+		res.setHeader("Content-Security-Policy", EXECUTION_WORKER_CSP);
+	}
+	next();
+}
+
 const server = polka()
 	.use((req, res, next) => {
 		keepVaryAcceptEncoding(res);
 		next();
 	})
+	.use(executionWorkerPolicy)
 	.use(compress)
 	.use(handler);
 

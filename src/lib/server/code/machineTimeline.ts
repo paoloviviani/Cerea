@@ -54,7 +54,7 @@ import type {
 } from "$lib/types/machineProtocol";
 import { usableAttachments, type ToolImageUrl } from "./toolImages";
 import type { ElicitationValue } from "$lib/types/McpElicitation";
-import { reviewNoteFor } from "$lib/server/review/wording";
+import { isAskHeld, reviewNoteFor } from "$lib/server/review/wording";
 import { permissionToElicitation, questionToElicitation } from "$lib/utils/codeInboxCards";
 
 /**
@@ -491,10 +491,14 @@ export function permissionRequestToUpdate(
 	};
 }
 
-/** An ask the reviewer sent to the user carries its reason (ADR 0107). */
+/**
+ * An ask the reviewer sent to the user carries its reason (ADR 0107); one the reviewer is still
+ * deciding is marked `reviewing`, so no card is drawn for it yet.
+ */
 export function withReviewNote(request: PermissionRequest): PermissionRequest {
 	const note = reviewNoteFor(request.id);
-	return note && !note.allowed ? { ...request, reviewNote: note.text } : request;
+	const withNote = note && !note.allowed ? { ...request, reviewNote: note.text } : request;
+	return isAskHeld(request.id) ? { ...withNote, reviewing: true } : withNote;
 }
 
 export function permissionResolvedToUpdate(

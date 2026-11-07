@@ -48,7 +48,7 @@ import {
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import { OpError, type Envelope, type PermissionRequest } from "$lib/types/machineProtocol";
 import { logger } from "$lib/server/logger";
-import { onReviewNote } from "$lib/server/review/wording";
+import { onAskReleased, onReviewNote, reviewNoteFor } from "$lib/server/review/wording";
 import { toolImageUrl } from "$lib/server/code/toolImages";
 import { codeAttachmentKey } from "$lib/server/codeAttachments";
 import { findAttachments } from "$lib/server/files/attachmentStore";
@@ -329,10 +329,12 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			let reauthTimer: ReturnType<typeof setTimeout> | undefined;
 
 			let unsubscribeNotes: (() => void) | undefined;
+			let unsubscribeReleases: (() => void) | undefined;
 			const finish = () => {
 				if (closed) return;
 				closed = true;
 				unsubscribeNotes?.();
+				unsubscribeReleases?.();
 				clearInterval(heartbeat);
 				clearTimeout(lifetime);
 				clearTimeout(reauthTimer);
@@ -407,6 +409,14 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 				unsubscribeNotes = onReviewNote((requestId, note) => {
 					const ask = liveAsks.get(requestId);
 					if (closed || !ask || note.allowed) return;
+					emit(null, permissionRequestToUpdate(ask.request, ask.child));
+				});
+				// A held ask went out as a quiet "checking" line; released, it is the user's to
+				// answer, so the same request goes again without the hold. Not when the reviewer
+				// allowed it: the machine's reply settles the line, and a fresh card would undo that.
+				unsubscribeReleases = onAskReleased((requestId) => {
+					const ask = liveAsks.get(requestId);
+					if (closed || !ask || reviewNoteFor(requestId)?.allowed) return;
 					emit(null, permissionRequestToUpdate(ask.request, ask.child));
 				});
 				for (;;) {

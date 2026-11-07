@@ -885,7 +885,8 @@
 	 * mid-cycle) is not drawn under the card. */
 	let waitingOnUser = $derived.by(() => {
 		const last = blocks.at(-1);
-		return last?.type === "elicitation" && !last.resolved;
+		// A request the reviewer is still deciding is no card yet: the turn is not parked on the user.
+		return last?.type === "elicitation" && !last.resolved && !last.request.reviewing;
 	});
 	/** Reasoning, a running tool and growing text animate; a finished tool, a
 	 * settled question and a terminal subagent do not. A subagent still

@@ -13,6 +13,15 @@ const UNSAFE_IPV4_SUBNETS = [
 	"100.100.100.200/32",
 	"172.16.0.0/12",
 	"192.168.0.0/16",
+	// Azure's host-side metadata/wire server answers on this one public-looking address.
+	"168.63.129.16/32",
+	// IETF protocol assignments (includes the DS-Lite and NAT64 anycast helpers).
+	"192.0.0.0/24",
+	// Benchmarking range: routed inside some provider networks, never a public website.
+	"198.18.0.0/15",
+	// Multicast and the reserved "class E" block (with the limited broadcast address).
+	"224.0.0.0/4",
+	"240.0.0.0/4",
 ].map((s) => new Address4(s));
 
 // IPv4-mapped IPv6 range. Matched as a subnet rather than with ip-address's `is4()`, which
@@ -30,6 +39,16 @@ const IPV4_MAPPED_IPV6_SUBNET = new Address6("::ffff:0:0/96");
  * lets content fetching reach them too, for a deployment that needs it.
  */
 const INTERNAL_NETWORK_SUBNETS = ["10.0.0.0/8", "100.64.0.0/10"].map((s) => new Address4(s));
+
+// IPv6 forms that carry an IPv4 destination inside them (NAT64, 6to4) or that never name one
+// host: refused outright, as Pystino's own guard does.
+const UNSAFE_IPV6_SUBNETS = [
+	"64:ff9b::/96",
+	"64:ff9b:1::/48",
+	"2002::/16",
+	"ff00::/8",
+	"fec0::/10",
+].map((s) => new Address6(s));
 
 // Unique local addresses (fc00::/7) are the IPv6 counterpart of the private IPv4 ranges;
 // `isLoopback()`/`isLinkLocal()` do not cover them.
@@ -71,6 +90,9 @@ function isUnsafeIp(address: string, strict = false): boolean {
 		}
 		// Unique local addresses (fc00::/7) are private, like 10.0.0.0/8 for IPv4.
 		if (addr.isInSubnet(UNIQUE_LOCAL_IPV6_SUBNET)) {
+			return true;
+		}
+		if (UNSAFE_IPV6_SUBNETS.some((subnet) => addr.isInSubnet(subnet))) {
 			return true;
 		}
 		return addr.isLoopback() || addr.isLinkLocal();

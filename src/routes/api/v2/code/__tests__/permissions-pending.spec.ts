@@ -17,6 +17,7 @@ import {
 	type TestUser,
 } from "$lib/server/api/__tests__/testHelpers";
 import { testRequest } from "$lib/server/__tests__/testRequest";
+import { holdAsk, releaseAsk } from "$lib/server/review/wording";
 import { acceptMachineConnection } from "$lib/server/code/machines";
 import type { MachinePrincipal } from "$lib/server/code/machineAuth";
 import { FakeMachine, type FakeMachineOptions } from "../../../../../../tests/fake-machine";
@@ -155,6 +156,48 @@ describe("GET v1/permissions/pending", () => {
 			["s1", "Build it"],
 		]);
 		expect(body.questions.map((q) => [q.sessionId, q.sessionTitle])).toEqual([["s2", "Second"]]);
+		machine.close();
+	});
+
+	it("does not list an ask the reviewer is still deciding; lists it once released (no inbox count during review)", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const permission = (id: string) => ({
+			sessionId: "s1",
+			workspaceId: "w1",
+			sessionTitle: "Build it",
+			request: {
+				id,
+				sessionId: "s1",
+				tool: "bash",
+				title: "Run the tests",
+				patterns: [],
+				metadata: {},
+				always: [],
+			},
+		});
+		machine.onOp("permissions.pending", () => ({
+			permissions: [permission("held-1"), permission("shown-1")],
+			questions: [],
+		}));
+		const list = async () => {
+			const res = await forwarder(
+				forwarderGET,
+				`/api/v2/code/v1/permissions/pending?device=${deviceId}`,
+				{ locals: user.locals }
+			);
+			expect(res.status).toBe(200);
+			const body = await parse<{ permissions: Array<{ request: { id: string } }> }>(res);
+			return body.permissions.map((p) => p.request.id);
+		};
+		holdAsk("held-1");
+		try {
+			expect(await list()).toEqual(["shown-1"]);
+			releaseAsk("held-1");
+			expect(await list()).toEqual(["held-1", "shown-1"]);
+		} finally {
+			releaseAsk("held-1");
+		}
 		machine.close();
 	});
 

@@ -54,3 +54,59 @@ export function clearReviewNote(requestId: string): void {
 export function reviewNoteFor(requestId: string): ReviewNote | undefined {
 	return notes.get(requestId);
 }
+
+/**
+ * Asks held while the reviewer decides. A held ask is not shown to the user: the transcript carries
+ * a quiet "checking" line instead of the card, and the Needs-you inbox, its badge and the push do
+ * not count it. It is released the moment the user is to decide (the reviewer escalated, the
+ * watchdog fired, the review failed or was not ours to do), and also when the reviewer allowed it
+ * (the machine's reply then settles the line). Bounded like the notes.
+ */
+const holds = new Map<string, string[]>();
+const releaseListeners = new Set<(requestId: string) => void>();
+
+export function holdAsk(requestId: string, sessionIds: Array<string | undefined> = []): void {
+	holds.delete(requestId);
+	holds.set(
+		requestId,
+		sessionIds.filter((id): id is string => !!id)
+	);
+	if (holds.size > MAX_NOTES) {
+		// An evicted hold is released, not forgotten: open streams then show the card.
+		for (const k of [...holds.keys()]) {
+			if (holds.size <= MAX_NOTES / 2) break;
+			releaseAsk(k);
+		}
+	}
+}
+/** How many held asks belong to this session (or hang under it as a subagent's). */
+export function heldCountFor(sessionId: string): number {
+	let n = 0;
+	for (const ids of holds.values()) if (ids.includes(sessionId)) n += 1;
+	return n;
+}
+/** The machine's pending-permission count less what the reviewer is still deciding: only the rest is the user's. */
+export function visiblePendingPermissions(session: {
+	id: string;
+	pendingPermissions: number;
+}): number {
+	return Math.max(0, session.pendingPermissions - heldCountFor(session.id));
+}
+export function isAskHeld(requestId: string): boolean {
+	return holds.has(requestId);
+}
+export function releaseAsk(requestId: string): void {
+	if (!holds.delete(requestId)) return;
+	for (const fn of releaseListeners) {
+		try {
+			fn(requestId);
+		} catch {
+			// a listener must never break the review
+		}
+	}
+}
+/** Called when a held ask is released: a card on screen learns it is now the user's to answer. */
+export function onAskReleased(fn: (requestId: string) => void): () => void {
+	releaseListeners.add(fn);
+	return () => releaseListeners.delete(fn);
+}

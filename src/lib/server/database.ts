@@ -791,6 +791,20 @@ export class Database {
 		settings
 			.createIndex({ userId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e, "Error creating index for settings by userId"));
+		// Rows keyed by a bare sessionId belong to a visitor who never signed in (login moves
+		// the row to the user and unsets `sessionId`). Where sign-in is configured nothing writes
+		// them any more (audit M2); on an anonymous deployment they are live settings, so
+		// `touchAnonymousSettings` refreshes `updatedAt` (daily) while the visitor returns, and
+		// only a row unused for 7 days is swept.
+		settings
+			.createIndex(
+				{ updatedAt: 1 },
+				{
+					expireAfterSeconds: 7 * 24 * 60 * 60,
+					partialFilterExpression: { sessionId: { $exists: true } },
+				}
+			)
+			.catch((e) => logger.error(e, "Error creating TTL index for anonymous settings"));
 		// Per-model system prompts are gone; drop what is still stored. Floats
 		// like the index builds around it: it only has to land eventually, since
 		// nothing reads the fields any more.
