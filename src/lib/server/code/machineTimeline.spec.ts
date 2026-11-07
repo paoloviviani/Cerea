@@ -1605,6 +1605,37 @@ describe("inbox card parity (codeInboxCards)", () => {
 	});
 });
 
+describe("an ask the reviewer is still deciding (held)", () => {
+	const request: PermissionRequest = {
+		id: "perm-held",
+		sessionId: "s1",
+		tool: "bash",
+		title: "run tests",
+		patterns: [],
+		metadata: {},
+		always: [],
+	};
+	const card = () => {
+		const update = permissionRequestToUpdate(request);
+		if (update.type !== MessageUpdateType.Elicitation || update.subtype !== "request") {
+			throw new Error("expected an elicitation request");
+		}
+		return update.request;
+	};
+
+	it("is marked reviewing while held (a reload during review shows the status, not a card)", async () => {
+		const { holdAsk, releaseAsk } = await import("$lib/server/review/wording");
+		holdAsk(request.id);
+		try {
+			expect(card().reviewing).toBe(true);
+			releaseAsk(request.id);
+			expect(card().reviewing).toBeUndefined();
+		} finally {
+			releaseAsk(request.id);
+		}
+	});
+});
+
 describe("background task markers", () => {
 	const RUNNING_XML = `<task id="ses_child1" state="running">
 <summary>Background task started: Survey the repo</summary>

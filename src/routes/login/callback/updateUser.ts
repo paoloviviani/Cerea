@@ -220,6 +220,9 @@ export async function updateUser(params: {
 		}
 	}
 	let userId = existingUser?._id;
+	// The issuer's own word on the address (absent: it does not say). Kept on the row so sharing
+	// can refuse an address the issuer calls unverified (`sharingEmail`).
+	const claimedEmailVerified = (userData as Record<string, unknown>).email_verified;
 
 	// update session cookie on login
 	const previousSessionId = locals.sessionId;
@@ -266,6 +269,9 @@ export async function updateUser(params: {
 					// operator looking at the row sees this login's last identity.
 					...(gatewayUserId ? { hfUserId, issuer: normalizeIssuer(issuer) } : {}),
 					...(gatewayUserId && email ? { email } : {}),
+					...(typeof claimedEmailVerified === "boolean"
+						? { emailVerified: claimedEmailVerified }
+						: {}),
 				},
 			}
 		);
@@ -294,6 +300,7 @@ export async function updateUser(params: {
 			username,
 			name,
 			email,
+			...(typeof claimedEmailVerified === "boolean" ? { emailVerified: claimedEmailVerified } : {}),
 			avatarUrl,
 			hfUserId,
 			issuer: normalizeIssuer(issuer),

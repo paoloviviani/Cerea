@@ -6,7 +6,7 @@ import { defaultSettings } from "$lib/server/agentReview";
 import type { AgentReviewSettings } from "$lib/types/AgentReview";
 import type { DecisionResult } from "./call";
 import { _resetReviewState, reviewPermissionAsk, type ReviewDeps } from "./service";
-import { reviewNoteFor } from "./wording";
+import { holdAsk, isAskHeld, reviewNoteFor } from "./wording";
 import { reviewerDegraded } from "./health";
 
 const user = new ObjectId();
@@ -370,13 +370,13 @@ describe("dedup, watchdog, rate cap, health", () => {
 		expect(h.reply).toHaveBeenCalledTimes(1);
 	});
 
-	it("the watchdog pushes anyway when no decision lands in time; a late allow still replies", async () => {
+	it("the watchdog hands the ask to the user; a late reviewer allow is ignored and logged (audit M6)", async () => {
 		vi.useFakeTimers();
 		const h = harness();
 		h.state.watchdogMs = 1_000;
 		let release: (r: DecisionResult) => void = () => undefined;
 		h.state.result = () => new Promise((r) => (release = r));
-		const done = run(h);
+		const done = run(h, ask({ id: "late_1" }));
 		await vi.advanceTimersByTimeAsync(500);
 		expect(h.push).not.toHaveBeenCalled();
 		await vi.advanceTimersByTimeAsync(600);
@@ -385,7 +385,98 @@ describe("dedup, watchdog, rate cap, health", () => {
 		release({ ok: true, probability: 0.97 });
 		await done;
 		expect(h.push).toHaveBeenCalledTimes(1);
-		expect(h.reply).toHaveBeenCalledTimes(1);
+		expect(h.reply).not.toHaveBeenCalled();
+		expect(reviewNoteFor("late_1")?.allowed).not.toBe(true);
+		expect(h.log).toHaveBeenCalledTimes(1);
+		const row = (
+			h.log.mock.calls[0] as unknown as [{ outcome: string; reason: string; applied: boolean }]
+		)[0];
+		expect(row).toMatchObject({
+			outcome: "escalated",
+			reason: "timed out, left to you",
+			applied: false,
+		});
+	});
+
+	it("a late read-only rule answer after the watchdog is ignored too", async () => {
+		vi.useFakeTimers();
+		const h = harness();
+		h.state.watchdogMs = 1_000;
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((r) => (release = r));
+		// the machine-stamped read-only fast path waits on the session lookup here
+		const slow = h.deps.link;
+		h.deps.link = (id) => ({
+			...slow(id),
+			sessionGet: async (a: { sessionId: string }) => {
+				await gate;
+				return slow(id).sessionGet(a);
+			},
+		});
+		const done = run(h, ask({ readOnly: true, patterns: ["ls"] }));
+		await vi.advanceTimersByTimeAsync(1_100);
+		expect(h.push).toHaveBeenCalledTimes(1);
+		release();
+		await done;
+		expect(h.reply).not.toHaveBeenCalled();
+	});
+
+	describe("holding the card while the reviewer decides", () => {
+		it("is held until it allows, and released once the reply is sent", async () => {
+			const h = harness();
+			holdAsk("per_1");
+			let release: (r: DecisionResult) => void = () => undefined;
+			h.state.result = () => new Promise((r) => (release = r));
+			const done = run(h);
+			await vi.waitFor(() => expect(h.call).toHaveBeenCalled());
+			expect(isAskHeld("per_1")).toBe(true);
+			expect(h.push).not.toHaveBeenCalled();
+			release({ ok: true, probability: 0.97 });
+			await done;
+			expect(h.reply).toHaveBeenCalledTimes(1);
+			expect(isAskHeld("per_1")).toBe(false);
+		});
+
+		it("is released when the reviewer escalates, with its reason already on the ask", async () => {
+			const h = harness();
+			holdAsk("per_1");
+			h.state.result = async () => ({ ok: true, probability: 0.3 });
+			await run(h);
+			expect(isAskHeld("per_1")).toBe(false);
+			expect(reviewNoteFor("per_1")?.allowed).toBe(false);
+			expect(h.push).toHaveBeenCalledTimes(1);
+		});
+
+		it("is released when the watchdog fires", async () => {
+			vi.useFakeTimers();
+			const h = harness();
+			h.state.watchdogMs = 1_000;
+			holdAsk("per_1");
+			h.state.result = () => new Promise(() => undefined);
+			void run(h);
+			await vi.advanceTimersByTimeAsync(500);
+			expect(isAskHeld("per_1")).toBe(true);
+			await vi.advanceTimersByTimeAsync(600);
+			expect(isAskHeld("per_1")).toBe(false);
+		});
+
+		it("is released at once when the ask is not the reviewer's (no model configured)", async () => {
+			const h = harness({ decisionModelId: "" });
+			holdAsk("per_1");
+			await run(h);
+			expect(isAskHeld("per_1")).toBe(false);
+			expect(h.push).toHaveBeenCalledTimes(1);
+		});
+
+		it("is released when the review throws", async () => {
+			const h = harness();
+			holdAsk("per_1");
+			h.state.token = async () => {
+				throw new Error("boom");
+			};
+			await run(h);
+			expect(isAskHeld("per_1")).toBe(false);
+		});
 	});
 
 	it("past the hourly cap asks come to the user, paced to one push a minute", async () => {

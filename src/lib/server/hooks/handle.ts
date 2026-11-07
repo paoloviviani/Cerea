@@ -535,6 +535,15 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 			}
 
 			if (event.url.pathname.startsWith(`${base}/api/`)) {
+				// Account-scoped JSON (minted keys, one-time passwords and tickets pass through
+				// here) must not be stored by a shared cache or the browser's history. A route
+				// that set its own Cache-Control keeps it.
+				if (
+					!response.headers.has("Cache-Control") &&
+					(response.headers.get("content-type") ?? "").includes("json")
+				) {
+					response.headers.set("Cache-Control", "no-store");
+				}
 				// get origin from the request
 				const requestOrigin = event.request.headers.get("origin");
 

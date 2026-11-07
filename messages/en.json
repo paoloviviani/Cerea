@@ -1076,6 +1076,7 @@
 	"chat.approval.always_confirm": "Always allow this?",
 	"chat.approval.always_confirm_yes": "Yes, always allow",
 	"chat.approval.always_confirm_no": "Cancel",
+	"chat.approval.reviewing": "Checking with the reviewer…",
 	"chat.approval.wait_title": "If you do not answer in time, this is denied automatically.",
 	"chat.approval.wait_hours": "Auto-deny in {count} h",
 	"chat.approval.wait_minutes": "Auto-deny in {count} min",

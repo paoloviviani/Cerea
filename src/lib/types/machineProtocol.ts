@@ -441,6 +441,8 @@ export interface PermissionRequest {
 	readOnly?: boolean | null;
 	/** Added by Cerea, never sent by a machine: why the reviewer sent this ask to the user (ADR 0107). */
 	reviewNote?: string;
+	/** Added by Cerea, never sent by a machine: the reviewer is still deciding, so this is not yet the user's to answer. */
+	reviewing?: boolean;
 }
 
 /**

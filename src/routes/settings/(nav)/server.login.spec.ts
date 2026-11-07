@@ -21,14 +21,16 @@ describe("POST /settings with sign-in configured", () => {
 		const before = await db.collections.settings.countDocuments({});
 		// Straight at the handler: the wall in front of it is covered by loginWall.spec.ts,
 		// and this is the second line of defence.
-		const res = await POST({
-			request: new Request("http://localhost/settings", {
-				method: "POST",
-				body: JSON.stringify({ activeModel: "x" }),
-				headers: { "Content-Type": "application/json" },
-			}),
-			locals: { sessionId: "anon-session" },
-		} as never).catch((e) => e);
+		const res = await Promise.resolve(
+			POST({
+				request: new Request("http://localhost/settings", {
+					method: "POST",
+					body: JSON.stringify({ activeModel: "x" }),
+					headers: { "Content-Type": "application/json" },
+				}),
+				locals: { sessionId: "anon-session" },
+			} as never)
+		).catch((e: { status?: number }) => e);
 		expect(res.status).toBe(401);
 		expect(await db.collections.settings.countDocuments({})).toBe(before);
 	});

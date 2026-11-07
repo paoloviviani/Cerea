@@ -5,12 +5,25 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **In Auto, an approval card no longer flashes before the reviewer decides.** While the reviewer is deciding, the turn shows a quiet "Checking with the reviewer…" line with no buttons, and the Needs you list, its badge and notifications leave it out. The card appears if the reviewer escalates or gives up; if it allows, the line becomes "Auto-allowed by reviewer model", and a reload mid-review shows the right state.
+- When the reviewer takes too long and the question goes to you, a late answer from the reviewer no longer approves it on its own.
+- A computer you have not confirmed yet can no longer trigger reviews or notifications.
+- Security: saving settings now needs a signed-in user, and the request size is capped.
+- Security: sign-in return links are checked more strictly.
+- Security: the code preview keeps its content policy whatever the artifact's markup looks like.
+- Security: the Python sandbox's worker is served with a policy that closes more network routes.
+- Security: sharing ignores an email address the sign-in provider reports as unverified.
+- Security: address checks for fetched pages cover more special-purpose ranges, and account responses are no longer cached.
+
 ## v0.45.0 — 2026-11-07
 
 Pins: Cerea `0.45.0` (chat and `cerea-documents`), Pystino `0.29.2`.
 **To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
 `docker compose pull && docker compose up -d`. 
 
+- **`galopin launch opencode`** starts your own opencode wired the way galopin sets it up (Pystino models), without Cerea.
 - The kit pins Pystino 0.29.2: the console folds `.env` notes and endpoint names into its **About this server** and **How it works** sections, and (since 0.29.1) a model whose upstream id another provider already serves (for example Melious and Cortecs both offering `clef-flash`) can now be imported under its own name.
 - Documentation pass: the coding-agent pages describe the current permission model (no machine limits, Plan · Ask · Auto · Allow, the fixed floor, local `--deny`), the review log, diffs, cost and connectors for agents; quota messages and the Workspace → Agents settings are documented as they are.
 - **One set of words across the app.** Chats (not conversations), computer (not machine or device), session (not agent, for one run), and Plan · Ask · Auto · Allow everywhere, including the new session dialog, which says **New session** and **Start session** and offers all four modes.

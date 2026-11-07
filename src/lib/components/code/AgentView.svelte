@@ -944,7 +944,8 @@
 			for (let j = updates.length - 1; j >= 0; j -= 1) {
 				const update = updates[j];
 				if (update.type !== MessageUpdateType.Elicitation) continue;
-				if (update.subtype === "request") return true;
+				// Held for the reviewer: no card yet, so the turn is not waiting on the user.
+				if (update.subtype === "request") return !update.request.reviewing;
 				return false;
 			}
 			break;
