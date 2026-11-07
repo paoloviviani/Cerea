@@ -581,7 +581,7 @@ describe("ToolApprovalCard, plain words", () => {
 		await expect.element(screen.getByTestId("approval-details")).toHaveTextContent('"query"');
 		await expect
 			.element(screen.getByTestId("approval-timer"))
-			.toHaveTextContent(/Waits 2[45] more minutes, then it's denied/);
+			.toHaveTextContent(/Denied in 2[45] minutes/);
 	});
 
 	it("offers Deny as a bordered button", async () => {
@@ -608,8 +608,8 @@ describe("ToolApprovalCard, plain words", () => {
 		});
 		await expect
 			.element(screen.getByTestId("approval-title"))
-			.toHaveTextContent("Download and run a script from the internet");
-		await expect.element(screen.getByTestId("risk-tags")).toHaveTextContent("Uses the internet");
+			.toHaveTextContent("Download and run an online script");
+		await expect.element(screen.getByTestId("risk-tags")).toHaveTextContent("Internet");
 		await screen.getByRole("button", { name: "Always allow (this session)" }).click();
 		expect(answers).toHaveLength(0);
 		await screen.getByRole("button", { name: "Yes, always allow" }).click();

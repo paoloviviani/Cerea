@@ -1028,38 +1028,38 @@
 	"chat.approval.risk.changes": "Changes files",
 	"chat.approval.risk.runs": "Runs commands",
 	"chat.approval.risk.deletes": "Deletes",
-	"chat.approval.risk.network": "Uses the internet",
-	"chat.approval.risk.secrets": "Touches secrets",
-	"chat.approval.risk.outside": "Outside the project folder",
-	"chat.approval.risk.agents": "Other sessions",
-	"chat.approval.risk.connector": "Uses a connector",
-	"chat.approval.title.remote_script": "Download and run a script from the internet",
+	"chat.approval.risk.network": "Internet",
+	"chat.approval.risk.secrets": "Secrets",
+	"chat.approval.risk.outside": "Outside folder",
+	"chat.approval.risk.agents": "Sessions",
+	"chat.approval.risk.connector": "Connector",
+	"chat.approval.title.remote_script": "Download and run an online script",
 	"chat.approval.title.delete_folder": "Delete the folder {name}",
 	"chat.approval.title.delete_file": "Delete the file {name}",
 	"chat.approval.title.delete_generic": "Delete files",
-	"chat.approval.title.run_command": "Run the command: {command}",
+	"chat.approval.title.run_command": "Run: {command}",
 	"chat.approval.title.run_generic": "Run a command",
-	"chat.approval.title.run_readonly": "Look around with a read-only command: {command}",
-	"chat.approval.title.edit_file": "Change the file {name}",
+	"chat.approval.title.run_readonly": "Read-only command: {command}",
+	"chat.approval.title.edit_file": "Change {name}",
 	"chat.approval.title.edit_generic": "Change a file",
-	"chat.approval.title.search_project": "Search the project for \"{pattern}\"",
-	"chat.approval.title.read_file": "Read the file {name}",
-	"chat.approval.title.read_generic": "Read files in the project",
+	"chat.approval.title.search_project": "Search for \"{pattern}\"",
+	"chat.approval.title.read_file": "Read {name}",
+	"chat.approval.title.read_generic": "Read project files",
 	"chat.approval.title.open_url": "Open {url}",
 	"chat.approval.title.web_search": "Search the web for \"{query}\"",
 	"chat.approval.title.web_generic": "Use the internet",
-	"chat.approval.title.outside_path": "Use files outside the project folder: {path}",
-	"chat.approval.title.outside_generic": "Use files outside the project folder",
-	"chat.approval.title.agents": "Start or talk to another session",
-	"chat.approval.title.secrets": "Use something secret, such as a password or key",
-	"chat.approval.title.loop": "The agent seems to be repeating itself",
-	"chat.approval.title.tool": "Use the tool {tool}",
+	"chat.approval.title.outside_path": "Use {path}, outside the project",
+	"chat.approval.title.outside_generic": "Use files outside the project",
+	"chat.approval.title.agents": "Start or message a session",
+	"chat.approval.title.secrets": "Use a password or key",
+	"chat.approval.title.loop": "Repeating itself",
+	"chat.approval.title.tool": "Use {tool}",
 	"chat.approval.title.connector": "{server} wants to {action}",
 	"chat.approval.title.connector_for": "{action} for \"{query}\"",
 	"chat.approval.title.and_more": " and {count} more",
 	"chat.approval.details_show": "Show details",
 	"chat.approval.details_hide": "Hide details",
-	"chat.approval.always_confirm": "Always allow this kind of action for the rest of this session?",
+	"chat.approval.always_confirm": "Always allow this?",
 	"chat.approval.always_confirm_yes": "Yes, always allow",
 	"chat.approval.always_confirm_no": "Cancel",
 	"chat.approval.wait_hours": [
@@ -1067,8 +1067,8 @@
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
 			"match": {
-				"countPlural=one": "Waits {count} more hour, then it's denied",
-				"countPlural=other": "Waits {count} more hours, then it's denied"
+				"countPlural=one": "Denied in {count} hour",
+				"countPlural=other": "Denied in {count} hours"
 			}
 		}
 	],
@@ -1077,8 +1077,8 @@
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
 			"match": {
-				"countPlural=one": "Waits {count} more minute, then it's denied",
-				"countPlural=other": "Waits {count} more minutes, then it's denied"
+				"countPlural=one": "Denied in {count} minute",
+				"countPlural=other": "Denied in {count} minutes"
 			}
 		}
 	],
@@ -1087,8 +1087,8 @@
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
 			"match": {
-				"countPlural=one": "Waits {count} more second, then it's denied",
-				"countPlural=other": "Waits {count} more seconds, then it's denied"
+				"countPlural=one": "Denied in {count} second",
+				"countPlural=other": "Denied in {count} seconds"
 			}
 		}
 	],
@@ -1337,8 +1337,8 @@
 	"chat.input.add_audio_hint": "Transcribed for the chat",
 	"chat.input.audio_label": "Upload audio",
 	"chat.input.add_url": "Add from a web address",
-	"chat.input.asks": "Asks before using tools",
-	"chat.input.asks_hint": "The assistant asks you before it opens a web page or uses a connector. Select to let it go ahead on its own, in this chat only.",
+	"chat.input.asks": "Asks first",
+	"chat.input.asks_hint": "Asks you before using the web or a connector. Select to let it go ahead, in this chat only.",
 	"chat.input.attach": "Add attachment",
 	"chat.input.dictation_hint": "Dictate with your browser's speech recognition",
 	"chat.input.dictation_start": "Start dictation",

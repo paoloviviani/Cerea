@@ -4,7 +4,7 @@ import { analyseCommand, summarizeApproval } from "./approvalSummary";
 describe("analyseCommand", () => {
 	it("names a download piped into a shell", () => {
 		const out = analyseCommand("curl -s https://example.com/install.sh | sh");
-		expect(out.title).toBe("Download and run a script from the internet");
+		expect(out.title).toBe("Download and run an online script");
 		expect(out.extra).toEqual(["network", "runs"]);
 	});
 
@@ -19,9 +19,7 @@ describe("analyseCommand", () => {
 	it("adds secrets and network warnings without hiding the command", () => {
 		expect(analyseCommand("cat ~/.ssh/id_rsa").extra).toContain("secrets");
 		expect(analyseCommand("pip install requests").extra).toEqual(["network"]);
-		expect(analyseCommand("python3 -m pytest -v").title).toBe(
-			"Run the command: python3 -m pytest -v"
-		);
+		expect(analyseCommand("python3 -m pytest -v").title).toBe("Run: python3 -m pytest -v");
 	});
 });
 
@@ -53,7 +51,7 @@ describe("summarizeApproval", () => {
 		expect(summarizeApproval({ tool: "weird", args: {}, class: "web" }).tags).toEqual(["network"]);
 		expect(summarizeApproval({ tool: "edit", args: { filepath: "/w/src/cart.py" } })).toMatchObject(
 			{
-				title: "Change the file cart.py",
+				title: "Change cart.py",
 				tags: ["changes"],
 			}
 		);
