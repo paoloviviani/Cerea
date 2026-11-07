@@ -440,12 +440,12 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				// that is already gone is refusing to clean up after it.
 				event.url.pathname !== `${base}/logout` &&
 				// Deny by default. A read is let through only when its route is
-				// on the allow-list; a write only under `/settings`, as before.
-				// This used to be `!== GET`, which left every GET public unless
-				// the route happened to guard itself.
+				// on the allow-list; every write needs a signed-in user. (Writes
+				// under `/settings` used to be exempt, which let a signed-out
+				// client mint unbounded settings documents: audit M2.)
 				(isReadMethod(event.request.method)
 					? !SIGNED_OUT_GET_ROUTES.has(event.route.id ?? "")
-					: !event.url.pathname.startsWith(`${base}/settings`))
+					: true)
 			) {
 				// An /api caller always gets JSON, whatever Accept it sent: the
 				// wall now answers reads too, and a bare fetch has no Accept.

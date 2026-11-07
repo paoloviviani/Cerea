@@ -84,4 +84,56 @@ describe("POST /settings (legacy save path)", () => {
 			).rejects.toThrow();
 		}
 	});
+
+	describe("abuse limits (audit M2)", () => {
+		const post = (locals: Partial<App.Locals>, body: string) =>
+			testRequest(legacySettingsPOST, {
+				path: "/settings",
+				locals,
+				method: "POST",
+				body,
+				headers: { "Content-Type": "application/json" },
+			});
+
+		it("lets an anonymous deployment save, but stops minting rows past the global cap", async () => {
+			const res = await post({ sessionId: "anon-ok" }, JSON.stringify({ activeModel: "x" }));
+			expect(res.status).toBe(200);
+			await collections.settings.insertMany(
+				Array.from({ length: 10_000 }, (_, i) => ({
+					sessionId: `bulk-${i}`,
+					activeModel: "x",
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				})) as never
+			);
+			const before = await collections.settings.countDocuments({});
+			const refused = await post({ sessionId: "anon-new" }, JSON.stringify({ activeModel: "x" }));
+			expect(refused.status).toBe(429);
+			expect(await collections.settings.countDocuments({})).toBe(before);
+			// an existing anonymous row can still be updated
+			const again = await post({ sessionId: "anon-ok" }, JSON.stringify({ activeModel: "y" }));
+			expect(again.status).toBe(200);
+		}, 60000);
+
+		it("refuses a body over the size cap", async () => {
+			const { locals } = await createTestUser();
+			const res = await post(
+				locals,
+				JSON.stringify({
+					activeModel: "x",
+					hidePromptExamples: { pad: true },
+					junk: "y".repeat(70_000),
+				})
+			);
+			expect(res.status).toBe(413);
+		});
+
+		it("refuses a record with thousands of keys", async () => {
+			const { locals } = await createTestUser();
+			const many = Object.fromEntries(Array.from({ length: 600 }, (_, i) => [`k${i}`, true]));
+			await expect(
+				post(locals, JSON.stringify({ activeModel: "x", hidePromptExamples: many }))
+			).rejects.toThrow();
+		});
+	});
 });
