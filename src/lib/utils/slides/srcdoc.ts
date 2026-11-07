@@ -41,7 +41,7 @@ const BUILTIN_CSS: Record<string, string> = {
  * font folder. The fonts named in the theme fall back to system fonts.
  */
 export function stripImports(css: string): string {
-	return css.replace(/@import\s+url\([^)]*\)\s*;?/gi, "");
+	return css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@import\s+url\([^)]*\)\s*;?/gi, "");
 }
 
 export function themeCss(theme: ThemeId): string {
@@ -83,10 +83,14 @@ function runtimeScript(channel: string, pdf: boolean): string {
     width: 1280, height: 720, margin: PDF ? 0 : 0.04, minScale: PDF ? 1 : 0.1, maxScale: PDF ? 1 : 2,
     center: true, hash: false, history: false, controls: false, progress: !PDF, slideNumber: false,
     transition: PDF ? 'none' : 'slide', backgroundTransition: 'none', keyboard: !PDF, touch: !PDF,
-    fragments: !PDF, help: true, overview: !PDF, mouseWheel: false, respondToHashChanges: false
+    fragments: !PDF, help: true, overview: !PDF, mouseWheel: false, respondToHashChanges: false, scrollActivationWidth: null, view: null
   });
   function notes(){
-    try { var n = deck.getSlideNotes(); return typeof n === 'string' ? n.trim() : ''; } catch (e) { return ''; }
+    try {
+      var slide = deck.getCurrentSlide();
+      var aside = slide && slide.querySelector('aside.notes');
+      return aside ? (aside.textContent || '').trim() : '';
+    } catch (e) { return ''; }
   }
   function publish(){
     var text = notes();
@@ -129,14 +133,15 @@ function runtimeScript(channel: string, pdf: boolean): string {
         deck.slide(Number(d.index) || 0);
         var fonts = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
         fonts.then(function(){
-          requestAnimationFrame(function(){ requestAnimationFrame(function(){
+          // Timers, not requestAnimationFrame: an offscreen cross-origin frame gets no animation frames
+          setTimeout(function(){ setTimeout(function(){
             window.snapdom.toCanvas(document.body, {
               dpr: 1, scale: 1, backgroundColor: getComputedStyle(document.body).backgroundColor || '#ffffff',
               embedFonts: false, fast: true
             }).then(function(canvas){
               send('chatui.slides.captureResult', { id: id, dataUrl: canvas.toDataURL('image/jpeg', 0.92) });
             }).catch(fail);
-          }); });
+          }, 80); }, 80);
         });
       } catch (err) { fail(err); }
     }

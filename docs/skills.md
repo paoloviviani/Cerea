@@ -123,6 +123,19 @@ ships a demonstration template, picks visual types from a markdown outline and
 validates structurally (empty placeholders, estimated overflow, off-slide
 shapes). Either way the visual verdict is yours to make when you open the deck.
 
+### slides
+
+Writes a **slides** [artifact](artifacts.md#slides): a deck in reveal.js
+Markdown (`---` between slides, `Note:` for speaker notes) with front matter for
+the theme, accent colour, font and logo, and layout classes (title, section, two
+columns, image left or right, quote, big number). Good-deck rules are in the
+skill: one idea per slide, at most six bullets, detail in the notes. The
+assistant asks one question first when it is unclear whether you want slides to
+present here or a PowerPoint file to edit; saying "PowerPoint", "pptx" or "file
+to edit" goes to the powerpoint skill, and "just slides" or "present" goes
+straight to this one. If an administrator turns one of the two skills off, the
+question is not asked.
+
 ### charts
 
 Figures that keep the data honest: zero-baseline bars, labelled axes,

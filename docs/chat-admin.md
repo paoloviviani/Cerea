@@ -34,7 +34,7 @@ Seven tabs. The old addresses of the sections that were folded into **Web** and 
 | **Web**        | Two sections. **Web search**: which search backend the composer's Web search pill uses, picked from the search backends the gateway offers (not hidden when knowledge is off). **Fetching**: which backend fetches a URL, a plain HTTPS request or the [headless browser](browser.md), with a live check of whether the renderer answers                                                                                                                                                                                                                                                                                 |
 | **Connectors** | MCP servers offered to everybody, and how each is offered: see [Connectors for everybody](#connectors-for-everybody) below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | **Skills**     | Deployment-wide skills that every account sees; the bundled ones can be switched off by name (`CHAT_SKILLS_DISABLED`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **Assistant**  | Six sections. **Assistant instructions**: one text added to every chat's instructions, before each user's own, and whether users can read it in Settings. **Sub-agents**: whether the assistant may hand work to sub-agents (`delegate`, `research`), on by default. **Voice**: whether the composer offers browser dictation (yes, no, or only when no voice model is available, the default). **Images**: the model that draws images and whether each generation asks first. **Model for titles**: which model names chats. **Models hidden from the chat picker**: which models users are not offered. Details below |
+| **Assistant**  | Six sections. **Assistant instructions**: one text added to every chat's instructions, before each user's own, and whether users can read it in Settings. **Sub-agents**: whether the assistant may hand work to sub-agents (`delegate`, `research`), on by default. **Voice**: whether the composer offers browser dictation (yes, no, or only when no voice model is available, the default). **Images**: the model that draws images and whether each generation asks first. **Model for titles**: which model names chats. **Slides**: an optional default look for slide decks. **Models hidden from the chat picker**: which models users are not offered. Details below |
 | **Agents**     | What the deployment decides about coding agents. One section for now, Auto-approval: the switch that lets users use a decision-model reviewer for Auto. See [Agent auto-approval](#agent-auto-approval)                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | **Storage**    | How long files produced by code are kept: see below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -222,6 +222,18 @@ to the user whose chat it is.
   repeats once with a larger token budget first. A title a user typed is never
   replaced, and chats created before this behaviour keep their titles.
 - **Language.** The title is written in the language of the user's first message.
+
+## Slides
+
+Under Administration → Assistant → **Slides** you can give every
+[slides artifact](artifacts.md#slides) a default look: a theme, an accent colour
+(a hex colour such as `#7008e7`) and a logo (a PNG, JPEG, WebP, GIF or SVG image
+under 300 kB, shown bottom right). It is **off** until you set something, and any
+field can stay empty. A deck's own front matter (`theme`, `accent`, `logo`) wins
+over it, and the accent applies to every theme, including reveal.js's. Like the
+other administration settings it can only be saved where configuration is stored
+by Cerea; otherwise set `CHAT_SLIDES_DEFAULTS` in the environment as JSON, for
+example `{"theme":"cerea-dark","accent":"#0a7e8c"}`.
 
 ## Hiding a model from the chat picker
 

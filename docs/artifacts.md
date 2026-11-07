@@ -23,6 +23,7 @@ answer. The kinds are:
 | **SVG**         | a preview                              |
 | **Markdown**    | rendered text                          |
 | **Table** (CSV) | a grid                                 |
+| **Slides**      | a slide deck you can present           |
 | **Code**        | source, not previewed                  |
 
 Previews run in **sandboxed frames with no network access**: no cookies, no
@@ -37,6 +38,26 @@ sentence. The panel keeps the history and lets you move between versions.
 Whether a model makes artifacts follows the model's setting in the
 **Workspace → Models** tab: on for a model that can call tools unless the
 setting says otherwise.
+
+### Slides
+
+A **slides** artifact is a deck the assistant writes in Markdown and Cerea
+shows with [reveal.js](https://revealjs.com), inside the same sandboxed frame as
+every other preview, so it works offline. Ask for "slides on X" and, if it is not
+clear whether you want something to present here or a PowerPoint file to edit,
+the assistant asks first.
+
+- **Step through it** with the arrows under the slides, or the arrow keys. The counter shows where you are.
+- **Present** takes the deck full screen (on a phone it fills the window); Esc leaves.
+- **Speaker notes** show in a drawer under the slide (the notes button, or **N**).
+- **Download PDF** makes one page per slide in your browser, so it needs no server; the pages are pictures, so text in the PDF cannot be selected. **Download** in the panel header saves the Markdown.
+- **Look.** Eight themes: **Cerea** (the default) and **Cerea dark**, plus reveal.js's **white**, **black**, **simple**, **moon**, **solarized** and **dracula**. A deck can also set an accent colour, a font (a short list of system fonts) and a logo (an image already in the chat). Ask the assistant for "the dark theme" or "our blue as the accent" and it changes the deck's first lines.
+- **Layouts** the assistant can use: title, section, two columns, image beside text, quote and big number.
+
+An administrator can set an organisation default (theme, accent colour, logo)
+under [Administration → Assistant](chat-admin.md#slides), off until set; a deck
+still wins over it. A slides artifact cannot be opened in PowerPoint: ask for a
+[PowerPoint file](office.md) when you need one to edit.
 
 ## File artifacts
 
