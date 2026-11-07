@@ -21,12 +21,26 @@
 	import { loading } from "$lib/stores/loading.js";
 	import { loadAttachmentsFromUrls } from "$lib/utils/loadAttachmentsFromUrls";
 	import { requireAuthUser } from "$lib/utils/auth";
+	import AgentsFirstRun from "$lib/components/code/AgentsFirstRun.svelte";
+	import { codeNav } from "$lib/stores/codeNav.svelte";
+	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
+	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 
 	let { data } = $props();
 
 	const convsStore = useConversationsStore();
 
 	let hasModels = $derived(Boolean(data.models?.length));
+	// The sidebar is on Agents but no computer is paired: say what an agent is
+	// instead of showing the ordinary chat first screen.
+	let agentsFirstRun = $derived(
+		data.codeAgentsEnabled === true &&
+			codeNav.view === "agents" &&
+			codeReauth.checked &&
+			!codeReauth.required &&
+			!codeDeviceList.loading &&
+			codeDeviceList.devices.length === 0
+	);
 	let files: File[] = $state([]);
 	let draft = $state("");
 	// Bases picked from the composer's knowledge submenu while no conversation
@@ -242,7 +256,9 @@
 	<title>{publicConfig.PUBLIC_APP_NAME}</title>
 </svelte:head>
 
-{#if hasModels}
+{#if agentsFirstRun}
+	<div class="flex h-full min-h-0 flex-1"><AgentsFirstRun /></div>
+{:else if hasModels}
 	<ChatWindow
 		onmessage={(message) => createConversation(message)}
 		loading={$loading}

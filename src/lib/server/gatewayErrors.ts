@@ -178,6 +178,10 @@ export function quotaMessageForUser(
 ): string {
 	const group = failure.scope === "group";
 	const f = failure.figures;
+	// A limit of zero was never an allowance to use up.
+	if (f && f.limit === 0) {
+		return group ? m["app.errors.quota_none_group"]() : m["app.errors.quota_none_user"]();
+	}
 	const parts: string[] = [];
 	if (f) {
 		const isMoney = f.metric === "cost";

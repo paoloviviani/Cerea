@@ -464,6 +464,7 @@
 				<p
 					class="mt-2 text-xs text-gray-500 tabular-nums dark:text-gray-400"
 					data-testid="approval-timer"
+					title={m["chat.approval.wait_title"]()}
 				>
 					{timeLeft}
 				</p>

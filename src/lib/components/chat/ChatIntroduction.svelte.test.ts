@@ -31,6 +31,38 @@ describe("ChatIntroduction", () => {
 		});
 	});
 
+	it("explains a built-in greeting on hover and on tap", async () => {
+		const screen = renderWithApp(
+			ChatIntroduction,
+			{ currentModel: model },
+			{ publicConfig: { PUBLIC_TURIN_PHRASES: "Va bin" } }
+		);
+		const phrase = await vi.waitFor(() => {
+			const el = screen.baseElement.querySelector('[data-testid="intro-phrase"]');
+			expect(el).not.toBeNull();
+			return el as HTMLElement;
+		});
+		expect(phrase.getAttribute("title")).toBe("All good");
+		phrase.click();
+		await vi.waitFor(() =>
+			expect(
+				screen.baseElement.querySelector('[data-testid="intro-gloss"]')?.textContent
+			).toContain("All good")
+		);
+	});
+
+	it("prints an operator's own phrase plain, with no gloss", async () => {
+		const screen = renderWithApp(
+			ChatIntroduction,
+			{ currentModel: model },
+			{ publicConfig: { PUBLIC_TURIN_PHRASES: "Ciao" } }
+		);
+		await vi.waitFor(() => {
+			expect(screen.baseElement.textContent).toMatch(/Ciao|chat-ui/);
+		});
+		expect(screen.baseElement.querySelector('[data-testid="intro-phrase"]')).toBeNull();
+	});
+
 	it('prints only the name when the deployment sets "false"', async () => {
 		const screen = renderWithApp(
 			ChatIntroduction,
