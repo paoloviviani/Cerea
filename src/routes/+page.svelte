@@ -116,7 +116,9 @@
 				return;
 			}
 
-			const { conversationId, conversation } = await res.json();
+			const { conversationId, conversation, replaced } = await res.json();
+			// Failed first chats the server replaced with this one.
+			if (Array.isArray(replaced)) for (const id of replaced) convsStore.remove(id);
 
 			// The create response embeds the conversation payload; hand it to the
 			// conversation page as a one-shot seed so its load skips the GET and
