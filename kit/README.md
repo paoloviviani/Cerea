@@ -166,7 +166,7 @@ again. Keep the old directory until the new stack works.
 
 | Service | Profile | What it is |
 |---|---|---|
-| `proxy` | always | Caddy (stock image) with `caddy/Caddyfile`: TLS, and the routes `/chat`, `/authelia`, everything else to the gateway |
+| `proxy` | always | Caddy (stock image) with `caddy/Caddyfile`: TLS, and the routes `/chat`, `/authelia`, everything else to the gateway; a browser that opens an address nothing serves gets the branded `caddy/errors/404.html`, API callers keep the JSON 404 |
 | `postgres` | always | PostgreSQL with pgvector: the gateway's data and the chat's knowledge store |
 | `bootstrap` | always | a one-shot on every `up`: creates the chat's database role and extensions, and the bundled Authelia's signing key and first user if absent; it never overwrites anything |
 | `gateway`, `migrate`, `valkey` | `gateway` | Pystino: the OpenAI-compatible API at `/v1` and the admin console |

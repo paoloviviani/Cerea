@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/state";
+	import { base } from "$app/paths";
 </script>
 
 <div
@@ -10,7 +11,17 @@
 	>
 		<h1 class="mb-2 text-5xl font-semibold">{page.status}</h1>
 		<div class="-mx-8 my-2 h-px bg-gray-200 dark:bg-gray-700"></div>
-		<h2 class="max-w-sm text-lg">{page.error?.message}</h2>
+		{#if page.status === 404}
+			<h2 class="max-w-sm text-lg">Page not found</h2>
+			<p class="mt-1 max-w-sm text-sm">There's nothing at this address.</p>
+			<a
+				href="{base}/"
+				class="my-4 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700"
+				>Go to the chat</a
+			>
+		{:else}
+			<h2 class="max-w-sm text-lg">{page.error?.message}</h2>
+		{/if}
 		{#if page.error?.errorId}
 			<div class="-mx-8 my-2 h-px bg-gray-200 dark:bg-gray-700"></div>
 			<pre class="max-w-sm text-left font-mono text-xs whitespace-pre-wrap">{page.error
