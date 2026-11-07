@@ -2451,7 +2451,6 @@
 	"projects.page.past.label": "Search this project's past chats",
 	"projects.page.pill.full": "{n} · in full",
 	"projects.page.pill.searched": "{n} · searched",
-	"projects.page.save_changes": "Save changes",
 	"projects.page.save_failed": "Could not save. Try again.",
 	"projects.page.saving": "Saving…",
 	"projects.page.sections_label": "Project sections",
