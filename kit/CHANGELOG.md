@@ -8,6 +8,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 ## Unreleased
 
 - **A new sidebar.** The **Chats | Agents** switch is now at the top, under the logo, and **New chat** follows it: in Agents it is **New agent session**, which asks for the machine and folder (starting on the last you used, or opens **Pair a machine** if none is paired). **Schedules** and **Workspace** sit together at the foot, both with icons, then your name. Click your name for the menu: a small quota summary (spend against your limit with a thin bar, amber near it; the spend alone when there is no limit; links to Usage & billing), **Settings**, **Admin**, **Console** (where your deployment has one and you may open it), the theme switch, **Reload** and **Sign out**. The separate Settings and Admin rows and the icon row are gone. Counts beside **Projects** and **Chats** show when you point at the row. The thick ridge logo replaces the pixel mark at the top left.
+- **Jump to anything with Ctrl-K (⌘K on a Mac).** Type part of a name to open a chat, project, agent session, schedule, or a settings or workspace page.
+- **Regenerate title** in a chat's `⋯` menu writes the title again, reading the start of the reply too. It is not offered, and the server refuses it, on a title you typed yourself.
 - **One Schedules page** for chat and agent schedules, each marked **Chat** or **Agent**, with an **All · Chats · Agents** filter that starts on the side you came from. The sidebar row shows a badge only when a schedule needs attention. `/code?view=schedules` still works and redirects.
 
 ## v0.44.0 — 2026-11-06

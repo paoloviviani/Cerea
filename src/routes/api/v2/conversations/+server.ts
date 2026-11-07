@@ -17,11 +17,12 @@ import {
 
 type Row = Pick<
 	Conversation,
-	"_id" | "title" | "updatedAt" | "model" | "projectId" | "scheduledUnread"
+	"_id" | "title" | "titleSource" | "updatedAt" | "model" | "projectId" | "scheduledUnread"
 >;
 
 const LIST_FIELDS = {
 	title: 1,
+	titleSource: 1,
 	updatedAt: 1,
 	model: 1,
 	projectId: 1,
@@ -148,6 +149,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 			// A string, not an ObjectId: the sidebar compares it against ids the
 			// projects API returns, and those are strings.
 			...(conv.projectId ? { projectId: conv.projectId.toString() } : {}),
+			// The user typed this title: "Regenerate title" is not offered on it.
+			...(conv.titleSource === "user" ? { titleByUser: true } : {}),
 			// A scheduled run answered here and its owner has not opened it since.
 			...(conv.scheduledUnread ? { unread: true } : {}),
 			...(snippet ? { snippet } : {}),

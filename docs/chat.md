@@ -75,6 +75,13 @@ to open the conversation. Each row's `⋯` menu offers **Move to project…**,
 **Remove from project** when the chat is in one, and **Delete**, which asks for
 confirmation first, exactly as the sidebar's menu does.
 
+**Titles.** Cerea names a chat after its first turn. If you do not like the
+name, open the chat's `⋯` menu in the sidebar and choose **Regenerate title**:
+it asks again, this time with the start of the reply to read. The item is not
+there for a title you typed yourself, which Cerea never replaces. If a title
+cannot be written (the model gives nothing, or titles are off in this
+deployment) the current one stays and you are told.
+
 Everything a conversation does that has a cost is metered against your token:
 the reply, the title Cerea generates from the first turn, reading a document,
 embedding a passage, searching.

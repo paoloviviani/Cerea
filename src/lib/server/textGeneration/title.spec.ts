@@ -28,7 +28,7 @@ vi.mock("$lib/server/generateFromDefaultEndpoint", () => ({
 	generateFromDefaultEndpoint: mocks.generateFromDefaultEndpoint,
 }));
 
-const { generateTitleForConversation } = await import("./title");
+const { generateTitleForConversation, regenerateTitle } = await import("./title");
 
 /** Endpoint stub: yields nothing, returns `text` as the generated title. */
 function endpointReturning(text: string) {
@@ -234,5 +234,68 @@ describe("generateTitleForConversation", () => {
 			expect.objectContaining({ title: "Cosa puoi fare per me?" }),
 		]);
 		expect(mocks.generateFromDefaultEndpoint).not.toHaveBeenCalled();
+	});
+});
+
+describe("regenerateTitle", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.config.LLM_SUMMARIZATION = "true";
+		mocks.config.TASK_MODEL = "";
+		mocks.saved = undefined;
+	});
+
+	it("never replaces a title the user typed, and does not call the model", async () => {
+		endpointScript("Something else");
+		const result = await regenerateTitle(
+			newConversation("x", { title: "My rename", titleSource: "user" }),
+			undefined
+		);
+		expect(result).toEqual({ ok: false, reason: "user-title" });
+		expect(mocks.generateFromDefaultEndpoint).not.toHaveBeenCalled();
+	});
+
+	it("replaces a model's or a fallback's title, showing the model the start of the reply", async () => {
+		endpointScript("Better title");
+		const conv = newConversation("reverse a string", {
+			title: "reverse a string",
+			titleSource: "model",
+		});
+		conv.messages.push({
+			id: "2" as Conversation["messages"][number]["id"],
+			from: "assistant",
+			content: "Use slicing: s[::-1].",
+		} as Conversation["messages"][number]);
+		expect(await regenerateTitle(conv, undefined)).toEqual({ ok: true, title: "Better title" });
+		const prompt = JSON.stringify(mocks.generateFromDefaultEndpoint.mock.calls[0]?.[0]);
+		expect(prompt).toContain("s[::-1]");
+
+		endpointScript("Another");
+		const fallback = newConversation("hi", {
+			title: "hi",
+			titleSource: "fallback",
+			titleAttempts: 3,
+		});
+		expect(await regenerateTitle(fallback, undefined)).toEqual({ ok: true, title: "Another" });
+	});
+
+	it("says it could not, and keeps the title, when the model gives nothing or summarising is off", async () => {
+		endpointScript("");
+		expect(await regenerateTitle(newConversation("x", { title: "x" }), undefined)).toEqual({
+			ok: false,
+			reason: "unavailable",
+		});
+		mocks.config.LLM_SUMMARIZATION = "false";
+		endpointScript("A title");
+		expect(await regenerateTitle(newConversation("x", { title: "x" }), undefined)).toEqual({
+			ok: false,
+			reason: "unavailable",
+		});
+	});
+
+	it("needs a first message to title", async () => {
+		const conv = newConversation("x");
+		conv.messages = [];
+		expect(await regenerateTitle(conv, undefined)).toEqual({ ok: false, reason: "no-messages" });
 	});
 });
