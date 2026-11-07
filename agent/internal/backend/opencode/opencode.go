@@ -304,6 +304,36 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
+// ResolveBin turns a bare opencode binary name into a path: PATH first (the
+// ordinary case), then the opencode installer's own directory:
+// opencode.ai/install puts the binary in $HOME/.opencode/bin and only joins it
+// to PATH via the rc files, so a shell that just installed it (galopin's
+// printed one-liner does exactly that) cannot see it until the next login.
+// Falling back here is what makes the fresh-machine one-liner work in one
+// shot, without an export step. A name with a slash is returned as is.
+func ResolveBin(bin string) (string, error) {
+	if strings.ContainsRune(bin, '/') {
+		return bin, nil
+	}
+	if resolved, err := exec.LookPath(bin); err == nil {
+		return resolved, nil
+	}
+	home, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		return "", fmt.Errorf(
+			"opencode: the %q binary was not found on PATH — galopin runs it as its agent; install it first (https://opencode.ai/install) or point --opencode-bin at it",
+			bin,
+		)
+	}
+	if candidate := filepath.Join(home, ".opencode", "bin", "opencode"); fileExecutable(candidate) {
+		return candidate, nil
+	}
+	return "", fmt.Errorf(
+		"opencode: the %q binary was not found on PATH or in $HOME/.opencode/bin — galopin runs it as its agent; install it first (https://opencode.ai/install) or point --opencode-bin at it",
+		bin,
+	)
+}
+
 // Start picks a port and password if not already set, launches the
 // supervise loop, and waits for the first health check to pass.
 //
@@ -315,32 +345,11 @@ func randomHex(n int) (string, error) {
 // being gone between Start and the first launch is the restart loop's
 // problem, not a startup one.
 func (b *Backend) Start(ctx context.Context) error {
-	if !strings.ContainsRune(b.cfg.Bin, '/') {
-		// PATH first (the ordinary case), then the opencode installer's own
-		// directory: opencode.ai/install puts the binary in
-		// $HOME/.opencode/bin and only joins it to PATH via the rc files —
-		// so a shell that just installed it (galopin's printed one-liner
-		// does exactly that) cannot see it until the next login. Falling
-		// back here is what makes the fresh-machine one-liner work in one
-		// shot, without an export step.
-		if resolved, err := exec.LookPath(b.cfg.Bin); err == nil {
-			b.cfg.Bin = resolved
-		} else if home, homeErr := os.UserHomeDir(); homeErr == nil {
-			if candidate := filepath.Join(home, ".opencode", "bin", "opencode"); fileExecutable(candidate) {
-				b.cfg.Bin = candidate
-			} else {
-				return fmt.Errorf(
-					"opencode: the %q binary was not found on PATH or in $HOME/.opencode/bin — galopin runs it as its agent; install it first (https://opencode.ai/install) or point --opencode-bin at it",
-					b.cfg.Bin,
-				)
-			}
-		} else {
-			return fmt.Errorf(
-				"opencode: the %q binary was not found on PATH — galopin runs it as its agent; install it first (https://opencode.ai/install) or point --opencode-bin at it",
-				b.cfg.Bin,
-			)
-		}
+	bin, err := ResolveBin(b.cfg.Bin)
+	if err != nil {
+		return err
 	}
+	b.cfg.Bin = bin
 	if b.cfg.Port == 0 {
 		port, err := pickFreePort()
 		if err != nil {
@@ -448,27 +457,26 @@ func (b *Backend) superviseLoop(ctx context.Context) {
 	}
 }
 
-func (b *Backend) runOnce(ctx context.Context) error {
-	args := []string{"serve", "--hostname", b.cfg.Hostname, "--port", fmt.Sprint(b.cfg.Port)}
-	if !b.cfg.ProjectConfig {
-		// OPENCODE_DISABLE_PROJECT_CONFIG skips a repo's config, commands and
-		// MCP servers but NOT its .opencode/plugin(s) (probed live on
-		// 1.18.32: the plugin still ran); --pure is what stops those.
-		args = append(args, "--pure")
-	}
-	cmd := exec.Command(b.cfg.Bin, args...)
-	env := b.cfg.Env
+// childEnv is the environment of an opencode child, shared by the supervised
+// `opencode serve` (runOnce adds the server password and the tool relay
+// variables) and the interactive one `galopin launch opencode` starts
+// (LaunchEnv): the machine's own opencode.json as OPENCODE_CONFIG, TMPDIR,
+// the project-config and background-subagent switches, and the permission
+// floor (plus the pinned gateway config when project config is loaded) as
+// OPENCODE_CONFIG_CONTENT. patch is the floor's per-agent patch.
+func childEnv(cfg Config, patch map[string]any) ([]string, error) {
+	env := cfg.Env
 	if env == nil {
 		env = os.Environ()
 	}
-	env = append(append([]string{}, env...), "OPENCODE_SERVER_PASSWORD="+b.cfg.Password)
-	if b.cfg.TmpDir != "" {
+	env = append([]string{}, env...)
+	if cfg.TmpDir != "" {
 		// The previous start's extracted libraries are dead now: clear them.
-		if err := os.RemoveAll(b.cfg.TmpDir); err != nil {
-			return fmt.Errorf("clearing opencode's temp dir: %w", err)
+		if err := os.RemoveAll(cfg.TmpDir); err != nil {
+			return nil, fmt.Errorf("clearing opencode's temp dir: %w", err)
 		}
-		if err := os.MkdirAll(b.cfg.TmpDir, 0o700); err != nil {
-			return fmt.Errorf("creating opencode's temp dir: %w", err)
+		if err := os.MkdirAll(cfg.TmpDir, 0o700); err != nil {
+			return nil, fmt.Errorf("creating opencode's temp dir: %w", err)
 		}
 		kept := env[:0]
 		for _, kv := range env {
@@ -476,15 +484,15 @@ func (b *Backend) runOnce(ctx context.Context) error {
 				kept = append(kept, kv)
 			}
 		}
-		env = append(kept, "TMPDIR="+b.cfg.TmpDir)
+		env = append(kept, "TMPDIR="+cfg.TmpDir)
 	}
-	if b.cfg.ConfigPath != "" {
-		env = append(env, "OPENCODE_CONFIG="+b.cfg.ConfigPath)
+	if cfg.ConfigPath != "" {
+		env = append(env, "OPENCODE_CONFIG="+cfg.ConfigPath)
 	}
 	// The project-config and background-subagent switches are galopin's
 	// alone: an inherited value (a repo's .envrc, say) never decides them.
 	env = stripChildSwitches(env)
-	if b.cfg.BackgroundSubagents {
+	if cfg.BackgroundSubagents {
 		env = append(env, "OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1")
 	}
 	// OPENCODE_CONFIG_CONTENT is the layer above every file, a project's
@@ -494,27 +502,44 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	// permrules.Floor for why it is agent-level and why only some agents get
 	// an entry).
 	var content map[string]any
-	if !b.cfg.ProjectConfig {
+	if !cfg.ProjectConfig {
 		env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
-	} else if b.cfg.ConfigPath != "" {
-		pinned, err := pinnedConfig(b.cfg.ConfigPath)
+	} else if cfg.ConfigPath != "" {
+		pinned, err := pinnedConfig(cfg.ConfigPath)
 		if err != nil {
-			return fmt.Errorf("pinning the gateway config: %w", err)
+			return nil, fmt.Errorf("pinning the gateway config: %w", err)
 		}
 		if err := json.Unmarshal([]byte(pinned), &content); err != nil {
-			return fmt.Errorf("pinning the gateway config: %w", err)
+			return nil, fmt.Errorf("pinning the gateway config: %w", err)
 		}
 	}
-	if b.cfg.Permissions != nil || content != nil {
-		b.perm.floorMu.Lock()
-		patch := b.perm.floorPatch
-		b.perm.floorMu.Unlock()
-		body, err := floorConfig(content, patch, fileDenies(b.cfg.ConfigPath))
+	if cfg.Permissions != nil || content != nil {
+		body, err := floorConfig(content, patch, fileDenies(cfg.ConfigPath))
 		if err != nil {
-			return fmt.Errorf("building the permission floor: %w", err)
+			return nil, fmt.Errorf("building the permission floor: %w", err)
 		}
 		env = append(env, "OPENCODE_CONFIG_CONTENT="+body)
 	}
+	return env, nil
+}
+
+func (b *Backend) runOnce(ctx context.Context) error {
+	args := []string{"serve", "--hostname", b.cfg.Hostname, "--port", fmt.Sprint(b.cfg.Port)}
+	if !b.cfg.ProjectConfig {
+		// OPENCODE_DISABLE_PROJECT_CONFIG skips a repo's config, commands and
+		// MCP servers but NOT its .opencode/plugin(s) (probed live on
+		// 1.18.32: the plugin still ran); --pure is what stops those.
+		args = append(args, "--pure")
+	}
+	cmd := exec.Command(b.cfg.Bin, args...)
+	b.perm.floorMu.Lock()
+	patch := b.perm.floorPatch
+	b.perm.floorMu.Unlock()
+	env, err := childEnv(b.cfg, patch)
+	if err != nil {
+		return err
+	}
+	env = append(env, "OPENCODE_SERVER_PASSWORD="+b.cfg.Password)
 	env = append(env, b.toolEnv()...)
 	cmd.Env = env
 	cmd.Stdout = nil
@@ -536,7 +561,7 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	b.exited = exited
 	b.mu.Unlock()
 
-	err := cmd.Wait()
+	err = cmd.Wait()
 	close(exited)
 	b.mu.Lock()
 	b.cmd = nil

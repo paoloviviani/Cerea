@@ -98,6 +98,7 @@ describe("Administration, in the pseudo-locale", () => {
 				configurable: false,
 			},
 			"/admin/hidden-models": { configurable: false, models: [] },
+			"/admin/starters": { enabled: false, configurable: false },
 			"/admin/dictation": {
 				mode: "browser",
 				transcriptionModel: "whisper",
@@ -111,6 +112,7 @@ describe("Administration, in the pseudo-locale", () => {
 		await expect.element(page.getByText(en("admin.voice.option.browser.title"))).toBeVisible();
 		await expect.element(page.getByText(en("admin.images.label"))).toBeVisible();
 		await expect.element(page.getByText(en("admin.titles.label"))).toBeVisible();
+		await expect.element(page.getByText(en("admin.starters.label"))).toBeVisible();
 		expect(
 			unbracketedWords([
 				"ADMIN_INSTRUCTIONS",

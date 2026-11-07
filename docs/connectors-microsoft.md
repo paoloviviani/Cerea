@@ -2,7 +2,7 @@
 
 !!! info "For administrators and users who add connectors"
 
-    Ways to reach Microsoft mail, calendar, files and documentation from Cerea. How connectors work in general: [Connectors](connectors.md); servers on your own machine: [Local connectors](local-connectors.md).
+    Ways to reach Microsoft mail, calendar, files and documentation from Cerea. How connectors work in general: [Connectors](connectors.md); servers on your own computer: [Local connectors](local-connectors.md).
 
 Microsoft has no single hosted MCP server for personal mail and files, and Microsoft Entra ID (the work and school sign-in) offers no dynamic client registration, so Cerea cannot sign users in to a Microsoft server on its own. The options below are community and Microsoft servers; each is credited with its licence.
 
@@ -32,11 +32,11 @@ npx -y @softeria/ms-365-mcp-server
 - **Sign-in:** device code with a built-in client ID (stdio): run `npx @softeria/ms-365-mcp-server --login` once, follow the URL and code, and the token is cached in the OS credential store. Or use your own Entra app: `MS365_MCP_CLIENT_ID`, `MS365_MCP_TENANT_ID` (`consumers` for personal accounts) and optionally `MS365_MCP_CLIENT_SECRET`.
 - **Restrict it:** `--read-only`, `--preset mail,calendar,files` (presets include `mail`, `calendar`, `files`, `contacts`, `tasks`, `onenote`, `excel`, `teams`), `--enabled-tools` (a regular expression) and `--allowed-scopes`. The server requests only the permissions its enabled tools need.
 - **HTTP mode:** `--http [port]` serves Streamable HTTP at `/mcp`. It acts as an OAuth server for MCP clients (endpoints under `/auth/*`, dynamic client registration on by default, `Authorization: Bearer` required on each request).
-- **Files:** a tool such as `download-bytes` returns the file as base64 text inside its result. Cerea saves it as a file of the conversation (in **Files**, and at `/mnt/data/<name>` in code), so the assistant can open it with the document tools without copying the data. The server can also return a file as a proper MCP resource, which Cerea saves the same way. See [Files a connector returns](connectors.md#files-a-connector-returns).
+- **Files:** a tool such as `download-bytes` returns the file as base64 text inside its result. Cerea saves it as a file of the chat (in **Files**, and at `/mnt/data/<name>` in code), so the assistant can open it with the document tools without copying the data. The server can also return a file as a proper MCP resource, which Cerea saves the same way. See [Files a connector returns](connectors.md#files-a-connector-returns).
 
-### One user, on your own machine: a local connector
+### One user, on your own computer: a local connector
 
-Run it through `galopin` over stdio, so the tokens stay on your machine. First sign in once with `--login` as above, then in galopin's `mcp.json` (see [Local connectors](local-connectors.md)):
+Run it through `galopin` over stdio, so the tokens stay on your computer. First sign in once with `--login` as above, then in galopin's `mcp.json` (see [Local connectors](local-connectors.md)):
 
 ```json
 {
@@ -96,7 +96,7 @@ Add one by its URL under **Workspace → Connectors** or **Admin → Connectors*
 
 ### In Cerea: a local connector
 
-Run it through galopin over stdio, so the tokens stay on your machine (after `outlook-mcp auth`):
+Run it through galopin over stdio, so the tokens stay on your computer (after `outlook-mcp auth`):
 
 ```json
 {

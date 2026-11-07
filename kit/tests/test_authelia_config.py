@@ -174,6 +174,42 @@ class AutheliaConfigTests(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
                 self.assertIn("Configuration parsed and loaded with warnings", proc.stdout)
                 self.assertNotIn("errors", proc.stdout)
+    def test_rendered_config_serves_the_brand_assets_and_follows_the_browser_theme(self) -> None:
+        proc = self._authelia("template", BASE_ENV)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("asset_path: '/etc/authelia/assets'", proc.stdout)
+        self.assertIn("theme: 'auto'", proc.stdout)
+
+
+class AutheliaBrandTests(unittest.TestCase):
+    """The sign-in page's look: Authelia's own asset overrides (logo, favicon)
+    plus the stylesheet the proxy appends. Nothing here needs docker; the
+    asset directory loading is exercised by the validate test above, which
+    mounts the whole authelia/ directory."""
+
+    def test_logo_is_a_png_and_favicon_an_icon(self) -> None:
+        logo = (ROOT / "authelia" / "assets" / "logo.png").read_bytes()
+        self.assertEqual(logo[:8], b"\x89PNG\r\n\x1a\n")
+        favicon = (ROOT / "authelia" / "assets" / "favicon.ico").read_bytes()
+        self.assertEqual(favicon[:4], b"\x00\x00\x01\x00")
+
+    def test_proxy_appends_the_brand_stylesheet_to_authelias_own(self) -> None:
+        caddyfile = (ROOT / "caddy" / "Caddyfile").read_text()
+        self.assertIn("handle /authelia/static/css/*", caddyfile)
+        self.assertIn('include "authelia-brand.css"', caddyfile)
+        # The stock file is fetched through the mirror route, which must exist
+        # and must come before the catch-all /authelia/* proxy.
+        self.assertLess(caddyfile.index("handle /authelia-src/*"), caddyfile.index("handle /authelia/*"))
+        self.assertLess(
+            caddyfile.index("handle /authelia/static/css/*"), caddyfile.index("handle /authelia/*")
+        )
+        self.assertTrue((ROOT / "caddy" / "authelia-brand.css").is_file())
+
+    def test_brand_stylesheet_sets_sentence_case_and_both_themes(self) -> None:
+        css = (ROOT / "caddy" / "authelia-brand.css").read_text()
+        self.assertIn("text-transform: none", css)
+        self.assertIn('[data-theme="dark"]', css)
+        self.assertIn('[data-theme="light"]', css)
 
 
 if __name__ == "__main__":

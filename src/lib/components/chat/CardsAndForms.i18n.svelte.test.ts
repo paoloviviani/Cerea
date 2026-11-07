@@ -101,6 +101,7 @@ describe("chat cards, in the pseudo-locale", () => {
 		const screen = render(ToolApprovalCard, {
 			conversationId: "abc",
 			expiresAt: Date.now() + 90_000,
+			onanswer: async () => ({ ok: true }),
 			request: {
 				elicitationId: "gp_1",
 				server: "session_spawn",

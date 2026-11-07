@@ -7,16 +7,16 @@
 The chat has a small **Admin** area of its own, and the split is by _whose
 decision it is_. The Pystino console owns how the platform is run: providers,
 models, prices, quotas, redaction, users and groups. The chat's Admin area owns
-what the **product** does for people: which model reads a document, what
+what the **product** does for users: which model reads a document, what
 fetches a URL, which connectors and skills everybody gets. Several of these
 are gateway rows underneath; the decision is still a product one, and this is
 where it is made.
 
 ## Who sees it
 
-The **Admin** row at the foot of the sidebar (beside Workspace and Settings)
+**Admin** in the user menu (click your name at the foot of the sidebar)
 appears only for administrators, and **the gateway decides who that is**: the chat asks the
-gateway who the signed-in person is (`GET /v1/me`) and believes nothing else.
+gateway who the signed-in user is (`GET /v1/me`) and believes nothing else.
 The chat's own admin flag, inherited from upstream, comes from a HuggingFace
 organisation claim and means nothing in this deployment, so it is not used.
 
@@ -50,7 +50,7 @@ like the document reader. With none offered it says so: add one in the gateway
 console (Providers), then choose it here. With none chosen, the caller's
 billing-group search policy in the gateway decides. `WEB_SEARCH_MODEL` in the
 environment overrides the screen and shows as "set in the environment". The
-choice only applies to people granted that backend; everyone else falls back to
+choice only applies to users granted that backend; everyone else falls back to
 their group's policy. Anyone with no usable backend sees the composer's Web
 search pill disabled rather than a switch that does nothing.
 
@@ -67,7 +67,7 @@ servers in `MCP_SERVERS` (their address and key stay in `.env`) and the ones you
 add here. For each one you choose how it is offered:
 
 - **Off:** offered to nobody.
-- **On** (the default): on for everyone from the start, and a person can switch
+- **On** (the default): on for everyone from the start, and a user can switch
   it off in Workspace.
 - **On, locked:** on for everyone, and nobody can switch it off.
 
@@ -79,7 +79,7 @@ Workspace shows it read-only to everyone, administrators included, and the
 server refuses a change that does not come from this page. **Check** lists its
 tools again with the connector's own access key. Adding a connector, and
 changing its address or key, lists its tools automatically; if that fails, the
-reason shows on its card instead of a tool count. (A connector each person signs
+reason shows on its card instead of a tool count. (A connector each user signs
 in to cannot be listed until somebody has: use **Check** after signing in.)
 
 A connector's address must be https; the one exception is a connector you add here
@@ -100,8 +100,8 @@ stored. If a user's key is refused by the service they see "Your key was
 refused" and replace it. Removing the connector removes every user's key. This
 mode is set here, not in `MCP_SERVERS`. See [Connectors](connectors.md).
 
-For a connector each person signs in to, **Re-check** asks the server again how
-people sign in, and **Add app details** takes the client ID and secret from a
+For a connector each user signs in to, **Re-check** asks the server again how
+users sign in, and **Add app details** takes the client ID and secret from a
 provider that does not register apps itself. Changing such a connector's
 address signs everybody out of it (their saved sign-ins are removed, so they
 are never sent to the new address) and asks the new server how to sign in. An
@@ -116,19 +116,19 @@ the start. A change applies from the next message, with no restart.
 The reason to be selective is cost. A connector's tool descriptions go into the
 request every time they are loaded, and they can be long. Leave big or rarely
 used connectors as plain **On** and the assistant pays for their tools only in
-the conversations that use them; make a connector always loaded only when
-nearly every conversation needs it (a web search, say). A connector with no
+the chats that use them; make a connector always loaded only when
+nearly every chat needs it (a web search, say). A connector with no
 saved tool names is listed to the assistant with its address and a note that its
 tools have not been checked.
 
 Every connector added here is **On** until you change it, and that includes the
 servers in `MCP_SERVERS`. **After an upgrade, review this page:** set what you
-do not want everybody to have to **Off**, and what people should be able to turn
-off to plain **On**. Tell people what changes for them too: their own
+do not want everybody to have to **Off**, and what users should be able to turn
+off to plain **On**. Tell users what changes for them too: their own
 connectors also come back **On** after the upgrade, and the choices older
 versions kept in their browser (which connectors were on in a chat, and the
 defaults for new chats) are not carried over; they switch connectors off again
-in Workspace → Connectors. From then on each person's switches are kept on the
+in Workspace → Connectors. From then on each user's switches are kept on the
 server, so they follow them between browsers. Tool approvals are unchanged: a call to a
 connector's tool asks first, whatever its mode.
 
@@ -179,13 +179,13 @@ prompt passes through the gateway's redaction.
 - **Ask before generating images.** Off by default: images are cheap and a turn
   makes at most four. On, every call opens the approval card (the same
   mechanism as [tool approvals](chat.md#tool-approvals)), whatever the user's own
-  policy; a user can allow it for the rest of a conversation, which lifts
-  the card for that conversation, and the cap of four images a turn still holds
+  policy; a user can allow it for the rest of a chat, which lifts
+  the card for that chat, and the cap of four images a turn still holds
   however many calls one click covers. A scheduled run has nobody to ask, so with the switch on it
   cannot generate images.
 - **Limits.** 4 images per turn across calls; sizes from a fixed list of about one megapixel (providers such as Cortecs deliver at most that and may return JPEG; files are named and stored by their real format, and the delivered size is reported); a prompt up to 4,000 characters; up to 20 MB per image.
-- **Storage.** Each image is a produced file in the conversation, so
-  [retention](#storage) and the per-conversation file limits apply to it, and
+- **Storage.** Each image is a produced file in the chat, so
+  [retention](#storage) and the per-chat file limits apply to it, and
   the code sandbox mounts it like any file the assistant made.
 - **If a provider answers with a link.** The request asks for the image inline
   (`b64_json`). When a model answers with a URL instead, the chat fetches it on
@@ -253,9 +253,9 @@ gateway directly can still see it in the gateway's own model list.
 **Allow sub-agents** decides whether tool-capable models are offered the
 `delegate` tool, and the `research` preset where web search is available (see
 [Plans and sub-agents](chat.md#plans-and-sub-agents)). It is on by default. A
-sub-agent makes its own model calls, billed to the person like any message, and
-uses the chat's connector tools without the person watching each step (only
-those the conversation already allows: it never raises an approval card), so a
+sub-agent makes its own model calls, billed to the user like any message, and
+uses the chat's connector tools without the user watching each step (only
+those the chat already allows: it never raises an approval card), so a
 deployment that wants neither can switch it off here. The value is stored in
 the chat's configuration (changing it is logged with who made the change) and
 overrides `CHAT_DELEGATION`; with `ENABLE_CONFIG_MANAGER` off it can only be
@@ -271,17 +271,17 @@ panel.
 - **The switch.** `CHAT_SCHEDULES_ENABLED`: on unless exactly `false`. Off stops the
   scheduler for every kind of schedule, answers the schedules API 404 and hides
   the **Schedules** row and the **Schedule…** menu item; schedules are kept.
-- **The limit.** `CHAT_SCHEDULES_MAX_PER_USER` (default 20) caps a person's schedules of
+- **The limit.** `CHAT_SCHEDULES_MAX_PER_USER` (default 20) caps a user's schedules of
   every kind together (chat and coding-agent ones count alike). The scheduler
   never starts a run faster than every 15 minutes per schedule.
 - **Background access.** A scheduled run is a normal chat turn made with an access
   token for the user. The chat asks the identity provider for `offline_access` on a
   browser's first sign-in (when the issuer lists it; `OPENID_OFFLINE_ACCESS=off` never
-  asks) and keeps **one refresh token per person**, sealed with `CHAT_SECRET_KEY` as
+  asks) and keeps **one refresh token per user**, sealed with `CHAT_SECRET_KEY` as
   connector tokens are; the newest sign-in replaces the older (the replaced one is revoked
-  at the IdP, after the person's other sessions were moved to the new access token).
+  at the IdP, after the user's other sessions were moved to the new access token).
   Because IdPs rotate refresh tokens, browser sessions no longer refresh with a copy of
-  their own: sessions and scheduled runs refresh through one per-person, serialised function
+  their own: sessions and scheduled runs refresh through one per-user, serialised function
   that saves the rotated token and caches the access token (a session request waits at most
   a few seconds for another refresh, then keeps its current token while it lasts). An IdP
   that issues no refresh token leaves today's behaviour for sessions and no schedules.
@@ -305,7 +305,7 @@ panel.
   discovery document has one, and a merge drops the merged-away account's and switches its
   chat schedules off. The gateway sees the user's own token: nothing is added to the gateway's
   key list, and there is no deployment-wide credential.
-- **What runs.** The conversation's ordinary turn on the server, so the
+- **What runs.** The chat's ordinary turn on the server, so the
   deployment's models, connectors and tool policies apply. The browser Python
   sandbox, questions and tools needing approval are unavailable, and the
   assistant is told so in the prompt. A turn is bounded by `CHAT_TURN_MAX_MINUTES`.
@@ -315,7 +315,7 @@ panel.
   what would still need a click is refused. A mode is never looser than the user's own
   setting. The sandbox, questions and the `schedule` tool are never offered to a run.
 - **Assistant-made schedules.** The assistant may have at most 3 running schedules
-  per conversation and make at most 10 in an hour per user, and only for a sign-in
+  per chat and make at most 10 in an hour per user, and only for a sign-in
   within 7 days.
 
 ## Assistant instructions
@@ -327,7 +327,7 @@ a live count; **Save** stores it and **Revert** drops unsaved edits. Empty
 means none.
 
 It applies to chats only. The [Agents panel](code-panel.md) and the coding
-agents on users' machines never get it, and neither does the title Cerea
+agents on users' computers never get it, and neither does the title Cerea
 generates for a chat. Sub-agents the assistant starts (`delegate`, `research`)
 do get it too, at the top of their own instructions, so a style rule such as
 "keep answers short" also shortens their reports back to the assistant. Write
@@ -397,17 +397,17 @@ carries on. See [Office files](office.md#the-assistant-looking-at-a-file).
 
 **Administration → Agents → Auto-approval** (the old `/admin/auto-approval` address redirects there) has one switch: **Let users use a reviewer for Auto**. Everything else is each user's own, in **Workspace → Agents** (see [the /code panel](code-panel.md#plan-ask-and-auto)): their reviewer on or off, the decision model, the threshold, the instructions, and per kind of action whether it **runs**, goes to the **reviewer** or comes to the **user**. The page also links the review log.
 
-Why per user: the person who uses Cerea is the person who installs galopin, so what runs on a machine is the user's call, and machine limits no longer exist (ADR 0109). The reviewer is billed to the user's own grant.
+Why per user: the user who uses Cerea is the user who installs galopin, so what runs on a computer is the user's call, and computer limits no longer exist (ADR 0109). The reviewer is billed to the user's own grant.
 
 - **The switch off:** nobody's reviewer runs. A session on Auto still runs the kinds a user set to runs; the rest come to the user.
-- **The switch on:** each user who turned their own reviewer on (and chose a decision model from the gateway's models of `kind: decision` that they may use) has it answer for them. A user who never opens the page keeps what the deployment had before: on first read their settings are copied from the earlier deployment-level model, threshold, instructions and rows, with edits, web, agents and tools starting as **runs** (that is what the default machine did), and later changes to the deployment's old values do not follow.
-- **Review log.** Time, machine, kind, a shortened command or path, probability, outcome (allowed, sent to the user, error) and whether the answer was applied; filter by machine, outcome and kind; kept 90 days, erased with the user's account. Each user sees their own under Settings → Review log; the admin page shows everyone's.
+- **The switch on:** each user who turned their own reviewer on (and chose a decision model from the gateway's models of `kind: decision` that they may use) has it answer for them. A user who never opens the page keeps what the deployment had before: on first read their settings are copied from the earlier deployment-level model, threshold, instructions and rows, with edits, web, agents and tools starting as **runs** (that is what the default computer did), and later changes to the deployment's old values do not follow.
+- **Review log.** Time, computer, kind, a shortened command or path, probability, outcome (allowed, sent to the user, error) and whether the answer was applied; filter by computer, outcome and kind; kept 90 days, erased with the user's account. Each user sees their own under Settings → Review log; the admin page shows everyone's.
 
-**Whose quota pays.** The deployment has no key of its own for reviews. Each review is made with the **machine owner's background access**, the sign-in grant that scheduled chats use, so it is billed to that user's own group and quota and sees only what their token may see. A user without that access (the identity provider issued no refresh token, they have not signed in since, or they turned background access off) gets no reviews: their asks come to them and the review log shows "The reviewer needs your background access". Deployments without a gateway sign-in have no such access, so there the reviewer never runs. A review costs a fraction of a cent. `AUTO_REVIEW_TIMEOUT_SECONDS` (default 20) bounds one call and `AUTO_REVIEW_WATCHDOG_SECONDS` (default 60) is how long a held notification waits before it goes out anyway; the rate cap (300 reviews an hour per machine) and the "reviewer unavailable" state (three failures in a row, then one probe a minute) are in-process and reset on a restart.
+**Whose quota pays.** The deployment has no key of its own for reviews. Each review is made with the **computer owner's background access**, the sign-in grant that scheduled chats use, so it is billed to that user's own group and quota and sees only what their token may see. A user without that access (the identity provider issued no refresh token, they have not signed in since, or they turned background access off) gets no reviews: their asks come to them and the review log shows "The reviewer needs your background access". Deployments without a gateway sign-in have no such access, so there the reviewer never runs. A review costs a fraction of a cent. `AUTO_REVIEW_TIMEOUT_SECONDS` (default 20) bounds one call and `AUTO_REVIEW_WATCHDOG_SECONDS` (default 60) is how long a held notification waits before it goes out anyway; the rate cap (300 reviews an hour per computer) and the "reviewer unavailable" state (three failures in a row, then one probe a minute) are in-process and reset on a restart.
 
 **The standard cases.** The **Test on the standard cases** button in a user's page runs about fifty cases: ordinary development work, the dangerous kinds, the grey zone and system administration, and shows how their model, threshold and instructions rule. The cases whose answer is the same under any reasonable instruction are highlighted as key cases. The test only shows results: it never blocks a save.
 
-**What leaves your deployment.** The reviewer's provider sees command text and file paths from users' machines (the same data-egress consideration as any model users choose). Some things always go to the user whatever is set: the agent's own state and configuration on the machine, credential paths and writes to CI configuration or `.git`. Each user can also switch **Never auto review requests** per machine in /code.
+**What leaves your deployment.** The reviewer's provider sees command text and file paths from users' computers (the same data-egress consideration as any model users choose). Some things always go to the user whatever is set: the agent's own state and configuration on the computer, credential paths and writes to CI configuration or `.git`. Each user can also switch **Never auto review requests** per computer in /code.
 
 **The deployment switch.** `CHAT_AUTO_PERMISSIONS=false` turns the whole feature off: no reviewer runs, whatever is saved here or by users. Unset means on, which grants nothing by itself: no reviewer runs until you switch reviewers on here and a user turns theirs on.
 
@@ -452,8 +452,8 @@ connectors only the access they need.
 How many days the files the assistant's code produces (documents,
 spreadsheets, PDFs, charts from the [Python sandbox](pyodide.md)) are kept:
 30 unless changed, or **Never expire**, which keeps them until their
-conversation is deleted. Text artifacts and uploaded attachments are not
-affected: they live with their conversation and never expire.
+chat is deleted. Text artifacts and uploaded attachments are not
+affected: they live with their chat and never expire.
 
 Where the bytes live (MongoDB, or an S3-compatible bucket) is not set here: it
 is deployment configuration, described in [File storage](storage.md).

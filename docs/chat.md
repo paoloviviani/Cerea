@@ -2,20 +2,20 @@
 
 !!! info "For everyone"
 
-    Talking to the models your gateway exposes: conversations, models, attachments, search, approvals, memory and skills.
+    Talking to the models your gateway exposes: chats, models, attachments, search, approvals, memory and skills.
 
 Cerea is a chat over the models the gateway exposes. Each call carries **your
 own** sign-in token, so the quotas and the spend belong to you and your
 billing group, not to the chat. What you can use is whatever the gateway
 grants your groups: the model list, the search tier and the document reader
-below are all per person.
+below are all per user.
 
 ## Your billing group
 
 Every request is billed to one of your groups, and that group decides what
 you are offered: **the model list shows exactly what your current billing
 group can use** — not every model your groups collectively hold. You choose
-the group in **Settings → Usage & billing**, and the model list follows the
+the group in **Settings → Usage**, and the model list follows the
 choice at once; a model you had selected that the new group cannot use falls
 back to the first one available, the way any model that disappeared from the
 deployment does.
@@ -24,16 +24,25 @@ The same page is where your spend is shown — your own figures only: your
 totals, your limits, and your share of a group limit that is charged to each
 member separately. Limits that apply to the group or the deployment as a
 whole are listed so you know they exist, without figures, because their
-totals are not yours to see. If you manage a machine through the
+totals are not yours to see. If you manage a computer through the
 [Agents panel](agent-machines.md), its billing follows the same rule, and
 there it can also be set to follow this choice.
 
-## Conversations
+## Chats
 
-The sidebar has two trees, **Projects** and **Chats**, then a few single
-entries at the foot: **Workspace**, **Settings** and, for administrators,
-**Admin** ([Administering the chat](chat-admin.md)). A conversation keeps
-the model it was started with. Projects group conversations that share
+The sidebar has the logo at the top (it goes home), then the **Chats | Agents**
+switch (only where [coding agents](agent-machines.md) are on) and a **New chat**
+button that follows it: in Agents it reads **New session**. Below are two
+trees, **Projects** and **Chats**. At the foot are **Schedules** and
+**Workspace**, then your name. Click your name for your menu: a small quota
+summary (what you have spent against your limit, or the spend alone when there
+is none; it links to Settings → Usage), **Settings**, **Admin** for
+administrators ([Administering the chat](chat-admin.md)), **Console** where the
+deployment has one and you may open it, the theme switch, **Reload** and
+**Sign out**. Counts beside a tree's name appear when you point at the row.
+Press Ctrl-K (⌘K on a Mac) anywhere to jump to a chat, project, agent session,
+schedule or settings page by typing part of its name. A chat keeps
+the model it was started with. Projects group chats that share
 standing context and knowledge; each project has a page of its own, opened from
 its row's `⋯` menu (**Project settings**). See [Knowledge and projects](knowledge.md).
 
@@ -62,15 +71,22 @@ only titles are searched. Only what you and the assistant wrote is searched, not
 reasoning, tool results or the contents of attachments. Your own chats in projects
 are included; a colleague's chats
 in a project shared with you are in that project's page, not here. Click a row
-to open the conversation. Each row's `⋯` menu offers **Move to project…**,
+to open the chat. Each row's `⋯` menu offers **Move to project…**,
 **Remove from project** when the chat is in one, and **Delete**, which asks for
 confirmation first, exactly as the sidebar's menu does.
 
-Everything a conversation does that has a cost is metered against your token:
+**Titles.** Cerea names a chat after its first turn. If you do not like the
+name, open the chat's `⋯` menu in the sidebar and choose **Regenerate title**:
+it asks again, this time with the start of the reply to read. The item is not
+there for a title you typed yourself, which Cerea never replaces. If a title
+cannot be written (the model gives nothing, or titles are off in this
+deployment) the current one stays and you are told.
+
+Everything a chat does that has a cost is metered against your token:
 the reply, the title Cerea generates from the first turn, reading a document,
 embedding a passage, searching.
 
-**When you reach a limit.** The reply that crosses your quota still completes; the next one fails with a message that your quota is used up. Where the deployment shows it, **Settings → Usage & billing** says where you stand. If your deployment redacts personal data, names or numbers in an answer can come back as placeholders such as `<PERSON_…>`, and a message containing something your administrator blocks (an API key, say) is refused without being sent.
+**When you reach a limit.** The reply that crosses your quota still completes; the next one fails with a message that says whose quota is used up ("Your monthly allowance of €10.00 is used up." or "Your group's monthly allowance of €10.00 is used up."), and points to Settings → Usage (or to your administrator where there is no Usage page). A spent quota is told apart from a short rate limit, which only asks you to wait; the same wording applies to sub-agents, images, voice, document reading and search. Where the deployment shows it, **Settings → Usage** says where you stand. If your deployment redacts personal data, names or numbers in an answer can come back as placeholders such as `<PERSON_…>`, and a message containing something your administrator blocks (an API key, say) is refused without being sent.
 
 **What the model knows about time.** Every reply is generated knowing the
 current date and time **in your timezone** (the one your browser reports), as
@@ -80,10 +96,10 @@ hour's silence, that message reaches the model with a short prefix such as
 up a week later does not read as one sitting. The prefix is added for the model
 only: it is never saved and never shown in the transcript.
 
-**Deleting.** Deleting a conversation removes everything it stored: attachments
+**Deleting.** Deleting a chat removes everything it stored: attachments
 and the text read from them, code-run files, its indexed transcript, and
 anything a long-retired version copied for sharing it. **Delete all
-conversations** includes chats inside projects. Deleting a **project** deletes the chats
+chats** includes chats inside projects. Deleting a **project** deletes the chats
 you started in it, unless you tick **Keep the project's chats as regular chats**,
 which returns them to your ordinary list. A daily sweep removes files
 left behind by anything that failed or by older versions, after a 24-hour
@@ -152,15 +168,15 @@ description each. With **ten models or fewer** it shows all of them. With more,
 it shows a short list, the current model and the ones you picked recently (at
 most six), with a search field, and **More models** opens the full searchable
 picker. Changing the model in the composer changes it **for that
-conversation**.
+chat**.
 
 For a model that thinks, **Effort** in the same pill offers the levels that
-model takes, plus **Default** (the model's own). Effort is per conversation. A
+model takes, plus **Default** (the model's own). Effort is per chat. A
 preset that pins its own effort shows it read-only.
 
 The models themselves are managed in the **Workspace** page's **Models** tab.
 There, **Set as default** decides what a _new_ chat starts on: an open
-conversation keeps its own model. The list is the gateway's, and the switches
+chat keeps its own model. The list is the gateway's, and the switches
 for a model's tools, vision and reasoning start from what the gateway
 advertises for it; they are a default you can override, not a gate. (There is
 no per-model system prompt any more: see below. Prompts that were stored per
@@ -168,7 +184,7 @@ model were dropped, not migrated.)
 
 A model appears in the picker under the name your administrator gave it, when
 the gateway carries one; otherwise under the id it is sent as. The two are
-different on purpose — the id is what a request carries and what a conversation
+different on purpose — the id is what a request carries and what a chat
 stores, so it never changes, while the display name is set on the gateway's
 model page ([Administering the gateway](chat-admin.md)).
 
@@ -184,8 +200,9 @@ group's limits, and the usage is shown to you only.
 
 ### Custom models
 
-The **Custom models** tab of the Workspace page (`/workspace?tab=custom`)
-holds two things you write yourself.
+The **Your custom models** section of the Models tab (Workspace → Models) holds
+two things you write yourself. (Custom models used to be a tab of their own; the
+old address `/workspace?tab=custom` still opens here.)
 
 **A global system prompt.** One text box, saved on your settings and sent with
 **every chat message**, whatever the model. It is for chat only: the
@@ -209,8 +226,8 @@ you** and are removed with your account.
 - **The provider never hears of them.** A chat on a custom model keeps the custom
   model, but each message is sent to the base model.
 - A custom model can be your **default** for new chats, and you can switch a
-  conversation to or from one like any other model.
-- **Delete** one and its conversations carry on, on its base model. If a base
+  chat to or from one like any other model.
+- **Delete** one and its chats carry on, on its base model. If a base
   model leaves the gateway's list, a chat on a custom model built on it keeps
   working on the deployment's default model, and the tab marks the model as
   unavailable until you pick another base.
@@ -238,11 +255,11 @@ limited to **10 MB** each, except audio (up to **25 MB**).
   for the same twelve-page PDF on every question about it.
 - **A scanned PDF** (pictures of pages, no text layer) is read **by the model**
   when the deployment's own reader is the one reading PDFs and the
-  conversation's model can see images: the reader renders the pages (at most
+  chat's model can see images: the reader renders the pages (at most
   the first 20, or as many as `CHAT_PDF_IMAGE_PAGES` allows, so a longer scan says "only the first 20 of N pages"), they are
-  stored as attachments of the conversation, and they are sent to the model
+  stored as attachments of the chat, and they are sent to the model
   exactly like images you attached, beside a note ("Scanned PDF name.pdf: pages
-  1–N attached as images"). They are deleted with the conversation. A model that
+  1–N attached as images"). They are deleted with the chat. A model that
   cannot see images is told the PDF is a scan and that it needs an OCR reader or
   a model that reads images; if you switch to such a model later, the stored pages
   are not sent (the note says so) and are sent again if you switch back. When a
@@ -253,23 +270,23 @@ limited to **10 MB** each, except audio (up to **25 MB**).
   deployment's transcription model, **once, when you attach the file**, as you
   (it is metered per audio minute with your account), and the transcript is
   stored beside the file. The assistant reads the transcript, labelled with the
-  file name and duration, never the sound. Click the file in the conversation to
+  file name and duration, never the sound. Click the file in the chat to
   play it and read the transcript. Audio may be up to 25 MB (about 25
   minutes of ordinary audio, the gateway's own limit); a recording the transcription service cannot take is kept
   and the assistant is told it has no transcript. The audio goes to the provider
   that serves the model and is not screened by redaction. Audio is not
   offered when no transcription model is available to you.
 - **A document with no readable text** (a scan the reader could not make sense of) is not skipped silently. The assistant is told the file had no readable text, and why when the reader said, so it says so rather than answering as if nothing were attached.
-- **Code the assistant runs** finds the conversation's attachments at
+- **Code the assistant runs** finds the chat's attachments at
   `/mnt/data/<name>`, with the text read from each beside it as `<name>.md`
   ([Python in the browser](pyodide.md#files-you-attach)).
 
-**Previews and converted files.** Click a file in the conversation to open it in
+**Previews and converted files.** Click a file in the chat to open it in
 the side pane. A deployment with the document converter ([Office
 previews](office.md)) shows Word, Excel, PowerPoint and OpenDocument files as a
-PDF, and the assistant can **convert** a file already in the conversation to a
+PDF, and the assistant can **convert** a file already in the chat to a
 PDF, or write Markdown or HTML out as one; the result is saved in the
-conversation like any file it produced. Without the converter, decks are drawn in
+chat like any file it produced. Without the converter, decks are drawn in
 the browser and other Office files can still be downloaded.
 
 Which model reads documents is decided by the **Knowledge** settings (an
@@ -283,7 +300,7 @@ When your account has an image model, the assistant can draw pictures: ask for o
 
 - **Cost.** Each image is metered to you, like any other model call, and billed to the [billing group](#your-billing-group) you have chosen. Images are cheap, but they are not free: ask for the variations you want and not many more.
 - **Limits.** At most **4 images per turn**, counted across the assistant's calls in that turn. Sizes are square (1024 x 1024), landscape (1344 x 768) and portrait (768 x 1344), about one megapixel: image models deliver roughly that at most, whatever is asked, and the assistant is told the size that came back. It picks from your words ("a wide banner"). Pictures are usually JPEG.
-- **Where they go.** The pictures are files in the conversation, kept like any file the assistant makes (see [Storage](chat-admin.md#storage)), so you can ask for code that reads them, or for them to be put into a document. A model that can see images is shown what it drew, for that turn.
+- **Where they go.** The pictures are files in the chat, kept like any file the assistant makes (see [Storage](chat-admin.md#storage)), so you can ask for code that reads them, or for them to be put into a document. A model that can see images is shown what it drew, for that turn.
 - **What leaves.** Your prompt goes to the provider that serves the image model; the gateway's redaction applies to it.
 - **Asking first.** An administrator can make the assistant ask before each generation: you then get an approval card, as for [other tools](#tool-approvals). A [scheduled chat](#scheduled-chats) cannot answer one, so it cannot make images then.
 - **When it is missing.** No "Create an image" item and no image tool means no image model is granted to your account. Ask an administrator.
@@ -291,7 +308,7 @@ When your account has an image model, the assistant can draw pictures: ask for o
 ## Web search and web fetch
 
 The **Web search** pill in the composer switches search on **for this
-conversation**. It is your consent to spend: the search runs through the
+chat**. It is your consent to spend: the search runs through the
 deployment's search backends and is metered to you.
 
 If you have no search backend (none in the gateway, or none granted to you),
@@ -307,8 +324,8 @@ With none chosen, or when you are not granted the chosen one, the gateway uses
 your billing group's search policy, so the same question searches the same
 sources whoever asks it.
 
-Whether a new conversation starts with search on follows a chain: the
-conversation's own state, then the project's default (inside a project), then
+Whether a new chat starts with search on follows a chain: the
+chat's own state, then the project's default (inside a project), then
 your app setting (on for new accounts; older accounts keep whatever they set),
 then off. Nothing done inside a chat writes back to the settings.
 
@@ -326,11 +343,11 @@ rule applies to **Attach from URL**.
 
 ## Tool approvals
 
-Some tools act outside the conversation, so by default (**Tools ask first**) they wait for you. (A [sub-agent](#plans-and-sub-agents) cannot wait for you, so it only uses what you have already allowed.) When the assistant wants to open a page that neither you nor a search result supplied, or to use a tool from a [connector](connectors.md), the answer pauses on an approval card showing what it wants to do and with what. You choose: allow this once, allow this tool for the rest of the conversation, or deny. If it wants several, you approve each one. A card you leave unanswered is **denied** when its time runs out.
+Some tools act outside the chat, so by default (**Tools ask first**) they wait for you. (A [sub-agent](#plans-and-sub-agents) cannot wait for you, so it only uses what you have already allowed.) When the assistant wants to open a page that neither you nor a search result supplied, or to use a tool from a [connector](connectors.md), the answer pauses on an approval card showing what it wants to do and with what. You choose: allow this once, allow this tool for the rest of the chat, or deny. If it wants several, you approve each one. A card you leave unanswered is **denied** when its time runs out.
 
 The composer's **Tools ask first / Tools auto-approved** pill overrides the
 policy for **this chat only**; the app-wide default lives in your settings.
-Python the assistant runs in the [in-browser sandbox](pyodide.md) never asks first: it runs in your own browser, with no network access, so it cannot act outside the conversation.
+Python the assistant runs in the [in-browser sandbox](pyodide.md) never asks first: it runs in your own browser, with no network access, so it cannot act outside the chat.
 
 ## Location
 
@@ -348,7 +365,7 @@ typing it each time. It is off by default, and there are two ways to turn it on:
   is shared.
 
 While sharing is on, one line goes to the model provider with every chat
-message, for example `The person's location (shared by them): Torino, Italy,
+message, for example `The user's location (shared by them): Torino, Italy,
 timezone Europe/Rome.` The line includes your browser's timezone. It is not
 saved on the messages and the server never adds it to tool calls: the model
 sees it as context and decides when it matters. It applies to chats only, not
@@ -361,7 +378,7 @@ several steps: a short list of steps, one in progress, ticked off as it goes.
 The plan card shows it live and stays in the finished message. A plan has at
 most 20 steps, with one in progress at a time, and the assistant rewrites it
 whole on each update (it keeps a one-paragraph statement of your goal beside it,
-folding in corrections as you make them). It belongs to the conversation, so the
+folding in corrections as you make them). It belongs to the chat, so the
 assistant sees its current plan again on your next message and revises it when
 the request changes. For a simple question there is no plan. The plan is the
 assistant's own working list: there is nothing to approve, and it does not
@@ -375,15 +392,15 @@ message, with a title, the model it runs on, a live line for what it is doing
 steps it took. The assistant starts one with its `delegate` tool, and several
 `delegate` calls in one step run side by side.
 
-- **Which model.** By default the conversation's model. The assistant may pick
+- **Which model.** By default the chat's model. The assistant may pick
   another tool-capable model you can use (never one of your custom models), for
   instance a cheaper one for a simple lookup. The card names the model it ran on.
 - **What it can use.** The same server-side tools as the chat: web search,
   fetching pages, and the [connectors](connectors.md) you have switched on. It
   cannot run code in your browser, make a plan, or start sub-agents of its own.
 - **Approvals.** A sub-agent cannot stop to ask you. It may use a connector tool
-  only when this conversation already allows it (you chose "allow this tool for
-  the rest of the conversation", or tools are auto-approved); otherwise the call
+  only when this chat already allows it (you chose "allow this tool for
+  the rest of the chat", or tools are auto-approved); otherwise the call
   is refused, the card shows it as refused, and the assistant is told which tool
   needs your approval and can ask for it itself.
 - **Limits.** **Three** run at once (a fourth is refused until one returns) and
@@ -404,7 +421,7 @@ steps it took. The assistant starts one with its `delegate` tool, and several
 An administrator can turn sub-agents off for the whole deployment, under
 **Administration → Assistant → Sub-agents** ([Sub-agents](chat-admin.md#sub-agents)); the
 assistant is then not offered `delegate` or `research`. Coding agents on your own
-machines have their own, separate kind of delegation: see
+computers have their own, separate kind of delegation: see
 [Delegating work](agent-machines-reference.md#delegating-work).
 
 ## Scheduled chats
@@ -416,13 +433,13 @@ signed-in user has them; they are not part of the coding agents.
 
 **Making one.** Three ways:
 
-- Open a conversation's **⋯** menu in the sidebar and choose **Schedule…**. The
+- Open a chat's **⋯** menu in the sidebar and choose **Schedule…**. The
   editor opens on that chat.
-- Open **Schedules** in the sidebar and choose **New schedule**.
+- Open **Schedules** at the foot of the sidebar and choose **New schedule**. One page lists chat and agent schedules, each marked **Chat** or **Agent**; the filter (**All · Chats · Agents**) starts on the side you came from.
 - Ask the assistant: "remind me every Friday at 4 pm to send the weekly report".
   It proposes the schedule on a card, with its name, timetable, where it runs
   and the prompt it will send, and the schedule exists only if you press
-  **Create schedule**. There is no "allow for this conversation" on that card:
+  **Create schedule**. There is no "allow for this chat" on that card:
   each schedule is confirmed by you, one at a time.
 
 In the editor you give a name, the prompt, how often (every N hours, daily,
@@ -450,14 +467,14 @@ the document tools work. Two things do not, because nobody is there:
 - **No Python.** The sandbox runs in your browser, so a scheduled run cannot run
   code. The assistant is told so; it can still write code for you to read.
 - **Tools that need approval depend on the schedule's permission mode**, which you
-  set in the editor like a coding agent's: **Ask** (the default for a person on the
+  set in the editor like a coding agent's: **Ask** (the default for a user on the
   manual approval setting) refuses every such tool, the way a sub-agent's are, and the
   assistant says that step needs you, whatever else you approved before. **Allow** (only
-  for a person whose approval setting is "always allow") runs them as they would for
+  for a user whose approval setting is "always allow") runs them as they would for
   you, under that setting and what the chat already approved. Content a run reads (a
   web page, a document, a connector's answer) can try to steer a tool, so choose Allow
   only for work you trust. A schedule is never looser than your own setting, and the
-  assistant's own proposals are never looser than the conversation's. Nobody can answer
+  assistant's own proposals are never looser than the chat's. Nobody can answer
   a question or a card in a scheduled run, so nothing waits for you.
 
 Every scheduled prompt starts with one line you did not write, naming the
@@ -475,7 +492,7 @@ three failures in a row switch the schedule off, with the reason shown on it.
 **Background access.** A run has no signed-in session of yours, so it uses the
 background access your sign-in leaves behind: your identity provider issues a refresh
 token (the first sign-in on a browser asks for it, and your provider may show a consent
-screen for it, once per browser), and Cerea keeps one per person, sealed, shared by your
+screen for it, once per browser), and Cerea keeps one per user, sealed, shared by your
 browser sessions and your scheduled runs (the newest sign-in replaces the older). Runs
 refresh an access token from it and call the models as you, so your quota, billing
 group, redaction rules and model access apply and usage is yours. Signing out of one
@@ -501,16 +518,16 @@ Notifications**; see [Notifications](notifications.md).
 ## Memory
 
 Memory keeps a few short **standing facts about you** and carries them into
-every conversation, so you need not repeat "reply in Italian". It is **off
+every chat, so you need not repeat "reply in Italian". It is **off
 until you turn it on** in your settings, because it writes things you said
-into a store that outlives the conversation.
+into a store that outlives the chat.
 
 - It is a **list, injected whole** on every turn, not a search: what the
   **Memory** tab of the Workspace page shows is exactly what the model sees.
 - A fact is at most 400 characters and you can keep 200. The prompt block has
   a character budget (1,500), and past it the **oldest** facts stop being
   sent, which the tab says.
-- With memory on, you can just say it: "remember that I reply in Italian", "forget where I work". The assistant saves and removes facts itself, and you can add, edit and delete them on the tab, which shows who wrote each fact and in which conversation.
+- With memory on, you can just say it: "remember that I reply in Italian", "forget where I work". The assistant saves and removes facts itself, and you can add, edit and delete them on the tab, which shows who wrote each fact and in which chat.
 - Turning memory off stops it being used and written, but does not delete the
   facts. Deleting happens on the tab.
 - If your deployment has switched memory off, the tab is not there.

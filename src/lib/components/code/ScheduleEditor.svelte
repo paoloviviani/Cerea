@@ -454,7 +454,11 @@
 				<h2 class={s.TITLE}>
 					{editing ? m["code.schedule_editor.title_edit"]() : m["code.schedule_editor.title_new"]()}
 				</h2>
-				<p class={s.SUBTITLE}>{m["code.schedule_editor.subtitle"]()}</p>
+				<p class={s.SUBTITLE} data-testid="schedule-subtitle">
+					{kind === "chat"
+						? m["code.schedule_editor.subtitle_chat"]()
+						: m["code.schedule_editor.subtitle"]()}
+				</p>
 				<ScheduleCreatedBy createdBy={editing?.createdBy} class="mt-2" />
 			</div>
 

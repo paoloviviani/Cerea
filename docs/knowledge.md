@@ -2,12 +2,12 @@
 
 !!! info "For everyone"
 
-    Knowledge bases the assistant can search and projects that group conversations; the last section is for operators.
+    Knowledge bases the assistant can search and projects that group chats; the last section is for operators.
 
 A **knowledge base** is a set of documents Cerea can search while answering.
 You upload files to it, Cerea extracts their text, splits it into passages and
 indexes them, and the model is given the passages relevant to each question. A
-**project** groups conversations that share standing instructions and
+**project** groups chats that share standing instructions and
 knowledge.
 
 ## Knowledge bases
@@ -31,11 +31,11 @@ that is not text fails its own document with the same reason.
   read it; only you can change it.
 - **After an administrator changes the embedding model**, your bases keep working on the old one and show that they are on an older model. **Reindex** brings a base up to date; it is billed to whoever presses it.
 
-Indexing is billed to the person indexing, like any other call.
+Indexing is billed to the user indexing, like any other call.
 
 ## Projects
 
-A project is a way of organising **conversations**. It has **a page of its
+A project is a way of organising **chats**. It has **a page of its
 own**: the sidebar's **Projects** `+` opens `/projects/new` to create one, and a
 project row's `⋯` menu has **Project settings**, which opens `/projects/<id>`
 (and **Delete**). The page is one scroll of sections, each editable where it
@@ -50,12 +50,12 @@ message**; the last two are **searched**, so only what matches your question
 arrives. The page lists them at the top, in this order:
 
 1. **Standing instructions**: prepended to the system prompt of every
-   conversation in the project (in full).
+   chat in the project (in full).
 2. **Context documents**: files you attach to the project (in full; see below).
 3. **Project memory**: the project's shared notes (in full; see [Project memory](#project-memory)).
 4. **Knowledge bases** attached to the project, searched on every turn (up to
    the project's retrieval limit, six passages by default).
-5. **Past chats**: the project's own earlier conversations, searched, when you
+5. **Past chats**: the project's own earlier chats, searched, when you
    turn that on (see [Past chats](#past-chats)).
 
 The page also holds the project's **name and description**, its **chats** (each
@@ -110,17 +110,17 @@ always have in front of it: a call text, a style guide, a contract.
   at most 50 documents.
 - **Everyone who can see the project can add and remove documents**, as with
   notes, and each shows who added it. The text goes into the prompt of that
-  project's chats only, for people who can still see the project.
+  project's chats only, for users who can still see the project.
 - **Deleting** a document removes the stored original and its text. Erasing a
-  person's account deletes the documents in projects they own, with the project;
-  documents they added to other people's projects stay, and show "deleted user".
+  user's account deletes the documents in projects they own, with the project;
+  documents they added to other users' projects stay, and show "deleted user".
 
 ### Project memory
 
 A project also keeps a short **list of notes**, its **Project memory**, that every member shares — a
 convention, a decision and its reason, where something lives — and that goes
-into every conversation **in that project** and nowhere else. It is the
-[personal memory](chat.md#memory) list, moved from a person to a project, and
+into every chat **in that project** and nowhere else. It is the
+[personal memory](chat.md#memory) list, moved from a user to a project, and
 it is on whenever the deployment has memory on (`CHAT_MEMORY_ENABLED`); your
 own opt-in for personal memory does not apply, because the notes are not about
 you.
@@ -135,16 +135,16 @@ you.
 - **Limits.** A note is at most 2,000 characters and a project keeps 100. The
   prompt block has a budget of 8,000 characters; past it the **oldest** notes
   stop being sent, and the Memory section of the project page marks which.
-- **Deleting a project deletes its notes.** Erasing a person's account deletes
+- **Deleting a project deletes its notes.** Erasing a user's account deletes
   the notes in projects they own, with the project; notes they wrote in other
-  people's projects stay, and show their author as "deleted user".
+  users' projects stay, and show their author as "deleted user".
 - A note is read by everyone in the project and goes into everyone's prompt, so
   never keep a password, key or token in one.
 
 ### Past chats
 
-A project can search its own earlier conversations. With **Search this project's
-own past conversations** on, finished exchanges in the project are indexed into
+A project can search its own earlier chats. With **Search this project's
+own past chats** on, finished exchanges in the project are indexed into
 a knowledge base of their own, the **memory base**, so later chats can draw on
 earlier ones. It is **off by default**, because it copies what was said into a
 searchable store, and that is a decision worth making rather than discovering.
@@ -152,36 +152,36 @@ searchable store, and that is a decision worth making rather than discovering.
 - The memory base is an **ordinary knowledge base**, named after its project,
   visible on the Knowledge tab and deletable there. The transcripts are
   somewhere you can look.
-- Each conversation is kept once: as it grows, its copy in the memory base is replaced, never duplicated.
+- Each chat is kept once: as it grows, its copy in the memory base is replaced, never duplicated.
 
 This is a different thing from [personal memory](chat.md#memory), a short list
-of facts about you that goes into every conversation, and from the project's
+of facts about you that goes into every chat, and from the project's
 [memory](#project-memory) above, a short list of shared notes sent in full.
 
 ### Agent workspace
 
-If coding agents are on for you and you have paired a machine, the project's
-**Settings** tab has an **Agent workspace** card: the machine and workspace the
+If coding agents are on for you and you have paired a computer, the project's
+**Settings** tab has an **Agent workspace** card: the computer and workspace the
 coding sessions started from this project's chats run on, and a permission word
 (Plan, Ask or Allow; Ask by default). Sessions the chat starts use that word;
 a session that already exists keeps its own. It has its own **Save** and
 **Remove**, apart from the page's Save changes.
 
-It is **yours alone**. A machine belongs to one person, so in a shared project
+It is **yours alone**. A computer belongs to one user, so in a shared project
 each member sets their own target, and nobody sees anyone else's. With no
-machine paired the card says so and points to the Agents panel. In a chat, each
-session the assistant starts or prompts leaves a card in the conversation with
+computer paired the card says so and points to the Agents panel. In a chat, each
+session the assistant starts or prompts leaves a card in the chat with
 its live state (working, needs you, idle, failed, offline) and an **Open in
 /code** link.
 
 ## Sharing
 
-You can share a **base** or a **project** with a person (by email address) or a
+You can share a **base** or a **project** with a user (by email address) or a
 group (by name).
 
 - **Cerea can't check the name you type.** It can't look up who exists or who is in a group, so a typo in an address and a colleague who hasn't signed in yet look the same. The share list shows what you typed, not who it reached. Check the spelling.
 - **A shared project shares its instructions, knowledge and memory, not its chats.**
-  Members see only their own conversations in it (plus a count of other members'
+  Members see only their own chats in it (plus a count of other members'
   chats), and a chat opens for its author only. With past-chat memory on, the
   assistant can recall past chats from all members. The project page says so.
 - **Sharing a project shares no documents.** Retrieval runs with the _reader's_
@@ -211,7 +211,7 @@ stack's markitdown), whatever OCR model is selected, and is never sent to an
 OCR model. With no local reader, an Office file fails with "No reader for Word
 documents is configured" rather than being sent somewhere that cannot read it.
 
-If you restrict the reader model to a group, people outside it get refused by
+If you restrict the reader model to a group, users outside it get refused by
 that model. Leave the reader on automatic, or make sure everyone can use the
 chosen one; otherwise their PDFs fall back to the local reader when there is
 one, and are stored without text when there is not.

@@ -9,12 +9,16 @@
 	hidden on narrow screens, where the column is short enough to scroll.
 
 	The index sticks to the top of the scroll container the shell sits in (the
-	page's own `overflow-y-auto` area), and a click scrolls that container
-	with `scrollIntoView`, so it works wherever the shell is mounted. A link
-	targets the `id` of a `SettingsGroup` or `SettingsSection`.
+	page's own `overflow-y-auto` area), and a click scrolls that container and
+	only that (`scrollWithin`), so it works wherever the shell is mounted.
+	`scrollIntoView` was used before and moved the whole app window as well: the
+	root shell is `overflow-hidden` but still scrollable by script, so the sidebar
+	was cut off and the page header went. A link targets the `id` of a
+	`SettingsGroup` or `SettingsSection`.
 -->
 <script lang="ts">
 	import type { Snippet } from "svelte";
+	import { scrollWithin } from "$lib/utils/scrollWithin";
 
 	export interface SettingsIndexItem {
 		/** The `id` of the group or section this link scrolls to. */
@@ -28,17 +32,19 @@
 		/** Accessible name of the index. Required when `index` is given. */
 		indexLabel?: string;
 		index?: SettingsIndexItem[];
+		/** Space left above a section it scrolls to, in px: air, or a bar that sticks to the column's top. */
+		scrollOffset?: number;
 		children: Snippet;
 	}
 
-	let { indexLabel, index = [], children }: Props = $props();
+	let { indexLabel, index = [], scrollOffset = 8, children }: Props = $props();
 
 	function go(event: MouseEvent, id: string) {
 		const target = document.getElementById(id);
 		if (!target) return;
 		event.preventDefault();
 		const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-		target.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+		scrollWithin(target, { offset: scrollOffset, behavior: reduced ? "auto" : "smooth" });
 		// Move keyboard focus with the view, so the next Tab lands inside the section.
 		if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
 		target.focus({ preventScroll: true });

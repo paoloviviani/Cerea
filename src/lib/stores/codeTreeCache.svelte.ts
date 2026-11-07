@@ -4,7 +4,6 @@ import { listAgents, listWorkspaces } from "$lib/codeApi";
 import { reconcileById } from "$lib/utils/reconcileById";
 import { clearCodeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
-import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 import { onCodeReauth } from "$lib/stores/codeReauth.svelte";
 
 /** One paired device's live subtree, read through the proxy. */
@@ -111,7 +110,6 @@ export function clearCodePanelCache(): void {
 	clearTrees();
 	clearCodeDeviceList();
 	for (const id of Object.keys(codeEnrollment)) delete codeEnrollment[id];
-	for (const id of Object.keys(codeLegacyMachines)) delete codeLegacyMachines[id];
 	codeTreeCache.owner = null;
 }
 

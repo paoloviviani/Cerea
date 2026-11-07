@@ -56,17 +56,17 @@ test.describe("owned machine agent (P0)", () => {
 		await page.getByRole("button", { name: "Agents", exact: true }).click();
 		const pending = page.getByText(machine.name);
 		await expect(pending).toBeVisible({ timeout: 60_000 });
-		await page.getByRole("button", { name: "Confirm this machine" }).click();
+		await page.getByRole("button", { name: "Confirm this computer" }).click();
 
 		// ── Workspace + session ────────────────────────────────────────────────
-		await page.getByRole("button", { name: "Add a workspace to this device" }).click();
-		await page.getByLabel("Directory on the machine").fill(machine.workspace);
+		await page.getByRole("button", { name: "Add a workspace to this computer" }).click();
+		await page.getByLabel("Directory on the computer").fill(machine.workspace);
 		await page.getByLabel("Title (optional)").fill("repo");
 		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 		await expect(page.getByText("repo", { exact: true })).toBeVisible();
 
-		await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
-		await page.getByRole("button", { name: "Build" }).click();
+		await page.getByRole("button", { name: "Start a session in this workspace" }).click();
+		await page.getByRole("button", { name: "Ask", exact: true }).click();
 		await page.getByRole("button", { name: "Create agent" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 
@@ -97,15 +97,12 @@ test.describe("owned machine agent (P0)", () => {
 		});
 		await box.fill("write the file");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByLabel("Conversation messages").getByText("wants to call")).toBeVisible({
+		await expect(page.getByLabel("Chat messages").getByText("wants to call")).toBeVisible({
 			timeout: 60_000,
 		});
 		// The Needs-you banner shows the same approval card with its own "Allow once"
 		// while the request is pending; answer the one in the transcript.
-		await page
-			.getByLabel("Conversation messages")
-			.getByRole("button", { name: "Allow once" })
-			.click();
+		await page.getByLabel("Chat messages").getByRole("button", { name: "Allow once" }).click();
 		await expect(page.getByText("Wrote the file.")).toBeVisible({ timeout: 60_000 });
 		const out = join(machine.workspace, "out.txt");
 		expect(existsSync(out)).toBe(true);

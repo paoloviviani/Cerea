@@ -36,6 +36,8 @@
 		label: string;
 		/** Shown as a muted badge on the right — a count, usually. */
 		badge?: string | number;
+		/** The count is news (something arrived): drawn always, not only on hover. */
+		badgeNew?: boolean;
 		open?: boolean;
 		/** Indentation depth. 0 is a top-level branch. */
 		depth?: number;
@@ -64,6 +66,7 @@
 	let {
 		label,
 		badge,
+		badgeNew = false,
 		open = $bindable(false),
 		depth = 0,
 		onadd,
@@ -151,8 +154,14 @@
 		{/if}
 
 		{#if badge !== undefined && badge !== ""}
+			<!-- Quiet by default: a count is reference, not news, so it shows when you
+			     point at the row or focus into it, or when it is new. A touch screen
+			     has no hover, so there it is always drawn (muted). -->
 			<span
-				class="shrink-0 rounded-md bg-gray-500/5 px-1.5 py-0.5 text-xs text-ink-faint dark:bg-gray-500/20"
+				data-testid="tree-badge"
+				class="shrink-0 rounded-md bg-gray-500/5 px-1.5 py-0.5 text-xs text-ink-faint transition-opacity dark:bg-gray-500/20 {badgeNew
+					? ''
+					: 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100'}"
 			>
 				{badge}
 			</span>

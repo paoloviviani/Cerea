@@ -70,7 +70,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const convCount = await collections.conversations.countDocuments(authCondition(locals));
 
 	if (usageLimits?.conversations && convCount > usageLimits?.conversations) {
-		error(429, "You have reached the maximum number of conversations. Delete some to continue.");
+		error(429, "You have reached the maximum number of chats. Delete some to continue.");
 	}
 
 	// A custom model starts the conversation on itself (`conversation.model`

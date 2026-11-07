@@ -1,4 +1,6 @@
 import { classifyGatewayError, quotaMessageForUser } from "$lib/server/gatewayErrors";
+import { usageEnabled } from "$lib/server/usage/enabled";
+import { gatewayCurrency } from "$lib/server/usage/pystinoProvider";
 import { effectiveReasoningEffort } from "$lib/server/reasoningEffort";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
@@ -778,10 +780,18 @@ export async function POST({ request, locals, params, getClientAddress }) {
 						(typeof errObj.statusCode === "number" ? errObj.statusCode : undefined) ||
 						(typeof errObj.status === "number" ? errObj.status : undefined);
 					const failure = classifyGatewayError(err);
+					const quotaText =
+						failure.kind === "quota"
+							? quotaMessageForUser(failure, {
+									currency:
+										failure.figures?.metric === "cost" ? await gatewayCurrency(locals) : undefined,
+									usageEnabled: usageEnabled(),
+								})
+							: null;
 					await update({
 						type: MessageUpdateType.Status,
 						status: MessageUpdateStatus.Error,
-						message: failure.kind === "quota" ? quotaMessageForUser(failure) : err.message,
+						message: quotaText ?? err.message,
 						...(statusCode && { statusCode }),
 					});
 					logger.error(err, "Error in conversation stream");

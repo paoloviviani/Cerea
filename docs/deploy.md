@@ -6,7 +6,7 @@
     without it. This page is the map; the deploy kit's README is the runbook.
 
 Cerea is a chat application: it needs a MongoDB, an OpenAI-compatible
-endpoint to talk to, and an OIDC identity provider to sign people in. How
+endpoint to talk to, and an OIDC identity provider to sign users in. How
 much of that you run yourself is the deployment decision, and there are
 three supported answers.
 
@@ -14,7 +14,7 @@ three supported answers.
 
 | Path                             | What you run                                                                                                                  | You get                                                                                                                | Effort                                         |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| **The deploy kit** (recommended) | everything: the chat, the Pystino gateway and console, a bundled identity provider, a TLS proxy and the add-ons, as one stack | the full stack: quotas, accounting, redaction, the `/code` panel's machine enrollment, the console                     | one `./configure`                              |
+| **The deploy kit** (recommended) | everything: the chat, the Pystino gateway and console, a bundled identity provider, a TLS proxy and the add-ons, as one stack | the full stack: quotas, accounting, redaction, the `/code` panel's computer enrollment, the console                    | one `./configure`                              |
 | **Cerea without the deploy kit** | the chat's own containers, with the environment written by hand                                                               | the same chat, pointed at a gateway or any OpenAI-compatible endpoint you already run                                  | you write every variable and mint every secret |
 | **Cerea without Pystino**        | the chat only, against an existing endpoint                                                                                   | the chat and its features; no per-user accounting, quotas, per-caller model access or console of this deployment's own | least, with the least governance               |
 
@@ -51,7 +51,7 @@ file, so you write the runtime yourself:
 
 The minimum variables differ by what you point the chat at, because
 `USE_USER_TOKEN` (with `OPENAI_BASE_URL`) is the switch that decides the
-deployment shape — `true` means the chat is a gateway deployment: people
+deployment shape — `true` means the chat is a gateway deployment: users
 sign in through the gateway and inference bills to _them_:
 
 - **Against Pystino:** `OPENAI_BASE_URL` at the gateway's `/v1`,
@@ -60,7 +60,7 @@ sign in through the gateway and inference bills to _them_:
   `OPENID_CLIENT_ID`, `OPENID_CLIENT_SECRET`, `OPENID_SCOPES`), the
   `CHAT_ERASURE_TOKEN` shared with the gateway, and `CHAT_PG_URL` for the
   knowledge bases' passages. Miss `USE_USER_TOKEN` and everything
-  silently bills to a shared key instead of the people using it.
+  silently bills to a shared key instead of the users using it.
 - **Against any other endpoint:** `OPENAI_BASE_URL` at the endpoint,
   `USE_USER_TOKEN` unset or `false`, `OPENAI_API_KEY` set (one shared
   key), and OIDC variables for your own identity provider.
@@ -81,13 +81,13 @@ on: minting the secrets yourself, wiring your own IdP, and maintaining
 the versions.
 
 **Without Pystino**, point `OPENAI_BASE_URL` at any OpenAI-compatible
-endpoint. The chat works: conversations, attachments, artifacts, code
+endpoint. The chat works: chats, attachments, artifacts, code
 execution, knowledge bases (give them a Postgres with pgvector for the
 passages — see [Configuration](configuration.md)). What you lose is what
 the _gateway_ provides, not the chat: per-user tokens (inference bills to
-the one key you set, not to the signed-in person), quotas and the usage
+the one key you set, not to the signed-in user), quotas and the usage
 ledger, per-caller model access and catalogue capabilities, redaction on
-the wire, the console, and gateway-billed coding agents. The `/code` panel still pairs machines against your identity provider, but with no Pystino the agents can't call models through it: enroll them with `--allow-opencode-provider` or `--allow-free-models` so they use opencode's own providers and keys, and nothing they spend is metered. The `generic` preset below is exactly this shape, and it is a
+the wire, the console, and gateway-billed coding agents. The `/code` panel still pairs computers against your identity provider, but with no Pystino the agents can't call models through it: enroll them with `--allow-opencode-provider` or `--allow-free-models` so they use opencode's own providers and keys, and nothing they spend is metered. The `generic` preset below is exactly this shape, and it is a
 supported way to run the chat — just with the governance features off.
 
 ## Presets (the deploy kit)
@@ -97,18 +97,18 @@ preset is data — the compose profiles it switches on and the feature
 switches it writes — and you can change either afterwards; switching
 presets never leaves a feature key behind.
 
-| Preset       | Runs                                                                          | For                    |
-| ------------ | ----------------------------------------------------------------------------- | ---------------------- |
-| `homelab`    | gateway, console, chat, local document reader; no ledger, quotas or redaction | one person or a family |
-| `team`       | homelab + ledger, quotas, pattern-based PII redaction                         | a team (the default)   |
-| `enterprise` | team + NER redaction (built locally) and headless-browser fetch               | an organisation        |
-| `satellite`  | the chat only, against a central Pystino and its IdP                          | a second site          |
-| `generic`    | the chat only, against any OpenAI-compatible endpoint                         | no gateway at all      |
+| Preset       | Runs                                                                          | For                  |
+| ------------ | ----------------------------------------------------------------------------- | -------------------- |
+| `homelab`    | gateway, console, chat, local document reader; no ledger, quotas or redaction | one user or a family |
+| `team`       | homelab + ledger, quotas, pattern-based PII redaction                         | a team (the default) |
+| `enterprise` | team + NER redaction (built locally) and headless-browser fetch               | an organisation      |
+| `satellite`  | the chat only, against a central Pystino and its IdP                          | a second site        |
+| `generic`    | the chat only, against any OpenAI-compatible endpoint                         | no gateway at all    |
 
 Two presets run the chat alone: `satellite`, against a _central_ Pystino (per-user tokens and quotas still apply, administered at the centre, and `CHAT_CONSOLE_ENABLED` is off because administration lives there), and `generic`, the "without Pystino" path, against any endpoint with one shared key. A central Pystino serves only **one** chat client
 (gateway-side, several satellite chats share the client id, each with its
 redirect URI registered), and its erasure reaches only **one** chat:
-deleting a person at the centre does not erase their data on satellite
+deleting a user at the centre does not erase their data on satellite
 deployments.
 
 The compose **profiles** underneath (chosen by `COMPOSE_PROFILES` in

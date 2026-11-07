@@ -23,7 +23,12 @@
 	import ToolUpdate from "./ToolUpdate.svelte";
 	import TurnWaitBanner from "./TurnWaitBanner.svelte";
 	import TurnFailedBanner from "./TurnFailedBanner.svelte";
-	import { failedTurnReasonOf, loopStoppedOf, turnStateOf } from "$lib/utils/generationState";
+	import {
+		failedTurnReasonOf,
+		loopStoppedOf,
+		streamErrorOf,
+		turnStateOf,
+	} from "$lib/utils/generationState";
 	import TurnStoppedNote from "./TurnStoppedNote.svelte";
 	import ToolCallsSummary from "./ToolCallsSummary.svelte";
 	import ArtifactCard from "./ArtifactCard.svelte";
@@ -458,6 +463,35 @@
 	let failedReason = $derived(failedTurnReasonOf(message));
 	let loopStopped = $derived(loopStoppedOf(message));
 
+	// The turn is only a question put to the user (`ask_user_question`, not yet
+	// answered): the question card above the composer is the turn. An empty
+	// "Used 1 tool" pill with copy/retry icons beside it only made the chat look
+	// broken, so the message stays out of the thread until the answer arrives.
+	let pendingAskOnly = $derived.by(() => {
+		if (!isLast || message.content?.trim()) return false;
+		const updates = message.updates ?? [];
+		const calls = updates.filter(isMessageToolCallUpdate);
+		const asks = calls.filter((u) => u.call.name === "ask_user_question");
+		if (asks.length === 0 || asks.length !== calls.length) return false;
+		const settled = new Set(
+			updates
+				.filter((u) => isMessageToolResultUpdate(u) || isMessageToolErrorUpdate(u))
+				.map((u) => u.uuid)
+		);
+		// An answered question resolves its elicitation before the tool result lands.
+		const resolved = new Set(
+			updates.filter(isMessageElicitationResolvedUpdate).map((u) => u.elicitationId)
+		);
+		let anyAnswered = false;
+		for (const u of updates) {
+			if (isMessageElicitationRequestUpdate(u) && resolved.has(u.request.elicitationId)) {
+				if (u.toolUuid) settled.add(u.toolUuid);
+				else anyAnswered = true;
+			}
+		}
+		return !anyAnswered && asks.some((u) => !settled.has(u.uuid));
+	});
+
 	let blocks = $derived.by(() => {
 		const updates = message.updates ?? [];
 		const res: Block[] = [];
@@ -839,6 +873,13 @@
 		return units;
 	});
 
+	/** The turn is parked on a question or approval nobody has answered: nothing is
+	 * moving, so the ridge loader (which loops and fades, and reads as a stray dash
+	 * mid-cycle) is not drawn under the card. */
+	let waitingOnUser = $derived.by(() => {
+		const last = blocks.at(-1);
+		return last?.type === "elicitation" && !last.resolved;
+	});
 	/** Reasoning, a running tool and growing text animate; a finished tool, a
 	 * settled question and a terminal subagent do not. A subagent still
 	 * running — polled or merely unpaired — keeps the shimmer. */
@@ -876,6 +917,12 @@
 	// Nothing to show yet but the progress mark: no bubble around it.
 	let awaitingFirstContent = $derived(
 		isLast && loading && blocks.length === 0 && !message.files?.length
+	);
+	// A turn that died on the stream with nothing to show (a spent quota, say):
+	// no empty bubble, just the reason, where the answer would have been.
+	let streamError = $derived(failedReason ? undefined : streamErrorOf(message));
+	let errorOnly = $derived(
+		!!streamError && !loading && blocks.length === 0 && !message.content && !message.files?.length
 	);
 	// Which Thinking blocks the reader has opened, by position in `blocks`. The
 	// streaming branch and the finished-turn branch mount separate blocks, so
@@ -929,7 +976,9 @@
 	});
 </script>
 
-{#if message.from === "assistant"}
+{#if message.from === "assistant" && pendingAskOnly}
+	<!-- Held back while the question card is open: see pendingAskOnly. -->
+{:else if message.from === "assistant"}
 	<div
 		bind:offsetWidth={messageWidth}
 		class="group relative -mb-4 flex w-fit max-w-full items-start justify-start gap-4 pb-4 leading-relaxed max-sm:mb-1 {message.routerMetadata &&
@@ -947,7 +996,8 @@
 		     instead — alone while nothing has arrived yet, then inline where the
 		     three dots used to be. -->
 		<div
-			class="relative flex min-w-[60px] flex-col gap-2 wrap-break-word text-gray-600 dark:text-gray-300 prose-pre:my-2 {awaitingFirstContent
+			class="relative flex min-w-[60px] flex-col gap-2 wrap-break-word text-gray-600 dark:text-gray-300 prose-pre:my-2 {awaitingFirstContent ||
+			errorOnly
 				? 'py-2.5'
 				: 'rounded-2xl border border-line bg-linear-to-br from-page px-3 py-2.5 sm:px-4 sm:py-3 dark:from-surface dark:to-surface/60'}"
 		>
@@ -1066,7 +1116,7 @@
 							</div>
 						{/if}
 					{/each}
-					{#if !trailingBlockShowsProgress}
+					{#if !trailingBlockShowsProgress && !waitingOnUser}
 						<MessageAvatar
 							animating
 							classNames="loading mt-1 inline-block h-3 md:h-4 w-auto select-none"
@@ -1192,6 +1242,8 @@
 				/>
 			{:else if failedReason}
 				<TurnFailedBanner reason={failedReason} isLatest={isLatestFailedTurn} />
+			{:else if streamError}
+				<TurnFailedBanner reason={streamError} isLatest />
 			{:else if loopStopped}
 				<TurnStoppedNote />
 			{/if}

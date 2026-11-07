@@ -72,7 +72,7 @@ result lists what changed.
   version keeps its number even after older ones expire. The version list on
   the file card counts the files the assistant made, so its "v1" can be the
   assistant's version 2 when the file started as an attachment.
-- **Code sees the latest version.** Every file of the conversation (what you
+- **Code sees the latest version.** Every file of the chat (what you
   attached and what was made since, by the document tools or by code) is in the
   sandbox at `/mnt/data/<name>` as its latest version; earlier versions are not
   mounted there.

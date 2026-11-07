@@ -132,7 +132,7 @@ test("hovering the workspace row moves neither its + nor its kebab, which stays 
 	const wsRow = rowOf(page, WS1_NAME);
 	await expect(wsRow).toBeVisible();
 
-	const startSession = wsRow.locator('button[title="Start a coding session in this workspace"]');
+	const startSession = wsRow.locator('button[title="Start a session in this workspace"]');
 	const kebab = wsRow.getByRole("button", { name: "Workspace actions" });
 
 	const startBefore = await boxOf(startSession);
@@ -208,10 +208,10 @@ test("the + next to Pair opens the workspace dialog, even when the device alread
 	await expect(page.getByText(WS1_NAME, { exact: true })).toBeVisible();
 	await expect(page.getByText(WS2_NAME, { exact: true })).toBeVisible();
 
-	await page.locator('button[title="Add a workspace to this device"]').click();
+	await page.locator('button[title="Add a workspace to this computer"]').click();
 
 	const dialog = page.getByRole("dialog");
 	await expect(dialog).toBeVisible();
 	await expect(dialog.getByText("Add a workspace")).toBeVisible();
-	await expect(dialog.getByLabel("Directory on the machine")).toBeVisible();
+	await expect(dialog.getByLabel("Directory on the computer")).toBeVisible();
 });

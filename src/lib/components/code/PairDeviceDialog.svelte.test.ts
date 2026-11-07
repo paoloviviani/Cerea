@@ -85,7 +85,7 @@ describe("PairDeviceDialog", () => {
 	it("opens with every default, and prints exactly the defaults: --default-group, nothing else", async () => {
 		await browserPage.viewport(1200, 1000);
 		const screen = mount();
-		await expect.element(screen.getByText("Pair a machine")).toBeVisible();
+		await expect.element(screen.getByText("Pair a computer")).toBeVisible();
 		expect(command(screen)).toBe(PLAIN);
 		expect(policyPart(screen)).toBe("--default-group");
 		await openAdvanced(screen);

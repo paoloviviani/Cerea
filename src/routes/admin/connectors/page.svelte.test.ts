@@ -93,8 +93,25 @@ let extraServers = 0;
 
 const rows = (root: HTMLElement) => [...root.querySelectorAll('[data-testid="env-server"]')];
 
+/**
+ * Resolves once the stylesheet's web font (Inter, `font-display: swap`) is in use. Its file is
+ * fetched when the first text is laid out, so on a busy runner it can land well after the
+ * page has rendered; the swap re-wraps the text and moves everything below it (CI: scrollTop
+ * +34, the card +0.66px). That is the page settling, not a tap, and no frame-counting window
+ * can rule it out: wait for the font itself.
+ */
+async function fontsLoaded(): Promise<void> {
+	await Promise.all(
+		["400", "500", "600"].map((weight) =>
+			document.fonts.load(`${weight} 12px Inter`, "Notion .env")
+		)
+	);
+	await document.fonts.ready;
+}
+
 /** Resolves once `el`'s scroll height and scroll position have held for 5 frames (max ~2 s). */
 async function settleLayout(el: HTMLElement): Promise<void> {
+	await fontsLoaded();
 	const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 	let last = "";
 	let still = 0;
@@ -206,10 +223,10 @@ describe("admin MCP page", () => {
 			const screen = renderWithApp(Page, {} as never, { baseElement: scroller });
 			await expect.element(page.getByText("Notion", { exact: true })).toBeInTheDocument();
 			const card = rows(screen.baseElement).at(-3) as HTMLElement;
-			// Rows above the card finish rendering after "Notion" shows; a snapshot taken
-			// before that sees the browser's scroll anchoring move scrollTop to keep the card
-			// in place (CI: +34px), which is the page settling, not the tap. Wait until the
-			// layout holds still for a few frames.
+			// The web font can arrive after "Notion" shows (see `fontsLoaded`), and a snapshot
+			// taken before the swap sees the browser's scroll anchoring move scrollTop to keep
+			// the card in place (CI: +34px), which is the page settling, not the tap. Wait for
+			// the font, then until the layout holds still for a few frames.
 			await settleLayout(scroller);
 			expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight + 300);
 			scroller.scrollTop = card.offsetTop - 200;

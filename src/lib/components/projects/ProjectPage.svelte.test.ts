@@ -210,6 +210,9 @@ const text = () => document.body.textContent ?? "";
 const button = (label: string) =>
 	[...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes(label)) as
 		HTMLButtonElement | undefined;
+const saveButton = () =>
+	(document.body.querySelector('[data-testid="save-bar-save"]') ?? undefined) as
+		HTMLButtonElement | undefined;
 const byLabel = (label: string) =>
 	document.body.querySelector(`[aria-label="${label}"]`) as HTMLElement | null;
 
@@ -251,11 +254,7 @@ describe("ProjectPage tabs", () => {
 
 		// The tab bar is the workspace's: two links, the active one marked.
 		const tabs = [...document.body.querySelectorAll('nav[aria-label="Project sections"] a')];
-		expect(tabs.map((a) => a.textContent?.trim())).toEqual([
-			"Conversations",
-			"Artifacts",
-			"Settings",
-		]);
+		expect(tabs.map((a) => a.textContent?.trim())).toEqual(["Chats", "Artifacts", "Settings"]);
 		expect(tabs[0].getAttribute("aria-current")).toBe("page");
 		expect(tabs[0].getAttribute("href")).toBe("/projects/proj-1");
 		expect(tabs[1].getAttribute("href")).toBe("/projects/proj-1?tab=artifacts");
@@ -298,6 +297,21 @@ describe("ProjectPage tabs", () => {
 		expect(document.body.querySelector('[data-testid="project-others-count"]')).toBeNull();
 		const tabs = [...document.body.querySelectorAll('nav[aria-label="Project sections"] a')];
 		expect(tabs[1].getAttribute("aria-current")).toBe("page");
+	});
+
+	it("/projects/new numbers only the levels it shows, and docks Create project at the foot", async () => {
+		stubApi({});
+		mountCreate(false);
+		await waitForText("Web search on by default");
+		const index = document.body.querySelector('[data-testid="settings-index"]') as HTMLElement;
+		const labels = [...index.querySelectorAll("a")].map((a) => a.textContent?.trim());
+		expect(labels).toEqual(
+			expect.arrayContaining(["1. Instructions", "2. Knowledge bases", "3. Past chats"])
+		);
+		expect(labels.some((l) => l?.startsWith("4."))).toBe(false);
+		const bar = document.body.querySelector('[data-testid="save-bar"]') as HTMLElement;
+		expect(bar.getAttribute("data-docked")).toBe("true");
+		expect(bar.textContent).toContain("Create project");
 	});
 
 	it("/projects/new has no tab bar: everything it makes is settings", async () => {
@@ -663,14 +677,49 @@ describe("ProjectPage defaults for new chats", () => {
 		const seen = stubApi({ project: projectView() });
 		mountExisting(false, "settings");
 		await waitForText("Passages per reply");
-		expect(button("Save changes")?.disabled).toBe(true);
+		// Nothing changed: no bar at all.
+		expect(saveButton()).toBeUndefined();
+		expect(document.querySelector('[data-testid="save-bar"]')).toBeNull();
 
 		await typeInto("#project-name", "Renamed");
-		await vi.waitFor(() => expect(button("Save changes")?.disabled).toBe(false));
-		button("Save changes")?.click();
+		await vi.waitFor(() => expect(saveButton()?.disabled).toBe(false));
+		expect(text()).toContain("Unsaved changes");
+		saveButton()?.click();
 		await vi.waitFor(() => expect(seen.some((call) => call.method === "PATCH")).toBe(true));
 		expect(seen[0].body).toMatchObject({ name: "Renamed" });
 		await vi.waitFor(() => expect(text()).toContain("Saved"));
-		expect(button("Save changes")?.disabled).toBe(true);
+		expect(saveButton()).toBeUndefined();
+	});
+
+	it("Discard puts the stored values back and the bar goes", async () => {
+		const seen = stubApi({ project: projectView() });
+		mountExisting(false, "settings");
+		await waitForText("Passages per reply");
+		await typeInto("#project-name", "Renamed");
+		await vi.waitFor(() => expect(button("Discard")).toBeDefined());
+
+		button("Discard")?.click();
+
+		await vi.waitFor(() => expect(document.querySelector('[data-testid="save-bar"]')).toBeNull());
+		expect((document.querySelector("#project-name") as HTMLInputElement).value).toBe(
+			projectView().name
+		);
+		expect(seen.some((call) => call.method === "PATCH")).toBe(false);
+	});
+
+	it("the bar is a floating pill, not a full-width band", async () => {
+		stubApi({ project: projectView() });
+		mountExisting(false, "settings");
+		await waitForText("Passages per reply");
+		await typeInto("#project-name", "Renamed");
+		const bar = await vi.waitFor(() => {
+			const el = document.querySelector('[data-testid="save-bar"]') as HTMLElement;
+			expect(el).not.toBeNull();
+			return el;
+		});
+		const holder = bar.parentElement as HTMLElement;
+		expect(getComputedStyle(holder).position).toBe("sticky");
+		expect(bar.getBoundingClientRect().width).toBeLessThan(holder.getBoundingClientRect().width);
+		expect(getComputedStyle(bar).borderRadius).not.toBe("0px");
 	});
 });

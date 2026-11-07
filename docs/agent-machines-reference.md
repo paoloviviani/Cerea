@@ -1,34 +1,34 @@
-# Agent machines: reference
+# Agent computers: reference
 
-!!! info "For people using the Agents panel"
+!!! info "For users using the Agents panel"
 
-    Everything about driving a paired machine and about galopin itself, in
-    depth. New here? Start with [Agent machines](agent-machines.md), which pairs a
-    machine in three steps. The operator's side of the same feature is
+    Everything about driving a paired computer and about galopin itself, in
+    depth. New here? Start with [Agent computers](agent-machines.md), which pairs a
+    computer in three steps. The operator's side of the same feature is
     [The `/code` panel](code-panel.md).
 
 This page is the reference for the Agents panel and for `galopin`, the binary
-that runs on your machine. It is organised so you can jump to what you need:
+that runs on your computer. It is organised so you can jump to what you need:
 
-| You want to know…                                                | Section                                                                           |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| what a machine will and will not allow, and how to set that      | [Pairing options and the machine policy](#pairing-options-and-the-machine-policy) |
-| what Plan, Ask and Allow do, and what the approval card offers   | [Permissions](#permissions)                                                       |
-| how the panel's parts work                                       | [The panel in detail](#the-panel-in-detail)                                       |
-| how a session hands work to other sessions, profiles, committees | [Delegating work](#delegating-work)                                               |
-| timetables                                                       | [Scheduled actions](#scheduled-actions)                                           |
-| installing, updating, keeping it running, removing               | [Installing and running galopin](#installing-and-running-galopin)                 |
-| what runs where                                                  | [How it works](#how-it-works)                                                     |
+| You want to know…                                                | Section                                                                             |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| what a computer will and will not allow, and how to set that     | [Pairing options and the computer policy](#pairing-options-and-the-computer-policy) |
+| what Plan, Ask and Allow do, and what the approval card offers   | [Permissions](#permissions)                                                         |
+| how the panel's parts work                                       | [The panel in detail](#the-panel-in-detail)                                         |
+| how a session hands work to other sessions, profiles, committees | [Delegating work](#delegating-work)                                                 |
+| timetables                                                       | [Scheduled actions](#scheduled-actions)                                             |
+| installing, updating, keeping it running, removing               | [Installing and running galopin](#installing-and-running-galopin)                   |
+| what runs where                                                  | [How it works](#how-it-works)                                                       |
 
-## Pairing options and the machine policy
+## Pairing options and the computer policy
 
 ### The pairing dialog
 
-The **Pair a machine** dialog prints the command for you. It offers **every
-`enroll` flag that sets what the machine will allow**, so nobody has to edit the
+The **Pair a computer** dialog (its heading reads **Options for this computer**) prints the command for you. It offers **every
+`enroll` flag that sets what the computer will allow**, so nobody has to edit the
 printed line by hand. Every control starts at `enroll`'s own default — a control
 whose value equals `enroll`'s prints **no flag** — with one deliberate
-exception: **Bill to my default group** starts ticked, so a machine paired
+exception: **Bill to my default group** starts ticked, so a computer paired
 through the dialog follows your console default group unless you untick it
 (`enroll` itself keeps requiring an explicit `--default-group`). The line above
 updates as you change things, with paths
@@ -37,33 +37,33 @@ an amber tone is one that opens something up.)
 
 **Common options**, at the top:
 
-| Control                                        | What it adds to the printed command                                                                                                                                       | Default | Use it when                                                                                                               |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **Use a project's own opencode setup** (amber) | `--allow-project-config`                                                                                                                                                  | off     | the machine opens repositories you trust, and you want their own opencode setup to load                                   |
-| **Install opencode**                           | opencode's own installer line, pinned to the release galopin is tested against (`curl -fsSL https://opencode.ai/install \| bash -s -- --version 1.19.3`), before `enroll` | off     | the machine is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
+| Control                                        | What it adds to the printed command                                                                                                                                       | Default | Use it when                                                                                                                |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Use a project's own opencode setup** (amber) | `--allow-project-config`                                                                                                                                                  | off     | the computer opens repositories you trust, and you want their own opencode setup to load                                   |
+| **Install opencode**                           | opencode's own installer line, pinned to the release galopin is tested against (`curl -fsSL https://opencode.ai/install \| bash -s -- --version 1.19.3`), before `enroll` | off     | the computer is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
 
-**The machine has no limits of its own** (ADR 0109). What a session may do is its Plan · Ask · Allow · Auto word in the composer (and, for Auto, the rows in Workspace → Agents), plus a fixed floor in galopin. The dialog prints no limit flag; `enroll` still accepts the retired `--limit`, `--permission-max` and `--permission-rule` for one more release, ignores them and warns.
+**The computer has no limits of its own** (ADR 0109). What a session may do is its Plan · Ask · Allow · Auto word in the composer (and, for Auto, the rows in Workspace → Agents), plus a fixed floor in galopin. The dialog prints no limit flag; `enroll` still accepts the retired `--limit`, `--permission-max` and `--permission-rule` for one more release, ignores them and warns.
 
 **Advanced**, collapsed until opened (its summary counts what you changed, and
 the printed line carries every changed value whether it is open or not):
 
-| Control                                   | What it adds                                                          | Default                    | What it does                                                                                                                                                                                                  |
-| ----------------------------------------- | --------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Bill to my default group**              | `--default-group`                                                     | ticked                     | bills to the group the Pystino console's group picker sets, instead of pinning one group for this machine; untick to pin the group a plain enroll would pick. Change the mode later with `galopin auth group` |
-| **Terminals** (amber)                     | unticked: `--no-terminal`; a number other than 8: `--max-terminals N` | on; at most 8 open at once | the panel may open a real shell on this machine: anyone who controls your Cerea session can run commands as you, with no model and no permission rule in the way                                              |
-| **Slash commands that run shell** (amber) | unticked: `--no-command-shell`                                        | on                         | a slash command whose template runs a shell snippet may run it, before any permission is asked; plain slash commands work either way                                                                          |
-| **Background subagents**                  | unticked: `--no-background-subagents`                                 | on                         | a task can keep running after its parent turn ends                                                                                                                                                            |
-| **No agent tools**                        | `--no-agent-tools`                                                    | installed                  | installs none of the agent tools (`session_*` and `schedule_*`), so sessions cannot start or message each other, and agents cannot make schedules                                                             |
-| **Local deny** (not in the dialog)        | `--deny CLASS`, repeatable (advanced, by hand)                        | none                       | refuses a class (`edit`, `command`, `web`, `outside`, `secrets`, `agents`, `tools`) on this machine whatever any session says; for an owner who does not fully trust the Cerea server                         |
-| **Allow free models**                     | `--allow-free-models`                                                 | the gateway's models only  | models from providers other than the gateway's may be listed and used                                                                                                                                         |
-| **Keep opencode's own providers**         | `--allow-opencode-provider`                                           | gateway only               | opencode's built-in providers stay enabled next to the gateway's                                                                                                                                              |
-| **Workspace folders** (a list)            | `--workspace-root PATH`, one per entry                                | anywhere                   | workspaces may only be created under these folders                                                                                                                                                            |
-| **No file explorer**                      | `--no-files`                                                          | read-only browsing         | keeps the explorer out of the machine's files                                                                                                                                                                 |
-| **Allow saving files** (amber)            | `--allow-file-write`                                                  | read-only explorer         | lets the `/code` editor save text files in this machine's workspaces (see [Saving files](#saving-files))                                                                                                      |
-| **Hide files** (a list)                   | `--file-deny GLOB`, one per entry                                     | the built-in secret list   | the explorer also redacts files matching these globs                                                                                                                                                          |
-| **Drop the built-in secret list** (amber) | `--no-default-file-deny`                                              | the secret list stays      | stops redacting private keys and credential files, and lets a command's `@file` reference read `.env` files, keeping only your globs                                                                          |
+| Control                                   | What it adds                                                          | Default                             | What it does                                                                                                                                                                                                   |
+| ----------------------------------------- | --------------------------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bill to my default group**              | `--default-group`                                                     | ticked                              | bills to the group the Pystino console's group picker sets, instead of pinning one group for this computer; untick to pin the group a plain enroll would pick. Change the mode later with `galopin auth group` |
+| **Terminals** (amber)                     | unticked: `--no-terminal`; a number other than 8: `--max-terminals N` | on; at most 8 open at once          | the panel may open a real shell on this computer: anyone who controls your Cerea session can run commands as you, with no model and no permission rule in the way                                              |
+| **Slash commands that run shell** (amber) | unticked: `--no-command-shell`                                        | on                                  | a slash command whose template runs a shell snippet may run it, before any permission is asked; plain slash commands work either way                                                                           |
+| **Background subagents**                  | unticked: `--no-background-subagents`                                 | on                                  | a task can keep running after its parent turn ends                                                                                                                                                             |
+| **No agent tools**                        | `--no-agent-tools`                                                    | installed                           | installs none of the agent tools (`session_*` and `schedule_*`), so sessions cannot start or message each other, and agents cannot make schedules                                                              |
+| **Local deny** (not in the dialog)        | `--deny CLASS`, repeatable (advanced, by hand)                        | none                                | refuses a class (`edit`, `command`, `web`, `outside`, `secrets`, `agents`, `tools`) on this computer whatever any session says; for an owner who does not fully trust the Cerea server                         |
+| **Allow free models**                     | `--allow-free-models`                                                 | the gateway's models only           | models from providers other than the gateway's may be listed and used                                                                                                                                          |
+| **Keep opencode's own providers**         | `--allow-opencode-provider`                                           | gateway only                        | opencode's built-in providers stay enabled next to the gateway's                                                                                                                                               |
+| **Workspace folders** (a list)            | `--workspace-root PATH`, one per entry                                | anywhere                            | workspaces may only be created under these folders                                                                                                                                                             |
+| **No file explorer**                      | `--no-files`                                                          | read-only browsing                  | keeps the explorer out of the computer's files                                                                                                                                                                 |
+| **Allow saving files** (amber)            | `--allow-file-write`                                                  | editor on (unticked prints nothing) | the editor can already save text files on a computer; ticking prints `--allow-file-write`, which only restates the default. Turn the editor off with `--no-file-write` (see [Saving files](#saving-files))     |
+| **Hide files** (a list)                   | `--file-deny GLOB`, one per entry                                     | the built-in secret list            | the explorer also redacts files matching these globs                                                                                                                                                           |
+| **Drop the built-in secret list** (amber) | `--no-default-file-deny`                                              | the secret list stays               | stops redacting private keys and credential files, and lets a command's `@file` reference read `.env` files, keeping only your globs                                                                           |
 
-Reading secret files, work outside the project folder and shell commands are not machine settings any more: a session on Allow runs them, on Ask each is a card, and on Auto the user's per-class rows decide. Credential paths, writes into `.git` and CI files and a repeating agent are a card in every word but Plan (see [Permission classes](#permission-classes)).
+Reading secret files, work outside the project folder and shell commands are not computer settings any more: a session on Allow runs them, on Ask each is a card, and on Auto the user's per-class rows decide. Credential paths, writes into `.git` and CI files and a repeating agent are a card in every word but Plan (see [Permission classes](#permission-classes)).
 
 Connection plumbing (`--issuer`, `--gateway`, `--cerea`, `--client-id`,
 `--creds`, `--output`, `--device`, `--device-endpoint`, `--loopback`, `--group`, `--shim-port`,
@@ -74,37 +74,37 @@ The command is chained with `&&`, so a failed step never runs the next one: the
 installer, then (if checked) opencode's installer, then `enroll`, then `run`,
 one step per line and one `enroll` flag per line; it pastes into a shell as
 is. It calls the binary by its installed path, `~/.local/bin/galopin`, rather
-than a bare `galopin`, because on a fresh machine `~/.local/bin` is not yet on
+than a bare `galopin`, because on a fresh computer `~/.local/bin` is not yet on
 the shell's `PATH` (if you set `GALOPIN_INSTALL_DIR` for the installer, edit
 the path to match). The
 dialog also lists the binaries and `SHA256SUMS` for a manual download, and the
-machines waiting for confirmation.
+computers waiting for confirmation.
 
 Nothing here lets a session do "anything": what a session may do is the
 **Plan / Ask / Allow / Auto selector** in its composer, inside the fixed floor and any
 local deny (see [Permissions](#permissions)).
 
-### The machine policy
+### The computer policy
 
-These are the machine's own vetoes. They are fixed at enroll time, stored in
-the machine's `policy.json`, and **the chat can never loosen them over the
-link**: whatever the panel sends, the machine refuses what its policy denies.
-`galopin policy show` prints what a machine currently allows. `galopin policy
+These are the computer's own vetoes. They are fixed at enroll time, stored in
+the computer's `policy.json`, and **the chat can never loosen them over the
+link**: whatever the panel sends, the computer refuses what its policy denies.
+`galopin policy show` prints what a computer currently allows. `galopin policy
 set` can only **tighten**; loosening anything needs a new `enroll`.
 
 | Policy                           | Enroll flag                                                                                                     | Default                                                                                                                                                                                | What it decides                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Tighten later                                         |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | **Files**                        | `--no-files`, `--file-deny GLOB`, `--no-default-file-deny`                                                      | read-only browsing, secrets redacted                                                                                                                                                   | Whether the `/code` explorer may browse a workspace, and which files it redacts (see [What the file explorer may see](#what-the-file-explorer-may-see)). Off: no explorer at all                                                                                                                                                                                                                                                                                                                  | `policy set --no-files`, `--file-deny GLOB`           |
-| **File writes**                  | `--no-file-write` turns it off                                                                                  | **allowed**                                                                                                                                                                            | Whether the `/code` editor may save text files (see [Saving files](#saving-files)). A veto pair, like the terminal: the deployment's `CODE_FILE_WRITE_ENABLED` must not be `false` (it is on by default), and this machine must allow it. Files on the deny list are never written                                                                                                                                                                                                                | `policy set --no-file-write`                          |
-| **Terminals**                    | `--no-terminal`, `--max-terminals N`                                                                            | allowed; at most 8 open at once                                                                                                                                                        | Whether the panel may open a real shell on the machine. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal))                                                                                                                                                                                                                                                                                                                                | `policy set --no-terminal`, a lower `--max-terminals` |
-| **Permission limits** (retired)  | `--limit`, `--permission-max`, `--permission-rule` (accepted and ignored, with a warning, for one more release) | none                                                                                                                                                                                   | ADR 0109: there are no machine limits; `policy.json`'s `limits`, `max` and `rules` are read, ignored and dropped at the next write; `policy show` says so                                                                                                                                                                                                                                                                                                                                         |
-| **Local deny**                   | `--deny CLASS` (repeatable); `policy set --deny CLASS` / `--no-deny CLASS`                                      | none                                                                                                                                                                                   | Refuse-only, advanced: a class the machine refuses whatever the session's word (see [Permission classes](#permission-classes)); stored locally, never settable over the link                                                                                                                                                                                                                                                                                                                      |
+| **File writes**                  | `--no-file-write` turns it off                                                                                  | **allowed**                                                                                                                                                                            | Whether the `/code` editor may save text files (see [Saving files](#saving-files)). A veto pair, like the terminal: the deployment's `CODE_FILE_WRITE_ENABLED` must not be `false` (it is on by default), and this computer must allow it. Files on the deny list are never written                                                                                                                                                                                                               | `policy set --no-file-write`                          |
+| **Terminals**                    | `--no-terminal`, `--max-terminals N`                                                                            | allowed; at most 8 open at once                                                                                                                                                        | Whether the panel may open a real shell on the computer. A veto pair: the deployment must also set `CODE_TERMINAL_ENABLED=true` (see [The terminal](#the-terminal))                                                                                                                                                                                                                                                                                                                               | `policy set --no-terminal`, a lower `--max-terminals` |
+| **Permission limits** (retired)  | `--limit`, `--permission-max`, `--permission-rule` (accepted and ignored, with a warning, for one more release) | none                                                                                                                                                                                   | ADR 0109: there are no computer limits; `policy.json`'s `limits`, `max` and `rules` are read, ignored and dropped at the next write; `policy show` says so                                                                                                                                                                                                                                                                                                                                        |
+| **Local deny**                   | `--deny CLASS` (repeatable); `policy set --deny CLASS` / `--no-deny CLASS`                                      | none                                                                                                                                                                                   | Refuse-only, advanced: a class the computer refuses whatever the session's word (see [Permission classes](#permission-classes)); stored locally, never settable over the link                                                                                                                                                                                                                                                                                                                     |
 | **Safe directories**             | `--safe-dir PATH` (repeatable, replaces the default), `--no-safe-dirs`                                          | `/tmp`, the temp dir, the toolchain caches (`~/.cache/{go-build,pip,uv,pnpm,node-gyp}`, `~/go/pkg/mod`, `~/.npm`, `~/.local/share/pnpm`), never the whole `~/.cache`, those that exist | Directories outside the workspace whose contents **never ask**, for any session under any setting, subagents included (see [Permissions](#permissions)). A safe directory is one the agent may write into — external_directory does not separate read from write, so a poisoned build cache is the residual risk, which is why the list stays short and never names the home folder itself, a config directory or a credential store. The ceiling key `external_directory` still caps every entry | `policy set --no-safe-dir PATH` (removal only)        |
 | **Agent tools**                  | `--no-agent-tools`                                                                                              | installed                                                                                                                                                                              | Whether galopin installs `session_list`, `session_read`, `session_spawn` and `session_send`, and the schedule tools (`schedule_list`, `schedule_create`, `schedule_update`, `schedule_delete`), into the backend (see [Sessions that talk to sessions](#sessions-that-talk-to-sessions)). Denied: no tool at all                                                                                                                                                                                  | `policy set --no-agent-tools`                         |
 | **Slash-command shell**          | `--no-command-shell`                                                                                            | allowed                                                                                                                                                                                | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                                                                                                                                                                                                                    | `policy set --no-command-shell`                       |
 | **A repo's own opencode config** | `--allow-project-config`                                                                                        | ignored                                                                                                                                                                                | Whether opencode loads the config a workspace's repository carries. Ignored by default (see [A repo's own opencode config](#a-repos-own-opencode-config))                                                                                                                                                                                                                                                                                                                                         | `policy set --no-project-config`                      |
 | **Background subagents**         | `--no-background-subagents`                                                                                     | allowed                                                                                                                                                                                | Whether the task tool may run a subagent in the background. While denied, `background:true` fails closed inside opencode; when allowed, a background child keeps running after its parent turn ends and its result returns as a synthetic message the panel shows (see [Subagents](#subagents))                                                                                                                                                                                                   | `policy set --no-background-subagents`                |
-| **Models from elsewhere**        | `--allow-free-models`                                                                                           | denied: the gateway's models only                                                                                                                                                      | Whether the model list may include providers other than the gateway's. By default only `pystino/*` models are listed and accepted, so spend always lands in the account the machine enrolled under. Cerea filters as well, and answers 403 to a disallowed model                                                                                                                                                                                                                                  | re-enroll                                             |
+| **Models from elsewhere**        | `--allow-free-models`                                                                                           | denied: the gateway's models only                                                                                                                                                      | Whether the model list may include providers other than the gateway's. By default only `pystino/*` models are listed and accepted, so spend always lands in the account the computer enrolled under. Cerea filters as well, and answers 403 to a disallowed model                                                                                                                                                                                                                                 | re-enroll                                             |
 | **opencode's own providers**     | `--allow-opencode-provider`                                                                                     | denied                                                                                                                                                                                 | Whether opencode's built-in providers stay enabled next to the gateway's. Off, the written `opencode.json` carries `enabled_providers: ["pystino"]` (in that file, not in `policy.json`)                                                                                                                                                                                                                                                                                                          | re-enroll                                             |
 | **Workspace roots**              | `--workspace-root PATH` (repeatable)                                                                            | unrestricted                                                                                                                                                                           | Workspaces may only be created under these paths; anything outside is refused                                                                                                                                                                                                                                                                                                                                                                                                                     | re-enroll                                             |
 
@@ -123,12 +123,12 @@ Changes pane works for either backend, because the agent reads it from git.
 Over an ACP backend the coordination tools reach the agent as an MCP server galopin
 runs on loopback: see [Coordination tools over MCP](#coordination-tools-over-mcp).
 
-Each enrollment mints a new machine id (`machine-id`, in the machine's state
-directory). The chat therefore shows a re-enrolled machine as a new **Pending** machine, which you confirm again. A machine revoked in the panel is refused for good under
+Each enrollment mints a new computer id (`machine-id`, in the computer's state
+directory). The chat therefore shows a re-enrolled computer as a new **Pending** computer, which you confirm again. A computer revoked in the panel is refused for good under
 its old id, and `run` reports that and exits with code 78 instead of
 reconnecting. A model the gateway gains later needs none of that:
 `galopin models refresh` re-discovers the gateway's models into the same config
-(`run` does the same at every start), so a re-enroll is for the machine's
+(`run` does the same at every start), so a re-enroll is for the computer's
 policy, not its model list.
 
 ### A repo's own opencode config
@@ -142,20 +142,20 @@ goes to a stranger's server instead of your gateway**; and its `{env:...}` and
 `{file:...}` settings can read your environment and files into that request.
 Both were reproduced against opencode 1.18.32.
 
-So by default the machine **ignores** it: `run` starts opencode with
+So by default the computer **ignores** it: `run` starts opencode with
 `OPENCODE_DISABLE_PROJECT_CONFIG=1`. That skips the repo's `opencode.json`,
 its project commands, agents and MCP servers, and its `AGENTS.md`/`CLAUDE.md`;
 your own global config, your user-level commands and galopin's agent tools
 still load. The cost is real: a repo's own commands and agents do not show up,
 and the panel says so on such a workspace ("this repo's opencode config is
-ignored on this machine") so a missing command does not look like a bug.
+ignored on this computer") so a missing command does not look like a bug.
 
 **Known gap:** on opencode 1.18.32 neither that switch nor `--pure` stops a
 repo's `.opencode/plugin/` scripts from being executed when opencode opens
 the directory. Do not open a repository you do not trust in an agent, whatever
 this setting says.
 
-**Skills installed on the machine are offered to every session.** opencode
+**Skills installed on the computer are offered to every session.** opencode
 discovers skills from the user's own folders as well as galopin's:
 `~/.config/opencode/skills/`, `~/.claude/skills/` (for compatibility with
 Claude Code) and `~/.agents/skills/`, each `<name>/SKILL.md`. galopin does not
@@ -164,7 +164,7 @@ list. That includes skills that Claude Code syncs from a Claude account into
 `~/.claude/skills/` (document skills such as pptx, docx, xlsx and pdf, for
 example). Some of those were written for Claude's own apps and refer to tools
 that opencode does not have, so a model may try to follow instructions it
-cannot carry out. What an agent can do on a machine therefore depends on what
+cannot carry out. What an agent can do on a computer therefore depends on what
 else is installed there. On the opencode release galopin pins there is no
 switch for it: to keep a skill out of agent sessions, remove or move it from
 those folders. A built-in agent can also be denied the skill tool altogether
@@ -174,12 +174,12 @@ false}}}`), which hides every skill from it, including galopin's own. opencode
 `~/.claude/skills/` folder.
 
 `enroll --allow-project-config` (the pairing dialog's checkbox) opts in for
-machines whose repositories you trust: the repo's config loads, **including
+computers whose repositories you trust: the repo's config loads, **including
 its plugins, which run as you**. galopin still pins the gateway provider,
 `enabled_providers`, `model` and `small_model` above whatever the repo sets, so
 a repo cannot redirect your prompts; an attempt to (a repo's `opencode.json`
 setting `provider`, `enabled_providers`, `model`, `small_model` or an agent's
-model) is written to the machine's `audit.log` as
+model) is written to the computer's `audit.log` as
 `project_config.override_attempt`, listing the keys and never the values. An
 agent-level model naming a provider outside the allowlist fails with an error
 rather than routing anywhere. With `--allow-opencode-provider` as well there is
@@ -194,17 +194,17 @@ followed), with secrets redacted: private
 keys, `.netrc`/`.npmrc`/`.pypirc`, cloud credentials files, `*.tfstate` and
 the like. `.env` files are shown (add `--file-deny '.env' --file-deny '.env.*'` at enroll to hide them). Redaction keeps secrets off screens and out of logs; it is not a
 boundary against the agent, which can read any file. The flags that turn it
-off or extend the list are in [The machine policy](#the-machine-policy).
+off or extend the list are in [The computer policy](#the-computer-policy).
 
 ### Saving files
 
 The explorer is also a minimal editor for text files, when three things allow
-it: the machine allows it (on by default; `--no-file-write` turns it off, and
+it: the computer allows it (on by default; `--no-file-write` turns it off, and
 `--allow-file-write` only restates the default), the
 deployment has not set `CODE_FILE_WRITE_ENABLED=false` (on by default: the
-machine's policy is the real gate), and the machine runs a galopin that can
+computer's policy is the real gate), and the computer runs a galopin that can
 save files. When any of them says no there is no **Edit** button; a save that
-reaches a machine that refuses answers with the exact flag to re-enroll with.
+reaches a computer that refuses answers with the exact flag to re-enroll with.
 
 **Edit** turns the file view into an editor, with an unsaved-changes marker,
 **Save** (or Ctrl+S, ⌘S on a Mac) and **Discard**. Leaving the file, the
@@ -226,8 +226,8 @@ choices:
 There is no live reload yet: until you save or refresh, the editor does not
 know the file changed. The revision check is what keeps a save from silently
 overwriting an agent's edit. Each save is recorded, with the path and the size
-but never the content, in the deployment's `/code` audit and in the machine's
-own `audit.log`. To turn saving off again on a machine:
+but never the content, in the deployment's `/code` audit and in the computer's
+own `audit.log`. To turn saving off again on a computer:
 
 ```sh
 galopin policy set --no-file-write
@@ -235,16 +235,16 @@ galopin policy set --no-file-write
 
 ### The terminal
 
-`/code` can also open a real, interactive shell on the machine, but only
-when both sides say so. The machine allows it unless it was enrolled with
+`/code` can also open a real, interactive shell on the computer, but only
+when both sides say so. The computer allows it unless it was enrolled with
 `--no-terminal` (or enrolled before terminals were on by default; then every
 terminal request is refused until it is enrolled again), and the deployment
 must set `CODE_TERMINAL_ENABLED=true` (off by default). Everything in /code needs a
-sign-in within the last 7 days; the machine's own link is unaffected
+sign-in within the last 7 days; the computer's own link is unaffected
 ([The 7-day sign-in](#the-7-day-sign-in)). A terminal re-checks that every
 minute, so one opened just before the window closes ends at the next check
 rather than living as long as its socket. Turning it on means exactly this: **anyone who
-controls your Cerea session can run commands as you on this machine.**
+controls your Cerea session can run commands as you on this computer.**
 There is no model and no permission rule standing in the way once a
 terminal is open — it is strictly more power than any permission rule or the
 selector's Allow, which only ever covers the _model's_ tool calls (within the
@@ -260,7 +260,7 @@ an ordinary shell: it is not sandboxed to the workspace the way file
 browsing is.
 
 Once a terminal is allowed, you can locally **tighten** its policy again
-without a full re-enroll (the flags are in [The machine policy](#the-machine-policy)):
+without a full re-enroll (the flags are in [The computer policy](#the-computer-policy)):
 
 ```sh
 galopin policy show                       # what this machine currently allows
@@ -274,11 +274,11 @@ lower the cap, or add a `--file-deny` entry. Loosening anything back requires
 
 ### Permission classes
 
-_(ADR 0107, amended by ADR 0109.)_ Every request that is not an in-project read belongs to a **class** of action: `edit`, `command`, `web`, `outside`, `secrets`, `agents`, `tools`, `loop`. The class labels the card, routes it (to you or to the reviewing model your deployment runs, per your Workspace → Agents rows) and fills the audit; **the machine does not limit it**. galopin decides from the session's word: **Plan** refuses, **Ask** raises a card, **Allow** runs, and **Auto** runs the classes the user chose to run (Cerea sends that per-class map with the word) and raises a card for the others.
+_(ADR 0107, amended by ADR 0109.)_ Every request that is not an in-project read belongs to a **class** of action: `edit`, `command`, `web`, `outside`, `secrets`, `agents`, `tools`, `loop`. The class labels the card, routes it (to you or to the reviewing model your deployment runs, per your Workspace → Agents rows) and fills the audit; **the computer does not limit it**. galopin decides from the session's word: **Plan** refuses, **Ask** raises a card, **Allow** runs, and **Auto** runs the classes the user chose to run (Cerea sends that per-class map with the word) and raises a card for the others.
 
 A **fixed floor** in galopin's code, not configurable: galopin's own state and configuration (the state directory, `policy.json`, the credentials, the opencode config it owns) are refused in every word; a write into `.git` or a CI configuration file, a `.env` file or a credential store, and a repeating agent are a card even on Allow and Auto (a human's own "Always allow" on a credential card stands); read-only commands always run.
 
-**Local deny (advanced).** An owner who does not fully trust the Cerea server can refuse a class on the machine: `galopin enroll <cerea-url> --deny command` (repeatable), `galopin policy set --deny web` and `--no-deny web`. It is refuse-only, stored locally in `policy.json`, never settable over the link, and listed by `galopin policy show`. It is not in the Pair dialog. `loop` cannot be denied.
+**Local deny (advanced).** An owner who does not fully trust the Cerea server can refuse a class on the computer: `galopin enroll <cerea-url> --deny command` (repeatable), `galopin policy set --deny web` and `--no-deny web`. It is refuse-only, stored locally in `policy.json`, never settable over the link, and listed by `galopin policy show`. It is not in the Pair dialog. `loop` cannot be denied.
 
 `policy.json` limits and the flags `--limit`, `--permission-max` and `--permission-rule` are retired: for one more release they are accepted, ignored and warned about, and the next write drops them. **Re-enrolling keeps every setting except the options you pass**; `galopin reset` puts the whole policy back to the defaults and keeps the credentials and the pairing.
 
@@ -306,7 +306,7 @@ about 0.2 s at the median (0.3 s at the 95th percentile) for a local round
 trip, small next to a model step.
 
 **What `enroll` and `run` put where.** `enroll` writes `edit`, `bash` and
-`webfetch` as `ask` into the galopin-owned `opencode.json` of a **new** machine;
+`webfetch` as `ask` into the galopin-owned `opencode.json` of a **new** computer;
 under the floor that file is now harmless redundancy. Every `run` rebuilds the
 `OPENCODE_CONFIG_CONTENT` opencode is started with: the ask floor plus the
 built-in read-only agents' own denies restated (opencode merges the global
@@ -320,16 +320,13 @@ own config directory) still runs unasked; galopin logs and reports any native
 allow it finds. `enroll` writes `--output` whole (it asks before replacing an
 existing file; `--yes` does not ask), so point it at a dedicated path.
 
-**Machines enrolled before ceilings.** A machine whose `policy.json` predates
-ceilings has none: nothing caps its Allow, so on Allow an edit, a command or a
-fetch runs without asking, in subagents too. It does **not** need a re-enroll to
-ask by default: every session starts on **Ask**, on every machine, enrolled
-earlier or not. The panel does not show such a machine a clean bill. When the
-machine's `hello` reports an empty ceiling and its rules carry no rules from the
-file, the dialog says up front _"Re-enroll this machine to set limits…"_ with a
-button into the enroll flow, and the machine's row in the sidebar carries the
-same notice with the one-line enroll command. One re-enroll sets a ceiling, and
-the notice goes away when the machine reports one.
+**Computers enrolled before this model.** A computer's old limits and rules are
+ignored (see [Permission classes](#permission-classes)); nothing needs a
+re-enroll to behave, and every session starts on **Ask** on every computer. A
+computer whose policy file predates limits entirely may still show a notice in
+the panel that reads _"Re-enroll this computer to set limits…"_; the wording is
+older than the model, and what it asks for is a fresh `enroll`, which replaces the
+old policy with the current one.
 
 **Sessions from before this version.** An older galopin wrote rules into each
 session, and opencode keeps them for good. On the first message after the
@@ -340,25 +337,26 @@ allow can still pass to them. The panel shows the **stuck Deny** banner for
 those sessions only; the way out is to **start a new session**. New sessions
 never have the problem.
 
-**What the floor and the local deny are, stated plainly.** Until the OS sandbox exists (ADR 0109: the hard limit is the sandbox, not a machine setting), they are galopin refusing or asking about calls it is shown, and **a shell can do anything the ask for it does not name**. A local `--deny command` is meaningful against a hijacked Cerea session; `--deny web` while commands may run is not (a command can fetch). The embedded terminal is a machine-side setting outside every permission, and enabling it lets a Cerea session change anything; so does a `bash` that is allowed to run, because a command can edit `policy.json` and the config galopin starts opencode with (galopin refuses the ones it can see name those files, which is a safety rail, not a boundary). An agent reached over ACP asks only as far as its own policy does: a tool it runs without asking never reaches galopin.
+**What the floor and the local deny are, stated plainly.** Until the OS sandbox exists (ADR 0109: the hard limit is the sandbox, not a computer setting), they are galopin refusing or asking about calls it is shown, and **a shell can do anything the ask for it does not name**. A local `--deny command` is meaningful against a hijacked Cerea session; `--deny web` while commands may run is not (a command can fetch). The embedded terminal is a machine-side setting outside every permission, and enabling it lets a Cerea session change anything; so does a `bash` that is allowed to run, because a command can edit `policy.json` and the config galopin starts opencode with (galopin refuses the ones it can see name those files, which is a safety rail, not a boundary). An agent reached over ACP asks only as far as its own policy does: a tool it runs without asking never reaches galopin.
 
 ## Permissions
 
-Every session has one **permission setting**, the **Plan · Ask · Allow**
+Every session has one **permission setting**, the **Plan · Ask · Auto · Allow**
 selector in the composer. It covers the whole session until you change it, and
-**new sessions start on Ask**, on every machine, whether enrolled yesterday or
-long ago. It is the machine's word that the selector shows: a click is reflected
-once the machine has confirmed it.
+**new sessions start on Ask**, on every computer, whether enrolled yesterday or
+long ago. It is the computer's word that the selector shows: a click is reflected
+once the computer has confirmed it.
 
 | Setting   | What it does with a tool call the session has no rule for                                                                                                                    |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Plan**  | the agent plans and reads; every call that would change something is refused, with no card. The agent is told. Choosing Plan switches the session to opencode's `plan` agent |
 | **Ask**   | asks you, with the approval card (a read inside the project does not ask)                                                                                                    |
+| **Auto**  | each kind of action runs, goes to your reviewer model or comes to you, as you set in Workspace → Agents (without a reviewer, the kinds set to Reviewer come to you)          |
 | **Allow** | lets it through without asking; only the fixed floor and a local `--deny` still stop or ask                                                                                  |
 
 **What the setting covers.** Editing (writes and patches), `bash`, `webfetch`,
 `websearch`, `codesearch`, the `task` tool that starts a subagent, and every MCP
-and custom tool follow the setting. **Reading inside the project stays allowed on all three**, and
+and custom tool follow the setting. **Reading inside the project stays allowed on every step**, and
 so does the rest of what the agent does to look around and plan: `read` (its
 `.env` files still ask, as the agent's own rules say), `glob`, `grep`, `list`,
 `lsp`, `question`, the todo and plan tools and `skill` keep their normal
@@ -366,19 +364,19 @@ behaviour whatever you choose, and starting a subagent (`task`) is not a change
 in itself: on **Plan** an explore-style subagent can look around, and its own
 edits are refused by the same Plan setting.
 
-**What still asks on Allow** (the fixed floor, ADR 0109): a write into `.git` or a CI configuration file, a `.env` file or a credential store (your own "Always allow" on that card stands), and the **stuck-agent brake** (`doom_loop`, an agent repeating itself). Allow never silences them. Reading and writing outside the project runs on Allow; on Ask it is a card. A local `--deny` is the other thing Allow cannot pass. Nothing in the panel can set a deny or lift one; changing it means `galopin policy set` or enrolling again on the machine.
+**What still asks on Allow** (the fixed floor, ADR 0109): a write into `.git` or a CI configuration file, a `.env` file or a credential store (your own "Always allow" on that card stands), and the **stuck-agent brake** (`doom_loop`, an agent repeating itself). Allow never silences them. Reading and writing outside the project runs on Allow; on Ask it is a card. A local `--deny` is the other thing Allow cannot pass. Nothing in the panel can set a deny or lift one; changing it means `galopin policy set` or enrolling again on the computer.
 
-**What never asks, on every machine:** the **safe directories** the machine was
+**What never asks, on every computer:** the **safe directories** the computer was
 enrolled with — by default `/tmp`, the temp directory and the toolchain caches
 (`~/.cache/go-build`, `~/.cache/pip`, `~/.cache/uv`, `~/.cache/pnpm`,
 `~/.cache/node-gyp`, `~/go/pkg/mod`, `~/.npm`, `~/.local/share/pnpm`), those
 that exist. Never the whole `~/.cache`: it also holds programs other tools run
-(opencode's own `bin/`, Playwright's browsers). A machine enrolled before this
+(opencode's own `bin/`, Playwright's browsers). A computer enrolled before this
 list existed gets the default with the galopin update. The Permissions dialog names them in the _Work outside the project
 folder_ row ("Allowed: /tmp, ~/.cache/go-build, …; elsewhere asks"), and no session —
 Deny, Ask or Allow, a fresh one or an old one, a subagent's first turn
 included — is shown the external_directory card for anything inside them. They
-are machine policy, not a setting: re-enrolling with `--safe-dir PATH` replaces
+are computer policy, not a setting: re-enrolling with `--safe-dir PATH` replaces
 the list, `--no-safe-dirs` empties it, and `galopin policy set --no-safe-dir
 PATH` removes entries without a re-enroll. Because external_directory does not
 separate read from write, a safe directory is one the agent may write into: a
@@ -399,9 +397,11 @@ unchanged to galopin, which answers opencode once.
 - **Always allow (this session)** adds an **exception** for that command or
   pattern, **for this session only**, on top of the setting: it is not a
   standing grant, and it is no longer shared with other sessions in the
-  workspace. The button is **not offered** for a kind of call the machine's
-  ceiling holds below allow (by default `bash`), because an exception there
-  would store nothing: those cards offer Allow once and Deny.
+  workspace. The button is **not offered** where an exception would store
+  nothing (a call with no concrete file, command or directory to scope it to):
+  those cards offer Allow once and Deny. An exception is scoped to what the card
+  shows: an edit to that file, a command prefix or the exact command, or an
+  outside path's directory.
 - **Deny** refuses that call and tells the agent. It ends every other pending
   ask in the session.
 
@@ -414,18 +414,18 @@ dialog.
 **Permissions…** item, not offered on a subagent, which follows its main
 session) or from the shield button beside the **Plan · Ask · Auto · Allow** selector
 in the composer; the transcript and its approval cards stay in view while you
-read it. It is titled _Permissions — <machine>_ and starts with one sentence on what
+read it. It is titled _Permissions — <computer>_ and starts with one sentence on what
 reaches you at the selected step, then a table of each kind of action (edits,
 commands, web, outside access, secrets, agents, tools, loops) with what happens
 (_Runs_, _Reviewed_, _Comes to you_) and why (_Set in Workspace, Agents_, _Always
 comes to you_, or that no reviewer is switched on for you or you turned it off
-for this machine). It is computed from your rows, the fixed floor and the
+for this computer). It is computed from your rows, the fixed floor and the
 reviewer's availability, only for a session on Auto. Nothing is listed
 from the backend's own rules. Under the table come the session's **exceptions**,
 each _Allowed for this session: `git status *`_ with a **Remove** that makes that
-command ask again (Remove can only tighten, and the machine records each
-removal; an exception the machine marks as not removable shows "held by the
-machine"), and a **Coordination** section: two switches, _Can find, read and
+command ask again (Remove can only tighten, and the computer records each
+removal; an exception the computer marks as not removable shows "held by the
+computer"), and a **Coordination** section: two switches, _Can find, read and
 message other sessions without asking_ and _Can start new sessions without
 asking_. Without a switch those agents actions come to you or the reviewer like
 any other ask; a switch is the standing answer, from the session's next turn.
@@ -434,32 +434,31 @@ limits apply. A session it spawns starts with the same grant. The sheet reads
 `permission.rules` for the exceptions and the grant only. While the sign-in is
 [stale](#the-7-day-sign-in) the shield button and Remove are hidden, and the
 server refuses them anyway. The shield button carries the session's exceptions
-count and is named for the step ("Permissions: Auto"); a machine enrolled before
-ceilings is answered with the re-enroll notice instead of a clean bill. A machine
+count and is named for the step ("Permissions: Auto"). A computer
 whose galopin predates permission reporting says so in the sheet.
 
 ## The panel in detail
 
-The Agents side of the sidebar is a tree: paired machines, each with its
+The Agents side of the sidebar is a tree: paired computers, each with its
 workspaces, each with its sessions. Everything that _changes_ something lives
 here: pairing, revoking, adding a workspace, starting or archiving a session,
-renaming. The main pane shows whatever you have selected in the tree. A machine
+renaming. The main pane shows whatever you have selected in the tree. A computer
 that is not currently connected renders as **offline**: the tree never tries to
-load its workspaces, so one offline machine never freezes the rest of the list.
+load its workspaces, so one offline computer never freezes the rest of the list.
 
-Each machine row has a **···** button (**Machine settings**). Today its one item
-is **Profiles**, the machine's [delegate profiles](#delegate-profiles).
+Each computer row has a **···** button (**Computer settings**). Today its one item
+is **Profiles**, the computer's [delegate profiles](#delegate-profiles).
 
 ### The 7-day sign-in
 
-Everything in /code needs a sign-in within the last 7 days; the machine's own
+Everything in /code needs a sign-in within the last 7 days; the computer's own
 link is unaffected. Older than that, the panel draws one card — _"Your sign-in
-is older than 7 days. Sign in again to see your machines."_ — with a **Sign in**
+is older than 7 days. Sign in again to see your computers."_ — with a **Sign in**
 button, and nothing else: no device tree, no Needs-you inbox, no terminal tab,
 no counts. The server is what enforces it: every request under
 `/api/v2/code/` except `/status` answers `401 {code: "reauth_required"}` while
 the sign-in is stale (or has no recorded time at all), so no part of the panel
-can be asked for a machine's data, whichever way it asks. A tab that is open
+can be asked for a computer's data, whichever way it asks. A tab that is open
 when the window closes finds out by itself: its event stream ends with a
 `reauth_required` frame at the 7-day mark, and the page also flips on its own
 timer, with no request. Composer drafts stay in the browser but are not shown
@@ -467,20 +466,20 @@ until you are back.
 
 A tab whose chat session merely **expired** (no session at all — the ordinary
 hourly expiry of a chat without a refresh token) shows a different card —
-_"You were signed out. Sign in again to see your machines."_ — and its
+_"You were signed out. Sign in again to see your computers."_ — and its
 **Sign in** goes through a plain `/login?next=/code`, never the forced
 `reauth=1` prompt: with the provider's SSO session alive (tick **Remember
 me** at the bundled Authelia) the re-login is silent and the panel comes
 back on its own; an open tab even leaves for that sign-in by itself, once
 per minute at most. Only the 7-day staleness forces the password.
 
-Your machines keep working while you are signed out of the panel. The machine's
+Your computers keep working while you are signed out of the panel. The computer's
 link to Cerea is its own credential and is not part of this; what stops is
 you seeing and driving them from the browser.
 
 ### The Needs-you inbox
 
-The inbox lists, across all your machines, the approvals and questions that are
+The inbox lists, across all your computers, the approvals and questions that are
 waiting for you, each answerable in place and linked to its session. It starts
 as a one-line bar ("2 need you") that opens on a click, and it leaves out the
 session you have open, whose cards that view already shows. It is part
@@ -489,30 +488,29 @@ days. That is a trade: nothing in the browser will tell you that a session is
 waiting, and a session waiting for an approval waits (it does not proceed) until
 you sign in again. For work you leave running for days, either keep the
 sign-in current, or put the session on **Allow** for the tool calls you are
-content to have run without asking, within the machine's ceiling (questions
-still wait for you).
+content to have run without asking (questions still wait for you, and so does the fixed floor).
 
 ### Workspaces
 
-A workspace is a directory on the paired machine. Add one by typing its
+A workspace is a directory on the paired computer. Add one by typing its
 **absolute** path — a relative path would resolve against whatever working
 directory the agent process was born with, which is unguessable from here, so
-the server refuses it. The machine refuses a path outside its own configured
+the server refuses it. The computer refuses a path outside its own configured
 roots (its own veto, never overridable from the panel) or one it cannot see,
 and either refusal arrives as a visible failure rather than a row that
 pretends.
 
 ### Sessions
 
-A session ("agent") belongs to one workspace on one machine. The backends offered are the ones this machine says it can run.
+A session ("agent") belongs to one workspace on one computer. The backends offered are the ones this computer says it can run.
 
-A session reads exactly like a conversation: the same transcript column, the
+A session reads exactly like a chat: the same transcript column, the
 same message rendering, the same composer. That is deliberate — the panel is
 the chat's own machinery pointed at a different source, which is why updates
 arrive live without a refresh.
 
-A long session opens on its newest 40 messages under a "Loading conversation…"
-skeleton; scrolling up fetches the earlier ones (on a machine with the current
+A long session opens on its newest 40 messages under a "Loading chat…"
+skeleton; scrolling up fetches the earlier ones (on a computer with the current
 galopin; an older one sends the whole log). The last 8 sessions you had open are
 kept in the browser tab's memory, so going back to one shows it at once; that
 copy is display only until the fresh one arrives, and nothing is stored on disk.
@@ -534,9 +532,9 @@ Inside the prompt box, in the chat's own pill idiom:
 - **model** — the models the session's backend offers.
 - **permission** — the **Plan · Ask · Auto · Allow** selector: what this session does
   about a tool call it has no rule for, until you change it. A new session
-  starts on **Ask**. It shows what the machine says (never a guess), and a click
-  is only reflected once the machine has confirmed it. Nothing is written beside it:
-  what the step means and what the machine still holds back is in the shield's
+  starts on **Ask**. It shows what the computer says (never a guess), and a click
+  is only reflected once the computer has confirmed it. Nothing is written beside it:
+  what the step means and what the computer still holds back is in the shield's
   sheet. On a **subagent**'s view it is disabled, showing its main session's
   setting. It is hidden while the sign-in is stale.
   Beside it a shield button, hidden on a subagent and while the sign-in is
@@ -555,18 +553,18 @@ there is. The menu groups them under headings, in this order:
 - **Panel** — commands this panel runs itself: `/compact`, `/undo`,
   `/redo`, `/model`, `/mode`, `/effort`, `/new`. Each is listed only when the
   agent's backend can do it. They drive the same routes the pills and the
-  transcript use; nothing new runs on the machine.
+  transcript use; nothing new runs on the computer.
 - **Project** (badge "from this repo") — commands defined in the open
-  workspace's repository (`.opencode/command/*.md`). Listed only on a machine
+  workspace's repository (`.opencode/command/*.md`). Listed only on a computer
   enrolled with `--allow-project-config`; by default a repo's config is ignored
   (see [A repo's own opencode config](#a-repos-own-opencode-config)). Running
-  one is running repository code on your machine; the first run asks (see
+  one is running repository code on your computer; the first run asks (see
   below).
-- **Machine** — commands from your user-level or the machine's config.
+- **Computer** — commands from your user-level or the computer's config.
 - **Skills** and **MCP** — when the agent exposes them.
 
 A command whose template expands shell carries a **shell icon** in the menu.
-A machine command whose name a panel command already uses is **shadowed**: it
+A computer command whose name a panel command already uses is **shadowed**: it
 stays in the list, greyed with the reason, and cannot be selected, because the
 panel's own command wins.
 
@@ -575,20 +573,20 @@ to accept. A command that takes arguments shows its placeholder as ghost
 text (`/review ‹$ARGUMENTS›`); type the arguments after the name and Enter
 sends. A message that begins with a path, such as `/etc/hosts is wrong`, is not a command unless its first word names one, and sends as ordinary text.
 
-**The machine can refuse a command, and says why.** The message names the flag or the file; nothing runs halfway:
+**The computer can refuse a command, and says why.** The message names the flag or the file; nothing runs halfway:
 
-| What you see                                                        | Cause                                                                                                                                                                                                                                                                                                 |
-| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Needs a setting this machine was not enrolled with" (403)          | the template expands shell (or its shell behaviour is unknown, such as an MCP prompt) and the machine was enrolled with `--no-command-shell`; a command pinned to a non-gateway model without `--allow-free-models`; or a file the command reads through `@path` matches the machine's file deny list |
-| "This command changed since you approved it; review it again" (409) | the command's template changed since you reviewed it: the confirmation is asked again                                                                                                                                                                                                                 |
-| "no longer listed"                                                  | the machine's list is re-read at run time, so a command that was deleted after the menu opened is refused                                                                                                                                                                                             |
-| "The agent is mid-turn. Stop it, or wait for it to finish."         | commands are refused while a turn is running (the send button is hidden then, too)                                                                                                                                                                                                                    |
+| What you see                                                        | Cause                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Needs a setting this computer was not enrolled with" (403)         | the template expands shell (or its shell behaviour is unknown, such as an MCP prompt) and the computer was enrolled with `--no-command-shell`; a command pinned to a non-gateway model without `--allow-free-models`; or a file the command reads through `@path` matches the computer's file deny list |
+| "This command changed since you approved it; review it again" (409) | the command's template changed since you reviewed it: the confirmation is asked again                                                                                                                                                                                                                   |
+| "no longer listed"                                                  | the computer's list is re-read at run time, so a command that was deleted after the menu opened is refused                                                                                                                                                                                              |
+| "The agent is mid-turn. Stop it, or wait for it to finish."         | commands are refused while a turn is running (the send button is hidden then, too)                                                                                                                                                                                                                      |
 
 **The first run of a project command** (or any command that expands shell)
 opens a confirmation sheet showing the exact shell snippets it would run and
 the files it reads. The template itself never crosses to the chat: the
 snippets and a hash of the template are what you confirm against. Accepting
-is remembered in this browser, for this machine and this exact version of the command. On another browser, your phone included, you will be asked again. If the definition changes afterwards, the next run is refused until you confirm the new version. The sheet is a speed bump for a person; the machine's
+is remembered in this browser, for this computer and this exact version of the command. On another browser, your phone included, you will be asked again. If the definition changes afterwards, the next run is refused until you confirm the new version. The sheet is a speed bump for a user; the computer's
 slash-command shell policy is the real veto.
 
 A command cannot move the session out of a more restrictive mode: while the
@@ -596,22 +594,22 @@ session is in plan, a command that names the build agent runs under plan
 anyway, and a command that would run unsupervised in another agent is
 refused.
 
-On a machine whose opencode is too old for slash commands, the menu shows the panel commands only; updating opencode on that machine brings the rest.
+On a computer whose opencode is too old for slash commands, the menu shows the panel commands only; updating opencode on that computer brings the rest.
 
 ### Agent images
 
 When a tool call produces an image, its card shows it inline under "Output":
 most often a screenshot from a browser tool such as the Playwright MCP, or an
 image the agent read. Only **PNG, JPEG, GIF and WebP** are shown; SVG is never
-displayed inline, whatever the machine calls it.
+displayed inline, whatever the computer calls it.
 
-The machine keeps the bytes and the chat fetches each image from it whenever
+The computer keeps the bytes and the chat fetches each image from it whenever
 it is shown; the chat keeps no copy. Before showing one it checks the file's
-own header rather than the type the machine claimed, and refuses anything
+own header rather than the type the computer claimed, and refuses anything
 over 8 MiB or past about 50 megapixels, or that does not match the checksum
 the tool listed. At most **8 images are shown per tool call**. When some are
 left out, the card says so: _"3 images not shown (too many, too large or not a
-supported type)."_ A broken image usually means the machine no longer has it:
+supported type)."_ A broken image usually means the computer no longer has it:
 an ACP agent keeps images in memory only, so a galopin restart loses them. An
 image the agent saved as a file is the file explorer's business, not this.
 
@@ -625,38 +623,38 @@ a request you do not want to answer is most of the point of it.
 
 The **diff** control opens the shared side pane — the same frame artifacts open
 in — with the session's file changes, rendered by the same diff machinery the
-artifact panel uses. The before/after pairs come from the machine; nothing is
+artifact panel uses. The before/after pairs come from the computer; nothing is
 reconstructed here.
 
 ### Archiving and revoking
 
-Archiving a session or a workspace confirms first, then asks the machine and
+Archiving a session or a workspace confirms first, then asks the computer and
 redraws that device's subtree from its answer — never an optimistic removal,
-because the machine owns the listings. If the archived row was the one open
+because the computer owns the listings. If the archived row was the one open
 in the address, the panel navigates away from it.
 
-Revoking a machine tombstones the pairing record: it is refused if it tries
+Revoking a computer tombstones the pairing record: it is refused if it tries
 to reconnect, and its live socket (if any) is closed immediately. Re-running
-`galopin enroll` mints a **new** machine id — it re-pairs as a fresh
+`galopin enroll` mints a **new** computer id — it re-pairs as a fresh
 `pending` row, not a resurrection of the revoked one.
 
-A machine the **gateway** refused (a disabled account, or sessions
+A computer the **gateway** refused (a disabled account, or sessions
 invalidated since it enrolled) stays listed as **access revoked**, with the
 re-enroll command beside it, until you remove it with its bin icon; removing
 it only takes it off the list. A refused **token** is not a refused account:
-when the gateway refuses the token a machine holds, the chat checks the token
+when the gateway refuses the token a computer holds, the chat checks the token
 on its own first, and if that token no longer validates (it expired, or the
 identity provider revoked it on refresh, as GitLab does) the link is closed
-with 4401 and the machine renews and reconnects, with nothing revoked.
+with 4401 and the computer renews and reconnects, with nothing revoked.
 
-A machine refused for **access groups or capabilities** is neither: the link
+A computer refused for **access groups or capabilities** is neither: the link
 is closed with 4404 and the device **stays enrolled** — no re-enroll, no bin
 icon. Regaining the group, or a group granting the coding-agents capability,
 reconnects it by itself. What you see depends on which one bit:
 
 - outside the required groups: the gateway's join gate refused the account;
 - no coding-agents capability: the account may use the chat but not `/code`
-  (a _chat-only_ person — the gateway console's Users page badges them **Chat
+  (a _chat-only_ user — the gateway console's Users page badges them **Chat
   only**). The Agents switch is gone from the sidebar and `/code` answers
   "not available for your account"; the chat itself keeps working throughout.
 
@@ -669,7 +667,7 @@ A session can hand work to others. Four mechanisms, from lightest to heaviest:
 | [Subagents](#subagents)                                 | a task inside the session's own turn (opencode's `task` tool), shown as a card in the transcript               |
 | [Delegates](#sessions-that-talk-to-sessions)            | a separate session the model starts with `session_spawn`; its answer comes back to the session that started it |
 | [Recipes and the committee](#recipes-and-the-committee) | handoff, second opinion and committee: ready-made ways to use delegates                                        |
-| [Delegate profiles](#delegate-profiles)                 | which model a delegate runs on, set per machine                                                                |
+| [Delegate profiles](#delegate-profiles)                 | which model a delegate runs on, set per computer                                                               |
 
 All of the session-to-session tools are on by default and turned off with
 `--no-agent-tools` at enroll.
@@ -678,12 +676,12 @@ All of the session-to-session tools are on by default and turned off with
 
 When the session spawns a subagent, the tool call that spawned it is replaced
 in the transcript by a card for that subagent — title, status, from the
-machine's own roster. Expanding one fetches its own transcript and renders it
-as a nested read-only conversation.
+computer's own roster. Expanding one fetches its own transcript and renders it
+as a nested read-only chat.
 
 A subagent may run in the background (the task tool's `background:true`,
 behind opencode's experimental `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS`). The
-machine allows that unless enrolled with `--no-background-subagents`; then
+computer allows that unless enrolled with `--no-background-subagents`; then
 the flag is never set and a background task fails closed. A
 background child keeps running after its parent turn ends — the parent reads
 idle while the child is still working, and the panel says so — and its result
@@ -693,11 +691,11 @@ the task's own card as completed or failed, never as model text. Passing
 rather than a new spawn.
 
 **A subagent has no setting of its own: it follows its main session.** Its
-rules are the main session's setting and exceptions, capped by the machine's
-limits, never the machine's own allows. They are applied when the subagent
+rules are the main session's setting and exceptions, under any local `--deny`,
+never the computer's own allows. They are applied when the subagent
 appears and re-applied to every live subagent whenever you change the main
 session's setting or remove an exception, so Deny stops a running child too.
-Until they land, the machine starts a subagent from an ask floor rather than
+Until they land, the computer starts a subagent from an ask floor rather than
 from allow-everything; galopin answers the first turn's asks that the main
 session's rules allow (above). On a subagent's
 own view the selector shows the main session's setting, disabled (opencode
@@ -706,13 +704,13 @@ sets the rest explicitly).
 
 ### Sessions that talk to sessions
 
-A session's model can start another session on the same machine (`session_spawn`),
+A session's model can start another session on the same computer (`session_spawn`),
 send a message to one (`session_send`) or read what one has said (`session_read`).
 All are on by default and turned off
 with `--no-agent-tools` at enroll (or `galopin policy set --no-agent-tools`
 later), which installs no tool into the backend at all. There are four of them (`session_profiles` and `session_committee` are described under [Delegate profiles](#delegate-profiles) and [Recipes and the committee](#recipes-and-the-committee)):
 
-- `session_list` reads the machine's sessions and needs no approval.
+- `session_list` reads the computer's sessions and needs no approval.
 - `session_read` returns another session's most recent **user and assistant
   text** as plain text (the last 1 to 50 messages, ten by default, each with its
   role and time). It never returns tool calls or their output, reasoning or
@@ -727,12 +725,12 @@ later), which installs no tool into the backend at all. There are four of them (
   sends deep this chain is).
 
 Whether a spawn or send asks is decided from the asking session's **effective
-rules as galopin composes them** (the agent's, then the session's: the machine's
-own rules, what you set for it, and the ceiling last), looked up under the names
+rules as galopin composes them** (the agent's, then the session's: the computer's
+own rules, what you set for it, and any local `--deny` last), looked up under the names
 `session_read`, `session_spawn` and `session_send`:
 
 - **allow** — no card, and the card in the transcript carries an **allowed by
-  this machine's rules** badge.
+  this computer's rules** badge.
 - **deny** — refused.
 - **ask, or no rule** — a card, as for any other ask. Nothing you answer on it is
   remembered: it has no "Always", and answering "once" is the only form.
@@ -754,18 +752,18 @@ own rules, what you set for it, and the ceiling last), looked up under the names
 A scheduled run has nobody to answer a card. Cerea's schedules therefore have two
 options, both off: **Can find, read and message other sessions**
 (`session_list`, `session_read`, `session_send`) and **Can start new sessions**
-(`session_spawn`). At each run Cerea sends the machine
+(`session_spawn`). At each run Cerea sends the computer
 `session.grantCoordination {sessionId, keys}` for the session it just created or
 chose, before the prompt. galopin records the grant with the session (it
 survives a restart) and treats those tools as **allowed** for it. It is never
 more than you allowed: a local `--deny agents` still refuses a granted key, another workspace's sessions still
 ask, the hop limit and the rate limits stand, and Deny on the session wins. A
 galopin from before this op answers `unsupported`: the schedule still runs, and
-its run row says "this machine's galopin is too old to grant coordination; update
+its run row says "this computer's galopin is too old to grant coordination; update
 it". Each grant is a row in `audit.log` with its keys and outcome.
 
-Questions always wait for a person, and a rule never answers a handoff. An allowed call is not invisible: the badge shows in the sender's transcript and
-the machine's audit log records it.
+Questions always wait for a user, and a rule never answers a handoff. An allowed call is not invisible: the badge shows in the sender's transcript and
+the computer's audit log records it.
 
 #### Limits
 
@@ -775,9 +773,9 @@ three spawned sessions are live under one root, and a root that has started six
 in ten minutes is refused. A spawned session runs in the spawner's own
 workspace and inherits its permission word, coordination grant and exceptions,
 never more (an Allow spawner makes a child that runs without a card; a
-read-only child comes from `mode: "plan"`) — still under the machine's ceiling,
-which caps the child exactly as it caps the caller. The exceptions are the
-"always" answers the person gave the spawner, copied as they are; removing one
+read-only child comes from `mode: "plan"`) — still under any local `--deny`,
+which refuses for the child exactly as for the caller. The exceptions are the
+"always" answers the user gave the spawner, copied as they are; removing one
 from the spawner later does not remove it from children already spawned. In
 the sidebar it sits under its spawner, behind a thin connector (a spawned
 session whose spawner is in another workspace, or gone, stays a top-level row
@@ -788,34 +786,34 @@ with a "spawned by" line).
 The agent tools include four for the owner's **scheduled actions** (see
 [Scheduled actions](code-panel.md#scheduled-actions)): `schedule_list`,
 `schedule_create`, `schedule_update` and `schedule_delete`. They reach Cerea
-over the machine link as `call` frames (PROTOCOL.md §5) and act as the
-machine's owner, only on schedules that run on this machine. They need a Cerea
+over the computer link as `call` frames (PROTOCOL.md §5) and act as the
+computer's owner, only on schedules that run on this computer. They need a Cerea
 that advertises `features.machineCalls: ["schedule"]` in its welcome; against an
 older one each tool answers that this Cerea does not support schedules from
 agents.
 
-Whether a call asks is the permission key **`schedule`** (a ceiling key too,
-uncapped by default):
+Whether a call asks is the permission key **`schedule`** (a local `--deny agents`
+refuses all three tools):
 
 - `schedule_list` never asks.
 - `schedule_create` follows the session's word like any tool: **Allow covers
   it**, Ask raises a card, Deny refuses. Except in a scheduled run (a session a
   schedule started or used, or one of its subagents): there it always asks, even
-  under Allow or a machine allow rule, so a schedule cannot multiply itself.
+  under Allow or a computer allow rule, so a schedule cannot multiply itself.
 - `schedule_update` that only pauses, or `schedule_delete`, of the schedule the
   session is a run of: no card ("stop when you are done").
 - Any other update or delete always asks, even under Allow.
-- A ceiling of `schedule=ask` or `schedule=deny` wins over all of the above.
+- A local deny of the agents class wins over all of the above.
 
 The card shows the whole schedule (name, timetable, timezone, workspace,
 session, agent mode (`plan` or `build`, default `build`), permission mode, coordination and the full prompt), the changed fields for an
 update, the name for a delete.
 
 Cerea then holds every call to its own rules, whatever the card said: the store's
-(15-minute floor, per-person cap, timezone, `CHAT_SCHEDULES_ENABLED`); a
+(15-minute floor, per-user cap, timezone, `CHAT_SCHEDULES_ENABLED`); a
 permission mode no looser than the calling session's own and coordination no
-wider than its grant; at most five running agent-made schedules per machine;
-at most ten changes per machine per hour (a pause or a delete is never refused).
+wider than its grant; at most five running agent-made schedules per computer;
+at most ten changes per computer per hour (a pause or a delete is never refused).
 Each change is in the `/code` audit trail with the calling session, and the
 Schedules list shows the schedule as **Created by an agent in ‹session›**.
 
@@ -829,16 +827,16 @@ steering applies to your own messages: with a turn running, the composer's
 **Send** sits beside **Stop** (its chevron is stop-and-send), and slash
 commands are still refused mid-turn.
 
-What this means, plainly: where a machine's rules allow `session_send` (or a
+What this means, plainly: where a computer's rules allow `session_send` (or a
 session was granted it), a
 session can message others in its workspace without you seeing a card. The cost
 is noise and one agent's text steering another's context, bounded by the hop and
-rate limits and visible in the badges and the audit log. A machine that leaves
+rate limits and visible in the badges and the audit log. A computer that leaves
 these two on ask, which is the default, shows a card for every one.
 
 #### What these gates do not cover
 
-An approved shell command can do anything you can on that machine (opencode's
+An approved shell command can do anything you can on that computer (opencode's
 server password sits in its process environment, readable by same-user
 processes); the coordination gates constrain the model's tools, not an approved
 shell.
@@ -846,26 +844,26 @@ shell.
 ### Delegate profiles
 
 A **profile** is a name and a model, and nothing else. It answers one question
-for a delegate: which model does it run on? A machine has up to 32 profiles and
-at most one **default**. Profiles belong to the machine, not to your account or
-to a workspace, because the models a machine offers are its own.
+for a delegate: which model does it run on? A computer has up to 32 profiles and
+at most one **default**. Profiles belong to the computer, not to your account or
+to a workspace, because the models a computer offers are its own.
 
-**Setting them up.** On the machine's row in the Agents sidebar, open the
-**···** menu (**Machine settings**) and choose **Profiles**. The **Delegate
+**Setting them up.** On the computer's row in the Agents sidebar, open the
+**···** menu (**Computer settings**) and choose **Profiles**. The **Delegate
 profiles** dialog lists one row per profile:
 
 - **Default**: the radio button that marks the profile used when none is named.
 - **Name**: 1 to 32 characters, lowercase letters, digits, `_` and `-`.
-- **Model**: one of the models that machine offers for sessions (the gateway's
-  models, plus others only if the machine allows models from elsewhere).
+- **Model**: one of the models that computer offers for sessions (the gateway's
+  models, plus others only if the computer allows models from elsewhere).
 
 **Add profile** adds a row, the bin icon removes one, and **Save** replaces the
-machine's whole set. The machine checks it and the dialog then shows what the
-machine stored, not what you typed; a refusal says why and nothing is written.
-The dialog is read-only, with the reason, when the machine is offline, was
+computer's whole set. The computer checks it and the dialog then shows what the
+computer stored, not what you typed; a refusal says why and nothing is written.
+The dialog is read-only, with the reason, when the computer is offline, was
 enrolled with `--no-agent-tools` (there are no profiles without the tools), or
 runs a galopin too old to have them (update it, see
-[Updating galopin](#updating-galopin)). Only the machine's owner can open it.
+[Updating galopin](#updating-galopin)). Only the computer's owner can open it.
 
 **How delegation uses them.** `session_spawn` and `session_committee` take an
 optional profile name:
@@ -875,19 +873,19 @@ optional profile name:
 - with no default, or no profiles at all, the delegate runs on its spawner's own
   model, as before.
 
-An unknown name, or a model the machine no longer offers, refuses the spawn
+An unknown name, or a model the computer no longer offers, refuses the spawn
 before anything starts, and the refusal lists the profiles there are. The model
 can list them itself with `session_profiles`, which needs no approval.
 
 **A model is not a permission.** A profile changes which brain a delegate runs
 on and nothing about what it may do: its permission word, coordination grant and
-"always" answers come from its spawner as ever, the machine's ceiling and rules
-still cap it, and the approval card is the same one. For **read-only
+"always" answers come from its spawner as ever, any local deny and the computer's rules
+still apply, and the approval card is the same one. For **read-only
 delegation** use the `plan` mode, not a profile: `session_spawn` and
 `session_committee` take a `mode`, and a delegate started in `plan` can read and
 look around but every call that would change something is refused.
 
-**Where they are kept.** In `profiles.json` in the machine's state directory
+**Where they are kept.** In `profiles.json` in the computer's state directory
 (see [The state directory](#the-state-directory)), written by galopin and read at
 every use, so a saved change applies to the next spawn without a restart:
 
@@ -913,7 +911,7 @@ Three ready-made ways to use delegates. The first two are guidance galopin's
   default profile or the one you name. The spawning session tells you where it
   is running and **ends its turn**; the delegate's report arrives in the
   spawner's transcript by itself. Use it to pass off a long or separate job and
-  free the conversation.
+  free the chat.
 - **Second opinion.** A fresh reader checks what the session did or concluded: a
   delegate started in **plan** mode (so it can read but not change anything),
   briefed with the question and the work to check, optionally on a profile with a
@@ -932,7 +930,7 @@ Three ready-made ways to use delegates. The first two are guidance galopin's
   the answers agree and differ rather than average them.
 
 A committee goes through the very same checks as `session_spawn`: the same
-permission key, grant and ceiling, one approval card per member under Ask (naming
+permission key and grant, one approval card per member under Ask (naming
 the committee), Plan refuses it, and the live-delegate limit (three under one
 root) applies. It is **all or nothing against the limits**: if depth, live
 sessions or the spawn rate would cut it short, nothing starts, and a declined
@@ -954,14 +952,14 @@ it runs on loopback, when the agent can use an HTTP MCP server.
   the tools as another one. Deleting the session revokes it, and so does
   stopping galopin; tokens are never stored, so a restart makes new ones.
 - **The same approvals.** A call over MCP goes to the same decision as
-  opencode's: Plan refuses, the machine's ceiling and rules cap it, a
+  opencode's: Plan refuses, a local deny and the computer's rules apply, a
   coordination grant or Allow lifts a card, the delegate rules apply, and the
   same cards and audit rows appear. There is no second, looser path. A
   delegate's report still comes back to the session that started it.
 - **opencode keeps its own route** and does not start the MCP server.
 - **A busy ACP session** cannot take a folded-in message, so a `session_send`
   to one is refused; reports wait until the spawner is idle.
-- `--no-agent-tools` turns it off with the rest. A machine reports the tools only
+- `--no-agent-tools` turns it off with the rest. A computer reports the tools only
   when its agent can use an HTTP MCP server; otherwise it offers none.
 
 The design is in the "Coordination tools over MCP" paragraph of
@@ -972,7 +970,7 @@ The design is in the "Coordination tools over MCP" paragraph of
 Tools alone do not tell a model when to use them, so galopin installs one
 opencode skill beside them, named `delegation`
 (`skills/delegation/SKILL.md` in the directory galopin owns for its tools). It
-is written with the tools and only with them: a machine enrolled with
+is written with the tools and only with them: a computer enrolled with
 `--no-agent-tools` gets neither. Like any skill, its description rides every
 turn and the model loads the full text when a task matches. It tells the model:
 
@@ -982,14 +980,14 @@ turn and the model loads the full text when a task matches. It tells the model:
 - **other sessions:** find a target with `session_list` rather than guess an
   id, expect every read, spawn and send to raise a card, never route around a
   declined card, and treat a message from another session as a peer's request,
-  not the person's;
+  not the user's;
 - **recipes and profiles:** a handoff, a second opinion in plan mode or a
-  committee of two or three when the person asks for one or the stakes justify
+  committee of two or three when the user asks for one or the stakes justify
   it ([Recipes and the committee](#recipes-and-the-committee)), and a profile
-  only when the person names a model or the job clearly calls for it
+  only when the user names a model or the job clearly calls for it
   ([Delegate profiles](#delegate-profiles));
 - **background subagents:** use `background: true` for long work where the
-  machine allows it, and do not promise it where it does not;
+  computer allows it, and do not promise it where it does not;
 - **long waits:** never sleep-and-poll in the foreground (CI, a release, a full
   test suite): hand the wait to a background `task`, end the turn and pick up
   when its result arrives;
@@ -998,10 +996,10 @@ turn and the model loads the full text when a task matches. It tells the model:
   is watching, so look with `session_list` and `session_read` before steering,
   do not resend a message the target has not acted on yet, reuse a session with
   the same job instead of spawning a new one, and end with a short summary of
-  what the run checked, sent, started and left waiting for the person;
+  what the run checked, sent, started and left waiting for the user;
 - **scheduling work:** list schedules before creating one, prefer
   `session: "this"` for a follow-up, write a prompt that stands on its own,
-  name each schedule so the person knows what it does, and pause or delete the
+  name each schedule so the user knows what it does, and pause or delete the
   schedule it is a run of when the job is done.
 
 The skill only describes what the tools and opencode's own `task` tool do; the
@@ -1010,33 +1008,33 @@ gates above are what enforce it.
 ## Scheduled actions
 
 **Schedules** (under the devices in the sidebar) send a prompt to one of your
-sessions on a timetable. Pick the **machine** (online or offline), then a
+sessions on a timetable. Pick the **computer** (online or offline), then a
 **workspace** on it (or **New workspace…**, created when you save, under the
-machine's own `workspaceRoots`), then **a new session each run** (titled
+computer's own `workspaceRoots`), then **a new session each run** (titled
 "name · date", and marked with a clock in the tree) or **one existing session**.
 Then the mode, model and permission word, the prompt, and when: every N hours,
 daily, weekdays, weekly, or a cron expression, never closer than 15 minutes, in
 the timezone you choose with the next three run times shown as you edit. "Schedule
-this…" in a session's ⋯ menu starts the editor on that machine, workspace and
+this…" in a session's ⋯ menu starts the editor on that computer, workspace and
 session.
 
-- **The machine pays.** Cerea only sends the prompt over the link you already
-  have; the run uses the machine's own credential and policy, and the machine's
-  ceiling caps the permission word you pick.
+- **The computer pays.** Cerea only sends the prompt over the link you already
+  have; the run uses the computer's own credential and policy, and a local
+  `--deny` still refuses what it names.
 - **Ask stalls.** Nobody is watching a scheduled run. On Ask it stops at its
   first approval and waits; the card is in the **Needs-you inbox**. Pick Allow
-  for work that must finish unattended (a key your machine caps at Ask still asks).
+  for work that must finish unattended (a key your computer caps at Ask still asks).
   For "always this session", the word is set on that session each run and stays.
 - **The agent knows it is a scheduled run.** Each prompt arrives with one line
   above what you wrote: `[Scheduled run of "<name>", <timetable> (<timezone>);
 previous run <3 h ago | none>; coordination: <granted tools | none>]`. The
   [delegation skill](#the-delegation-skill) tells the agent what to do with it.
-- **Missed runs.** Machine offline: recorded as missed, not queued. Previous
+- **Missed runs.** Computer offline: recorded as missed, not queued. Previous
   run's session still working (or waiting on an approval): skipped. Chat down:
   one late run is made up only if it is under half the interval late (at most an
   hour), otherwise recorded as missed. The workspace or session is gone:
   the run fails with that reason, and three failures in a row switch the schedule
-  off. A revoked machine switches its schedules off at once.
+  off. A revoked computer switches its schedules off at once.
 - **History.** Every occurrence is a row in the schedule's history, with why, and
   a link to the session it reached. **Run now** fires one run immediately (the
   skip rule applies).
@@ -1047,7 +1045,7 @@ previous run <3 h ago | none>; coordination: <granted tools | none>]`. The
 
 **From your deployment (the usual way).** Every Cerea image builds the four
 binaries from `agent/` and serves them itself, with no sign-in needed, so
-nothing has to be published anywhere. On the machine:
+nothing has to be published anywhere. On the computer:
 
 ```sh
 curl -fsSL "$CEREA_BASE_URL/galopin/install.sh" | sh
@@ -1072,7 +1070,7 @@ cache in between never pairs an old binary with a new checksum file.
 agent/packaging/build-dist.sh ~/galopin-dist
 ```
 
-It writes static binaries (CGO off, so each one runs on any machine of its
+It writes static binaries (CGO off, so each one runs on any computer of its
 OS/architecture), plus a manifest:
 
 | File                                                                    | What                                                                        |
@@ -1082,11 +1080,11 @@ OS/architecture), plus a manifest:
 | `SHA256SUMS`                                                            | for `sha256sum -c SHA256SUMS` (macOS: `shasum -a 256 -c SHA256SUMS`)        |
 | `galopin.service`, `org.cerea.galopin.plist`                            | the user-service files below, from `agent/packaging/`                       |
 
-Use this for a machine that cannot reach the deployment, or to build from
+Use this for a computer that cannot reach the deployment, or to build from
 a checkout you changed; anyone with Go can also run `go build -o galopin .`
 in `agent/`.
 
-### Installing on a machine (Linux or macOS)
+### Installing on a computer (Linux or macOS)
 
 **Prerequisite:** `opencode` on the PATH, at the release galopin is tested
 against (currently 1.19.3; the one place it is written is
@@ -1121,37 +1119,37 @@ where `<config-dir>` is `~/.config` on Linux and `~/Library/Application
 Support` on macOS). `enroll` records the opencode config's absolute path in
 the credential file, and `run` finds it there and hands it to opencode, so
 neither command needs a path. `run` then supervises opencode and dials out to the
-chat. Open the sidebar's **Agents** panel: the machine is listed as **Pending** until you confirm it with the green check (**Confirm this machine**).
+chat. Open the sidebar's **Agents** panel: the computer is listed as **Pending** until you confirm it with the green check (**Confirm this computer**).
 
 | Flag             | When                                                                                                                                                                                                                                                                                                                                           |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--cerea …/chat` | always include `/chat` when the chat is served there. The machine dials `<cerea>/api/v2/code/machine`, and without the base path it reaches the gateway instead                                                                                                                                                                                |
+| `--cerea …/chat` | always include `/chat` when the chat is served there. The computer dials `<cerea>/api/v2/code/machine`, and without the base path it reaches the gateway instead                                                                                                                                                                               |
 | `--output PATH`  | where the opencode config goes (default `<config-dir>/galopin/opencode.json`). The file is **replaced whole**: `enroll` asks before replacing an existing one, and `--yes` skips the question. Its absolute path is recorded, so `run` finds it. Never point it at your own `~/.config/opencode/opencode.json` unless you mean to replace that |
 | `--device`       | force the device flow, which prints a URL and a code to open on any other device (the bundled Authelia's `opencode-enrollment` client allows it). Without a flag, `enroll` picks the loopback sign-in in the local browser when there is a display, and the device flow when there is none. `--loopback` forces the browser                    |
-| the policy flags | `--no-terminal`, `--permission-max KEY=ACTION`, `--allow-free-models`, `--workspace-root PATH` and the rest are the machine's own vetoes, fixed at enroll time, and all of them are in the pairing dialog: see [The machine policy](#the-machine-policy)                                                                                       |
+| the policy flags | `--no-terminal`, `--deny CLASS`, `--allow-free-models`, `--workspace-root PATH` and the rest are the computer's own vetoes, fixed at enroll time, and all of them are in the pairing dialog: see [The computer policy](#the-computer-policy)                                                                                                   |
 
 #### With GitLab as the identity provider
 
-GitLab mints its own application ids, so the default machine client
+GitLab mints its own application ids, so the default computer client
 `opencode-enrollment` cannot exist there. Signing in with it ends on GitLab's
 page with _Client authentication failed due to unknown client_. Set it up
 once:
 
-1. On GitLab, add an application for agent machines: **not confidential**
+1. On GitLab, add an application for agent computers: **not confidential**
    (galopin has no secret), scopes `openid profile email`, the device
    authorization grant enabled, and redirect URI `http://127.0.0.1/callback`
    (used only by the browser flow on a laptop).
 2. In the kit's `.env`, set `OIDC_MACHINE_CLIENT_ID` (or run `./configure --machine-client-id`) to that application's
    **Application ID**, then `docker compose up -d`. The gateway then accepts
-   the machine's tokens, and the pairing dialog prints `--client-id` with it.
+   the computer's tokens, and the pairing dialog prints `--client-id` with it.
 3. Enroll with the dialog's command, or by hand with
    `--client-id <Application ID>`.
 
 GitLab's access tokens are opaque, not JWTs, so neither the chat nor the
 gateway can check their signature. Both ask GitLab instead, at its
-`/oauth/token/info`, with the token itself: it must belong to the machine
-application and expire. The chat does this when a machine connects (from
-0.10.14; before, a GitLab machine's link was refused with HTTP 401 right
+`/oauth/token/info`, with the token itself: it must belong to the computer
+application and expire. The chat does this when a computer connects (from
+0.10.14; before, a GitLab computer's link was refused with HTTP 401 right
 after a successful enroll), and the gateway on every `/v1` call (Pystino 0.4.2).
 
 GitLab's discovery lists the device grant but does not advertise its device
@@ -1160,7 +1158,7 @@ so (`note: the identity provider does not advertise a device endpoint; using
 …`); a headless box needs no `--loopback`. For any other provider that leaves
 the endpoint out, name it with `--device-endpoint URL`.
 
-A machine enrolled before `enroll` recorded the path has no `opencode_config` in
+A computer enrolled before `enroll` recorded the path has no `opencode_config` in
 its credential file, and `run` says so on stderr: the supervised opencode may
 have no pystino provider, so the panel reports that the daemon lists no models.
 Re-run `enroll`, or pass `run --opencode-config PATH` with the opencode.json
@@ -1169,37 +1167,79 @@ Re-run `enroll`, or pass `run --opencode-config PATH` with the opencode.json
 If `enroll` warns that model discovery failed, no model is available to you
 yet. Ask your administrator to grant your group one, then run
 `galopin models refresh` — or just restart `run`, which re-discovers the
-gateway's models at every start. Neither re-enrolls, so the machine id stays.
+gateway's models at every start. Neither re-enrolls, so the computer id stays.
 
 ### Updating galopin
 
-Re-run the install line, the same one the **Pair a machine** dialog prints:
+Re-run the install line, the same one the **Pair a computer** dialog prints:
 
 ```sh
 curl -fsSL "$CEREA_BASE_URL/galopin/install.sh" | sh
 ```
 
 It replaces `~/.local/bin/galopin` with the build your deployment serves
-(checked against its `SHA256SUMS`), and **nothing is re-enrolled**: the machine
+(checked against its `SHA256SUMS`), and **nothing is re-enrolled**: the computer
 keeps its id, its credential, its policy and its pairing. Then restart `galopin
 run` so it runs the new binary: `systemctl --user restart galopin` on Linux, or
 stop and start the `run` you started by hand. On macOS,
 `launchctl kickstart -k gui/$(id -u)/org.cerea.galopin`.
 
-Updating the deployment is what makes a newer galopin available, so a machine
+Updating the deployment is what makes a newer galopin available, so a computer
 that was paired long ago gets new features (delegate profiles, the committee,
 the MCP tools) only after this. A panel feature that needs it says so ("update
-galopin on that machine"). Re-enroll only to change the machine's own policy
-(loosening needs it) or to recover a revoked machine.
+galopin on that computer"). Re-enroll only to change the computer's own policy
+(loosening needs it) or to recover a revoked computer.
+
+### Using opencode yourself: `galopin launch opencode`
+
+```sh
+galopin launch opencode [--opencode PATH] [--port PORT] [-- opencode arguments…]
+```
+
+Starts your own interactive opencode, in the current directory, set up the way
+galopin sets up the one it supervises, but **without dialing Cerea**: no
+pairing, no computer link, nothing in the Agents panel. It uses
+
+- the `opencode.json` `enroll` wrote (as `OPENCODE_CONFIG`), so the same
+  gateway provider and models;
+- the same local proxy, so the same refreshed credential and billing group.
+  A `run` or `serve` already listening on the shim port is reused; otherwise
+  galopin starts the proxy for as long as this opencode runs and stops it when
+  it exits (never two on one port);
+- the computer's project-config setting (`--allow-project-config`; off by
+  default, in which case opencode starts with `--pure`), and a private
+  `TMPDIR` of its own, so it never disturbs a running `galopin run`.
+
+Everything after `--` goes to opencode untouched, and galopin exits with
+opencode's exit code; SIGINT, SIGTERM and SIGHUP are forwarded. A computer that
+is not enrolled stops with "run 'galopin enroll' first". `--opencode PATH`
+picks the binary (default `opencode` on PATH, then `$HOME/.opencode/bin`); one
+that differs from the version galopin is tested against only draws a warning.
+
+Provider credentials and routing selectors in your shell (`ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, the other
+well-known provider keys and base URLs, `OPENCODE_PERMISSION`, `OPENCODE_MODEL`)
+are removed from opencode's environment, so nothing is billed outside the
+gateway by accident. Your own opencode configuration (`~/.config/opencode`,
+`opencode auth`) still applies, exactly as under `run`.
+
+**Not supervised.** galopin prints, on stderr:
+`galopin: local opencode, billed to <group>; not supervised by Cerea (no
+Plan/Ask/Auto, no review log)`. opencode is given the "everything asks"
+permission floor, so every tool call asks you, in the terminal. What cannot
+apply is anything that needs galopin to answer for you: the refusal of
+galopin's own state and credentials, the Plan/Ask/Auto selector, the delegated
+permissions and the review log. Treat it as opencode with the gateway wired in.
+The command is `launch <tool>` so other tools can follow; only opencode exists.
 
 ### Keeping it running
 
 **Linux**, as a systemd user service, so galopin starts at boot, restarts if it
 crashes, and keeps running after you log out. Run these as the user that
-enrolled the machine (not root), once `galopin run` works in a terminal:
+enrolled the computer (not root), once `galopin run` works in a terminal:
 
 1. Stop the `galopin run` you started by hand (Ctrl-C in its terminal), so two
-   copies don't fight over the machine's link.
+   copies don't fight over the computer's link.
 2. Write the unit. It's the same file as `agent/packaging/galopin.service` in
    the Cerea repository:
 
@@ -1244,7 +1284,7 @@ enrolled the machine (not root), once `galopin run` works in a terminal:
    journalctl --user -u galopin -f       # its log; Ctrl-C to stop following
    ```
 
-   The machine shows as online in the /code panel within a few seconds.
+   The computer shows as online in the /code panel within a few seconds.
 
 **After updating galopin** (re-running the install line from the pairing
 dialog), restart the service so it runs the new binary:
@@ -1268,49 +1308,49 @@ places opencode installs to. Edit that PATH if yours is elsewhere.
 To keep it back up after a revoke, re-enroll (or delete `machine-id`) and
 start `run` again. The systemd unit does not restart it after that exit
 (`RestartPreventExitStatus=78`, kept from the pre-rename unit); launchd
-cannot filter on exit code, so it restarts once, finds the machine id marked
+cannot filter on exit code, so it restarts once, finds the computer id marked
 revoked, and exits 0 to end the loop — `launchctl kickstart` the job after
 re-enrolling.
 
 **If the agent says your enrollment expired** (after a redeploy, for instance),
-sign in again with `galopin auth login` on that machine — no re-enroll, no new
-machine id, and a running agent picks the new credential up without a restart.
-Only a machine **revoked** in the `/code` panel needs the pairing command
+sign in again with `galopin auth login` on that computer — no re-enroll, no new
+computer id, and a running agent picks the new credential up without a restart.
+Only a computer **revoked** in the `/code` panel needs the pairing command
 again. The agent reports this at once instead of hanging; the
 [details](#when-the-refresh-token-dies) are under "How it works".
 
-### Removing a machine
+### Removing a computer
 
 1. Revoke it in the `/code` panel. The chat tombstones the pairing and
    closes the link, the agent logs `machine revoked, not reconnecting`, and
-   a later connection under the same machine id is refused. The agent then
+   a later connection under the same computer id is refused. The agent then
    revokes its own refresh token at the IdP (RFC 7009, the discovery
    document's `revocation_endpoint`) and clears the tokens from its
-   credential file, so the revoked machine can no longer reach the gateway
+   credential file, so the revoked computer can no longer reach the gateway
    either. If the IdP can't be reached, it says so in the log; the tokens are
    cleared anyway, and the refresh token lapses at its own expiry.
 2. Stop the service: `systemctl --user disable --now galopin`, or
    `launchctl bootout gui/$(id -u)/org.cerea.galopin`.
-3. Delete `<config-dir>/galopin/`. Re-enrolling later mints a new machine
+3. Delete `<config-dir>/galopin/`. Re-enrolling later mints a new computer
    id, which is paired afresh.
 
 ### What is kept where
 
-|                                                             | Where it lives                                                  |
-| ----------------------------------------------------------- | --------------------------------------------------------------- |
-| your code, your working tree, the session's live transcript | your machine                                                    |
-| the pairing record — name, machine id, policy, owner        | the chat's database                                             |
-| prompts, replies, file contents                             | in flight only, over your machine's own outbound TLS connection |
-| your LLM spend                                              | the gateway's ledger, against your account and billing group    |
+|                                                             | Where it lives                                                   |
+| ----------------------------------------------------------- | ---------------------------------------------------------------- |
+| your code, your working tree, the session's live transcript | your computer                                                    |
+| the pairing record — name, computer id, policy, owner       | the chat's database                                              |
+| prompts, replies, file contents                             | in flight only, over your computer's own outbound TLS connection |
+| your LLM spend                                              | the gateway's ledger, against your account and billing group     |
 
 Pairing records are scoped to you: nobody else's panel can see or revoke your
-machines.
+computers.
 
 ## How it works
 
 !!! info "Background"
 
-    You do not need any of this to pair a machine or use the panel. It is here
+    You do not need any of this to pair a computer or use the panel. It is here
     for anyone who wants to know what runs where.
 
 ### The shape of it
@@ -1338,12 +1378,12 @@ the Pystino gateway and are documented there.
 
 ### One binary, two jobs
 
-| Job         | What it carries                                                                                                 | Command                                                                   |
-| ----------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| **LLM**     | opencode → the local refreshing shim → gateway `/v1`, billed to the signed-in person                            | `galopin enroll`, then the shim starts with `run` (or alone with `serve`) |
-| **control** | the machine dials _out_ to the chat over WSS (`/api/v2/code/machine`), so the chat's `/code` panel can drive it | `galopin run`                                                             |
+| Job         | What it carries                                                                                                  | Command                                                                   |
+| ----------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **LLM**     | opencode → the local refreshing shim → gateway `/v1`, billed to the signed-in user                               | `galopin enroll`, then the shim starts with `run` (or alone with `serve`) |
+| **control** | the computer dials _out_ to the chat over WSS (`/api/v2/code/machine`), so the chat's `/code` panel can drive it | `galopin run`                                                             |
 
-Nothing else needs pairing: the machine connects outbound with
+Nothing else needs pairing: the computer connects outbound with
 its own enrollment token, and you confirm it in the `/code` panel
 (`agent/PROTOCOL.md` §4).
 
@@ -1371,8 +1411,8 @@ claim only. `enroll` prints a note when it leaves something out.
 `offline_access` is how most IdPs are told to issue a refresh token. One that
 does not list it but lists the `refresh_token` grant is asked without it, and
 `enroll` checks the token response: **no refresh token means no enrollment**.
-It stops with "the IdP issued no refresh token … so this machine could not
-stay signed in" rather than write a machine that would lose its sign-in
+It stops with "the IdP issued no refresh token … so this computer could not
+stay signed in" rather than write a computer that would lose its sign-in
 within the hour. Enable refresh tokens for the `opencode-enrollment` client at
 the IdP, then enroll again. Without a `groups` scope, billing by group needs
 the IdP to put a groups claim in its tokens anyway (the gateway's
@@ -1382,7 +1422,7 @@ the IdP to put a groups claim in its tokens anyway (the gateway's
 
 A gateway or IdP redeploy can revoke the refresh token the shim holds. That
 is expected and recoverable — sign in again with `galopin auth login` (only a
-machine revoked in the `/code` panel needs a re-enroll) — but the failure has
+computer revoked in the `/code` panel needs a re-enroll) — but the failure has
 to be fast and legible, not a 502 that opencode's client quietly retries into
 a long hang:
 
@@ -1468,10 +1508,10 @@ Credentials and everything else galopin writes on its own behalf —
 
 `audit.log` is the local record of terminal opens/closes and policy
 refusals — rotated JSON lines, never a byte of keystrokes, output, or file
-content. It is the one record of a machine's `/code` activity that Cerea
+content. It is the one record of a computer's `/code` activity that Cerea
 itself cannot rewrite.
 
 `opencode-tmp/` there is opencode's TMPDIR while galopin supervises it,
 emptied on every (re)start: opencode is a Bun binary that extracts its
 native libraries (~5 MB) into TMPDIR on each start and never removes them,
-which on a machine whose `/tmp` is tmpfs slowly fills RAM.
+which on a computer whose `/tmp` is tmpfs slowly fills RAM.

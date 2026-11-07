@@ -6,7 +6,6 @@ import { livePage } from "./codeNavPage.svelte";
 import { CODE_TREE_COLLAPSE_KEY } from "$lib/utils/codeTreeCollapse";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 import { clearCodePanelCache } from "$lib/stores/codeTreeCache.svelte";
-import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 
 /**
  * The daemon side is a fake; what is under test is the tree's own decisions:
@@ -437,9 +436,11 @@ describe("CodeNavTree machine rows", () => {
 		await expect.element(screen.getByText("access revoked", { exact: true })).toBeVisible();
 		// A pending machine keeps its two decisions on the row.
 		await expect
-			.element(screen.getByRole("button", { name: "Confirm this machine" }))
+			.element(screen.getByRole("button", { name: "Confirm this computer" }))
 			.toBeVisible();
-		await expect.element(screen.getByRole("button", { name: "Reject this machine" })).toBeVisible();
+		await expect
+			.element(screen.getByRole("button", { name: "Reject this computer" }))
+			.toBeVisible();
 	});
 
 	it("holds every machine action in one ⋯ menu, Remove last and destructive, and no trash on the row", async () => {
@@ -447,9 +448,9 @@ describe("CodeNavTree machine rows", () => {
 		const screen = mount([device("d1")]);
 		await expect.element(screen.getByText("Box d1")).toBeVisible();
 		expect(screen.getByTitle("Remove this pairing").elements()).toHaveLength(0);
-		expect(screen.getByRole("button", { name: "Machine settings" }).elements()).toHaveLength(1);
+		expect(screen.getByRole("button", { name: "Computer settings" }).elements()).toHaveLength(1);
 
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		await expect.element(screen.getByRole("menuitem", { name: "Remove" })).toBeVisible();
 		const items = [...document.querySelectorAll('[role="menuitem"]')];
 		expect(items.map((i) => i.textContent?.trim())).toEqual([
@@ -470,13 +471,13 @@ describe("CodeNavTree machine rows", () => {
 		go("");
 		const screen = mount([device("d1"), device("d2", { online: false })]);
 		await expect.element(screen.getByText("Box d1")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).first().click();
+		await screen.getByRole("button", { name: "Computer settings" }).first().click();
 		await screen.getByRole("menuitem", { name: "Add workspace" }).click();
 		await expect.element(screen.getByRole("dialog")).toBeVisible();
 		window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 		await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
 
-		await screen.getByRole("button", { name: "Machine settings" }).nth(1).click();
+		await screen.getByRole("button", { name: "Computer settings" }).nth(1).click();
 		await expect
 			.element(screen.getByRole("menuitem", { name: "Add workspace" }))
 			.toHaveAttribute("data-disabled");
@@ -486,7 +487,7 @@ describe("CodeNavTree machine rows", () => {
 		go("");
 		const screen = mount([device("d3", { reenroll: "revoked" })]);
 		await expect.element(screen.getByText("Box d3")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		const items = [...document.querySelectorAll('[role="menuitem"]')];
 		expect(items.map((i) => i.textContent?.trim())).toEqual(["Remove"]);
 	});
@@ -526,7 +527,7 @@ describe("CodeNavTree workspace rows", () => {
 		go("");
 		const screen = mount([device("d1")]);
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		await screen.getByRole("button", { name: "Start a coding session in this workspace" }).click();
+		await screen.getByRole("button", { name: "Start a session in this workspace" }).click();
 		await expect.element(screen.getByRole("dialog")).toBeVisible();
 	});
 });
@@ -674,61 +675,32 @@ describe("CodeNavTree row actions", () => {
 	});
 });
 
-describe("CodeNavTree legacy machines", () => {
-	it("marks the row of a machine found to predate ceilings, with the enroll command, and only that one", async () => {
-		for (const id of Object.keys(codeLegacyMachines)) delete codeLegacyMachines[id];
-		codeLegacyMachines.d1 = true;
-		codeLegacyMachines.d2 = false;
-		go("");
-		const screen = mount();
-		await expect.element(screen.getByText("Box d1")).toBeVisible();
-		const flags = screen.getByTestId("legacy-machine-row-flag");
-		await expect.element(flags).toBeVisible();
-		expect(flags.elements()).toHaveLength(1);
-		await expect.element(flags).toHaveTextContent("predates ceilings");
-		await expect.element(flags).toHaveTextContent("One re-enroll tightens it");
-		await expect.element(flags).toHaveTextContent("enroll");
-		for (const id of Object.keys(codeLegacyMachines)) delete codeLegacyMachines[id];
-	});
-
-	it("shows no flag on a tree where no machine has been found legacy", async () => {
-		for (const id of Object.keys(codeLegacyMachines)) delete codeLegacyMachines[id];
-		go("");
-		const screen = mount();
-		await expect.element(screen.getByText("Box d1")).toBeVisible();
-		expect(screen.getByTestId("legacy-machine-row-flag").elements()).toHaveLength(0);
-	});
-});
-
 describe("CodeNavTree scheduled actions", () => {
 	function withSchedules(on: boolean) {
 		Object.assign(livePage.data, { codeSchedulesEnabled: on });
 	}
 
-	it("offers a Schedules row above the devices only when the deployment has them on", async () => {
-		withSchedules(false);
-		go("");
-		const off = mount();
-		await expect.element(off.getByText("Box d1")).toBeVisible();
-		expect(off.getByTestId("schedules-link").elements()).toHaveLength(0);
-		off.unmount();
-
+	it("has no Schedules row: it moved to the sidebar's foot, one row for both modes", async () => {
 		withSchedules(true);
-		const on = mount();
-		const link = on.getByTestId("schedules-link");
-		await expect.element(link).toBeVisible();
-		await expect.element(link).toHaveAttribute("href", "/code?view=schedules");
+		go("");
+		const screen = mount();
+		await expect.element(screen.getByText("Box d1")).toBeVisible();
+		expect(screen.getByTestId("schedules-link").elements()).toHaveLength(0);
 		withSchedules(false);
 	});
 
-	it("highlights the Schedules row alone while the schedules pages are open, whatever they prefill", async () => {
+	it("selects nothing on the schedules page, whatever the editor's prefill names", async () => {
 		withSchedules(true);
-		go("?view=schedules&new=1&device=d1&ws=w1&agent=a1");
+		livePage.route = { id: "/schedules" };
+		livePage.url = new URL(
+			"http://localhost:3000/schedules?kind=agent&new=1&device=d1&ws=w1&agent=a1"
+		);
+		flushSync();
 		const screen = mount();
 		await expect.element(screen.getByText("Agent a1")).toBeVisible();
-		expect(screen.getByTestId("schedules-link").element().className).toContain("font-semibold");
 		const row = screen.getByRole("link", { name: "Agent a1" }).element();
 		expect(row.className).not.toContain("font-semibold");
+		livePage.route = { id: "/code" };
 		withSchedules(false);
 	});
 
@@ -741,7 +713,7 @@ describe("CodeNavTree scheduled actions", () => {
 		await screen.getByRole("button", { name: "Session actions" }).first().click();
 		await screen.getByRole("menuitem", { name: "Schedule this…" }).click();
 		expect(appNavigation().goto).toHaveBeenCalledWith(
-			"/code?view=schedules&new=1&device=d1&ws=w1&agent=a1"
+			"/schedules?kind=agent&new=1&device=d1&ws=w1&agent=a1"
 		);
 		withSchedules(false);
 	});
@@ -809,7 +781,7 @@ describe("CodeNavTree session Permissions menu", () => {
 		go("");
 		const screen = mount([device("d1"), device("d2", { neverReview: true })]);
 		await expect.element(screen.getByText("Box d1")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).first().click();
+		await screen.getByRole("button", { name: "Computer settings" }).first().click();
 		const item = screen.getByRole("menuitemcheckbox", {
 			name: "Never auto review requests",
 		});
@@ -822,7 +794,7 @@ describe("CodeNavTree session Permissions menu", () => {
 		go("");
 		const screen = mount([device("d2", { neverReview: true })]);
 		await expect.element(screen.getByText("Box d2")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		await expect
 			.element(
 				screen.getByRole("menuitemcheckbox", {
@@ -846,7 +818,7 @@ describe("CodeNavTree session Permissions menu", () => {
 			}),
 		]);
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		await screen.getByRole("menuitem", { name: "Profiles" }).click();
 		await expect.element(screen.getByRole("heading", { name: "Delegate profiles" })).toBeVisible();
 		await expect.element(screen.getByLabelText("Profile 1 name")).toHaveValue("fast");
@@ -864,7 +836,7 @@ describe("CodeNavTree session Permissions menu", () => {
 			}),
 		]);
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		await screen.getByRole("menuitem", { name: "Profiles" }).click();
 		await screen.getByRole("button", { name: "Add profile" }).click();
 		const name = screen.getByLabelText("Profile 1 name");
@@ -882,11 +854,11 @@ describe("CodeNavTree session Permissions menu", () => {
 		go("?device=d1&ws=w1");
 		const screen = mount([device("d1")]);
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		await screen.getByRole("button", { name: "Machine settings" }).click();
+		await screen.getByRole("button", { name: "Computer settings" }).click();
 		await screen.getByRole("menuitem", { name: "Profiles" }).click();
 		await expect
 			.element(screen.getByTestId("profiles-unavailable"))
-			.toHaveTextContent("update galopin on this machine");
+			.toHaveTextContent("update galopin on this computer");
 		expect(apiMock.getDelegateProfiles).not.toHaveBeenCalled();
 	});
 
@@ -907,24 +879,5 @@ describe("CodeNavTree session Permissions menu", () => {
 		await second.getByRole("button", { name: "Session actions" }).first().click();
 		await expect.element(second.getByRole("menuitem", { name: "Permissions…" })).toBeVisible();
 		AGENTS.d1 = [agent("a1", "w1"), agent("a2", "w1")];
-	});
-
-	it("shows the re-enroll content for a machine that predates ceilings", async () => {
-		apiMock.getPermissionRules.mockResolvedValue({
-			rules: [{ permission: "*", pattern: "*", action: "allow", source: "opencode" }],
-			savedApprovals: [],
-			ceiling: {},
-		});
-		const legacyPolicy = { workspaceRoots: [], allowFreeModels: false, permission: { max: {} } };
-		go("?device=d1&ws=w1&agent=a1");
-		const screen = mount([device("d1", { policy: legacyPolicy }), device("d2")]);
-		await expect.element(screen.getByText("Agent a1", { exact: true })).toBeVisible();
-
-		await screen.getByRole("button", { name: "Session actions" }).first().click();
-		await screen.getByRole("menuitem", { name: "Permissions…" }).click();
-		await expect.element(screen.getByTestId("legacy-machine-flag")).toBeVisible();
-		await expect
-			.element(screen.getByTestId("legacy-machine-flag"))
-			.toHaveTextContent("Re-enroll this machine to set limits");
 	});
 });

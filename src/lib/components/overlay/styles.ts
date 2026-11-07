@@ -78,6 +78,9 @@ export const STRIP_DETAIL = "text-xs text-ink-muted";
  */
 export const PRIMARY =
 	"btn flex items-center gap-1.5 rounded-lg bg-accent-solid py-1.5 pr-3 pl-2 text-sm font-medium text-white hover:bg-accent-solid-hover disabled:opacity-50";
+/** A dialog's action row, stuck to the bottom of the scrolling sheet so Done / Close stays on screen. */
+export const SHEET_FOOTER =
+	"sticky bottom-0 z-10 -mx-4 -mb-4 mt-4 flex justify-end gap-2 border-t border-line bg-white px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6 dark:bg-gray-800";
 export const SECONDARY =
 	"btn gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-sunken disabled:opacity-50";
 /** The smaller pair, for actions inside a card. */

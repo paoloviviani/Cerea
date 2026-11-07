@@ -147,7 +147,7 @@
 				<button
 					type="submit"
 					disabled={saving || status.available_backends.length === 0}
-					class="rounded-full bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
+					class="btn rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
 				>
 					{saving ? m["admin.common.saving"]() : m["admin.common.save"]()}
 				</button>

@@ -203,7 +203,7 @@ Cerea adds `access_type=offline` and `prompt=consent` to Google's authorization 
     per user, so a Google Workspace server is not one of them. Add it as a connector as above (the administrator's
     page publishes it to everyone).
 
-After OAuth succeeds, the server's tools become available in chat. A connector's tools are used as described under "Using them" in [Connectors](connectors.md#using-them): the assistant sees the connectors that are on for the user, loads the one it needs, and calls its tools, which the user can turn off per conversation.
+After OAuth succeeds, the server's tools become available in chat. A connector's tools are used as described under "Using them" in [Connectors](connectors.md#using-them): the assistant sees the connectors that are on for the user, loads the one it needs, and calls its tools, which the user can turn off per chat.
 
 ## Testing
 
@@ -248,7 +248,7 @@ Try prompts that target one server at a time:
 
 With Cerea there are two ways:
 
-1. **A local connector, for one user on their own machine.** Run it through `galopin` over stdio, so the Google credentials and tokens stay on that machine ([Local connectors](local-connectors.md)). In galopin's `mcp.json`:
+1. **A local connector, for one user on their own computer.** Run it through `galopin` over stdio, so the Google credentials and tokens stay on that computer ([Local connectors](local-connectors.md)). In galopin's `mcp.json`:
 
    ```json
    {
@@ -266,7 +266,7 @@ With Cerea there are two ways:
    }
    ```
 
-   On its first use the server opens a Google sign-in on that machine, through its own callback (it needs to be reachable from the browser on the same machine).
+   On its first use the server opens a Google sign-in on that computer, through its own callback (it needs to be reachable from the browser on the same computer).
 
 2. **An HTTP server you host, behind TLS,** with `--transport streamable-http`, added in Cerea as a connector by its URL. Cerea's own OAuth discovery against its OAuth 2.1 mode (`MCP_ENABLE_OAUTH21=true`) is **unverified**: this page has not been tested against it, and it is not known whether each Cerea user then signs in to Google as themselves. Try it with one user before relying on it, and prefer the first way, or the per-product servers above, in the meantime.
 

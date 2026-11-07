@@ -6,7 +6,7 @@
 
 An **artifact** is a substantial, self-contained thing the assistant makes for
 you, an app, a document, a diagram, a table, a report or an image, shown in
-a side panel beside the conversation rather than buried in the transcript.
+a side panel beside the chat rather than buried in the transcript.
 There are two kinds: **text artifacts**, which the model writes, and **file
 artifacts**, which a Python run produces.
 
@@ -46,8 +46,8 @@ looks like a text artifact's: name, kind and size, with **Download** and **Open
 in panel**.
 
 - **Versions follow the name.** When you ask for a change and the assistant writes `report.pdf` again, that is v2 of the same artifact; an identical file adds nothing.
-- **A card always opens what it showed.** An older card in the conversation opens the version it produced at the time, even after later versions exist; the panel moves you between versions.
-- **Produced files are kept for 30 days** by default (an administrator sets the period, or no expiry, under [Administration → Storage](chat-admin.md#storage)), per person, and survive reloads and
+- **A card always opens what it showed.** An older card in the chat opens the version it produced at the time, even after later versions exist; the panel moves you between versions.
+- **Produced files are kept for 30 days** by default (an administrator sets the period, or no expiry, under [Administration → Storage](chat-admin.md#storage)), per user, and survive reloads and
   other devices, so a chart or a document is still there the next day, however the assistant ran the code.
 
 ### Images
@@ -61,22 +61,22 @@ keep the click-to-preview and the download.
 
 ## The Artifacts panel
 
-The conversation's menu opens the **Artifacts** panel in the same side pane the
+The chat's menu opens the **Artifacts** panel in the same side pane the
 previews use, so the list sits beside the chat instead of replacing it. It lists
-everything this conversation produced, in the order it appeared: the text
+everything this chat produced, in the order it appeared: the text
 artifacts, and the files the assistant's code wrote. Each row opens the
 artifact in the panel with its versions and preview; each file has its own
 **Download**, and the list has a reload button.
 
-The panel is **per conversation**: it lists the open chat's files, not other
-conversations', and files older than the retention period are gone.
+The panel is **per chat**: it lists the open chat's files, not other
+chats', and files older than the retention period are gone.
 
 ## The Artifacts tabs
 
-The panel shows one conversation. To find something the assistant made in an
+The panel shows one chat. To find something the assistant made in an
 older chat, use an **Artifacts** tab:
 
-- a **project's page** has an **Artifacts** tab next to **Conversations** and
+- a **project's page** has an **Artifacts** tab next to **Chats** and
   **Settings** (`/projects/<id>?tab=artifacts`): what the assistant made in
   your own chats of that project;
 - the **Chats** page (`/chats`) has an **Artifacts** tab (`?tab=artifacts`):

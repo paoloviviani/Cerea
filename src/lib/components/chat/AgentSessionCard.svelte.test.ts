@@ -129,7 +129,7 @@ describe("AgentSessionCard", () => {
 		const screen = mount();
 		await expect
 			.element(screen.getByTestId("agent-session-state"))
-			.toHaveTextContent("No longer on this machine");
+			.toHaveTextContent("No longer on this computer");
 	});
 
 	it("shows the compact sign-in card instead of a state when the sign-in is stale", async () => {
@@ -155,7 +155,7 @@ describe("AgentSessionCard", () => {
 		machine();
 		const screen = mount();
 		await expect
-			.element(screen.getByRole("region", { name: "Coding session: Fix the flaky login test" }))
+			.element(screen.getByRole("region", { name: "Session: Fix the flaky login test" }))
 			.toBeVisible();
 	});
 });

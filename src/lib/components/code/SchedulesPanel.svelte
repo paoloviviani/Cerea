@@ -1,10 +1,13 @@
 <!--
-	Scheduled actions, in the /code pane: the list, the editor and one
-	schedule's history, switched by the address — `?view=schedules` the list,
-	`&new=1` the editor (`&device=&ws=&agent=` prefill it, which is what a
-	session's "Schedule this…" sends), `&schedule=<id>` the history and
-	`&schedule=<id>&edit=1` the editor on it. Like the rest of the panel the
-	address is the state, so back and reload land where you were.
+	Scheduled actions, one page for chats and agents (`/schedules`): the list, the
+	editor and one schedule's history, switched by the address — no query the
+	list, `?new=1` the editor (`&device=&ws=&agent=` prefill it, which is what a
+	session's "Schedule this…" sends), `?schedule=<id>` the history and
+	`?schedule=<id>&edit=1` the editor on it. `?kind=chat|agent` filters the list
+	(and fixes the kind a new schedule is made as); the sidebar's row passes the
+	mode you came from, and All is the page's own default. Like the rest of the
+	app the address is the state, so back and reload land where you were.
+	(`/code?view=schedules` redirects here.)
 
 	The list shows what a person decides by: where it runs ("machine ›
 	workspace › new session | session"), when next (in their own time), how
@@ -17,6 +20,7 @@
 	import { page } from "$app/state";
 	import { base } from "$app/paths";
 	import { goto } from "$app/navigation";
+	import { setScheduleAttention } from "$lib/stores/scheduleAttention.svelte";
 	import ScheduleCreatedBy from "./ScheduleCreatedBy.svelte";
 	import IconTime from "~icons/carbon/time";
 	import IconAdd from "~icons/carbon/add";
@@ -54,29 +58,42 @@
 	let notice = $state<{ id: string; run: ScheduleRunView } | null>(null);
 	let confirmDelete = $state<ScheduleView | null>(null);
 
-	// The same pane lives in the /code panel (`?view=schedules`) and, for everyone, at /schedules.
-	interface Props {
-		standalone?: boolean;
-	}
-	let { standalone = false }: Props = $props();
-	// Each area lists and makes its own kind: /schedules the chat ones, /code the agent ones.
-	const kind = $derived<"agent" | "chat">(standalone ? "chat" : "agent");
-	const shown = $derived(schedules.filter((x) => x.kind === kind));
+	// Which kinds this deployment offers this user. The filter only exists when
+	// there is more than one to choose between.
+	const chatOn = $derived(page.data.chatSchedulesEnabled === true);
+	const agentOn = $derived(page.data.codeSchedulesEnabled === true);
+	const filterShown = $derived(chatOn && agentOn);
+	const requested = $derived(params.get("kind"));
+	const filter = $derived<"all" | "chat" | "agent">(
+		!filterShown
+			? agentOn && !chatOn
+				? "agent"
+				: chatOn && !agentOn
+					? "chat"
+					: "all"
+			: requested === "chat" || requested === "agent"
+				? requested
+				: "all"
+	);
+	const shown = $derived(schedules.filter((x) => filter === "all" || x.kind === filter));
+	// A new schedule is made as the filtered kind; under All the editor asks.
+	const kind = $derived<"agent" | "chat" | undefined>(filter === "all" ? undefined : filter);
 
 	const address = (extra: Record<string, string> = {}) => {
-		if (standalone) {
-			const query = new URLSearchParams(extra).toString();
-			return `${base}/schedules${query ? `?${query}` : ""}`;
-		}
-		const query = new URLSearchParams({ view: "schedules", ...extra });
-		return `${base}/code?${query}`;
+		const query = new URLSearchParams(filter === "all" ? {} : { kind: filter });
+		for (const [key, value] of Object.entries(extra)) query.set(key, value);
+		const text = query.toString();
+		return `${base}/schedules${text ? `?${text}` : ""}`;
 	};
+	const filterHref = (next: "all" | "chat" | "agent") =>
+		`${base}/schedules${next === "all" ? "" : `?kind=${next}`}`;
 	const toList = () => void goto(address());
 
 	async function load() {
 		try {
 			const answer = await listSchedules();
 			schedules = answer.schedules;
+			setScheduleAttention(answer.schedules);
 			limit = answer.limit;
 			failure = null;
 		} catch (err) {
@@ -171,9 +188,38 @@
 				<div class={s.HEADER}>
 					<h2 class={s.TITLE}>{m["code.schedules.title"]()}</h2>
 					<p class={s.SUBTITLE}>
-						{kind === "chat" ? m["code.schedules.subtitle_chat"]() : m["code.schedules.subtitle"]()}
+						{filter === "chat"
+							? m["code.schedules.subtitle_chat"]()
+							: filter === "agent"
+								? m["code.schedules.subtitle"]()
+								: m["code.schedules.subtitle_all"]()}
 					</p>
 				</div>
+
+				{#if filterShown}
+					<!-- The same gray pill the sidebar's Chats | Agents switch uses. Links, not
+					     buttons: the filter is the address, so it survives reload and back. -->
+					<div
+						class="mb-4 flex w-fit rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800"
+						role="group"
+						aria-label={m["code.schedules.filter_label"]()}
+						data-testid="schedules-filter"
+					>
+						{#each [{ key: "all", label: m["code.schedules.filter_all"]() }, { key: "chat", label: m["code.schedules.filter_chats"]() }, { key: "agent", label: m["code.schedules.filter_agents"]() }] as const as option (option.key)}
+							<a
+								href={filterHref(option.key)}
+								data-testid="schedules-filter-{option.key}"
+								aria-current={filter === option.key ? "true" : undefined}
+								class="rounded-md px-3 py-1 text-xs font-medium transition-colors {filter ===
+								option.key
+									? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
+									: 'text-ink-muted hover:text-ink'}"
+							>
+								{option.label}
+							</a>
+						{/each}
+					</div>
+				{/if}
 
 				<div class="{s.STRIP} {shown.length ? s.STRIP_ACTIVE : s.STRIP_IDLE}">
 					<div class="flex items-center gap-3">
@@ -209,9 +255,11 @@
 						<IconTime class={s.EMPTY_ICON} />
 						<p class={s.EMPTY_TITLE}>{m["code.schedules.empty_title"]()}</p>
 						<p class="{s.EMPTY_DETAIL} text-center">
-							{kind === "chat"
+							{filter === "chat"
 								? m["code.schedules.empty_detail_chat"]()
-								: m["code.schedules.empty_detail"]()}
+								: filter === "agent"
+									? m["code.schedules.empty_detail"]()
+									: m["code.schedules.empty_detail_all"]()}
 						</p>
 						<a href={address({ new: "1" })} class={s.PRIMARY}>
 							<IconAdd class="size-4" />
@@ -229,7 +277,17 @@
 								<div class={s.CARD_BODY}>
 									<div class="flex items-start justify-between gap-3">
 										<div class="min-w-0">
-											<p class="{s.CARD_TITLE} break-words !whitespace-normal">{schedule.name}</p>
+											<p class="{s.CARD_TITLE} break-words !whitespace-normal">
+												{schedule.name}
+												<span
+													class="ml-1.5 align-middle {s.PILL} {s.PILL_TONES.neutral}"
+													data-testid="schedule-kind"
+												>
+													{schedule.kind === "chat"
+														? m["code.schedules.kind_chat"]()
+														: m["code.schedules.kind_agent"]()}
+												</span>
+											</p>
 											<p class="text-sm break-words text-ink-muted" data-testid="schedule-target">
 												{schedule.targetLabel}
 											</p>
@@ -267,9 +325,13 @@
 										<div class="min-w-0">
 											<dt class="text-ink-faint">{m["code.schedules.next_run"]()}</dt>
 											<dd class="text-ink" data-testid="next-run">
-												{schedule.enabled
-													? formatWhen(schedule.nextRunAt)
-													: m["code.schedules.off"]()}
+												{#if schedule.enabled}
+													<!-- In the schedule's own zone, named: the browser's zone may differ. -->
+													{formatWhen(schedule.nextRunAt, schedule.timezone)}
+													<span class="text-ink-muted">· {schedule.timezone}</span>
+												{:else}
+													{m["code.schedules.off"]()}
+												{/if}
 											</dd>
 										</div>
 										<div class="min-w-0">
@@ -283,7 +345,9 @@
 														{runStatusLabel(schedule.lastStatus)}
 													</span>
 													{#if schedule.lastRunAt}
-														<span class="text-ink-muted">{formatWhen(schedule.lastRunAt)}</span>
+														<span class="text-ink-muted"
+															>{formatWhen(schedule.lastRunAt, schedule.timezone)}</span
+														>
 													{/if}
 												{:else}
 													<span class="text-ink-muted">{m["code.schedules.never"]()}</span>

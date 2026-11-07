@@ -10,6 +10,13 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import { sendElicitationAnswer } from "$lib/utils/sendElicitationAnswer";
+	import {
+		CONFIRM_ALWAYS_TAGS,
+		RISK_LABELS,
+		summarizeApproval,
+		type RiskTag,
+	} from "$lib/utils/approvalSummary";
+	import type { PermissionClass } from "$lib/types/machineProtocol";
 	import { recurrenceText } from "$lib/utils/scheduleFormat";
 	import type { Recurrence } from "$lib/types/Schedule";
 	import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
@@ -90,12 +97,16 @@
 		if (expiresAt === undefined) return "";
 		const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
 		if (seconds >= 3_600)
-			return m["chat.approval.hours_left"]({ count: Math.floor(seconds / 3_600) });
-		if (seconds >= 120) return m["chat.approval.minutes_left"]({ count: Math.floor(seconds / 60) });
-		return m["chat.approval.seconds_left"]({ count: seconds });
+			return m["chat.approval.wait_hours"]({ count: Math.floor(seconds / 3_600) });
+		if (seconds >= 120) return m["chat.approval.wait_minutes"]({ count: Math.floor(seconds / 60) });
+		return m["chat.approval.wait_seconds"]({ count: seconds });
 	});
 
 	let showArgs = $state(false);
+	/** Open card: the raw command or JSON behind "Show details". */
+	let showDetails = $state(false);
+	/** A risky "always allow" asks once more before it is sent. */
+	let confirmingAlways = $state(false);
 
 	/**
 	 * Who is asking: a subagent's approval carries the child's session (set
@@ -299,6 +310,43 @@
 	});
 	const shownFacts = $derived(galopin ? galopinFacts : scheduleFacts);
 
+	/** Plain-words title and risk tags: only for an ordinary tool ask, never for
+	 * galopin's own or a schedule proposal, which already read as facts. */
+	const summary = $derived(
+		toolApproval && !galopin && !proposesSchedule
+			? summarizeApproval({
+					tool: toolApproval.tool,
+					args: toolApproval.args ?? {},
+					class: (request.permissionClass as PermissionClass | undefined) ?? null,
+					readOnly: request.readOnly ?? null,
+					chat: onanswer === undefined,
+				})
+			: null
+	);
+	const needsAlwaysConfirm = $derived(
+		summary?.tags.some((tag: RiskTag) => CONFIRM_ALWAYS_TAGS.has(tag)) ?? false
+	);
+	const TAG_TONES: Record<RiskTag, string> = {
+		readonly: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
+		changes: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+		runs: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+		connector: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+		agents: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+		deletes: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+		network: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+		secrets: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+		outside: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+	};
+
+	function chooseAlways() {
+		if (needsAlwaysConfirm && !confirmingAlways) {
+			confirmingAlways = true;
+			return;
+		}
+		confirmingAlways = false;
+		void send("accept", onanswer ? "always" : "conversation");
+	}
+
 	const argsJson = $derived.by(() => {
 		if (!toolApproval) return "";
 		try {
@@ -369,20 +417,24 @@
 			class="rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-700 dark:bg-gray-800/40"
 		>
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-				<span class="text-sm font-medium text-gray-700 dark:text-gray-200"
+				<span
+					class="min-w-0 text-sm font-medium break-words text-gray-800 dark:text-gray-100"
+					data-testid="approval-title"
 					>{#if subagentLabel}{subagentLabel} ·
-					{/if}{galopin
-						? m["chat.approval.agent_action"]()
-						: proposesSchedule
-							? m["chat.approval.schedule.title"]()
-							: m["chat.approval.tool_approval"]()}</span
+					{/if}{summary
+						? summary.title
+						: galopin
+							? m["chat.approval.agent_action"]()
+							: m["chat.approval.schedule.title"]()}</span
 				>
-				<span class="text-xs text-gray-500 dark:text-gray-400">
-					<Rich
-						parts={m["chat.approval.wants_to_call"].parts({ tool: toolApproval.tool })}
-						tags={{ code }}
-					/>
-				</span>
+				{#if !summary}
+					<span class="text-xs text-gray-500 dark:text-gray-400">
+						<Rich
+							parts={m["chat.approval.wants_to_call"].parts({ tool: toolApproval.tool })}
+							tags={{ code }}
+						/>
+					</span>
+				{/if}
 				{#if firstTurnChip}
 					<span
 						class="{s.PILL} {s.PILL_TONES.warn}"
@@ -390,12 +442,32 @@
 						title={firstTurnHint()}>{firstTurnLabel()}</span
 					>
 				{/if}
-				{#if expiresAt !== undefined}
-					<span class="ml-auto text-xs text-gray-400 tabular-nums dark:text-gray-500">
-						{timeLeft}
-					</span>
-				{/if}
 			</div>
+
+			{#if summary && summary.tags.length > 0}
+				<ul class="mt-2 flex flex-wrap gap-1.5" data-testid="risk-tags">
+					{#each summary.tags as tag (tag)}
+						<li class="rounded-full px-2 py-0.5 text-xs font-medium {TAG_TONES[tag]}">
+							{RISK_LABELS[tag]()}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+
+			{#if request.reviewNote}
+				<p class="mt-2 text-sm text-gray-500 dark:text-gray-400" data-testid="review-note">
+					{request.reviewNote}
+				</p>
+			{/if}
+
+			{#if expiresAt !== undefined}
+				<p
+					class="mt-2 text-xs text-gray-500 tabular-nums dark:text-gray-400"
+					data-testid="approval-timer"
+				>
+					{timeLeft}
+				</p>
+			{/if}
 
 			{#if (galopin || proposesSchedule) && shownFacts.length > 0}
 				<dl
@@ -417,50 +489,92 @@
 					{/each}
 				</dl>
 			{:else}
-				<pre
-					class="mt-3 max-h-48 overflow-auto rounded-lg bg-gray-100 p-2 font-mono text-xs whitespace-pre-wrap text-gray-600 dark:bg-gray-800/70 dark:text-gray-300">{argsJson}</pre>
-			{/if}
-
-			{#if request.reviewNote}
-				<p class="mt-3 text-xs text-gray-500 dark:text-gray-400" data-testid="review-note">
-					{request.reviewNote}
-				</p>
+				<button
+					type="button"
+					class="mt-3 inline-flex min-h-8 items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+					aria-expanded={showDetails}
+					onclick={() => (showDetails = !showDetails)}
+				>
+					<CarbonChevronRight
+						class="size-3.5 transition-transform {showDetails ? 'rotate-90' : ''}"
+					/>
+					{showDetails ? m["chat.approval.details_hide"]() : m["chat.approval.details_show"]()}
+				</button>
+				{#if showDetails}
+					<div class="mt-1 space-y-1" data-testid="approval-details">
+						<div class="text-xs text-gray-500 dark:text-gray-400">
+							<Rich
+								parts={m["chat.approval.wants_to_call"].parts({ tool: toolApproval.tool })}
+								tags={{ code }}
+							/>
+						</div>
+						<pre
+							class="max-h-48 overflow-auto rounded-lg bg-gray-100 p-2 font-mono text-xs whitespace-pre-wrap text-gray-600 dark:bg-gray-800/70 dark:text-gray-300">{summary?.detail &&
+							toolApproval.tool.toLowerCase() === "bash"
+								? summary.detail
+								: argsJson}</pre>
+					</div>
+				{/if}
 			{/if}
 
 			{#if error}
 				<p class="mt-3 text-xs text-red-600 dark:text-red-400">{error}</p>
 			{/if}
 
-			<div class="mt-4 flex flex-wrap gap-2">
-				<button
-					type="button"
-					onclick={() => send("accept", onanswer ? undefined : "once")}
-					disabled={submitting !== null}
-					class="rounded-lg bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
+			{#if confirmingAlways}
+				<div
+					class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-100"
+					role="alert"
 				>
-					<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
-					{proposesSchedule ? m["chat.approval.schedule.create"]() : approveLabel}
-				</button>
-				{#if !galopin && !onceOnly && !proposesSchedule}
+					<p>{m["chat.approval.always_confirm"]()}</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						<button
+							type="button"
+							onclick={chooseAlways}
+							disabled={submitting !== null}
+							class="min-h-9 rounded-lg bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-200 dark:text-gray-900"
+							>{m["chat.approval.always_confirm_yes"]()}</button
+						>
+						<button
+							type="button"
+							onclick={() => (confirmingAlways = false)}
+							class="min-h-9 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+							>{m["chat.approval.always_confirm_no"]()}</button
+						>
+					</div>
+				</div>
+			{:else}
+				<div class="mt-4 flex flex-wrap items-center gap-2">
 					<button
 						type="button"
-						onclick={() => send("accept", onanswer ? "always" : "conversation")}
+						onclick={() => send("accept", onanswer ? undefined : "once")}
 						disabled={submitting !== null}
-						class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+						class="min-h-9 rounded-lg bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
 					>
-						{onanswer ? alwaysLabel : m["chat.approval.allow_conversation"]()}
+						<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
+						{proposesSchedule ? m["chat.approval.schedule.create"]() : approveLabel}
 					</button>
-				{/if}
-				<button
-					type="button"
-					onclick={() => send("decline")}
-					disabled={submitting !== null}
-					class="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-700"
-				>
-					<CarbonClose class="mr-1 inline size-3.5 align-text-bottom" />
-					{m["chat.approval.deny"]()}
-				</button>
-			</div>
+					<button
+						type="button"
+						onclick={() => send("decline")}
+						disabled={submitting !== null}
+						class="min-h-9 rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/20"
+					>
+						<CarbonClose class="mr-1 inline size-3.5 align-text-bottom" />
+						{m["chat.approval.deny"]()}
+					</button>
+					{#if !galopin && !onceOnly && !proposesSchedule}
+						<button
+							type="button"
+							onclick={chooseAlways}
+							disabled={submitting !== null}
+							class="min-h-9 px-1 text-sm text-gray-600 underline decoration-gray-300 underline-offset-2 hover:text-gray-900 disabled:opacity-50 dark:text-gray-300 dark:hover:text-white"
+						>
+							{onanswer ? alwaysLabel : m["chat.approval.allow_conversation"]()}
+						</button>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	</BlockWrapper>
 {/if}

@@ -547,3 +547,35 @@ describe("a slash command's echo", () => {
 		expect(baseElement.textContent).toContain("Expanded command");
 	});
 });
+
+describe("a turn that died on the stream", () => {
+	const errorUpdate = {
+		type: "status",
+		status: "error",
+		message: "Your monthly allowance of €10.00 is used up. It resets on 1 December.",
+	};
+
+	it("shows the reason where the answer would be, with no empty bubble", () => {
+		const { baseElement } = render(ChatMessage, {
+			message: { id: "e1", from: "assistant", content: "", children: [], updates: [errorUpdate] },
+			loading: false,
+			isLast: true,
+			readOnly: false,
+		} as never);
+		const reason = baseElement.querySelector('[data-testid="turn-failed-reason"]');
+		expect(reason?.textContent).toContain("Your monthly allowance of €10.00 is used up.");
+		expect(baseElement.querySelector('[data-message-role="assistant"] .rounded-2xl')).toBeNull();
+	});
+});
+
+describe("a turn that is only a pending question", () => {
+	it("stays out of the thread while the question card is open", () => {
+		const { baseElement } = mount([call("u1")]);
+		expect(baseElement.querySelector('[data-message-role="assistant"]')).toBeNull();
+	});
+
+	it("comes back once the question is answered", () => {
+		const { baseElement } = mount([call("u1"), result("u1")]);
+		expect(baseElement.querySelector('[data-message-role="assistant"]')).not.toBeNull();
+	});
+});

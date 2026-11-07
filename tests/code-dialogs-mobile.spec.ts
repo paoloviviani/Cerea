@@ -66,7 +66,7 @@ async function openAgentsPanel(page: Page) {
 
 async function openAgentDialog(page: Page) {
 	await openAgentsPanel(page);
-	await visibleTreeButton(page, "Start a coding session in this workspace").click();
+	await visibleTreeButton(page, "Start a session in this workspace").click();
 	const dialog = page.getByRole("dialog");
 	await expect(dialog).toBeVisible();
 	// The provider list has landed (a machine's one backend is named, not
@@ -125,7 +125,7 @@ test.describe("the new-agent dialog on a phone", () => {
 			expect(overflow).toBeLessThanOrEqual(0);
 
 			// The posture pills render whole, inside the viewport.
-			for (const label of ["Plan", "Build"]) {
+			for (const label of ["Plan", "Ask"]) {
 				expectInsideViewport(await boxOf(dialog.getByRole("button", { name: label })), width);
 			}
 
@@ -184,7 +184,7 @@ test.describe("the new-agent dialog after a failed create", () => {
 
 test.describe("the pair dialog's setup commands", () => {
 	test.beforeEach(async ({ page }) => {
-		// No devices yet: the tree's empty state offers "Pair a device" itself.
+		// No devices yet: the tree's empty state offers "Pair a computer" itself.
 		deviceRows = [];
 		await stubCodePanel(page);
 		await page.setViewportSize({ width: 360, height: 740 });
@@ -194,7 +194,7 @@ test.describe("the pair dialog's setup commands", () => {
 		page,
 	}) => {
 		await openAgentsPanel(page);
-		await visibleTreeButton(page, "Pair a new device").click();
+		await visibleTreeButton(page, "Pair a new computer").click();
 		const dialog = page.getByRole("dialog");
 		await expect(dialog).toBeVisible();
 
@@ -210,7 +210,7 @@ test.describe("the pair dialog's setup commands", () => {
 			`galopin enroll \\\n  --issuer 'http://127.0.0.1:9/authelia' \\\n  --gateway '${E2E_APP_ORIGIN}' \\\n  --cerea '${E2E_APP_URL}'`
 		);
 		await expect(commandBlock).toContainText("galopin run");
-		await expect(dialog.getByText("No machine has checked in yet.")).toBeVisible();
+		await expect(dialog.getByText("No computer has checked in yet.")).toBeVisible();
 
 		// The commands never clip on a phone.
 		const overflow = await dialog.evaluate((el) => el.scrollWidth - el.clientWidth);
@@ -251,7 +251,7 @@ test.describe("the pair dialog's setup commands", () => {
 		page,
 	}) => {
 		await openAgentsPanel(page);
-		await visibleTreeButton(page, "Pair a new device").click();
+		await visibleTreeButton(page, "Pair a new computer").click();
 		const dialog = page.getByRole("dialog");
 		await expect(dialog).toBeVisible();
 

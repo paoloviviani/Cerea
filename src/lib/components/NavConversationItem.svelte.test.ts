@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import NavConversationItem from "./NavConversationItem.svelte";
 import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
@@ -28,5 +28,38 @@ describe("NavConversationItem and scheduled runs", () => {
 			context,
 		});
 		expect(read.getByTestId("unread-dot").elements()).toHaveLength(0);
+	});
+});
+
+describe("NavConversationItem Regenerate title", () => {
+	async function openMenu(props: Record<string, unknown>) {
+		const screen = renderWithApp(NavConversationItem, { conv, ...props } as never, {
+			page: { params: { id: "other" }, data: {} },
+			context,
+		});
+		await screen.getByRole("button", { name: "Chat actions" }).click();
+		return screen;
+	}
+
+	it("is in the menu, and asks for the chat's title to be written again", async () => {
+		const onregenerateTitle = vi.fn();
+		const screen = await openMenu({ onregenerateTitle });
+		await screen.getByRole("menuitem", { name: "Regenerate title" }).click();
+		expect(onregenerateTitle).toHaveBeenCalledWith("c1");
+	});
+
+	it("is not offered on a title the user typed", async () => {
+		const screen = await openMenu({
+			conv: { ...conv, titleByUser: true },
+			onregenerateTitle: vi.fn(),
+		});
+		await expect.element(screen.getByRole("menuitem", { name: "Rename" })).toBeVisible();
+		expect(screen.getByRole("menuitem", { name: "Regenerate title" }).elements()).toHaveLength(0);
+	});
+
+	it("is not offered where nothing can act on it", async () => {
+		const screen = await openMenu({});
+		await expect.element(screen.getByRole("menuitem", { name: "Rename" })).toBeVisible();
+		expect(screen.getByRole("menuitem", { name: "Regenerate title" }).elements()).toHaveLength(0);
 	});
 });

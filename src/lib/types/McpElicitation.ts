@@ -94,6 +94,10 @@ export interface ElicitationRequestPayload {
 	childTitle?: string | null;
 	/** Why the reviewer did not settle this ask (ADR 0107): shown on the card. */
 	reviewNote?: string;
+	/** The machine's permission class for an agent ask (ADR 0107): the card's risk tags read it. */
+	permissionClass?: string;
+	/** The machine's read-only stamp on a bash ask; null on the wire is absent. */
+	readOnly?: boolean | null;
 }
 
 /** In the database because the pod serving the answer need not be the one waiting on it. */

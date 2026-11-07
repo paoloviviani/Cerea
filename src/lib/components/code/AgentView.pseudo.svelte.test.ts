@@ -88,7 +88,7 @@ describe("The agent screen, in the pseudo-locale", () => {
 				/Build it/,
 				/^opencode$/,
 				// Shared chat components, converted with the chat area.
-				"Conversation messages",
+				"Chat messages",
 				/dictation|speech recognition/,
 			])
 		).toEqual([]);

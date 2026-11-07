@@ -6,14 +6,13 @@
 	interface Props {
 		classNames?: string;
 		/**
-		 * `small` renders the pixel-art ridge — the mark designed for small
-		 * boxes — instead of the vector outline. The vector's charcoal ink
-		 * downscales to a grey smear below ~48px and no dilate radius fixes
-		 * both readings at once; the 24x8 pixel grid (the verbatim
-		 * makebead-24x8.png in brand/) is crisp with full pixel coverage at
-		 * every integer scale. The ridge line is two grid cells thick in one
-		 * solid ink (24x9), and the sidebar shows it alone, without the app
-		 * name beside it, at 3x (27px tall).
+		 * `small` renders the thick ridge (brand/logo_thick_*.svg) — the same
+		 * hand-drawn line as the default, drawn with a heavy stroke so it holds
+		 * up in a small box: at the sidebar's 27px height (81px wide) the line is
+		 * still a clear, continuous ridge in both themes, where the thin outline
+		 * goes to a grey smear. The sidebar shows it alone, without the app name
+		 * beside it. It replaced the pixel-art mark (logo-small*.svg, kept for
+		 * the favicon's lineage) in 2026-11.
 		 */
 		variant?: "default" | "small";
 	}
@@ -23,10 +22,10 @@
 	// Bump when any served logo file changes: the assets carry no
 	// Cache-Control, so browsers heuristic-cache them for hours and a swap
 	// otherwise keeps showing the old drawing to returning visitors.
-	const ASSET_VERSION = "8";
+	const ASSET_VERSION = "10";
 
-	const file = $derived(variant === "small" ? "logo-small" : "logo");
-	const w = $derived(variant === "small" ? 72 : 337);
+	const file = $derived(variant === "small" ? "logo-thick" : "logo");
+	const w = $derived(variant === "small" ? 81 : 337);
 	const h = $derived(variant === "small" ? 27 : 112);
 </script>
 
@@ -38,7 +37,7 @@
 	variant every color token uses (no `invert` filter — that would land the
 	white variant at #e1e1e1, not the white it was drawn in). Both load as
 	<img>, so the `thicken` filter id each file defines stays inside its own
-	document. The pixel-art small variant is theme-switched the same way.
+	document. The thick small variant is theme-switched the same way.
 	The filled-silhouette detour and earlier outlines stay archived under
 	brand/ and in git history.
 -->

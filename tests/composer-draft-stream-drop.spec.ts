@@ -64,7 +64,7 @@ test("a reply stream cut mid-way leaves the composer empty, not holding the sent
 	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
 	const conversationId = page.url().split("/").pop() ?? "";
 
-	await expect(page.getByLabel("Conversation messages").getByText("this was sent")).toBeVisible();
+	await expect(page.getByLabel("Chat messages").getByText("this was sent")).toBeVisible();
 	// The cut really happened, and the turn's loading state ended after it.
 	await page.waitForFunction(() => (window as unknown as { __cut?: boolean }).__cut === true);
 	await expect(page.getByRole("button", { name: "Stop generating" })).toBeHidden();

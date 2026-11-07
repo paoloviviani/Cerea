@@ -71,7 +71,9 @@ describe("shared components, in the pseudo-locale", () => {
 	});
 
 	it("the sidebar footer", async () => {
-		renderWithApp(NavFooter, { user: { username: "alice" } } as never);
+		const footer = renderWithApp(NavFooter, { user: { username: "alice" } } as never);
+		// The menu's items are the footer's words: open it.
+		await footer.getByTestId("user-menu-button").click();
 		hasStray();
 	});
 });

@@ -163,7 +163,7 @@ export async function setSessionConnectorKeys(
 	}
 	const device = await ownedDevice(userId, deviceId);
 	if (!device || device.status !== "paired") {
-		throw new SessionConnectorsError("That machine is not one of yours.");
+		throw new SessionConnectorsError("That computer is not one of yours.");
 	}
 	const allowed = new Set(
 		(await connectorOptions(userId, deviceId)).filter((o) => !o.unavailable).map((o) => o.key)

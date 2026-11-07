@@ -1343,16 +1343,16 @@
 				>
 			</a>
 		{/if}
-		<div class="flex items-center gap-2">
+		<div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
 			<IconCode class="size-4 shrink-0 text-ink-muted" />
 			{#if workspaceName}
 				<span class="min-w-0 truncate text-sm font-medium text-ink" title={workspace?.path}>
 					{workspaceName}
 				</span>
 			{/if}
-			<span class="min-w-0 flex-1"></span>
+			<span class="min-w-0 flex-1 max-sm:hidden"></span>
 			{#if agent}
-				<span class="{s.PILL} {s.PILL_TONES.neutral}">{agent.provider}</span>
+				<span class="{s.PILL} {s.PILL_TONES.neutral} max-sm:ml-6">{agent.provider}</span>
 				<span class="{s.PILL} {s.PILL_TONES[stateTone(shownState)]}"
 					>{STATE_LABELS[shownState]()}</span
 				>
@@ -1590,7 +1590,6 @@
 					{agent}
 					permissionExceptions={permissionRules?.savedApprovals.length ?? 0}
 					{autoApproval}
-					policy={codeDeviceList.devices.find((d) => d.id === deviceId)?.policy}
 					device={codeDeviceList.devices.find((d) => d.id === deviceId)}
 					{modes}
 					{modesFailure}

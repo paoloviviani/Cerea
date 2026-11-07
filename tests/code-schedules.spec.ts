@@ -38,14 +38,14 @@ async function pairAndStartSession(page: Page, name: string) {
 	await page.goto(`${E2E_APP_BASE}/code`);
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
 	await expect(page.getByText(name)).toBeVisible({ timeout: 15_000 });
-	await page.getByRole("button", { name: "Confirm this machine" }).click();
-	await page.getByRole("button", { name: "Add a workspace to this device" }).click();
-	await page.getByLabel("Directory on the machine").fill("/repo");
+	await page.getByRole("button", { name: "Confirm this computer" }).click();
+	await page.getByRole("button", { name: "Add a workspace to this computer" }).click();
+	await page.getByLabel("Directory on the computer").fill("/repo");
 	await page.getByLabel("Title (optional)").fill("repo");
 	await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
 	await expect(page.getByText("repo", { exact: true })).toBeVisible();
-	await page.getByRole("button", { name: "Start a coding session in this workspace" }).click();
-	await page.getByRole("button", { name: "Build" }).click();
+	await page.getByRole("button", { name: "Start a session in this workspace" }).click();
+	await page.getByRole("button", { name: "Ask", exact: true }).click();
 	await page.getByRole("button", { name: "Create agent" }).click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 }
@@ -94,8 +94,8 @@ test.describe("scheduled actions, hermetic", () => {
 		// The editor opens with machine, workspace and session prefilled.
 		const editor = page.getByTestId("schedule-editor");
 		await expect(editor).toBeVisible();
-		await expect(editor.getByLabel("1. Machine")).toHaveValue(/.+/);
-		await expect(editor.getByLabel("1. Machine").locator("option:checked")).toContainText(name);
+		await expect(editor.getByLabel("1. Computer")).toHaveValue(/.+/);
+		await expect(editor.getByLabel("1. Computer").locator("option:checked")).toContainText(name);
 		await expect(editor.getByLabel("2. Workspace").locator("option:checked")).toHaveText("repo");
 		const sessionSelect = editor.getByLabel("3. Session");
 		await expect(sessionSelect.locator("option:checked")).not.toHaveText("A new session each run");
@@ -171,7 +171,11 @@ test.describe("scheduled actions, hermetic", () => {
 		);
 
 		// The session the schedule started carries the schedule's marker in the tree.
+		// The old address redirects to the one Schedules page, on its agents filter;
+		// the sidebar is on Chats there until the switch is flipped.
 		await page.goto(`${E2E_APP_BASE}/code?view=schedules`);
+		await expect(page).toHaveURL(/\/schedules\?kind=agent/);
+		await page.getByTestId("sidebar-view-agents").first().click();
 		await expect(page.getByTestId("scheduled-badge").first()).toBeAttached();
 	});
 
@@ -257,14 +261,14 @@ test.describe("scheduled actions, hermetic", () => {
 
 		await page.goto(`${E2E_APP_BASE}/code?view=schedules&new=1`);
 		const editor = page.getByTestId("schedule-editor");
-		await editor.getByLabel("1. Machine").selectOption({ label: `${name} · online` });
+		await editor.getByLabel("1. Computer").selectOption({ label: `${name} · online` });
 		await expect(
 			editor.getByLabel("2. Workspace").locator("option", { hasText: "repo" })
 		).toBeAttached();
 		await editor.getByLabel("2. Workspace").selectOption({ label: "New workspace…" });
 		await editor.getByLabel("Name").fill("Fresh checkout");
 		await editor.getByLabel("Prompt").fill("pull and build");
-		await editor.getByLabel("Directory on the machine").fill("/outside/roots");
+		await editor.getByLabel("Directory on the computer").fill("/outside/roots");
 
 		// The machine refuses (workspaceRoots): nothing is saved, the reason is inline.
 		fake.onOp("workspace.create", () => {
@@ -289,7 +293,7 @@ test.describe("scheduled actions, hermetic", () => {
 			fake?.model.workspaces.push(workspace);
 			return { workspace };
 		});
-		await editor.getByLabel("Directory on the machine").fill("/work/fresh");
+		await editor.getByLabel("Directory on the computer").fill("/work/fresh");
 		await editor.getByLabel("Title (optional)").fill("fresh");
 		await editor.getByRole("button", { name: "Create schedule" }).click();
 		const row = page.getByTestId("schedule-row").filter({ hasText: "Fresh checkout" });
@@ -318,7 +322,7 @@ test.describe("scheduled actions, hermetic", () => {
 	async function newScheduleOn(page: Page, name: string, scheduleName: string) {
 		await page.goto(`${E2E_APP_BASE}/code?view=schedules&new=1`);
 		const editor = page.getByTestId("schedule-editor");
-		await editor.getByLabel("1. Machine").selectOption({ label: `${name} · online` });
+		await editor.getByLabel("1. Computer").selectOption({ label: `${name} · online` });
 		await expect(
 			editor.getByLabel("2. Workspace").locator("option", { hasText: "repo" })
 		).toBeAttached();
@@ -410,7 +414,7 @@ test.describe("scheduled actions, hermetic", () => {
 
 		await row.getByRole("link", { name: "History" }).click();
 		await expect(page.getByTestId("run-row").first()).toContainText(
-			"this machine's galopin is too old to grant coordination; update it"
+			"this computer's galopin is too old to grant coordination; update it"
 		);
 	});
 

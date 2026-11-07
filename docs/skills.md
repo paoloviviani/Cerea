@@ -33,23 +33,24 @@ downloadable artifacts. The fallback instructions sit in a clearly labelled last
 section of each skill and say they apply only when the tools are absent. The
 honest limits are listed with each skill.
 
-| Skill              | What it is for                                                      |
-| ------------------ | ------------------------------------------------------------------- |
-| `word`             | Creating and editing Word documents (document tools)                |
-| `excel`            | Workbooks with formulas, formatting and native charts               |
-| `pdf`              | Creating PDF documents (document tools)                             |
-| `pdf-tools`        | Working with existing PDFs: merge, split, forms, encryption         |
-| `powerpoint`       | Decks on real layouts, with backgrounds and shapes (document tools) |
-| `charts`           | Publication-minded figures with matplotlib and seaborn              |
-| `data-analysis`    | Profiling data and testing hypotheses, with the caveats stated      |
-| `business-writing` | Internal communications in the usual formats                        |
-| `themes`           | Colour and font themes applied across documents and decks           |
+| Skill              | What it is for                                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `word`             | Creating and editing Word documents (document tools)                                                                          |
+| `excel`            | Workbooks with formulas, formatting and native charts                                                                         |
+| `pdf`              | Creating PDF documents (document tools)                                                                                       |
+| `pdf-tools`        | Working with existing PDFs: merge, split, forms, encryption                                                                   |
+| `powerpoint`       | Decks on real layouts, with backgrounds and shapes (document tools)                                                           |
+| `charts`           | Publication-minded figures with matplotlib and seaborn                                                                        |
+| `data-analysis`    | Profiling data and testing hypotheses, with the caveats stated                                                                |
+| `business-writing` | Internal communications in the usual formats                                                                                  |
+| `themes`           | Colour and font themes applied across documents and decks                                                                     |
+| `weather`          | Current weather, forecasts, rain totals and air quality for any place, from a free service that needs no key (uses web fetch) |
 
 Three more built-ins handle data shaping: `csv-shaping`, `json-shaping` and
 `report-writing`. A last one, `cerea`, answers "what can you do?", "what is
 Cerea?" and "how do I use this?": it describes the assistant's capabilities for
 users and administrators, lists the tools and connectors actually available in
-the conversation, and points to these documentation pages.
+the chat, and points to these documentation pages.
 
 ### word
 
@@ -141,7 +142,7 @@ observational data, and Bayesian methods are out of reach in the sandbox.
 
 3P updates, company newsletters, FAQ answers, status and leadership updates,
 incident reports — each with a bundled format guide the assistant follows.
-Every claim in the document traces to your conversation or a computed
+Every claim in the document traces to your chat or a computed
 result; nothing is invented.
 
 ### themes

@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import Logo from "$lib/components/icons/Logo.svelte";
 	import type { Model } from "$lib/types/Model";
+	import { m } from "$lib/paraglide/messages";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 
 	const publicConfig = usePublicConfig();
@@ -9,10 +10,29 @@
 	interface Props {
 		currentModel: Model;
 		onmessage?: (content: string) => void;
+		/**
+		 * The user's first name, when known. The subline greets them by it; with
+		 * none, it greets everyone alike.
+		 */
+		firstName?: string;
+		/**
+		 * A starter chip was picked. `send: false` means the text is a beginning
+		 * ("Help me plan ") that belongs in the composer for the user to finish.
+		 */
+		onstarter?: (text: string, send: boolean) => void;
+		/** Show the starter chips (an administrator's switch, off by default). */
+		showStarters?: boolean;
 		children?: import("svelte").Snippet;
 	}
 
-	let { currentModel: _currentModel, onmessage, children }: Props = $props();
+	let {
+		currentModel: _currentModel,
+		onmessage,
+		firstName = "",
+		showStarters = false,
+		onstarter,
+		children,
+	}: Props = $props();
 
 	$effect(() => {
 		// referenced to appease linter while UI blocks are commented out
@@ -63,6 +83,33 @@
 	// page load remounts) gets a new one. The name itself leads the
 	// rotation: it is one of the things the logo says, not a bystander, and
 	// it keeps the slot rendered even for a deployment with phrases off.
+	const starters = [
+		{
+			id: "draft",
+			label: m["chat.intro.starter.draft.label"](),
+			prompt: m["chat.intro.starter.draft.prompt"](),
+			send: false,
+		},
+		{
+			id: "analyse",
+			label: m["chat.intro.starter.analyse.label"](),
+			prompt: m["chat.intro.starter.analyse.prompt"](),
+			send: false,
+		},
+		{
+			id: "plan",
+			label: m["chat.intro.starter.plan.label"](),
+			prompt: m["chat.intro.starter.plan.prompt"](),
+			send: false,
+		},
+		{
+			id: "cerea",
+			label: m["chat.intro.starter.cerea.label"](),
+			prompt: m["chat.intro.starter.cerea.prompt"](),
+			send: true,
+		},
+	];
+
 	let phrase = $state("");
 	onMount(() => {
 		const rotation = [publicConfig.PUBLIC_APP_NAME, ...phrases];
@@ -87,6 +134,30 @@
 			{publicConfig.PUBLIC_APP_NAME}
 		{/if}
 	</div>
+	<!-- The plain line under the greeting: the phrase may be Piedmontese, this
+	     is the sentence that says what the page is for. -->
+	<p class="-mt-5 text-base text-ink-muted" data-testid="intro-subline">
+		{firstName ? m["chat.intro.subline_named"]({ name: firstName }) : m["chat.intro.subline"]()}
+	</p>
+	{#if showStarters}
+		<ul
+			class="flex flex-wrap items-center justify-center gap-2"
+			aria-label={m["chat.intro.starters_label"]()}
+		>
+			{#each starters as starter (starter.id)}
+				<li>
+					<button
+						type="button"
+						data-testid="starter-{starter.id}"
+						class="rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+						onclick={() => onstarter?.(starter.prompt, starter.send)}
+					>
+						{starter.label}
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{/if}
 	{@render children?.()}
 	<!-- <div class="lg:col-span-1">
 		<div>

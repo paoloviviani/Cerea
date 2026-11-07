@@ -17,20 +17,25 @@
 </script>
 
 <!--
-	The left panel: two trees, then three rows, then the footer.
+	The left panel, top to bottom: the logo, the Chats | Agents switch, the one
+	"New …" button that follows the switch, the list (two trees in Chats, the
+	machines tree in Agents), then the foot — Schedules, Workspace, and the user
+	row with its menu.
 
 	The split is the point. **Projects and Chats are trees**, because they have
-	contents worth expanding. **Workspace, Settings and Admin are rows**, because
-	each is one address and has no hierarchy — making branches of them was tried
-	and was worse, a disclosure triangle that revealed a list you then clicked to
+	contents worth expanding. **Schedules and Workspace are rows**, because each
+	is one address and has no hierarchy — making branches of them was tried and
+	was worse, a disclosure triangle that revealed a list you then clicked to
 	open the dialog anyway. Workspace is the one page that hosts the managers
-	(models, MCP servers, knowledge bases) as tabs; Models, Knowledge and MCP
-	Servers were three separate rows here until that page absorbed them.
+	(models, MCP servers, knowledge bases) as tabs. Settings and Admin are not
+	rows any more: they, with the quota summary, the Console link, the theme
+	switch, Reload and Sign out, live in the user menu (`nav/NavFooter.svelte`).
 
-	**The footer is static**: who is signed in, a theme switch and a sign-out
-	button, all inline. It replaced `UserMenu`, whose every affordance opened a
-	popup; what that menu offered is either a row above (Settings, Admin) or
-	lives in `nav/NavFooter.svelte`.
+	**The switch sits at the top** because it decides what everything under it
+	is: which list, and what "New" means (a chat, or an agent session). The
+	Schedules row is the same in both modes — one page for both kinds — and
+	carries a badge only when a run needs attention. "Needs you" is a badge on
+	the Agents half of the switch and nothing else: no pinned line.
 
 	Three decisions worth knowing.
 
@@ -61,8 +66,10 @@
 	import TreeBranch from "./nav/TreeBranch.svelte";
 	import TreeLeaf from "./nav/TreeLeaf.svelte";
 	import ProjectsBranch from "./nav/ProjectsBranch.svelte";
-	import { SIDEBAR_ITEM, SIDEBAR_ITEM_ACTIVE } from "./nav/sidebarItem";
 	import IconTime from "~icons/carbon/time";
+	import LucideLayoutDashboard from "~icons/lucide/layout-dashboard";
+	import NewAgentSession from "./code/NewAgentSession.svelte";
+	import { scheduleAttention, watchScheduleAttention } from "$lib/stores/scheduleAttention.svelte";
 	import NavFooter from "./nav/NavFooter.svelte";
 	import type { LayoutData } from "../../routes/$types";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
@@ -76,6 +83,7 @@
 	import CarbonChat from "~icons/carbon/chat";
 	import CarbonCode from "~icons/carbon/code";
 	import CarbonEdit from "~icons/carbon/edit";
+	import CarbonSettings from "~icons/carbon/settings";
 	import CodeNavTree from "./code/CodeNavTree.svelte";
 	import CodeReauthCard from "./code/CodeReauthCard.svelte";
 	import { codeNav } from "$lib/stores/codeNav.svelte";
@@ -86,6 +94,11 @@
 	/** The bottom block's rows, which are all the same shape. */
 	const ROW =
 		"flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-left text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700";
+	const ROW_ACTIVE =
+		"flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-left bg-gray-100 font-semibold text-gray-900 max-sm:h-10 dark:bg-gray-700 dark:text-white";
+
+	const NEW_BUTTON =
+		"flex h-8 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 text-sm font-medium text-gray-800 shadow-xs hover:bg-gray-50 max-sm:h-10 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700";
 
 	const publicConfig = usePublicConfig();
 	const client = useAPIClient();
@@ -100,6 +113,7 @@
 		p?: number;
 		ondeleteConversation?: (id: string) => void;
 		oneditConversationTitle?: (payload: { id: string; title: string }) => void;
+		onregenerateTitle?: (id: string) => void;
 	}
 
 	let {
@@ -110,6 +124,7 @@
 		p = $bindable(0),
 		ondeleteConversation,
 		oneditConversationTitle,
+		onregenerateTitle,
 	}: Props = $props();
 
 	let hasMore = $state(true);
@@ -227,114 +242,57 @@
 		codeAgentsEnabled && !codeReauth.required ? codeNeedsYou.pending.length : 0
 	);
 	const schedulesActive = $derived(page.url.pathname === `${base}/schedules`);
+	// Agents only exist where the deployment has them: with the switch gone, the
+	// list is always chats.
 	const effectiveView = $derived(
-		codeNav.view === "auto" ? (page.route.id === "/code" ? "agents" : "chats") : codeNav.view
+		!codeAgentsEnabled
+			? "chats"
+			: codeNav.view === "auto"
+				? page.route.id === "/code"
+					? "agents"
+					: "chats"
+				: codeNav.view
 	);
+	// One Schedules page for both kinds. The row opens it filtered to the mode
+	// you are in; the page's own filter changes that.
+	const schedulesOn = $derived(
+		signedIn && (page.data.chatSchedulesEnabled === true || page.data.codeSchedulesEnabled === true)
+	);
+	const schedulesHref = $derived(
+		page.data.chatSchedulesEnabled === true && page.data.codeSchedulesEnabled === true
+			? `${base}/schedules?kind=${effectiveView === "agents" ? "agent" : "chat"}`
+			: `${base}/schedules`
+	);
+	$effect(() => {
+		if (schedulesOn) return watchScheduleAttention();
+	});
+	let newAgentOpen = $state(false);
 </script>
 
-<div
-	class="sticky top-0 flex flex-none touch-none items-center justify-between px-1.5 py-3.5 max-sm:pt-0"
->
+<div class="sticky top-0 flex flex-none touch-none flex-col gap-2 px-1.5 pt-3.5 pb-2 max-sm:pt-0">
 	<a
 		class="flex items-center rounded-xl pl-2.5 text-lg font-semibold select-none"
 		href="{publicConfig.PUBLIC_ORIGIN}{base}/"
 	>
-		<!-- The mark alone: its alt carries the app name for screen readers. -->
+		<!-- The ridge and the name beside it: the product's name has to appear
+		     somewhere in the chrome. The mark's alt already says it, so the
+		     visible word is hidden from screen readers to avoid a double read. -->
 		<Logo variant="small" classNames="h-[27px] w-auto" />
+		<span
+			class="ml-2 text-lg font-semibold tracking-tight"
+			aria-hidden="true"
+			data-testid="sidebar-wordmark"
+		>
+			{publicConfig.PUBLIC_APP_NAME}
+		</span>
 	</a>
-	<!-- The switcher's own idiom, carried up top: the same gray pill and chip
-	     the Chats/Agents selector uses, with the same small semibold text and
-	     an icon — the bordered white button this replaced read as a foreign
-	     element beside it. Href and the abort-handling click are unchanged. -->
-	<div class="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
-		<a
-			href={`${base}/`}
-			onclick={handleNewChatClick}
-			class="flex items-center justify-center gap-1.5 rounded-md bg-white px-2 py-1 text-xs font-medium whitespace-nowrap text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white"
-			title={m["app.nav.new_chat_shortcut"]()}
-		>
-			<CarbonEdit class="size-3.5" />
-			{m["app.nav.new_chat"]()}
-		</a>
-	</div>
-</div>
 
-<div
-	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-sidebar px-2 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent"
->
-	{#if codeAgentsEnabled && effectiveView === "agents"}
-		<!-- While the sign-in is stale the tree draws no machines and no counts;
-		     the card says why and offers the way back (as the main panel does).
-		     Before /status has answered nothing is drawn: a card shown then would
-		     flash for every signed-in user. The Chats | Agents switch below stays. -->
-		{#if codeReauth.required}
-			<!-- On /code the panel itself already shows the full card, right
-			     beside this column: one prompt there, not two. -->
-			{#if page.route.id !== "/code"}
-				<CodeReauthCard compact />
-			{/if}
-		{:else if codeReauth.checked}
-			<CodeNavTree />
-		{/if}
-	{:else}
-		{#if signedIn && page.data.chatSchedulesEnabled === true}
-			<!-- The top of the tree: one address, not a branch, the same row the agents tree has. -->
-			<a
-				href="{base}/schedules"
-				class="mb-1.5 {schedulesActive ? SIDEBAR_ITEM_ACTIVE : SIDEBAR_ITEM}"
-				data-testid="schedules-link"
-			>
-				<IconTime class="size-3.5 shrink-0" />
-				{m["app.nav.schedules"]()}
-			</a>
-		{/if}
-		{#if signedIn}
-			<ProjectsBranch />
-		{/if}
-
-		<TreeBranch
-			label={m["app.nav.chats"]()}
-			href="{base}/chats"
-			badge={loose.length || undefined}
-			bind:open={chatsOpen}
-			acceptsChat={() => chatDrag.current?.projectId !== undefined}
-			ondropchat={dropOut}
-		>
-			{#snippet icon()}
-				<CarbonChat class="size-3.5 shrink-0" />
-			{/snippet}
-			{#each listRows as row (row.key)}
-				{#if row.conv}
-					<div class="pl-3">
-						<NavConversationItem conv={row.conv} {oneditConversationTitle} {ondeleteConversation} />
-					</div>
-				{:else}
-					<h4 class="mt-2 mb-1 pl-6 text-xs text-ink-faint first:mt-0.5">
-						{titles[row.group]}
-					</h4>
-				{/if}
-			{/each}
-			{#if loose.length === 0}
-				<TreeLeaf label={m["app.nav.no_chats"]()} depth={1} href="{base}/" />
-			{/if}
-			{#if hasMore}
-				<InfiniteScroll onvisible={handleVisible} />
-			{/if}
-		</TreeBranch>
-	{/if}
-</div>
-
-{#if codeAgentsEnabled}
-	<!-- The list's foot: the panel switch. Chats and coding agents are two
-	     contents of the same list, not two destinations — the agents panel
-	     keeps its actions (pair, add workspace, new agent) in the tree, and
-	     an agent opens the way a chat does. Two boxes, not one: +layout.svelte
-	     pins every NavMenu child to the nav's column (`--nav-width`, 340px), so horizontal
-	     insets must be padding inside that box — margins on a full-width child
-	     push its far edge 8px past the list's border. The pt-2 is the air the
-	     list keeps above the switch, so a scrolling row never vanishes flush
-	     against the selector. -->
-	<div class="shrink-0 px-2 pt-2 pb-1">
+	{#if codeAgentsEnabled}
+		<!-- The panel switch: chats and coding agents are two contents of the same
+		     list, not two destinations. It decides what the button below makes.
+		     Two boxes of padding rather than margins: +layout.svelte pins every
+		     NavMenu child to the nav's column (`--nav-width`), so horizontal insets
+		     must be padding inside that box. -->
 		<div class="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
 			<button
 				data-testid="sidebar-view-chats"
@@ -370,30 +328,142 @@
 				{/if}
 			</button>
 		</div>
-	</div>
-{/if}
+	{/if}
+
+	<!-- Follows the switch. The same bordered, quiet button in both modes so the
+	     top of the panel does not jump when you flip it. -->
+	{#if effectiveView === "agents"}
+		<button
+			type="button"
+			data-testid="new-agent-session"
+			onclick={() => (newAgentOpen = true)}
+			class={NEW_BUTTON}
+		>
+			<CarbonEdit class="size-3.5" />
+			{m["app.nav.new_agent_session"]()}
+		</button>
+	{:else}
+		<a
+			href={`${base}/`}
+			onclick={handleNewChatClick}
+			class={NEW_BUTTON}
+			data-testid="new-chat"
+			title={m["app.nav.new_chat_shortcut"]()}
+		>
+			<CarbonEdit class="size-3.5" />
+			{m["app.nav.new_chat"]()}
+		</a>
+	{/if}
+</div>
+
+<div
+	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-sidebar px-2 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent"
+>
+	{#if codeAgentsEnabled && effectiveView === "agents"}
+		<!-- While the sign-in is stale the tree draws no machines and no counts;
+		     the card says why and offers the way back (as the main panel does).
+		     Before /status has answered nothing is drawn: a card shown then would
+		     flash for every signed-in user. The Chats | Agents switch above stays. -->
+		{#if codeReauth.required}
+			<!-- On /code the panel itself already shows the full card, right
+			     beside this column: one prompt there, not two. -->
+			{#if page.route.id !== "/code"}
+				<CodeReauthCard compact />
+			{/if}
+		{:else if codeReauth.checked}
+			<CodeNavTree />
+		{/if}
+	{:else}
+		{#if signedIn}
+			<ProjectsBranch />
+		{/if}
+
+		<TreeBranch
+			label={m["app.nav.chats"]()}
+			href="{base}/chats"
+			badge={loose.length || undefined}
+			bind:open={chatsOpen}
+			acceptsChat={() => chatDrag.current?.projectId !== undefined}
+			ondropchat={dropOut}
+		>
+			{#snippet icon()}
+				<CarbonChat class="size-3.5 shrink-0" />
+			{/snippet}
+			{#each listRows as row (row.key)}
+				{#if row.conv}
+					<div class="pl-3">
+						<NavConversationItem
+							conv={row.conv}
+							{oneditConversationTitle}
+							{ondeleteConversation}
+							{onregenerateTitle}
+						/>
+					</div>
+				{:else}
+					<h4 class="mt-2 mb-1 pl-6 text-xs text-ink-faint first:mt-0.5">
+						{titles[row.group]}
+					</h4>
+				{/if}
+			{/each}
+			{#if loose.length === 0}
+				<TreeLeaf label={m["app.nav.no_chats"]()} depth={1} href="{base}/" />
+			{/if}
+			{#if hasMore}
+				<InfiniteScroll onvisible={handleVisible} />
+			{/if}
+		</TreeBranch>
+	{/if}
+</div>
 
 <div
 	class="flex touch-none flex-col gap-px rounded-r-xl border border-l-0 border-gray-100 p-2 text-base sm:text-sm md:mt-3 md:bg-linear-to-l md:from-sidebar dark:border-transparent"
 >
 	<!-- Rows, not branches: each is one address and contains nothing to expand.
-	     Workspace is the tabbed page that hosts the managers (models, MCP
-	     servers, knowledge bases), which are no longer dialogs opened from
-	     here. -->
-	<a href="{base}/workspace" class="{ROW} no-underline"> {m["app.nav.workspace"]()} </a>
-	<a href="{base}/settings/application" class="{ROW} no-underline"> {m["app.nav.settings"]()} </a>
-
-	{#if gatewayIsAdmin}
-		<!-- The chat's administration area (product decisions: which model reads
-		     a document, what fetches a URL, which connectors everybody gets). The
-		     panel's own gate re-asks the gateway; the row merely spares an
-		     administrator the URL. -->
-		<a href="{base}/admin" class="{ROW} no-underline"> {m["app.nav.admin"]()} </a>
+	     Schedules is one page for chats and agents; Workspace is the tabbed page
+	     that hosts the managers (models, MCP servers, knowledge bases). -->
+	{#if schedulesOn}
+		<a
+			href={schedulesHref}
+			class="{schedulesActive ? ROW_ACTIVE : ROW} no-underline"
+			data-testid="schedules-link"
+			aria-label={scheduleAttention.count > 0
+				? m["app.nav.schedules_attention"]({ count: scheduleAttention.count })
+				: undefined}
+		>
+			<IconTime class="size-4 shrink-0" />
+			<span class="min-w-0 flex-1 truncate">{m["app.nav.schedules"]()}</span>
+			{#if scheduleAttention.count > 0}
+				<span
+					data-testid="schedules-attention"
+					aria-hidden="true"
+					class="min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white"
+					>{scheduleAttention.count}</span
+				>
+			{/if}
+		</a>
 	{/if}
+	<a
+		href="{base}/workspace"
+		class="{page.url.pathname === `${base}/workspace` ? ROW_ACTIVE : ROW} no-underline"
+		data-testid="workspace-link"
+	>
+		<LucideLayoutDashboard class="size-4 shrink-0" />
+		{m["app.nav.workspace"]()}
+	</a>
 
 	{#if signedIn}
 		<div class="mt-1 border-t border-gray-200/60 pt-1 dark:border-gray-700/60">
-			<NavFooter {user} />
+			<NavFooter {user} {gatewayIsAdmin} />
 		</div>
+	{:else}
+		<!-- No account, so no user menu: Settings stays one click away as a row. -->
+		<a href="{base}/settings/application" class="{ROW} no-underline">
+			<CarbonSettings class="size-4 shrink-0" />
+			{m["app.nav.settings"]()}
+		</a>
 	{/if}
 </div>
+
+{#if newAgentOpen}
+	<NewAgentSession onclose={() => (newAgentOpen = false)} />
+{/if}

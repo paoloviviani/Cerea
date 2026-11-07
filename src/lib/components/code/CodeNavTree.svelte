@@ -44,7 +44,6 @@
 	import IconClose from "~icons/carbon/close";
 	import IconChevronRight from "~icons/carbon/chevron-right";
 	import IconTime from "~icons/carbon/time";
-	import { SIDEBAR_ITEM, SIDEBAR_ITEM_ACTIVE } from "$lib/components/nav/sidebarItem";
 	import IconPermissions from "~icons/carbon/security";
 	import {
 		bindCodeCacheOwner,
@@ -76,7 +75,6 @@
 		dropCodeDevice,
 		useCodeDevicePoll,
 	} from "$lib/stores/codeDeviceList.svelte";
-	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
@@ -139,12 +137,12 @@
 		| null
 	>(null);
 
-	// On the Schedules pages `device`/`ws`/`agent` prefill the editor instead of
-	// naming a selection, so the tree highlights the Schedules row alone.
-	const schedulesActive = $derived(page.url.searchParams.get("view") === "schedules");
-	const selectedDeviceId = $derived(schedulesActive ? null : page.url.searchParams.get("device"));
-	const selectedWorkspaceId = $derived(schedulesActive ? null : page.url.searchParams.get("ws"));
-	const selectedAgentId = $derived(schedulesActive ? null : page.url.searchParams.get("agent"));
+	// Only on /code do `device`/`ws`/`agent` name a selection: on the Schedules
+	// page they prefill the editor, and the tree must not highlight them.
+	const onCodePage = $derived(page.route.id === "/code");
+	const selectedDeviceId = $derived(onCodePage ? page.url.searchParams.get("device") : null);
+	const selectedWorkspaceId = $derived(onCodePage ? page.url.searchParams.get("ws") : null);
+	const selectedAgentId = $derived(onCodePage ? page.url.searchParams.get("agent") : null);
 
 	// The same one-liner the pairing dialog prints (§12): a device flagged
 	// `reenroll` shows it too, rather than a bare "go re-pair" pointer with
@@ -513,18 +511,6 @@
 </script>
 
 <div class="flex flex-col gap-px">
-	{#if page.data.codeSchedulesEnabled === true && codeDeviceList.devices.length > 0}
-		<!-- The top of the sidebar: one address, not a branch. The pane it
-		     opens holds the list, the editor and each schedule's history. -->
-		<a
-			href="{base}/code?view=schedules"
-			class="mb-1.5 {schedulesActive ? SIDEBAR_ITEM_ACTIVE : SIDEBAR_ITEM}"
-			data-testid="schedules-link"
-		>
-			<IconTime class="size-3.5 shrink-0" />
-			{m["code.nav.schedules"]()}
-		</a>
-	{/if}
 	<div class="flex items-center justify-between px-2 pt-1">
 		<span class="text-xs font-semibold text-gray-400 dark:text-gray-500"
 			>{m["code.nav.devices"]()}</span
@@ -824,30 +810,6 @@
 						</div>
 					</div>
 				{/if}
-				{#if !device.reenroll && !isDead && codeLegacyMachines[device.id]}
-					<!-- Learned from a session's rules (the Permissions dialog): this machine's
-					     policy predates ceilings and its opencode.json has no ask block, so
-					     it allows everything until re-enrolled. The same one-liner as the
-					     `reenroll` banner above, since it is the same fix. -->
-					<div
-						class="mb-1.5 ml-7 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
-						data-testid="legacy-machine-row-flag"
-					>
-						<p class="mb-1.5 flex items-center gap-1.5 font-medium">
-							<IconWarning class="size-3.5 shrink-0" />
-							{m["code.nav.reenroll_legacy"]()}
-						</p>
-						<p class="mb-1.5">{m["code.nav.legacy_detail"]()}</p>
-						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
-							<pre
-								class="min-w-0 flex-1 overflow-x-auto font-mono text-[.65rem] whitespace-pre text-ink">{reenrollCommand}</pre>
-							<CopyToClipBoardBtn
-								classNames="flex size-7 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
-								value={reenrollCommand}
-							/>
-						</div>
-					</div>
-				{/if}
 				{#if device.status === "paired" && !isDead && deviceExpanded}
 					<!-- No gutter here: the machine row is the group's heading and
 					     its workspaces start at the left edge, so the guide that
@@ -1093,7 +1055,7 @@
 															class={MENU_ITEM}
 															onSelect={() =>
 																goto(
-																	`${base}/code?view=schedules&new=1&device=${device.id}&ws=${agent.workspaceId}&agent=${agent.id}`
+																	`${base}/schedules?kind=agent&new=1&device=${device.id}&ws=${agent.workspaceId}&agent=${agent.id}`
 																)}
 														>
 															<IconTime class="size-4 opacity-90 dark:opacity-80" />
@@ -1288,8 +1250,6 @@
 		mode={stepOf(permissionsFor.agent.permissionMode, permissionsFor.agent.autoClasses)}
 		device={permissionsFor.device}
 		subagent={Boolean(permissionsFor.agent.parentId)}
-		policy={permissionsFor.device.policy}
-		onreenroll={() => (pairingOpen = true)}
 		onclose={() => (permissionsFor = null)}
 	/>
 {/if}

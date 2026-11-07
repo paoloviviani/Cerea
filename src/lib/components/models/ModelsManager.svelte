@@ -105,9 +105,9 @@
 
 	function open(model: ModelCard) {
 		// A custom model is edited where it is made: its prompt, base and name live
-		// on the Custom models tab, and it has no settings of its own here.
+		// in the Your custom models section below, and it has no settings of its own here.
 		if (model.customBase) {
-			goto(`${base}/workspace?tab=custom&id=${encodeURIComponent(model.id)}`);
+			goto(`${base}/workspace?tab=models&custom=${encodeURIComponent(model.id)}#custom-models`);
 			return;
 		}
 		current = model;

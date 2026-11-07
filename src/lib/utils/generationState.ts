@@ -35,6 +35,22 @@ export function loopStoppedOf(message?: Message): boolean {
  * error event framed the provider's own text (PROTOCOL.md §7); an empty
  * reason (an older galopin) renders nothing, which is today's look.
  */
+/**
+ * The text of the last `status: error` update on a message: what a turn that
+ * died on the stream (a spent quota, a provider refusal) tells the user. The
+ * chat shows it in the message column rather than as a toast over the composer.
+ */
+export function streamErrorOf(message?: Message): string | undefined {
+	const updates = message?.updates ?? [];
+	for (let i = updates.length - 1; i >= 0; i -= 1) {
+		const update = updates[i];
+		if (update.type === MessageUpdateType.Status && update.status === MessageUpdateStatus.Error) {
+			return update.message?.trim() || undefined;
+		}
+	}
+	return undefined;
+}
+
 export function failedTurnReasonOf(message?: Message): string | undefined {
 	const state = turnStateOf(message);
 	return state?.state === "failed" && state.reason ? state.reason : undefined;

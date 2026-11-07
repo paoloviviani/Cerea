@@ -104,19 +104,50 @@ describe("the switcher on the pages", () => {
 		);
 		await expect.element(trigger()).toHaveTextContent("Connectors");
 		await trigger().click();
-		// No Knowledge, Memory or Local connectors: the same gating as the tabs.
-		expect(sheetLabels()).toEqual(["Models", "Custom models", "Skills", "Connectors"]);
+		// No Knowledge or Memory: the same gating as the tabs. (Custom models and
+		// Local connectors are sections of Models and Connectors, not tabs.)
+		expect(sheetLabels()).toEqual(["Models", "Skills", "Connectors"]);
 		await page.getByRole("link", { name: "Skills" }).click();
 		expect(followed).toEqual(["/workspace?tab=skills"]);
 	});
 
-	it("Workspace offers Local connectors once the deployment has them", async () => {
-		renderWithApp(WorkspacePanel, { data: { models: [], localConnectorsEnabled: true } } as never, {
-			page: { url: "http://localhost:3000/workspace" },
-		});
+	it("Workspace lists six sections at most, Local connectors and Custom models not among them", async () => {
+		renderWithApp(
+			WorkspacePanel,
+			{
+				data: {
+					models: [],
+					localConnectorsEnabled: true,
+					user: { id: "u" },
+					codeAgentsEnabled: true,
+				},
+			} as never,
+			{
+				page: { url: "http://localhost:3000/workspace" },
+				// The Models tab carries Your custom models, which reads the settings store.
+				context: new Map<unknown, unknown>([
+					[
+						"settings",
+						writable({
+							activeModel: "",
+							multimodalOverrides: {},
+							toolsOverrides: {},
+							artifactsOverrides: {},
+							reasoningOverrides: {},
+						}),
+					],
+				]),
+			}
+		);
 		await trigger().click();
-		expect(sheetLabels()).toContain("Local connectors");
-		expect(sheetLabels()).toContain("Knowledge");
+		expect(sheetLabels()).toEqual([
+			"Models",
+			"Memory",
+			"Knowledge",
+			"Skills",
+			"Connectors",
+			"Agents",
+		]);
 	});
 
 	it("Settings lists its sections by what the person may see", async () => {
@@ -133,7 +164,7 @@ describe("the switcher on the pages", () => {
 
 		mount({ user: { id: "u" }, usageEnabled: true });
 		await trigger().click();
-		expect(sheetLabels()).toEqual(["Application settings", "Notifications", "Usage & billing"]);
+		expect(sheetLabels()).toEqual(["Application settings", "Notifications", "Usage"]);
 		await page.getByRole("link", { name: "Notifications" }).click();
 		expect(followed).toEqual(["/settings/notifications"]);
 	});

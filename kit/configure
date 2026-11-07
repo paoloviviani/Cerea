@@ -115,7 +115,7 @@ PRESETS = {
                 "FETCH_BACKEND": "direct",
                 **_CHAT_ON,
                 # No ledger: nothing for the Usage tab to read.
-                "CHAT_USAGE_ENABLED": "",
+                "CHAT_USAGE_ENABLED": "false",
             },
         ),
         Preset(
@@ -175,7 +175,7 @@ PRESETS = {
                 "FETCH_BACKEND": "direct",
                 **_CHAT_ON,
                 "CHAT_CONSOLE_ENABLED": "",
-                "CHAT_USAGE_ENABLED": "",
+                "CHAT_USAGE_ENABLED": "false",
             },
         ),
     )

@@ -1,5 +1,5 @@
 <!--
-	The Local connectors tab of the workspace (ADR 0102): MCP servers that run on the
+	The "On your machines" section of the workspace's Connectors tab (ADR 0102): MCP servers that run on the
 	person's own machines, offered to their chat over the machine link.
 
 	Three jobs, in the order a person meets them. **Connect a machine**: the complete how-to
@@ -164,7 +164,7 @@
 		}
 	}
 
-	const reauthHref = $derived(`${base}/login?reauth=1&next=${base}/workspace?tab=local`);
+	const reauthHref = $derived(`${base}/login?reauth=1&next=${base}/workspace?tab=mcp`);
 
 	/** One word for a server's state, and the pill tone it takes. */
 	function stateOf(server: LocalServerView): { label: string; tone: s.PillTone } {

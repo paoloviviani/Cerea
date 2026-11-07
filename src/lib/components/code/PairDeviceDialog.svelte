@@ -143,7 +143,7 @@
 		<p class="{s.LABEL} mb-2">{m["code.pair.install_label"]()}</p>
 		<div class="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
 			<pre
-				class="min-w-0 flex-1 overflow-x-auto font-mono text-xs whitespace-pre text-ink"
+				class="min-w-0 flex-1 font-mono text-xs break-all whitespace-pre-wrap text-ink"
 				data-testid="galopin-enroll-command">{command}</pre>
 			<CopyToClipBoardBtn
 				classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
@@ -151,7 +151,7 @@
 			/>
 		</div>
 		<p class="mb-4 text-xs text-ink-muted">
-			{m["code.pair.explain"]()}
+			<Rich parts={m["code.pair.explain"].parts()} tags={{ code: inlineCode }} />
 		</p>
 		<details class="mb-4 text-xs text-ink-muted">
 			<summary class="cursor-pointer">{m["code.pair.download"]()}</summary>
@@ -205,7 +205,7 @@
 			</ul>
 		{/if}
 
-		<div class="mt-4 flex justify-end">
+		<div class={s.SHEET_FOOTER}>
 			<button type="button" onclick={onclose} class={s.SECONDARY}>{m["code.pair.close"]()}</button>
 		</div>
 	</div>

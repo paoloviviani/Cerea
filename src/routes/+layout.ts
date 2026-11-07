@@ -13,11 +13,14 @@ interface ConversationListItem {
 	model?: string;
 	projectId?: string;
 	unread?: boolean;
+	titleByUser?: boolean;
 }
 
 interface UserInfo {
 	id: string;
 	username?: string;
+	/** The display name the identity provider sent ("Ada Lovelace"). */
+	name?: string;
 	avatarUrl?: string;
 	email?: string;
 	isAdmin: boolean;
@@ -101,6 +104,7 @@ export const load = async ({ fetch, url, data }) => {
 			model: conv.model ?? defaultModel?.id,
 			updatedAt: new Date(conv.updatedAt),
 			...(conv.projectId ? { projectId: conv.projectId } : {}),
+			...(conv.titleByUser ? { titleByUser: true as const } : {}),
 			...(conv.unread ? { unread: true as const } : {}),
 		} satisfies ConvSidebar;
 	});
@@ -115,6 +119,7 @@ export const load = async ({ fetch, url, data }) => {
 		pseudoLocaleEnabled: data.pseudoLocaleEnabled,
 		gatewayIsAdmin: data.gatewayIsAdmin,
 		webSearchAvailable: data.webSearchAvailable,
+		starterSuggestionsEnabled: data.starterSuggestionsEnabled,
 		codeFilesEnabled: data.codeFilesEnabled,
 		codeFileWriteEnabled: data.codeFileWriteEnabled,
 		codeTerminalEnabled: data.codeTerminalEnabled,

@@ -61,7 +61,7 @@ describe("the session's connector switches", () => {
 			await expect.element(checkbox(screen, name)).toBeEnabled();
 		}
 		expect(api.getSessionConnectors).toHaveBeenCalledWith("d1", "s1");
-		await expect.element(screen.getByText("on this machine")).toBeInTheDocument();
+		await expect.element(screen.getByText("on this computer")).toBeInTheDocument();
 	});
 
 	it("saves the whole selection on each switch, and shows what Cerea answered", async () => {
@@ -95,10 +95,10 @@ describe("the session's connector switches", () => {
 	});
 
 	it("keeps the old selection and says so when the save fails", async () => {
-		api.setSessionConnectors.mockRejectedValue(new Error("That machine is not one of yours."));
+		api.setSessionConnectors.mockRejectedValue(new Error("That computer is not one of yours."));
 		const screen = renderWithApp(SessionConnectors, { deviceId: "d1", sessionId: "s1" });
 		await checkbox(screen, "Maps").click();
-		await vi.waitFor(() => expect(get(errorToast)).toBe("That machine is not one of yours."));
+		await vi.waitFor(() => expect(get(errorToast)).toBe("That computer is not one of yours."));
 		await expect.element(checkbox(screen, "Maps")).not.toBeChecked();
 	});
 

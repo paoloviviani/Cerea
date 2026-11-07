@@ -25,9 +25,39 @@ export type GatewayFailure =
 			scope: "group" | "user" | "global" | "api_key" | null;
 			/** Seconds until the window frees up, when the `retry-after` header was seen. */
 			retryAfterSeconds: number | null;
+			/** The limit, metric, window and spend parsed from the gateway's message; null when it did not match. */
+			figures: QuotaFigures | null;
 	  }
 	| { kind: "rate_limit" }
 	| { kind: "other" };
+
+export type QuotaFigures = {
+	/** "cost", "requests", "tokens", ... as the gateway names the metric. */
+	metric: string;
+	limit: number;
+	current: number | null;
+	/** "month", "day", "3600s", ... */
+	window: string;
+};
+
+/**
+ * "user limit of 0E-12 cost per month exceeded (current 0)": the figures are
+ * Decimal strings, so a zero limit arrives in scientific notation. `Number()`
+ * reads those; showing the raw text is what leaked "0E-12" to users.
+ */
+function parseFigures(detail: string): QuotaFigures | null {
+	const match = /limit of (\S+) (\S+) per (.+?) exceeded(?: \(current (\S+?)\))?\.?$/.exec(detail);
+	if (!match) return null;
+	const limit = Number(match[1]);
+	if (!Number.isFinite(limit)) return null;
+	const current = match[4] === undefined ? null : Number(match[4]);
+	return {
+		metric: match[2] ?? "",
+		limit,
+		current: current !== null && Number.isFinite(current) ? current : null,
+		window: match[3] ?? "",
+	};
+}
 
 type Loose = {
 	status?: unknown;
@@ -88,6 +118,7 @@ export function classifyGatewayError(err: unknown): GatewayFailure {
 			detail: stripped || null,
 			scope: (scopeMatch?.[1] as "group" | "user" | "global" | "api_key" | undefined) ?? null,
 			retryAfterSeconds: Number.isFinite(retry) && retry > 0 ? retry : null,
+			figures: parseFigures(stripped),
 		};
 	}
 	if (status === 429 || /\b429\b/.test(String(err))) return { kind: "rate_limit" };
@@ -109,25 +140,70 @@ export function quotaNoticeForModel(failure: Extract<GatewayFailure, { kind: "qu
 	return `Waiting will not help: ${whose}${detail}. Do not retry or delegate again in this turn; tell the user the quota is used up.`;
 }
 
-function whenText(seconds: number): string {
-	if (seconds < 5400) return `${Math.max(1, Math.round(seconds / 60))} min`;
-	if (seconds < 172800) return `${Math.round(seconds / 3600)} h`;
-	return `${Math.round(seconds / 86400)} days`;
+const PERIOD_ADJECTIVE: Record<string, string> = {
+	month: "monthly",
+	day: "daily",
+	hour: "hourly",
+	week: "weekly",
+	year: "yearly",
+};
+
+function money(value: number, currency: string | undefined): string {
+	if (currency && /^[A-Z]{3}$/.test(currency)) {
+		try {
+			return new Intl.NumberFormat("en", { style: "currency", currency }).format(value);
+		} catch {
+			// Unknown code: fall through to the plain number.
+		}
+	}
+	return new Intl.NumberFormat("en", { maximumFractionDigits: 4 }).format(value);
 }
 
+export type QuotaMessageOptions = {
+	/** The deployment's currency code, for a money limit. */
+	currency?: string;
+	/** Whether Settings → Usage exists to point to. */
+	usageEnabled?: boolean;
+	now?: Date;
+};
+
 /**
- * What the chat shows the user when the turn died on a spent quota: whose it
- * is (the user's or their group's, as the gateway's message says), the
- * gateway's own detail, when it resets if the gateway said, and where to look.
+ * What the chat shows the user when the turn died on a spent quota, in one or
+ * two plain sentences: whose allowance, how much, when it resets, who to ask.
+ * The gateway's own wording never reaches the user; its figures are formatted.
  */
-export function quotaMessageForUser(failure: Extract<GatewayFailure, { kind: "quota" }>): string {
-	const parts: string[] = [
-		failure.scope === "group" ? m["app.errors.quota_group"]() : m["app.errors.quota_user"](),
-	];
-	if (failure.detail) parts.push(`(${failure.detail.replace(/\.$/, "")}).`);
-	if (failure.retryAfterSeconds) {
-		parts.push(m["app.errors.quota_resets"]({ when: whenText(failure.retryAfterSeconds) }));
+export function quotaMessageForUser(
+	failure: Extract<GatewayFailure, { kind: "quota" }>,
+	options: QuotaMessageOptions = {}
+): string {
+	const group = failure.scope === "group";
+	const f = failure.figures;
+	const parts: string[] = [];
+	if (f) {
+		const isMoney = f.metric === "cost";
+		const amount = isMoney
+			? money(f.limit, options.currency)
+			: `${money(f.limit, undefined)} ${f.metric}`;
+		const adjective = PERIOD_ADJECTIVE[f.window];
+		const named = { period: adjective ?? "", window: f.window, amount };
+		if (adjective) {
+			parts.push(
+				group
+					? m["app.errors.quota_group_periodic"](named)
+					: m["app.errors.quota_user_periodic"](named)
+			);
+		} else {
+			parts.push(
+				group ? m["app.errors.quota_group_per"](named) : m["app.errors.quota_user_per"](named)
+			);
+		}
+	} else {
+		parts.push(group ? m["app.errors.quota_group"]() : m["app.errors.quota_user"]());
 	}
-	parts.push(m["app.errors.quota_see_usage"]());
+	// One short sentence and one way on: the Usage page where it exists, the
+	// administrator where it does not.
+	parts.push(
+		options.usageEnabled ? m["app.errors.quota_see_usage"]() : m["app.errors.quota_ask_admin"]()
+	);
 	return parts.join(" ");
 }

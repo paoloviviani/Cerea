@@ -56,7 +56,7 @@ test("the conversation never blanks or shrinks mid-stream (prod incident 2026-06
 				previousLength
 			);
 			// The user's own message must stay on screen the whole time.
-			await expect(page.getByLabel("Conversation messages").getByText("hello there")).toBeVisible();
+			await expect(page.getByLabel("Chat messages").getByText("hello there")).toBeVisible();
 		}
 		previousLength = Math.max(previousLength, text.length);
 		if (text.includes("word39")) break;
@@ -137,9 +137,7 @@ test("leaving mid-stream and returning preserves the generation to completion", 
 	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText("word49", {
 		timeout: 40_000,
 	});
-	await expect(
-		page.getByLabel("Conversation messages").getByText("long answer please")
-	).toBeVisible();
+	await expect(page.getByLabel("Chat messages").getByText("long answer please")).toBeVisible();
 });
 
 test("a second viewer of a live generation sees it stream and complete", async ({

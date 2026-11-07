@@ -9,6 +9,7 @@
 	import CarbonTrashCan from "~icons/carbon/trash-can";
 	import CarbonEdit from "~icons/carbon/edit";
 	import LucideEllipsis from "~icons/lucide/ellipsis";
+	import LucideRefreshCw from "~icons/lucide/refresh-cw";
 	import LucideFolderInput from "~icons/lucide/folder-input";
 	import CarbonTime from "~icons/carbon/time";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
@@ -27,9 +28,12 @@
 		readOnly?: true;
 		ondeleteConversation?: (id: string) => void;
 		oneditConversationTitle?: (payload: { id: string; title: string }) => void;
+		/** Ask for the title to be written again; the caller shows the result. */
+		onregenerateTitle?: (id: string) => void;
 	}
 
-	let { conv, readOnly, ondeleteConversation, oneditConversationTitle }: Props = $props();
+	let { conv, readOnly, ondeleteConversation, oneditConversationTitle, onregenerateTitle }: Props =
+		$props();
 
 	/**
 	 * The chat the row's menu was opened on, captured when it opens: every
@@ -43,6 +47,7 @@
 		model: ConvSidebar["model"];
 		updatedAt: ConvSidebar["updatedAt"];
 		projectId: ConvSidebar["projectId"];
+		titleByUser: ConvSidebar["titleByUser"];
 	} | null>(null);
 
 	function captureTarget() {
@@ -52,6 +57,7 @@
 			model: conv.model,
 			updatedAt: conv.updatedAt,
 			projectId: conv.projectId,
+			titleByUser: conv.titleByUser,
 		};
 	}
 
@@ -194,6 +200,18 @@
 							<CarbonEdit class="size-4 opacity-90 dark:opacity-80" />
 							{m["app.nav_item.rename"]()}
 						</DropdownMenu.Item>
+						{#if onregenerateTitle && !(target?.titleByUser ?? conv.titleByUser)}
+							<!-- Not offered on a title the user typed: that one is theirs, and the
+							     server refuses it too. -->
+							<DropdownMenu.Item
+								class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+								onSelect={() => onregenerateTitle(target?.id ?? conv.id.toString())}
+								data-testid="conv-regenerate-title"
+							>
+								<LucideRefreshCw class="size-4 opacity-90 dark:opacity-80" />
+								{m["app.nav_item.regenerate_title"]()}
+							</DropdownMenu.Item>
+						{/if}
 						{#if page.data.chatSchedulesEnabled === true}
 							<DropdownMenu.Item
 								class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"

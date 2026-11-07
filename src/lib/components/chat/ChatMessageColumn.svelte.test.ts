@@ -23,7 +23,7 @@ const long = (label: string) =>
 	Array.from({ length: 40 }, (_, i) => `${label} line ${i + 1}`).join("\n");
 
 function scroller(container: HTMLElement): HTMLElement {
-	const el = container.querySelector('[aria-label="Conversation messages"]');
+	const el = container.querySelector('[aria-label="Chat messages"]');
 	if (!(el instanceof HTMLElement)) throw new Error("no scroll container");
 	return el;
 }

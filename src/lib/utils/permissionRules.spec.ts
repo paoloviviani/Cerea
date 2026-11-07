@@ -1,14 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PermissionRule } from "$lib/types/machineProtocol";
-import {
-	ceilingEmpty,
-	ceilingFor,
-	ceilingOfPolicy,
-	isCapped,
-	hasFileRules,
-	isLegacyMachine,
-	ceilingOf,
-} from "./permissionRules";
+import { ceilingFor, ceilingOfPolicy, isCapped, ceilingOf } from "./permissionRules";
 
 const rule = (
 	permission: string,
@@ -57,54 +49,5 @@ describe("the ceiling", () => {
 		expect(isCapped(ceiling, "webfetch")).toBe(false);
 		expect(isCapped({ "*": "ask" }, "anything")).toBe(true);
 		expect(isCapped({}, "bash")).toBe(false);
-	});
-});
-
-describe("legacy machines", () => {
-	const BASE = { workspaceRoots: [], allowFreeModels: false };
-	const EMPTY = { ...BASE, permission: { max: {} } };
-	const ENROLLED = { ...BASE, permission: { max: { bash: "ask" } } };
-	const ALLOW_ALL = [rule("*", "*", "allow", "opencode")];
-	const WITH_ASK_BLOCK = [
-		rule("*", "*", "allow", "opencode"),
-		rule("edit", "*", "ask", "file"),
-		rule("bash", "*", "ask", "file"),
-		rule("webfetch", "*", "ask", "file"),
-	];
-
-	it("reads an empty or missing ceiling in hello as no ceiling", () => {
-		expect(ceilingEmpty(EMPTY)).toBe(true);
-		expect(ceilingEmpty({ ...BASE, permission: {} })).toBe(true);
-		expect(ceilingEmpty(undefined)).toBe(true);
-		expect(ceilingEmpty(ENROLLED)).toBe(false);
-	});
-
-	it("tells opencode's built-in allow-all from rules the machine's file carries", () => {
-		expect(hasFileRules(ALLOW_ALL)).toBe(false);
-		expect(hasFileRules(WITH_ASK_BLOCK)).toBe(true);
-		// The lumped "opencode" source counts only when it asks or denies.
-		expect(hasFileRules([rule("edit", "*", "ask", "opencode")])).toBe(true);
-		expect(hasFileRules([rule("edit", "*", "allow", "opencode")])).toBe(false);
-		expect(hasFileRules([rule("edit", "*", "ask", "cerea")])).toBe(false);
-	});
-
-	it("flags: empty ceiling and a rule list without file rules", () => {
-		expect(isLegacyMachine(EMPTY, { rules: ALLOW_ALL, ceiling: {} })).toBe(true);
-	});
-
-	it("does not flag a properly enrolled machine", () => {
-		expect(isLegacyMachine(ENROLLED, { rules: WITH_ASK_BLOCK, ceiling: { bash: "ask" } })).toBe(
-			false
-		);
-	});
-
-	it("needs both halves of the evidence, and never guesses without a rule list", () => {
-		// A ceiling in hello, even over an allow-all list.
-		expect(isLegacyMachine(ENROLLED, { rules: ALLOW_ALL, ceiling: {} })).toBe(false);
-		// File rules present, even with no ceiling.
-		expect(isLegacyMachine(EMPTY, { rules: WITH_ASK_BLOCK, ceiling: {} })).toBe(false);
-		// The live answer reporting a ceiling clears it too.
-		expect(isLegacyMachine(EMPTY, { rules: ALLOW_ALL, ceiling: { bash: "ask" } })).toBe(false);
-		expect(isLegacyMachine(EMPTY, null)).toBe(false);
 	});
 });

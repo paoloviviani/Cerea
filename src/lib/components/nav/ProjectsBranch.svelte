@@ -40,6 +40,7 @@
 	import TreeLeaf from "./TreeLeaf.svelte";
 	import RowMenu from "./RowMenu.svelte";
 	import NavConversationItem from "../NavConversationItem.svelte";
+	import { regenerateChatTitle } from "$lib/utils/regenerateTitle";
 	import { handleResponse, useAPIClient } from "$lib/APIClient";
 	import { useSettingsStore } from "$lib/stores/settings.js";
 	import { projectsRevision } from "$lib/stores/projectsRevision";
@@ -309,7 +310,7 @@
 		cache.chats = {
 			...cache.chats,
 			[projectId]: before.map((entry) =>
-				entry.id === conversationId ? { ...entry, title } : entry
+				entry.id === conversationId ? { ...entry, title, titleByUser: true } : entry
 			),
 		};
 		try {
@@ -317,6 +318,19 @@
 		} catch (err) {
 			console.error(err);
 			alert(m["nav.projects.rename_failed"]());
+		}
+	}
+
+	/**
+	 * Regenerate one chat's title, from its row's `⋯` menu. The new title goes
+	 * to the conversations store, which this branch reads titles from.
+	 */
+	async function regenerateChat(conversationId: string) {
+		try {
+			const title = await regenerateChatTitle(conversationId);
+			convsStore?.update(conversationId, { title });
+		} catch (err) {
+			alert(err instanceof Error ? err.message : m["nav.projects.regenerate_failed"]());
 		}
 	}
 
@@ -523,12 +537,14 @@
 								model: conversation.model,
 								projectId: project.id,
 								updatedAt: new Date(conversation.updatedAt),
+								...(conversation.titleByUser ? { titleByUser: true as const } : {}),
 							} as ConvSidebar}
 							<NavConversationItem
 								conv={sidebarConv}
 								oneditConversationTitle={(payload) =>
 									renameChat(project.id, payload.id, payload.title)}
 								ondeleteConversation={(id) => destroyChat(project.id, id)}
+								onregenerateTitle={(id) => regenerateChat(id)}
 							/>
 						{/each}
 					</div>

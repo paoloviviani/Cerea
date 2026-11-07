@@ -25,6 +25,8 @@
 	import { watchChunkErrors } from "$lib/utils/appReload";
 	import { onAppResume } from "$lib/utils/appResume";
 	import NavMenu from "$lib/components/NavMenu.svelte";
+	import CommandPalette from "$lib/components/CommandPalette.svelte";
+	import { regenerateChatTitle } from "$lib/utils/regenerateTitle";
 	import NeedsYouShell from "$lib/components/code/NeedsYouShell.svelte";
 	import NavigationLoadingBar from "$lib/components/NavigationLoadingBar.svelte";
 	import MobileNav from "$lib/components/MobileNav.svelte";
@@ -113,12 +115,20 @@
 			.patch({ title })
 			.then(handleResponse)
 			.then(async () => {
-				convsStore.update(id, { title });
+				convsStore.update(id, { title, titleByUser: true });
 			})
 			.catch((err) => {
 				console.error(err);
 				$error = String(err);
 			});
+	}
+
+	async function regenerateTitle(id: string) {
+		try {
+			convsStore.update(id, { title: await regenerateChatTitle(id) });
+		} catch (err) {
+			$error = err instanceof Error ? err.message : m["app.nav_item.regenerate_failed"]();
+		}
 	}
 
 	// Global keyboard shortcut: New Chat (Ctrl/Cmd + Shift + O)
@@ -313,6 +323,7 @@
 </svelte:head>
 
 <NavigationLoadingBar />
+<CommandPalette conversations={convsStore.list} gatewayIsAdmin={data.gatewayIsAdmin} />
 
 <div
 	class="fixed grid h-[var(--app-dvh,100dvh)] w-screen grid-cols-1 grid-rows-[auto_1fr] overflow-hidden pb-[env(safe-area-inset-bottom)] text-smd {!isNavCollapsed
@@ -335,10 +346,11 @@
 			codeAgentsEnabled={data.codeAgentsEnabled}
 			ondeleteConversation={(id) => deleteConversation(id)}
 			oneditConversationTitle={(payload) => editConversationTitle(payload.id, payload.title)}
+			onregenerateTitle={(id) => regenerateTitle(id)}
 		/>
 	</MobileNav>
 	<nav
-		class="grid max-h-dvh grid-cols-1 grid-rows-[auto_1fr_auto_auto] overflow-hidden *:w-(--nav-width) max-md:hidden"
+		class="grid max-h-dvh grid-cols-1 grid-rows-[auto_1fr_auto] overflow-hidden *:w-(--nav-width) max-md:hidden"
 	>
 		<NavMenu
 			conversations={convsStore.list}
@@ -347,6 +359,7 @@
 			codeAgentsEnabled={data.codeAgentsEnabled}
 			ondeleteConversation={(id) => deleteConversation(id)}
 			oneditConversationTitle={(payload) => editConversationTitle(payload.id, payload.title)}
+			onregenerateTitle={(id) => regenerateTitle(id)}
 		/>
 	</nav>
 	{#if currentError}

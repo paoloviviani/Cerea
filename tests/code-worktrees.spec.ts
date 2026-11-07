@@ -63,7 +63,7 @@ test.describe("path suggestions in the Add workspace dialog", () => {
 		});
 
 		await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}`);
-		await page.locator("button[title='Add a workspace to this device']").click();
+		await page.locator("button[title='Add a workspace to this computer']").click();
 
 		const dialog = page.getByRole("dialog");
 		await expect(dialog).toBeVisible();
