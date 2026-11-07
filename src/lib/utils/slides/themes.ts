@@ -24,17 +24,6 @@ export function isBuiltinTheme(id: ThemeId): boolean {
 	return (BUILTIN_THEME_IDS as readonly string[]).includes(id);
 }
 
-export const THEME_LABELS: Record<ThemeId, string> = {
-	cerea: "Cerea",
-	"cerea-dark": "Cerea dark",
-	white: "White",
-	black: "Black",
-	simple: "Simple",
-	moon: "Moon",
-	solarized: "Solarized",
-	dracula: "Dracula",
-};
-
 /** Themes drawn dark, for the colour-scheme hint */
 const DARK_BUILTINS: readonly string[] = ["black", "moon", "dracula"];
 

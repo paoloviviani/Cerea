@@ -7,7 +7,18 @@
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
-	import { THEME_IDS, THEME_LABELS, MAX_LOGO_DATA_URL } from "$lib/utils/slides/themes";
+	import { THEME_IDS, MAX_LOGO_DATA_URL } from "$lib/utils/slides/themes";
+
+	const THEME_NAMES: Record<(typeof THEME_IDS)[number], () => string> = {
+		cerea: m["admin.slides.theme_cerea"],
+		"cerea-dark": m["admin.slides.theme_cerea_dark"],
+		white: m["admin.slides.theme_white"],
+		black: m["admin.slides.theme_black"],
+		simple: m["admin.slides.theme_simple"],
+		moon: m["admin.slides.theme_moon"],
+		solarized: m["admin.slides.theme_solarized"],
+		dracula: m["admin.slides.theme_dracula"],
+	};
 
 	type Defaults = { theme?: string; accent?: string; logo?: string };
 
@@ -126,7 +137,7 @@
 				>
 					<option value="">{m["admin.slides.off"]()}</option>
 					{#each THEME_IDS as id (id)}
-						<option value={id}>{THEME_LABELS[id]}</option>
+						<option value={id}>{THEME_NAMES[id]()}</option>
 					{/each}
 				</select>
 			</label>
