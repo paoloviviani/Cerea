@@ -1,7 +1,6 @@
 /**
  * The machine's limits as the Permissions sheet and the approval cards read them: the ceiling
- * (`permission.max` in the machine's hello) per permission key, and whether a machine predates
- * ceilings. Nothing here writes anything.
+ * (`permission.max` in the machine's hello) per permission key, Nothing here writes anything.
  */
 import type { PermissionRule, PermissionRulesResult, Policy } from "$lib/types/machineProtocol";
 
@@ -53,46 +52,4 @@ export function ceilingFor(
 export function isCapped(ceiling: Record<string, "ask" | "deny">, permission: string): boolean {
 	const max = ceilingFor(ceiling, permission);
 	return max !== null && RANK[max] < RANK.allow;
-}
-
-// -- legacy machines ---------------------------------------------------------
-
-/** Whether the machine's `hello` reports no ceiling at all: `permission.max`
- * empty, or no `permission` policy in it. A machine enrolled with this wave's
- * `enroll` always has one (`bash=ask` by default), so empty means its
- * `policy.json` predates ceilings. */
-export function ceilingEmpty(policy: Policy | undefined): boolean {
-	const max = policy?.permission?.max;
-	return !max || Object.keys(max).length === 0;
-}
-
-/** Whether any rule on the list comes from opencode's own config that asks or
- * denies something: the `ask` block `enroll` writes into `opencode.json` on a
- * new machine reads as "file" (or, in the machine's lumped vocabulary,
- * "opencode") rules. opencode's built-in `"*": allow` is not one: a machine
- * with only that has nothing standing between the model and the disk. */
-export function hasFileRules(rules: PermissionRule[]): boolean {
-	return rules.some(
-		(rule) => rule.source === "file" || (rule.source === "opencode" && rule.action !== "allow")
-	);
-}
-
-/**
- * A machine enrolled before this wave: legacy `policy.json` (no ceiling) and an
- * `opencode.json` with no ask block. It stays allow-everything — an edit, a
- * command, a fetch runs with no ask, subagents included — until it is
- * re-enrolled, so the panel flags it instead of showing a clean bill.
- *
- * Needs both halves of the evidence: an empty ceiling in `hello`, and a rule
- * list (from `permission.rules`, so a session) with no file rules. A live
- * ceiling in that answer clears it too. Never true without a rule list.
- */
-export function isLegacyMachine(
-	policy: Policy | undefined,
-	result: Pick<PermissionRulesResult, "rules" | "ceiling"> | null
-): boolean {
-	if (!result) return false;
-	return (
-		ceilingEmpty(policy) && Object.keys(result.ceiling).length === 0 && !hasFileRules(result.rules)
-	);
 }

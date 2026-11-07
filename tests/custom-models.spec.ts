@@ -1,5 +1,5 @@
 /**
- * Custom models, end to end: make one on the Custom models tab, pick it in
+ * Custom models, end to end: make one in the Your custom models section of the Models tab, pick it in
  * a new chat, send a message, and read what the upstream was actually sent.
  *
  * The assertion that matters is on the mock upstream's recorded request: the
@@ -18,8 +18,8 @@ test("a custom model is created, picked in a new chat, and runs on its base with
 }) => {
 	await mockOpenAI.setDefaultScenario({ content: ["Soup", " it", " is."], chunkDelayMs: 5 });
 
-	await page.goto(`${E2E_APP_BASE}/workspace?tab=custom`);
-	await expect(page.getByRole("heading", { name: "Custom models", level: 2 })).toBeVisible();
+	await page.goto(`${E2E_APP_BASE}/workspace?tab=models`);
+	await expect(page.getByRole("heading", { name: "Your custom models", level: 2 })).toBeVisible();
 
 	// The global prompt.
 	await page.getByRole("textbox", { name: "Instructions for every chat" }).fill(GLOBAL_PROMPT);

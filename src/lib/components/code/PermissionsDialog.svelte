@@ -20,9 +20,7 @@
 		setCoordinationGrant,
 		type CodeDeviceView,
 	} from "$lib/codeApi";
-	import type { PermissionRulesResult, PermissionStep, Policy } from "$lib/types/machineProtocol";
-	import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
-	import { isLegacyMachine } from "$lib/utils/permissionRules";
+	import type { PermissionRulesResult, PermissionStep } from "$lib/types/machineProtocol";
 	import {
 		className,
 		classRows,
@@ -65,11 +63,6 @@
 		/** Called after an exception is removed (the dialog re-reads itself);
 		 * a parent showing the exceptions count re-reads with it. */
 		onchanged?: () => void;
-		/** The machine's `hello` policy, to tell a machine that predates
-		 * ceilings from one that has none to report yet. */
-		policy?: Policy;
-		/** Opens the enroll flow, for a machine flagged as legacy. */
-		onreenroll?: () => void;
 		onclose: () => void;
 	}
 
@@ -81,8 +74,6 @@
 		device,
 		subagent = false,
 		onchanged,
-		policy,
-		onreenroll,
 		onclose,
 	}: Props = $props();
 
@@ -153,15 +144,6 @@
 						: ""
 	);
 
-	/** A machine enrolled before ceilings: nothing caps its Allow. Said up
-	 * front, never inside the collapsed detail. */
-	let legacy = $derived(isLegacyMachine(policy, result));
-	$effect(() => {
-		// Remembered per machine, so its row in the tree carries the flag after
-		// this dialog is closed. Cleared again if a re-enroll makes it go away.
-		if (result) codeLegacyMachines[deviceId] = legacy;
-	});
-
 	async function remove(id: string) {
 		if (removing) return;
 		removing = id;
@@ -220,25 +202,6 @@
 
 		{#if result && !codeReauth.required}
 			<div class="flex flex-col gap-2 text-sm" data-testid="permissions-detail">
-				{#if legacy}
-					<div
-						class="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
-						data-testid="legacy-machine-flag"
-					>
-						<span class="min-w-0 flex-1">
-							<span class="font-medium">{m["code.permissions.legacy_title"]()}</span>
-							{m["code.permissions.legacy_detail"]()}
-						</span>
-						{#if onreenroll}
-							<button
-								type="button"
-								class="shrink-0 rounded-lg border border-amber-300 bg-white px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-transparent dark:text-amber-200"
-								onclick={onreenroll}>{m["code.permissions.reenroll"]()}</button
-							>
-						{/if}
-					</div>
-				{/if}
-
 				{#if stepSentence}
 					<p class="text-ink" data-testid="permission-step">{stepSentence}</p>
 				{/if}

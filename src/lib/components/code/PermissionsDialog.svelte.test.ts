@@ -5,7 +5,6 @@ import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import PermissionsDialog from "./PermissionsDialog.svelte";
 import { error as errorToast } from "$lib/stores/errors";
 import { flagCodeReauth, resetCodeReauth } from "$lib/stores/codeReauth.svelte";
-import { codeLegacyMachines } from "$lib/stores/codeLegacyMachines.svelte";
 import { CodeApiError } from "$lib/codeApi";
 import type { PermissionRulesResult } from "$lib/types/machineProtocol";
 
@@ -97,7 +96,6 @@ function mount(
 
 beforeEach(async () => {
 	resetCodeReauth();
-	for (const id of Object.keys(codeLegacyMachines)) delete codeLegacyMachines[id];
 	fake.removed = [];
 	fake.failRemove = null;
 	errorToast.set(undefined);
@@ -329,85 +327,6 @@ describe("while the /code sign-in is stale", () => {
 		expect(screen.getByTestId("permissions-detail").elements()).toHaveLength(0);
 		expect(screen.getByTestId("permissions-unavailable").elements()).toHaveLength(0);
 		await expect.element(screen.getByRole("heading", { name: "Permissions" })).toBeVisible();
-	});
-});
-
-describe("a machine that predates ceilings", () => {
-	const LEGACY_POLICY = { workspaceRoots: [], allowFreeModels: false, permission: { max: {} } };
-	const ENROLLED_POLICY = {
-		workspaceRoots: [],
-		allowFreeModels: false,
-		permission: { max: { bash: "ask" } },
-	};
-	const ALLOW_ALL: PermissionRulesResult = {
-		rules: [{ permission: "*", pattern: "*", action: "allow", source: "opencode" }],
-		savedApprovals: [],
-		ceiling: {},
-	};
-
-	it("is flagged, up front, when hello has an empty ceiling and the rules have no file rules", async () => {
-		const onreenroll = vi.fn();
-		const screen = mount(ALLOW_ALL, { policy: LEGACY_POLICY, onreenroll });
-		const flag = screen.getByTestId("legacy-machine-flag");
-		// Visible without opening the detail.
-		await expect.element(flag).toBeVisible();
-		await expect.element(flag).toHaveTextContent("Re-enroll this machine to set limits");
-		await expect.element(flag).toHaveTextContent("predates ceilings");
-		await expect.element(flag).toHaveTextContent("nothing caps Allow");
-		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
-		await screen.getByRole("button", { name: "Re-enroll this machine" }).click();
-		expect(onreenroll).toHaveBeenCalledTimes(1);
-		// Remembered for the machine's row in the tree.
-		await vi.waitFor(() => expect(codeLegacyMachines.d1).toBe(true));
-	});
-
-	it("is not flagged for a properly enrolled machine", async () => {
-		const screen = mount(RESULT, { policy: ENROLLED_POLICY });
-		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
-		expect(screen.getByTestId("legacy-machine-flag").elements()).toHaveLength(0);
-		await vi.waitFor(() => expect(codeLegacyMachines.d1).toBe(false));
-	});
-
-	it("is not flagged when the rules carry the ask block, even with no ceiling", async () => {
-		const screen = mount(
-			{
-				rules: [
-					{ permission: "*", pattern: "*", action: "allow", source: "opencode" },
-					{ permission: "edit", pattern: "*", action: "ask", source: "file" },
-				],
-				savedApprovals: [],
-				ceiling: {},
-			},
-			{ policy: LEGACY_POLICY }
-		);
-		await expect.element(screen.getByTestId("permissions-detail")).toBeVisible();
-		expect(screen.getByTestId("legacy-machine-flag").elements()).toHaveLength(0);
-	});
-
-	it("clears when a re-enroll gives the machine a ceiling", async () => {
-		const screen = mount(ALLOW_ALL, { policy: LEGACY_POLICY });
-		await expect.element(screen.getByTestId("legacy-machine-flag")).toBeVisible();
-		// The machine re-enrolled: its next read carries the ceiling. The
-		// dialog re-reads whenever the session it is open for changes, so
-		// this is one reopen away.
-		api.getPermissionRules.mockResolvedValue({
-			rules: [
-				{ permission: "*", pattern: "*", action: "allow", source: "opencode" },
-				{ permission: "bash", pattern: "*", action: "ask", source: "ceiling" },
-			],
-			savedApprovals: [],
-			ceiling: { bash: "ask" },
-		});
-		await screen.rerender({
-			deviceId: "d1",
-			agentId: "a2",
-			device: DEVICE,
-			policy: ENROLLED_POLICY,
-		});
-		await vi.waitFor(() =>
-			expect(screen.getByTestId("legacy-machine-flag").elements()).toHaveLength(0)
-		);
-		await vi.waitFor(() => expect(codeLegacyMachines.d1).toBe(false));
 	});
 });
 

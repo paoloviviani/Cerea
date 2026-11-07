@@ -9,7 +9,7 @@ add to Cerea so the assistant can use its tools: your notes, a tracker, a
 search service. You manage them under **Workspace → Connectors**. Servers
 added here are _remote_; Cerea does not run MCP servers itself. A server that
 runs on your own laptop or server is a [local connector](local-connectors.md):
-you enroll that machine under **Workspace → Local connectors**, and its servers
+you enroll that machine under **Workspace → Connectors → On your machines**, and its servers
 then appear in the same MCP panel, labelled "name · on machine".
 
 ## Adding one

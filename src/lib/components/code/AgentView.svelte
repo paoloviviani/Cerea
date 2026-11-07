@@ -1590,7 +1590,6 @@
 					{agent}
 					permissionExceptions={permissionRules?.savedApprovals.length ?? 0}
 					{autoApproval}
-					policy={codeDeviceList.devices.find((d) => d.id === deviceId)?.policy}
 					device={codeDeviceList.devices.find((d) => d.id === deviceId)}
 					{modes}
 					{modesFailure}

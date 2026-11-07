@@ -23,19 +23,18 @@ describe("The Workspace tabs, in the pseudo-locale", () => {
 			WorkspacePanel,
 			{ data: { models: [], localConnectorsEnabled: true } } as never,
 			{
-				page: { url: "http://localhost:3000/workspace?tab=local" },
+				page: { url: "http://localhost:3000/workspace?tab=mcp" },
 				context: new Map<unknown, unknown>([["settings", writable({ activeModel: "" })]]),
 			}
 		);
 		for (const key of [
 			"workspace.title",
 			"workspace.tab.models",
-			"workspace.tab.custom",
 			"workspace.tab.memory",
 			"workspace.tab.kb",
 			"workspace.tab.skills",
 			"workspace.tab.mcp",
-			"workspace.tab.local",
+			"workspace.local.title",
 		] as const) {
 			const word = m[key]({}, { locale: "en-XA" });
 			expect(word).toMatch(/^\[.+\]$/);

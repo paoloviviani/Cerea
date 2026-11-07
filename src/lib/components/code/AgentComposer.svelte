@@ -78,7 +78,7 @@
 		runAgentCommand,
 		CodeApiError,
 	} from "$lib/codeApi";
-	import { stepOf, stepToWire, type PermissionStep, type Policy } from "$lib/types/machineProtocol";
+	import { stepOf, stepToWire, type PermissionStep } from "$lib/types/machineProtocol";
 	import type { CodeDeviceView } from "$lib/codeApi";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import * as s from "$lib/components/overlay/styles";
@@ -128,9 +128,6 @@
 			perClass: AutoSetup["perClass"];
 			degraded?: boolean;
 		} | null;
-		/** The machine's `hello` policy, for the dialog's legacy-machine
-		 * flag (the composer has no other use for it). */
-		policy?: Policy;
 		/** The device row this session is on, for the dialog's coordination
 		 * switches (a galopin too old to grant, agent tools off). */
 		device?: CodeDeviceView;
@@ -224,7 +221,6 @@
 		agent,
 		permissionExceptions = 0,
 		autoApproval = null,
-		policy,
 		device,
 		running = false,
 		enrollmentExpired = false,
@@ -1331,11 +1327,9 @@
 		{agentId}
 		mode={permissionMode}
 		setup={autoSetup ?? undefined}
-		{policy}
 		{device}
 		subagent={isSubagent}
 		onchanged={() => (onpermissionchanged ?? onchanged)()}
-		{onreenroll}
 		onclose={() => (permissionDetailsOpen = false)}
 	/>
 {/if}

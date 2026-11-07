@@ -54,6 +54,7 @@
 	import { projectTitle } from "$lib/stores/projectTitle";
 	import { GatewayError, gwGet, type BillableGroup, type VectorStore } from "$lib/gateway";
 	import SettingsShell from "$lib/components/settings/SettingsShell.svelte";
+	import SaveBar from "$lib/components/settings/SaveBar.svelte";
 	import SettingsGroup from "$lib/components/settings/SettingsGroup.svelte";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
 	import DeleteProjectModal from "./DeleteProjectModal.svelte";
@@ -250,6 +251,13 @@
 	});
 
 	// ---- saving -------------------------------------------------------------
+
+	// "Saved" shows for a moment after a save and then goes.
+	$effect(() => {
+		if (!saved || dirty) return;
+		const timer = setTimeout(() => (saved = false), 2500);
+		return () => clearTimeout(timer);
+	});
 
 	const dirty = $derived(
 		!creating &&
@@ -960,27 +968,20 @@
 				</SettingsGroup>
 
 				{#if owned}
-					<div
-						class="sticky bottom-0 -mt-4 flex items-center justify-end gap-3 rounded-lg border border-line bg-surface px-3 py-2"
-					>
-						{#if saved && !dirty}
-							<span class="text-xs text-ok" role="status">{m["projects.page.saved"]()}</span>
-						{:else if dirty}
-							<span class="text-xs text-ink-muted">{m["projects.page.unsaved"]()}</span>
-						{/if}
-						<button
-							type="submit"
-							form="project-form"
-							disabled={busy || !name.trim() || (!creating && !dirty)}
-							class={s.PRIMARY}
-						>
-							{busy
-								? m["projects.page.saving"]()
-								: creating
-									? m["projects.page.create"]()
-									: m["projects.page.save_changes"]()}
-						</button>
-					</div>
+					<!-- Only while there is something to save: a compact floating bar, not a
+					     band under the form. A create form is unsaved by nature, so its bar
+					     shows at once with Create and no Discard. -->
+					<SaveBar
+						form="project-form"
+						dirty={creating || dirty}
+						quiet={creating}
+						saved={saved && !dirty}
+						{busy}
+						saveDisabled={!name.trim()}
+						saveLabel={creating ? m["projects.page.create"]() : m["settings.save_bar.save"]()}
+						busyLabel={m["projects.page.saving"]()}
+						ondiscard={creating ? undefined : () => seed(project)}
+					/>
 				{/if}
 
 				{#if project?.owned}

@@ -67,7 +67,6 @@ function mount(
 		onstop: async () => true,
 		onchanged: () => {},
 		device: over.device ?? device(base),
-		policy: (over.device ?? device(base)).policy,
 		autoApproval:
 			over.autoApproval === undefined
 				? { available: true, perClass: PER_CLASS_DEFAULTS }

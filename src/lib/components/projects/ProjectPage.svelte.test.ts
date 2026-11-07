@@ -210,6 +210,9 @@ const text = () => document.body.textContent ?? "";
 const button = (label: string) =>
 	[...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes(label)) as
 		HTMLButtonElement | undefined;
+const saveButton = () =>
+	(document.body.querySelector('[data-testid="save-bar-save"]') ?? undefined) as
+		HTMLButtonElement | undefined;
 const byLabel = (label: string) =>
 	document.body.querySelector(`[aria-label="${label}"]`) as HTMLElement | null;
 
@@ -663,14 +666,49 @@ describe("ProjectPage defaults for new chats", () => {
 		const seen = stubApi({ project: projectView() });
 		mountExisting(false, "settings");
 		await waitForText("Passages per reply");
-		expect(button("Save changes")?.disabled).toBe(true);
+		// Nothing changed: no bar at all.
+		expect(saveButton()).toBeUndefined();
+		expect(document.querySelector('[data-testid="save-bar"]')).toBeNull();
 
 		await typeInto("#project-name", "Renamed");
-		await vi.waitFor(() => expect(button("Save changes")?.disabled).toBe(false));
-		button("Save changes")?.click();
+		await vi.waitFor(() => expect(saveButton()?.disabled).toBe(false));
+		expect(text()).toContain("Unsaved changes");
+		saveButton()?.click();
 		await vi.waitFor(() => expect(seen.some((call) => call.method === "PATCH")).toBe(true));
 		expect(seen[0].body).toMatchObject({ name: "Renamed" });
 		await vi.waitFor(() => expect(text()).toContain("Saved"));
-		expect(button("Save changes")?.disabled).toBe(true);
+		expect(saveButton()).toBeUndefined();
+	});
+
+	it("Discard puts the stored values back and the bar goes", async () => {
+		const seen = stubApi({ project: projectView() });
+		mountExisting(false, "settings");
+		await waitForText("Passages per reply");
+		await typeInto("#project-name", "Renamed");
+		await vi.waitFor(() => expect(button("Discard")).toBeDefined());
+
+		button("Discard")?.click();
+
+		await vi.waitFor(() => expect(document.querySelector('[data-testid="save-bar"]')).toBeNull());
+		expect((document.querySelector("#project-name") as HTMLInputElement).value).toBe(
+			projectView().name
+		);
+		expect(seen.some((call) => call.method === "PATCH")).toBe(false);
+	});
+
+	it("the bar is a floating pill, not a full-width band", async () => {
+		stubApi({ project: projectView() });
+		mountExisting(false, "settings");
+		await waitForText("Passages per reply");
+		await typeInto("#project-name", "Renamed");
+		const bar = await vi.waitFor(() => {
+			const el = document.querySelector('[data-testid="save-bar"]') as HTMLElement;
+			expect(el).not.toBeNull();
+			return el;
+		});
+		const holder = bar.parentElement as HTMLElement;
+		expect(getComputedStyle(holder).position).toBe("sticky");
+		expect(bar.getBoundingClientRect().width).toBeLessThan(holder.getBoundingClientRect().width);
+		expect(getComputedStyle(bar).borderRadius).not.toBe("0px");
 	});
 });

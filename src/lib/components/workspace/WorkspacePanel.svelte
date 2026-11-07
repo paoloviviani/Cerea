@@ -1,6 +1,8 @@
 <!--
-	The workspace: models, MCP servers and knowledge bases as tabs of one page.
-	(Later joined by Custom models, skills and memory.)
+	The workspace: models, memory, knowledge, skills, connectors and agent
+	settings as the six tabs of one page. Custom models are a section of Models
+	("Your custom models") and Local connectors a section of Connectors ("On your
+	machines"); `?tab=custom` and `?tab=local` redirect to them (`workspaceRedirect`).
 
 	The three managers were overlays, each opened from a different corner of the
 	app (sidebar rows, the composer, the models list) and each mounted wherever
@@ -10,7 +12,7 @@
 	(`overlay/styles.ts`); only the overlay shell is gone, replaced by the card
 	this panel draws around whichever tab is showing.
 
-	**The tab and the item are the address.** `?tab=models|custom|mcp|local|kb|skills|memory|agents` picks the
+	**The tab and the item are the address.** `?tab=models|mcp|kb|skills|memory|agents` picks the
 	tab, an `?id=` opens one item's own view — so the programmatic openers that
 	used to open an overlay navigate here instead, and old `/knowledge/…` links
 	redirect to `?tab=kb&id=…`. `id` is read once by
@@ -33,13 +35,13 @@
 	import LocalConnectors from "$lib/components/workspace/LocalConnectors.svelte";
 	import AgentsSettings from "$lib/components/workspace/AgentsSettings.svelte";
 	import LucideBot from "~icons/lucide/bot";
-	import LucideLaptop from "~icons/lucide/laptop";
 	import LucideBoxes from "~icons/lucide/boxes";
 	import LucideLibrary from "~icons/lucide/library";
 	import IconMCP from "$lib/components/icons/IconMCP.svelte";
 	import IconDocument from "~icons/carbon/document";
 	import LucideBrain from "~icons/lucide/brain";
-	import LucideSparkles from "~icons/lucide/sparkles";
+	import { CUSTOM_MODELS_ID, ON_YOUR_MACHINES_ID } from "$lib/utils/workspaceTabs";
+	import { scrollWithin } from "$lib/utils/scrollWithin";
 	import SectionSwitcher from "$lib/components/nav/SectionSwitcher.svelte";
 
 	interface Props {
@@ -61,12 +63,10 @@
 	// Models.
 	const ALL_TABS = [
 		{ key: "models", label: m["workspace.tab.models"], icon: LucideBoxes },
-		{ key: "custom", label: m["workspace.tab.custom"], icon: LucideSparkles },
 		{ key: "memory", label: m["workspace.tab.memory"], icon: LucideBrain },
 		{ key: "kb", label: m["workspace.tab.kb"], icon: LucideLibrary },
 		{ key: "skills", label: m["workspace.tab.skills"], icon: IconDocument },
 		{ key: "mcp", label: m["workspace.tab.mcp"], icon: IconMCP },
-		{ key: "local", label: m["workspace.tab.local"], icon: LucideLaptop },
 		{ key: "agents", label: m["workspace.tab.agents"], icon: LucideBot },
 	] as const;
 	// Memory hides on the same terms as Knowledge, for the same reason: with
@@ -79,8 +79,6 @@
 			(t) =>
 				(t.key !== "kb" || data.knowledgeEnabled !== false) &&
 				(t.key !== "memory" || data.memoryEnabled !== false) &&
-				// LOCAL_CONNECTORS_ENABLED: off, the endpoints answer 404 and the tab is not offered.
-				(t.key !== "local" || data.localConnectorsEnabled === true) &&
 				// Auto-approval is the signed-in user's, where coding agents exist (ADR 0109).
 				(t.key !== "agents" || (Boolean(data.user) && data.codeAgentsEnabled === true))
 		)
@@ -100,9 +98,25 @@
 	const initialId = $derived(page.url.searchParams.get("id") ?? undefined);
 	// MCP servers are a flat list with no per-item view, so an `id` beside
 	// `?tab=mcp` has nothing to open and is ignored.
-	const initialItemId = $derived(
-		tab === "mcp" || tab === "local" || tab === "agents" ? undefined : initialId
+	const initialItemId = $derived(tab === "mcp" || tab === "agents" ? undefined : initialId);
+	// A custom model's own view, in its section of the Models tab (`?tab=models&custom=<id>`).
+	const customId = $derived(
+		tab === "models" ? (page.url.searchParams.get("custom") ?? undefined) : undefined
 	);
+
+	// A section address (`#on-your-machines`, `#custom-models`) scrolls the page's own
+	// column, never the window, once the tab has drawn its sections.
+	$effect(() => {
+		void tab;
+		void customId;
+		const hash = page.url.hash.slice(1);
+		if (!hash) return;
+		const timer = setTimeout(() => {
+			const el = document.getElementById(hash);
+			if (el) scrollWithin(el, { offset: 8 });
+		}, 0);
+		return () => clearTimeout(timer);
+	});
 </script>
 
 <!--
@@ -147,19 +161,26 @@
 		openers rely on.
 	-->
 	<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto">
-		{#key `${tab}:${initialItemId ?? ""}`}
+		{#key `${tab}:${initialItemId ?? ""}:${customId ?? ""}`}
 			{#if tab === "models"}
 				<ModelsManager models={data.models} initialId={initialItemId} />
-			{:else if tab === "custom"}
-				<CustomModelsManager
-					models={data.models}
-					customModels={data.customModels ?? []}
-					initialId={initialItemId}
-				/>
+				<!-- Custom models: the user's own models, a section of this tab. -->
+				<section id={CUSTOM_MODELS_ID} class="mt-8 scroll-mt-2" data-testid="custom-models-section">
+					<CustomModelsManager
+						models={data.models}
+						customModels={data.customModels ?? []}
+						initialId={customId}
+					/>
+				</section>
 			{:else if tab === "mcp"}
 				<MCPServerManager />
-			{:else if tab === "local"}
-				<LocalConnectors />
+				<!-- Connectors on the user's own machines, offered over the machine link
+				     (LOCAL_CONNECTORS_ENABLED: off, the endpoints answer 404 and the section is not drawn). -->
+				{#if data.localConnectorsEnabled === true}
+					<section id={ON_YOUR_MACHINES_ID} class="mt-8 scroll-mt-2" data-testid="on-your-machines">
+						<LocalConnectors />
+					</section>
+				{/if}
 			{:else if tab === "agents"}
 				<AgentsSettings />
 			{:else if tab === "kb"}
