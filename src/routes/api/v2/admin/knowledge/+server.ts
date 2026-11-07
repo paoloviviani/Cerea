@@ -23,6 +23,7 @@ import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { requireAdmin } from "$lib/server/admin";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { logger } from "$lib/server/logger";
+import { validatePrefix } from "$lib/embeddingPrefix";
 import type { KnowledgeConfig } from "$lib/types/VectorStore";
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -42,6 +43,8 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	const body = (await request.json()) as {
 		enabled?: boolean;
 		embedding_model?: string | null;
+		passage_prefix?: string;
+		query_prefix?: string;
 		extractor_model?: string | null;
 		clear_extractor?: boolean;
 		chunk_chars?: number;
@@ -61,6 +64,11 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 			error(400, "chunk_overlap must be between 0 and 5000.");
 		}
 	}
+	for (const key of ["passage_prefix", "query_prefix"] as const) {
+		if (body[key] === undefined) continue;
+		const problem = validatePrefix(body[key]);
+		if (problem) error(400, `${key}: ${problem}`);
+	}
 	// The bounds above are the form's own, so a value the screen offers can
 	// never be refused here; the service caps the overlap at a third of the
 	// passage size whatever arrives.
@@ -71,6 +79,8 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	const patch: Partial<KnowledgeConfig> = {};
 	if (body.enabled !== undefined) patch.enabled = Boolean(body.enabled);
 	if (body.embedding_model !== undefined) patch.embeddingModel = body.embedding_model || null;
+	if (body.passage_prefix !== undefined) patch.passagePrefix = body.passage_prefix;
+	if (body.query_prefix !== undefined) patch.queryPrefix = body.query_prefix;
 	if (body.clear_extractor) {
 		patch.extractorModel = null;
 	} else if (body.extractor_model !== undefined) {

@@ -25,6 +25,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { formatDateTime } from "$lib/i18n/format";
 	import Rich from "$lib/i18n/Rich.svelte";
+	import { MAX_PREFIX_LENGTH, detectPreset, validatePrefix } from "$lib/embeddingPrefix";
 
 	interface BaseSummary {
 		id: string;
@@ -38,6 +39,7 @@
 		chunk_count: number;
 		failed_count: number;
 		stale: boolean;
+		prefix_stale?: boolean;
 		memory_of?: { project_id: string; project_name: string } | null;
 		share_count: number;
 		created_at: string;
@@ -65,6 +67,8 @@
 		enabled: boolean;
 		ready: boolean;
 		embedding_model: string | null;
+		passage_prefix?: string;
+		query_prefix?: string;
 		/** What an upload would actually be read with — already resolved:
 		 * env, then the screen's own stored choice, then the local extractor,
 		 * then the first reader, then null. Never "Automatic": there is no
@@ -101,6 +105,8 @@
 
 	let embedding = $state("");
 	let extractor = $state("");
+	let queryPrefix = $state("");
+	let passagePrefix = $state("");
 	let chunkChars = $state("1200");
 	let chunkOverlap = $state("150");
 
@@ -114,6 +120,8 @@
 		// stored value that may be null.
 		embedding = next.embedding_model ?? next.available_embedding_models[0] ?? "";
 		extractor = next.extractor_model ?? "";
+		queryPrefix = next.query_prefix ?? "";
+		passagePrefix = next.passage_prefix ?? "";
 		chunkChars = String(next.chunk_chars);
 		chunkOverlap = String(next.chunk_overlap);
 	}
@@ -141,6 +149,25 @@
 	const embeddingDefault = $derived(status ? (status.embedding_model ?? "") : "");
 	const extractorDefault = $derived(status ? (status.extractor_model ?? "") : "");
 
+	const preset = $derived(detectPreset(embedding));
+
+	/** Only on request: it fills the two fields, the save still decides. */
+	function usePreset() {
+		if (!preset) return;
+		queryPrefix = preset.query;
+		passagePrefix = preset.passage;
+	}
+
+	function prefixProblem(value: string): string | null {
+		const problem = validatePrefix(value);
+		if (!problem) return null;
+		return value.length > MAX_PREFIX_LENGTH
+			? m["admin.knowledge.prefix.too_long"]({ max: MAX_PREFIX_LENGTH })
+			: m["admin.knowledge.prefix.control"]();
+	}
+	const queryProblem = $derived(prefixProblem(queryPrefix));
+	const passageProblem = $derived(prefixProblem(passagePrefix));
+
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
 		if (!status) return;
@@ -154,6 +181,9 @@
 		if (embedding && embedding !== embeddingDefault) {
 			body.embedding_model = embedding;
 		}
+		if (queryProblem || passageProblem) return;
+		if (queryPrefix !== (status.query_prefix ?? "")) body.query_prefix = queryPrefix;
+		if (passagePrefix !== (status.passage_prefix ?? "")) body.passage_prefix = passagePrefix;
 		if (status.extractor_source !== "env" && extractor !== extractorDefault) {
 			body.extractor_model = extractor;
 		}
@@ -289,6 +319,47 @@
 				</span>
 			</label>
 
+			<div class="flex flex-col gap-1">
+				<div class="grid gap-2 sm:grid-cols-2">
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium">{m["admin.knowledge.prefix.query"]()}</span>
+						<input
+							type="text"
+							data-testid="query-prefix"
+							class="rounded-lg border border-gray-300 bg-white p-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-900"
+							bind:value={queryPrefix}
+							autocomplete="off"
+						/>
+						{#if queryProblem}<span class="text-xs text-red-700 dark:text-red-300"
+								>{queryProblem}</span
+							>{/if}
+					</label>
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-medium">{m["admin.knowledge.prefix.passage"]()}</span>
+						<input
+							type="text"
+							data-testid="passage-prefix"
+							class="rounded-lg border border-gray-300 bg-white p-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-900"
+							bind:value={passagePrefix}
+							autocomplete="off"
+						/>
+						{#if passageProblem}<span class="text-xs text-red-700 dark:text-red-300"
+								>{passageProblem}</span
+							>{/if}
+					</label>
+				</div>
+				<p class="text-xs text-gray-500 dark:text-gray-400">
+					{m["admin.knowledge.prefix.help"]()}
+					<button
+						type="button"
+						data-testid="prefix-preset"
+						class="underline disabled:no-underline disabled:opacity-50"
+						disabled={!preset}
+						onclick={usePreset}>{m["admin.knowledge.prefix.preset"]()}</button
+					>
+				</p>
+			</div>
+
 			<label class="flex flex-col gap-1">
 				<span class="text-sm font-medium">{m["admin.knowledge.extractor.label"]()}</span>
 				{#if status.extractor_source === "env"}
@@ -411,7 +482,9 @@
 									{#if row.stale}
 										<span
 											class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-900 dark:text-amber-100"
-											>{m["admin.knowledge.bases.older_model"]()}</span
+											>{row.prefix_stale
+												? m["admin.knowledge.bases.older_prefix"]()
+												: m["admin.knowledge.bases.older_model"]()}</span
 										>
 									{/if}
 								</td>
