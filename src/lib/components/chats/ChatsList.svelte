@@ -119,8 +119,7 @@
 	);
 	// A model that has since been removed is not in the list: say so rather than
 	// showing its raw id.
-	const modelName = (id?: string) =>
-		id ? (models.get(id) ?? m["chats.model_gone"]()) : "";
+	const modelName = (id?: string) => (id ? (models.get(id) ?? m["chats.model_gone"]()) : "");
 
 	/**
 	 * The tab and the address are one thing, as on the project page:
