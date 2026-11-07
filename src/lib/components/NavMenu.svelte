@@ -278,7 +278,11 @@
 		     somewhere in the chrome. The mark's alt already says it, so the
 		     visible word is hidden from screen readers to avoid a double read. -->
 		<Logo variant="small" classNames="h-[27px] w-auto" />
-		<span class="ml-2 text-lg font-semibold tracking-tight" aria-hidden="true" data-testid="sidebar-wordmark">
+		<span
+			class="ml-2 text-lg font-semibold tracking-tight"
+			aria-hidden="true"
+			data-testid="sidebar-wordmark"
+		>
 			{publicConfig.PUBLIC_APP_NAME}
 		</span>
 	</a>

@@ -2,7 +2,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { modelLabel, settingsModelId } from "$lib/utils/customModelEntries";
 	import type { Message } from "$lib/types/Message";
-	import { onDestroy, untrack } from "svelte";
+	import { onDestroy, tick, untrack } from "svelte";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
 
 	import ArtifactPanel from "./ArtifactPanel.svelte";
@@ -375,6 +375,29 @@
 				(u) => u.type === "status" && u.status === "error"
 			) ?? -1) !== -1
 	);
+
+	// The first word of the user's display name, for the greeting. A name with no
+	// space and a dot, underscore or @ is a username or an address, not a name:
+	// greeting "ada.lovelace" would read worse than not greeting at all.
+	const firstName = $derived.by(() => {
+		const full = (page.data as { user?: { name?: string } | null }).user?.name?.trim() ?? "";
+		const first = full.split(/\s+/)[0] ?? "";
+		return /[@._]/.test(first) ? "" : first;
+	});
+
+	// A starter chip on the empty chat: a complete question is sent, a beginning
+	// ("Help me plan ") goes into the composer, which takes the focus.
+	async function pickStarter(text: string, send: boolean) {
+		if (send) {
+			sendFixRequest(text);
+			return;
+		}
+		draft = text;
+		await tick();
+		const box = document.querySelector<HTMLTextAreaElement>("textarea[data-testid='chat-input']");
+		box?.focus();
+		box?.setSelectionRange(text.length, text.length);
+	}
 
 	// Preview "ask to fix" buttons (artifact panel footer, fullscreen preview
 	// modals) send their message directly instead of prefilling the composer.
@@ -771,6 +794,8 @@
 		{#snippet introduction()}
 			<ChatIntroduction
 				{currentModel}
+				{firstName}
+				onstarter={pickStarter}
 				onmessage={(content) => {
 					onmessage?.(content);
 				}}

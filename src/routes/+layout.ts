@@ -19,6 +19,8 @@ interface ConversationListItem {
 interface UserInfo {
 	id: string;
 	username?: string;
+	/** The display name the identity provider sent ("Ada Lovelace"). */
+	name?: string;
 	avatarUrl?: string;
 	email?: string;
 	isAdmin: boolean;

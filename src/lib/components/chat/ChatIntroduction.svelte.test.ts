@@ -100,4 +100,30 @@ describe("ChatIntroduction", () => {
 			expect(c).toContain("w-auto");
 		}
 	});
+
+	it("adds a plain line under the greeting, by first name when known", async () => {
+		const plain = renderWithApp(ChatIntroduction, { currentModel: model });
+		expect(plain.getByTestId("intro-subline").element().textContent?.trim()).toBe(
+			"What can I help you with today?"
+		);
+		plain.unmount();
+		const named = renderWithApp(ChatIntroduction, { currentModel: model, firstName: "Ada" });
+		expect(named.getByTestId("intro-subline").element().textContent?.trim()).toBe(
+			"What can I help you with today, Ada?"
+		);
+	});
+
+	it("offers four starters: three beginnings for the composer, one question to send", async () => {
+		const picked: Array<[string, boolean]> = [];
+		const screen = renderWithApp(ChatIntroduction, {
+			currentModel: model,
+			onstarter: (text: string, send: boolean) => picked.push([text, send]),
+		});
+		for (const id of ["draft", "analyse", "plan", "cerea"]) {
+			(screen.getByTestId(`starter-${id}`).element() as HTMLButtonElement).click();
+		}
+		expect(picked.map(([, send]) => send)).toEqual([false, false, false, true]);
+		expect(picked[2]?.[0]).toBe("Help me plan ");
+		expect(picked[3]?.[0]).toContain("Cerea");
+	});
 });
