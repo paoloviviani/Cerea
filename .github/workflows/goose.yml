@@ -1,0 +1,150 @@
+# galopin's goose engine (ADR 0110) against real goose releases, with a fake
+# OpenAI-compatible model (agent/internal/mockllm): no secrets, no network model.
+#
+#   pinned  the release agent/packaging/goose-version names, archive verified
+#           against agent/packaging/goose-sha256. Runs on a push to main or a
+#           pull request that touches agent/ (or this file), weekly, on demand.
+#   latest  goose's newest release (or `version`, on demand), daily. Skipped
+#           when it is the pin. Opens or updates ONE issue: "breaks galopin" on
+#           a failure, "ready to bump the pin" on a pass. Bumping:
+#           agent/packaging/bump-goose.sh, agent/README.md "goose releases".
+#
+# Free-plan minutes: one Linux runner per job, 20 minute cap, no matrix.
+name: goose
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agent/**"
+      - ".github/workflows/goose.yml"
+  pull_request:
+    paths:
+      - "agent/**"
+      - ".github/workflows/goose.yml"
+  schedule:
+    - cron: "29 4 * * 2" # weekly: pinned
+    - cron: "51 5 * * *" # daily: latest
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "goose release for the `latest` job (default: GitHub's latest)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  pinned:
+    # the daily schedule is the `latest` job's
+    if: github.event_name != 'schedule' || github.event.schedule == '29 4 * * 2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Install the pinned goose, checksum-verified
+        run: |
+          version=$(cat agent/packaging/goose-version)
+          archive=goose-x86_64-unknown-linux-gnu.tar.gz
+          curl -fsSL -o "$RUNNER_TEMP/$archive" "https://github.com/block/goose/releases/download/v${version}/${archive}"
+          want=$(awk -v n="$archive" '$2 == n { print $1 }' agent/packaging/goose-sha256)
+          [ -n "$want" ] || { echo "::error::goose-sha256 lists no $archive"; exit 1; }
+          got=$(sha256sum "$RUNNER_TEMP/$archive" | cut -d ' ' -f 1)
+          [ "$got" = "$want" ] || { echo "::error::checksum mismatch for $archive (want $want, got $got)"; exit 1; }
+          mkdir -p "$HOME/.local/bin" && tar -xzf "$RUNNER_TEMP/$archive" -C "$HOME/.local/bin" goose
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/goose" --version
+          [ "$("$HOME/.local/bin/goose" --version)" = "$version" ] || { echo "::error::installed goose is not $version"; exit 1; }
+      - name: goose engine suite
+        working-directory: agent
+        env:
+          GALOPIN_GOOSE_IT: "1"
+        shell: bash
+        run: |
+          set +e
+          go test -count=1 -v -timeout 15m -run 'Goose' . 2>&1 | cut -c1-2000 | tee "$RUNNER_TEMP/goose-test.log"
+          exit "${PIPESTATUS[0]}"
+      - name: No goose test was skipped
+        run: |
+          if grep -E -- '--- SKIP: Test(Goose|.*Goose)' "$RUNNER_TEMP/goose-test.log"; then
+            echo "::error::a goose test was skipped, so this run did not cover it"; exit 1
+          fi
+
+  latest:
+    # not on a push or pull request (the pinned job's), only the daily schedule among schedules
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '51 5 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REQUESTED: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Resolve the version under test
+        id: v
+        run: |
+          pinned=$(cat agent/packaging/goose-version)
+          version=${REQUESTED:-$(gh api repos/block/goose/releases/latest --jq .tag_name | sed 's/^v//')}
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a release number: '$version'"; exit 1; }
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "goose under test: $version (pinned: $pinned)"
+      - name: Skip the pinned release
+        if: steps.v.outputs.version == steps.v.outputs.pinned
+        run: |
+          echo "### latest: goose ${{ steps.v.outputs.version }} is the pinned release; the pinned job covers it" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install goose ${{ steps.v.outputs.version }}
+        if: steps.v.outputs.version != steps.v.outputs.pinned
+        run: |
+          archive=goose-x86_64-unknown-linux-gnu.tar.gz
+          curl -fsSL -o "$RUNNER_TEMP/$archive" "https://github.com/block/goose/releases/download/v${{ steps.v.outputs.version }}/${archive}"
+          mkdir -p "$HOME/.local/bin" && tar -xzf "$RUNNER_TEMP/$archive" -C "$HOME/.local/bin" goose
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/goose" --version
+      - name: goose engine suite
+        id: suite
+        if: steps.v.outputs.version != steps.v.outputs.pinned
+        working-directory: agent
+        env:
+          GALOPIN_GOOSE_IT: "1"
+        shell: bash
+        run: |
+          set +e
+          go test -count=1 -v -timeout 15m -run 'Goose' . 2>&1 | cut -c1-2000 | tee "$RUNNER_TEMP/goose-test.log"
+          code=${PIPESTATUS[0]}
+          if grep -E -- '--- SKIP: Test(Goose|.*Goose)' "$RUNNER_TEMP/goose-test.log"; then code=1; fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+      - name: Open or update the issue
+        if: steps.suite.outcome == 'success'
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          PINNED: ${{ steps.v.outputs.pinned }}
+          CODE: ${{ steps.suite.outputs.code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create goose-pipeline --color 0E8A16 --description "goose release pipeline (.github/workflows/goose.yml)" 2>/dev/null || true
+          upsert() { # title body
+            n=$(gh issue list --label goose-pipeline --state open --limit 100 --json number,title \
+                  --jq "map(select(.title == \"$1\")) | .[0].number // empty")
+            if [ -n "$n" ]; then gh issue edit "$n" --body "$2" > /dev/null; else gh issue create --label goose-pipeline --title "$1" --body "$2"; fi
+          }
+          if [ "$CODE" != "0" ]; then
+            upsert "goose $VERSION breaks galopin" "galopin's goose engine suite fails against **goose $VERSION** (pinned: $PINNED). Run: $RUN_URL. Reproduce: install goose $VERSION, then \`cd agent && GALOPIN_GOOSE_IT=1 go test -count=1 -v -run Goose .\`. The pin stays at $PINNED until someone bumps it."
+          else
+            upsert "goose $VERSION passes galopin's goose suite: ready to bump the pin" "The goose engine suite passes against **goose $VERSION** (pinned: $PINNED). Run: $RUN_URL. Bump: \`agent/packaging/bump-goose.sh $VERSION\`, then the printed checks, then update prose naming the release."
+          fi
+      - name: Fail the job if the suite did not pass
+        if: steps.suite.outcome == 'success' && steps.suite.outputs.code != '0'
+        run: exit 1

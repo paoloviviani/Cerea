@@ -29,11 +29,18 @@ export interface AgentConnectorOption {
 	locked?: boolean;
 }
 
-/** The connectors a user could switch on for a session on `deviceId`: the chat's, then the machine's own. */
-export async function connectorOptions(
-	userId: ObjectId,
-	deviceId: string
-): Promise<AgentConnectorOption[]> {
+/**
+ * "Local agents": the user's OWN agents on their machines (goose Desktop, the goose CLI, an
+ * editor extension, set up with `galopin goose setup`) reach Cerea's connectors through
+ * galopin's local MCP endpoint. Which connectors they may use is one list per user, default
+ * none, kept in the same collection under a reserved row (no session is behind these calls).
+ * The same resolver rules apply at every list and call as for a session's opt-in.
+ */
+export const LOCAL_AGENTS_DEVICE = "*";
+export const LOCAL_AGENTS_SESSION = "local-agents";
+
+/** Cerea's connectors a user could switch on, with why one cannot be used now. */
+async function cereaOptions(userId: ObjectId): Promise<AgentConnectorOption[]> {
 	const { connectors, blocked } = await resolveConnectors(userId);
 	const policies = await loadPolicies().catch(() => new Map());
 	const options: AgentConnectorOption[] = connectors
@@ -55,6 +62,15 @@ export async function connectorOptions(
 			unavailable: b.reason,
 		});
 	}
+	return options;
+}
+
+/** The connectors a user could switch on for a session on `deviceId`: the chat's, then the machine's own. */
+export async function connectorOptions(
+	userId: ObjectId,
+	deviceId: string
+): Promise<AgentConnectorOption[]> {
+	const options = await cereaOptions(userId);
 	if (localConnectorsEnabled()) {
 		const device = await ownedDevice(userId, deviceId);
 		if (device && device.status === "paired" && servesLocalConnectors(device)) {
@@ -70,6 +86,53 @@ export async function connectorOptions(
 		}
 	}
 	return options.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** What the user may switch on for local agents: Cerea's connectors (a machine's own are its own business). */
+export async function localAgentOptions(userId: ObjectId): Promise<AgentConnectorOption[]> {
+	return (await cereaOptions(userId)).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function getLocalAgentKeys(userId: ObjectId): Promise<string[]> {
+	return getSessionConnectorKeys(userId, LOCAL_AGENTS_DEVICE, LOCAL_AGENTS_SESSION);
+}
+
+/** Replace the local-agents list. Every key must be one the user can switch on now; empty clears it. */
+export async function setLocalAgentKeys(userId: ObjectId, keys: string[]): Promise<string[]> {
+	const unique = [...new Set(keys)];
+	if (unique.length > MAX_SESSION_CONNECTORS) {
+		throw new SessionConnectorsError(`At most ${MAX_SESSION_CONNECTORS} connectors.`);
+	}
+	if (unique.length === 0) {
+		await collections.codeSessionConnectors.deleteOne({
+			userId,
+			deviceId: LOCAL_AGENTS_DEVICE,
+			sessionId: LOCAL_AGENTS_SESSION,
+		});
+		return [];
+	}
+	const allowed = new Set(
+		(await localAgentOptions(userId)).filter((o) => !o.unavailable).map((o) => o.key)
+	);
+	if (unique.some((k) => !allowed.has(k))) {
+		throw new SessionConnectorsError("One of those connectors is not available to you.");
+	}
+	const now = new Date();
+	await collections.codeSessionConnectors.updateOne(
+		{ userId, deviceId: LOCAL_AGENTS_DEVICE, sessionId: LOCAL_AGENTS_SESSION },
+		{ $set: { keys: unique, updatedAt: now }, $setOnInsert: { createdAt: now } },
+		{ upsert: true }
+	);
+	return unique;
+}
+
+/** What local agents may use right now: the user's list, re-filtered by the resolver at every list and call. */
+export async function localAgentConnectorsNow(userId: ObjectId): Promise<SessionConnectorsNow> {
+	const keys = await getLocalAgentKeys(userId);
+	if (keys.length === 0) return { cerea: [], local: [] };
+	const wanted = new Set(keys);
+	const { connectors } = await resolveConnectors(userId);
+	return { cerea: connectors.filter((c) => c.kind !== "local" && wanted.has(c.key)), local: [] };
 }
 
 export async function getSessionConnectorKeys(
