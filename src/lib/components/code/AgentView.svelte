@@ -1122,13 +1122,6 @@
 		error: m["code.view.state.error"],
 	};
 
-	function stateTone(state: CodeTurnState): s.PillTone {
-		if (state === "running" || state === "waiting-permission") return "busy";
-		if (state === "error") return "bad";
-		if (state === "done") return "good";
-		return "neutral";
-	}
-
 	/** The panels the header offers, with their live figures. */
 	let changesCount = $state<number | null>(null);
 	let paneItems = $derived.by<PaneItem[]>(() => {
