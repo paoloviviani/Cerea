@@ -3298,5 +3298,16 @@
 	"code.schedules.filter_chats": "Chats",
 	"code.schedules.filter_agents": "Agents",
 	"code.schedules.kind_chat": "Chat",
-	"code.schedules.kind_agent": "Agent"
+	"code.schedules.kind_agent": "Agent",
+	"palette.title": "Jump to",
+	"palette.placeholder": "Search chats, projects, agents, schedules and settings…",
+	"palette.empty": "Nothing matches.",
+	"palette.group.pages": "Pages",
+	"palette.group.chats": "Chats",
+	"palette.group.projects": "Projects",
+	"palette.group.agents": "Agent sessions",
+	"palette.group.schedules": "Schedules",
+	"app.nav_item.regenerate_title": "Regenerate title",
+	"app.nav_item.regenerate_failed": "A title could not be written. Try again.",
+	"nav.projects.regenerate_failed": "A title could not be written. Try again."
 }

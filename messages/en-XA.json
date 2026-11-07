@@ -3594,5 +3594,16 @@
 	"code.schedules.filter_chats": "[Ćȟáťś]",
 	"code.schedules.filter_agents": "[Áǧéńťś]",
 	"code.schedules.kind_chat": "[Ćȟáť]",
-	"code.schedules.kind_agent": "[Áǧéńť]"
+	"code.schedules.kind_agent": "[Áǧéńť]",
+	"palette.title": "[Ĵúḿþ ťó]",
+	"palette.placeholder": "[Śéáŕćȟ ćȟáťś, þŕóĵéćťś, áǧéńťś, śćȟéďúľéś áńď śéťťíńǧś…]",
+	"palette.empty": "[Ńóťȟíńǧ ḿáťćȟéś.]",
+	"palette.group.pages": "[Þáǧéś]",
+	"palette.group.chats": "[Ćȟáťś]",
+	"palette.group.projects": "[Þŕóĵéćťś]",
+	"palette.group.agents": "[Áǧéńť śéśśíóńś]",
+	"palette.group.schedules": "[Śćȟéďúľéś]",
+	"app.nav_item.regenerate_title": "[Ŕéǧéńéŕáťé ťíťľé]",
+	"app.nav_item.regenerate_failed": "[Á ťíťľé ćóúľď ńóť ƀé ŵŕíťťéń. Ťŕý áǧáíń.]",
+	"nav.projects.regenerate_failed": "[Á ťíťľé ćóúľď ńóť ƀé ŵŕíťťéń. Ťŕý áǧáíń.]"
 }

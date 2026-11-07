@@ -88,6 +88,35 @@ export async function* generateTitleForConversation(
 	}
 }
 
+export type RegenerateTitleResult =
+	{ ok: true; title: string } | { ok: false; reason: "user-title" | "no-messages" | "unavailable" };
+
+/**
+ * "Regenerate title" in a chat's menu: ask the title model again, now with the
+ * start of the reply to read. The caller saves the result (conditionally, see
+ * `saveGeneratedTitle`).
+ *
+ * Never on a title the user typed (`titleSource: "user"`): refused up front, and
+ * the caller's write is conditional on it too, so a rename that lands while the
+ * model is thinking still wins. It does not count against the automatic
+ * attempts (`MAX_TITLE_ATTEMPTS`): that budget is for chats nobody has asked
+ * about. Where titles are not model-written (`LLM_SUMMARIZATION` off) or the
+ * model gives nothing in time, nothing is returned and the title stays as it
+ * is, rather than "regenerating" to the same trimmed sentence.
+ */
+export async function regenerateTitle(
+	conv: Conversation,
+	locals: App.Locals | undefined
+): Promise<RegenerateTitleResult> {
+	if (conv.titleSource === "user") return { ok: false, reason: "user-title" };
+	const userMessage = conv.messages.find((m) => m.from === "user");
+	if (!userMessage) return { ok: false, reason: "no-messages" };
+	if (config.LLM_SUMMARIZATION !== "true") return { ok: false, reason: "unavailable" };
+
+	const generated = await attemptTitle(conv, userMessage.content, firstReply(conv), locals);
+	return generated ? { ok: true, title: generated } : { ok: false, reason: "unavailable" };
+}
+
 /** The catalogue as title-model candidates; empty when it cannot be read. */
 async function catalogue(): Promise<TitleModelCandidate[]> {
 	try {

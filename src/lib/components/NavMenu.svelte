@@ -113,6 +113,7 @@
 		p?: number;
 		ondeleteConversation?: (id: string) => void;
 		oneditConversationTitle?: (payload: { id: string; title: string }) => void;
+		onregenerateTitle?: (id: string) => void;
 	}
 
 	let {
@@ -123,6 +124,7 @@
 		p = $bindable(0),
 		ondeleteConversation,
 		oneditConversationTitle,
+		onregenerateTitle,
 	}: Props = $props();
 
 	let hasMore = $state(true);
@@ -381,7 +383,12 @@
 			{#each listRows as row (row.key)}
 				{#if row.conv}
 					<div class="pl-3">
-						<NavConversationItem conv={row.conv} {oneditConversationTitle} {ondeleteConversation} />
+						<NavConversationItem
+							conv={row.conv}
+							{oneditConversationTitle}
+							{ondeleteConversation}
+							{onregenerateTitle}
+						/>
 					</div>
 				{:else}
 					<h4 class="mt-2 mb-1 pl-6 text-xs text-ink-faint first:mt-0.5">
