@@ -155,7 +155,7 @@ describe("AgentSessionCard", () => {
 		machine();
 		const screen = mount();
 		await expect
-			.element(screen.getByRole("region", { name: "Coding session: Fix the flaky login test" }))
+			.element(screen.getByRole("region", { name: "Session: Fix the flaky login test" }))
 			.toBeVisible();
 	});
 });

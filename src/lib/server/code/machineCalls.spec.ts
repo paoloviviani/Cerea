@@ -400,7 +400,7 @@ describe("schedule.create", () => {
 		refused(
 			await machine.call("schedule.create", createArgs({ workspaceId: "elsewhere" })),
 			"invalid",
-			/not on this machine/
+			/not on this computer/
 		);
 	});
 

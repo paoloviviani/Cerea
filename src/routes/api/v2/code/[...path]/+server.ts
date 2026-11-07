@@ -275,7 +275,7 @@ function toSession(session: Session): CodeAgentSession {
 /** The exact fix text for a machine that vetoes terminals — carried on the
  * disabled Terminal tab (ADR 0090 §2.3). */
 const TERMINAL_VETO_NOTE =
-	"This machine was enrolled with terminals off. Re-enroll it (terminals are on by default) to use them here.";
+	"This computer was enrolled with terminals off. Re-enroll it (terminals are on by default) to use them here.";
 
 /**
  * The terminal's double veto (ADR 0090 §6.1): the deployment switch first
