@@ -198,7 +198,7 @@ test.describe("live lists", () => {
 
 		await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}`);
 		await openAgentsPanel(page);
-		await expect(page.getByText("No agents yet.")).toBeVisible();
+		await expect(page.getByText("No sessions yet.")).toBeVisible();
 		await expect(page.getByText("e2e agent")).toHaveCount(0);
 
 		// The machine's own reconnect (or another tab) started a session on

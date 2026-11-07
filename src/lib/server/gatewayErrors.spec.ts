@@ -84,11 +84,11 @@ describe("quota wording", () => {
 		});
 	});
 
-	it("says it in a sentence: no scientific notation, no gateway text", () => {
+	it('says it in a sentence, with no "used up" for a limit of zero: no scientific notation, no gateway text', () => {
 		const f = classifyGatewayError(gatewayBody);
 		if (f.kind !== "quota") throw new Error("expected quota");
 		const text = quotaMessageForUser(f, { currency: "EUR", usageEnabled: true, now });
-		expect(text).toBe("Your monthly allowance of €0.00 is used up. See Usage.");
+		expect(text).toBe("You don't have an allowance for this. Ask your administrator.");
 		expect(text).not.toContain("0E-12");
 		expect(text).not.toContain("current");
 	});

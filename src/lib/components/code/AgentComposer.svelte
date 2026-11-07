@@ -55,16 +55,7 @@
 	import IconArrowUp from "~icons/lucide/arrow-up";
 	import IconChevronDown from "~icons/carbon/chevron-down";
 	import IconCheck from "~icons/carbon/checkmark";
-	import IconShieldX from "~icons/lucide/shield-x";
-	import IconShieldQuestion from "~icons/lucide/shield-question";
-	import IconShieldAuto from "~icons/lucide/shield-half";
-	import IconShieldOff from "~icons/lucide/shield-off";
-	import {
-		composerPillClass,
-		PILL_COMPACT,
-		PILL_PRESSED,
-		PILL_REST,
-	} from "$lib/components/composerPill";
+	import { composerPillClass, PILL_PRESSED, PILL_REST } from "$lib/components/composerPill";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	import {
@@ -763,30 +754,25 @@
 		mode: PermissionStep;
 		label: () => string;
 		title: () => string;
-		icon: typeof IconShieldX;
 	}> = [
 		{
 			mode: "deny",
 			label: m["code.permission_mode.plan"],
-			icon: IconShieldX,
 			title: m["code.composer.plan_title"],
 		},
 		{
 			mode: "ask",
 			label: m["code.permission_mode.ask"],
-			icon: IconShieldQuestion,
 			title: m["code.composer.ask_title"],
 		},
 		{
 			mode: "auto",
 			label: m["code.permission_mode.auto"],
-			icon: IconShieldAuto,
 			title: m["code.composer.auto_title"],
 		},
 		{
 			mode: "allow",
 			label: m["code.permission_mode.allow"],
-			icon: IconShieldOff,
 			title: m["code.composer.allow_title"],
 		},
 	];
@@ -906,12 +892,12 @@
 	// active choice (the selector's selected segment), as in chat.
 	const pillClass = composerPillClass({ picker: true });
 	// The selector's segments: a pressed toggle's own blue when selected.
-	// Under `sm` each is the compact icon circle, label kept for a screen
-	// reader, exactly as chat's compact toggles.
+	// Under `sm` all four words stay (an icon-only row left Plan, Auto and Allow
+	// unreadable on a phone); the padding steps down so the row still scrolls
+	// rather than wraps.
 	const segmentClass = (selected: boolean) =>
 		[
-			"flex h-full flex-none items-center gap-1 rounded-full border border-transparent px-2.5 text-xs font-medium transition-colors disabled:cursor-default",
-			PILL_COMPACT,
+			"flex h-full flex-none items-center gap-1 rounded-full border border-transparent px-2.5 text-xs font-medium transition-colors disabled:cursor-default max-sm:h-8 max-sm:px-2",
 			selected
 				? PILL_PRESSED
 				: "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200",
@@ -1104,10 +1090,7 @@
 												: "",
 										]}
 									>
-										<segment.icon class="hidden size-3.5 max-sm:block" />
-										<span class={permissionMode === segment.mode ? "" : "max-sm:sr-only"}
-											>{segment.label()}</span
-										>
+										<span>{segment.label()}</span>
 									</button>
 								{/each}
 							</div>

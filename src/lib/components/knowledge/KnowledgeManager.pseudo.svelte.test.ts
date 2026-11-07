@@ -103,3 +103,13 @@ describe("Knowledge bases, in the pseudo-locale", () => {
 		expect(unbracketedWords(ALLOWED)).toEqual([]);
 	});
 });
+
+describe("Knowledge base cards", () => {
+	it("do not show the embedding model's id", async () => {
+		useEnglish();
+		stub();
+		renderWithApp(KnowledgeManager, {});
+		await expect.element(page.getByText("Team handbook")).toBeVisible();
+		expect(document.body.textContent).not.toContain("embed-1");
+	});
+});

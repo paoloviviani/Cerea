@@ -25,6 +25,7 @@ import { authCondition } from "$lib/server/auth";
 import { usageLimits } from "$lib/server/usageLimits";
 import { MetricsServer } from "$lib/server/metrics";
 import superjson from "superjson";
+import { removeAbandonedFirstChats } from "$lib/server/abandonedFirstChats";
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const body = await request.text();
@@ -195,6 +196,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const storedTitle = (title || "New Chat").replace(thinkTagPattern("gi"), "").trim();
 	const now = new Date();
 
+	// A first send that failed without a word is replaced by this one, not
+	// stacked beside it (see abandonedFirstChats).
+	const replaced = projectId ? [] : await removeAbandonedFirstChats(authCondition(locals), now);
+
 	const res = await collections.conversations.insertOne({
 		_id: new ObjectId(),
 		title: storedTitle,
@@ -229,6 +234,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	return new Response(
 		JSON.stringify({
 			conversationId,
+			replaced,
 			conversation: superjson.stringify({
 				messages,
 				title: storedTitle,

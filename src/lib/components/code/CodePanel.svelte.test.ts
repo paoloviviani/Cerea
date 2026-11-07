@@ -176,14 +176,14 @@ describe("CodePanel with a fresh sign-in", () => {
 
 	it("draws the panel, and drops everything the moment any call says it went stale", async () => {
 		const screen = mount();
-		await expect.element(screen.getByText("No agent selected")).toBeVisible();
+		await expect.element(screen.getByText("No session selected")).toBeVisible();
 		expect(screen.getByTestId("code-reauth-card").elements()).toHaveLength(0);
 		expect(codeDeviceList.devices.length).toBeGreaterThan(0);
 
 		flagCodeReauth();
 		await expect.element(screen.getByTestId("code-reauth-card")).toBeVisible();
 		expect(codeDeviceList.devices).toEqual([]);
-		expect(screen.getByText("No agent selected").elements()).toHaveLength(0);
+		expect(screen.getByText("No session selected").elements()).toHaveLength(0);
 	});
 
 	it("flips to the card when freshUntil passes, with no request needed", async () => {
@@ -192,7 +192,7 @@ describe("CodePanel with a fresh sign-in", () => {
 			freshUntil: new Date(Date.now() + 400).toISOString(),
 		};
 		const screen = mount();
-		await expect.element(screen.getByText("No agent selected")).toBeVisible();
+		await expect.element(screen.getByText("No session selected")).toBeVisible();
 		const before = calls.listDevices.mock.calls.length;
 		await expect.element(screen.getByTestId("code-reauth-card")).toBeVisible();
 		// Nothing was asked of the server to find out.

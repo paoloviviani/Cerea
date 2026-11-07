@@ -466,3 +466,10 @@ body {
 		background-position: -200% 0;
 	}
 }
+
+/* The Stop button's ring sweeps by angle (StopGeneratingBtn). */
+@property --stop-generating-angle {
+	syntax: "<angle>";
+	inherits: false;
+	initial-value: 0deg;
+}

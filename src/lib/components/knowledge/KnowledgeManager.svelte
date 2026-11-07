@@ -688,11 +688,6 @@
 													{m["knowledge.manager.card.shared"]({ role: store.role })}
 												</span>
 											{/if}
-											{#if store.embedding_model}
-												<span class="text-xs text-gray-600 dark:text-gray-400">
-													{store.embedding_model}
-												</span>
-											{/if}
 										</div>
 									</div>
 								</button>
