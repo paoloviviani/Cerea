@@ -132,3 +132,80 @@ describe("a send refused because the model is gone (410)", () => {
 		screen.unmount();
 	});
 });
+
+describe("a chat whose model was removed", () => {
+	it("says so once and offers to change the model", async () => {
+		await (
+			browserPage as unknown as { viewport: (w: number, h: number) => Promise<void> }
+		).viewport(1280, 800);
+		localStorage.removeItem("cerea:model-retired-seen:conv-retired");
+		const screen = renderWithApp(
+			ChatWindow,
+			{
+				messages: [],
+				models: [model],
+				currentModel: model,
+				chatModelId: "mistral-small-2503",
+				conversationTitle: "T",
+			},
+			{
+				page: {
+					route: { id: "/conversation/[id]" },
+					params: { id: "conv-retired" },
+					data: {},
+				},
+				context: new Map<unknown, unknown>([
+					["settings", writable({ directPaste: false })],
+					[CONVERSATIONS_CONTEXT_KEY, { list: [] }],
+				]),
+			}
+		);
+		const notice = screen.container.querySelector('[data-testid="model-retired"]');
+		if (!notice) throw new Error("no retired-model notice");
+		expect(notice.textContent).toContain("no longer available");
+		expect(notice.textContent).toContain("Change model");
+		expect(notice.textContent).not.toContain("mistral-small-2503");
+		const dismiss = notice.querySelector('button[aria-label="Dismiss"]') as HTMLElement;
+		dismiss.click();
+		await new Promise((r) => setTimeout(r, 0));
+		expect(screen.container.querySelector('[data-testid="model-retired"]')).toBeNull();
+		expect(localStorage.getItem("cerea:model-retired-seen:conv-retired")).toBe("1");
+		screen.unmount();
+	});
+});
+
+describe("the desktop chat header", () => {
+	it("shows the chat title, after the project crumb when there is one", async () => {
+		await (
+			browserPage as unknown as { viewport: (w: number, h: number) => Promise<void> }
+		).viewport(1440, 900);
+		const screen = renderWithApp(
+			ChatWindow,
+			{
+				messages: [],
+				models: [model],
+				currentModel: model,
+				conversationTitle: "Incident response onboarding",
+				projectId: "p1",
+				projectName: "Q4 launch",
+			},
+			{
+				page: {
+					route: { id: "/conversation/[id]" },
+					params: { id: "conv-header" },
+					data: {},
+				},
+				context: new Map<unknown, unknown>([
+					["settings", writable({ directPaste: false })],
+					[CONVERSATIONS_CONTEXT_KEY, { list: [] }],
+				]),
+			}
+		);
+		const title = screen.container.querySelector('[data-testid="chat-header-title"]');
+		expect(title?.textContent).toContain("Incident response onboarding");
+		expect(screen.container.querySelector('[data-testid="project-back"]')?.textContent).toContain(
+			"Q4 launch"
+		);
+		screen.unmount();
+	});
+});

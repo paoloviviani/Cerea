@@ -116,3 +116,19 @@ describe("Settings > Application, the PyPI install option", () => {
 		expect(document.body.textContent).not.toContain("Let code install extra Python packages");
 	});
 });
+
+describe("Settings > Application, About this server", () => {
+	it("folds the version, gateway address and admin badge away, with a space before the commit", async () => {
+		page.data = { isAdmin: true };
+		renderWithApp(ApplicationPage, {}, { context: stores(), page });
+		const about = document.querySelector<HTMLDetailsElement>('[data-testid="about-server"]');
+		if (!about) throw new Error("no About row");
+		expect(about.open).toBe(false);
+		expect(about.querySelector("summary")?.textContent).toContain("About this server");
+		expect(about.textContent).toContain("You're an administrator");
+		// The page's first element is a setting, not a version string.
+		expect(document.querySelector('[data-testid="app-version"]')?.closest("details")).toBe(about);
+		const version = document.querySelector('[data-testid="app-version"]')?.textContent ?? "";
+		if (/·/.test(version)) expect(version).toMatch(/\d\s·\s[0-9a-f]{7}$/);
+	});
+});

@@ -24,6 +24,7 @@
 
 	import ChatInput from "./ChatInput.svelte";
 	import AskQuestion from "./AskQuestion.svelte";
+	import CarbonClose from "~icons/carbon/close";
 	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
 	import VoiceRecorder from "./VoiceRecorder.svelte";
@@ -778,21 +779,35 @@
 			{/if}
 		{/snippet}
 		{#snippet top()}
-			{#if projectId && projectName}
-				<!-- A fixed row, outside the scroller: the way back stays in view at any scroll. -->
-				<div class="pointer-events-auto z-10 h-8 shrink-0 md:h-14">
+			{@const crumb = !!(projectId && projectName)}
+			{@const shownTitle = conversationTitle && conversationTitle !== m["app.default_chat_title"]()}
+			{#if crumb || shownTitle}
+				<!-- A fixed row, outside the scroller: the way back (and, from md up, the
+				     chat's own title, which the phone shows in its top bar) stays in view
+				     at any scroll. -->
+				<div class="pointer-events-auto z-10 h-8 shrink-0 md:h-14 {crumb ? '' : 'max-md:hidden'}">
 					<div
-						class="mx-auto flex h-full max-w-3xl items-center px-3 sm:px-5 md:pt-4 md:pr-16 xl:max-w-4xl"
+						class="mx-auto flex h-full max-w-3xl items-center gap-2 px-3 sm:px-5 md:pt-4 md:pr-16 xl:max-w-4xl"
 					>
-						<a
-							href="{base}/projects/{projectId}"
-							data-testid="project-back"
-							aria-label={m["chat.project.back_label"]({ name: projectName })}
-							class="flex w-fit max-w-full items-center gap-1 text-xs text-ink-muted no-underline hover:text-ink"
-						>
-							<IconArrowLeft class="size-3 shrink-0" />
-							<span class="truncate">{projectName}</span>
-						</a>
+						{#if crumb}
+							<a
+								href="{base}/projects/{projectId}"
+								data-testid="project-back"
+								aria-label={m["chat.project.back_label"]({ name: projectName ?? "" })}
+								class="flex w-fit max-w-[40%] shrink-0 items-center gap-1 text-xs text-ink-muted no-underline hover:text-ink"
+							>
+								<IconArrowLeft class="size-3 shrink-0" />
+								<span class="truncate">{projectName}</span>
+							</a>
+						{/if}
+						{#if shownTitle}
+							<span
+								data-testid="chat-header-title"
+								class="min-w-0 truncate text-sm font-medium text-ink max-md:hidden"
+							>
+								{#if crumb}<span class="mr-2 text-ink-faint">·</span>{/if}{conversationTitle}
+							</span>
+						{/if}
 					</div>
 				</div>
 			{/if}
@@ -850,7 +865,7 @@
 							aria-label={m["chat.window.model_retired_dismiss"]()}
 							onclick={dismissRetired}
 						>
-							&times;
+							<CarbonClose />
 						</button>
 					</div>
 				{/if}

@@ -463,6 +463,35 @@
 	let failedReason = $derived(failedTurnReasonOf(message));
 	let loopStopped = $derived(loopStoppedOf(message));
 
+	// The turn is only a question put to the user (`ask_user_question`, not yet
+	// answered): the question card above the composer is the turn. An empty
+	// "Used 1 tool" pill with copy/retry icons beside it only made the chat look
+	// broken, so the message stays out of the thread until the answer arrives.
+	let pendingAskOnly = $derived.by(() => {
+		if (!isLast || message.content?.trim()) return false;
+		const updates = message.updates ?? [];
+		const calls = updates.filter(isMessageToolCallUpdate);
+		const asks = calls.filter((u) => u.call.name === "ask_user_question");
+		if (asks.length === 0 || asks.length !== calls.length) return false;
+		const settled = new Set(
+			updates
+				.filter((u) => isMessageToolResultUpdate(u) || isMessageToolErrorUpdate(u))
+				.map((u) => u.uuid)
+		);
+		// An answered question resolves its elicitation before the tool result lands.
+		const resolved = new Set(
+			updates.filter(isMessageElicitationResolvedUpdate).map((u) => u.elicitationId)
+		);
+		let anyAnswered = false;
+		for (const u of updates) {
+			if (isMessageElicitationRequestUpdate(u) && resolved.has(u.request.elicitationId)) {
+				if (u.toolUuid) settled.add(u.toolUuid);
+				else anyAnswered = true;
+			}
+		}
+		return !anyAnswered && asks.some((u) => !settled.has(u.uuid));
+	});
+
 	let blocks = $derived.by(() => {
 		const updates = message.updates ?? [];
 		const res: Block[] = [];
@@ -940,7 +969,9 @@
 	});
 </script>
 
-{#if message.from === "assistant"}
+{#if message.from === "assistant" && pendingAskOnly}
+	<!-- Held back while the question card is open: see pendingAskOnly. -->
+{:else if message.from === "assistant"}
 	<div
 		bind:offsetWidth={messageWidth}
 		class="group relative -mb-4 flex w-fit max-w-full items-start justify-start gap-4 pb-4 leading-relaxed max-sm:mb-1 {message.routerMetadata &&
@@ -958,7 +989,8 @@
 		     instead — alone while nothing has arrived yet, then inline where the
 		     three dots used to be. -->
 		<div
-			class="relative flex min-w-[60px] flex-col gap-2 wrap-break-word text-gray-600 dark:text-gray-300 prose-pre:my-2 {awaitingFirstContent || errorOnly
+			class="relative flex min-w-[60px] flex-col gap-2 wrap-break-word text-gray-600 dark:text-gray-300 prose-pre:my-2 {awaitingFirstContent ||
+			errorOnly
 				? 'py-2.5'
 				: 'rounded-2xl border border-line bg-linear-to-br from-page px-3 py-2.5 sm:px-4 sm:py-3 dark:from-surface dark:to-surface/60'}"
 		>

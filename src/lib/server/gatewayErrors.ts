@@ -200,17 +200,18 @@ export function quotaMessageForUser(
 			? money(f.limit, options.currency)
 			: `${money(f.limit, undefined)} ${f.metric}`;
 		const adjective = PERIOD_ADJECTIVE[f.window];
-		parts.push(
-			adjective
-				? m[group ? "app.errors.quota_group_periodic" : "app.errors.quota_user_periodic"]({
-						period: adjective,
-						amount,
-					})
-				: m[group ? "app.errors.quota_group_per" : "app.errors.quota_user_per"]({
-						window: f.window,
-						amount,
-					})
-		);
+		const named = { period: adjective ?? "", window: f.window, amount };
+		if (adjective) {
+			parts.push(
+				group
+					? m["app.errors.quota_group_periodic"](named)
+					: m["app.errors.quota_user_periodic"](named)
+			);
+		} else {
+			parts.push(
+				group ? m["app.errors.quota_group_per"](named) : m["app.errors.quota_user_per"](named)
+			);
+		}
 	} else {
 		parts.push(group ? m["app.errors.quota_group"]() : m["app.errors.quota_user"]());
 	}

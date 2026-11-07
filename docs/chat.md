@@ -15,7 +15,7 @@ below are all per person.
 Every request is billed to one of your groups, and that group decides what
 you are offered: **the model list shows exactly what your current billing
 group can use** — not every model your groups collectively hold. You choose
-the group in **Settings → Usage & billing**, and the model list follows the
+the group in **Settings → Usage**, and the model list follows the
 choice at once; a model you had selected that the new group cannot use falls
 back to the first one available, the way any model that disappeared from the
 deployment does.
@@ -36,7 +36,7 @@ button that follows it: in Agents it reads **New agent session**. Below are two
 trees, **Projects** and **Chats**. At the foot are **Schedules** and
 **Workspace**, then your name. Click your name for your menu: a small quota
 summary (what you have spent against your limit, or the spend alone when there
-is none; it links to Settings → Usage & billing), **Settings**, **Admin** for
+is none; it links to Settings → Usage), **Settings**, **Admin** for
 administrators ([Administering the chat](chat-admin.md)), **Console** where the
 deployment has one and you may open it, the theme switch, **Reload** and
 **Sign out**. Counts beside a tree's name appear when you point at the row.
@@ -86,7 +86,7 @@ Everything a conversation does that has a cost is metered against your token:
 the reply, the title Cerea generates from the first turn, reading a document,
 embedding a passage, searching.
 
-**When you reach a limit.** The reply that crosses your quota still completes; the next one fails with a message that says whose quota is used up ("You've reached your usage quota." or "Your group has reached its usage quota."), when it resets, and points to Settings → Usage & billing. A spent quota is told apart from a short rate limit, which only asks you to wait; the same wording applies to sub-agents, images, voice, document reading and search. Where the deployment shows it, **Settings → Usage & billing** says where you stand. If your deployment redacts personal data, names or numbers in an answer can come back as placeholders such as `<PERSON_…>`, and a message containing something your administrator blocks (an API key, say) is refused without being sent.
+**When you reach a limit.** The reply that crosses your quota still completes; the next one fails with a message that says whose quota is used up ("Your monthly allowance of €10.00 is used up." or "Your group's monthly allowance of €10.00 is used up."), when it resets, and who to ask; where the deployment shows it, it points to Settings → Usage. A spent quota is told apart from a short rate limit, which only asks you to wait; the same wording applies to sub-agents, images, voice, document reading and search. Where the deployment shows it, **Settings → Usage** says where you stand. If your deployment redacts personal data, names or numbers in an answer can come back as placeholders such as `<PERSON_…>`, and a message containing something your administrator blocks (an API key, say) is refused without being sent.
 
 **What the model knows about time.** Every reply is generated knowing the
 current date and time **in your timezone** (the one your browser reports), as
