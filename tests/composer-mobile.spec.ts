@@ -338,7 +338,9 @@ test.describe("chat composer at 390×844", () => {
 
 		const attach = page.getByRole("button", { name: "Add attachment" });
 		const webSearch = page.getByRole("button", { name: "Web search" });
-		const toolApproval = page.getByRole("button", { name: /^(Asks first|Runs without asking)$/ });
+		const toolApproval = page.getByRole("button", {
+			name: /^(Asks before using tools|Runs without asking)$/,
+		});
 
 		await expect(attach).toBeVisible();
 		await expect(webSearch).toBeVisible();
@@ -385,7 +387,7 @@ test.describe("chat composer at 1280×800", () => {
 
 		await expect(page.getByRole("button", { name: "Model and effort" })).toContainText("Model:");
 		await expect(page.getByRole("button", { name: "Web search" })).toBeVisible();
-		await expect(page.getByRole("button", { name: "Asks first" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Asks before using tools" })).toBeVisible();
 
 		await page.screenshot({ path: "test-results/mobile-composer-chat-desktop.png" });
 	});

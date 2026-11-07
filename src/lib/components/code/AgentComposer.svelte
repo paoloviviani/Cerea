@@ -1105,7 +1105,9 @@
 										]}
 									>
 										<segment.icon class="hidden size-3.5 max-sm:block" />
-										<span class="max-sm:sr-only">{segment.label()}</span>
+										<span class={permissionMode === segment.mode ? "" : "max-sm:sr-only"}
+											>{segment.label()}</span
+										>
 									</button>
 								{/each}
 							</div>
@@ -1365,9 +1367,10 @@
 			<StopGeneratingBtn
 				onClick={onstop}
 				showBorder={true}
+				showText
 				classNames="{pinned
-					? 'size-8'
-					: 'size-7'} self-end rounded-full border bg-white text-black shadow-sm transition-none dark:border-transparent dark:bg-gray-600 dark:text-white"
+					? 'h-8 min-w-8'
+					: 'h-7 min-w-7'} self-end rounded-full border md:px-2.5 bg-white text-black shadow-sm transition-none dark:border-transparent dark:bg-gray-600 dark:text-white"
 			/>
 		{/if}
 		{#if !running || steerSupported}

@@ -118,14 +118,14 @@ describe("NeedsYouInbox pinned to sessions", () => {
 });
 
 describe("NeedsYouInbox as the app-wide bar", () => {
-	it("starts collapsed as '2 need you' and leaves out sessions another instance claimed", async () => {
+	it("starts collapsed as '2 waiting for you' and leaves out sessions another instance claimed", async () => {
 		devices();
 		const release = claimSessions([{ deviceId: "d1", sessionId: "a1" }]);
 		renderWithApp(NeedsYouInbox, { publish: true, scroll: true });
 		await vi.waitFor(() => expect(bar()).not.toBeNull());
 		// Collapsed: one line, and it counts only what it would list.
 		expect(items()).toHaveLength(0);
-		expect(bar()?.textContent).toContain("1 needs you");
+		expect(bar()?.textContent).toContain("1 waiting for you");
 		// What is pending in total is still published for the sidebar badge.
 		await vi.waitFor(() => expect(codeNeedsYou.pending).toHaveLength(2));
 		bar()?.querySelector("button")?.click();
@@ -133,7 +133,7 @@ describe("NeedsYouInbox as the app-wide bar", () => {
 		expect(bar()?.textContent).toContain("Session a2");
 		expect(bar()?.textContent).not.toContain("Session a1");
 		release();
-		await vi.waitFor(() => expect(bar()?.textContent).toContain("2 need you"));
+		await vi.waitFor(() => expect(bar()?.textContent).toContain("2 waiting for you"));
 	});
 
 	it("clears what it published when it goes away", async () => {
@@ -159,7 +159,7 @@ describe("NeedsYouShell mounting rules", () => {
 		fresh();
 		mount("/projects");
 		await vi.waitFor(() => expect(bar()).not.toBeNull());
-		expect(bar()?.textContent).toContain("2 need you");
+		expect(bar()?.textContent).toContain("2 waiting for you");
 	});
 
 	it("is absent on /code, which draws its own", async () => {

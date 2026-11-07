@@ -173,6 +173,16 @@
 				)
 	);
 	let count = $derived(listed.length);
+	/** Titles two cards share: the card then carries a short session id so they tell apart. */
+	const duplicateTitles = $derived.by(() => {
+		const seen = new Set<string>();
+		const twice = new Set<string>();
+		for (const item of listed) {
+			if (seen.has(item.sessionTitle)) twice.add(item.sessionTitle);
+			seen.add(item.sessionTitle);
+		}
+		return twice;
+	});
 
 	function toItems(
 		deviceId: string,
@@ -465,7 +475,7 @@
 	<section
 		aria-label={m["code.inbox.label"]()}
 		data-testid={pinned ? "needs-you-pinned" : "needs-you-inbox"}
-		class="pointer-events-auto bg-amber-50/60 dark:bg-amber-950/20 {pinned
+		class="pointer-events-auto relative z-10 shrink-0 bg-amber-50 dark:bg-amber-950 {pinned
 			? 'mb-3 rounded-xl border border-amber-200 dark:border-amber-900/50'
 			: 'border-b border-line'}"
 	>
@@ -477,7 +487,11 @@
 				onclick={toggleCollapsed}
 			>
 				<span class="size-2.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true"></span>
-				<span class="text-sm font-semibold text-ink">{m["code.inbox.count"]({ count })}</span>
+				<span class="text-sm font-semibold text-ink"
+					>{openAgentId && !pinned
+						? m["code.inbox.count_elsewhere"]({ count })
+						: m["code.inbox.count"]({ count })}</span
+				>
 				{#if !collapsed}
 					<span class="hidden text-xs text-ink-muted sm:inline">
 						{m["code.inbox.hint"]()}
@@ -504,6 +518,11 @@
 								<span class="min-w-0 truncate font-medium text-ink" title={item.sessionTitle}>
 									{item.sessionTitle}
 								</span>
+								{#if duplicateTitles.has(item.sessionTitle)}
+									<span class="shrink-0 text-ink-muted" title={item.sessionId}
+										>#{item.sessionId.slice(-4)}</span
+									>
+								{/if}
 								<span class="shrink-0 text-ink-faint">·</span>
 								<span class="shrink-0 text-ink-muted">{item.deviceName}</span>
 								<span

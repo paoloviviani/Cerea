@@ -439,7 +439,7 @@
 							</p>
 						</div>
 					</div>
-					<div class="flex gap-2">
+					<div class="flex flex-wrap gap-2">
 						<button onclick={openImport} class={s.SECONDARY}>
 							<IconUpload class="size-4" />
 							{m["skills.manager.import_zip"]()}

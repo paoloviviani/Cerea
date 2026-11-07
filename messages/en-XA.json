@@ -250,8 +250,23 @@
 				"countPlural"
 			],
 			"match": {
-				"countPlural=one": "[{count} ńééďś ýóú]",
-				"countPlural=other": "[{count} ńééď ýóú]"
+				"countPlural=one": "[{count} ŵáíťíńǧ ƒóŕ ýóú]",
+				"countPlural=other": "[{count} ŵáíťíńǧ ƒóŕ ýóú]"
+			}
+		}
+	],
+	"code.inbox.count_elsewhere": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} ŵáíťíńǧ íń áńóťȟéŕ śéśśíóń]",
+				"countPlural=other": "[{count} ŵáíťíńǧ íń óťȟéŕ śéśśíóńś]"
 			}
 		}
 	],
@@ -371,7 +386,7 @@
 	"code.pair.could_not_confirm": "[Ćóúľď ńóť ćóńƒíŕḿ ťȟé ḿáćȟíńé.]",
 	"code.pair.could_not_reject": "[Ćóúľď ńóť ŕéĵéćť ťȟé ḿáćȟíńé.]",
 	"code.pair.download": "[Ďóŵńľóáď ḿáńúáľľý]",
-	"code.pair.explain": "[`éńŕóľľ` śíǧńś ťȟé ḿáćȟíńé íńťó ýóúŕ áććóúńť ŵíťȟ ťȟíś ďéþľóýḿéńť'ś íďéńťíťý þŕóǚíďéŕ; `ŕúń` śťáŕťś ťȟé áǧéńť, ŵȟíćȟ ďíáľś óúť ȟéŕé áńď áþþéáŕś ƀéľóŵ óńćé íť ćȟéćķś íń.]",
+	"code.pair.explain": "[{#code}éńŕóľľ{/code} śíǧńś ťȟé ḿáćȟíńé íńťó ýóúŕ áććóúńť ŵíťȟ ťȟíś ďéþľóýḿéńť'ś íďéńťíťý þŕóǚíďéŕ; {#code}ŕúń{/code} śťáŕťś ťȟé áǧéńť, ŵȟíćȟ ďíáľś óúť ȟéŕé áńď áþþéáŕś ƀéľóŵ óńćé íť ćȟéćķś íń.]",
 	"code.pair.install_label": "[Íńśťáľľ, éńŕóľľ áńď ŕúń]",
 	"code.pair.none_yet": "[Ńó ḿáćȟíńé ȟáś ćȟéćķéď íń ýéť.]",
 	"code.pair.platform_darwin_amd64": "[ḿáćÓŚ Íńťéľ]",
@@ -417,6 +432,7 @@
 	"code.permissions.removing": "[Ŕéḿóǚíńǧ…]",
 	"code.permissions.subagent_note": "[Á śúƀáǧéńť ƒóľľóŵś íťś ŕóóť'ś śéťťíńǧ áńď ȟóľďś ńó ǧŕáńť óƒ íťś óŵń. Óþéń ťȟíś śȟééť óń ťȟé ḿáíń śéśśíóń ťó ćȟáńǧé íť.]",
 	"code.permissions.subtitle": "[Ŵȟáť ŕéáćȟéś ýóú óń ťȟíś ḿáćȟíńé, áńď ŵȟáť ťȟíś śéśśíóń ḿáý ďó óń íťś óŵń.]",
+	"code.permissions.done": "[Ďóńé]",
 	"code.permissions.title": "[Þéŕḿíśśíóńś — {machine}]",
 	"code.permissions.title_plain": "[Þéŕḿíśśíóńś]",
 	"code.permissions.step_plan": "[Þľáń: ťȟé áǧéńť ŕéáďś áńď þľáńś. Íť ćȟáńǧéś ńóťȟíńǧ áńď ŕúńś ńóťȟíńǧ.]",
@@ -793,7 +809,7 @@
 	"code.view.state.error": "[éŕŕóŕ]",
 	"code.view.state.idle": "[íďľé]",
 	"code.view.state.running": "[ŕúńńíńǧ]",
-	"code.view.state.waiting_permission": "[ŵáíťíńǧ-þéŕḿíśśíóń]",
+	"code.view.state.waiting_permission": "[Ŵáíťíńǧ ƒóŕ ýóú]",
 	"code.view.stream_failed": "[Ťȟé áǧéńť śťŕéáḿ ƒáíľéď.]",
 	"code.view.sub_badge": "[śúƀ]",
 	"code.view.subagent_of": "[Śúƀáǧéńť óƒ {title}]",
@@ -979,6 +995,7 @@
 	"app.size.kb": "[{value} ķƁ]",
 	"app.size.mb": "[{value} ḾƁ]",
 	"app.stop_generating": "[Śťóþ ǧéńéŕáťíńǧ]",
+	"app.stop_short": "[Śťóþ]",
 	"app.switch.label": "[śŵíťćȟ]",
 	"app.switch.role_description": "[śŵíťćȟ]",
 	"app.system_prompt.heading": "[Íńśťŕúćťíóńś]",
@@ -1033,8 +1050,6 @@
 	"chat.approval.fact.to": "[Ťó]",
 	"chat.approval.first_turn_hint": "[óþéńćóďé śťáŕťś á śúƀáǧéńť ƀéƒóŕé Ćéŕéá ćáń ȟáńď íť ýóúŕ þéŕḿíśśíóń śéťťíńǧ, śó á ńéŵ śúƀáǧéńť'ś ƒíŕśť ťúŕń áśķś ýóú ŵȟáťéǚéŕ ťȟé śéťťíńǧ íś.]",
 	"chat.approval.first_turn_label": "[Ńéŵ śúƀáǧéńť · ƒíŕśť ťúŕń áśķś]",
-	"chat.approval.hours_left": "[{count}ȟ ľéƒť]",
-	"chat.approval.minutes_left": "[{count}ḿ ľéƒť]",
 	"chat.approval.no_answer": "[Ťȟé áńśŵéŕ ďíď ńóť ǧó ťȟŕóúǧȟ.]",
 	"chat.approval.schedule.create": "[Ćŕéáťé śćȟéďúľé]",
 	"chat.approval.schedule.name": "[Ńáḿé]",
@@ -1064,13 +1079,94 @@
 	"chat.approval.schedule.where_continue": "[Íń ťȟíś ćȟáť]",
 	"chat.approval.schedule.where_new": "[Íń á ńéŵ ćȟáť éáćȟ ťíḿé]",
 	"chat.approval.schedule.where_dedicated": "[Íń á ćȟáť óƒ íťś óŵń, ŕéúśéď éǚéŕý ŕúń]",
-	"chat.approval.seconds_left": "[{count}ś ľéƒť]",
 	"chat.approval.subagent": "[Śúƀáǧéńť]",
 	"chat.approval.subagent_named": "[Śúƀáǧéńť {title}]",
 	"chat.approval.timed_out": "[Ťíḿéď óúť — ďéńíéď]",
-	"chat.approval.tool_approval": "[Ťóóľ áþþŕóǚáľ]",
 	"chat.approval.wants_to_call": "[ŵáńťś ťó ćáľľ {#code}{tool}{/code}]",
 	"chat.approval.withdrawn": "[Śťóþþéď ŵáíťíńǧ]",
+	"chat.approval.risk.readonly": "[Ŕéáď-óńľý]",
+	"chat.approval.risk.changes": "[Ćȟáńǧéś ƒíľéś]",
+	"chat.approval.risk.runs": "[Ŕúńś ćóḿḿáńďś]",
+	"chat.approval.risk.deletes": "[Ďéľéťéś]",
+	"chat.approval.risk.network": "[Úśéś ťȟé íńťéŕńéť]",
+	"chat.approval.risk.secrets": "[Ťóúćȟéś śéćŕéťś]",
+	"chat.approval.risk.outside": "[Óúťśíďé ťȟé þŕóĵéćť ƒóľďéŕ]",
+	"chat.approval.risk.agents": "[Óťȟéŕ śéśśíóńś]",
+	"chat.approval.risk.connector": "[Úśéś á ćóńńéćťóŕ]",
+	"chat.approval.title.remote_script": "[Ďóŵńľóáď áńď ŕúń á śćŕíþť ƒŕóḿ ťȟé íńťéŕńéť]",
+	"chat.approval.title.delete_folder": "[Ďéľéťé ťȟé ƒóľďéŕ {name}]",
+	"chat.approval.title.delete_file": "[Ďéľéťé ťȟé ƒíľé {name}]",
+	"chat.approval.title.delete_generic": "[Ďéľéťé ƒíľéś]",
+	"chat.approval.title.run_command": "[Ŕúń ťȟé ćóḿḿáńď: {command}]",
+	"chat.approval.title.run_generic": "[Ŕúń á ćóḿḿáńď]",
+	"chat.approval.title.run_readonly": "[Ĺóóķ áŕóúńď ŵíťȟ á ŕéáď-óńľý ćóḿḿáńď: {command}]",
+	"chat.approval.title.edit_file": "[Ćȟáńǧé ťȟé ƒíľé {name}]",
+	"chat.approval.title.edit_generic": "[Ćȟáńǧé á ƒíľé]",
+	"chat.approval.title.search_project": "[Śéáŕćȟ ťȟé þŕóĵéćť ƒóŕ \"{pattern}\"]",
+	"chat.approval.title.read_file": "[Ŕéáď ťȟé ƒíľé {name}]",
+	"chat.approval.title.read_generic": "[Ŕéáď ƒíľéś íń ťȟé þŕóĵéćť]",
+	"chat.approval.title.open_url": "[Óþéń {url}]",
+	"chat.approval.title.web_search": "[Śéáŕćȟ ťȟé ŵéƀ ƒóŕ \"{query}\"]",
+	"chat.approval.title.web_generic": "[Úśé ťȟé íńťéŕńéť]",
+	"chat.approval.title.outside_path": "[Úśé ƒíľéś óúťśíďé ťȟé þŕóĵéćť ƒóľďéŕ: {path}]",
+	"chat.approval.title.outside_generic": "[Úśé ƒíľéś óúťśíďé ťȟé þŕóĵéćť ƒóľďéŕ]",
+	"chat.approval.title.agents": "[Śťáŕť óŕ ťáľķ ťó áńóťȟéŕ śéśśíóń]",
+	"chat.approval.title.secrets": "[Úśé śóḿéťȟíńǧ śéćŕéť, śúćȟ áś á þáśśŵóŕď óŕ ķéý]",
+	"chat.approval.title.loop": "[Ťȟé áǧéńť śééḿś ťó ƀé ŕéþéáťíńǧ íťśéľƒ]",
+	"chat.approval.title.tool": "[Úśé ťȟé ťóóľ {tool}]",
+	"chat.approval.title.connector": "[{server} ŵáńťś ťó {action}]",
+	"chat.approval.title.connector_for": "[{action} ƒóŕ \"{query}\"]",
+	"chat.approval.title.and_more": "[ áńď {count} ḿóŕé]",
+	"chat.approval.details_show": "[Śȟóŵ ďéťáíľś]",
+	"chat.approval.details_hide": "[Ȟíďé ďéťáíľś]",
+	"chat.approval.always_confirm": "[Áľŵáýś áľľóŵ ťȟíś ķíńď óƒ áćťíóń ƒóŕ ťȟé ŕéśť óƒ ťȟíś śéśśíóń?]",
+	"chat.approval.always_confirm_yes": "[Ýéś, áľŵáýś áľľóŵ]",
+	"chat.approval.always_confirm_no": "[Ćáńćéľ]",
+	"chat.approval.wait_hours": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[Ŵáíťś {count} ḿóŕé ȟóúŕ, ťȟéń íť'ś ďéńíéď]",
+				"countPlural=other": "[Ŵáíťś {count} ḿóŕé ȟóúŕś, ťȟéń íť'ś ďéńíéď]"
+			}
+		}
+	],
+	"chat.approval.wait_minutes": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[Ŵáíťś {count} ḿóŕé ḿíńúťé, ťȟéń íť'ś ďéńíéď]",
+				"countPlural=other": "[Ŵáíťś {count} ḿóŕé ḿíńúťéś, ťȟéń íť'ś ďéńíéď]"
+			}
+		}
+	],
+	"chat.approval.wait_seconds": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[Ŵáíťś {count} ḿóŕé śéćóńď, ťȟéń íť'ś ďéńíéď]",
+				"countPlural=other": "[Ŵáíťś {count} ḿóŕé śéćóńďś, ťȟéń íť'ś ďéńíéď]"
+			}
+		}
+	],
 	"chat.artifact.card.applying": "[Áþþľýíńǧ éďíť…]",
 	"chat.artifact.card.code_lang": "[Ćóďé · {language}]",
 	"chat.artifact.card.edit_interrupted": "[Éďíť íńťéŕŕúþťéď{version}]",
@@ -1332,8 +1428,8 @@
 	"chat.input.add_audio_hint": "[Ťŕáńśćŕíƀéď ƒóŕ ťȟé ćȟáť]",
 	"chat.input.audio_label": "[Úþľóáď áúďíó]",
 	"chat.input.add_url": "[Áďď ƒŕóḿ á ŵéƀ áďďŕéśś]",
-	"chat.input.asks": "[Áśķś ƒíŕśť]",
-	"chat.input.asks_hint": "[Ťȟé áśśíśťáńť áśķś ƀéƒóŕé óþéńíńǧ ŵéƀ þáǧéś óŕ úśíńǧ ćóńńéćťóŕś. Śéľéćť ťó ľéť íť ǧó áȟéáď ŵíťȟóúť áśķíńǧ, íń ťȟíś ćȟáť óńľý.]",
+	"chat.input.asks": "[Áśķś ƀéƒóŕé úśíńǧ ťóóľś]",
+	"chat.input.asks_hint": "[Ťȟé áśśíśťáńť áśķś ýóú ƀéƒóŕé íť óþéńś á ŵéƀ þáǧé óŕ úśéś á ćóńńéćťóŕ. Śéľéćť ťó ľéť íť ǧó áȟéáď óń íťś óŵń, íń ťȟíś ćȟáť óńľý.]",
 	"chat.input.attach": "[Áďď áťťáćȟḿéńť]",
 	"chat.input.dictation_hint": "[Ďíćťáťé ŵíťȟ ýóúŕ ƀŕóŵśéŕ'ś śþééćȟ ŕéćóǧńíťíóń]",
 	"chat.input.dictation_start": "[Śťáŕť ďíćťáťíóń]",

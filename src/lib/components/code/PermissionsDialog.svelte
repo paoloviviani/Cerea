@@ -373,5 +373,10 @@
 		<!-- While the sign-in is stale the detail goes, with the fallback:
 		     the server refuses every call anyway, and what it held was
 		     machine-derived. -->
+		<div class={s.SHEET_FOOTER}>
+			<button type="button" class={s.PRIMARY} onclick={onclose} data-testid="permissions-done"
+				>{m["code.permissions.done"]()}</button
+			>
+		</div>
 	</div>
 </Modal>

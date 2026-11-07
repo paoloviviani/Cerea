@@ -48,7 +48,7 @@
 	type="button"
 	class={composerPillClass({ pressed, compact })}
 	aria-pressed={pressed}
-	{title}
+	title={title ?? (compact ? label : undefined)}
 	{disabled}
 	{onclick}
 >
