@@ -8,8 +8,12 @@ package main
 
 import (
 	"galopin/internal/backend"
-	backendacp "galopin/internal/backend/acp"
 )
+
+// usageRecorder is what takes the usage (the ACP backend).
+type usageRecorder interface {
+	RecordUsage(sessionID string, u backend.Usage)
+}
 
 // usageFromSample maps one call's tokens to backend.Usage. Input excludes the
 // cached tokens, Output excludes the reasoning ones, and ContextUsed is the
@@ -35,8 +39,17 @@ func usageFromSample(s usageSample, ctxMax int) backend.Usage {
 // window comes from galopin's own goose provider file, which `models refresh`
 // writes from the gateway's catalogue; read per call because it is small and
 // may have just been refreshed.
-func gooseUsageSink(b *backendacp.Backend, providerFile string) func(string, usageSample) {
+//
+// Only a session's own turn (a request that carries tools) moves the context
+// figures: a side call goose makes (a title, a summary) has a tiny prompt and would
+// otherwise drop the meter to nearly zero. Side calls still count toward cost, which
+// the gateway meters per session. After /compact the meter shows the old figure
+// until the next main call, which is the first one made with the compacted history.
+func gooseUsageSink(b usageRecorder, providerFile string) func(string, usageSample) {
 	return func(sessionID string, s usageSample) {
+		if !s.Main {
+			return
+		}
 		ctxMax := 0
 		if limits, err := readGooseProviderModels(providerFile); err == nil {
 			ctxMax = limits[s.Model]

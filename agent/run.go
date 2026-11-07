@@ -309,7 +309,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 
 	mc := newMachine(reg, back, mat, pol)
 	home, _ := os.UserHomeDir()
-	mc.protected = decide.NewProtected(home, stateDir)
+	mc.protected = decide.NewProtected(home, stateDir, gooseRootFor(credsPath))
 	auditLog, err := newAuditLogger(stateDir)
 	if err != nil {
 		return err
@@ -464,7 +464,7 @@ type runningBackend interface {
 // acp is the generic adapter any ACP agent can be plugged in behind).
 func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol policy.Policy, live *policy.Live, logf func(string, ...any)) (runningBackend, error) {
 	home, _ := os.UserHomeDir()
-	protect := diffProtect(decide.NewProtected(home, stateDir))
+	protect := diffProtect(decide.NewProtected(home, stateDir, gooseRootFor(opts.credsPath)))
 	switch opts.backendKind {
 	case "", "opencode":
 		// galopin's own agent-coordination tools are installed unless the
@@ -636,9 +636,7 @@ func modelPinWarnings(pol policy.Policy) []string {
 // credential file's own directory) holds a revoked marker for its current
 // machine id. It never mints an id.
 func revokedAt(stateDir, credsPath string) bool {
-	if stateDir == "" {
-		stateDir = filepath.Dir(credsPath)
-	}
+	stateDir = resolveStateDir(stateDir, credsPath)
 	body, err := fsutil.ReadFileOrEmpty(filepath.Join(stateDir, machineIDFileName))
 	if err != nil || body == nil {
 		return false

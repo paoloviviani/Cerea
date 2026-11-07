@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -315,5 +316,79 @@ func TestGooseBinaryIsTheVerifiedCopyNotPATH(t *testing.T) {
 	}
 	if w := gooseOverrideWarning(); !strings.Contains(w, "WARNING") || !strings.Contains(w, fake) {
 		t.Errorf("override warning = %q", w)
+	}
+}
+
+func TestGooseYAMLRestoresNonScalarOriginalsAndRefusesMultiDocs(t *testing.T) {
+	ext := newGooseExt("http://127.0.0.1:1/local-agents", "tok")
+	for _, orig := range []string{
+		"GOOSE_PROVIDER:\nGOOSE_MODEL: {a: 1}\n",                // null and a map
+		"base: &p openai\nGOOSE_PROVIDER: *p\nGOOSE_MODEL: m\n", // an alias
+	} {
+		sc := &gooseSidecar{Was: map[string]*string{}, Set: map[string]string{}}
+		out, err := applyGooseConfig(orig, sc, true, gooseProviderID, "m1", &ext)
+		if err != nil {
+			t.Fatal(err)
+		}
+		back, changed, err := removeGooseConfig(out, sc)
+		if err != nil || !changed {
+			t.Fatalf("%q: %v changed=%v", orig, err, changed)
+		}
+		var want, got map[string]any
+		if err := yaml.Unmarshal([]byte(orig), &want); err != nil {
+			t.Fatal(err)
+		}
+		if err := yaml.Unmarshal([]byte(back), &got); err != nil {
+			t.Fatalf("%v\n%s", err, back)
+		}
+		delete(got, "extensions")
+		if !reflect.DeepEqual(want, got) {
+			t.Errorf("original %q came back as %q (%v != %v)", orig, back, want, got)
+		}
+	}
+	for _, in := range []string{"a: 1\n---\nb: 2\n"} {
+		sc := &gooseSidecar{Was: map[string]*string{}, Set: map[string]string{}}
+		if _, err := applyGooseConfig(in, sc, false, "", "", &ext); err == nil {
+			t.Errorf("a two-document file was accepted: %q", in)
+		}
+		if _, _, err := removeGooseConfig(in, sc); err == nil {
+			t.Errorf("remove accepted a two-document file")
+		}
+	}
+}
+
+func TestGooseSetupNoConnectorsWithdrawsAnEarlierOptIn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	stateDir := t.TempDir()
+	credsPath := filepath.Join(stateDir, "credentials.json")
+	cfgDir := filepath.Join(home, "config", "goose")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(cfgDir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("extensions:\n  developer:\n    enabled: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	creds := &credentials{ShimPort: 41871, ShimSecret: "s3cret", Gateway: "http://127.0.0.1:1/v1"}
+	if err := writeGooseEngineConfig(gooseRootFor(credsPath), creds, []gatewayModel{{ID: "m1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := gooseSetup(context.Background(), creds, credsPath, stateDir, cfgDir, false, true); err != nil {
+		t.Fatal(err)
+	}
+	if lc, ok := readLocalAgentsConfig(stateDir); !ok || !lc.LocalConnectors {
+		t.Fatalf("setup did not opt in: %+v %v", lc, ok)
+	}
+	if err := gooseSetup(context.Background(), creds, credsPath, stateDir, cfgDir, false, false); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(cfgPath)
+	if strings.Contains(string(got), "cerea_connectors") || strings.Contains(string(got), "Bearer") || !strings.Contains(string(got), "developer") {
+		t.Errorf("the extension was not withdrawn, or another was lost:\n%s", got)
+	}
+	if lc, ok := readLocalAgentsConfig(stateDir); !ok || lc.LocalConnectors {
+		t.Errorf("local connectors still offered: %+v", lc)
 	}
 }

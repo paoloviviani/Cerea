@@ -623,6 +623,10 @@ func (s *shim) handler(w http.ResponseWriter, r *http.Request) {
 		if hopByHop[http.CanonicalHeaderKey(name)] {
 			continue
 		}
+		// A usage chunk the shim withholds makes the body shorter than the upstream said.
+		if ur != nil && ur.injected && http.CanonicalHeaderKey(name) == "Content-Length" {
+			continue
+		}
 		for _, v := range values {
 			w.Header().Add(name, v)
 		}
@@ -637,6 +641,7 @@ func (s *shim) handler(w http.ResponseWriter, r *http.Request) {
 			if u.Model = ur.model; u.Model == "" {
 				u.Model = model
 			}
+			u.Main = ur.hasTools
 			sink(tag, u)
 		}
 		if ur.stream {

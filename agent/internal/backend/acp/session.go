@@ -56,9 +56,11 @@ type sessionState struct {
 	// reasserting is non-nil while a hidden mode is being put back (modeguard.go);
 	// closed when it is done. Permission answers wait on it.
 	reasserting chan struct{}
-	status      backend.SessionStatus
-	createdAt   time.Time
-	updatedAt   time.Time
+	// modeGen counts mode changes, so a put-back that a newer change overtook is dropped.
+	modeGen   int
+	status    backend.SessionStatus
+	createdAt time.Time
+	updatedAt time.Time
 
 	messages  []backend.TranscriptEntry
 	msgIndex  map[string]int // message id -> index into messages

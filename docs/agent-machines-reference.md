@@ -154,7 +154,7 @@ transcript). Usage works: goose reports none over its protocol, so galopin reads
 each model call's token counts off its own proxy and feeds the context meter and
 the session's usage the same way it does for opencode. The context window comes
 from the gateway's model list (`galopin models refresh`), so the meter shows the
-share used. Cost is the gateway's, per session, as for opencode. Changes, history,
+share used. Only the session's own turns move the meter: a side call goose makes (a title) does not, though the gateway's cost counts it. After `/compact` the meter updates at the next turn. Cost is the gateway's, per session, as for opencode. Changes, history,
 model choice, connectors and the task list work as they do elsewhere.
 
 The goose that runs is the pinned copy the install line puts in
@@ -164,7 +164,7 @@ To run another one anyway (a build you are testing), set `GALOPIN_GOOSE_BIN`;
 
 Sessions cannot reach your own goose's settings: `~/.config/goose` and
 `~/.local/share/goose` (and the XDG, `GOOSE_PATH_ROOT` and macOS forms) are
-protected like galopin's own files, and reading them is a secrets request.
+protected like galopin's own files, and reading them is a secrets request. Links are followed: a settings folder linked into a workspace is still protected.
 
 ### Your own goose, through galopin
 
@@ -193,7 +193,9 @@ the state directory, which setup writes (`--state-dir` is the same option `run`
 takes, and defaults to the same place). goose Desktop and the CLI rewrite
 `config.yaml` and drop its comments, so setup edits it by key and keeps a record
 of what it replaced in `goose-setup.json` in the state directory. Running setup
-again changes nothing more; your other extensions stay. `--remove` takes out the
+again changes nothing more; your other extensions stay. `setup --no-connectors`
+withdraws an earlier opt-in (the extension goes, and the endpoint stops offering
+this machine's connectors). `--remove` takes out the
 provider and the extension, puts back a default provider that `--default` had
 changed, deletes the record and the endpoint's secret.
 

@@ -352,6 +352,7 @@ func (b *Backend) SetMode(ctx context.Context, workspaceDir, sessionID, modeID s
 	}
 	st.mu.Lock()
 	st.modeID = modeID
+	st.modeGen++
 	st.updatedAt = time.Now()
 	sess := st.toSession(b.ID())
 	st.mu.Unlock()

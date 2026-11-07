@@ -75,3 +75,39 @@ func TestPermissionAllowIsRefusedWhileTheSessionIsInAnAskSkippingMode(t *testing
 		t.Errorf("a reject was refused: %v", err)
 	}
 }
+
+// A put-back that a newer mode change overtook must not overwrite it.
+func TestStalePutBackDoesNotOverwriteANewerMode(t *testing.T) {
+	b, fa := newTestBackendCfg(t, false, func(c *Config) { c.HiddenModes = []string{"auto"}; c.ForceMode = "approve" })
+	fa.setModeHold = make(chan struct{})
+	sess, err := b.CreateSession(context.Background(), "/work", backend.CreateSessionOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _ := b.reg.get(sess.ID)
+	fa.update(sess.ID, map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": "auto"})
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		st.mu.Lock()
+		busy := st.reasserting != nil
+		st.mu.Unlock()
+		if busy {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the put-back never started")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	// While it is in flight the user moves the session to plan.
+	fa.update(sess.ID, map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": "plan"})
+	time.Sleep(100 * time.Millisecond)
+	close(fa.setModeHold)
+	time.Sleep(300 * time.Millisecond)
+	st.mu.Lock()
+	mode := st.modeID
+	st.mu.Unlock()
+	if mode != "plan" {
+		t.Errorf("a stale put-back overwrote the newer mode: %q", mode)
+	}
+}

@@ -117,6 +117,21 @@ func ensureLocalAgentsConfig(stateDir string) (localAgentsConfig, error) {
 	return c, nil
 }
 
+// setLocalConnectors records, in an existing local-agents.json, whether this
+// machine's own connectors are offered at the endpoint. No file, nothing to do.
+func setLocalConnectors(stateDir string, on bool) error {
+	c, ok := readLocalAgentsConfig(stateDir)
+	if !ok || c.LocalConnectors == on {
+		return nil
+	}
+	c.LocalConnectors = on
+	body, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(filepath.Join(stateDir, localAgentsFileName), append(body, '\n'), 0o600)
+}
+
 // localAgentSource implements localmcp.Source.
 type localAgentSource struct {
 	hub   *mcpconn.Hub

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -30,6 +31,8 @@ type Protected struct {
 	// WorkspaceGlobs are workspace-relative globs for WRITES only. `**` matches
 	// any depth.
 	WorkspaceGlobs []string
+	// fold compares paths case-insensitively (macOS filesystems are).
+	fold bool
 }
 
 // CIGlobs are the CI configuration files a write to which runs code in a
@@ -46,9 +49,13 @@ var CIGlobs = []string{
 var GitGlobs = []string{".git/**"}
 
 // NewProtected builds the list for a machine: home and galopin's state
-// directory (policy.json, credentials, the audit log).
-func NewProtected(home, stateDir string) Protected {
-	pr := Protected{Home: home, WorkspaceGlobs: append(append([]string{}, CIGlobs...), GitGlobs...)}
+// directory (policy.json, credentials, the audit log). extraOwn are further
+// directories of galopin's own (the supervised goose's root, which follows
+// --creds and not --state-dir), protected however those two are combined.
+// Every directory is listed both as written and with its symlinks resolved, so
+// a link into a workspace (a dotfiles repo) does not hide it.
+func NewProtected(home, stateDir string, extraOwn ...string) Protected {
+	pr := Protected{Home: home, fold: runtime.GOOS == "darwin", WorkspaceGlobs: append(append([]string{}, CIGlobs...), GitGlobs...)}
 	add := func(dst *[]string, p ...string) {
 		for _, x := range p {
 			if x != "" {
@@ -57,6 +64,7 @@ func NewProtected(home, stateDir string) Protected {
 		}
 	}
 	add(&pr.OwnDirs, stateDir)
+	add(&pr.OwnDirs, extraOwn...)
 	// machine-wide secrets that no workspace holds, listed so a command that names them is a secrets ask
 	add(&pr.SecretDirs, "/etc/shadow", "/etc/gshadow", "/etc/sudoers", "/etc/sudoers.d", "/etc/ssh", "/root/.ssh")
 	if home != "" {
@@ -91,7 +99,26 @@ func NewProtected(home, stateDir string) Protected {
 		add(&pr.OwnDirs, root)
 		add(&pr.SecretDirs, root)
 	}
+	pr.OwnDirs = withResolved(pr.OwnDirs)
+	pr.SecretDirs = withResolved(pr.SecretDirs)
 	return pr
+}
+
+// withResolved returns dirs plus, for each, its form with symlinks resolved
+// (when it exists and differs).
+func withResolved(dirs []string) []string {
+	out := append([]string{}, dirs...)
+	seen := map[string]bool{}
+	for _, d := range dirs {
+		seen[d] = true
+	}
+	for _, d := range dirs {
+		if real, ok := resolve(d); ok && !seen[real] {
+			seen[real] = true
+			out = append(out, real)
+		}
+	}
+	return out
 }
 
 // OwnHit reports whether the request reaches galopin's own state or config.
@@ -151,8 +178,9 @@ func (pr Protected) abs(pat, workspace string) string {
 	return filepath.Clean(strings.TrimSuffix(abs, "/*"))
 }
 
-// hit is structural: paths are compared as paths and, for bash (whose pattern
-// is the command text), as substrings. It does not parse shell: an obfuscated
+// hit is structural: paths are compared as paths (as written and with symlinks
+// resolved) and, for bash (whose pattern is the command text), as substrings in
+// the absolute, ~/ and $HOME/ spellings. It does not parse shell: an obfuscated
 // command passes, which is why a command stays behind its own limit.
 func (pr Protected) hit(dirs []string, r Request) (string, bool) {
 	for _, pat := range r.Patterns {
@@ -160,21 +188,48 @@ func (pr Protected) hit(dirs []string, r Request) (string, bool) {
 			continue
 		}
 		if r.Key == "bash" {
+			text := pr.cmp(pat)
 			for _, d := range dirs {
-				if strings.Contains(pat, d) || strings.Contains(pat, pr.tildeForm(d)) {
-					return d, true
+				for _, form := range pr.shellForms(d) {
+					if strings.Contains(text, pr.cmp(form)) {
+						return d, true
+					}
 				}
 			}
 			continue
 		}
 		abs := pr.abs(pat, r.Workspace)
+		forms := []string{abs}
+		if real, ok := resolve(abs); ok && real != abs {
+			forms = append(forms, real)
+		}
 		for _, d := range dirs {
-			if under(d, abs) {
-				return d, true
+			for _, f := range forms {
+				if under(pr.cmp(d), pr.cmp(f)) {
+					return d, true
+				}
 			}
 		}
 	}
 	return "", false
+}
+
+// cmp is a path as compared: folded to lower case on a case-insensitive filesystem.
+func (pr Protected) cmp(p string) string {
+	if pr.fold {
+		return strings.ToLower(p)
+	}
+	return p
+}
+
+// shellForms are the ways a command can write dir: absolute, ~/…, $HOME/… and ${HOME}/….
+func (pr Protected) shellForms(dir string) []string {
+	forms := []string{dir}
+	if h := pr.Home; h != "" && strings.HasPrefix(dir, h+"/") {
+		rest := strings.TrimPrefix(dir, h)
+		forms = append(forms, "~"+rest, "$HOME"+rest, "${HOME}"+rest)
+	}
+	return forms
 }
 
 // tildeForm is dir written the way a shell command would (~/…), when it is

@@ -160,6 +160,21 @@ func gooseSetup(ctx context.Context, creds *credentials, credsPath, stateDir, cf
 		e := newGooseExt(la.URL(), la.Secret)
 		ext = &e
 	}
+	if !connectors {
+		// Withdraw an earlier opt-in: the extension goes, and the endpoint stops offering this machine's connectors.
+		if text, changed, err := withdrawGooseExtension(string(body), sc); err != nil {
+			return err
+		} else if changed {
+			if err := writeFileAtomic(cfgPath, []byte(text), 0o600); err != nil {
+				return fmt.Errorf("writing %s: %w", cfgPath, err)
+			}
+			body = []byte(text)
+			fmt.Fprintln(os.Stderr, "removed the goose extension \"Cerea connectors\" added by an earlier setup")
+		}
+		if err := setLocalConnectors(stateDir, false); err != nil {
+			return err
+		}
+	}
 	if makeDefault || connectors {
 		text, err := applyGooseConfig(string(body), sc, makeDefault, gooseProviderID, gooseDefaultModel(models), ext)
 		if err != nil {

@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,7 +31,8 @@ const (
 // gooseSidecar is what 'goose setup' changed in the user's config.yaml, so that
 // setup is idempotent and remove restores the originals.
 type gooseSidecar struct {
-	// Was is a key's value before setup set it (null: the key was absent).
+	// Was is a key's value node before setup set it, as YAML text (null: the key was
+	// absent), so a null, map or alias original comes back as it was.
 	Was map[string]*string `json:"was,omitempty"`
 	// Set is the value setup wrote; remove only touches a key still holding it.
 	Set map[string]string `json:"set,omitempty"`
@@ -106,7 +108,14 @@ func sortGooseModels(m []gooseModel) {
 func parseGooseConfig(text string) (*yaml.Node, *yaml.Node, error) {
 	var doc yaml.Node
 	if strings.TrimSpace(text) != "" {
-		if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
+		dec := yaml.NewDecoder(strings.NewReader(text))
+		if err := dec.Decode(&doc); err != nil {
+			return nil, nil, fmt.Errorf("goose's config.yaml is not valid YAML, left as it is: %w", err)
+		}
+		var extra yaml.Node
+		if err := dec.Decode(&extra); err == nil {
+			return nil, nil, fmt.Errorf("goose's config.yaml holds more than one YAML document, left as it is")
+		} else if err != io.EOF {
 			return nil, nil, fmt.Errorf("goose's config.yaml is not valid YAML, left as it is: %w", err)
 		}
 	}
@@ -164,24 +173,53 @@ func setScalar(m *yaml.Node, key, val string) {
 	m.Content = append(m.Content, strNode(key), strNode(val))
 }
 
+// nodeText is a value node as YAML text (an alias is written as what it points at).
+func nodeText(n *yaml.Node) (string, error) {
+	if n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = n.Alias
+	}
+	if n.Kind == yaml.ScalarNode && n.Tag == "!!null" {
+		return "null\n", nil // an empty `key:` value marshals to nothing
+	}
+	out, err := yaml.Marshal(n)
+	return string(out), err
+}
+
+// nodeFromText is nodeText's inverse.
+func nodeFromText(text string) (*yaml.Node, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
+		return nil, fmt.Errorf("the record of goose's original value is unreadable: %v", err)
+	}
+	if len(doc.Content) == 0 {
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}, nil
+	}
+	return doc.Content[0], nil
+}
+
 // setGooseDefaultNode makes provider/model goose's default, recording in sc what
 // each key held (once: a repeat keeps the first original).
-func setGooseDefaultNode(root *yaml.Node, sc *gooseSidecar, provider, model string) {
+func setGooseDefaultNode(root *yaml.Node, sc *gooseSidecar, provider, model string) error {
 	for _, kv := range [][2]string{{gooseKeyProvider, provider}, {gooseKeyModel, model}} {
 		key, val := kv[0], kv[1]
-		cur := (*string)(nil)
+		var cur *string
+		holdsOurs := false
 		if i := mapIndex(root, key); i >= 0 {
-			v := root.Content[i].Value
-			cur = &v
+			text, err := nodeText(root.Content[i])
+			if err != nil {
+				return err
+			}
+			cur = &text
+			holdsOurs = root.Content[i].Kind == yaml.ScalarNode && root.Content[i].Value == sc.Set[key]
 		}
 		// Keep the first original unless the user has changed the key since setup.
-		_, recorded := sc.Was[key]
-		if !recorded || cur == nil || *cur != sc.Set[key] {
+		if _, recorded := sc.Was[key]; !recorded || cur == nil || !holdsOurs {
 			sc.Was[key] = cur
 		}
 		sc.Set[key] = val
 		setScalar(root, key, val)
 	}
+	return nil
 }
 
 // setGooseExtensionNode adds (or replaces) the Cerea connectors extension and
@@ -223,7 +261,9 @@ func applyGooseConfig(text string, sc *gooseSidecar, makeDefault bool, provider,
 		return "", err
 	}
 	if makeDefault {
-		setGooseDefaultNode(root, sc, provider, model)
+		if err := setGooseDefaultNode(root, sc, provider, model); err != nil {
+			return "", err
+		}
 	}
 	if ext != nil {
 		if err := setGooseExtensionNode(root, sc, *ext); err != nil {
@@ -231,6 +271,43 @@ func applyGooseConfig(text string, sc *gooseSidecar, makeDefault bool, provider,
 		}
 	}
 	return encodeGooseConfig(doc)
+}
+
+// dropGooseExtensionNode removes the Cerea connectors extension, and the
+// extensions key if setup made it and nothing else is in it.
+func dropGooseExtensionNode(root *yaml.Node, sc *gooseSidecar) bool {
+	i := mapIndex(root, gooseKeyExtensions)
+	if i < 0 || root.Content[i].Kind != yaml.MappingNode {
+		return false
+	}
+	exts := root.Content[i]
+	if mapIndex(exts, gooseExtKey) < 0 {
+		return false
+	}
+	mapDelete(exts, gooseExtKey)
+	if len(exts.Content) == 0 {
+		if sc.ExtensionsCreated {
+			mapDelete(root, gooseKeyExtensions)
+		} else {
+			exts.Style = yaml.FlowStyle
+		}
+	}
+	return true
+}
+
+// withdrawGooseExtension removes only the extension ('setup --no-connectors'
+// after an earlier setup). changed is false, and the file is not to be rewritten,
+// when it was not there.
+func withdrawGooseExtension(text string, sc *gooseSidecar) (string, bool, error) {
+	doc, root, err := parseGooseConfig(text)
+	if err != nil {
+		return "", false, err
+	}
+	if !dropGooseExtensionNode(root, sc) {
+		return text, false, nil
+	}
+	out, err := encodeGooseConfig(doc)
+	return out, true, err
 }
 
 // removeGooseConfig undoes setup: the extension goes (and the extensions key, if
@@ -242,21 +319,7 @@ func removeGooseConfig(text string, sc *gooseSidecar) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	changed := false
-	if i := mapIndex(root, gooseKeyExtensions); i >= 0 && root.Content[i].Kind == yaml.MappingNode {
-		exts := root.Content[i]
-		if mapIndex(exts, gooseExtKey) >= 0 {
-			mapDelete(exts, gooseExtKey)
-			changed = true
-			if len(exts.Content) == 0 {
-				if sc.ExtensionsCreated {
-					mapDelete(root, gooseKeyExtensions)
-				} else {
-					exts.Style = yaml.FlowStyle
-				}
-			}
-		}
-	}
+	changed := dropGooseExtensionNode(root, sc)
 	for _, key := range []string{gooseKeyProvider, gooseKeyModel} {
 		i := mapIndex(root, key)
 		if i < 0 {
@@ -269,7 +332,11 @@ func removeGooseConfig(text string, sc *gooseSidecar) (string, bool, error) {
 			if was == nil {
 				mapDelete(root, key)
 			} else {
-				root.Content[i] = strNode(*was)
+				orig, err := nodeFromText(*was)
+				if err != nil {
+					return "", false, err
+				}
+				root.Content[i] = orig
 			}
 			changed = true
 		case !recorded && key == gooseKeyProvider && cur == gooseProviderID:

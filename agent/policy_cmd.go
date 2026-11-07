@@ -77,17 +77,14 @@ func runPolicy(args []string) error {
 // else beside --creds (or the default creds path) — the same rule 'run'
 // itself uses.
 func policyStateDir(credsPath, stateDir string) (string, error) {
-	if stateDir != "" {
-		return stateDir, nil
-	}
-	if credsPath == "" {
+	if credsPath == "" && stateDir == "" {
 		var err error
 		credsPath, err = defaultCredsPath()
 		if err != nil {
 			return "", err
 		}
 	}
-	return filepath.Dir(credsPath), nil
+	return resolveStateDir(stateDir, credsPath), nil
 }
 
 func runPolicyShow(args []string) error {

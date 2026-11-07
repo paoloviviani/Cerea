@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"galopin/internal/backend"
 )
 
 // usageShim is a shim in front of a gateway that answers `reply` and records
@@ -134,5 +137,82 @@ func TestUsageFromSampleMatchesOpencodeShape(t *testing.T) {
 	}
 	if usageFromSample(usageSample{PromptTokens: 1}, 0).ContextMax != nil {
 		t.Error("an unknown window must stay unknown")
+	}
+}
+
+func TestUsageWithheldChunkDropsContentLength(t *testing.T) {
+	reply := streamReply(true)
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Content-Length", strconv.Itoa(len(reply)))
+		_, _ = io.WriteString(w, reply)
+	}))
+	t.Cleanup(gw.Close)
+	creds := &credentials{Gateway: gw.URL + "/v1", AccessToken: "tok", RefreshToken: "r", ExpiresIn: 3600, ObtainedAt: time.Now().Unix()}
+	path := filepath.Join(t.TempDir(), "creds.json")
+	if err := saveCredentials(path, creds); err != nil {
+		t.Fatal(err)
+	}
+	s := newShim(creds, path, statusPathFor(path), 41873)
+	s.setSessionTag(func(string) string { return "root" })
+	s.setUsageSink(func(string, usageSample) {})
+	rec := httptest.NewRecorder()
+	s.handler(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"m","stream":true}`)))
+	if cl := rec.Header().Get("Content-Length"); cl != "" {
+		t.Errorf("Content-Length %s kept although a chunk was withheld", cl)
+	}
+	if rec.Body.String() != streamReply(false) {
+		t.Errorf("body = %q", rec.Body.String())
+	}
+}
+
+func TestUsageStreamPassesAnOverlongLineThroughUnparsed(t *testing.T) {
+	long := "data: {\"choices\":[{\"delta\":{\"content\":\"" + strings.Repeat("x", 2*maxSSELine) + "\"}}],\"usage\":{\"prompt_tokens\":9}}\n\n"
+	in := long + "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":3}}\n\ndata: [DONE]\n\n"
+	rec := httptest.NewRecorder()
+	var got []usageSample
+	copyUsageStream(rec, strings.NewReader(in), true, func(u usageSample, _ string) { got = append(got, u) })
+	want := long + "data: [DONE]\n\n"
+	if rec.Body.String() != want {
+		t.Errorf("stream changed: got %d bytes, want %d", rec.Body.Len(), len(want))
+	}
+	if len(got) != 1 || got[0].PromptTokens != 10 {
+		t.Errorf("usage = %+v (the overlong line must not be parsed, the next must)", got)
+	}
+}
+
+func TestUsageSampleIsMainOnlyWithTools(t *testing.T) {
+	s, _, got := usageShim(t, "application/json", plainReply)
+	chat(s, `{"model":"m","messages":[],"tools":[{"type":"function","function":{"name":"x"}}]}`)
+	chat(s, `{"model":"m","messages":[],"tools":[]}`)
+	chat(s, `{"model":"m","messages":[]}`)
+	if len(*got) != 3 || !(*got)[0].Main || (*got)[1].Main || (*got)[2].Main {
+		t.Errorf("Main flags = %+v", *got)
+	}
+}
+
+type recordedUsage struct {
+	session string
+	u       backend.Usage
+}
+type fakeRecorder struct{ got []recordedUsage }
+
+func (f *fakeRecorder) RecordUsage(s string, u backend.Usage) {
+	f.got = append(f.got, recordedUsage{s, u})
+}
+
+// A side call (a title) must not reset the context meter; the next main call does.
+func TestGooseUsageSinkIgnoresSideCallsForTheMeter(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "galopin.json")
+	rec := &fakeRecorder{}
+	sink := gooseUsageSink(rec, file)
+	sink("s1", usageSample{Model: "m", PromptTokens: 5000, CompletionTokens: 50, Main: true})
+	sink("s1", usageSample{Model: "m", PromptTokens: 40, CompletionTokens: 8}) // title generation
+	if len(rec.got) != 1 || rec.got[0].u.ContextUsed != 5050 {
+		t.Fatalf("recorded = %+v, want only the main call", rec.got)
+	}
+	sink("s1", usageSample{Model: "m", PromptTokens: 900, CompletionTokens: 20, Main: true}) // after /compact
+	if len(rec.got) != 2 || rec.got[1].u.ContextUsed != 920 {
+		t.Errorf("the next main call did not refresh the meter: %+v", rec.got)
 	}
 }

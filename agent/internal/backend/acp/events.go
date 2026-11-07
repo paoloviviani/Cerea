@@ -339,6 +339,8 @@ func (b *Backend) handleModeUpdate(st *sessionState, upd map[string]any) {
 	}
 	st.mu.Lock()
 	st.modeID = modeID
+	st.modeGen++
+	gen := st.modeGen
 	st.updatedAt = time.Now()
 	sess := st.toSession(b.ID())
 	workspaceDir := st.workspaceDir
@@ -367,6 +369,11 @@ func (b *Backend) handleModeUpdate(st *sessionState, upd map[string]any) {
 			defer cancel()
 			now := b.assertMode(ctx, st.id, modeID)
 			st.mu.Lock()
+			if st.modeGen != gen {
+				// A newer mode change came in meanwhile; it owns the session's mode now.
+				st.mu.Unlock()
+				return
+			}
 			st.modeID = now
 			sess := st.toSession(b.ID())
 			st.mu.Unlock()

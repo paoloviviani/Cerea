@@ -24,14 +24,25 @@ type usageSample struct {
 	CompletionTokens int
 	CachedTokens     int
 	ReasoningTokens  int
+	// Main: the request carried tools, which is what a session's own turn does and
+	// a side call (a title, a summary) does not.
+	Main bool
 }
 
 // maxUsageRequestBody bounds the request body the shim buffers to inspect; a
-// larger one is forwarded untouched and unmetered.
-const maxUsageRequestBody = 64 << 20
+// larger one is forwarded untouched and unmetered. A request carries the whole
+// conversation, images included (a few full-size screenshots are some MB), so
+// this is generous but not the 64 MB a hostile local caller could ask us to hold.
+const maxUsageRequestBody = 32 << 20
 
-// maxUsageResponseBody bounds how much of a non-streamed response is kept to find its usage.
-const maxUsageResponseBody = 32 << 20
+// maxUsageResponseBody bounds how much of a non-streamed response is kept to find
+// its usage: a chat completion is text, a few KB to some MB; past this it is
+// forwarded unmetered.
+const maxUsageResponseBody = 4 << 20
+
+// maxSSELine bounds one SSE line the shim parses; a longer line is passed through
+// as it comes, unparsed (a usage object is a few hundred bytes).
+const maxSSELine = 1 << 20
 
 // setUsageSink installs the receiver of per-call usage: given the top-level
 // session the call belongs to (as the session tag resolves it) and its tokens.
@@ -52,6 +63,7 @@ type usageRequest struct {
 	body     []byte
 	model    string
 	stream   bool
+	hasTools bool
 	injected bool // stream_options.include_usage was added by the shim
 }
 
@@ -66,6 +78,9 @@ func prepareUsageRequest(body []byte) usageRequest {
 	}
 	_ = json.Unmarshal(m["model"], &out.model)
 	_ = json.Unmarshal(m["stream"], &out.stream)
+	var tools []json.RawMessage
+	_ = json.Unmarshal(m["tools"], &tools)
+	out.hasTools = len(tools) > 0
 	if !out.stream {
 		return out
 	}
@@ -147,34 +162,57 @@ func copyUsageStream(w http.ResponseWriter, body io.Reader, drop bool, report fu
 	flusher, _ := w.(http.Flusher)
 	r := bufio.NewReaderSize(body, 64*1024)
 	skipBlank := false
+	var line []byte
+	overflow := false // the current line is past maxSSELine: pass it through unparsed
 	for {
-		line, err := r.ReadBytes('\n')
+		chunk, err := r.ReadSlice('\n')
+		if overflow {
+			if _, werr := w.Write(chunk); werr != nil {
+				return
+			}
+			if err == nil {
+				overflow = false // the line ended
+			}
+		} else {
+			line = append(line, chunk...)
+			if err == bufio.ErrBufferFull && len(line) > maxSSELine {
+				overflow = true
+				if _, werr := w.Write(line); werr != nil {
+					return
+				}
+				line = nil
+				continue
+			}
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
 		if len(line) > 0 {
-			trim := bytes.TrimRight(line, "\r\n")
+			complete := line
+			line = nil
+			trim := bytes.TrimRight(complete, "\r\n")
 			if skipBlank && len(trim) == 0 {
 				skipBlank = false
 			} else {
 				skipBlank = false
 				withhold := false
 				if payload, ok := bytes.CutPrefix(trim, []byte("data:")); ok && bytes.Contains(payload, []byte(`"usage"`)) {
-					var chunk struct {
+					var c struct {
 						Model   string            `json:"model"`
 						Choices []json.RawMessage `json:"choices"`
 						Usage   json.RawMessage   `json:"usage"`
 					}
-					if json.Unmarshal(bytes.TrimSpace(payload), &chunk) == nil {
-						if u, ok := parseUsage(chunk.Usage); ok {
-							report(u, chunk.Model)
-							if drop && len(chunk.Choices) == 0 {
-								withhold = true
-							}
+					if json.Unmarshal(bytes.TrimSpace(payload), &c) == nil {
+						if u, ok := parseUsage(c.Usage); ok {
+							report(u, c.Model)
+							withhold = drop && len(c.Choices) == 0
 						}
 					}
 				}
 				if withhold {
 					skipBlank = true
 				} else {
-					if _, werr := w.Write(line); werr != nil {
+					if _, werr := w.Write(complete); werr != nil {
 						return
 					}
 					if flusher != nil && len(trim) == 0 {
