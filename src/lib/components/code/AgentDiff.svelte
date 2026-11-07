@@ -97,7 +97,7 @@
 					     default highlighter is `escapeHtml`), so the only markup here is
 					     the diff's own spans — the same contract the artifact panel relies on. -->
 					<pre
-						class="diff-view scrollbar-custom max-h-96 overflow-auto px-4 py-3 font-mono text-xs leading-relaxed">{@html html(
+						class="diff-view scrollbar-custom max-h-96 overflow-auto px-4 py-3 font-mono text-xs leading-relaxed max-sm:break-all max-sm:whitespace-pre-wrap">{@html html(
 							file
 						)}</pre>
 				</div>

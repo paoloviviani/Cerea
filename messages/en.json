@@ -240,8 +240,18 @@
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
 			"match": {
-				"countPlural=one": "{count} needs you",
-				"countPlural=other": "{count} need you"
+				"countPlural=one": "{count} waiting for you",
+				"countPlural=other": "{count} waiting for you"
+			}
+		}
+	],
+	"code.inbox.count_elsewhere": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} waiting in another session",
+				"countPlural=other": "{count} waiting in other sessions"
 			}
 		}
 	],
@@ -351,7 +361,7 @@
 	"code.pair.could_not_confirm": "Could not confirm the machine.",
 	"code.pair.could_not_reject": "Could not reject the machine.",
 	"code.pair.download": "Download manually",
-	"code.pair.explain": "`enroll` signs the machine into your account with this deployment's identity provider; `run` starts the agent, which dials out here and appears below once it checks in.",
+	"code.pair.explain": "{#code}enroll{/code} signs the machine into your account with this deployment's identity provider; {#code}run{/code} starts the agent, which dials out here and appears below once it checks in.",
 	"code.pair.install_label": "Install, enroll and run",
 	"code.pair.none_yet": "No machine has checked in yet.",
 	"code.pair.platform_darwin_amd64": "macOS Intel",
@@ -397,6 +407,7 @@
 	"code.permissions.removing": "Removing…",
 	"code.permissions.subagent_note": "A subagent follows its root's setting and holds no grant of its own. Open this sheet on the main session to change it.",
 	"code.permissions.subtitle": "What reaches you on this machine, and what this session may do on its own.",
+	"code.permissions.done": "Done",
 	"code.permissions.title": "Permissions — {machine}",
 	"code.permissions.title_plain": "Permissions",
 	"code.permissions.step_plan": "Plan: the agent reads and plans. It changes nothing and runs nothing.",
@@ -753,7 +764,7 @@
 	"code.view.state.error": "error",
 	"code.view.state.idle": "idle",
 	"code.view.state.running": "running",
-	"code.view.state.waiting_permission": "waiting-permission",
+	"code.view.state.waiting_permission": "Waiting for you",
 	"code.view.stream_failed": "The agent stream failed.",
 	"code.view.sub_badge": "sub",
 	"code.view.subagent_of": "Subagent of {title}",
@@ -929,6 +940,7 @@
 	"app.size.kb": "{value} kB",
 	"app.size.mb": "{value} MB",
 	"app.stop_generating": "Stop generating",
+	"app.stop_short": "Stop",
 	"app.switch.label": "switch",
 	"app.switch.role_description": "switch",
 	"app.system_prompt.heading": "Instructions",
@@ -983,8 +995,6 @@
 	"chat.approval.fact.to": "To",
 	"chat.approval.first_turn_hint": "opencode starts a subagent before Cerea can hand it your permission setting, so a new subagent's first turn asks you whatever the setting is.",
 	"chat.approval.first_turn_label": "New subagent · first turn asks",
-	"chat.approval.hours_left": "{count}h left",
-	"chat.approval.minutes_left": "{count}m left",
 	"chat.approval.no_answer": "The answer did not go through.",
 	"chat.approval.schedule.create": "Create schedule",
 	"chat.approval.schedule.name": "Name",
@@ -1009,13 +1019,79 @@
 	"chat.approval.schedule.where_continue": "In this chat",
 	"chat.approval.schedule.where_new": "In a new chat each time",
 	"chat.approval.schedule.where_dedicated": "In a chat of its own, reused every run",
-	"chat.approval.seconds_left": "{count}s left",
 	"chat.approval.subagent": "Subagent",
 	"chat.approval.subagent_named": "Subagent {title}",
 	"chat.approval.timed_out": "Timed out — denied",
-	"chat.approval.tool_approval": "Tool approval",
 	"chat.approval.wants_to_call": "wants to call {#code}{tool}{/code}",
 	"chat.approval.withdrawn": "Stopped waiting",
+	"chat.approval.risk.readonly": "Read-only",
+	"chat.approval.risk.changes": "Changes files",
+	"chat.approval.risk.runs": "Runs commands",
+	"chat.approval.risk.deletes": "Deletes",
+	"chat.approval.risk.network": "Internet",
+	"chat.approval.risk.secrets": "Secrets",
+	"chat.approval.risk.outside": "Outside folder",
+	"chat.approval.risk.agents": "Sessions",
+	"chat.approval.risk.connector": "Connector",
+	"chat.approval.title.remote_script": "Download and run an online script",
+	"chat.approval.title.delete_folder": "Delete the folder {name}",
+	"chat.approval.title.delete_file": "Delete the file {name}",
+	"chat.approval.title.delete_generic": "Delete files",
+	"chat.approval.title.run_command": "Run: {command}",
+	"chat.approval.title.run_generic": "Run a command",
+	"chat.approval.title.run_readonly": "Read-only command: {command}",
+	"chat.approval.title.edit_file": "Change {name}",
+	"chat.approval.title.edit_generic": "Change a file",
+	"chat.approval.title.search_project": "Search for \"{pattern}\"",
+	"chat.approval.title.read_file": "Read {name}",
+	"chat.approval.title.read_generic": "Read project files",
+	"chat.approval.title.open_url": "Open {url}",
+	"chat.approval.title.web_search": "Search the web for \"{query}\"",
+	"chat.approval.title.web_generic": "Use the internet",
+	"chat.approval.title.outside_path": "Use {path}, outside the project",
+	"chat.approval.title.outside_generic": "Use files outside the project",
+	"chat.approval.title.agents": "Start or message a session",
+	"chat.approval.title.secrets": "Use a password or key",
+	"chat.approval.title.loop": "Repeating itself",
+	"chat.approval.title.tool": "Use {tool}",
+	"chat.approval.title.connector": "{server} wants to {action}",
+	"chat.approval.title.connector_for": "{action} for \"{query}\"",
+	"chat.approval.title.and_more": " and {count} more",
+	"chat.approval.details_show": "Show details",
+	"chat.approval.details_hide": "Hide details",
+	"chat.approval.always_confirm": "Always allow this?",
+	"chat.approval.always_confirm_yes": "Yes, always allow",
+	"chat.approval.always_confirm_no": "Cancel",
+	"chat.approval.wait_hours": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Denied in {count} hour",
+				"countPlural=other": "Denied in {count} hours"
+			}
+		}
+	],
+	"chat.approval.wait_minutes": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Denied in {count} minute",
+				"countPlural=other": "Denied in {count} minutes"
+			}
+		}
+	],
+	"chat.approval.wait_seconds": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "Denied in {count} second",
+				"countPlural=other": "Denied in {count} seconds"
+			}
+		}
+	],
 	"chat.artifact.card.applying": "Applying edit…",
 	"chat.artifact.card.code_lang": "Code · {language}",
 	"chat.artifact.card.edit_interrupted": "Edit interrupted{version}",
@@ -1262,7 +1338,7 @@
 	"chat.input.audio_label": "Upload audio",
 	"chat.input.add_url": "Add from a web address",
 	"chat.input.asks": "Asks first",
-	"chat.input.asks_hint": "The assistant asks before opening web pages or using connectors. Select to let it go ahead without asking, in this chat only.",
+	"chat.input.asks_hint": "Asks you before using the web or a connector. Select to let it go ahead, in this chat only.",
 	"chat.input.attach": "Add attachment",
 	"chat.input.dictation_hint": "Dictate with your browser's speech recognition",
 	"chat.input.dictation_start": "Start dictation",

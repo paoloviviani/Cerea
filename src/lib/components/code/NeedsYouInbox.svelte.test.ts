@@ -380,24 +380,24 @@ describe("NeedsYouInbox collapsed bar", () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount(undefined, false);
 		await expect.element(screen.getByTestId("needs-you-inbox")).toBeVisible();
-		const toggle = screen.getByRole("button", { name: "2 need you" });
+		const toggle = screen.getByRole("button", { name: "2 waiting for you" });
 		await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
 		expect(screen.getByTestId("needs-you-item").elements()).toHaveLength(0);
 		expect(screen.getByRole("button", { name: "Allow once" }).elements()).toHaveLength(0);
 	});
 
-	it("says '1 needs you' for one", async () => {
+	it("says '1 waiting for you' for one", async () => {
 		fake.pendingByDevice = { d1: { permissions: [permission()], questions: [] } };
 		await browserPage.viewport(1200, 800);
 		const screen = mount(undefined, false);
-		await expect.element(screen.getByRole("button", { name: "1 needs you" })).toBeVisible();
+		await expect.element(screen.getByRole("button", { name: "1 waiting for you" })).toBeVisible();
 	});
 
 	it("expands on a click, remembers it for the browser session, and collapses again", async () => {
 		fake.pendingByDevice = { d1: { permissions: [permission()], questions: [] } };
 		await browserPage.viewport(1200, 800);
 		const first = mount(undefined, false);
-		await first.getByRole("button", { name: "1 needs you" }).click();
+		await first.getByRole("button", { name: "1 waiting for you" }).click();
 		await expect.element(first.getByTestId("needs-you-item")).toBeVisible();
 		expect(sessionStorage.getItem(EXPANDED_KEY)).toBe("1");
 		first.unmount();
@@ -405,14 +405,14 @@ describe("NeedsYouInbox collapsed bar", () => {
 		// A later mount in the same browser session opens as the person left it.
 		const second = mount(undefined, false);
 		await expect.element(second.getByTestId("needs-you-item")).toBeVisible();
-		await second.getByRole("button", { name: "1 needs you" }).click();
+		await second.getByRole("button", { name: "1 waiting for you" }).click();
 		expect(second.getByTestId("needs-you-item").elements()).toHaveLength(0);
 		expect(sessionStorage.getItem(EXPANDED_KEY)).toBeNull();
 		second.unmount();
 
 		const third = mount(undefined, false);
 		await expect
-			.element(third.getByRole("button", { name: "1 needs you" }))
+			.element(third.getByRole("button", { name: "1 waiting for you" }))
 			.toHaveAttribute("aria-expanded", "false");
 	});
 
@@ -425,7 +425,7 @@ describe("NeedsYouInbox collapsed bar", () => {
 		try {
 			const screen = mount(undefined, false);
 			await expect
-				.element(screen.getByRole("button", { name: "1 needs you" }))
+				.element(screen.getByRole("button", { name: "1 waiting for you" }))
 				.toHaveAttribute("aria-expanded", "false");
 		} finally {
 			spy.mockRestore();
@@ -445,7 +445,9 @@ describe("NeedsYouInbox and the session open in the agent view", () => {
 		expect(screen.getByTestId("needs-you-item").elements()).toHaveLength(1);
 		expect(inbox()?.textContent).toContain("Second");
 		expect(inbox()?.textContent).not.toContain("Build it");
-		await expect.element(screen.getByRole("button", { name: "1 needs you" })).toBeVisible();
+		await expect
+			.element(screen.getByRole("button", { name: "1 waiting in another session" }))
+			.toBeVisible();
 	});
 
 	it("draws no bar when the only pending asks belong to the open session", async () => {

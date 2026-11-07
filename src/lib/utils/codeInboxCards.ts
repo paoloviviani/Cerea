@@ -45,6 +45,8 @@ export function permissionToElicitation(
 		message: child ? `${subagentLabel(child)}${request.title}` : request.title,
 		toolApproval: { tool: request.tool, args: request.metadata },
 		...(request.reviewNote ? { reviewNote: request.reviewNote } : {}),
+		...(request.class ? { permissionClass: request.class } : {}),
+		...(request.readOnly === true ? { readOnly: true } : {}),
 		...(child ? { childSessionId: child.childId, childTitle: child.childTitle ?? null } : {}),
 	};
 }
