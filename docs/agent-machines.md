@@ -56,8 +56,11 @@ are in the [reference](agent-machines-reference.md).
 
 ## The panel
 
-**Chats | Agents** switches the sidebar between the two. The Agents side is a
-tree: paired machines, each with its workspaces, each with its sessions.
+**Chats | Agents**, at the top of the sidebar under the logo, switches it between
+the two, and the button below it follows: **New agent session** asks for the
+machine and the folder (starting on the ones you used last; a **Pair a machine**
+dialog opens instead if none is paired yet). The Agents side is a tree: paired
+machines, each with its workspaces, each with its sessions.
 
 - **A workspace** is a folder on the machine. Add one by typing its absolute
   path. A machine can be set to refuse folders outside the ones its owner listed.
@@ -85,7 +88,7 @@ tree: paired machines, each with its workspaces, each with its sessions.
 - **The ··· menu** on a machine opens its settings, today the
   [delegate profiles](agent-machines-reference.md#delegate-profiles): which
   model a session's helpers run on.
-- **Schedules** (under the machines) send a prompt to one of your sessions on a
+- **Schedules** (at the foot of the sidebar, the same row as in Chats) send a prompt to one of your sessions on a
   timetable; see [Scheduled actions](agent-machines-reference.md#scheduled-actions).
 
 You need to have signed in to the chat within the last 7 days to use the panel;

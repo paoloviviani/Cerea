@@ -122,3 +122,25 @@ describe("TreeBranch without an href keeps its one-button row", () => {
 		expect(queryChild(container)).not.toBeNull();
 	});
 });
+
+describe("TreeBranch counts are quiet", () => {
+	it("hides the count until the row is pointed at or focused, unless it is new", () => {
+		const quiet = renderWithApp(TreeBranch, { label: "Chats", badge: 12, children: child });
+		const badge = quiet.container.querySelector('[data-testid="tree-badge"]');
+		expect(badge?.textContent?.trim()).toBe("12");
+		expect(badge?.className).toContain("opacity-0");
+		expect(badge?.className).toContain("group-hover:opacity-100");
+		expect(badge?.className).toContain("group-focus-within:opacity-100");
+		quiet.unmount();
+
+		const news = renderWithApp(TreeBranch, {
+			label: "Chats",
+			badge: 3,
+			badgeNew: true,
+			children: child,
+		});
+		expect(news.container.querySelector('[data-testid="tree-badge"]')?.className).not.toContain(
+			"opacity-0"
+		);
+	});
+});

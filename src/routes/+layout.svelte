@@ -338,7 +338,7 @@
 		/>
 	</MobileNav>
 	<nav
-		class="grid max-h-dvh grid-cols-1 grid-rows-[auto_1fr_auto_auto] overflow-hidden *:w-(--nav-width) max-md:hidden"
+		class="grid max-h-dvh grid-cols-1 grid-rows-[auto_1fr_auto] overflow-hidden *:w-(--nav-width) max-md:hidden"
 	>
 		<NavMenu
 			conversations={convsStore.list}

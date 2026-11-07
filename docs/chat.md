@@ -30,9 +30,18 @@ there it can also be set to follow this choice.
 
 ## Conversations
 
-The sidebar has two trees, **Projects** and **Chats**, then a few single
-entries at the foot: **Workspace**, **Settings** and, for administrators,
-**Admin** ([Administering the chat](chat-admin.md)). A conversation keeps
+The sidebar has the logo at the top (it goes home), then the **Chats | Agents**
+switch (only where [coding agents](agent-machines.md) are on) and a **New chat**
+button that follows it: in Agents it reads **New agent session**. Below are two
+trees, **Projects** and **Chats**. At the foot are **Schedules** and
+**Workspace**, then your name. Click your name for your menu: a small quota
+summary (what you have spent against your limit, or the spend alone when there
+is none; it links to Settings → Usage & billing), **Settings**, **Admin** for
+administrators ([Administering the chat](chat-admin.md)), **Console** where the
+deployment has one and you may open it, the theme switch, **Reload** and
+**Sign out**. Counts beside a tree's name appear when you point at the row.
+Press Ctrl-K (⌘K on a Mac) anywhere to jump to a chat, project, agent session,
+schedule or settings page by typing part of its name. A conversation keeps
 the model it was started with. Projects group conversations that share
 standing context and knowledge; each project has a page of its own, opened from
 its row's `⋯` menu (**Project settings**). See [Knowledge and projects](knowledge.md).
@@ -418,7 +427,7 @@ signed-in user has them; they are not part of the coding agents.
 
 - Open a conversation's **⋯** menu in the sidebar and choose **Schedule…**. The
   editor opens on that chat.
-- Open **Schedules** in the sidebar and choose **New schedule**.
+- Open **Schedules** at the foot of the sidebar and choose **New schedule**. One page lists chat and agent schedules, each marked **Chat** or **Agent**; the filter (**All · Chats · Agents**) starts on the side you came from.
 - Ask the assistant: "remind me every Friday at 4 pm to send the weekly report".
   It proposes the schedule on a card, with its name, timetable, where it runs
   and the prompt it will send, and the schedule exists only if you press

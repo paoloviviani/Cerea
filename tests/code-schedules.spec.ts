@@ -171,7 +171,11 @@ test.describe("scheduled actions, hermetic", () => {
 		);
 
 		// The session the schedule started carries the schedule's marker in the tree.
+		// The old address redirects to the one Schedules page, on its agents filter;
+		// the sidebar is on Chats there until the switch is flipped.
 		await page.goto(`${E2E_APP_BASE}/code?view=schedules`);
+		await expect(page).toHaveURL(/\/schedules\?kind=agent/);
+		await page.getByTestId("sidebar-view-agents").first().click();
 		await expect(page.getByTestId("scheduled-badge").first()).toBeAttached();
 	});
 

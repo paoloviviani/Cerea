@@ -156,6 +156,8 @@ describe("the projects cache belongs to one user", () => {
 		expect(projectsTreeCache.projects).toHaveLength(1);
 
 		const footer = renderWithApp(NavFooter, { user: { username: "ada" } } as never);
+		// The sign-out form lives in the user menu: open it first.
+		await footer.getByTestId("user-menu-button").click();
 		footer.baseElement
 			.querySelector("form")
 			?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));

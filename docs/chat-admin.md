@@ -14,7 +14,7 @@ where it is made.
 
 ## Who sees it
 
-The **Admin** row at the foot of the sidebar (beside Workspace and Settings)
+**Admin** in the user menu (click your name at the foot of the sidebar)
 appears only for administrators, and **the gateway decides who that is**: the chat asks the
 gateway who the signed-in person is (`GET /v1/me`) and believes nothing else.
 The chat's own admin flag, inherited from upstream, comes from a HuggingFace
