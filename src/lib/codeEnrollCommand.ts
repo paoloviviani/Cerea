@@ -80,15 +80,19 @@ function policyChoicesOf(opts: EnrollCommandOptions): EnrollPolicyChoices {
 
 export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	const origin = opts.origin.replace(/\/+$/, "");
-	const install = `curl -fsSL ${quoteShellArg(`${origin}/galopin/install.sh`)} | sh`;
+	const goose = policyChoicesOf(opts).engine === "goose";
+	// With goose the served installer also installs the pinned goose release
+	// (checksum-verified); the opencode install line is then not wanted.
+	const install = `curl -fsSL ${quoteShellArg(`${origin}/galopin/install.sh`)} | sh${goose ? " -s -- --engine goose" : ""}`;
 	// opencode's own installer: it appends $HOME/.opencode/bin to PATH in
 	// the rc files but NOT in this shell, so the same fresh-machine trap as
 	// galopin's applies — galopin falls back to $HOME/.opencode/bin/opencode
 	// itself (agent opencode.go's Start), which is why no export is needed
 	// here and the line stays honest on both a fresh and a loaded PATH.
-	const installOpencode = opts.installOpencode
-		? `curl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION}`
-		: null;
+	const installOpencode =
+		opts.installOpencode && !goose
+			? `curl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION}`
+			: null;
 
 	// One flag per line, its value beside it: the args come flat, and a new
 	// line starts at every `--flag`.

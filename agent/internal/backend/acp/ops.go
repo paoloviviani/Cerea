@@ -80,7 +80,11 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 	callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
 	defer cancel()
 	servers, ep := b.mcpServers()
-	raw, err := conn.call(callCtx, "session/new", map[string]any{"cwd": workspaceDir, "mcpServers": servers})
+	newParams := map[string]any{"cwd": workspaceDir, "mcpServers": servers}
+	if len(b.cfg.SessionMeta) > 0 {
+		newParams["_meta"] = b.cfg.SessionMeta
+	}
+	raw, err := conn.call(callCtx, "session/new", newParams)
 	if err != nil {
 		if ep != nil {
 			ep.Revoke()
@@ -99,7 +103,8 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 		return backend.Session{}, fmt.Errorf("acp: session/new: response carried no sessionId")
 	}
 	modes, models, curMode, curModel := sessionOptions(m)
-	b.reg.setCaps(workspaceDir, workspaceCaps{modes: modes, models: models})
+	curMode = b.assertMode(ctx, id, curMode)
+	b.reg.setCaps(workspaceDir, workspaceCaps{modes: b.visibleModes(modes), models: models})
 
 	st := b.reg.getOrCreate(id, workspaceDir)
 	st.mu.Lock()
@@ -187,6 +192,17 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir, sessionID string, pr
 	st, ok := b.reg.get(sessionID)
 	if !ok {
 		st = b.reg.getOrCreate(sessionID, workspaceDir)
+	}
+
+	st.mu.Lock()
+	hidden := b.modeHidden(st.modeID)
+	cur := st.modeID
+	st.mu.Unlock()
+	if hidden {
+		now := b.assertMode(ctx, sessionID, cur)
+		st.mu.Lock()
+		st.modeID = now
+		st.mu.Unlock()
 	}
 
 	st.mu.Lock()
@@ -318,6 +334,9 @@ func (b *Backend) Cancel(ctx context.Context, workspaceDir, sessionID string) er
 }
 
 func (b *Backend) SetMode(ctx context.Context, workspaceDir, sessionID, modeID string) (backend.Session, error) {
+	if b.modeHidden(modeID) {
+		return backend.Session{}, fmt.Errorf("acp: mode %q is not offered: it would skip the permission asks", modeID)
+	}
 	conn, err := b.currentConn()
 	if err != nil {
 		return backend.Session{}, err
@@ -468,7 +487,11 @@ func (b *Backend) Transcript(ctx context.Context, workspaceDir, sessionID string
 		st.mu.Unlock()
 		callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
 		servers, ep := b.mcpServers()
-		raw, err := conn.call(callCtx, "session/load", map[string]any{"sessionId": sessionID, "cwd": workspaceDir, "mcpServers": servers})
+		loadParams := map[string]any{"sessionId": sessionID, "cwd": workspaceDir, "mcpServers": servers}
+		if len(b.cfg.SessionMeta) > 0 {
+			loadParams["_meta"] = b.cfg.SessionMeta
+		}
+		raw, err := conn.call(callCtx, "session/load", loadParams)
 		cancel()
 		st.mu.Lock()
 		st.replaying = false
@@ -482,9 +505,10 @@ func (b *Backend) Transcript(ctx context.Context, workspaceDir, sessionID string
 		var m map[string]any
 		if json.Unmarshal(raw, &m) == nil {
 			modes, models, curMode, curModel := sessionOptions(m)
-			b.reg.setCaps(workspaceDir, workspaceCaps{modes: modes, models: models})
+			curMode = b.assertMode(ctx, sessionID, curMode)
+			b.reg.setCaps(workspaceDir, workspaceCaps{modes: b.visibleModes(modes), models: models})
 			st.mu.Lock()
-			if st.modeID == "" {
+			if st.modeID == "" || b.modeHidden(st.modeID) {
 				st.modeID = curMode
 			}
 			if st.modelID == "" {

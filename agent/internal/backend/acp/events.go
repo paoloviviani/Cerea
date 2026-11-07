@@ -344,4 +344,16 @@ func (b *Backend) handleModeUpdate(st *sessionState, upd map[string]any) {
 	workspaceDir := st.workspaceDir
 	st.mu.Unlock()
 	b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventSession, Session: &sess})
+	if b.modeHidden(modeID) && b.cfg.ForceMode != "" {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), rpcCallTimeout)
+			defer cancel()
+			now := b.assertMode(ctx, st.id, modeID)
+			st.mu.Lock()
+			st.modeID = now
+			sess := st.toSession(b.ID())
+			st.mu.Unlock()
+			b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventSession, Session: &sess})
+		}()
+	}
 }

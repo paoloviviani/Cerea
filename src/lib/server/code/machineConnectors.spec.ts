@@ -17,7 +17,10 @@ import {
 } from "./machineConnectors";
 import {
 	connectorOptions,
+	getLocalAgentKeys,
 	getSessionConnectorKeys,
+	localAgentOptions,
+	setLocalAgentKeys,
 	setSessionConnectorKeys,
 	SessionConnectorsError,
 } from "./sessionConnectors";
@@ -407,5 +410,52 @@ describe("the opt-in", () => {
 		await expect(
 			setSessionConnectorKeys(stranger, deviceId.toString(), ROOT, [key])
 		).rejects.toBeInstanceOf(SessionConnectorsError);
+	});
+});
+
+describe("local agents (galopin goose setup, ADR 0110)", () => {
+	const localFrame = (op: string, args: Record<string, unknown> = {}): CallFrame =>
+		frame(op, { source: "local-agent", ...args });
+
+	it("offers nothing by default, then exactly the user's own switched-on connectors", async () => {
+		const mine = await addConnector(owner, "Mine");
+		const theirs = await addConnector(stranger, "Theirs");
+		expect(
+			ok(await handleConnectorCall(deviceId.toString(), localFrame("connector.list")))
+		).toEqual({ connectors: [], local: [] });
+		expect((await localAgentOptions(owner)).map((o) => o.name)).toEqual(["Mine"]);
+		await expect(setLocalAgentKeys(owner, [theirs])).rejects.toBeInstanceOf(SessionConnectorsError);
+		expect(await setLocalAgentKeys(owner, [mine])).toEqual([mine]);
+		const listed = ok(await handleConnectorCall(deviceId.toString(), localFrame("connector.list")));
+		expect(listed.connectors.map((c) => c.name)).toEqual(["Mine"]);
+		await setLocalAgentKeys(owner, []);
+		expect(await getLocalAgentKeys(owner)).toEqual([]);
+	});
+
+	it("is separate from a session's opt-in, and the call is audited as a local agent", async () => {
+		const sessionOnly = await addConnector(owner, "SessionOnly");
+		const localOnly = await addConnector(owner, "LocalOnly");
+		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [sessionOnly]);
+		await setLocalAgentKeys(owner, [localOnly]);
+		const denied = err(
+			await handleConnectorCall(
+				deviceId.toString(),
+				localFrame("connector.call", { connector: sessionOnly, tool: "find", arguments: {} })
+			)
+		);
+		expect(denied.code).toBe("forbidden");
+		expect(fake.call).not.toHaveBeenCalled();
+		const done = await handleConnectorCall(
+			deviceId.toString(),
+			localFrame("connector.call", { connector: localOnly, tool: "find", arguments: {} })
+		);
+		expect(ok(done).isError).toBe(false);
+		expect(fake.call).toHaveBeenCalledTimes(1);
+		const rows = await collections.codeAudit.find({ deviceId }).toArray();
+		expect(
+			rows.some((r) => r.origin === "local-agent" && String(r.name).startsWith("local agent:"))
+		).toBe(true);
+		// A session's list does not see the local-only connector.
+		expect(ok(await list()).connectors.map((c) => c.name)).toEqual(["SessionOnly"]);
 	});
 });

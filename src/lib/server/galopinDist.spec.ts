@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 const env = vi.hoisted(() => ({ GALOPIN_DIST_DIR: "", PUBLIC_ORIGIN: "" }));
 vi.mock("$lib/server/config", () => ({ config: env }));
 
+const { GOOSE_SHA256, GOOSE_VERSION } = await import("$lib/gooseVersion");
 const { serveGalopinFile, renderInstallScript, galopinOrigin, parseSha256Sums, GALOPIN_BINARIES } =
 	await import("./galopinDist");
 
@@ -108,6 +109,18 @@ describe("install.sh", () => {
 		expect(script).toContain('fetch "$origin/galopin/$name"');
 		expect(script).toContain("galopin enroll --cerea %s");
 		expect(script).toContain("checksum mismatch");
+	});
+
+	it("installs the pinned goose, checksum-verified, only with --engine goose", () => {
+		const script = renderInstallScript("https://stack.example.org/chat");
+		expect(script).toContain('if [ "$engine" = goose ]; then');
+		expect(script).toContain(`releases/download/v${GOOSE_VERSION}/$archive`);
+		expect(script).toContain("checksum mismatch for $archive");
+		for (const [archive, sum] of Object.entries(GOOSE_SHA256)) {
+			expect(script).toContain(`${archive}) want=${sum} ;;`);
+		}
+		expect(script).toContain("--engine) [ $# -ge 2 ]");
+		expect(script).toContain("galopin enroll --cerea %s%s");
 	});
 
 	it("quotes an origin safely", () => {
