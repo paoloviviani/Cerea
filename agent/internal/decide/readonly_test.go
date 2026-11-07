@@ -47,7 +47,7 @@ func TestReadOnlyCommand(t *testing.T) {
 		"grep -C 3 foo a.txt", "cat a.txt | grep foo", "docker ps | grep web", "ps aux", "ps -ef", "ps -eo pid,comm", "df -h", "df -h .", "du -sh sub",
 		"du -h --max-depth=1 .", "find . -name '*.go'", "find sub -type f -name \"*.go\" -mtime -2", "find . -maxdepth 2 -type d",
 		"find . \\( -name a -o -name b \\) -print", "sed -n 1,5p a.txt", "sed -n '1,5p' a.txt", "sed 's/a/b/g' a.txt", "sed -n -e '/foo/p' a.txt",
-		"git status", "git status -s", "git log --oneline -n 5", "git log -p sub/b.go", "git diff", "git diff HEAD~1 -- sub", "git show HEAD",
+		"git status", "git status -s", "git log --oneline -n 5", "git log --stat sub/b.go", "git diff", "git diff HEAD~1 -- sub", "git show HEAD",
 		"git show HEAD:a.txt", "git diff --stat main..HEAD", "git log --format='%h %s' --since='2 days ago'", "docker ps", "docker ps -a --format '{{.Names}}'",
 		"docker logs --tail 100 web", "docker logs -n 10 -t web_1", "docker compose ps", "docker compose logs --tail=50 api", "docker compose ps -a",
 		"systemctl status nginx", "systemctl status --no-pager -l ssh.service", "journalctl -u nginx -n 50", "journalctl -u ssh --since yesterday --no-pager",

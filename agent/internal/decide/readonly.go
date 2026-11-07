@@ -16,6 +16,9 @@ import (
 // not understood is "not read-only", which only means the ask keeps its normal
 // route (a reviewer, or a card).
 //
+// A bash ask carries the agent's full command line (Request.Command) beside
+// opencode's patterns; both are judged and both must pass.
+//
 // Allowed shape: simple commands joined by `|`, `;`, `&&`, `||` or newlines;
 // literal words only (no substitution, variable, glob, brace expansion,
 // arithmetic, assignment, subshell, block, function or background job); no
@@ -36,7 +39,9 @@ func (p Policy) ReadOnlyCommand(r Request) bool {
 	}
 	ro.ws = filepath.Clean(ws)
 	ro.cwd = ro.ws
-	for _, cmd := range r.Patterns {
+	// The stamp needs the agent's full command line AND every pattern to pass:
+	// a pattern can omit a redirect or a background job the line has (audit H1).
+	for _, cmd := range r.commandTexts() {
 		if !ro.script(cmd) {
 			return false
 		}
@@ -497,6 +502,19 @@ var gitDeny = []string{"--output", "-o", "--ext-diff", "--exec-path", "-c", "-C"
 	"--open-files-in-pager", "-O", "--git-dir", "--work-tree", "--config-env", "--upload-pack", "--exec",
 	"--namespace", "--super-prefix", "--textconv", "--ext"}
 
+// printsPatch reports whether a git log flag makes it print file contents.
+func printsPatch(a string) bool {
+	switch {
+	case strings.HasPrefix(a, "--"):
+		switch strings.SplitN(a, "=", 2)[0] {
+		case "--patch", "--patch-with-stat", "--patch-with-raw", "--cc", "--combined", "--full-diff", "--diff-merges", "--remerge-diff", "--textconv":
+			return true
+		}
+		return false
+	}
+	return strings.ContainsAny(a[1:], "pucm") && !strings.ContainsAny(a[1:2], "0123456789")
+}
+
 func (ro *roCheck) git(args []string) bool {
 	if len(args) == 0 {
 		return false
@@ -519,6 +537,9 @@ func (ro *roCheck) git(args []string) bool {
 			continue
 		}
 		if strings.HasPrefix(a, "-") {
+			if args[0] == "log" && printsPatch(a) {
+				return false // a patch prints committed file contents
+			}
 			for _, d := range gitDeny {
 				if strings.HasPrefix(d, "--") && strings.HasPrefix(a, d) {
 					return false
@@ -530,16 +551,35 @@ func (ro *roCheck) git(args []string) bool {
 			continue
 		}
 		// a revision or a path: check it as a path when it looks like one or exists
-		if strings.ContainsAny(a, "/~") || strings.HasPrefix(a, ".") || ro.exists(a) {
-			if strings.Contains(a, ":") && !ro.exists(a) {
-				continue // REV:path names an object, not a file
+		// REV:path names an object in the repository, and printing it prints a
+		// committed file: its path half must not be a secret one (audit L1).
+		if _, path, isObj := strings.Cut(a, ":"); isObj && !ro.exists(a) {
+			if path != "" && !ro.objectPathOK(path) {
+				return false
 			}
+			continue
+		}
+		if strings.ContainsAny(a, "/~") || strings.HasPrefix(a, ".") || ro.exists(a) {
 			if !ro.paths([]string{a}) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// objectPathOK reports whether the path half of a REV:path object name is not a
+// secret file: an env file, or a path under a credential store or galopin's own.
+func (ro *roCheck) objectPathOK(path string) bool {
+	if isSensitive(path) {
+		return false
+	}
+	rq := Request{Key: "read", Patterns: []string{ro.abs(path)}, Workspace: ro.ws}
+	if _, hit := ro.p.Protected.SecretHit(rq); hit {
+		return false
+	}
+	_, hit := ro.p.Protected.OwnHit(rq)
+	return !hit
 }
 
 func (ro *roCheck) exists(a string) bool {

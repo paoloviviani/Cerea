@@ -130,7 +130,11 @@ func (pr Protected) SecretHit(r Request) (string, bool) {
 		return d, true
 	}
 	// /proc/<pid>/environ holds a process's environment: credentials in plain text
-	for _, pat := range r.Patterns {
+	pats := r.Patterns
+	if r.Key == "bash" {
+		pats = r.commandTexts()
+	}
+	for _, pat := range pats {
 		if procEnviron.MatchString(filepath.Clean(pat)) || (r.Key == "bash" && procEnvironText.MatchString(pat)) {
 			return "/proc/*/environ", true
 		}
@@ -183,24 +187,49 @@ func (pr Protected) abs(pat, workspace string) string {
 // the absolute, ~/ and $HOME/ spellings. It does not parse shell: an obfuscated
 // command passes, which is why a command stays behind its own limit.
 func (pr Protected) hit(dirs []string, r Request) (string, bool) {
+	if r.Key == "bash" {
+		return pr.bashHit(dirs, r)
+	}
 	for _, pat := range r.Patterns {
 		if strings.HasPrefix(pat, "mcp:") {
-			continue
-		}
-		if r.Key == "bash" {
-			text := pr.cmp(pat)
-			for _, d := range dirs {
-				for _, form := range pr.shellForms(d) {
-					if strings.Contains(text, pr.cmp(form)) {
-						return d, true
-					}
-				}
-			}
 			continue
 		}
 		abs := pr.abs(pat, r.Workspace)
 		forms := []string{abs}
 		if real, ok := resolve(abs); ok && real != abs {
+			forms = append(forms, real)
+		}
+		for _, d := range dirs {
+			for _, f := range forms {
+				if under(pr.cmp(d), pr.cmp(f)) {
+					return d, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// bashHit is hit for a command: the raw text (absolute, ~/, $HOME/ and ${HOME}/
+// spellings as substrings, which catches what the parser cannot expand) and every
+// word the parser resolves to a path, against each directory a `cd` reaches.
+func (pr Protected) bashHit(dirs []string, r Request) (string, bool) {
+	for _, pat := range r.commandTexts() {
+		if strings.HasPrefix(pat, "mcp:") {
+			continue
+		}
+		text := pr.cmp(pat)
+		for _, d := range dirs {
+			for _, form := range pr.shellForms(d) {
+				if strings.Contains(text, pr.cmp(form)) {
+					return d, true
+				}
+			}
+		}
+	}
+	for _, p := range pr.bashPaths(r) {
+		forms := []string{p}
+		if real, ok := resolve(p); ok && real != p {
 			forms = append(forms, real)
 		}
 		for _, d := range dirs {

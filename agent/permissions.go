@@ -72,11 +72,36 @@ func (mc *machine) decideAsk(rh backend.RuleHost, dir string, req backend.Permis
 		}
 		return decide.Result{Verdict: decide.Card, Step: "gp"}
 	}
+	return decide.Decide(mc.decidePolicy(rh), st, mc.askRequest(dir, req))
+}
+
+// askRequest is an ask normalised for the decision function: the permission key
+// and patterns (the backend's own reading of them, when it has one) and, for a
+// command, the agent's full command line, which names what really runs.
+func (mc *machine) askRequest(dir string, req backend.PermissionRequest) decide.Request {
 	key, patterns := req.Tool, req.Patterns
 	if n, ok := mc.back.(backend.AskNormalizer); ok {
 		key, patterns = n.NormalizeAsk(req)
 	}
-	return decide.Decide(mc.decidePolicy(rh), st, decide.Request{Key: key, Patterns: patterns, Workspace: dir})
+	dr := decide.Request{Key: key, Patterns: patterns, Workspace: dir}
+	if key == "bash" {
+		dr.Command = askCommand(req.Metadata)
+	}
+	return dr
+}
+
+// askCommand is the full command text an ask's metadata carries: opencode's
+// `command`, or the ACP adapter's own.
+func askCommand(meta map[string]any) string {
+	if c, _ := meta["command"].(string); c != "" {
+		return c
+	}
+	if m, _ := meta["acp"].(map[string]any); m != nil {
+		if c, _ := m["command"].(string); c != "" {
+			return c
+		}
+	}
+	return ""
 }
 
 // askClass is the permission class a card carries (PROTOCOL.md §7): galopin's
@@ -95,11 +120,7 @@ func (mc *machine) askClass(dir string, req backend.PermissionRequest) (string, 
 	if !ok {
 		return "", false
 	}
-	key, patterns := req.Tool, req.Patterns
-	if n, ok := mc.back.(backend.AskNormalizer); ok {
-		key, patterns = n.NormalizeAsk(req)
-	}
-	dr := decide.Request{Key: key, Patterns: patterns, Workspace: dir}
+	dr := mc.askRequest(dir, req)
 	pol := mc.decidePolicy(rh)
 	return string(decide.ClassOf(pol, dr)), askReadOnly(pol, dr, req.Metadata)
 }
@@ -216,11 +237,7 @@ func (mc *machine) humanAlwaysOverAsk(rh backend.RuleHost, dir string, req backe
 	if strings.HasPrefix(req.ID, "gp_") {
 		return false
 	}
-	key, patterns := req.Tool, req.Patterns
-	if n, ok := mc.back.(backend.AskNormalizer); ok {
-		key, patterns = n.NormalizeAsk(req)
-	}
-	return decide.AskAlwaysOK(mc.decidePolicy(rh), decide.Request{Key: key, Patterns: patterns, Workspace: dir})
+	return decide.AskAlwaysOK(mc.decidePolicy(rh), mc.askRequest(dir, req))
 }
 
 // askedRequest is a pending ask the machine holds, nil when it holds none by
@@ -515,9 +532,8 @@ const noAlwaysScope = "always-not-stored: no concrete scope"
 //     ask's metadata filepath / files, else its own patterns), workspace-relative;
 //     none usable -> nothing is stored.
 //   - external_directory: the directory (an absolute pattern naming one).
-//   - bash: opencode's command prefix when it is specific; never a pattern that
-//     matches everything, falling back to the exact command (none if the
-//     command itself holds a `*`).
+//   - bash: the exact command(s) of the ask (none if one holds a `*` or `?`);
+//     opencode's proposed prefix (`git *`) is not used (audit L4).
 //   - webfetch, websearch, codesearch: the same, falling back to the exact ask.
 //   - everything else (agents, MCP tools): opencode's own, else the ask's, else
 //     `*` (the key already names the tool).
@@ -566,7 +582,22 @@ func alwaysPatterns(dir, key string, askPatterns []string, asked *backend.Permis
 			}
 		}
 		return nil, noAlwaysScope
-	case "bash", "webfetch", "websearch", "codesearch":
+	case "bash":
+		// The exact commands of the ask, never opencode's prefix (`git *` would
+		// cover `git push --force`): "always" on a command is that command.
+		// A pattern that holds a `*` cannot be stored exactly: nothing is.
+		var exact []string
+		for _, p := range askPatterns {
+			if p == "" || strings.ContainsAny(p, "*?") {
+				return nil, noAlwaysScope
+			}
+			exact = append(exact, p)
+		}
+		if len(exact) == 0 {
+			return nil, noAlwaysScope
+		}
+		return exact, ""
+	case "webfetch", "websearch", "codesearch":
 		var keep []string
 		for _, p := range proposed {
 			if !permrules.Overbroad(p) {

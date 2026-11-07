@@ -8,6 +8,8 @@ const env = vi.hoisted(() => ({ GALOPIN_DIST_DIR: "", PUBLIC_ORIGIN: "" }));
 vi.mock("$lib/server/config", () => ({ config: env }));
 
 const { GOOSE_SHA256, GOOSE_VERSION } = await import("$lib/gooseVersion");
+const { OPENCODE_SHA256 } = await import("$lib/opencodeVersion");
+const { OPENCODE_VERSION } = await import("$lib/codeEnrollCommand");
 const { serveGalopinFile, renderInstallScript, galopinOrigin, parseSha256Sums, GALOPIN_BINARIES } =
 	await import("./galopinDist");
 
@@ -124,6 +126,18 @@ describe("install.sh", () => {
 		expect(script).not.toContain('"$dir/goose"');
 		expect(script).toContain("--engine) [ $# -ge 2 ]");
 		expect(script).toContain("galopin enroll --cerea %s%s");
+	});
+
+	it("installs the pinned opencode, checksum-verified, only with --with-opencode", () => {
+		const script = renderInstallScript("https://stack.example.org/chat");
+		expect(script).toContain('if [ "$engine" = opencode ] && [ -n "$withopencode" ]; then');
+		expect(script).toContain(`releases/download/v${OPENCODE_VERSION}/$archive`);
+		expect(script).toContain("checksum mismatch for $archive");
+		for (const [archive, sum] of Object.entries(OPENCODE_SHA256)) {
+			expect(script).toContain(`${archive}) want=${sum} ;;`);
+		}
+		expect(script).toContain("--with-opencode) withopencode=1; shift ;;");
+		expect(script).not.toContain("opencode.ai");
 	});
 
 	it("quotes an origin safely", () => {

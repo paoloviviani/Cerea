@@ -64,6 +64,10 @@ const (
 type Request struct {
 	Key      string
 	Patterns []string
+	// Command is a bash ask's full command line (opencode's metadata.command),
+	// which can name more than its patterns do (a redirect, a substitution, a
+	// background job). Empty when the agent sent none.
+	Command string
 	// Workspace is the root directory of the session's workspace.
 	Workspace string
 }
@@ -146,7 +150,7 @@ func Classify(p Policy, r Request) (cat Category, sensitive bool) {
 		}
 		return Edit, false
 	case "bash":
-		return Bash, false
+		return Bash, p.Protected.bashSensitive(r)
 	case "webfetch", "websearch", "codesearch":
 		return Web, false
 	case "external_directory":
@@ -185,17 +189,37 @@ func isSensitive(path string) bool {
 	return strings.HasSuffix(base, ".env") || strings.Contains(base, ".env.")
 }
 
-// within reports whether path is inside the workspace or a safe directory.
+// within reports whether path is inside the workspace or a safe directory. It is
+// judged on where the path really is: a symlink inside the workspace that points
+// outside is outside (audit L2), so both the lexical and the symlink-resolved
+// forms must be inside.
 func (p Policy) within(workspace, path string) bool {
-	if workspace != "" && under(workspace, path) {
+	if workspace != "" && underReal(workspace, path) {
 		return true
 	}
 	for _, d := range p.SafeDirs {
-		if under(d, path) {
+		if underReal(d, path) {
 			return true
 		}
 	}
 	return false
+}
+
+// underReal is under on the paths as written and, when they can be resolved, on
+// their symlink-resolved forms.
+func underReal(dir, path string) bool {
+	if !under(dir, path) {
+		return false
+	}
+	rp, ok := resolve(strings.TrimSuffix(path, "/*"))
+	if !ok {
+		return true
+	}
+	rd, ok := resolve(dir)
+	if !ok {
+		rd = filepath.Clean(dir)
+	}
+	return under(rd, rp)
 }
 
 func under(dir, path string) bool {
@@ -230,7 +254,17 @@ func excepted(exs []permrules.Exception, r Request, overAskOnly ...bool) bool {
 			continue
 		}
 		covered := true
+		// A bash exception names the commands that run: when the agent's full
+		// command line is known it must be plain (no redirect to a file, no
+		// substitution, no background job), so that nothing rides along a
+		// pattern the pattern does not show (audit H1).
+		if r.Key == "bash" && r.Command != "" && !plainShell(r.Command) {
+			covered = false
+		}
 		for _, pat := range pats {
+			if !covered {
+				break
+			}
 			ok := false
 			for _, ep := range e.Patterns {
 				if ep == "*" || permrules.Match(pat, ep) {

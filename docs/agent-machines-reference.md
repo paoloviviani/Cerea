@@ -37,10 +37,10 @@ an amber tone is one that opens something up.)
 
 **Common options**, at the top:
 
-| Control                                        | What it adds to the printed command                                                                                                                                       | Default | Use it when                                                                                                                |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
-| **Use a project's own opencode setup** (amber) | `--allow-project-config`                                                                                                                                                  | off     | the computer opens repositories you trust, and you want their own opencode setup to load                                   |
-| **Install opencode**                           | opencode's own installer line, pinned to the release galopin is tested against (`curl -fsSL https://opencode.ai/install \| bash -s -- --version 1.19.3`), before `enroll` | off     | the computer is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
+| Control                                        | What it adds to the printed command                                                                                                                                                                                                                                                                 | Default | Use it when                                                                                                                |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Use a project's own opencode setup** (amber) | `--allow-project-config`                                                                                                                                                                                                                                                                            | off     | the computer opens repositories you trust, and you want their own opencode setup to load                                   |
+| **Install opencode**                           | the served installer fetches the opencode release galopin is tested against (1.19.3) from opencode's GitHub releases and checks its sha256 against the one recorded in the Cerea repository before installing it into `~/.opencode/bin` (`install.sh \| sh -s -- --with-opencode`), before `enroll` | off     | the computer is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
 
 **The computer has no limits of its own** (ADR 0109). What a session may do is its Plan · Ask · Allow · Auto word in the composer (and, for Auto, the rows in Workspace → Agents), plus a fixed floor in galopin. The dialog prints no limit flag; `enroll` still accepts the retired `--limit`, `--permission-max` and `--permission-rule` for one more release, ignores them and warns.
 
@@ -357,6 +357,10 @@ _(ADR 0107, amended by ADR 0109.)_ Every request that is not an in-project read 
 
 A **fixed floor** in galopin's code, not configurable: galopin's own state and configuration (the state directory, `policy.json`, the credentials, the opencode config it owns) are refused in every word; a write into `.git` or a CI configuration file, a `.env` file or a credential store, and a repeating agent are a card even on Allow and Auto (a human's own "Always allow" on a credential card stands); read-only commands always run.
 
+The floor applies to **commands** as well as to the file tools. galopin parses the command line the agent sent (not only the short patterns opencode derives from it) and looks at every word: `cat .env`, `less ~/.ssh/id_ed25519`, `base64 $HOME/.aws/credentials`, `head ${HOME}/.config/galopin/policy.json`, `git show HEAD:.env` and `cd ~/.ssh && cat id_rsa` are judged like the same read through the read tool. `~`, `~user`, `$HOME`, `${HOME}`, a `cd` earlier in the same line, letter case on macOS and symlinks are all followed. A command that names a credential store is a card on Allow and Auto, and one that names galopin's own files is refused. This is still a heuristic on shell text, not a sandbox: a command built from variables or substitutions it cannot expand can name a path it does not see (ADR 0107's threat model).
+
+**The read-only mark** (commands that always run) is given only when both the agent's full command line and every pattern pass: no redirect to a file, no command substitution, no background job, no pipe into a writer, no secret path, and no `git show REV:path`, `git log -p` or `git cat-file` that can print a committed secret.
+
 **Local deny (advanced).** An owner who does not fully trust the Cerea server can refuse a class on the computer: `galopin enroll <cerea-url> --deny command` (repeatable), `galopin policy set --deny web` and `--no-deny web`. It is refuse-only, stored locally in `policy.json`, never settable over the link, and listed by `galopin policy show`. It is not in the Pair dialog. `loop` cannot be denied.
 
 `policy.json` limits and the flags `--limit`, `--permission-max` and `--permission-rule` are retired: for one more release they are accepted, ignored and warned about, and the next write drops them. **Re-enrolling keeps every setting except the options you pass**; `galopin reset` puts the whole policy back to the defaults and keeps the credentials and the pairing.
@@ -479,8 +483,10 @@ unchanged to galopin, which answers opencode once.
   workspace. The button is **not offered** where an exception would store
   nothing (a call with no concrete file, command or directory to scope it to):
   those cards offer Allow once and Deny. An exception is scoped to what the card
-  shows: an edit to that file, a command prefix or the exact command, or an
-  outside path's directory.
+  shows: an edit to that file, the exact command, or an outside path's directory.
+  "Always allow" on a command stores the command itself, never opencode's
+  broad prefix such as `git *`, and only applies to a plain command line (no
+  redirect, substitution or background job riding along).
 - **Deny** refuses that call and tells the agent. It ends every other pending
   ask in the session.
 
@@ -1167,8 +1173,9 @@ in `agent/`.
 
 **Prerequisite:** `opencode` on the PATH, at the release galopin is tested
 against (currently 1.19.3; the one place it is written is
-`agent/packaging/opencode-version`): `npm i -g opencode-ai@1.19.3`, or
-`curl -fsSL https://opencode.ai/install | bash -s -- --version 1.19.3`. A newer
+`agent/packaging/opencode-version`): `npm i -g opencode-ai@1.19.3`, or the pairing dialog's **Install opencode**
+option, which has the served installer download that release and verify its
+sha256 (recorded in `agent/packaging/opencode-sha256`) before installing it. A newer
 opencode usually works, but it can change something galopin relies on; a daily
 CI job runs galopin's real-opencode suite against each new release
 (`agent/README.md`, "opencode releases"). `galopin run` supervises

@@ -64,19 +64,32 @@ func AskKey(kind string) string {
 }
 
 // NormalizeAsk implements backend.AskNormalizer: the permission key and the
-// patterns (paths, or the command) the decision function reads.
+// patterns (paths, or the command) the decision function reads. The engine's
+// ACP `kind` is a hint only (audit L6): the key follows what the call actually
+// carries. A call with a command is bash whatever its kind says; a read or an
+// edit that names no path is an outside-workspace ask (a card, refused on Plan)
+// because nothing says where it reaches; `think` is internal only when the call
+// carries no command and no path.
 func (b *Backend) NormalizeAsk(req backend.PermissionRequest) (string, []string) {
 	m, _ := req.Metadata["acp"].(map[string]any)
 	kind, _ := m["kind"].(string)
 	var patterns []string
-	if cmd, _ := m["command"].(string); cmd != "" {
+	cmd, _ := m["command"].(string)
+	if cmd != "" {
 		patterns = append(patterns, cmd)
 	}
-	if paths, ok := m["paths"].([]string); ok {
-		patterns = append(patterns, paths...)
-	}
+	paths, _ := m["paths"].([]string)
+	patterns = append(patterns, paths...)
 	if kind == "" {
 		return req.Tool, req.Patterns
+	}
+	switch {
+	case cmd != "":
+		return "bash", patterns
+	case len(paths) == 0 && (kind == "read" || kind == "edit" || kind == "delete" || kind == "move"):
+		return "external_directory", nil
+	case kind == "think" && len(paths) > 0:
+		return "acp_" + kind, patterns
 	}
 	return AskKey(kind), patterns
 }
