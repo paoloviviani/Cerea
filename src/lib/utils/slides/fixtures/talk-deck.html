@@ -1,0 +1,253 @@
+<style>
+	.reveal .slides section {
+		height: 100%;
+		box-sizing: border-box;
+		padding: 72px 96px;
+		color: #e8ecf6;
+	}
+	.talk {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+	}
+	.talk .kicker {
+		font-size: 22px;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: color-mix(in srgb, var(--brand-accent) 55%, #fff);
+		font-weight: 700;
+		margin-bottom: 18px;
+	}
+	.talk h1 {
+		font-size: 92px;
+		line-height: 1.02;
+		letter-spacing: -0.02em;
+		color: #fff;
+	}
+	.talk h2 {
+		font-size: 54px;
+		letter-spacing: -0.01em;
+		color: #fff;
+		margin-bottom: 36px;
+	}
+	.talk .lede {
+		font-size: 34px;
+		color: #aab3cc;
+		margin-top: 28px;
+		max-width: 900px;
+	}
+	.grid {
+		display: grid;
+		gap: 28px;
+		flex: 1;
+	}
+	.grid.three {
+		grid-template-columns: repeat(3, 1fr);
+	}
+	.card {
+		background: rgba(255, 255, 255, 0.07);
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		border-radius: 22px;
+		padding: 30px 32px;
+	}
+	.card .num {
+		font-size: 64px;
+		font-weight: 800;
+		color: color-mix(in srgb, var(--brand-accent) 55%, #fff);
+		line-height: 1;
+	}
+	.card h3 {
+		font-size: 32px;
+		color: #fff;
+		margin: 14px 0 10px;
+	}
+	.card p {
+		font-size: 26px;
+		color: #b7bfd6;
+		line-height: 1.4;
+	}
+	.flow {
+		display: flex;
+		align-items: stretch;
+		margin-top: 24px;
+	}
+	.flow .step {
+		flex: 1;
+		padding: 34px 44px 34px 64px;
+		color: #0b1020;
+		font-weight: 700;
+		font-size: 30px;
+		line-height: 1.25;
+		clip-path: polygon(
+			0 0,
+			calc(100% - 44px) 0,
+			100% 50%,
+			calc(100% - 44px) 100%,
+			0 100%,
+			44px 50%
+		);
+		margin-left: -22px;
+	}
+	.flow .step:first-child {
+		margin-left: 0;
+		clip-path: polygon(0 0, calc(100% - 44px) 0, 100% 50%, calc(100% - 44px) 100%, 0 100%);
+		padding-left: 40px;
+	}
+	.flow .step small {
+		display: block;
+		font-weight: 500;
+		font-size: 22px;
+		margin-top: 8px;
+		opacity: 0.75;
+	}
+	.s1 {
+		background: #7dd3fc;
+	}
+	.s2 {
+		background: #a5b4fc;
+	}
+	.s3 {
+		background: #c4b5fd;
+	}
+	.s4 {
+		background: #f0abfc;
+	}
+	.talk table {
+		width: 100%;
+		font-size: 28px;
+	}
+	.talk th {
+		color: color-mix(in srgb, var(--brand-accent) 55%, #fff);
+		font-size: 22px;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		border-bottom: 2px solid rgba(255, 255, 255, 0.25);
+		padding: 12px 18px;
+	}
+	.talk td {
+		padding: 18px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+		color: #dfe5f5;
+	}
+	.talk td.good {
+		color: #86efac;
+		font-weight: 700;
+	}
+	.logo {
+		position: absolute;
+		right: 96px;
+		bottom: 56px;
+		width: 140px;
+		height: 48px;
+		background: var(--brand-logo-url) center / contain no-repeat;
+	}
+</style>
+
+<section data-background-gradient="linear-gradient(135deg, #0b1020 0%, #1b1446 55%, #3b1a6b 100%)">
+	<div class="talk" style="justify-content: center">
+		<div class="kicker">Quarterly review</div>
+		<h1>Fewer escalations,<br />faster onboarding</h1>
+		<p class="lede">What changed this quarter, what it cost, and the one risk still open.</p>
+	</div>
+	<aside class="notes">
+		Welcome everyone. Two minutes on the headline, then the detail. Say the three numbers once.
+	</aside>
+</section>
+
+<section data-background-gradient="linear-gradient(135deg, #0b1020 0%, #14213d 100%)">
+	<div class="talk">
+		<div class="kicker">Results</div>
+		<h2>Three things to remember</h2>
+		<div class="three grid">
+			<div class="card">
+				<div class="num">24%</div>
+				<h3>Revenue growth</h3>
+				<p>Up in every region, year on year.</p>
+			</div>
+			<div class="card">
+				<div class="num">-31%</div>
+				<h3>Support load</h3>
+				<p>Second quarter in a row it fell.</p>
+			</div>
+			<div class="card">
+				<div class="num">2</div>
+				<h3>Open roles</h3>
+				<p>Senior hires are the one open risk.</p>
+			</div>
+		</div>
+	</div>
+	<aside class="notes">
+		Revenue first, because it frames the rest. Support load fell because of the new onboarding flow,
+		covered on the next slide.
+	</aside>
+</section>
+
+<section data-background-gradient="linear-gradient(135deg, #0b1020 0%, #1b1446 100%)">
+	<div class="talk">
+		<div class="kicker">How it works</div>
+		<h2>A new customer, start to finish</h2>
+		<div class="flow">
+			<div class="step s1">Sign up<small>one form</small></div>
+			<div class="step s2">Connect data<small>guided</small></div>
+			<div class="step s3">First answer<small>under 10 min</small></div>
+			<div class="step s4">Team invite<small>self-serve</small></div>
+		</div>
+		<p class="lede" style="font-size: 28px">
+			Every step used to need a person on our side. None does now.
+		</p>
+	</div>
+	<aside class="notes">
+		Walk the four steps left to right. Stress that the third step is the one that used to need a
+		call.
+	</aside>
+</section>
+
+<section data-background-gradient="linear-gradient(135deg, #0b1020 0%, #14213d 100%)">
+	<div class="talk">
+		<div class="kicker">Numbers</div>
+		<h2>Before and after</h2>
+		<table>
+			<thead>
+				<tr>
+					<th>Measure</th>
+					<th>Last quarter</th>
+					<th>This quarter</th>
+					<th>Change</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>Time to first answer</td>
+					<td>3 days</td>
+					<td>9 minutes</td>
+					<td class="good">-99%</td>
+				</tr>
+				<tr>
+					<td>Tickets per 100 users</td>
+					<td>14</td>
+					<td>9.6</td>
+					<td class="good">-31%</td>
+				</tr>
+				<tr>
+					<td>Weekly active teams</td>
+					<td>212</td>
+					<td>263</td>
+					<td class="good">+24%</td>
+				</tr>
+			</tbody>
+		</table>
+	</div>
+	<aside class="notes">
+		Only read the last column aloud. The table is for people who want to check.
+	</aside>
+</section>
+
+<section data-background-gradient="linear-gradient(135deg, #3b1a6b 0%, #0b1020 100%)">
+	<div class="talk" style="justify-content: center">
+		<div class="kicker">Next</div>
+		<h2 style="font-size: 72px">Two decisions for today</h2>
+		<p class="lede">Approve the two senior hires, and fund the reporting rebuild.</p>
+	</div>
+	<div class="logo"></div>
+	<aside class="notes">Ask for the decision, then stop talking.</aside>
+</section>

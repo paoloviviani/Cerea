@@ -16,6 +16,7 @@ import resetCss from "reveal.js/dist/reset.css?raw";
 import markdownJs from "reveal.js/plugin/markdown/markdown.js?raw";
 import baseCss from "./slides.css?raw";
 import cereaThemeCss from "./cerea-theme.css?raw";
+import neutralCss from "./neutral.css?raw";
 import whiteCss from "reveal.js/dist/theme/white.css?raw";
 import blackCss from "reveal.js/dist/theme/black.css?raw";
 import simpleCss from "reveal.js/dist/theme/simple.css?raw";
@@ -44,7 +45,17 @@ export function stripImports(css: string): string {
 	return css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@import\s+url\([^)]*\)\s*;?/gi, "");
 }
 
-export function themeCss(theme: ThemeId): string {
+/**
+ * reveal.css's one non-structural default: the viewport (the body) carries a
+ * white background, black text and line-height 1. Taken out, so the neutral
+ * base and the model's own `body {}` rules decide, as they would anywhere.
+ */
+export function engineCss(css: string): string {
+	return css.replace("line-height:1;margin:0;background-color:#fff;color:#000;", "margin:0;");
+}
+
+export function themeCss(theme: ThemeId | undefined): string {
+	if (!theme) return "";
 	return isBuiltinTheme(theme) ? stripImports(BUILTIN_CSS[theme]) : cereaThemeCss;
 }
 
@@ -70,18 +81,19 @@ function attr(value: string): string {
 }
 
 /** The script that starts reveal and talks to the app (state out, commands in, captures for the PDF). */
-function runtimeScript(channel: string, pdf: boolean): string {
+function runtimeScript(channel: string, pdf: boolean, markdown: boolean): string {
 	return `\n<script>
 (function(){
   var CH = ${JSON.stringify(channel)};
   var PDF = ${pdf ? "true" : "false"};
+  var MD = ${markdown ? "true" : "false"};
   function send(type, detail){ try { parent.postMessage({ type: type, channel: CH, detail: detail }, '*'); } catch (e) {} }
   var notesEl = document.querySelector('.cerea-notes');
   var notesOpen = false;
   var deck = new Reveal({
     plugins: [RevealMarkdown],
-    width: 1280, height: 720, margin: PDF ? 0 : 0.04, minScale: PDF ? 1 : 0.1, maxScale: PDF ? 1 : 2,
-    center: true, hash: false, history: false, controls: false, progress: !PDF, slideNumber: false,
+    width: 1280, height: 720, margin: MD && !PDF ? 0.04 : 0, minScale: PDF ? 1 : 0.1, maxScale: PDF ? 1 : 2,
+    center: MD, hash: false, history: false, controls: false, progress: !PDF, slideNumber: false,
     transition: PDF ? 'none' : 'slide', backgroundTransition: 'none', keyboard: !PDF, touch: !PDF,
     fragments: !PDF, help: true, overview: !PDF, mouseWheel: false, respondToHashChanges: false, scrollActivationWidth: null, view: null
   });
@@ -105,7 +117,7 @@ function runtimeScript(channel: string, pdf: boolean): string {
   });
   window.addEventListener('keydown', function(ev){
     if (PDF || ev.metaKey || ev.ctrlKey || ev.altKey) return;
-    if (ev.key === 'n' || ev.key === 'N') { notesOpen = !notesOpen; publish(); }
+    if (ev.key === 'n' || ev.key === 'N' || ev.key === 's' || ev.key === 'S') { notesOpen = !notesOpen; publish(); }
   });
   window.addEventListener('message', function(ev){
     if (ev.source !== window.parent) return;
@@ -155,11 +167,24 @@ export function buildSlidesSrcdocFrom(
 	channel: string,
 	opts: SlidesSrcdocOptions = {}
 ): string {
+	const markdown = parsed.mode === "markdown";
 	const theme = resolveTheme(parsed.meta, opts.org);
-	// A logo that is still a file name cannot be shown: only a data: URL is
-	const logo = opts.logoDataUrl ?? (theme.logo?.startsWith("data:") ? theme.logo : undefined);
-	const body = opts.highlight ? highlightFences(parsed.body, opts.highlight) : parsed.body;
+	// A logo that is still a file name cannot be shown: only a data: URL is. The
+	// resolved one also becomes --brand-logo-url, for the model to place.
+	const logoUrl = opts.logoDataUrl ?? (theme.logo?.startsWith("data:") ? theme.logo : undefined);
+	const brand =
+		logoUrl && logoUrl !== theme.logo ? `:root{--brand-logo-url:url("${logoUrl}");}` : "";
 	const title = (parsed.meta.title ?? "Slides").replace(/[<>&"]/g, "");
+	const slides = markdown
+		? `<div class="slides md">
+<section data-markdown data-separator="\\r?\\n---[ \\t]*\\r?\\n" data-separator-notes="^Note:" data-charset="utf-8"><textarea data-template>${textareaSafe(
+				opts.highlight ? highlightFences(parsed.body, opts.highlight) : parsed.body
+			)}</textarea></section>
+</div>`
+		: `<div class="slides">\n${parsed.body}\n</div>`;
+	// The logo image is a Markdown-deck nicety; an HTML deck places --brand-logo-url itself
+	const logoImg =
+		markdown && logoUrl ? `<img class="cerea-logo" alt="" src="${attr(logoUrl)}">` : "";
 	return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -167,17 +192,16 @@ export function buildSlidesSrcdocFrom(
 <base target="_blank">${previewCspMeta(channel)}
 <title>${title}</title>
 <style>${resetCss}</style>
-<style>${revealCss}</style>
+<style>${engineCss(revealCss)}</style>
+<style>${neutralCss}</style>
 <style>${themeCss(theme.theme)}</style>
-<style>${theme.css}</style>
+<style>${theme.css}${brand}</style>
 <style>${baseCss}</style>${buildPreviewHookScript(channel)}
 </head>
 <body>
-<div class="reveal"><div class="slides">
-<section data-markdown data-separator="\\r?\\n---[ \\t]*\\r?\\n" data-separator-notes="^Note:" data-charset="utf-8"><textarea data-template>${textareaSafe(body)}</textarea></section>
-</div>${logo ? `<img class="cerea-logo" alt="" src="${attr(logo)}">` : ""}<div class="cerea-notes" hidden></div></div>
+<div class="reveal">${slides}${logoImg}<div class="cerea-notes" hidden></div></div>
 <script>${revealJs.replace(/<\/script/gi, "<\\/script")}${END_SCRIPT}
-<script>${markdownJs.replace(/<\/script/gi, "<\\/script")}${END_SCRIPT}${runtimeScript(channel, !!opts.pdf)}
+<script>${markdownJs.replace(/<\/script/gi, "<\\/script")}${END_SCRIPT}${runtimeScript(channel, !!opts.pdf, markdown)}
 </body></html>`;
 }
 

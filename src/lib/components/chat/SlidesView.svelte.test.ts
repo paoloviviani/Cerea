@@ -96,4 +96,29 @@ describe("SlidesView", () => {
 		create.mockRestore();
 		click.mockRestore();
 	});
+
+	it("renders a designed HTML deck, shows its notes, and exports one PDF page per slide", async () => {
+		const { default: talk } = await import("$lib/utils/slides/fixtures/talk-deck.html?raw");
+		const blobs: Blob[] = [];
+		const create = vi.spyOn(URL, "createObjectURL").mockImplementation((b) => {
+			blobs.push(b as Blob);
+			return "blob:test";
+		});
+		const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+		const { screen, iframe } = await mount({ content: talk, org: { accent: "#0a7e8c" } });
+		const counter = screen.getByTestId("slides-counter");
+		await expect.element(counter).toHaveTextContent("1 / 5");
+		expect(iframe.srcdoc).toContain("--brand-accent:#0a7e8c");
+		// The first slide has speaker notes, taken from <aside class="notes">
+		await expect.element(screen.getByRole("button", { name: "Speaker notes (N)" })).toBeEnabled();
+		await screen.getByRole("button", { name: "Next slide" }).click();
+		await expect.element(counter).toHaveTextContent("2 / 5");
+		await screen.getByRole("button", { name: "Download PDF" }).click();
+		await vi.waitFor(() => expect(blobs.length).toBe(1), { timeout: 60_000 });
+		const text = new TextDecoder("latin1").decode(await blobs[0].arrayBuffer());
+		expect(text).toContain("/Count 5");
+		expect(text).toContain("/Title (Fewer escalations");
+		create.mockRestore();
+		click.mockRestore();
+	}, 90_000);
 });

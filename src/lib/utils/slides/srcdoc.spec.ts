@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { buildSlidesSrcdoc, stripImports, themeCss } from "./srcdoc";
+import { buildSlidesSrcdoc, engineCss, stripImports } from "./srcdoc";
 import { BUILTIN_THEME_IDS } from "./themes";
 import { PREVIEW_SANDBOX } from "../previewSrcdoc";
 
@@ -22,7 +22,23 @@ describe("stripImports", () => {
 	});
 });
 
-describe("buildSlidesSrcdoc", () => {
+describe("engineCss", () => {
+	it("removes the viewport's colour and line-height defaults from reveal.css", async () => {
+		const { default: css } = await import("reveal.js/dist/reveal.css?raw");
+		// vitest serves css as an empty string; the real package file is read directly
+		const real = readFileSync(
+			new URL("../../../../node_modules/reveal.js/dist/reveal.css", import.meta.url),
+			"utf8"
+		);
+		void css;
+		const out = engineCss(real);
+		const viewport = /\.reveal-viewport\{[^}]*\}/.exec(out)?.[0] ?? "";
+		expect(viewport).toContain("overflow:hidden");
+		expect(viewport).not.toMatch(/background-color|line-height|color:#000/);
+	});
+});
+
+describe("buildSlidesSrcdoc, Markdown", () => {
 	const doc = buildSlidesSrcdoc("---\ntitle: A <b>\n---\n# One\n\n---\n\n# Two\n", "chan1");
 
 	it("is a self-contained document under the preview CSP", () => {
@@ -46,7 +62,7 @@ describe("buildSlidesSrcdoc", () => {
 		expect(doc).toContain('data-separator-notes="^Note:"');
 	});
 
-	it("shows an org logo as an image tag and ignores a bare file name", () => {
+	it("shows a logo as an image tag (Markdown only) and ignores a bare file name", () => {
 		const withLogo = buildSlidesSrcdoc("# x", "c", { org: { logo: "data:image/png;base64,AA==" } });
 		expect(withLogo).toContain('<img class="cerea-logo"');
 		const named = buildSlidesSrcdoc("---\nlogo: logo.png\n---\n# x", "c");
@@ -55,6 +71,7 @@ describe("buildSlidesSrcdoc", () => {
 			logoDataUrl: "data:image/png;base64,AA==",
 		});
 		expect(resolved).toContain('<img class="cerea-logo"');
+		expect(resolved).toContain('--brand-logo-url:url("data:image/png;base64,AA==")');
 	});
 
 	it("includes only the chosen theme's resolved variables", () => {
@@ -67,8 +84,54 @@ describe("buildSlidesSrcdoc", () => {
 		const d = buildSlidesSrcdoc("# x", "c", { pdf: true });
 		expect(d).toContain("var PDF = true");
 	});
+});
 
-	it("themeCss gives a Cerea theme its own typography file", () => {
-		expect(typeof themeCss("cerea")).toBe("string");
+/** The slides' markup: from the reveal container to the first engine script. */
+function markupOf(doc: string): string {
+	const start = doc.indexOf('<div class="reveal">');
+	return doc.slice(start, doc.indexOf("<script>", start));
+}
+
+describe("buildSlidesSrcdoc, HTML", () => {
+	const fixture = readFileSync(new URL("./fixtures/talk-deck.html", import.meta.url), "utf8");
+	const doc = buildSlidesSrcdoc(fixture, "chan2", {
+		org: { accent: "#0a7e8c", logo: "data:image/png;base64,AA==" },
+	});
+
+	it("puts the model's sections and style straight into the slides, with no markdown plugin work", () => {
+		const markup = markupOf(doc);
+		expect(markup).toContain('<div class="slides">');
+		expect(markup).not.toContain("data-markdown");
+		expect(doc).toContain("data-background-gradient");
+		expect(doc).toContain(".flow .step");
+		expect(doc).toContain('<aside class="notes">');
+	});
+
+	it("starts reveal at 1280x720, not centred, with no margin", () => {
+		expect(doc).toContain("width: 1280, height: 720, margin: MD && !PDF ? 0.04 : 0");
+		expect(doc).toContain("var MD = false");
+		expect(doc).toContain("center: MD");
+	});
+
+	it("applies no theme but defines the brand variables", () => {
+		expect(doc).toContain("--brand-accent:#0a7e8c");
+		expect(doc).toContain("--brand-logo-url");
+		expect(doc).not.toContain("--r-background-color:");
+		expect(doc).not.toContain('class="cerea-logo"');
+	});
+
+	it("removes a model's script and remote loads before they reach the frame", () => {
+		const d = buildSlidesSrcdoc(
+			'<section><script>steal()</script><img src="https://evil.test/x.png" onerror="x()"></section>',
+			"c"
+		);
+		const markup = markupOf(d);
+		expect(markup).not.toContain("steal()");
+		expect(markup).not.toContain("evil.test");
+		expect(markup).not.toContain("onerror");
+	});
+
+	it("binds the S key to the notes drawer", () => {
+		expect(doc).toContain("ev.key === 's'");
 	});
 });

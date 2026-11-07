@@ -41,23 +41,25 @@ setting says otherwise.
 
 ### Slides
 
-A **slides** artifact is a deck the assistant writes in Markdown and Cerea
+A **slides** artifact is a deck the assistant writes as HTML slides and Cerea
 shows with [reveal.js](https://revealjs.com), inside the same sandboxed frame as
-every other preview, so it works offline. Ask for "slides on X" and, if it is not
-clear whether you want something to present here or a PowerPoint file to edit,
-the assistant asks first.
+every other preview, so it works offline. The assistant designs the slides
+freely (colours, grids, diagrams); Cerea supplies the controls. Ask for "slides
+on X" and, if it is not clear whether you want something to present here or a
+PowerPoint file to edit, the assistant asks first.
 
-- **Step through it** with the arrows under the slides, or the arrow keys. The counter shows where you are.
-- **Present** takes the deck full screen (on a phone it fills the window); Esc leaves.
-- **Speaker notes** show in a drawer under the slide (the notes button, or **N**).
-- **Download PDF** makes one page per slide in your browser, so it needs no server; the pages are pictures, so text in the PDF cannot be selected. **Download** in the panel header saves the Markdown.
-- **Look.** Eight themes: **Cerea** (the default) and **Cerea dark**, plus reveal.js's **white**, **black**, **simple**, **moon**, **solarized** and **dracula**. A deck can also set an accent colour, a font (a short list of system fonts) and a logo (an image already in the chat). Ask the assistant for "the dark theme" or "our blue as the accent" and it changes the deck's first lines.
-- **Layouts** the assistant can use: title, section, two columns, image beside text, quote and big number.
+- **Step through it** with the arrows under the slides, or the arrow keys, or swipe. The counter shows where you are; **Esc** (or **O**) shows an overview.
+- **Present** takes the deck full screen (on a phone it fills the window).
+- **Speaker notes** show in a drawer under the slide (the notes button, or **N** or **S**). Cerea cannot open a separate speaker window, because the frame blocks pop-ups.
+- **Download PDF** makes one page per slide in your browser, so it needs no server; the pages are pictures, so text in the PDF cannot be selected. **Download** in the panel header saves the slides' source.
+- **Look.** Nothing is imposed. If your organisation has set a brand colour, font or logo, the assistant can use them. You can ask for a theme: **Cerea**, **Cerea dark**, or reveal.js's **white**, **black**, **simple**, **moon**, **solarized** or **dracula**.
+- **What is removed.** Scripts, event handlers (`onclick`), remote images and styles, and `<link>`, `<iframe>`, `<object>` and similar are taken out of a deck before it is shown; the frame would block them anyway.
+- For a quick plain deck the assistant can write Markdown instead (slides separated by `---`).
 
-An administrator can set an organisation default (theme, accent colour, logo)
-under [Administration → Assistant](chat-admin.md#slides), off until set; a deck
-still wins over it. A slides artifact cannot be opened in PowerPoint: ask for a
-[PowerPoint file](office.md) when you need one to edit.
+An administrator can set the brand colour, font and logo under
+[Administration → Assistant](chat-admin.md#slides), off until set. A slides
+artifact cannot be opened in PowerPoint: ask for a [PowerPoint file](office.md)
+when you need one to edit.
 
 ## File artifacts
 

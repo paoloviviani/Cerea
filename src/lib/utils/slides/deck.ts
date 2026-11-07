@@ -9,13 +9,76 @@ export interface DeckMeta extends DeckLook {
 	title?: string;
 }
 
+export interface StripReport {
+	/** `<script>` elements removed (the engine is Cerea's) */
+	scripts: number;
+	/** Inline event handlers (`onclick=` ...) and `javascript:` URLs removed */
+	handlers: number;
+	/** Remote `src`, `poster`, `srcset`, CSS `url()` and `@import` removed */
+	externalResources: number;
+	/** `<link>`, `<base>`, `<meta>`, `<iframe>`, `<object>`, `<embed>` removed */
+	blockedTags: number;
+}
+
+export type DeckMode = "html" | "markdown";
+
 export interface ParsedDeck {
 	meta: DeckMeta;
-	/** The Markdown after the front matter */
+	/** HTML `<section>` slides (the main format) or Markdown (the shortcut) */
+	mode: DeckMode;
+	/** The slides after the front matter; for HTML, already cleaned */
 	body: string;
-	/** Number of slides, by the `---` separators reveal.js splits on */
+	/** What cleaning an HTML deck removed (zeros for Markdown) */
+	stripped: StripReport;
+	/** Number of slides: `<section>` count for HTML, `---` separators for Markdown */
 	slideCount: number;
 }
+
+const NO_STRIP: StripReport = { scripts: 0, handlers: 0, externalResources: 0, blockedTags: 0 };
+
+/**
+ * Clean the model's HTML slides. The sandbox and its CSP already refuse
+ * scripts from outside and every remote load; this removes them up front so
+ * a deck cannot depend on them, and says how much it removed. Document
+ * wrappers (`<html>`, `<head>`, `<body>`, doctype, `<title>`) are dropped but
+ * `<style>` blocks stay.
+ */
+export function sanitizeHtmlDeck(html: string): { html: string; report: StripReport } {
+	const report: StripReport = { ...NO_STRIP };
+	const count = (key: keyof StripReport) => () => {
+		report[key]++;
+		return "";
+	};
+	const out = html
+		.replace(/<!doctype[^>]*>/gi, "")
+		.replace(/<\/?(?:html|head|body)\b[^>]*>/gi, "")
+		.replace(/<title\b[\s\S]*?<\/title\s*>/gi, "")
+		.replace(/<script\b[\s\S]*?<\/script\s*>/gi, count("scripts"))
+		.replace(/<\/?script\b[^>]*>/gi, count("scripts"))
+		.replace(/<(?:link|base|meta)\b[^>]*>/gi, count("blockedTags"))
+		.replace(
+			/<(iframe|object|embed|frame|frameset|applet)\b[\s\S]*?<\/\1\s*>/gi,
+			count("blockedTags")
+		)
+		.replace(/<\/?(?:iframe|object|embed|frame|frameset|applet)\b[^>]*>/gi, count("blockedTags"))
+		.replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, count("handlers"))
+		.replace(
+			/\s(?:href|xlink:href|action|formaction)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*')/gi,
+			count("handlers")
+		)
+		.replace(
+			/\s(?:src|poster|srcset)\s*=\s*(?:"\s*(?:https?:)?\/\/[^"]*"|'\s*(?:https?:)?\/\/[^']*')/gi,
+			count("externalResources")
+		)
+		.replace(/@import\b[^;{}]*;?/gi, count("externalResources"))
+		.replace(/url\(\s*(["']?)\s*(?:https?:)?\/\/[^)]*\)/gi, () => {
+			report.externalResources++;
+			return "none";
+		});
+	return { html: out.trim(), report };
+}
+
+const DATA_THEME = /\sdata-theme\s*=\s*["']([\w -]+)["']/i;
 
 const KEY_VALUE = /^([A-Za-z][\w-]*)\s*:\s*(.*)$/;
 const MAX_TITLE = 120;
@@ -91,12 +154,31 @@ export function parseDeck(source: string): ParsedDeck {
 	}
 	// A deck that opens with a bare separator would start with an empty slide
 	body = body.replace(/^\s*---[ \t]*\n/, "").replace(/^\n+/, "");
-	return { meta, body, slideCount: countSlides(body) };
+	if (/<section[\s>]/i.test(body)) {
+		// `data-theme="dracula"` on a section names a theme, like the front matter does
+		const named = sanitizeTheme(DATA_THEME.exec(body)?.[1]);
+		if (named && !meta.theme) meta.theme = named;
+		const cleaned = sanitizeHtmlDeck(body);
+		const slideCount = Math.max(1, (cleaned.html.match(/<section[\s>]/gi) ?? []).length);
+		return { meta, mode: "html", body: cleaned.html, stripped: cleaned.report, slideCount };
+	}
+	return { meta, mode: "markdown", body, stripped: { ...NO_STRIP }, slideCount: countSlides(body) };
 }
 
 /** A name for the downloaded file and the PDF: the first heading, else the title, else "slides". */
 export function deckTitle(parsed: ParsedDeck, fallback = "slides"): string {
 	if (parsed.meta.title) return parsed.meta.title;
+	if (parsed.mode === "html") {
+		const h = /<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]\s*>/i.exec(parsed.body);
+		const text = h
+			? h[1]
+					.replace(/<[^>]*>/g, " ")
+					.replace(/\s+/g, " ")
+					.trim()
+					.slice(0, MAX_TITLE)
+			: "";
+		return text || fallback;
+	}
 	const heading = /^#{1,3}\s+(.+)$/m.exec(parsed.body);
 	return heading
 		? heading[1].replace(/[*_`]/g, "").trim().slice(0, MAX_TITLE) || fallback

@@ -1,17 +1,17 @@
 ---
 name: slides
 description: >
-  Write slides to present or share right here in the chat: a deck in Markdown that Cerea shows in the side panel,
-  with themes, layouts, speaker notes, full-screen presenting and a PDF download. Use when the user wants slides, a
-  deck or a presentation to show or share, and does not need an editable PowerPoint file. If it is unclear whether
-  they want this or a .pptx to edit, ask first (see Routing below). Not for .pptx files: that is the powerpoint skill.
+  Write slides to present or share right here in the chat: a deck of HTML sections that Cerea shows in the side
+  panel with navigation, full-screen presenting, notes and a PDF download. Use when the user wants slides, a deck or
+  a presentation to show or share, and does not need an editable PowerPoint file. If it is unclear whether they want
+  this or a .pptx to edit, ask first (see Routing below). Not for .pptx files: that is the powerpoint skill.
 ---
 
 # Slides in the chat
 
-You write the deck as Markdown in an artifact of `type="slides"`. Cerea renders it with reveal.js in the side
-panel; the user can step through it, present it full screen, download a PDF and download the Markdown. It cannot
-be opened in PowerPoint: when the user needs an editable Office file, use the `powerpoint` skill instead.
+You write the deck as HTML in an artifact of `type="slides"`. Cerea runs it with reveal.js in the side panel: the
+user can step through it, present it full screen, read the notes and download a PDF or the source. It cannot be
+opened in PowerPoint; when the user needs an editable Office file, use the `powerpoint` skill instead.
 
 ## Routing: slides or a PowerPoint file?
 
@@ -34,88 +34,59 @@ Decide before you write anything.
 
 ## The format
 
-One artifact, `type="slides"`. Optional front matter first, then Markdown. Slides are separated by a line that is
-exactly `---`.
+Write `<section>` elements, one per slide, nothing else around them: no `<html>`, `<head>`, `<body>` or `<script>`
+(the engine is Cerea's; scripts, remote files and event handlers are removed). Put CSS in a `<style>` block before
+the first section. Nested sections make vertical stacks. Put notes in `<aside class="notes">` inside the section.
 
-```
----
-title: Quarterly review
-theme: cerea
-accent: "#7008e7"
-font: sans
-logo: logo.png
----
-
-<!-- .slide: class="title" -->
-# Quarterly review
-
-Where we are
-
-Note: Welcome everyone. Say the headline first.
-
----
-
-## Three things to remember
-
-- First
-- Second
+```html
+<style>
+	.reveal .slides section {
+		padding: 72px 96px;
+	}
+	h2 {
+		font-size: 54px;
+	}
+</style>
+<section data-background-gradient="linear-gradient(135deg,#0b1020,#3b1a6b)" style="color:#fff">
+	<h2>Three things to remember</h2>
+	<ul>
+		<li>Revenue grew</li>
+		<li>Support load fell</li>
+	</ul>
+	<aside class="notes">Say the numbers once.</aside>
+</section>
 ```
 
-- **Speaker notes:** a line starting `Note:` ends the slide's content; everything after it is notes. The user
-  reads them in the panel (notes button, or the `N` key) while presenting.
-- **Slide attributes:** `<!-- .slide: class="two-columns" -->` as the first line of a slide sets its layout.
-  Fragments, backgrounds and other reveal.js attributes work too, but prefer the layouts below.
-- **Code:** fenced blocks with a language are highlighted. Keep them under about 12 lines.
-- **Images:** an image already in the chat can only be used as the `logo`. For a picture in a slide use a `data:`
-  URL (small) or draw it as SVG; remote images are blocked.
-- **No raw HTML or CSS for styling.** Colours, fonts and sizes come from the theme.
+- **Design freely at 1280 x 720.** The slide is that fixed size and scales to fit. Use your own CSS: grids, cards,
+  gradients, inline SVG, CSS shapes for diagrams. Do the layout in a `div` inside the section, not on the section.
+- **Backgrounds:** `data-background-color="#111"` or `data-background-gradient="linear-gradient(...)"` on the section.
+- **Fragments:** `class="fragment"` on an element reveals it step by step.
+- **Brand variables** are always defined: `var(--brand-accent)`, `var(--brand-font)` and, when the user's
+  organisation set one, `var(--brand-logo-url)` (use as `background: var(--brand-logo-url) center / contain no-repeat`).
+  Use them for the accent colour and font unless the user asks for another look; nothing forces you to.
+- **Images:** remote images are blocked. Use inline SVG, CSS, or a small `data:` URL.
+- **No theme is applied unless you name one.** Optional: `data-theme="dracula"` on the first section (or `theme:
+dracula` in front matter) gives reveal.js styling. Names: `cerea`, `cerea-dark`, `white`, `black`, `simple`, `moon`,
+  `solarized`, `dracula`. Skip it when you are designing the look yourself.
+- **Readable:** body text at least 24px, headings 44px or more, strong contrast, at most about six lines per slide.
 
-## Front matter (all optional)
+### Markdown shortcut
 
-| Key      | Values                                                                                                            |
-| -------- | ----------------------------------------------------------------------------------------------------------------- |
-| `title`  | Plain text, used for the PDF name                                                                                 |
-| `theme`  | `cerea` (default), `cerea-dark`, or a reveal.js theme: `white`, `black`, `simple`, `moon`, `solarized`, `dracula` |
-| `accent` | A hex colour such as `#0a7e8c`; changes links, bullets, rules and highlights                                      |
-| `font`   | `sans`, `serif`, `humanist`, `mono` (system fonts); without it the theme's own font                               |
-| `logo`   | File name of an image in the chat (png, jpg, svg, webp), shown bottom right                                       |
-
-Anything else is ignored. If the organisation has set a default look, decks use it unless the front matter
-overrides it, so only set `theme` or `accent` when the user asked for a look. Pick a theme other than `cerea` only
-when asked; `cerea-dark` suits a dark room, `simple` and `white` a classic look.
-
-## Layouts
-
-Use `<!-- .slide: class="NAME" -->`:
-
-| Class                        | Use it for                                                        |
-| ---------------------------- | ----------------------------------------------------------------- |
-| `title`                      | The opening slide: `# Title`, then a subtitle line                |
-| `section`                    | A divider: `# Section name`, then one line                        |
-| `two-columns`                | Heading, then two columns; put `***` on its own line between them |
-| `image-left` / `image-right` | A heading, a few lines of text and one image beside them          |
-| `quote`                      | A `>` quote, then the attribution on its own line                 |
-| `big-number`                 | `# 24%`, then one line saying what it is                          |
-
-No class is the normal slide: a heading and up to six bullets, a short paragraph, a table or a code block.
+For a quick plain deck you may write Markdown instead: slides separated by a line of `---`, `Note:` starts the
+speaker notes, and optional front matter (`theme`, `accent`, `font`, `logo`) first. Code fences with a language are
+highlighted. Use HTML when the user cares how it looks. See `references/example-markdown.md`.
 
 ## Good decks
 
-- One idea per slide, and the heading says it ("Support load fell", not "Support").
-- At most six bullets, each under about ten words. If it needs more, split it or move it to the notes.
-- Put the detail in `Note:`; the slide is for the audience, the notes are for the speaker.
-- Open with a `title` slide, use `section` slides to mark parts in long decks, close with the decision or next step.
-- Length: about one slide per minute. Ten slides unless the user says otherwise.
-- Numbers: a `big-number` slide or a table beats a bullet. Never invent figures; use what the user gave you or say
-  what is a placeholder.
+- One idea per slide; the heading says it ("Support load fell", not "Support").
+- Detail goes in the notes; the slide is for the audience.
+- About one slide per minute; ten slides unless asked otherwise. Open with a title slide, close with the decision.
+- Never invent figures; use what the user gave you or label placeholders.
 
 ## Delivering and changing
 
-Create the artifact with the artifact tool (or the artifact tag if that is how this conversation works), then tell
-the user in one or two lines what is in it and that they can present it full screen or download a PDF. Do not ask
-a question in the same step.
+Create the artifact with the artifact tool, then tell the user in one or two lines what is in it and that they can
+present it full screen or download a PDF. Do not ask a question in the same step. Change it as any artifact: small
+edits with an update, larger ones by rewriting with the same identifier.
 
-Change it as any artifact: small edits with an update, larger ones by rewriting with the same identifier. Keep
-the front matter.
-
-A full example deck is in `references/example-deck.md`.
+A designed example is in `references/example-deck.html`.

@@ -1,0 +1,69 @@
+/* The neutral base (ADR 0111): what every deck gets when it names no theme.
+ * Every rule is wrapped in :where(), so it has no specificity and any CSS the
+ * model writes beats it, whatever its selector. reveal.js's own CSS is
+ * structural only and brings no typography to fight. */
+:root {
+	--cerea-accent: var(--brand-accent, #7008e7);
+	--cerea-muted: #6b7280;
+	--cerea-surface: rgba(127, 127, 127, 0.14);
+}
+/* On body, not .reveal: the reset sets "font: inherit" on every element, which
+ * would beat a zero-specificity rule on the container. */
+body {
+	background: #fff;
+	font-family: var(--brand-font, system-ui, sans-serif);
+	font-size: 32px;
+	line-height: 1.35;
+}
+:where(.reveal) {
+	color: #111827;
+}
+:where(.reveal .slides section) {
+	text-align: left;
+}
+:where(.reveal) :where(h1, h2, h3, h4, h5, h6) {
+	margin: 0;
+	font-family: inherit;
+	font-weight: 700;
+	line-height: 1.15;
+	letter-spacing: normal;
+	text-transform: none;
+	text-shadow: none;
+}
+:where(.reveal) :where(h1) {
+	font-size: 2em;
+}
+:where(.reveal) :where(h2) {
+	font-size: 1.6em;
+}
+:where(.reveal) :where(h3) {
+	font-size: 1.25em;
+}
+:where(.reveal) :where(p, ul, ol, dl, dd, blockquote, pre, figure) {
+	margin: 0;
+}
+:where(.reveal) :where(ul, ol) {
+	padding-left: 1.2em;
+}
+:where(.reveal) :where(ul) {
+	list-style: disc;
+}
+:where(.reveal) :where(ol) {
+	list-style: decimal;
+}
+:where(.reveal) :where(table) {
+	border-collapse: collapse;
+}
+:where(.reveal) :where(th, td) {
+	text-align: left;
+	padding: 0.25em 0.6em;
+}
+:where(.reveal) :where(img, video, svg) {
+	max-width: 100%;
+}
+:where(.reveal) :where(a) {
+	color: var(--brand-accent, #7008e7);
+}
+:where(.reveal) :where(code, pre) {
+	font-family: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Consolas, monospace;
+}

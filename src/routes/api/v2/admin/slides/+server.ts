@@ -1,5 +1,5 @@
 /**
- * The organisation's default slide look (theme, accent, logo), chosen under
+ * The organisation's brand variables for slides (accent, font, logo), chosen under
  * Administration -> Assistant -> Slides. Site-wide, administrator only. Off
  * (all empty) until saved; decks still override it in their front matter.
  */
@@ -31,11 +31,11 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	}
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	if (!body || typeof body !== "object") {
-		error(400, "Send {theme?, accent?, logo?}; empty values turn the default off.");
+		error(400, "Send {font?, accent?, logo?}; empty values turn the default off.");
 	}
 	const clean = sanitizeOrgDefaults(body);
 	// A value that was sent but did not validate is an error, not a silent drop
-	for (const key of ["theme", "accent", "logo"] as const) {
+	for (const key of ["font", "accent", "logo"] as const) {
 		const sent = body[key];
 		if (typeof sent === "string" && sent.trim() !== "" && clean[key] === undefined) {
 			error(400, `${key} is not valid.`);
@@ -45,7 +45,7 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	logger.info(
 		{
 			admin: admin.email,
-			theme: clean.theme ?? null,
+			font: clean.font ?? null,
 			accent: clean.accent ?? null,
 			logo: !!clean.logo,
 		},

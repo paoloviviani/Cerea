@@ -125,11 +125,11 @@ shapes). Either way the visual verdict is yours to make when you open the deck.
 
 ### slides
 
-Writes a **slides** [artifact](artifacts.md#slides): a deck in reveal.js
-Markdown (`---` between slides, `Note:` for speaker notes) with front matter for
-the theme, accent colour, font and logo, and layout classes (title, section, two
-columns, image left or right, quote, big number). Good-deck rules are in the
-skill: one idea per slide, at most six bullets, detail in the notes. The
+Writes a **slides** [artifact](artifacts.md#slides): HTML `<section>` slides,
+designed freely at 1280 x 720 with the assistant's own CSS, speaker notes in
+`<aside class="notes">`, and the organisation's brand colour, font and logo
+available as `--brand-accent`, `--brand-font` and `--brand-logo-url`. A Markdown
+shortcut exists for quick decks, and the skill lists the optional themes. The
 assistant asks one question first when it is unclear whether you want slides to
 present here or a PowerPoint file to edit; saying "PowerPoint", "pptx" or "file
 to edit" goes to the powerpoint skill, and "just slides" or "present" goes

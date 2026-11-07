@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { countSlides, deckTitle, highlightFences, parseDeck } from "./deck";
+import { countSlides, deckTitle, highlightFences, parseDeck, sanitizeHtmlDeck } from "./deck";
 
 describe("parseDeck", () => {
 	it("reads the known front matter keys and returns the body", () => {
@@ -81,5 +81,69 @@ describe("highlightFences", () => {
 		expect(out).toContain("&lt;b&gt;");
 		expect(out).toContain("<span>---</span>");
 		expect(countSlides(out)).toBe(1);
+	});
+});
+
+describe("HTML decks", () => {
+	const html =
+		'<style>.a{color:red}</style>\n<section><h1>One</h1><aside class="notes">n</aside></section>\n<section><section>2a</section><section>2b</section></section>';
+
+	it("are recognised by their sections and keep style blocks and notes", () => {
+		const deck = parseDeck(html);
+		expect(deck.mode).toBe("html");
+		expect(deck.body).toContain("<style>.a{color:red}</style>");
+		expect(deck.body).toContain('<aside class="notes">');
+		expect(deck.slideCount).toBe(4);
+		expect(deckTitle(deck)).toBe("One");
+		expect(deckTitle(parseDeck("<section><h1>A,<br>b</h1></section>"))).toBe("A, b");
+	});
+
+	it("take front matter, and a theme from data-theme", () => {
+		expect(parseDeck("---\ntheme: moon\n---\n<section>x</section>").meta.theme).toBe("moon");
+		expect(parseDeck('<section data-theme="Dracula">x</section>').meta.theme).toBe("dracula");
+		expect(parseDeck('<section data-theme="evil;">x</section>').meta.theme).toBeUndefined();
+		expect(parseDeck("<section>x</section>").meta.theme).toBeUndefined();
+	});
+
+	it("leave Markdown alone", () => {
+		expect(parseDeck("# Hi\n\n---\n\n# There").mode).toBe("markdown");
+	});
+});
+
+describe("sanitizeHtmlDeck", () => {
+	it("removes scripts, handlers, remote loads and blocked tags, and counts them", () => {
+		const { html, report } = sanitizeHtmlDeck(
+			[
+				"<!doctype html><html><head><title>t</title><link rel=stylesheet href=//x.test/a.css><meta charset=utf-8></head><body>",
+				"<style>@import url(https://x.test/f.css); .b{background:url(https://x.test/i.png)} .c{background:url(data:image/png;base64,AA==)}</style>",
+				'<section onclick="evil()"><script>alert(1)</script><img src="https://x.test/p.png" onerror=bad()>',
+				'<img src="data:image/png;base64,AA==" alt="ok"><a href="javascript:alert(1)">x</a><a href="https://example.com">fine</a>',
+				'<iframe src="https://x.test"></iframe><object data="x"></object></section></body></html>',
+			].join("")
+		);
+		expect(html).not.toMatch(
+			/<script|onclick|onerror|javascript:|<link|<meta|<iframe|<object|<html|<body|<title|@import|x\.test/i
+		);
+		expect(html).toContain("data:image/png;base64,AA==");
+		expect(html).toContain('href="https://example.com"');
+		expect(html).toContain("<section");
+		expect(report.scripts).toBe(1);
+		expect(report.handlers).toBe(3);
+		expect(report.blockedTags).toBe(4);
+		expect(report.externalResources).toBe(3);
+	});
+
+	it("passes the designed fixture deck through with nothing stripped", async () => {
+		const { readFileSync } = await import("node:fs");
+		const fixture = readFileSync(new URL("./fixtures/talk-deck.html", import.meta.url), "utf8");
+		const deck = parseDeck(fixture);
+		expect(deck.mode).toBe("html");
+		expect(deck.slideCount).toBe(5);
+		expect(deck.stripped).toEqual({
+			scripts: 0,
+			handlers: 0,
+			externalResources: 0,
+			blockedTags: 0,
+		});
 	});
 });

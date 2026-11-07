@@ -1,5 +1,5 @@
 <!--
-	The organisation's default look for slide decks: a theme, an accent colour
+	The organisation's default look for slide decks: an accent colour, a font
 	and a logo, all optional and off by default. Decks can still override them
 	in their front matter. A section of the Assistant tab (`/admin/assistant#slides`).
 -->
@@ -7,22 +7,18 @@
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
-	import { THEME_IDS, MAX_LOGO_DATA_URL } from "$lib/utils/slides/themes";
+	import { FONT_IDS, MAX_LOGO_DATA_URL } from "$lib/utils/slides/themes";
 
-	const THEME_NAMES: Record<(typeof THEME_IDS)[number], () => string> = {
-		cerea: m["admin.slides.theme_cerea"],
-		"cerea-dark": m["admin.slides.theme_cerea_dark"],
-		white: m["admin.slides.theme_white"],
-		black: m["admin.slides.theme_black"],
-		simple: m["admin.slides.theme_simple"],
-		moon: m["admin.slides.theme_moon"],
-		solarized: m["admin.slides.theme_solarized"],
-		dracula: m["admin.slides.theme_dracula"],
+	const FONT_NAMES: Record<(typeof FONT_IDS)[number], () => string> = {
+		sans: m["admin.slides.font_sans"],
+		serif: m["admin.slides.font_serif"],
+		humanist: m["admin.slides.font_humanist"],
+		mono: m["admin.slides.font_mono"],
 	};
 
-	type Defaults = { theme?: string; accent?: string; logo?: string };
+	type Defaults = { font?: string; accent?: string; logo?: string };
 
-	let theme = $state("");
+	let font = $state("");
 	let accent = $state("");
 	let logo = $state("");
 	let saved = $state<Defaults>({});
@@ -33,13 +29,13 @@
 	let note = $state<string | null>(null);
 
 	const dirty = $derived(
-		theme !== (saved.theme ?? "") || accent !== (saved.accent ?? "") || logo !== (saved.logo ?? "")
+		font !== (saved.font ?? "") || accent !== (saved.accent ?? "") || logo !== (saved.logo ?? "")
 	);
 
 	function apply(data: { defaults: Defaults; configurable: boolean }) {
 		saved = data.defaults;
 		configurable = data.configurable;
-		theme = saved.theme ?? "";
+		font = saved.font ?? "";
 		accent = saved.accent ?? "";
 		logo = saved.logo ?? "";
 	}
@@ -71,7 +67,7 @@
 			const response = await fetch(`${base}/api/v2/admin/slides`, {
 				method: "PUT",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ theme, accent, logo }),
+				body: JSON.stringify({ font, accent, logo }),
 			});
 			if (!response.ok) throw await problem(response);
 			apply(await response.json());
@@ -128,16 +124,16 @@
 	{:else}
 		<div class="grid gap-4 sm:grid-cols-3">
 			<label class="flex flex-col gap-1">
-				<span class="text-sm font-medium">{m["admin.slides.theme"]()}</span>
+				<span class="text-sm font-medium">{m["admin.slides.font"]()}</span>
 				<select
 					class="rounded-lg border border-gray-300 bg-white p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
-					bind:value={theme}
+					bind:value={font}
 					disabled={busy || !configurable}
-					data-testid="slides-theme"
+					data-testid="slides-font"
 				>
 					<option value="">{m["admin.slides.off"]()}</option>
-					{#each THEME_IDS as id (id)}
-						<option value={id}>{THEME_NAMES[id]()}</option>
+					{#each FONT_IDS as id (id)}
+						<option value={id}>{FONT_NAMES[id]()}</option>
 					{/each}
 				</select>
 			</label>

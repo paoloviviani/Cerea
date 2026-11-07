@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
 	BUILTIN_THEME_IDS,
-	DEFAULT_THEME,
 	THEME_IDS,
 	resolveTheme,
 	sanitizeAccent,
@@ -42,50 +41,51 @@ describe("sanitizers", () => {
 			sanitizeOrgDefaults({
 				theme: "moon",
 				accent: "#fff",
+				font: "Serif",
 				logo: "logo.png",
 				css: "body{}",
 			})
-		).toEqual({ theme: "moon", accent: "#ffffff" });
+		).toEqual({ accent: "#ffffff", font: "serif" });
 		expect(sanitizeOrgDefaults("nope")).toEqual({});
 	});
 });
 
 describe("resolveTheme", () => {
-	it("defaults to the Cerea theme with its own accent", () => {
+	it("applies no theme by default, only brand variables", () => {
 		const t = resolveTheme();
-		expect(t.theme).toBe(DEFAULT_THEME);
-		expect(t.css).toContain("--r-link-color:#7008e7");
-		expect(t.css).toContain("--r-background-color:#ffffff");
+		expect(t.theme).toBeUndefined();
+		expect(t.css).toContain("--brand-accent:#7008e7");
+		expect(t.css).toContain("--brand-font:Inter");
+		expect(t.css).not.toContain("--r-");
+		expect(t.css).not.toContain("--brand-logo-url");
 	});
 
-	it("uses the organisation default, and the deck wins over it", () => {
-		const org = {
-			theme: "cerea-dark" as const,
-			accent: "#00aa77",
-			logo: "data:image/png;base64,AA==",
-		};
+	it("takes the brand from the organisation, and the deck wins over it", () => {
+		const org = { accent: "#00aa77", font: "serif" as const, logo: "data:image/png;base64,AA==" };
 		const fromOrg = resolveTheme({}, org);
-		expect(fromOrg.theme).toBe("cerea-dark");
-		expect(fromOrg.css).toContain("--cerea-accent:#00aa77");
-		expect(fromOrg.logo).toBe(org.logo);
-		const deck = resolveTheme({ theme: "white", accent: "#112233" }, org);
-		expect(deck.theme).toBe("white");
-		expect(deck.css).toContain("--r-link-color:#112233");
+		expect(fromOrg.css).toContain("--brand-accent:#00aa77");
+		expect(fromOrg.css).toContain("--brand-font:Charter");
+		expect(fromOrg.css).toContain('--brand-logo-url:url("data:image/png;base64,AA==")');
+		const deck = resolveTheme({ accent: "#112233", font: "mono" }, org);
+		expect(deck.css).toContain("--brand-accent:#112233");
+		expect(deck.css).toContain("--brand-font:ui-monospace");
 		expect(deck.css).not.toContain("#00aa77");
 	});
 
-	it("leaves a built-in theme's own colours and fonts alone unless the deck overrides them", () => {
-		const plain = resolveTheme({ theme: "dracula" });
-		expect(plain.css).not.toContain("--r-background-color:");
-		expect(plain.css).not.toContain("--r-main-font");
-		const custom = resolveTheme({ theme: "dracula", accent: "#ff0000", font: "mono" });
-		expect(custom.css).toContain("--r-link-color:#ff0000");
-		expect(custom.css).toContain("--r-main-font:ui-monospace");
+	it("applies a named theme's variables only when asked", () => {
+		const cerea = resolveTheme({ theme: "cerea-dark" });
+		expect(cerea.css).toContain("--r-background-color:#111827");
+		expect(cerea.css).toContain("--r-link-color:#a78bfa");
+		const dracula = resolveTheme({ theme: "dracula" });
+		expect(dracula.css).not.toContain("--r-background-color:");
+		expect(dracula.css).toContain("--cerea-accent:var(--r-link-color)");
 	});
 
-	it("applies an org accent to a built-in theme", () => {
+	it("lets the brand accent override a theme's link colour", () => {
 		const t = resolveTheme({ theme: "simple" }, { accent: "#0a7e8c" });
 		expect(t.css).toContain("--r-link-color:#0a7e8c");
+		const named = resolveTheme({ theme: "cerea", accent: "#112233" });
+		expect(named.css).toContain("--r-link-color:#112233");
 	});
 
 	it("emits only declarations, never a deck-supplied string", () => {

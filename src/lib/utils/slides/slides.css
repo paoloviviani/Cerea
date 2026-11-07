@@ -4,7 +4,7 @@ html,
 body {
 	margin: 0;
 	height: 100%;
-	background: var(--r-background-color);
+	background: var(--r-background-color, #fff);
 	overflow: hidden;
 }
 /* Code colours (highlight.js classes, pre-rendered by the parent) */
@@ -210,8 +210,8 @@ body {
 	display: none;
 }
 
-/* Breathing room at the sides of every slide, whatever the theme */
-.reveal .slides > section {
+/* Breathing room at the sides of a Markdown slide, whatever the theme */
+.reveal .slides.md > section {
 	box-sizing: border-box;
 	padding-left: 6%;
 	padding-right: 6%;

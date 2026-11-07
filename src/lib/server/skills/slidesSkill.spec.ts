@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseSkill, isParsedSkill } from "./parse";
 import { parseDeck } from "$lib/utils/slides/deck";
-import { FONT_IDS, THEME_IDS } from "$lib/utils/slides/themes";
+import { THEME_IDS } from "$lib/utils/slides/themes";
 
 const dir = new URL("./builtin/", import.meta.url);
 const read = (p: string) => readFileSync(new URL(p, dir), "utf8");
@@ -21,32 +21,35 @@ describe("slides skill", () => {
 		if (isParsedSkill(parsed)) expect(parsed.name).toBe("slides");
 	});
 
-	it("lists every theme and font the renderer accepts", () => {
+	it("names every theme and the brand variables the renderer defines", () => {
 		for (const id of THEME_IDS) expect(skill).toContain(`\`${id}\``);
-		for (const id of FONT_IDS) expect(skill).toContain(`\`${id}\``);
-	});
-
-	it("documents every layout class that slides.css defines", () => {
-		const css = readFileSync(new URL("../../utils/slides/slides.css", import.meta.url), "utf8");
-		const layouts = [
-			"title",
-			"section",
-			"two-columns",
-			"image-left",
-			"image-right",
-			"quote",
-			"big-number",
-		];
-		for (const name of layouts) {
-			expect(css).toContain(`section.${name}`);
-			expect(skill).toContain(`\`${name}\``);
+		for (const name of ["--brand-accent", "--brand-font", "--brand-logo-url"]) {
+			expect(skill).toContain(name);
 		}
 	});
 
-	it("ships an example deck that parses with a known theme", () => {
-		const deck = parseDeck(read("slides/references/example-deck.md"));
-		expect(deck.meta.theme).toBe("cerea");
-		expect(deck.slideCount).toBeGreaterThanOrEqual(6);
+	it("teaches sections and notes, not layout classes", () => {
+		expect(skill).toContain("<section>");
+		expect(skill).toContain('<aside class="notes">');
+		expect(skill).not.toMatch(/two-columns|big-number|image-left/);
+	});
+
+	it("ships a designed example deck and a Markdown example that both parse", () => {
+		const html = parseDeck(read("slides/references/example-deck.html"));
+		expect(html.mode).toBe("html");
+		expect(html.slideCount).toBeGreaterThanOrEqual(5);
+		expect(html.stripped.scripts).toBe(0);
+		const md = parseDeck(read("slides/references/example-markdown.md"));
+		expect(md.mode).toBe("markdown");
+		expect(md.meta.theme).toBe("cerea");
+	});
+
+	it("keeps the shipped example identical to the test fixture", () => {
+		const fixture = readFileSync(
+			new URL("../../utils/slides/fixtures/talk-deck.html", import.meta.url),
+			"utf8"
+		);
+		expect(read("slides/references/example-deck.html")).toBe(fixture);
 	});
 
 	it("routes with the question card, with the skip rules, on both skills", () => {
