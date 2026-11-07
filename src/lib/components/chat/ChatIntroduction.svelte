@@ -144,7 +144,7 @@
 			<span>
 				<button
 					type="button"
-					class="cursor-help font-[inherit] underline decoration-dotted decoration-1 underline-offset-8 select-none"
+					class="cursor-help font-[inherit] select-none hover:text-gray-600 dark:hover:text-gray-300"
 					title={gloss}
 					aria-label="{phrase} — {gloss}"
 					data-testid="intro-phrase"

@@ -161,11 +161,35 @@ describe("NavMenu's foot", () => {
 		expect(host.querySelector("form")).toBeNull();
 	});
 
-	it("shows the app name as a wordmark beside the ridge, hidden from screen readers", () => {
+	it("has no wordmark: the ridge links home and is named for the app", () => {
 		mount({ username: "ada" });
-		const word = host.querySelector('[data-testid="sidebar-wordmark"]') as HTMLElement;
-		expect(word.textContent?.trim()).toBe("chat-ui");
-		expect(word.getAttribute("aria-hidden")).toBe("true");
+		expect(host.querySelector('[data-testid="sidebar-wordmark"]')).toBeNull();
+		const logo = host.querySelector('[data-testid="sidebar-logo"]') as HTMLAnchorElement;
+		expect(logo.getAttribute("aria-label")).toBe("chat-ui");
+		expect(logo.getAttribute("href")).toMatch(/\/$/);
+	});
+
+	it("puts the Chats | Agents switch on the logo's row, with names for icon-only widths", async () => {
+		renderWithApp(
+			NavMenu,
+			{
+				conversations: [],
+				user: { username: "ada" },
+				gatewayIsAdmin: false,
+				codeAgentsEnabled: true,
+			} as never,
+			{ page: { data: { models: [] } }, baseElement: host }
+		);
+		const head = host.querySelector('[data-testid="sidebar-head"]') as HTMLElement;
+		expect(head.querySelector('[data-testid="sidebar-logo"]')).not.toBeNull();
+		const chats = head.querySelector('[data-testid="sidebar-view-chats"]') as HTMLElement;
+		expect(chats.getAttribute("aria-label")).toBe("Chats");
+		expect(chats.getAttribute("title")).toBe("Chats");
+		const row = head.getBoundingClientRect();
+		const sw = (
+			head.querySelector('[data-testid="sidebar-switch"]') as HTMLElement
+		).getBoundingClientRect();
+		expect(Math.abs(sw.top + sw.height / 2 - (row.top + row.height / 2))).toBeLessThan(2);
 	});
 
 	it("puts New chat under the logo, in the top block, as a link to the start page", () => {
