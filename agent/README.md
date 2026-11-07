@@ -27,7 +27,7 @@ into `/app/galopin-dist` and `<base>/galopin/install.sh` installs one
 (checksum-verified). See `docs/agent-machines.md`.
 
 `packaging/build-dist.sh [OUT_DIR]` (default `./galopin-dist`) cross-builds
-all four targets people run this on (`linux/amd64`, `linux/arm64`,
+all four targets users run this on (`linux/amd64`, `linux/arm64`,
 `darwin/amd64`, `darwin/arm64`) as static binaries (`CGO_ENABLED=0`), and
 writes `REVISION` (the Cerea commit built from), `SHA256SUMS`, and copies in
 `packaging/galopin.service` and `packaging/org.cerea.galopin.plist`.

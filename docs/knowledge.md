@@ -110,10 +110,10 @@ always have in front of it: a call text, a style guide, a contract.
   at most 50 documents.
 - **Everyone who can see the project can add and remove documents**, as with
   notes, and each shows who added it. The text goes into the prompt of that
-  project's chats only, for people who can still see the project.
+  project's chats only, for users who can still see the project.
 - **Deleting** a document removes the stored original and its text. Erasing a
   person's account deletes the documents in projects they own, with the project;
-  documents they added to other people's projects stay, and show "deleted user".
+  documents they added to other users' projects stay, and show "deleted user".
 
 ### Project memory
 
@@ -137,7 +137,7 @@ you.
   stop being sent, and the Memory section of the project page marks which.
 - **Deleting a project deletes its notes.** Erasing a person's account deletes
   the notes in projects they own, with the project; notes they wrote in other
-  people's projects stay, and show their author as "deleted user".
+  users' projects stay, and show their author as "deleted user".
 - A note is read by everyone in the project and goes into everyone's prompt, so
   never keep a password, key or token in one.
 
@@ -211,7 +211,7 @@ stack's markitdown), whatever OCR model is selected, and is never sent to an
 OCR model. With no local reader, an Office file fails with "No reader for Word
 documents is configured" rather than being sent somewhere that cannot read it.
 
-If you restrict the reader model to a group, people outside it get refused by
+If you restrict the reader model to a group, users outside it get refused by
 that model. Leave the reader on automatic, or make sure everyone can use the
 chosen one; otherwise their PDFs fall back to the local reader when there is
 one, and are stored without text when there is not.

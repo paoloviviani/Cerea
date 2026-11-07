@@ -1,6 +1,6 @@
 # Local connectors
 
-!!! info "For people who run MCP servers on their own machine"
+!!! info "For users who run MCP servers on their own machine"
 
     Offering the MCP servers installed on your laptop or server to your chat,
     without opening a port to the internet. For servers reachable on the web, see

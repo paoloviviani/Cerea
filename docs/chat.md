@@ -70,7 +70,7 @@ Everything a conversation does that has a cost is metered against your token:
 the reply, the title Cerea generates from the first turn, reading a document,
 embedding a passage, searching.
 
-**When you reach a limit.** The reply that crosses your quota still completes; the next one fails with a message that your quota is used up. Where the deployment shows it, **Settings → Usage & billing** says where you stand. If your deployment redacts personal data, names or numbers in an answer can come back as placeholders such as `<PERSON_…>`, and a message containing something your administrator blocks (an API key, say) is refused without being sent.
+**When you reach a limit.** The reply that crosses your quota still completes; the next one fails with a message that says whose quota is used up ("You've reached your usage quota." or "Your group has reached its usage quota."), when it resets, and points to Settings → Usage & billing. A spent quota is told apart from a short rate limit, which only asks you to wait; the same wording applies to sub-agents, images, voice, document reading and search. Where the deployment shows it, **Settings → Usage & billing** says where you stand. If your deployment redacts personal data, names or numbers in an answer can come back as placeholders such as `<PERSON_…>`, and a message containing something your administrator blocks (an API key, say) is refused without being sent.
 
 **What the model knows about time.** Every reply is generated knowing the
 current date and time **in your timezone** (the one your browser reports), as
