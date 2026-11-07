@@ -574,6 +574,14 @@ describe("a turn that is only a pending question", () => {
 		expect(baseElement.querySelector('[data-message-role="assistant"]')).toBeNull();
 	});
 
+	it("stays out of the thread when it only thought aloud before asking", () => {
+		const { baseElement } = mount(
+			[call("u1")],
+			"<think>We need to ask the user a question.</think>"
+		);
+		expect(baseElement.querySelector('[data-message-role="assistant"]')).toBeNull();
+	});
+
 	it("comes back once the question is answered", () => {
 		const { baseElement } = mount([call("u1"), result("u1")]);
 		expect(baseElement.querySelector('[data-message-role="assistant"]')).not.toBeNull();

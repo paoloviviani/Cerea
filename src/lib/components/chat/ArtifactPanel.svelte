@@ -853,6 +853,14 @@
 		"text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200";
 	const codeFloatBtn =
 		"btn rounded-md border border-gray-200/80 bg-white/90 p-1.5 text-xs backdrop-blur-xs hover:bg-gray-100 hover:text-gray-600 dark:border-gray-700/80 dark:bg-gray-900/90 dark:hover:bg-gray-800 dark:hover:text-gray-300";
+
+	let panelTitle = $derived(
+		version?.title ??
+			fileVersion?.name ??
+			pendingDraft?.title ??
+			pendingDraft?.identifier ??
+			sidePane.identifier
+	);
 </script>
 
 <svelte:window onmessage={onWindowMessage} />
@@ -867,12 +875,11 @@
 			{#if isStreamingVersion || pendingDraft || editingDraft}
 				<EosIconsLoading class="flex-none text-sm text-gray-400" />
 			{/if}
-			<h2 class="truncate text-sm font-semibold text-gray-800 dark:text-gray-200">
-				{version?.title ??
-					fileVersion?.name ??
-					pendingDraft?.title ??
-					pendingDraft?.identifier ??
-					sidePane.identifier}
+			<h2
+				class="line-clamp-2 text-sm leading-tight font-semibold break-words text-gray-800 dark:text-gray-200"
+				title={panelTitle}
+			>
+				{panelTitle}
 			</h2>
 			{#if editingDraft}
 				<span

@@ -1343,6 +1343,8 @@
 				>
 			</a>
 		{/if}
+		<!-- The pane buttons keep their words on a phone: the row wraps, an icon-only
+		     row left four unlabelled glyphs. -->
 		<div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
 			<IconCode class="size-4 shrink-0 text-ink-muted" />
 			{#if workspaceName}
@@ -1358,7 +1360,6 @@
 				>
 			{/if}
 			<TogglePill
-				compact
 				pressed={sidePane.open && sidePane.view === "tasks"}
 				label={tasksProgress.total > 0
 					? m["code.view.tasks_progress"]({
@@ -1373,7 +1374,6 @@
 				{#snippet icon()}<IconTaskComplete class="size-3.5" />{/snippet}
 			</TogglePill>
 			<TogglePill
-				compact
 				pressed={sidePane.open && sidePane.view === "diff"}
 				label={m["code.view.changes"]()}
 				title={m["code.view.changes_title"]()}
@@ -1383,7 +1383,6 @@
 			</TogglePill>
 			{#if filesOffered && (workspace?.id ?? workspaceId)}
 				<TogglePill
-					compact
 					pressed={sidePane.open && sidePane.view === "files"}
 					label={m["code.view.files"]()}
 					disabled={filesVetoed}
@@ -1395,7 +1394,6 @@
 			{/if}
 			{#if terminalOffered && (workspace?.id ?? workspaceId)}
 				<TogglePill
-					compact
 					pressed={sidePane.open && sidePane.view === "terminal"}
 					label={m["code.view.terminal"]()}
 					disabled={terminalVetoed}

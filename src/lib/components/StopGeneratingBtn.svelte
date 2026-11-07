@@ -49,27 +49,33 @@
 		background: transparent;
 	}
 
+	/* The ring follows the button's own outline and sweeps by angle. It used to
+	   rotate the whole pseudo-element, which is only a circle on a square button:
+	   on the Stop pill (word beside the square) the turning box swung out over
+	   the controls beside it. */
 	.stop-generating-btn--spinning::after {
+		padding: 2px;
+		box-sizing: border-box;
 		background: conic-gradient(
-			from 0deg,
+			from var(--stop-generating-angle),
 			transparent 0deg 240deg,
 			var(--stop-generating-ring-color) 240deg 360deg
 		);
-		mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
-		animation: stop-generating-rotate 1.2s linear infinite;
+		mask:
+			linear-gradient(#000 0 0) content-box,
+			linear-gradient(#000 0 0);
+		mask-composite: exclude;
+		-webkit-mask-composite: xor;
+		animation: stop-generating-sweep 1.2s linear infinite;
 	}
 
 	:global(.dark) .stop-generating-btn {
 		--stop-generating-ring-color: rgba(255, 255, 255, 0.2);
 	}
 
-	@keyframes stop-generating-rotate {
-		from {
-			transform: rotate(0deg);
-		}
-
+	@keyframes stop-generating-sweep {
 		to {
-			transform: rotate(360deg);
+			--stop-generating-angle: 360deg;
 		}
 	}
 </style>

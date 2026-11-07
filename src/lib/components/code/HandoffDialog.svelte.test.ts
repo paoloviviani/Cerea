@@ -92,7 +92,7 @@ describe("HandoffDialog", () => {
 		await browserPage.viewport(1200, 800);
 		const screen = mount();
 
-		await screen.getByPlaceholder("What should the new agent do?").fill("Carry on from there");
+		await screen.getByPlaceholder("What should the new session do?").fill("Carry on from there");
 		await screen.getByRole("button", { name: "Fork" }).click();
 
 		await vi.waitFor(() => expect(api.handoffAgent).toHaveBeenCalledTimes(1));
