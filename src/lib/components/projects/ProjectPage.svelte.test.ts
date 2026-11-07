@@ -299,6 +299,21 @@ describe("ProjectPage tabs", () => {
 		expect(tabs[1].getAttribute("aria-current")).toBe("page");
 	});
 
+	it("/projects/new numbers only the levels it shows, and docks Create project at the foot", async () => {
+		stubApi({});
+		mountCreate(false);
+		await waitForText("Web search on by default");
+		const index = document.body.querySelector('[data-testid="settings-index"]') as HTMLElement;
+		const labels = [...index.querySelectorAll("a")].map((a) => a.textContent?.trim());
+		expect(labels).toEqual(
+			expect.arrayContaining(["1. Instructions", "2. Knowledge bases", "3. Past chats"])
+		);
+		expect(labels.some((l) => l?.startsWith("4."))).toBe(false);
+		const bar = document.body.querySelector('[data-testid="save-bar"]') as HTMLElement;
+		expect(bar.getAttribute("data-docked")).toBe("true");
+		expect(bar.textContent).toContain("Create project");
+	});
+
 	it("/projects/new has no tab bar: everything it makes is settings", async () => {
 		stubApi({});
 		mountCreate(false);

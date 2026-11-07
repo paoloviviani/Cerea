@@ -53,4 +53,21 @@ describe("SaveBar", () => {
 			"Create project"
 		);
 	});
+
+	it("docked is a footer bar with only the button, shown while there is something to create", async () => {
+		const docked = renderWithApp(SaveBar, {
+			dirty: true,
+			docked: true,
+			form: "f",
+			saveLabel: "Create project",
+		});
+		const bar = docked.getByTestId("save-bar").element() as HTMLElement;
+		expect(bar.getAttribute("data-docked")).toBe("true");
+		expect(bar.className).toContain("sticky");
+		expect(bar.className).not.toContain("rounded-full");
+		expect(docked.getByText("Unsaved changes").elements()).toHaveLength(0);
+		expect(
+			(docked.getByTestId("save-bar-save").element() as HTMLButtonElement).textContent
+		).toContain("Create project");
+	});
 });
