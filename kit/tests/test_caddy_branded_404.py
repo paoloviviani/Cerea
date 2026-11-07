@@ -136,6 +136,24 @@ class BrandedNotFoundTests(unittest.TestCase):
                 self.assertNotIn("text/html", kind)
                 self.assertEqual(json.loads(body), {"detail": "Not Found"})
 
+    def test_bare_root_redirects_to_the_chat_only_for_exactly_slash(self) -> None:
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):  # noqa: ANN002, ANN003
+                return None
+
+        opener = urllib.request.build_opener(NoRedirect)
+        for accept in (BROWSER, None):
+            request = urllib.request.Request(f"http://127.0.0.1:{self.port}/")
+            if accept:
+                request.add_header("Accept", accept)
+            with self.subTest(accept=accept), self.assertRaises(urllib.error.HTTPError) as caught:
+                opener.open(request, timeout=5)
+            self.assertEqual(caught.exception.code, 302)
+            self.assertEqual(caught.exception.headers["Location"], "/chat/")
+        # A path that merely starts with `/` is not the root.
+        status, _, _ = self._get("/cerea", BROWSER)
+        self.assertEqual(status, 404)
+
     def test_a_found_page_is_not_replaced(self) -> None:
         status, _, body = self._get("/ok", BROWSER)
         self.assertEqual((status, body), (200, "fine"))

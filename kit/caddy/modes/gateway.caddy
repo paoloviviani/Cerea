@@ -1,4 +1,10 @@
 # PROXY_DEFAULT=gateway: every path not routed above goes to the gateway.
+# The bare origin (exactly `/`, no prefix) opens the chat, as it does in chat
+# mode. The gateway's own `/` only redirects to /console, which stays at
+# /console. 302: a signpost an operator may point elsewhere later.
+handle / {
+	redir * /chat/ 302
+}
 handle {
 	# A browser that lands on a wrong address gets a branded 404 page, not the
 	# gateway's raw JSON. Only a request that accepts HTML, and only when the

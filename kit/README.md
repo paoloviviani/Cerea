@@ -67,7 +67,7 @@ pulls the versions this release pins, with no login.
 `./configure` asks for your origin (`https://cerea.example.org`), the
 administrator's email, a preset, the TLS mode and the identity provider. It
 generates every secret and writes `.env` at mode 0600. The first sign-in for
-the bundled Authelia goes to `first-sign-in.txt` (mode 0600). Sign in at `https://<your origin>/` (the console; the chat is at `/chat/`), then delete that file.
+the bundled Authelia goes to `first-sign-in.txt` (mode 0600). Sign in at `https://<your origin>/console` (the console; `https://<your origin>/` opens the chat), then delete that file.
 
 Prefer to edit by hand? Run `cp .env.example .env && chmod 600 .env`, then fill
 it in. Every option is explained there, and every secret names the command that
@@ -166,7 +166,7 @@ again. Keep the old directory until the new stack works.
 
 | Service | Profile | What it is |
 |---|---|---|
-| `proxy` | always | Caddy (stock image) with `caddy/Caddyfile`: TLS, and the routes `/chat`, `/authelia`, everything else to the gateway; a browser that opens an address nothing serves gets the branded `caddy/errors/404.html`, API callers keep the JSON 404 |
+| `proxy` | always | Caddy (stock image) with `caddy/Caddyfile`: TLS, and the routes `/chat`, `/authelia`, `/` itself to `/chat/` (302; the console is at `/console`), everything else to the gateway; a browser that opens an address nothing serves gets the branded `caddy/errors/404.html`, API callers keep the JSON 404 |
 | `postgres` | always | PostgreSQL with pgvector: the gateway's data and the chat's knowledge store |
 | `bootstrap` | always | a one-shot on every `up`: creates the chat's database role and extensions, and the bundled Authelia's signing key and first user if absent; it never overwrites anything |
 | `gateway`, `migrate`, `valkey` | `gateway` | Pystino: the OpenAI-compatible API at `/v1` and the admin console |
