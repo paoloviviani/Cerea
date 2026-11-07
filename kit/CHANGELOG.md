@@ -8,6 +8,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 ## Unreleased
 
 - **Safer approvals for commands on a computer.** A command that reads a secret (`cat .env`, `less ~/.ssh/id_ed25519`, `base64 $HOME/.aws/credentials`, `git show HEAD:.env`) now asks you first, like the same read through the file tools does, however the path is written (`~`, `$HOME`, a `cd` earlier in the line, symlinks, capital letters on a Mac). A command that touches galopin's own settings is refused.
+- **Local MCP servers' saved sign-ins are protected.** The token files of common local connectors (Microsoft 365 MCP server, outlook-mcp) and galopin's own `mcp.json` are treated like your SSH keys: reading them asks first and a session cannot change them.
 - **"Read-only" is judged on the whole command.** A command is run without asking only if the whole line is a plain read: no writing to a file, no hidden command inside it, no background job, and not `git log -p` or `git show` of a secret file.
 - **"Always allow" on a command means that command.** It no longer covers everything that starts with the same word (`git status` used to allow `git push --force` for the session), and it never covers a line that also writes to a file, runs a hidden command or runs in the background.
 - **Links inside a project no longer lead out of it.** A folder in a cloned repository that points to your home directory is treated as outside the project, so reading through it asks.

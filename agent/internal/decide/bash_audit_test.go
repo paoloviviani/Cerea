@@ -182,3 +182,41 @@ func TestWithinFollowsSymlinks(t *testing.T) {
 		t.Errorf("plan read through an outward link: %v", got.Verdict)
 	}
 }
+
+// Local MCP servers' token caches are credential stores: a read is a secrets ask,
+// a write is a card too, and galopin's own mcp.json (which can hold env secrets)
+// is refused, wherever it lives.
+func TestMCPTokenCachesAreSecrets(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	ws := filepath.Join(root, "ws")
+	mcp := filepath.Join(root, "elsewhere", "mcp.json")
+	t.Setenv("APPDATA", filepath.Join(root, "AppData"))
+	p := Policy{Protected: NewProtected(home, filepath.Join(home, ".local", "state", "galopin"), mcp)}
+	paths := []string{
+		filepath.Join(home, ".config", "ms-365-mcp-server", ".token-cache.json"),
+		filepath.Join(home, ".ms-365-mcp-server", "audit.log"),
+		filepath.Join(home, ".outlook-mcp", "tokens.json"),
+		filepath.Join(home, "Library", "Application Support", "ms-365-mcp-server", ".token-cache.json"),
+		filepath.Join(root, "AppData", "ms-365-mcp-server", ".token-cache.json"),
+	}
+	for _, f := range paths {
+		for _, key := range []string{"read", "edit"} {
+			got := Decide(p, State{Mode: permrules.Allow}, Request{Key: key, Patterns: []string{f}, Workspace: ws})
+			if got.Verdict != Card || got.Class != ClassSecrets {
+				t.Errorf("%s %s: %v class %q, want a secrets card", key, f, got.Verdict, got.Class)
+			}
+		}
+	}
+	for _, c := range []string{"cat ~/.config/ms-365-mcp-server/.token-cache.json", "less $HOME/.outlook-mcp/tokens.json", "cd ~/.ms-365-mcp-server && cat audit.log"} {
+		got := Decide(p, State{Mode: permrules.Allow}, Request{Key: "bash", Patterns: []string{c}, Command: c, Workspace: ws})
+		if got.Verdict != Card || got.Class != ClassSecrets {
+			t.Errorf("%q: %v class %q, want a secrets card", c, got.Verdict, got.Class)
+		}
+	}
+	for _, key := range []string{"read", "edit"} {
+		if got := Decide(p, State{Mode: permrules.Allow}, Request{Key: key, Patterns: []string{mcp}, Workspace: ws}); got.Verdict != Reject {
+			t.Errorf("%s of galopin's mcp.json: %v, want refused", key, got.Verdict)
+		}
+	}
+}

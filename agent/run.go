@@ -309,7 +309,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 
 	mc := newMachine(reg, back, mat, pol)
 	home, _ := os.UserHomeDir()
-	mc.protected = decide.NewProtected(home, stateDir, gooseRootFor(credsPath))
+	mc.protected = decide.NewProtected(home, stateDir, gooseRootFor(credsPath), mcpPath)
 	auditLog, err := newAuditLogger(stateDir)
 	if err != nil {
 		return err

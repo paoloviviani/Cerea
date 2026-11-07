@@ -77,6 +77,10 @@ func NewProtected(home, stateDir string, extraOwn ...string) Protected {
 			// the gateway's and the kit's conventional config homes
 			j(".config", "pystino"), j(".pystino"), j(".config", "cerea"), j(".cerea"),
 		)
+		// Local MCP servers' token caches and logs. A connector's OAuth tokens live in
+		// plain files in its own config home, so a session reading them could act as the
+		// user in that service; list the common ones here, in this one place.
+		add(&pr.SecretDirs, MCPSecretDirs(home)...)
 		// The user's own goose (ADR 0110): its config holds the local-endpoint bearer and
 		// the proxy secret 'galopin goose setup' writes, and a write there could set
 		// GOOSE_MODE: auto. Treated like galopin's own files, and as credential stores for reads.
@@ -102,6 +106,23 @@ func NewProtected(home, stateDir string, extraOwn ...string) Protected {
 	pr.OwnDirs = withResolved(pr.OwnDirs)
 	pr.SecretDirs = withResolved(pr.SecretDirs)
 	return pr
+}
+
+// MCPSecretDirs are the config homes of common local MCP servers that keep OAuth
+// token caches (and audit logs) in plain files: Softeria's ms-365-mcp-server
+// (`.token-cache.json`; the macOS Application Support form, and, on Windows,
+// %APPDATA%), and outlook-mcp. Reading them is a secrets ask and writing them is
+// protected. Add further servers here.
+func MCPSecretDirs(home string) []string {
+	j := func(e ...string) string { return filepath.Join(append([]string{home}, e...)...) }
+	dirs := []string{
+		j(".config", "ms-365-mcp-server"), j(".ms-365-mcp-server"), j(".outlook-mcp"),
+		j("Library", "Application Support", "ms-365-mcp-server"),
+	}
+	if ad := os.Getenv("APPDATA"); ad != "" {
+		dirs = append(dirs, filepath.Join(ad, "ms-365-mcp-server"))
+	}
+	return dirs
 }
 
 // withResolved returns dirs plus, for each, its form with symlinks resolved
