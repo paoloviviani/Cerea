@@ -20,6 +20,7 @@ export interface MovableChat {
 	title: string;
 	model?: string;
 	updatedAt?: Date | string;
+	lastActivityAt?: Date | string;
 }
 
 export interface MoveTarget {
@@ -74,6 +75,9 @@ export function useMoveConversation() {
 					title: chat.title,
 					model: chat.model,
 					updatedAt: chat.updatedAt ? new Date(chat.updatedAt) : new Date(),
+					...(chat.lastActivityAt || chat.updatedAt
+						? { lastActivityAt: new Date((chat.lastActivityAt ?? chat.updatedAt) as Date | string) }
+						: {}),
 				});
 			}
 		}

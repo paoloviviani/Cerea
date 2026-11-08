@@ -10,6 +10,7 @@ interface ConversationListItem {
 	_id: { toString(): string };
 	title: string;
 	updatedAt: Date | string;
+	lastActivityAt?: Date | string;
 	model?: string;
 	projectId?: string;
 	unread?: boolean;
@@ -103,6 +104,7 @@ export const load = async ({ fetch, url, data }) => {
 			title: conv.title,
 			model: conv.model ?? defaultModel?.id,
 			updatedAt: new Date(conv.updatedAt),
+			lastActivityAt: new Date(conv.lastActivityAt ?? conv.updatedAt),
 			...(conv.projectId ? { projectId: conv.projectId } : {}),
 			...(conv.titleByUser ? { titleByUser: true as const } : {}),
 			...(conv.unread ? { unread: true as const } : {}),

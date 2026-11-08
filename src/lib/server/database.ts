@@ -466,6 +466,23 @@ export class Database {
 			.catch((e) =>
 				logger.error(e, "Error creating index for conversations by sessionId and updatedAt")
 			);
+		// The sidebar sorts by `lastActivityAt` (real chat activity), then `updatedAt`.
+		conversations
+			.createIndex(
+				{ userId: 1, lastActivityAt: -1, updatedAt: -1 },
+				{ partialFilterExpression: { userId: { $exists: true } } }
+			)
+			.catch((e) =>
+				logger.error(e, "Error creating index for conversations by userId and lastActivityAt")
+			);
+		conversations
+			.createIndex(
+				{ sessionId: 1, lastActivityAt: -1 },
+				{ partialFilterExpression: { sessionId: { $exists: true } } }
+			)
+			.catch((e) =>
+				logger.error(e, "Error creating index for conversations by sessionId and lastActivityAt")
+			);
 		// The conversation list, and the /chats search over it. An unanchored,
 		// accent-folded regex on `title` cannot use an index for its bounds, but
 		// with `title` as a trailing key Mongo tests it against the index entries

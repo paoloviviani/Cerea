@@ -52,6 +52,8 @@
 		title: string;
 		model?: string;
 		updatedAt: Date;
+		/** When the user last talked in it; the list shows this, not `updatedAt`. */
+		lastActivityAt?: Date;
 		projectId?: string;
 		/** Set when the chat was found by what was said in it. */
 		snippet?: { text: string; spans: [number, number][]; from: "user" | "assistant" };
@@ -229,6 +231,7 @@
 			title: moving.title,
 			model: moving.model,
 			updatedAt: moving.updatedAt,
+			lastActivityAt: moving.lastActivityAt,
 			projectId: moving.projectId,
 		}}
 		onclose={() => (moving = null)}
@@ -380,10 +383,10 @@
 										class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-muted"
 									>
 										<time
-											datetime={new Date(row.updatedAt).toISOString()}
-											title={formatDateTime(row.updatedAt, FULL_DATE_TIME)}
+											datetime={new Date(row.lastActivityAt ?? row.updatedAt).toISOString()}
+											title={formatDateTime(row.lastActivityAt ?? row.updatedAt, FULL_DATE_TIME)}
 										>
-											{formatRelativeTime(row.updatedAt)}
+											{formatRelativeTime(row.lastActivityAt ?? row.updatedAt)}
 										</time>
 										{#if row.model}
 											<span class="min-w-0 truncate">{modelName(row.model)}</span>
@@ -412,6 +415,7 @@
 														title: row.title,
 														model: row.model,
 														updatedAt: row.updatedAt,
+														lastActivityAt: row.lastActivityAt,
 													},
 													null,
 													projectNames[row.projectId as string]

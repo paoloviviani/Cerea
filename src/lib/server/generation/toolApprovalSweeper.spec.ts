@@ -25,6 +25,7 @@ vi.mock("$lib/server/textGeneration", () => ({
 const { sweepExpiredToolApprovals } = await import("./toolApprovalSweeper");
 
 const MODEL_ID = "test-org/test-model";
+const OLD_ACTIVITY = new Date("2026-01-01T10:00:00Z");
 
 // The real, shared test database also serves other spec files' concurrent
 // workers — a blanket `deleteMany({})` here would wipe conversations another
@@ -60,6 +61,7 @@ async function seedParkedConversation(params: {
 		...(params.loadedConnectors ? { loadedConnectors: params.loadedConnectors } : {}),
 		createdAt: new Date(),
 		updatedAt: new Date(),
+		lastActivityAt: OLD_ACTIVITY,
 	} as never);
 
 	await collections.mcpElicitations.insertOne({
@@ -134,6 +136,10 @@ describe("sweepExpiredToolApprovals (ADR 0075 deny-timeout)", () => {
 		// nobody is watching, and the sweeper's job is to unstick it.
 		const state = await collections.turnStates.findOne({ conversationId });
 		expect(state?.status).toBe("done");
+
+		// Housekeeping, not a user talking: the sidebar must not file the chat under "Today".
+		expect(conv?.lastActivityAt?.getTime()).toBe(OLD_ACTIVITY.getTime());
+		expect(conv?.updatedAt.getTime()).toBeGreaterThan(OLD_ACTIVITY.getTime());
 	});
 
 	it("continues the turn with the connectors the deployment provides, and what the conversation loaded", async () => {

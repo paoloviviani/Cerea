@@ -81,6 +81,7 @@
 		title: string;
 		model: string;
 		updatedAt: string;
+		lastActivityAt?: string;
 	}
 
 	interface Props {

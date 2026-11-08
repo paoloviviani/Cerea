@@ -160,6 +160,7 @@
 				title: m["app.default_chat_title"](),
 				model,
 				updatedAt: new Date(),
+				lastActivityAt: new Date(),
 			});
 			await goto(`${base}/conversation/${conversationId}`, {
 				state: { pendingMessage: message, pendingFilesNonce },

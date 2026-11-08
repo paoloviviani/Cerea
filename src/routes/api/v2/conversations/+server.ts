@@ -17,13 +17,21 @@ import {
 
 type Row = Pick<
 	Conversation,
-	"_id" | "title" | "titleSource" | "updatedAt" | "model" | "projectId" | "scheduledUnread"
+	| "_id"
+	| "title"
+	| "titleSource"
+	| "updatedAt"
+	| "lastActivityAt"
+	| "model"
+	| "projectId"
+	| "scheduledUnread"
 >;
 
 const LIST_FIELDS = {
 	title: 1,
 	titleSource: 1,
 	updatedAt: 1,
+	lastActivityAt: 1,
 	model: 1,
 	projectId: 1,
 	scheduledUnread: 1,
@@ -73,7 +81,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		titleRows = await collections.conversations
 			.find(titleFilter)
 			.project<Row>(LIST_FIELDS)
-			.sort({ updatedAt: -1 })
+			.sort({ lastActivityAt: -1, updatedAt: -1 })
 			.skip(start)
 			.limit(want)
 			.toArray();
@@ -95,8 +103,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 							title: { $not: { $regex: pattern as string } },
 						},
 					},
-					{ $project: { updatedAt: 1, score: { $meta: "textScore" } } },
-					{ $sort: { score: -1, updatedAt: -1, _id: -1 } },
+					{ $project: { lastActivityAt: 1, updatedAt: 1, score: { $meta: "textScore" } } },
+					{ $sort: { score: -1, lastActivityAt: -1, updatedAt: -1, _id: -1 } },
 					{ $skip: Math.max(0, start - (titleTotal ?? 0)) },
 					{ $limit: want - titleRows.length },
 					{ $project: { _id: 1 } },
@@ -144,6 +152,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 			id: conv._id, // legacy param iOS
 			title: conv.title,
 			updatedAt: conv.updatedAt,
+			lastActivityAt: conv.lastActivityAt ?? conv.updatedAt,
 			model: conv.model,
 			modelId: conv.model, // legacy param iOS
 			// A string, not an ObjectId: the sidebar compares it against ids the

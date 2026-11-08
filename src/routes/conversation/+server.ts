@@ -209,6 +209,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		preprompt: values.preprompt,
 		createdAt: now,
 		updatedAt: now,
+		lastActivityAt: now,
 		userAgent: request.headers.get("User-Agent") ?? undefined,
 		...(locals.user ? { userId: locals.user._id } : { sessionId: locals.sessionId }),
 		...(projectId ? { projectId } : {}),
@@ -251,6 +252,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				...(projectName ? { projectName } : {}),
 				...(seedProjectDefaults ? { projectDefaults: seedProjectDefaults } : {}),
 				updatedAt: now,
+				lastActivityAt: now,
 				modelId: values.model,
 				// Resolved to names so the composer's chips render without a second
 				// round trip; a base deleted between validate and this read is left

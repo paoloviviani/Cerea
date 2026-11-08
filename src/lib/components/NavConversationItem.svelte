@@ -46,6 +46,7 @@
 		title: string;
 		model: ConvSidebar["model"];
 		updatedAt: ConvSidebar["updatedAt"];
+		lastActivityAt: ConvSidebar["lastActivityAt"];
 		projectId: ConvSidebar["projectId"];
 		titleByUser: ConvSidebar["titleByUser"];
 	} | null>(null);
@@ -56,6 +57,7 @@
 			title: conv.title,
 			model: conv.model,
 			updatedAt: conv.updatedAt,
+			lastActivityAt: conv.lastActivityAt,
 			projectId: conv.projectId,
 			titleByUser: conv.titleByUser,
 		};
@@ -271,6 +273,7 @@
 			title: target.title,
 			model: target.model,
 			updatedAt: target.updatedAt,
+			lastActivityAt: target.lastActivityAt,
 			projectId: target.projectId,
 		}}
 		onclose={() => (moveOpen = false)}
