@@ -68,14 +68,22 @@ export function passagePrefixChanged(
  * Which prefix an embed call takes. `passage` is indexed content and uses the
  * prefix the base was indexed with (so new documents match its existing
  * vectors); `query` is a search input and uses the current query prefix, or
- * the one recorded with the base while it is still on an older model.
+ * the one recorded with the base while it is still on an older model, or
+ * always the recorded one for a model the owner chose.
  */
 export function prefixFor(
 	kind: "passage" | "query",
-	base: { embeddingModel: string | null; passagePrefix?: string; queryPrefix?: string },
+	base: {
+		embeddingModel: string | null;
+		embeddingChosen?: boolean;
+		passagePrefix?: string;
+		queryPrefix?: string;
+	},
 	current: { embeddingModel: string | null; queryPrefix?: string }
 ): string {
 	if (kind === "passage") return base.passagePrefix ?? "";
+	// A model its owner chose has its own prefixes, never the deployment's.
+	if (base.embeddingChosen) return base.queryPrefix ?? "";
 	return base.embeddingModel === current.embeddingModel
 		? (current.queryPrefix ?? "")
 		: (base.queryPrefix ?? "");

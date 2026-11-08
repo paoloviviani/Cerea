@@ -19,6 +19,13 @@ describe("applyPrefix", () => {
 });
 
 describe("prefixFor", () => {
+	it("always uses the recorded query prefix for a model its owner chose", () => {
+		const base = { embeddingModel: "e5", embeddingChosen: true, queryPrefix: "query: " };
+		expect(prefixFor("query", base, { embeddingModel: "e5", queryPrefix: "other: " })).toBe(
+			"query: "
+		);
+	});
+
 	const base = { embeddingModel: "e5", passagePrefix: "passage: ", queryPrefix: "old: " };
 	it("passages use the prefix the base was indexed with", () => {
 		expect(prefixFor("passage", base, { embeddingModel: "e5", queryPrefix: "q: " })).toBe(

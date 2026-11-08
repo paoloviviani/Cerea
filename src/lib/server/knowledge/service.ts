@@ -21,7 +21,7 @@ import { isMrlModel, tooWideMessage, truncateRenormalise } from "./mrl";
 import { fromUuid } from "./db";
 import { deleteDerived } from "./deleteDerived";
 import { embed } from "./embed";
-import { passagePrefixChanged, prefixFor } from "$lib/embeddingPrefix";
+import { detectPreset, passagePrefixChanged, prefixFor } from "$lib/embeddingPrefix";
 import { memoryBaseOwner, memoryBaseOwners, type MemoryBaseOwner } from "./memoryBases";
 import {
 	resolveExtractor,
@@ -121,6 +121,61 @@ export async function writeConfig(
  * here left every deployment "not ready" with a model chosen. */
 function configReady(config: KnowledgeConfig): boolean {
 	return Boolean(config.embeddingModel);
+}
+
+/**
+ * The embedding models this caller may use: the gateway's catalogue for their
+ * own token, kept to embeddings. `null` when the catalogue could not be read
+ * (no token, gateway down), which callers treat as "cannot tell" rather than
+ * "none".
+ */
+export async function embeddingModelsFor(token: string | undefined): Promise<string[] | null> {
+	if (!token) return null;
+	try {
+		const models = await gateway.get<{ data: { id: string; kind?: string }[] }>(
+			token,
+			"models?include=embedding"
+		);
+		return models.data.filter((model) => model.kind === "embedding").map((model) => model.id);
+	} catch (err) {
+		logger.warn({ err }, "knowledge_embedding_models_probe_failed");
+		return null;
+	}
+}
+
+/**
+ * A model a user asked for, checked against what they may use. `""` or absent
+ * means the deployment's default. A name outside their list is a 400; when the
+ * catalogue cannot be read the request is refused too, since a name nobody
+ * could check would fail on first use.
+ */
+async function resolveChosenModel(
+	requested: string | null | undefined,
+	token: string | undefined,
+	config: KnowledgeConfig
+): Promise<{ model: string; chosen: boolean; passagePrefix: string; queryPrefix: string }> {
+	const name = (requested ?? "").trim();
+	if (!name || name === config.embeddingModel) {
+		return {
+			model: config.embeddingModel ?? "",
+			chosen: false,
+			passagePrefix: config.passagePrefix ?? "",
+			queryPrefix: config.queryPrefix ?? "",
+		};
+	}
+	const allowed = await embeddingModelsFor(token);
+	if (!allowed?.includes(name)) {
+		throw new KnowledgeError(400, `“${name}” is not an embedding model you can use.`);
+	}
+	// The deployment's prefixes belong to its default model, not to this one:
+	// a chosen model takes its own card's, where it is one we know (e5, nomic).
+	const preset = detectPreset(name);
+	return {
+		model: name,
+		chosen: true,
+		passagePrefix: preset?.passage ?? "",
+		queryPrefix: preset?.query ?? "",
+	};
 }
 
 // -- reach -------------------------------------------------------------------
@@ -261,6 +316,8 @@ export async function storeObject(
 	file_counts: { in_progress: number; completed: number; failed: number; total: number };
 	dimensions: number | null;
 	embedding_model: string | null;
+	/** The owner chose this model; it does not follow the deployment's default. */
+	embedding_chosen: boolean;
 	/** Indexed with another model or passage prefix than the deployment uses now. */
 	stale: boolean;
 	owned: boolean;
@@ -284,8 +341,10 @@ export async function storeObject(
 		file_counts: await fileCounts(base._id),
 		dimensions: base.dimensions ?? null,
 		embedding_model: base.embeddingModel ?? null,
+		embedding_chosen: base.embeddingChosen === true,
 		// The admin screen's rule: a base with nothing indexed is not stale.
 		stale:
+			!base.embeddingChosen &&
 			base.dimensions !== null &&
 			((base.embeddingModel || null) !== deployment.embeddingModel ||
 				passagePrefixChanged(base.passagePrefix, deployment.passagePrefix)),
@@ -329,31 +388,28 @@ export async function statusObject(
 	enabled: boolean;
 	ready: boolean;
 	embedding_model: string | null;
+	/** The embedding models this user may choose among, for the per-base selector. */
+	embedding_models: string[];
 	max_upload_bytes: number;
 	detail: string | null;
 }> {
 	const config = await readConfig();
 	let detail: string | null = null;
-	if (!config.embeddingModel) {
-		detail =
-			"No embedding model has been chosen. An administrator sets one on the Knowledge screen.";
-	} else if (config.embeddingModel && token) {
+	const mine = await embeddingModelsFor(token);
+	if (config.embeddingModel && mine && !mine.includes(config.embeddingModel)) {
 		// The model must exist in the caller's catalogue: a name the gateway
 		// does not know would fail on first use, and saying so now is kinder.
-		try {
-			const models = await gateway.get<{ data: { id: string }[] }>(token, "models");
-			const exists = models.data.some((m) => m.id === config.embeddingModel);
-			if (!exists) {
-				detail = `The configured embedding model “${config.embeddingModel}” is not in this deployment's catalogue.`;
-			}
-		} catch (err) {
-			logger.warn({ err }, "knowledge_status_model_probe_failed");
-		}
+		detail = `The default embedding model “${config.embeddingModel}” is not in this deployment's catalogue.`;
+	} else if (!config.embeddingModel && !(mine && mine.length > 0)) {
+		// Only when there is neither a default nor anything to choose per base.
+		detail =
+			"No embedding model has been chosen. An administrator sets a default on the Knowledge screen.";
 	}
 	return {
 		enabled: true,
-		ready: configReady(config) && !detail,
+		ready: !detail,
 		embedding_model: config.embeddingModel,
+		embedding_models: mine ?? [],
 		max_upload_bytes: MAX_UPLOAD_BYTES,
 		detail,
 	};
@@ -443,7 +499,7 @@ export async function adminStatus(token: string | undefined): Promise<{
 	let extractorCandidates: ExtractorCandidate[] = [];
 	if (!pipeline.embeddingModel) {
 		detail =
-			"No embedding model has been chosen. An administrator sets one on the Knowledge screen.";
+			"No default embedding model has been chosen. Users can still choose one for each base.";
 	}
 	// Listed either way: with no model chosen yet, the pickers are how one gets chosen.
 	if (token) {
@@ -459,7 +515,7 @@ export async function adminStatus(token: string | undefined): Promise<{
 				.filter((model) => model.kind === "ocr")
 				.map((model) => ({ id: model.id, local: model.local === true }));
 			if (pipeline.embeddingModel && !ids.includes(pipeline.embeddingModel)) {
-				detail = `The configured embedding model “${pipeline.embeddingModel}” is not in this deployment's catalogue.`;
+				detail = `The default embedding model “${pipeline.embeddingModel}” is not in this deployment's catalogue.`;
 			}
 		} catch (err) {
 			logger.warn({ err }, "knowledge_status_model_probe_failed");
@@ -503,8 +559,9 @@ export async function adminStatus(token: string | undefined): Promise<{
 		// A base with nothing indexed is not stale: it has no vectors to be
 		// comparable with the current model, and calling it stale would send
 		// somebody to re-embed an empty base.
-		const modelStale = (base.embeddingModel || null) !== pipeline.embeddingModel;
-		const prefixStale = passagePrefixChanged(base.passagePrefix, pipeline.passagePrefix);
+		const chosen = base.embeddingChosen === true;
+		const modelStale = !chosen && (base.embeddingModel || null) !== pipeline.embeddingModel;
+		const prefixStale = !chosen && passagePrefixChanged(base.passagePrefix, pipeline.passagePrefix);
 		const stale = base.dimensions !== null && (modelStale || prefixStale);
 		return {
 			id: base._id.toString(),
@@ -586,10 +643,12 @@ export async function listStores(
 
 export async function createStore(
 	caller: Caller,
-	body: { name: string; description?: string }
+	body: { name: string; description?: string; embedding_model?: string | null },
+	token?: string
 ): Promise<Awaited<ReturnType<typeof storeObject>>> {
 	const config = await readConfig();
 	if (!body.name?.trim()) throw new KnowledgeError(400, "A name is required.");
+	const choice = await resolveChosenModel(body.embedding_model, token, config);
 	// The geometry is copied onto the row, not read at ingestion time: a later
 	// change to the deployment's defaults cannot re-chunk half of an existing
 	// base (ADR 0070).
@@ -598,9 +657,10 @@ export async function createStore(
 		name: body.name.trim().slice(0, 200),
 		description: body.description?.slice(0, 2000),
 		ownerId: caller.userId,
-		embeddingModel: config.embeddingModel ?? "",
-		passagePrefix: config.passagePrefix ?? "",
-		queryPrefix: config.queryPrefix ?? "",
+		embeddingModel: choice.model,
+		...(choice.chosen ? { embeddingChosen: true } : {}),
+		passagePrefix: choice.passagePrefix,
+		queryPrefix: choice.queryPrefix,
 		dimensions: null,
 		chunkChars: config.chunkChars,
 		chunkOverlap: config.chunkOverlap,
@@ -731,7 +791,7 @@ async function upsertChunks(
  */
 export const BACKGROUND_INGEST_CONCURRENCY = 2;
 
-const backgroundQueue: { id: ObjectId; token: string }[] = [];
+const backgroundQueue: { id: ObjectId; token: string; done?: () => void | Promise<void> }[] = [];
 let backgroundRunning = 0;
 
 async function pumpBackgroundIngest(): Promise<void> {
@@ -743,11 +803,19 @@ async function pumpBackgroundIngest(): Promise<void> {
 	await ingestDocument(next.id, next.token).catch((err: unknown) =>
 		logger.warn({ err, document: next.id.toString() }, "knowledge_background_ingest_failed")
 	);
+	// Settled, however it ended: a reindex counts these to release its claim.
+	await Promise.resolve(next.done?.()).catch((err: unknown) =>
+		logger.warn({ err }, "knowledge_background_done_failed")
+	);
 	void pumpBackgroundIngest();
 }
 
-export function startIngest(documentId: ObjectId, token: string): void {
-	backgroundQueue.push({ id: documentId, token });
+export function startIngest(
+	documentId: ObjectId,
+	token: string,
+	done?: () => void | Promise<void>
+): void {
+	backgroundQueue.push({ id: documentId, token, done });
 	if (backgroundRunning < BACKGROUND_INGEST_CONCURRENCY) {
 		backgroundRunning++;
 		void pumpBackgroundIngest();
@@ -774,6 +842,18 @@ export async function failInterruptedIngests(bootedAt: Date): Promise<number> {
 	);
 	return res.modifiedCount;
 }
+
+/** Has a reindex moved this base on since `base` was read? */
+async function baseMovedOn(base: VectorStore): Promise<boolean> {
+	const live = await collections.vectorStores.findOne(
+		{ _id: base._id },
+		{ projection: { embeddingGeneration: 1 } }
+	);
+	return (live?.embeddingGeneration ?? 0) !== (base.embeddingGeneration ?? 0);
+}
+
+const currentRow = (document: KnowledgeDocument) =>
+	collections.knowledgeDocuments.findOne({ _id: document._id });
 
 /**
  * Index one document's text: chunk, embed, store.
@@ -848,6 +928,7 @@ export async function ingestDocument(
 
 		const chunks = chunkMarkdown(text, base.chunkChars, base.chunkOverlap);
 		if (chunks.length === 0) {
+			if (await baseMovedOn(base)) return (await currentRow(document)) ?? document;
 			// Nothing to keep, and the old passages must not outlive the text
 			// they came from: the replace happens in the same transaction as
 			// every other one, with no rows to write.
@@ -882,6 +963,10 @@ export async function ingestDocument(
 		// and the base's recorded width is what every later embed — search
 		// included — asks for. A model without MRL refuses the parameter and
 		// the refusal lands on the row, which is the honest answer.
+		// A reindex that began while this was embedding moved the base to
+		// another model: these vectors belong to the old one and are dropped,
+		// the document being the new run's to index.
+		if (await baseMovedOn(base)) return (await currentRow(document)) ?? document;
 		const width = vectors[0]?.length ?? 0;
 		if (!INDEXED_DIMENSIONS.includes(width as (typeof INDEXED_DIMENSIONS)[number])) {
 			const target = Math.max(...INDEXED_DIMENSIONS.filter((d) => d < width));
@@ -906,6 +991,7 @@ export async function ingestDocument(
 				chunks.map((chunk) => chunk.text)
 			);
 		}
+		if (await baseMovedOn(base)) return (await currentRow(document)) ?? document;
 		await upsertChunks(base.embeddingModel ?? "", base._id, document._id, chunks, vectors);
 		// The source may have been deleted while it was being embedded (a
 		// conversation deleted mid-index, a base dropped mid-reindex). The
@@ -1027,7 +1113,7 @@ export async function attachFile(
 ): Promise<ReturnType<typeof documentObject>> {
 	const base = await reachableStore(storeId, caller, "editor");
 	const config = await readConfig();
-	if (!configReady(config)) {
+	if (!base.embeddingModel && !configReady(config)) {
 		throw new KnowledgeError(
 			400,
 			"No search model is set up yet, so documents cannot be made searchable. Ask your administrator."
@@ -1127,7 +1213,7 @@ export async function addText(
 ): Promise<ReturnType<typeof documentObject>> {
 	const base = await reachableStore(storeId, caller, "editor");
 	const config = await readConfig();
-	if (!configReady(config)) {
+	if (!base.embeddingModel && !configReady(config)) {
 		throw new KnowledgeError(
 			400,
 			"No embedding model has been configured, so text cannot be indexed yet."
@@ -1411,7 +1497,7 @@ export async function retryDocument(
 	const base = await reachableStore(storeId, caller, "editor");
 	if (!/^[0-9a-f]{24}$/.test(documentId)) throw new KnowledgeError(404, "No such document.");
 	const config = await readConfig();
-	if (!configReady(config)) {
+	if (!base.embeddingModel && !configReady(config)) {
 		throw new KnowledgeError(
 			400,
 			"No search model is set up yet, so documents cannot be made searchable. Ask your administrator."
@@ -1431,6 +1517,11 @@ export async function retryDocument(
 	}
 	const current = await collections.knowledgeDocuments.findOne({ _id: document._id });
 	return documentObject(current ?? document, null);
+}
+
+/** What a reader sees for a base whose embedding model is not in their catalogue. */
+export function unavailableModelMessage(model: string): string {
+	return `This knowledge base uses ${model}, which isn't available to you.`;
 }
 
 /** What a base built with an older embedding model says when it cannot be searched. */
@@ -1535,14 +1626,24 @@ export async function search(
 		// A base built with another embedding model than the deployment's now
 		// uses may not be searchable at all (the old model can be gone, or
 		// answer at another width). Say what to do rather than the raw error.
+		if (err instanceof GatewayCallFailed) {
+			// A shared base's model the reader is not granted: say so, not the
+			// gateway's refusal. The query is never embedded with the owner's
+			// grant (no owner credential is held here), and the base is skipped.
+			const mine = await embeddingModelsFor(token);
+			if (mine && base.embeddingModel && !mine.includes(base.embeddingModel)) {
+				throw new KnowledgeError(409, unavailableModelMessage(base.embeddingModel));
+			}
+		}
 		if (err instanceof GatewayCallFailed || (err instanceof KnowledgeError && err.status === 400)) {
 			const current = (await readConfig()).embeddingModel;
-			if (current && base.embeddingModel !== current) {
+			if (!base.embeddingChosen && current && base.embeddingModel !== current) {
 				throw new KnowledgeError(409, OLD_MODEL_MESSAGE);
 			}
 		}
 		if (err instanceof GatewayCallFailed) {
-			throw new KnowledgeError(502, `Search is unavailable: ${err.message}`);
+			logger.warn({ err, base: base._id.toString() }, "knowledge_search_gateway_failed");
+			throw new KnowledgeError(502, "Search is unavailable right now. Try again.");
 		}
 		throw err;
 	}
@@ -1576,48 +1677,136 @@ export async function reindexTarget(
 	return base;
 }
 
+/** A reindex claim older than this is a crashed one, and may be taken over. */
+const REINDEX_CLAIM_MS = 30 * 60 * 1000;
+
 export async function reindex(
 	storeId: string,
 	caller: Caller,
 	token: string,
-	opts: { asAdmin?: boolean } = {}
+	opts: { asAdmin?: boolean; embeddingModel?: string | null } = {}
 ): Promise<{ data: ReturnType<typeof documentObject>[] }> {
 	const base = await reindexTarget(storeId, caller, opts);
 	const config = await readConfig();
-	if (!configReady(config)) {
+	// What the base moves to. An explicit model (`""` is the default) is the
+	// owner's choice and is checked against what they may use; with none given,
+	// a base the owner chose a model for keeps it (checked again: the grant may
+	// have gone, and a base re-embedded with a model nobody can call would end
+	// up empty), and any other follows the deployment's default, the one place
+	// that moves a base along with it.
+	let target: Awaited<ReturnType<typeof resolveChosenModel>>;
+	if (opts.embeddingModel !== undefined) {
+		target = await resolveChosenModel(opts.embeddingModel, token, config);
+	} else if (base.embeddingChosen && base.embeddingModel) {
+		const allowed = await embeddingModelsFor(token);
+		if (!allowed?.includes(base.embeddingModel)) {
+			throw new KnowledgeError(
+				400,
+				opts.asAdmin
+					? `This base uses ${base.embeddingModel}, which its owner chose and you can't use. Its owner can reindex it.`
+					: `This base uses ${base.embeddingModel}, which isn't available to you. Choose another embedding model.`
+			);
+		}
+		target = {
+			model: base.embeddingModel,
+			chosen: true,
+			passagePrefix: base.passagePrefix ?? "",
+			queryPrefix: base.queryPrefix ?? "",
+		};
+	} else {
+		target = await resolveChosenModel("", token, config);
+	}
+	if (!target.model) {
 		throw new KnowledgeError(400, "No embedding model has been configured.");
 	}
-	// The base moves to the deployment's current model — the one place that
-	// changes it, so a base's model only ever changes as a deliberate act.
-	await collections.vectorStores.updateOne(
-		{ _id: base._id },
+
+	// One reindex at a time per base: claimed atomically, so a second click (or
+	// a retry after a proxy timeout) is refused rather than racing the first.
+	const now = new Date();
+	const claimed = await collections.vectorStores.updateOne(
 		{
-			$set: {
-				embeddingModel: config.embeddingModel ?? "",
-				passagePrefix: config.passagePrefix ?? "",
-				queryPrefix: config.queryPrefix ?? "",
-				dimensions: null,
-				updatedAt: new Date(),
-			},
-		}
+			_id: base._id,
+			$or: [
+				{ reindexingSince: { $exists: false } },
+				{ reindexingSince: null },
+				{ reindexingSince: { $lt: new Date(now.getTime() - REINDEX_CLAIM_MS) } },
+			],
+		},
+		{ $set: { reindexingSince: now } }
 	);
-	const rows = await collections.knowledgeDocuments
-		.find({
-			storeId: base._id,
-			$or: [{ text: { $exists: true, $type: "string" } }, { fileId: { $exists: true } }],
-		})
-		.toArray();
-	await collections.knowledgeDocuments.updateMany(
-		{ _id: { $in: rows.map((row) => row._id) } },
-		{
-			$set: { status: "pending", error: "", indexedAt: null, updatedAt: new Date() },
-		}
-	);
-	const out: ReturnType<typeof documentObject>[] = [];
-	for (const row of rows) {
-		out.push(documentObject(await ingestDocument(row._id, token), null));
+	if (claimed.modifiedCount === 0) {
+		throw new KnowledgeError(409, "This base is already being reindexed. Wait for it to finish.");
 	}
-	return { data: out };
+	const release = () =>
+		collections.vectorStores.updateOne({ _id: base._id }, { $unset: { reindexingSince: "" } });
+
+	let rows: KnowledgeDocument[];
+	try {
+		rows = await collections.knowledgeDocuments
+			.find({
+				storeId: base._id,
+				$or: [{ text: { $exists: true, $type: "string" } }, { fileId: { $exists: true } }],
+			})
+			.toArray();
+		// `dimensions: null` lets the first new vector set the width, so a model
+		// of another width is accepted. The generation moves with it, so an
+		// ingest already in flight for the old model drops its write.
+		await collections.vectorStores.updateOne(
+			{ _id: base._id },
+			{
+				$set: {
+					embeddingModel: target.model,
+					embeddingChosen: target.chosen,
+					passagePrefix: target.passagePrefix,
+					queryPrefix: target.queryPrefix,
+					dimensions: null,
+					updatedAt: new Date(),
+				},
+				$inc: { embeddingGeneration: 1 },
+			}
+		);
+		// The old vectors go now. Searching filters by store and width only, so
+		// leaving them would rank them against queries from the new model (same
+		// width, different space) for as long as any document is still being
+		// re-embedded, or for good if one fails. With `dimensions` null the base
+		// searches as empty until the first new vector arrives.
+		if (rows.length > 0) {
+			await withClient(async (client) => {
+				const { ensureSchema } = await import("./db");
+				await ensureSchema();
+				await client.query("DELETE FROM knowledge_chunks WHERE store_id = $1", [
+					toUuid(base._id.toString()),
+				]);
+			});
+		}
+		await collections.knowledgeDocuments.updateMany(
+			{ _id: { $in: rows.map((row) => row._id) } },
+			{ $set: { status: "pending", error: "", indexedAt: null, updatedAt: new Date() } }
+		);
+	} catch (err) {
+		await release();
+		throw err;
+	}
+
+	// The work runs behind the response, on the same queue as an upload: a big
+	// base no longer holds the request open past the proxy's timeout. The claim
+	// is released when the last document settles.
+	if (rows.length === 0) {
+		await release();
+	} else {
+		let remaining = rows.length;
+		for (const row of rows) {
+			startIngest(row._id, token, async () => {
+				remaining--;
+				if (remaining === 0) await release();
+			});
+		}
+	}
+	return {
+		data: rows.map((row) =>
+			documentObject({ ...row, status: "pending", error: "", indexedAt: undefined } as never, null)
+		),
+	};
 }
 
 // -- shares -------------------------------------------------------------------

@@ -32,6 +32,7 @@
 	import IconAddLarge from "~icons/carbon/add-large";
 	import IconRefresh from "~icons/carbon/renew";
 	import RowMenu from "$lib/components/nav/RowMenu.svelte";
+	import EmbeddingModelPicker from "./EmbeddingModelPicker.svelte";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -65,6 +66,8 @@
 	const stores = $derived(allStores.filter((store) => !store.memory_of));
 	const memoryStores = $derived(allStores.filter((store) => store.memory_of));
 	let status = $state<KnowledgeStatus | null>(null);
+	// The embedder chosen on the create form: "" is the deployment's default.
+	let embeddingChoice = $state("");
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
 
@@ -143,6 +146,12 @@
 		failure = null;
 	}
 
+	// With no deployment default there is nothing to follow: a model is required.
+	$effect(() => {
+		const first = status?.embedding_models?.[0];
+		if (status && !status.embedding_model && !embeddingChoice && first) embeddingChoice = first;
+	});
+
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
 		if (!name.trim()) return;
@@ -156,6 +165,7 @@
 			store = await gwPost<VectorStore>("vector_stores", {
 				name: name.trim(),
 				description: description.trim(),
+				...(embeddingChoice ? { embedding_model: embeddingChoice } : {}),
 			});
 		} catch (err) {
 			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.create_failed"]();
@@ -487,16 +497,21 @@
 		link.remove();
 	}
 
-	async function reindex() {
+	async function reindex(embeddingModel?: string) {
 		if (!current) return;
 		const count = documents.length;
-		if (!confirm(m["knowledge.manager.reindex_confirm"]({ count }))) return;
+		// Moving to another embedder was confirmed inline, by the picker.
+		if (embeddingModel === undefined && !confirm(m["knowledge.manager.reindex_confirm"]({ count })))
+			return;
 		const id = current.id;
 		busy = true;
 		failure = null;
 		reindexing = true;
 		try {
-			await gwPost(`vector_stores/${id}/reindex`);
+			await gwPost(
+				`vector_stores/${id}/reindex`,
+				embeddingModel === undefined ? undefined : { embedding_model: embeddingModel }
+			);
 			notice = null;
 		} catch (err) {
 			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.update_failed"]();
@@ -795,6 +810,15 @@
 					/>
 				</div>
 
+				<EmbeddingModelPicker
+					id="kb-embedder"
+					models={status?.embedding_models ?? []}
+					defaultModel={status?.embedding_model ?? null}
+					bind:value={embeddingChoice}
+					required={!status?.embedding_model}
+					disabled={busy}
+				/>
+
 				<div>
 					<span class={s.LABEL}>{m["knowledge.manager.form.documents"]()}</span>
 					<FileDrop
@@ -866,7 +890,7 @@
 							{m["knowledge.manager.detail.all"]()}
 						</button>
 						{#if current.owned && reindexNeeded}
-							<button onclick={reindex} disabled={busy} class={s.SECONDARY}>
+							<button onclick={() => reindex()} disabled={busy} class={s.SECONDARY}>
 								<IconRefresh class="size-4" />
 								{m["knowledge.manager.detail.reindex"]()}
 							</button>
@@ -903,6 +927,18 @@
 						{/if}
 					</div>
 				</div>
+
+				<EmbeddingModelPicker
+					id="kb-embedder-current"
+					models={status?.embedding_models ?? []}
+					defaultModel={status?.embedding_model ?? null}
+					value={current.embedding_chosen ? (current.embedding_model ?? "") : ""}
+					current={current.embedding_model}
+					readonly={!current.owned}
+					disabled={busy}
+					confirmCount={documents.length}
+					onconfirm={(choice) => void reindex(choice)}
+				/>
 
 				{#if olderModel}
 					<p class={s.NOTICE} data-testid="kb-older-model">

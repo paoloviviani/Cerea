@@ -18,6 +18,20 @@ export interface VectorStore extends Timestamps {
 	/** The gateway model the vectors come from, by catalogue name. */
 	embeddingModel: string;
 	/**
+	 * True when the owner chose `embeddingModel` for this base, rather than it
+	 * following the deployment's default. A chosen model is never "stale": the
+	 * admin's default moving does not strand it, and a plain reindex keeps it.
+	 */
+	embeddingChosen?: boolean;
+	/**
+	 * Bumped by every reindex. An ingest that read the base before a reindex
+	 * moved it drops its write when the number has changed, so vectors of the
+	 * old model never land beside the new model's.
+	 */
+	embeddingGeneration?: number;
+	/** Set while a reindex is running; the claim that keeps a second one out. */
+	reindexingSince?: Date | null;
+	/**
 	 * The passage prefix the vectors were made with, recorded with the model:
 	 * a different one makes them stale, as a different model does. Absent on
 	 * older bases, which means empty.

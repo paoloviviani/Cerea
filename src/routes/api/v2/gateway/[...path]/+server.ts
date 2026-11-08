@@ -171,7 +171,7 @@ async function handleInternal(
 		if (path === "vector_stores") {
 			if (method === "GET") return json(await service.listStores(caller));
 			if (method === "POST") {
-				return json(await service.createStore(caller, await event.request.json()));
+				return json(await service.createStore(caller, await event.request.json(), bearer));
 			}
 		}
 
@@ -210,7 +210,18 @@ async function handleInternal(
 				return json(await service.search(id, caller, bearer, await event.request.json()));
 			}
 			if (action === "reindex" && method === "POST") {
-				return json(await service.reindex(id, caller, bearer));
+				// An optional `{ embedding_model }`: the owner's choice of embedder
+				// (`""` for the deployment's default), applied with the reindex.
+				const body = (await event.request.json().catch(() => null)) as {
+					embedding_model?: string | null;
+				} | null;
+				return json(
+					await service.reindex(id, caller, bearer, {
+						...(typeof body?.embedding_model === "string"
+							? { embeddingModel: body.embedding_model }
+							: {}),
+					})
+				);
 			}
 			if (action === "shares" && method === "GET")
 				return json(await service.listShares(id, caller));

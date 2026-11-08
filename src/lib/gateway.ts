@@ -86,6 +86,8 @@ export interface VectorStore {
 	file_counts: { in_progress: number; completed: number; failed: number; total: number };
 	dimensions: number | null;
 	embedding_model: string | null;
+	/** The owner chose this model; it does not follow the deployment's default. */
+	embedding_chosen?: boolean;
 	/** Built with another embedding model or passage prefix than the deployment's now. */
 	stale?: boolean;
 	owned: boolean;
@@ -122,6 +124,8 @@ export interface KnowledgeStatus {
 	enabled: boolean;
 	ready: boolean;
 	embedding_model: string | null;
+	/** The embedding models this user may choose among. */
+	embedding_models?: string[] | null;
 	max_upload_bytes: number;
 	detail: string | null;
 }
