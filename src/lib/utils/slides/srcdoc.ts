@@ -122,7 +122,7 @@ function runtimeScript(
   // generic class on .reveal and keeps the animation.
   function animate(){
     if (PDF || PRINT) return;
-    var all = document.querySelectorAll('.reveal .slides section');
+    var all = document.querySelectorAll('.reveal .slides > section, .reveal .slides > section > section');
     for (var i = 0; i < all.length; i++) if (!all[i].hasAttribute('data-transition')) all[i].setAttribute('data-transition', 'slide');
   }
   animate();
