@@ -147,6 +147,11 @@ function pairs(accent: string, neutral: string, dark: boolean): Pair[] {
 			bg: c("--colour-accent-subtle"),
 		},
 		{
+			name: "accent text on the contrast sidebar",
+			fg: c("--colour-accent"),
+			bg: c("--colour-sidebar-contrast"),
+		},
+		{
 			name: "accent hover on page",
 			fg: c("--colour-accent-hover"),
 			bg: c("--colour-bg"),
@@ -157,6 +162,8 @@ function pairs(accent: string, neutral: string, dark: boolean): Pair[] {
 				[
 					"--colour-bg",
 					"--colour-sidebar",
+					// The "Contrast" sidebar's own surface, per tone.
+					"--colour-sidebar-contrast",
 					"--colour-surface",
 					"--colour-surface-raised",
 					"--colour-surface-sunken",

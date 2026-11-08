@@ -113,6 +113,9 @@ const LADDER = {
 	900: 0.205,
 	950: 0.145,
 };
+// The "Contrast" sidebar: a surface clearly apart from the page in each tone (light:
+// a step darker than the page, dark: darker than it), with its own edge.
+const SIDEBAR_CONTRAST = { light: 0.935, lightEdge: 0.87, dark: 0.245, darkEdge: 0.32 };
 const DARK_LADDER = { page: 0.165, sidebar: 0.2, card: 0.235, composer: 0.27, border: 0.31 };
 // One chroma per tone keeps the ramp simple; the low-lightness steps clip anyway.
 const TONES = {
@@ -207,6 +210,8 @@ function neutralBlock(name, { hue, chroma }) {
 	out(`\t--colour-text: ${g[950]};`);
 	out(`\t--colour-text-muted: ${g[700]};`);
 	out(`\t--colour-text-faint: ${g[600]};`);
+	out(`\t--colour-sidebar-contrast: ${at(SIDEBAR_CONTRAST.light)};`);
+	out(`\t--colour-sidebar-contrast-edge: ${at(SIDEBAR_CONTRAST.lightEdge)};`);
 	out(`}`);
 	out(`${sel(true)} {`);
 	out(`\t--colour-bg: ${at(DARK_LADDER.page)}; /* page ${note(DARK_LADDER.page)} */`);
@@ -220,6 +225,8 @@ function neutralBlock(name, { hue, chroma }) {
 	out(`\t--colour-text: ${g[100]};`);
 	out(`\t--colour-text-muted: ${g[300]};`);
 	out(`\t--colour-text-faint: ${g[400]};`);
+	out(`\t--colour-sidebar-contrast: ${at(SIDEBAR_CONTRAST.dark)};`);
+	out(`\t--colour-sidebar-contrast-edge: ${at(SIDEBAR_CONTRAST.darkEdge)};`);
 	out(`}`);
 }
 

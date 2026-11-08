@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
 	ACCENTS,
+	BACKGROUNDS,
 	NEUTRALS,
+	SIDEBARS,
 	applyPalette,
 	paletteAttributes,
 	parseAccent,
+	parseBackground,
 	parseNeutral,
+	parseSidebar,
 } from "./palettes";
 
 describe("palette values", () => {
@@ -80,5 +84,45 @@ describe("applyPalette", () => {
 		expect([...el.attrs]).toEqual([["data-accent", "rose"]]);
 		applyPalette(el as unknown as HTMLElement, { accent: "blue" });
 		expect(el.attrs.size).toBe(0);
+	});
+});
+
+describe("sidebar and background", () => {
+	it("accepts only the listed values, so an unknown one is not chosen", () => {
+		expect([...SIDEBARS]).toEqual(["flat", "contrast"]);
+		expect([...BACKGROUNDS]).toEqual(["none", "dots", "mesh", "bold"]);
+		for (const v of SIDEBARS) expect(parseSidebar(v)).toBe(v);
+		for (const v of BACKGROUNDS) expect(parseBackground(v)).toBe(v);
+		for (const bad of ["stripes", "", null, undefined, 3, "Dots"]) {
+			expect(parseSidebar(bad)).toBeUndefined();
+			expect(parseBackground(bad)).toBeUndefined();
+		}
+	});
+
+	it("emits attributes only for non-defaults; old settings without the fields emit none", () => {
+		expect(paletteAttributes({ accent: "teal", neutral: "warm" })).toBe(
+			'data-accent="teal" data-neutral="warm"'
+		);
+		expect(paletteAttributes({ sidebar: "flat", background: "none" })).toBe("");
+		expect(paletteAttributes({ sidebar: "contrast" })).toBe('data-sidebar="contrast"');
+		expect(paletteAttributes({ accent: "rose", sidebar: "contrast", background: "bold" })).toBe(
+			'data-accent="rose" data-sidebar="contrast" data-background="bold"'
+		);
+		expect(paletteAttributes({ sidebar: 'contrast" onload="x', background: "plaid" })).toBe("");
+	});
+
+	it("applies and removes them live", () => {
+		const attrs = new Map<string, string>();
+		const el = {
+			setAttribute: (k: string, v: string) => void attrs.set(k, v),
+			removeAttribute: (k: string) => void attrs.delete(k),
+		} as unknown as HTMLElement;
+		applyPalette(el, { sidebar: "contrast", background: "mesh" });
+		expect([...attrs]).toEqual([
+			["data-sidebar", "contrast"],
+			["data-background", "mesh"],
+		]);
+		applyPalette(el, { sidebar: "flat", background: "bogus" });
+		expect(attrs.size).toBe(0);
 	});
 });

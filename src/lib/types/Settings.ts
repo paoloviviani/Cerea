@@ -1,5 +1,5 @@
 import { defaultModel } from "$lib/server/models";
-import type { Accent, Neutral } from "$lib/utils/palettes";
+import type { Accent, Background, Neutral, Sidebar } from "$lib/utils/palettes";
 import type { PushEventPrefs } from "$lib/utils/pushEvents";
 import type { Timestamps } from "./Timestamps";
 import type { User } from "./User";
@@ -168,6 +168,9 @@ export interface Settings extends Timestamps {
 	 */
 	locale?: string;
 	neutral?: Neutral;
+	/** Sidebar surface and the main-area background (Settings → Appearance). Absent means flat / none. */
+	sidebar?: Sidebar;
+	background?: Background;
 
 	/**
 	 * Organization to bill inference requests to (ADR 0061).
@@ -207,4 +210,6 @@ export const DEFAULT_SETTINGS = {
 	hapticsEnabled: true,
 	accent: "blue",
 	neutral: "neutral",
+	sidebar: "flat",
+	background: "none",
 } satisfies SettingsEditable;

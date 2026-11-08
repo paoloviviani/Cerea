@@ -21,6 +21,14 @@
 		NEUTRAL_SWATCHES,
 		parseAccent,
 		parseNeutral,
+		parseSidebar,
+		parseBackground,
+		SIDEBARS,
+		BACKGROUNDS,
+		DEFAULT_SIDEBAR,
+		DEFAULT_BACKGROUND,
+		type Sidebar,
+		type Background,
 		type Accent,
 		type Neutral,
 	} from "$lib/utils/palettes";
@@ -37,6 +45,7 @@
 	import { getThemePreference, setTheme, type ThemePreference } from "$lib/switchTheme";
 	import { supportsHaptics } from "$lib/utils/haptics";
 	import DeleteAllConversationsModal from "$lib/components/DeleteAllConversationsModal.svelte";
+	import SegmentedGroup from "$lib/components/settings/SegmentedGroup.svelte";
 	import ScheduleAccessSettings from "$lib/components/settings/ScheduleAccessSettings.svelte";
 
 	const publicConfig = usePublicConfig();
@@ -54,6 +63,17 @@
 		neutral: m["settings.application.neutral.option.neutral"],
 		cool: m["settings.application.neutral.option.cool"],
 		warm: m["settings.application.neutral.option.warm"],
+	};
+
+	const SIDEBAR_LABELS: Record<Sidebar, () => string> = {
+		flat: m["settings.application.sidebar.option.flat"],
+		contrast: m["settings.application.sidebar.option.contrast"],
+	};
+	const BACKGROUND_LABELS: Record<Background, () => string> = {
+		none: m["settings.application.background.option.none"],
+		dots: m["settings.application.background.option.dots"],
+		mesh: m["settings.application.background.option.mesh"],
+		bold: m["settings.application.background.option.bold"],
 	};
 
 	// The product's own name is not a word to translate. i18n: literal
@@ -275,6 +295,40 @@
 							colour: NEUTRAL_SWATCHES[n],
 						}))}
 						onchange={(v) => settings.instantSet({ neutral: parseNeutral(v) })}
+					/>
+				</div>
+
+				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<div>
+						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+							{m["settings.application.sidebar.title"]()}
+						</div>
+						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+							{m["settings.application.sidebar.description"]()}
+						</p>
+					</div>
+					<SegmentedGroup
+						label={m["settings.application.sidebar.title"]()}
+						value={parseSidebar($settings.sidebar) ?? DEFAULT_SIDEBAR}
+						options={SIDEBARS.map((v) => ({ value: v, label: SIDEBAR_LABELS[v]() }))}
+						onchange={(v) => settings.instantSet({ sidebar: parseSidebar(v) })}
+					/>
+				</div>
+
+				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<div>
+						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+							{m["settings.application.background.title"]()}
+						</div>
+						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+							{m["settings.application.background.description"]()}
+						</p>
+					</div>
+					<SegmentedGroup
+						label={m["settings.application.background.title"]()}
+						value={parseBackground($settings.background) ?? DEFAULT_BACKGROUND}
+						options={BACKGROUNDS.map((v) => ({ value: v, label: BACKGROUND_LABELS[v]() }))}
+						onchange={(v) => settings.instantSet({ background: parseBackground(v) })}
 					/>
 				</div>
 
