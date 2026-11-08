@@ -115,6 +115,14 @@ describe("buildSlidesSrcdoc, HTML", () => {
 		expect(doc).toContain("center: MD");
 	});
 
+	it("sets the transition per section, leaving no generic class such as .slide on .reveal", () => {
+		// A deck's own .slide wrapper rule (1280x720) used to size .reveal itself,
+		// so reveal never scaled down and narrow panels cut the slides.
+		expect(doc).toContain("transition: 'none'");
+		expect(doc).not.toContain("transition: PDF || PRINT ? 'none' : 'slide'");
+		expect(doc).toContain("setAttribute('data-transition', 'slide')");
+	});
+
 	it("applies no theme but defines the brand variables", () => {
 		expect(doc).toContain("--brand-accent:#0a7e8c");
 		expect(doc).toContain("--brand-logo-url");

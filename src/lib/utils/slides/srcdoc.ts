@@ -114,12 +114,24 @@ function runtimeScript(
   function send(type, detail){ try { parent.postMessage({ type: type, channel: CH, detail: detail }, '*'); } catch (e) {} }
   var notesEl = document.querySelector('.cerea-notes');
   var notesOpen = false;
+  // Reveal puts the deck-wide transition name on the .reveal element as a class
+  // ("slide"), and decks very often call their own wrapper .slide: the deck's
+  // fixed 1280x720 .slide rule then sized .reveal itself, reveal measured that
+  // instead of the frame and never scaled down, so narrow panels cut the
+  // slides. The transition is set per section instead, which leaves no
+  // generic class on .reveal and keeps the animation.
+  function animate(){
+    if (PDF || PRINT) return;
+    var all = document.querySelectorAll('.reveal .slides > section, .reveal .slides > section > section');
+    for (var i = 0; i < all.length; i++) if (!all[i].hasAttribute('data-transition')) all[i].setAttribute('data-transition', 'slide');
+  }
+  animate();
   var deck = new Reveal({
     plugins: [RevealMarkdown],
     width: 1280, height: 720, margin: MD && !PDF ? 0.04 : 0, minScale: PDF ? 1 : 0.1, maxScale: PDF ? 1 : 2,
     center: MD, hash: false, history: false, controls: false, progress: !PDF && !PRINT, slideNumber: false,
     showNotes: PRINT && PRINT.notes ? 'separate-page' : false, pdfSeparateFragments: false,
-    transition: PDF || PRINT ? 'none' : 'slide', backgroundTransition: 'none', keyboard: !PDF, touch: !PDF,
+    transition: 'none', backgroundTransition: 'none', keyboard: !PDF, touch: !PDF,
     fragments: !PDF && !PRINT, help: true, overview: !PDF, mouseWheel: false, respondToHashChanges: false, scrollActivationWidth: null, view: null
   });
   function notes(){
@@ -175,6 +187,7 @@ function runtimeScript(
     if (printBtn) printBtn.addEventListener('click', function(){ window.print(); });
   }
   deck.initialize().then(function(){
+    animate(); // sections the Markdown plugin made
     deck.on('slidechanged', publish); deck.on('fragmentshown', publish); deck.on('fragmenthidden', publish);
     publish();
   });
