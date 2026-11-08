@@ -67,6 +67,7 @@ import { UNTRUSTED_SYSTEM_LINE } from "../untrusted";
 import { urlsInUserText } from "../builtinTools/webFetchTool";
 import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
 import { billToHeader } from "$lib/server/billTo";
+import { turnTagHeader } from "$lib/server/turnCost";
 import {
 	TurnStatsCollector,
 	redactionFromError,
@@ -362,7 +363,10 @@ export async function* runMcpFlow({
 			return {
 				model: image.model,
 				askFirst: await imageAskFirst(),
-				billHeaders: billToHeader(locals?.billingOrganization),
+				billHeaders: {
+					...billToHeader(locals?.billingOrganization),
+					...turnTagHeader(messageId),
+				},
 			};
 		} catch (err) {
 			logger.warn(
@@ -666,6 +670,9 @@ export async function* runMcpFlow({
 				// Asks the gateway for the redaction summary (and the values, when
 				// the user opted in), reported on each call's usage chunk.
 				...redactionRequestHeaders(locals),
+				// Labels each call with the turn, so its cost can be read once the
+				// gateway has settled it (turnCost.ts).
+				...turnTagHeader(messageId),
 			},
 		});
 		// Numbers for the answer's info dot, summed over every call of this turn.

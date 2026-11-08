@@ -72,6 +72,49 @@ test("a plain answer has a grey dot with the turn's numbers", async ({ page, moc
 	await expect(page.getByTestId("turn-info-redaction")).toHaveCount(0);
 });
 
+test("the cost is read from the gateway by the turn's tag when the overlay opens", async ({
+	page,
+	mockOpenAI,
+}) => {
+	await mockOpenAI.setDefaultScenario({
+		content: ["Tagged", " answer."],
+		chunkDelayMs: 5,
+		usage: { prompt_tokens: 40, completion_tokens: 6 },
+		tagCost: "0.0125",
+	});
+	await page.goto(`${E2E_APP_BASE}/`);
+	await send(page, "hello");
+	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
+	await expect(page.getByText("Tagged answer.")).toBeVisible({ timeout: 30_000 });
+
+	const request = (await chatRequests(mockOpenAI)).at(-1);
+	expect(request?.headers?.["x-pystino-tag"]).toMatch(/^turn:[0-9a-f-]{36}$/);
+
+	await page.getByTestId("turn-info-dot").click();
+	await expect(page.getByTestId("turn-info-cost")).toContainText("0.0125", { timeout: 15_000 });
+	await expect(page.getByTestId("turn-info-cost")).toContainText("€");
+
+	// Stored on the message: a reload shows it without asking again.
+	await page.reload();
+	await page.getByTestId("turn-info-dot").click();
+	await expect(page.getByTestId("turn-info-cost")).toContainText("0.0125", { timeout: 15_000 });
+});
+
+test("a gateway with nothing settled leaves the cost as a dash", async ({ page, mockOpenAI }) => {
+	await mockOpenAI.setDefaultScenario({
+		content: ["Untracked", " answer."],
+		chunkDelayMs: 5,
+		usage: { prompt_tokens: 40, completion_tokens: 6 },
+	});
+	await page.goto(`${E2E_APP_BASE}/`);
+	await send(page, "hello");
+	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
+	await expect(page.getByText("Untracked answer.")).toBeVisible({ timeout: 30_000 });
+	await page.getByTestId("turn-info-dot").click();
+	// The server asks twice, 2 s apart, before it gives up.
+	await expect(page.getByTestId("turn-info-cost")).toHaveText("—", { timeout: 15_000 });
+});
+
 test("@smoke redaction turns the dot yellow, shows values only when the setting is on, and survives a reload", async ({
 	page,
 	db,

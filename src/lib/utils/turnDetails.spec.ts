@@ -6,6 +6,7 @@ import {
 	formatCount,
 	formatDuration,
 	formatSpeed,
+	formatTurnCost,
 	modeLabel,
 	redactionSummary,
 	sourceLabel,
@@ -114,5 +115,20 @@ describe("words", () => {
 		expect(formatDuration(340)).toBe("340 ms");
 		expect(formatDuration(1250)).toBe("1.3 s");
 		expect(formatSpeed(42.5)).toBe("42.5 tokens/s");
+	});
+});
+
+describe("formatTurnCost", () => {
+	it("formats a plain decimal in its currency, like the quota summary", () => {
+		expect(formatTurnCost("0.0042", "EUR")).toBe("€0.0042");
+		expect(formatTurnCost("1.5", "USD")).toBe("$1.50");
+	});
+	it("keeps a cost the gateway wrote itself, and dashes for none", () => {
+		expect(formatTurnCost("0.0042 USD", undefined)).toBe("0.0042 USD");
+		expect(formatTurnCost(undefined, "EUR")).toBe("—");
+		expect(formatTurnCost(null, null)).toBe("—");
+	});
+	it("shows the number and no throw for an unknown currency code", () => {
+		expect(formatTurnCost("2", "ZZZ")).toContain("2");
 	});
 });

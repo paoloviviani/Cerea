@@ -26,6 +26,7 @@ export async function* generate(
 		reasoningOverride,
 		locals,
 		abortController,
+		messageId,
 	}: GenerateContext,
 	preprompt?: string
 ): AsyncIterable<MessageUpdate> {
@@ -63,6 +64,7 @@ export async function* generate(
 			// Per-model user override for multimodal, winning in both directions
 			isMultimodal: forceMultimodal ?? model.multimodal,
 			conversationId: conv._id,
+			messageId,
 			locals,
 			abortSignal: abortController.signal,
 			reasoningEffort,
