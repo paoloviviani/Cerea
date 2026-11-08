@@ -1,5 +1,6 @@
 import type { MessageUpdate } from "./MessageUpdate";
 import type { Timestamps } from "./Timestamps";
+import type { TurnStats } from "./TurnStats";
 import type { v4 } from "uuid";
 
 /**
@@ -68,6 +69,13 @@ export type Message = Partial<Timestamps> & {
 		model: string;
 		provider?: string;
 	};
+
+	/**
+	 * Numbers and the redaction summary for the turn's details overlay. Set by
+	 * the server where the stream is read; absent on answers written before it
+	 * existed. `redaction.values` is stripped from exports.
+	 */
+	stats?: TurnStats;
 
 	// needed for conversation trees
 	ancestors?: Message["id"][];

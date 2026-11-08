@@ -12,6 +12,7 @@ import type {
 import { buildPrompt } from "$lib/buildPrompt";
 import { config } from "$lib/server/config";
 import { billToHeader } from "$lib/server/billTo";
+import { redactionRequestHeaders } from "$lib/server/turnStats";
 import type { Endpoint } from "../endpoints";
 import type OpenAI from "openai";
 import { createImageProcessorOptionsValidator, makeImageProcessor } from "../images";
@@ -233,6 +234,9 @@ export async function endpointOai(
 				model: modelId,
 				messages: messagesOpenAI,
 				stream: streamingSupported,
+				// The usage chunk is where the gateway puts the turn's token counts,
+				// cost and redaction summary.
+				...(streamingSupported ? { stream_options: { include_usage: true } } : {}),
 				// Support two different ways of specifying token limits depending on the model
 				...(useCompletionTokens
 					? { max_completion_tokens: parameters?.max_tokens }
@@ -259,6 +263,7 @@ export async function endpointOai(
 								: {}),
 							// Which group pays, when the person chose one (ADR 0061).
 							...billToHeader(locals?.billingOrganization),
+							...redactionRequestHeaders(locals),
 						},
 						signal: req.signal,
 					}
@@ -279,6 +284,7 @@ export async function endpointOai(
 								: {}),
 							// Which group pays, when the person chose one (ADR 0061).
 							...billToHeader(locals?.billingOrganization),
+							...redactionRequestHeaders(locals),
 						},
 						signal: abortSignal,
 					}

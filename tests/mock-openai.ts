@@ -116,6 +116,20 @@ export interface ScenarioScript {
 	finishReason?: "stop" | "length" | "tool_calls";
 	/** Body for non-streaming requests (title generation, tool-call id recovery). */
 	nonStreamContent?: string;
+	/**
+	 * What Pystino reports on the usage chunk (streaming, when the request asks
+	 * for `stream_options.include_usage`) or in the body (non-streaming). Left
+	 * out, no usage chunk is sent, so other specs see the stream they always did.
+	 */
+	usage?: { prompt_tokens: number; completion_tokens: number; reasoning_tokens?: number };
+	/** `pystino_cost`, sent next to the usage. */
+	cost?: string;
+	/**
+	 * The `pystino_redaction` object. Sent only when the request carries
+	 * `x-pystino-redaction-summary: 1`; its `values` only when it also carries
+	 * `x-pystino-redaction-values: 1`, as the gateway does.
+	 */
+	redaction?: Record<string, unknown> & { values?: unknown[] };
 }
 
 /** Select one per test with `mockOpenAI.setScenario(conversationId, "reasoning")`. */
@@ -182,6 +196,8 @@ export interface RecordedRequest {
 	conversationId: string | null;
 	stream: boolean;
 	body: Record<string, unknown>;
+	/** The `x-pystino-*` request headers, lower-cased, for assertions on what Cerea asked for. */
+	headers?: Record<string, string>;
 	at: number;
 }
 
@@ -224,6 +240,42 @@ interface ChunkDelta {
 		type?: "function";
 		function: { name?: string; arguments?: string };
 	}>;
+}
+
+/** The `x-pystino-*` headers of a request. */
+function pystinoHeaders(req: IncomingMessage): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const [name, value] of Object.entries(req.headers)) {
+		if (name.startsWith("x-pystino-") && typeof value === "string") out[name] = value;
+	}
+	return out;
+}
+
+/** The usage, cost and redaction fields a script asks the gateway to report, for this request. */
+function reportFields(script: ScenarioScript, headers: Record<string, string>) {
+	if (!script.usage && !script.redaction && !script.cost) return undefined;
+	const redaction =
+		script.redaction && headers["x-pystino-redaction-summary"] === "1"
+			? (() => {
+					const { values, ...summary } = script.redaction;
+					return headers["x-pystino-redaction-values"] === "1" && values
+						? { ...summary, values }
+						: summary;
+				})()
+			: undefined;
+	return {
+		usage: (() => {
+			const { reasoning_tokens, ...usage } = script.usage ?? {
+				prompt_tokens: 10,
+				completion_tokens: 5,
+			};
+			return reasoning_tokens === undefined
+				? usage
+				: { ...usage, completion_tokens_details: { reasoning_tokens } };
+		})(),
+		...(script.cost ? { pystino_cost: script.cost } : {}),
+		...(redaction ? { pystino_redaction: redaction } : {}),
+	};
 }
 
 function chunk(model: string, delta: ChunkDelta, finish: string | null = null) {
@@ -559,6 +611,7 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 				conversationId,
 				stream: wantsStream,
 				body,
+				headers: pystinoHeaders(req),
 				at: Date.now(),
 			});
 
@@ -605,9 +658,12 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 				(!script.toolCallsOnce || (offersTools && !once.spent));
 			if (emitToolCalls && script.toolCallsOnce) once.spent = true;
 
+			const report = reportFields(script, pystinoHeaders(req));
+
 			// ── Non-streaming: title generation and tool-call id recovery ──────────
 			if (!wantsStream) {
 				json(res, 200, {
+					...(report ?? {}),
 					id: "chatcmpl-mock",
 					object: "chat.completion",
 					created: 0,
@@ -646,6 +702,20 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 			let aborted = false;
 			req.on("close", () => (aborted = true));
 			const send = (payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+			const streamOptions = body.stream_options as { include_usage?: boolean } | undefined;
+			// The gateway's closing chunk: no choices, only the report.
+			const sendReport = () => {
+				if (report && streamOptions?.include_usage) {
+					send({
+						id: "chatcmpl-mock",
+						object: "chat.completion.chunk",
+						created: 0,
+						model,
+						choices: [],
+						...report,
+					});
+				}
+			};
 
 			if (script.initialDelayMs) await sleep(script.initialDelayMs);
 			send(chunk(model, { role: "assistant", content: "" }));
@@ -702,6 +772,7 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 				}
 				if (aborted) return;
 				send(chunk(model, {}, "tool_calls"));
+				sendReport();
 				res.write("data: [DONE]\n\n");
 				res.end();
 				return;
@@ -715,6 +786,7 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 
 			if (aborted) return;
 			send(chunk(model, {}, script.finishReason ?? "stop"));
+			sendReport();
 			res.write("data: [DONE]\n\n");
 			res.end();
 			return;

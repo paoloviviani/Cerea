@@ -127,6 +127,7 @@ async function denyAndResume(row: McpElicitation): Promise<void> {
 			reasoning: message.reasoning,
 			files: message.files,
 			routerMetadata: message.routerMetadata,
+			stats: message.stats,
 			updates: compressUpdatesForStorage(message.updates),
 		}),
 	});

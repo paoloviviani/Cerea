@@ -520,6 +520,40 @@ provider issues no refresh token, chat works as always but schedules explain tha
 administrator has to allow refresh tokens. You may have up to 20 schedules by default;
 your administrator can change that.
 
+## Turn details and redaction
+
+Under each answer, next to the copy and retry icons, a small **i** opens the
+**turn details**: a popover on a computer, a sheet on a phone. It shows the
+model's name, the input, output and reasoning tokens, the time to the first
+token, the speed (output tokens per second, from the first token to the end),
+the cost where the gateway reports one, and the time of the turn. Anything not
+known shows "—". The numbers are measured where Cerea reads the answer and are
+kept with it, so they are there after a reload. In a turn with tools, the
+tokens and the cost add up over the model's calls.
+
+The **i** is grey. When the gateway's redaction
+hid values from the model it turns **yellow** and the overlay says "Values
+hidden"; if the request was refused it turns **red** and says "Request
+refused". Redaction is a gateway feature: with none configured, the dot stays
+grey and the overlay has no redaction part.
+
+The redaction part says what was hidden, for example: "Hidden from the model:
+2 names, 1 fiscal code (admin rule "Cloud providers"); 1 record number (your
+rule)." Each kind of value also shows what happened to it (restored in the
+answer, kept hidden, or request refused) and where it came from (your message,
+a tool result). Where the deployment has a console, **See all redactions**
+opens its redactions page.
+
+**Show hidden values in the turn details** (Settings, Application) is off by
+default. When it is on while an answer is made, the overlay also lists each
+hidden value as "original → kind". The values come from the gateway for that
+answer only and are kept with the chat, where the original text already is.
+They are never part of a Markdown export or the data export, which keep the
+summary only.
+
+This covers chats that go through the gateway, tool turns included. Coding
+agent sessions have no turn details: their requests show in the gateway's log.
+
 ## Notifications
 
 Cerea can send a notification to your phone or desktop when a long chat answer is

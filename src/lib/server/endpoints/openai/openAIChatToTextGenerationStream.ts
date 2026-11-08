@@ -1,6 +1,7 @@
 import { THINK_CLOSE, THINK_OPEN } from "$lib/utils/thinkTags";
 import type { TextGenerationStreamOutput } from "../endpoints";
 import type OpenAI from "openai";
+import { mergeCallReport, readCallReport, type CallReport } from "$lib/server/turnStats";
 
 /**
  * Transform a stream of OpenAI.Chat.ChatCompletion into a stream of TextGenerationStreamOutput
@@ -19,8 +20,24 @@ export async function* openAIChatToTextGenerationStream(
 	// blank chunk can't create an empty think block on its own while the trace still
 	// stays byte-exact. Mirrors runMcpFlow, which does the same for the tool path.
 	let pendingReasoningWhitespace = "";
+	// What the gateway reports on the final usage chunk: tokens, cost and the
+	// redaction summary. Yielded once at the end, as a special token.
+	let callReport: CallReport = {};
+	let reported = false;
 
 	for await (const completion of completionStream) {
+		const chunkReport = readCallReport(completion);
+		if (
+			chunkReport.inputTokens !== undefined ||
+			chunkReport.outputTokens !== undefined ||
+			chunkReport.cost !== undefined ||
+			chunkReport.redaction !== undefined
+		) {
+			callReport = mergeCallReport(callReport, chunkReport);
+			reported = true;
+			// A usage chunk carries no choices: nothing in it is text.
+			if (!completion.choices || completion.choices.length === 0) continue;
+		}
 		const retyped = completion as {
 			"x-router-metadata"?: { route: string; model: string; provider?: string };
 		};
@@ -154,6 +171,15 @@ export async function* openAIChatToTextGenerationStream(
 		// Tools removed: ignore tool_calls deltas
 	}
 
+	if (reported) {
+		yield {
+			token: { id: tokenId++, text: "", logprob: 0, special: true },
+			generated_text: null,
+			details: null,
+			callReport,
+		} as TextGenerationStreamOutput;
+	}
+
 	// If metadata wasn't yielded from chunks (e.g., from headers), yield it at the end
 	if (!metadataYielded && getRouterMetadata) {
 		const routerMetadata = getRouterMetadata();
@@ -231,4 +257,14 @@ export async function* openAIChatToTextGenerationSingle(
 	} as TextGenerationStreamOutput & {
 		routerMetadata?: { route?: string; model?: string; provider?: string };
 	};
+
+	const callReport = readCallReport(completion);
+	if (Object.values(callReport).some((v) => v !== undefined)) {
+		yield {
+			token: { id: tokenId + 1, text: "", logprob: 0, special: true },
+			generated_text: null,
+			details: null,
+			callReport,
+		} as TextGenerationStreamOutput;
+	}
 }

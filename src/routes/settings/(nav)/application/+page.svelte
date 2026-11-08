@@ -86,6 +86,12 @@
 	function setHapticsEnabled(v: boolean) {
 		settings.update((s) => ({ ...s, hapticsEnabled: v }));
 	}
+	function getShowRedactionValues() {
+		return $settings.showRedactionValues === true;
+	}
+	function setShowRedactionValues(v: boolean) {
+		settings.update((s) => ({ ...s, showRedactionValues: v }));
+	}
 	// The default new chats inherit. The composer's toggle writes per-chat
 	// state instead — settings hold *defaults*, a chat holds *per-chat state*.
 	const webSearchUnavailable = $derived(
@@ -358,6 +364,21 @@
 						<Switch name="hapticsEnabled" bind:checked={getHapticsEnabled, setHapticsEnabled} />
 					</div>
 				{/if}
+
+				<div class="flex items-start justify-between py-3">
+					<div>
+						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+							{m["settings.application.redaction_values.title"]()}
+						</div>
+						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+							{m["settings.application.redaction_values.description"]()}
+						</p>
+					</div>
+					<Switch
+						name="showRedactionValues"
+						bind:checked={getShowRedactionValues, setShowRedactionValues}
+					/>
+				</div>
 
 				<div class="flex items-start justify-between py-3">
 					<div>

@@ -6,6 +6,7 @@ import yazl from "yazl";
 import { downloadFile } from "$lib/server/files/downloadFile";
 import mimeTypes from "mime-types";
 import { logger } from "$lib/server/logger";
+import { stripRedactionValues } from "$lib/server/turnStats";
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) {
@@ -88,7 +89,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 						return {
 							...conversation,
-							messages: conversation.messages.map((message) => {
+							// The hidden values the gateway reported stay out of the file.
+							messages: stripRedactionValues(conversation.messages).map((message) => {
 								return {
 									...message,
 									files: filenames,

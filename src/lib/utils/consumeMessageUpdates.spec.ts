@@ -125,3 +125,24 @@ describe("sub-agent updates in a live view", () => {
 		expect(kept[0]).toMatchObject({ uuid: "a", status: "done" });
 	});
 });
+
+describe("turn stats in a live view", () => {
+	it("lands on the message's stats and stays out of its update log", async () => {
+		const message: Message = {
+			id: "00000000-0000-4000-8000-000000000001",
+			from: "assistant",
+			content: "",
+			updates: [],
+		};
+		await consumeMessageUpdates(
+			fromArray([
+				{ type: MessageUpdateType.TurnStats, stats: { model: "A", inputTokens: 1 } },
+				{ type: MessageUpdateType.TurnStats, stats: { model: "A", inputTokens: 5 } },
+			]),
+			message,
+			context()
+		);
+		expect(message.stats?.inputTokens).toBe(5);
+		expect(message.updates).toEqual([]);
+	});
+});

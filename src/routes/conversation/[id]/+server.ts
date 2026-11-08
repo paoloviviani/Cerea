@@ -509,6 +509,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					reasoning: messageToWriteTo.reasoning,
 					files: messageToWriteTo.files,
 					routerMetadata: messageToWriteTo.routerMetadata,
+					stats: messageToWriteTo.stats,
 					updates: compressUpdatesForStorage(messageToWriteTo.updates),
 				}),
 			});
@@ -664,6 +665,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 				// Add billing organization to locals for the endpoint to use
 				locals.billingOrganization = userSettings?.billingOrganization;
+				locals.showRedactionValues = userSettings?.showRedactionValues === true;
 
 				let parkedAgain = false;
 				if (resumeElicitationId) {

@@ -89,6 +89,14 @@ export async function consumeMessageUpdates(
 			update.token = update.token.replaceAll("\0", "");
 		}
 
+		// Numbers for the info dot: kept on the message, never in its update log,
+		// so they cannot make the rendered turn rebuild (an open approval card
+		// would close under the user's finger).
+		if (update.type === MessageUpdateType.TurnStats) {
+			message.stats = update.stats;
+			continue;
+		}
+
 		const isKeepAlive =
 			update.type === MessageUpdateType.Status && update.status === MessageUpdateStatus.KeepAlive;
 

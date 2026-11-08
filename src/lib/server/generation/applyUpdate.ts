@@ -166,6 +166,13 @@ export function applyUpdateToMessage(
 		else message.updates.push(event);
 		message.updatedAt = new Date();
 		return { skipped: false, titleChanged, finalAnswerReceived };
+	} else if (event.type === MessageUpdateType.TurnStats) {
+		// Cumulative over the turn's calls, so the latest replaces the last. It
+		// belongs to the message's own `stats`, not to the replay log: the log
+		// is copied around (and its values must never leave with an export).
+		message.stats = event.stats;
+		message.updatedAt = new Date();
+		return { skipped: false, titleChanged, finalAnswerReceived };
 	} else if (event.type === MessageUpdateType.SubAgent) {
 		// One record per sub-agent: each state it reports replaces the last one
 		// for the same call, so 25 steps store one update rather than 25.

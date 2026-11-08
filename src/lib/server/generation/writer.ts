@@ -58,6 +58,7 @@ export interface GenerationSnapshot {
 	reasoning?: string;
 	files?: Message["files"];
 	routerMetadata?: Message["routerMetadata"];
+	stats?: Message["stats"];
 	/** Compressed for storage (keepalives dropped, stream tokens → length markers). */
 	updates?: MessageUpdate[];
 }
@@ -218,6 +219,7 @@ export async function createGenerationWriter(
 						...(snap.routerMetadata !== undefined
 							? { "messages.$.routerMetadata": snap.routerMetadata }
 							: {}),
+						...(snap.stats !== undefined ? { "messages.$.stats": snap.stats } : {}),
 						...(snap.updates !== undefined ? { "messages.$.updates": snap.updates } : {}),
 						"messages.$.materializedSeq": at,
 						"messages.$.updatedAt": new Date(),

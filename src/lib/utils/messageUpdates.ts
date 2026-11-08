@@ -268,6 +268,7 @@ export async function* smoothStreamUpdates(
 	const isOutOfBand = (update: MessageUpdate): boolean =>
 		update.type === MessageUpdateType.Title ||
 		update.type === MessageUpdateType.RouterMetadata ||
+		update.type === MessageUpdateType.TurnStats ||
 		(update.type === MessageUpdateType.Status && update.status === MessageUpdateStatus.KeepAlive);
 
 	const producer = (async () => {
