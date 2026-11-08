@@ -520,6 +520,16 @@ describe("runMcpFlow turn stats and redaction", () => {
 		expect(headersOf()["x-pystino-redaction-values"]).toBe("1");
 	});
 
+	it("keeps the refusal's redaction when the gateway answers 403", async () => {
+		const refusal = Object.assign(new Error("403 refused"), {
+			status: 403,
+			error: { pystino_redaction: redaction(1, { blocked: true }) },
+		});
+		scriptRounds([{ error: refusal }]);
+		const { updates } = await runFlow().catch(() => ({ updates: [] as MessageUpdate[] }));
+		expect(statsOf(updates)?.redaction?.blocked).toBe(true);
+	});
+
 	it("sends no stats gaps as errors: a gateway without redaction leaves the object out", async () => {
 		scriptRounds([{ content: "plain" }]);
 		const { updates } = await runFlow();

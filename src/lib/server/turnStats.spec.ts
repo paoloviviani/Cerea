@@ -6,6 +6,7 @@ import {
 	parseCost,
 	parseRedaction,
 	readCallReport,
+	redactionFromError,
 	redactionRequestHeaders,
 	stripRedactionValues,
 	sumCosts,
@@ -19,7 +20,7 @@ const FULL = {
 		{
 			type: "PERSON",
 			count: 2,
-			mode: "restore",
+			mode: "anonymise_restore",
 			rule: { id: "r1", name: "Cloud providers", owner: "admin" },
 			sources: ["user", "tool"],
 		},
@@ -88,6 +89,38 @@ describe("parseRedaction", () => {
 		expect(parseCost(" 1.5 EUR ")).toBe("1.5 EUR");
 		expect(parseCost(3)).toBeUndefined();
 		expect(parseCost("")).toBeUndefined();
+	});
+});
+
+describe("redactionFromError", () => {
+	it("reads the object off a refused request's 403 body, with a null rule id", () => {
+		const err = Object.assign(new Error("403"), {
+			status: 403,
+			error: {
+				error: { message: "refused" },
+				pystino_redaction: {
+					applied: true,
+					blocked: true,
+					entities: [
+						{
+							type: "PERSON",
+							count: 1,
+							mode: "block",
+							rule: { id: null, name: "Default", owner: "admin" },
+						},
+					],
+				},
+			},
+		});
+		const parsed = redactionFromError(err);
+		expect(parsed?.blocked).toBe(true);
+		expect(parsed?.values).toBeUndefined();
+		expect(parsed?.entities[0].rule).toEqual({ name: "Default", owner: "admin" });
+	});
+	it("is undefined for any other error", () => {
+		expect(redactionFromError(new Error("x"))).toBeUndefined();
+		expect(redactionFromError({ error: "text" })).toBeUndefined();
+		expect(redactionFromError(null)).toBeUndefined();
 	});
 });
 

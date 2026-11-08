@@ -10,7 +10,7 @@ import type { EndpointMessage } from "../endpoints/endpoints";
 import { generateFromDefaultEndpoint } from "../generateFromDefaultEndpoint";
 import { generateSummaryOfReasoning } from "./reasoning";
 import { logger } from "../logger";
-import { TurnStatsCollector, mergeCallReport } from "../turnStats";
+import { TurnStatsCollector, mergeCallReport, redactionFromError } from "../turnStats";
 
 type GenerateContext = Omit<TextGenerationContext, "messages"> & { messages: EndpointMessage[] };
 
@@ -55,17 +55,28 @@ export async function* generate(
 	const turnStats = new TurnStatsCollector({ model: model.displayName });
 	const call = turnStats.begin();
 
-	const stream = await endpoint({
-		messages,
-		preprompt,
-		// Per-model user override for multimodal, winning in both directions
-		isMultimodal: forceMultimodal ?? model.multimodal,
-		conversationId: conv._id,
-		locals,
-		abortSignal: abortController.signal,
-		reasoningEffort,
-		reasoningOverride,
-	});
+	let stream: Awaited<ReturnType<typeof endpoint>>;
+	try {
+		stream = await endpoint({
+			messages,
+			preprompt,
+			// Per-model user override for multimodal, winning in both directions
+			isMultimodal: forceMultimodal ?? model.multimodal,
+			conversationId: conv._id,
+			locals,
+			abortSignal: abortController.signal,
+			reasoningEffort,
+			reasoningOverride,
+		});
+	} catch (err) {
+		// A refused request still says what the gateway did: the dot turns red.
+		const refused = redactionFromError(err);
+		if (refused) {
+			call.report = { redaction: refused };
+			yield { type: MessageUpdateType.TurnStats, stats: turnStats.snapshot() };
+		}
+		throw err;
+	}
 
 	for await (const output of stream) {
 		if (output.callReport) {

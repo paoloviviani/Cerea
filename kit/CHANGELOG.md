@@ -7,7 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
-- **Turn details under each answer.** A small **i** next to the copy and retry icons opens the model's name, the tokens, the time to the first token, the speed, the cost and the time of the turn. It turns yellow when the gateway's redaction hid values from the model and red when it refused the request, and then lists what was hidden, with a link to the console's redactions page. A new setting, **Show hidden values in the turn details** (Settings, Application, off by default), also lists the values themselves; they are kept with the chat and never exported. Needs a gateway that reports redaction (Pystino); without one, only the numbers show. Coding agent sessions are not covered.
+- **Turn details under each answer.** A small **i** next to the copy and retry icons opens the model's name, the tokens, the time to the first token, the speed, the cost and the time of the turn. It turns yellow when the gateway's redaction hid values from the model and red when it refused the request, and then lists what was hidden, with a link to the console's redactions page. A new setting, **Show hidden values in the turn details** (Settings, Application, off by default), also lists the values themselves; they are kept with the chat and never exported. Needs a gateway that reports redaction (Pystino); without one, only the numbers show. Cost shows only where the gateway reports it, else "—". Coding agent sessions are not covered.
 
 ## v0.46.0 — 2026-11-08
 

@@ -50,4 +50,29 @@ describe("generate (a turn with no tools)", () => {
 		expect(last.stats.redaction?.entities[0].count).toBe(1);
 		expect(updates.some((u) => u.type === MessageUpdateType.FinalAnswer)).toBe(true);
 	});
+
+	it("turns the turn blocked when the gateway refuses with a 403 body", async () => {
+		const updates: MessageUpdate[] = [];
+		const refusal = Object.assign(new Error("403"), {
+			status: 403,
+			error: { pystino_redaction: { applied: true, blocked: true, entities: [] } },
+		});
+		await expect(async () => {
+			for await (const update of generate({
+				model: { displayName: "Test model", parameters: {} },
+				endpoint: async () => {
+					throw refusal;
+				},
+				conv: { _id: new ObjectId() },
+				messages: [{ from: "user", content: "hello" }],
+				promptedAt: new Date(),
+				locals: {},
+				abortController: new AbortController(),
+			} as unknown as Parameters<typeof generate>[0])) {
+				updates.push(update);
+			}
+		}).rejects.toBe(refusal);
+		const last = updates.at(-1);
+		expect(last?.type === MessageUpdateType.TurnStats && last.stats.redaction?.blocked).toBe(true);
+	});
 });

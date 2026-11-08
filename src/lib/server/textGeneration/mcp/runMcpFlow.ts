@@ -67,7 +67,11 @@ import { UNTRUSTED_SYSTEM_LINE } from "../untrusted";
 import { urlsInUserText } from "../builtinTools/webFetchTool";
 import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
 import { billToHeader } from "$lib/server/billTo";
-import { TurnStatsCollector, redactionRequestHeaders } from "$lib/server/turnStats";
+import {
+	TurnStatsCollector,
+	redactionFromError,
+	redactionRequestHeaders,
+} from "$lib/server/turnStats";
 import { configuredBackend } from "$lib/server/fetching";
 import { getCapabilities as getDocumentCapabilities } from "$lib/server/documents/client";
 import { approvalStateFor, resolveToolApprovalPolicy } from "../toolApprovalPolicy";
@@ -1057,6 +1061,12 @@ export async function* runMcpFlow({
 			try {
 				completionStream = await startRound(completionRequest);
 			} catch (err) {
+				// A refused request (403) still says what the gateway did: the dot turns red.
+				const refused = redactionFromError(err);
+				if (refused) {
+					roundCall.report = { redaction: refused };
+					yield { type: MessageUpdateType.TurnStats, stats: turnStats.snapshot() };
+				}
 				// A model or chat template that rejects pictures in a tool turn must not end the turn:
 				// retry once without them, and offer none for the rest of the turn.
 				if (!isRejectedRequest(err) || !hasPictureMessage(messagesOpenAI)) throw err;

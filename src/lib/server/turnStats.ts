@@ -103,6 +103,19 @@ export function parseRedaction(raw: unknown): TurnRedaction | undefined {
 	return out;
 }
 
+/**
+ * A refused request is a 403 whose body also carries `pystino_redaction`
+ * (`blocked: true`, never values). The OpenAI SDK keeps the parsed body on
+ * `error.error`; a gateway may also nest the object under `error`.
+ */
+export function redactionFromError(err: unknown): TurnRedaction | undefined {
+	if (err === null || typeof err !== "object") return undefined;
+	const body = (err as { error?: unknown }).error;
+	if (body === null || typeof body !== "object") return undefined;
+	const b = body as { pystino_redaction?: unknown; error?: { pystino_redaction?: unknown } };
+	return parseRedaction(b.pystino_redaction ?? b.error?.pystino_redaction);
+}
+
 /** `pystino_cost` is a string; anything else is not a cost. */
 export function parseCost(raw: unknown): string | undefined {
 	return typeof raw === "string" && raw.trim() !== "" ? raw.trim() : undefined;

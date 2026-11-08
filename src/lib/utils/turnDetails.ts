@@ -81,7 +81,7 @@ export type ModeKind = "restore" | "hide" | "block";
 
 /** Maps the gateway's mode word onto the three the overlay speaks of. */
 export function modeKind(mode: string | undefined): ModeKind | undefined {
-	if (!mode) return undefined;
+	if (!mode || mode.toLowerCase() === "off") return undefined;
 	const word = mode.toLowerCase();
 	if (/block|refus|reject|deny/.test(word)) return "block";
 	if (/restor|revers|round|unmask|pseudonym/.test(word)) return "restore";
