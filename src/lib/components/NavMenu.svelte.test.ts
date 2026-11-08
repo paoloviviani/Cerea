@@ -1,6 +1,7 @@
 import NavMenu from "./NavMenu.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import { page as browserPage } from "@vitest/browser/context";
 import superjson from "superjson";
 import {
 	codeReauth,
@@ -160,11 +161,35 @@ describe("NavMenu's foot", () => {
 		expect(host.querySelector("form")).toBeNull();
 	});
 
-	it("shows the app name as a wordmark beside the ridge, hidden from screen readers", () => {
+	it("has no wordmark: the ridge links home and is named for the app", () => {
 		mount({ username: "ada" });
-		const word = host.querySelector('[data-testid="sidebar-wordmark"]') as HTMLElement;
-		expect(word.textContent?.trim()).toBe("chat-ui");
-		expect(word.getAttribute("aria-hidden")).toBe("true");
+		expect(host.querySelector('[data-testid="sidebar-wordmark"]')).toBeNull();
+		const logo = host.querySelector('[data-testid="sidebar-logo"]') as HTMLAnchorElement;
+		expect(logo.getAttribute("aria-label")).toBe("chat-ui");
+		expect(logo.getAttribute("href")).toMatch(/\/$/);
+	});
+
+	it("puts the Chats | Agents switch on the logo's row, with names for icon-only widths", async () => {
+		renderWithApp(
+			NavMenu,
+			{
+				conversations: [],
+				user: { username: "ada" },
+				gatewayIsAdmin: false,
+				codeAgentsEnabled: true,
+			} as never,
+			{ page: { data: { models: [] } }, baseElement: host }
+		);
+		const head = host.querySelector('[data-testid="sidebar-head"]') as HTMLElement;
+		expect(head.querySelector('[data-testid="sidebar-logo"]')).not.toBeNull();
+		const chats = head.querySelector('[data-testid="sidebar-view-chats"]') as HTMLElement;
+		expect(chats.getAttribute("aria-label")).toBe("Chats");
+		expect(chats.getAttribute("title")).toBe("Chats");
+		const row = head.getBoundingClientRect();
+		const sw = (
+			head.querySelector('[data-testid="sidebar-switch"]') as HTMLElement
+		).getBoundingClientRect();
+		expect(Math.abs(sw.top + sw.height / 2 - (row.top + row.height / 2))).toBeLessThan(2);
 	});
 
 	it("puts New chat under the logo, in the top block, as a link to the start page", () => {
@@ -399,6 +424,37 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		// No tree: the tree's own markers and its pairing control are absent.
 		expect(host.querySelector('[data-testid="device-rail"]')).toBeNull();
 		expect((host.textContent ?? "").replace(/\s+/g, " ")).not.toContain("Pair a computer");
+	});
+
+	it("gives the New buttons the switch's height, on a phone and on a desktop", async () => {
+		stubFetch({
+			enabled: true,
+			fresh: true,
+			reauthPath: "/login?reauth=1&next=/code",
+			freshUntil: new Date(Date.now() + 3_600_000).toISOString(),
+		});
+		codeNav.view = "chats";
+		mount("/");
+		const sw = () => host.querySelector('[data-testid="sidebar-switch"]') as HTMLElement;
+		await vi.waitFor(() => expect(sw()).not.toBeNull());
+		for (const width of [390, 1200]) {
+			await browserPage.viewport(width, 800);
+			const newChat = host.querySelector('[data-testid="new-chat"]') as HTMLElement;
+			const want = width < 640 ? 36 : 32;
+			expect(sw().getBoundingClientRect().height).toBe(want);
+			expect(newChat.getBoundingClientRect().height).toBe(want);
+		}
+		(host.querySelector('[data-testid="sidebar-view-agents"]') as HTMLElement).click();
+		await vi.waitFor(() =>
+			expect(host.querySelector('[data-testid="new-agent-session"]')).not.toBeNull()
+		);
+		for (const width of [390, 1200]) {
+			await browserPage.viewport(width, 800);
+			const newSession = host.querySelector('[data-testid="new-agent-session"]') as HTMLElement;
+			const want = width < 640 ? 36 : 32;
+			expect(sw().getBoundingClientRect().height).toBe(want);
+			expect(newSession.getBoundingClientRect().height).toBe(want);
+		}
 	});
 
 	it("puts the switch under the logo and above the list, and New session follows it in Agents mode", async () => {

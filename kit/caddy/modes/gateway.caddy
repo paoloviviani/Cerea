@@ -1,6 +1,36 @@
 # PROXY_DEFAULT=gateway: every path not routed above goes to the gateway.
+# The bare origin (exactly `/`, no prefix) opens the chat, as it does in chat
+# mode. The gateway's own `/` only redirects to /console, which stays at
+# /console. 302: a signpost an operator may point elsewhere later.
+handle / {
+	redir * /chat/ 302
+}
 handle {
-	reverse_proxy gateway:8000 {
-		import to_app
+	# A browser that lands on a wrong address gets a branded 404 page, not the
+	# gateway's raw JSON. Only a request that accepts HTML, and only when the
+	# gateway itself answers 404: every other status, the console and
+	# Authelia's own pages pass through untouched. API clients (/v1, /api,
+	# /auth, /scim) never get HTML, whatever their Accept header says.
+	@browser {
+		header Accept *text/html*
+		not path /v1 /v1/* /api /api/* /auth /auth/* /scim /scim/*
+	}
+	handle @browser {
+		reverse_proxy gateway:8000 {
+			import to_app
+			@not_found status 404
+			handle_response @not_found {
+				root * /etc/caddy/errors
+				rewrite * /404.html
+				file_server {
+					status 404
+				}
+			}
+		}
+	}
+	handle {
+		reverse_proxy gateway:8000 {
+			import to_app
+		}
 	}
 }

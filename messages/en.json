@@ -756,6 +756,7 @@
 	"code.view.no_question": "No question is open.",
 	"code.view.nothing_to_roll_back": "Nothing to roll back yet.",
 	"code.view.offline": "This computer is offline. It will pick back up here once it reconnects.",
+	"code.view.panels": "Panels",
 	"code.view.parent_fallback": "its parent session",
 	"code.view.ready": "Ready when you are",
 	"code.view.ready_detail": "Describe the task below. The mode pill sets how much the agent may do on its own, and it asks before anything destructive.",
@@ -2032,6 +2033,9 @@
 	"admin.web_search.hint.unchosen": "None chosen: the gateway's billing-group search policy decides, and a group without one cannot search. Choose a backend to be sure web search works.",
 	"admin.web_search.saved": "Saved. It applies to the next search.",
 	"admin.web_search.title": "Web search",
+	"error.not_found.chat_link": "Go to the chat",
+	"error.not_found.text": "There's nothing at this address.",
+	"error.not_found.title": "Page not found",
 	"knowledge.manager.add.files": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],

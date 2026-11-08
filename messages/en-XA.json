@@ -801,6 +801,7 @@
 	"code.view.no_question": "[Ńó ǫúéśťíóń íś óþéń.]",
 	"code.view.nothing_to_roll_back": "[Ńóťȟíńǧ ťó ŕóľľ ƀáćķ ýéť.]",
 	"code.view.offline": "[Ťȟíś ćóḿþúťéŕ íś óƒƒľíńé. Íť ŵíľľ þíćķ ƀáćķ úþ ȟéŕé óńćé íť ŕéćóńńéćťś.]",
+	"code.view.panels": "[Þáńéľś]",
 	"code.view.parent_fallback": "[íťś þáŕéńť śéśśíóń]",
 	"code.view.ready": "[Ŕéáďý ŵȟéń ýóú áŕé]",
 	"code.view.ready_detail": "[Ďéśćŕíƀé ťȟé ťáśķ ƀéľóŵ. Ťȟé ḿóďé þíľľ śéťś ȟóŵ ḿúćȟ ťȟé áǧéńť ḿáý ďó óń íťś óŵń, áńď íť áśķś ƀéƒóŕé áńýťȟíńǧ ďéśťŕúćťíǚé.]",
@@ -2195,6 +2196,9 @@
 	"admin.web_search.hint.unchosen": "[Ńóńé ćȟóśéń: ťȟé ǧáťéŵáý'ś ƀíľľíńǧ-ǧŕóúþ śéáŕćȟ þóľíćý ďéćíďéś, áńď á ǧŕóúþ ŵíťȟóúť óńé ćáńńóť śéáŕćȟ. Ćȟóóśé á ƀáćķéńď ťó ƀé śúŕé ŵéƀ śéáŕćȟ ŵóŕķś.]",
 	"admin.web_search.saved": "[Śáǚéď. Íť áþþľíéś ťó ťȟé ńéẋť śéáŕćȟ.]",
 	"admin.web_search.title": "[Ŵéƀ śéáŕćȟ]",
+	"error.not_found.chat_link": "[Ǧó ťó ťȟé ćȟáť]",
+	"error.not_found.text": "[Ťȟéŕé'ś ńóťȟíńǧ áť ťȟíś áďďŕéśś.]",
+	"error.not_found.title": "[Þáǧé ńóť ƒóúńď]",
 	"knowledge.manager.add.files": [
 		{
 			"declarations": [

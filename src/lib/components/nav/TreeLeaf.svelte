@@ -25,7 +25,7 @@
 
 	const shell = $derived(
 		[
-			"group flex h-8 items-center gap-1.5 rounded-lg pr-1 text-sm max-sm:h-10",
+			"group flex h-8 items-center gap-1.5 rounded-lg pr-1 text-sm max-sm:h-9",
 			active
 				? "bg-accent-subtle font-medium text-accent"
 				: "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700",

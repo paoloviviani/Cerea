@@ -620,7 +620,7 @@
 					{/if}
 					{#if device.status === "pending" || isDead}
 						<span class="min-w-0 {row(false, false, true)}">
-							<span class="size-2 shrink-0"></span>
+							<IconLaptop class="size-4 shrink-0 text-gray-400" aria-hidden="true" />
 							<span class="min-w-0 flex-1 truncate">{device.name}</span>
 						</span>
 					{:else}
@@ -636,8 +636,19 @@
 								: undefined}
 							title={device.name}
 						>
-							<!-- The machine's state as a dot: filled green connected,
-							     hollow grey not. Words are kept for the states that
+							<IconLaptop class="size-4 shrink-0 text-gray-400" aria-hidden="true" />
+							<span class="min-w-0 flex-1 truncate">{device.name}</span>
+							{#if offline}
+								<span
+									class="shrink-0 text-[11px] font-normal text-gray-500 dark:text-gray-400"
+									data-testid="offline-since"
+									>{offlineAge
+										? m["code.nav.offline_since"]({ age: offlineAge })
+										: m["code.nav.offline"]()}</span
+								>
+							{/if}
+							<!-- The machine's state as a dot at the row's right end,
+							     before its actions: filled green connected, hollow grey not. Words are kept for the states that
 							     need them (a pill, below). -->
 							<span
 								role="img"
@@ -651,16 +662,6 @@
 										? 'bg-green-500'
 										: 'border border-gray-400 dark:border-gray-500'}"
 							></span>
-							<span class="min-w-0 flex-1 truncate">{device.name}</span>
-							{#if offline}
-								<span
-									class="shrink-0 text-[11px] font-normal text-gray-500 dark:text-gray-400"
-									data-testid="offline-since"
-									>{offlineAge
-										? m["code.nav.offline_since"]({ age: offlineAge })
-										: m["code.nav.offline"]()}</span
-								>
-							{/if}
 						</a>
 					{/if}
 					{#if device.status === "pending"}

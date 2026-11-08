@@ -45,6 +45,11 @@ describe("ChatIntroduction", () => {
 			return el as HTMLElement;
 		});
 		expect(phrase.getAttribute("title")).toBe("All good");
+		expect(phrase.getAttribute("aria-label")).toContain("All good");
+		expect(phrase.tagName).toBe("BUTTON");
+		// No dotted underline: only the cursor says it can be tapped.
+		expect(getComputedStyle(phrase).textDecorationLine).toBe("none");
+		expect(getComputedStyle(phrase).cursor).toBe("help");
 		phrase.click();
 		await vi.waitFor(() =>
 			expect(

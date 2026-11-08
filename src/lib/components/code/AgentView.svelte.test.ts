@@ -234,11 +234,11 @@ describe("AgentView Tasks pane", () => {
 		await browserPage.viewport(400, 800);
 		const screen = mount();
 		await arrive([ACTIVE]);
+		// A phone folds the panels behind one button; the sheet lists them with
+		// their words and the task progress.
+		await expect.element(screen.getByRole("button", { name: "Tasks 0/2" })).not.toBeInTheDocument();
+		await screen.getByRole("button", { name: "Panels" }).click();
 		await expect.element(screen.getByRole("button", { name: "Tasks 0/2" })).toBeVisible();
-		// The word stays on a phone, with its count: no unlabelled icon row.
-		await expect
-			.element(screen.getByRole("button", { name: "Tasks 0/2" }))
-			.toHaveTextContent("Tasks 0/2");
 		await expect.element(screen.getByRole("button", { name: "Changes" })).toBeVisible();
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(sidePane.open).toBe(false);
