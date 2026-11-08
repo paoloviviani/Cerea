@@ -756,6 +756,7 @@
 	"code.view.no_question": "No question is open.",
 	"code.view.nothing_to_roll_back": "Nothing to roll back yet.",
 	"code.view.offline": "This computer is offline. It will pick back up here once it reconnects.",
+	"code.view.panels": "Panels",
 	"code.view.parent_fallback": "its parent session",
 	"code.view.ready": "Ready when you are",
 	"code.view.ready_detail": "Describe the task below. The mode pill sets how much the agent may do on its own, and it asks before anything destructive.",

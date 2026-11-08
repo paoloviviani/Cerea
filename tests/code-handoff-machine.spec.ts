@@ -67,7 +67,7 @@ test.describe("owned machine agent: fork handoff", () => {
 		await openSession(page, db, session.sessionId);
 		const transcript = page.locator('[data-message-role="assistant"]');
 		const settle = () =>
-			expect(page.getByText("done", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+			expect(page.getByRole("img", { name: "done", exact: true })).toBeVisible({ timeout: 60_000 });
 
 		await mockOpenAI.setDefaultScenario({ content: ["Answer", " one."], chunkDelayMs: 5 });
 		await send(page, "first question");

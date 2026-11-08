@@ -392,6 +392,17 @@ describe("CodeNavTree machine rows", () => {
 			a.getAttribute("title")
 		);
 
+	it("puts a computer icon before the name and the status dot at the row's right end", async () => {
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("Box d1")).toBeVisible();
+		const link = screen.baseElement.querySelector('[data-testid="device-row"] a') as HTMLElement;
+		const kids = [...link.children];
+		expect(kids[0]?.tagName.toLowerCase()).toBe("svg");
+		expect(kids[kids.length - 1]?.getAttribute("data-testid")).toBe("device-status");
+		expect(kids[kids.length - 1]?.getAttribute("title")).toBe("Connected");
+	});
+
 	it("shows a dot, not an 'online' pill: filled when connected, hollow when not", async () => {
 		go("");
 		const screen = mount([device("d1"), device("d2", { online: false })]);

@@ -8,6 +8,7 @@
  * `exitTerminal` for a spontaneous shell exit) is in `tests/fake-machine.ts`.
  */
 import { randomUUID } from "node:crypto";
+import { paneButton } from "./codePanes";
 import { test, expect, E2E_APP_BASE, E2E_APP_URL, MOCK_OIDC_ISSUER } from "./fixtures";
 import { seedUser } from "./machineHarness";
 import { FakeMachine } from "./fake-machine";
@@ -67,7 +68,7 @@ async function pairAndOpenWorkspace(page: Page, name: string) {
 }
 
 async function openTerminalTab(page: Page) {
-	await page.getByRole("button", { name: "Terminal", exact: true }).click();
+	await (await paneButton(page, "Terminal")).click();
 }
 
 /** The side pane's own toggle, disambiguated from a terminal tab that
@@ -129,7 +130,7 @@ test.describe("the terminal, hermetic", () => {
 		fake = await connectFakeMachine(sub, name, TERMINAL_DENIED_POLICY);
 
 		await pairAndOpenWorkspace(page, name);
-		const button = page.getByRole("button", { name: "Terminal", exact: true });
+		const button = await paneButton(page, "Terminal");
 		await expect(button).toBeVisible();
 		await expect(button).toBeDisabled();
 		await expect(button).toHaveAttribute(
