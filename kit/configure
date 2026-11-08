@@ -196,6 +196,9 @@ EXTRACTOR_KEYS = (
 #: waits a little longer than the extractor's own budget, so a slow document
 #: comes back as a partial answer and not as a 502.
 DOCLING_MEM_LIMIT = "4g"
+#: The OCR variant peaked at about 1 GB on A4 scans; the cap keeps a hostile
+#: PDF from taking the host down (the image has no limit of its own).
+OCR_MEM_LIMIT = "2g"
 DOCLING_TIMEOUT = "840"
 DOCLING_GATEWAY_TIMEOUT = "900"
 PROFILES = ("gateway", "chat", "authelia", "redaction", "documents", "fetch", "office", "rustfs")
@@ -1184,6 +1187,8 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
             values["EXTRACTOR_IMAGE"] = answers.extractor_image
             values["EXTRACTOR_ENGINE"] = "docling" if answers.extractor == "docling" else "markitdown"
             values["EXTRACTOR_OCR"] = "rapidocr"
+        if answers.extractor == "markitdown+ocr":
+            values["EXTRACTOR_MEM_LIMIT"] = OCR_MEM_LIMIT
         if answers.extractor == "docling":
             values["EXTRACTOR_MEM_LIMIT"] = DOCLING_MEM_LIMIT
             values["EXTRACTOR_TIMEOUT_SECONDS"] = DOCLING_TIMEOUT
@@ -1885,18 +1890,47 @@ def check_values(values: dict, report: Report) -> None:
     check_extractor(values, report)
 
 
+def extractor_image_variant(image: str) -> str | None:
+    """none, ocr or docling for an image, or None when it cannot be told.
+
+    By the label the Dockerfile sets (dev.pystino.extractor-variant) when the
+    image is on this host, so a mirror or renamed image is judged by what it is
+    and not by its tag; failing that by the tag suffix dev/build.sh gives it.
+    """
+    probe = _run(
+        ["docker", "image", "inspect", "-f",
+         '{{ index .Config.Labels "dev.pystino.extractor-variant" }}', image],
+        timeout=20,
+    )
+    label = probe.stdout.strip() if probe is not None and probe.returncode == 0 else ""
+    if label in ("none", "ocr", "docling"):
+        return label
+    for suffix in ("docling", "ocr"):
+        if image.endswith("-" + suffix):
+            return suffix
+    return None
+
+
 def check_extractor(values: dict, report: Report) -> None:
     """The engine settings must match the image: a variant's engine on the default image does nothing."""
     image = values.get("EXTRACTOR_IMAGE", "")
-    if values.get("EXTRACTOR_ENGINE") == "docling" and not image.endswith("-docling"):
-        report.errors.append(
-            "EXTRACTOR_ENGINE=docling needs the Docling image, which is never published: run "
-            "dev/build.sh --docling, then ./configure --extractor docling (or unset EXTRACTOR_ENGINE)"
+    if values.get("EXTRACTOR_ENGINE") == "docling":
+        need, flag, ok = "docling", "--docling", ("docling",)
+    elif values.get("EXTRACTOR_OCR") == "rapidocr":
+        need, flag, ok = "ocr", "--ocr", ("ocr", "docling")
+    else:
+        return
+    variant = extractor_image_variant(image) if image else "none"
+    if variant is None:
+        report.notes.append(
+            f"EXTRACTOR_IMAGE {image} is not on this host and its tag does not say which variant it is: "
+            f"cannot check that it can run the {need} engine"
         )
-    elif values.get("EXTRACTOR_OCR") == "rapidocr" and not image.endswith(("-ocr", "-docling")):
+    elif variant not in ok:
         report.errors.append(
-            "EXTRACTOR_OCR=rapidocr needs an OCR image, which is never published: run "
-            "dev/build.sh --ocr, then ./configure --extractor markitdown+ocr (or unset EXTRACTOR_OCR)"
+            f"the {need} engine needs the {need} image, which is never published: run "
+            f"dev/build.sh {flag}, then ./configure --extractor "
+            f"{'docling' if need == 'docling' else 'markitdown+ocr'} (or unset EXTRACTOR_ENGINE and EXTRACTOR_OCR)"
         )
 
 

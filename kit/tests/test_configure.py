@@ -1578,7 +1578,8 @@ class TestExtractor(Deploy):
         env = self.env()
         self.assertEqual(env["EXTRACTOR_ENGINE"], "markitdown")
         self.assertEqual(env["EXTRACTOR_OCR"], "rapidocr")
-        self.assertNotIn("EXTRACTOR_MEM_LIMIT", env)
+        self.assertEqual(env["EXTRACTOR_MEM_LIMIT"], cfg.OCR_MEM_LIMIT)
+        self.assertNotIn("EXTRACTOR_TIMEOUT_SECONDS", env)
 
     def test_a_missing_image_says_how_to_build_it_and_writes_nothing(self):
         self.make_env()
@@ -1620,15 +1621,58 @@ class TestExtractor(Deploy):
         self.assertEqual(self.run_cli("--non-interactive")[0], 0)
         self.assertEqual(self.env()["EXTRACTOR_ENGINE"], "docling")
 
+    def labelled(self, label=None, present=True):
+        """Make `docker image inspect -f <label>` answer with this label."""
+        def fake(cmd, timeout=30, cwd=None):
+            if cmd[:3] == ["docker", "image", "inspect"] and present:
+                return subprocess.CompletedProcess(cmd, 0, (label or "") + "\n", "")
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+        patcher = mock.patch.object(cfg, "_run", side_effect=fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def check(self, values):
+        report = cfg.Report()
+        cfg.check_extractor(values, report)
+        return report
+
     def test_check_flags_a_variant_engine_on_the_default_image(self):
-        for values, needle in (
-            ({"EXTRACTOR_ENGINE": "docling"}, "dev/build.sh --docling"),
-            ({"EXTRACTOR_OCR": "rapidocr", "EXTRACTOR_IMAGE": "ghcr.io/x/pystino-redaction:1-pattern"},
-             "dev/build.sh --ocr"),
-        ):
-            report = cfg.Report()
-            cfg.check_extractor(values, report)
-            self.assertTrue(any(needle in e for e in report.errors), values)
+        self.labelled(present=False)
+        r = self.check({"EXTRACTOR_ENGINE": "docling"})
+        self.assertTrue(any("dev/build.sh --docling" in e for e in r.errors))
+        r = self.check({"EXTRACTOR_OCR": "rapidocr",
+                        "EXTRACTOR_IMAGE": "ghcr.io/x/pystino-redaction:1-pattern"})
+        self.assertEqual(r.errors, [])  # not on this host, tag says nothing: only a note
+        self.labelled("none")
+        r = self.check({"EXTRACTOR_OCR": "rapidocr",
+                        "EXTRACTOR_IMAGE": "ghcr.io/x/pystino-redaction:1-pattern"})
+        self.assertTrue(any("dev/build.sh --ocr" in e for e in r.errors))
+
+    def test_a_mirror_is_judged_by_its_label_not_its_tag(self):
+        values = {"EXTRACTOR_ENGINE": "docling", "EXTRACTOR_IMAGE": "registry.example.org/team/reader:1"}
+        self.labelled("docling")
+        self.assertEqual(self.check(values).errors, [])
+        self.labelled("ocr")
+        self.assertTrue(self.check(values).errors)
+        self.labelled(present=False)
+        r = self.check(values)
+        self.assertEqual(r.errors, [])
+        self.assertTrue(any("cannot check" in n for n in r.notes))
+
+    def test_configure_and_check_agree_on_a_mirror(self):
+        self.make_env()
+        self.docker_has()  # nothing local: the explicit mirror is taken as given
+        mirror = "registry.example.org/team/reader:1"
+        self.assertEqual(self.run_cli("--non-interactive", "--extractor", "docling",
+                                      "--extractor-image", mirror)[0], 0)
+        self.labelled(present=False)
+        self.assertEqual(self.check(self.env()).errors, [])
+
+    def test_ocr_gets_a_memory_cap_too(self):
+        self.make_env()
+        self.docker_has("local/pystino-redaction:sha-abc1234-ocr")
+        self.assertEqual(self.run_cli("--non-interactive", "--extractor", "markitdown+ocr")[0], 0)
+        self.assertEqual(self.env()["EXTRACTOR_MEM_LIMIT"], cfg.OCR_MEM_LIMIT)
 
     def test_the_image_flag_needs_the_extractor_flag(self):
         self.make_env()

@@ -304,7 +304,7 @@ no spaCy, the redaction service no torch), so `--docling --ner` builds both and
 writes both. `./configure --extractor` checks that the image is on this host and,
 if not, says how to build it; `--extractor-image <ref>` names one built elsewhere.
 It writes `EXTRACTOR_ENGINE`, `EXTRACTOR_OCR`, `EXTRACTOR_IMAGE`, and for
-`docling` a memory cap (`EXTRACTOR_MEM_LIMIT=4g`) and longer waits
+a memory cap (`EXTRACTOR_MEM_LIMIT`: 2g for `markitdown+ocr`, 4g for `docling`) and, for `docling`, longer waits
 (`EXTRACTOR_TIMEOUT_SECONDS=840`, and the gateway's
 `GATEWAY_EXTRACTOR__TIMEOUT_SECONDS=900` instead of 180).
 
@@ -317,7 +317,10 @@ an estimate and not a measurement) that is 4-6 scanned pages a minute: a 30-page
 scan takes minutes, once, at upload. On a box with 8-12 GB, keep the 4 GB cap, and
 set `EXTRACTOR_THREADS` (default: every core the container may use) lower if the
 chat must stay responsive while a document is read. `EXTRACTOR_MAX_PAGES`
-(default 200) and `EXTRACTOR_TIMEOUT_SECONDS` bound a document.
+(default 200) and `EXTRACTOR_TIMEOUT_SECONDS` bound a document. Docling reads **one
+document at a time**: a second one waits up to a minute and is then read by the
+default reader (the response's `fallback_reason` says `docling busy`), so a
+large scan delays other Docling uploads, not the stack.
 
 ## MongoDB: 8 by default, 4.4 where the host cannot run it
 
