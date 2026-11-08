@@ -264,7 +264,15 @@ function reportFields(script: ScenarioScript, headers: Record<string, string>) {
 				})()
 			: undefined;
 	return {
-		usage: script.usage ?? { prompt_tokens: 10, completion_tokens: 5 },
+		usage: (() => {
+			const { reasoning_tokens, ...usage } = script.usage ?? {
+				prompt_tokens: 10,
+				completion_tokens: 5,
+			};
+			return reasoning_tokens === undefined
+				? usage
+				: { ...usage, completion_tokens_details: { reasoning_tokens } };
+		})(),
 		...(script.cost ? { pystino_cost: script.cost } : {}),
 		...(redaction ? { pystino_redaction: redaction } : {}),
 	};

@@ -101,6 +101,15 @@ describe("the overlay", () => {
 		await expect.element(screen.getByTestId("turn-info-model")).toHaveTextContent("—");
 	});
 
+	it("shows dashes for fields the database gave back as null", async () => {
+		const nulls = { firstTokenMs: null, tokensPerSecond: null, inputTokens: null, cost: null };
+		const screen = renderWithApp(TurnInfo, { message: msg(nulls as unknown as TurnStats) });
+		await screen.getByTestId("turn-info-dot").click();
+		const text = screen.getByTestId("turn-info-panel").element().textContent ?? "";
+		expect(text).not.toContain("null");
+		expect(text).not.toContain("NaN");
+	});
+
 	it("summarises the redaction, with mode and source, and no values by default", async () => {
 		const screen = renderWithApp(TurnInfo, { message: msg({ ...STATS, redaction: REDACTION }) });
 		await screen.getByTestId("turn-info-dot").click();

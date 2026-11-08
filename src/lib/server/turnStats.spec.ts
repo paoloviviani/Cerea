@@ -195,6 +195,8 @@ describe("TurnStatsCollector timing", () => {
 		expect(snap.tokensPerSecond).toBeUndefined();
 		expect(snap.inputTokens).toBeUndefined();
 		expect(snap.redaction).toBeUndefined();
+		// Absent, not undefined: the database would store undefined as null.
+		expect(Object.keys(snap)).toEqual(["at"]);
 	});
 
 	it("gives no speed for an answer that came in one piece", () => {

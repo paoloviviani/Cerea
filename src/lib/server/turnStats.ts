@@ -271,8 +271,8 @@ export class TurnStatsCollector {
 			this.calls.map((c) => c.report.redaction).filter((r): r is TurnRedaction => r !== undefined)
 		);
 		const cost = sumCosts(this.calls.map((c) => c.report.cost).filter((c): c is string => !!c));
-		return {
-			...(this.opts.model ? { model: this.opts.model } : {}),
+		const stats: TurnStats = {
+			model: this.opts.model,
 			inputTokens: sumOf(this.calls.map((c) => c.report.inputTokens)),
 			outputTokens: outTokens,
 			reasoningTokens: sumOf(this.calls.map((c) => c.report.reasoningTokens)),
@@ -280,8 +280,12 @@ export class TurnStatsCollector {
 			tokensPerSecond,
 			cost,
 			at: this.startedAt,
-			...(redaction ? { redaction } : {}),
+			redaction,
 		};
+		// No undefined keys: the database would store them as null.
+		return Object.fromEntries(
+			Object.entries(stats).filter(([, v]) => v !== undefined && v !== "")
+		) as TurnStats;
 	}
 }
 

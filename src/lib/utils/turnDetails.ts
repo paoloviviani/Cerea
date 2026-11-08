@@ -140,18 +140,18 @@ export function redactionSummary(redaction: TurnRedaction): string {
 	return m["chat.turn_details.redaction.summary"]({ items: parts.join("; ") });
 }
 
-export function formatDuration(ms: number | undefined): string {
-	if (ms === undefined) return "—";
+export function formatDuration(ms: number | null | undefined): string {
+	if (ms == null) return "—";
 	if (ms < 1000) return m["chat.turn_details.ms"]({ n: String(Math.round(ms)) });
 	return m["chat.turn_details.seconds"]({ n: (ms / 1000).toFixed(1) });
 }
 
-export function formatSpeed(tokensPerSecond: number | undefined): string {
-	return tokensPerSecond === undefined
+export function formatSpeed(tokensPerSecond: number | null | undefined): string {
+	return tokensPerSecond == null
 		? "—"
 		: m["chat.turn_details.per_second"]({ n: String(tokensPerSecond) });
 }
 
-export function formatCount(n: number | undefined): string {
-	return n === undefined ? "—" : new Intl.NumberFormat().format(n);
+export function formatCount(n: number | null | undefined): string {
+	return n == null ? "—" : new Intl.NumberFormat().format(n);
 }
