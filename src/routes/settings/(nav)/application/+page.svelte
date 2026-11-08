@@ -41,12 +41,18 @@
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { onMount } from "svelte";
+	import { MediaQuery } from "svelte/reactivity";
 	import { browser } from "$app/environment";
 	import { getThemePreference, setTheme, type ThemePreference } from "$lib/switchTheme";
 	import { supportsHaptics } from "$lib/utils/haptics";
 	import DeleteAllConversationsModal from "$lib/components/DeleteAllConversationsModal.svelte";
 	import SegmentedGroup from "$lib/components/settings/SegmentedGroup.svelte";
 	import ScheduleAccessSettings from "$lib/components/settings/ScheduleAccessSettings.svelte";
+
+	// The pattern is off under these system settings (appearance.css); say so.
+	const patternOff = new MediaQuery(
+		"(prefers-reduced-transparency: reduce), (prefers-contrast: more)"
+	);
 
 	const publicConfig = usePublicConfig();
 
@@ -300,15 +306,20 @@
 
 				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
-						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+						<div
+							id="sidebar-title"
+							class="text-[13px] font-medium text-gray-800 dark:text-gray-200"
+						>
 							{m["settings.application.sidebar.title"]()}
 						</div>
-						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+						<p id="sidebar-desc" class="text-[12px] text-gray-500 dark:text-gray-400">
 							{m["settings.application.sidebar.description"]()}
 						</p>
 					</div>
 					<SegmentedGroup
 						label={m["settings.application.sidebar.title"]()}
+						labelledby="sidebar-title"
+						describedby="sidebar-desc"
 						value={parseSidebar($settings.sidebar) ?? DEFAULT_SIDEBAR}
 						options={SIDEBARS.map((v) => ({ value: v, label: SIDEBAR_LABELS[v]() }))}
 						onchange={(v) => settings.instantSet({ sidebar: parseSidebar(v) })}
@@ -317,15 +328,25 @@
 
 				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
-						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+						<div
+							id="background-title"
+							class="text-[13px] font-medium text-gray-800 dark:text-gray-200"
+						>
 							{m["settings.application.background.title"]()}
 						</div>
-						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+						<p id="background-desc" class="text-[12px] text-gray-500 dark:text-gray-400">
 							{m["settings.application.background.description"]()}
 						</p>
+						{#if patternOff.current}
+							<p class="text-[12px] text-gray-500 dark:text-gray-400">
+								{m["settings.application.background.hint"]()}
+							</p>
+						{/if}
 					</div>
 					<SegmentedGroup
 						label={m["settings.application.background.title"]()}
+						labelledby="background-title"
+						describedby="background-desc"
 						value={parseBackground($settings.background) ?? DEFAULT_BACKGROUND}
 						options={BACKGROUNDS.map((v) => ({ value: v, label: BACKGROUND_LABELS[v]() }))}
 						onchange={(v) => settings.instantSet({ background: parseBackground(v) })}

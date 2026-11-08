@@ -3,8 +3,9 @@
  * the tables there, not this file.
  *
  * Cerea-only on purpose: tokens.css is shared byte-for-byte with the console
- * (tokens.drift.test.ts), so nothing here may live in it. The choice is two
- * attributes on <html> — `data-accent` and `data-neutral` — set on the server
+ * (tokens.drift.test.ts), so nothing here may live in it. The palette choice is
+ * two attributes on <html> — `data-accent` and `data-neutral` (appearance.css adds
+ * `data-sidebar` and `data-background`) — set on the server
  * from the person's settings so the first paint is already right. The default
  * (blue, neutral) is the *absence* of an attribute, so with neither present none
  * of this applies and the look is exactly tokens.css.

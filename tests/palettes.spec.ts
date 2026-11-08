@@ -232,7 +232,7 @@ test.describe("Appearance", () => {
 		// The pattern paints the body; the sidebar is a solid surface.
 		await page.goto(`${E2E_APP_BASE}/`);
 		await expect(page.locator("body")).not.toHaveCSS("background-image", "none");
-		await expect(page.locator("nav.app-sidebar").first()).toHaveCSS(
+		await expect(page.locator("nav.app-sidebar:visible")).toHaveCSS(
 			"background-color",
 			"rgb(233, 233, 233)"
 		);

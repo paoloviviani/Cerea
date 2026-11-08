@@ -59,4 +59,37 @@ describe("SegmentedGroup", () => {
 		await userEvent.keyboard("{Home}");
 		expect(onchange).toHaveBeenLastCalledWith("none");
 	});
+
+	it("is named and described by the visible title and description when given ids", async () => {
+		const screen = render(SegmentedGroup, {
+			label: "Fallback",
+			labelledby: "t",
+			describedby: "d",
+			options,
+			value: "none",
+			onchange: vi.fn(),
+		});
+		const group = screen.getByRole("radiogroup").element();
+		expect(group.getAttribute("aria-labelledby")).toBe("t");
+		expect(group.getAttribute("aria-describedby")).toBe("d");
+		expect(group.hasAttribute("aria-label")).toBe(false);
+	});
+
+	it("gives the checked option a visible border, not only a fill", async () => {
+		const { screen } = mount("dots");
+		const border = (name: string) =>
+			getComputedStyle(screen.getByRole("radio", { name }).element()).borderTopColor;
+		expect(border("Dots")).not.toBe(border("None"));
+	});
+
+	it("flips the arrow keys in a right-to-left page", async () => {
+		const { screen, onchange } = mount("none");
+		const group = screen.getByRole("radiogroup").element() as HTMLElement;
+		group.dir = "rtl";
+		(screen.getByRole("radio", { name: "None" }).element() as HTMLElement).focus();
+		await userEvent.keyboard("{ArrowLeft}");
+		expect(onchange).toHaveBeenLastCalledWith("dots");
+		await userEvent.keyboard("{ArrowRight}");
+		expect(onchange).toHaveBeenLastCalledWith("none");
+	});
 });

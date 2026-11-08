@@ -114,7 +114,7 @@ const LADDER = {
 	950: 0.145,
 };
 // The "Contrast" sidebar: a surface clearly apart from the page in each tone (light:
-// a step darker than the page, dark: darker than it), with its own edge.
+// a step darker than the page, dark: lighter than it), with its own edge.
 const SIDEBAR_CONTRAST = { light: 0.935, lightEdge: 0.87, dark: 0.245, darkEdge: 0.32 };
 const DARK_LADDER = { page: 0.165, sidebar: 0.2, card: 0.235, composer: 0.27, border: 0.31 };
 // One chroma per tone keeps the ramp simple; the low-lightness steps clip anyway.
@@ -136,8 +136,9 @@ out(`/*
  * the tables there, not this file.
  *
  * Cerea-only on purpose: tokens.css is shared byte-for-byte with the console
- * (tokens.drift.test.ts), so nothing here may live in it. The choice is two
- * attributes on <html> — \`data-accent\` and \`data-neutral\` — set on the server
+ * (tokens.drift.test.ts), so nothing here may live in it. The palette choice is
+ * two attributes on <html> — \`data-accent\` and \`data-neutral\` (appearance.css adds
+ * \`data-sidebar\` and \`data-background\`) — set on the server
  * from the person's settings so the first paint is already right. The default
  * (blue, neutral) is the *absence* of an attribute, so with neither present none
  * of this applies and the look is exactly tokens.css.

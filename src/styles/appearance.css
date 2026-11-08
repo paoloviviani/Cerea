@@ -71,17 +71,17 @@
 	background-image:
 		radial-gradient(
 			60vw 50vh at 85% 8%,
-			color-mix(in srgb, var(--bg-tint) 22%, transparent),
+			color-mix(in srgb, var(--bg-tint) 16%, transparent),
 			transparent 70%
 		),
 		radial-gradient(
 			55vw 55vh at 35% 100%,
-			color-mix(in srgb, var(--bg-tint-2) 20%, transparent),
+			color-mix(in srgb, var(--bg-tint-2) 15%, transparent),
 			transparent 70%
 		),
 		radial-gradient(
 			45vw 45vh at 100% 85%,
-			color-mix(in srgb, var(--bg-tint-2) 14%, transparent),
+			color-mix(in srgb, var(--bg-tint-2) 11%, transparent),
 			transparent 70%
 		);
 }
@@ -107,30 +107,30 @@
 :root[data-background="bold"] body {
 	background-image:
 		radial-gradient(
-			75vw 65vh at 100% 0%,
-			color-mix(in srgb, var(--bg-tint) 38%, transparent),
-			transparent 72%
+			90vw 80vh at 100% 0%,
+			color-mix(in srgb, var(--bg-tint) 22%, transparent),
+			transparent 80%
 		),
 		radial-gradient(
-			65vw 60vh at 22% 100%,
-			color-mix(in srgb, var(--bg-tint-2) 40%, transparent),
-			transparent 72%
+			80vw 75vh at 22% 100%,
+			color-mix(in srgb, var(--bg-tint-2) 22%, transparent),
+			transparent 80%
 		),
-		linear-gradient(160deg, color-mix(in srgb, var(--bg-tint) 10%, transparent), transparent 60%);
+		linear-gradient(160deg, color-mix(in srgb, var(--bg-tint) 5%, transparent), transparent 60%);
 }
 :root.dark[data-background="bold"] body {
 	background-image:
 		radial-gradient(
-			75vw 65vh at 100% 0%,
-			color-mix(in srgb, var(--bg-tint) 30%, transparent),
-			transparent 72%
+			90vw 80vh at 100% 0%,
+			color-mix(in srgb, var(--bg-tint) 16%, transparent),
+			transparent 80%
 		),
 		radial-gradient(
-			65vw 60vh at 22% 100%,
-			color-mix(in srgb, var(--bg-tint-2) 36%, transparent),
-			transparent 72%
+			80vw 75vh at 22% 100%,
+			color-mix(in srgb, var(--bg-tint-2) 18%, transparent),
+			transparent 80%
 		),
-		linear-gradient(160deg, color-mix(in srgb, var(--bg-tint) 12%, transparent), transparent 60%);
+		linear-gradient(160deg, color-mix(in srgb, var(--bg-tint) 6%, transparent), transparent 60%);
 }
 
 /* An answer is a card: solid over any pattern, so text never sits on it. */
@@ -138,9 +138,41 @@
 	background-image: none;
 	background-color: var(--colour-surface);
 }
+/* The same for the bare states (waiting, error), which are otherwise just text. */
+:root[data-background] .answer-card-bare {
+	border-radius: var(--radius-2xl, 1rem);
+	padding-inline: 0.75rem;
+}
+/* Dialog-like pills over the page (the error toast) are solid too. */
+:root[data-background] .solid-on-pattern {
+	background-color: var(--colour-surface);
+}
+/* The band behind the composer and the pinned search bar hide what scrolls under
+   them; with a pattern they fade instead of painting a slab across it. */
+:root[data-background] .composer-fade {
+	background-image: linear-gradient(
+		to top,
+		color-mix(in srgb, var(--colour-bg) 85%, transparent),
+		transparent
+	);
+}
+:root[data-background] .chats-sticky {
+	background-color: color-mix(in srgb, var(--colour-bg) 80%, transparent);
+	backdrop-filter: blur(6px);
+}
 
-@media (prefers-reduced-transparency: reduce) {
+/* On the light contrast sidebar a hovered or selected row reads darker than the ground. */
+:root:not(.dark)[data-sidebar="contrast"] nav.app-sidebar {
+	--color-gray-100: color-mix(in srgb, var(--colour-sidebar-contrast) 93%, black);
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
 	:root[data-background] body {
 		background-image: none;
+	}
+	:root[data-background] .composer-fade,
+	:root[data-background] .chats-sticky {
+		background: var(--colour-bg);
+		backdrop-filter: none;
 	}
 }
