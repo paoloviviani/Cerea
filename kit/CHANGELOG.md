@@ -5,8 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.46.0 — 2026-11-08
 
+Pins: Cerea `0.46.0` (chat and `cerea-documents`), Pystino `0.30.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. 
+
+- The kit pins Pystino 0.30.0: the security audit fixes (CSV formula escaping, request size limits before sign-in, bounded replies from users' own providers, no-store and HSTS headers, a loud fallback when Valkey is down), `/docs` and `/openapi.json` off unless `GATEWAY_DOCS_ENABLED=true`, a provider connection test that accepts servers with no model list (text-embeddings-inference), and the medium spaCy models for the NER redaction image (Italian-only images now start).
 - **NER redaction image with other spaCy models, built alone.** `dev/build.sh --ner-models "<models>"` (default `en_core_web_lg`) sets the models, and `--redaction-only` builds just the NER image from the Pystino commit `compose.yaml` pins and writes only `REDACTION_IMAGE` to `.env`, leaving the gateway and chat on their pinned published images. The models are recorded in an image label, so an image built with other models is never reused. For a small box, with the medium Italian model (needs Pystino 0.30.0 or later):
 
   ```sh
