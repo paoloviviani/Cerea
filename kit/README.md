@@ -174,7 +174,7 @@ again. Keep the old directory until the new stack works.
 | `documents` | `chat` | the document service (`cerea-documents`): creates and edits Word, Excel, PowerPoint and PDF files for the chat's `doc_*` tools. On with the chat; internal network only (see below) |
 | `authelia` | `authelia` | the bundled identity provider at `/authelia` (stock image, `authelia/configuration.yml`) |
 | `redaction` | `redaction` | PII redaction for the gateway |
-| `extractor` | `documents`, `redaction` | the local document reader (Word, Excel, PowerPoint and old `.doc` files, scanned-PDF pages as images); `homelab` runs it through `documents`, without redaction |
+| `extractor` | `documents`, `redaction` | the local document reader (Word, Excel, PowerPoint and old `.doc` files, scanned-PDF pages as images; with a [locally built variant](#a-better-document-reader-extractor-options), scans and layouts read as text); `homelab` runs it through `documents`, without redaction |
 | `playwright` | `fetch` | a headless browser for the chat's web fetch. On in the `enterprise` preset; on any other preset, add it later with `./configure --fetch && docker compose up -d`, and remove it with `./configure --no-fetch`. Boxed in: its own `fetch` network shared only with the chat, Chromium's sandbox on, read-only filesystem, no capabilities, limits ([browser](https://paoloviviani.github.io/Cerea/browser/)) |
 | `gotenberg` | `office` | Office files as PDF previews in the chat, and the `convert_document` tool for models (Gotenberg: LibreOffice and Chromium). Off in every preset; add it with `./configure --office-preview && docker compose up -d`, remove it with `--no-office-preview` |
 | `rustfs` | `rustfs` | RustFS, an S3-compatible object store that holds the chat's files (attachments, generated files, uploads, previews) instead of MongoDB. Off in every preset; add it with `./configure --object-store && docker compose up -d`. A fresh install uses it at once; an existing one keeps its files in MongoDB until they are copied ([Storage](https://paoloviviani.github.io/Cerea/storage/)). Your own S3 works without the profile |
@@ -276,6 +276,48 @@ files. Pin another image with `DOCUMENTS_IMAGE`; its own settings are in
 `./configure --office-preview` (the `office` profile above) is separate: it adds
 Office previews and `convert_document`, not the document tools. Without it
 decks are previewed in the browser.
+
+### A better document reader (`extractor` options)
+
+The `extractor` service reads attached documents for the chat's knowledge base,
+for `/v1/ocr` and for redaction. The published image reads Word, Excel,
+PowerPoint and PDFs that have a text layer, and refuses scans. Two more readers
+are available; both are images you build on the host (the published release does
+not carry them), and the default is untouched.
+
+| `./configure --extractor` | Reads | Build | Weights' licences |
+|---|---|---|---|
+| `markitdown` (default) | text PDFs, Word, Excel, PowerPoint, old `.doc`/`.xls` | none | none |
+| `markitdown+ocr` | the above, plus scanned PDF pages and PNG/JPEG pictures, by RapidOCR (Italian and English) | `dev/build.sh --ocr` (about 1.5 GB image) | Apache-2.0 throughout |
+| `docling` | PDFs with layout, reading order and tables kept as Markdown tables, scans by RapidOCR; Word, PowerPoint and Excel through Docling, with markitdown and antiword as fallbacks | `dev/build.sh --docling` (about 3.9 GB image) | Apache-2.0, except the table-structure model: CDLA-Permissive-2.0, which is not OSI-approved. The build prints a notice; read it, and do not publish the image |
+
+```sh
+dev/build.sh --pystino-ref <ref with the extractor variants> --docling   # the image only: nothing else is built or changed
+./configure --extractor docling && docker compose up -d
+./configure --extractor markitdown && docker compose up -d              # back to the default
+```
+
+`dev/build.sh --docling` builds only that image from the Pystino ref compose.yaml
+pins (it refuses a ref that predates the variants), and writes only
+`EXTRACTOR_IMAGE`. It is separate from the NER redaction image (the reader needs
+no spaCy, the redaction service no torch), so `--docling --ner` builds both and
+writes both. `./configure --extractor` checks that the image is on this host and,
+if not, says how to build it; `--extractor-image <ref>` names one built elsewhere.
+It writes `EXTRACTOR_ENGINE`, `EXTRACTOR_OCR`, `EXTRACTOR_IMAGE`, and for
+`docling` a memory cap (`EXTRACTOR_MEM_LIMIT=4g`) and longer waits
+(`EXTRACTOR_TIMEOUT_SECONDS=840`, and the gateway's
+`GATEWAY_EXTRACTOR__TIMEOUT_SECONDS=900` instead of 180).
+
+Costs, measured on a 5-core x86-64 box with AVX2 (Pystino's
+[extractor engines](https://paoloviviani.github.io/Pystino/extractor-engines/)):
+Docling reads 12 scanned pages a minute on 4 threads and about 26 pages a minute
+of two-column pages with tables, against hundreds for the default reader on text
+PDFs; it peaked at 1.9 GB of memory. Scaled to a Celeron N5105 (4 cores, no AVX2,
+an estimate and not a measurement) that is 4-6 scanned pages a minute: a 30-page
+scan takes minutes, once, at upload. On a box with 8-12 GB, keep the 4 GB cap, and
+set `EXTRACTOR_THREADS` (default: every core the container may use) lower if the
+chat must stay responsive while a document is read. `EXTRACTOR_MAX_PAGES`
+(default 200) and `EXTRACTOR_TIMEOUT_SECONDS` bound a document.
 
 ## MongoDB: 8 by default, 4.4 where the host cannot run it
 
@@ -1286,6 +1328,7 @@ dev/build.sh --reset   # back to the published images
 dev/build.sh --pystino-ref main --cerea-ref main   # other commits
 dev/build.sh --ner     # the NER redaction image, needed by the enterprise preset (never published)
 dev/build.sh --ner --ner-models "it_core_news_md" --redaction-only   # only the NER image, with the medium Italian model; gateway and chat stay on the pinned images
+dev/build.sh --docling # only the Docling document-reader image (or --ocr); see "A better document reader"
 ```
 
 An image is built only when `local/<name>:sha-<commit>` is missing. The

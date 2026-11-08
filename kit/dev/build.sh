@@ -6,6 +6,8 @@
 #   dev/build.sh --ner                 also the NER redaction image (never published)
 #   dev/build.sh --ner --ner-models "it_core_news_md" --redaction-only
 #                                      only the NER redaction image, with other models
+#   dev/build.sh --docling             only the Docling extractor image (never published)
+#   dev/build.sh --ocr                 only the OCR extractor image (never published)
 #   dev/build.sh --dry-run ...         print what would be built and written, then stop
 #   dev/build.sh --reset               drop the overrides: back to the pinned images
 #
@@ -19,6 +21,17 @@
 # --redaction-only  builds only the NER redaction image (implies --ner), from the
 #   Pystino ref compose.yaml pins, and writes only REDACTION_IMAGE to .env: the
 #   gateway and chat stay on their pinned published images.
+#
+# --docling  builds only the Docling document-reader image
+#   (pystino-redaction:<sha>-docling: layout, tables, RapidOCR; about 4 GB), from
+#   the Pystino ref compose.yaml pins, and writes only EXTRACTOR_IMAGE to .env.
+#   The build prints a licence notice: the table-structure weights are
+#   CDLA-Permissive-2.0, which is not OSI-approved, so the image is never
+#   published; read it. It is a separate image from the NER redaction one (the
+#   extractor needs no spaCy, and the redaction service no torch), so
+#   `--docling --ner` builds both and writes both lines. Then
+#   `./configure --extractor docling` switches the engine on.
+# --ocr  the same for the OCR variant (RapidOCR for scans; all Apache-2.0).
 #
 # What it does:
 #   1. clones Pystino and Cerea into dev/src/ (or fetches, if already there)
@@ -48,6 +61,7 @@ PYSTINO_REPO=${PYSTINO_REPO:-https://github.com/paoloviviani/Pystino.git}
 CEREA_REPO=${CEREA_REPO:-https://github.com/paoloviviani/Cerea.git}
 
 pystino_ref="" cerea_ref="" ner=0 ner_models="en_core_web_lg" redaction_only=0 dry_run=0 all=0 reset=0 write_env=1
+docling=0 ocr=0
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
   case $1 in
@@ -56,6 +70,8 @@ while [ $# -gt 0 ]; do
     --ner) ner=1; shift ;;
     --ner-models) ner_models=${2:?}; shift 2 ;;
     --redaction-only) redaction_only=1; ner=1; shift ;;
+    --docling) docling=1; shift ;;
+    --ocr) ocr=1; shift ;;
     --dry-run) dry_run=1; shift ;;
     --all) all=1; shift ;;
     --reset) reset=1; shift ;;
@@ -69,7 +85,7 @@ say() { printf 'build.sh: %s\n' "$*"; }
 die() { printf 'build.sh: %s\n' "$*" >&2; exit 1; }
 
 if [ "$reset" = 1 ]; then
-  "$ROOT/configure" --unset PYSTINO_REGISTRY PYSTINO_VERSION CEREA_REGISTRY CEREA_VERSION REDACTION_IMAGE
+  "$ROOT/configure" --unset PYSTINO_REGISTRY PYSTINO_VERSION CEREA_REGISTRY CEREA_VERSION REDACTION_IMAGE EXTRACTOR_IMAGE
   say "overrides removed: compose.yaml's pinned images apply again"
   exit 0
 fi
@@ -99,19 +115,26 @@ while read -r prof anchor; do
   case $anchor in
     gateway-image) build_gateway=1 ;;
     redaction-image) build_redaction=1 ;;
+    extractor-image) build_redaction=1 ;;
     cerea-image) build_cerea=1 ;;
     documents-image) build_documents=1 ;;
   esac
 done < <(profile_images "$ROOT/compose.yaml")
 [ "$ner" = 1 ] && build_redaction=1
-if [ "$redaction_only" = 1 ]; then
+# Each of these names the images it wants and nothing else (with --ner, the NER one too).
+if [ "$redaction_only" = 1 ] || [ "$docling" = 1 ] || [ "$ocr" = 1 ]; then
   build_gateway=0 build_cerea=0 build_documents=0
+  [ "$ner" = 1 ] || [ "$redaction_only" = 1 ] || build_redaction=0
 fi
+only=0
+{ [ "$redaction_only" = 1 ] || [ "$docling" = 1 ] || [ "$ocr" = 1 ]; } && only=1
 [ "$ner" = 1 ] || [ "$ner_models" = en_core_web_lg ] || die "--ner-models needs --ner"
 
 if [ "$dry_run" = 1 ]; then
   say "dry run: Pystino ref $pystino_ref, Cerea ref $cerea_ref"
-  say "would build: gateway=$build_gateway redaction-pattern=$([ "$ner" = 1 ] && [ "$redaction_only" = 1 ] && echo 0 || echo "$build_redaction") ner=$ner cerea=$build_cerea documents=$build_documents"
+  say "would build: gateway=$build_gateway redaction-pattern=$([ "$only" = 1 ] && echo 0 || echo "$build_redaction") ner=$ner docling=$docling ocr=$ocr cerea=$build_cerea documents=$build_documents"
+  [ "$docling" = 1 ] && say "would write EXTRACTOR_IMAGE=local/pystino-redaction:<sha>-docling into .env$([ "$ner" = 1 ] && echo " and REDACTION_IMAGE" || echo " and nothing else") (licence notice at build: CDLA-Permissive-2.0 table weights, never published)"
+  [ "$ocr" = 1 ] && say "would write EXTRACTOR_IMAGE=local/pystino-redaction:<sha>-ocr into .env$([ "$ner" = 1 ] && echo " and REDACTION_IMAGE" || echo " and nothing else")"
   [ "$ner" = 1 ] && say "NER models: $ner_models"
   [ "$redaction_only" = 1 ] && say "would write only REDACTION_IMAGE=local/pystino-redaction:<sha>-ner into .env"
   exit 0
@@ -166,7 +189,7 @@ ensure() {
     [ -n "$candidate" ] || continue
     rev=$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$candidate" 2>/dev/null || true)
     if [ ${#rev} -ge 7 ] && [[ $sha == "$rev"* ]]; then
-      if [[ $image == *-pattern || $image == *-ner ]] && [[ $candidate != *"${image##*-}" ]]; then continue; fi
+      if [[ $image == *-pattern || $image == *-ner || $image == *-docling || $image == *-ocr ]] && [[ $candidate != *"${image##*-}" ]]; then continue; fi
       models_ok "$candidate" || continue
       docker tag "$candidate" "$image"
       say "$image re-tagged from $candidate (built from the same commit)"
@@ -183,13 +206,16 @@ ensure() {
 p_sha=$(checkout "$SRC/pystino" "$PYSTINO_REPO" "$pystino_ref")
 p_tag="sha-${p_sha:0:7}"
 say "Pystino $pystino_ref = ${p_sha:0:12}"
+if [ "$docling$ocr" != 00 ] && ! grep -q '^ARG EXTRACTOR=' "$SRC/pystino/services/redaction/Dockerfile"; then
+  die "Pystino $pystino_ref predates the extractor variants (no EXTRACTOR build argument); pass --pystino-ref with a newer ref"
+fi
 
 if [ "$build_gateway" = 1 ]; then
   ensure "local/pystino-gateway:$p_tag" "$p_sha" \
     --build-arg INCLUDE_CONSOLE=true --build-arg CONSOLE_BUILD_SHA="${p_sha:0:7}" \
     -f "$SRC/pystino/apps/gateway/Dockerfile" "$SRC/pystino"
 fi
-if [ "$build_redaction" = 1 ] && [ "$redaction_only" = 0 ]; then
+if [ "$build_redaction" = 1 ] && [ "$only" = 0 ]; then
   ensure "local/pystino-redaction:$p_tag-pattern" "$p_sha" \
     --build-arg SPACY_MODELS= -f "$SRC/pystino/services/redaction/Dockerfile" "$SRC/pystino"
 fi
@@ -198,9 +224,34 @@ if [ "$ner" = 1 ]; then
     --build-arg SPACY_MODELS="$ner_models" -f "$SRC/pystino/services/redaction/Dockerfile" "$SRC/pystino"
 fi
 
+# The document reader's variants: a separate image from the redaction service's,
+# which needs no torch (and the reader no spaCy). Built with no spaCy models.
+if [ "$ocr" = 1 ]; then
+  ensure "local/pystino-redaction:$p_tag-ocr" "$p_sha" \
+    --build-arg SPACY_MODELS= --build-arg EXTRACTOR=ocr -f "$SRC/pystino/services/redaction/Dockerfile" "$SRC/pystino"
+fi
+if [ "$docling" = 1 ]; then
+  cat >&2 <<'NOTICE'
+
+  LICENCE NOTICE: the Docling image's model weights
+    layout (docling-layout-heron) and RapidOCR / PP-OCRv6 ... Apache-2.0
+    table structure (docling-models, TableFormer) ... the pinned model card says
+      "CDLA-Permissive-2.0 OR Apache-2.0"; the revision Docling itself pins says
+      CDLA-Permissive-2.0 alone. CDLA-Permissive-2.0 is permissive but is not an
+      OSI-approved licence. Building this image means you accept that; never
+      publish it. See Pystino docs/extractor-engines.md.
+
+NOTICE
+  ensure "local/pystino-redaction:$p_tag-docling" "$p_sha" \
+    --build-arg SPACY_MODELS= --build-arg EXTRACTOR=docling -f "$SRC/pystino/services/redaction/Dockerfile" "$SRC/pystino"
+fi
+
 env_items=()
-[ "$redaction_only" = 1 ] || env_items=(PYSTINO_REGISTRY=local "PYSTINO_VERSION=$p_tag")
+[ "$only" = 1 ] || env_items=(PYSTINO_REGISTRY=local "PYSTINO_VERSION=$p_tag")
 [ "$ner" = 1 ] && env_items+=("REDACTION_IMAGE=local/pystino-redaction:$p_tag-ner")
+# One extractor image at a time: --docling wins over --ocr if both are given.
+[ "$ocr" = 1 ] && env_items+=("EXTRACTOR_IMAGE=local/pystino-redaction:$p_tag-ocr")
+[ "$docling" = 1 ] && env_items+=("EXTRACTOR_IMAGE=local/pystino-redaction:$p_tag-docling")
 
 if [ "$build_cerea" = 1 ]; then
   c_sha=$(checkout "$SRC/cerea" "$CEREA_REPO" "$cerea_ref")

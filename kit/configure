@@ -180,6 +180,24 @@ PRESETS = {
         ),
     )
 }
+#: The document reader's engines (./configure --extractor). The first is the
+#: published image; the others are variants built locally (dev/build.sh), whose
+#: image tag ends in the suffix.
+EXTRACTORS = ("markitdown", "markitdown+ocr", "docling")
+EXTRACTOR_SUFFIX = {"markitdown+ocr": "ocr", "docling": "docling"}
+EXTRACTOR_KEYS = (
+    "EXTRACTOR_IMAGE", "EXTRACTOR_ENGINE", "EXTRACTOR_OCR", "EXTRACTOR_MEM_LIMIT",
+    "EXTRACTOR_TIMEOUT_SECONDS", "GATEWAY_EXTRACTOR__TIMEOUT_SECONDS",
+)
+#: What --extractor docling suggests: the models and a page being laid out
+#: peaked at 1.9 GB on A4 test pages (Pystino docs/extractor-engines.md), so 4 GB
+#: keeps a pathological PDF from taking the host down and leaves a small
+#: (8-12 GB) box its other services. The gateway
+#: waits a little longer than the extractor's own budget, so a slow document
+#: comes back as a partial answer and not as a 502.
+DOCLING_MEM_LIMIT = "4g"
+DOCLING_TIMEOUT = "840"
+DOCLING_GATEWAY_TIMEOUT = "900"
 PROFILES = ("gateway", "chat", "authelia", "redaction", "documents", "fetch", "office", "rustfs")
 
 #: configuration.yml's template quotes these with Authelia's own `msquote`,
@@ -947,6 +965,11 @@ class Answers:
     # The bundled S3-compatible object store for the chat's files (the rustfs
     # profile: RustFS). Off unless asked for; None leaves it as it is.
     rustfs: bool | None = None
+    # The document reader: markitdown (the default image), markitdown+ocr or
+    # docling (images built locally). `extractor_image` is the resolved image
+    # reference, filled in by resolve_extractor_image before build().
+    extractor: str | None = None
+    extractor_image: str | None = None
     project: str | None = None
     http_port: int | None = None
     https_port: int | None = None
@@ -1019,6 +1042,48 @@ def answers_from(values: dict) -> Answers:
         terminal=values.get("CODE_TERMINAL_ENABLED", "") == "true",
         office="office" in profiles,
         rustfs="rustfs" in profiles,
+    )
+
+
+def compose_pin(root: Path, name: str) -> str:
+    """The default tag compose.yaml pins for PYSTINO_VERSION or CEREA_VERSION."""
+    m = re.search(r"\$\{" + name + r":-([^}]*)\}", (root / "compose.yaml").read_text(encoding="utf-8"))
+    return m.group(1) if m else ""
+
+
+def resolve_extractor_image(choice: str, explicit: str | None, values: dict, root: Path) -> tuple:
+    """(image, None) for a variant that exists, or (None, what to tell the operator).
+
+    The variants are never published, so the image has to be on this host: an
+    explicit --extractor-image (a mirror, or one built elsewhere) is taken as
+    given and compose pulls it if it must; otherwise the one the pinned version
+    names, then one left by dev/build.sh. Nothing is built here.
+    """
+    suffix = EXTRACTOR_SUFFIX[choice]
+    if explicit:
+        return explicit, None
+    registry = values.get("PYSTINO_REGISTRY") or "ghcr.io/paoloviviani"
+    version = values.get("PYSTINO_VERSION") or compose_pin(root, "PYSTINO_VERSION")
+    wanted = [values.get("EXTRACTOR_IMAGE", ""), f"{registry}/pystino-redaction:{version}-{suffix}",
+              f"local/pystino-redaction:{version}-{suffix}"]
+    for image in wanted:
+        if image.endswith("-" + suffix) and (probe := _run(["docker", "image", "inspect", image], timeout=20)) \
+                and probe.returncode == 0:
+            return image, None
+    listing = _run(["docker", "images", "--format", "{{.Repository}}:{{.Tag}}", "local/pystino-redaction"], timeout=20)
+    built = [line for line in (listing.stdout.splitlines() if listing else []) if line.endswith("-" + suffix)]
+    if built:
+        return built[0], None  # `docker images` lists the newest first
+    flag = "--docling" if choice == "docling" else "--ocr"
+    extra = (
+        " It prints a licence notice for the Docling model weights (the table-structure model is "
+        "CDLA-Permissive-2.0, which is not OSI-approved): read it before you accept." if choice == "docling" else ""
+    )
+    return None, (
+        f"--extractor {choice} needs the locally built image pystino-redaction:<version>-{suffix}, "
+        f"and none is on this host. Build it with `dev/build.sh {flag}` (from the Pystino ref compose.yaml "
+        f"pins; a few minutes and several GB), then run this again.{extra} "
+        f"Or name an image you have: --extractor-image <reference>"
     )
 
 
@@ -1110,6 +1175,24 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         profiles = [p for p in profiles if p != "rustfs"]
     profiles = [p for p in PROFILES if p in profiles] + [p for p in profiles if p not in PROFILES]
     values["COMPOSE_PROFILES"] = ",".join(dict.fromkeys(profiles))
+    if answers.extractor is not None:
+        for key in EXTRACTOR_KEYS:
+            values.pop(key, None)
+        if answers.extractor != "markitdown":
+            if not answers.extractor_image:
+                raise ConfigError(f"--extractor {answers.extractor} needs its image resolved first")
+            values["EXTRACTOR_IMAGE"] = answers.extractor_image
+            values["EXTRACTOR_ENGINE"] = "docling" if answers.extractor == "docling" else "markitdown"
+            values["EXTRACTOR_OCR"] = "rapidocr"
+        if answers.extractor == "docling":
+            values["EXTRACTOR_MEM_LIMIT"] = DOCLING_MEM_LIMIT
+            values["EXTRACTOR_TIMEOUT_SECONDS"] = DOCLING_TIMEOUT
+            values["GATEWAY_EXTRACTOR__TIMEOUT_SECONDS"] = DOCLING_GATEWAY_TIMEOUT
+        if answers.extractor != "markitdown" and not {"documents", "redaction"} & set(profiles):
+            notes.append(
+                "the document reader runs in the documents and redaction profiles, and neither is on: "
+                f"--extractor {answers.extractor} is recorded and takes effect when one is"
+            )
     # The chat's renderer address follows the fetch profile. An address that
     # is not ours (a renderer elsewhere) is left alone.
     if "fetch" in profiles:
@@ -1799,6 +1882,22 @@ def check_values(values: dict, report: Report) -> None:
                 "REDACTION_NLP_ENGINE=spacy needs the NER image, which is never published: "
                 "run dev/build.sh --ner (or set REDACTION_NLP_ENGINE='disabled')"
             )
+    check_extractor(values, report)
+
+
+def check_extractor(values: dict, report: Report) -> None:
+    """The engine settings must match the image: a variant's engine on the default image does nothing."""
+    image = values.get("EXTRACTOR_IMAGE", "")
+    if values.get("EXTRACTOR_ENGINE") == "docling" and not image.endswith("-docling"):
+        report.errors.append(
+            "EXTRACTOR_ENGINE=docling needs the Docling image, which is never published: run "
+            "dev/build.sh --docling, then ./configure --extractor docling (or unset EXTRACTOR_ENGINE)"
+        )
+    elif values.get("EXTRACTOR_OCR") == "rapidocr" and not image.endswith(("-ocr", "-docling")):
+        report.errors.append(
+            "EXTRACTOR_OCR=rapidocr needs an OCR image, which is never published: run "
+            "dev/build.sh --ocr, then ./configure --extractor markitdown+ocr (or unset EXTRACTOR_OCR)"
+        )
 
 
 def check_scopes(values: dict, report: Report) -> None:
@@ -2174,6 +2273,16 @@ def cmd_configure(args, root: Path) -> int:
         if value is not None:
             setattr(answers, attr, value)
             given.add(attr)
+    if args.extractor_image and answers.extractor is None:
+        print("configure: --extractor-image goes with --extractor markitdown+ocr or docling", file=sys.stderr)
+        return 2
+    if answers.extractor not in (None, "markitdown"):
+        answers.extractor_image, problem = resolve_extractor_image(
+            answers.extractor, args.extractor_image, existing, root
+        )
+        if problem:
+            print(f"configure: {problem}", file=sys.stderr)
+            return 2
     if args.upstream_api_key_env:
         answers.upstream_api_key = os.environ.get(args.upstream_api_key_env, "")
         given.add("upstream_api_key")
@@ -2495,6 +2604,12 @@ def parser() -> argparse.ArgumentParser:
                    help="a bundled S3-compatible object store (RustFS, the rustfs profile; off by default) for "
                         "the chat's files. A fresh install uses it at once; an existing one keeps MongoDB until "
                         "its files are copied (docs/storage.md). --no-object-store removes it")
+    o.add_argument("--extractor", choices=EXTRACTORS,
+                   help="the local document reader: markitdown (default; Word, Excel, PowerPoint and text PDFs), "
+                        "markitdown+ocr (also reads scans and pictures with RapidOCR; all-Apache-2.0 weights) or "
+                        "docling (layout, reading order, tables and scans; the table model's weights are "
+                        "CDLA-Permissive-2.0). The last two are images built locally: dev/build.sh --ocr / --docling")
+    o.add_argument("--extractor-image", help="--extractor: use this image reference instead of the locally built one")
     o.add_argument("--project", help="compose project name (default cerea)")
     o.add_argument("--http-port", type=int, help="host port for HTTP (upstream mode: what the front forwards to)")
     o.add_argument("--https-port", type=int, help="host port for HTTPS")

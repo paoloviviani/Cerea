@@ -1534,3 +1534,104 @@ class TestDeviceFlowCheck(unittest.TestCase):
     def test_an_unreachable_issuer_is_not_a_device_problem(self):
         self.assertIsNone(cfg.device_flow_problem(None))
         self.assertIsNone(cfg.device_flow_problem({}))
+
+
+class TestExtractor(Deploy):
+    """./configure --extractor: the document reader's engine and its local image."""
+
+    def make_env(self):
+        self.assertEqual(self.run_cli("--non-interactive", "--origin", "https://chat.example.org",
+                                      "--admin-email", "ops@example.org")[0], 0)
+
+    def docker_has(self, *images):
+        """`docker image inspect` succeeds only for these; `docker images` lists them."""
+        def fake(cmd, timeout=30, cwd=None):
+            if cmd[:3] == ["docker", "image", "inspect"]:
+                return subprocess.CompletedProcess(cmd, 0 if cmd[3] in images else 1, "", "")
+            if cmd[:2] == ["docker", "images"]:
+                return subprocess.CompletedProcess(cmd, 0, "\n".join(images) + "\n", "")
+            return None
+        patcher = mock.patch.object(cfg, "_run", side_effect=fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_docling_sets_engine_ocr_image_and_limits(self):
+        self.make_env()
+        image = "local/pystino-redaction:sha-abc1234-docling"
+        self.docker_has(image)
+        code, out, err = self.run_cli("--non-interactive", "--extractor", "docling")
+        self.assertEqual(code, 0, err)
+        env = self.env()
+        self.assertEqual(env["EXTRACTOR_IMAGE"], image)
+        self.assertEqual(env["EXTRACTOR_ENGINE"], "docling")
+        self.assertEqual(env["EXTRACTOR_OCR"], "rapidocr")
+        self.assertEqual(env["EXTRACTOR_MEM_LIMIT"], cfg.DOCLING_MEM_LIMIT)
+        self.assertGreater(int(env["GATEWAY_EXTRACTOR__TIMEOUT_SECONDS"]), int(env["EXTRACTOR_TIMEOUT_SECONDS"]))
+        report = cfg.Report()
+        cfg.check_values(env, report)
+        self.assertEqual(report.errors, [])
+
+    def test_markitdown_ocr_keeps_the_markitdown_engine(self):
+        self.make_env()
+        self.docker_has("local/pystino-redaction:sha-abc1234-ocr")
+        self.assertEqual(self.run_cli("--non-interactive", "--extractor", "markitdown+ocr")[0], 0)
+        env = self.env()
+        self.assertEqual(env["EXTRACTOR_ENGINE"], "markitdown")
+        self.assertEqual(env["EXTRACTOR_OCR"], "rapidocr")
+        self.assertNotIn("EXTRACTOR_MEM_LIMIT", env)
+
+    def test_a_missing_image_says_how_to_build_it_and_writes_nothing(self):
+        self.make_env()
+        before = (self.dir / ".env").read_text()
+        self.docker_has()
+        code, out, err = self.run_cli("--non-interactive", "--extractor", "docling")
+        self.assertEqual(code, 2)
+        self.assertIn("dev/build.sh --docling", err)
+        self.assertIn("CDLA-Permissive-2.0", err)
+        self.assertEqual((self.dir / ".env").read_text(), before)
+
+    def test_an_explicit_image_is_taken_as_given(self):
+        self.make_env()
+        self.docker_has()
+        code, _, err = self.run_cli("--non-interactive", "--extractor", "docling",
+                                    "--extractor-image", "registry.example.org/x/pystino-redaction:1-docling")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.env()["EXTRACTOR_IMAGE"], "registry.example.org/x/pystino-redaction:1-docling")
+
+    def test_markitdown_puts_it_all_back(self):
+        self.make_env()
+        self.docker_has("local/pystino-redaction:sha-abc1234-docling")
+        self.run_cli("--non-interactive", "--extractor", "docling")
+        self.assertEqual(self.run_cli("--non-interactive", "--extractor", "markitdown")[0], 0)
+        env = self.env()
+        for key in cfg.EXTRACTOR_KEYS:
+            self.assertNotIn(key, env)
+
+    def test_the_default_is_untouched(self):
+        self.make_env()
+        env = self.env()
+        for key in cfg.EXTRACTOR_KEYS:
+            self.assertNotIn(key, env)
+
+    def test_a_rerun_without_the_flag_keeps_the_choice(self):
+        self.make_env()
+        self.docker_has("local/pystino-redaction:sha-abc1234-docling")
+        self.run_cli("--non-interactive", "--extractor", "docling")
+        self.assertEqual(self.run_cli("--non-interactive")[0], 0)
+        self.assertEqual(self.env()["EXTRACTOR_ENGINE"], "docling")
+
+    def test_check_flags_a_variant_engine_on_the_default_image(self):
+        for values, needle in (
+            ({"EXTRACTOR_ENGINE": "docling"}, "dev/build.sh --docling"),
+            ({"EXTRACTOR_OCR": "rapidocr", "EXTRACTOR_IMAGE": "ghcr.io/x/pystino-redaction:1-pattern"},
+             "dev/build.sh --ocr"),
+        ):
+            report = cfg.Report()
+            cfg.check_extractor(values, report)
+            self.assertTrue(any(needle in e for e in report.errors), values)
+
+    def test_the_image_flag_needs_the_extractor_flag(self):
+        self.make_env()
+        code, _, err = self.run_cli("--non-interactive", "--extractor-image", "x")
+        self.assertEqual(code, 2)
+        self.assertIn("--extractor", err)
