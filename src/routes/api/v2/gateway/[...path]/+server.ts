@@ -61,6 +61,8 @@ const INTERNAL = [
 	// The Knowledge screen's download — the original bytes as an attachment,
 	// capped, behind the same viewer check. Never served inline.
 	/^vector_stores\/[0-9a-f-]{24}\/files\/[0-9a-f-]{24}\/download$/,
+	// Index one failed document again (owner or editor, like an upload).
+	/^vector_stores\/[0-9a-f-]{24}\/files\/[0-9a-f-]{24}\/retry$/,
 	/^files$/,
 	/^files\/[0-9a-f-]{24}$/,
 ];
@@ -222,6 +224,11 @@ async function handleInternal(
 		if (docMatch && method === "DELETE") {
 			await service.deleteDocument(docMatch[1], docMatch[2], caller);
 			return json({ id: docMatch[2], object: "vector_store.file.deleted", deleted: true });
+		}
+
+		const retryMatch = /^vector_stores\/([0-9a-f-]{24})\/files\/([0-9a-f-]{24})\/retry$/.exec(path);
+		if (retryMatch && method === "POST") {
+			return json(await service.retryDocument(retryMatch[1], retryMatch[2], caller, bearer));
 		}
 
 		const contentMatch = /^vector_stores\/([0-9a-f-]{24})\/files\/([0-9a-f-]{24})\/content$/.exec(

@@ -29,6 +29,7 @@ import {
 	type ExtractorSource,
 } from "./extractorResolution";
 import type { KnowledgeConfig, KnowledgeDocument, VectorStore } from "$lib/types/VectorStore";
+import { indexErrorForUser } from "./indexError";
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
@@ -260,11 +261,14 @@ export async function storeObject(
 	file_counts: { in_progress: number; completed: number; failed: number; total: number };
 	dimensions: number | null;
 	embedding_model: string | null;
+	/** Indexed with another model or passage prefix than the deployment uses now. */
+	stale: boolean;
 	owned: boolean;
 	role: string;
 	/** Set when this is a project's chat memory: not attachable, not editable here. */
 	memory_of: { project_id: string; project_name: string } | null;
 }> {
+	const deployment = await readConfig();
 	const owner = memoryOf === undefined ? await memoryBaseOwner(base._id.toString()) : memoryOf;
 	const owned = base.ownerId.equals(caller.userId);
 	const share = base.shares.find(
@@ -280,6 +284,11 @@ export async function storeObject(
 		file_counts: await fileCounts(base._id),
 		dimensions: base.dimensions ?? null,
 		embedding_model: base.embeddingModel ?? null,
+		// The admin screen's rule: a base with nothing indexed is not stale.
+		stale:
+			base.dimensions !== null &&
+			((base.embeddingModel || null) !== deployment.embeddingModel ||
+				passagePrefixChanged(base.passagePrefix, deployment.passagePrefix)),
 		owned,
 		role: owned ? "owner" : (share?.role ?? "viewer"),
 		memory_of: owner ? { project_id: owner.projectId, project_name: owner.projectName } : null,
@@ -309,7 +318,7 @@ function documentObject(
 		file_id: document.fileId?.toString() ?? null,
 		source_ref: document.sourceRef ?? null,
 		chunk_count: document.chunkCount,
-		error: document.error || null,
+		error: indexErrorForUser(document.error),
 	};
 }
 
@@ -1381,6 +1390,52 @@ export async function deleteDocument(
 	await deleteDerived({ documentIds: document._id });
 }
 
+/**
+ * Index one failed document again. Same permission as uploading (editor or
+ * owner), scoped to the base so a document id from another base is a 404. The
+ * row is claimed (`failed` -> `pending`) before the work starts, so two quick
+ * clicks pay once; the ingest then runs behind the response and the status is
+ * the progress record.
+ *
+ * It does not move the base to the current model or prefixes: that is
+ * reindex's deliberate act, and the document is embedded with what the base
+ * was indexed with (model and passage prefix), so it matches the base's
+ * other vectors. A stale base is brought forward by Reindex.
+ */
+export async function retryDocument(
+	storeId: string,
+	documentId: string,
+	caller: Caller,
+	token: string
+): Promise<ReturnType<typeof documentObject>> {
+	const base = await reachableStore(storeId, caller, "editor");
+	if (!/^[0-9a-f]{24}$/.test(documentId)) throw new KnowledgeError(404, "No such document.");
+	const config = await readConfig();
+	if (!configReady(config)) {
+		throw new KnowledgeError(
+			400,
+			"No search model is set up yet, so documents cannot be made searchable. Ask your administrator."
+		);
+	}
+	const document = await collections.knowledgeDocuments.findOne({
+		_id: new ObjectId(documentId),
+		storeId: base._id,
+	});
+	if (!document) throw new KnowledgeError(404, "No such document.");
+	if (document.status === "failed") {
+		const claimed = await collections.knowledgeDocuments.updateOne(
+			{ _id: document._id, status: "failed" },
+			{ $set: { status: "pending", error: "", updatedAt: new Date() } }
+		);
+		if (claimed.modifiedCount === 1) startIngest(document._id, token);
+	}
+	const current = await collections.knowledgeDocuments.findOne({ _id: document._id });
+	return documentObject(current ?? document, null);
+}
+
+/** What a base built with an older embedding model says when it cannot be searched. */
+export const OLD_MODEL_MESSAGE = "Built with an older embedding model. Reindex to search it.";
+
 export async function search(
 	storeId: string,
 	caller: Caller,
@@ -1477,6 +1532,15 @@ export async function search(
 				}),
 		};
 	} catch (err) {
+		// A base built with another embedding model than the deployment's now
+		// uses may not be searchable at all (the old model can be gone, or
+		// answer at another width). Say what to do rather than the raw error.
+		if (err instanceof GatewayCallFailed || (err instanceof KnowledgeError && err.status === 400)) {
+			const current = (await readConfig()).embeddingModel;
+			if (current && base.embeddingModel !== current) {
+				throw new KnowledgeError(409, OLD_MODEL_MESSAGE);
+			}
+		}
 		if (err instanceof GatewayCallFailed) {
 			throw new KnowledgeError(502, `Search is unavailable: ${err.message}`);
 		}
@@ -1484,15 +1548,41 @@ export async function search(
 	}
 }
 
+/**
+ * The base a reindex acts on. A user may reindex only a base they own (the
+ * share rules decide whether they even see it). An administrator, from
+ * Admin → Knowledge, may reindex any base: that screen lists every user's
+ * bases and moves them to the deployment's model, and the embeddings carry the
+ * administrator's own token, so the ledger shows who paid. The caller's admin
+ * right is checked by the route (`requireAdmin`), not here.
+ */
+export async function reindexTarget(
+	storeId: string,
+	caller: Caller,
+	opts: { asAdmin?: boolean } = {}
+): Promise<VectorStore> {
+	if (!opts.asAdmin) {
+		const base = await reachableStore(storeId, caller, "editor");
+		if (!base.ownerId.equals(caller.userId)) {
+			throw new KnowledgeError(403, "Only the owner can reindex a vector store.");
+		}
+		return base;
+	}
+	if (!/^[0-9a-f]{24}$/.test(storeId)) {
+		throw new KnowledgeError(404, `No such vector store: ${storeId}`);
+	}
+	const base = await collections.vectorStores.findOne({ _id: new ObjectId(storeId) });
+	if (!base) throw new KnowledgeError(404, `No such vector store: ${storeId}`);
+	return base;
+}
+
 export async function reindex(
 	storeId: string,
 	caller: Caller,
-	token: string
+	token: string,
+	opts: { asAdmin?: boolean } = {}
 ): Promise<{ data: ReturnType<typeof documentObject>[] }> {
-	const base = await reachableStore(storeId, caller, "editor");
-	if (!base.ownerId.equals(caller.userId)) {
-		throw new KnowledgeError(403, "Only the owner can reindex a vector store.");
-	}
+	const base = await reindexTarget(storeId, caller, opts);
 	const config = await readConfig();
 	if (!configReady(config)) {
 		throw new KnowledgeError(400, "No embedding model has been configured.");
