@@ -29,13 +29,15 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 				titleSource?: string;
 				model: string;
 				updatedAt: Date;
+				lastActivityAt?: Date;
 			}>({
 				title: 1,
 				titleSource: 1,
 				model: 1,
 				updatedAt: 1,
+				lastActivityAt: 1,
 			})
-			.sort({ updatedAt: -1 })
+			.sort({ lastActivityAt: -1, updatedAt: -1 })
 			.limit(200)
 			.toArray(),
 		collections.conversations.countDocuments({ projectId: access.project._id }),
@@ -47,6 +49,7 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 			title: conversation.title,
 			model: conversation.model,
 			updatedAt: conversation.updatedAt.toISOString(),
+			lastActivityAt: (conversation.lastActivityAt ?? conversation.updatedAt).toISOString(),
 			...(conversation.titleSource === "user" ? { titleByUser: true } : {}),
 		})),
 		othersCount: Math.max(0, totalCount - conversations.length),

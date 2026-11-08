@@ -421,7 +421,15 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// update the conversation with the new messages
 	await collections.conversations.updateOne(
 		{ _id: convId },
-		{ $set: { messages: conv.messages, title: conv.title, updatedAt: new Date() } }
+		{
+			$set: {
+				messages: conv.messages,
+				title: conv.title,
+				updatedAt: new Date(),
+				// A user message (or a retry, or an answer to a prompt) was just sent.
+				lastActivityAt: new Date(),
+			},
+		}
 	);
 
 	let doneStreaming = false;
@@ -436,7 +444,9 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 	let generationWriter: GenerationWriter | undefined;
 
-	const persistConversation = async () => {
+	// `turnEnded` is true only for the save that closes the turn: that moves
+	// `lastActivityAt`. The save on a detached client is a mid-turn checkpoint.
+	const persistConversation = async (turnEnded = false) => {
 		// This rewrites the whole messages array, so stamp materializedSeq from the same
 		// synchronous instant as the content below, or a reader resumes from a stale point
 		// and replays text the message already contains.
@@ -450,7 +460,14 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 		await collections.conversations.updateOne(
 			{ _id: convId },
-			{ $set: { messages: messagesForSave, title: conv.title, updatedAt: new Date() } }
+			{
+				$set: {
+					messages: messagesForSave,
+					title: conv.title,
+					updatedAt: new Date(),
+					...(turnEnded ? { lastActivityAt: new Date() } : {}),
+				},
+			}
 		);
 	};
 
@@ -842,7 +859,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			});
 			if (endedUpdate) await update(endedUpdate);
 
-			await persistConversation();
+			await persistConversation(true);
 
 			// The project's memory, written after the answer is already on its
 			// way out and deliberately not awaited. The same reasoning as the

@@ -31,6 +31,7 @@ interface ConversationListItem {
 	_id: { toString(): string };
 	title: string;
 	updatedAt: Date | string;
+	lastActivityAt?: Date | string;
 	model?: string;
 	projectId?: string;
 }
@@ -108,6 +109,7 @@ class ConversationsStore {
 				title: conv.title.trim(),
 				model: conv.model ?? defaultModel,
 				updatedAt: new Date(conv.updatedAt),
+				lastActivityAt: new Date(conv.lastActivityAt ?? conv.updatedAt),
 				// Without it the Chats branch, which leaves project chats out by
 				// this field, listed every project chat until a full reload.
 				...(conv.projectId ? { projectId: conv.projectId } : {}),

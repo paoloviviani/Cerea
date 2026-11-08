@@ -61,7 +61,11 @@
 			}
 			for (const done of payload.ended) {
 				if (done.title) {
-					convsStore.update(done.conversationId, { title: done.title, updatedAt: new Date() });
+					convsStore.update(done.conversationId, {
+						title: done.title,
+						updatedAt: new Date(),
+						lastActivityAt: new Date(),
+					});
 				}
 				// The viewed conversation reports its own completion on the page; only toast
 				// for one finishing in the background.

@@ -47,6 +47,21 @@ describe("PATCH /api/v2/conversations/[id] model", () => {
 		);
 	});
 
+	it("a model change moves updatedAt but not lastActivityAt", async () => {
+		const owner = await createTestUser();
+		const old = new Date("2026-01-01T10:00:00Z");
+		const chat = await createTestConversation(owner.locals, {
+			model: "test-model",
+			lastActivityAt: old,
+		});
+		const res = await patch(chat._id.toString(), owner.locals, "other-model");
+		expect(res.status).toBe(200);
+		const after = await collections.conversations.findOne({ _id: chat._id });
+		expect(after?.model).toBe("other-model");
+		expect(after?.lastActivityAt?.getTime()).toBe(old.getTime());
+		expect(after?.updatedAt.getTime()).toBeGreaterThan(old.getTime());
+	});
+
 	it("refuses a change to a hidden model", async () => {
 		const owner = await createTestUser();
 		const chat = await createTestConversation(owner.locals, { model: "test-model" });

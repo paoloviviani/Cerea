@@ -6,6 +6,7 @@ import {
 	reenableGrantExpiredSchedules,
 } from "./reenableGrantExpiredSchedules";
 
+import { MIGRATION_BACKFILL_LAST_ACTIVITY, backfillLastActivity } from "./backfillLastActivity";
 import { MIGRATION_CLEAN_STORED_TITLES, cleanStoredTitles } from "./cleanStoredTitles";
 
 export interface Migration {
@@ -32,6 +33,15 @@ export const migrations: Migration[] = [
 		name: "Clean chat titles that leaked model tokens, refusals or the wrong language",
 		up: async (client) => {
 			await cleanStoredTitles(client.getCollections());
+			return true;
+		},
+		runForFreshInstall: "never",
+	},
+	{
+		_id: MIGRATION_BACKFILL_LAST_ACTIVITY,
+		name: "Backfill the last-activity time sidebar chats are grouped by",
+		up: async (client) => {
+			await backfillLastActivity(client.getCollections());
 			return true;
 		},
 		runForFreshInstall: "never",

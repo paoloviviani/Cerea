@@ -285,6 +285,7 @@
 							title: m["app.default_chat_title"](),
 							model,
 							updatedAt: new Date().toISOString(),
+							lastActivityAt: new Date().toISOString(),
 						},
 						...cache.chats[project.id],
 					],
@@ -537,6 +538,7 @@
 								model: conversation.model,
 								projectId: project.id,
 								updatedAt: new Date(conversation.updatedAt),
+								lastActivityAt: new Date(conversation.lastActivityAt ?? conversation.updatedAt),
 								...(conversation.titleByUser ? { titleByUser: true as const } : {}),
 							} as ConvSidebar}
 							<NavConversationItem

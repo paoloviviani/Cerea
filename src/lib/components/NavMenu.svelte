@@ -90,6 +90,7 @@
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
 	import { codeNeedsYou } from "$lib/stores/codeNeedsYou.svelte";
 	import { loadCodeStatus } from "$lib/codeApi";
+	import { groupConversations } from "$lib/utils/conversationGroups";
 
 	/** The bottom block's rows, which are all the same shape. */
 	const ROW =
@@ -157,29 +158,15 @@
 
 	const signedIn = $derived(Boolean(user?.username || user?.email));
 
-	const dateRanges = [
-		new Date().setDate(new Date().getDate() - 1),
-		new Date().setDate(new Date().getDate() - 7),
-		new Date().setMonth(new Date().getMonth() - 1),
-	];
-
 	// A project's conversations are shown inside the project, so they are left
 	// out here rather than listed twice.
 	const loose = $derived(conversations.filter((conv) => !conv.projectId));
 
-	let groupedConversations = $derived({
-		today: loose.filter(({ updatedAt }) => updatedAt.getTime() > dateRanges[0]),
-		week: loose.filter(
-			({ updatedAt }) => updatedAt.getTime() > dateRanges[1] && updatedAt.getTime() < dateRanges[0]
-		),
-		month: loose.filter(
-			({ updatedAt }) => updatedAt.getTime() > dateRanges[2] && updatedAt.getTime() < dateRanges[1]
-		),
-		older: loose.filter(({ updatedAt }) => updatedAt.getTime() < dateRanges[2]),
-	});
+	// By when the user last talked in each chat, by local calendar day.
+	let groupedConversations = $derived(groupConversations(loose));
 
 	// One flat list, keyed by id: a chat that moves to another date group (its
-	// updatedAt changed) keeps its component, so an open row menu or delete
+	// activity moved) keeps its component, so an open row menu or delete
 	// confirmation stays attached to that chat instead of being rebuilt.
 	const listRows = $derived(
 		Object.entries(groupedConversations).flatMap(([group, convs]) =>

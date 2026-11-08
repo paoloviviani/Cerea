@@ -4,6 +4,11 @@ export interface ConvSidebar {
 	id: ObjectId | string;
 	title: string;
 	updatedAt: Date;
+	/**
+	 * When the user last really talked in it (see `Conversation.lastActivityAt`).
+	 * The sidebar sorts and groups by this, falling back to `updatedAt`.
+	 */
+	lastActivityAt?: Date;
 	model?: string;
 	avatarUrl?: string | Promise<string | undefined>;
 	/**

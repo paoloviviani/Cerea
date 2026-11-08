@@ -70,6 +70,7 @@
 				title: "New Chat",
 				model: modelId,
 				updatedAt: new Date(),
+				lastActivityAt: new Date(),
 			});
 			await goto(`${base}/conversation/${conversationId}`, {
 				state: { pendingMessage: message, pendingFilesNonce },

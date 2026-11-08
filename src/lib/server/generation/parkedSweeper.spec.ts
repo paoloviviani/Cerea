@@ -130,6 +130,7 @@ describe("sweepParkedCalls", () => {
 			],
 			createdAt: new Date(),
 			updatedAt: new Date(),
+			lastActivityAt: new Date("2026-01-01T10:00:00Z"),
 		} as never);
 		await collections.turnStates.insertOne({
 			_id: new ObjectId(),
@@ -153,6 +154,9 @@ describe("sweepParkedCalls", () => {
 		const conv = await collections.conversations.findOne({ _id: row.conversationId });
 		const message = conv?.messages.find((m) => m.id === row.messageId);
 		expect(message?.updates?.at(-1)).toMatchObject({ type: "turnState", state: "failed" });
+		// The abandon is housekeeping: it bumps updatedAt but not the real-activity time.
+		expect(conv?.lastActivityAt?.toISOString()).toBe("2026-01-01T10:00:00.000Z");
+		expect(conv?.updatedAt.getTime()).toBeGreaterThan(Date.parse("2026-01-01T10:00:00Z"));
 	});
 });
 

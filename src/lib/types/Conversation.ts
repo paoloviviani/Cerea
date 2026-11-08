@@ -22,6 +22,15 @@ export interface Conversation extends Timestamps {
 	 */
 	loadedConnectors?: string[];
 
+	/**
+	 * When the user last really talked in this chat: they sent a message, an
+	 * assistant turn finished (or failed in front of them), or a scheduled run
+	 * posted. The sidebar groups and sorts by it. Housekeeping never moves it
+	 * (sweepers, title or model changes, backfills), unlike `updatedAt`. Absent
+	 * only before the backfill migration has run; readers fall back to `updatedAt`.
+	 */
+	lastActivityAt?: Date;
+
 	title: string;
 	/**
 	 * Where `title` came from. `fallback`: the model could not name the chat

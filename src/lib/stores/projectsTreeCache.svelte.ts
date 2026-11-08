@@ -7,6 +7,7 @@ export interface ProjectConversation {
 	title: string;
 	model: string;
 	updatedAt: string;
+	lastActivityAt?: string;
 	/** The user typed this title: it is never regenerated. */
 	titleByUser?: boolean;
 }
