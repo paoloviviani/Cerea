@@ -4,10 +4,21 @@
 #   dev/build.sh                       the Pystino and Cerea commits compose.yaml pins
 #   dev/build.sh --pystino-ref main --cerea-ref 1a2b3c4d
 #   dev/build.sh --ner                 also the NER redaction image (never published)
+#   dev/build.sh --ner --ner-models "it_core_news_md" --redaction-only
+#                                      only the NER redaction image, with other models
+#   dev/build.sh --dry-run ...         print what would be built and written, then stop
 #   dev/build.sh --reset               drop the overrides: back to the pinned images
 #
 # For development, and for running before the images are published. An
 # operator installing a release never needs it.
+#
+# --ner-models "<models>"  space-separated spaCy models for the NER image
+#   (default en_core_web_lg; the medium it_core_news_md / en_core_web_md need
+#   Pystino 0.30.0 or later). The models are recorded in an image label, so an
+#   image built with other models is never reused.
+# --redaction-only  builds only the NER redaction image (implies --ner), from the
+#   Pystino ref compose.yaml pins, and writes only REDACTION_IMAGE to .env: the
+#   gateway and chat stay on their pinned published images.
 #
 # What it does:
 #   1. clones Pystino and Cerea into dev/src/ (or fetches, if already there)
@@ -36,13 +47,16 @@ SRC="$ROOT/dev/src"
 PYSTINO_REPO=${PYSTINO_REPO:-https://github.com/paoloviviani/Pystino.git}
 CEREA_REPO=${CEREA_REPO:-https://github.com/paoloviviani/Cerea.git}
 
-pystino_ref="" cerea_ref="" ner=0 all=0 reset=0 write_env=1
+pystino_ref="" cerea_ref="" ner=0 ner_models="en_core_web_lg" redaction_only=0 dry_run=0 all=0 reset=0 write_env=1
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
   case $1 in
     --pystino-ref) pystino_ref=${2:?}; shift 2 ;;
     --cerea-ref) cerea_ref=${2:?}; shift 2 ;;
     --ner) ner=1; shift ;;
+    --ner-models) ner_models=${2:?}; shift 2 ;;
+    --redaction-only) redaction_only=1; ner=1; shift ;;
+    --dry-run) dry_run=1; shift ;;
     --all) all=1; shift ;;
     --reset) reset=1; shift ;;
     --no-env) write_env=0; shift ;;
@@ -59,9 +73,6 @@ if [ "$reset" = 1 ]; then
   say "overrides removed: compose.yaml's pinned images apply again"
   exit 0
 fi
-
-command -v git >/dev/null || die "needs git"
-docker info >/dev/null 2>&1 || die "needs a running Docker daemon"
 
 # --- which refs -----------------------------------------------------------------
 pin_to_ref() {  # sha-e251ba7 -> e251ba7 ; 0.2.0 -> v0.2.0
@@ -93,6 +104,21 @@ while read -r prof anchor; do
   esac
 done < <(profile_images "$ROOT/compose.yaml")
 [ "$ner" = 1 ] && build_redaction=1
+if [ "$redaction_only" = 1 ]; then
+  build_gateway=0 build_cerea=0 build_documents=0
+fi
+[ "$ner" = 1 ] || [ "$ner_models" = en_core_web_lg ] || die "--ner-models needs --ner"
+
+if [ "$dry_run" = 1 ]; then
+  say "dry run: Pystino ref $pystino_ref, Cerea ref $cerea_ref"
+  say "would build: gateway=$build_gateway redaction-pattern=$([ "$ner" = 1 ] && [ "$redaction_only" = 1 ] && echo 0 || echo "$build_redaction") ner=$ner cerea=$build_cerea documents=$build_documents"
+  [ "$ner" = 1 ] && say "NER models: $ner_models"
+  [ "$redaction_only" = 1 ] && say "would write only REDACTION_IMAGE=local/pystino-redaction:<sha>-ner into .env"
+  exit 0
+fi
+
+command -v git >/dev/null || die "needs git"
+docker info >/dev/null 2>&1 || die "needs a running Docker daemon"
 
 # --- sources --------------------------------------------------------------------
 mkdir -p "$SRC/tmp"
@@ -122,7 +148,15 @@ locked() {
 ensure() {
   local image=$1 sha=$2; shift 2
   local repo=${image%:*}
-  if docker image inspect "$image" >/dev/null 2>&1; then
+  # An NER image is only the same image when it holds the same models.
+  local want_models="" have
+  if [[ $image == *-ner ]]; then want_models=$ner_models; fi
+  models_ok() {
+    [ -z "$want_models" ] && return 0
+    have=$(docker image inspect -f '{{ index .Config.Labels "dev.cerea.spacy-models" }}' "$1" 2>/dev/null || true)
+    [ "$have" = "$want_models" ]
+  }
+  if docker image inspect "$image" >/dev/null 2>&1 && models_ok "$image"; then
     say "$image present"
     return
   fi
@@ -133,13 +167,16 @@ ensure() {
     rev=$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$candidate" 2>/dev/null || true)
     if [ ${#rev} -ge 7 ] && [[ $sha == "$rev"* ]]; then
       if [[ $image == *-pattern || $image == *-ner ]] && [[ $candidate != *"${image##*-}" ]]; then continue; fi
+      models_ok "$candidate" || continue
       docker tag "$candidate" "$image"
       say "$image re-tagged from $candidate (built from the same commit)"
       return
     fi
   done < <(docker images --format '{{.Repository}}:{{.Tag}}' "$repo" | grep -v ':<none>$' || true)
   say "building $image"
-  locked docker build -q --label "org.opencontainers.image.revision=$sha" -t "$image" "$@" >/dev/null || return 1
+  local extra=()
+  [ -z "$want_models" ] || extra=(--label "dev.cerea.spacy-models=$want_models")
+  locked docker build -q --label "org.opencontainers.image.revision=$sha" "${extra[@]}" -t "$image" "$@" >/dev/null || return 1
   say "$image built"
 }
 
@@ -147,19 +184,22 @@ p_sha=$(checkout "$SRC/pystino" "$PYSTINO_REPO" "$pystino_ref")
 p_tag="sha-${p_sha:0:7}"
 say "Pystino $pystino_ref = ${p_sha:0:12}"
 
-ensure "local/pystino-gateway:$p_tag" "$p_sha" \
-  --build-arg INCLUDE_CONSOLE=true --build-arg CONSOLE_BUILD_SHA="${p_sha:0:7}" \
-  -f "$SRC/pystino/apps/gateway/Dockerfile" "$SRC/pystino"
-if [ "$build_redaction" = 1 ]; then
+if [ "$build_gateway" = 1 ]; then
+  ensure "local/pystino-gateway:$p_tag" "$p_sha" \
+    --build-arg INCLUDE_CONSOLE=true --build-arg CONSOLE_BUILD_SHA="${p_sha:0:7}" \
+    -f "$SRC/pystino/apps/gateway/Dockerfile" "$SRC/pystino"
+fi
+if [ "$build_redaction" = 1 ] && [ "$redaction_only" = 0 ]; then
   ensure "local/pystino-redaction:$p_tag-pattern" "$p_sha" \
     --build-arg SPACY_MODELS= -f "$SRC/pystino/services/redaction/Dockerfile" "$SRC/pystino"
 fi
 if [ "$ner" = 1 ]; then
   ensure "local/pystino-redaction:$p_tag-ner" "$p_sha" \
-    --build-arg SPACY_MODELS=en_core_web_lg -f "$SRC/pystino/services/redaction/Dockerfile" "$SRC/pystino"
+    --build-arg SPACY_MODELS="$ner_models" -f "$SRC/pystino/services/redaction/Dockerfile" "$SRC/pystino"
 fi
 
-env_items=(PYSTINO_REGISTRY=local "PYSTINO_VERSION=$p_tag")
+env_items=()
+[ "$redaction_only" = 1 ] || env_items=(PYSTINO_REGISTRY=local "PYSTINO_VERSION=$p_tag")
 [ "$ner" = 1 ] && env_items+=("REDACTION_IMAGE=local/pystino-redaction:$p_tag-ner")
 
 if [ "$build_cerea" = 1 ]; then

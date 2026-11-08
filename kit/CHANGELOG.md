@@ -7,6 +7,14 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **NER redaction image with other spaCy models, built alone.** `dev/build.sh --ner-models "<models>"` (default `en_core_web_lg`) sets the models, and `--redaction-only` builds just the NER image from the Pystino commit `compose.yaml` pins and writes only `REDACTION_IMAGE` to `.env`, leaving the gateway and chat on their pinned published images. The models are recorded in an image label, so an image built with other models is never reused. For a small box, with the medium Italian model (needs Pystino 0.30.0 or later):
+
+  ```sh
+  dev/build.sh --ner --ner-models "it_core_news_md" --redaction-only
+  ./configure --set REDACTION_NLP_ENGINE=spacy REDACTION_LANGUAGE=it
+  docker compose up -d redaction
+  ```
+
 - **Admin → Knowledge can reindex any user's knowledge base.** It answered "No such vector store" for bases the administrator does not own. A document that failed on a spent allowance now says so in one plain sentence instead of the gateway's raw quota message.
 - **Reindex and Retry in Workspace → Knowledge.** The owner of a knowledge base can reindex it with the deployment's current embedding model (one confirmation, then each document goes pending, then ready or failed). The button is shown when the base was built with an older model or a document failed, and is in the base's ⋯ menu otherwise. Owners and editors get **Retry** on a failed document. A base built with an older model says so, and searching it says "Reindex to search it" instead of an error.
 - **Embedding prefixes.** Administration → Knowledge has two optional fields under the embedding model, **Query prefix** and **Passage prefix**, for models trained with instruction prefixes (e5 `query: ` / `passage: `, bge v1.5 query-only, nomic `search_query: ` / `search_document: `). They are empty by default, which changes nothing. **Use the prefixes this model expects** fills them for those models when you ask. The prefix is added only on the way to the embedding model, never to stored passages or citations. Changing the passage prefix marks existing bases **older prefix** until you reindex them; changing the query prefix needs no reindex.
